@@ -1,0 +1,38 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# FreeCAD specific
+*.FCStd1
+*.FCStd2
+*.FCBak
+*.bck
+
+# IDEs
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Virtual environments
+venv/
+env/
+.env
+
+# Packaging & Logs
+*.egg-info/
+*.log
+
+# SMBS Runtime & temporary atomic files (§4.5)
+runs/
+*.tmp

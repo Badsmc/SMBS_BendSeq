@@ -1,0 +1,12 @@
+import FreeCAD, Part
+b = Part.makeBox(10,10,10)
+rot = FreeCAD.Rotation(FreeCAD.Vector(0,0,1), 90)
+center = FreeCAD.Vector(5,5,0)
+p = FreeCAD.Placement(FreeCAD.Vector(0,0,0), rot, center)
+b2 = b.copy()
+b2.Placement = p.multiply(b2.Placement)
+print("Orig CM:", b.CenterOfMass.x, b.CenterOfMass.y, b.CenterOfMass.z)
+print("Rot CM:", b2.CenterOfMass.x, b2.CenterOfMass.y, b2.CenterOfMass.z)
+b3 = b.copy()
+b3.rotate(center, FreeCAD.Vector(0,0,1), 90)
+print("b3.rotate CM:", b3.CenterOfMass.x, b3.CenterOfMass.y, b3.CenterOfMass.z)

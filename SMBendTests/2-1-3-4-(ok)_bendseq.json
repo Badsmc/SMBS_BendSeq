@@ -1,0 +1,468 @@
+{
+  "status": "PARTIAL",
+  "success": true,
+  "sequence": [
+    {
+      "step": 1,
+      "bend_id": "BEND_05",
+      "status": "unknown",
+      "collision_status": "VALID",
+      "tooling_status": "REAL",
+      "alignment_status": "MISALIGNED",
+      "angle_deg": 90.0,
+      "radius_mm": 1.0,
+      "length_mm": 73.25,
+      "axis": [
+        -1.0,
+        -0.0,
+        -0.0
+      ],
+      "origin": [
+        301.79132746156745,
+        2.4999999999999987,
+        14.0
+      ],
+      "moving_panels": [
+        "PANEL_23"
+      ],
+      "backgauge": {
+        "X_mm": 42.62,
+        "R_mm": 1.0,
+        "Z1_mm": -25.0,
+        "Z2_mm": 25.0,
+        "finger_touch_point_1": [
+          42.62,
+          -25.0,
+          1.0
+        ],
+        "finger_touch_point_2": [
+          42.62,
+          25.0,
+          1.0
+        ],
+        "part_stability_score": 0.95,
+        "reference_edge": "REAR_FLANGE_PARALLEL",
+        "geometry_confirmed": false,
+        "warning": "Backgauge coordinates are estimates. Exact flat pattern projection is required for precise X dimension."
+      },
+      "tooling": {
+        "punch_id": "PUNCH_GOOSENECK_120",
+        "punch_type": "gooseneck",
+        "punch_height_mm": 120.0,
+        "die_id": "DIE_V12",
+        "v_width_mm": 12.0,
+        "die_height_mm": 80.0,
+        "segment_layout_mm": [
+          100,
+          200
+        ],
+        "required_tonnage_per_m": 21.7
+      },
+      "operator_instructions": {
+        "station": 1,
+        "requires_part_flip_180": false,
+        "tool_change_required": false,
+        "description": "Position part against backgauge stops X=42.6mm, R=1.0mm."
+      }
+    },
+    {
+      "step": 2,
+      "bend_id": "BEND_04",
+      "status": "unknown",
+      "collision_status": "VALID",
+      "tooling_status": "REAL",
+      "alignment_status": "MISALIGNED",
+      "angle_deg": 90.0,
+      "radius_mm": 1.0,
+      "length_mm": 73.75,
+      "axis": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "origin": [
+        7.791327461567448,
+        497.5,
+        2.5
+      ],
+      "moving_panels": [
+        "PANEL_46"
+      ],
+      "backgauge": {
+        "X_mm": 42.88,
+        "R_mm": 1.0,
+        "Z1_mm": -25.0,
+        "Z2_mm": 25.0,
+        "finger_touch_point_1": [
+          42.88,
+          -25.0,
+          1.0
+        ],
+        "finger_touch_point_2": [
+          42.88,
+          25.0,
+          1.0
+        ],
+        "part_stability_score": 0.95,
+        "reference_edge": "REAR_FLANGE_PARALLEL",
+        "geometry_confirmed": false,
+        "warning": "Backgauge coordinates are estimates. Exact flat pattern projection is required for precise X dimension."
+      },
+      "tooling": {
+        "punch_id": "PUNCH_GOOSENECK_120",
+        "punch_type": "gooseneck",
+        "punch_height_mm": 120.0,
+        "die_id": "DIE_V12",
+        "v_width_mm": 12.0,
+        "die_height_mm": 80.0,
+        "segment_layout_mm": [
+          100,
+          200
+        ],
+        "required_tonnage_per_m": 21.7
+      },
+      "operator_instructions": {
+        "station": 1,
+        "requires_part_flip_180": true,
+        "tool_change_required": false,
+        "description": "Position part against backgauge stops X=42.9mm, R=1.0mm."
+      }
+    },
+    {
+      "step": 3,
+      "bend_id": "BEND_02",
+      "status": "unknown",
+      "collision_status": "VALID",
+      "tooling_status": "REAL",
+      "alignment_status": "MISALIGNED",
+      "angle_deg": 90.0,
+      "radius_mm": 1.0,
+      "length_mm": 73.25,
+      "axis": [
+        -1.0,
+        -0.0,
+        -0.0
+      ],
+      "origin": [
+        301.79132746156745,
+        2.5,
+        2.5
+      ],
+      "moving_panels": [
+        "PANEL_23",
+        "PANEL_21"
+      ],
+      "backgauge": {
+        "X_mm": 42.62,
+        "R_mm": 1.0,
+        "Z1_mm": -25.0,
+        "Z2_mm": 25.0,
+        "finger_touch_point_1": [
+          42.62,
+          -25.0,
+          1.0
+        ],
+        "finger_touch_point_2": [
+          42.62,
+          25.0,
+          1.0
+        ],
+        "part_stability_score": 0.95,
+        "reference_edge": "REAR_FLANGE_PARALLEL",
+        "geometry_confirmed": false,
+        "warning": "Backgauge coordinates are estimates. Exact flat pattern projection is required for precise X dimension."
+      },
+      "tooling": {
+        "punch_id": "PUNCH_GOOSENECK_120",
+        "punch_type": "gooseneck",
+        "punch_height_mm": 120.0,
+        "die_id": "DIE_V12",
+        "v_width_mm": 12.0,
+        "die_height_mm": 80.0,
+        "segment_layout_mm": [
+          100,
+          200
+        ],
+        "required_tonnage_per_m": 21.7
+      },
+      "operator_instructions": {
+        "station": 1,
+        "requires_part_flip_180": true,
+        "tool_change_required": false,
+        "description": "Position part against backgauge stops X=42.6mm, R=1.0mm."
+      }
+    },
+    {
+      "step": 4,
+      "bend_id": "BEND_07",
+      "status": "unknown",
+      "collision_status": "VALID",
+      "tooling_status": "REAL",
+      "alignment_status": "MISALIGNED",
+      "angle_deg": 45.0,
+      "radius_mm": 0.9999999999999981,
+      "length_mm": 36.62499999999999,
+      "axis": [
+        -1.0,
+        -0.0,
+        -0.0
+      ],
+      "origin": [
+        301.79132746156745,
+        19.545941546018394,
+        19.596194077712557
+      ],
+      "moving_panels": [
+        "PANEL_27"
+      ],
+      "backgauge": {
+        "X_mm": 26.0,
+        "R_mm": 1.0,
+        "Z1_mm": -25.0,
+        "Z2_mm": 25.0,
+        "finger_touch_point_1": [
+          26.0,
+          -25.0,
+          1.0
+        ],
+        "finger_touch_point_2": [
+          26.0,
+          25.0,
+          1.0
+        ],
+        "part_stability_score": 0.95,
+        "reference_edge": "REAR_FLANGE_PARALLEL",
+        "geometry_confirmed": false,
+        "warning": "Backgauge coordinates are estimates. Exact flat pattern projection is required for precise X dimension."
+      },
+      "tooling": {
+        "punch_id": "PUNCH_GOOSENECK_120",
+        "punch_type": "gooseneck",
+        "punch_height_mm": 120.0,
+        "die_id": "DIE_V12",
+        "v_width_mm": 12.0,
+        "die_height_mm": 80.0,
+        "segment_layout_mm": [
+          100,
+          200
+        ],
+        "required_tonnage_per_m": 21.7
+      },
+      "operator_instructions": {
+        "station": 1,
+        "requires_part_flip_180": false,
+        "tool_change_required": false,
+        "description": "Position part against backgauge stops X=26.0mm, R=1.0mm."
+      }
+    },
+    {
+      "step": 5,
+      "bend_id": "BEND_01",
+      "status": "unknown",
+      "collision_status": "VALID",
+      "tooling_status": "REAL",
+      "alignment_status": "MISALIGNED",
+      "angle_deg": 90.0,
+      "radius_mm": 1.0,
+      "length_mm": 124.375,
+      "axis": [
+        -0.0,
+        -1.0,
+        -0.0
+      ],
+      "origin": [
+        302.79132746156745,
+        497.5,
+        2.5
+      ],
+      "moving_panels": [
+        "PANEL_14"
+      ],
+      "backgauge": {
+        "X_mm": 68.19,
+        "R_mm": 1.0,
+        "Z1_mm": -37.19,
+        "Z2_mm": 37.19,
+        "finger_touch_point_1": [
+          68.19,
+          -37.19,
+          1.0
+        ],
+        "finger_touch_point_2": [
+          68.19,
+          37.19,
+          1.0
+        ],
+        "part_stability_score": 0.95,
+        "reference_edge": "REAR_FLANGE_PARALLEL",
+        "geometry_confirmed": false,
+        "warning": "Backgauge coordinates are estimates. Exact flat pattern projection is required for precise X dimension."
+      },
+      "tooling": {
+        "punch_id": "PUNCH_GOOSENECK_120",
+        "punch_type": "gooseneck",
+        "punch_height_mm": 120.0,
+        "die_id": "DIE_V12",
+        "v_width_mm": 12.0,
+        "die_height_mm": 80.0,
+        "segment_layout_mm": [
+          100,
+          200
+        ],
+        "required_tonnage_per_m": 21.7
+      },
+      "operator_instructions": {
+        "station": 1,
+        "requires_part_flip_180": true,
+        "tool_change_required": false,
+        "description": "Position part against backgauge stops X=68.2mm, R=1.0mm."
+      }
+    },
+    {
+      "step": 6,
+      "bend_id": "BEND_06",
+      "status": "unknown",
+      "collision_status": "VALID",
+      "tooling_status": "REAL",
+      "alignment_status": "MISALIGNED",
+      "angle_deg": 45.0,
+      "radius_mm": 1.0,
+      "length_mm": 36.625,
+      "axis": [
+        -1.0,
+        -0.0,
+        -0.0
+      ],
+      "origin": [
+        301.79132746156745,
+        12.499999999999996,
+        17.5
+      ],
+      "moving_panels": [
+        "PANEL_33"
+      ],
+      "backgauge": {
+        "X_mm": 26.0,
+        "R_mm": 1.0,
+        "Z1_mm": -25.0,
+        "Z2_mm": 25.0,
+        "finger_touch_point_1": [
+          26.0,
+          -25.0,
+          1.0
+        ],
+        "finger_touch_point_2": [
+          26.0,
+          25.0,
+          1.0
+        ],
+        "part_stability_score": 0.95,
+        "reference_edge": "REAR_FLANGE_PARALLEL",
+        "geometry_confirmed": false,
+        "warning": "Backgauge coordinates are estimates. Exact flat pattern projection is required for precise X dimension."
+      },
+      "tooling": {
+        "punch_id": "PUNCH_GOOSENECK_120",
+        "punch_type": "gooseneck",
+        "punch_height_mm": 120.0,
+        "die_id": "DIE_V12",
+        "v_width_mm": 12.0,
+        "die_height_mm": 80.0,
+        "segment_layout_mm": [
+          100,
+          200
+        ],
+        "required_tonnage_per_m": 21.7
+      },
+      "operator_instructions": {
+        "station": 1,
+        "requires_part_flip_180": true,
+        "tool_change_required": false,
+        "description": "Position part against backgauge stops X=26.0mm, R=1.0mm."
+      }
+    },
+    {
+      "step": 7,
+      "bend_id": "BEND_03",
+      "status": "unknown",
+      "collision_status": "VALID",
+      "tooling_status": "REAL",
+      "alignment_status": "MISALIGNED",
+      "angle_deg": 90.0,
+      "radius_mm": 1.0,
+      "length_mm": 124.375,
+      "axis": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "origin": [
+        7.7913274615674695,
+        0.0,
+        2.5
+      ],
+      "moving_panels": [
+        "PANEL_37"
+      ],
+      "backgauge": {
+        "X_mm": 68.19,
+        "R_mm": 1.0,
+        "Z1_mm": -37.19,
+        "Z2_mm": 37.19,
+        "finger_touch_point_1": [
+          68.19,
+          -37.19,
+          1.0
+        ],
+        "finger_touch_point_2": [
+          68.19,
+          37.19,
+          1.0
+        ],
+        "part_stability_score": 0.95,
+        "reference_edge": "REAR_FLANGE_PARALLEL",
+        "geometry_confirmed": false,
+        "warning": "Backgauge coordinates are estimates. Exact flat pattern projection is required for precise X dimension."
+      },
+      "tooling": {
+        "punch_id": "PUNCH_GOOSENECK_120",
+        "punch_type": "gooseneck",
+        "punch_height_mm": 120.0,
+        "die_id": "DIE_V12",
+        "v_width_mm": 12.0,
+        "die_height_mm": 80.0,
+        "segment_layout_mm": [
+          100,
+          200
+        ],
+        "required_tonnage_per_m": 21.7
+      },
+      "operator_instructions": {
+        "station": 1,
+        "requires_part_flip_180": true,
+        "tool_change_required": false,
+        "description": "Position part against backgauge stops X=68.2mm, R=1.0mm."
+      }
+    }
+  ],
+  "bendseq_file": "/Users/badmc/Desktop/SMBS/SMBendTests/2-1-3-4-(ok)_bendseq.json",
+  "validation": {
+    "all_steps_valid": true,
+    "steps_valid": 7,
+    "steps_invalid": 0,
+    "steps_unknown": 0,
+    "tooling_alignment": "MISALIGNED",
+    "collision_free_confirmed": false
+  },
+  "planning_time": 3.1812350749969482,
+  "nodes_explored": 34,
+  "cache_stats": {
+    "size": 90,
+    "hits": 0,
+    "misses": 90,
+    "puts": 90,
+    "gets": 90,
+    "hit_ratio_percent": 0.0
+  },
+  "diagnostics": []
+}
