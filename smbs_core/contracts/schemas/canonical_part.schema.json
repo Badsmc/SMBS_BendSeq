@@ -1,0 +1,186 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "smbs://contracts/canonical_part.schema.json",
+  "title": "CanonicalPart",
+  "description": "Canonical sheet-metal model with stable IDs and parameter provenance (§3.2, §4.1, §5.1)",
+  "type": "object",
+  "required": [
+    "schema_name",
+    "schema_version",
+    "run_id",
+    "part_id",
+    "input_fingerprint",
+    "producer",
+    "units",
+    "frame_convention",
+    "status",
+    "payload",
+    "diagnostics",
+    "created_at",
+    "content_hash"
+  ],
+  "properties": {
+    "schema_name": { "const": "canonical_part" },
+    "schema_version": { "type": "string" },
+    "run_id": { "type": "string" },
+    "part_id": { "type": "string" },
+    "input_fingerprint": { "type": "string" },
+    "producer": { "type": "object" },
+    "units": { "type": "string", "enum": ["mm", "m", "in"] },
+    "frame_convention": { "type": "string" },
+    "status": { "type": "string" },
+    "diagnostics": { "type": "array" },
+    "created_at": { "type": "string" },
+    "content_hash": { "type": "string" },
+    "payload": {
+      "type": "object",
+      "required": [
+        "input_mode",
+        "thickness_mm",
+        "reference_panel_id",
+        "panels",
+        "bends",
+        "geometry_artifact"
+      ],
+      "properties": {
+        "input_mode": {
+          "type": "string",
+          "enum": ["NATIVE_SHEETMETAL", "NEUTRAL_BREP", "CANONICAL_PART"]
+        },
+        "thickness_mm": {
+          "type": "object",
+          "required": ["value", "source", "confidence"],
+          "properties": {
+            "value": { "type": ["number", "null"] },
+            "unit": { "type": "string", "default": "mm" },
+            "source": {
+              "type": "string",
+              "enum": ["SHEETMETAL_NATIVE", "GEOMETRIC_INFERENCE", "USER_INPUT", "CONFIGURATION", "DEFAULT_POLICY", "UNKNOWN"]
+            },
+            "confidence": {
+              "type": "string",
+              "enum": ["CONFIRMED", "ESTIMATED", "UNKNOWN"]
+            }
+          }
+        },
+        "reference_panel_id": { "type": "string" },
+        "geometry_artifact": {
+          "type": "object",
+          "required": ["file_path", "format", "content_hash"],
+          "properties": {
+            "file_path": { "type": "string" },
+            "format": { "type": "string", "enum": ["BREP", "STEP"] },
+            "content_hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+          }
+        },
+        "panels": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "required": ["panel_id", "area_mm2", "centroid", "normal"],
+            "properties": {
+              "panel_id": { "type": "string" },
+              "area_mm2": { "type": "number" },
+              "centroid": {
+                "type": "array",
+                "items": { "type": "number" },
+                "minItems": 3,
+                "maxItems": 3
+              },
+              "normal": {
+                "type": "array",
+                "items": { "type": "number" },
+                "minItems": 3,
+                "maxItems": 3
+              },
+              "adjacent_bend_ids": {
+                "type": "array",
+                "items": { "type": "string" }
+              }
+            }
+          }
+        },
+        "bends": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "required": [
+              "bend_id",
+              "parent_panel_id",
+              "child_panel_id",
+              "angle_deg",
+              "radius_mm",
+              "length_mm",
+              "direction",
+              "k_factor",
+              "axis_point",
+              "axis_direction"
+            ],
+            "properties": {
+              "bend_id": { "type": "string" },
+              "parent_panel_id": { "type": "string" },
+              "child_panel_id": { "type": "string" },
+              "angle_deg": {
+                "type": "object",
+                "required": ["value", "source", "confidence"],
+                "properties": {
+                  "value": { "type": ["number", "null"] },
+                  "source": { "type": "string" },
+                  "confidence": { "type": "string" }
+                }
+              },
+              "radius_mm": {
+                "type": "object",
+                "required": ["value", "source", "confidence"],
+                "properties": {
+                  "value": { "type": ["number", "null"] },
+                  "source": { "type": "string" },
+                  "confidence": { "type": "string" }
+                }
+              },
+              "length_mm": {
+                "type": "object",
+                "required": ["value", "source", "confidence"],
+                "properties": {
+                  "value": { "type": ["number", "null"] },
+                  "source": { "type": "string" },
+                  "confidence": { "type": "string" }
+                }
+              },
+              "direction": {
+                "type": "object",
+                "required": ["value", "source", "confidence"],
+                "properties": {
+                  "value": { "type": ["string", "null"], "enum": ["UP", "DOWN", null] },
+                  "source": { "type": "string" },
+                  "confidence": { "type": "string" }
+                }
+              },
+              "k_factor": {
+                "type": "object",
+                "required": ["value", "source", "confidence"],
+                "properties": {
+                  "value": { "type": ["number", "null"] },
+                  "source": { "type": "string" },
+                  "confidence": { "type": "string" }
+                }
+              },
+              "axis_point": {
+                "type": "array",
+                "items": { "type": "number" },
+                "minItems": 3,
+                "maxItems": 3
+              },
+              "axis_direction": {
+                "type": "array",
+                "items": { "type": "number" },
+                "minItems": 3,
+                "maxItems": 3
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

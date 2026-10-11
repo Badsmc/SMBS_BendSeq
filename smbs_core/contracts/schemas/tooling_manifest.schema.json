@@ -1,0 +1,98 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "smbs://contracts/tooling_manifest.schema.json",
+  "title": "ToolingManifest",
+  "description": "Explicit machine and tooling manifest specification (§4.1, §6.3, Principle 14)",
+  "type": "object",
+  "required": [
+    "schema_name",
+    "schema_version",
+    "run_id",
+    "part_id",
+    "input_fingerprint",
+    "producer",
+    "units",
+    "frame_convention",
+    "status",
+    "payload",
+    "diagnostics",
+    "created_at",
+    "content_hash"
+  ],
+  "properties": {
+    "schema_name": { "const": "tooling_manifest" },
+    "schema_version": { "type": "string" },
+    "run_id": { "type": "string" },
+    "part_id": { "type": "string" },
+    "input_fingerprint": { "type": "string" },
+    "producer": { "type": "object" },
+    "units": { "type": "string", "enum": ["mm", "m", "in"] },
+    "frame_convention": { "type": "string" },
+    "status": { "type": "string" },
+    "diagnostics": { "type": "array" },
+    "created_at": { "type": "string" },
+    "content_hash": { "type": "string" },
+    "payload": {
+      "type": "object",
+      "required": ["press", "punch", "die"],
+      "properties": {
+        "press": {
+          "type": "object",
+          "required": ["press_id", "max_tonnage_tons", "bed_length_mm"],
+          "properties": {
+            "press_id": { "type": "string" },
+            "max_tonnage_tons": { "type": "number" },
+            "bed_length_mm": { "type": "number" },
+            "stroke_mm": { "type": "number" },
+            "open_height_mm": { "type": "number" }
+          }
+        },
+        "punch": {
+          "type": "object",
+          "required": ["tool_id", "punch_type", "height_mm", "tip_radius_mm", "tip_angle_deg", "tooling_status"],
+          "properties": {
+            "tool_id": { "type": "string" },
+            "punch_type": { "type": "string", "enum": ["straight", "gooseneck", "sash"] },
+            "height_mm": { "type": "number" },
+            "tip_radius_mm": { "type": "number" },
+            "tip_angle_deg": { "type": "number" },
+            "tooling_status": { "type": "string", "enum": ["REAL", "SIMPLIFIED", "MISSING"] },
+            "model_path": { "type": ["string", "null"] },
+            "model_hash": { "type": ["string", "null"] },
+            "segment_layout_mm": {
+              "type": "array",
+              "items": { "type": "number" }
+            }
+          }
+        },
+        "die": {
+          "type": "object",
+          "required": ["tool_id", "v_opening_mm", "v_angle_deg", "height_mm", "tooling_status"],
+          "properties": {
+            "tool_id": { "type": "string" },
+            "v_opening_mm": { "type": "number" },
+            "v_angle_deg": { "type": "number" },
+            "height_mm": { "type": "number" },
+            "shoulder_radius_mm": { "type": "number" },
+            "tooling_status": { "type": "string", "enum": ["REAL", "SIMPLIFIED", "MISSING"] },
+            "model_path": { "type": ["string", "null"] },
+            "model_hash": { "type": ["string", "null"] },
+            "segment_layout_mm": {
+              "type": "array",
+              "items": { "type": "number" }
+            }
+          }
+        },
+        "backgauge": {
+          "type": "object",
+          "properties": {
+            "min_x_mm": { "type": "number" },
+            "max_x_mm": { "type": "number" },
+            "r_range_mm": { "type": "array", "items": { "type": "number" } },
+            "z_range_mm": { "type": "array", "items": { "type": "number" } }
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,107 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "smbs://contracts/search_request.schema.json",
+  "title": "SearchRequest",
+  "description": "Deterministic solver request with explicit ResourceBudget and weights (§4.1, §6.1, §6.5)",
+  "type": "object",
+  "required": [
+    "schema_name",
+    "schema_version",
+    "run_id",
+    "part_id",
+    "input_fingerprint",
+    "producer",
+    "units",
+    "frame_convention",
+    "status",
+    "payload",
+    "diagnostics",
+    "created_at",
+    "content_hash"
+  ],
+  "properties": {
+    "schema_name": { "const": "search_request" },
+    "schema_version": { "type": "string" },
+    "run_id": { "type": "string" },
+    "part_id": { "type": "string" },
+    "input_fingerprint": { "type": "string" },
+    "producer": { "type": "object" },
+    "units": { "type": "string", "enum": ["mm", "m", "in"] },
+    "frame_convention": { "type": "string" },
+    "status": { "type": "string" },
+    "diagnostics": { "type": "array" },
+    "created_at": { "type": "string" },
+    "content_hash": { "type": "string" },
+    "payload": {
+      "type": "object",
+      "required": [
+        "canonical_part_ref",
+        "tooling_manifest_ref",
+        "search_algorithm",
+        "candidate_order_policy",
+        "unknown_policy",
+        "cost_weights",
+        "resource_budget"
+      ],
+      "properties": {
+        "canonical_part_ref": {
+          "type": "object",
+          "required": ["file_path", "content_hash"],
+          "properties": {
+            "file_path": { "type": "string" },
+            "content_hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+          }
+        },
+        "tooling_manifest_ref": {
+          "type": "object",
+          "required": ["file_path", "content_hash"],
+          "properties": {
+            "file_path": { "type": "string" },
+            "content_hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+          }
+        },
+        "search_algorithm": {
+          "type": "string",
+          "enum": ["astar", "dfs", "greedy"]
+        },
+        "candidate_order_policy": {
+          "type": "string",
+          "enum": ["outside_in", "inside_out", "symmetric_first"]
+        },
+        "unknown_policy": {
+          "type": "string",
+          "enum": ["PRODUCTION", "EXPLORATORY"]
+        },
+        "cost_weights": {
+          "type": "object",
+          "required": ["w_tool", "w_flip", "w_setup", "w_time"],
+          "properties": {
+            "w_tool": { "type": "number", "minimum": 0 },
+            "w_flip": { "type": "number", "minimum": 0 },
+            "w_setup": { "type": "number", "minimum": 0 },
+            "w_time": { "type": "number", "minimum": 0 }
+          }
+        },
+        "resource_budget": {
+          "type": "object",
+          "required": [
+            "max_wall_time_s",
+            "max_nodes",
+            "max_cache_entries",
+            "max_geometry_ops",
+            "max_trajectory_samples",
+            "max_memory_mb"
+          ],
+          "properties": {
+            "max_wall_time_s": { "type": "number", "minimum": 0.1 },
+            "max_nodes": { "type": "integer", "minimum": 1 },
+            "max_cache_entries": { "type": "integer", "minimum": 1 },
+            "max_geometry_ops": { "type": "integer", "minimum": 1 },
+            "max_trajectory_samples": { "type": "integer", "minimum": 1 },
+            "max_memory_mb": { "type": "number", "minimum": 10 }
+          }
+        }
+      }
+    }
+  }
+}
