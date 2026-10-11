@@ -36,3 +36,4 @@ env/
 # SMBS Runtime & temporary atomic files (§4.5)
 runs/
 *.tmp
+test_output.json

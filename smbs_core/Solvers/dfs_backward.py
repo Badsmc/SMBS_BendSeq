@@ -77,10 +77,18 @@ class DFSBackwardPlanner(BasePlanner):
         tool_state = tooling_override if tooling_override else initial_state.tooling_state
         toolset_hash = f"{tool_state.get('punch_id')}_{tool_state.get('die_id')}"
 
+        self.timed_out = False
+        self.budget_exhausted = False
+
         def _dfs(current: FoldState, depth: int, current_path: List[Dict[str, Any]]) -> Optional[List[Dict[str, Any]]]:
             self.metrics["explored_count"] += 1
             
             if timeout is not None and (time.time() - start_time) > timeout:
+                self.timed_out = True
+                return None
+
+            if self.metrics["explored_count"] >= max_iterations:
+                self.budget_exhausted = True
                 return None
             
             fingerprint = current.fingerprint()
@@ -92,6 +100,7 @@ class DFSBackwardPlanner(BasePlanner):
                 return list(current_path)
 
             if depth >= max_depth:
+                self.budget_exhausted = True
                 return None
 
             def score_candidate(b_id: str) -> float:
@@ -225,6 +234,7 @@ class DFSBackwardPlanner(BasePlanner):
 
             return {
                 "success": True,
+                "termination_reason": "GOAL_REACHED",
                 "sequence": forward_sequence,
                 "explored_count": self.metrics["explored_count"],
                 "rejections_count": len(self.rejection_records),
@@ -233,9 +243,16 @@ class DFSBackwardPlanner(BasePlanner):
                 "cache_stats": self.cache.stats if self.cache else {}
             }
 
+        term_reason = "NO_SOLUTION"
+        if getattr(self, "timed_out", False):
+            term_reason = "TIME_EXHAUSTED"
+        elif getattr(self, "budget_exhausted", False):
+            term_reason = "NODE_LIMIT_EXHAUSTED"
+
         return {
             "success": False,
-            "error": f"DFS search exhausted after exploring {self.metrics['explored_count']} states.",
+            "termination_reason": term_reason,
+            "error": f"DFS search finished with {term_reason} after exploring {self.metrics['explored_count']} states.",
             "explored_count": self.metrics["explored_count"],
             "rejections": self.rejection_records,
             "dead_states_count": len(dead_states),

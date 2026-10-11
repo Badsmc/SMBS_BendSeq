@@ -55,7 +55,12 @@ class AStarBackwardPlanner:
             h += 0.1 * moving_count
         return h
 
-    def solve(self, initial_state: FoldState, max_iterations: int = 5000) -> Dict[str, Any]:
+    def solve(
+        self,
+        initial_state: FoldState,
+        max_iterations: int = 5000,
+        timeout: Optional[float] = None
+    ) -> Dict[str, Any]:
         start_time = time.time()
         self.nodes_explored = 0
         rejections = []
@@ -76,6 +81,16 @@ class AStarBackwardPlanner:
         g_scores: Dict[str, float] = {start_fp: 0.0}
 
         while open_set and self.nodes_explored < max_iterations:
+            if timeout is not None and (time.time() - start_time) >= timeout:
+                return {
+                    "success": False,
+                    "termination_reason": "TIME_EXHAUSTED",
+                    "error": f"Search timed out after {timeout:.4f}s.",
+                    "nodes_explored": self.nodes_explored,
+                    "planning_time": time.time() - start_time,
+                    "rejections": rejections
+                }
+
             current_node = heapq.heappop(open_set)
             current_state = current_node.state
             current_path = current_node.path
@@ -176,9 +191,20 @@ class AStarBackwardPlanner:
                     counter += 1
                     heapq.heappush(open_set, PriorityQueueNode(f_score, next_state, current_path + [step_info], counter))
 
+        if self.nodes_explored >= max_iterations:
+            return {
+                "success": False,
+                "termination_reason": "NODE_LIMIT_EXHAUSTED",
+                "error": f"Max iterations budget reached ({max_iterations}).",
+                "nodes_explored": self.nodes_explored,
+                "planning_time": time.time() - start_time,
+                "rejections": rejections
+            }
+
         return {
             "success": False,
-            "error": "Max iterations reached or no valid sequence path found.",
+            "termination_reason": "NO_SOLUTION",
+            "error": "Search space exhausted; no valid sequence path found.",
             "nodes_explored": self.nodes_explored,
             "planning_time": time.time() - start_time,
             "rejections": rejections

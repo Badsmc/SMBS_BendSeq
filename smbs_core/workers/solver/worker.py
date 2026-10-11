@@ -138,22 +138,27 @@ class SolverWorker:
         start_time = time.time()
         diagnostics = []
 
+        timeout_s = budget.get("max_wall_time_s", 30.0)
         if algorithm == "dfs":
             planner = DFSBackwardPlanner(bend_graph, validator, panel_graph, state_cache)
-            res = planner.solve(initial_state, max_depth=budget.get("max_nodes", 5000))
+            res = planner.solve(initial_state, max_depth=budget.get("max_nodes", 5000), timeout=timeout_s)
         else:
             planner = AStarBackwardPlanner(bend_graph, validator, panel_graph, state_cache)
-            res = planner.solve(initial_state, max_iterations=budget.get("max_nodes", 50000))
+            res = planner.solve(initial_state, max_iterations=budget.get("max_nodes", 50000), timeout=timeout_s)
 
         wall_time = time.time() - start_time
 
-        # Check budget limits
-        if wall_time > budget.get("max_wall_time_s", 30.0):
+        # Check budget limits and planner termination reason (§6.5)
+        res_reason = res.get("termination_reason")
+        if wall_time > budget.get("max_wall_time_s", 30.0) or res_reason == "TIME_EXHAUSTED":
             planning_status = RunStatus.TIMEOUT
             termination_reason = "TIME_EXHAUSTED"
         elif res.get("success"):
             planning_status = RunStatus.SUCCESS
             termination_reason = "GOAL_REACHED"
+        elif res_reason in ("RESOURCE_EXHAUSTED", "NODE_LIMIT_EXHAUSTED", "RESOURCE_LIMIT_EXHAUSTED"):
+            planning_status = RunStatus.RESOURCE_EXHAUSTED
+            termination_reason = "NODE_LIMIT_EXHAUSTED"
         else:
             planning_status = RunStatus.NO_SOLUTION
             termination_reason = "NO_MORE_CANDIDATES"
