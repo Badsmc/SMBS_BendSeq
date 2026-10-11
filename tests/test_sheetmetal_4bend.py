@@ -16,7 +16,7 @@ import tempfile
 import subprocess
 import unittest
 
-sys.path.insert(0, '/Users/badmc/Desktop/SMBS')
+sys.path.insert(0, '/Users/badmc/Desktop/SMBS_BendSeq')
 sys.path.append('/Applications/FreeCAD.app/Contents/Resources/lib')
 
 import FreeCAD
@@ -199,7 +199,7 @@ class TestSheetMetal4Bend(unittest.TestCase):
         """4. Root panel is 100% deterministic across PYTHONHASHSEED in {0, 1, 42, 999}."""
         code = """
 import sys
-sys.path.insert(0, '/Users/badmc/Desktop/SMBS')
+sys.path.insert(0, '/Users/badmc/Desktop/SMBS_BendSeq')
 sys.path.append('/Applications/FreeCAD.app/Contents/Resources/lib')
 
 from smbs_core.geometry_backend.backends.pythonocc_backend import PythonOCCBackend

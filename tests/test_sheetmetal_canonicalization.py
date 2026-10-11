@@ -13,7 +13,7 @@ import math
 import subprocess
 import unittest
 
-sys.path.insert(0, '/Users/badmc/Desktop/SMBS')
+sys.path.insert(0, '/Users/badmc/Desktop/SMBS_BendSeq')
 sys.path.append('/Applications/FreeCAD.app/Contents/Resources/lib')
 
 from smbs_core.geometry_backend.backends.pythonocc_backend import PythonOCCBackend
@@ -79,7 +79,7 @@ class TestSheetMetalCanonicalization(unittest.TestCase):
 
         code = """
 import sys
-sys.path.insert(0, '/Users/badmc/Desktop/SMBS')
+sys.path.insert(0, '/Users/badmc/Desktop/SMBS_BendSeq')
 sys.path.append('/Applications/FreeCAD.app/Contents/Resources/lib')
 
 from smbs_core.geometry_backend.backends.pythonocc_backend import PythonOCCBackend
@@ -140,7 +140,7 @@ print(repr((l_bends, u_bends)))
         """Root selection is 100% deterministic even for fully symmetric U-bracket with l1 == l2."""
         code = """
 import sys
-sys.path.insert(0, '/Users/badmc/Desktop/SMBS')
+sys.path.insert(0, '/Users/badmc/Desktop/SMBS_BendSeq')
 sys.path.append('/Applications/FreeCAD.app/Contents/Resources/lib')
 
 from smbs_core.geometry_backend.backends.pythonocc_backend import PythonOCCBackend
