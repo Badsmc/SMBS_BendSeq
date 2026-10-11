@@ -260,7 +260,7 @@ class Coordinator:
         run_report = self.file_store.read_json_verified(report_file, expected_schema_name="envelope")
 
         return {
-            "status": RunStatus.SUCCESS.value,
+            "status": RunStatus.SUCCESS.value if part_bendseq["production_eligible"] else part_bendseq["planning_status"],
             "run_id": run_id,
             "run_dir": str(run_dir),
             "manifest_path": str(manifest_file),
