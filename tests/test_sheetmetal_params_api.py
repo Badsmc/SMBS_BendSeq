@@ -7,8 +7,8 @@ import sys
 import unittest
 import math
 
-sys.path.insert(0, '/Users/badmc/Desktop/SMBS')
-sys.path.insert(0, '/Users/badmc/Desktop/SMBS/tests')
+sys.path.insert(0, '/Users/badmc/Desktop/SMBS_BendSeq')
+sys.path.insert(0, '/Users/badmc/Desktop/SMBS_BendSeq/tests')
 sys.path.insert(0, '/Users/badmc/.gemini/antigravity-ide/brain/f7f8efb2-5153-4bda-9d68-1afe2a983f3c/scratch')
 sys.path.append('/Applications/FreeCAD.app/Contents/Resources/lib')
 
@@ -123,7 +123,7 @@ class TestSheetMetalParamsApi(unittest.TestCase):
     def test_check_temp_part_step_thickness(self):
         step_path = '/Users/badmc/temp_part.step'
         if not os.path.exists(step_path):
-            step_path = '/Users/badmc/Desktop/SMBS/temp_part.step'
+            step_path = '/Users/badmc/Desktop/SMBS_BendSeq/temp_part.step'
         if not os.path.exists(step_path):
             self.skipTest("temp_part.step not found")
 
@@ -154,7 +154,7 @@ class TestSheetMetalParamsApi(unittest.TestCase):
         parts_to_test = []
         step_path = '/Users/badmc/temp_part.step'
         if not os.path.exists(step_path):
-            step_path = '/Users/badmc/Desktop/SMBS/temp_part.step'
+            step_path = '/Users/badmc/Desktop/SMBS_BendSeq/temp_part.step'
         if os.path.exists(step_path):
             s_step_fc = Part.Shape()
             s_step_fc.read(step_path)
@@ -235,7 +235,7 @@ class TestSheetMetalParamsApi(unittest.TestCase):
         from smbs_core.api.sheetmetal_client import SheetMetalApiClientError
         step_path = '/Users/badmc/temp_part.step'
         if not os.path.exists(step_path):
-            step_path = '/Users/badmc/Desktop/SMBS/temp_part.step'
+            step_path = '/Users/badmc/Desktop/SMBS_BendSeq/temp_part.step'
         if not os.path.exists(step_path):
             self.skipTest("temp_part.step not found")
 

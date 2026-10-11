@@ -5,8 +5,8 @@ test_real_freecad_shape.py - Test BendSeq on actual FreeCAD 3D Sheet Metal TopoS
 import sys
 import os
 
-SYS_PATH = "/Users/badmc/Desktop/SMBS"
-BENDSEQ_PATH = "/Users/badmc/Desktop/SMBS/BendSeq"
+SYS_PATH = "/Users/badmc/Desktop/SMBS_BendSeq"
+BENDSEQ_PATH = "/Users/badmc/Desktop/SMBS_BendSeq/BendSeq"
 if BENDSEQ_PATH not in sys.path:
     sys.path.insert(0, BENDSEQ_PATH)
 if SYS_PATH not in sys.path:

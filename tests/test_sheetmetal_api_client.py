@@ -7,7 +7,7 @@ import sys
 import unittest
 import math
 
-sys.path.insert(0, '/Users/badmc/Desktop/SMBS')
+sys.path.insert(0, '/Users/badmc/Desktop/SMBS_BendSeq')
 sys.path.insert(0, '/Users/badmc/.gemini/antigravity-ide/brain/f7f8efb2-5153-4bda-9d68-1afe2a983f3c/scratch')
 sys.path.append('/Applications/FreeCAD.app/Contents/Resources/lib')
 

@@ -7,7 +7,7 @@ import sys
 import unittest
 import math
 
-sys.path.insert(0, '/Users/badmc/Desktop/SMBS')
+sys.path.insert(0, '/Users/badmc/Desktop/SMBS_BendSeq')
 sys.path.append('/Applications/FreeCAD.app/Contents/Resources/lib')
 
 from smbs_core.api.sheetmetal_client import SheetMetalApiClient
