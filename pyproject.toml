@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "smbs_core"
+version = "0.1.0"
+description = "Headless sheet-metal bending sequence calculation engine"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "pythonocc-core",
+    "pydantic>=2.0"
+]
+
+[project.scripts]
+smbs-cli = "smbs_core.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["smbs_core*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
