@@ -1,7 +1,14 @@
 """
 Pipeline Coordinator for SMBS / BendSeq.
-Compliant with ТЗ v1.2 §4.1, §4.2, §4.5 and Principle 2.
-Coordinates file exchange between isolated workers across runs/<run_id>/ directory.
+Compliant with ТЗ v1.2 §4.1, §4.2, §4.5 and Principles 2, 8, 21.
+Coordinates complete end-to-end pipeline:
+Coordinator
+ ├─ 01_input_manifest.json → Geometry/SheetMetal Worker → 02_geometry_result.json + geometry.brep
+ ├─ 03_problem.json → Topology Worker → 04_canonical_part.json
+ ├─ Stage 1: Baseline Worker → 04_baseline_result.json + restored.brep
+ ├─ Stage 2: 06_search_request.json → Solver Worker → 07_search_result.json
+ ├─ Stage 3: 08_verification_request.json → Verifier Worker → 09_verification_result.json
+ └─ Export Worker → 10_part_bendseq.json + 11_run_report.json
 """
 
 from __future__ import annotations
@@ -20,6 +27,9 @@ from smbs_core.protocols.file_store import (
 from smbs_core.workers.geometry.worker import GeometryWorker
 from smbs_core.workers.topology.worker import TopologyWorker
 from smbs_core.workers.baseline.worker import BaselineWorker
+from smbs_core.workers.solver.worker import SolverWorker
+from smbs_core.workers.verifier.worker import VerifierWorker
+from smbs_core.workers.export.worker import ExportWorker
 
 
 class Coordinator:
@@ -38,6 +48,9 @@ class Coordinator:
         self.geometry_worker = GeometryWorker(self.file_store)
         self.topology_worker = TopologyWorker(self.file_store)
         self.baseline_worker = BaselineWorker(self.file_store)
+        self.solver_worker = SolverWorker(self.file_store)
+        self.verifier_worker = VerifierWorker(self.file_store)
+        self.export_worker = ExportWorker(self.file_store)
 
     def start_run(
         self,
@@ -48,10 +61,15 @@ class Coordinator:
         k_factor_override: Optional[float] = None,
         standard_override: Optional[str] = None,
         tolerance_profile: Optional[Dict[str, float]] = None,
+        resource_budget: Optional[Dict[str, Any]] = None,
+        search_algorithm: str = "astar",
     ) -> Dict[str, Any]:
         """
-        Initializes runs/<run_id>/, writes 01_input_manifest.json and executes Stage 1 (Geometry -> Topology -> Baseline).
-        Returns final verified run status, paths and baseline report.
+        Executes full pipeline:
+        Stage 1: Geometry -> Topology -> Baseline.
+        Stage 2: Search Request -> Solver -> Search Result.
+        Stage 3: Verification Request -> Verifier -> Export Worker.
+        Returns final verified part_bendseq report.
         """
         source_path = Path(source_file_path)
         if not source_path.is_absolute():
@@ -66,6 +84,7 @@ class Coordinator:
 
         input_fingerprint = compute_file_sha256(source_path)
 
+        # 0. Write 01_input_manifest.json
         manifest_data = {
             "schema_name": "input_manifest",
             "schema_version": "1.1",
@@ -122,19 +141,145 @@ class Coordinator:
         )
         baseline_result = self.file_store.read_json_verified(baseline_result_file, expected_schema_name="baseline_result")
 
+        # If Baseline fails, abort search according to §1.3
+        if not baseline_result["payload"]["pass"]:
+            return {
+                "run_id": run_id,
+                "run_dir": str(run_dir),
+                "status": RunStatus.WORKER_ERROR.value,
+                "stage": "baseline",
+                "baseline_status": baseline_result["payload"]["baseline_status"],
+                "pass": False,
+                "diagnostics": baseline_result["diagnostics"]
+            }
+
+        # 4. Stage 2: Create Tooling Manifest & 06_search_request.json
+        tooling_manifest_data = {
+            "schema_name": "tooling_manifest",
+            "schema_version": "1.1",
+            "run_id": run_id,
+            "part_id": part_id,
+            "input_fingerprint": input_fingerprint,
+            "producer": {"name": "coordinator", "version": "1.1"},
+            "units": "mm",
+            "frame_convention": "STANDARD_CARTESIAN_MM",
+            "status": RunStatus.SUCCESS.value,
+            "diagnostics": [],
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "payload": {
+                "press": {
+                    "press_id": "press_100t",
+                    "max_tonnage_tons": 100.0,
+                    "bed_length_mm": 3000.0,
+                    "stroke_mm": 200.0,
+                    "open_height_mm": 350.0
+                },
+                "punch": {
+                    "tool_id": "PUNCH_STD_R1",
+                    "punch_type": "straight",
+                    "height_mm": 100.0,
+                    "tip_radius_mm": 1.0,
+                    "tip_angle_deg": 88.0,
+                    "tooling_status": "SIMPLIFIED",
+                    "segment_layout_mm": [100.0, 200.0]
+                },
+                "die": {
+                    "tool_id": "DIE_V12",
+                    "v_opening_mm": 12.0,
+                    "v_angle_deg": 88.0,
+                    "height_mm": 80.0,
+                    "shoulder_radius_mm": 1.0,
+                    "tooling_status": "SIMPLIFIED",
+                    "segment_layout_mm": [100.0, 200.0]
+                }
+            }
+        }
+        tooling_file = run_dir / "tooling_manifest.json"
+        tooling_hash = self.file_store.write_json_atomic(tooling_file, tooling_manifest_data, schema_name="tooling_manifest")
+
+        canonical_part_hash = canonical_part["content_hash"]
+        budget = resource_budget or {
+            "max_wall_time_s": 30.0,
+            "max_nodes": 50000,
+            "max_cache_entries": 20000,
+            "max_geometry_ops": 5000,
+            "max_trajectory_samples": 2000,
+            "max_memory_mb": 2048.0
+        }
+
+        search_req_data = {
+            "schema_name": "search_request",
+            "schema_version": "1.1",
+            "run_id": run_id,
+            "part_id": part_id,
+            "input_fingerprint": input_fingerprint,
+            "producer": {"name": "coordinator", "version": "1.1"},
+            "units": "mm",
+            "frame_convention": "STANDARD_CARTESIAN_MM",
+            "status": RunStatus.SUCCESS.value,
+            "diagnostics": [],
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "payload": {
+                "canonical_part_ref": {
+                    "file_path": str(canonical_part_file.relative_to(self.workspace_root)),
+                    "content_hash": canonical_part_hash
+                },
+                "tooling_manifest_ref": {
+                    "file_path": str(tooling_file.relative_to(self.workspace_root)),
+                    "content_hash": tooling_hash
+                },
+                "search_algorithm": search_algorithm,
+                "candidate_order_policy": "outside_in",
+                "unknown_policy": "PRODUCTION",
+                "cost_weights": {"w_tool": 100.0, "w_flip": 20.0, "w_setup": 10.0, "w_time": 1.0},
+                "resource_budget": budget
+            }
+        }
+        search_req_file = run_dir / "06_search_request.json"
+        self.file_store.write_json_atomic(search_req_file, search_req_data, schema_name="search_request")
+
+        # 5. Invoke Solver Worker
+        search_result_file = self.solver_worker.execute(search_req_file)
+        search_result = self.file_store.read_json_verified(search_result_file, expected_schema_name="search_result")
+
+        # 6. Stage 3: Invoke Independent Verifier Worker
+        verif_result_file = self.verifier_worker.execute(
+            search_result_file,
+            canonical_part_file,
+            tolerance_profile=tolerance_profile
+        )
+        verif_result = self.file_store.read_json_verified(verif_result_file, expected_schema_name="verification_result")
+
+        # 7. Invoke Export Worker (§7.2, §7.3)
+        export_file, report_file = self.export_worker.execute(
+            search_result_file,
+            verif_result_file,
+            canonical_part_file
+        )
+        part_bendseq = self.file_store.read_json_verified(export_file, expected_schema_name="part_bendseq")
+        run_report = self.file_store.read_json_verified(report_file, expected_schema_name="envelope")
+
         return {
+            "status": RunStatus.SUCCESS.value,
             "run_id": run_id,
             "run_dir": str(run_dir),
             "manifest_path": str(manifest_file),
             "geometry_result_path": str(geom_result_file),
-            "geometry_brep_path": str(brep_file),
             "canonical_part_path": str(canonical_part_file),
             "baseline_result_path": str(baseline_result_file),
-            "status": baseline_result["status"],
+            "search_result_path": str(search_result_file),
+            "verification_result_path": str(verif_result_file),
+            "export_file_path": str(export_file),
+            "run_report_path": str(report_file),
+            "planning_status": part_bendseq["planning_status"],
+            "verification_status": part_bendseq["verification_status"],
+            "export_status": part_bendseq["export_status"],
+            "production_eligible": part_bendseq["production_eligible"],
+            "sequence": part_bendseq["sequence"],
             "baseline_status": baseline_result["payload"]["baseline_status"],
             "pass": baseline_result["payload"]["pass"],
-            "diagnostics": baseline_result["diagnostics"],
+            "baseline_metrics": baseline_result["payload"]["metrics"],
             "payload": geom_result["payload"],
             "canonical_part": canonical_part["payload"],
-            "baseline_metrics": baseline_result["payload"]["metrics"]
+            "run_report": run_report["payload"]
         }
