@@ -93,19 +93,20 @@ class FeatureExtractor:
             return (0.0, 0.0, 1.0)
         return (v[0] / mag, v[1] / mag, v[2] / mag)
 
-    def extract_features(self, shape: Any) -> Dict[str, Any]:
+    def extract_features(self, shape: Any, known_thickness: Optional[float] = None) -> Dict[str, Any]:
         if shape is None:
             raise FeatureExtractionError("Cannot extract features from None shape.")
 
-        if self.sm_client is not None:
-            try:
-                thickness = self.sm_client.get_thickness(shape)
-            except Exception as e:
-                logger.warning("SheetMetal get_thickness failed, falling back: %s", e)
-                thickness = self._detect_thickness(shape) or 2.0
-        else:
-            thickness = self._detect_thickness(shape) or 2.0
-
+        thickness = known_thickness
+        if thickness is None:
+            if self.sm_client is not None:
+                try:
+                    thickness = self.sm_client.get_thickness(shape)
+                except Exception as e:
+                    logger.warning("SheetMetal get_thickness failed, falling back to geometric detection: %s", e)
+                    thickness = self._detect_thickness(shape)
+            else:
+                thickness = self._detect_thickness(shape)
 
         bends = self._detect_bends(shape, thickness)
 
@@ -335,7 +336,13 @@ class FeatureExtractor:
                 dist_along_n = abs(v[0]*ni[0] + v[1]*ni[1] + v[2]*ni[2])
 
                 # Anti-parallel opposite sheet faces separated by thickness
-                if abs(dot + 1.0) < 1e-2 and abs(dist_along_n - thickness) < 0.25 * thickness:
+                is_thickness_pair = False
+                if thickness is not None:
+                    is_thickness_pair = abs(dot + 1.0) < 1e-2 and abs(dist_along_n - thickness) < 0.25 * thickness
+                else:
+                    is_thickness_pair = abs(dot + 1.0) < 1e-2 and 0.2 <= dist_along_n <= 25.0
+
+                if is_thickness_pair:
                     union(fi_id, fj_id)
                     has_pair[fi_id] = True
                     has_pair[fj_id] = True

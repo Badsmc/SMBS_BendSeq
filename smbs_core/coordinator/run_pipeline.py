@@ -18,6 +18,8 @@ from smbs_core.protocols.file_store import (
     compute_file_sha256,
 )
 from smbs_core.workers.geometry.worker import GeometryWorker
+from smbs_core.workers.topology.worker import TopologyWorker
+from smbs_core.workers.baseline.worker import BaselineWorker
 
 
 class Coordinator:
@@ -34,6 +36,8 @@ class Coordinator:
 
         # Registered workers
         self.geometry_worker = GeometryWorker(self.file_store)
+        self.topology_worker = TopologyWorker(self.file_store)
+        self.baseline_worker = BaselineWorker(self.file_store)
 
     def start_run(
         self,
@@ -43,10 +47,11 @@ class Coordinator:
         run_id: Optional[str] = None,
         k_factor_override: Optional[float] = None,
         standard_override: Optional[str] = None,
+        tolerance_profile: Optional[Dict[str, float]] = None,
     ) -> Dict[str, Any]:
         """
-        Initializes runs/<run_id>/, writes 01_input_manifest.json and executes initial geometry stage.
-        Returns final verified run status and paths.
+        Initializes runs/<run_id>/, writes 01_input_manifest.json and executes Stage 1 (Geometry -> Topology -> Baseline).
+        Returns final verified run status, paths and baseline report.
         """
         source_path = Path(source_file_path)
         if not source_path.is_absolute():
@@ -87,17 +92,17 @@ class Coordinator:
         manifest_file = run_dir / "01_input_manifest.json"
         self.file_store.write_json_atomic(manifest_file, manifest_data, schema_name="input_manifest")
 
-        # Vertical slice: Invoke Geometry Worker
+        # 1. Geometry Worker
         geom_result_file = self.geometry_worker.execute(manifest_file)
-
-        # Read back and verify output artifact
         geom_result = self.file_store.read_json_verified(geom_result_file, expected_schema_name="geometry_result")
 
         # Verify geometry.brep exists and hash matches
         geom_artifact_info = geom_result["payload"]["geometry_artifact"]
         brep_file = self.workspace_root / geom_artifact_info["file_path"]
         if not brep_file.exists():
-            raise ContractError(f"Worker promised geometry.brep at {brep_file}, but file not found.")
+            brep_file = run_dir / Path(geom_artifact_info["file_path"]).name
+            if not brep_file.exists():
+                raise ContractError(f"Worker promised geometry.brep at {brep_file}, but file not found.")
 
         actual_brep_hash = compute_file_sha256(brep_file)
         if actual_brep_hash != geom_artifact_info["content_hash"]:
@@ -105,13 +110,31 @@ class Coordinator:
                 f"Binary integrity mismatch: promised {geom_artifact_info['content_hash']} != actual {actual_brep_hash}"
             )
 
+        # 2. Topology Worker (§4.1, 04_canonical_part.json)
+        canonical_part_file = self.topology_worker.execute(geom_result_file)
+        canonical_part = self.file_store.read_json_verified(canonical_part_file, expected_schema_name="canonical_part")
+
+        # 3. Stage 1 Baseline Worker (§5.1, unfold -> align -> fold -> compare)
+        baseline_result_file = self.baseline_worker.execute(
+            geom_result_file,
+            canonical_part_file,
+            tolerance_profile=tolerance_profile
+        )
+        baseline_result = self.file_store.read_json_verified(baseline_result_file, expected_schema_name="baseline_result")
+
         return {
             "run_id": run_id,
             "run_dir": str(run_dir),
             "manifest_path": str(manifest_file),
             "geometry_result_path": str(geom_result_file),
             "geometry_brep_path": str(brep_file),
-            "status": geom_result["status"],
-            "diagnostics": geom_result["diagnostics"],
-            "payload": geom_result["payload"]
+            "canonical_part_path": str(canonical_part_file),
+            "baseline_result_path": str(baseline_result_file),
+            "status": baseline_result["status"],
+            "baseline_status": baseline_result["payload"]["baseline_status"],
+            "pass": baseline_result["payload"]["pass"],
+            "diagnostics": baseline_result["diagnostics"],
+            "payload": geom_result["payload"],
+            "canonical_part": canonical_part["payload"],
+            "baseline_metrics": baseline_result["payload"]["metrics"]
         }
