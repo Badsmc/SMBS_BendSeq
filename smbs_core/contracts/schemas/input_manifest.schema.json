@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "smbs://contracts/input_manifest.schema.json",
+  "title": "InputManifest",
+  "description": "Initial coordinator manifest defining input model, modes and tolerances (§4.1, §4.2)",
+  "type": "object",
+  "required": [
+    "schema_name",
+    "schema_version",
+    "run_id",
+    "part_id",
+    "input_fingerprint",
+    "producer",
+    "units",
+    "frame_convention",
+    "status",
+    "payload",
+    "diagnostics",
+    "created_at",
+    "content_hash"
+  ],
+  "properties": {
+    "schema_name": { "const": "input_manifest" },
+    "schema_version": { "type": "string" },
+    "run_id": { "type": "string" },
+    "part_id": { "type": "string" },
+    "input_fingerprint": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "producer": { "type": "object" },
+    "units": { "type": "string", "enum": ["mm", "m", "in"] },
+    "frame_convention": { "type": "string" },
+    "status": { "type": "string" },
+    "diagnostics": { "type": "array" },
+    "created_at": { "type": "string" },
+    "content_hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "payload": {
+      "type": "object",
+      "required": ["source_file_path", "input_mode"],
+      "properties": {
+        "source_file_path": { "type": "string" },
+        "input_mode": {
+          "type": "string",
+          "enum": ["NATIVE_SHEETMETAL", "NEUTRAL_BREP", "CANONICAL_PART"]
+        },
+        "target_object_name": { "type": ["string", "null"] },
+        "k_factor_override": { "type": ["number", "null"] },
+        "standard_override": { "type": ["string", "null"] },
+        "linear_tolerance_mm": { "type": "number", "default": 0.1 },
+        "angular_tolerance_deg": { "type": "number", "default": 0.5 }
+      }
+    }
+  }
+}
