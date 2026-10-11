@@ -1,0 +1,101 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "smbs://contracts/baseline_result.schema.json",
+  "title": "BaselineResult",
+  "description": "Output of Stage 1 Baseline verification with full frame alignment and comparison (§5.1, §5.2, §5.3)",
+  "type": "object",
+  "required": [
+    "schema_name",
+    "schema_version",
+    "run_id",
+    "part_id",
+    "input_fingerprint",
+    "producer",
+    "units",
+    "frame_convention",
+    "status",
+    "payload",
+    "diagnostics",
+    "created_at",
+    "content_hash"
+  ],
+  "properties": {
+    "schema_name": { "const": "baseline_result" },
+    "schema_version": { "type": "string" },
+    "run_id": { "type": "string" },
+    "part_id": { "type": "string" },
+    "input_fingerprint": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "producer": { "type": "object" },
+    "units": { "type": "string", "enum": ["mm", "m", "in"] },
+    "frame_convention": { "type": "string" },
+    "status": { "type": "string" },
+    "diagnostics": { "type": "array" },
+    "created_at": { "type": "string" },
+    "content_hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "payload": {
+      "type": "object",
+      "required": [
+        "baseline_status",
+        "frame_alignment",
+        "restored_shape_artifact",
+        "metrics",
+        "pass"
+      ],
+      "properties": {
+        "baseline_status": {
+          "type": "string",
+          "enum": ["VALID", "INVALID", "UNKNOWN"]
+        },
+        "pass": { "type": "boolean" },
+        "frame_alignment": {
+          "type": "object",
+          "required": ["status", "det_R", "reference_panel_id"],
+          "properties": {
+            "status": { "type": "string", "enum": ["OK", "FRAME_AMBIGUOUS", "CANNOT_VERIFY"] },
+            "det_R": { "type": "number" },
+            "normal_dot": { "type": "number" },
+            "tangent_dot": { "type": "number" },
+            "reference_panel_id": { "type": "string" }
+          }
+        },
+        "restored_shape_artifact": {
+          "type": "object",
+          "required": ["file_path", "format", "content_hash"],
+          "properties": {
+            "file_path": { "type": "string" },
+            "format": { "type": "string", "enum": ["BREP", "STEP"] },
+            "content_hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+          }
+        },
+        "metrics": {
+          "type": "object",
+          "required": [
+            "is_valid_brep",
+            "solids_count",
+            "shells_count",
+            "volume_delta_mm3",
+            "relative_volume_delta",
+            "surface_area_delta_mm2",
+            "hausdorff_distance_mm",
+            "bbox_delta_mm"
+          ],
+          "properties": {
+            "is_valid_brep": { "type": "boolean" },
+            "solids_count": { "type": "integer" },
+            "shells_count": { "type": "integer" },
+            "volume_delta_mm3": { "type": "number" },
+            "relative_volume_delta": { "type": "number" },
+            "surface_area_delta_mm2": { "type": "number" },
+            "hausdorff_distance_mm": { "type": "number" },
+            "bbox_delta_mm": {
+              "type": "array",
+              "items": { "type": "number" },
+              "minItems": 3,
+              "maxItems": 3
+            }
+          }
+        }
+      }
+    }
+  }
+}
