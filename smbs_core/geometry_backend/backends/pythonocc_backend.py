@@ -344,10 +344,8 @@ class PythonOCCBackend(GeometryBackend):
         loc = pos.Location()
         axis_dir = pos.Direction()
 
-        props = GProp_GProps()
-        brepgprop.SurfaceProperties(face, props)
-        area = props.Mass()
-        height = area / (2.0 * math.pi * rad) if rad > 0 else 0.0
+        umin, umax, vmin, vmax = breptools.UVBounds(face)
+        height = abs(vmax - vmin)
 
         return CylinderData(
             radius=rad,
