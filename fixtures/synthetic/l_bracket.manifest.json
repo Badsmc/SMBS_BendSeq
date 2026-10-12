@@ -5,30 +5,45 @@
   "class": "SYNTHETIC",
   "source": {
     "type": "MANUAL_BREP_AND_ANALYTICAL",
-    "brep_path": "fixtures/synthetic/l_bracket.brep",
-    "brep_hash": "sha256:e9b066665f0ef13987c2183caf53e2bd7c08e42d981ec439e90002042947349c",
-    "expected_path": "fixtures/synthetic/l_bracket.expected.json",
-    "expected_hash": "sha256:2248ab587541742fa5138c120aa0cd514477640128e6c9559759e5d0f4256bb4",
     "construction_method": "independent_occ_primitives"
   },
+  "input_files": [
+    {
+      "role": "PART_3D",
+      "path": "fixtures/synthetic/l_bracket.brep",
+      "content_hash": "sha256:e9b066665f0ef13987c2183caf53e2bd7c08e42d981ec439e90002042947349c",
+      "units": "mm",
+      "artifact_provenance": "DIRECT_EXPORT"
+    },
+    {
+      "role": "EXPECTED_JSON",
+      "path": "fixtures/synthetic/l_bracket.expected.json",
+      "content_hash": "sha256:2248ab587541742fa5138c120aa0cd514477640128e6c9559759e5d0f4256bb4",
+      "units": "mm",
+      "artifact_provenance": "DIRECT_EXPORT"
+    }
+  ],
   "ground_truth": {
     "bends_count": 1,
     "bend_sequence": [
       {
-        "step": 1,
         "bend_id": "BEND_01",
         "angle_deg": 90.0,
         "direction": "UP",
-        "radius_mm": 1.0,
-        "length_mm": 50.0
+        "radius_internal_mm": 1.0,
+        "requires_gooseneck": false,
+        "source": "GEOMETRIC_INFERENCE"
       }
     ],
+    "bend_sequence_operator_confirmed": false,
+    "expected_status": "POSITIVE",
+    "production_eligible": true,
     "thickness_mm": 1.5,
     "radius_internal_mm": 1.0,
     "k_factor": null,
-    "source_of_truth": "ANALYTICAL_FORMULA",
-    "expected_status": "POSITIVE",
-    "production_eligible": true
+    "requires_gooseneck": false,
+    "negative_reason": null,
+    "source_of_truth": "GEOMETRIC_INFERENCE"
   },
   "tolerance_profile": {
     "linear_tol_mm": 0.001,
@@ -39,6 +54,7 @@
   },
   "known_limitations": [
     "k_factor не используется при построении — фикстура чисто геометрическая",
-    "Springback не учтён"
+    "Springback не учтён",
+    "expected values verified analytically; ground truth source is geometric construction"
   ]
 }
