@@ -6,6 +6,9 @@ Tolerances:
   ΔBBox < 1e-3 mm
   Face count exact match
   ΔSurface Area < 1e-2 mm²
+  Solid count == 1
+  Shell count == 1
+  BRepCheck_Analyzer.IsValid() == True
 """
 
 import json
@@ -20,9 +23,10 @@ from OCC.Core.BRepGProp import brepgprop
 from OCC.Core.Bnd import Bnd_Box
 from OCC.Core.BRepBndLib import brepbndlib
 from OCC.Core.TopExp import TopExp_Explorer
-from OCC.Core.TopAbs import TopAbs_FACE
+from OCC.Core.TopAbs import TopAbs_FACE, TopAbs_SOLID, TopAbs_SHELL
 from OCC.Core.BRepAdaptor import BRepAdaptor_Surface
 from OCC.Core.GeomAbs import GeomAbs_Cylinder
+from OCC.Core.BRepCheck import BRepCheck_Analyzer
 
 def verify_four_bend():
     base_dir = Path(__file__).parent
@@ -70,6 +74,23 @@ def verify_four_bend():
             act_cyl += 1
         exp.Next()
 
+    # 5. Solids and Shells count
+    solids_cnt = 0
+    exp_sol = TopExp_Explorer(shape, TopAbs_SOLID)
+    while exp_sol.More():
+        solids_cnt += 1
+        exp_sol.Next()
+
+    shells_cnt = 0
+    exp_sh = TopExp_Explorer(shape, TopAbs_SHELL)
+    while exp_sh.More():
+        shells_cnt += 1
+        exp_sh.Next()
+
+    # 6. BRepCheck Validity
+    analyzer = BRepCheck_Analyzer(shape)
+    is_brep_valid = bool(analyzer.IsValid())
+
     # Comparisons
     delta_vol = abs(act_vol - expected["volume_mm3"])
     delta_bbox = [abs(act_bbox[i] - expected["bbox_mm"][i]) for i in range(3)]
@@ -86,7 +107,10 @@ def verify_four_bend():
     pass_bbox = delta_max_bbox < tol_bbox
     pass_area = delta_area < tol_area
     pass_faces = (delta_faces == 0) and (delta_cyl == 0)
-    all_pass = pass_vol and pass_bbox and pass_area and pass_faces
+    pass_solids = (solids_cnt == 1)
+    pass_shells = (shells_cnt == 1)
+    pass_validity = is_brep_valid
+    all_pass = pass_vol and pass_bbox and pass_area and pass_faces and pass_solids and pass_shells and pass_validity
 
     print("=========================================================================================")
     print(" 4-BEND BUSBAR CROSS-CHECK REPORT")
@@ -100,6 +124,9 @@ def verify_four_bend():
     print(f"{'Surface Area (mm²)':<25} | {expected['surface_area_mm2']:<15.6f} | {act_area:<15.6f} | {delta_area:<12.6e} | {'PASS' if pass_area else 'FAIL'}")
     print(f"{'Total Faces':<25} | {expected['face_count']:<15} | {act_faces:<15} | {delta_faces:<12} | {'PASS' if delta_faces == 0 else 'FAIL'}")
     print(f"{'Cylindrical Faces':<25} | {expected['cylindrical_face_count']:<15} | {act_cyl:<15} | {delta_cyl:<12} | {'PASS' if delta_cyl == 0 else 'FAIL'}")
+    print(f"{'Solids Count':<25} | {1:<15} | {solids_cnt:<15} | {abs(solids_cnt - 1):<12} | {'PASS' if pass_solids else 'FAIL'}")
+    print(f"{'Shells Count':<25} | {1:<15} | {shells_cnt:<15} | {abs(shells_cnt - 1):<12} | {'PASS' if pass_shells else 'FAIL'}")
+    print(f"{'BRepCheck IsValid':<25} | {'True':<15} | {str(is_brep_valid):<15} | {'0':<12} | {'PASS' if pass_validity else 'FAIL'}")
     print("=========================================================================================")
     print(f"OVERALL RESULT: {'PASS' if all_pass else 'FAIL'}")
     print("=========================================================================================")
