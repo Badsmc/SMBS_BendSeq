@@ -1,0 +1,19 @@
+{
+  "fixture_id": "u_bracket",
+  "volume_mm3": 12412.334036,
+  "bbox_mm": [
+    45.0,
+    50.0,
+    62.5
+  ],
+  "face_count": 14,
+  "cylindrical_face_count": 4,
+  "surface_area_mm2": 17196.272076,
+  "formulas": {
+    "volume": "V = (l1 + l2 + l3) * w * t + 2 * (pi / 4) * ((r + t)**2 - r**2) * w",
+    "bbox": "[dx, dy, dz] = [2*(r + t) + l2, w, (r + t) + l1]",
+    "surface_area": "A = 2 * (l1 + l2 + l3) * w + pi * (2*r + t) * w + 2 * (w * t) + 2 * ((l1 + l2 + l3) * t + (pi / 2) * ((r + t)**2 - r**2))",
+    "face_count": "14 faces: 6 flange major faces + 2 end faces + 2 side profile faces + 4 cylindrical faces",
+    "cylindrical_face_count": "4 faces: 2 inner cylinders (radius r) + 2 outer cylinders (radius r + t)"
+  }
+}
