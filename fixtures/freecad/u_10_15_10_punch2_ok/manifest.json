@@ -27,7 +27,7 @@
     {
       "role": "BENDS_METADATA",
       "path": "fixtures/freecad/u_10_15_10_punch2_ok/bends.json",
-      "content_hash": "sha256:8145883d05e34cb80895ecc2a6ce4667310f40f42a2a58be7e25824eadd0a1e7",
+      "content_hash": "sha256:cefafaef9cd0c381f65d0eb7f540ca2cd51cb6703a548d7441da3a4477e3db41",
       "units": "mm"
     }
   ],
@@ -39,6 +39,7 @@
         "angle_deg": 90.0,
         "direction": "UP",
         "radius_internal_mm": 1.0,
+        "requires_gooseneck": true,
         "source": "SHEETMETAL_NATIVE"
       },
       {
@@ -46,6 +47,7 @@
         "angle_deg": 90.0,
         "direction": "UP",
         "radius_internal_mm": 1.0,
+        "requires_gooseneck": true,
         "source": "SHEETMETAL_NATIVE"
       }
     ],
@@ -59,7 +61,7 @@
     "die_v_opening_mm": 12.0,
     "requires_gooseneck": true,
     "negative_reason": null,
-    "source_of_truth": "OPERATOR_CONFIRMED"
+    "source_of_truth": "SHEETMETAL_NATIVE"
   },
   "tolerance_profile": {
     "linear_tol_mm": 0.001,

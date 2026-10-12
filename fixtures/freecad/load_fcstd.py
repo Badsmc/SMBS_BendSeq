@@ -7,9 +7,14 @@ Actions per fixture:
 2. Open document via FreeCAD.openDocument (non-GUI), doc.recompute()
 3. Export part_3d.brep from terminal Bend solid
 4. Export flat_pattern.brep from Unfold solid
-5. Extract bends.json from SheetMetal unfold metadata / bend operations
+5. Extract bends.json from SheetMetal unfold metadata / bend operations:
+   - each bend contains requires_gooseneck: true|false
+   - top-level contains part_requires_gooseneck: true|false
+   - 2-1-3-4 sequence loaded from explicit operator-provided JSON (fixtures/freecad/operator_sequence_2_1_3_4.json)
 6. Compute real SHA-256 for all artifacts
-7. Generate manifest.json (§15.3 ТЗ)
+7. Generate manifest.json (§15.3 ТЗ):
+   - 135_ok: source_of_truth: RECOMPUTED_FROM_FINAL_BODY + known_limitations note
+   - remaining 15: source_of_truth: SHEETMETAL_NATIVE
 """
 
 import hashlib
@@ -40,7 +45,7 @@ FIXTURE_SPECS = [
         "requires_gooseneck": False,
         "negative_reason": None,
         "operator_confirmed_seq": False,
-        "known_bends": None,
+        "source_of_truth": "SHEETMETAL_NATIVE",
     },
     {
         "index": 2,
@@ -53,7 +58,7 @@ FIXTURE_SPECS = [
         "requires_gooseneck": False,
         "negative_reason": "operator_confirmed_incompatible_on_R08_V12",
         "operator_confirmed_seq": False,
-        "known_bends": None,
+        "source_of_truth": "SHEETMETAL_NATIVE",
     },
     {
         "index": 3,
@@ -66,7 +71,7 @@ FIXTURE_SPECS = [
         "requires_gooseneck": False,
         "negative_reason": None,
         "operator_confirmed_seq": False,
-        "known_bends": None,
+        "source_of_truth": "SHEETMETAL_NATIVE",
     },
     {
         "index": 4,
@@ -79,7 +84,7 @@ FIXTURE_SPECS = [
         "requires_gooseneck": False,
         "negative_reason": None,
         "operator_confirmed_seq": False,
-        "known_bends": None,
+        "source_of_truth": "SHEETMETAL_NATIVE",
     },
     {
         "index": 5,
@@ -92,7 +97,7 @@ FIXTURE_SPECS = [
         "requires_gooseneck": False,
         "negative_reason": "operator_confirmed_incompatible_on_R08_V12",
         "operator_confirmed_seq": False,
-        "known_bends": None,
+        "source_of_truth": "SHEETMETAL_NATIVE",
     },
     {
         "index": 6,
@@ -105,7 +110,7 @@ FIXTURE_SPECS = [
         "requires_gooseneck": False,
         "negative_reason": None,
         "operator_confirmed_seq": False,
-        "known_bends": None,
+        "source_of_truth": "SHEETMETAL_NATIVE",
     },
     {
         "index": 7,
@@ -118,7 +123,7 @@ FIXTURE_SPECS = [
         "requires_gooseneck": True,
         "negative_reason": None,
         "operator_confirmed_seq": False,
-        "known_bends": None,
+        "source_of_truth": "SHEETMETAL_NATIVE",
     },
     {
         "index": 8,
@@ -131,7 +136,7 @@ FIXTURE_SPECS = [
         "requires_gooseneck": False,
         "negative_reason": None,
         "operator_confirmed_seq": False,
-        "known_bends": None,
+        "source_of_truth": "SHEETMETAL_NATIVE",
     },
     {
         "index": 9,
@@ -144,7 +149,7 @@ FIXTURE_SPECS = [
         "requires_gooseneck": False,
         "negative_reason": None,
         "operator_confirmed_seq": False,
-        "known_bends": None,
+        "source_of_truth": "SHEETMETAL_NATIVE",
     },
     {
         "index": 10,
@@ -157,7 +162,7 @@ FIXTURE_SPECS = [
         "requires_gooseneck": False,
         "negative_reason": "operator_confirmed_incompatible_on_R08_V12",
         "operator_confirmed_seq": False,
-        "known_bends": None,
+        "source_of_truth": "SHEETMETAL_NATIVE",
     },
     {
         "index": 11,
@@ -170,7 +175,8 @@ FIXTURE_SPECS = [
         "requires_gooseneck": False,
         "negative_reason": None,
         "operator_confirmed_seq": False,
-        "known_bends": None,
+        "source_of_truth": "RECOMPUTED_FROM_FINAL_BODY",
+        "known_limitation_note": "flat_pattern recomputed via getUnfold on final Bend001 body; original Тело_Unfold attached to intermediate Bend",
     },
     {
         "index": 12,
@@ -183,7 +189,7 @@ FIXTURE_SPECS = [
         "requires_gooseneck": False,
         "negative_reason": None,
         "operator_confirmed_seq": False,
-        "known_bends": None,
+        "source_of_truth": "SHEETMETAL_NATIVE",
     },
     {
         "index": 13,
@@ -196,7 +202,7 @@ FIXTURE_SPECS = [
         "requires_gooseneck": False,
         "negative_reason": "operator_confirmed_incompatible_on_R08_V12",
         "operator_confirmed_seq": False,
-        "known_bends": None,
+        "source_of_truth": "SHEETMETAL_NATIVE",
     },
     {
         "index": 14,
@@ -209,7 +215,7 @@ FIXTURE_SPECS = [
         "requires_gooseneck": False,
         "negative_reason": None,
         "operator_confirmed_seq": False,
-        "known_bends": None,
+        "source_of_truth": "SHEETMETAL_NATIVE",
     },
     {
         "index": 15,
@@ -222,7 +228,7 @@ FIXTURE_SPECS = [
         "requires_gooseneck": False,
         "negative_reason": None,
         "operator_confirmed_seq": False,
-        "known_bends": None,
+        "source_of_truth": "SHEETMETAL_NATIVE",
     },
     {
         "index": 16,
@@ -235,7 +241,7 @@ FIXTURE_SPECS = [
         "requires_gooseneck": True,
         "negative_reason": None,
         "operator_confirmed_seq": True,
-        "known_bends": None,
+        "source_of_truth": "SHEETMETAL_NATIVE",
     },
 ]
 
@@ -345,7 +351,6 @@ def extract_fixture(spec: Dict[str, Any], src_dir: Path, out_base_dir: Path) -> 
 
     # Specific case for 135-(ok): document unfold was performed on Bend (1 bend), but Body has Bend001 (2 bends)
     if spec["slug"] == "135_ok" and len(bend_lines_info) == 1:
-        # Check Bend001
         bend001 = doc.getObject("Bend001")
         if bend001:
             try:
@@ -356,79 +361,32 @@ def extract_fixture(spec: Dict[str, Any], src_dir: Path, out_base_dir: Path) -> 
             except Exception:
                 pass
 
-    # Specific case for 2-1-3-4-(ok): operator confirmed sequence and angles
-    # Sequence: BEND_02 -> BEND_01 -> BEND_03 -> BEND_04 (and then remaining bends)
+    # Specific case for 2-1-3-4-(ok): load operator-confirmed sequence from external JSON specification
     if spec["slug"] == "2_1_3_4_ok":
-        # Operator confirmed sequence:
-        # BEND_02 = -45.0, BEND_01 = +45.0, BEND_03 = +90.0 (gooseneck), BEND_04 = +90.0 (gooseneck)
-        # Note: FreeCAD internal sheetmetal angles for 45° bends are represented as 135.0/ -135.0 (complementary).
-        # We record the exact ground truth with operator confirmation.
-        bends_data = [
-            {
-                "bend_id": "BEND_02",
-                "angle_deg": -45.0,
-                "direction": "DOWN",
-                "radius_internal_mm": 1.0,
-                "source": "OPERATOR_CONFIRMED",
-                "operator_confirmed": True,
-                "requires_gooseneck": False,
-            },
-            {
-                "bend_id": "BEND_01",
-                "angle_deg": 45.0,
-                "direction": "UP",
-                "radius_internal_mm": 1.0,
-                "source": "OPERATOR_CONFIRMED",
-                "operator_confirmed": True,
-                "requires_gooseneck": False,
-            },
-            {
-                "bend_id": "BEND_03",
-                "angle_deg": 90.0,
-                "direction": "UP",
-                "radius_internal_mm": 1.0,
-                "source": "OPERATOR_CONFIRMED",
-                "operator_confirmed": True,
-                "requires_gooseneck": True,
-            },
-            {
-                "bend_id": "BEND_04",
-                "angle_deg": 90.0,
-                "direction": "UP",
-                "radius_internal_mm": 1.0,
-                "source": "OPERATOR_CONFIRMED",
-                "operator_confirmed": True,
-                "requires_gooseneck": True,
-            },
-        ]
-        # Append remaining 6 bends (all 90°)
-        for rem_idx in range(5, 11):
-            bends_data.append({
-                "bend_id": f"BEND_{rem_idx:02d}",
-                "angle_deg": 90.0,
-                "direction": "UP",
-                "radius_internal_mm": 1.0,
-                "source": "SHEETMETAL_NATIVE",
-                "operator_confirmed": False,
-                "requires_gooseneck": False,
-            })
+        op_json_path = out_base_dir.parent / "freecad" / "operator_sequence_2_1_3_4.json"
+        if not op_json_path.exists():
+            op_json_path = Path(__file__).resolve().parent / "operator_sequence_2_1_3_4.json"
+        with open(op_json_path, "r", encoding="utf-8") as f:
+            op_data = json.load(f)
+        bends_data = op_data["bends"]
     else:
         # Standard extraction from bend_lines_info
         for idx, bi in enumerate(bend_lines_info, start=1):
             deg = round(float(bi.angle), 2)
             # Map FreeCAD 135 deg to bending angle 45 deg if specified
-            # When sheet metal measures bend, 135 deg is the inside angle, representing a 45 deg bend:
             if spec["slug"] == "135_ok":
-                # For 135_ok: prompt states "Углы +45° и -45° [OP]"
                 mapped_deg = 45.0 if deg > 0 else -45.0
             else:
                 mapped_deg = deg
+
+            bend_requires_gooseneck = spec["requires_gooseneck"]
 
             bends_data.append({
                 "bend_id": f"BEND_{idx:02d}",
                 "angle_deg": mapped_deg,
                 "direction": "UP" if mapped_deg > 0 else "DOWN",
                 "radius_internal_mm": 1.0,
+                "requires_gooseneck": bend_requires_gooseneck,
                 "source": "SHEETMETAL_NATIVE",
             })
 
@@ -436,7 +394,10 @@ def extract_fixture(spec: Dict[str, Any], src_dir: Path, out_base_dir: Path) -> 
         labels_match = False
         warning_msg = f"Extracted bends count ({len(bends_data)}) != expected spec ({spec['bends_count']})"
 
+    part_requires_gooseneck = any(b.get("requires_gooseneck", False) for b in bends_data)
+
     bends_json_content = {
+        "part_requires_gooseneck": part_requires_gooseneck,
         "bends": bends_data,
         "extraction_method": "SheetMetal_Unfold_Sketch_Bend_Labels",
         "labels_match_bend_operation": labels_match,
@@ -451,6 +412,14 @@ def extract_fixture(spec: Dict[str, Any], src_dir: Path, out_base_dir: Path) -> 
     # 4. Generate manifest.json
     freecad_ver = ".".join(FreeCAD.Version()[:3])
     sheetmetal_ver = get_sheetmetal_version()
+
+    known_limitations = [
+        "Springback не учтён",
+        "Станок UNKNOWN (модель/усилие не уточнены)",
+        "Gooseneck параметры — только радиус рабочей части",
+    ]
+    if spec.get("known_limitation_note"):
+        known_limitations.append(spec["known_limitation_note"])
 
     manifest_data = {
         "schema_name": "fixture_manifest",
@@ -498,7 +467,7 @@ def extract_fixture(spec: Dict[str, Any], src_dir: Path, out_base_dir: Path) -> 
             "die_v_opening_mm": 12.0,
             "requires_gooseneck": spec["requires_gooseneck"],
             "negative_reason": spec["negative_reason"],
-            "source_of_truth": "OPERATOR_CONFIRMED" if spec["operator_confirmed_seq"] or spec["requires_gooseneck"] else "SHEETMETAL_NATIVE",
+            "source_of_truth": spec["source_of_truth"],
         },
         "tolerance_profile": {
             "linear_tol_mm": 0.001,
@@ -507,11 +476,7 @@ def extract_fixture(spec: Dict[str, Any], src_dir: Path, out_base_dir: Path) -> 
             "bbox_tol_mm": 0.001,
             "surface_distance_tol_mm": 0.01,
         },
-        "known_limitations": [
-            "Springback не учтён",
-            "Станок UNKNOWN (модель/усилие не уточнены)",
-            "Gooseneck параметры — только радиус рабочей части",
-        ],
+        "known_limitations": known_limitations,
     }
 
     manifest_path = fixture_dir / "manifest.json"
@@ -558,7 +523,6 @@ def main():
         except Exception:
             registry_data = {"fixtures": []}
 
-    # Filter out any existing FREECAD_NATIVE entries and add fresh 16
     fixtures_list = [f for f in registry_data.get("fixtures", []) if f.get("class") != "FREECAD_NATIVE"]
     for res in results:
         fixtures_list.append({
