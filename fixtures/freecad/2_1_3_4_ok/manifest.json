@@ -27,7 +27,7 @@
     {
       "role": "BENDS_METADATA",
       "path": "fixtures/freecad/2_1_3_4_ok/bends.json",
-      "content_hash": "sha256:2e56c5f396b8faa397c31db1a38f7e897a6ccd21b3afc247498ebe45cd2daa6e",
+      "content_hash": "sha256:c86243c9625bd5236495e9cfad5c5fcc7175c29501d0a0581a720709a6a80e03",
       "units": "mm"
     }
   ],
@@ -35,94 +35,104 @@
     "bends_count": 10,
     "bend_sequence": [
       {
+        "step": 1,
         "bend_id": "BEND_02",
         "angle_deg": -45.0,
         "direction": "DOWN",
         "radius_internal_mm": 1.0,
+        "requires_gooseneck": false,
         "source": "OPERATOR_CONFIRMED",
-        "operator_confirmed": true,
-        "requires_gooseneck": false
+        "operator_confirmed": true
       },
       {
+        "step": 2,
         "bend_id": "BEND_01",
         "angle_deg": 45.0,
         "direction": "UP",
         "radius_internal_mm": 1.0,
+        "requires_gooseneck": false,
         "source": "OPERATOR_CONFIRMED",
-        "operator_confirmed": true,
-        "requires_gooseneck": false
+        "operator_confirmed": true
       },
       {
+        "step": 3,
         "bend_id": "BEND_03",
         "angle_deg": 90.0,
         "direction": "UP",
         "radius_internal_mm": 1.0,
+        "requires_gooseneck": true,
         "source": "OPERATOR_CONFIRMED",
-        "operator_confirmed": true,
-        "requires_gooseneck": true
+        "operator_confirmed": true
       },
       {
+        "step": 4,
         "bend_id": "BEND_04",
         "angle_deg": 90.0,
         "direction": "UP",
         "radius_internal_mm": 1.0,
+        "requires_gooseneck": true,
         "source": "OPERATOR_CONFIRMED",
-        "operator_confirmed": true,
-        "requires_gooseneck": true
+        "operator_confirmed": true
       },
       {
+        "step": 5,
         "bend_id": "BEND_05",
         "angle_deg": 90.0,
         "direction": "UP",
         "radius_internal_mm": 1.0,
+        "requires_gooseneck": false,
         "source": "SHEETMETAL_NATIVE",
-        "operator_confirmed": false,
-        "requires_gooseneck": false
+        "operator_confirmed": false
       },
       {
+        "step": 6,
         "bend_id": "BEND_06",
         "angle_deg": 90.0,
         "direction": "UP",
         "radius_internal_mm": 1.0,
+        "requires_gooseneck": false,
         "source": "SHEETMETAL_NATIVE",
-        "operator_confirmed": false,
-        "requires_gooseneck": false
+        "operator_confirmed": false
       },
       {
+        "step": 7,
         "bend_id": "BEND_07",
         "angle_deg": 90.0,
         "direction": "UP",
         "radius_internal_mm": 1.0,
+        "requires_gooseneck": false,
         "source": "SHEETMETAL_NATIVE",
-        "operator_confirmed": false,
-        "requires_gooseneck": false
+        "operator_confirmed": false
       },
       {
+        "step": 8,
         "bend_id": "BEND_08",
         "angle_deg": 90.0,
         "direction": "UP",
         "radius_internal_mm": 1.0,
+        "requires_gooseneck": false,
         "source": "SHEETMETAL_NATIVE",
-        "operator_confirmed": false,
-        "requires_gooseneck": false
+        "operator_confirmed": false
       },
       {
+        "step": 9,
         "bend_id": "BEND_09",
         "angle_deg": 90.0,
         "direction": "UP",
         "radius_internal_mm": 1.0,
+        "requires_gooseneck": false,
         "source": "SHEETMETAL_NATIVE",
-        "operator_confirmed": false,
-        "requires_gooseneck": false
+        "operator_confirmed": false
       },
       {
+        "step": 10,
         "bend_id": "BEND_10",
         "angle_deg": 90.0,
         "direction": "UP",
         "radius_internal_mm": 1.0,
+        "requires_gooseneck": false,
         "source": "SHEETMETAL_NATIVE",
-        "operator_confirmed": false,
-        "requires_gooseneck": false
+        "operator_confirmed": false
       }
     ],
     "bend_sequence_operator_confirmed": true,
@@ -135,7 +145,7 @@
     "die_v_opening_mm": 12.0,
     "requires_gooseneck": true,
     "negative_reason": null,
-    "source_of_truth": "OPERATOR_CONFIRMED"
+    "source_of_truth": "SHEETMETAL_NATIVE"
   },
   "tolerance_profile": {
     "linear_tol_mm": 0.001,

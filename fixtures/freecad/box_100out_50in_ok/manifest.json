@@ -27,7 +27,7 @@
     {
       "role": "BENDS_METADATA",
       "path": "fixtures/freecad/box_100out_50in_ok/bends.json",
-      "content_hash": "sha256:c7f33a4ad0f8d7665925faf2dc4aca483ad7b7f5317c002ec978f8aba480327a",
+      "content_hash": "sha256:a16a665d98d67e93a9320118a071026486cb656630eeab99661164d9bb8bfcfa",
       "units": "mm"
     }
   ],
@@ -39,6 +39,7 @@
         "angle_deg": 90.0,
         "direction": "UP",
         "radius_internal_mm": 1.0,
+        "requires_gooseneck": false,
         "source": "SHEETMETAL_NATIVE"
       },
       {
@@ -46,6 +47,7 @@
         "angle_deg": 90.0,
         "direction": "UP",
         "radius_internal_mm": 1.0,
+        "requires_gooseneck": false,
         "source": "SHEETMETAL_NATIVE"
       },
       {
@@ -53,6 +55,7 @@
         "angle_deg": 90.0,
         "direction": "UP",
         "radius_internal_mm": 1.0,
+        "requires_gooseneck": false,
         "source": "SHEETMETAL_NATIVE"
       },
       {
@@ -60,6 +63,7 @@
         "angle_deg": 90.0,
         "direction": "UP",
         "radius_internal_mm": 1.0,
+        "requires_gooseneck": false,
         "source": "SHEETMETAL_NATIVE"
       },
       {
@@ -67,6 +71,7 @@
         "angle_deg": 90.0,
         "direction": "UP",
         "radius_internal_mm": 1.0,
+        "requires_gooseneck": false,
         "source": "SHEETMETAL_NATIVE"
       },
       {
@@ -74,6 +79,7 @@
         "angle_deg": -90.0,
         "direction": "DOWN",
         "radius_internal_mm": 1.0,
+        "requires_gooseneck": false,
         "source": "SHEETMETAL_NATIVE"
       },
       {
@@ -81,6 +87,7 @@
         "angle_deg": 90.0,
         "direction": "UP",
         "radius_internal_mm": 1.0,
+        "requires_gooseneck": false,
         "source": "SHEETMETAL_NATIVE"
       },
       {
@@ -88,6 +95,7 @@
         "angle_deg": -90.0,
         "direction": "DOWN",
         "radius_internal_mm": 1.0,
+        "requires_gooseneck": false,
         "source": "SHEETMETAL_NATIVE"
       }
     ],

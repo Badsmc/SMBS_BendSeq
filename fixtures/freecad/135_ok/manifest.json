@@ -27,7 +27,7 @@
     {
       "role": "BENDS_METADATA",
       "path": "fixtures/freecad/135_ok/bends.json",
-      "content_hash": "sha256:f95c64faba003a84e66b5abdf43ebec16cde334cee01115aa0d7f177e4bfdbd7",
+      "content_hash": "sha256:d3275ab73d057091c45f8ea11aa4bef1efd9b630f90ffd4d32b487a21ae4de3e",
       "units": "mm"
     }
   ],
@@ -39,6 +39,7 @@
         "angle_deg": 45.0,
         "direction": "UP",
         "radius_internal_mm": 1.0,
+        "requires_gooseneck": false,
         "source": "SHEETMETAL_NATIVE"
       },
       {
@@ -46,6 +47,7 @@
         "angle_deg": -45.0,
         "direction": "DOWN",
         "radius_internal_mm": 1.0,
+        "requires_gooseneck": false,
         "source": "SHEETMETAL_NATIVE"
       }
     ],
@@ -59,7 +61,7 @@
     "die_v_opening_mm": 12.0,
     "requires_gooseneck": false,
     "negative_reason": null,
-    "source_of_truth": "SHEETMETAL_NATIVE"
+    "source_of_truth": "RECOMPUTED_FROM_FINAL_BODY"
   },
   "tolerance_profile": {
     "linear_tol_mm": 0.001,
@@ -71,6 +73,7 @@
   "known_limitations": [
     "Springback не учтён",
     "Станок UNKNOWN (модель/усилие не уточнены)",
-    "Gooseneck параметры — только радиус рабочей части"
+    "Gooseneck параметры — только радиус рабочей части",
+    "flat_pattern recomputed via getUnfold on final Bend001 body; original Тело_Unfold attached to intermediate Bend"
   ]
 }

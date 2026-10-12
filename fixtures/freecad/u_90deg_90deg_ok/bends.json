@@ -1,10 +1,12 @@
 {
+  "part_requires_gooseneck": false,
   "bends": [
     {
       "bend_id": "BEND_01",
       "angle_deg": 90.0,
       "direction": "UP",
       "radius_internal_mm": 1.0,
+      "requires_gooseneck": false,
       "source": "SHEETMETAL_NATIVE"
     },
     {
@@ -12,6 +14,7 @@
       "angle_deg": 90.0,
       "direction": "UP",
       "radius_internal_mm": 1.0,
+      "requires_gooseneck": false,
       "source": "SHEETMETAL_NATIVE"
     }
   ],

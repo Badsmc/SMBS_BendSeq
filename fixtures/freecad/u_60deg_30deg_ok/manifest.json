@@ -27,7 +27,7 @@
     {
       "role": "BENDS_METADATA",
       "path": "fixtures/freecad/u_60deg_30deg_ok/bends.json",
-      "content_hash": "sha256:9bb19468b92405797110cee0c5c961e380a0db13ea30755baa66f23c09b5a636",
+      "content_hash": "sha256:97cfb8860d334260c58329bcc8a69b3835c8c5463c39c7df98eb539211e0249c",
       "units": "mm"
     }
   ],
@@ -39,6 +39,7 @@
         "angle_deg": 120.0,
         "direction": "UP",
         "radius_internal_mm": 1.0,
+        "requires_gooseneck": false,
         "source": "SHEETMETAL_NATIVE"
       },
       {
@@ -46,6 +47,7 @@
         "angle_deg": 150.0,
         "direction": "UP",
         "radius_internal_mm": 1.0,
+        "requires_gooseneck": false,
         "source": "SHEETMETAL_NATIVE"
       }
     ],
