@@ -1,0 +1,22 @@
+{
+  "fixtures": [
+    {
+      "fixture_id": "l_bracket_synthetic_001",
+      "class": "SYNTHETIC",
+      "manifest": "fixtures/synthetic/l_bracket.manifest.json",
+      "status": "NOT_RUN"
+    },
+    {
+      "fixture_id": "u_bracket_synthetic_001",
+      "class": "SYNTHETIC",
+      "manifest": "fixtures/synthetic/u_bracket.manifest.json",
+      "status": "NOT_RUN"
+    },
+    {
+      "fixture_id": "four_bend_synthetic_001",
+      "class": "SYNTHETIC",
+      "manifest": "fixtures/synthetic/four_bend.manifest.json",
+      "status": "NOT_RUN"
+    }
+  ]
+}

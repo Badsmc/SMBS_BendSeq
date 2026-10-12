@@ -1,0 +1,44 @@
+{
+  "schema_name": "fixture_manifest",
+  "schema_version": "1.0",
+  "fixture_id": "l_bracket_synthetic_001",
+  "class": "SYNTHETIC",
+  "source": {
+    "type": "MANUAL_BREP_AND_ANALYTICAL",
+    "brep_path": "fixtures/synthetic/l_bracket.brep",
+    "brep_hash": "sha256:e9b066665f0ef13987c2183caf53e2bd7c08e42d981ec439e90002042947349c",
+    "expected_path": "fixtures/synthetic/l_bracket.expected.json",
+    "expected_hash": "sha256:2248ab587541742fa5138c120aa0cd514477640128e6c9559759e5d0f4256bb4",
+    "construction_method": "independent_occ_primitives"
+  },
+  "ground_truth": {
+    "bends_count": 1,
+    "bend_sequence": [
+      {
+        "step": 1,
+        "bend_id": "BEND_01",
+        "angle_deg": 90.0,
+        "direction": "UP",
+        "radius_mm": 1.0,
+        "length_mm": 50.0
+      }
+    ],
+    "thickness_mm": 1.5,
+    "radius_internal_mm": 1.0,
+    "k_factor": null,
+    "source_of_truth": "ANALYTICAL_FORMULA",
+    "expected_status": "POSITIVE",
+    "production_eligible": true
+  },
+  "tolerance_profile": {
+    "linear_tol_mm": 0.001,
+    "angular_tol_deg": 0.001,
+    "volume_tol_mm3": 0.001,
+    "bbox_tol_mm": 0.001,
+    "surface_distance_tol_mm": 0.01
+  },
+  "known_limitations": [
+    "k_factor не используется при построении — фикстура чисто геометрическая",
+    "Springback не учтён"
+  ]
+}
