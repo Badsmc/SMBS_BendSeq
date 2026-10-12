@@ -16,19 +16,22 @@
       "role": "PART_3D",
       "path": "fixtures/freecad/135_ok/part_3d.brep",
       "content_hash": "sha256:862511f2ce2c1c06a20043963783b1370eaf92342666a5d7bc2a0057950897bf",
-      "units": "mm"
+      "units": "mm",
+      "artifact_provenance": "DIRECT_EXPORT"
     },
     {
       "role": "FLAT_PATTERN",
       "path": "fixtures/freecad/135_ok/flat_pattern.brep",
       "content_hash": "sha256:c9294ae2087a751548f2af12efc219e4799265d3ee05650764de6bb2e4cd154e",
-      "units": "mm"
+      "units": "mm",
+      "artifact_provenance": "RECOMPUTED"
     },
     {
       "role": "BENDS_METADATA",
       "path": "fixtures/freecad/135_ok/bends.json",
       "content_hash": "sha256:d3275ab73d057091c45f8ea11aa4bef1efd9b630f90ffd4d32b487a21ae4de3e",
-      "units": "mm"
+      "units": "mm",
+      "artifact_provenance": "DIRECT_EXPORT"
     }
   ],
   "ground_truth": {
@@ -61,7 +64,7 @@
     "die_v_opening_mm": 12.0,
     "requires_gooseneck": false,
     "negative_reason": null,
-    "source_of_truth": "RECOMPUTED_FROM_FINAL_BODY"
+    "source_of_truth": "SHEETMETAL_NATIVE"
   },
   "tolerance_profile": {
     "linear_tol_mm": 0.001,

@@ -95,10 +95,21 @@ class TestFreeCADNativeFixtures(unittest.TestCase):
                 f"bends_count mismatch in ground_truth for {fixture_id}",
             )
 
-            # Verify bends.json matches ground truth
+            # Schema validations via FileStore (Task 1.0.1a)
+            from smbs_core.protocols.file_store import FileStore
+            fs = FileStore()
+            fs.validate(manifest, "fixture_manifest")
+
+            # Verify bends.json matches ground truth and schema
             bends_json_path = fixture_dir / "bends.json"
             with open(bends_json_path, "r", encoding="utf-8") as bj:
                 bends_obj = json.load(bj)
+            bends_for_validation = {
+                "schema_name": "bends",
+                "schema_version": "1.0",
+                **bends_obj
+            }
+            fs.validate(bends_for_validation, "bends")
             self.assertEqual(len(bends_obj["bends"]), gt["bends_count"])
 
             # Verify negative fixtures
