@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "smbs://contracts/bends.schema.json",
+  "title": "BendsMetadata",
+  "description": "Sheet metal bends metadata schema (§15.3, Task 1.0.1a)",
+  "type": "object",
+  "required": [
+    "schema_name",
+    "schema_version",
+    "part_requires_gooseneck",
+    "bends",
+    "extraction_method",
+    "labels_match_bend_operation"
+  ],
+  "properties": {
+    "schema_name": { "const": "bends" },
+    "schema_version": { "const": "1.0" },
+    "part_requires_gooseneck": { "type": "boolean" },
+    "extraction_method": { "type": "string" },
+    "labels_match_bend_operation": { "type": "boolean" },
+    "bends": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "bend_id",
+          "angle_deg",
+          "direction",
+          "radius_internal_mm",
+          "requires_gooseneck",
+          "source"
+        ],
+        "properties": {
+          "bend_id": {
+            "type": "string",
+            "pattern": "^BEND_[0-9]{2}$"
+          },
+          "angle_deg": { "type": "number" },
+          "direction": {
+            "type": "string",
+            "enum": ["UP", "DOWN"]
+          },
+          "radius_internal_mm": { "type": "number" },
+          "requires_gooseneck": { "type": "boolean" },
+          "source": {
+            "type": "string",
+            "enum": [
+              "SHEETMETAL_NATIVE",
+              "OPERATOR_CONFIRMED",
+              "GEOMETRIC_INFERENCE",
+              "USER_INPUT",
+              "CONFIGURATION",
+              "DEFAULT_POLICY",
+              "UNKNOWN"
+            ]
+          },
+          "operator_confirmed": { "type": "boolean" },
+          "step": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      }
+    }
+  }
+}

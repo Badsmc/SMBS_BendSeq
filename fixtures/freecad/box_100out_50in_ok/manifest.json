@@ -16,19 +16,22 @@
       "role": "PART_3D",
       "path": "fixtures/freecad/box_100out_50in_ok/part_3d.brep",
       "content_hash": "sha256:935c7f0cd4acd4f110bb8420aedde2f2e95e9ba49b7b9383c3d0ff6d22f10061",
-      "units": "mm"
+      "units": "mm",
+      "artifact_provenance": "DIRECT_EXPORT"
     },
     {
       "role": "FLAT_PATTERN",
       "path": "fixtures/freecad/box_100out_50in_ok/flat_pattern.brep",
       "content_hash": "sha256:6ecb8cdab4b4216c2babb512f2c013273ebac1aa54ab1285710feeb071e4eae2",
-      "units": "mm"
+      "units": "mm",
+      "artifact_provenance": "DIRECT_EXPORT"
     },
     {
       "role": "BENDS_METADATA",
       "path": "fixtures/freecad/box_100out_50in_ok/bends.json",
       "content_hash": "sha256:a16a665d98d67e93a9320118a071026486cb656630eeab99661164d9bb8bfcfa",
-      "units": "mm"
+      "units": "mm",
+      "artifact_provenance": "DIRECT_EXPORT"
     }
   ],
   "ground_truth": {
