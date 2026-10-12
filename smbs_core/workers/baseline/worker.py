@@ -195,39 +195,38 @@ class BaselineWorker:
         transformer = BRepBuilderAPI_Transform(flat_shape, align_res.transform, True)
         aligned_flat = transformer.Shape()
 
-        # 5. Restore 3D shape by folding
-        # For Baseline Stage 1, the restored shape is folded from the aligned flat pattern
-        # using the bend specifications in canonical_part
-        # To independently compare, we measure restored shape properties against reference shape
-        # In this baseline pass, restored shape represents the target folded geometry
+        # 5. Restore 3D shape by physical folding via SheetMetalFolder (§5.1)
+        from smbs_core.Geometry.sheetmetal_folder import SheetMetalFolder
+        restored_shape = SheetMetalFolder.fold_from_canonical_part(canonical_part, aligned_flat)
+
         restored_brep_path = run_dir / "restored.brep"
-        breptools.Write(ref_shape, str(restored_brep_path))
+        breptools.Write(restored_shape, str(restored_brep_path))
         restored_hash = compute_file_sha256(restored_brep_path)
 
         # 6. Independent metrics comparison (§5.3)
-        analyzer = BRepCheck_Analyzer(ref_shape)
+        analyzer = BRepCheck_Analyzer(restored_shape)
         is_valid = bool(analyzer.IsValid())
 
         solids_count = 0
-        exp_sol = TopExp_Explorer(ref_shape, TopAbs_SOLID)
+        exp_sol = TopExp_Explorer(restored_shape, TopAbs_SOLID)
         while exp_sol.More():
             solids_count += 1
             exp_sol.Next()
 
         shells_count = 0
-        exp_sh = TopExp_Explorer(ref_shape, TopAbs_SHELL)
+        exp_sh = TopExp_Explorer(restored_shape, TopAbs_SHELL)
         while exp_sh.More():
             shells_count += 1
             exp_sh.Next()
 
         vol_ref, area_ref, bbox_ref = self._get_shape_properties(ref_shape)
-        vol_rest, area_rest, bbox_rest = self._get_shape_properties(ref_shape)
+        vol_rest, area_rest, bbox_rest = self._get_shape_properties(restored_shape)
 
         vol_delta = abs(vol_rest - vol_ref)
         rel_vol_delta = vol_delta / (vol_ref + 1e-9)
         area_delta = abs(area_rest - area_ref)
         bbox_delta = [abs(bbox_rest[i] - bbox_ref[i]) for i in range(3)]
-        hausdorff = 0.001  # Exact match for identical valid fixture B-Rep
+        hausdorff = max(bbox_delta) if bbox_delta else 0.0
 
         is_pass = (
             is_valid and
