@@ -5,54 +5,69 @@
   "class": "SYNTHETIC",
   "source": {
     "type": "MANUAL_BREP_AND_ANALYTICAL",
-    "brep_path": "fixtures/synthetic/four_bend.brep",
-    "brep_hash": "sha256:03be2c008fab1d0cb28c9583df32b9ee1b26383d68b63a8bf46cd36b0c7e3792",
-    "expected_path": "fixtures/synthetic/four_bend.expected.json",
-    "expected_hash": "sha256:03f0f73f604d4369a149ed437e545884ca25b5ab0c6c9369ef15d062bbcce81b",
     "construction_method": "independent_occ_primitives"
   },
+  "input_files": [
+    {
+      "role": "PART_3D",
+      "path": "fixtures/synthetic/four_bend.brep",
+      "content_hash": "sha256:03be2c008fab1d0cb28c9583df32b9ee1b26383d68b63a8bf46cd36b0c7e3792",
+      "units": "mm",
+      "artifact_provenance": "DIRECT_EXPORT"
+    },
+    {
+      "role": "EXPECTED_JSON",
+      "path": "fixtures/synthetic/four_bend.expected.json",
+      "content_hash": "sha256:03f0f73f604d4369a149ed437e545884ca25b5ab0c6c9369ef15d062bbcce81b",
+      "units": "mm",
+      "artifact_provenance": "DIRECT_EXPORT"
+    }
+  ],
   "ground_truth": {
     "bends_count": 4,
     "bend_sequence": [
       {
-        "step": 1,
         "bend_id": "BEND_01",
         "angle_deg": 90.0,
         "direction": "UP",
-        "radius_mm": 1.0,
-        "length_mm": 50.0
+        "radius_internal_mm": 1.0,
+        "requires_gooseneck": false,
+        "source": "GEOMETRIC_INFERENCE"
       },
       {
-        "step": 2,
         "bend_id": "BEND_02",
         "angle_deg": -90.0,
         "direction": "DOWN",
-        "radius_mm": 1.0,
-        "length_mm": 50.0
+        "radius_internal_mm": 1.0,
+        "requires_gooseneck": false,
+        "source": "GEOMETRIC_INFERENCE"
       },
       {
-        "step": 3,
         "bend_id": "BEND_03",
         "angle_deg": -90.0,
         "direction": "DOWN",
-        "radius_mm": 1.0,
-        "length_mm": 50.0
+        "radius_internal_mm": 1.0,
+        "requires_gooseneck": false,
+        "source": "GEOMETRIC_INFERENCE"
       },
       {
-        "step": 4,
         "bend_id": "BEND_04",
         "angle_deg": 90.0,
         "direction": "UP",
-        "radius_mm": 1.0,
-        "length_mm": 50.0
+        "radius_internal_mm": 1.0,
+        "requires_gooseneck": false,
+        "source": "GEOMETRIC_INFERENCE"
       }
     ],
+    "bend_sequence_operator_confirmed": false,
+    "expected_status": "POSITIVE",
+    "production_eligible": true,
     "thickness_mm": 1.5,
     "radius_internal_mm": 1.0,
     "k_factor": null,
-    "source_of_truth": "ANALYTICAL_FORMULA",
-    "expected_status": "POSITIVE",
-    "production_eligible": true
+    "requires_gooseneck": false,
+    "negative_reason": null,
+    "source_of_truth": "GEOMETRIC_INFERENCE"
   },
   "tolerance_profile": {
     "linear_tol_mm": 0.001,
@@ -63,6 +78,7 @@
   },
   "known_limitations": [
     "k_factor не используется при построении — фикстура чисто геометрическая",
-    "Springback не учтён"
+    "Springback не учтён",
+    "expected values verified analytically; ground truth source is geometric construction"
   ]
 }

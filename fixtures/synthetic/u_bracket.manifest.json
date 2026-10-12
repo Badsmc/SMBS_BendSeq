@@ -5,38 +5,53 @@
   "class": "SYNTHETIC",
   "source": {
     "type": "MANUAL_BREP_AND_ANALYTICAL",
-    "brep_path": "fixtures/synthetic/u_bracket.brep",
-    "brep_hash": "sha256:010af4486d1bc83879bb7d07d20ab7ec20ed02f83575f2c7b64615dc7bbbf988",
-    "expected_path": "fixtures/synthetic/u_bracket.expected.json",
-    "expected_hash": "sha256:428390453eea12eaeb0c4afc82e55d0d48204fa160ab8f06f48240b025ed885f",
     "construction_method": "independent_occ_primitives"
   },
+  "input_files": [
+    {
+      "role": "PART_3D",
+      "path": "fixtures/synthetic/u_bracket.brep",
+      "content_hash": "sha256:010af4486d1bc83879bb7d07d20ab7ec20ed02f83575f2c7b64615dc7bbbf988",
+      "units": "mm",
+      "artifact_provenance": "DIRECT_EXPORT"
+    },
+    {
+      "role": "EXPECTED_JSON",
+      "path": "fixtures/synthetic/u_bracket.expected.json",
+      "content_hash": "sha256:428390453eea12eaeb0c4afc82e55d0d48204fa160ab8f06f48240b025ed885f",
+      "units": "mm",
+      "artifact_provenance": "DIRECT_EXPORT"
+    }
+  ],
   "ground_truth": {
     "bends_count": 2,
     "bend_sequence": [
       {
-        "step": 1,
         "bend_id": "BEND_01",
         "angle_deg": 90.0,
         "direction": "UP",
-        "radius_mm": 1.0,
-        "length_mm": 50.0
+        "radius_internal_mm": 1.0,
+        "requires_gooseneck": false,
+        "source": "GEOMETRIC_INFERENCE"
       },
       {
-        "step": 2,
         "bend_id": "BEND_02",
         "angle_deg": 90.0,
         "direction": "UP",
-        "radius_mm": 1.0,
-        "length_mm": 50.0
+        "radius_internal_mm": 1.0,
+        "requires_gooseneck": false,
+        "source": "GEOMETRIC_INFERENCE"
       }
     ],
+    "bend_sequence_operator_confirmed": false,
+    "expected_status": "POSITIVE",
+    "production_eligible": true,
     "thickness_mm": 1.5,
     "radius_internal_mm": 1.0,
     "k_factor": null,
-    "source_of_truth": "ANALYTICAL_FORMULA",
-    "expected_status": "POSITIVE",
-    "production_eligible": true
+    "requires_gooseneck": false,
+    "negative_reason": null,
+    "source_of_truth": "GEOMETRIC_INFERENCE"
   },
   "tolerance_profile": {
     "linear_tol_mm": 0.001,
@@ -47,6 +62,7 @@
   },
   "known_limitations": [
     "k_factor не используется при построении — фикстура чисто геометрическая",
-    "Springback не учтён"
+    "Springback не учтён",
+    "expected values verified analytically; ground truth source is geometric construction"
   ]
 }
