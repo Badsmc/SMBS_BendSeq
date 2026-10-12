@@ -1,0 +1,96 @@
+{
+  "bends": [
+    {
+      "bend_id": "BEND_02",
+      "angle_deg": -45.0,
+      "direction": "DOWN",
+      "radius_internal_mm": 1.0,
+      "source": "OPERATOR_CONFIRMED",
+      "operator_confirmed": true,
+      "requires_gooseneck": false
+    },
+    {
+      "bend_id": "BEND_01",
+      "angle_deg": 45.0,
+      "direction": "UP",
+      "radius_internal_mm": 1.0,
+      "source": "OPERATOR_CONFIRMED",
+      "operator_confirmed": true,
+      "requires_gooseneck": false
+    },
+    {
+      "bend_id": "BEND_03",
+      "angle_deg": 90.0,
+      "direction": "UP",
+      "radius_internal_mm": 1.0,
+      "source": "OPERATOR_CONFIRMED",
+      "operator_confirmed": true,
+      "requires_gooseneck": true
+    },
+    {
+      "bend_id": "BEND_04",
+      "angle_deg": 90.0,
+      "direction": "UP",
+      "radius_internal_mm": 1.0,
+      "source": "OPERATOR_CONFIRMED",
+      "operator_confirmed": true,
+      "requires_gooseneck": true
+    },
+    {
+      "bend_id": "BEND_05",
+      "angle_deg": 90.0,
+      "direction": "UP",
+      "radius_internal_mm": 1.0,
+      "source": "SHEETMETAL_NATIVE",
+      "operator_confirmed": false,
+      "requires_gooseneck": false
+    },
+    {
+      "bend_id": "BEND_06",
+      "angle_deg": 90.0,
+      "direction": "UP",
+      "radius_internal_mm": 1.0,
+      "source": "SHEETMETAL_NATIVE",
+      "operator_confirmed": false,
+      "requires_gooseneck": false
+    },
+    {
+      "bend_id": "BEND_07",
+      "angle_deg": 90.0,
+      "direction": "UP",
+      "radius_internal_mm": 1.0,
+      "source": "SHEETMETAL_NATIVE",
+      "operator_confirmed": false,
+      "requires_gooseneck": false
+    },
+    {
+      "bend_id": "BEND_08",
+      "angle_deg": 90.0,
+      "direction": "UP",
+      "radius_internal_mm": 1.0,
+      "source": "SHEETMETAL_NATIVE",
+      "operator_confirmed": false,
+      "requires_gooseneck": false
+    },
+    {
+      "bend_id": "BEND_09",
+      "angle_deg": 90.0,
+      "direction": "UP",
+      "radius_internal_mm": 1.0,
+      "source": "SHEETMETAL_NATIVE",
+      "operator_confirmed": false,
+      "requires_gooseneck": false
+    },
+    {
+      "bend_id": "BEND_10",
+      "angle_deg": 90.0,
+      "direction": "UP",
+      "radius_internal_mm": 1.0,
+      "source": "SHEETMETAL_NATIVE",
+      "operator_confirmed": false,
+      "requires_gooseneck": false
+    }
+  ],
+  "extraction_method": "SheetMetal_Unfold_Sketch_Bend_Labels",
+  "labels_match_bend_operation": true
+}
