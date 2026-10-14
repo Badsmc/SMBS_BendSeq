@@ -119,7 +119,14 @@ class TopologyWorker:
         if flat_art and isinstance(flat_art, dict):
             flat_bend_lines = flat_art.get("bend_lines", [])
 
+        # Verify bend count correspondence between 3D feature extraction and 2D unfold
+        if flat_bend_lines:
+            assert len(raw_bends) == len(flat_bend_lines), (
+                f"bend count mismatch between feature_extractor ({len(raw_bends)}) and unfold ({len(flat_bend_lines)})"
+            )
+
         # Assemble Bends
+        # Note: mapping by sequential index idx is valid when bend counts match, preserving topological correspondence.
         canonical_bends: Dict[str, Any] = {}
         for idx, (b_id, b_info) in enumerate(raw_bends.items()):
             p1 = b_info.get("parent_panel_id", "PANEL_01")

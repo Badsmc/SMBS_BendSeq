@@ -46,7 +46,6 @@ class SheetMetalUnfoldResult:
     root_face_name: Optional[str] = None
     root_normal: Optional[List[float]] = None
     bend_lines: List[NormalizedBendLine] = field(default_factory=list)
-    bend_line_flat: Optional[Dict[str, Any]] = None
     diagnostics: List[DiagnosticEntry] = field(default_factory=list)
 
 
@@ -244,7 +243,6 @@ class SheetMetalAdapter:
 
             root_n = [root_normal.x, root_normal.y, root_normal.z] if root_normal else None
 
-            first_flat = normalized_bends[0].bend_line_flat if normalized_bends else None
             return SheetMetalUnfoldResult(
                 status=RunStatus.SUCCESS,
                 unfolded_shape=inplace_unbend,
@@ -256,7 +254,6 @@ class SheetMetalAdapter:
                 root_face_name=facename,
                 root_normal=root_n,
                 bend_lines=normalized_bends,
-                bend_line_flat=first_flat,
                 diagnostics=diagnostics,
             )
         except Exception as e:
