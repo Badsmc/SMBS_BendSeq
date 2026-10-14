@@ -56,7 +56,11 @@
           "properties": {
             "file_path": { "type": "string" },
             "format": { "type": "string", "enum": ["BREP", "STEP"] },
-            "content_hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+            "content_hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+            "bend_lines": {
+              "type": "array",
+              "items": { "type": "object" }
+            }
           }
         },
         "thickness_mm": {

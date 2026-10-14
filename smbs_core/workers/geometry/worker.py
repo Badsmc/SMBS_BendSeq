@@ -194,10 +194,26 @@ class GeometryWorker:
                     flat_brep_path = run_dir / "flat_pattern.brep"
                     unfold_res.unfolded_shape.exportBrep(str(flat_brep_path))
                     flat_hash = compute_file_sha256(flat_brep_path)
+                    flat_bend_lines_data = []
+                    for bl in unfold_res.bend_lines:
+                        bl_dict = {
+                            "bend_id": bl.bend_id,
+                            "direction": bl.direction,
+                            "angle_deg": bl.angle_deg,
+                            "radius_mm": bl.radius_mm,
+                            "k_factor": bl.k_factor,
+                            "start_point": bl.start_point,
+                            "end_point": bl.end_point,
+                        }
+                        if bl.bend_line_flat is not None:
+                            bl_dict["bend_line_flat"] = bl.bend_line_flat
+                        flat_bend_lines_data.append(bl_dict)
+
                     flat_pattern_artifact = {
                         "file_path": str(flat_brep_path.relative_to(run_dir.parent.parent)),
                         "format": "BREP",
-                        "content_hash": flat_hash
+                        "content_hash": flat_hash,
+                        "bend_lines": flat_bend_lines_data
                     }
                     thickness_val = unfold_res.thickness_mm
                     thickness_source = ParameterSource.SHEETMETAL_NATIVE

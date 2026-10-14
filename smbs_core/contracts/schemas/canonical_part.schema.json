@@ -176,6 +176,25 @@
                 "items": { "type": "number" },
                 "minItems": 3,
                 "maxItems": 3
+              },
+              "bend_line_flat_pattern": {
+                "type": "object",
+                "required": ["start_mm", "end_mm", "length_mm"],
+                "properties": {
+                  "start_mm": {
+                    "type": "array",
+                    "items": { "type": "number" },
+                    "minItems": 3,
+                    "maxItems": 3
+                  },
+                  "end_mm": {
+                    "type": "array",
+                    "items": { "type": "number" },
+                    "minItems": 3,
+                    "maxItems": 3
+                  },
+                  "length_mm": { "type": "number" }
+                }
               }
             }
           }

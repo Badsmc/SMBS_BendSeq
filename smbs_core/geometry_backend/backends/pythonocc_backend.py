@@ -35,7 +35,7 @@ try:
     from OCC.Core.GProp import GProp_GProps
     from OCC.Core.BRepGProp import brepgprop, brepgprop_SurfaceProperties
     from OCC.Core.TopExp import TopExp_Explorer
-    from OCC.Core.TopAbs import TopAbs_FACE, TopAbs_SOLID, TopAbs_COMPOUND, TopAbs_EDGE
+    from OCC.Core.TopAbs import TopAbs_FACE, TopAbs_SOLID, TopAbs_COMPOUND, TopAbs_EDGE, TopAbs_REVERSED
     from OCC.Core.BRepAdaptor import BRepAdaptor_Surface, BRepAdaptor_Curve
     from OCC.Core.GeomAbs import GeomAbs_Plane, GeomAbs_Cylinder
     from OCC.Core.BRep import BRep_Tool, BRep_Builder
@@ -361,7 +361,10 @@ class PythonOCCBackend(GeometryBackend):
         if surf.GetType() == GeomAbs_Plane:
             pln = surf.Plane()
             d = pln.Axis().Direction()
-            return (d.X(), d.Y(), d.Z())
+            nx, ny, nz = d.X(), d.Y(), d.Z()
+            if face.Orientation() == TopAbs_REVERSED:
+                return (-nx, -ny, -nz)
+            return (nx, ny, nz)
         props = GProp_GProps()
         brepgprop.SurfaceProperties(face, props)
         cm = props.CentreOfMass()
