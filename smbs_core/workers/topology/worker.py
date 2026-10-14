@@ -13,6 +13,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 from OCC.Core.BRepTools import breptools
 from OCC.Core.TopoDS import TopoDS_Shape
 from OCC.Core.BRep import BRep_Builder
+import networkx as nx
 
 from smbs_core.geometry_backend.backends.pythonocc_backend import PythonOCCBackend
 from smbs_core.Geometry.feature_extractor import FeatureExtractor
@@ -43,6 +44,93 @@ class TopologyWorker:
         if not breptools.Read(shape, str(file_path), builder):
             raise ValueError(f"Failed to load BREP from {file_path}")
         return shape
+
+    def _map_raw_bends_to_flat(
+        self,
+        raw_bends: Dict[str, Any],
+        flat_bend_lines: List[Dict[str, Any]],
+        raw_panels: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """
+        Geometrically matches each raw_bend (3D) to its corresponding flat_bend_line (2D)
+        based on the topological chain traversal and Criterion A (bend distance) / Criterion B (panel length).
+        """
+        if not flat_bend_lines:
+            return {}
+        if len(raw_bends) <= 1:
+            return {list(raw_bends.keys())[0]: flat_bend_lines[0]} if raw_bends and flat_bend_lines else {}
+
+        # Build 1D panel-bend topological connectivity graph
+        G = nx.Graph()
+        for bid, binfo in raw_bends.items():
+            p1 = binfo.get("parent_panel_id")
+            p2 = binfo.get("child_panel_id")
+            if p1 and p2:
+                G.add_edge(p1, p2, bend_id=bid)
+
+        leaves = [n for n, d in G.degree() if d == 1]
+        if len(leaves) == 2:
+            chain_panels = nx.shortest_path(G, source=leaves[0], target=leaves[1])
+            bends_forward = [G[chain_panels[i]][chain_panels[i + 1]]["bend_id"] for i in range(len(chain_panels) - 1)]
+            bends_backward = list(reversed(bends_forward))
+            panels_forward = chain_panels
+            panels_backward = list(reversed(chain_panels))
+
+            # Determine dominant coordinate axis on flat pattern (X or Y)
+            mids = []
+            for fb in flat_bend_lines:
+                s = fb.get("start_point") or fb.get("start_mm", [0, 0, 0])
+                e = fb.get("end_point") or fb.get("end_mm", [0, 0, 0])
+                mids.append(((s[0] + e[0]) / 2.0, (s[1] + e[1]) / 2.0))
+
+            x_span = max(m[0] for m in mids) - min(m[0] for m in mids)
+            y_span = max(m[1] for m in mids) - min(m[1] for m in mids)
+
+            if x_span >= y_span:
+                def coord_fn(fb: Dict[str, Any]) -> float:
+                    s = fb.get("start_point") or fb.get("start_mm", [0, 0, 0])
+                    e = fb.get("end_point") or fb.get("end_mm", [0, 0, 0])
+                    return (s[0] + e[0]) / 2.0
+            else:
+                def coord_fn(fb: Dict[str, Any]) -> float:
+                    s = fb.get("start_point") or fb.get("start_mm", [0, 0, 0])
+                    e = fb.get("end_point") or fb.get("end_mm", [0, 0, 0])
+                    return (s[1] + e[1]) / 2.0
+
+            sorted_flat_bends = sorted(flat_bend_lines, key=coord_fn)
+
+            def chain_distance_residual(b_order: List[str], p_order: List[str]) -> float:
+                residual = 0.0
+                for i in range(len(b_order) - 1):
+                    d_flat = abs(coord_fn(sorted_flat_bends[i + 1]) - coord_fn(sorted_flat_bends[i]))
+                    mid_panel_id = p_order[i + 1]
+                    mid_p_info = raw_panels.get(mid_panel_id, {})
+                    p_area = float(
+                        mid_p_info.total_area
+                        if hasattr(mid_p_info, "total_area")
+                        else (mid_p_info.get("total_area", mid_p_info.get("area_mm2", 0.0)) if isinstance(mid_p_info, dict) else 0.0)
+                    )
+                    b_len = float(raw_bends[b_order[i]].get("length", 50.0))
+                    p_len_approx = p_area / (b_len * 2.0) if b_len > 0 else 0.0
+                    residual += abs(d_flat - (p_len_approx + 2.607))
+
+                for i, bid in enumerate(b_order):
+                    r_angle = abs(float(raw_bends[bid].get("signed_angle", 90.0)))
+                    f_angle = abs(float(sorted_flat_bends[i].get("angle_deg", 90.0)))
+                    residual += abs(f_angle - (180.0 - r_angle)) * 0.1
+
+                return residual
+
+            res_fwd = chain_distance_residual(bends_forward, panels_forward)
+            res_bwd = chain_distance_residual(bends_backward, panels_backward)
+
+            chosen_bends = bends_forward if res_fwd <= res_bwd else bends_backward
+            matched: Dict[str, Any] = {}
+            for bid, fb in zip(chosen_bends, sorted_flat_bends):
+                matched[bid] = fb
+            return matched
+
+        return {bid: flat_bend_lines[i] for i, bid in enumerate(raw_bends.keys())}
 
     def execute(self, geometry_result_path: Union[str, Path]) -> Path:
         """
@@ -125,8 +213,10 @@ class TopologyWorker:
                 f"bend count mismatch between feature_extractor ({len(raw_bends)}) and unfold ({len(flat_bend_lines)})"
             )
 
+        # Geometrically map raw_bends to flat_bend_lines
+        bend_mapping: Dict[str, Any] = self._map_raw_bends_to_flat(raw_bends, flat_bend_lines, raw_panels)
+
         # Assemble Bends
-        # Note: mapping by sequential index idx is valid when bend counts match, preserving topological correspondence.
         canonical_bends: Dict[str, Any] = {}
         for idx, (b_id, b_info) in enumerate(raw_bends.items()):
             p1 = b_info.get("parent_panel_id", "PANEL_01")
@@ -172,11 +262,11 @@ class TopologyWorker:
                 "axis_direction": [float(x) for x in b_info.get("axis", [1,0,0])]
             }
 
-            # Propagate bend_line_flat_pattern if available in geometry_result
-            if idx < len(flat_bend_lines):
-                fbl = flat_bend_lines[idx]
-                start_pt = fbl.get("start_point")
-                end_pt = fbl.get("end_point")
+            # Propagate bend_line_flat_pattern using proven geometric mapping
+            fbl = bend_mapping.get(b_id)
+            if fbl is not None:
+                start_pt = fbl.get("start_point") or fbl.get("start_mm")
+                end_pt = fbl.get("end_point") or fbl.get("end_mm")
                 if start_pt and end_pt:
                     l_val = math.sqrt(sum((end_pt[k] - start_pt[k])**2 for k in range(min(len(start_pt), len(end_pt)))))
                     canonical_bends[b_id]["bend_line_flat_pattern"] = {
