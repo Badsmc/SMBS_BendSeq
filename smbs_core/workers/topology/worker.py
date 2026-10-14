@@ -45,15 +45,28 @@ class TopologyWorker:
             raise ValueError(f"Failed to load BREP from {file_path}")
         return shape
 
+    @staticmethod
+    def _compute_bend_allowance(angle_deg: float, radius_mm: float, k_factor: float, thickness_mm: float) -> float:
+        """
+        Calculates sheet metal bend allowance (BA):
+        BA = alpha_rad * (radius_mm + k_factor * thickness_mm)
+        """
+        alpha_rad = math.radians(abs(angle_deg))
+        return alpha_rad * (radius_mm + k_factor * thickness_mm)
+
     def _map_raw_bends_to_flat(
         self,
         raw_bends: Dict[str, Any],
         flat_bend_lines: List[Dict[str, Any]],
         raw_panels: Dict[str, Any],
+        thickness_mm: float,
+        default_k_factor: float = 0.44,
+        diagnostics: Optional[List[Dict[str, Any]]] = None,
     ) -> Dict[str, Any]:
         """
         Geometrically matches each raw_bend (3D) to its corresponding flat_bend_line (2D)
         based on the topological chain traversal and Criterion A (bend distance) / Criterion B (panel length).
+        Never returns naive idx fallback. If topology is non-linear, returns {} and logs diagnostic.
         """
         if not flat_bend_lines:
             return {}
@@ -68,69 +81,97 @@ class TopologyWorker:
             if p1 and p2:
                 G.add_edge(p1, p2, bend_id=bid)
 
-        leaves = [n for n, d in G.degree() if d == 1]
-        if len(leaves) == 2:
-            chain_panels = nx.shortest_path(G, source=leaves[0], target=leaves[1])
-            bends_forward = [G[chain_panels[i]][chain_panels[i + 1]]["bend_id"] for i in range(len(chain_panels) - 1)]
-            bends_backward = list(reversed(bends_forward))
-            panels_forward = chain_panels
-            panels_backward = list(reversed(chain_panels))
+        degrees = dict(G.degree())
+        leaves = [n for n, d in degrees.items() if d == 1]
+        is_linear_chain = (len(leaves) == 2 and all(d <= 2 for d in degrees.values()))
 
-            # Determine dominant coordinate axis on flat pattern (X or Y)
-            mids = []
-            for fb in flat_bend_lines:
+        if not is_linear_chain:
+            if diagnostics is not None:
+                diagnostics.append({
+                    "code": "NON_LINEAR_TOPOLOGY_NOT_SUPPORTED",
+                    "message": (
+                        f"Bend mapping requires linear 1D panel chain, but part topology has "
+                        f"{len(leaves)} leaves and max panel degree {max(degrees.values()) if degrees else 0}. "
+                        f"bend_line_flat_pattern will be omitted."
+                    ),
+                    "level": "WARNING",
+                    "stage": "topology_bend_mapping"
+                })
+            return {}
+
+        chain_panels = nx.shortest_path(G, source=leaves[0], target=leaves[1])
+        bends_forward = [G[chain_panels[i]][chain_panels[i + 1]]["bend_id"] for i in range(len(chain_panels) - 1)]
+        bends_backward = list(reversed(bends_forward))
+        panels_forward = chain_panels
+        panels_backward = list(reversed(chain_panels))
+
+        # Determine dominant coordinate axis on flat pattern (X or Y)
+        mids = []
+        for fb in flat_bend_lines:
+            s = fb.get("start_point") or fb.get("start_mm", [0, 0, 0])
+            e = fb.get("end_point") or fb.get("end_mm", [0, 0, 0])
+            mids.append(((s[0] + e[0]) / 2.0, (s[1] + e[1]) / 2.0))
+
+        x_span = max(m[0] for m in mids) - min(m[0] for m in mids)
+        y_span = max(m[1] for m in mids) - min(m[1] for m in mids)
+
+        if x_span >= y_span:
+            def coord_fn(fb: Dict[str, Any]) -> float:
                 s = fb.get("start_point") or fb.get("start_mm", [0, 0, 0])
                 e = fb.get("end_point") or fb.get("end_mm", [0, 0, 0])
-                mids.append(((s[0] + e[0]) / 2.0, (s[1] + e[1]) / 2.0))
+                return (s[0] + e[0]) / 2.0
+        else:
+            def coord_fn(fb: Dict[str, Any]) -> float:
+                s = fb.get("start_point") or fb.get("start_mm", [0, 0, 0])
+                e = fb.get("end_point") or fb.get("end_mm", [0, 0, 0])
+                return (s[1] + e[1]) / 2.0
 
-            x_span = max(m[0] for m in mids) - min(m[0] for m in mids)
-            y_span = max(m[1] for m in mids) - min(m[1] for m in mids)
+        sorted_flat_bends = sorted(flat_bend_lines, key=coord_fn)
 
-            if x_span >= y_span:
-                def coord_fn(fb: Dict[str, Any]) -> float:
-                    s = fb.get("start_point") or fb.get("start_mm", [0, 0, 0])
-                    e = fb.get("end_point") or fb.get("end_mm", [0, 0, 0])
-                    return (s[0] + e[0]) / 2.0
-            else:
-                def coord_fn(fb: Dict[str, Any]) -> float:
-                    s = fb.get("start_point") or fb.get("start_mm", [0, 0, 0])
-                    e = fb.get("end_point") or fb.get("end_mm", [0, 0, 0])
-                    return (s[1] + e[1]) / 2.0
+        def chain_distance_residual(b_order: List[str], p_order: List[str]) -> float:
+            residual = 0.0
+            for i in range(len(b_order) - 1):
+                d_flat = abs(coord_fn(sorted_flat_bends[i + 1]) - coord_fn(sorted_flat_bends[i]))
+                mid_panel_id = p_order[i + 1]
+                mid_p_info = raw_panels.get(mid_panel_id, {})
+                p_area = float(
+                    mid_p_info.total_area
+                    if hasattr(mid_p_info, "total_area")
+                    else (mid_p_info.get("total_area", mid_p_info.get("area_mm2", 0.0)) if isinstance(mid_p_info, dict) else 0.0)
+                )
+                b_len = float(raw_bends[b_order[i]].get("length", 50.0))
+                p_len_3d = p_area / (b_len * 2.0) if b_len > 0 else 0.0
 
-            sorted_flat_bends = sorted(flat_bend_lines, key=coord_fn)
+                # Compute dynamic BA for each adjacent bend using actual bend parameters
+                b1 = raw_bends[b_order[i]]
+                b2 = raw_bends[b_order[i + 1]]
+                b1_angle = float(b1.get("signed_angle", b1.get("angle", 90.0)))
+                b1_radius = float(b1.get("radius", 1.0))
+                b2_angle = float(b2.get("signed_angle", b2.get("angle", 90.0)))
+                b2_radius = float(b2.get("radius", 1.0))
 
-            def chain_distance_residual(b_order: List[str], p_order: List[str]) -> float:
-                residual = 0.0
-                for i in range(len(b_order) - 1):
-                    d_flat = abs(coord_fn(sorted_flat_bends[i + 1]) - coord_fn(sorted_flat_bends[i]))
-                    mid_panel_id = p_order[i + 1]
-                    mid_p_info = raw_panels.get(mid_panel_id, {})
-                    p_area = float(
-                        mid_p_info.total_area
-                        if hasattr(mid_p_info, "total_area")
-                        else (mid_p_info.get("total_area", mid_p_info.get("area_mm2", 0.0)) if isinstance(mid_p_info, dict) else 0.0)
-                    )
-                    b_len = float(raw_bends[b_order[i]].get("length", 50.0))
-                    p_len_approx = p_area / (b_len * 2.0) if b_len > 0 else 0.0
-                    residual += abs(d_flat - (p_len_approx + 2.607))
+                ba1 = self._compute_bend_allowance(b1_angle, b1_radius, default_k_factor, thickness_mm)
+                ba2 = self._compute_bend_allowance(b2_angle, b2_radius, default_k_factor, thickness_mm)
 
-                for i, bid in enumerate(b_order):
-                    r_angle = abs(float(raw_bends[bid].get("signed_angle", 90.0)))
-                    f_angle = abs(float(sorted_flat_bends[i].get("angle_deg", 90.0)))
-                    residual += abs(f_angle - (180.0 - r_angle)) * 0.1
+                expected_d_flat = p_len_3d + (ba1 + ba2) / 2.0
+                residual += abs(d_flat - expected_d_flat)
 
-                return residual
+            # Angle supplement check
+            for i, bid in enumerate(b_order):
+                r_angle = abs(float(raw_bends[bid].get("signed_angle", raw_bends[bid].get("angle", 90.0))))
+                f_angle = abs(float(sorted_flat_bends[i].get("angle_deg", 90.0)))
+                residual += abs(f_angle - (180.0 - r_angle)) * 0.1
 
-            res_fwd = chain_distance_residual(bends_forward, panels_forward)
-            res_bwd = chain_distance_residual(bends_backward, panels_backward)
+            return residual
 
-            chosen_bends = bends_forward if res_fwd <= res_bwd else bends_backward
-            matched: Dict[str, Any] = {}
-            for bid, fb in zip(chosen_bends, sorted_flat_bends):
-                matched[bid] = fb
-            return matched
+        res_fwd = chain_distance_residual(bends_forward, panels_forward)
+        res_bwd = chain_distance_residual(bends_backward, panels_backward)
 
-        return {bid: flat_bend_lines[i] for i, bid in enumerate(raw_bends.keys())}
+        chosen_bends = bends_forward if res_fwd <= res_bwd else bends_backward
+        matched: Dict[str, Any] = {}
+        for bid, fb in zip(chosen_bends, sorted_flat_bends):
+            matched[bid] = fb
+        return matched
 
     def execute(self, geometry_result_path: Union[str, Path]) -> Path:
         """
@@ -208,13 +249,47 @@ class TopologyWorker:
             flat_bend_lines = flat_art.get("bend_lines", [])
 
         # Verify bend count correspondence between 3D feature extraction and 2D unfold
-        if flat_bend_lines:
-            assert len(raw_bends) == len(flat_bend_lines), (
-                f"bend count mismatch between feature_extractor ({len(raw_bends)}) and unfold ({len(flat_bend_lines)})"
+        bend_count_matches = True
+        if flat_bend_lines and len(raw_bends) != len(flat_bend_lines):
+            bend_count_matches = False
+            diagnostics.append({
+                "code": "BEND_COUNT_MISMATCH",
+                "message": (
+                    f"Bend count mismatch between feature_extractor ({len(raw_bends)}) "
+                    f"and unfold ({len(flat_bend_lines)}). bend_line_flat_pattern mapping omitted."
+                ),
+                "level": "WARNING",
+                "stage": "topology_bend_mapping"
+            })
+
+        # Provenance for thickness & k_factor needed for bend allowance calculation
+        t_val = geom_result["payload"]["thickness_mm"]["value"] or raw_thickness or 1.5
+        t_source = geom_result["payload"]["thickness_mm"]["source"]
+        t_confidence = geom_result["payload"]["thickness_mm"]["confidence"]
+        if t_val is None:
+            t_confidence = ConfidenceLevel.UNKNOWN.value
+
+        k_val = 0.44 if geom_result["payload"].get("k_factor", {}).get("value") is None else geom_result["payload"]["k_factor"]["value"]
+
+        # Geometrically map raw_bends to flat_bend_lines using dynamic BA calculation
+        bend_mapping: Dict[str, Any] = {}
+        if bend_count_matches and flat_bend_lines:
+            bend_mapping = self._map_raw_bends_to_flat(
+                raw_bends,
+                flat_bend_lines,
+                raw_panels,
+                thickness_mm=float(t_val),
+                default_k_factor=float(k_val),
+                diagnostics=diagnostics,
             )
 
-        # Geometrically map raw_bends to flat_bend_lines
-        bend_mapping: Dict[str, Any] = self._map_raw_bends_to_flat(raw_bends, flat_bend_lines, raw_panels)
+        if flat_bend_lines and not bend_mapping:
+            diagnostics.append({
+                "code": "BEND_MAPPING_OMITTED",
+                "message": "Flat pattern bend lines were not mapped to canonical bends due to non-linear topology, bend count mismatch, or mapping failure.",
+                "level": "WARNING",
+                "stage": "topology_bend_mapping"
+            })
 
         # Assemble Bends
         canonical_bends: Dict[str, Any] = {}
@@ -275,12 +350,7 @@ class TopologyWorker:
                         "length_mm": round(float(l_val), 3)
                     }
 
-        # Provenance for thickness
-        t_val = geom_result["payload"]["thickness_mm"]["value"] or raw_thickness
-        t_source = geom_result["payload"]["thickness_mm"]["source"]
-        t_confidence = geom_result["payload"]["thickness_mm"]["confidence"]
-        if t_val is None:
-            t_confidence = ConfidenceLevel.UNKNOWN.value
+        # Provenance for thickness already resolved above
 
         canonical_data = {
             "schema_name": "canonical_part",
