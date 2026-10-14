@@ -30,6 +30,7 @@ class NormalizedBendLine:
     start_point: List[float]
     end_point: List[float]
     confidence: ConfidenceLevel = ConfidenceLevel.CONFIRMED
+    bend_line_flat: Optional[Dict[str, List[float]]] = None
 
 
 @dataclass
@@ -45,6 +46,7 @@ class SheetMetalUnfoldResult:
     root_face_name: Optional[str] = None
     root_normal: Optional[List[float]] = None
     bend_lines: List[NormalizedBendLine] = field(default_factory=list)
+    bend_line_flat: Optional[Dict[str, Any]] = None
     diagnostics: List[DiagnosticEntry] = field(default_factory=list)
 
 
@@ -206,9 +208,25 @@ class SheetMetalAdapter:
                     # Extract line geometry endpoints
                     start_pt = [0.0, 0.0, 0.0]
                     end_pt = [0.0, 0.0, 0.0]
-                    if hasattr(b_info, "line") and hasattr(b_info.line, "StartPoint"):
-                        start_pt = [b_info.line.StartPoint.x, b_info.line.StartPoint.y, b_info.line.StartPoint.z]
-                        end_pt = [b_info.line.EndPoint.x, b_info.line.EndPoint.y, b_info.line.EndPoint.z]
+                    line_geom = getattr(b_info, "line", None)
+                    if line_geom is not None:
+                        if hasattr(line_geom, "Vertexes") and len(line_geom.Vertexes) >= 2:
+                            v0 = line_geom.Vertexes[0].Point
+                            v1 = line_geom.Vertexes[1].Point
+                            start_pt = [float(v0.x), float(v0.y), float(v0.z)]
+                            end_pt = [float(v1.x), float(v1.y), float(v1.z)]
+                        elif hasattr(line_geom, "StartPoint") and hasattr(line_geom, "EndPoint"):
+                            start_pt = [float(line_geom.StartPoint.x), float(line_geom.StartPoint.y), float(line_geom.StartPoint.z)]
+                            end_pt = [float(line_geom.EndPoint.x), float(line_geom.EndPoint.y), float(line_geom.EndPoint.z)]
+
+                    flat_line_dict = {
+                        "start": [start_pt[0], start_pt[1]],
+                        "end": [end_pt[0], end_pt[1]],
+                        "start_mm": start_pt,
+                        "end_mm": end_pt,
+                        "angle_deg": b_angle,
+                        "radius_mm": b_radius
+                    }
 
                     normalized_bends.append(
                         NormalizedBendLine(
@@ -220,11 +238,13 @@ class SheetMetalAdapter:
                             start_point=start_pt,
                             end_point=end_pt,
                             confidence=ConfidenceLevel.CONFIRMED,
+                            bend_line_flat=flat_line_dict,
                         )
                     )
 
             root_n = [root_normal.x, root_normal.y, root_normal.z] if root_normal else None
 
+            first_flat = normalized_bends[0].bend_line_flat if normalized_bends else None
             return SheetMetalUnfoldResult(
                 status=RunStatus.SUCCESS,
                 unfolded_shape=inplace_unbend,
@@ -236,6 +256,7 @@ class SheetMetalAdapter:
                 root_face_name=facename,
                 root_normal=root_n,
                 bend_lines=normalized_bends,
+                bend_line_flat=first_flat,
                 diagnostics=diagnostics,
             )
         except Exception as e:

@@ -113,9 +113,15 @@ class TopologyWorker:
         if canonical_panels:
             ref_panel_id = max(canonical_panels.keys(), key=lambda pid: canonical_panels[pid]["area_mm2"])
 
+        # Retrieve flat pattern bend lines from geometry_result if available
+        flat_bend_lines = []
+        flat_art = geom_result["payload"].get("flat_pattern_artifact")
+        if flat_art and isinstance(flat_art, dict):
+            flat_bend_lines = flat_art.get("bend_lines", [])
+
         # Assemble Bends
         canonical_bends: Dict[str, Any] = {}
-        for b_id, b_info in raw_bends.items():
+        for idx, (b_id, b_info) in enumerate(raw_bends.items()):
             p1 = b_info.get("parent_panel_id", "PANEL_01")
             p2 = b_info.get("child_panel_id", "PANEL_02")
             if p1 in canonical_panels and b_id not in canonical_panels[p1]["adjacent_bend_ids"]:
@@ -158,6 +164,19 @@ class TopologyWorker:
                 "axis_point": [float(x) for x in b_info.get("origin", [0,0,0])],
                 "axis_direction": [float(x) for x in b_info.get("axis", [1,0,0])]
             }
+
+            # Propagate bend_line_flat_pattern if available in geometry_result
+            if idx < len(flat_bend_lines):
+                fbl = flat_bend_lines[idx]
+                start_pt = fbl.get("start_point")
+                end_pt = fbl.get("end_point")
+                if start_pt and end_pt:
+                    l_val = math.sqrt(sum((end_pt[k] - start_pt[k])**2 for k in range(min(len(start_pt), len(end_pt)))))
+                    canonical_bends[b_id]["bend_line_flat_pattern"] = {
+                        "start_mm": [float(x) for x in start_pt[:3]],
+                        "end_mm": [float(x) for x in end_pt[:3]],
+                        "length_mm": round(float(l_val), 3)
+                    }
 
         # Provenance for thickness
         t_val = geom_result["payload"]["thickness_mm"]["value"] or raw_thickness
