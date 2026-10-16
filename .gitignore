@@ -37,3 +37,4 @@ env/
 runs/
 *.tmp
 test_output.json
+restored_*.brep
