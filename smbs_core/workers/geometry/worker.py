@@ -69,12 +69,22 @@ class GeometryWorker:
             import Part
             doc = FreeCAD.openDocument(str(path))
             try:
-                # Find part feature with Shape
+                # Find 3D bent shape: Body or terminal solid feature
                 target_shape = None
-                for obj in doc.Objects:
-                    if hasattr(obj, "Shape") and obj.Shape.Faces:
-                        target_shape = obj.Shape
-                        break
+                body_obj = doc.getObject("Body") or doc.getObject("Тело")
+                if body_obj and hasattr(body_obj, "Shape") and body_obj.Shape.Faces:
+                    target_shape = body_obj.Shape
+                else:
+                    for obj in reversed(doc.Objects):
+                        if hasattr(obj, "Shape") and obj.Shape.Faces and getattr(obj.Shape, "Volume", 0) > 0:
+                            if "unfold" not in obj.Name.lower() and "unfold" not in getattr(obj, "Label", "").lower():
+                                target_shape = obj.Shape
+                                break
+                    if not target_shape:
+                        for obj in doc.Objects:
+                            if hasattr(obj, "Shape") and obj.Shape.Faces:
+                                target_shape = obj.Shape
+                                break
                 if not target_shape:
                     raise ValueError(f"No suitable shape found in FCStd document {path}")
                 # Export to temporary step and read into OCC

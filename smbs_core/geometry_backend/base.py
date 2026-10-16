@@ -139,3 +139,7 @@ class GeometryBackend(ABC):
     def cut(self, shape1: Any, shape2: Any) -> Any:
         """Boolean subtraction of shape2 from shape1."""
         pass
+
+    def get_edge_curve_type(self, edge: Any) -> str:
+        """Returns 'circle', 'line', 'other', or 'unknown'."""
+        return "unknown"

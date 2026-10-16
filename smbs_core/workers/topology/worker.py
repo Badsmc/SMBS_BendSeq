@@ -200,7 +200,7 @@ class TopologyWorker:
 
         # Extract features
         known_t = geom_result["payload"].get("thickness_mm", {}).get("value")
-        feats = self.extractor.extract_features(occ_shape, known_thickness=known_t)
+        feats = self.extractor.extract_features(occ_shape, known_thickness=known_t, diagnostics=diagnostics)
         raw_thickness = feats.get("thickness")
         raw_bends = feats.get("bends", {})
         raw_panels = feats.get("panels", {})
