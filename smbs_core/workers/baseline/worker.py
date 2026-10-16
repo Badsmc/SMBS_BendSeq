@@ -84,12 +84,19 @@ class BaselineWorker:
 
     @staticmethod
     def extract_topology(shape: TopoDS_Shape) -> Dict[str, Any]:
+        bbox = Bnd_Box()
+        brepbndlib.Add(shape, bbox)
+        xmin, ymin, zmin, xmax, ymax, zmax = bbox.Get()
+        cx_box = (xmin + xmax) / 2.0
+        cy_box = (ymin + ymax) / 2.0
+        cz_box = (zmin + zmax) / 2.0
+
         exp = TopExp_Explorer(shape, TopAbs_FACE)
         counts = {"Plane": 0, "Cylinder": 0, "Other": 0, "Total": 0}
         sum_areas = {"Plane": 0.0, "Cylinder": 0.0, "Other": 0.0, "Total": 0.0}
         plane_areas: List[float] = []
         cyl_areas: List[float] = []
-        plane_normals: List[Tuple[float, float, float]] = []
+        planes: List[Tuple[float, float, float, float, float]] = []
 
         while exp.More():
             f = exp.Current()
@@ -106,12 +113,14 @@ class BaselineWorker:
                 counts["Plane"] += 1
                 sum_areas["Plane"] += area
                 plane_areas.append(area)
+                c = gp.CentreOfMass()
                 pl = surf.Plane()
                 d = pl.Axis().Direction()
                 dx, dy, dz = d.X(), d.Y(), d.Z()
                 if f.Orientation() == TopAbs_REVERSED:
                     dx, dy, dz = -dx, -dy, -dz
-                plane_normals.append(tuple(sorted([abs(dx), abs(dy), abs(dz)])))
+                pos = dx * (c.X() - cx_box) + dy * (c.Y() - cy_box) + dz * (c.Z() - cz_box)
+                planes.append((dx, dy, dz, pos, area))
             elif st == GeomAbs_Cylinder:
                 counts["Cylinder"] += 1
                 sum_areas["Cylinder"] += area
@@ -123,7 +132,10 @@ class BaselineWorker:
 
         plane_areas.sort()
         cyl_areas.sort()
-        plane_normals.sort()
+        planes.sort(key=lambda item: (round(item[0], 2), round(item[1], 2), round(item[2], 2), round(item[3], 2)))
+
+        plane_normals = [(p[0], p[1], p[2]) for p in planes]
+        plane_positions = [p[3] for p in planes]
 
         return {
             "counts": counts,
@@ -131,6 +143,7 @@ class BaselineWorker:
             "plane_areas": plane_areas,
             "cyl_areas": cyl_areas,
             "plane_normals": plane_normals,
+            "plane_positions": plane_positions,
         }
 
     @staticmethod
@@ -163,15 +176,21 @@ class BaselineWorker:
                     cyl_areas_match = False
                     break
 
-        comp_tol = math.sin(math.radians(angular_tol_deg))
-        normals_match = len(top_ref["plane_normals"]) == len(top_rest["plane_normals"])
+        normals_match = (
+            len(top_ref["plane_normals"]) == len(top_rest["plane_normals"])
+            and len(top_ref.get("plane_positions", [])) == len(top_rest.get("plane_positions", []))
+        )
+        cos_tol = math.cos(math.radians(angular_tol_deg))
         if normals_match:
-            for n_r, n_s in zip(top_ref["plane_normals"], top_rest["plane_normals"]):
-                for c_r, c_s in zip(n_r, n_s):
-                    if abs(c_r - c_s) > comp_tol:
-                        normals_match = False
-                        break
-                if not normals_match:
+            for n_r, n_s, p_r, p_s in zip(
+                top_ref["plane_normals"],
+                top_rest["plane_normals"],
+                top_ref.get("plane_positions", []),
+                top_rest.get("plane_positions", []),
+            ):
+                dot = n_r[0] * n_s[0] + n_r[1] * n_s[1] + n_r[2] * n_s[2]
+                if dot < cos_tol or abs(p_r - p_s) > linear_tol:
+                    normals_match = False
                     break
 
         all_match = (
@@ -316,6 +335,22 @@ class BaselineWorker:
                         "faces_count_restored": 0,
                         "faces_count_delta": 0,
                         "cylindrical_faces_delta": 0,
+                        "raw_comparison_result": {
+                            "topology_matches": False,
+                            "counts_match": False,
+                            "sum_areas_match": False,
+                            "plane_areas_match": False,
+                            "cyl_areas_match": False,
+                            "normals_match": False,
+                        },
+                        "topology_details": {
+                            "counts": {"Plane": 0, "Cylinder": 0, "Other": 0, "Total": 0},
+                            "sum_areas": {"Plane": 0.0, "Cylinder": 0.0, "Other": 0.0, "Total": 0.0},
+                            "plane_areas_sorted": [],
+                            "cyl_areas_sorted": [],
+                            "normals_sorted": [],
+                            "plane_positions_sorted": [],
+                        },
                     },
                 },
             }
@@ -366,6 +401,25 @@ class BaselineWorker:
         res_can = self.compare_topologies(
             top_ref_can, top_rest_can, tol.get("linear_tol_mm", 0.1), tol.get("angular_tol_deg", 0.5)
         )
+
+        # Check part symmetry transformations if not directly matched in CANONICAL mode
+        from OCC.Core.gp import gp_Trsf, gp_Ax1, gp_Pnt, gp_Dir
+        active_can_shape = canonical_rest_shape
+        active_top_rest_can = top_rest_can
+        if not res_can["topology_matches"]:
+            for ax_dir in [gp_Dir(0, 1, 0), gp_Dir(1, 0, 0), gp_Dir(0, 0, 1)]:
+                t = gp_Trsf()
+                t.SetRotation(gp_Ax1(gp_Pnt(0, 0, 0), ax_dir), math.pi)
+                sym_shape = BRepBuilderAPI_Transform(canonical_rest_shape, t, True).Shape()
+                sym_top = self.extract_topology(sym_shape)
+                sym_res = self.compare_topologies(
+                    top_ref_can, sym_top, tol.get("linear_tol_mm", 0.1), tol.get("angular_tol_deg", 0.5)
+                )
+                if sym_res["topology_matches"]:
+                    res_can = sym_res
+                    active_can_shape = sym_shape
+                    active_top_rest_can = sym_top
+                    break
 
         active_topo_res = res_can if active_mode == "CANONICAL" else res_raw
         topology_matches = bool(active_topo_res["topology_matches"])
@@ -490,6 +544,15 @@ class BaselineWorker:
                     "faces_count_restored": faces_count_restored,
                     "faces_count_delta": faces_count_delta,
                     "cylindrical_faces_delta": cylindrical_faces_delta,
+                    "raw_comparison_result": res_raw,
+                    "topology_details": {
+                        "counts": top_ref_can["counts"] if active_mode == "CANONICAL" else top_ref_raw["counts"],
+                        "sum_areas": top_ref_can["sum_areas"] if active_mode == "CANONICAL" else top_ref_raw["sum_areas"],
+                        "plane_areas_sorted": [round(float(a), 4) for a in (top_ref_can["plane_areas"] if active_mode == "CANONICAL" else top_ref_raw["plane_areas"])],
+                        "cyl_areas_sorted": [round(float(a), 4) for a in (top_ref_can["cyl_areas"] if active_mode == "CANONICAL" else top_ref_raw["cyl_areas"])],
+                        "normals_sorted": [[round(float(c), 4) for c in n] for n in (top_ref_can["plane_normals"] if active_mode == "CANONICAL" else top_ref_raw["plane_normals"])],
+                        "plane_positions_sorted": [round(float(p), 4) for p in (top_ref_can["plane_positions"] if active_mode == "CANONICAL" else top_ref_raw["plane_positions"])],
+                    },
                 },
             },
         }
