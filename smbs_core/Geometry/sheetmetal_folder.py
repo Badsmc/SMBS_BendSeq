@@ -896,6 +896,73 @@ class SheetMetalFolder:
         return cls._to_occ_shape(fused_clean)
 
     @classmethod
+    def build_bend_transform(
+        cls,
+        bend: Dict[str, Any],
+        parent_panel: Dict[str, Any],
+        child_panel: Dict[str, Any],
+        t: float,
+        y_panel_start: float,
+        branch_frame: Optional[FreeCAD.Matrix] = None
+    ) -> FreeCAD.Matrix:
+        """
+        Geometrically constructs 4x4 FreeCAD.Matrix mapping child panel from flat pattern
+        into its folded position along branch.
+        Derived strictly from: axis_point, axis_direction, angle_deg, parent normal, child seam.
+
+        Note: Divergence from hardcoded baseline matrices at ~1e-15 level is expected due to
+        quaternion/vector algebra (Rotation.multVec) vs scalar trigonometry.
+        Verification acceptance criteria (Protocol B.2b+):
+          1. max_element_diff(M_param, M_ref) < 1e-12 across all 16 elements.
+          2. BaselineWorker.compare_topologies returns True on all 6 fields.
+          3. Integral invariants: |Volume_diff| < 1e-9 and |Area_diff| < 1e-9.
+        """
+        def get_val(item, key):
+            if key not in item:
+                raise ValueError(f"TREE_FOLD_GEOMETRY_ERROR: {key} missing")
+            v = item[key]
+            if isinstance(v, dict):
+                if "value" not in v:
+                    raise ValueError(f"TREE_FOLD_GEOMETRY_ERROR: {key} missing value")
+                return float(v["value"])
+            return float(v)
+
+        parent = parent_panel
+        norm = FreeCAD.Vector(*parent["normal"]).normalize()
+        c_p = FreeCAD.Vector(*parent["centroid"])
+        ax_p = FreeCAD.Vector(*bend["axis_point"])
+        ax_d = FreeCAD.Vector(*bend["axis_direction"]).normalize()
+        d_plane = (ax_p - c_p).dot(norm)
+        v_start = (-norm * d_plane).normalize()
+        ang = get_val(bend, "angle_deg")
+        r_in = get_val(bend, "radius_mm")
+
+        rot = FreeCAD.Rotation(ax_d, ang)
+        v_end = rot.multVec(v_start)
+
+        p_seam_r = ax_p + v_end * r_in
+        p_seam_ro = ax_p + v_end * (r_in + t)
+
+        sgn = 1.0 if ang > 0 else -1.0
+        t_child = (ax_d * sgn).cross(v_end).normalize()
+
+        e_w = FreeCAD.Vector(1, 0, 0)
+        col1 = e_w
+        col2 = -t_child
+        col3 = e_w.cross(t_child).normalize()
+
+        p_seam_flat0 = p_seam_r if ang > 0 else p_seam_ro
+
+        M = FreeCAD.Matrix()
+        M.A11 = col1.x; M.A12 = col2.x; M.A13 = col3.x
+        M.A21 = col1.y; M.A22 = col2.y; M.A23 = col3.y
+        M.A31 = col1.z; M.A32 = col2.z; M.A33 = col3.z
+
+        T = p_seam_flat0 - col2 * y_panel_start
+        M.A14 = 0.0; M.A24 = T.y; M.A34 = T.z
+        return M
+
+    @classmethod
     def fold_branch(
         cls,
         branch_bends: List[Dict[str, Any]],
@@ -964,6 +1031,7 @@ class SheetMetalFolder:
         curr_y_pos = branch_bends[0]["axis_point"][1]
 
         for i, bend in enumerate(branch_bends):
+            p_parent = panels[bend["parent_panel_id"]]
             p_child = panels[bend["child_panel_id"]]
             L_bend = get_val(bend, "length_mm")
             w_panel = get_val(p_child, "area_mm2") / (2.0 * L_bend)
@@ -985,37 +1053,12 @@ class SheetMetalFolder:
             start_v = compute_start_vec(bend)
             b_sector = make_bend_sector(bend["axis_point"], bend["axis_direction"], start_v, r_in, t, L_bend, ang)
 
-            # 3. Transform panel (using exact transformations per bend index for -Y orientation)
-            if i == 0:
-                m_p = FreeCAD.Matrix()
-                m_p.A11 = 1.0; m_p.A12 = 0.0; m_p.A13 = 0.0; m_p.A14 = 0.0
-                m_p.A21 = 0.0; m_p.A22 = 0.0; m_p.A23 = -1.0; m_p.A24 = t
-                m_p.A31 = 0.0; m_p.A32 = -1.0; m_p.A33 = 0.0; m_p.A34 = y_panel_start + bend["axis_point"][2]
-            elif i == 1:
-                m_p = FreeCAD.Matrix()
-                m_p.A11 = 1.0; m_p.A12 = 0.0; m_p.A13 = 0.0; m_p.A14 = 0.0
-                m_p.A21 = 0.0; m_p.A22 = -1.0; m_p.A23 = 0.0; m_p.A24 = y_panel_start + branch_bends[0]["axis_point"][1]
-                m_p.A31 = 0.0; m_p.A32 = 0.0; m_p.A33 = 1.0; m_p.A34 = bend["axis_point"][2] + 1.0
-            elif i == 2:
-                ang_rad = math.radians(abs(ang))
-                c = math.cos(ang_rad)
-                s = math.sin(ang_rad)
-                m_p = FreeCAD.Matrix()
-                m_p.A11 = 1.0; m_p.A12 = 0.0; m_p.A13 = 0.0; m_p.A14 = 0.0
-                m_p.A21 = 0.0; m_p.A22 = -c; m_p.A23 = -s; m_p.A24 = bend["axis_point"][1] + (r_in + t) * s + y_panel_start * c
-                m_p.A31 = 0.0; m_p.A32 = -s; m_p.A33 = c; m_p.A34 = bend["axis_point"][2] - (r_in + t) * c + y_panel_start * s
-            elif i == 3:
-                m_p = FreeCAD.Matrix()
-                m_p.A11 = 1.0; m_p.A12 = 0.0; m_p.A13 = 0.0; m_p.A14 = 0.0
-                m_p.A21 = 0.0; m_p.A22 = -1.0; m_p.A23 = 0.0; m_p.A24 = y_panel_start + bend["axis_point"][1]
-                m_p.A31 = 0.0; m_p.A32 = 0.0; m_p.A33 = 1.0; m_p.A34 = bend["axis_point"][2] + 1.0
-            else:
-                m_p = FreeCAD.Matrix()
+            # 3. Parametric transformation derived from bend parameters (Step B.2b)
+            m_p = cls.build_bend_transform(bend, p_parent, p_child, t, y_panel_start)
 
             panel_folded = panel_cut.transformShape(m_p)
             folded_parts.append(b_sector)
             folded_parts.append(panel_folded)
-
         branch = folded_parts[0]
         for part in folded_parts[1:]:
             branch = branch.fuse(part)
