@@ -12,7 +12,7 @@
     "material": "Steel_S235",
     "total_bends": 3,
     "algorithm_used": "dfs",
-    "planning_time_sec": 0.049
+    "planning_time_sec": 0.005
   },
   "sequence_summary": {
     "total_steps": 3,

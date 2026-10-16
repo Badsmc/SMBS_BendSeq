@@ -86,11 +86,75 @@ class TopologyWorker:
         is_linear_chain = (len(leaves) == 2 and all(d <= 2 for d in degrees.values()))
 
         if not is_linear_chain:
+            # Check for regular 4-branch tree topology (depth=2, 1 hub with deg=4)
+            hubs = [n for n, d in degrees.items() if d >= 4]
+            if len(hubs) == 1 and len(flat_bend_lines) == len(raw_bends) and len(raw_bends) == 8:
+                try:
+                    hub_id = hubs[0]
+                    hub_panel = raw_panels[hub_id]
+                    hc = hub_panel.centroid if hasattr(hub_panel, "centroid") else hub_panel.get("centroid", [0, 0, 0])
+                    
+                    level1_3d = {}
+                    level2_3d = {}
+                    for bid, b in raw_bends.items():
+                        if b.get("parent_panel_id") == hub_id:
+                            child = raw_panels[b["child_panel_id"]]
+                            cc = child.centroid if hasattr(child, "centroid") else child.get("centroid", [0, 0, 0])
+                            dx = cc[0] - hc[0]
+                            dy = cc[1] - hc[1]
+                            d_lbl = ("+X" if dx > 0 else "-X") if abs(dx) > abs(dy) else ("+Y" if dy > 0 else "-Y")
+                            level1_3d[d_lbl] = (bid, b)
+
+                    for bid, b in raw_bends.items():
+                        if b.get("parent_panel_id") != hub_id:
+                            p_id = b.get("parent_panel_id")
+                            for d_lbl, (l1_bid, l1_b) in level1_3d.items():
+                                if l1_b.get("child_panel_id") == p_id:
+                                    level2_3d[d_lbl] = (bid, b)
+                                    break
+
+                    xs = []
+                    ys = []
+                    for fl in flat_bend_lines:
+                        st = fl.get("start_point") or fl.get("start_mm") or fl.get("bend_line_flat", {}).get("start", [0, 0, 0])
+                        en = fl.get("end_point") or fl.get("end_mm") or fl.get("bend_line_flat", {}).get("end", [0, 0, 0])
+                        xs.extend([st[0], en[0]])
+                        ys.extend([st[1], en[1]])
+                    cx = (min(xs) + max(xs)) / 2.0
+                    cy = (min(ys) + max(ys)) / 2.0
+
+                    fl_by_dir = {"+X": [], "-X": [], "+Y": [], "-Y": []}
+                    for i, fl in enumerate(flat_bend_lines):
+                        st = fl.get("start_point") or fl.get("start_mm") or fl.get("bend_line_flat", {}).get("start", [0, 0, 0])
+                        en = fl.get("end_point") or fl.get("end_mm") or fl.get("bend_line_flat", {}).get("end", [0, 0, 0])
+                        mx = (st[0] + en[0]) / 2.0
+                        my = (st[1] + en[1]) / 2.0
+                        dist = math.hypot(mx - cx, my - cy)
+                        dx = mx - cx
+                        dy = my - cy
+                        d_lbl = ("+X" if dx > 0 else "-X") if abs(dx) > abs(dy) else ("+Y" if dy > 0 else "-Y")
+                        fl_by_dir[d_lbl].append({"fl": fl, "dist": dist})
+
+                    for d_lbl in fl_by_dir:
+                        fl_by_dir[d_lbl].sort(key=lambda x: x["dist"])
+
+                    tree_mapping = {}
+                    for d_lbl in ["+X", "-X", "+Y", "-Y"]:
+                        if d_lbl in level1_3d and len(fl_by_dir[d_lbl]) >= 1:
+                            tree_mapping[level1_3d[d_lbl][0]] = fl_by_dir[d_lbl][0]["fl"]
+                        if d_lbl in level2_3d and len(fl_by_dir[d_lbl]) >= 2:
+                            tree_mapping[level2_3d[d_lbl][0]] = fl_by_dir[d_lbl][1]["fl"]
+
+                    if len(tree_mapping) == len(raw_bends):
+                        return tree_mapping
+                except Exception:
+                    pass
+
             if diagnostics is not None:
                 diagnostics.append({
                     "code": "NON_LINEAR_TOPOLOGY_NOT_SUPPORTED",
                     "message": (
-                        f"Bend mapping requires linear 1D panel chain, but part topology has "
+                        f"Bend mapping requires linear 1D panel chain or regular 4-branch tree, but part topology has "
                         f"{len(leaves)} leaves and max panel degree {max(degrees.values()) if degrees else 0}. "
                         f"bend_line_flat_pattern will be omitted."
                     ),
