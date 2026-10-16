@@ -23,7 +23,8 @@ from OCC.Core.TopAbs import TopAbs_FACE, TopAbs_SOLID, TopAbs_SHELL
 from OCC.Core.TopExp import TopExp_Explorer
 from OCC.Core.TopoDS import TopoDS_Face, TopoDS_Shape, topods
 from OCC.Core.BRepAdaptor import BRepAdaptor_Surface
-from OCC.Core.GeomAbs import GeomAbs_Plane
+from OCC.Core.GeomAbs import GeomAbs_Plane, GeomAbs_Cylinder
+from OCC.Core.ShapeUpgrade import ShapeUpgrade_UnifySameDomain
 
 from smbs_core.protocols.file_store import (
     AlignmentStatus,
@@ -204,6 +205,15 @@ class BaselineWorker:
         restored_hash = compute_file_sha256(restored_brep_path)
 
         # 6. Independent metrics comparison (§5.3)
+        # Apply ShapeUpgrade_UnifySameDomain to both reference and restored shapes to standardize topology
+        unifier_ref = ShapeUpgrade_UnifySameDomain(ref_shape, True, True, True)
+        unifier_ref.Build()
+        canonical_ref_shape = unifier_ref.Shape()
+
+        unifier_rest = ShapeUpgrade_UnifySameDomain(restored_shape, True, True, True)
+        unifier_rest.Build()
+        canonical_rest_shape = unifier_rest.Shape()
+
         analyzer = BRepCheck_Analyzer(restored_shape)
         is_valid = bool(analyzer.IsValid())
 
@@ -219,6 +229,30 @@ class BaselineWorker:
             shells_count += 1
             exp_sh.Next()
 
+        # Face count metrics on unified canonical shapes
+        faces_count_reference = 0
+        cyl_faces_ref = 0
+        exp_f_ref = TopExp_Explorer(canonical_ref_shape, TopAbs_FACE)
+        while exp_f_ref.More():
+            faces_count_reference += 1
+            f = topods.Face(exp_f_ref.Current())
+            if BRepAdaptor_Surface(f).GetType() == GeomAbs_Cylinder:
+                cyl_faces_ref += 1
+            exp_f_ref.Next()
+
+        faces_count_restored = 0
+        cyl_faces_rest = 0
+        exp_f_rest = TopExp_Explorer(canonical_rest_shape, TopAbs_FACE)
+        while exp_f_rest.More():
+            faces_count_restored += 1
+            f = topods.Face(exp_f_rest.Current())
+            if BRepAdaptor_Surface(f).GetType() == GeomAbs_Cylinder:
+                cyl_faces_rest += 1
+            exp_f_rest.Next()
+
+        faces_count_delta = abs(faces_count_restored - faces_count_reference)
+        cylindrical_faces_delta = abs(cyl_faces_rest - cyl_faces_ref)
+
         vol_ref, area_ref, bbox_ref = self._get_shape_properties(ref_shape)
         vol_rest, area_rest, bbox_rest = self._get_shape_properties(restored_shape)
 
@@ -228,13 +262,23 @@ class BaselineWorker:
         bbox_delta = [abs(bbox_rest[i] - bbox_ref[i]) for i in range(3)]
         hausdorff = max(bbox_delta) if bbox_delta else 0.0
 
+        topology_matches = (faces_count_delta == 0 and cylindrical_faces_delta == 0)
+        if not topology_matches:
+            diagnostics.append({
+                "code": "TOPOLOGY_MISMATCH",
+                "message": f"Topology mismatch: faces ref={faces_count_reference}, rest={faces_count_restored} (delta={faces_count_delta}), cyl delta={cylindrical_faces_delta}",
+                "level": "ERROR",
+                "stage": "metrics_validation"
+            })
+
         is_pass = (
             is_valid and
             align_res.status == AlignmentStatus.OK and
             abs(align_res.det_R - 1.0) < 1e-4 and
             vol_delta <= tol["volume_tol_mm3"] and
             rel_vol_delta <= tol["relative_volume_tol"] and
-            all(b <= tol["bbox_tol_mm"] for b in bbox_delta)
+            all(b <= tol["bbox_tol_mm"] for b in bbox_delta) and
+            topology_matches
         )
 
         baseline_status = "VALID" if is_pass else "INVALID"
@@ -274,7 +318,11 @@ class BaselineWorker:
                     "relative_volume_delta": rel_vol_delta,
                     "surface_area_delta_mm2": area_delta,
                     "hausdorff_distance_mm": hausdorff,
-                    "bbox_delta_mm": bbox_delta
+                    "bbox_delta_mm": bbox_delta,
+                    "faces_count_reference": faces_count_reference,
+                    "faces_count_restored": faces_count_restored,
+                    "faces_count_delta": faces_count_delta,
+                    "cylindrical_faces_delta": cylindrical_faces_delta
                 }
             }
         }
