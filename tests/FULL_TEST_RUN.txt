@@ -1,379 +1,392 @@
-FULL TEST SUITE EXECUTION REPORT
-==================================================
+Faces: 10
+Surface: Plane Part::GeomPlane
+Surface: Plane Part::GeomPlane
+Surface: Plane Part::GeomPlane
+Surface: Cylinder Part::GeomCylinder
+Surface: Plane Part::GeomPlane
+Surface: Plane Part::GeomPlane
+Surface: Plane Part::GeomPlane
+Surface: Plane Part::GeomPlane
+Surface: Plane Part::GeomPlane
+Surface: Plane Part::GeomPlane
+Orig CM: 5.0 5.0 5.0
+Rot CM: -4.999999999999999 5.0 5.000000000000001
+Orig CM: 5.0 5.0 5.0
+Rot CM: 5.000000000000001 4.999999999999999 5.000000000000001
+b3.rotate CM: 5.000000000000001 4.999999999999999 5.0
+Orig CM: 5.0 5.0 5.0
+b2.rotate(0,0,0) CM: -5.0 5.0 5.0
+90.0°: origins = [(95.5, 2.5), (95.5, 2.5)]
+45.0°: origins = [(95.5, 2.5), (95.5, 2.5)]
+-45.0°: origins = [(95.5, -1.0), (95.5, -1.0)]
+test_ambiguous_two_hubs_returns_invalid (test_ambiguous_tree_returns_unknown.TestAmbiguousTreeReturnsUnknown.test_ambiguous_two_hubs_returns_invalid) ... ok
+test_disconnected_graph_returns_invalid (test_ambiguous_tree_returns_unknown.TestAmbiguousTreeReturnsUnknown.test_disconnected_graph_returns_invalid) ... ok
+test_non_tree_cycle_returns_invalid (test_ambiguous_tree_returns_unknown.TestAmbiguousTreeReturnsUnknown.test_non_tree_cycle_returns_invalid) ... ok
+test_135_ok (test_baseline_topology_canonical.TestBaselineTopologyCanonical.test_135_ok) ... ok
+test_four_bend (test_baseline_topology_canonical.TestBaselineTopologyCanonical.test_four_bend) ... ok
+test_u_60deg_30deg_ok (test_baseline_topology_canonical.TestBaselineTopologyCanonical.test_u_60deg_30deg_ok) ... ok
+test_u_90deg_90deg_ok (test_baseline_topology_canonical.TestBaselineTopologyCanonical.test_u_90deg_90deg_ok) ... ok
+test_u_bracket (test_baseline_topology_canonical.TestBaselineTopologyCanonical.test_u_bracket) ... ok
+test_z_10_20_10_ok (test_baseline_topology_canonical.TestBaselineTopologyCanonical.test_z_10_20_10_ok) ... ok
+test_z_ok (test_baseline_topology_canonical.TestBaselineTopologyCanonical.test_z_ok) ... ok
+test_tampered_shape_triggers_topology_mismatch (test_baseline_topology_mismatch.TestBaselineTopologyMismatch.test_tampered_shape_triggers_topology_mismatch) ... ok
+test_u_bracket_rotated_90_x_negative (test_baseline_topology_rotation_negative.TestBaselineTopologyRotationNegative.test_u_bracket_rotated_90_x_negative) ... ok
+test_box_100in_50out_false (test_baseline_topology_tree.TestBaselineTopologyTree.test_box_100in_50out_false) ... ok
+test_box_100out_50in_ok (test_baseline_topology_tree.TestBaselineTopologyTree.test_box_100out_50in_ok) ... ok
+test_sqin_200_25_10_ok (test_baseline_topology_tree.TestBaselineTopologyTree.test_sqin_200_25_10_ok) ... ok
+test_sqout_200_25_10_ok (test_baseline_topology_tree.TestBaselineTopologyTree.test_sqout_200_25_10_ok) ... ok
+test_canonicalize_single_bend_sector (test_bend_sector_canonicalization.TestBendSectorCanonicalization.test_canonicalize_single_bend_sector) ... ok
+test_backgauge_computation (test_bendseq.TestBackgaugeCalculator.test_backgauge_computation) ... ok
+test_fallback_features (test_bendseq.TestFeatureExtractor.test_fallback_features) ... ok
+test_astar_planning (test_bendseq.TestSolvers.test_astar_planning) ... FAIL
+test_greedy_planning (test_bendseq.TestSolvers.test_greedy_planning) ... FAIL
+test_cache_put_get (test_bendseq.TestStateCache.test_cache_put_get) ... ok
+test_missing_geometry_intersection (test_collisions_fixed.TestCollisionsFixed.test_missing_geometry_intersection) ... ok
+test_atomic_write_and_verified_read (test_contracts_and_filestore.TestContractsAndFileStore.test_atomic_write_and_verified_read)
+Test atomic writing without leftover tmp files, and successful verified reading. ... ok
+test_canonical_json_determinism (test_contracts_and_filestore.TestContractsAndFileStore.test_canonical_json_determinism)
+Keys order must not affect canonical representation or SHA-256 hash. ... ok
+test_canonical_part_schema (test_contracts_and_filestore.TestContractsAndFileStore.test_canonical_part_schema)
+Valid CanonicalPart document passes validation. ... ok
+test_consumer_never_repairs_producer_data (test_contracts_and_filestore.TestContractsAndFileStore.test_consumer_never_repairs_producer_data)
+Missing required fields in contract must raise ContractError, never repaired silently (Principle 23). ... ok
+test_hash_excludes_content_hash_field (test_contracts_and_filestore.TestContractsAndFileStore.test_hash_excludes_content_hash_field)
+content_hash field inside dictionary must not change its own computed hash. ... ok
+test_part_bendseq_v1_1_schema (test_contracts_and_filestore.TestContractsAndFileStore.test_part_bendseq_v1_1_schema)
+Valid part_bendseq v1.1 production contract passes validation. ... ok
+test_tampering_detection (test_contracts_and_filestore.TestContractsAndFileStore.test_tampering_detection)
+Tampering with file contents must trigger ContractError on read. ... ok
+test_pipeline_fixture_l (test_end_to_end_pipeline.TestEndToEndPipeline.test_pipeline_fixture_l)
+Full pipeline execution on Fixture L (1 bend). ... ok
+test_pipeline_fixture_u (test_end_to_end_pipeline.TestEndToEndPipeline.test_pipeline_fixture_u)
+Full pipeline execution on Fixture U (2 bends). ... ok
+test_pipeline_stepped_busbar_4bend (test_end_to_end_pipeline.TestEndToEndPipeline.test_pipeline_stepped_busbar_4bend)
+Full pipeline execution on Stepped Busbar (4 bends). ... ok
+test_fold_4bend_stepped_busbar (test_fold_multi_bend.TestFoldMultiBend.test_fold_4bend_stepped_busbar)
+Validates 4-bend stepped busbar assembly against golden reference OCC model. ... ok
+test_fold_u_bracket (test_fold_multi_bend.TestFoldMultiBend.test_fold_u_bracket)
+Validates 2-bend U-profile assembly against golden reference OCC model. ... ok
+test_fold_one_bend_matches_reference (test_fold_one_bend.TestFoldOneBend.test_fold_one_bend_matches_reference)
+Validates that fold_one_bend matches reference B-Rep shape in all invariants. ... ok
+test_tampered_tree_hub_rotation_triggers_invalid (test_fold_tree_negative.TestFoldTreeNegative.test_tampered_tree_hub_rotation_triggers_invalid) ... ok
+test_arbitrary_3d_rigid_transform_invariance (test_frame_aligner_contract.TestFrameAlignerContract.test_arbitrary_3d_rigid_transform_invariance)
+6: Alignment invariance under arbitrary 3D translation and rotation. ... ok
+test_degenerate_circular_face_rejection (test_frame_aligner_contract.TestFrameAlignerContract.test_degenerate_circular_face_rejection)
+4: Degenerate face (e.g. cylinder end disk has no straight edge) -> FRAME_AMBIGUOUS. ... ok
+test_determinism_across_runs (test_frame_aligner_contract.TestFrameAlignerContract.test_determinism_across_runs)
+3: Determinism: repeated alignment calls produce bit-exact matrices. ... ok
+test_normal_and_tangent_alignment (test_frame_aligner_contract.TestFrameAlignerContract.test_normal_and_tangent_alignment)
+1 & 2: Normal and tangent alignment on rectangular faces. ... ok
+test_reflection_rejection (test_frame_aligner_contract.TestFrameAlignerContract.test_reflection_rejection)
+5: Invert parity (det R != +1) -> strictly rejected with FRAME_AMBIGUOUS. ... ok
+test_inspect_coll (test_inspect_coll.TestInspectColl.test_inspect_coll) ... ok
+test_multi_level_tree_branch_topology (test_moving_panels_from_graph.TestMovingPanelsFromGraph.test_multi_level_tree_branch_topology) ... ok
+test_synthetic_tree_star_topology (test_moving_panels_from_graph.TestMovingPanelsFromGraph.test_synthetic_tree_star_topology) ... ok
+test_binary_success_criterion_contract (test_phase0_contract.TestPhase0ArchitecturalContract.test_binary_success_criterion_contract)
+Verify binary success criterion contract: sequence valid iff every step is valid. ... ok
+test_fixture_panel_count_invariance (test_phase0_contract.TestPhase0ArchitecturalContract.test_fixture_panel_count_invariance)
+Verify Euler panel-bend relation: num_panels = num_bends + 1 for tree topology. ... ok
+test_signed_angle_canonical_representation (test_phase0_contract.TestPhase0ArchitecturalContract.test_signed_angle_canonical_representation)
+Verify that all Phase 0 fixtures specify signed angles, not absolute heuristics. ... ok
+test_all_fixtures_factory (test_phase0_fixtures.TestPhase0Fixtures.test_all_fixtures_factory) ... ok
+test_fixture_acute_45 (test_phase0_fixtures.TestPhase0Fixtures.test_fixture_acute_45) ... ok
+test_fixture_c_profile (test_phase0_fixtures.TestPhase0Fixtures.test_fixture_c_profile) ... ok
+test_fixture_l_profile (test_phase0_fixtures.TestPhase0Fixtures.test_fixture_l_profile) ... ok
+test_fixture_obtuse_135 (test_phase0_fixtures.TestPhase0Fixtures.test_fixture_obtuse_135) ... ok
+test_fixture_sequence_2134 (test_phase0_fixtures.TestPhase0Fixtures.test_fixture_sequence_2134) ... ok
+test_fixture_u_channel (test_phase0_fixtures.TestPhase0Fixtures.test_fixture_u_channel) ... ok
+test_fixture_z_bend (test_phase0_fixtures.TestPhase0Fixtures.test_fixture_z_bend) ... ok
+test_cli_returns_failed_when_missing_file (test_phase10_cli.TestPhase10CLI.test_cli_returns_failed_when_missing_file) ... ok
+test_json_schema_writer (test_phase10_cli.TestPhase10CLI.test_json_schema_writer) ... ok
+test_cache_hits_on_repeated_state (test_phase11_regression.TestPhase11Regression.test_cache_hits_on_repeated_state) ... ERROR
+test_regression_false_part_never_falsely_success (test_phase11_regression.TestPhase11Regression.test_regression_false_part_never_falsely_success) ... ERROR
+test_regression_ok_part_yields_valid_steps (test_phase11_regression.TestPhase11Regression.test_regression_ok_part_yields_valid_steps) ... ERROR
+test_clean_environment_imports (test_phase12_acceptance.TestPhase12Acceptance.test_clean_environment_imports) ... ok
+test_orchestrator_returns_honest_status (test_phase12_acceptance.TestPhase12Acceptance.test_orchestrator_returns_honest_status) ... ERROR
+test_freecad_adapter_structure (test_phase13_freecad.TestPhase13FreeCAD.test_freecad_adapter_structure) ... Error: Failed to open library "/Library/Frameworks/3DconnexionNavlib.framework/3DconnexionNavlib"! Error: dlopen(/Library/Frameworks/3DconnexionNavlib.framework/3DconnexionNavlib, 0x0005): tried: '/Library/Frameworks/3DconnexionNavlib.framework/3DconnexionNavlib' (no such file), '/System/Library/Frameworks/3DconnexionNavlib.framework/3DconnexionNavlib' (no such file)!
+ok
+test_package_xml_metadata_valid (test_phase13_freecad.TestPhase13FreeCAD.test_package_xml_metadata_valid) ... FAIL
+test_simulation_from_json (test_phase13_freecad.TestPhase13FreeCAD.test_simulation_from_json) ... ok
+test_bend_record_validation (test_phase1_geometry.TestPhase1GeometryModel.test_bend_record_validation)
+Test BendRecord canonical fields and validation. ... ok
+test_panel_graph_subtrees (test_phase1_geometry.TestPhase1GeometryModel.test_panel_graph_subtrees)
+Test PanelGraph moving_subtree and fixed_set resolution for chain A - B - C - D. ... ok
+test_signed_angle_calculation (test_phase1_geometry.TestPhase1GeometryModel.test_signed_angle_calculation)
+Test geometric signed angle calculation with vector normals. ... ok
+test_empty_panels_returns_unknown (test_phase1_validator.TestPhase1Validator.test_empty_panels_returns_unknown) ... ok
+test_missing_geometry_returns_unknown (test_phase1_validator.TestPhase1Validator.test_missing_geometry_returns_unknown) ... ok
+test_no_assembly_returns_unknown (test_phase1_validator.TestPhase1Validator.test_no_assembly_returns_unknown) ... ok
+test_occ_exception_returns_unknown (test_phase1_validator.TestPhase1Validator.test_occ_exception_returns_unknown) ... OCC Boolean collision check exception: Simulated OCC Error
+ok
+test_trajectory_collision_not_always_valid (test_phase1_validator.TestPhase1Validator.test_trajectory_collision_not_always_valid) ... ok
+test_validator_propagates_unknown (test_phase1_validator.TestPhase1Validator.test_validator_propagates_unknown) ... ok
+test_boolean_failure_returns_unknown (test_phase2_backend.TestPhase2Backend.test_boolean_failure_returns_unknown) ... ok
+test_face_hash_stable_across_runs (test_phase2_backend.TestPhase2Backend.test_face_hash_stable_across_runs) ... ok
+test_intersect_volume_returns_structured_result (test_phase2_backend.TestPhase2Backend.test_intersect_volume_returns_structured_result) ... ok
+test_is_valid_rejects_broken_shape (test_phase2_backend.TestPhase2Backend.test_is_valid_rejects_broken_shape) ... ok
+test_mock_backend_implements_abc (test_phase2_backend.TestPhase2Backend.test_mock_backend_implements_abc) ... ok
+test_rotate_empty_faces_raises (test_phase2_backend.TestPhase2Backend.test_rotate_empty_faces_raises) ... ok
+test_rotate_subtree_with_moving_panels (test_phase2_backend.TestPhase2Backend.test_rotate_subtree_with_moving_panels) ... ok
+test_step_reader_file_not_found_raises (test_phase2_backend.TestPhase2Backend.test_step_reader_file_not_found_raises) ... ok
+test_step_reader_invalid_shape_raises (test_phase2_backend.TestPhase2Backend.test_step_reader_invalid_shape_raises) ... ok
+test_rodrigues_90deg_z_axis (test_phase2_kinematics.TestPhase2Kinematics.test_rodrigues_90deg_z_axis)
+Test Rodrigues matrix for 90 degree rotation around Z axis. ... ok
+test_rodrigues_identity_at_zero (test_phase2_kinematics.TestPhase2Kinematics.test_rodrigues_identity_at_zero)
+Test that Rodrigues matrix at 0 degrees is the Identity matrix. ... ok
+test_rotate_subtree_toposhape (test_phase2_kinematics.TestPhase2Kinematics.test_rotate_subtree_toposhape)
+Test CAD TopoShape subtree rotation. ... ok
+test_transform_point_offset_origin (test_phase2_kinematics.TestPhase2Kinematics.test_transform_point_offset_origin)
+Test point rotation around offset axis origin C=(5, 5, 0). ... ok
+test_stage2_c_profile_cad (test_phase3_cad_models.TestPhase3RealCAD.test_stage2_c_profile_cad)
+Stage 2: C-profile real CAD model (3 bends at 90°). ... ERROR
+test_stage2_l_profile_cad (test_phase3_cad_models.TestPhase3RealCAD.test_stage2_l_profile_cad)
+Stage 2: L-profile real CAD model feature extraction & validity. ... ERROR
+test_stage2_opposite_45_profile_cad (test_phase3_cad_models.TestPhase3RealCAD.test_stage2_opposite_45_profile_cad)
+Stage 2: Adjacent opposite bends +45° and -45° real CAD model. ... ERROR
+test_stage2_u_profile_cad (test_phase3_cad_models.TestPhase3RealCAD.test_stage2_u_profile_cad)
+Stage 2: U-profile real CAD model (2 bends at 90°). ... ERROR
+test_stage2_z_profile_cad (test_phase3_cad_models.TestPhase3RealCAD.test_stage2_z_profile_cad)
+Stage 2: Z-profile real CAD model (2 opposite bends at 90°). ... ok
+test_stage3_kinematics_and_invariants (test_phase3_cad_models.TestPhase3RealCAD.test_stage3_kinematics_and_invariants)
+Stage 3: Kinematic invariants, volume preservation, and inverse rotation. ... ok
+test_stage4_real_tooling_assembly (test_phase3_cad_models.TestPhase3RealCAD.test_stage4_real_tooling_assembly)
+Stage 4: Real Tooling (puancon.FCStd + matrica.FCStd) loading, datums & alignment. ... ERROR
+test_stage5_trajectory_collisions (test_phase3_cad_models.TestPhase3RealCAD.test_stage5_trajectory_collisions)
+Stage 5: Trajectory collision tests (positive, negative, 5° vs 1° comparison). ... ERROR
+test_stage6_full_planning_pipeline (test_phase3_cad_models.TestPhase3RealCAD.test_stage6_full_planning_pipeline)
+Stage 6: Complete pipeline for all profiles: CAD -> Features -> Tools -> Planning -> Validation -> JSON. ... ERROR
+test_stage8_performance_and_memory (test_phase3_cad_models.TestPhase3RealCAD.test_stage8_performance_and_memory)
+Stage 8: Measure planning time, peak memory, and node budget limit enforcement. ... 
+[PERF] U-Profile Planning Time: 0.0571 s, Peak Memory: 0.05 MB
+ok
+test_apply_unfold_transition (test_phase3_fold_state.TestPhase3FoldState.test_apply_unfold_transition)
+Test unfolding a bend updates FoldState properties. ... ok
+test_fingerprint_uniqueness (test_phase3_fold_state.TestPhase3FoldState.test_fingerprint_uniqueness)
+Test that different physical states produce distinct fingerprints. ... ok
+test_initial_fold_state (test_phase3_fold_state.TestPhase3FoldState.test_initial_fold_state)
+Test initial root FoldState construction. ... ok
+test_state_cache_integration (test_phase3_fold_state.TestPhase3FoldState.test_state_cache_integration)
+Test StateCache using FoldState fingerprints. ... ok
+test_ambiguous_shape_raises (test_phase3_loading.TestPhase3Loading.test_ambiguous_shape_raises) ... ok
+test_fcstd_missing_file_returns_missing (test_phase3_loading.TestPhase3Loading.test_fcstd_missing_file_returns_missing) ... ok
+test_missing_sidecar_marks_inferred (test_phase3_loading.TestPhase3Loading.test_missing_sidecar_marks_inferred) ... ok
+test_tooling_loader_loads_json_sidecar (test_phase3_loading.TestPhase3Loading.test_tooling_loader_loads_json_sidecar) ... FAIL
+test_feature_extractor_none_shape_raises (test_phase4_extraction.TestPhase4Extraction.test_feature_extractor_none_shape_raises) ... ok
+test_panel_topology_builder (test_phase4_extraction.TestPhase4Extraction.test_panel_topology_builder) ... ok
+test_signed_angle_plus45_minus45_preserved (test_phase4_extraction.TestPhase4Extraction.test_signed_angle_plus45_minus45_preserved) ... ok
+test_zero_angle_ambiguous_raises (test_phase4_extraction.TestPhase4Extraction.test_zero_angle_ambiguous_raises) ... ok
+test_machine_instantiation (test_phase4_physics.TestPhase4Physics.test_machine_instantiation) ... ok
+test_fixed_panels_unchanged_and_empty_moving_raises (test_phase5_kinematics.TestPhase5Kinematics.test_fixed_panels_unchanged_and_empty_moving_raises) ... ok
+test_fold_state_apply_unfold_and_fingerprint (test_phase5_kinematics.TestPhase5Kinematics.test_fold_state_apply_unfold_and_fingerprint) ... ok
+test_rotate_only_moving_panel (test_phase5_kinematics.TestPhase5Kinematics.test_rotate_only_moving_panel) ... ok
+test_state_cache_hits_misses_and_eviction (test_phase5_kinematics.TestPhase5Kinematics.test_state_cache_hits_misses_and_eviction) ... ok
+test_invalid_consistency_step (test_phase5_validator.TestPhase5PhysicalOracle.test_invalid_consistency_step)
+Test validating a bend not in remaining_bends fails at consistency stage. ... ok
+test_valid_step_validation (test_phase5_validator.TestPhase5PhysicalOracle.test_valid_step_validation)
+Test validating a valid candidate step returns VALID result with next FoldState. ... FAIL
+test_dfs_l_profile (test_phase6_dfs.TestPhase6DFSSolver.test_dfs_l_profile)
+Test DFS solver on L-Profile (1 bend). ... FAIL
+test_dfs_optimizations (test_phase6_dfs.TestPhase6DFSSolver.test_dfs_optimizations)
+Test tooling_override and state_cache integration in DFSBackwardPlanner. ... FAIL
+test_dfs_sequence_2134 (test_phase6_dfs.TestPhase6DFSSolver.test_dfs_sequence_2134)
+Test DFS solver on multi-bend sequence ordering fixture. ... FAIL
+test_dfs_u_channel (test_phase6_dfs.TestPhase6DFSSolver.test_dfs_u_channel)
+Test DFS solver on U-Channel (2 bends). ... FAIL
+test_assembly_cannot_verify_missing_datums (test_phase6_tooling.TestPhase6Tooling.test_assembly_cannot_verify_missing_datums) ... ok
+test_cache_not_reused_across_tooling (test_phase6_tooling.TestPhase6Tooling.test_cache_not_reused_across_tooling) ... ok
+test_machine_kinematics_configuration (test_phase6_tooling.TestPhase6Tooling.test_machine_kinematics_configuration) ... ok
+test_backgauge_collision_invalid (test_phase7_collision.TestPhase7Collision.test_backgauge_collision_invalid) ... ok
+test_missing_tooling_geometry_unknown (test_phase7_collision.TestPhase7Collision.test_missing_tooling_geometry_unknown) ... ok
+test_none_shape_unknown (test_phase7_collision.TestPhase7Collision.test_none_shape_unknown) ... ok
+test_occ_failure_unknown (test_phase7_collision.TestPhase7Collision.test_occ_failure_unknown) ... OCC Boolean collision check exception: OCC B-Rep error
+ok
+test_part_vs_die_wall_collision_invalid (test_phase7_collision.TestPhase7Collision.test_part_vs_die_wall_collision_invalid) ... FAIL
+test_astar_finds_valid_sequence_l_profile (test_phase8_solvers.TestPhase8Solvers.test_astar_finds_valid_sequence_l_profile) ... ok
+test_dfs_finds_valid_sequence (test_phase8_solvers.TestPhase8Solvers.test_dfs_finds_valid_sequence) ... ok
+test_greedy_unfold_planner (test_phase8_solvers.TestPhase8Solvers.test_greedy_unfold_planner) ... ok
+test_planner_status_enum_values (test_phase8_solvers.TestPhase8Solvers.test_planner_status_enum_values) ... ok
+test_backgauge_computed_from_geometry (test_phase9_backgauge.TestPhase9Backgauge.test_backgauge_computed_from_geometry) ... ok
+test_backgauge_marks_partial_when_uncertain (test_phase9_backgauge.TestPhase9Backgauge.test_backgauge_marks_partial_when_uncertain) ... ok
+test_tool_optimizer_minimizes_stations (test_phase9_backgauge.TestPhase9Backgauge.test_tool_optimizer_minimizes_stations) ... ok
+test_real_freecad_shape (unittest.loader._FailedTest.test_real_freecad_shape) ... ERROR
+test_corrupted_sequence_export_blocked (test_robustness_and_negative.TestRobustnessAndNegative.test_corrupted_sequence_export_blocked)
+Export worker must BLOCK and set production_eligible=False if verification failed (§7.3). ... ok
+test_nonexistent_input_file (test_robustness_and_negative.TestRobustnessAndNegative.test_nonexistent_input_file)
+Missing input file must raise FileNotFoundError or error safely. ... ok
+test_resource_budget_node_exhaustion (test_robustness_and_negative.TestRobustnessAndNegative.test_resource_budget_node_exhaustion)
+Max nodes limit exceeded must yield RESOURCE_EXHAUSTED, not NO_SOLUTION (§6.5). ... ok
+test_timeout_budget_exhaustion (test_robustness_and_negative.TestRobustnessAndNegative.test_timeout_budget_exhaustion)
+Timeout must yield TIMEOUT, never NO_SOLUTION or SUCCESS (§6.5). ... ok
+test_4bend_chain_is_linear (test_sheetmetal_4bend.TestSheetMetal4Bend.test_4bend_chain_is_linear)
+3. Undirected panel graph is a linear path of 5 nodes with no branches. ... ok
+test_4bend_faces_out (test_sheetmetal_4bend.TestSheetMetal4Bend.test_4bend_faces_out)
+7. Unfolded solid has full 22 planar B-Rep faces (not synthetic 6-face box). ... ok
+test_4bend_has_five_panels (test_sheetmetal_4bend.TestSheetMetal4Bend.test_4bend_has_five_panels)
+1. 4-bend busbar extracts exactly 5 physical panels. ... ok
+test_4bend_has_four_bends (test_sheetmetal_4bend.TestSheetMetal4Bend.test_4bend_has_four_bends)
+2. 4-bend busbar extracts exactly 4 bend records. ... ok
+test_4bend_root_is_unique (test_sheetmetal_4bend.TestSheetMetal4Bend.test_4bend_root_is_unique)
+4. Root panel is 100% deterministic across PYTHONHASHSEED in {0, 1, 42, 999}. ... ok
+test_4bend_unfold_no_cylinders (test_sheetmetal_4bend.TestSheetMetal4Bend.test_4bend_unfold_no_cylinders)
+6. Headless unfold converts 8 input cylindrical faces into 0 cylindrical faces. ... ok
+test_4bend_w_flat_analytic (test_sheetmetal_4bend.TestSheetMetal4Bend.test_4bend_w_flat_analytic)
+5. W_flat = Σ l_i + 4·BA(90°) = 190 + 10.4300876 = 200.4300876 mm. ... ok
+test_availability (test_sheetmetal_adapter_contract.TestSheetMetalAdapterContract.test_availability)
+Adapter correctly detects FreeCAD and SheetMetal environment. ... ok
+test_backend_unavailable_never_returns_input_shape (test_sheetmetal_adapter_contract.TestSheetMetalAdapterContract.test_backend_unavailable_never_returns_input_shape)
+Rule R1: If backend is unavailable, adapter returns BACKEND_UNAVAILABLE, not input shape. ... ok
+test_unfold_4bend_stepped_busbar_contract (test_sheetmetal_adapter_contract.TestSheetMetalAdapterContract.test_unfold_4bend_stepped_busbar_contract)
+Native unfold of 4-bend stepped busbar produces full valid contract. ... ok
+test_sheetmetal_public_parameter_api (test_sheetmetal_api_client.TestSheetMetalApiClient.test_sheetmetal_public_parameter_api) ... ok
+test_unfold_90deg_numerical_precision (test_sheetmetal_api_client.TestSheetMetalApiClient.test_unfold_90deg_numerical_precision) ... ok
+test_unfold_part_gui_simulation (test_sheetmetal_api_client.TestSheetMetalApiClient.test_unfold_part_gui_simulation) ... ok
+test_unfold_plus_minus_45deg_symmetry (test_sheetmetal_api_client.TestSheetMetalApiClient.test_unfold_plus_minus_45deg_symmetry) ... ok
+test_bend_solid_sector_geometry (test_sheetmetal_bend_solid.TestSheetMetalBendSolidContract.test_bend_solid_sector_geometry)
+Tests bend_solid primitive on 90-degree bend strip for R=1.0, t=1.5, k=0.44. ... ok
+test_canonical_orientation_seed_independent (test_sheetmetal_canonicalization.TestSheetMetalCanonicalization.test_canonical_orientation_seed_independent)
+Extraction yields identical (P1, P2, signed_angle) across PYTHONHASHSEED in {0, 1, 42, 999}. ... ok
+test_l_bracket_has_two_panels (test_sheetmetal_canonicalization.TestSheetMetalCanonicalization.test_l_bracket_has_two_panels)
+L-bracket has exactly 2 physical panels (areas 9550 and 4750). ... ok
+test_root_selection_is_deterministic_for_symmetric_parts (test_sheetmetal_canonicalization.TestSheetMetalCanonicalization.test_root_selection_is_deterministic_for_symmetric_parts)
+Root selection is 100% deterministic even for fully symmetric U-bracket with l1 == l2. ... ok
+test_u_bracket_bends_are_chained (test_sheetmetal_canonicalization.TestSheetMetalCanonicalization.test_u_bracket_bends_are_chained)
+Bends in U-bracket form a continuous chain from root: parents ∩ children is exactly 1 panel. ... ok
+test_u_bracket_has_three_panels (test_sheetmetal_canonicalization.TestSheetMetalCanonicalization.test_u_bracket_has_three_panels)
+U-bracket has exactly 3 physical panels (areas 9550, 5000, and 4750). ... ok
+test_w_flat_unchanged_after_canonicalization (test_sheetmetal_canonicalization.TestSheetMetalCanonicalization.test_w_flat_unchanged_after_canonicalization)
+W_flat(90°) = 145.6075 mm and W_flat(U) = 198.215 mm regression check. ... ok
+test_bend_record_with_none_fields_resolves_from_client (test_sheetmetal_params_api.TestSheetMetalParamsApi.test_bend_record_with_none_fields_resolves_from_client) ... ok
+test_check_temp_part_step_thickness (test_sheetmetal_params_api.TestSheetMetalParamsApi.test_check_temp_part_step_thickness) ... 
+--- temp_part.step get_thickness check ---
+Total faces: 86
+BoundBox: XLength=200.0000, YLength=200.0000, ZLength=25.0000, min_dim=25.0000
+face 0 (Part::GeomPlane, area=38025.0): thickness = 1.5000
+face 5 (Part::GeomPlane, area=4.1): failed — EstimateThickness returned implausible value 195.0000 for face 5 (min bbox dim is 25.0000)
+face 10 (Part::GeomPlane, area=3932.0): thickness = 1.5000
+ok
+test_compare_sm_vs_geom_multi_thickness (test_sheetmetal_params_api.TestSheetMetalParamsApi.test_compare_sm_vs_geom_multi_thickness) ... 
+--- Multi-Thickness SM vs geom Comparison (t in {0.8, 1.5, 2.0}) ---
+t=0.8: SM=0.8000, geom=0.8000, diff=0.000000
+t=1.5: SM=1.5000, geom=1.5000, diff=0.000000
+t=2.0: SM=2.0000, geom=2.0000, diff=0.000000
+-----------------------------------------------------------------------
 
-TOTAL TESTS: 219
-PASSED: 184
-FAILURES: 18
-ERRORS: 17
-SKIPPED: 0
+ok
+test_compare_sm_vs_geom_thickness (test_sheetmetal_params_api.TestSheetMetalParamsApi.test_compare_sm_vs_geom_thickness) ... 
+--- SM vs geom Thickness Comparison ---
+temp_part.step: SM=1.5000, geom=1.5000, diff=0.000000
+L-90: SM=1.5000, geom=1.5000, diff=0.000000
+U-90: SM=1.5000, geom=1.5000, diff=0.000000
+----------------------------------------
 
-TEST LIST:
---------------------------------------------------
-[PASS] tests.test_baseline_topology_canonical.TestBaselineTopologyCanonical.test_135_ok
-[PASS] tests.test_baseline_topology_canonical.TestBaselineTopologyCanonical.test_four_bend
-[PASS] tests.test_baseline_topology_canonical.TestBaselineTopologyCanonical.test_u_60deg_30deg_ok
-[PASS] tests.test_baseline_topology_canonical.TestBaselineTopologyCanonical.test_u_90deg_90deg_ok
-[PASS] tests.test_baseline_topology_canonical.TestBaselineTopologyCanonical.test_u_bracket
-[PASS] tests.test_baseline_topology_canonical.TestBaselineTopologyCanonical.test_z_10_20_10_ok
-[PASS] tests.test_baseline_topology_canonical.TestBaselineTopologyCanonical.test_z_ok
-[PASS] tests.test_baseline_topology_mismatch.TestBaselineTopologyMismatch.test_tampered_shape_triggers_topology_mismatch
-[PASS] tests.test_baseline_topology_rotation_negative.TestBaselineTopologyRotationNegative.test_u_bracket_rotated_90_x_negative
-[PASS] tests.test_bend_sector_canonicalization.TestBendSectorCanonicalization.test_canonicalize_single_bend_sector
-[PASS] tests.test_bendseq.TestBackgaugeCalculator.test_backgauge_computation
-[PASS] tests.test_bendseq.TestFeatureExtractor.test_fallback_features
-[FAIL] tests.test_bendseq.TestSolvers.test_astar_planning
-[FAIL] tests.test_bendseq.TestSolvers.test_greedy_planning
-[PASS] tests.test_bendseq.TestStateCache.test_cache_put_get
-[PASS] tests.test_collisions_fixed.TestCollisionsFixed.test_missing_geometry_intersection
-[PASS] tests.test_contracts_and_filestore.TestContractsAndFileStore.test_atomic_write_and_verified_read
-[PASS] tests.test_contracts_and_filestore.TestContractsAndFileStore.test_canonical_json_determinism
-[PASS] tests.test_contracts_and_filestore.TestContractsAndFileStore.test_canonical_part_schema
-[PASS] tests.test_contracts_and_filestore.TestContractsAndFileStore.test_consumer_never_repairs_producer_data
-[PASS] tests.test_contracts_and_filestore.TestContractsAndFileStore.test_hash_excludes_content_hash_field
-[PASS] tests.test_contracts_and_filestore.TestContractsAndFileStore.test_part_bendseq_v1_1_schema
-[PASS] tests.test_contracts_and_filestore.TestContractsAndFileStore.test_tampering_detection
-[PASS] tests.test_end_to_end_pipeline.TestEndToEndPipeline.test_pipeline_fixture_l
-[PASS] tests.test_end_to_end_pipeline.TestEndToEndPipeline.test_pipeline_fixture_u
-[PASS] tests.test_end_to_end_pipeline.TestEndToEndPipeline.test_pipeline_stepped_busbar_4bend
-[PASS] tests.test_fold_multi_bend.TestFoldMultiBend.test_fold_4bend_stepped_busbar
-[PASS] tests.test_fold_multi_bend.TestFoldMultiBend.test_fold_u_bracket
-[PASS] tests.test_fold_one_bend.TestFoldOneBend.test_fold_one_bend_matches_reference
-[PASS] tests.test_frame_aligner_contract.TestFrameAlignerContract.test_arbitrary_3d_rigid_transform_invariance
-[PASS] tests.test_frame_aligner_contract.TestFrameAlignerContract.test_degenerate_circular_face_rejection
-[PASS] tests.test_frame_aligner_contract.TestFrameAlignerContract.test_determinism_across_runs
-[PASS] tests.test_frame_aligner_contract.TestFrameAlignerContract.test_normal_and_tangent_alignment
-[PASS] tests.test_frame_aligner_contract.TestFrameAlignerContract.test_reflection_rejection
-[PASS] tests.test_inspect_coll.TestInspectColl.test_inspect_coll
-[PASS] tests.test_phase0_contract.TestPhase0ArchitecturalContract.test_binary_success_criterion_contract
-[PASS] tests.test_phase0_contract.TestPhase0ArchitecturalContract.test_fixture_panel_count_invariance
-[PASS] tests.test_phase0_contract.TestPhase0ArchitecturalContract.test_signed_angle_canonical_representation
-[PASS] tests.test_phase0_fixtures.TestPhase0Fixtures.test_all_fixtures_factory
-[PASS] tests.test_phase0_fixtures.TestPhase0Fixtures.test_fixture_acute_45
-[PASS] tests.test_phase0_fixtures.TestPhase0Fixtures.test_fixture_c_profile
-[PASS] tests.test_phase0_fixtures.TestPhase0Fixtures.test_fixture_l_profile
-[PASS] tests.test_phase0_fixtures.TestPhase0Fixtures.test_fixture_obtuse_135
-[PASS] tests.test_phase0_fixtures.TestPhase0Fixtures.test_fixture_sequence_2134
-[PASS] tests.test_phase0_fixtures.TestPhase0Fixtures.test_fixture_u_channel
-[PASS] tests.test_phase0_fixtures.TestPhase0Fixtures.test_fixture_z_bend
-[PASS] tests.test_phase10_cli.TestPhase10CLI.test_cli_returns_failed_when_missing_file
-[PASS] tests.test_phase10_cli.TestPhase10CLI.test_json_schema_writer
-[ERROR] tests.test_phase11_regression.TestPhase11Regression.test_cache_hits_on_repeated_state
-[ERROR] tests.test_phase11_regression.TestPhase11Regression.test_regression_false_part_never_falsely_success
-[ERROR] tests.test_phase11_regression.TestPhase11Regression.test_regression_ok_part_yields_valid_steps
-[PASS] tests.test_phase12_acceptance.TestPhase12Acceptance.test_clean_environment_imports
-[ERROR] tests.test_phase12_acceptance.TestPhase12Acceptance.test_orchestrator_returns_honest_status
-[PASS] tests.test_phase13_freecad.TestPhase13FreeCAD.test_freecad_adapter_structure
-[FAIL] tests.test_phase13_freecad.TestPhase13FreeCAD.test_package_xml_metadata_valid
-[PASS] tests.test_phase13_freecad.TestPhase13FreeCAD.test_simulation_from_json
-[PASS] tests.test_phase1_geometry.TestPhase1GeometryModel.test_bend_record_validation
-[PASS] tests.test_phase1_geometry.TestPhase1GeometryModel.test_panel_graph_subtrees
-[PASS] tests.test_phase1_geometry.TestPhase1GeometryModel.test_signed_angle_calculation
-[PASS] tests.test_phase1_validator.TestPhase1Validator.test_empty_panels_returns_unknown
-[PASS] tests.test_phase1_validator.TestPhase1Validator.test_missing_geometry_returns_unknown
-[PASS] tests.test_phase1_validator.TestPhase1Validator.test_no_assembly_returns_unknown
-[PASS] tests.test_phase1_validator.TestPhase1Validator.test_occ_exception_returns_unknown
-[PASS] tests.test_phase1_validator.TestPhase1Validator.test_trajectory_collision_not_always_valid
-[PASS] tests.test_phase1_validator.TestPhase1Validator.test_validator_propagates_unknown
-[PASS] tests.test_phase2_backend.TestPhase2Backend.test_boolean_failure_returns_unknown
-[PASS] tests.test_phase2_backend.TestPhase2Backend.test_face_hash_stable_across_runs
-[PASS] tests.test_phase2_backend.TestPhase2Backend.test_intersect_volume_returns_structured_result
-[PASS] tests.test_phase2_backend.TestPhase2Backend.test_is_valid_rejects_broken_shape
-[PASS] tests.test_phase2_backend.TestPhase2Backend.test_mock_backend_implements_abc
-[PASS] tests.test_phase2_backend.TestPhase2Backend.test_rotate_empty_faces_raises
-[PASS] tests.test_phase2_backend.TestPhase2Backend.test_rotate_subtree_with_moving_panels
-[PASS] tests.test_phase2_backend.TestPhase2Backend.test_step_reader_file_not_found_raises
-[PASS] tests.test_phase2_backend.TestPhase2Backend.test_step_reader_invalid_shape_raises
-[PASS] tests.test_phase2_kinematics.TestPhase2Kinematics.test_rodrigues_90deg_z_axis
-[PASS] tests.test_phase2_kinematics.TestPhase2Kinematics.test_rodrigues_identity_at_zero
-[PASS] tests.test_phase2_kinematics.TestPhase2Kinematics.test_rotate_subtree_toposhape
-[PASS] tests.test_phase2_kinematics.TestPhase2Kinematics.test_transform_point_offset_origin
-[ERROR] tests.test_phase3_cad_models.TestPhase3RealCAD.test_stage2_c_profile_cad
-[ERROR] tests.test_phase3_cad_models.TestPhase3RealCAD.test_stage2_l_profile_cad
-[ERROR] tests.test_phase3_cad_models.TestPhase3RealCAD.test_stage2_opposite_45_profile_cad
-[ERROR] tests.test_phase3_cad_models.TestPhase3RealCAD.test_stage2_u_profile_cad
-[PASS] tests.test_phase3_cad_models.TestPhase3RealCAD.test_stage2_z_profile_cad
-[PASS] tests.test_phase3_cad_models.TestPhase3RealCAD.test_stage3_kinematics_and_invariants
-[ERROR] tests.test_phase3_cad_models.TestPhase3RealCAD.test_stage4_real_tooling_assembly
-[ERROR] tests.test_phase3_cad_models.TestPhase3RealCAD.test_stage5_trajectory_collisions
-[ERROR] tests.test_phase3_cad_models.TestPhase3RealCAD.test_stage6_full_planning_pipeline
-[PASS] tests.test_phase3_cad_models.TestPhase3RealCAD.test_stage8_performance_and_memory
-[PASS] tests.test_phase3_fold_state.TestPhase3FoldState.test_apply_unfold_transition
-[PASS] tests.test_phase3_fold_state.TestPhase3FoldState.test_fingerprint_uniqueness
-[PASS] tests.test_phase3_fold_state.TestPhase3FoldState.test_initial_fold_state
-[PASS] tests.test_phase3_fold_state.TestPhase3FoldState.test_state_cache_integration
-[PASS] tests.test_phase3_loading.TestPhase3Loading.test_ambiguous_shape_raises
-[PASS] tests.test_phase3_loading.TestPhase3Loading.test_fcstd_missing_file_returns_missing
-[PASS] tests.test_phase3_loading.TestPhase3Loading.test_missing_sidecar_marks_inferred
-[FAIL] tests.test_phase3_loading.TestPhase3Loading.test_tooling_loader_loads_json_sidecar
-[PASS] tests.test_phase4_extraction.TestPhase4Extraction.test_feature_extractor_none_shape_raises
-[PASS] tests.test_phase4_extraction.TestPhase4Extraction.test_panel_topology_builder
-[PASS] tests.test_phase4_extraction.TestPhase4Extraction.test_signed_angle_plus45_minus45_preserved
-[PASS] tests.test_phase4_extraction.TestPhase4Extraction.test_zero_angle_ambiguous_raises
-[PASS] tests.test_phase4_physics.TestPhase4Physics.test_machine_instantiation
-[PASS] tests.test_phase5_kinematics.TestPhase5Kinematics.test_fixed_panels_unchanged_and_empty_moving_raises
-[PASS] tests.test_phase5_kinematics.TestPhase5Kinematics.test_fold_state_apply_unfold_and_fingerprint
-[PASS] tests.test_phase5_kinematics.TestPhase5Kinematics.test_rotate_only_moving_panel
-[PASS] tests.test_phase5_kinematics.TestPhase5Kinematics.test_state_cache_hits_misses_and_eviction
-[PASS] tests.test_phase5_validator.TestPhase5PhysicalOracle.test_invalid_consistency_step
-[FAIL] tests.test_phase5_validator.TestPhase5PhysicalOracle.test_valid_step_validation
-[FAIL] tests.test_phase6_dfs.TestPhase6DFSSolver.test_dfs_l_profile
-[FAIL] tests.test_phase6_dfs.TestPhase6DFSSolver.test_dfs_optimizations
-[FAIL] tests.test_phase6_dfs.TestPhase6DFSSolver.test_dfs_sequence_2134
-[FAIL] tests.test_phase6_dfs.TestPhase6DFSSolver.test_dfs_u_channel
-[PASS] tests.test_phase6_tooling.TestPhase6Tooling.test_assembly_cannot_verify_missing_datums
-[PASS] tests.test_phase6_tooling.TestPhase6Tooling.test_cache_not_reused_across_tooling
-[PASS] tests.test_phase6_tooling.TestPhase6Tooling.test_machine_kinematics_configuration
-[PASS] tests.test_phase7_collision.TestPhase7Collision.test_backgauge_collision_invalid
-[PASS] tests.test_phase7_collision.TestPhase7Collision.test_missing_tooling_geometry_unknown
-[PASS] tests.test_phase7_collision.TestPhase7Collision.test_none_shape_unknown
-[PASS] tests.test_phase7_collision.TestPhase7Collision.test_occ_failure_unknown
-[FAIL] tests.test_phase7_collision.TestPhase7Collision.test_part_vs_die_wall_collision_invalid
-[PASS] tests.test_phase8_solvers.TestPhase8Solvers.test_astar_finds_valid_sequence_l_profile
-[PASS] tests.test_phase8_solvers.TestPhase8Solvers.test_dfs_finds_valid_sequence
-[PASS] tests.test_phase8_solvers.TestPhase8Solvers.test_greedy_unfold_planner
-[PASS] tests.test_phase8_solvers.TestPhase8Solvers.test_planner_status_enum_values
-[PASS] tests.test_phase9_backgauge.TestPhase9Backgauge.test_backgauge_computed_from_geometry
-[PASS] tests.test_phase9_backgauge.TestPhase9Backgauge.test_backgauge_marks_partial_when_uncertain
-[PASS] tests.test_phase9_backgauge.TestPhase9Backgauge.test_tool_optimizer_minimizes_stations
-[PASS] tests.test_robustness_and_negative.TestRobustnessAndNegative.test_corrupted_sequence_export_blocked
-[PASS] tests.test_robustness_and_negative.TestRobustnessAndNegative.test_nonexistent_input_file
-[PASS] tests.test_robustness_and_negative.TestRobustnessAndNegative.test_resource_budget_node_exhaustion
-[PASS] tests.test_robustness_and_negative.TestRobustnessAndNegative.test_timeout_budget_exhaustion
-[PASS] tests.test_sheetmetal_4bend.TestSheetMetal4Bend.test_4bend_chain_is_linear
-[PASS] tests.test_sheetmetal_4bend.TestSheetMetal4Bend.test_4bend_faces_out
-[PASS] tests.test_sheetmetal_4bend.TestSheetMetal4Bend.test_4bend_has_five_panels
-[PASS] tests.test_sheetmetal_4bend.TestSheetMetal4Bend.test_4bend_has_four_bends
-[PASS] tests.test_sheetmetal_4bend.TestSheetMetal4Bend.test_4bend_root_is_unique
-[PASS] tests.test_sheetmetal_4bend.TestSheetMetal4Bend.test_4bend_unfold_no_cylinders
-[PASS] tests.test_sheetmetal_4bend.TestSheetMetal4Bend.test_4bend_w_flat_analytic
-[PASS] tests.test_sheetmetal_adapter_contract.TestSheetMetalAdapterContract.test_availability
-[PASS] tests.test_sheetmetal_adapter_contract.TestSheetMetalAdapterContract.test_backend_unavailable_never_returns_input_shape
-[PASS] tests.test_sheetmetal_adapter_contract.TestSheetMetalAdapterContract.test_unfold_4bend_stepped_busbar_contract
-[PASS] tests.test_sheetmetal_api_client.TestSheetMetalApiClient.test_sheetmetal_public_parameter_api
-[PASS] tests.test_sheetmetal_api_client.TestSheetMetalApiClient.test_unfold_90deg_numerical_precision
-[PASS] tests.test_sheetmetal_api_client.TestSheetMetalApiClient.test_unfold_part_gui_simulation
-[PASS] tests.test_sheetmetal_api_client.TestSheetMetalApiClient.test_unfold_plus_minus_45deg_symmetry
-[PASS] tests.test_sheetmetal_bend_solid.TestSheetMetalBendSolidContract.test_bend_solid_sector_geometry
-[PASS] tests.test_sheetmetal_canonicalization.TestSheetMetalCanonicalization.test_canonical_orientation_seed_independent
-[PASS] tests.test_sheetmetal_canonicalization.TestSheetMetalCanonicalization.test_l_bracket_has_two_panels
-[PASS] tests.test_sheetmetal_canonicalization.TestSheetMetalCanonicalization.test_root_selection_is_deterministic_for_symmetric_parts
-[PASS] tests.test_sheetmetal_canonicalization.TestSheetMetalCanonicalization.test_u_bracket_bends_are_chained
-[PASS] tests.test_sheetmetal_canonicalization.TestSheetMetalCanonicalization.test_u_bracket_has_three_panels
-[PASS] tests.test_sheetmetal_canonicalization.TestSheetMetalCanonicalization.test_w_flat_unchanged_after_canonicalization
-[PASS] tests.test_sheetmetal_params_api.TestSheetMetalParamsApi.test_bend_record_with_none_fields_resolves_from_client
-[PASS] tests.test_sheetmetal_params_api.TestSheetMetalParamsApi.test_check_temp_part_step_thickness
-[PASS] tests.test_sheetmetal_params_api.TestSheetMetalParamsApi.test_compare_sm_vs_geom_multi_thickness
-[PASS] tests.test_sheetmetal_params_api.TestSheetMetalParamsApi.test_compare_sm_vs_geom_thickness
-[PASS] tests.test_sheetmetal_params_api.TestSheetMetalParamsApi.test_extract_features_falls_back_when_sm_client_raises
-[PASS] tests.test_sheetmetal_params_api.TestSheetMetalParamsApi.test_get_bend_allowance_45deg_ansi_k044
-[PASS] tests.test_sheetmetal_params_api.TestSheetMetalParamsApi.test_get_bend_allowance_90deg_ansi_k044
-[PASS] tests.test_sheetmetal_params_api.TestSheetMetalParamsApi.test_get_bend_angle_from_cylinder_90deg
-[PASS] tests.test_sheetmetal_params_api.TestSheetMetalParamsApi.test_get_bend_angle_partial_seam_arc
-[PASS] tests.test_sheetmetal_params_api.TestSheetMetalParamsApi.test_get_bend_angle_uses_fallback_for_full_cylinder
-[PASS] tests.test_sheetmetal_params_api.TestSheetMetalParamsApi.test_get_thickness_raises_on_implausible_face
-[PASS] tests.test_sheetmetal_params_api.TestSheetMetalParamsApi.test_get_thickness_returns_1_5_for_known_L_bracket
-[PASS] tests.test_sheetmetal_params_api.TestSheetMetalParamsApi.test_k_factor_falls_back_to_044_when_preferences_unavailable
-[PASS] tests.test_sheetmetal_params_api.TestSheetMetalParamsApi.test_k_factor_override_ignores_preferences
-[PASS] tests.test_sheetmetal_params_api.TestSheetMetalParamsApi.test_k_factor_reads_from_sheetmetal_preferences
-[PASS] tests.test_sheetmetal_ubracket.TestSheetMetalUBracket.test_u_bracket_multibend_unfold
-[PASS] tests.test_stage0_regression.TestStage0Baseline.test_smbendtests_files_exist
-[PASS] tests.test_stage0_regression.TestStage0Baseline.test_synthetic_fixtures_baseline
-[PASS] tests.test_stage10_candidate_ordering.TestStage10Ordering.test_candidate_ordering
-[PASS] tests.test_stage11_complex_sequences.TestStage11ComplexSequences.test_center_first_sequence
-[PASS] tests.test_stage11_complex_sequences.TestStage11ComplexSequences.test_l_profile
-[PASS] tests.test_stage12_opposite_bends.TestStage12OppositeBends.test_opposite_45_degree_bends
-[PASS] tests.test_stage13_135_and_down.TestStage13AnglesAndDown.test_135_degree_bends
-[PASS] tests.test_stage13_135_and_down.TestStage13AnglesAndDown.test_down_bends
-[PASS] tests.test_stage14_backgauge.TestStage14Backgauge.test_backgauge_calculation_post_pass
-[PASS] tests.test_stage15_tool_optimizer.TestStage15ToolOptimizer.test_tool_optimization_post_pass
-[PASS] tests.test_stage18_astar.TestStage18AStar.test_astar_search_basic
-[PASS] tests.test_stage19_astar_optimized.TestStage19AStarOptimized.test_astar_finds_center_first_naturally
-[PASS] tests.test_stage1_baseline.TestStage1Baseline.test_baseline_l_profile
-[PASS] tests.test_stage1_baseline.TestStage1Baseline.test_baseline_stepped_busbar_4bend
-[PASS] tests.test_stage1_baseline.TestStage1Baseline.test_baseline_u_channel
-[PASS] tests.test_stage2_pythonocc.TestPythonOCCBackend.test_copy_shape
-[PASS] tests.test_stage2_pythonocc.TestPythonOCCBackend.test_make_box_and_bbox
-[PASS] tests.test_stage2_pythonocc.TestPythonOCCBackend.test_transform_shape
-[PASS] tests.test_stage2_rotate_subtree.TestStage2SubtreeRotation.test_moving_subtree_resolution
-[PASS] tests.test_stage2_rotate_subtree.TestStage2SubtreeRotation.test_rodrigues_point_transformation
-[PASS] tests.test_stage3_bend_matcher.TestBendMatcher.test_compute_flat_coordinates_u_shape
-[PASS] tests.test_stage3_bend_matcher.TestBendMatcher.test_matching_ambiguous_symmetric
-[PASS] tests.test_stage3_bend_matcher.TestBendMatcher.test_matching_different_lengths
-[PASS] tests.test_stage3_foldstate.TestStage3FoldState.test_fingerprint_without_shape
-[PASS] tests.test_stage3_foldstate.TestStage3FoldState.test_predictive_fingerprint_matching
-[FAIL] tests.test_stage3_regression.TestRegressionSuites.test_c_profile
-[FAIL] tests.test_stage3_regression.TestRegressionSuites.test_complex_profile
-[FAIL] tests.test_stage3_regression.TestRegressionSuites.test_l_profile
-[FAIL] tests.test_stage3_regression.TestRegressionSuites.test_u_profile
-[FAIL] tests.test_stage3_regression.TestRegressionSuites.test_z_profile
-[PASS] tests.test_stage4_extraction.TestStage4BendExtraction.test_signed_angle_calculation_acute_45
-[PASS] tests.test_stage4_extraction.TestStage4BendExtraction.test_signed_angle_calculation_obtuse_135
-[PASS] tests.test_stage4_extraction.TestStage4BendExtraction.test_signed_angle_calculation_positive
-[PASS] tests.test_stage4_extraction.TestStage4BendExtraction.test_z_bend_opposing_signs
-[PASS] tests.test_stage5_oracle.TestStage5PhysicalOracle.test_oracle_approach_rejection
-[PASS] tests.test_stage5_oracle.TestStage5PhysicalOracle.test_oracle_valid_step
-[PASS] tests.test_stage6_self_collision.TestStage6SelfCollision.test_self_collision_logic
-[FAIL] tests.test_stage6_self_collision.TestStage6SelfCollision.test_self_collision_no_panel_graph
-[PASS] tests.test_stage7_kinematics.TestStage7Kinematics.test_approach_and_retract
-[FAIL] tests.test_stage8_tool_collision.TestStage8ToolCollision.test_tool_collision_distinction
-[FAIL] tests.test_stage9_machine_collision.TestStage9MachineCollision.test_machine_envelope_limits
-[PASS] tests.test_tooling_assembly.TestToolingAssembly.test_assembly_aligned
-[PASS] tests.test_tooling_assembly.TestToolingAssembly.test_assembly_misaligned
-[PASS] tests.test_tooling_assembly.TestToolingAssembly.test_missing_datums
-[ERROR] tests.test_tooling_fcstd.TestToolingSystem.test_assembly_misalignment
-[ERROR] tests.test_tooling_fcstd.TestToolingSystem.test_missing_sidecar
-[PASS] tests.test_tooling_fcstd.TestToolingSystem.test_penetration_collision
-[ERROR] tests.test_tooling_fcstd.TestToolingSystem.test_sidecar_loading
-[PASS] tests.test_vertical_slice_geometry.TestVerticalSliceGeometry.test_vertical_slice_stepped_busbar
-[ERROR] unittest.loader._FailedTest.tests.test_real_freecad_shape
-[ERROR] unittest.loader._FailedTest.tests.test_stage16_simulation
-[ERROR] unittest.loader._FailedTest.tests.test_stage1_5_sequence_view
+ok
+test_extract_features_falls_back_when_sm_client_raises (test_sheetmetal_params_api.TestSheetMetalParamsApi.test_extract_features_falls_back_when_sm_client_raises) ... SheetMetal get_thickness failed, falling back to geometric detection: Simulated SheetMetal client crash
+ok
+test_get_bend_allowance_45deg_ansi_k044 (test_sheetmetal_params_api.TestSheetMetalParamsApi.test_get_bend_allowance_45deg_ansi_k044) ... ok
+test_get_bend_allowance_90deg_ansi_k044 (test_sheetmetal_params_api.TestSheetMetalParamsApi.test_get_bend_allowance_90deg_ansi_k044) ... ok
+test_get_bend_angle_from_cylinder_90deg (test_sheetmetal_params_api.TestSheetMetalParamsApi.test_get_bend_angle_from_cylinder_90deg) ... ok
+test_get_bend_angle_partial_seam_arc (test_sheetmetal_params_api.TestSheetMetalParamsApi.test_get_bend_angle_partial_seam_arc) ... ok
+test_get_bend_angle_uses_fallback_for_full_cylinder (test_sheetmetal_params_api.TestSheetMetalParamsApi.test_get_bend_angle_uses_fallback_for_full_cylinder) ... ok
+test_get_thickness_raises_on_implausible_face (test_sheetmetal_params_api.TestSheetMetalParamsApi.test_get_thickness_raises_on_implausible_face) ... ok
+test_get_thickness_returns_1_5_for_known_L_bracket (test_sheetmetal_params_api.TestSheetMetalParamsApi.test_get_thickness_returns_1_5_for_known_L_bracket) ... ok
+test_k_factor_falls_back_to_044_when_preferences_unavailable (test_sheetmetal_params_api.TestSheetMetalParamsApi.test_k_factor_falls_back_to_044_when_preferences_unavailable) ... SheetMetal preferences unavailable, using default: no prefs
+ok
+test_k_factor_override_ignores_preferences (test_sheetmetal_params_api.TestSheetMetalParamsApi.test_k_factor_override_ignores_preferences) ... ok
+test_k_factor_reads_from_sheetmetal_preferences (test_sheetmetal_params_api.TestSheetMetalParamsApi.test_k_factor_reads_from_sheetmetal_preferences) ... ok
+test_u_bracket_multibend_unfold (test_sheetmetal_ubracket.TestSheetMetalUBracket.test_u_bracket_multibend_unfold) ... ok
+test_smbendtests_files_exist (test_stage0_regression.TestStage0Baseline.test_smbendtests_files_exist)
+Verify presence of real FCStd test files in SMBendTests/. ... ok
+test_synthetic_fixtures_baseline (test_stage0_regression.TestStage0Baseline.test_synthetic_fixtures_baseline)
+Verify synthetic profiles fixture baseline (L, U, C, +45, 135, Z, 2-1-3-4). ... ok
+test_candidate_ordering (test_stage10_candidate_ordering.TestStage10Ordering.test_candidate_ordering) ... ok
+test_center_first_sequence (test_stage11_complex_sequences.TestStage11ComplexSequences.test_center_first_sequence)
+Tests a 4-bend profile where we want to verify that the sequence ... Validating B4 in ('B1', 'B2', 'B3', 'B4'). Invalid: {'B1', 'B2', 'B3'}
+Validating B3 in ('B1', 'B2', 'B3', 'B4'). Invalid: {'B1', 'B2', 'B3'}
+Validating B2 in ('B1', 'B2', 'B3', 'B4'). Invalid: {'B1', 'B2', 'B3'}
+Validating B1 in ('B1', 'B2', 'B3', 'B4'). Invalid: {'B1', 'B2', 'B3'}
+Validating B3 in ('B1', 'B2', 'B3'). Invalid: {'B1', 'B2'}
+Validating B2 in ('B1', 'B2', 'B3'). Invalid: {'B1', 'B2'}
+Validating B1 in ('B1', 'B2', 'B3'). Invalid: {'B1', 'B2'}
+Validating B2 in ('B1', 'B2'). Invalid: {'B2'}
+Validating B1 in ('B1', 'B2'). Invalid: {'B2'}
+Validating B2 in ('B2',). Invalid: set()
+ok
+test_l_profile (test_stage11_complex_sequences.TestStage11ComplexSequences.test_l_profile) ... Validating B2 in ('B1', 'B2'). Invalid: set()
+Validating B1 in ('B1', 'B2'). Invalid: set()
+Validating B1 in ('B1',). Invalid: set()
+ok
+test_opposite_45_degree_bends (test_stage12_opposite_bends.TestStage12OppositeBends.test_opposite_45_degree_bends) ... ok
+test_135_degree_bends (test_stage13_135_and_down.TestStage13AnglesAndDown.test_135_degree_bends) ... ok
+test_down_bends (test_stage13_135_and_down.TestStage13AnglesAndDown.test_down_bends) ... ok
+test_backgauge_calculation_post_pass (test_stage14_backgauge.TestStage14Backgauge.test_backgauge_calculation_post_pass) ... ok
+test_tool_optimization_post_pass (test_stage15_tool_optimizer.TestStage15ToolOptimizer.test_tool_optimization_post_pass) ... ok
+test_stage16_simulation (unittest.loader._FailedTest.test_stage16_simulation) ... ERROR
+test_astar_search_basic (test_stage18_astar.TestStage18AStar.test_astar_search_basic) ... ok
+test_astar_finds_center_first_naturally (test_stage19_astar_optimized.TestStage19AStarOptimized.test_astar_finds_center_first_naturally) ... Optimized A* naturally found Center-First sequence: ['B1', 'B2', 'B3', 'B4']
+Nodes explored: 16
+ok
+test_stage1_5_sequence_view (unittest.loader._FailedTest.test_stage1_5_sequence_view) ... ERROR
+test_baseline_l_profile (test_stage1_baseline.TestStage1Baseline.test_baseline_l_profile)
+Fixture L: 1 bend (90 deg), thickness 1.5mm, R=1.0mm. ... ok
+test_baseline_stepped_busbar_4bend (test_stage1_baseline.TestStage1Baseline.test_baseline_stepped_busbar_4bend)
+Fixture 4-bend stepped busbar (4 alternating 90 deg bends). ... ok
+test_baseline_u_channel (test_stage1_baseline.TestStage1Baseline.test_baseline_u_channel)
+Fixture U: 2 bends (90 deg), thickness 1.5mm. ... ok
+test_copy_shape (test_stage2_pythonocc.TestPythonOCCBackend.test_copy_shape) ... ok
+test_make_box_and_bbox (test_stage2_pythonocc.TestPythonOCCBackend.test_make_box_and_bbox) ... ok
+test_transform_shape (test_stage2_pythonocc.TestPythonOCCBackend.test_transform_shape) ... ok
+test_moving_subtree_resolution (test_stage2_rotate_subtree.TestStage2SubtreeRotation.test_moving_subtree_resolution)
+Test PanelGraph subtree partitioning for chain A - B - C - D. ... ok
+test_rodrigues_point_transformation (test_stage2_rotate_subtree.TestStage2SubtreeRotation.test_rodrigues_point_transformation)
+Test point rotation around specified axis using Rodrigues formula. ... ok
+test_compute_flat_coordinates_u_shape (test_stage3_bend_matcher.TestBendMatcher.test_compute_flat_coordinates_u_shape) ... ok
+test_matching_ambiguous_symmetric (test_stage3_bend_matcher.TestBendMatcher.test_matching_ambiguous_symmetric) ... ok
+test_matching_different_lengths (test_stage3_bend_matcher.TestBendMatcher.test_matching_different_lengths) ... ok
+test_fingerprint_without_shape (test_stage3_foldstate.TestStage3FoldState.test_fingerprint_without_shape)
+Verify fingerprint is computed deterministically with shape=None. ... ok
+test_predictive_fingerprint_matching (test_stage3_foldstate.TestStage3FoldState.test_predictive_fingerprint_matching)
+Verify predict_successor_fingerprint matches actual unfolded successor fingerprint. ... ok
+test_c_profile (test_stage3_regression.TestRegressionSuites.test_c_profile) ... FAIL
+test_complex_profile (test_stage3_regression.TestRegressionSuites.test_complex_profile) ... FAIL
+test_l_profile (test_stage3_regression.TestRegressionSuites.test_l_profile) ... FAIL
+test_u_profile (test_stage3_regression.TestRegressionSuites.test_u_profile) ... FAIL
+test_z_profile (test_stage3_regression.TestRegressionSuites.test_z_profile) ... FAIL
+test_signed_angle_calculation_acute_45 (test_stage4_extraction.TestStage4BendExtraction.test_signed_angle_calculation_acute_45)
+Test +45 degree acute bend calculation. ... ok
+test_signed_angle_calculation_obtuse_135 (test_stage4_extraction.TestStage4BendExtraction.test_signed_angle_calculation_obtuse_135)
+Test +135 degree obtuse bend calculation. ... ok
+test_signed_angle_calculation_positive (test_stage4_extraction.TestStage4BendExtraction.test_signed_angle_calculation_positive)
+Test +90 degree angle calculation between perpendicular panel normals. ... ok
+test_z_bend_opposing_signs (test_stage4_extraction.TestStage4BendExtraction.test_z_bend_opposing_signs)
+Test Z-bend featuring opposing signed angles (+45° and -45°). ... ok
+test_oracle_approach_rejection (test_stage5_oracle.TestStage5PhysicalOracle.test_oracle_approach_rejection)
+Test rejection at APPROACH stage when bend is not in remaining_bends. ... ok
+test_oracle_valid_step (test_stage5_oracle.TestStage5PhysicalOracle.test_oracle_valid_step)
+Test valid step produces next state with stage='valid'. ... ok
+test_self_collision_logic (test_stage6_self_collision.TestStage6SelfCollision.test_self_collision_logic)
+Test self-collision logic using CollisionMockBackend. ... ok
+test_self_collision_no_panel_graph (test_stage6_self_collision.TestStage6SelfCollision.test_self_collision_no_panel_graph)
+Test fallback behavior when no panel graph is provided. ... FAIL
+test_approach_and_retract (test_stage7_kinematics.TestStage7Kinematics.test_approach_and_retract) ... ok
+test_tool_collision_distinction (test_stage8_tool_collision.TestStage8ToolCollision.test_tool_collision_distinction) ... FAIL
+test_machine_envelope_limits (test_stage9_machine_collision.TestStage9MachineCollision.test_machine_envelope_limits) ... FAIL
+test_assembly_aligned (test_tooling_assembly.TestToolingAssembly.test_assembly_aligned) ... ok
+test_assembly_misaligned (test_tooling_assembly.TestToolingAssembly.test_assembly_misaligned) ... ok
+test_missing_datums (test_tooling_assembly.TestToolingAssembly.test_missing_datums) ... ok
+test_assembly_misalignment (test_tooling_fcstd.TestToolingSystem.test_assembly_misalignment)
+Проверяет, что если сместить датум монтажа (MOUNTING_PLANE), ToolingAssembly выдаст MISALIGNED. ... ERROR
+test_missing_sidecar (test_tooling_fcstd.TestToolingSystem.test_missing_sidecar)
+Проверяет, что при отсутствии sidecar выдаётся geometry_status = SIMPLIFIED. ... ERROR
+test_penetration_collision (test_tooling_fcstd.TestToolingSystem.test_penetration_collision)
+Проверяет, что PartVsPunch при пересечении в 0.1 мм выдает INVALID. ... ok
+test_sidecar_loading (test_tooling_fcstd.TestToolingSystem.test_sidecar_loading)
+Проверяет загрузку с валидным sidecar (geometry_status = REAL). ... ERROR
+test_vertical_slice_stepped_busbar (test_vertical_slice_geometry.TestVerticalSliceGeometry.test_vertical_slice_stepped_busbar)
+Test vertical slice: Coordinator -> InputManifest -> GeometryWorker -> 02_geometry_result.json + geometry.brep. ... ok
 
-
-DETAILED FAILURES:
---------------------------------------------------
-
---- tests.test_bendseq.TestSolvers.test_astar_planning ---
-Traceback (most recent call last):
-  File "/Users/badmc/Desktop/SMBS_BendSeq/tests/test_bendseq.py", line 98, in test_astar_planning
-    self.assertTrue(result["success"] or result["status"] == "PARTIAL")
-AssertionError: False is not true
-
-
---- tests.test_bendseq.TestSolvers.test_greedy_planning ---
-Traceback (most recent call last):
-  File "/Users/badmc/Desktop/SMBS_BendSeq/tests/test_bendseq.py", line 124, in test_greedy_planning
-    self.assertTrue(result["success"] or result["status"] == "PARTIAL")
-AssertionError: False is not true
-
-
---- tests.test_phase13_freecad.TestPhase13FreeCAD.test_package_xml_metadata_valid ---
-Traceback (most recent call last):
-  File "/Users/badmc/Desktop/SMBS_BendSeq/tests/test_phase13_freecad.py", line 22, in test_package_xml_metadata_valid
-    self.assertTrue(os.path.exists(pkg_path))
-AssertionError: False is not true
-
-
---- tests.test_phase3_loading.TestPhase3Loading.test_tooling_loader_loads_json_sidecar ---
-Traceback (most recent call last):
-  File "/Users/badmc/Desktop/SMBS_BendSeq/tests/test_phase3_loading.py", line 20, in test_tooling_loader_loads_json_sidecar
-    self.assertIn(DatumRole.MOUNTING_PLANE, tool.datums)
-AssertionError: <DatumRole.MOUNTING_PLANE: 'mounting_plane'> not found in {}
-
-
---- tests.test_phase5_validator.TestPhase5PhysicalOracle.test_valid_step_validation ---
-Traceback (most recent call last):
-  File "/Users/badmc/Desktop/SMBS_BendSeq/tests/test_phase5_validator.py", line 47, in test_valid_step_validation
-    self.assertTrue(res.valid)
-AssertionError: False is not true
-
-
---- tests.test_phase6_dfs.TestPhase6DFSSolver.test_dfs_l_profile ---
-Traceback (most recent call last):
-  File "/Users/badmc/Desktop/SMBS_BendSeq/tests/test_phase6_dfs.py", line 51, in test_dfs_l_profile
-    self.assertTrue(res["success"])
-AssertionError: False is not true
-
-
---- tests.test_phase6_dfs.TestPhase6DFSSolver.test_dfs_optimizations ---
-Traceback (most recent call last):
-  File "/Users/badmc/Desktop/SMBS_BendSeq/tests/test_phase6_dfs.py", line 120, in test_dfs_optimizations
-    self.assertTrue(res1["success"])
-AssertionError: False is not true
-
-
---- tests.test_phase6_dfs.TestPhase6DFSSolver.test_dfs_sequence_2134 ---
-Traceback (most recent call last):
-  File "/Users/badmc/Desktop/SMBS_BendSeq/tests/test_phase6_dfs.py", line 98, in test_dfs_sequence_2134
-    self.assertTrue(res["success"])
-AssertionError: False is not true
-
-
---- tests.test_phase6_dfs.TestPhase6DFSSolver.test_dfs_u_channel ---
-Traceback (most recent call last):
-  File "/Users/badmc/Desktop/SMBS_BendSeq/tests/test_phase6_dfs.py", line 73, in test_dfs_u_channel
-    self.assertTrue(res["success"])
-AssertionError: False is not true
-
-
---- tests.test_phase7_collision.TestPhase7Collision.test_part_vs_die_wall_collision_invalid ---
-Traceback (most recent call last):
-  File "/Users/badmc/Desktop/SMBS_BendSeq/tests/test_phase7_collision.py", line 38, in test_part_vs_die_wall_collision_invalid
-    self.assertEqual(res.status, CollisionStatus.INVALID)
-AssertionError: <CollisionStatus.VALID: 'valid'> != <CollisionStatus.INVALID: 'invalid'>
-
-
---- tests.test_stage3_regression.TestRegressionSuites.test_c_profile ---
-Traceback (most recent call last):
-  File "/Users/badmc/Desktop/SMBS_BendSeq/tests/test_stage3_regression.py", line 194, in test_c_profile
-    self._run_and_verify("C", 3)
-  File "/Users/badmc/Desktop/SMBS_BendSeq/tests/test_stage3_regression.py", line 181, in _run_and_verify
-    self.assertIn("steps", data)
-AssertionError: 'steps' not found in {'schema_version': '1.0', 'format': 'BendSeq_v1.0', 'status': 'SUCCESS', 'model_id': 'part_model', 'machine_id': 'press_100t', 'punch_id': 'punch_88deg_R1.5', 'die_id': 'die_V12_R1.5_88deg', 'metadata': {'part_thickness_mm': 2.0, 'k_factor': 0.4, 'material': 'Steel_S235', 'total_bends': 3, 'algorithm_used': 'dfs', 'planning_time_sec': 0.007}, 'sequence_summary': {'total_steps': 3, 'total_flips': 0, 'tool_stations_used': 1}, 'sequence': [{'step': 1, 'bend_id': 'BEND_01', 'status': 'VALID', 'collision_status': 'VALID', 'tooling_status': 'SIMPLIFIED', 'alignment_status': 'CANNOT_VERIFY', 'angle_deg': 90.0, 'radius_mm': 2.0, 'length_mm': 100.0, 'axis': [1, 0, 0], 'origin': [0, -50, 0], 'moving_panels': ['PANEL_01', 'PANEL_03', 'PANEL_02'], 'backgauge': {'X_mm': 56.0, 'R_mm': 1.0, 'Z1_mm': -25.0, 'Z2_mm': 25.0, 'finger_touch_point_1': [56.0, -25.0, 1.0], 'finger_touch_point_2': [56.0, 25.0, 1.0], 'part_stability_score': 0.95, 'reference_edge': 'REAR_FLANGE_PARALLEL', 'geometry_confirmed': False, 'warning': 'Backgauge coordinates are estimated. B-Rep projection required for verified X dimension.'}, 'tooling': {'punch_id': 'PUNCH_GOOSENECK_120', 'punch_type': 'gooseneck', 'punch_height_mm': 120.0, 'die_id': 'DIE_V12', 'v_width_mm': 12.0, 'die_height_mm': 80.0, 'segment_layout_mm': [100, 200], 'required_tonnage_per_m': 21.7}, 'operator_instructions': {'station': 1, 'requires_part_flip_180': False, 'tool_change_required': False, 'description': 'Position part against backgauge stops X=56.0mm, R=1.0mm.'}}, {'step': 2, 'bend_id': 'BEND_02', 'status': 'VALID', 'collision_status': 'VALID', 'tooling_status': 'SIMPLIFIED', 'alignment_status': 'CANNOT_VERIFY', 'angle_deg': 90.0, 'radius_mm': 2.0, 'length_mm': 100.0, 'axis': [1, 0, 0], 'origin': [0, 0, 0], 'moving_panels': ['PANEL_03', 'PANEL_02'], 'backgauge': {'X_mm': 56.0, 'R_mm': 1.0, 'Z1_mm': -25.0, 'Z2_mm': 25.0, 'finger_touch_point_1': [56.0, -25.0, 1.0], 'finger_touch_point_2': [56.0, 25.0, 1.0], 'part_stability_score': 0.95, 'reference_edge': 'REAR_FLANGE_PARALLEL', 'geometry_confirmed': False, 'warning': 'Backgauge coordinates are estimated. B-Rep projection required for verified X dimension.'}, 'tooling': {'punch_id': 'PUNCH_GOOSENECK_120', 'punch_type': 'gooseneck', 'punch_height_mm': 120.0, 'die_id': 'DIE_V12', 'v_width_mm': 12.0, 'die_height_mm': 80.0, 'segment_layout_mm': [100, 200], 'required_tonnage_per_m': 21.7}, 'operator_instructions': {'station': 1, 'requires_part_flip_180': False, 'tool_change_required': False, 'description': 'Position part against backgauge stops X=56.0mm, R=1.0mm.'}}, {'step': 3, 'bend_id': 'BEND_03', 'status': 'VALID', 'collision_status': 'VALID', 'tooling_status': 'SIMPLIFIED', 'alignment_status': 'CANNOT_VERIFY', 'angle_deg': 90.0, 'radius_mm': 2.0, 'length_mm': 100.0, 'axis': [1, 0, 0], 'origin': [0, 50, 0], 'moving_panels': ['PANEL_03'], 'backgauge': {'X_mm': 56.0, 'R_mm': 1.0, 'Z1_mm': -25.0, 'Z2_mm': 25.0, 'finger_touch_point_1': [56.0, -25.0, 1.0], 'finger_touch_point_2': [56.0, 25.0, 1.0], 'part_stability_score': 0.95, 'reference_edge': 'REAR_FLANGE_PARALLEL', 'geometry_confirmed': False, 'warning': 'Backgauge coordinates are estimated. B-Rep projection required for verified X dimension.'}, 'tooling': {'punch_id': 'PUNCH_GOOSENECK_120', 'punch_type': 'gooseneck', 'punch_height_mm': 120.0, 'die_id': 'DIE_V12', 'v_width_mm': 12.0, 'die_height_mm': 80.0, 'segment_layout_mm': [100, 200], 'required_tonnage_per_m': 21.7}, 'operator_instructions': {'station': 1, 'requires_part_flip_180': False, 'tool_change_required': False, 'description': 'Position part against backgauge stops X=56.0mm, R=1.0mm.'}}]}
-
-
---- tests.test_stage3_regression.TestRegressionSuites.test_complex_profile ---
-Traceback (most recent call last):
-  File "/Users/badmc/Desktop/SMBS_BendSeq/tests/test_stage3_regression.py", line 197, in test_complex_profile
-    self._run_and_verify("COMPLEX", 4)
-  File "/Users/badmc/Desktop/SMBS_BendSeq/tests/test_stage3_regression.py", line 181, in _run_and_verify
-    self.assertIn("steps", data)
-AssertionError: 'steps' not found in {'schema_version': '1.0', 'format': 'BendSeq_v1.0', 'status': 'SUCCESS', 'model_id': 'part_model', 'machine_id': 'press_100t', 'punch_id': 'punch_88deg_R1.5', 'die_id': 'die_V12_R1.5_88deg', 'metadata': {'part_thickness_mm': 2.0, 'k_factor': 0.4, 'material': 'Steel_S235', 'total_bends': 4, 'algorithm_used': 'dfs', 'planning_time_sec': 0.01}, 'sequence_summary': {'total_steps': 4, 'total_flips': 1, 'tool_stations_used': 1}, 'sequence': [{'step': 1, 'bend_id': 'BEND_01', 'status': 'VALID', 'collision_status': 'VALID', 'tooling_status': 'SIMPLIFIED', 'alignment_status': 'CANNOT_VERIFY', 'angle_deg': 90.0, 'radius_mm': 2.0, 'length_mm': 100.0, 'axis': [0, 1, 0], 'origin': [-50, 0, 0], 'moving_panels': ['PANEL_01'], 'backgauge': {'X_mm': 56.0, 'R_mm': 1.0, 'Z1_mm': -25.0, 'Z2_mm': 25.0, 'finger_touch_point_1': [56.0, -25.0, 1.0], 'finger_touch_point_2': [56.0, 25.0, 1.0], 'part_stability_score': 0.95, 'reference_edge': 'REAR_FLANGE_PARALLEL', 'geometry_confirmed': False, 'warning': 'Backgauge coordinates are estimated. B-Rep projection required for verified X dimension.'}, 'tooling': {'punch_id': 'PUNCH_GOOSENECK_120', 'punch_type': 'gooseneck', 'punch_height_mm': 120.0, 'die_id': 'DIE_V12', 'v_width_mm': 12.0, 'die_height_mm': 80.0, 'segment_layout_mm': [100, 200], 'required_tonnage_per_m': 21.7}, 'operator_instructions': {'station': 1, 'requires_part_flip_180': False, 'tool_change_required': False, 'description': 'Position part against backgauge stops X=56.0mm, R=1.0mm.'}}, {'step': 2, 'bend_id': 'BEND_03', 'status': 'VALID', 'collision_status': 'VALID', 'tooling_status': 'SIMPLIFIED', 'alignment_status': 'CANNOT_VERIFY', 'angle_deg': 90.0, 'radius_mm': 2.0, 'length_mm': 100.0, 'axis': [0, 1, 0], 'origin': [50, 0, 0], 'moving_panels': ['PANEL_03'], 'backgauge': {'X_mm': 56.0, 'R_mm': 1.0, 'Z1_mm': -25.0, 'Z2_mm': 25.0, 'finger_touch_point_1': [56.0, -25.0, 1.0], 'finger_touch_point_2': [56.0, 25.0, 1.0], 'part_stability_score': 0.95, 'reference_edge': 'REAR_FLANGE_PARALLEL', 'geometry_confirmed': False, 'warning': 'Backgauge coordinates are estimated. B-Rep projection required for verified X dimension.'}, 'tooling': {'punch_id': 'PUNCH_GOOSENECK_120', 'punch_type': 'gooseneck', 'punch_height_mm': 120.0, 'die_id': 'DIE_V12', 'v_width_mm': 12.0, 'die_height_mm': 80.0, 'segment_layout_mm': [100, 200], 'required_tonnage_per_m': 21.7}, 'operator_instructions': {'station': 1, 'requires_part_flip_180': False, 'tool_change_required': False, 'description': 'Position part against backgauge stops X=56.0mm, R=1.0mm.'}}, {'step': 3, 'bend_id': 'BEND_04', 'status': 'VALID', 'collision_status': 'VALID', 'tooling_status': 'SIMPLIFIED', 'alignment_status': 'CANNOT_VERIFY', 'angle_deg': 90.0, 'radius_mm': 2.0, 'length_mm': 100.0, 'axis': [1, 0, 0], 'origin': [0, 50, 0], 'moving_panels': ['PANEL_04'], 'backgauge': {'X_mm': 56.0, 'R_mm': 1.0, 'Z1_mm': -25.0, 'Z2_mm': 25.0, 'finger_touch_point_1': [56.0, -25.0, 1.0], 'finger_touch_point_2': [56.0, 25.0, 1.0], 'part_stability_score': 0.95, 'reference_edge': 'REAR_FLANGE_PARALLEL', 'geometry_confirmed': False, 'warning': 'Backgauge coordinates are estimated. B-Rep projection required for verified X dimension.'}, 'tooling': {'punch_id': 'PUNCH_GOOSENECK_120', 'punch_type': 'gooseneck', 'punch_height_mm': 120.0, 'die_id': 'DIE_V12', 'v_width_mm': 12.0, 'die_height_mm': 80.0, 'segment_layout_mm': [100, 200], 'required_tonnage_per_m': 21.7}, 'operator_instructions': {'station': 1, 'requires_part_flip_180': True, 'tool_change_required': False, 'description': 'Position part against backgauge stops X=56.0mm, R=1.0mm.'}}, {'step': 4, 'bend_id': 'BEND_02', 'status': 'VALID', 'collision_status': 'VALID', 'tooling_status': 'SIMPLIFIED', 'alignment_status': 'CANNOT_VERIFY', 'angle_deg': 90.0, 'radius_mm': 2.0, 'length_mm': 100.0, 'axis': [1, 0, 0], 'origin': [0, -50, 0], 'moving_panels': ['PANEL_02'], 'backgauge': {'X_mm': 56.0, 'R_mm': 1.0, 'Z1_mm': -25.0, 'Z2_mm': 25.0, 'finger_touch_point_1': [56.0, -25.0, 1.0], 'finger_touch_point_2': [56.0, 25.0, 1.0], 'part_stability_score': 0.95, 'reference_edge': 'REAR_FLANGE_PARALLEL', 'geometry_confirmed': False, 'warning': 'Backgauge coordinates are estimated. B-Rep projection required for verified X dimension.'}, 'tooling': {'punch_id': 'PUNCH_GOOSENECK_120', 'punch_type': 'gooseneck', 'punch_height_mm': 120.0, 'die_id': 'DIE_V12', 'v_width_mm': 12.0, 'die_height_mm': 80.0, 'segment_layout_mm': [100, 200], 'required_tonnage_per_m': 21.7}, 'operator_instructions': {'station': 1, 'requires_part_flip_180': False, 'tool_change_required': False, 'description': 'Position part against backgauge stops X=56.0mm, R=1.0mm.'}}]}
-
-
---- tests.test_stage3_regression.TestRegressionSuites.test_l_profile ---
-Traceback (most recent call last):
-  File "/Users/badmc/Desktop/SMBS_BendSeq/tests/test_stage3_regression.py", line 185, in test_l_profile
-    self._run_and_verify("L", 1)
-  File "/Users/badmc/Desktop/SMBS_BendSeq/tests/test_stage3_regression.py", line 181, in _run_and_verify
-    self.assertIn("steps", data)
-AssertionError: 'steps' not found in {'schema_version': '1.0', 'format': 'BendSeq_v1.0', 'status': 'SUCCESS', 'model_id': 'part_model', 'machine_id': 'press_100t', 'punch_id': 'punch_88deg_R1.5', 'die_id': 'die_V12_R1.5_88deg', 'metadata': {'part_thickness_mm': 2.0, 'k_factor': 0.4, 'material': 'Steel_S235', 'total_bends': 1, 'algorithm_used': 'dfs', 'planning_time_sec': 0.002}, 'sequence_summary': {'total_steps': 1, 'total_flips': 0, 'tool_stations_used': 1}, 'sequence': [{'step': 1, 'bend_id': 'BEND_01', 'status': 'VALID', 'collision_status': 'VALID', 'tooling_status': 'SIMPLIFIED', 'alignment_status': 'CANNOT_VERIFY', 'angle_deg': 90.0, 'radius_mm': 2.0, 'length_mm': 100.0, 'axis': [1, 0, 0], 'origin': [0, 0, 0], 'moving_panels': ['PANEL_01'], 'backgauge': {'X_mm': 56.0, 'R_mm': 1.0, 'Z1_mm': -25.0, 'Z2_mm': 25.0, 'finger_touch_point_1': [56.0, -25.0, 1.0], 'finger_touch_point_2': [56.0, 25.0, 1.0], 'part_stability_score': 0.95, 'reference_edge': 'REAR_FLANGE_PARALLEL', 'geometry_confirmed': False, 'warning': 'Backgauge coordinates are estimated. B-Rep projection required for verified X dimension.'}, 'tooling': {'punch_id': 'PUNCH_GOOSENECK_120', 'punch_type': 'gooseneck', 'punch_height_mm': 120.0, 'die_id': 'DIE_V12', 'v_width_mm': 12.0, 'die_height_mm': 80.0, 'segment_layout_mm': [100, 200], 'required_tonnage_per_m': 21.7}, 'operator_instructions': {'station': 1, 'requires_part_flip_180': False, 'tool_change_required': False, 'description': 'Position part against backgauge stops X=56.0mm, R=1.0mm.'}}]}
-
-
---- tests.test_stage3_regression.TestRegressionSuites.test_u_profile ---
-Traceback (most recent call last):
-  File "/Users/badmc/Desktop/SMBS_BendSeq/tests/test_stage3_regression.py", line 188, in test_u_profile
-    self._run_and_verify("U", 2)
-  File "/Users/badmc/Desktop/SMBS_BendSeq/tests/test_stage3_regression.py", line 181, in _run_and_verify
-    self.assertIn("steps", data)
-AssertionError: 'steps' not found in {'schema_version': '1.0', 'format': 'BendSeq_v1.0', 'status': 'SUCCESS', 'model_id': 'part_model', 'machine_id': 'press_100t', 'punch_id': 'punch_88deg_R1.5', 'die_id': 'die_V12_R1.5_88deg', 'metadata': {'part_thickness_mm': 2.0, 'k_factor': 0.4, 'material': 'Steel_S235', 'total_bends': 2, 'algorithm_used': 'dfs', 'planning_time_sec': 0.003}, 'sequence_summary': {'total_steps': 2, 'total_flips': 0, 'tool_stations_used': 1}, 'sequence': [{'step': 1, 'bend_id': 'BEND_01', 'status': 'VALID', 'collision_status': 'VALID', 'tooling_status': 'SIMPLIFIED', 'alignment_status': 'CANNOT_VERIFY', 'angle_deg': 90.0, 'radius_mm': 2.0, 'length_mm': 100.0, 'axis': [1, 0, 0], 'origin': [0, -50, 0], 'moving_panels': ['PANEL_01', 'PANEL_02'], 'backgauge': {'X_mm': 56.0, 'R_mm': 1.0, 'Z1_mm': -25.0, 'Z2_mm': 25.0, 'finger_touch_point_1': [56.0, -25.0, 1.0], 'finger_touch_point_2': [56.0, 25.0, 1.0], 'part_stability_score': 0.95, 'reference_edge': 'REAR_FLANGE_PARALLEL', 'geometry_confirmed': False, 'warning': 'Backgauge coordinates are estimated. B-Rep projection required for verified X dimension.'}, 'tooling': {'punch_id': 'PUNCH_GOOSENECK_120', 'punch_type': 'gooseneck', 'punch_height_mm': 120.0, 'die_id': 'DIE_V12', 'v_width_mm': 12.0, 'die_height_mm': 80.0, 'segment_layout_mm': [100, 200], 'required_tonnage_per_m': 21.7}, 'operator_instructions': {'station': 1, 'requires_part_flip_180': False, 'tool_change_required': False, 'description': 'Position part against backgauge stops X=56.0mm, R=1.0mm.'}}, {'step': 2, 'bend_id': 'BEND_02', 'status': 'VALID', 'collision_status': 'VALID', 'tooling_status': 'SIMPLIFIED', 'alignment_status': 'CANNOT_VERIFY', 'angle_deg': 90.0, 'radius_mm': 2.0, 'length_mm': 100.0, 'axis': [1, 0, 0], 'origin': [0, 50, 0], 'moving_panels': ['PANEL_02'], 'backgauge': {'X_mm': 56.0, 'R_mm': 1.0, 'Z1_mm': -25.0, 'Z2_mm': 25.0, 'finger_touch_point_1': [56.0, -25.0, 1.0], 'finger_touch_point_2': [56.0, 25.0, 1.0], 'part_stability_score': 0.95, 'reference_edge': 'REAR_FLANGE_PARALLEL', 'geometry_confirmed': False, 'warning': 'Backgauge coordinates are estimated. B-Rep projection required for verified X dimension.'}, 'tooling': {'punch_id': 'PUNCH_GOOSENECK_120', 'punch_type': 'gooseneck', 'punch_height_mm': 120.0, 'die_id': 'DIE_V12', 'v_width_mm': 12.0, 'die_height_mm': 80.0, 'segment_layout_mm': [100, 200], 'required_tonnage_per_m': 21.7}, 'operator_instructions': {'station': 1, 'requires_part_flip_180': False, 'tool_change_required': False, 'description': 'Position part against backgauge stops X=56.0mm, R=1.0mm.'}}]}
-
-
---- tests.test_stage3_regression.TestRegressionSuites.test_z_profile ---
-Traceback (most recent call last):
-  File "/Users/badmc/Desktop/SMBS_BendSeq/tests/test_stage3_regression.py", line 191, in test_z_profile
-    self._run_and_verify("Z", 2)
-  File "/Users/badmc/Desktop/SMBS_BendSeq/tests/test_stage3_regression.py", line 181, in _run_and_verify
-    self.assertIn("steps", data)
-AssertionError: 'steps' not found in {'schema_version': '1.0', 'format': 'BendSeq_v1.0', 'status': 'SUCCESS', 'model_id': 'part_model', 'machine_id': 'press_100t', 'punch_id': 'punch_88deg_R1.5', 'die_id': 'die_V12_R1.5_88deg', 'metadata': {'part_thickness_mm': 2.0, 'k_factor': 0.4, 'material': 'Steel_S235', 'total_bends': 2, 'algorithm_used': 'dfs', 'planning_time_sec': 0.003}, 'sequence_summary': {'total_steps': 2, 'total_flips': 0, 'tool_stations_used': 1}, 'sequence': [{'step': 1, 'bend_id': 'BEND_01', 'status': 'VALID', 'collision_status': 'VALID', 'tooling_status': 'SIMPLIFIED', 'alignment_status': 'CANNOT_VERIFY', 'angle_deg': 90.0, 'radius_mm': 2.0, 'length_mm': 100.0, 'axis': [1, 0, 0], 'origin': [0, -50, 0], 'moving_panels': ['PANEL_01', 'PANEL_02'], 'backgauge': {'X_mm': 56.0, 'R_mm': 1.0, 'Z1_mm': -25.0, 'Z2_mm': 25.0, 'finger_touch_point_1': [56.0, -25.0, 1.0], 'finger_touch_point_2': [56.0, 25.0, 1.0], 'part_stability_score': 0.95, 'reference_edge': 'REAR_FLANGE_PARALLEL', 'geometry_confirmed': False, 'warning': 'Backgauge coordinates are estimated. B-Rep projection required for verified X dimension.'}, 'tooling': {'punch_id': 'PUNCH_GOOSENECK_120', 'punch_type': 'gooseneck', 'punch_height_mm': 120.0, 'die_id': 'DIE_V12', 'v_width_mm': 12.0, 'die_height_mm': 80.0, 'segment_layout_mm': [100, 200], 'required_tonnage_per_m': 21.7}, 'operator_instructions': {'station': 1, 'requires_part_flip_180': False, 'tool_change_required': False, 'description': 'Position part against backgauge stops X=56.0mm, R=1.0mm.'}}, {'step': 2, 'bend_id': 'BEND_02', 'status': 'VALID', 'collision_status': 'VALID', 'tooling_status': 'SIMPLIFIED', 'alignment_status': 'CANNOT_VERIFY', 'angle_deg': -90.0, 'radius_mm': 2.0, 'length_mm': 100.0, 'axis': [1, 0, 0], 'origin': [0, 50, 0], 'moving_panels': ['PANEL_02'], 'backgauge': {'X_mm': 56.0, 'R_mm': 1.0, 'Z1_mm': -25.0, 'Z2_mm': 25.0, 'finger_touch_point_1': [56.0, -25.0, 1.0], 'finger_touch_point_2': [56.0, 25.0, 1.0], 'part_stability_score': 0.95, 'reference_edge': 'REAR_FLANGE_PARALLEL', 'geometry_confirmed': False, 'warning': 'Backgauge coordinates are estimated. B-Rep projection required for verified X dimension.'}, 'tooling': {'punch_id': 'PUNCH_GOOSENECK_120', 'punch_type': 'gooseneck', 'punch_height_mm': 120.0, 'die_id': 'DIE_V12', 'v_width_mm': 12.0, 'die_height_mm': 80.0, 'segment_layout_mm': [100, 200], 'required_tonnage_per_m': 21.7}, 'operator_instructions': {'station': 1, 'requires_part_flip_180': False, 'tool_change_required': False, 'description': 'Position part against backgauge stops X=56.0mm, R=1.0mm.'}}]}
-
-
---- tests.test_stage6_self_collision.TestStage6SelfCollision.test_self_collision_no_panel_graph ---
-Traceback (most recent call last):
-  File "/Users/badmc/Desktop/SMBS_BendSeq/tests/test_stage6_self_collision.py", line 62, in test_self_collision_no_panel_graph
-    self.assertTrue(coll)
-AssertionError: False is not true
-
-
---- tests.test_stage8_tool_collision.TestStage8ToolCollision.test_tool_collision_distinction ---
-Traceback (most recent call last):
-  File "/Users/badmc/Desktop/SMBS_BendSeq/tests/test_stage8_tool_collision.py", line 72, in test_tool_collision_distinction
-    self.assertTrue(res.is_valid)
-AssertionError: False is not true
-
-
---- tests.test_stage9_machine_collision.TestStage9MachineCollision.test_machine_envelope_limits ---
-Traceback (most recent call last):
-  File "/Users/badmc/Desktop/SMBS_BendSeq/tests/test_stage9_machine_collision.py", line 45, in test_machine_envelope_limits
-    self.assertTrue(res.is_valid)
-AssertionError: False is not true
-
-
-
-DETAILED ERRORS:
---------------------------------------------------
-
---- tests.test_phase11_regression.TestPhase11Regression.test_cache_hits_on_repeated_state ---
+======================================================================
+ERROR: test_cache_hits_on_repeated_state (test_phase11_regression.TestPhase11Regression.test_cache_hits_on_repeated_state)
+----------------------------------------------------------------------
 Traceback (most recent call last):
   File "/Users/badmc/Desktop/SMBS_BendSeq/tests/test_phase11_regression.py", line 35, in test_cache_hits_on_repeated_state
     res1 = self.orchestrator.run_planning(target_shape=shape, output_file="test_c1.json")
@@ -386,8 +399,9 @@ Traceback (most recent call last):
                  ~~~~^^^^^^^^^^^^^^^^
 KeyError: 'signed_angle'
 
-
---- tests.test_phase11_regression.TestPhase11Regression.test_regression_false_part_never_falsely_success ---
+======================================================================
+ERROR: test_regression_false_part_never_falsely_success (test_phase11_regression.TestPhase11Regression.test_regression_false_part_never_falsely_success)
+----------------------------------------------------------------------
 Traceback (most recent call last):
   File "/Users/badmc/Desktop/SMBS_BendSeq/tests/test_phase11_regression.py", line 30, in test_regression_false_part_never_falsely_success
     res = self.orchestrator.run_planning(target_shape=colliding_shape, output_file="test_coll.json")
@@ -400,8 +414,9 @@ Traceback (most recent call last):
                  ~~~~^^^^^^^^^^^^^^^^
 KeyError: 'signed_angle'
 
-
---- tests.test_phase11_regression.TestPhase11Regression.test_regression_ok_part_yields_valid_steps ---
+======================================================================
+ERROR: test_regression_ok_part_yields_valid_steps (test_phase11_regression.TestPhase11Regression.test_regression_ok_part_yields_valid_steps)
+----------------------------------------------------------------------
 Traceback (most recent call last):
   File "/Users/badmc/Desktop/SMBS_BendSeq/tests/test_phase11_regression.py", line 16, in test_regression_ok_part_yields_valid_steps
     res = self.orchestrator.run_planning(target_shape=target_shape, output_file="test_l.json")
@@ -414,8 +429,9 @@ Traceback (most recent call last):
                  ~~~~^^^^^^^^^^^^^^^^
 KeyError: 'signed_angle'
 
-
---- tests.test_phase12_acceptance.TestPhase12Acceptance.test_orchestrator_returns_honest_status ---
+======================================================================
+ERROR: test_orchestrator_returns_honest_status (test_phase12_acceptance.TestPhase12Acceptance.test_orchestrator_returns_honest_status)
+----------------------------------------------------------------------
 Traceback (most recent call last):
   File "/Users/badmc/Desktop/SMBS_BendSeq/tests/test_phase12_acceptance.py", line 19, in test_orchestrator_returns_honest_status
     res = self.orchestrator.run_planning(target_shape=shape, output_file="test_acc.json")
@@ -428,40 +444,50 @@ Traceback (most recent call last):
                  ~~~~^^^^^^^^^^^^^^^^
 KeyError: 'signed_angle'
 
-
---- tests.test_phase3_cad_models.TestPhase3RealCAD.test_stage2_c_profile_cad ---
+======================================================================
+ERROR: test_stage2_c_profile_cad (test_phase3_cad_models.TestPhase3RealCAD.test_stage2_c_profile_cad)
+Stage 2: C-profile real CAD model (3 bends at 90°).
+----------------------------------------------------------------------
 Traceback (most recent call last):
   File "/Users/badmc/Desktop/SMBS_BendSeq/tests/test_phase3_cad_models.py", line 122, in test_stage2_c_profile_cad
     self.assertAlmostEqual(b_info["angle"], 90.0, places=1)
                            ~~~~~~^^^^^^^^^
 KeyError: 'angle'
 
-
---- tests.test_phase3_cad_models.TestPhase3RealCAD.test_stage2_l_profile_cad ---
+======================================================================
+ERROR: test_stage2_l_profile_cad (test_phase3_cad_models.TestPhase3RealCAD.test_stage2_l_profile_cad)
+Stage 2: L-profile real CAD model feature extraction & validity.
+----------------------------------------------------------------------
 Traceback (most recent call last):
   File "/Users/badmc/Desktop/SMBS_BendSeq/tests/test_phase3_cad_models.py", line 83, in test_stage2_l_profile_cad
     self.assertAlmostEqual(list(feats_occ["bends"].values())[0]["angle"], 90.0, places=1)
                            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
 KeyError: 'angle'
 
-
---- tests.test_phase3_cad_models.TestPhase3RealCAD.test_stage2_opposite_45_profile_cad ---
+======================================================================
+ERROR: test_stage2_opposite_45_profile_cad (test_phase3_cad_models.TestPhase3RealCAD.test_stage2_opposite_45_profile_cad)
+Stage 2: Adjacent opposite bends +45° and -45° real CAD model.
+----------------------------------------------------------------------
 Traceback (most recent call last):
   File "/Users/badmc/Desktop/SMBS_BendSeq/tests/test_phase3_cad_models.py", line 149, in test_stage2_opposite_45_profile_cad
     self.assertAlmostEqual(bends[0]["angle"], 45.0, places=1)
                            ~~~~~~~~^^^^^^^^^
 KeyError: 'angle'
 
-
---- tests.test_phase3_cad_models.TestPhase3RealCAD.test_stage2_u_profile_cad ---
+======================================================================
+ERROR: test_stage2_u_profile_cad (test_phase3_cad_models.TestPhase3RealCAD.test_stage2_u_profile_cad)
+Stage 2: U-profile real CAD model (2 bends at 90°).
+----------------------------------------------------------------------
 Traceback (most recent call last):
   File "/Users/badmc/Desktop/SMBS_BendSeq/tests/test_phase3_cad_models.py", line 112, in test_stage2_u_profile_cad
     self.assertAlmostEqual(b_info["angle"], 90.0, places=1)
                            ~~~~~~^^^^^^^^^
 KeyError: 'angle'
 
-
---- tests.test_phase3_cad_models.TestPhase3RealCAD.test_stage4_real_tooling_assembly ---
+======================================================================
+ERROR: test_stage4_real_tooling_assembly (test_phase3_cad_models.TestPhase3RealCAD.test_stage4_real_tooling_assembly)
+Stage 4: Real Tooling (puancon.FCStd + matrica.FCStd) loading, datums & alignment.
+----------------------------------------------------------------------
 Traceback (most recent call last):
   File "/Users/badmc/Desktop/SMBS_BendSeq/tests/test_phase3_cad_models.py", line 211, in test_stage4_real_tooling_assembly
     punch = loader.load(self.tooling_punch, ToolingKind.PUNCH)
@@ -470,8 +496,10 @@ Traceback (most recent call last):
     raise AmbiguousShapeError(
 smbs_core.geometry_backend.backends.fcstd_loader.AmbiguousShapeError: Ambiguous shape selection in /Users/badmc/Desktop/SMBS_BendSeq/toollibrary/punch/puancon.FCStd. Found objects: ['Sketch', 'Body', 'Pad']. Specify target_object_name explicitly.
 
-
---- tests.test_phase3_cad_models.TestPhase3RealCAD.test_stage5_trajectory_collisions ---
+======================================================================
+ERROR: test_stage5_trajectory_collisions (test_phase3_cad_models.TestPhase3RealCAD.test_stage5_trajectory_collisions)
+Stage 5: Trajectory collision tests (positive, negative, 5° vs 1° comparison).
+----------------------------------------------------------------------
 Traceback (most recent call last):
   File "/Users/badmc/Desktop/SMBS_BendSeq/tests/test_phase3_cad_models.py", line 238, in test_stage5_trajectory_collisions
     assembly = machine.setup_assembly(self.backend)
@@ -483,8 +511,10 @@ Traceback (most recent call last):
     raise AmbiguousShapeError(
 smbs_core.geometry_backend.backends.fcstd_loader.AmbiguousShapeError: Ambiguous shape selection in /Users/badmc/Desktop/SMBS_BendSeq/toollibrary/punch/puancon.FCStd. Found objects: ['Sketch', 'Body', 'Pad']. Specify target_object_name explicitly.
 
-
---- tests.test_phase3_cad_models.TestPhase3RealCAD.test_stage6_full_planning_pipeline ---
+======================================================================
+ERROR: test_stage6_full_planning_pipeline (test_phase3_cad_models.TestPhase3RealCAD.test_stage6_full_planning_pipeline)
+Stage 6: Complete pipeline for all profiles: CAD -> Features -> Tools -> Planning -> Validation -> JSON.
+----------------------------------------------------------------------
 Traceback (most recent call last):
   File "/Users/badmc/Desktop/SMBS_BendSeq/tests/test_phase3_cad_models.py", line 300, in test_stage6_full_planning_pipeline
     res = orchestrator.run_planning(
@@ -502,9 +532,10 @@ Traceback (most recent call last):
     raise AmbiguousShapeError(
 smbs_core.geometry_backend.backends.fcstd_loader.AmbiguousShapeError: Ambiguous shape selection in /Users/badmc/Desktop/SMBS_BendSeq/toollibrary/punch/puancon.FCStd. Found objects: ['Sketch', 'Body', 'Pad']. Specify target_object_name explicitly.
 
-
---- unittest.loader._FailedTest.tests.test_real_freecad_shape ---
-ImportError: Failed to import test module: tests.test_real_freecad_shape
+======================================================================
+ERROR: test_real_freecad_shape (unittest.loader._FailedTest.test_real_freecad_shape)
+----------------------------------------------------------------------
+ImportError: Failed to import test module: test_real_freecad_shape
 Traceback (most recent call last):
   File "/Applications/FreeCAD.app/Contents/Resources/lib/python3.11/unittest/loader.py", line 419, in _find_test_path
     module = self._get_module_from_name(name)
@@ -516,9 +547,10 @@ Traceback (most recent call last):
 ModuleNotFoundError: No module named 'adapters'
 
 
-
---- unittest.loader._FailedTest.tests.test_stage16_simulation ---
-ImportError: Failed to import test module: tests.test_stage16_simulation
+======================================================================
+ERROR: test_stage16_simulation (unittest.loader._FailedTest.test_stage16_simulation)
+----------------------------------------------------------------------
+ImportError: Failed to import test module: test_stage16_simulation
 Traceback (most recent call last):
   File "/Applications/FreeCAD.app/Contents/Resources/lib/python3.11/unittest/loader.py", line 419, in _find_test_path
     module = self._get_module_from_name(name)
@@ -530,9 +562,10 @@ Traceback (most recent call last):
 ModuleNotFoundError: No module named 'GUI'
 
 
-
---- unittest.loader._FailedTest.tests.test_stage1_5_sequence_view ---
-ImportError: Failed to import test module: tests.test_stage1_5_sequence_view
+======================================================================
+ERROR: test_stage1_5_sequence_view (unittest.loader._FailedTest.test_stage1_5_sequence_view)
+----------------------------------------------------------------------
+ImportError: Failed to import test module: test_stage1_5_sequence_view
 Traceback (most recent call last):
   File "/Applications/FreeCAD.app/Contents/Resources/lib/python3.11/unittest/loader.py", line 419, in _find_test_path
     module = self._get_module_from_name(name)
@@ -544,8 +577,10 @@ Traceback (most recent call last):
 ModuleNotFoundError: No module named 'GUI'
 
 
-
---- tests.test_tooling_fcstd.TestToolingSystem.test_assembly_misalignment ---
+======================================================================
+ERROR: test_assembly_misalignment (test_tooling_fcstd.TestToolingSystem.test_assembly_misalignment)
+Проверяет, что если сместить датум монтажа (MOUNTING_PLANE), ToolingAssembly выдаст MISALIGNED.
+----------------------------------------------------------------------
 Traceback (most recent call last):
   File "/Users/badmc/Desktop/SMBS_BendSeq/tests/test_tooling_fcstd.py", line 104, in test_assembly_misalignment
     punch = loader.load(self.fcstd_path, ToolingKind.PUNCH)
@@ -554,8 +589,10 @@ Traceback (most recent call last):
     raise AmbiguousShapeError(
 smbs_core.geometry_backend.backends.fcstd_loader.AmbiguousShapeError: Ambiguous shape selection in /Users/badmc/Desktop/SMBS_BendSeq/tests/../SMBendTests/L-(ok).FCStd. Found objects: ['Body', 'Sketch', 'Pad', 'Bend']. Specify target_object_name explicitly.
 
-
---- tests.test_tooling_fcstd.TestToolingSystem.test_missing_sidecar ---
+======================================================================
+ERROR: test_missing_sidecar (test_tooling_fcstd.TestToolingSystem.test_missing_sidecar)
+Проверяет, что при отсутствии sidecar выдаётся geometry_status = SIMPLIFIED.
+----------------------------------------------------------------------
 Traceback (most recent call last):
   File "/Users/badmc/Desktop/SMBS_BendSeq/tests/test_tooling_fcstd.py", line 56, in test_missing_sidecar
     tool = loader.load(self.fcstd_path, ToolingKind.PUNCH)
@@ -564,8 +601,10 @@ Traceback (most recent call last):
     raise AmbiguousShapeError(
 smbs_core.geometry_backend.backends.fcstd_loader.AmbiguousShapeError: Ambiguous shape selection in /Users/badmc/Desktop/SMBS_BendSeq/tests/../SMBendTests/L-(ok).FCStd. Found objects: ['Body', 'Sketch', 'Pad', 'Bend']. Specify target_object_name explicitly.
 
-
---- tests.test_tooling_fcstd.TestToolingSystem.test_sidecar_loading ---
+======================================================================
+ERROR: test_sidecar_loading (test_tooling_fcstd.TestToolingSystem.test_sidecar_loading)
+Проверяет загрузку с валидным sidecar (geometry_status = REAL).
+----------------------------------------------------------------------
 Traceback (most recent call last):
   File "/Users/badmc/Desktop/SMBS_BendSeq/tests/test_tooling_fcstd.py", line 80, in test_sidecar_loading
     tool = loader.load(self.fcstd_path, ToolingKind.PUNCH)
@@ -574,3 +613,176 @@ Traceback (most recent call last):
     raise AmbiguousShapeError(
 smbs_core.geometry_backend.backends.fcstd_loader.AmbiguousShapeError: Ambiguous shape selection in /Users/badmc/Desktop/SMBS_BendSeq/tests/../SMBendTests/L-(ok).FCStd. Found objects: ['Body', 'Sketch', 'Pad', 'Bend']. Specify target_object_name explicitly.
 
+======================================================================
+FAIL: test_astar_planning (test_bendseq.TestSolvers.test_astar_planning)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/badmc/Desktop/SMBS_BendSeq/tests/test_bendseq.py", line 98, in test_astar_planning
+    self.assertTrue(result["success"] or result["status"] == "PARTIAL")
+AssertionError: False is not true
+
+======================================================================
+FAIL: test_greedy_planning (test_bendseq.TestSolvers.test_greedy_planning)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/badmc/Desktop/SMBS_BendSeq/tests/test_bendseq.py", line 124, in test_greedy_planning
+    self.assertTrue(result["success"] or result["status"] == "PARTIAL")
+AssertionError: False is not true
+
+======================================================================
+FAIL: test_package_xml_metadata_valid (test_phase13_freecad.TestPhase13FreeCAD.test_package_xml_metadata_valid)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/badmc/Desktop/SMBS_BendSeq/tests/test_phase13_freecad.py", line 22, in test_package_xml_metadata_valid
+    self.assertTrue(os.path.exists(pkg_path))
+AssertionError: False is not true
+
+======================================================================
+FAIL: test_tooling_loader_loads_json_sidecar (test_phase3_loading.TestPhase3Loading.test_tooling_loader_loads_json_sidecar)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/badmc/Desktop/SMBS_BendSeq/tests/test_phase3_loading.py", line 20, in test_tooling_loader_loads_json_sidecar
+    self.assertIn(DatumRole.MOUNTING_PLANE, tool.datums)
+AssertionError: <DatumRole.MOUNTING_PLANE: 'mounting_plane'> not found in {}
+
+======================================================================
+FAIL: test_valid_step_validation (test_phase5_validator.TestPhase5PhysicalOracle.test_valid_step_validation)
+Test validating a valid candidate step returns VALID result with next FoldState.
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/badmc/Desktop/SMBS_BendSeq/tests/test_phase5_validator.py", line 47, in test_valid_step_validation
+    self.assertTrue(res.valid)
+AssertionError: False is not true
+
+======================================================================
+FAIL: test_dfs_l_profile (test_phase6_dfs.TestPhase6DFSSolver.test_dfs_l_profile)
+Test DFS solver on L-Profile (1 bend).
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/badmc/Desktop/SMBS_BendSeq/tests/test_phase6_dfs.py", line 51, in test_dfs_l_profile
+    self.assertTrue(res["success"])
+AssertionError: False is not true
+
+======================================================================
+FAIL: test_dfs_optimizations (test_phase6_dfs.TestPhase6DFSSolver.test_dfs_optimizations)
+Test tooling_override and state_cache integration in DFSBackwardPlanner.
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/badmc/Desktop/SMBS_BendSeq/tests/test_phase6_dfs.py", line 120, in test_dfs_optimizations
+    self.assertTrue(res1["success"])
+AssertionError: False is not true
+
+======================================================================
+FAIL: test_dfs_sequence_2134 (test_phase6_dfs.TestPhase6DFSSolver.test_dfs_sequence_2134)
+Test DFS solver on multi-bend sequence ordering fixture.
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/badmc/Desktop/SMBS_BendSeq/tests/test_phase6_dfs.py", line 98, in test_dfs_sequence_2134
+    self.assertTrue(res["success"])
+AssertionError: False is not true
+
+======================================================================
+FAIL: test_dfs_u_channel (test_phase6_dfs.TestPhase6DFSSolver.test_dfs_u_channel)
+Test DFS solver on U-Channel (2 bends).
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/badmc/Desktop/SMBS_BendSeq/tests/test_phase6_dfs.py", line 73, in test_dfs_u_channel
+    self.assertTrue(res["success"])
+AssertionError: False is not true
+
+======================================================================
+FAIL: test_part_vs_die_wall_collision_invalid (test_phase7_collision.TestPhase7Collision.test_part_vs_die_wall_collision_invalid)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/badmc/Desktop/SMBS_BendSeq/tests/test_phase7_collision.py", line 38, in test_part_vs_die_wall_collision_invalid
+    self.assertEqual(res.status, CollisionStatus.INVALID)
+AssertionError: <CollisionStatus.VALID: 'valid'> != <CollisionStatus.INVALID: 'invalid'>
+
+======================================================================
+FAIL: test_c_profile (test_stage3_regression.TestRegressionSuites.test_c_profile)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/badmc/Desktop/SMBS_BendSeq/tests/test_stage3_regression.py", line 194, in test_c_profile
+    self._run_and_verify("C", 3)
+  File "/Users/badmc/Desktop/SMBS_BendSeq/tests/test_stage3_regression.py", line 181, in _run_and_verify
+    self.assertIn("steps", data)
+AssertionError: 'steps' not found in {'schema_version': '1.0', 'format': 'BendSeq_v1.0', 'status': 'SUCCESS', 'model_id': 'part_model', 'machine_id': 'press_100t', 'punch_id': 'punch_88deg_R1.5', 'die_id': 'die_V12_R1.5_88deg', 'metadata': {'part_thickness_mm': 2.0, 'k_factor': 0.4, 'material': 'Steel_S235', 'total_bends': 3, 'algorithm_used': 'dfs', 'planning_time_sec': 0.005}, 'sequence_summary': {'total_steps': 3, 'total_flips': 0, 'tool_stations_used': 1}, 'sequence': [{'step': 1, 'bend_id': 'BEND_01', 'status': 'VALID', 'collision_status': 'VALID', 'tooling_status': 'SIMPLIFIED', 'alignment_status': 'CANNOT_VERIFY', 'angle_deg': 90.0, 'radius_mm': 2.0, 'length_mm': 100.0, 'axis': [1, 0, 0], 'origin': [0, -50, 0], 'moving_panels': ['PANEL_02', 'PANEL_03', 'PANEL_01'], 'backgauge': {'X_mm': 56.0, 'R_mm': 1.0, 'Z1_mm': -25.0, 'Z2_mm': 25.0, 'finger_touch_point_1': [56.0, -25.0, 1.0], 'finger_touch_point_2': [56.0, 25.0, 1.0], 'part_stability_score': 0.95, 'reference_edge': 'REAR_FLANGE_PARALLEL', 'geometry_confirmed': False, 'warning': 'Backgauge coordinates are estimated. B-Rep projection required for verified X dimension.'}, 'tooling': {'punch_id': 'PUNCH_GOOSENECK_120', 'punch_type': 'gooseneck', 'punch_height_mm': 120.0, 'die_id': 'DIE_V12', 'v_width_mm': 12.0, 'die_height_mm': 80.0, 'segment_layout_mm': [100, 200], 'required_tonnage_per_m': 21.7}, 'operator_instructions': {'station': 1, 'requires_part_flip_180': False, 'tool_change_required': False, 'description': 'Position part against backgauge stops X=56.0mm, R=1.0mm.'}}, {'step': 2, 'bend_id': 'BEND_02', 'status': 'VALID', 'collision_status': 'VALID', 'tooling_status': 'SIMPLIFIED', 'alignment_status': 'CANNOT_VERIFY', 'angle_deg': 90.0, 'radius_mm': 2.0, 'length_mm': 100.0, 'axis': [1, 0, 0], 'origin': [0, 0, 0], 'moving_panels': ['PANEL_02', 'PANEL_03'], 'backgauge': {'X_mm': 56.0, 'R_mm': 1.0, 'Z1_mm': -25.0, 'Z2_mm': 25.0, 'finger_touch_point_1': [56.0, -25.0, 1.0], 'finger_touch_point_2': [56.0, 25.0, 1.0], 'part_stability_score': 0.95, 'reference_edge': 'REAR_FLANGE_PARALLEL', 'geometry_confirmed': False, 'warning': 'Backgauge coordinates are estimated. B-Rep projection required for verified X dimension.'}, 'tooling': {'punch_id': 'PUNCH_GOOSENECK_120', 'punch_type': 'gooseneck', 'punch_height_mm': 120.0, 'die_id': 'DIE_V12', 'v_width_mm': 12.0, 'die_height_mm': 80.0, 'segment_layout_mm': [100, 200], 'required_tonnage_per_m': 21.7}, 'operator_instructions': {'station': 1, 'requires_part_flip_180': False, 'tool_change_required': False, 'description': 'Position part against backgauge stops X=56.0mm, R=1.0mm.'}}, {'step': 3, 'bend_id': 'BEND_03', 'status': 'VALID', 'collision_status': 'VALID', 'tooling_status': 'SIMPLIFIED', 'alignment_status': 'CANNOT_VERIFY', 'angle_deg': 90.0, 'radius_mm': 2.0, 'length_mm': 100.0, 'axis': [1, 0, 0], 'origin': [0, 50, 0], 'moving_panels': ['PANEL_03'], 'backgauge': {'X_mm': 56.0, 'R_mm': 1.0, 'Z1_mm': -25.0, 'Z2_mm': 25.0, 'finger_touch_point_1': [56.0, -25.0, 1.0], 'finger_touch_point_2': [56.0, 25.0, 1.0], 'part_stability_score': 0.95, 'reference_edge': 'REAR_FLANGE_PARALLEL', 'geometry_confirmed': False, 'warning': 'Backgauge coordinates are estimated. B-Rep projection required for verified X dimension.'}, 'tooling': {'punch_id': 'PUNCH_GOOSENECK_120', 'punch_type': 'gooseneck', 'punch_height_mm': 120.0, 'die_id': 'DIE_V12', 'v_width_mm': 12.0, 'die_height_mm': 80.0, 'segment_layout_mm': [100, 200], 'required_tonnage_per_m': 21.7}, 'operator_instructions': {'station': 1, 'requires_part_flip_180': False, 'tool_change_required': False, 'description': 'Position part against backgauge stops X=56.0mm, R=1.0mm.'}}]}
+
+======================================================================
+FAIL: test_complex_profile (test_stage3_regression.TestRegressionSuites.test_complex_profile)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/badmc/Desktop/SMBS_BendSeq/tests/test_stage3_regression.py", line 197, in test_complex_profile
+    self._run_and_verify("COMPLEX", 4)
+  File "/Users/badmc/Desktop/SMBS_BendSeq/tests/test_stage3_regression.py", line 181, in _run_and_verify
+    self.assertIn("steps", data)
+AssertionError: 'steps' not found in {'schema_version': '1.0', 'format': 'BendSeq_v1.0', 'status': 'SUCCESS', 'model_id': 'part_model', 'machine_id': 'press_100t', 'punch_id': 'punch_88deg_R1.5', 'die_id': 'die_V12_R1.5_88deg', 'metadata': {'part_thickness_mm': 2.0, 'k_factor': 0.4, 'material': 'Steel_S235', 'total_bends': 4, 'algorithm_used': 'dfs', 'planning_time_sec': 0.009}, 'sequence_summary': {'total_steps': 4, 'total_flips': 1, 'tool_stations_used': 1}, 'sequence': [{'step': 1, 'bend_id': 'BEND_01', 'status': 'VALID', 'collision_status': 'VALID', 'tooling_status': 'SIMPLIFIED', 'alignment_status': 'CANNOT_VERIFY', 'angle_deg': 90.0, 'radius_mm': 2.0, 'length_mm': 100.0, 'axis': [0, 1, 0], 'origin': [-50, 0, 0], 'moving_panels': ['PANEL_01'], 'backgauge': {'X_mm': 56.0, 'R_mm': 1.0, 'Z1_mm': -25.0, 'Z2_mm': 25.0, 'finger_touch_point_1': [56.0, -25.0, 1.0], 'finger_touch_point_2': [56.0, 25.0, 1.0], 'part_stability_score': 0.95, 'reference_edge': 'REAR_FLANGE_PARALLEL', 'geometry_confirmed': False, 'warning': 'Backgauge coordinates are estimated. B-Rep projection required for verified X dimension.'}, 'tooling': {'punch_id': 'PUNCH_GOOSENECK_120', 'punch_type': 'gooseneck', 'punch_height_mm': 120.0, 'die_id': 'DIE_V12', 'v_width_mm': 12.0, 'die_height_mm': 80.0, 'segment_layout_mm': [100, 200], 'required_tonnage_per_m': 21.7}, 'operator_instructions': {'station': 1, 'requires_part_flip_180': False, 'tool_change_required': False, 'description': 'Position part against backgauge stops X=56.0mm, R=1.0mm.'}}, {'step': 2, 'bend_id': 'BEND_03', 'status': 'VALID', 'collision_status': 'VALID', 'tooling_status': 'SIMPLIFIED', 'alignment_status': 'CANNOT_VERIFY', 'angle_deg': 90.0, 'radius_mm': 2.0, 'length_mm': 100.0, 'axis': [0, 1, 0], 'origin': [50, 0, 0], 'moving_panels': ['PANEL_03'], 'backgauge': {'X_mm': 56.0, 'R_mm': 1.0, 'Z1_mm': -25.0, 'Z2_mm': 25.0, 'finger_touch_point_1': [56.0, -25.0, 1.0], 'finger_touch_point_2': [56.0, 25.0, 1.0], 'part_stability_score': 0.95, 'reference_edge': 'REAR_FLANGE_PARALLEL', 'geometry_confirmed': False, 'warning': 'Backgauge coordinates are estimated. B-Rep projection required for verified X dimension.'}, 'tooling': {'punch_id': 'PUNCH_GOOSENECK_120', 'punch_type': 'gooseneck', 'punch_height_mm': 120.0, 'die_id': 'DIE_V12', 'v_width_mm': 12.0, 'die_height_mm': 80.0, 'segment_layout_mm': [100, 200], 'required_tonnage_per_m': 21.7}, 'operator_instructions': {'station': 1, 'requires_part_flip_180': False, 'tool_change_required': False, 'description': 'Position part against backgauge stops X=56.0mm, R=1.0mm.'}}, {'step': 3, 'bend_id': 'BEND_04', 'status': 'VALID', 'collision_status': 'VALID', 'tooling_status': 'SIMPLIFIED', 'alignment_status': 'CANNOT_VERIFY', 'angle_deg': 90.0, 'radius_mm': 2.0, 'length_mm': 100.0, 'axis': [1, 0, 0], 'origin': [0, 50, 0], 'moving_panels': ['PANEL_04'], 'backgauge': {'X_mm': 56.0, 'R_mm': 1.0, 'Z1_mm': -25.0, 'Z2_mm': 25.0, 'finger_touch_point_1': [56.0, -25.0, 1.0], 'finger_touch_point_2': [56.0, 25.0, 1.0], 'part_stability_score': 0.95, 'reference_edge': 'REAR_FLANGE_PARALLEL', 'geometry_confirmed': False, 'warning': 'Backgauge coordinates are estimated. B-Rep projection required for verified X dimension.'}, 'tooling': {'punch_id': 'PUNCH_GOOSENECK_120', 'punch_type': 'gooseneck', 'punch_height_mm': 120.0, 'die_id': 'DIE_V12', 'v_width_mm': 12.0, 'die_height_mm': 80.0, 'segment_layout_mm': [100, 200], 'required_tonnage_per_m': 21.7}, 'operator_instructions': {'station': 1, 'requires_part_flip_180': True, 'tool_change_required': False, 'description': 'Position part against backgauge stops X=56.0mm, R=1.0mm.'}}, {'step': 4, 'bend_id': 'BEND_02', 'status': 'VALID', 'collision_status': 'VALID', 'tooling_status': 'SIMPLIFIED', 'alignment_status': 'CANNOT_VERIFY', 'angle_deg': 90.0, 'radius_mm': 2.0, 'length_mm': 100.0, 'axis': [1, 0, 0], 'origin': [0, -50, 0], 'moving_panels': ['PANEL_02'], 'backgauge': {'X_mm': 56.0, 'R_mm': 1.0, 'Z1_mm': -25.0, 'Z2_mm': 25.0, 'finger_touch_point_1': [56.0, -25.0, 1.0], 'finger_touch_point_2': [56.0, 25.0, 1.0], 'part_stability_score': 0.95, 'reference_edge': 'REAR_FLANGE_PARALLEL', 'geometry_confirmed': False, 'warning': 'Backgauge coordinates are estimated. B-Rep projection required for verified X dimension.'}, 'tooling': {'punch_id': 'PUNCH_GOOSENECK_120', 'punch_type': 'gooseneck', 'punch_height_mm': 120.0, 'die_id': 'DIE_V12', 'v_width_mm': 12.0, 'die_height_mm': 80.0, 'segment_layout_mm': [100, 200], 'required_tonnage_per_m': 21.7}, 'operator_instructions': {'station': 1, 'requires_part_flip_180': False, 'tool_change_required': False, 'description': 'Position part against backgauge stops X=56.0mm, R=1.0mm.'}}]}
+
+======================================================================
+FAIL: test_l_profile (test_stage3_regression.TestRegressionSuites.test_l_profile)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/badmc/Desktop/SMBS_BendSeq/tests/test_stage3_regression.py", line 185, in test_l_profile
+    self._run_and_verify("L", 1)
+  File "/Users/badmc/Desktop/SMBS_BendSeq/tests/test_stage3_regression.py", line 181, in _run_and_verify
+    self.assertIn("steps", data)
+AssertionError: 'steps' not found in {'schema_version': '1.0', 'format': 'BendSeq_v1.0', 'status': 'SUCCESS', 'model_id': 'part_model', 'machine_id': 'press_100t', 'punch_id': 'punch_88deg_R1.5', 'die_id': 'die_V12_R1.5_88deg', 'metadata': {'part_thickness_mm': 2.0, 'k_factor': 0.4, 'material': 'Steel_S235', 'total_bends': 1, 'algorithm_used': 'dfs', 'planning_time_sec': 0.001}, 'sequence_summary': {'total_steps': 1, 'total_flips': 0, 'tool_stations_used': 1}, 'sequence': [{'step': 1, 'bend_id': 'BEND_01', 'status': 'VALID', 'collision_status': 'VALID', 'tooling_status': 'SIMPLIFIED', 'alignment_status': 'CANNOT_VERIFY', 'angle_deg': 90.0, 'radius_mm': 2.0, 'length_mm': 100.0, 'axis': [1, 0, 0], 'origin': [0, 0, 0], 'moving_panels': ['PANEL_01'], 'backgauge': {'X_mm': 56.0, 'R_mm': 1.0, 'Z1_mm': -25.0, 'Z2_mm': 25.0, 'finger_touch_point_1': [56.0, -25.0, 1.0], 'finger_touch_point_2': [56.0, 25.0, 1.0], 'part_stability_score': 0.95, 'reference_edge': 'REAR_FLANGE_PARALLEL', 'geometry_confirmed': False, 'warning': 'Backgauge coordinates are estimated. B-Rep projection required for verified X dimension.'}, 'tooling': {'punch_id': 'PUNCH_GOOSENECK_120', 'punch_type': 'gooseneck', 'punch_height_mm': 120.0, 'die_id': 'DIE_V12', 'v_width_mm': 12.0, 'die_height_mm': 80.0, 'segment_layout_mm': [100, 200], 'required_tonnage_per_m': 21.7}, 'operator_instructions': {'station': 1, 'requires_part_flip_180': False, 'tool_change_required': False, 'description': 'Position part against backgauge stops X=56.0mm, R=1.0mm.'}}]}
+
+======================================================================
+FAIL: test_u_profile (test_stage3_regression.TestRegressionSuites.test_u_profile)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/badmc/Desktop/SMBS_BendSeq/tests/test_stage3_regression.py", line 188, in test_u_profile
+    self._run_and_verify("U", 2)
+  File "/Users/badmc/Desktop/SMBS_BendSeq/tests/test_stage3_regression.py", line 181, in _run_and_verify
+    self.assertIn("steps", data)
+AssertionError: 'steps' not found in {'schema_version': '1.0', 'format': 'BendSeq_v1.0', 'status': 'SUCCESS', 'model_id': 'part_model', 'machine_id': 'press_100t', 'punch_id': 'punch_88deg_R1.5', 'die_id': 'die_V12_R1.5_88deg', 'metadata': {'part_thickness_mm': 2.0, 'k_factor': 0.4, 'material': 'Steel_S235', 'total_bends': 2, 'algorithm_used': 'dfs', 'planning_time_sec': 0.003}, 'sequence_summary': {'total_steps': 2, 'total_flips': 0, 'tool_stations_used': 1}, 'sequence': [{'step': 1, 'bend_id': 'BEND_01', 'status': 'VALID', 'collision_status': 'VALID', 'tooling_status': 'SIMPLIFIED', 'alignment_status': 'CANNOT_VERIFY', 'angle_deg': 90.0, 'radius_mm': 2.0, 'length_mm': 100.0, 'axis': [1, 0, 0], 'origin': [0, -50, 0], 'moving_panels': ['PANEL_02', 'PANEL_01'], 'backgauge': {'X_mm': 56.0, 'R_mm': 1.0, 'Z1_mm': -25.0, 'Z2_mm': 25.0, 'finger_touch_point_1': [56.0, -25.0, 1.0], 'finger_touch_point_2': [56.0, 25.0, 1.0], 'part_stability_score': 0.95, 'reference_edge': 'REAR_FLANGE_PARALLEL', 'geometry_confirmed': False, 'warning': 'Backgauge coordinates are estimated. B-Rep projection required for verified X dimension.'}, 'tooling': {'punch_id': 'PUNCH_GOOSENECK_120', 'punch_type': 'gooseneck', 'punch_height_mm': 120.0, 'die_id': 'DIE_V12', 'v_width_mm': 12.0, 'die_height_mm': 80.0, 'segment_layout_mm': [100, 200], 'required_tonnage_per_m': 21.7}, 'operator_instructions': {'station': 1, 'requires_part_flip_180': False, 'tool_change_required': False, 'description': 'Position part against backgauge stops X=56.0mm, R=1.0mm.'}}, {'step': 2, 'bend_id': 'BEND_02', 'status': 'VALID', 'collision_status': 'VALID', 'tooling_status': 'SIMPLIFIED', 'alignment_status': 'CANNOT_VERIFY', 'angle_deg': 90.0, 'radius_mm': 2.0, 'length_mm': 100.0, 'axis': [1, 0, 0], 'origin': [0, 50, 0], 'moving_panels': ['PANEL_02'], 'backgauge': {'X_mm': 56.0, 'R_mm': 1.0, 'Z1_mm': -25.0, 'Z2_mm': 25.0, 'finger_touch_point_1': [56.0, -25.0, 1.0], 'finger_touch_point_2': [56.0, 25.0, 1.0], 'part_stability_score': 0.95, 'reference_edge': 'REAR_FLANGE_PARALLEL', 'geometry_confirmed': False, 'warning': 'Backgauge coordinates are estimated. B-Rep projection required for verified X dimension.'}, 'tooling': {'punch_id': 'PUNCH_GOOSENECK_120', 'punch_type': 'gooseneck', 'punch_height_mm': 120.0, 'die_id': 'DIE_V12', 'v_width_mm': 12.0, 'die_height_mm': 80.0, 'segment_layout_mm': [100, 200], 'required_tonnage_per_m': 21.7}, 'operator_instructions': {'station': 1, 'requires_part_flip_180': False, 'tool_change_required': False, 'description': 'Position part against backgauge stops X=56.0mm, R=1.0mm.'}}]}
+
+======================================================================
+FAIL: test_z_profile (test_stage3_regression.TestRegressionSuites.test_z_profile)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/badmc/Desktop/SMBS_BendSeq/tests/test_stage3_regression.py", line 191, in test_z_profile
+    self._run_and_verify("Z", 2)
+  File "/Users/badmc/Desktop/SMBS_BendSeq/tests/test_stage3_regression.py", line 181, in _run_and_verify
+    self.assertIn("steps", data)
+AssertionError: 'steps' not found in {'schema_version': '1.0', 'format': 'BendSeq_v1.0', 'status': 'SUCCESS', 'model_id': 'part_model', 'machine_id': 'press_100t', 'punch_id': 'punch_88deg_R1.5', 'die_id': 'die_V12_R1.5_88deg', 'metadata': {'part_thickness_mm': 2.0, 'k_factor': 0.4, 'material': 'Steel_S235', 'total_bends': 2, 'algorithm_used': 'dfs', 'planning_time_sec': 0.004}, 'sequence_summary': {'total_steps': 2, 'total_flips': 0, 'tool_stations_used': 1}, 'sequence': [{'step': 1, 'bend_id': 'BEND_01', 'status': 'VALID', 'collision_status': 'VALID', 'tooling_status': 'SIMPLIFIED', 'alignment_status': 'CANNOT_VERIFY', 'angle_deg': 90.0, 'radius_mm': 2.0, 'length_mm': 100.0, 'axis': [1, 0, 0], 'origin': [0, -50, 0], 'moving_panels': ['PANEL_02', 'PANEL_01'], 'backgauge': {'X_mm': 56.0, 'R_mm': 1.0, 'Z1_mm': -25.0, 'Z2_mm': 25.0, 'finger_touch_point_1': [56.0, -25.0, 1.0], 'finger_touch_point_2': [56.0, 25.0, 1.0], 'part_stability_score': 0.95, 'reference_edge': 'REAR_FLANGE_PARALLEL', 'geometry_confirmed': False, 'warning': 'Backgauge coordinates are estimated. B-Rep projection required for verified X dimension.'}, 'tooling': {'punch_id': 'PUNCH_GOOSENECK_120', 'punch_type': 'gooseneck', 'punch_height_mm': 120.0, 'die_id': 'DIE_V12', 'v_width_mm': 12.0, 'die_height_mm': 80.0, 'segment_layout_mm': [100, 200], 'required_tonnage_per_m': 21.7}, 'operator_instructions': {'station': 1, 'requires_part_flip_180': False, 'tool_change_required': False, 'description': 'Position part against backgauge stops X=56.0mm, R=1.0mm.'}}, {'step': 2, 'bend_id': 'BEND_02', 'status': 'VALID', 'collision_status': 'VALID', 'tooling_status': 'SIMPLIFIED', 'alignment_status': 'CANNOT_VERIFY', 'angle_deg': -90.0, 'radius_mm': 2.0, 'length_mm': 100.0, 'axis': [1, 0, 0], 'origin': [0, 50, 0], 'moving_panels': ['PANEL_02'], 'backgauge': {'X_mm': 56.0, 'R_mm': 1.0, 'Z1_mm': -25.0, 'Z2_mm': 25.0, 'finger_touch_point_1': [56.0, -25.0, 1.0], 'finger_touch_point_2': [56.0, 25.0, 1.0], 'part_stability_score': 0.95, 'reference_edge': 'REAR_FLANGE_PARALLEL', 'geometry_confirmed': False, 'warning': 'Backgauge coordinates are estimated. B-Rep projection required for verified X dimension.'}, 'tooling': {'punch_id': 'PUNCH_GOOSENECK_120', 'punch_type': 'gooseneck', 'punch_height_mm': 120.0, 'die_id': 'DIE_V12', 'v_width_mm': 12.0, 'die_height_mm': 80.0, 'segment_layout_mm': [100, 200], 'required_tonnage_per_m': 21.7}, 'operator_instructions': {'station': 1, 'requires_part_flip_180': False, 'tool_change_required': False, 'description': 'Position part against backgauge stops X=56.0mm, R=1.0mm.'}}]}
+
+======================================================================
+FAIL: test_self_collision_no_panel_graph (test_stage6_self_collision.TestStage6SelfCollision.test_self_collision_no_panel_graph)
+Test fallback behavior when no panel graph is provided.
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/badmc/Desktop/SMBS_BendSeq/tests/test_stage6_self_collision.py", line 62, in test_self_collision_no_panel_graph
+    self.assertTrue(coll)
+AssertionError: False is not true
+
+======================================================================
+FAIL: test_tool_collision_distinction (test_stage8_tool_collision.TestStage8ToolCollision.test_tool_collision_distinction)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/badmc/Desktop/SMBS_BendSeq/tests/test_stage8_tool_collision.py", line 72, in test_tool_collision_distinction
+    self.assertTrue(res.is_valid)
+AssertionError: False is not true
+
+======================================================================
+FAIL: test_machine_envelope_limits (test_stage9_machine_collision.TestStage9MachineCollision.test_machine_envelope_limits)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/badmc/Desktop/SMBS_BendSeq/tests/test_stage9_machine_collision.py", line 45, in test_machine_envelope_limits
+    self.assertTrue(res.is_valid)
+AssertionError: False is not true
+
+----------------------------------------------------------------------
+Ran 229 tests in 77.228s
+
+FAILED (failures=18, errors=17)
+
+==================================================
+FULL TEST SUITE EXECUTION REPORT
+Ran 229 tests in 80.10s
+PASSED: 194
+FAILURES: 18
+ERRORS: 17
+SKIPPED: 0
+==================================================

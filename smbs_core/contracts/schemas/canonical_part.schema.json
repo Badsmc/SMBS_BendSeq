@@ -73,6 +73,29 @@
             "content_hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
           }
         },
+        "symmetry_transformations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["type", "axis", "angle_deg"],
+            "properties": {
+              "type": { "type": "string", "enum": ["ROTATION", "REFLECTION"] },
+              "axis": {
+                "type": "array",
+                "items": { "type": "number" },
+                "minItems": 3,
+                "maxItems": 3
+              },
+              "origin": {
+                "type": "array",
+                "items": { "type": "number" },
+                "minItems": 3,
+                "maxItems": 3
+              },
+              "angle_deg": { "type": "number" }
+            }
+          }
+        },
         "panels": {
           "type": "object",
           "additionalProperties": {

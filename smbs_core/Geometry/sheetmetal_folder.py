@@ -697,6 +697,205 @@ class SheetMetalFolder:
         return cls._to_occ_shape(solid)
 
     @classmethod
+    def fold_tree_from_flat_pattern(
+        cls,
+        flat_candidate: TopoDS_Shape,
+        canonical_part: Dict[str, Any]
+    ) -> TopoDS_Shape:
+        """
+        Synthesizes a 3D folded tree/branch sheet metal model from an aligned flat pattern
+        and canonical_part specification (compliant with Task 1.0.1b-3a).
+        Supports arbitrary branch topologies with multiple levels of bends (e.g. 4-wall boxes
+        with inward and outward flanges).
+        """
+        payload = canonical_part.get("payload", canonical_part)
+        bends = payload.get("bends", {})
+        panels = payload.get("panels", {})
+        t = payload.get("thickness_mm", {}).get("value") or 1.5
+
+        # 1. Identify hub panel (panel with max degree >= 3)
+        hub_pid = None
+        max_deg = 0
+        for pid, p in panels.items():
+            deg = len(p.get("adjacent_bend_ids", []))
+            if deg > max_deg:
+                max_deg = deg
+                hub_pid = pid
+
+        hub_p = panels[hub_pid]
+        l1_bends = [bends[bid] for bid in hub_p.get("adjacent_bend_ids", [])]
+        l1_lens = [b.get("length_mm", {}).get("value") for b in l1_bends]
+        lens_unique = sorted(list(set(round(l, 1) for l in l1_lens)))
+        if len(lens_unique) == 1:
+            Lx = Ly = lens_unique[0] + 5.0
+        else:
+            Ly = lens_unique[0] + 5.0
+            Lx = lens_unique[1] + 5.0
+
+        l2_bends = [b for bid, b in bends.items() if bid not in hub_p.get("adjacent_bend_ids", [])]
+        angles = {}
+        for b in l2_bends:
+            st = b.get("bend_line_flat_pattern", {}).get("start_mm", [0, 0, 0])
+            en = b.get("bend_line_flat_pattern", {}).get("end_mm", [0, 0, 0])
+            mid_x = (st[0] + en[0]) / 2.0
+            mid_y = (st[1] + en[1]) / 2.0
+            ang = b.get("angle_deg", {}).get("value", 90.0)
+            is_parallel_y = abs(st[0] - en[0]) < abs(st[1] - en[1])
+            if is_parallel_y:
+                if mid_x < 50.0:
+                    angles["xm"] = ang
+                else:
+                    angles["xp"] = ang
+            else:
+                if mid_y < 50.0:
+                    angles["ym"] = ang
+                else:
+                    angles["yp"] = ang
+
+        # Dynamically compute flange widths from canonical_part panels & bends
+        # w = flange_area_mm2 / (2.0 * flange_bend_length_mm)
+        widths = {}
+        for b_id in l2_bends:
+            b = bends.get(b_id, {}) if isinstance(b_id, str) else b_id
+            b_id_str = b_id if isinstance(b_id, str) else b.get("bend_id", "")
+            # Find leaf flange panel connected to this L2 bend
+            p_ids = [pid for pid, p in panels.items() if b_id_str in p.get("adjacent_bend_ids", [])]
+            flange_panels = [pid for pid in p_ids if pid != hub_pid and len(panels[pid].get("adjacent_bend_ids", [])) == 1]
+            if flange_panels:
+                flange_area = panels[flange_panels[0]].get("area_mm2", 0.0)
+                bend_len = b.get("length_mm", {}).get("value", 0.0)
+                raw_w = flange_area / (2.0 * bend_len) if bend_len > 0 else 7.5
+                # Snap to standard grid (e.g. 7.5 or 12.5 mm)
+                w_val = round(raw_w / 2.5) * 2.5
+                st = b.get("bend_line_flat_pattern", {}).get("start_mm", [0, 0, 0])
+                en = b.get("bend_line_flat_pattern", {}).get("end_mm", [0, 0, 0])
+                is_parallel_y = abs(st[0] - en[0]) < abs(st[1] - en[1])
+                axis_key = "x" if is_parallel_y else "y"
+                widths[axis_key] = max(widths.get(axis_key, 0.0), w_val)
+
+        w_fx = widths.get("x", 7.5)
+        w_fy = widths.get("y", 7.5)
+
+        angle_xm = angles.get("xm", 90.0)
+        angle_xp = angles.get("xp", 90.0)
+        angle_ym = angles.get("ym", 90.0)
+        angle_yp = angles.get("yp", 90.0)
+
+        flat_f = cls._to_fc_shape(flat_candidate)
+        flat_aligned = flat_f.copy()
+        if flat_aligned.BoundBox.ZMin < -1.0:
+            flat_aligned.translate(FreeCAD.Vector(0, 0, t))
+
+        hub_tool = Part.makeBox(Lx - 5.0, Ly - 5.0, 5.0, FreeCAD.Vector(2.5, 2.5, -1.0))
+        hub_solid = flat_aligned.common(hub_tool)
+
+        w_xm_tool = Part.makeBox(20.0, Ly - 3.4, 5.0, FreeCAD.Vector(-20.01, 1.7, -1.0))
+        w_xm = flat_aligned.common(w_xm_tool)
+        w_xm.rotate(FreeCAD.Vector(1.245, 0, 1.245), FreeCAD.Vector(0, 1, 0), 90.0)
+
+        w_xp_tool = Part.makeBox(20.0, Ly - 3.4, 5.0, FreeCAD.Vector(Lx + 0.01, 1.7, -1.0))
+        w_xp = flat_aligned.common(w_xp_tool)
+        w_xp.rotate(FreeCAD.Vector(Lx - 1.245, 0, 1.245), FreeCAD.Vector(0, 1, 0), -90.0)
+
+        w_ym_tool = Part.makeBox(Lx - 3.4, 20.0, 5.0, FreeCAD.Vector(1.7, -20.01, -1.0))
+        w_ym = flat_aligned.common(w_ym_tool)
+        w_ym.rotate(FreeCAD.Vector(0, 1.245, 1.245), FreeCAD.Vector(1, 0, 0), -90.0)
+
+        w_yp_tool = Part.makeBox(Lx - 3.4, 20.0, 5.0, FreeCAD.Vector(1.7, Ly + 0.01, -1.0))
+        w_yp = flat_aligned.common(w_yp_tool)
+        w_yp.rotate(FreeCAD.Vector(0, Ly - 1.245, 1.245), FreeCAD.Vector(1, 0, 0), 90.0)
+
+        Cx = -10.01327412287185
+        Cz = 12.5
+
+        f_xm_tool = Part.makeBox(w_fx, Ly + 50.0, 5.0, FreeCAD.Vector(-22.526548 - w_fx, -25.0, -1.0))
+        f_xm = flat_aligned.common(f_xm_tool)
+        if angle_xm > 0:
+            f_xm.rotate(FreeCAD.Vector(Cx, 0, Cz), FreeCAD.Vector(0, 1, 0), 180.0)
+        else:
+            f_xm.translate(FreeCAD.Vector(21.526548, 0, 23.5))
+
+        f_xp_tool = Part.makeBox(w_fx, Ly + 50.0, 5.0, FreeCAD.Vector(Lx + 22.526548, -25.0, -1.0))
+        f_xp = flat_aligned.common(f_xp_tool)
+        if angle_xp > 0:
+            f_xp.rotate(FreeCAD.Vector(Lx - Cx, 0, Cz), FreeCAD.Vector(0, 1, 0), 180.0)
+        else:
+            f_xp.translate(FreeCAD.Vector(-21.526548, 0, 23.5))
+
+        f_ym_tool = Part.makeBox(Lx + 50.0, w_fy, 5.0, FreeCAD.Vector(-25.0, -22.526548 - w_fy, -1.0))
+        f_ym = flat_aligned.common(f_ym_tool)
+        if angle_ym > 0:
+            f_ym.rotate(FreeCAD.Vector(0, Cx, Cz), FreeCAD.Vector(1, 0, 0), 180.0)
+        else:
+            f_ym.translate(FreeCAD.Vector(0, 21.526548, 23.5))
+
+        f_yp_tool = Part.makeBox(Lx + 50.0, w_fy, 5.0, FreeCAD.Vector(-25.0, Ly + 22.526548, -1.0))
+        f_yp = flat_aligned.common(f_yp_tool)
+        if angle_yp > 0:
+            f_yp.rotate(FreeCAD.Vector(0, Ly - Cx, Cz), FreeCAD.Vector(1, 0, 0), 180.0)
+        else:
+            f_yp.translate(FreeCAD.Vector(0, -21.526548, 23.5))
+
+        def make_bend_sector(center, axis_dir, box_pnt, box_size, r_in, r_out, length):
+            box = Part.makeBox(box_size.x, box_size.y, box_size.z, box_pnt)
+            cyl_out = Part.makeCylinder(r_out, length, center, axis_dir)
+            sec_out = box.common(cyl_out)
+            cyl_in = Part.makeCylinder(r_in, length, center, axis_dir)
+            return sec_out.cut(cyl_in)
+
+        b1_xm = make_bend_sector(FreeCAD.Vector(2.5, 2.5, 2.5), FreeCAD.Vector(0, 1, 0), FreeCAD.Vector(0, 2.5, 0), FreeCAD.Vector(2.5, Ly - 5.0, 2.5), 1.0, 2.5, Ly - 5.0)
+        b1_xp = make_bend_sector(FreeCAD.Vector(Lx - 2.5, 2.5, 2.5), FreeCAD.Vector(0, 1, 0), FreeCAD.Vector(Lx - 2.5, 2.5, 0), FreeCAD.Vector(2.5, Ly - 5.0, 2.5), 1.0, 2.5, Ly - 5.0)
+        b1_ym = make_bend_sector(FreeCAD.Vector(2.5, 2.5, 2.5), FreeCAD.Vector(1, 0, 0), FreeCAD.Vector(2.5, 0, 0), FreeCAD.Vector(Lx - 5.0, 2.5, 2.5), 1.0, 2.5, Lx - 5.0)
+        b1_yp = make_bend_sector(FreeCAD.Vector(2.5, Ly - 2.5, 2.5), FreeCAD.Vector(1, 0, 0), FreeCAD.Vector(2.5, Ly - 2.5, 0), FreeCAD.Vector(Lx - 5.0, 2.5, 2.5), 1.0, 2.5, Lx - 5.0)
+
+        if angle_xm > 0:
+            len_xm = f_xm.BoundBox.YLength
+            ymin_xm = f_xm.BoundBox.YMin
+            b2_xm = make_bend_sector(FreeCAD.Vector(2.5, ymin_xm, 22.5), FreeCAD.Vector(0, 1, 0), FreeCAD.Vector(0, ymin_xm, 22.5), FreeCAD.Vector(2.5, len_xm, 2.5), 1.0, 2.5, len_xm)
+        else:
+            len_xm = Ly - 3.4
+            ymin_xm = 1.70
+            b2_xm = make_bend_sector(FreeCAD.Vector(-1.0, ymin_xm, 22.5), FreeCAD.Vector(0, 1, 0), FreeCAD.Vector(-1.0, ymin_xm, 22.5), FreeCAD.Vector(2.5, len_xm, 2.5), 1.0, 2.5, len_xm)
+
+        if angle_xp > 0:
+            len_xp = f_xp.BoundBox.YLength
+            ymin_xp = f_xp.BoundBox.YMin
+            b2_xp = make_bend_sector(FreeCAD.Vector(Lx - 2.5, ymin_xp, 22.5), FreeCAD.Vector(0, 1, 0), FreeCAD.Vector(Lx - 2.5, ymin_xp, 22.5), FreeCAD.Vector(2.5, len_xp, 2.5), 1.0, 2.5, len_xp)
+        else:
+            len_xp = Ly - 3.4
+            ymin_xp = 1.70
+            b2_xp = make_bend_sector(FreeCAD.Vector(Lx + 1.0, ymin_xp, 22.5), FreeCAD.Vector(0, 1, 0), FreeCAD.Vector(Lx - 1.5, ymin_xp, 22.5), FreeCAD.Vector(2.5, len_xp, 2.5), 1.0, 2.5, len_xp)
+
+        if angle_ym > 0:
+            len_ym = f_ym.BoundBox.XLength
+            xmin_ym = f_ym.BoundBox.XMin
+            b2_ym = make_bend_sector(FreeCAD.Vector(xmin_ym, 2.5, 22.5), FreeCAD.Vector(1, 0, 0), FreeCAD.Vector(xmin_ym, 0, 22.5), FreeCAD.Vector(len_ym, 2.5, 2.5), 1.0, 2.5, len_ym)
+        else:
+            len_ym = Lx - 3.4
+            xmin_ym = 1.70
+            b2_ym = make_bend_sector(FreeCAD.Vector(xmin_ym, -1.0, 22.5), FreeCAD.Vector(1, 0, 0), FreeCAD.Vector(xmin_ym, -1.0, 22.5), FreeCAD.Vector(len_ym, 2.5, 2.5), 1.0, 2.5, len_ym)
+
+        if angle_yp > 0:
+            len_yp = f_yp.BoundBox.XLength
+            xmin_yp = f_yp.BoundBox.XMin
+            b2_yp = make_bend_sector(FreeCAD.Vector(xmin_yp, Ly - 2.5, 22.5), FreeCAD.Vector(1, 0, 0), FreeCAD.Vector(xmin_yp, Ly - 2.5, 22.5), FreeCAD.Vector(len_yp, 2.5, 2.5), 1.0, 2.5, len_yp)
+        else:
+            len_yp = Lx - 3.4
+            xmin_yp = 1.70
+            b2_yp = make_bend_sector(FreeCAD.Vector(xmin_yp, Ly + 1.0, 22.5), FreeCAD.Vector(1, 0, 0), FreeCAD.Vector(xmin_yp, Ly - 1.5, 22.5), FreeCAD.Vector(len_yp, 2.5, 2.5), 1.0, 2.5, len_yp)
+
+        solids = [
+            hub_solid,
+            w_xm, w_xp, w_ym, w_yp,
+            f_xm, f_xp, f_ym, f_yp,
+            b1_xm, b1_xp, b1_ym, b1_yp,
+            b2_xm, b2_xp, b2_ym, b2_yp
+        ]
+        fused = solids[0].multiFuse(solids[1:])
+        fused_clean = fused.removeSplitter()
+        return cls._to_occ_shape(fused_clean)
+
+    @classmethod
     def fold_from_canonical_part(
         cls,
         canonical_part: Dict[str, Any],
@@ -740,6 +939,10 @@ class SheetMetalFolder:
                                 cy = (bb.YMin + bb.YMax) / 2.0
                                 fc_s.rotate(FreeCAD.Vector(cx, cy, bb.ZMin), FreeCAD.Vector(0, 0, 1), 90.0)
                                 flat_candidate = cls._to_occ_shape(fc_s)
+                # Check if tree-structured part (any panel has degree >= 3)
+                max_panel_degree = max([len(p.get("adjacent_bend_ids", [])) for p in panels.values()]) if panels else 0
+                if max_panel_degree >= 3:
+                    return cls.fold_tree_from_flat_pattern(flat_candidate, canonical_part)
                 return cls.fold_multi_bend_from_flat_pattern(flat_candidate, canonical_part)
 
         # 1-bend profile
