@@ -896,60 +896,28 @@ class SheetMetalFolder:
         return cls._to_occ_shape(fused_clean)
 
     @classmethod
-    def fold_tree_general_from_flat_pattern(
+    def fold_branch(
         cls,
-        flat_candidate: TopoDS_Shape,
-        canonical_part: Dict[str, Any]
-    ) -> TopoDS_Shape:
+        branch_bends: List[Dict[str, Any]],
+        flat_candidate: TopoDS_Shape | Part.Shape,
+        canonical_part: Dict[str, Any],
+        reference_frame: Optional[Any] = None
+    ) -> Part.Shape:
         """
-        Step A: Parametric folding of branch -Y for general tree sheet metal parts.
-        All bend axes, angles, directions, k-factors, and lengths are extracted from canonical_part['bends'].
-        All panel widths are extracted from canonical_part['panels'][pid]['area_mm2'] / (2 * L_bend).
-        Panels are cut from flat_candidate via boolean operations along dynamic boundaries.
-        Bend sectors are generated via profile revolving with DIN 6935 neutral layer shift.
+        Folds a single branch (chain of bends from the hub outward).
+        Returns the folded branch solid as a FreeCAD Part.Shape in part coordinates.
         """
         payload = canonical_part.get("payload", canonical_part)
         t_raw = payload.get("thickness_mm", 1.5)
         t = float(t_raw.get("value", 1.5) if isinstance(t_raw, dict) else t_raw)
-        bends = payload.get("bends", {})
         panels = payload.get("panels", {})
-        ref_panel_id = payload.get("reference_panel_id")
 
-        fc_flat = cls._to_fc_shape(flat_candidate)
+        fc_flat = cls._to_fc_shape(flat_candidate) if not isinstance(flat_candidate, Part.Shape) else flat_candidate
         bb = fc_flat.BoundBox
         if abs(bb.ZMin) < 1e-4 and abs(bb.ZMax - t) < 1e-4:
             pass
         elif abs(bb.ZMax) < 1e-4 and abs(bb.ZMin + t) < 1e-4:
             fc_flat.translate(FreeCAD.Vector(0, 0, t))
-
-        # Obchod dereva ot reference_panel_id: nahozhdenie tselevoy vetvi
-        hub_panel = panels.get(ref_panel_id, {})
-        all_branches = []
-        for bid in hub_panel.get("adjacent_bend_ids", []):
-            chain = [bends[bid]]
-            curr_p_id = bends[bid]["child_panel_id"]
-            while True:
-                curr_panel = panels.get(curr_p_id, {})
-                adjs = [b_other for b_other in curr_panel.get("adjacent_bend_ids", []) if b_other != chain[-1]["bend_id"]]
-                if not adjs:
-                    break
-                next_b = bends[adjs[0]]
-                chain.append(next_b)
-                curr_p_id = next_b["child_panel_id"]
-            all_branches.append(chain)
-
-        # Sort branches by depth descending to identify deepest branch (depth 4)
-        all_branches.sort(key=lambda c: len(c), reverse=True)
-        if not all_branches or len(all_branches[0]) < 4:
-            raise ValueError("TREE_FOLD_GEOMETRY_ERROR: branch -Y with depth 4 not found")
-
-        branch_bends = all_branches[0]
-        b_l1, b_l2, b_l3, b_l4 = branch_bends[:4]
-
-        p_w1_info = panels[b_l1["child_panel_id"]]
-        p_f1_info = panels[b_l2["child_panel_id"]]
-        p_f2_info = panels[b_l3["child_panel_id"]]
-        p_f3_info = panels[b_l4["child_panel_id"]]
 
         def get_val(item, key):
             if key not in item:
@@ -960,6 +928,13 @@ class SheetMetalFolder:
                     raise ValueError(f"TREE_FOLD_GEOMETRY_ERROR: {key} missing value")
                 return float(v["value"])
             return float(v)
+
+        b_l1, b_l2, b_l3, b_l4 = branch_bends[:4]
+
+        p_w1_info = panels[b_l1["child_panel_id"]]
+        p_f1_info = panels[b_l2["child_panel_id"]]
+        p_f2_info = panels[b_l3["child_panel_id"]]
+        p_f3_info = panels[b_l4["child_panel_id"]]
 
         L_bend = get_val(b_l1, "length_mm")
 
@@ -1105,8 +1080,49 @@ class SheetMetalFolder:
         # 9. Fuse branch elements
         branch = b1_sector.fuse(w1_folded).fuse(b2_sector).fuse(f1_folded).fuse(b3_sector).fuse(f2_folded).fuse(b4_sector).fuse(f3_folded)
         branch_clean = branch.removeSplitter()
-        return cls._to_occ_shape(branch_clean)
+        return branch_clean
 
+    @classmethod
+    def fold_tree_general_from_flat_pattern(
+        cls,
+        flat_candidate: TopoDS_Shape,
+        canonical_part: Dict[str, Any]
+    ) -> TopoDS_Shape:
+        """
+        Step A/B: Parametric folding for general tree sheet metal parts.
+        All bend axes, angles, directions, k-factors, and lengths are extracted from canonical_part['bends'].
+        All panel widths are extracted from canonical_part['panels'][pid]['area_mm2'] / (2 * L_bend).
+        Panels are cut from flat_candidate via boolean operations along dynamic boundaries.
+        Bend sectors are generated via profile revolving with DIN 6935 neutral layer shift.
+        """
+        payload = canonical_part.get("payload", canonical_part)
+        bends = payload.get("bends", {})
+        panels = payload.get("panels", {})
+        ref_panel_id = payload.get("reference_panel_id")
+
+        # Obchod dereva ot reference_panel_id: nahozhdenie tselevoy vetvi
+        hub_panel = panels.get(ref_panel_id, {})
+        all_branches = []
+        for bid in hub_panel.get("adjacent_bend_ids", []):
+            chain = [bends[bid]]
+            curr_p_id = bends[bid]["child_panel_id"]
+            while True:
+                curr_panel = panels.get(curr_p_id, {})
+                adjs = [b_other for b_other in curr_panel.get("adjacent_bend_ids", []) if b_other != chain[-1]["bend_id"]]
+                if not adjs:
+                    break
+                next_b = bends[adjs[0]]
+                chain.append(next_b)
+                curr_p_id = next_b["child_panel_id"]
+            all_branches.append(chain)
+
+        # Sort branches by depth descending to identify deepest branch (depth 4)
+        all_branches.sort(key=lambda c: len(c), reverse=True)
+        if not all_branches or len(all_branches[0]) < 4:
+            raise ValueError("TREE_FOLD_GEOMETRY_ERROR: branch -Y with depth 4 not found")
+
+        branch_shape = cls.fold_branch(all_branches[0], flat_candidate, canonical_part)
+        return cls._to_occ_shape(branch_shape)
     @classmethod
     def fold_from_canonical_part(
         cls,
