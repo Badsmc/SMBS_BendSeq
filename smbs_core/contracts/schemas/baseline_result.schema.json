@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "smbs://contracts/baseline_result.schema.json",
   "title": "BaselineResult",
-  "description": "Output of Stage 1 Baseline verification with full frame alignment and comparison (§5.1, §5.2, §5.3)",
+  "description": "Output of Stage 1 Baseline verification with full frame alignment and comparison (\u00a75.1, \u00a75.2, \u00a75.3)",
   "type": "object",
   "required": [
     "schema_name",
@@ -20,18 +20,49 @@
     "content_hash"
   ],
   "properties": {
-    "schema_name": { "const": "baseline_result" },
-    "schema_version": { "type": "string" },
-    "run_id": { "type": "string" },
-    "part_id": { "type": "string" },
-    "input_fingerprint": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
-    "producer": { "type": "object" },
-    "units": { "type": "string", "enum": ["mm", "m", "in"] },
-    "frame_convention": { "type": "string" },
-    "status": { "type": "string" },
-    "diagnostics": { "type": "array" },
-    "created_at": { "type": "string" },
-    "content_hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "schema_name": {
+      "const": "baseline_result"
+    },
+    "schema_version": {
+      "type": "string"
+    },
+    "run_id": {
+      "type": "string"
+    },
+    "part_id": {
+      "type": "string"
+    },
+    "input_fingerprint": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "producer": {
+      "type": "object"
+    },
+    "units": {
+      "type": "string",
+      "enum": [
+        "mm",
+        "m",
+        "in"
+      ]
+    },
+    "frame_convention": {
+      "type": "string"
+    },
+    "status": {
+      "type": "string"
+    },
+    "diagnostics": {
+      "type": "array"
+    },
+    "created_at": {
+      "type": "string"
+    },
+    "content_hash": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
     "payload": {
       "type": "object",
       "required": [
@@ -44,27 +75,67 @@
       "properties": {
         "baseline_status": {
           "type": "string",
-          "enum": ["VALID", "INVALID", "UNKNOWN"]
+          "enum": [
+            "VALID",
+            "INVALID",
+            "UNKNOWN"
+          ]
         },
-        "pass": { "type": "boolean" },
+        "pass": {
+          "type": "boolean"
+        },
         "frame_alignment": {
           "type": "object",
-          "required": ["status", "det_R", "reference_panel_id"],
+          "required": [
+            "status",
+            "det_R",
+            "reference_panel_id"
+          ],
           "properties": {
-            "status": { "type": "string", "enum": ["OK", "FRAME_AMBIGUOUS", "CANNOT_VERIFY"] },
-            "det_R": { "type": "number" },
-            "normal_dot": { "type": "number" },
-            "tangent_dot": { "type": "number" },
-            "reference_panel_id": { "type": "string" }
+            "status": {
+              "type": "string",
+              "enum": [
+                "OK",
+                "FRAME_AMBIGUOUS",
+                "CANNOT_VERIFY"
+              ]
+            },
+            "det_R": {
+              "type": "number"
+            },
+            "normal_dot": {
+              "type": "number"
+            },
+            "tangent_dot": {
+              "type": "number"
+            },
+            "reference_panel_id": {
+              "type": "string"
+            }
           }
         },
         "restored_shape_artifact": {
           "type": "object",
-          "required": ["file_path", "format", "content_hash"],
+          "required": [
+            "file_path",
+            "format",
+            "content_hash"
+          ],
           "properties": {
-            "file_path": { "type": "string" },
-            "format": { "type": "string", "enum": ["BREP", "STEP"] },
-            "content_hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+            "file_path": {
+              "type": "string"
+            },
+            "format": {
+              "type": "string",
+              "enum": [
+                "BREP",
+                "STEP"
+              ]
+            },
+            "content_hash": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            }
           }
         },
         "metrics": {
@@ -80,20 +151,88 @@
             "bbox_delta_mm"
           ],
           "properties": {
-            "is_valid_brep": { "type": "boolean" },
-            "solids_count": { "type": "integer" },
-            "shells_count": { "type": "integer" },
-            "volume_delta_mm3": { "type": "number" },
-            "relative_volume_delta": { "type": "number" },
-            "surface_area_delta_mm2": { "type": "number" },
-            "hausdorff_distance_mm": { "type": "number" },
+            "is_valid_brep": {
+              "type": "boolean"
+            },
+            "solids_count": {
+              "type": "integer"
+            },
+            "shells_count": {
+              "type": "integer"
+            },
+            "volume_delta_mm3": {
+              "type": "number"
+            },
+            "relative_volume_delta": {
+              "type": "number"
+            },
+            "surface_area_delta_mm2": {
+              "type": "number"
+            },
+            "hausdorff_distance_mm": {
+              "type": "number"
+            },
             "bbox_delta_mm": {
               "type": "array",
-              "items": { "type": "number" },
+              "items": {
+                "type": "number"
+              },
               "minItems": 3,
               "maxItems": 3
+            },
+            "ref_faces_raw": {
+              "type": "integer"
+            },
+            "ref_faces_canonical": {
+              "type": "integer"
+            },
+            "restored_faces_raw": {
+              "type": "integer"
+            },
+            "restored_faces_canonical": {
+              "type": "integer"
+            },
+            "ref_cyl_faces_raw": {
+              "type": "integer"
+            },
+            "ref_cyl_faces_canonical": {
+              "type": "integer"
+            },
+            "restored_cyl_faces_raw": {
+              "type": "integer"
+            },
+            "restored_cyl_faces_canonical": {
+              "type": "integer"
+            },
+            "topology_matches": {
+              "type": "boolean"
+            },
+            "faces_count_reference": {
+              "type": "integer"
+            },
+            "faces_count_restored": {
+              "type": "integer"
+            },
+            "faces_count_delta": {
+              "type": "integer"
+            },
+            "cylindrical_faces_delta": {
+              "type": "integer"
+            },
+            "raw_comparison_result": {
+              "type": "object"
+            },
+            "topology_details": {
+              "type": "object"
             }
           }
+        },
+        "comparison_mode": {
+          "type": "string",
+          "enum": [
+            "RAW",
+            "CANONICAL"
+          ]
         }
       }
     }

@@ -58,6 +58,7 @@ class Coordinator:
         part_id: str,
         input_mode: str = "NATIVE_SHEETMETAL",
         run_id: Optional[str] = None,
+        comparison_mode: str = "CANONICAL",
         k_factor_override: Optional[float] = None,
         standard_override: Optional[str] = None,
         tolerance_profile: Optional[Dict[str, float]] = None,
@@ -101,6 +102,7 @@ class Coordinator:
                 "source_file_path": str(source_path),
                 "input_mode": input_mode,
                 "target_object_name": None,
+                "comparison_mode": comparison_mode,
                 "k_factor_override": k_factor_override,
                 "standard_override": standard_override,
                 "linear_tolerance_mm": 0.1,
@@ -137,7 +139,8 @@ class Coordinator:
         baseline_result_file = self.baseline_worker.execute(
             geom_result_file,
             canonical_part_file,
-            tolerance_profile=tolerance_profile
+            tolerance_profile=tolerance_profile,
+            comparison_mode=comparison_mode
         )
         baseline_result = self.file_store.read_json_verified(baseline_result_file, expected_schema_name="baseline_result")
 
