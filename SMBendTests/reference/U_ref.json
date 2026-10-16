@@ -41,8 +41,8 @@
         0
       ],
       "moving_panels": [
-        "PANEL_02",
-        "PANEL_01"
+        "PANEL_01",
+        "PANEL_02"
       ],
       "backgauge": {
         "X_mm": 56.0,

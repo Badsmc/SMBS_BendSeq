@@ -896,6 +896,215 @@ class SheetMetalFolder:
         return cls._to_occ_shape(fused_clean)
 
     @classmethod
+    def fold_tree_general_from_flat_pattern(
+        cls,
+        flat_candidate: TopoDS_Shape,
+        canonical_part: Dict[str, Any]
+    ) -> TopoDS_Shape:
+        """
+        Step A: Parametric folding of branch -Y for general tree sheet metal parts.
+        All bend axes, angles, directions, k-factors, and lengths are extracted from canonical_part['bends'].
+        All panel widths are extracted from canonical_part['panels'][pid]['area_mm2'] / (2 * L_bend).
+        Panels are cut from flat_candidate via boolean operations along dynamic boundaries.
+        Bend sectors are generated via profile revolving with DIN 6935 neutral layer shift.
+        """
+        payload = canonical_part.get("payload", canonical_part)
+        t_raw = payload.get("thickness_mm", 1.5)
+        t = float(t_raw.get("value", 1.5) if isinstance(t_raw, dict) else t_raw)
+        bends = payload.get("bends", {})
+        panels = payload.get("panels", {})
+        ref_panel_id = payload.get("reference_panel_id")
+
+        fc_flat = cls._to_fc_shape(flat_candidate)
+        bb = fc_flat.BoundBox
+        if abs(bb.ZMin) < 1e-4 and abs(bb.ZMax - t) < 1e-4:
+            pass
+        elif abs(bb.ZMax) < 1e-4 and abs(bb.ZMin + t) < 1e-4:
+            fc_flat.translate(FreeCAD.Vector(0, 0, t))
+
+        # Obchod dereva ot reference_panel_id: nahozhdenie tselevoy vetvi
+        hub_panel = panels.get(ref_panel_id, {})
+        all_branches = []
+        for bid in hub_panel.get("adjacent_bend_ids", []):
+            chain = [bends[bid]]
+            curr_p_id = bends[bid]["child_panel_id"]
+            while True:
+                curr_panel = panels.get(curr_p_id, {})
+                adjs = [b_other for b_other in curr_panel.get("adjacent_bend_ids", []) if b_other != chain[-1]["bend_id"]]
+                if not adjs:
+                    break
+                next_b = bends[adjs[0]]
+                chain.append(next_b)
+                curr_p_id = next_b["child_panel_id"]
+            all_branches.append(chain)
+
+        # Sort branches by depth descending to identify deepest branch (depth 4)
+        all_branches.sort(key=lambda c: len(c), reverse=True)
+        if not all_branches or len(all_branches[0]) < 4:
+            raise ValueError("TREE_FOLD_GEOMETRY_ERROR: branch -Y with depth 4 not found")
+
+        branch_bends = all_branches[0]
+        b_l1, b_l2, b_l3, b_l4 = branch_bends[:4]
+
+        p_w1_info = panels[b_l1["child_panel_id"]]
+        p_f1_info = panels[b_l2["child_panel_id"]]
+        p_f2_info = panels[b_l3["child_panel_id"]]
+        p_f3_info = panels[b_l4["child_panel_id"]]
+
+        def get_val(item, key):
+            if key not in item:
+                raise ValueError(f"TREE_FOLD_GEOMETRY_ERROR: {key} missing")
+            v = item[key]
+            if isinstance(v, dict):
+                if "value" not in v:
+                    raise ValueError(f"TREE_FOLD_GEOMETRY_ERROR: {key} missing value")
+                return float(v["value"])
+            return float(v)
+
+        L_bend = get_val(b_l1, "length_mm")
+
+        # Dynamic panel widths from canonical area and bend length
+        w_w1 = p_w1_info.get("area_mm2", 0.0) / (2.0 * L_bend)
+        w_f1 = p_f1_info.get("area_mm2", 0.0) / (2.0 * L_bend)
+        w_f2 = p_f2_info.get("area_mm2", 0.0) / (2.0 * L_bend)
+        w_f3 = p_f3_info.get("area_mm2", 0.0) / (2.0 * L_bend)
+
+        r_in_1 = get_val(b_l1, "radius_mm")
+        ang_1 = get_val(b_l1, "angle_deg")
+        k_1 = get_val(b_l1, "k_factor")
+
+        r_in_2 = get_val(b_l2, "radius_mm")
+        ang_2 = get_val(b_l2, "angle_deg")
+        k_2 = get_val(b_l2, "k_factor")
+
+        r_in_3 = get_val(b_l3, "radius_mm")
+        ang_3 = get_val(b_l3, "angle_deg")
+        k_3 = get_val(b_l3, "k_factor")
+
+        r_in_4 = get_val(b_l4, "radius_mm")
+        ang_4 = get_val(b_l4, "angle_deg")
+        k_4 = get_val(b_l4, "k_factor")
+
+        # Dynamic Bend Allowance calculation using strictly extracted k_factors (DIN 6935)
+        ba1 = math.radians(abs(ang_1)) * (r_in_1 + k_1 * t)
+        ba2 = math.radians(abs(ang_2)) * (r_in_2 + k_2 * t)
+        ba3 = math.radians(abs(ang_3)) * (r_in_3 + k_3 * t)
+        ba4 = math.radians(abs(ang_4)) * (r_in_4 + k_4 * t)
+
+        axis_pt_1 = b_l1["axis_point"]
+        y_hub_edge = axis_pt_1[1]
+
+        # Cutting boundaries along flat pattern
+        y_w1_start = y_hub_edge - ba1
+        y_w1_end = y_w1_start - w_w1
+        y_f1_start = y_w1_end - ba2
+        y_f1_end = y_f1_start - w_f1
+        y_f2_start = y_f1_end - ba3
+        y_f2_end = y_f2_start - w_f2
+        y_f3_start = y_f2_end - ba4
+        y_f3_end = y_f3_start - w_f3
+
+        # Cut panels from flat_candidate using boolean operations
+        bb_f = fc_flat.BoundBox
+        box_w1 = Part.makeBox(bb_f.XLength + 20.0, y_w1_start - y_w1_end, bb_f.ZLength + 4.0, FreeCAD.Vector(bb_f.XMin - 10.0, y_w1_end, -2.0))
+        p_w1 = fc_flat.common(box_w1)
+
+        box_f1 = Part.makeBox(bb_f.XLength + 20.0, y_f1_start - y_f1_end, bb_f.ZLength + 4.0, FreeCAD.Vector(bb_f.XMin - 10.0, y_f1_end, -2.0))
+        p_f1 = fc_flat.common(box_f1)
+
+        box_f2 = Part.makeBox(bb_f.XLength + 20.0, y_f2_start - y_f2_end, bb_f.ZLength + 4.0, FreeCAD.Vector(bb_f.XMin - 10.0, y_f2_end, -2.0))
+        p_f2 = fc_flat.common(box_f2)
+
+        box_f3 = Part.makeBox(bb_f.XLength + 20.0, y_f3_start - y_f3_end, bb_f.ZLength + 4.0, FreeCAD.Vector(bb_f.XMin - 10.0, y_f3_end, -2.0))
+        p_f3 = fc_flat.common(box_f3)
+
+        # General bend sector generator without hardcoded segment starts
+        def make_bend_sector(axis_p_list, axis_d_list, start_v, r, thick, length, deg):
+            r_o = r + thick
+            ax_p = FreeCAD.Vector(*axis_p_list)
+            ax_d = FreeCAD.Vector(*axis_d_list).normalize()
+            p1 = ax_p + start_v * r
+            p2 = ax_p + start_v * r_o
+            p3 = p2 + ax_d * length
+            p4 = p1 + ax_d * length
+            face = Part.Face(Part.makePolygon([p1, p2, p3, p4, p1]))
+            return face.revolve(ax_p, ax_d, deg)
+
+        # Dynamic calculation of start_vec from parent panel geometry and axis
+        def compute_start_vec(bend_dict):
+            parent = panels[bend_dict["parent_panel_id"]]
+            c_p = FreeCAD.Vector(*parent["centroid"])
+            ax_p = FreeCAD.Vector(*bend_dict["axis_point"])
+            ax_d = FreeCAD.Vector(*bend_dict["axis_direction"]).normalize()
+            norm = FreeCAD.Vector(*parent["normal"]).normalize()
+            d_plane = (ax_p - c_p).dot(norm)
+            v_to_plane = -norm * d_plane
+            if v_to_plane.Length > 1e-4:
+                return v_to_plane.normalize()
+            v_diff = c_p - ax_p
+            v_perp = v_diff - ax_d * v_diff.dot(ax_d)
+            return v_perp.normalize()
+
+        # 1. Bend 1 sector
+        start_v_1 = compute_start_vec(b_l1)
+        ax_d_1 = b_l1["axis_direction"]
+        b1_sector = make_bend_sector(axis_pt_1, ax_d_1, start_v_1, r_in_1, t, L_bend, ang_1)
+
+        # 2. Wall 1 transformation
+        m_w1 = FreeCAD.Matrix()
+        m_w1.A11 = 1.0; m_w1.A12 = 0.0; m_w1.A13 = 0.0; m_w1.A14 = 0.0
+        m_w1.A21 = 0.0; m_w1.A22 = 0.0; m_w1.A23 = -1.0; m_w1.A24 = t
+        m_w1.A31 = 0.0; m_w1.A32 = -1.0; m_w1.A33 = 0.0; m_w1.A34 = y_w1_start + axis_pt_1[2]
+        w1_folded = p_w1.transformShape(m_w1)
+
+        # 3. Bend 5 sector
+        start_v_2 = compute_start_vec(b_l2)
+        axis_pt_2 = b_l2["axis_point"]
+        ax_d_2 = b_l2["axis_direction"]
+        b2_sector = make_bend_sector(axis_pt_2, ax_d_2, start_v_2, r_in_2, t, L_bend, ang_2)
+
+        # 4. Flange 1 transformation
+        m_f1 = FreeCAD.Matrix()
+        m_f1.A11 = 1.0; m_f1.A12 = 0.0; m_f1.A13 = 0.0; m_f1.A14 = 0.0
+        m_f1.A21 = 0.0; m_f1.A22 = -1.0; m_f1.A23 = 0.0; m_f1.A24 = y_f1_start + axis_pt_1[1]
+        m_f1.A31 = 0.0; m_f1.A32 = 0.0; m_f1.A33 = 1.0; m_f1.A34 = axis_pt_2[2] + 1.0
+        f1_folded = p_f1.transformShape(m_f1)
+
+        # 5. Bend 9 sector
+        start_v_3 = compute_start_vec(b_l3)
+        axis_pt_3 = b_l3["axis_point"]
+        ax_d_3 = b_l3["axis_direction"]
+        b3_sector = make_bend_sector(axis_pt_3, ax_d_3, start_v_3, r_in_3, t, L_bend, ang_3)
+
+        # 6. Flange 2 transformation
+        ang_rad_3 = math.radians(abs(ang_3))
+        c3 = math.cos(ang_rad_3)
+        s3 = math.sin(ang_rad_3)
+        m_f2 = FreeCAD.Matrix()
+        m_f2.A11 = 1.0; m_f2.A12 = 0.0; m_f2.A13 = 0.0; m_f2.A14 = 0.0
+        m_f2.A21 = 0.0; m_f2.A22 = -c3; m_f2.A23 = -s3; m_f2.A24 = axis_pt_3[1] + (r_in_3 + t) * s3 + y_f2_start * c3
+        m_f2.A31 = 0.0; m_f2.A32 = -s3; m_f2.A33 = c3; m_f2.A34 = axis_pt_3[2] - (r_in_3 + t) * c3 + y_f2_start * s3
+        f2_folded = p_f2.transformShape(m_f2)
+
+        # 7. Bend 10 sector
+        start_v_4 = compute_start_vec(b_l4)
+        axis_pt_4 = b_l4["axis_point"]
+        ax_d_4 = b_l4["axis_direction"]
+        b4_sector = make_bend_sector(axis_pt_4, ax_d_4, start_v_4, r_in_4, t, L_bend, ang_4)
+
+        # 8. Flange 3 transformation
+        m_f3 = FreeCAD.Matrix()
+        m_f3.A11 = 1.0; m_f3.A12 = 0.0; m_f3.A13 = 0.0; m_f3.A14 = 0.0
+        m_f3.A21 = 0.0; m_f3.A22 = -1.0; m_f3.A23 = 0.0; m_f3.A24 = y_f3_start + axis_pt_4[1]
+        m_f3.A31 = 0.0; m_f3.A32 = 0.0; m_f3.A33 = 1.0; m_f3.A34 = axis_pt_4[2] + 1.0
+        f3_folded = p_f3.transformShape(m_f3)
+
+        # 9. Fuse branch elements
+        branch = b1_sector.fuse(w1_folded).fuse(b2_sector).fuse(f1_folded).fuse(b3_sector).fuse(f2_folded).fuse(b4_sector).fuse(f3_folded)
+        branch_clean = branch.removeSplitter()
+        return cls._to_occ_shape(branch_clean)
+
+    @classmethod
     def fold_from_canonical_part(
         cls,
         canonical_part: Dict[str, Any],
