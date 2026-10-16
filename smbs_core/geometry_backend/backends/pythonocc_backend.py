@@ -420,3 +420,19 @@ class PythonOCCBackend(GeometryBackend):
         algo = BRepAlgoAPI_Cut(shape1, shape2)
         algo.Build()
         return algo.Shape() if algo.IsDone() else shape1
+
+    def get_edge_curve_type(self, edge: Any) -> str:
+        """Returns 'circle', 'line', 'other', or 'unknown'."""
+        from OCC.Core.BRepAdaptor import BRepAdaptor_Curve
+        from OCC.Core.GeomAbs import GeomAbs_Circle, GeomAbs_Line
+        try:
+            curve = BRepAdaptor_Curve(edge)
+            t = curve.GetType()
+            if t == GeomAbs_Circle:
+                return "circle"
+            elif t == GeomAbs_Line:
+                return "line"
+            else:
+                return "other"
+        except Exception:
+            return "unknown"
