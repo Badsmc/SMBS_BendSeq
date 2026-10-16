@@ -963,11 +963,11 @@ class SheetMetalFolder:
 
         L_bend = get_val(b_l1, "length_mm")
 
-        # Dynamic panel widths from canonical area and bend length
-        w_w1 = p_w1_info.get("area_mm2", 0.0) / (2.0 * L_bend)
-        w_f1 = p_f1_info.get("area_mm2", 0.0) / (2.0 * L_bend)
-        w_f2 = p_f2_info.get("area_mm2", 0.0) / (2.0 * L_bend)
-        w_f3 = p_f3_info.get("area_mm2", 0.0) / (2.0 * L_bend)
+        # Dynamic panel widths strictly extracted via get_val without silent defaults
+        w_w1 = get_val(p_w1_info, "area_mm2") / (2.0 * L_bend)
+        w_f1 = get_val(p_f1_info, "area_mm2") / (2.0 * L_bend)
+        w_f2 = get_val(p_f2_info, "area_mm2") / (2.0 * L_bend)
+        w_f3 = get_val(p_f3_info, "area_mm2") / (2.0 * L_bend)
 
         r_in_1 = get_val(b_l1, "radius_mm")
         ang_1 = get_val(b_l1, "angle_deg")
@@ -1030,20 +1030,23 @@ class SheetMetalFolder:
             face = Part.Face(Part.makePolygon([p1, p2, p3, p4, p1]))
             return face.revolve(ax_p, ax_d, deg)
 
-        # Dynamic calculation of start_vec from parent panel geometry and axis
+        # Variant B: Robust start_vec from parent panel plane equation with perpendicularity validation
         def compute_start_vec(bend_dict):
             parent = panels[bend_dict["parent_panel_id"]]
             c_p = FreeCAD.Vector(*parent["centroid"])
             ax_p = FreeCAD.Vector(*bend_dict["axis_point"])
             ax_d = FreeCAD.Vector(*bend_dict["axis_direction"]).normalize()
             norm = FreeCAD.Vector(*parent["normal"]).normalize()
+
+            # Guard against non-perpendicular parent normal (prevents helicoid surfaces)
+            if abs(norm.dot(ax_d)) > 1e-6:
+                raise ValueError("TREE_FOLD_GEOMETRY_ERROR: parent normal not perpendicular to bend axis")
+
             d_plane = (ax_p - c_p).dot(norm)
             v_to_plane = -norm * d_plane
-            if v_to_plane.Length > 1e-4:
-                return v_to_plane.normalize()
-            v_diff = c_p - ax_p
-            v_perp = v_diff - ax_d * v_diff.dot(ax_d)
-            return v_perp.normalize()
+            if v_to_plane.Length < 1e-9:
+                raise ValueError("TREE_FOLD_GEOMETRY_ERROR: start_vec degenerate")
+            return v_to_plane.normalize()
 
         # 1. Bend 1 sector
         start_v_1 = compute_start_vec(b_l1)
