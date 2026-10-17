@@ -1,3 +1,5 @@
+
+
 """
 Topology Worker for SMBS / BendSeq.
 Compliant with ТЗ v1.2 §3.3 (Rule R3), §4.1, §4.2 and Principles 2, 5, 17, 23.
@@ -17,6 +19,7 @@ import networkx as nx
 
 from smbs_core.geometry_backend.backends.pythonocc_backend import PythonOCCBackend
 from smbs_core.Geometry.feature_extractor import FeatureExtractor
+from smbs_core.Core.bend_graph import IncompleteBendError
 from smbs_core.protocols.file_store import (
     ConfidenceLevel,
     ContractError,
@@ -25,6 +28,10 @@ from smbs_core.protocols.file_store import (
     RunStatus,
     TopologyStatus,
 )
+
+
+def _raise_topology_incomplete(bend_id: str, field_name: str, line_no: int):
+    raise IncompleteBendError(f"Bend {bend_id} missing mandatory field '{field_name}' in workers/topology/worker.py:{line_no}")
 
 
 class TopologyWorker:
@@ -121,7 +128,12 @@ class TopologyWorker:
                 ax_p = FreeCAD.Vector(*b_info.get("origin", [0, 0, 0]))
                 ax_d = FreeCAD.Vector(*b_info.get("axis", [1, 0, 0])).normalize()
                 l_bend = float(b_info.get("length", 50.0))
-                ang = float(b_info.get("signed_angle", b_info.get("angle", 90.0)))
+                if "signed_angle" in b_info:
+                    ang = float(b_info["signed_angle"])
+                elif "angle" in b_info:
+                    ang = float(b_info["angle"])
+                else:
+                    _raise_topology_incomplete(bid, "signed_angle", 124)
                 r_in = float(b_info.get("radius", 1.0))
                 k = float(b_info.get("k_factor", default_k_factor))
                 ba = math.radians(abs(ang)) * (r_in + k * t)
@@ -319,9 +331,21 @@ class TopologyWorker:
                 # Compute dynamic BA for each adjacent bend using actual bend parameters
                 b1 = raw_bends[b_order[i]]
                 b2 = raw_bends[b_order[i + 1]]
-                b1_angle = float(b1.get("signed_angle", b1.get("angle", 90.0)))
+                if "signed_angle" in b1:
+                    b1_angle = float(b1["signed_angle"])
+                elif "angle" in b1:
+                    b1_angle = float(b1["angle"])
+                else:
+                    _raise_topology_incomplete(b_order[i], "signed_angle", 322)
+
                 b1_radius = float(b1.get("radius", 1.0))
-                b2_angle = float(b2.get("signed_angle", b2.get("angle", 90.0)))
+
+                if "signed_angle" in b2:
+                    b2_angle = float(b2["signed_angle"])
+                elif "angle" in b2:
+                    b2_angle = float(b2["angle"])
+                else:
+                    _raise_topology_incomplete(b_order[i+1], "signed_angle", 324)
                 b2_radius = float(b2.get("radius", 1.0))
 
                 ba1 = self._compute_bend_allowance(b1_angle, b1_radius, default_k_factor, thickness_mm)
@@ -332,7 +356,12 @@ class TopologyWorker:
 
             # Angle supplement check
             for i, bid in enumerate(b_order):
-                r_angle = abs(float(raw_bends[bid].get("signed_angle", raw_bends[bid].get("angle", 90.0))))
+                if "signed_angle" in raw_bends[bid]:
+                    r_angle = abs(float(raw_bends[bid]["signed_angle"]))
+                elif "angle" in raw_bends[bid]:
+                    r_angle = abs(float(raw_bends[bid]["angle"]))
+                else:
+                    _raise_topology_incomplete(bid, "signed_angle", 335)
                 f_angle = abs(float(sorted_flat_bends[i].get("angle_deg", 90.0)))
                 residual += abs(f_angle - (180.0 - r_angle)) * 0.1
 
@@ -502,7 +531,12 @@ class TopologyWorker:
             if p2 in canonical_panels and b_id not in canonical_panels[p2]["adjacent_bend_ids"]:
                 canonical_panels[p2]["adjacent_bend_ids"].append(b_id)
 
-            angle_val = float(b_info.get("signed_angle", b_info.get("angle", 90.0)))
+            if "signed_angle" in b_info:
+                angle_val = float(b_info["signed_angle"])
+            elif "angle" in b_info:
+                angle_val = float(b_info["angle"])
+            else:
+                _raise_topology_incomplete(b_id, "signed_angle", 505)
             direction_str = "UP" if angle_val >= 0 else "DOWN"
 
             canonical_bends[b_id] = {
