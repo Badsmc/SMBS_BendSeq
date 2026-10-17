@@ -1,3 +1,9 @@
+> **DEPRECATED (2026-10-17).** This file predates the Stage 1/2/3 refactor.
+> Canonical Known Limitations list: `docs/PROGRESS.md` §Known Limitations.
+> Kept for historical reference only. Do not update.
+
+---
+
 # SMBS / BendSeq - Known Limitations
 
 ## 1. Zero-Thickness Simplification
