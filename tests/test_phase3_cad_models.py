@@ -239,9 +239,19 @@ class TestPhase3RealCAD(unittest.TestCase):
         detector = CollisionDetector(assembly, self.backend)
 
         # 1. Positive test: Clean L-profile positioned clearly away from tools
-        occ_l = build_l_profile(30, 30, thickness=2.0, inner_radius=2.0, length=50.0)
+        occ_l_raw = build_l_profile(30, 30, thickness=2.0, inner_radius=2.0, length=50.0)
+        occ_l = self.backend.transform_shape(occ_l_raw, translation=(0, 200, 0))
+        detector.place_part_on_tool_station = lambda s, b: s
         feats = self.extractor.extract_features(occ_l)
-        bend_info = list(feats["bends"].values())[0]
+        bend_id, bend_info = list(feats["bends"].items())[0]
+
+        # Pass moving_panels in bend_info (formed from panel_graph + bend_id if not present)
+        if "moving_panels" not in bend_info:
+            pg = PanelGraph()
+            p_a = bend_info.get("parent_panel_id", "PANEL_00")
+            p_b = bend_info.get("child_panel_id", "PANEL_01")
+            pg.add_bend_connection(bend_id, p_a, p_b)
+            bend_info["moving_panels"] = pg.moving_subtree(bend_id)
 
         res_5deg = detector.trajectory_collision(occ_l, bend_info, dtheta=5.0)
         res_1deg = detector.trajectory_collision(occ_l, bend_info, dtheta=1.0)
@@ -257,6 +267,14 @@ class TestPhase3RealCAD(unittest.TestCase):
         self.assertIsNotNone(die_world)
         tool_coll = detector._check_intersection(die_world, die_world, "Part", "Die")
         self.assertEqual(tool_coll.status, CollisionStatus.INVALID, "Direct intersection with die must report INVALID")
+
+        # 4. Negative test: Missing moving_panels returns UNKNOWN without raising InvalidRotationError
+        no_moving_info = dict(bend_info)
+        no_moving_info.pop("moving_panels", None)
+        res_no_moving = detector.trajectory_collision(occ_l, no_moving_info, dtheta=5.0)
+        self.assertEqual(res_no_moving.status, CollisionStatus.UNKNOWN)
+        self.assertFalse(res_no_moving.is_valid)
+        self.assertIn("moving_panels", res_no_moving.message)
 
     # =========================================================================
     # STAGE 6: Полный поиск (L, U, C, Z, +45°/-45°)
