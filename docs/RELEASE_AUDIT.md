@@ -1,3 +1,9 @@
+> **DEPRECATED (2026-10-17).** This file predates the Stage 1/2/3 refactor.
+> Canonical progress and test metrics: `docs/PROGRESS.md` §Test Metrics.
+> Kept for historical reference only. Do not update.
+
+---
+
 # RELEASE AUDIT — SMBS Core Headless Bending Engine
 
 **Date:** 2026-10-10  

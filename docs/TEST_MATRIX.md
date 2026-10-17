@@ -1,3 +1,9 @@
+> **DEPRECATED (2026-10-17).** This file predates the Stage 1/2/3 refactor.
+> Canonical progress and test metrics: `docs/PROGRESS.md` §Test Metrics.
+> Kept for historical reference only. Do not update.
+
+---
+
 # SMBS / BendSeq - Test Matrix
 
 The test suite validates components using isolated mathematical checks and mocked FreeCAD objects, allowing fast CLI execution (`run_tests.py`).
