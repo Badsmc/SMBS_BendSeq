@@ -1225,11 +1225,68 @@ class SheetMetalFolder:
                                 cy = (bb.YMin + bb.YMax) / 2.0
                                 fc_s.rotate(FreeCAD.Vector(cx, cy, bb.ZMin), FreeCAD.Vector(0, 0, 1), 90.0)
                                 flat_candidate = cls._to_occ_shape(fc_s)
-                # Check if tree-structured part (any panel has degree >= 3)
+                # Dispatcher by topology (Stage 1 Task 1.0.1b-3b / B.4)
+                # 1. Check max panel degree to detect branching
                 max_panel_degree = max([len(p.get("adjacent_bend_ids", [])) for p in panels.values()]) if panels else 0
-                if max_panel_degree >= 3:
+
+                if max_panel_degree <= 2:
+                    # 1D linear chain (all panel degrees <= 2)
+                    if not hasattr(cls, "fold_multi_bend_from_flat_pattern"):
+                        raise ValueError("TREE_FOLD_GEOMETRY_ERROR: fold_multi_bend_from_flat_pattern not implemented on folder")
+                    return cls.fold_multi_bend_from_flat_pattern(flat_candidate, canonical_part)
+
+                # 2. Branching part: identify root hub (panel of maximum degree)
+                hub_pid = None
+                max_deg = 0
+                for pid, p in panels.items():
+                    deg = len(p.get("adjacent_bend_ids", []))
+                    if deg > max_deg:
+                        max_deg = deg
+                        hub_pid = pid
+
+                # Measure max branch depth from hub panel
+                def _get_branch_depth(h_id: str) -> int:
+                    visited = {h_id: 0}
+                    queue = [h_id]
+                    while queue:
+                        curr = queue.pop(0)
+                        curr_depth = visited[curr]
+                        for bid in panels.get(curr, {}).get("adjacent_bend_ids", []):
+                            b = bends.get(bid, {})
+                            for adj_pid in [b.get("panel_a_id"), b.get("panel_b_id"), b.get("parent_panel_id"), b.get("child_panel_id")]:
+                                if adj_pid and adj_pid in panels and adj_pid not in visited:
+                                    visited[adj_pid] = curr_depth + 1
+                                    queue.append(adj_pid)
+                    return max(visited.values()) if visited else 0
+
+                branch_depth = _get_branch_depth(hub_pid) if hub_pid else 0
+
+                # Check bend angles for 3a star box (must all be orthogonal 90.0 deg)
+                all_angles_90 = True
+                for b in bends.values():
+                    ang = abs(b.get("angle_deg", {}).get("value") or 90.0)
+                    if abs(ang - 90.0) > 1e-3:
+                        all_angles_90 = False
+                        break
+
+                # 3a star box criteria (§5.1):
+                # hub has 4 branches, total 8 bends, max depth 2, and all bend angles are 90 deg
+                is_star_box_3a = (
+                    max_panel_degree == 4 and
+                    len(bends) == 8 and
+                    branch_depth == 2 and
+                    all_angles_90
+                )
+
+                if is_star_box_3a:
+                    if not hasattr(cls, "fold_tree_from_flat_pattern"):
+                        raise ValueError("TREE_FOLD_GEOMETRY_ERROR: fold_tree_from_flat_pattern not implemented on folder")
                     return cls.fold_tree_from_flat_pattern(flat_candidate, canonical_part)
-                return cls.fold_multi_bend_from_flat_pattern(flat_candidate, canonical_part)
+
+                # 3. General tree (variable depth, non-orthogonal angles, arbitrary branching)
+                if not hasattr(cls, "fold_tree_general_from_flat_pattern"):
+                    raise ValueError("TREE_FOLD_GEOMETRY_ERROR: fold_tree_general_from_flat_pattern not implemented on folder")
+                return cls.fold_tree_general_from_flat_pattern(flat_candidate, canonical_part)
 
         # 1-bend profile
 
