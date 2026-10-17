@@ -49,7 +49,8 @@ class BendSeqOrchestrator:
         output_file: str = "part_bendseq.json",
         max_iterations: int = 5000,
         punch_path: Optional[str] = None,
-        die_path: Optional[str] = None
+        die_path: Optional[str] = None,
+        unknown_policy: str = "PRODUCTION"
     ) -> Dict[str, Any]:
         start_time = time.time()
         diagnostics = []
@@ -143,7 +144,7 @@ class BendSeqOrchestrator:
         else:
             planner = AStarBackwardPlanner(bg, validator, pg, state_cache=self.state_cache)
 
-        planning_result = planner.solve(root_fold_state, max_iterations=max_iterations) if alg == "astar" else planner.solve(root_fold_state)
+        planning_result = planner.solve(root_fold_state, max_iterations=max_iterations, unknown_policy=unknown_policy) if alg == "astar" else planner.solve(root_fold_state, unknown_policy=unknown_policy)
 
         if not planning_result.get("success"):
             rejections = planning_result.get("rejections", [])
@@ -259,7 +260,7 @@ class BendSeqOrchestrator:
             and tooling_geo_status == GeometryStatus.REAL
         )
 
-        sequence_valid = all_steps_valid and len(optimized_sequence) == len(bends_map)
+        sequence_valid = (all_steps_valid or (unknown_policy == "EXPLORATORY" and steps_invalid == 0)) and len(optimized_sequence) == len(bends_map)
         overall_status = "SUCCESS" if is_success else ("PARTIAL" if sequence_valid else "FAILED")
 
         validation_block = {

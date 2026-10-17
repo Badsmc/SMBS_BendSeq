@@ -189,13 +189,13 @@ class SolverWorker:
 
         if algorithm == "dfs":
             planner = DFSBackwardPlanner(bend_graph, validator, panel_graph, state_cache)
-            res = planner.solve(initial_state, max_depth=max_nodes, timeout=timeout_s)
+            res = planner.solve(initial_state, max_depth=max_nodes, timeout=timeout_s, unknown_policy=unknown_policy)
         elif algorithm == "greedy":
             planner = GreedyUnfoldPlanner(bend_graph, validator, panel_graph, state_cache)
-            res = planner.solve(initial_state, max_iterations=max_nodes, timeout=timeout_s)
+            res = planner.solve(initial_state, max_iterations=max_nodes, timeout=timeout_s, unknown_policy=unknown_policy)
         elif algorithm == "astar":
             planner = AStarBackwardPlanner(bend_graph, validator, panel_graph, state_cache)
-            res = planner.solve(initial_state, max_iterations=max_nodes, timeout=timeout_s)
+            res = planner.solve(initial_state, max_iterations=max_nodes, timeout=timeout_s, unknown_policy=unknown_policy)
         else:
             raise NotImplementedError(f"Unsupported search algorithm: {algorithm}")
 

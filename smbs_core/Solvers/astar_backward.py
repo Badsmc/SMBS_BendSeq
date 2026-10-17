@@ -59,7 +59,8 @@ class AStarBackwardPlanner:
         self,
         initial_state: FoldState,
         max_iterations: int = 5000,
-        timeout: Optional[float] = None
+        timeout: Optional[float] = None,
+        unknown_policy: str = "PRODUCTION"
     ) -> Dict[str, Any]:
         start_time = time.time()
         self.nodes_explored = 0
@@ -105,9 +106,11 @@ class AStarBackwardPlanner:
                 forward_sequence = list(reversed(current_path))
                 for idx, step in enumerate(forward_sequence):
                     step["step_number"] = idx + 1
+                seq_has_unknown = any(s.get("has_unknown", False) or s.get("collision_status") == "UNKNOWN" for s in forward_sequence)
                 return {
                     "success": True,
                     "sequence": forward_sequence,
+                    "sequence_has_unknown": seq_has_unknown,
                     "nodes_explored": self.nodes_explored,
                     "planning_time": time.time() - start_time,
                     "rejections": rejections
@@ -135,16 +138,30 @@ class AStarBackwardPlanner:
                     val_res = cached_node["val_res"]
                     next_state = cached_node["state"]
                 else:
+                    kwargs = {}
+                    if unknown_policy != "PRODUCTION":
+                        kwargs["unknown_policy"] = unknown_policy
+                    else:
+                        try:
+                            import inspect
+                            if "unknown_policy" in inspect.signature(self.validator.validate_step).parameters:
+                                kwargs["unknown_policy"] = unknown_policy
+                        except Exception:
+                            pass
                     val_res = self.validator.validate_step(
                         current_state=current_state,
                         bend_record=bend_rec,
-                        panel_graph=self.panel_graph
+                        panel_graph=self.panel_graph,
+                        **kwargs
                     )
                     next_state = val_res.next_state
 
-                c_stat = val_res.collision_status.value if hasattr(val_res.collision_status, 'value') else str(val_res.collision_status)
-                t_stat = val_res.tooling_status.value if hasattr(val_res.tooling_status, 'value') else str(val_res.tooling_status)
-                a_stat = val_res.alignment_status.value if hasattr(val_res.alignment_status, 'value') else str(val_res.alignment_status)
+                coll_raw = getattr(val_res, "collision_status", "VALID")
+                c_stat = coll_raw.value if hasattr(coll_raw, "value") else str(coll_raw)
+                tool_raw = getattr(val_res, "tooling_status", "SIMPLIFIED")
+                t_stat = tool_raw.value if hasattr(tool_raw, "value") else str(tool_raw)
+                align_raw = getattr(val_res, "alignment_status", "CANNOT_VERIFY")
+                a_stat = align_raw.value if hasattr(align_raw, "value") else str(align_raw)
 
                 if not val_res.valid or next_state is None:
                     dead_states.add(pred_fp)
@@ -185,7 +202,8 @@ class AStarBackwardPlanner:
                         "moving_panels": list(self.panel_graph.moving_subtree(bend_id)) if self.panel_graph else [],
                         "collision_status": c_stat,
                         "tooling_status": t_stat,
-                        "alignment_status": a_stat
+                        "alignment_status": a_stat,
+                        "has_unknown": getattr(val_res, "has_unknown", False)
                     }
 
                     counter += 1

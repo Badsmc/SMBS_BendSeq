@@ -66,6 +66,7 @@ class Coordinator:
         resource_budget: Optional[Dict[str, Any]] = None,
         search_algorithm: str = "astar",
         machine_config: Optional[Dict[str, Any]] = None,
+        unknown_policy: str = "PRODUCTION",
     ) -> Dict[str, Any]:
         """
         Executes full pipeline:
@@ -285,7 +286,7 @@ class Coordinator:
                 },
                 "search_algorithm": search_algorithm,
                 "candidate_order_policy": "outside_in",
-                "unknown_policy": "PRODUCTION",
+                "unknown_policy": unknown_policy,
                 "cost_weights": {"w_tool": 100.0, "w_flip": 20.0, "w_setup": 10.0, "w_time": 1.0},
                 "resource_budget": budget
             }
