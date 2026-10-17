@@ -121,6 +121,10 @@ player.Player                → tuple[Frame, ...]      (production_eligible fro
 - **Per-panel kinematic unfold** (`PER_PANEL_KINEMATIC`) — blocked on KL-12.
 - **FreeCAD addon GUI** — deferred; better aligned after S.13b so the 3D viewport shows honest per-panel kinematics, not whole-part rotation.
 
+### Future extensions (Layer 6+)
+
+See `docs/ROADMAP.md` for details. Layers 6+ cover FreeCAD GUI integration (bend annotations, tooling animation), tooling library (FCStd import), optimal tooling selection (with clamp constraints). Depend on KL-12 fix for honest per-panel kinematics.
+
 ### Non-goals
 
 - No 3D viewport in the headless CLI. No X11/Cocoa dependency. PNG batch + JSON metadata only.
