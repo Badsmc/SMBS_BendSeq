@@ -165,7 +165,9 @@ class SolverWorker:
                 name=press_cfg.get("press_id", "press_100t"),
                 bed_length_mm=press_cfg.get("bed_length_mm", 2000.0),
                 punch_path=punch_cfg.get("model_path"),
-                die_path=die_cfg.get("model_path")
+                die_path=die_cfg.get("model_path"),
+                punch_target_object_name=punch_cfg.get("target_object_name"),
+                die_target_object_name=die_cfg.get("target_object_name")
             )
             if not punch_cfg.get("model_path") or not die_cfg.get("model_path"):
                 diagnostics.append("machine: default synthetic (SIMPLIFIED tooling)")
