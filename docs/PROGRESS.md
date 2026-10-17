@@ -1,6 +1,6 @@
 # SMBS Core - Engineering Implementation Progress
 
-**Status (HEAD `81946ab`):** Stage 1/2/3 functionally complete. 255 tests, 5 failures (all KL-8), 0 errors, 3 expectedFailures (KL-7/KL-8). Ready for production use where tooling model matches; `NO_SOLUTION` + honest diagnostics otherwise. See `Known Limitations` below.
+**Status (HEAD `6a507f6`):** Stage 1/2/3/4 functionally complete. 350 tests, 5 failures (all KL-8), 0 errors, 3 expectedFailures (KL-7/KL-8). Stage 4 adds headless viewer + offscreen PNG renderer (Layer 5); geometry is `PREVIEW_ONLY` pending KL-12 fix (S.13b). Ready for production use where tooling model matches; `NO_SOLUTION` + honest diagnostics otherwise. See `Known Limitations` below.
 
 ## Project Stages
 
@@ -9,10 +9,35 @@
 | **Stage 1** | Baseline: 3D reconstruction from flat pattern | **COMPLETE** | KL-5/6/7 inherited from original project context |
 | **Stage 2** | Search: bend sequence optimization with `unknown_policy` | **COMPLETE** | KL-8 (P1), KL-9 (P2), KL-10 (P3) |
 | **Stage 3** | Verification: independent unfold + fold correctness | **COMPLETE** | KL-11 CLOSED in S.9.3 (commit `4c9524e`) |
+| **Stage 4** | Viewer: headless CLI + offscreen PNG renderer (Layer 5) | **COMPLETE** | KL-12 (P1) drives `PREVIEW_ONLY`; forward deferred to S.13b |
 
-## Test Metrics (post S.9.3)
+## Stage 4 (Viewer / Layer 5) — COMPLETE
 
-- **Discover:** 255 tests / **5 failures** / **0 errors** / **3 expectedFailures**
+**Purpose:** headless visualization of a pipeline run's `candidate_sequence` — step-by-step replay, metadata timeline, and offscreen PNG frames. Honest marking (C2): `production_eligible` is read from `09_verification_result.json` only; never computed by the viewer. Missing `09` yields `verification_status="UNVERIFIED"` (invariant #1: `UNKNOWN != VALID`). All geometry is `PREVIEW_ONLY` pending KL-12 fix (S.13b); forward mode is deferred.
+
+**Modules (`smbs_core/viewer/`):**
+
+| Module | Responsibility |
+|---|---|
+| `run_loader.py` | Load `04/07/09` from run dir; resolve `geometry.brep`; `09` optional → `None` (UNVERIFIED). |
+| `graph_builder.py` | Build `BendGraph` + `PanelGraph` from `04_canonical_part.json` (strict; no silent defaults). |
+| `replayer.py` | Step-by-step backward unfold: `backend.rotate_subtree` + `FoldState.apply_unfold`. Yields `StepView` with `geometry_precision="PREVIEW_ONLY"`. |
+| `player.py` | Timeline state machine (`reset/next/prev/current`). Reads `production_eligible` and `diagnostics` from `09` only. |
+| `render.py` | Offscreen HLR + PIL → PNG. Honest edge-skip handling: visible edge loss → `RenderError`; hidden edge loss → subtitle banner. |
+| `cli.py` / `__main__.py` | `python -m smbs_core.viewer view <run_dir>` — table / `--json` / `--dump-frames` / `--render-png`. |
+
+**CLI:** `smbs-cli` entry remains pipeline-only. Viewer runs from the module entry point: `python -m smbs_core.viewer view <run_dir> [--direction backward] [--dump-frames DIR] [--render-png DIR] [--render-stride N] [--json] [--allow-mock-backend]`.
+
+**Commits:** S.11 `5a973d0`/`2d5bf26` (run_loader), S.12 `4a83ac6`/`dffeef5` (graph_builder), S.13a `f1d4f19`/`41ae4c0` (replayer backward + PREVIEW_ONLY), S.14 `99fd8b7`/`c474306` (player + cli), S.15a `4549f85`/`6a507f6` (HLR+PIL renderer + CLI render flags). KL-12 documented in `afb0626`.
+
+**Non-goals / deferred:**
+- Forward fold mode — blocked on KL-12 (S.13b). `Player.switch_direction("forward")` raises `PlayerError`.
+- FreeCAD addon GUI — not started; better after per-panel kinematics (KL-12 close).
+- Animated GIF/MP4, interactive playback in a 3D viewport — out of scope for headless viewer.
+
+## Test Metrics (post Stage 4)
+
+- **Discover:** 350 tests / **5 failures** / **0 errors** / **3 expectedFailures**
 - **5 failures — all KL-8** (e2e with real tooling `matrica.FCStd`):
   - `test_end_to_end_pipeline.test_pipeline_fixture_l`
   - `test_end_to_end_pipeline.test_pipeline_fixture_u`
