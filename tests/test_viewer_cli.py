@@ -229,5 +229,74 @@ class TestViewerCLI(unittest.TestCase):
             self.assertEqual(data["backend_kind"], "OCC")
 
 
+
+
+
+    def test_cli_render_png_creates_files(self):
+        if not self.real_verified_run.is_dir():
+            self.skipTest("real verified run not found")
+
+        tmp_render = Path(tempfile.mkdtemp(prefix="render_png_"))
+        with patch("sys.stdout", new_callable=io.StringIO):
+            code = main(["view", str(self.real_verified_run), "--render-png", str(tmp_render)])
+            self.assertEqual(code, 0)
+
+        png_files = sorted(list(tmp_render.glob("frame_*.png")))
+        self.assertGreater(len(png_files), 1)
+        self.assertTrue((tmp_render / "manifest.json").is_file())
+
+    def test_cli_render_png_manifest_fields(self):
+        if not self.real_verified_run.is_dir():
+            self.skipTest("real verified run not found")
+
+        tmp_render = Path(tempfile.mkdtemp(prefix="render_png_m_"))
+        with patch("sys.stdout", new_callable=io.StringIO):
+            code = main(["view", str(self.real_verified_run), "--render-png", str(tmp_render)])
+            self.assertEqual(code, 0)
+
+        manifest = json.loads((tmp_render / "manifest.json").read_text())
+        self.assertIn("kl12_warning", manifest)
+        self.assertEqual(manifest["backend_kind"], "OCC")
+        self.assertEqual(manifest["render_kind"], "HLR")
+        self.assertIn("production_eligible", manifest)
+        self.assertIn("diagnostics", manifest)
+        self.assertIn("frames", manifest)
+        self.assertEqual(len(manifest["frames"]), manifest["rendered_frames"])
+
+    def test_cli_render_png_stride(self):
+        if not self.real_verified_run.is_dir():
+            self.skipTest("real verified run not found")
+
+        tmp_render = Path(tempfile.mkdtemp(prefix="render_stride_"))
+        with patch("sys.stdout", new_callable=io.StringIO):
+            code = main(["view", str(self.real_verified_run), "--render-png", str(tmp_render), "--render-stride", "2"])
+            self.assertEqual(code, 0)
+
+        manifest = json.loads((tmp_render / "manifest.json").read_text())
+        self.assertEqual(manifest["stride"], 2)
+        total = manifest["total_frames"]
+        # With stride=2, indices are 0, 2, ... and the last frame is always included
+        expected_indices = set(range(0, total, 2)) | {total - 1}
+        self.assertEqual(manifest["rendered_frames"], len(expected_indices))
+
+    def test_cli_render_png_requires_occ(self):
+        if not self.real_verified_run.is_dir():
+            self.skipTest("real verified run not found")
+
+        tmp_render = Path(tempfile.mkdtemp(prefix="render_mock_"))
+        with patch("sys.stderr", new_callable=io.StringIO) as mock_err:
+            code = main(["view", str(self.real_verified_run), "--allow-mock-backend", "--render-png", str(tmp_render)])
+            self.assertEqual(code, 2)
+            self.assertIn("requires OCC backend", mock_err.getvalue())
+
+    def test_cli_render_stride_zero_rejected(self):
+        if not self.real_verified_run.is_dir():
+            self.skipTest("real verified run not found")
+
+        with patch("sys.stderr", new_callable=io.StringIO):
+            code = main(["view", str(self.real_verified_run), "--render-stride", "0"])
+            self.assertEqual(code, 2)
+
+
 if __name__ == "__main__":
     unittest.main()
