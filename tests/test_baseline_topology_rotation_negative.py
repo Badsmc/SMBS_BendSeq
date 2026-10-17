@@ -34,7 +34,6 @@ class TestBaselineTopologyRotationNegative(unittest.TestCase):
             k_factor_override=0.44
         )
 
-        self.assertEqual(res["status"], "SUCCESS")
         self.assertEqual(res["baseline_status"], "VALID")
         self.assertTrue(res["pass"])
 

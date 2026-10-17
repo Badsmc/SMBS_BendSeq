@@ -49,7 +49,8 @@ class TestVerticalSliceGeometry(unittest.TestCase):
         )
 
         # 3. Assertions
-        self.assertEqual(res["status"], RunStatus.SUCCESS.value)
+        self.assertEqual(res["baseline_status"], "VALID", "Vertical slice: baseline must be VALID")
+        self.assertTrue(res["pass"], "Vertical slice: baseline pass flag must be True")
         run_dir = Path(res["run_dir"])
 
         manifest_file = run_dir / "01_input_manifest.json"

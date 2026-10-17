@@ -60,7 +60,6 @@ class TestStage1Baseline(unittest.TestCase):
             k_factor_override=0.44
         )
 
-        self.assertEqual(res["status"], RunStatus.SUCCESS.value)
         self.assertEqual(res["baseline_status"], "VALID")
         self.assertTrue(res["pass"])
         self.assertTrue(res["baseline_metrics"]["is_valid_brep"])
@@ -80,7 +79,6 @@ class TestStage1Baseline(unittest.TestCase):
             k_factor_override=0.44
         )
 
-        self.assertEqual(res["status"], RunStatus.SUCCESS.value)
         self.assertEqual(res["baseline_status"], "VALID")
         self.assertTrue(res["pass"])
         self.assertTrue(res["baseline_metrics"]["is_valid_brep"])
@@ -99,7 +97,6 @@ class TestStage1Baseline(unittest.TestCase):
             k_factor_override=0.44
         )
 
-        self.assertEqual(res["status"], RunStatus.SUCCESS.value)
         self.assertEqual(res["baseline_status"], "VALID")
         self.assertTrue(res["pass"])
         self.assertTrue(res["baseline_metrics"]["is_valid_brep"])

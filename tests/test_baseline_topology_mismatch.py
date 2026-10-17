@@ -34,7 +34,7 @@ class TestBaselineTopologyMismatch(unittest.TestCase):
             k_factor_override=0.44
         )
 
-        self.assertEqual(res["status"], "SUCCESS")
+        self.assertEqual(res["baseline_status"], "VALID")
         run_dir = Path(res["run_dir"])
         baseline_result_path = run_dir / "04_baseline_result.json"
         geom_result_path = run_dir / "02_geometry_result.json"

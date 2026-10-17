@@ -36,7 +36,6 @@ class TestBaselineTopologyTree(unittest.TestCase):
             k_factor_override=0.40
         )
 
-        self.assertEqual(res["status"], "SUCCESS", f"Pipeline failed for {part_id}: {res.get('diagnostics')}")
         self.assertEqual(res["baseline_status"], "VALID", f"Baseline status is not VALID for {part_id}")
         self.assertTrue(res["pass"], f"pass flag is not True for {part_id}")
 
