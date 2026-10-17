@@ -902,20 +902,14 @@ class SheetMetalFolder:
         parent_panel: Dict[str, Any],
         child_panel: Dict[str, Any],
         t: float,
-        y_panel_start: float,
-        branch_frame: Optional[FreeCAD.Matrix] = None
+        s_panel_start: float,
+        hub_centroid: FreeCAD.Vector
     ) -> FreeCAD.Matrix:
         """
         Geometrically constructs 4x4 FreeCAD.Matrix mapping child panel from flat pattern
         into its folded position along branch.
-        Derived strictly from: axis_point, axis_direction, angle_deg, parent normal, child seam.
-
-        Note: Divergence from hardcoded baseline matrices at ~1e-15 level is expected due to
-        quaternion/vector algebra (Rotation.multVec) vs scalar trigonometry.
-        Verification acceptance criteria (Protocol B.2b+):
-          1. max_element_diff(M_param, M_ref) < 1e-12 across all 16 elements.
-          2. BaselineWorker.compare_topologies returns True on all 6 fields.
-          3. Integral invariants: |Volume_diff| < 1e-9 and |Area_diff| < 1e-9.
+        Derived strictly from: axis_point, axis_direction, angle_deg, parent normal, child seam, hub centroid.
+        Unified parametric algorithm valid for all branch directions and bend depths.
         """
         def get_val(item, key):
             if key not in item:
@@ -942,24 +936,38 @@ class SheetMetalFolder:
 
         p_seam_r = ax_p + v_end * r_in
         p_seam_ro = ax_p + v_end * (r_in + t)
+        p_seam = p_seam_r if ang > 0 else p_seam_ro
 
         sgn = 1.0 if ang > 0 else -1.0
         t_child = (ax_d * sgn).cross(v_end).normalize()
 
-        e_w = FreeCAD.Vector(1, 0, 0)
-        col1 = e_w
-        col2 = -t_child
-        col3 = e_w.cross(t_child).normalize()
+        v_hub = ax_p - hub_centroid
+        is_y = abs(ax_d.x) > 0.5
+        sign_along = 1.0 if (v_hub.y if is_y else v_hub.x) > 0 else -1.0
 
-        p_seam_flat0 = p_seam_r if ang > 0 else p_seam_ro
+        col_along = t_child * sign_along
+
+        if is_y:
+            col_width = FreeCAD.Vector(1, 0, 0)
+            col1 = col_width
+            col2 = col_along
+            col3 = col2.cross(col1).normalize()
+        else:
+            col_width = FreeCAD.Vector(0, 1, 0)
+            col1 = col_along
+            col2 = col_width
+            col3 = col2.cross(col1).normalize()
 
         M = FreeCAD.Matrix()
         M.A11 = col1.x; M.A12 = col2.x; M.A13 = col3.x
         M.A21 = col1.y; M.A22 = col2.y; M.A23 = col3.y
         M.A31 = col1.z; M.A32 = col2.z; M.A33 = col3.z
 
-        T = p_seam_flat0 - col2 * y_panel_start
-        M.A14 = 0.0; M.A24 = T.y; M.A34 = T.z
+        T = p_seam - col_along * s_panel_start
+        if is_y:
+            M.A14 = 0.0; M.A24 = T.y; M.A34 = T.z
+        else:
+            M.A14 = T.x; M.A24 = 0.0; M.A34 = T.z
         return M
 
     @classmethod
@@ -967,17 +975,19 @@ class SheetMetalFolder:
         cls,
         branch_bends: List[Dict[str, Any]],
         flat_candidate: TopoDS_Shape | Part.Shape,
-        canonical_part: Dict[str, Any],
-        reference_frame: Optional[Any] = None
+        canonical_part: Dict[str, Any]
     ) -> Part.Shape:
         """
         Folds a single branch (chain of bends from the hub outward).
         Returns the folded branch solid as a FreeCAD Part.Shape in part coordinates.
+        Unified parametric algorithm valid for all branch directions and bend counts.
         """
         payload = canonical_part.get("payload", canonical_part)
         t_raw = payload.get("thickness_mm", 1.5)
         t = float(t_raw.get("value", 1.5) if isinstance(t_raw, dict) else t_raw)
         panels = payload.get("panels", {})
+        ref_panel_id = payload.get("reference_panel_id")
+        hub_centroid = FreeCAD.Vector(*panels[ref_panel_id]["centroid"])
 
         fc_flat = cls._to_fc_shape(flat_candidate) if not isinstance(flat_candidate, Part.Shape) else flat_candidate
         bb = fc_flat.BoundBox
@@ -1008,7 +1018,7 @@ class SheetMetalFolder:
             face = Part.Face(Part.makePolygon([p1, p2, p3, p4, p1]))
             return face.revolve(ax_p, ax_d, deg)
 
-        # Variant B: Robust start_vec from parent panel plane equation with perpendicularity validation
+        # Robust start_vec from parent panel plane equation with perpendicularity validation
         def compute_start_vec(bend_dict):
             parent = panels[bend_dict["parent_panel_id"]]
             c_p = FreeCAD.Vector(*parent["centroid"])
@@ -1016,7 +1026,6 @@ class SheetMetalFolder:
             ax_d = FreeCAD.Vector(*bend_dict["axis_direction"]).normalize()
             norm = FreeCAD.Vector(*parent["normal"]).normalize()
 
-            # Guard against non-perpendicular parent normal (prevents helicoid surfaces)
             if abs(norm.dot(ax_d)) > 1e-6:
                 raise ValueError("TREE_FOLD_GEOMETRY_ERROR: parent normal not perpendicular to bend axis")
 
@@ -1028,9 +1037,17 @@ class SheetMetalFolder:
 
         bb_f = fc_flat.BoundBox
         folded_parts = []
-        curr_y_pos = branch_bends[0]["axis_point"][1]
 
-        for i, bend in enumerate(branch_bends):
+        b0 = branch_bends[0]
+        ax_p0 = FreeCAD.Vector(*b0["axis_point"])
+        ax_d0 = FreeCAD.Vector(*b0["axis_direction"]).normalize()
+        v_hub0 = ax_p0 - hub_centroid
+        is_y = abs(ax_d0.x) > 0.5
+        sign_along = 1.0 if (v_hub0.y if is_y else v_hub0.x) > 0 else -1.0
+
+        curr_s_pos = ax_p0.y if is_y else ax_p0.x
+
+        for bend in branch_bends:
             p_parent = panels[bend["parent_panel_id"]]
             p_child = panels[bend["child_panel_id"]]
             L_bend = get_val(bend, "length_mm")
@@ -1041,29 +1058,54 @@ class SheetMetalFolder:
 
             ba = math.radians(abs(ang)) * (r_in + k_fact * t)
 
-            y_panel_start = curr_y_pos - ba
-            y_panel_end = y_panel_start - w_panel
-            curr_y_pos = y_panel_end
+            s_panel_start = curr_s_pos + sign_along * ba
+            s_panel_end = s_panel_start + sign_along * w_panel
+            curr_s_pos = s_panel_end
 
-            # 1. Cut panel from flat_candidate
-            box_p = Part.makeBox(bb_f.XLength + 20.0, y_panel_start - y_panel_end, bb_f.ZLength + 4.0, FreeCAD.Vector(bb_f.XMin - 10.0, y_panel_end, -2.0))
+            s_min = min(s_panel_start, s_panel_end)
+            s_max = max(s_panel_start, s_panel_end)
+
+            if is_y:
+                box_p = Part.makeBox(
+                    bb_f.XLength + 20.0,
+                    s_max - s_min,
+                    bb_f.ZLength + 4.0,
+                    FreeCAD.Vector(bb_f.XMin - 10.0, s_min, -2.0)
+                )
+            else:
+                box_p = Part.makeBox(
+                    s_max - s_min,
+                    bb_f.YLength + 20.0,
+                    bb_f.ZLength + 4.0,
+                    FreeCAD.Vector(s_min, bb_f.YMin - 10.0, -2.0)
+                )
+
             panel_cut = fc_flat.common(box_p)
-
-            # 2. Build bend sector
             start_v = compute_start_vec(bend)
             b_sector = make_bend_sector(bend["axis_point"], bend["axis_direction"], start_v, r_in, t, L_bend, ang)
 
-            # 3. Parametric transformation derived from bend parameters (Step B.2b)
-            m_p = cls.build_bend_transform(bend, p_parent, p_child, t, y_panel_start)
-
+            m_p = cls.build_bend_transform(bend, p_parent, p_child, t, s_panel_start, hub_centroid)
             panel_folded = panel_cut.transformShape(m_p)
+
             folded_parts.append(b_sector)
             folded_parts.append(panel_folded)
+
         branch = folded_parts[0]
         for part in folded_parts[1:]:
             branch = branch.fuse(part)
         branch_clean = branch.removeSplitter()
-        return branch_clean
+
+        # Canonicalize topology: source flat_pattern.brep has ~5.8e-7 rad angular
+        # deviation on the -X side of relief cut normal. Without unify, -X and +X
+        # branches produce 21 vs 19 faces (asymmetric). UnifySameDomain with
+        # 1e-4 angular / 1e-3 linear tolerance normalizes both to 19 faces.
+        # See: B.2c verification (before: -X=21, +X=19; after: -X=19, +X=19).
+        occ_s = cls._to_occ_shape(branch_clean)
+        unif = ShapeUpgrade_UnifySameDomain(occ_s, True, True, True)
+        unif.SetLinearTolerance(1e-3)
+        unif.SetAngularTolerance(1e-4)
+        unif.Build()
+        return cls._to_fc_shape(unif.Shape())
     @classmethod
     def fold_tree_general_from_flat_pattern(
         cls,
