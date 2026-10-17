@@ -44,10 +44,10 @@ class TestPhase6DFSSolver(unittest.TestCase):
         pg = PanelGraph()
         pg.add_bend_connection("BEND_01", "PA", "PB")
 
-        root = FoldState.initial(None, bg, pg)
+        root = FoldState.initial(self.backend.make_box(100, 50, 2), bg, pg)
         planner = DFSBackwardPlanner(bg, self.validator, pg)
 
-        res = planner.solve(root)
+        res = planner.solve(root, unknown_policy="EXPLORATORY")
         self.assertTrue(res["success"])
         self.assertIsNotNone(res.get("sequence"))
 
@@ -66,10 +66,10 @@ class TestPhase6DFSSolver(unittest.TestCase):
         pg.add_bend_connection("BEND_01", "PA", "PB")
         pg.add_bend_connection("BEND_02", "PB", "PC")
 
-        root = FoldState.initial(None, bg, pg)
+        root = FoldState.initial(self.backend.make_box(100, 50, 2), bg, pg)
         planner = DFSBackwardPlanner(bg, self.validator, pg)
 
-        res = planner.solve(root)
+        res = planner.solve(root, unknown_policy="EXPLORATORY")
         self.assertTrue(res["success"])
         self.assertIsNotNone(res.get("sequence"))
 
@@ -91,10 +91,10 @@ class TestPhase6DFSSolver(unittest.TestCase):
         pg.add_bend_connection("BEND_03", "PC", "PD")
         pg.add_bend_connection("BEND_04", "PD", "PE")
 
-        root = FoldState.initial(None, bg, pg)
+        root = FoldState.initial(self.backend.make_box(100, 50, 2), bg, pg)
         planner = DFSBackwardPlanner(bg, self.validator, pg)
 
-        res = planner.solve(root)
+        res = planner.solve(root, unknown_policy="EXPLORATORY")
         self.assertTrue(res["success"])
         self.assertIsNotNone(res.get("sequence"))
 
@@ -111,17 +111,17 @@ class TestPhase6DFSSolver(unittest.TestCase):
 
         from smbs_core.Core.state_cache import StateCache
         cache = StateCache()
-        root = FoldState.initial(None, bg, pg)
+        root = FoldState.initial(self.backend.make_box(100, 50, 2), bg, pg)
         planner = DFSBackwardPlanner(bg, self.validator, pg, state_cache=cache)
 
         # 1. Run with a tooling override
         override = {"punch_id": "CUSTOM_PUNCH", "die_id": "CUSTOM_DIE"}
-        res1 = planner.solve(root, tooling_override=override)
+        res1 = planner.solve(root, tooling_override=override, unknown_policy="EXPLORATORY")
         self.assertTrue(res1["success"])
         
         # 2. Run again. Since we don't cache validator in StateCache natively (yet),
         # but dfs caches locally in self.validation_cache. Let's see if DFS metrics track.
-        res2 = planner.solve(root, tooling_override=override)
+        res2 = planner.solve(root, tooling_override=override, unknown_policy="EXPLORATORY")
         
         # Checking that cache_stats is returned
         self.assertIn("cache_stats", res1)

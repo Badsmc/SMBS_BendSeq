@@ -169,7 +169,8 @@ class TestRegressionSuites(unittest.TestCase):
             result = self.orchestrator.run_planning(
                 target_shape=target_shape,
                 algorithm="dfs",
-                output_file=output_file
+                output_file=output_file,
+                unknown_policy="EXPLORATORY"
             )
             
             self.assertTrue(result["success"] or result["status"] == "PARTIAL", f"Planning failed for {profile_name}: {result.get('error')}")

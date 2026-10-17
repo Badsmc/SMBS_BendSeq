@@ -90,10 +90,12 @@ class TestSolvers(unittest.TestCase):
             }
         })()
         
+        mock_shape = backend.make_box(100, 50, 2)
         result = orchestrator.run_planning(
-            target_shape=None,
+            target_shape=mock_shape,
             algorithm="astar",
-            output_file="test_bendseq_output.json"
+            output_file="test_bendseq_output.json",
+            unknown_policy="EXPLORATORY"
         )
         self.assertTrue(result["success"] or result["status"] == "PARTIAL")
         self.assertEqual(len(result["sequence"]), 4)
@@ -116,10 +118,12 @@ class TestSolvers(unittest.TestCase):
                 }
             }
         })()
+        mock_shape = backend.make_box(100, 50, 2)
         result = orchestrator.run_planning(
-            target_shape=None,
+            target_shape=mock_shape,
             algorithm="greedy",
-            output_file="test_greedy_output.json"
+            output_file="test_greedy_output.json",
+            unknown_policy="EXPLORATORY"
         )
         self.assertTrue(result["success"] or result["status"] == "PARTIAL")
         self.assertEqual(len(result["sequence"]), 4)
