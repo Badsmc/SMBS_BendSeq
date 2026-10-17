@@ -562,7 +562,21 @@ class BaselineWorker:
         # 5. Restore 3D shape by physical folding via SheetMetalFolder (§5.1)
         from smbs_core.Geometry.sheetmetal_folder import SheetMetalFolder
 
-        restored_shape = SheetMetalFolder.fold_from_canonical_part(canonical_part, aligned_flat)
+        # Step B.4.1 + KL-5: 1D and 3a paths were designed for aligned_flat (their
+        # fold_X_bend methods build folded solid in +Z direction relative to flat,
+        # and FrameAligner ensures flat's orientation matches reference part).
+        # General tree (3b) uses absolute coordinates from canonical_part['bends']
+        # and MUST receive original flat_pattern.brep (not aligned), because
+        # axis_point/centroid are in original flat's coordinate system.
+        # TODO(B.4.4): unify this with fold_from_canonical_part's method dispatcher
+        # so both "which fold method" and "which flat" decisions live in one place.
+        panel_degs = [len(p.get("adjacent_bend_ids", [])) for p in canonical_part.get("payload", canonical_part).get("panels", {}).values()]
+        max_p_deg = max(panel_degs) if panel_degs else 0
+        b_count = len(canonical_part.get("payload", canonical_part).get("bends", {}))
+        _is_general_tree_3b = (max_p_deg >= 3 and not (max_p_deg == 4 and b_count == 8))
+        fold_flat_input = flat_shape if _is_general_tree_3b else aligned_flat
+
+        restored_shape = SheetMetalFolder.fold_from_canonical_part(canonical_part, fold_flat_input)
 
         restored_brep_path = run_dir / "restored.brep"
         breptools.Write(restored_shape, str(restored_brep_path))
