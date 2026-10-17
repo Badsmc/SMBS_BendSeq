@@ -17,10 +17,13 @@ from OCC.Core.BRepGProp import brepgprop
 from OCC.Core.GProp import GProp_GProps
 from OCC.Core.Bnd import Bnd_Box
 from OCC.Core.BRepBndLib import brepbndlib
-from OCC.Core.TopAbs import TopAbs_SOLID, TopAbs_SHELL, TopAbs_VERTEX
+from OCC.Core.TopAbs import TopAbs_SOLID, TopAbs_SHELL, TopAbs_VERTEX, TopAbs_FACE
 from OCC.Core.TopExp import TopExp_Explorer
-from OCC.Core.TopoDS import TopoDS_Shape
+from OCC.Core.TopoDS import TopoDS_Shape, TopoDS_Face, topods
 from OCC.Core.BRepExtrema import BRepExtrema_DistShapeShape
+from OCC.Core.BRepAdaptor import BRepAdaptor_Surface
+from OCC.Core.GeomAbs import GeomAbs_Plane
+from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_Transform
 
 from smbs_core.geometry_backend.backends.pythonocc_backend import PythonOCCBackend
 from smbs_core.Physics.machine_kinematics import PressBrakeMachine
@@ -28,6 +31,8 @@ from smbs_core.Physics.validator import PhysicalValidator, CollisionStatus
 from smbs_core.Core.fold_state import FoldState
 from smbs_core.Core.panel_graph import PanelGraph, Panel
 from smbs_core.Core.bend_graph import BendGraph, BendRecord
+from smbs_core.Geometry.sheetmetal_folder import SheetMetalFolder
+from smbs_core.Geometry.frame_aligner import FrameAligner, AlignmentStatus
 from smbs_core.protocols.file_store import (
     ContractError,
     FileStore,
@@ -40,7 +45,8 @@ class VerifierWorker:
     """
     Independent Verifier Worker.
     Rule: Never reads solver cache, search tree, or pruned states (§7.1).
-    Re-simulates each step in clean execution path.
+    Re-simulates each step in clean execution path (unfold correctness)
+    and verifies forward fold reconstruction (fold correctness, KL-11).
     """
 
     def __init__(self, file_store: Optional[FileStore] = None):
@@ -73,6 +79,24 @@ class VerifierWorker:
         extents = [xmax - xmin, ymax - ymin, zmax - zmin]
 
         return vol, area, extents
+
+    @staticmethod
+    def _find_largest_planar_face(shape: TopoDS_Shape) -> Optional[TopoDS_Face]:
+        max_area = -1.0
+        best_face = None
+        exp = TopExp_Explorer(shape, TopAbs_FACE)
+        while exp.More():
+            face = topods.Face(exp.Current())
+            surf = BRepAdaptor_Surface(face, True)
+            if surf.GetType() == GeomAbs_Plane:
+                props = GProp_GProps()
+                brepgprop.SurfaceProperties(face, props)
+                area = props.Mass()
+                if area > max_area:
+                    max_area = area
+                    best_face = face
+            exp.Next()
+        return best_face
 
     @staticmethod
     def _compute_hausdorff_distance(shape1: TopoDS_Shape, shape2: TopoDS_Shape) -> float:
@@ -292,7 +316,7 @@ class VerifierWorker:
 
             current_state = val_res.next_state
 
-        # 4. Final shape comparison (invariants)
+        # 4. Final shape comparison (unfold correctness invariants)
         # In backward unfolding, final state reaches kinematic flat pattern
         # Target for comparison is flat_shape (or if missing, reference volume/topology invariants)
         final_sim_shape = current_state.shape if current_state and current_state.shape else ref_shape
@@ -333,7 +357,85 @@ class VerifierWorker:
             and hausdorff <= tol["surface_distance_tol_mm"]
         )
 
-        # 5. Evaluate final verification status
+        # 5. Fold correctness verification (KL-11 forward reconstruction)
+        # Only executed if sequence steps did not encounter invalid transitions
+        fold_metrics_ok = True
+        if not has_invalid_any:
+            if flat_shape is None:
+                fold_metrics_ok = False
+                diagnostics.append({
+                    "code": "FOLD_CHECK_SKIPPED_NO_FLAT_SHAPE",
+                    "message": "flat_pattern.brep missing; fold correctness cannot be verified.",
+                    "level": "ERROR",
+                    "stage": "fold_correctness"
+                })
+            else:
+                try:
+                    ref_face = self._find_largest_planar_face(ref_shape)
+                    flat_face = self._find_largest_planar_face(flat_shape)
+                    if not ref_face or not flat_face:
+                        fold_metrics_ok = False
+                        diagnostics.append({
+                            "code": "ALIGNMENT_FAILED",
+                            "message": "Cannot find planar faces for flat pattern alignment.",
+                            "level": "ERROR",
+                            "stage": "fold_correctness"
+                        })
+                    else:
+                        align_res = FrameAligner.align_full_frame(flat_face, ref_face)
+                        if align_res.status != AlignmentStatus.OK:
+                            fold_metrics_ok = False
+                            diagnostics.append({
+                                "code": "ALIGNMENT_FAILED",
+                                "message": f"FrameAligner failed: {align_res.error_message}",
+                                "level": "ERROR",
+                                "stage": "fold_correctness"
+                            })
+                        else:
+                            aligned_flat = BRepBuilderAPI_Transform(flat_shape, align_res.transform, True).Shape()
+                            try:
+                                folded_sim_shape = SheetMetalFolder.fold_from_canonical_part(
+                                    canonical_part, aligned_flat=aligned_flat
+                                )
+                            except Exception as fold_err:
+                                fold_metrics_ok = False
+                                diagnostics.append({
+                                    "code": "FOLD_RECONSTRUCTION_FAILED",
+                                    "message": f"SheetMetalFolder.fold_from_canonical_part failed: {fold_err}",
+                                    "level": "ERROR",
+                                    "stage": "fold_correctness"
+                                })
+                                folded_sim_shape = None
+
+                            if folded_sim_shape is not None:
+                                vol_sim_folded, area_sim_folded, bbox_sim_folded = self._get_shape_properties(folded_sim_shape)
+                                vol_ref_orig, area_ref_orig, bbox_ref_orig = self._get_shape_properties(ref_shape)
+                                vol_delta_folded = abs(vol_sim_folded - vol_ref_orig)
+                                bbox_delta_folded = [abs(a - b) for a, b in zip(bbox_sim_folded, bbox_ref_orig)]
+                                max_bbox_deviation = max(bbox_delta_folded) if bbox_delta_folded else 0.0
+
+                                fold_pass = (
+                                    vol_delta_folded <= tol["volume_tol_mm3"]
+                                    and all(d <= tol["bbox_tol_mm"] for d in bbox_delta_folded)
+                                )
+                                if not fold_pass:
+                                    fold_metrics_ok = False
+                                    diagnostics.append({
+                                        "code": "FOLD_SHAPE_MISMATCH",
+                                        "message": f"Fold reconstruction does not match ref_shape: vol_delta={vol_delta_folded:.4f}, max_bbox_deviation={max_bbox_deviation:.4f}",
+                                        "level": "ERROR",
+                                        "stage": "fold_correctness"
+                                    })
+                except Exception as outer_fold_err:
+                    fold_metrics_ok = False
+                    diagnostics.append({
+                        "code": "FOLD_RECONSTRUCTION_FAILED",
+                        "message": f"Unexpected error during fold correctness check: {outer_fold_err}",
+                        "level": "ERROR",
+                        "stage": "fold_correctness"
+                    })
+
+        # 6. Evaluate final verification status
         has_all_bends = (len(candidate_seq) == len(canonical_part["payload"]["bends"]))
 
         if has_invalid_any or not has_all_bends:
@@ -360,6 +462,9 @@ class VerifierWorker:
                 "level": "ERROR",
                 "stage": "shape_metrics"
             })
+        elif not fold_metrics_ok:
+            verif_status = VerificationStatus.VERIFICATION_FAILED
+            production_eligible = False
         else:
             verif_status = VerificationStatus.VERIFIED
             production_eligible = True
