@@ -1113,8 +1113,8 @@ class SheetMetalFolder:
         canonical_part: Dict[str, Any]
     ) -> TopoDS_Shape:
         """
-        Step A/B: Parametric folding for general tree sheet metal parts.
-        All bend axes, angles, directions, k-factors, and lengths are extracted from canonical_part['bends'].
+        Step B.3: Parametric folding for general tree sheet metal parts.
+        Extracts hub bounded by root bend axes and folds all branches outward from hub.
         All panel widths are extracted from canonical_part['panels'][pid]['area_mm2'] / (2 * L_bend).
         Panels are cut from flat_candidate via boolean operations along dynamic boundaries.
         Bend sectors are generated via profile revolving with DIN 6935 neutral layer shift.
@@ -1124,8 +1124,42 @@ class SheetMetalFolder:
         panels = payload.get("panels", {})
         ref_panel_id = payload.get("reference_panel_id")
 
-        # Obchod dereva ot reference_panel_id: nahozhdenie tselevoy vetvi
         hub_panel = panels.get(ref_panel_id, {})
+        hub_centroid = FreeCAD.Vector(*hub_panel["centroid"])
+        t_raw = payload.get("thickness_mm", 1.5)
+        t = float(t_raw.get("value", 1.5) if isinstance(t_raw, dict) else t_raw)
+
+        fc_flat = cls._to_fc_shape(flat_candidate) if not isinstance(flat_candidate, Part.Shape) else flat_candidate
+        bb = fc_flat.BoundBox
+        if abs(bb.ZMin) < 1e-4 and abs(bb.ZMax - t) < 1e-4:
+            pass
+        elif abs(bb.ZMax) < 1e-4 and abs(bb.ZMin + t) < 1e-4:
+            fc_flat.translate(FreeCAD.Vector(0, 0, t))
+
+        # 1. Extract hub boundaries from axis_point of root adjacent bends
+        hub_x_min, hub_x_max = None, None
+        hub_y_min, hub_y_max = None, None
+        for bid in hub_panel.get("adjacent_bend_ids", []):
+            b = bends[bid]
+            ax_d = FreeCAD.Vector(*b["axis_direction"]).normalize()
+            ax_p = FreeCAD.Vector(*b["axis_point"])
+            is_y = abs(ax_d.x) > 0.5
+            v_hub = ax_p - hub_centroid
+            sign_along = 1.0 if (v_hub.y if is_y else v_hub.x) > 0 else -1.0
+            if is_y:
+                if sign_along < 0:
+                    hub_y_min = ax_p.y
+                else:
+                    hub_y_max = ax_p.y
+            else:
+                if sign_along < 0:
+                    hub_x_min = ax_p.x
+                else:
+                    hub_x_max = ax_p.x
+
+        box_hub = Part.makeBox(hub_x_max - hub_x_min, hub_y_max - hub_y_min, t + 4.0, FreeCAD.Vector(hub_x_min, hub_y_min, -2.0))
+        hub_shape = fc_flat.common(box_hub)
+
         all_branches = []
         for bid in hub_panel.get("adjacent_bend_ids", []):
             chain = [bends[bid]]
@@ -1140,13 +1174,13 @@ class SheetMetalFolder:
                 curr_p_id = next_b["child_panel_id"]
             all_branches.append(chain)
 
-        # Sort branches by depth descending to identify deepest branch (depth 4)
-        all_branches.sort(key=lambda c: len(c), reverse=True)
-        if not all_branches or len(all_branches[0]) < 4:
-            raise ValueError("TREE_FOLD_GEOMETRY_ERROR: branch -Y with depth 4 not found")
+        full_shape = hub_shape
+        for br in all_branches:
+            br_shape = cls.fold_branch(br, fc_flat, canonical_part)
+            full_shape = full_shape.fuse(br_shape)
 
-        branch_shape = cls.fold_branch(all_branches[0], flat_candidate, canonical_part)
-        return cls._to_occ_shape(branch_shape)
+        full_clean = full_shape.removeSplitter()
+        return cls._to_occ_shape(full_clean)
     @classmethod
     def fold_from_canonical_part(
         cls,
