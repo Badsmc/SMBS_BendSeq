@@ -310,7 +310,12 @@ class CollisionDetector:
         
         origin = bend_info.get("origin", (0.0, 0.0, 0.0))
         axis = bend_info.get("axis", (1.0, 0.0, 0.0))
-        moving_panels = panel_graph.moving_subtree(bend_id) if panel_graph else None
+        moving_panels = bend_info.get("moving_panels")
+        if not moving_panels and panel_graph and bend_id:
+            moving_panels = panel_graph.moving_subtree(bend_id)
+
+        if not moving_panels:
+            return CollisionResult(CollisionStatus.UNKNOWN, "trajectory_collision: moving_panels not provided; cannot verify trajectory")
 
         for i in range(1, steps + 1):
             current_angle = step_angle * i
@@ -328,9 +333,10 @@ class CollisionDetector:
             
             # Check collisions at this intermediate step
             # 1. Self collision
-            self_res = self.self_collision(inter_shape, bend_id, panel_graph)
-            if not self_res.is_valid:
-                return CollisionResult(self_res.status, f"Trajectory Self-Collision at {current_angle:.1f} deg: {self_res.message}")
+            if panel_graph is not None and bend_id:
+                self_res = self.self_collision(inter_shape, bend_id, panel_graph)
+                if not self_res.is_valid:
+                    return CollisionResult(self_res.status, f"Trajectory Self-Collision at {current_angle:.1f} deg: {self_res.message}")
             
             # 2. Tool collision
             tool_res = self.tool_collision(inter_shape, bend_info, bend_id, panel_graph)
@@ -338,9 +344,10 @@ class CollisionDetector:
                 return CollisionResult(tool_res.status, f"Trajectory Tool-Collision at {current_angle:.1f} deg: {tool_res.message}")
             
             # 3. Machine collision
-            mach_res = self.machine_collision(inter_shape, bend_info, bend_id, panel_graph)
-            if not mach_res.is_valid:
-                return CollisionResult(mach_res.status, f"Trajectory Machine-Collision at {current_angle:.1f} deg: {mach_res.message}")
+            if self.assembly.get_world_shape(ToolingKind.MACHINE_FRAME) is not None or self.assembly.get_world_shape(ToolingKind.MACHINE_BED) is not None:
+                mach_res = self.machine_collision(inter_shape, bend_info, bend_id, panel_graph)
+                if not mach_res.is_valid:
+                    return CollisionResult(mach_res.status, f"Trajectory Machine-Collision at {current_angle:.1f} deg: {mach_res.message}")
                 
         return CollisionResult(CollisionStatus.VALID, "Clear")
 

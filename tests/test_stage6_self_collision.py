@@ -12,7 +12,7 @@ import os
 import unittest
 from typing import Any, Set, Tuple
 
-from smbs_core.Physics.collision_detector import CollisionDetector
+from smbs_core.Physics.collision_detector import CollisionDetector, CollisionStatus
 from smbs_core.Physics.machine_kinematics import PressBrakeMachine
 from smbs_core.Core.panel_graph import PanelGraph
 from smbs_core.geometry_backend.backends.mock_backend import MockBackend
@@ -55,12 +55,14 @@ class TestStage6SelfCollision(unittest.TestCase):
         self.pg.panels["PC"].face_indices = ["PC"]
         self.pg.panels["PD"].face_indices = ["PD"]
 
-    def test_self_collision_no_panel_graph(self):
-        """Test fallback behavior when no panel graph is provided."""
+    def test_self_collision_no_panel_graph_returns_unknown(self):
+        """Без panel_graph контекст недостаточен → UNKNOWN, не VALID."""
         shape = DummyShape("ALL")
-        coll, msg = self.detector.self_collision(shape)
-        self.assertTrue(coll)
-        self.assertEqual(msg, "Clear")
+        res = self.detector.self_collision(shape)
+        self.assertEqual(res.status, CollisionStatus.UNKNOWN)
+        coll, msg = res
+        self.assertFalse(coll)
+        self.assertIn("missing", msg.lower())
 
     def test_self_collision_logic(self):
         """Test self-collision logic using CollisionMockBackend."""
