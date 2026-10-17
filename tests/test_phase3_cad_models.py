@@ -208,15 +208,15 @@ class TestPhase3RealCAD(unittest.TestCase):
         self.assertTrue(os.path.exists(self.tooling_die), "Real die file must exist")
 
         loader = FcstdToolingLoader()
-        punch = loader.load(self.tooling_punch, ToolingKind.PUNCH)
-        die = loader.load(self.tooling_die, ToolingKind.DIE)
+        punch = loader.load(self.tooling_punch, ToolingKind.PUNCH, target_object_name="Body")
+        die = loader.load(self.tooling_die, ToolingKind.DIE, target_object_name="Body")
 
         self.assertEqual(punch.geometry_status, GeometryStatus.REAL)
         self.assertEqual(die.geometry_status, GeometryStatus.REAL)
         self.assertIsNotNone(punch.shape)
         self.assertIsNotNone(die.shape)
 
-        machine = PressBrakeMachine(punch_path=self.tooling_punch, die_path=self.tooling_die)
+        machine = PressBrakeMachine(punch_path=self.tooling_punch, die_path=self.tooling_die, punch_target_object_name="Body", die_target_object_name="Body")
         assembly = machine.setup_assembly(self.backend)
 
         res = assembly.place(punch, die)
@@ -234,7 +234,7 @@ class TestPhase3RealCAD(unittest.TestCase):
 
     def test_stage5_trajectory_collisions(self):
         """Stage 5: Trajectory collision tests (positive, negative, 5° vs 1° comparison)."""
-        machine = PressBrakeMachine(punch_path=self.tooling_punch, die_path=self.tooling_die)
+        machine = PressBrakeMachine(punch_path=self.tooling_punch, die_path=self.tooling_die, punch_target_object_name="Body", die_target_object_name="Body")
         assembly = machine.setup_assembly(self.backend)
         detector = CollisionDetector(assembly, self.backend)
 
@@ -268,7 +268,9 @@ class TestPhase3RealCAD(unittest.TestCase):
             backend=self.backend,
             machine_config={
                 "punch_path": self.tooling_punch,
-                "die_path": self.tooling_die
+                "die_path": self.tooling_die,
+                "punch_target_object_name": "Body",
+                "die_target_object_name": "Body"
             }
         )
 

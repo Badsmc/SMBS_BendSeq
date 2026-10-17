@@ -53,7 +53,7 @@ class TestToolingSystem(unittest.TestCase):
             os.remove(self.sidecar_path)
             
         loader = FcstdToolingLoader()
-        tool = loader.load(self.fcstd_path, ToolingKind.PUNCH)
+        tool = loader.load(self.fcstd_path, ToolingKind.PUNCH, target_object_name="Body")
         
         self.assertEqual(tool.geometry_status, "SIMPLIFIED")
         self.assertIn(DatumRole.MOUNTING_PLANE, tool.datums)
@@ -77,7 +77,7 @@ class TestToolingSystem(unittest.TestCase):
             json.dump(sidecar_data, f)
             
         loader = FcstdToolingLoader()
-        tool = loader.load(self.fcstd_path, ToolingKind.PUNCH)
+        tool = loader.load(self.fcstd_path, ToolingKind.PUNCH, target_object_name="Body")
         
         self.assertEqual(tool.geometry_status, "REAL")
         self.assertEqual(tool.id, "TestPunch")
@@ -101,7 +101,7 @@ class TestToolingSystem(unittest.TestCase):
             json.dump(sidecar_data_punch, f)
             
         loader = FcstdToolingLoader()
-        punch = loader.load(self.fcstd_path, ToolingKind.PUNCH)
+        punch = loader.load(self.fcstd_path, ToolingKind.PUNCH, target_object_name="Body")
         
         # Создаем валидную матрицу
         sidecar_data_die = {
@@ -114,7 +114,7 @@ class TestToolingSystem(unittest.TestCase):
         with open(self.sidecar_path, 'w') as f:
             json.dump(sidecar_data_die, f)
             
-        die = loader.load(self.fcstd_path, ToolingKind.DIE)
+        die = loader.load(self.fcstd_path, ToolingKind.DIE, target_object_name="Body")
         
         backend = MockBackend()
         assembly = ToolingAssembly(backend, self.machine)

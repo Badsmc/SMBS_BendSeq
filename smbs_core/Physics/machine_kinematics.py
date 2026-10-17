@@ -30,6 +30,8 @@ class PressBrakeMachine:
         backgauge_r_max_mm: float = 250.0,
         punch_path: Optional[str] = None,
         die_path: Optional[str] = None,
+        punch_target_object_name: Optional[str] = None,
+        die_target_object_name: Optional[str] = None,
         filepath: Optional[str] = None
     ):
         self.name = name
@@ -39,6 +41,8 @@ class PressBrakeMachine:
         self.backgauge_r_max_mm = backgauge_r_max_mm
         self.punch_path = punch_path
         self.die_path = die_path
+        self.punch_target_object_name = punch_target_object_name
+        self.die_target_object_name = die_target_object_name
 
         self.config = MachineConfiguration(
             id=name,
@@ -65,7 +69,9 @@ class PressBrakeMachine:
         default_p = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "toollibrary", "punch", "puancon.FCStd"))
         default_d = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "toollibrary", "die", "matrica.FCStd"))
         return cls(punch_path=default_p if os.path.exists(default_p) else None,
-                   die_path=default_d if os.path.exists(default_d) else None)
+                   die_path=default_d if os.path.exists(default_d) else None,
+                   punch_target_object_name="Body" if os.path.exists(default_p) else None,
+                   die_target_object_name="Body" if os.path.exists(default_d) else None)
 
     @classmethod
     def from_config(cls, config: Dict[str, Any]) -> "PressBrakeMachine":
@@ -74,6 +80,8 @@ class PressBrakeMachine:
             bed_length_mm=config.get("bed_length_mm", 2000.0),
             punch_path=config.get("punch_path"),
             die_path=config.get("die_path"),
+            punch_target_object_name=config.get("punch_target_object_name"),
+            die_target_object_name=config.get("die_target_object_name"),
             filepath=config.get("source_file")
         )
 
@@ -82,7 +90,7 @@ class PressBrakeMachine:
         loader = FcstdToolingLoader()
 
         if self.punch_path and os.path.exists(self.punch_path):
-            self.punch = loader.load(self.punch_path, ToolingKind.PUNCH)
+            self.punch = loader.load(self.punch_path, ToolingKind.PUNCH, target_object_name=self.punch_target_object_name)
         else:
             p_shape = backend.make_box(self.bed_length_mm, 50.0, 100.0)
             p_datums = {
@@ -101,7 +109,7 @@ class PressBrakeMachine:
             logger.info("Created synthetic SIMPLIFIED punch tooling.")
 
         if self.die_path and os.path.exists(self.die_path):
-            self.die = loader.load(self.die_path, ToolingKind.DIE)
+            self.die = loader.load(self.die_path, ToolingKind.DIE, target_object_name=self.die_target_object_name)
         else:
             d_shape = backend.make_box(self.bed_length_mm, 60.0, 80.0)
             d_datums = {

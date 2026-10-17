@@ -57,6 +57,7 @@ class Coordinator:
         source_file_path: Union[str, Path],
         part_id: str,
         input_mode: str = "NATIVE_SHEETMETAL",
+        target_object_name: Optional[str] = None,
         run_id: Optional[str] = None,
         comparison_mode: str = "CANONICAL",
         k_factor_override: Optional[float] = None,
@@ -101,7 +102,7 @@ class Coordinator:
             "payload": {
                 "source_file_path": str(source_path),
                 "input_mode": input_mode,
-                "target_object_name": None,
+                "target_object_name": target_object_name,
                 "comparison_mode": comparison_mode,
                 "k_factor_override": k_factor_override,
                 "standard_override": standard_override,
