@@ -2,10 +2,11 @@
 
 ```
 ┌──────────────────────────────────────────────────────┐
-│  СЛОЙ 5: FreeCAD Adapter (последний этап)            │
-│  • Импорт детали из документа                        │
-│  • Визуализация JSON                                 │
-│  • Симуляция                                         │
+│  СЛОЙ 5: Viewer / FreeCAD Adapter                    │
+│  • run_dir → timeline (viewer/ modules)              │
+│  • CLI: python -m smbs_core.viewer view <run_dir>    │
+│  • Offscreen HLR+PIL renderer (PREVIEW_ONLY)         │
+│  • FreeCAD addon GUI — deferred (post KL-12)         │
 └──────────────────────────────────────────────────────┘
                         ↑↓ JSON / STEP
 ┌──────────────────────────────────────────────────────┐
@@ -73,3 +74,56 @@ production_eligible = unfold_ok AND fold_ok AND not unknown_steps AND has_all_be
 - `VerifierWorker` does not call `SolverWorker` — ever.
 - `VerifierWorker` does not modify the search tree or solver state.
 - `VerifierWorker` does not silently default missing flat/geometry — missing artifacts must produce explicit diagnostics and `VERIFICATION_FAILED`.
+
+---
+
+## Stage 4 Viewer (Layer 5)
+
+**Purpose:** headless visualization of a pipeline run's `candidate_sequence`. Independent of `VerifierWorker`; does not call solver, verifier, or `PhysicalValidator`. Reads only pipeline artifacts (`04/07/09` + `geometry.brep`).
+
+### Boundaries
+
+```
+run_dir/  (04, 07, 09, geometry.brep)
+    │
+    ▼
+run_loader.load_run()        → RunArtifacts
+    │
+    ▼
+graph_builder.build_graphs() → ViewerGraphs (BendGraph + PanelGraph + direction_by_bend)
+    │
+    ▼
+replayer.replay_backward()   → Iterator[StepView]     (PREVIEW_ONLY, KL-12)
+    │
+    ▼
+player.Player                → tuple[Frame, ...]      (production_eligible from 09 ONLY)
+    │
+    ├── cli.render_table / --json / --dump-frames
+    └── render.render_frame_png  → PNG + manifest.json (HLR + PIL)
+```
+
+### Honest marking (C2)
+
+- `production_eligible` is read from `09_verification_result.payload.production_eligible`. **Never computed** by viewer (invariant #9).
+- Missing `09` → `verification_status="UNVERIFIED"`, `production_eligible=None`, `diagnostics=()`. (invariant #1: `UNKNOWN != VALID`).
+- `diagnostics` are taken from `09_verification_result.diagnostics` (top-level; per L1 audit, `payload` has none).
+- Every `StepView` carries `geometry_precision="PREVIEW_ONLY"` and `geometry_warning` referencing KL-12.
+- Every rendered PNG carries a red banner `PREVIEW_ONLY (KL-12) - not a physical re-simulation`.
+- `render.py` fails loudly on visible-edge discretization loss (`RenderError`); hidden-edge loss surfaces in the PNG subtitle and in `manifest.json` diagnostics.
+
+### Backend
+
+- `PythonOCCBackend` is used by default. `MockBackend` requires explicit `--allow-mock-backend` flag; without it, an unavailable OCC yields exit code 2 (invariant #4: no silent fallback).
+
+### Deferred
+
+- **Forward fold mode** — blocked on KL-12 (S.13b). `Player.switch_direction("forward")` raises `PlayerError`.
+- **Per-panel kinematic unfold** (`PER_PANEL_KINEMATIC`) — blocked on KL-12.
+- **FreeCAD addon GUI** — deferred; better aligned after S.13b so the 3D viewport shows honest per-panel kinematics, not whole-part rotation.
+
+### Non-goals
+
+- No 3D viewport in the headless CLI. No X11/Cocoa dependency. PNG batch + JSON metadata only.
+- Viewer does not modify solver state, search tree, or verification results.
+- Viewer is not a re-verification path; `production_eligible` cannot be recomputed client-side.
+
