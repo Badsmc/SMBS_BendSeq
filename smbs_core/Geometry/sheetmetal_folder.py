@@ -1047,7 +1047,9 @@ class SheetMetalFolder:
 
         curr_s_pos = ax_p0.y if is_y else ax_p0.x
 
-        for bend in branch_bends:
+        s_axis = 1 if is_y else 0
+
+        for i, bend in enumerate(branch_bends):
             p_parent = panels[bend["parent_panel_id"]]
             p_child = panels[bend["child_panel_id"]]
             L_bend = get_val(bend, "length_mm")
@@ -1058,9 +1060,26 @@ class SheetMetalFolder:
 
             ba = math.radians(abs(ang)) * (r_in + k_fact * t)
 
-            s_panel_start = curr_s_pos + sign_along * ba
-            s_panel_end = s_panel_start + sign_along * w_panel
-            curr_s_pos = s_panel_end
+            # B.3.2: use real seam from bend_line_flat_pattern (KL-4 fix)
+            bl = bend.get("bend_line_flat_pattern")
+            if bl and "start_mm" in bl:
+                seam_i = bl["start_mm"][s_axis]
+                s_panel_start = seam_i + sign_along * ba
+                if i < len(branch_bends) - 1:
+                    # Intermediate panel: end at next bend seam (exact)
+                    next_bl = branch_bends[i + 1].get("bend_line_flat_pattern")
+                    if next_bl and "start_mm" in next_bl:
+                        s_panel_end = next_bl["start_mm"][s_axis]
+                    else:
+                        s_panel_end = s_panel_start + sign_along * w_panel
+                else:
+                    # Terminal flange: extend box to flat edge, common() cuts by real contour
+                    s_panel_end = (bb_f.YMin - 5.0) if is_y and sign_along < 0 else                                   (bb_f.YMax + 5.0) if is_y and sign_along > 0 else                                   (bb_f.XMin - 5.0) if not is_y and sign_along < 0 else                                   (bb_f.XMax + 5.0)
+            else:
+                # Fallback: original logic without bend_line_flat_pattern
+                s_panel_start = curr_s_pos + sign_along * ba
+                s_panel_end = s_panel_start + sign_along * w_panel
+                curr_s_pos = s_panel_end
 
             s_min = min(s_panel_start, s_panel_end)
             s_max = max(s_panel_start, s_panel_end)
