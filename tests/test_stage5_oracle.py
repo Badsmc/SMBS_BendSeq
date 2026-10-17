@@ -22,9 +22,17 @@ class TestStage5PhysicalOracle(unittest.TestCase):
     """Stage 5 Physical Oracle Tests."""
 
     def setUp(self):
+        from smbs_core.models.tooling import GeometryStatus
         self.machine = PressBrakeMachine()
         self.backend = MockBackend()
         self.validator = PhysicalValidator(self.machine, backend=self.backend)
+        # Configure tooling as REAL with mock shapes for isolated oracle unit testing
+        if self.validator.detector.assembly:
+            if self.validator.detector.assembly.die:
+                self.validator.detector.assembly.die.geometry_status = GeometryStatus.REAL
+            if self.validator.detector.assembly.punch:
+                self.validator.detector.assembly.punch.geometry_status = GeometryStatus.REAL
+            self.validator.detector.assembly.get_world_shape = lambda kind: {"mock": kind.value}
         
         self.bg = BendGraph()
         self.b1 = BendRecord("BEND_01", "F1", "PA", "PB", (0,0,0), (1,0,0), 90.0, 2.0, 2.0)
@@ -32,6 +40,8 @@ class TestStage5PhysicalOracle(unittest.TestCase):
         
         self.pg = PanelGraph()
         self.pg.add_bend_connection("BEND_01", "PA", "PB")
+        self.pg.panels["PA"].face_indices = ["F1"]
+        self.pg.panels["PB"].face_indices = ["F2"]
 
     def test_oracle_approach_rejection(self):
         """Test rejection at APPROACH stage when bend is not in remaining_bends."""

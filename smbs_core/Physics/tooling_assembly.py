@@ -156,7 +156,7 @@ class ToolingAssembly:
         if tool is None or tool.shape is None or tool.geometry_status == GeometryStatus.MISSING:
             return None
 
-        if not HAS_OCC:
+        if not HAS_OCC or not hasattr(tool.shape, "IsNull") or tool.shape is None:
             return tool.shape
 
         trsf = self.assembly_trsf.get(t_kind, gp_Trsf())

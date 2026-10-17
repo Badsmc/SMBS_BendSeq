@@ -127,27 +127,47 @@ class CollisionDetector:
             panel_shapes = self._extract_panel_shapes(shape, panel_graph)
 
             checked_pairs = 0
+            adjacent_pairs = 0
+            extracted_panels = 0
+            total_panels_needed = 0
+
             for fp_id in fixed_panels:
                 if fp_id not in panel_shapes or panel_shapes[fp_id] is None:
                     continue
+                extracted_panels += 1
                 fp_shape = panel_shapes[fp_id]
-
                 for mp_id in moving_panels:
-                    if panel_graph.are_adjacent(fp_id, mp_id):
-                        continue
+                    total_panels_needed += 1
                     if mp_id not in panel_shapes or panel_shapes[mp_id] is None:
                         continue
-                    mp_shape = panel_shapes[mp_id]
-
+                    if panel_graph.are_adjacent(fp_id, mp_id):
+                        adjacent_pairs += 1
+                        continue
                     checked_pairs += 1
+                    mp_shape = panel_shapes[mp_id]
                     res = self._check_intersection(fp_shape, mp_shape, f"Panel {mp_id}", f"Panel {fp_id}")
                     if not res.is_valid:
                         return res
 
-            if checked_pairs == 0:
-                return CollisionResult(CollisionStatus.UNKNOWN, "No non-adjacent panel pairs available for self_collision check")
+            if checked_pairs > 0:
+                return CollisionResult(CollisionStatus.VALID, "Clear")
 
-            return CollisionResult(CollisionStatus.VALID, "Clear")
+            # checked_pairs == 0:
+            if extracted_panels == 0:
+                return CollisionResult(CollisionStatus.UNKNOWN, "No extracted panel geometry available for self_collision")
+            # If some moving panels needed were missing:
+            missing_moving = False
+            for mp_id in moving_panels:
+                if mp_id not in panel_shapes or panel_shapes[mp_id] is None:
+                    missing_moving = True
+                    break
+            if missing_moving:
+                return CollisionResult(CollisionStatus.UNKNOWN, "Insufficient panel data for self_collision check")
+
+            if adjacent_pairs > 0:
+                # All extracted pairs adjacent and all moving panels present -> proven
+                return CollisionResult(CollisionStatus.VALID, "All non-adjacent pair candidates are adjacent; nothing to check")
+            return CollisionResult(CollisionStatus.UNKNOWN, "Insufficient panel data for self_collision check")
         except Exception as e:
             logger.error(f"self_collision exception: {e}")
             return CollisionResult(CollisionStatus.UNKNOWN, f"self_collision Exception: {e}")
@@ -217,22 +237,29 @@ class CollisionDetector:
 
         placed_shape = self.place_part_on_tool_station(shape, bend_info)
 
-        is_die_simplified = self.assembly.die and getattr(self.assembly.die, 'geometry_status', None) == GeometryStatus.SIMPLIFIED
-        if is_die_simplified:
-            return CollisionResult(CollisionStatus.UNKNOWN, "Simplified tooling — cannot verify approach collision with die")
-        die = self.assembly.get_world_shape(ToolingKind.DIE)
-        if die is None:
-            return CollisionResult(CollisionStatus.UNKNOWN, "No die shape available for approach_collision")
-        res = self._check_intersection(placed_shape, die, "Part", "Die")
-        if not res.is_valid:
-            return res
+        checked_any = False
 
+        # 1. Die subcheck
+        is_die_simplified = self.assembly.die and getattr(self.assembly.die, 'geometry_status', None) == GeometryStatus.SIMPLIFIED
+        die = self.assembly.get_world_shape(ToolingKind.DIE)
+        if not is_die_simplified and die is not None:
+            die_res = self._check_intersection(placed_shape, die, "Part", "Die")
+            if not die_res.is_valid:
+                return die_res
+            checked_any = True
+
+        # 2. Machine frame subcheck
         machine = self.assembly.get_world_shape(ToolingKind.MACHINE_FRAME)
-        if machine is None:
-            return CollisionResult(CollisionStatus.UNKNOWN, "No machine_frame shape available for approach_collision")
-        res = self._check_intersection(placed_shape, machine, "Part", "Machine Frame")
-        if not res.is_valid:
-            return res
+        if machine is not None:
+            mach_res = self._check_intersection(placed_shape, machine, "Part", "Machine Frame")
+            if not mach_res.is_valid:
+                return mach_res
+            checked_any = True
+
+        if not checked_any:
+            if is_die_simplified:
+                return CollisionResult(CollisionStatus.UNKNOWN, "Simplified tooling — cannot verify approach collision with die")
+            return CollisionResult(CollisionStatus.UNKNOWN, "No die or machine_frame shape available for approach_collision")
 
         return CollisionResult(CollisionStatus.VALID, "Clear")
 
@@ -269,20 +296,26 @@ class CollisionDetector:
             return CollisionResult(CollisionStatus.UNKNOWN, "No tooling assembly available for machine_collision")
 
         placed_shape = self.place_part_on_tool_station(shape, bend_info)
+        checked_any = False
 
+        # 1. Machine frame subcheck
         machine = self.assembly.get_world_shape(ToolingKind.MACHINE_FRAME)
-        if machine is None:
-            return CollisionResult(CollisionStatus.UNKNOWN, "No machine_frame shape available for machine_collision")
-        res = self._check_intersection(placed_shape, machine, "Part", "Machine Frame")
-        if not res.is_valid:
-            return res
+        if machine is not None:
+            res = self._check_intersection(placed_shape, machine, "Part", "Machine Frame")
+            if not res.is_valid:
+                return res
+            checked_any = True
 
+        # 2. Machine bed subcheck
         bed = self.assembly.get_world_shape(ToolingKind.MACHINE_BED)
-        if bed is None:
-            return CollisionResult(CollisionStatus.UNKNOWN, "No machine_bed shape available for machine_collision")
-        res = self._check_intersection(placed_shape, bed, "Part", "Machine Bed")
-        if not res.is_valid:
-            return res
+        if bed is not None:
+            res = self._check_intersection(placed_shape, bed, "Part", "Machine Bed")
+            if not res.is_valid:
+                return res
+            checked_any = True
+
+        if not checked_any:
+            return CollisionResult(CollisionStatus.UNKNOWN, "No machine_frame or machine_bed shape available for machine_collision")
 
         return CollisionResult(CollisionStatus.VALID, "Clear")
 
