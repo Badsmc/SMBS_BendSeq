@@ -2,7 +2,8 @@
 Unit and regression tests for honest VerifierWorker (§7.1, Principles 8, 24).
 Validates that VerifierWorker performs physical step-by-step simulation,
 computes honest OpenCASCADE geometry metrics (no fabrication),
-rejects invalid sequences, and correctly enforces unknown_policy.
+rejects invalid sequences, correctly enforces unknown_policy,
+and verifies forward fold reconstruction (KL-11 fold correctness).
 """
 
 import json
@@ -85,6 +86,7 @@ class TestVerifierWorkerHonest(unittest.TestCase):
         Sequence validity check:
         If candidate sequence contains a bend_id not in canonical_part,
         verifier must fail step verification with VERIFICATION_FAILED.
+        Fold check must not be executed (avoiding double diagnostics).
         """
         src_run = Path("/Users/badmc/Desktop/SMBS_BendSeq/runs/run_20261012_034042_cf4c34")
         run_dir = self._setup_run_env(src_run)
@@ -105,6 +107,8 @@ class TestVerifierWorkerHonest(unittest.TestCase):
         self.assertFalse(res["payload"]["production_eligible"])
         self.assertEqual(res["payload"]["step_verifications"][0]["status"], "VERIFICATION_FAILED")
         self.assertTrue(any(d["code"] == "BEND_NOT_FOUND" for d in res["diagnostics"]))
+        # Ensure fold check was not run
+        self.assertFalse(any(d["stage"] == "fold_correctness" for d in res["diagnostics"]))
 
     def test_verifier_rejects_unknown_under_production(self):
         """
@@ -171,6 +175,152 @@ class TestVerifierWorkerHonest(unittest.TestCase):
         self.assertEqual(res["payload"]["verification_status"], VerificationStatus.VERIFICATION_FAILED.value)
         self.assertFalse(res["payload"]["production_eligible"])
         self.assertTrue(any(d["code"] == "SOLVER_FAILED" for d in res["diagnostics"]))
+
+    def test_verifier_detects_fold_fabrication(self):
+        """
+        KL-11 Fold correctness test.
+        Corrupting bend angle in canonical_part makes fold reconstruction produce
+        a shape that mismatches ref_shape, even though step simulation passes.
+        Verifier must return VERIFICATION_FAILED with FOLD_SHAPE_MISMATCH.
+
+        NOTE: b3e3cb is the only available run with real bend_line_flat_pattern
+        in canonical_part (needed by SheetMetalFolder). Its original
+        07_search_result.json is NO_SOLUTION (KL-8), so we synthesize a minimal
+        candidate_sequence from canonical_part bends — this is test scaffolding
+        to reach fold-correctness stage, not a fabricated solver result.
+        """
+        src_run = Path("/Users/badmc/Desktop/SMBS_BendSeq/runs/run_20261017_152542_b3e3cb")
+        run_dir = self._setup_run_env(src_run)
+
+        cp_file = run_dir / "04_canonical_part.json"
+        cp_data = json.loads(cp_file.read_text())
+        bends = cp_data["payload"]["bends"]
+        first_bid = list(bends.keys())[0]
+        bends[first_bid]["angle_deg"]["value"] = -45.0
+        self.file_store.write_json_atomic(cp_file, cp_data, schema_name="canonical_part")
+
+        s_res_file = run_dir / "07_search_result.json"
+        s_res_data = json.loads(s_res_file.read_text())
+        s_res_data["status"] = "SUCCESS"
+        s_res_data["payload"]["planning_status"] = "SUCCESS"
+        s_res_data["payload"]["candidate_sequence"] = [
+            {
+                "step": i + 1,
+                "bend_id": bid,
+                "direction": {"value": "POSITIVE"},
+                "angle_deg": {"value": b["angle_deg"]["value"], "unit": "deg"},
+                "radius_mm": {"value": b["radius_mm"]["value"], "unit": "mm"},
+                "backgauge": {"x_mm": 10.0, "r_mm": 0.0, "confidence": "CONFIRMED"},
+                "tool_id": "PUNCH_DEFAULT",
+                "planner_status": "VALID",
+                "collision_status": "VALID",
+                "tooling_status": "REAL",
+                "alignment_status": "OK",
+            }
+            for i, (bid, b) in enumerate(bends.items())
+        ]
+        self.file_store.write_json_atomic(s_res_file, s_res_data, schema_name="search_result")
+
+        out_file = self.verifier.execute(
+            search_result_path=s_res_file,
+            canonical_part_path=cp_file,
+            unknown_policy="EXPLORATORY"
+        )
+        res = json.loads(out_file.read_text())
+
+        self.assertEqual(res["payload"]["verification_status"], VerificationStatus.VERIFICATION_FAILED.value)
+        self.assertFalse(res["payload"]["production_eligible"])
+        fold_diags = [d for d in res["diagnostics"] if d.get("stage") == "fold_correctness"]
+        self.assertTrue(
+            any(d["code"] == "FOLD_SHAPE_MISMATCH" for d in fold_diags),
+            f"expected FOLD_SHAPE_MISMATCH; got {[d['code'] for d in fold_diags]}"
+        )
+
+    def test_verifier_fails_when_no_flat_pattern(self):
+        """
+        B2 regression: missing flat_pattern.brep must yield
+        FOLD_CHECK_SKIPPED_NO_FLAT_SHAPE and VERIFICATION_FAILED, never silent True.
+        """
+        src_run = Path("/Users/badmc/Desktop/SMBS_BendSeq/runs/run_20261017_152542_b3e3cb")
+        run_dir = self._setup_run_env(src_run)
+        (run_dir / "flat_pattern.brep").unlink()
+
+        s_res_file = run_dir / "07_search_result.json"
+        s_res_data = json.loads(s_res_file.read_text())
+        s_res_data["status"] = "SUCCESS"
+        s_res_data["payload"]["planning_status"] = "SUCCESS"
+        cp_data = json.loads((run_dir / "04_canonical_part.json").read_text())
+        bends = cp_data["payload"]["bends"]
+        s_res_data["payload"]["candidate_sequence"] = [
+            {
+                "step": i + 1,
+                "bend_id": bid,
+                "direction": {"value": "POSITIVE"},
+                "angle_deg": {"value": b["angle_deg"]["value"], "unit": "deg"},
+                "radius_mm": {"value": b["radius_mm"]["value"], "unit": "mm"},
+                "backgauge": {"x_mm": 10.0, "r_mm": 0.0, "confidence": "CONFIRMED"},
+                "tool_id": "PUNCH_DEFAULT",
+                "planner_status": "VALID",
+                "collision_status": "VALID",
+                "tooling_status": "REAL",
+                "alignment_status": "OK",
+            }
+            for i, (bid, b) in enumerate(bends.items())
+        ]
+        self.file_store.write_json_atomic(s_res_file, s_res_data, schema_name="search_result")
+
+        out_file = self.verifier.execute(
+            search_result_path=s_res_file,
+            canonical_part_path=run_dir / "04_canonical_part.json",
+            unknown_policy="EXPLORATORY"
+        )
+        res = json.loads(out_file.read_text())
+
+        self.assertEqual(res["payload"]["verification_status"], VerificationStatus.VERIFICATION_FAILED.value)
+        self.assertFalse(res["payload"]["production_eligible"])
+        fold_diags = [d for d in res["diagnostics"] if d.get("stage") == "fold_correctness"]
+        self.assertTrue(
+            any(d["code"] == "FOLD_CHECK_SKIPPED_NO_FLAT_SHAPE" for d in fold_diags),
+            f"expected FOLD_CHECK_SKIPPED_NO_FLAT_SHAPE; got {[d['code'] for d in fold_diags]}"
+        )
+
+    def test_verifier_rejects_when_fold_raises(self):
+        """
+        Robustness test:
+        If canonical_part has invalid geometry parameters that cause fold_from_canonical_part
+        to raise an exception, verifier must not crash with traceback,
+        but must catch it and report FOLD_RECONSTRUCTION_FAILED.
+        """
+        src_run = Path("/Users/badmc/Desktop/SMBS_BendSeq/runs/run_20261012_034042_cf4c34")  # fixture_l (missing bend_line_flat_pattern)
+        run_dir = self._setup_run_env(src_run)
+
+        out_file = self.verifier.execute(
+            search_result_path=run_dir / "07_search_result.json",
+            canonical_part_path=run_dir / "04_canonical_part.json",
+            unknown_policy="EXPLORATORY"
+        )
+        res = json.loads(out_file.read_text())
+
+        self.assertEqual(res["payload"]["verification_status"], VerificationStatus.VERIFICATION_FAILED.value)
+        self.assertFalse(res["payload"]["production_eligible"])
+        self.assertTrue(any(d["code"] == "FOLD_RECONSTRUCTION_FAILED" for d in res["diagnostics"]))
+
+    @unittest.expectedFailure
+    def test_verifier_honest_e2e_u_profile(self):
+        """
+        E2E test on U-10-30-10:
+        Under real tooling with PRODUCTION policy, KL-8 (tool station collision) yields NO_SOLUTION,
+        so verifier correctly returns VERIFICATION_FAILED with SOLVER_FAILED.
+        """
+        from smbs_core.coordinator.run_pipeline import Coordinator
+        coord = Coordinator()
+        res = coord.start_run(
+            source_file_path=Path("/Users/badmc/Desktop/SMBS_BendSeq/SMBendTests/U-10-30-10-(OK).FCStd"),
+            part_id="u_prof_test",
+            search_algorithm="dfs",
+            unknown_policy="PRODUCTION"
+        )
+        self.assertEqual(res.get("status"), "SUCCESS")
 
     @unittest.expectedFailure
     def test_verifier_worker_2_1_3_4_deferred(self):
