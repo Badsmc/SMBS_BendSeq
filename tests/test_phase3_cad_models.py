@@ -91,7 +91,7 @@ class TestPhase3RealCAD(unittest.TestCase):
         feats = self.extractor.extract_features(shape)
         self.assertEqual(feats["thickness"], 1.5)
         self.assertEqual(len(feats["bends"]), 1)
-        self.assertAlmostEqual(feats["bends"]["BEND_01"]["angle"], 90.0, places=1)
+        self.assertAlmostEqual(list(feats["bends"].values())[0]["angle"], 90.0, places=1)
 
     def test_stage2_u_profile_cad(self):
         """Stage 2: U-profile real CAD model (2 bends at 90°)."""

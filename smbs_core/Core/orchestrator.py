@@ -1,3 +1,6 @@
+
+def _raise_incomplete(bend_id: str, field_name: str):
+    raise IncompleteBendError(f"Bend {bend_id} missing mandatory field '{field_name}' in Core/orchestrator.py")
 """
 orchestrator.py - Central Coordination Loop for Headless Bend Sequence Planning (SMBS Core)
 """
@@ -19,7 +22,7 @@ from smbs_core.IO.tool_database import ToolDatabase
 from smbs_core.geometry_backend.base import GeometryBackend
 from smbs_core.Physics.validator import PhysicalValidator
 from smbs_core.Solvers.dfs_backward import DFSBackwardPlanner
-from smbs_core.Core.bend_graph import BendGraph, BendRecord
+from smbs_core.Core.bend_graph import BendGraph, BendRecord, IncompleteBendError
 from smbs_core.Core.panel_graph import PanelGraph
 from smbs_core.Core.fold_state import FoldState
 from smbs_core.models.tooling import AlignmentStatus, GeometryStatus
@@ -108,7 +111,12 @@ class BendSeqOrchestrator:
                 child_panel_id=child_p,
                 axis_origin=tuple(b_info.get("origin", (0.0, 0.0, 0.0))),
                 axis_direction=tuple(b_info.get("axis", (1.0, 0.0, 0.0))),
-                signed_angle=b_info.get("signed_angle", b_info.get("angle", b_info.get("signed_angle_deg", 90.0))),
+                signed_angle=(
+                    b_info["signed_angle"] if "signed_angle" in b_info
+                    else (b_info["angle"] if "angle" in b_info
+                    else (b_info["signed_angle_deg"] if "signed_angle_deg" in b_info
+                    else (_raise_incomplete(b_id, "signed_angle"))))
+                ),
                 radius=b_info.get("radius", 1.0),
                 thickness=thickness,
                 length=b_info.get("length", 10.0)
@@ -208,7 +216,12 @@ class BendSeqOrchestrator:
                 "collision_status": step_coll_status.upper(),
                 "tooling_status": step_tool_status.upper(),
                 "alignment_status": step_align_status.upper(),
-                "angle_deg": step.get("angle", bend_info.get("signed_angle", bend_info.get("angle", 90.0))),
+                "angle_deg": (
+                    step["angle"] if "angle" in step
+                    else (bend_info["signed_angle"] if "signed_angle" in bend_info
+                    else (bend_info["angle"] if "angle" in bend_info
+                    else (_raise_incomplete(bend_id, "angle_deg"))))
+                ),
                 "radius_mm": step.get("radius", bend_info.get("radius", 1.0)),
                 "length_mm": step.get("length", bend_info.get("length", 10.0)),
                 "axis": step.get("axis", bend_info["axis"]),

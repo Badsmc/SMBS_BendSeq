@@ -196,12 +196,15 @@ class FeatureExtractor:
         diagnostics: Optional[List[Dict[str, Any]]] = None,
     ) -> Dict[str, Dict[str, Any]]:
         if hasattr(shape, "get") and shape.get("type") in ("mock_shape", "mock_box"):
+            mock_signed_angle = float(shape.get("signed_angle", 90.0))
             return {
                 "BEND_01": {
                     "bend_id": "BEND_01",
                     "origin": (0.0, 0.0, 0.0),
                     "axis": (1.0, 0.0, 0.0),
-                    "angle": 90.0,
+                    "signed_angle": mock_signed_angle,
+                    "angle_deg": abs(mock_signed_angle),
+                    "angle": abs(mock_signed_angle),
                     "radius": 2.0,
                     "length": 100.0,
                     "parent_panel_id": "PANEL_A",
@@ -599,6 +602,8 @@ class FeatureExtractor:
                     "origin": edge["origin"],
                     "axis": edge["axis"],
                     "signed_angle": signed_ang,
+                    "angle_deg": abs(signed_ang),
+                    "angle": abs(signed_ang),
                     "radius": edge["radius"],
                     "length": edge["height"],
                     "parent_panel_id": parent_p,

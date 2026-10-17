@@ -18,6 +18,7 @@ from smbs_core.protocols.file_store import (
     RunStatus,
 )
 from smbs_core.contracts.models import DiagnosticEntry
+from smbs_core.Core.bend_graph import IncompleteBendError
 
 
 @dataclass
@@ -196,7 +197,16 @@ class SheetMetalAdapter:
                     elif isinstance(b_info, dict) and "direction" in b_info:
                         direction_str = str(b_info["direction"]).upper()
 
-                    raw_angle = getattr(b_info, "angle", 90.0)
+                    if hasattr(b_info, "signed_angle"):
+                        raw_angle = b_info.signed_angle
+                    elif hasattr(b_info, "angle"):
+                        raw_angle = b_info.angle
+                    elif isinstance(b_info, dict) and "signed_angle" in b_info:
+                        raw_angle = b_info["signed_angle"]
+                    elif isinstance(b_info, dict) and "angle" in b_info:
+                        raw_angle = b_info["angle"]
+                    else:
+                        raise IncompleteBendError(f"Bend {b_id} missing mandatory angle in workers/sheetmetal/adapter.py:199")
                     if abs(raw_angle) <= (math.pi + 1e-4):
                         b_angle = math.degrees(raw_angle)
                     else:
