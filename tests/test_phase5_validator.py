@@ -29,9 +29,17 @@ class TestPhase5PhysicalOracle(unittest.TestCase):
     """Phase 5 Physical Oracle & Validation Gate Tests."""
 
     def setUp(self):
+        from smbs_core.models.tooling import GeometryStatus
         self.machine = PressBrakeMachine()
         from smbs_core.geometry_backend.backends.mock_backend import MockBackend
         self.validator = PhysicalValidator(self.machine, MockBackend())
+        # Configure tooling as REAL with mock shapes for isolated unit testing of the validation pipeline
+        if self.validator.detector.assembly:
+            if self.validator.detector.assembly.die:
+                self.validator.detector.assembly.die.geometry_status = GeometryStatus.REAL
+            if self.validator.detector.assembly.punch:
+                self.validator.detector.assembly.punch.geometry_status = GeometryStatus.REAL
+            self.validator.detector.assembly.get_world_shape = lambda kind: {"mock": kind.value}
 
         self.bend_graph = BendGraph()
         self.b1 = BendRecord("BEND_01", "F1", "PA", "PB", (0,0,0), (1,0,0), 90.0, 2.0, 2.0)
@@ -39,7 +47,10 @@ class TestPhase5PhysicalOracle(unittest.TestCase):
 
         self.panel_graph = PanelGraph()
         self.panel_graph.add_bend_connection("BEND_01", "PA", "PB")
-        self.root_state = FoldState.initial(None, self.bend_graph, self.panel_graph)
+        self.panel_graph.panels["PA"].face_indices = ["F1"]
+        self.panel_graph.panels["PB"].face_indices = ["F2"]
+        mock_shape = {"type": "mock_box", "dim": (100.0, 50.0, 2.0)}
+        self.root_state = FoldState.initial(mock_shape, self.bend_graph, self.panel_graph)
 
     def test_valid_step_validation(self):
         """Test validating a valid candidate step returns VALID result with next FoldState."""
