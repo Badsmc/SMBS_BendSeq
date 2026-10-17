@@ -35,7 +35,8 @@ class GreedyUnfoldPlanner(BasePlanner):
         self,
         initial_state: FoldState,
         max_iterations: int = 5000,
-        timeout: Optional[float] = None
+        timeout: Optional[float] = None,
+        unknown_policy: str = "PRODUCTION"
     ) -> Dict[str, Any]:
         """
         Execute greedy backward search.
@@ -63,10 +64,21 @@ class GreedyUnfoldPlanner(BasePlanner):
                 if bend_rec is None:
                     continue
 
+                kwargs = {}
+                if unknown_policy != "PRODUCTION":
+                    kwargs["unknown_policy"] = unknown_policy
+                else:
+                    try:
+                        import inspect
+                        if "unknown_policy" in inspect.signature(self.validator.validate_step).parameters:
+                            kwargs["unknown_policy"] = unknown_policy
+                    except Exception:
+                        pass
                 val_result: ValidationResult = self.validator.validate_step(
                     current_state=current,
                     bend_record=bend_rec,
-                    panel_graph=self.panel_graph
+                    panel_graph=self.panel_graph,
+                    **kwargs
                 )
 
                 if not val_result.valid or val_result.next_state is None:
@@ -89,11 +101,21 @@ class GreedyUnfoldPlanner(BasePlanner):
                     best_successor = successor
                     
                     moving_panels = list(self.panel_graph.moving_subtree(bend_id)) if self.panel_graph else []
+                    coll_raw = getattr(val_result, "collision_status", "VALID")
+                    c_stat = coll_raw.value if hasattr(coll_raw, "value") else str(coll_raw)
+                    tool_raw = getattr(val_result, "tooling_status", "SIMPLIFIED")
+                    t_stat = tool_raw.value if hasattr(tool_raw, "value") else str(tool_raw)
+                    align_raw = getattr(val_result, "alignment_status", "CANNOT_VERIFY")
+                    a_stat = align_raw.value if hasattr(align_raw, "value") else str(align_raw)
                     best_action = {
                         "bend_id": bend_id,
                         "unfolded_angle": 0.0,
                         "moving_panels": moving_panels,
-                        "step_number": len(current.remaining_bends)
+                        "step_number": len(current.remaining_bends),
+                        "collision_status": c_stat,
+                        "tooling_status": t_stat,
+                        "alignment_status": a_stat,
+                        "has_unknown": getattr(val_result, "has_unknown", False)
                     }
                 else:
                     # Free memory for non-selected branch
@@ -129,9 +151,11 @@ class GreedyUnfoldPlanner(BasePlanner):
             for i, step in enumerate(forward_sequence):
                 step["step_number"] = i + 1
             
+            seq_has_unknown = any(s.get("has_unknown", False) or s.get("collision_status") == "UNKNOWN" for s in forward_sequence)
             return {
                 "success": True,
                 "sequence": forward_sequence,
+                "sequence_has_unknown": seq_has_unknown,
                 "nodes_explored": nodes_explored,
                 "cache_stats": self.cache.stats
             }
