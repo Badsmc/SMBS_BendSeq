@@ -216,3 +216,46 @@ index 0672448..e007210 100644
 **Решение (следующий work item):**
 - **B.3.1:** Обогатить `canonical_part` реальными `bend_line_flat_pattern` через обратную проекцию `axis_point` через матрицы трансформаций от хаба к каждому гибу.
 - **B.3.2:** Переписать `fold_branch` и общую сборку детали так, чтобы разрезы в развёртке выполнялись строго по реальным линиям гибов (`bend_line_flat_pattern`).
+
+## Known Limitation KL-5 (B.4.1)
+
+**Раскол inputs: 1D/aligned_flat vs 3b/original_flat.**
+
+`fold_multi_bend_from_flat_pattern` (1D) и `fold_tree_from_flat_pattern` (3a) сворачивают
+деталь в направлении +Z относительно плоскости развёртки. Если эталон в мире ориентирован
+в -Z (например, u_bracket), на original flat 1D даёт normals_match=False. `FrameAligner`
+выравнивает flat под эталон, и тогда 1D сворачивает в правильную сторону.
+
+`fold_tree_general_from_flat_pattern` (3b) использует абсолютные координаты из
+canonical_part[bends][axis_point] и [panels][centroid], которые в системе
+координат original flat_pattern.brep. На aligned flat 3b даёт искажение топологии.
+
+**Текущее решение:** BaselineWorker выбирает flat по типу детали
+(_is_general_tree_3b → original flat, иначе → aligned flat).
+
+**Follow-up (B.4.4):** унифицировать диспетчер — fold_from_canonical_part возвращает
+и путь fold-метода, и какой flat подавать, из единого места.
+
+**Альтернативное решение (долгосрочное):** переписать 1D/3a fold-методы, чтобы они
+не зависели от ориентации flat (работали с canonical_part absolute coords, как 3b).
+
+## Known Limitation KL-6 (B.4.1)
+
+**compare_topologies — position-blind.**
+
+Метрика сравнения топологии в BaselineWorker.extract_topology вычисляет позицию
+плоскостей как dot-product (c - c_box, normal), где c_box — центр габаритного бокса
+своей же детали. При параллельном переносе детали c и c_box сдвигаются вместе,
+dot-product остаётся постоянным.
+
+**Следствие:** сравнение topology_matches=True гарантирует совпадение формы, числа
+граней, площадей и нормалей, но НЕ проверяет абсолютные позиции граней в мире.
+Translation-инвариантно.
+
+**Применение:** для существующих фикстур это не проблема — все они строятся из
+одинакового flat, и folding воспроизводит один и тот же результат. Но для будущих
+проверок (Search/Verification), где сравниваются разные последовательности гибов,
+позиционная проверка важна.
+
+**Follow-up (B.4.3):** добавить position-aware сравнение (позиции центров граней
+относительно абсолютного origin, а не bbox). Отдельный work item.
