@@ -33,19 +33,19 @@ class TestPhase8Solvers(unittest.TestCase):
 
     def test_astar_finds_valid_sequence_l_profile(self):
         planner = AStarBackwardPlanner(self.bg, self.validator, self.pg)
-        res = planner.solve(self.root_state, max_iterations=100)
+        res = planner.solve(self.root_state, max_iterations=100, unknown_policy="EXPLORATORY")
         self.assertTrue(res["success"])
         self.assertEqual(len(res["sequence"]), 1)
 
     def test_dfs_finds_valid_sequence(self):
         planner = DFSBackwardPlanner(self.bg, self.validator, self.pg)
-        res = planner.solve(self.root_state, max_iterations=100)
+        res = planner.solve(self.root_state, max_iterations=100, unknown_policy="EXPLORATORY")
         self.assertTrue(res["success"])
         self.assertEqual(len(res["sequence"]), 1)
 
     def test_greedy_unfold_planner(self):
         planner = GreedyUnfoldPlanner(self.bg, self.validator, self.pg)
-        res = planner.solve(self.root_state)
+        res = planner.solve(self.root_state, unknown_policy="EXPLORATORY")
         self.assertTrue(res["success"])
         self.assertEqual(len(res["sequence"]), 1)
 
