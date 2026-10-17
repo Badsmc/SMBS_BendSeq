@@ -1,8 +1,8 @@
 """
-cli.py - Command-line interface for SMBS Bend Sequence Viewer (Stage 4, S.14).
+cli.py - Command-line interface for SMBS Bend Sequence Viewer (Stage 4, S.14/S.15a).
 
 Usage:
-  python -m smbs_core.viewer.cli view <run_dir> [--direction backward] [--dump-frames DIR] [--json] [--allow-mock-backend]
+  python -m smbs_core.viewer.cli view <run_dir> [--direction backward] [--dump-frames DIR] [--render-png DIR] [--json] [--allow-mock-backend]
 """
 from __future__ import annotations
 
@@ -10,12 +10,35 @@ import argparse
 import json
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from smbs_core.viewer.graph_builder import GraphBuilderError, build_graphs
 from smbs_core.viewer.player import Frame, Player, PlayerError
 from smbs_core.viewer.replayer import ReplayerError
 from smbs_core.viewer.run_loader import RunLoaderError, load_run
+
+
+def parse_stride(value: str) -> int:
+    try:
+        val = int(value)
+    except ValueError as e:
+        raise argparse.ArgumentTypeError(f"Stride must be an integer, got: '{value}'") from e
+    if val < 1:
+        raise argparse.ArgumentTypeError(f"Stride must be >= 1, got: {val}")
+    return val
+
+
+def parse_view_dir(value: str) -> Tuple[float, float, float]:
+    parts = value.split(",")
+    if len(parts) != 3:
+        raise argparse.ArgumentTypeError(f"View direction must have 3 comma-separated floats, got: '{value}'")
+    try:
+        vx, vy, vz = float(parts[0]), float(parts[1]), float(parts[2])
+    except ValueError as e:
+        raise argparse.ArgumentTypeError(f"Invalid float components in view-dir: '{value}'") from e
+    if abs(vx) < 1e-6 and abs(vy) < 1e-6 and abs(vz) < 1e-6:
+        raise argparse.ArgumentTypeError("View direction vector cannot be zero length (0,0,0)")
+    return vx, vy, vz
 
 
 def frame_to_dict(frame: Frame, backend_kind: str) -> Dict[str, Any]:
@@ -96,6 +119,11 @@ def render_table(
 def run_view(args: argparse.Namespace) -> int:
     run_dir = Path(args.run_dir)
 
+    # Validate render_png constraints
+    if args.render_png and args.allow_mock_backend:
+        sys.stderr.write("render-png requires OCC backend; --allow-mock-backend is structural-only\n")
+        return 2
+
     # Backend selection: explicit, never silent (invariant #4)
     initial_shape = None
     if args.allow_mock_backend:
@@ -156,6 +184,72 @@ def run_view(args: argparse.Namespace) -> int:
             out_file = dump_dir / f"frame_{f.frame_index:03d}.json"
             out_file.write_text(json.dumps(f_dict, indent=2))
 
+    # Render PNG sequence if requested
+    if args.render_png:
+        from smbs_core.viewer.render import render_frame_png, RenderError, RENDER_KIND_HLR
+        render_dir = Path(args.render_png)
+        render_dir.mkdir(parents=True, exist_ok=True)
+
+        rendered_frames = []
+        render_kinds = set()
+        stride = args.render_stride
+        total_count = len(frames)
+
+        for i, frame in enumerate(frames):
+            # Render every N-th frame, and ALWAYS render the final frame
+            if i % stride != 0 and i != total_count - 1:
+                continue
+
+            sv = frame.step_view
+            out_path = render_dir / f"frame_{i:03d}.png"
+            if sv.step_index == 0:
+                title = "step 0 (initial fully folded)"
+            else:
+                title = f"step {sv.step_index}: bend {sv.bend_id} [{sv.ui_direction}]"
+
+            subtitle = f"planner={sv.planner_status or '-'} | coll={sv.collision_status or '-'} | verif={frame.verification_status}"
+
+            try:
+                rk = render_frame_png(
+                    shape=sv.state.shape,
+                    output_path=out_path,
+                    width=args.render_width,
+                    height=args.render_height,
+                    title=title,
+                    subtitle=subtitle,
+                    view_dir=args.view_dir
+                )
+            except RenderError as e:
+                sys.stderr.write(f"Render error on frame {i}: {e}\n")
+                return 1
+
+            render_kinds.add(rk)
+            rendered_frames.append({
+                "index": i,
+                "file": out_path.name,
+                "bend_id": sv.bend_id,
+                "render_kind": rk
+            })
+
+        manifest = {
+            "run_dir": str(run_dir.resolve()),
+            "backend_kind": backend_kind,
+            "render_kind": RENDER_KIND_HLR if render_kinds == {RENDER_KIND_HLR} else "MIXED",
+            "render_kinds_seen": sorted(list(render_kinds)),
+            "verification_status": verif_status,
+            "production_eligible": prod_elig,
+            "diagnostics": diags,
+            "kl12_warning": "PREVIEW_ONLY (KL-12): whole-part rotation, not a physical re-simulation.",
+            "geometry_precision": "PREVIEW_ONLY",
+            "total_frames": len(frames),
+            "rendered_frames": len(rendered_frames),
+            "stride": stride,
+            "view_dir": list(args.view_dir),
+            "frames": rendered_frames,
+        }
+        (render_dir / "manifest.json").write_text(json.dumps(manifest, indent=2))
+        sys.stdout.write(f"Rendered {len(rendered_frames)} frames to {render_dir} (manifest.json written)\n")
+
     # Output representation
     if args.json:
         payload = {
@@ -194,6 +288,26 @@ def main(argv: Optional[List[str]] = None) -> int:
         "--allow-mock-backend",
         action="store_true",
         help="Explicitly allow MockBackend for preview without OCC (structural metadata only)"
+    )
+    view_parser.add_argument(
+        "--render-png",
+        type=str,
+        default=None,
+        help="Render each frame to PNG into this directory (requires OCC backend)"
+    )
+    view_parser.add_argument(
+        "--render-stride",
+        type=parse_stride,
+        default=1,
+        help="Render every N-th frame (default: 1 = all)"
+    )
+    view_parser.add_argument("--render-width", type=int, default=800, help="Width of rendered PNG")
+    view_parser.add_argument("--render-height", type=int, default=600, help="Height of rendered PNG")
+    view_parser.add_argument(
+        "--view-dir",
+        type=parse_view_dir,
+        default=(1.0, 1.0, 1.0),
+        help="Camera direction as 'x,y,z' (default: '1.0,1.0,1.0' iso)"
     )
 
     if argv is None:
