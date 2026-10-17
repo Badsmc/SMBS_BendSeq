@@ -49,6 +49,13 @@ class TestStage7Kinematics(unittest.TestCase):
         
         self.backend = KinematicsMockBackend()
         self.detector = CollisionDetector(self.machine, self.backend)
+        from smbs_core.models.tooling import GeometryStatus
+        if self.detector.assembly:
+            if self.detector.assembly.die:
+                self.detector.assembly.die.geometry_status = GeometryStatus.REAL
+            if self.detector.assembly.punch:
+                self.detector.assembly.punch.geometry_status = GeometryStatus.REAL
+            self.detector.assembly.get_world_shape = lambda kind: DummyShape(collides=False)
         
     def test_approach_and_retract(self):
         # Override _align_shape_to_tool to return the original shape
