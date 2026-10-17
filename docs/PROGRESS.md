@@ -48,6 +48,8 @@
   - **Impact:** Bypassed via `inspect.signature` in 3 planners. Functional, not contract-clean.
   - **Follow-up:** Add `unknown_policy` parameter to `MockValidator`. Cosmetic, no behavioral impact.
 
+- **KL-12 (P1, OPEN, discovered in Stage 4 audit)**: `PanelGraph` has no `face_indices` populated from `04_canonical_part.json`. `PythonOCCBackend.rotate_subtree` therefore falls back to whole-part rotation (`pythonocc_backend.py:294` — `extract_faces` returns `None` for empty `face_ids`). Effect: solver and verifier re-simulation rotate the entire part instead of the per-panel subtree; `PhysicalValidator.validate_step` (validator.py:174) passes because whole-part rotation still changes the shape; `collision_detector.py:71` skips self-collision when `face_indices` are empty. `PanelTopologyBuilder.build_panel_graph` is the only code path that fills `face_indices`, but its `PANEL_{f_hash[:8]}` IDs never match the topology-extractor IDs in `04_canonical_part.json` (never exercised on real shapes — only with `shape=None` in `test_phase4_extraction`). Fix path: cluster faces by plane + map to canonical panel IDs by centroid+normal (S.13b backlog). Viewer (Stage 4) is `PREVIEW_ONLY` until then; honest marking via `StepView.geometry_precision`.
+
 ### Closed
 
 - **KL-11 (Stage 3, CLOSED in S.9.3): VerifierWorker checked only unfold correctness.**
