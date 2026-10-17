@@ -65,6 +65,7 @@ class Coordinator:
         tolerance_profile: Optional[Dict[str, float]] = None,
         resource_budget: Optional[Dict[str, Any]] = None,
         search_algorithm: str = "astar",
+        machine_config: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """
         Executes full pipeline:
@@ -158,6 +159,78 @@ class Coordinator:
             }
 
         # 4. Stage 2: Create Tooling Manifest & 06_search_request.json
+        tooling_diagnostics = []
+        if machine_config:
+            punch_path = machine_config.get("punch_path")
+            die_path = machine_config.get("die_path")
+            punch_id = Path(punch_path).stem if punch_path else "punch_real"
+            die_id = Path(die_path).stem if die_path else "die_real"
+            press_id = machine_config.get("press_id", "press_100t")
+            bed_length = float(machine_config.get("bed_length_mm", 3000.0))
+
+            payload_punch = {
+                "tool_id": punch_id,
+                "punch_type": "straight",
+                "height_mm": 100.0,
+                "tip_radius_mm": 1.0,
+                "tip_angle_deg": 88.0,
+                "tooling_status": "REAL",
+                "model_path": str(punch_path) if punch_path else None,
+                "model_hash": None,
+                "segment_layout_mm": [100.0, 200.0]
+            }
+            if "punch_target_object_name" in machine_config:
+                payload_punch["target_object_name"] = machine_config["punch_target_object_name"]
+
+            payload_die = {
+                "tool_id": die_id,
+                "v_opening_mm": 12.0,
+                "v_angle_deg": 88.0,
+                "height_mm": 80.0,
+                "shoulder_radius_mm": 1.0,
+                "tooling_status": "REAL",
+                "model_path": str(die_path) if die_path else None,
+                "model_hash": None,
+                "segment_layout_mm": [100.0, 200.0]
+            }
+            if "die_target_object_name" in machine_config:
+                payload_die["target_object_name"] = machine_config["die_target_object_name"]
+
+            payload_press = {
+                "press_id": press_id,
+                "max_tonnage_tons": float(machine_config.get("max_tonnage_tons", 100.0)),
+                "bed_length_mm": bed_length,
+                "stroke_mm": float(machine_config.get("stroke_mm", 200.0)),
+                "open_height_mm": float(machine_config.get("open_height_mm", 350.0))
+            }
+        else:
+            tooling_diagnostics.append("machine_config not provided; default SIMPLIFIED tooling")
+            payload_press = {
+                "press_id": "press_100t",
+                "max_tonnage_tons": 100.0,
+                "bed_length_mm": 3000.0,
+                "stroke_mm": 200.0,
+                "open_height_mm": 350.0
+            }
+            payload_punch = {
+                "tool_id": "PUNCH_STD_R1",
+                "punch_type": "straight",
+                "height_mm": 100.0,
+                "tip_radius_mm": 1.0,
+                "tip_angle_deg": 88.0,
+                "tooling_status": "SIMPLIFIED",
+                "segment_layout_mm": [100.0, 200.0]
+            }
+            payload_die = {
+                "tool_id": "DIE_V12",
+                "v_opening_mm": 12.0,
+                "v_angle_deg": 88.0,
+                "height_mm": 80.0,
+                "shoulder_radius_mm": 1.0,
+                "tooling_status": "SIMPLIFIED",
+                "segment_layout_mm": [100.0, 200.0]
+            }
+
         tooling_manifest_data = {
             "schema_name": "tooling_manifest",
             "schema_version": "1.1",
@@ -168,34 +241,12 @@ class Coordinator:
             "units": "mm",
             "frame_convention": "STANDARD_CARTESIAN_MM",
             "status": RunStatus.SUCCESS.value,
-            "diagnostics": [],
+            "diagnostics": tooling_diagnostics,
             "created_at": datetime.now(timezone.utc).isoformat(),
             "payload": {
-                "press": {
-                    "press_id": "press_100t",
-                    "max_tonnage_tons": 100.0,
-                    "bed_length_mm": 3000.0,
-                    "stroke_mm": 200.0,
-                    "open_height_mm": 350.0
-                },
-                "punch": {
-                    "tool_id": "PUNCH_STD_R1",
-                    "punch_type": "straight",
-                    "height_mm": 100.0,
-                    "tip_radius_mm": 1.0,
-                    "tip_angle_deg": 88.0,
-                    "tooling_status": "SIMPLIFIED",
-                    "segment_layout_mm": [100.0, 200.0]
-                },
-                "die": {
-                    "tool_id": "DIE_V12",
-                    "v_opening_mm": 12.0,
-                    "v_angle_deg": 88.0,
-                    "height_mm": 80.0,
-                    "shoulder_radius_mm": 1.0,
-                    "tooling_status": "SIMPLIFIED",
-                    "segment_layout_mm": [100.0, 200.0]
-                }
+                "press": payload_press,
+                "punch": payload_punch,
+                "die": payload_die
             }
         }
         tooling_file = run_dir / "tooling_manifest.json"
