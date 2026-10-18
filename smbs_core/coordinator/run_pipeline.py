@@ -82,6 +82,50 @@ class Coordinator:
         if not source_path.exists():
             raise FileNotFoundError(f"Source file does not exist: {source_path}")
 
+        if machine_config is not None:
+            punch_id_val = machine_config.get("punch_id")
+            die_id_val = machine_config.get("die_id")
+            lib_path_val = machine_config.get("library_path")
+
+            if punch_id_val is not None or die_id_val is not None:
+                if punch_id_val is None or die_id_val is None:
+                    raise ValueError(
+                        "machine_config: punch_id and die_id must be provided together"
+                    )
+                if lib_path_val is None:
+                    raise ValueError(
+                        "machine_config: library_path required when punch_id/die_id are given"
+                    )
+                if "punch_path" in machine_config or "die_path" in machine_config:
+                    raise ValueError(
+                        "machine_config: cannot mix punch_id/die_id with punch_path/die_path"
+                    )
+
+                from smbs_core.geometry_backend.io.tooling_library import ToolingLibrary, ToolingLibraryError
+                from smbs_core.geometry_backend.io.tooling_catalog import ToolingCatalogError
+                try:
+                    lib = ToolingLibrary(Path(lib_path_val))
+                    punch_desc = lib.get_tool(punch_id_val)
+                    die_desc = lib.get_tool(die_id_val)
+                except (ToolingLibraryError, ToolingCatalogError) as e:
+                    raise ValueError(f"Failed to resolve tooling from library: {e}") from e
+
+                if punch_desc.kind != "punch":
+                    raise ValueError(
+                        f"punch_id '{punch_id_val}' resolved to kind '{punch_desc.kind}', expected 'punch'"
+                    )
+                if die_desc.kind != "die":
+                    raise ValueError(
+                        f"die_id '{die_id_val}' resolved to kind '{die_desc.kind}', expected 'die'"
+                    )
+
+                machine_config = dict(machine_config)
+                machine_config["punch_path"] = str(punch_desc.fcstd_path)
+                machine_config["die_path"] = str(die_desc.fcstd_path)
+                machine_config.pop("punch_id", None)
+                machine_config.pop("die_id", None)
+                machine_config.pop("library_path", None)
+
         run_id = run_id or f"run_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
         run_dir = self.runs_root / run_id
         run_dir.mkdir(parents=True, exist_ok=True)
