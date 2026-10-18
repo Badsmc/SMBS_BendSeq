@@ -407,6 +407,12 @@ These answers override the "Важные, можно с допущением" cl
 
 Requirement 1's estimate in Section 2 (Phase A: 3–4 sessions, 10–20 commits) is a **risk-adjusted upper bound**. Coordinator's narrower MVP scope (3D annotations only, workbench scaffolding shared with later phases) estimates **~1.5 sessions / 3–5 commits**. Treat Phase A's number as a buffer for FreeCAD Qt API surprises, not as a floor.
 
+### Coordinator decision log (2026-10-18)
+
+- **KL-12 (per-panel kinematics)** — deferred to backlog. H2 approach (runtime face_indices enrichment) tested and rejected: `rotate_subtree` loses cylinder faces on multi-step unfold, invalidates indices after step 1, and `intersect_volume` on planar compounds = 0. Fix requires either bbox approximation (Variant A, ~1 session, honest approximation marking) or solid-preserving split+fuse (Variant B, ~2–3 sessions, full KL-12 closure). **KL-12 does not block requirements 3, 3.1, 4, 4.1** — only requirement 2 (animation). Roadmap §8 order honored: requirements 3 → 4.1 → 3.1 → 4 → 2 → 5.
+- **KL-8 (real tooling collision)** — blocked by KL-12. Approach-stage die collision fixed in S.19a/S.19a2 (`place_part_on_tool_station` now uses die V-groove axis + mounting_plane normal, tries both axis signs). Next stage `SELF` returns UNKNOWN because `face_indices` is empty → step rejected under PRODUCTION → NO_SOLUTION. KL-8 fix resumes when KL-12 is closed.
+- **Current focus:** **requirement 3 (Phase B — Tooling Library)**. Q1=D resolved (fallback chain: property → name → UI). Q8 pending user answer (library storage location). #7 agreement required for `tooling_manifest.schema.json` extension before Phase B code.
+
 ### Status of sections 1–10
 
 Sections 1–10 of this document are the original roadmap and remain authoritative for phases, dependencies, matrices, and detailed requirement descriptions. This addendum is a **delta**, not a replacement.
