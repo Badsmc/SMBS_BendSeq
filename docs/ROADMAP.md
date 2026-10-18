@@ -475,6 +475,32 @@ Original roadmap: 4–6 sessions / 14–28 commits. **Coordinator revision: ~5 s
 - Auto-detection of datums (sidecar remains manual)
 - Import wizard beyond basic role resolution
 
+### Q2 — Clamp constraint spec (RESOLVED 2026-10-18)
+
+**Status:** Spec accepted, implementation deferred to requirement 4.1 start.
+
+**Machine model (`<library>/config.json`):**
+- `clamps.width_mm` — clamp block width (user-configurable, default 150mm).
+- `clamps.gap_between_mm` — gap between blocks (user-configurable, default 50mm).
+- `clamps.positions_mm` — block centers.
+- `clamps.repositionable` — bool (operator can move/remove blocks between bends).
+
+**Punch chain validation rules:**
+1. At least 2 clamp blocks under the punch chain.
+2. All punch-to-punch joints must fall inside a clamp zone `[center - W/2, center + W/2]` (tolerance 0.1mm).
+3. No gaps between punches: `end_i == start_{i+1}`.
+4. End punches (first, last) may overhang by ≤ 30% of their own length (user-configurable ratio).
+5. Punch total length = bend line length − 10..15mm (selection rule, belongs to requirement 4).
+
+**If no valid configuration exists:** operator moves/removes blocks. Constraint checker only validates a given configuration (does NOT auto-reposition). Auto-repositioning is backlog (requirement 4 optimal selection).
+
+**Example (valid):**
+- Blocks at `[75, 275, 475]` centers, W=150, gap=50 → zones `[0..150], [200..350], [400..550]`.
+- Punch chain: `[0..200]` (200mm) + `[200..400]` (200mm) + `[400..475]` (75mm).
+- Joint at 200 → in zone `[200..350]` ✓. Joint at 400 → in zone `[400..550]` ✓.
+- Left edge 0 (on block 1). Right edge 475, nearest block end 550 → overhang 75mm; 30% of last punch (75mm) = 22.5mm → **75 > 22.5 ✗ FAIL**.
+- Fix: shrink last punch or move block 3 to `[400..475]`.
+
 ### Phase B — COMPLETE (2026-10-18)
 
 **Status:** DONE. All sub-steps (S.22a–S.22h) committed and pushed. Requirement 3 (Tooling Library) from roadmap §3 is functionally complete.
