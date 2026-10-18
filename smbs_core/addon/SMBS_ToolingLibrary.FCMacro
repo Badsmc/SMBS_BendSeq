@@ -259,14 +259,6 @@ class ToolingLibraryDialog(QtWidgets.QDialog):
             QtWidgets.QMessageBox.information(self, "Preview", "Please select a tool to preview.")
             return
 
-        try:
-            shape = Part.Shape()
-            shape.read(str(desc.fcstd_path))
-        except Exception as e:
-            self._set_status(f"Cannot read tool shape: {e}", is_error=True)
-            QtWidgets.QMessageBox.warning(self, "Preview Error", f"Cannot read model: {e}")
-            return
-
         if App.ActiveDocument is None:
             App.newDocument("SMBS_ToolingPreview")
             try:
@@ -275,9 +267,12 @@ class ToolingLibraryDialog(QtWidgets.QDialog):
                 pass
 
         doc = App.ActiveDocument
+
+        # .FCStd is a FreeCAD document (ZIP), not a BREP file.
+        # Part.Shape().read() only handles .brep/.step/.iges.
+        # Part.insert() imports FCStd document contents into the target document.
         try:
-            obj_name = f"SMBS_preview_{desc.tool_id}"
-            Part.show(shape, obj_name)
+            Part.insert(str(desc.fcstd_path), doc.Name)
             doc.recompute()
             Gui.SendMsgToActiveView("ViewFit")
             self._set_status(f"Displayed preview for '{desc.tool_id}' in 3D view.")
