@@ -95,6 +95,12 @@ def resolve_role(
 
     # 1. PROPERTY level & 2. NAME level via FreeCAD document inspection
     if path_obj.exists() and path_obj.is_file():
+        # Ensure FreeCAD lib path is present if available
+        import sys
+        for lib_p in ("/Applications/FreeCAD.app/Contents/Resources/lib", "/usr/lib/freecad/lib"):
+            if os.path.exists(lib_p) and lib_p not in sys.path:
+                sys.path.append(lib_p)
+
         try:
             import FreeCAD as App  # type: ignore
         except ImportError:
@@ -103,44 +109,45 @@ def resolve_role(
         doc = None
         try:
             doc = App.openDocument(fcstd_str)
-            objects = doc.Objects
+            if doc is not None:
+                objects = doc.Objects
 
-            # Filter candidates if explicit_target_object_name specified
-            candidates = objects
-            if explicit_target_object_name:
-                matched = [o for o in objects if o.Name == explicit_target_object_name]
-                if matched:
-                    candidates = matched
+                # Filter candidates if explicit_target_object_name specified
+                candidates = objects
+                if explicit_target_object_name:
+                    matched = [o for o in objects if o.Name == explicit_target_object_name]
+                    if matched:
+                        candidates = matched
 
-            # Level 1: PROPERTY
-            for obj in candidates:
-                props = getattr(obj, "PropertiesList", [])
-                if "SMBS_Role" in props:
-                    val = getattr(obj, "SMBS_Role", None)
-                    if val is not None and str(val).strip():
-                        val_str = str(val).strip().lower()
-                        if val_str not in ROLE_STRING_MAP:
-                            raise RoleResolutionError(
-                                f"Invalid SMBS_Role='{val}' in object '{obj.Name}' of {path_obj.name}. "
-                                f"Expected one of: {list(ROLE_STRING_MAP.keys())}"
-                            )
-                        kind = ROLE_STRING_MAP[val_str]
-                        return kind, RoleResolutionSource.PROPERTY, f"Resolved role '{kind.value}' via property SMBS_Role on '{obj.Name}'"
+                # Level 1: PROPERTY
+                for obj in candidates:
+                    props = getattr(obj, "PropertiesList", [])
+                    if "SMBS_Role" in props:
+                        val = getattr(obj, "SMBS_Role", None)
+                        if val is not None and str(val).strip():
+                            val_str = str(val).strip().lower()
+                            if val_str not in ROLE_STRING_MAP:
+                                raise RoleResolutionError(
+                                    f"Invalid SMBS_Role='{val}' in object '{obj.Name}' of {path_obj.name}. "
+                                    f"Expected one of: {list(ROLE_STRING_MAP.keys())}"
+                                )
+                            kind = ROLE_STRING_MAP[val_str]
+                            return kind, RoleResolutionSource.PROPERTY, f"Resolved role '{kind.value}' via property SMBS_Role on '{obj.Name}'"
 
-            # Level 2: NAME
-            for obj in candidates:
-                names_to_check = [getattr(obj, "Name", ""), getattr(obj, "Label", "")]
-                for name_val in names_to_check:
-                    if not name_val:
-                        continue
-                    name_lower = name_val.lower()
-                    for pattern, matched_kind in NAME_PATTERNS:
-                        if pattern in name_lower:
-                            return (
-                                matched_kind,
-                                RoleResolutionSource.NAME,
-                                f"Resolved role '{matched_kind.value}' via name pattern '{pattern}' in object '{name_val}'"
-                            )
+                # Level 2: NAME
+                for obj in candidates:
+                    names_to_check = [getattr(obj, "Name", ""), getattr(obj, "Label", "")]
+                    for name_val in names_to_check:
+                        if not name_val:
+                            continue
+                        name_lower = name_val.lower()
+                        for pattern, matched_kind in NAME_PATTERNS:
+                            if pattern in name_lower:
+                                return (
+                                    matched_kind,
+                                    RoleResolutionSource.NAME,
+                                    f"Resolved role '{matched_kind.value}' via name pattern '{pattern}' in object '{name_val}'"
+                                )
         except RoleResolutionError:
             raise
         except Exception as err:
