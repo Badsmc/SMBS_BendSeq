@@ -413,6 +413,68 @@ Requirement 1's estimate in Section 2 (Phase A: 3–4 sessions, 10–20 commits)
 - **KL-8 (real tooling collision)** — blocked by KL-12. Approach-stage die collision fixed in S.19a/S.19a2 (`place_part_on_tool_station` now uses die V-groove axis + mounting_plane normal, tries both axis signs). Next stage `SELF` returns UNKNOWN because `face_indices` is empty → step rejected under PRODUCTION → NO_SOLUTION. KL-8 fix resumes when KL-12 is closed.
 - **Current focus:** **requirement 3 (Phase B — Tooling Library)**. Q1=D resolved (fallback chain: property → name → UI). Q8 pending user answer (library storage location). #7 agreement required for `tooling_manifest.schema.json` extension before Phase B code.
 
+### Phase B agreement (2026-10-18)
+
+**#7 — APPROVED with minimal scope (3 optional fields):**
+
+```diff
+--- a/smbs_core/contracts/schemas/tooling_manifest.schema.json
++++ b/smbs_core/contracts/schemas/tooling_manifest.schema.json
+@@ -62,6 +62,9 @@  (payload.punch)
+             "tooling_status": { "type": "string", "enum": ["REAL", "SIMPLIFIED", "MISSING"] },
+             "model_path": { "type": ["string", "null"] },
+             "model_hash": { "type": ["string", "null"] },
++            "target_object_name": { "type": ["string", "null"] },
++            "smbs_role": { "type": ["string", "null"], "enum": ["punch", "die", "frame", "backgauge", "ram", "bed", null] },
++            "smbs_role_source": { "type": ["string", "null"], "enum": ["property", "name", "sidecar", "inferred", null] },
+             "segment_layout_mm": {
+@@ -80,6 +83,9 @@  (payload.die)
+             "tooling_status": { "type": "string", "enum": ["REAL", "SIMPLIFIED", "MISSING"] },
+             "model_path": { "type": ["string", "null"] },
+             "model_hash": { "type": ["string", "null"] },
++            "target_object_name": { "type": ["string", "null"] },
++            "smbs_role": { "type": ["string", "null"], "enum": ["punch", "die", "frame", "backgauge", "ram", "bed", null] },
++            "smbs_role_source": { "type": ["string", "null"], "enum": ["property", "name", "sidecar", "inferred", null] },
+             "segment_layout_mm": {
+```
+
+**Rationale:**
+- `target_object_name` — already used in `run_pipeline.py:184,198`, missing from schema. Real contract bug.
+- `smbs_role` + `smbs_role_source` — needed to record Q1=D fallback chain outcome in the artifact (otherwise role resolution is invisible to downstream consumers).
+- All three fields are **optional** and `type: ["string", "null"]` → backward-compatible with all 41 existing manifests.
+- `mounting_type` (PROMECAM/AMADA/TRUMPF/WILA/...) — **REMOVED from proposal**: speculative, no consumer code, no UI justification. Backlog if needed later.
+
+**Q8 — APPROVED with MVP scope (2 levels):**
+
+- **Level 1:** `<repo>/toollibrary/` — built-in, demo, tests (default fallback).
+- **Level 2:** `--library-path <path>` CLI argument — explicit override.
+- **Deferred:** `~/.smbs/tooling/` user-global path (cross-platform complexity; add when real user has >10 tools).
+
+**Q1=D — 4-level fallback chain confirmed (property API works in headless):**
+
+Test verified: `App.openDocument()` + `obj.PropertiesList` + `obj.addProperty("App::PropertyString", "SMBS_Role", ...)` all work headless. Chain:
+1. `property` — read `SMBS_Role` from FCStd object property.
+2. `name` — read object name (`PUNCH`, `DIE`, `FRAME`, `BACKGAUGE`, `RAM`, `BED`).
+3. `sidecar` — read `.tooling.json` (existing behavior).
+4. `inferred` — heuristic BBox + `confirmed=False`.
+
+**Phase B revised estimate (honest, post-KL-12 lessons):**
+
+Original roadmap: 4–6 sessions / 14–28 commits. **Coordinator revision: ~5 sessions / ~9 commits.** Sub-steps:
+
+- **S.22a** — `ToolingCatalog` (scan + index sidecar files) — 2 commits
+- **S.22b** — Q1=D 4-level fallback in `FcstdToolingLoader` — 2 commits
+- **S.22c** — `ToolingLibrary` manager (add/get/list, headless) — 2 commits
+- **S.22d** — `SMBS_ToolingLibrary.FCMacro` (FreeCAD UI, manual test) — 1 commit
+- **S.22e** — Coordinator integration (`punch_id`/`die_id` + `--library-path`) — 2 commits
+
+**Non-goals for Phase B MVP:**
+- `mounting_type` field
+- `~/.smbs/tooling/` user-global storage
+- Datum editing UI in macro
+- Auto-detection of datums (sidecar remains manual)
+- Import wizard beyond basic role resolution
+
 ### Status of sections 1–10
 
 Sections 1–10 of this document are the original roadmap and remain authoritative for phases, dependencies, matrices, and detailed requirement descriptions. This addendum is a **delta**, not a replacement.
