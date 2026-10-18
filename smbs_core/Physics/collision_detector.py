@@ -229,25 +229,33 @@ class CollisionDetector:
 
             axis_dir = gp_Dir(*b_axis)
 
-            # Evaluate orientations to find clear placement if possible
+            # Try both signs of the bend axis: the part may be flipped 180° around
+            # the tooling V-groove. This handles the case where axis_dir and v_dir_world
+            # have opposite signs (e.g. +Y vs -Y — typical for fixture_l vs matrica.FCStd).
             best_shape = None
-            for n_vec in [(1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1)]:
-                dot = abs(sum(axis_dir.Coord()[i] * n_vec[i] for i in range(3)))
-                if dot > 0.9:
-                    continue
-
-                trsf = gp_Trsf()
-                trsf.SetDisplacement(
-                    gp_Ax3(gp_Pnt(*b_orig), axis_dir, gp_Dir(*n_vec)),
-                    gp_Ax3(v_station, v_dir_world, target_normal)
+            for axis_sign in (+1.0, -1.0):
+                eff_axis = gp_Dir(
+                    axis_dir.X() * axis_sign,
+                    axis_dir.Y() * axis_sign,
+                    axis_dir.Z() * axis_sign,
                 )
-                cand = BRepBuilderAPI_Transform(shape, trsf, False).Shape()
-                if die_world:
-                    res_d = self._check_intersection(cand, die_world, "Part", "Die")
-                    if res_d.is_valid:
-                        return cand
-                if best_shape is None:
-                    best_shape = cand
+                for n_vec in [(1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1)]:
+                    dot = abs(sum(eff_axis.Coord()[i] * n_vec[i] for i in range(3)))
+                    if dot > 0.9:
+                        continue
+
+                    trsf = gp_Trsf()
+                    trsf.SetDisplacement(
+                        gp_Ax3(gp_Pnt(*b_orig), eff_axis, gp_Dir(*n_vec)),
+                        gp_Ax3(v_station, v_dir_world, target_normal)
+                    )
+                    cand = BRepBuilderAPI_Transform(shape, trsf, False).Shape()
+                    if die_world:
+                        res_d = self._check_intersection(cand, die_world, "Part", "Die")
+                        if res_d.is_valid:
+                            return cand
+                    if best_shape is None:
+                        best_shape = cand
 
             return best_shape or shape
         except Exception as e:
