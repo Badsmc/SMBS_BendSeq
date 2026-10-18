@@ -1,0 +1,37 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "SMBS Tooling Library Config",
+  "type": "object",
+  "required": ["schema_version", "clamps", "punch_chain"],
+  "properties": {
+    "schema_version": {"type": "string", "enum": ["1.0"]},
+    "clamps": {
+      "type": "object",
+      "required": ["width_mm", "gap_between_mm", "positions_mm", "min_clamps_under_punch", "repositionable"],
+      "properties": {
+        "width_mm": {"type": "number", "minimum": 1, "maximum": 1000},
+        "gap_between_mm": {"type": "number", "minimum": 0, "maximum": 1000},
+        "positions_mm": {"type": "array", "items": {"type": "number"}, "minItems": 0},
+        "min_clamps_under_punch": {"type": "integer", "minimum": 1},
+        "repositionable": {"type": "boolean"}
+      }
+    },
+    "punch_chain": {
+      "type": "object",
+      "required": ["joints_must_be_on_clamps", "joint_tolerance_mm", "no_gaps_between_punches", "end_overhang_ratio"],
+      "properties": {
+        "joints_must_be_on_clamps": {"type": "boolean"},
+        "joint_tolerance_mm": {"type": "number", "minimum": 0},
+        "no_gaps_between_punches": {"type": "boolean"},
+        "end_overhang_ratio": {"type": "number", "minimum": 0, "maximum": 1}
+      }
+    },
+    "bend_line_tolerance_mm": {
+      "type": "object",
+      "properties": {
+        "min": {"type": "number"},
+        "max": {"type": "number"}
+      }
+    }
+  }
+}
