@@ -30,6 +30,12 @@
 
 **Commits:** S.11 `5a973d0`/`2d5bf26` (run_loader), S.12 `4a83ac6`/`dffeef5` (graph_builder), S.13a `f1d4f19`/`41ae4c0` (replayer backward + PREVIEW_ONLY), S.14 `99fd8b7`/`c474306` (player + cli), S.15a `4549f85`/`6a507f6` (HLR+PIL renderer + CLI render flags). KL-12 documented in `afb0626`.
 
+**Manual GUI test status (S.18b, PASSED on FreeCAD 1.1.3 / PySide6 / Qt 6.8.3):**
+- Synthetic VERIFIED fixture → green label '1' above flat pattern, no anchor dot.
+- Old run without `bend_line_flat_pattern` → red actionable error dialog (KL-13), no annotations.
+- Synthetic VERIFICATION_FAILED fixture → orange label '1', honest marking confirms FAILED.
+- Real production runs (non-empty `candidate_sequence` + `bend_line_flat_pattern`) blocked until KL-8 and/or KL-13 fixed.
+
 **Non-goals / deferred:**
 - Forward fold mode — blocked on KL-12 (S.13b). `Player.switch_direction("forward")` raises `PlayerError`.
 - FreeCAD addon GUI — not started; better after per-panel kinematics (KL-12 close).
