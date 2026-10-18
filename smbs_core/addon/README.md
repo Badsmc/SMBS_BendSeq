@@ -43,8 +43,18 @@ Optional:
 
 - **No "Calculate" button.** The macro reads an existing run directory. To generate a run, use `smbs-cli part.FCStd` in a terminal first. "Calculate in FreeCAD" is a separate future step (see `docs/ROADMAP.md` requirement 1).
 - **Geometry is a flat pattern only.** No folded 3D model, no tooling. Those require requirements 2–4 (see roadmap).
-- **No auto-scaling.** `TEXT_HEIGHT_MM = 5.0` fixed; edit the macro for parts that are much larger/smaller than ~100mm.
+- **Fixed font size.** `ANNOTATION_FONT_SIZE = 15` (config at top of macro); edit for parts much larger/smaller than ~150mm.
 - **No step filtering / highlighting.** All steps shown simultaneously. Fine for ≤10 bends; may overlap for larger parts.
+- **Uses `App::AnnotationLabel` with `DisplayMode="Object"`.** In FreeCAD 1.1 this is the only combination that renders text without a hardcoded anchor dot or leader line. `Draft.make_text` (screen=True) is invisible in FreeCAD 1.1; do not substitute.
+
+## Manual GUI test status (S.18b)
+
+Verified on FreeCAD 1.1.3 / PySide6 / Qt 6.8.3:
+- **Synthetic VERIFIED fixture** → green label '1' rendered at Z=4.5 mm above flat pattern, no anchor dot.
+- **Old run without `bend_line_flat_pattern`** → red error dialog with actionable message, no annotations created.
+- **Synthetic VERIFICATION_FAILED fixture** → orange label '1', honest marking confirms FAILED status.
+
+Real production runs (with non-empty `candidate_sequence` + `bend_line_flat_pattern`) are blocked until KL-8 and/or KL-13 are resolved. See `docs/PROGRESS.md`.
 
 ## See also
 
