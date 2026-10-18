@@ -122,7 +122,9 @@ class Tooling:
         geometry_status: GeometryStatus = GeometryStatus.MISSING,
         datums: Optional[Dict[DatumRole, Datum]] = None,
         metadata: Optional[Dict[str, Any]] = None,
-        diagnostics: Optional[List[str]] = None
+        diagnostics: Optional[List[str]] = None,
+        smbs_role: Optional[str] = None,
+        smbs_role_source: Optional[str] = None,
     ):
         self.id = id
         self.kind = kind
@@ -137,6 +139,8 @@ class Tooling:
         self.datums = datums if datums is not None else {}
         self.metadata = metadata if metadata is not None else {}
         self.diagnostics = diagnostics if diagnostics is not None else []
+        self.smbs_role = smbs_role
+        self.smbs_role_source = smbs_role_source
 
         if self.shape is None and self.geometry_status != GeometryStatus.MISSING:
             self.diagnostics.append(f"{self.id}: shape is None -> geometry_status forced to MISSING")
