@@ -71,11 +71,13 @@ Summary: MVP (requirement 1 — bend sequence numbers on flat pattern) can start
 
 ### Active
 
-- **KL-8 (Stage 2, P1): Real tooling collision in `place_part_on_tool_station`.**
+- **KL-8 (Stage 2, P1, blocked by KL-12): Real tooling collision in `place_part_on_tool_station`.**
   - **Symptom:** 5 e2e tests fail with `INVALID` on TOOL stage, `vol≈1111 mm³`. `EXPLORATORY` policy does not bypass (INVALID is never bypassed, per invariant #2).
   - **Cause:** Positioning between `place_part_on_tool_station` and real `matrica.FCStd` produces a physical collision. Requires separate audit of datum alignment against the real tooling model.
   - **Impact:** Search returns `NO_SOLUTION` honestly; verifier returns `VERIFICATION_FAILED` with `SOLVER_FAILED` diagnostic. No fabrication. Expected.
   - **Follow-up:** Separate positioning audit post-Stage-3. Not blocking Stage 2/3 close.
+
+  - **UPDATE 2026-10-18 (S.19a/S.19a2 audit)**: `place_part_on_tool_station` now uses die V-groove axis + mounting_plane normal (not hardcoded `(1,0,0)`/`(0,0,1)`) and tries both axis signs (`±axis_dir`). APPROACH-stage die collisions eliminated. HOWEVER, KL-8 is now **blocked by KL-12**: after APPROACH passes, the next stage `SELF` returns `UNKNOWN` (`No extracted panel geometry available for self_collision`) because `PanelGraph.panels[*].face_indices` is empty. Under `PRODUCTION` policy, `UNKNOWN != VALID` (invariant #1) → step rejected → `NO_SOLUTION` → e2e tests still fail with `production_eligible=false`. **Fix path: KL-12 (per-panel kinematics) must be closed before KL-8 can be verified. Priority: KL-12 → KL-8.**
 
 - **KL-9 (Stage 2, P2): `2_1_3_4_ok` baseline INVALID (inherited KL-7).**
   - **Symptom:** Part `2-1-3-4-(ok).FCStd` fails Stage 1 baseline with facets mismatch (90 vs 94).
