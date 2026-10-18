@@ -125,6 +125,8 @@ player.Player                → tuple[Frame, ...]      (production_eligible fro
 
 See `docs/ROADMAP.md` for details. Layers 6+ cover FreeCAD GUI integration (bend annotations, tooling animation), tooling library (FCStd import), optimal tooling selection (with clamp constraints). Depend on KL-12 fix for honest per-panel kinematics.
 
+Confirmed decisions: bend annotations will be **3D annotations** (not TechDraw); tooling animation will show **moving tooling** (punch descends, backgauge repositions). See `docs/ROADMAP.md` §11.
+
 ### Non-goals
 
 - No 3D viewport in the headless CLI. No X11/Cocoa dependency. PNG batch + JSON metadata only.
