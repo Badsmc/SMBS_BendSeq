@@ -427,5 +427,29 @@ class TestViewerFlatAnnotations(unittest.TestCase):
         self.assertIn("payload.verification_status missing", str(ctx.exception))
 
 
+    def test_empty_candidate_sequence_with_malformed_09_returns_empty(self):
+        """
+        Empty candidate_sequence short-circuits before 09 validation.
+        No annotations are needed, so missing verification_status is irrelevant.
+        This locks in the documented early-return contract in compute_annotations.
+        """
+        bends = {
+            "B1": _make_bend(
+                parent_panel_id="P1",
+                child_panel_id="P2",
+                direction="UP",
+                bend_line_flat_pattern={"start_mm": [0.0, 0.0, 0.0], "end_mm": [1.0, 0.0, 0.0]},
+            )
+        }
+        seq = []
+        # 09 present but payload empty (no verification_status) — this would raise
+        # if not for the early return on empty candidate_sequence.
+        artifacts = _make_artifacts(seq, bends, verification_payload={})
+        graphs = build_graphs(artifacts)
+
+        result = compute_annotations(artifacts, graphs)
+        self.assertEqual(result, [])
+
+
 if __name__ == "__main__":
     unittest.main()

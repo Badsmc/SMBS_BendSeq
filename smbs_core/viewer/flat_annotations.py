@@ -95,6 +95,9 @@ def compute_annotations(
         raise FlatAnnotationsError(f"Missing 'candidate_sequence' in search_result payload: {err}") from err
 
     if not candidate_sequence:
+        # Empty sequence -> no annotations needed. Do not validate 09 or canonical_part bends:
+        # both are only consumed when there is at least one bend to annotate. This preserves
+        # a valid "nothing to annotate" path even if 09 is malformed (e.g. an old partial run).
         return []
 
     # Verification status extraction
