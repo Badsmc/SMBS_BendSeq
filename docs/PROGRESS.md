@@ -55,6 +55,10 @@ See `docs/ROADMAP.md` for the full integration roadmap (FreeCAD UI, tooling libr
 
 Summary: MVP (requirement 1 — bend sequence numbers on flat pattern) can start immediately without contract changes. Requirements 2–5 require schema agreements (#7) and/or KL-12 fix.
 
+**User-confirmed decisions (from roadmap review):**
+- **Q4** → 3D annotations on the unfolded part (not TechDraw).
+- **Q7** → tooling moves during animation (punch descends, backgauge repositions).
+
 ## Known Limitations
 
 **Template:** each entry uses **Symptom / Cause / Impact / Follow-up**. Priority: P1 (production blocker), P2 (workaround exists), P3 (cosmetic).

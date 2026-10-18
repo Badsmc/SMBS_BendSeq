@@ -375,3 +375,30 @@
 ---
 
 *Статус: черновик на review. После принятия — интегрируется аддитивно в `docs/` без изменения схем и тестов. Baseline 350/5F/0E/3xF не сдвигается.*
+
+---
+
+## 11. Coordinator addendum (post-review, decisions recorded)
+
+This section records user answers and coordinator notes added after the initial roadmap draft. It does not change phases, dependencies, or estimates in sections 1–10; it resolves open questions and records deferred #7 decisions.
+
+### Resolved user questions
+
+- **Q4 (requirement 1)** — **RESOLVED: 3D annotations** on the unfolded part, not TechDraw. Rationale: matches user mental model ("на развёртке появятся цифры"), faster to implement, honest marking visible in 3D viewport.
+- **Q7 (requirement 2)** — **RESOLVED: tooling moves** during animation — punch descends on bend, backgauge repositions between bends. Rationale: user expects "показ оснастки" as motion, not static props.
+
+These answers override the "Важные, можно с допущением" classification of Q4/Q7 in Section 6. Q4/Q7 are now **closed** and should not be re-asked in future sessions.
+
+### Pending #7 decisions (deferred to their phases)
+
+- **`tooling_selection.json` location** (Phase E) — run-dir artifact (`runs/run_XXX/tooling_selection.json`) vs separate library store (`library/selections/<name>.json`). Decision deferred to Phase E start.
+- **`tooling_placement` for animation** (Phase F) — (a) compute on-the-fly from `tooling_manifest` + `candidate_sequence` + `bend_line_flat_pattern` (no new schema, no #7) vs (b) persist to `tooling_placement.json` per run (new #7). Recommendation: (a) on-the-fly for MVP. Decision deferred to Phase F start.
+- **`tooling_set.schema.json` vs extending `tooling_manifest.schema.json`** (Phase C) — new file vs extend existing. Decision deferred to Phase C start.
+
+### Coordinator note on estimates
+
+Requirement 1's estimate in Section 2 (Phase A: 3–4 sessions, 10–20 commits) is a **risk-adjusted upper bound**. Coordinator's narrower MVP scope (3D annotations only, workbench scaffolding shared with later phases) estimates **~1.5 sessions / 3–5 commits**. Treat Phase A's number as a buffer for FreeCAD Qt API surprises, not as a floor.
+
+### Status of sections 1–10
+
+Sections 1–10 of this document are the original roadmap and remain authoritative for phases, dependencies, matrices, and detailed requirement descriptions. This addendum is a **delta**, not a replacement.
