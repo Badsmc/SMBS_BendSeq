@@ -255,22 +255,55 @@ class FcstdToolingLoader:
 
         # Disambiguate shape selection
         if target_object_name:
+            # 1. Explicit target — highest priority (unchanged)
             matched = [r for r in results if r[0] == target_object_name]
             if not matched:
                 raise AmbiguousShapeError(f"Target object '{target_object_name}' not found in {path_str}")
             obj_name, shape, trsf = matched[0]
+
         elif len(results) == 1:
+            # 2. Single result — take it
             obj_name, shape, trsf = results[0]
+
         else:
-            pad_objs = [r for r in results if r[0] in ("Pad", "Body", "ToolShape")]
-            if len(pad_objs) == 1:
-                obj_name, shape, trsf = pad_objs[0]
-            else:
-                names = [r[0] for r in results]
+            # 3. Multiple results — filter by volume + heuristic preference
+
+            def _has_volume(shape) -> bool:
+                try:
+                    from OCC.Core.GProp import GProp_GProps
+                    from OCC.Core.BRepGProp import brepgprop
+                    props = GProp_GProps()
+                    brepgprop.VolumeProperties(shape, props)
+                    return props.Mass() > 1e-6
+                except Exception:
+                    return False
+
+            candidates = [r for r in results if _has_volume(r[1])]
+            if not candidates:
                 raise AmbiguousShapeError(
-                    f"Ambiguous shape selection in {path_str}. Found objects: {names}. "
-                    "Specify target_object_name explicitly."
+                    f"No solid shape with non-zero volume found in {path_str}. "
+                    f"Objects: {[r[0] for r in results]}. Specify target_object_name explicitly."
                 )
+
+            if len(candidates) == 1:
+                obj_name, shape, trsf = candidates[0]
+            else:
+                # Prefer Body > Pad > ToolShape (PartDesign convention)
+                preference_order = ["Body", "Pad", "ToolShape"]
+                preferred = None
+                for pref_name in preference_order:
+                    matches = [r for r in candidates if r[0] == pref_name]
+                    if len(matches) == 1:
+                        preferred = matches[0]
+                        break
+                if preferred is not None:
+                    obj_name, shape, trsf = preferred
+                else:
+                    raise AmbiguousShapeError(
+                        f"Ambiguous shape selection in {path_str}. "
+                        f"Candidates (with volume): {[r[0] for r in candidates]}. "
+                        "Specify target_object_name explicitly."
+                    )
 
         world_shape = shape
         if HAS_OCC and trsf:
