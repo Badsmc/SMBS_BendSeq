@@ -32,6 +32,18 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--part-id", default=None, help="Identifier for the part")
     parser.add_argument("--machine", default="press_100t", help="Machine configuration ID")
     parser.add_argument("--tooling-config", default=None, help="Path to tooling configuration JSON file")
+    parser.add_argument(
+        "--punch-id", default=None,
+        help="Punch tool_id from library (requires --die-id and --library-path)"
+    )
+    parser.add_argument(
+        "--die-id", default=None,
+        help="Die tool_id from library (requires --punch-id and --library-path)"
+    )
+    parser.add_argument(
+        "--library-path", default=None,
+        help="Path to tooling library root (contains punch/ + die/). Default: <repo>/toollibrary/"
+    )
     parser.add_argument("--algorithm", default="astar", choices=["astar", "dfs"], help="Planning algorithm")
     parser.add_argument("--output", default="sequence.json", help="Path to write output sequence JSON")
     parser.add_argument("--budget", type=int, default=5000, help="Node exploration limit budget")
@@ -56,6 +68,35 @@ def main():
 
     part_id = args.part_id or model_file.stem
 
+    id_given = (args.punch_id is not None or args.die_id is not None)
+    if id_given:
+        if args.punch_id is None or args.die_id is None:
+            print("Error: --punch-id and --die-id must be provided together", file=sys.stderr)
+            sys.exit(2)
+        if args.tooling_config:
+            print("Error: --punch-id/--die-id cannot be combined with --tooling-config", file=sys.stderr)
+            sys.exit(2)
+        if args.library_path:
+            lib_path = Path(args.library_path)
+        else:
+            lib_path = Path(__file__).resolve().parent.parent / "toollibrary"
+        if not lib_path.is_dir():
+            print(f"Error: library path not found: {lib_path}", file=sys.stderr)
+            sys.exit(2)
+        machine_config = {
+            "punch_id": args.punch_id,
+            "die_id": args.die_id,
+            "library_path": str(lib_path),
+        }
+    elif args.tooling_config:
+        try:
+            machine_config = json.loads(Path(args.tooling_config).read_text())
+        except Exception as e:
+            print(f"Error reading tooling configuration: {e}", file=sys.stderr)
+            sys.exit(2)
+    else:
+        machine_config = None
+
     try:
         coordinator = Coordinator()
         res = coordinator.start_run(
@@ -64,6 +105,7 @@ def main():
             input_mode=args.mode,
             k_factor_override=args.k_factor,
             search_algorithm=args.algorithm,
+            machine_config=machine_config,
             resource_budget={
                 "max_nodes": args.budget,
                 "max_wall_time_s": args.timeout,
