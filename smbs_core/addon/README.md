@@ -61,3 +61,24 @@ Real production runs (with non-empty `candidate_sequence` + `bend_line_flat_patt
 - `docs/ROADMAP.md` § 3, Requirement 1
 - `docs/PROGRESS.md` — KL-13 (old runs without `bend_line_flat_pattern`)
 - `smbs_core/viewer/flat_annotations.py` — annotation computation (pure Python, testable)
+
+## Tooling Library (Phase B, S.22f)
+
+Macro: `SMBS_ToolingLibrary.FCMacro`
+
+Install: same as `SMBS_AnnotateBends` (copy to FreeCAD macros dir, edit `SMBS_REPO_PATH` + `SMBS_LIBRARY_PATH` at top).
+
+Usage:
+1. Macro -> Macros... -> SMBS_ToolingLibrary -> Execute.
+2. Dialog shows punches and dies from library.
+3. **Add Tool...** — pick `<name>.FCStd` with sidecar `<name>.tooling.json` next to it. Kind auto-detected via Q1=D (property -> name -> sidecar). Missing sidecar -> error with instructions.
+4. **Remove** — delete selected tool from library.
+5. **Preview** — load tool shape into active FreeCAD document.
+
+Requirements:
+- Library root must contain `punch/` and `die/` subdirectories (or use Bootstrap button).
+- Every added tool requires `<stem>.tooling.json` sidecar (datums: mounting_plane, working_axis, tip_point / v_center).
+
+Not in this version:
+- Sidecar creation wizard (create manually in text editor with datums).
+- "Use in pipeline" (needs Coordinator integration, S.22g).
