@@ -198,17 +198,40 @@ class CollisionDetector:
                 return shape
 
             v_world = gp_Pnt(*die_vcenter.origin).Transformed(die_trsf)
+            v_dir_world = gp_Dir(*die_vcenter.direction).Transformed(die_trsf)
 
             die_world = self.assembly.get_world_shape(ToolingKind.DIE)
             die_bb = self.backend.get_bounding_box(die_world) if die_world else None
             die_top_z = die_bb[5] if die_bb else v_world.Z()
             v_station = gp_Pnt(v_world.X(), v_world.Y(), die_top_z)
 
+            # Try to read mounting_plane direction (semantically correct)
+            target_normal = None
+            try:
+                die_mount = None
+                if hasattr(self.assembly.die, 'datums') and self.assembly.die.datums:
+                    die_mount = self.assembly.die.datums.get(DatumRole.MOUNTING_PLANE)
+                elif hasattr(self.assembly.die, 'mounting_plane'):
+                    die_mount = self.assembly.die.mounting_plane
+
+                if die_mount and hasattr(die_mount, 'direction') and die_mount.direction:
+                    target_normal = gp_Dir(*die_mount.direction).Transformed(die_trsf)
+            except Exception:
+                pass
+
+            if target_normal is None:
+                logger.warning(
+                    "place_part_on_tool_station: die has no mounting_plane datum; "
+                    "falling back to world-up (0,0,1) for target_normal. "
+                    "This is safe only if the die is mounted with its V-groove axis horizontal."
+                )
+                target_normal = gp_Dir(0, 0, 1)
+
             axis_dir = gp_Dir(*b_axis)
 
             # Evaluate orientations to find clear placement if possible
             best_shape = None
-            for n_vec in [(0, 0, 1), (0, 0, -1), (0, 1, 0), (0, -1, 0)]:
+            for n_vec in [(1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1)]:
                 dot = abs(sum(axis_dir.Coord()[i] * n_vec[i] for i in range(3)))
                 if dot > 0.9:
                     continue
@@ -216,7 +239,7 @@ class CollisionDetector:
                 trsf = gp_Trsf()
                 trsf.SetDisplacement(
                     gp_Ax3(gp_Pnt(*b_orig), axis_dir, gp_Dir(*n_vec)),
-                    gp_Ax3(v_station, gp_Dir(1, 0, 0), gp_Dir(0, 0, 1))
+                    gp_Ax3(v_station, v_dir_world, target_normal)
                 )
                 cand = BRepBuilderAPI_Transform(shape, trsf, False).Shape()
                 if die_world:
