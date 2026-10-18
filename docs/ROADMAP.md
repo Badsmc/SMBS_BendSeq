@@ -498,8 +498,14 @@ Original roadmap: 4–6 sessions / 14–28 commits. **Coordinator revision: ~5 s
 - Blocks at `[75, 275, 475]` centers, W=150, gap=50 → zones `[0..150], [200..350], [400..550]`.
 - Punch chain: `[0..200]` (200mm) + `[200..400]` (200mm) + `[400..475]` (75mm).
 - Joint at 200 → in zone `[200..350]` ✓. Joint at 400 → in zone `[400..550]` ✓.
-- Left edge 0 (on block 1). Right edge 475, nearest block end 550 → overhang 75mm; 30% of last punch (75mm) = 22.5mm → **75 > 22.5 ✗ FAIL**.
-- Fix: shrink last punch or move block 3 to `[400..475]`.
+- Left edge 0 = on block 1 (overhang 0, OK). Right edge 475 < block 3 end 550 → punch end is INSIDE block 3, overhang = 0, OK.
+- Chain length = 475mm (target bend line = 485-490mm after -10..15mm tolerance). At least 3 blocks under chain (block 1, 2, 3) ≥ 2 required ✓.
+- **Result: VALID.**
+
+**Example (invalid — overhang fail):**
+- Same blocks/zones. Punch chain: `[0..200]` (200mm) + `[200..400]` (200mm) + `[400..700]` (300mm).
+- Right edge 700 > last block end 550 → overhang = 150mm. 30% of last punch (300mm) = 90mm → **150 > 90 ✗ FAIL**.
+- Fix: shrink last punch to end ≤ 550 (e.g. `[400..640]`, overhang = 90mm = 30% of 240mm → OK) or add block at `[650..800]` center=725.
 
 ### Phase B — COMPLETE (2026-10-18)
 
