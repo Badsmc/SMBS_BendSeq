@@ -475,6 +475,24 @@ Original roadmap: 4–6 sessions / 14–28 commits. **Coordinator revision: ~5 s
 - Auto-detection of datums (sidecar remains manual)
 - Import wizard beyond basic role resolution
 
+### Phase B — COMPLETE (2026-10-18)
+
+**Status:** DONE. All sub-steps (S.22a–S.22h) committed and pushed. Requirement 3 (Tooling Library) from roadmap §3 is functionally complete.
+
+**Delivered:**
+- `ToolingCatalog` (scan + index), `ToolingLibrary` (add/remove/list/get/has_tool), Q1=D 4-level role resolution in `FcstdToolingLoader`, FreeCAD UI macro (`SMBS_ToolingLibrary.FCMacro`), Coordinator + CLI integration (`--punch-id`/`--die-id`/`--library-path`).
+- 3 new schema fields in `tooling_manifest.schema.json`: `target_object_name`, `smbs_role`, `smbs_role_source` (all optional, backward-compatible).
+- Baseline: 415 tests / 5F / 0E / 3xF (was 407 before Phase B tests, 407+8=S.22g; total Stage 5 +48 tests from 367 baseline).
+
+**Deferred / backlog:**
+- INFERRED heuristic (honest error instead — see KL-13 and Q1=D).
+- `~/.smbs/tooling/` user-global path (Q8 MVP = 2 levels).
+- Datum editing UI, sidecar wizard.
+- "Use in pipeline" button in macro.
+- KL-15 (target_object_name disambiguation, P2) — see PROGRESS.md.
+
+**Next:** requirement 4.1 (Clamp constraints) per roadmap §8 order (3 → 4.1 → 3.1 → 4 → 2 → 5). KL-12 / KL-8 remain in backlog.
+
 ### Status of sections 1–10
 
 Sections 1–10 of this document are the original roadmap and remain authoritative for phases, dependencies, matrices, and detailed requirement descriptions. This addendum is a **delta**, not a replacement.
