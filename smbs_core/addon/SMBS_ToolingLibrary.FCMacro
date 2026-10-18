@@ -269,10 +269,10 @@ class ToolingLibraryDialog(QtWidgets.QDialog):
         doc = App.ActiveDocument
 
         # .FCStd is a FreeCAD document (ZIP), not a BREP file.
-        # Part.Shape().read() only handles .brep/.step/.iges.
-        # Part.insert() imports FCStd document contents into the target document.
+        # Part.Shape().read() and Part.insert() do not support .FCStd.
+        # doc.mergeProject() is the native API to merge a FreeCAD project into the current document.
         try:
-            Part.insert(str(desc.fcstd_path), doc.Name)
+            doc.mergeProject(str(desc.fcstd_path))
             doc.recompute()
             Gui.SendMsgToActiveView("ViewFit")
             self._set_status(f"Displayed preview for '{desc.tool_id}' in 3D view.")
