@@ -389,6 +389,14 @@ This section records user answers and coordinator notes added after the initial 
 
 These answers override the "Важные, можно с допущением" classification of Q4/Q7 in Section 6. Q4/Q7 are now **closed** and should not be re-asked in future sessions.
 
+### Resolved user questions (Q1 added 2026-10-18)
+
+- **Q1 (requirement 3)** — **RESOLVED: fallback chain (option D)**:
+  1. Read FCStd object property `SMBS_Role` (`punch`/`die`/`frame`/`backgauge`).
+  2. If absent, read object name (`PUNCH`/`DIE`/`FRAME`/`BACKGAUGE`).
+  3. If neither, prompt user with dropdown in import dialog.
+  Rationale: property (explicit) overrides name (implicit); UI fallback prevents automation from blocking. Q1 is no longer a blocker for Phase B.
+
 ### Pending #7 decisions (deferred to their phases)
 
 - **`tooling_selection.json` location** (Phase E) — run-dir artifact (`runs/run_XXX/tooling_selection.json`) vs separate library store (`library/selections/<name>.json`). Decision deferred to Phase E start.
