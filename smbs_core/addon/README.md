@@ -82,3 +82,5 @@ Requirements:
 Not in this version:
 - Sidecar creation wizard (create manually in text editor with datums).
 - "Use in pipeline" (needs Coordinator integration, S.22g).
+
+**Preview behavior note:** Preview merges the FCStd document into the active FreeCAD document in its *original modeling coordinates*. Tools are NOT aligned to each other or to a machine — this is intentional. Alignment happens in `ToolingAssembly.place()` (pipeline side, via datums from sidecar). Backlog: "Preview assembled tooling" feature (show punch+die aligned as they would be on the machine).
