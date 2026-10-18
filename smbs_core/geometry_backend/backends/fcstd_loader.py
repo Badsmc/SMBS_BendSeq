@@ -1,10 +1,13 @@
 """
 fcstd_loader.py - Loads Tooling objects from .FCStd files and .tooling.json sidecars.
+Supports Q1=D 4-level fallback chain (property -> name -> sidecar -> inferred).
 """
 
 import os
 import json
-from typing import Optional, List
+from enum import Enum
+from pathlib import Path
+from typing import Optional, List, Tuple, Dict, Any
 
 from smbs_core.models.tooling import Tooling, ToolingKind, DatumRole, Datum, GeometryStatus
 from smbs_core.geometry_backend.backends.fcstd_reader import read_fcstd
@@ -24,33 +27,226 @@ class AmbiguousShapeError(ValueError):
     pass
 
 
-class FcstdToolingLoader:
-    """Loads Tooling from .FCStd and sidecar .tooling.json"""
+class RoleResolutionError(ValueError):
+    """Raised on invalid role specifications or FreeCAD document inspection errors."""
+    pass
 
-    def load(self, path: str, kind: ToolingKind, target_object_name: Optional[str] = None) -> Tooling:
-        tool_id = os.path.basename(path).replace(".FCStd", "")
-        
+
+class RoleResolutionSource(str, Enum):
+    """Q1=D provenance: where the role came from."""
+    PROPERTY = "property"      # from FCStd object SMBS_Role property
+    NAME = "name"              # from FCStd object name (PUNCH, DIE, ...)
+    SIDECAR = "sidecar"        # from .tooling.json "kind" field
+    INFERRED = "inferred"      # heuristic (heights, ratios) — confirmed=False
+
+
+# Map valid role strings to ToolingKind
+ROLE_STRING_MAP: Dict[str, ToolingKind] = {
+    "punch": ToolingKind.PUNCH,
+    "die": ToolingKind.DIE,
+    "frame": ToolingKind.MACHINE_FRAME,
+    "machine_frame": ToolingKind.MACHINE_FRAME,
+    "backgauge": ToolingKind.BACKGAUGE,
+    "ram": ToolingKind.RAM,
+    "bed": ToolingKind.MACHINE_BED,
+    "machine_bed": ToolingKind.MACHINE_BED,
+}
+
+# Substring patterns for NAME level matching
+NAME_PATTERNS: List[Tuple[str, ToolingKind]] = [
+    ("punch", ToolingKind.PUNCH),
+    ("puncher", ToolingKind.PUNCH),
+    ("die", ToolingKind.DIE),
+    ("matrica", ToolingKind.DIE),
+    ("matrix", ToolingKind.DIE),
+    ("frame", ToolingKind.MACHINE_FRAME),
+    ("stanina", ToolingKind.MACHINE_FRAME),
+    ("backgauge", ToolingKind.BACKGAUGE),
+    ("upor", ToolingKind.BACKGAUGE),
+    ("stop", ToolingKind.BACKGAUGE),
+    ("ram", ToolingKind.RAM),
+    ("bed", ToolingKind.MACHINE_BED),
+]
+
+
+def resolve_role(
+    fcstd_path: Path | str,
+    sidecar_data: Optional[dict] = None,
+    explicit_target_object_name: Optional[str] = None,
+) -> Tuple[Optional[ToolingKind], Optional[RoleResolutionSource], str]:
+    """
+    Q1=D fallback chain. Does NOT load full OCC geometry — inspects metadata.
+
+    Returns:
+        (kind, source, diagnostic_message)
+        - kind: ToolingKind or None if unresolved
+        - source: RoleResolutionSource or None if unresolved
+        - diagnostic: human-readable explanation for manifest.diagnostics
+
+    Fallback order:
+      1. PROPERTY — open FCStd doc (headless via FreeCAD), read SMBS_Role from
+         target object (or any object if target_object_name is None).
+      2. NAME — open FCStd doc, read object Name/Label substring match.
+      3. SIDECAR — sidecar_data.get("kind") if provided or from sidecar file.
+      4. INFERRED — heuristic. NOT IMPLEMENTED in S.22c; returns (None, None, msg).
+    """
+    path_obj = Path(fcstd_path)
+    fcstd_str = str(path_obj.resolve())
+
+    # 1. PROPERTY level & 2. NAME level via FreeCAD document inspection
+    if path_obj.exists() and path_obj.is_file():
+        try:
+            import FreeCAD as App  # type: ignore
+        except ImportError:
+            raise RoleResolutionError("FreeCAD not available for property-level role resolution")
+
+        doc = None
+        try:
+            doc = App.openDocument(fcstd_str)
+            objects = doc.Objects
+
+            # Filter candidates if explicit_target_object_name specified
+            candidates = objects
+            if explicit_target_object_name:
+                matched = [o for o in objects if o.Name == explicit_target_object_name]
+                if matched:
+                    candidates = matched
+
+            # Level 1: PROPERTY
+            for obj in candidates:
+                props = getattr(obj, "PropertiesList", [])
+                if "SMBS_Role" in props:
+                    val = getattr(obj, "SMBS_Role", None)
+                    if val is not None and str(val).strip():
+                        val_str = str(val).strip().lower()
+                        if val_str not in ROLE_STRING_MAP:
+                            raise RoleResolutionError(
+                                f"Invalid SMBS_Role='{val}' in object '{obj.Name}' of {path_obj.name}. "
+                                f"Expected one of: {list(ROLE_STRING_MAP.keys())}"
+                            )
+                        kind = ROLE_STRING_MAP[val_str]
+                        return kind, RoleResolutionSource.PROPERTY, f"Resolved role '{kind.value}' via property SMBS_Role on '{obj.Name}'"
+
+            # Level 2: NAME
+            for obj in candidates:
+                names_to_check = [getattr(obj, "Name", ""), getattr(obj, "Label", "")]
+                for name_val in names_to_check:
+                    if not name_val:
+                        continue
+                    name_lower = name_val.lower()
+                    for pattern, matched_kind in NAME_PATTERNS:
+                        if pattern in name_lower:
+                            return (
+                                matched_kind,
+                                RoleResolutionSource.NAME,
+                                f"Resolved role '{matched_kind.value}' via name pattern '{pattern}' in object '{name_val}'"
+                            )
+        except RoleResolutionError:
+            raise
+        except Exception as err:
+            # If FreeCAD opening fails on valid file, log or raise
+            pass
+        finally:
+            if doc is not None:
+                try:
+                    App.closeDocument(doc.Name)
+                except Exception:
+                    pass
+
+    # Level 3: SIDECAR
+    if sidecar_data is None:
+        sidecar_file = path_obj.parent / f"{path_obj.stem}.tooling.json"
+        if sidecar_file.exists():
+            try:
+                with open(sidecar_file, "r", encoding="utf-8") as f:
+                    sidecar_data = json.load(f)
+            except Exception:
+                sidecar_data = None
+
+    if sidecar_data and isinstance(sidecar_data, dict):
+        raw_kind = sidecar_data.get("kind")
+        if raw_kind is not None and str(raw_kind).strip():
+            raw_kind_str = str(raw_kind).strip().lower()
+            if raw_kind_str not in ROLE_STRING_MAP:
+                raise RoleResolutionError(
+                    f"Invalid kind='{raw_kind}' in sidecar for {path_obj.name}. "
+                    f"Expected one of: {list(ROLE_STRING_MAP.keys())}"
+                )
+            kind = ROLE_STRING_MAP[raw_kind_str]
+            return kind, RoleResolutionSource.SIDECAR, f"Resolved role '{kind.value}' via sidecar JSON"
+
+    # Level 4: INFERRED (Not implemented in S.22c)
+    return None, None, "Role could not be resolved from property, name, or sidecar; inferred heuristic not implemented (S.22d)"
+
+
+class FcstdToolingLoader:
+    """Loads Tooling from .FCStd and sidecar .tooling.json with Q1=D role resolution."""
+
+    def load(
+        self,
+        path: str | Path,
+        kind: Optional[ToolingKind] = None,
+        target_object_name: Optional[str] = None
+    ) -> Tooling:
+        path_str = str(path)
+        path_obj = Path(path)
+        tool_id = path_obj.stem
+
+        # Q1=D resolution if kind is None
+        resolved_source: Optional[RoleResolutionSource] = None
+        role_diag: str = ""
+
+        if kind is None:
+            resolved_kind, resolved_source, role_diag = resolve_role(
+                fcstd_path=path_obj,
+                explicit_target_object_name=target_object_name
+            )
+            if resolved_kind is None:
+                # Unresolved role -> Tooling with MISSING status
+                return Tooling(
+                    id=tool_id,
+                    kind=ToolingKind.PUNCH,  # Dummy fallback kind
+                    source_file=path_str,
+                    shape=None,
+                    local_frame=gp_Trsf() if HAS_OCC else None,
+                    geometry_status=GeometryStatus.MISSING,
+                    datums={},
+                    metadata={},
+                    diagnostics=[f"Role resolution failed: {role_diag}"],
+                    smbs_role=None,
+                    smbs_role_source=None
+                )
+            kind = resolved_kind
+            smbs_role_val = kind.value
+            smbs_role_source_val = resolved_source.value if resolved_source else None
+        else:
+            # Legacy explicit kind path
+            smbs_role_val = kind.value
+            smbs_role_source_val = None
+
         # 1. Read geometry
-        results, geo_status = read_fcstd(path)
-        
+        results, geo_status = read_fcstd(path_str)
+
         if geo_status == GeometryStatus.MISSING or not results:
             return Tooling(
                 id=tool_id,
                 kind=kind,
-                source_file=path,
+                source_file=path_str,
                 shape=None,
                 local_frame=gp_Trsf() if HAS_OCC else None,
                 geometry_status=GeometryStatus.MISSING,
                 datums={},
                 metadata={},
-                diagnostics=[f"No valid B-Rep shape extracted from {path}"]
+                diagnostics=[f"No valid B-Rep shape extracted from {path_str}"],
+                smbs_role=smbs_role_val,
+                smbs_role_source=smbs_role_source_val
             )
 
         # Disambiguate shape selection
         if target_object_name:
             matched = [r for r in results if r[0] == target_object_name]
             if not matched:
-                raise AmbiguousShapeError(f"Target object '{target_object_name}' not found in {path}")
+                raise AmbiguousShapeError(f"Target object '{target_object_name}' not found in {path_str}")
             obj_name, shape, trsf = matched[0]
         elif len(results) == 1:
             obj_name, shape, trsf = results[0]
@@ -61,7 +257,7 @@ class FcstdToolingLoader:
             else:
                 names = [r[0] for r in results]
                 raise AmbiguousShapeError(
-                    f"Ambiguous shape selection in {path}. Found objects: {names}. "
+                    f"Ambiguous shape selection in {path_str}. Found objects: {names}. "
                     "Specify target_object_name explicitly."
                 )
 
@@ -72,17 +268,19 @@ class FcstdToolingLoader:
         tool = Tooling(
             id=tool_id,
             kind=kind,
-            source_file=path,
+            source_file=path_str,
             shape=world_shape,
             local_frame=trsf,
             geometry_status=GeometryStatus.REAL,
             datums={},
             metadata={},
-            diagnostics=[]
+            diagnostics=[] if not role_diag else [role_diag],
+            smbs_role=smbs_role_val,
+            smbs_role_source=smbs_role_source_val
         )
 
         # 2. Check for sidecar JSON
-        sidecar_path = path.replace(".FCStd", ".tooling.json")
+        sidecar_path = path_str.replace(".FCStd", ".tooling.json")
         if os.path.exists(sidecar_path):
             self._load_sidecar(sidecar_path, tool)
         else:
