@@ -65,6 +65,40 @@ Summary: MVP (requirement 1 — bend sequence numbers on flat pattern) can start
 - **Q4** → 3D annotations on the unfolded part (not TechDraw).
 - **Q7** → tooling moves during animation (punch descends, backgauge repositions).
 
+## Stage 5 — Tooling Library (Phase B) — COMPLETE
+
+**Requirement 3 (roadmap):** users can add their own FCStd tooling to a library, auto-detect role (punch/die/frame/backgauge), and use tools in pipeline via `--punch-id` / `--die-id`.
+
+**Modules (`smbs_core/geometry_backend/io/`):**
+
+| Module | Responsibility |
+|---|---|
+| `tooling_catalog.py` | Scan `<library>/punch/` + `<library>/die/`, read `.tooling.json` sidecars, build `ToolingCatalog` with `ToolDescriptor` index. |
+| `tooling_library.py` | Persistent manager: `add_tool` / `remove_tool` / `list_tools` / `get_tool` / `has_tool`. Sidecar-required (no fabricated datums). Path-traversal-safe. |
+| `backends/fcstd_loader.py` (extended) | Q1=D 4-level role resolution: `property` → `name` → `sidecar` → `inferred` (inferred not implemented; honest error instead). Adds `Tooling.smbs_role` + `Tooling.smbs_role_source`. |
+
+**CLI (`smbs_core/cli.py`):** `--punch-id`, `--die-id`, `--library-path`. Mutual exclusion with `--tooling-config`. Default `library_path` = `<repo>/toollibrary/`.
+
+**Coordinator (`smbs_core/coordinator/run_pipeline.py`):** `machine_config={"punch_id", "die_id", "library_path"}` resolves via `ToolingLibrary.get_tool` → rewrites to `punch_path`/`die_path` for existing tooling pipeline. First REAL-tooling runs confirmed (`tooling_status: REAL`, real `model_path` in `tooling_manifest.json`).
+
+**FreeCAD UI (`smbs_core/addon/SMBS_ToolingLibrary.FCMacro`):** dialog with punch/die tabs, add/remove/list/preview, bootstrap. Manual GUI test PASSED on FreeCAD 1.1.3 (add, remove, preview, metadata display).
+
+**Schema:** `smbs_core/contracts/schemas/tooling_manifest.schema.json` extended with 3 optional fields in `payload.punch` and `payload.die`: `target_object_name`, `smbs_role`, `smbs_role_source`. Backward-compatible with all existing manifests.
+
+**Commits:** S.22b–S.22g (see git log for details). Q1=D approved (fallback chain), Q8 approved (2 levels: `<repo>/toollibrary/` + `--library-path`). INFERRED heuristic skipped for MVP (honest error instead).
+
+**Non-goals / deferred:**
+- Datum editing UI in macro (sidecar remains manual).
+- `~/.smbs/tooling/` user-global storage.
+- INFERRED heuristic (height/ratio guessing) — honest error instead.
+- Sidecar creation wizard.
+- "Use in pipeline" button in macro (requires passing IDs from macro to CLI manually).
+
+## Test Metrics (post Stage 5 Phase B)
+
+- **Discover:** 415 tests / **5 failures** (all KL-8) / **0 errors** / **3 expectedFailures**
+
+
 ## Known Limitations
 
 **Template:** each entry uses **Symptom / Cause / Impact / Follow-up**. Priority: P1 (production blocker), P2 (workaround exists), P3 (cosmetic).
@@ -95,6 +129,8 @@ Summary: MVP (requirement 1 — bend sequence numbers on flat pattern) can start
   - **UPDATE 2026-10-18 (S.20/S.21a-pre/S.21a-pre2 audit)**: root cause fully mapped. `PanelTopologyBuilder.build_panel_graph` uses `PANEL_{f_hash[:8]}` (single-face hash), while `FeatureExtractor` uses `PANEL_{stable_hash(centroid, normal)}` (cluster hash) — IDs never match, so `face_indices` is always empty. 90/90 existing runs have no `face_indices`. **H2 (runtime face_indices enrichment) tested and rejected**: `rotate_subtree` on multi-step unfold loses 16/22 faces (cylinders dropped), invalidates `face_indices` after step 1 (indices remap on topology change), and `intersect_volume` on planar compound pairs always returns 0 (mathematically correct for 2D surfaces). **Fix paths identified:** (A) bbox approximation for `self_collision` (~1 session, honest `SELF_BBOX_APPROXIMATION` marking, baseline 5F→4F); (B) solid-preserving split+fuse in `rotate_subtree` (~2–3 sessions, closes KL-12 fully, unblocks viewer `PER_PANEL_KINEMATIC`). **DECISION 2026-10-18: KL-12 deferred to backlog.** Rationale: KL-12 does not block roadmap requirements 3–5 (tooling library, tooling sets, optimal selection), only requirement 2 (animation). Roadmap §8 order honored: requirements 3 → 4.1 → 3.1 → 4 → 2 → 5. KL-12 resumed after requirement 4 or as a dedicated stage.
 
 - **KL-13 (P3, OPEN, discovered in S.18 audit)**: runs generated before 2026-10-17 lack `bend_line_flat_pattern` in `04_canonical_part.json`. Flat annotations (requirement 1) require this field. `flat_annotations.py` refuses such runs with actionable error; `axis_point` is **not** used as fallback (it lives in the folded-model coordinate system, not on the flat pattern — using it would place numbers off the flat pattern). Impact: 3 old runs (`run_20261012_034042_cf4c34`, `run_20261012_034045_9a351d`, and one more) cannot display annotations. Fix path: regenerate old runs with current pipeline (`smbs-cli part.FCStd`). Not a bug — pipeline evolution. See `smbs_core/addon/README.md` "Known issue: old runs".
+- **KL-15 (P2, OPEN, discovered in S.22g smoke test)**: `puancon.FCStd` contains multiple objects (`Sketch`, `Body`, `Pad`). `FcstdToolingLoader.load()` in legacy path (explicit `kind=PUNCH`) does not receive `target_object_name` and cannot disambiguate → raises `AmbiguousShapeError`. **Pre-existing** (unrelated to S.22g; only surfaces when `machine_config` with real tooling is used for the first time). Workaround: pass `machine_config["punch_target_object_name"]="Body"` via `--tooling-config` JSON. Backlog: add `--punch-object-name`/`--die-object-name` CLI flags, or auto-detect unique `Body`/`Pad` object.
+
 
 ### Closed
 
