@@ -209,5 +209,24 @@ class TestRoleResolution(unittest.TestCase):
         self.assertTrue(any("Role could not be resolved" in d for d in tool.diagnostics))
 
 
+    def test_malformed_fcstd_raises_resolution_error(self):
+        """14. Corrupted .FCStd (not a valid ZIP/doc) -> RoleResolutionError, not silent pass to sidecar."""
+        corrupt_path = self.fixtures_dir / "corrupt.FCStd"
+        corrupt_path.write_bytes(b"this is not a valid FCStd document at all")
+
+        # Also place a sidecar that would resolve to "punch" if silently fallen through
+        sidecar_path = self.fixtures_dir / "corrupt.tooling.json"
+        sidecar_path.write_text(json.dumps({"kind": "punch"}))
+
+        try:
+            with self.assertRaises(RoleResolutionError) as ctx:
+                resolve_role(corrupt_path)
+            self.assertIn("FreeCAD failed to inspect", str(ctx.exception))
+            self.assertIn("corrupt.FCStd", str(ctx.exception))
+        finally:
+            if sidecar_path.exists():
+                sidecar_path.unlink()
+
+
 if __name__ == "__main__":
     unittest.main()
