@@ -158,5 +158,16 @@ class TestToolingLibrarySets(unittest.TestCase):
         self.assertTrue(self.lib.has_set("set_valid"))
 
 
+    def test_add_set_wrong_punch_kind_raises(self):
+        """check_refs=True raises ToolingLibraryError if punch_id resolves to a die."""
+        self._create_dummy_tool(KIND_DIE, "not_a_punch")
+        self._create_dummy_tool(KIND_DIE, "real_die")
+        tset = ToolingSet("set_bad_kind", "not_a_punch", "real_die", ())
+        with self.assertRaises(ToolingLibraryError) as cm:
+            self.lib.add_set(tset, check_refs=True)
+        self.assertIn("resolved to kind 'die'", str(cm.exception))
+        self.assertIn("expected 'punch'", str(cm.exception))
+
+
 if __name__ == "__main__":
     unittest.main()

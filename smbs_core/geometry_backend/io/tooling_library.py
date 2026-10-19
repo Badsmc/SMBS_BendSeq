@@ -277,15 +277,30 @@ class ToolingLibrary:
             )
 
         if check_refs:
-            if not self.has_tool(set_obj.punch_id):
+            try:
+                punch_desc = self.get_tool(set_obj.punch_id)
+            except ToolingCatalogError as e:
                 raise ToolingLibraryError(
                     f"ToolingSet '{set_obj.set_id}' references punch_id '{set_obj.punch_id}' "
-                    f"which is not present in library at {self.library_root}"
+                    f"which is not present in library at {self.library_root}: {e}"
+                ) from e
+            if punch_desc.kind != "punch":
+                raise ToolingLibraryError(
+                    f"ToolingSet '{set_obj.set_id}' punch_id '{set_obj.punch_id}' "
+                    f"resolved to kind '{punch_desc.kind}', expected 'punch'"
                 )
-            if not self.has_tool(set_obj.die_id):
+
+            try:
+                die_desc = self.get_tool(set_obj.die_id)
+            except ToolingCatalogError as e:
                 raise ToolingLibraryError(
                     f"ToolingSet '{set_obj.set_id}' references die_id '{set_obj.die_id}' "
-                    f"which is not present in library at {self.library_root}"
+                    f"which is not present in library at {self.library_root}: {e}"
+                ) from e
+            if die_desc.kind != "die":
+                raise ToolingLibraryError(
+                    f"ToolingSet '{set_obj.set_id}' die_id '{set_obj.die_id}' "
+                    f"resolved to kind '{die_desc.kind}', expected 'die'"
                 )
 
         try:
