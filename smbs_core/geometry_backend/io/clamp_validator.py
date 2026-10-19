@@ -290,6 +290,17 @@ def _validate_with_schema(data: dict) -> None:
         raise ClampValidatorError(f"Unexpected error during schema validation: {e}") from e
 
 
+def validate_config_dict(data: dict) -> ClampConfig:
+    """Validate data dict against schema and return ClampConfig.
+
+    Public API for callers who load config from arbitrary paths
+    (e.g. CLI --clamps-config).
+    Raises ClampValidatorError on schema violation or invalid fields.
+    """
+    _validate_with_schema(data)
+    return ClampConfig.from_dict(data)
+
+
 def load_clamp_config(library_root: Path) -> ClampConfig:
     """
     Load <library_root>/config.json -> ClampConfig.
