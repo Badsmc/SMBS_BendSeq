@@ -128,9 +128,11 @@ Summary: MVP (requirement 1 — bend sequence numbers on flat pattern) can start
 
 **Test metrics (post Stage 6):**
 - **Discover:** 449 tests / 5 failures (KL-8) / 0 errors / 3 expectedFailures
-- Stage 6 добавил: +14 тестов (13 clamp_validator + 1 validate_config_dict + 8 tooling_library_clamps + 5 cli_clamps_config = 27... поправлю: 13+1=14, +8=22, +5=27, но baseline было 422 → 435 (S.24a) → 443 (S.24b) → 444 (S.24c-pre) → 449 (S.24c). Итого +27 тестов от 422.)
+- **Stage 6 added:** +27 tests (S.24a: 14; S.24b: 8; S.24c: 5)
 
 **Commits:** S.24a-schema, S.24a-code, S.24a-tests, S.24a-docs, S.24b-code, S.24b-tests, S.24c-pre, S.24c-code, S.24c-tests (см. git log).
+
+**Stage 7 progress (2026-10-19):** S.25a complete — `ToolingSet` model (`tooling_set.py`), schema (`tooling_set.schema.json`), `ToolingLibrary.add_set/get_set/list_sets/has_set/remove_set`. Baseline 449 → 475 (+26 tests). S.25b (CLI + Coordinator integration) pending.
 
 
 ## Known Limitations
