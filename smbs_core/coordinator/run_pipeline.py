@@ -83,6 +83,11 @@ class Coordinator:
             raise FileNotFoundError(f"Source file does not exist: {source_path}")
 
         if machine_config is not None:
+            # clamps_config_obj is loaded (validated by CLI) but NOT used in planning yet.
+            # Punch chain validation against clamps is requirement 4 (Phase E, optimal tooling selection).
+            # This is intentional plumbing for future requirement 4.
+            clamps_config_obj = machine_config.get("clamps_config")
+
             punch_id_val = machine_config.get("punch_id")
             die_id_val = machine_config.get("die_id")
             lib_path_val = machine_config.get("library_path")
