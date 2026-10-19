@@ -44,6 +44,10 @@ def build_parser() -> argparse.ArgumentParser:
         "--library-path", default=None,
         help="Path to tooling library root (contains punch/ + die/). Default: <repo>/toollibrary/"
     )
+    parser.add_argument(
+        "--clamps-config", default=None,
+        help="Path to clamps config JSON (validated, not enforced until requirement 4). See docs/ROADMAP.md §11 Q2."
+    )
     parser.add_argument("--algorithm", default="astar", choices=["astar", "dfs"], help="Planning algorithm")
     parser.add_argument("--output", default="sequence.json", help="Path to write output sequence JSON")
     parser.add_argument("--budget", type=int, default=5000, help="Node exploration limit budget")
@@ -67,6 +71,27 @@ def main():
         sys.exit(2)
 
     part_id = args.part_id or model_file.stem
+
+    clamps_config_obj = None
+    if args.clamps_config:
+        clamps_file = Path(args.clamps_config)
+        if not clamps_file.exists() or not clamps_file.is_file():
+            print(f"Error: clamps config file not found: {clamps_file}", file=sys.stderr)
+            sys.exit(2)
+        try:
+            import json as _json
+            from smbs_core.geometry_backend.io.clamp_validator import (
+                validate_config_dict, ClampValidatorError,
+            )
+            data = _json.loads(clamps_file.read_text(encoding="utf-8"))
+            clamps_config_obj = validate_config_dict(data)
+        except (ClampValidatorError, ValueError, TypeError) as e:
+            print(f"Error: invalid clamps config {clamps_file}: {e}", file=sys.stderr)
+            sys.exit(2)
+        print(
+            f"Clamps config loaded from {clamps_file} (validated, not enforced — enforcement is requirement 4)",
+            file=sys.stderr,
+        )
 
     id_given = (args.punch_id is not None or args.die_id is not None)
     if id_given:
@@ -96,6 +121,13 @@ def main():
             sys.exit(2)
     else:
         machine_config = None
+
+    if clamps_config_obj is not None:
+        if machine_config is None:
+            machine_config = {}
+        else:
+            machine_config = dict(machine_config)
+        machine_config["clamps_config"] = clamps_config_obj
 
     try:
         coordinator = Coordinator()
