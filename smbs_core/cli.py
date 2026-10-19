@@ -48,6 +48,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--clamps-config", default=None,
         help="Path to clamps config JSON (validated, not enforced until requirement 4). See docs/ROADMAP.md §11 Q2."
     )
+    parser.add_argument(
+        "--tooling-set", default=None,
+        help="Named ToolingSet from library (<library>/sets/<id>.json). "
+             "Combines punch_id + die_id + clamp_positions_mm. "
+             "Mutually exclusive with --punch-id/--die-id and --clamps-config."
+    )
     parser.add_argument("--algorithm", default="astar", choices=["astar", "dfs"], help="Planning algorithm")
     parser.add_argument("--output", default="sequence.json", help="Path to write output sequence JSON")
     parser.add_argument("--budget", type=int, default=5000, help="Node exploration limit budget")
@@ -72,6 +78,29 @@ def main():
 
     part_id = args.part_id or model_file.stem
 
+    tooling_set_id = args.tooling_set
+    if tooling_set_id is not None:
+        # Mutual exclusion: tooling_set replaces punch_id/die_id and clamps-config
+        if args.punch_id is not None or args.die_id is not None:
+            print(
+                "Error: --tooling-set cannot be combined with --punch-id/--die-id",
+                file=sys.stderr,
+            )
+            sys.exit(2)
+        if args.clamps_config is not None:
+            print(
+                "Error: --tooling-set cannot be combined with --clamps-config "
+                "(set already contains clamp_positions_mm)",
+                file=sys.stderr,
+            )
+            sys.exit(2)
+        if args.tooling_config is not None:
+            print(
+                "Error: --tooling-set cannot be combined with --tooling-config",
+                file=sys.stderr,
+            )
+            sys.exit(2)
+
     clamps_config_obj = None
     if args.clamps_config:
         clamps_file = Path(args.clamps_config)
@@ -93,14 +122,9 @@ def main():
             file=sys.stderr,
         )
 
-    id_given = (args.punch_id is not None or args.die_id is not None)
-    if id_given:
-        if args.punch_id is None or args.die_id is None:
-            print("Error: --punch-id and --die-id must be provided together", file=sys.stderr)
-            sys.exit(2)
-        if args.tooling_config:
-            print("Error: --punch-id/--die-id cannot be combined with --tooling-config", file=sys.stderr)
-            sys.exit(2)
+    # Priority: --tooling-set > (--punch-id + --die-id) > --tooling-config > None
+    if tooling_set_id is not None:
+        # Default library path for tooling_set (same logic as S.22g for ids)
         if args.library_path:
             lib_path = Path(args.library_path)
         else:
@@ -109,18 +133,38 @@ def main():
             print(f"Error: library path not found: {lib_path}", file=sys.stderr)
             sys.exit(2)
         machine_config = {
-            "punch_id": args.punch_id,
-            "die_id": args.die_id,
+            "tooling_set": tooling_set_id,
             "library_path": str(lib_path),
         }
-    elif args.tooling_config:
-        try:
-            machine_config = json.loads(Path(args.tooling_config).read_text())
-        except Exception as e:
-            print(f"Error reading tooling configuration: {e}", file=sys.stderr)
-            sys.exit(2)
     else:
-        machine_config = None
+        id_given = (args.punch_id is not None or args.die_id is not None)
+        if id_given:
+            if args.punch_id is None or args.die_id is None:
+                print("Error: --punch-id and --die-id must be provided together", file=sys.stderr)
+                sys.exit(2)
+            if args.tooling_config:
+                print("Error: --punch-id/--die-id cannot be combined with --tooling-config", file=sys.stderr)
+                sys.exit(2)
+            if args.library_path:
+                lib_path = Path(args.library_path)
+            else:
+                lib_path = Path(__file__).resolve().parent.parent / "toollibrary"
+            if not lib_path.is_dir():
+                print(f"Error: library path not found: {lib_path}", file=sys.stderr)
+                sys.exit(2)
+            machine_config = {
+                "punch_id": args.punch_id,
+                "die_id": args.die_id,
+                "library_path": str(lib_path),
+            }
+        elif args.tooling_config:
+            try:
+                machine_config = json.loads(Path(args.tooling_config).read_text())
+            except Exception as e:
+                print(f"Error reading tooling configuration: {e}", file=sys.stderr)
+                sys.exit(2)
+        else:
+            machine_config = None
 
     if clamps_config_obj is not None:
         if machine_config is None:
@@ -128,6 +172,13 @@ def main():
         else:
             machine_config = dict(machine_config)
         machine_config["clamps_config"] = clamps_config_obj
+
+    if tooling_set_id is not None:
+        print(
+            f"Tooling set '{tooling_set_id}' will be resolved by Coordinator "
+            f"(substitution/validation of punch chain not applied — requirement 4)",
+            file=sys.stderr,
+        )
 
     try:
         coordinator = Coordinator()
