@@ -1,5 +1,9 @@
 # SMBS Core - Engineering Implementation Progress
 
+> **Project status:** advanced prototype with several completed functional subsystems, **NOT a complete automatic planning system**.
+> **Open blockers:** KL-12 (per-panel kinematics) and KL-8 (tooling collision) — see Known Limitations.
+> **Requirement 4.1 (clamp constraints) — validator only, NOT enforced in planning.**
+
 **Status (HEAD `6a507f6`):** Stage 1/2/3/4 functionally complete. 350 tests, 5 failures (all KL-8), 0 errors, 3 expectedFailures (KL-7/KL-8). Stage 4 adds headless viewer + offscreen PNG renderer (Layer 5); geometry is `PREVIEW_ONLY` pending KL-12 fix (S.13b). Ready for production use where tooling model matches; `NO_SOLUTION` + honest diagnostics otherwise. See `Known Limitations` below.
 
 ## Project Stages
@@ -132,7 +136,14 @@ Summary: MVP (requirement 1 — bend sequence numbers on flat pattern) can start
 
 **Commits:** S.24a-schema, S.24a-code, S.24a-tests, S.24a-docs, S.24b-code, S.24b-tests, S.24c-pre, S.24c-code, S.24c-tests (см. git log).
 
-**Stage 7 progress (2026-10-19):** S.25a complete — `ToolingSet` model (`tooling_set.py`), schema (`tooling_set.schema.json`), `ToolingLibrary.add_set/get_set/list_sets/has_set/remove_set`. Baseline 449 → 475 (+26 tests). S.25b (CLI + Coordinator integration) pending.
+**Stage 7 COMPLETE (2026-10-19):** Requirement 3.1 — Tooling Sets.
+- `ToolingSet` model + JSON schema (`smbs_core/contracts/schemas/tooling_set.schema.json`, `smbs_core/geometry_backend/io/tooling_set.py`)
+- CRUD in `ToolingLibrary`: `add_set/get_set/list_sets/has_set/remove_set`
+- Kind validation in `add_set` (punch_id → kind=punch, die_id → kind=die)
+- CLI `--tooling-set <id>` (mutually exclusive with `--punch-id/--die-id/--clamps-config/--tooling-config`)
+- Coordinator resolves set → punch_path/die_path + ClampConfig from `clamp_positions_mm`
+- Honest notice: substitution/validation not applied (requirement 4)
+- Baseline: **485 / 5F / 0E / 3xF** (KL-8 open)
 
 
 ## Known Limitations
@@ -180,6 +191,9 @@ Summary: MVP (requirement 1 — bend sequence numbers on flat pattern) can start
 
 - **KL-5 / KL-6 / KL-7** — documented in the original project context (pre-S.1). Not reproduced here to avoid drift. KL-9 references KL-7. None of these block Stage 2/3 close.
 
+
+
+**Branch protection:** NOT enabled on GitHub (organizational risk per audit 2026-10-19). Action item: enable in GitHub UI (Settings → Branches → stage-1-fix-correctness → Require status checks + Require PR reviews). Not blocking code.
 ## Historical: Phases 0-11 (pre-refactor, completed before Stage track)
 
 | Phase | Description | Status | Verification |

@@ -1,3 +1,5 @@
+# HISTORICAL, NOT CURRENT — snapshot from 2026-10-10 (233 tests / 18F / 17E). Do NOT use as baseline. Current baseline documented in docs/PROGRESS.md.
+
 test_ambiguous_two_hubs_returns_invalid (test_ambiguous_tree_returns_unknown.TestAmbiguousTreeReturnsUnknown.test_ambiguous_two_hubs_returns_invalid) ... ok
 test_disconnected_graph_returns_invalid (test_ambiguous_tree_returns_unknown.TestAmbiguousTreeReturnsUnknown.test_disconnected_graph_returns_invalid) ... ok
 test_non_tree_cycle_returns_invalid (test_ambiguous_tree_returns_unknown.TestAmbiguousTreeReturnsUnknown.test_non_tree_cycle_returns_invalid) ... ok

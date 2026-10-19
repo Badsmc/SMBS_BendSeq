@@ -19,6 +19,8 @@
 - Возможно `tooling_set.schema.json` / `tooling_station.schema.json` — уточнить упаковку в рамках #7.
 
 ### Что зависит от KL-8 / KL-12
+
+> **Revised order (2026-10-19, per external audit):** Stage 8 = KL-12 → KL-8 → requirement 4 → requirement 2 (animation). This deviates from the original §8 order below (requirement 4 → animation → KL-12/KL-8 backlog). Rationale: KL-12 blocks physical correctness of all intermediate configurations; requirement 4 without working per-panel kinematics is plumbing-only. See docs/PROGRESS.md for audit summary.
 - **Требование 2** — требует KL-12 fix (честная per-panel кинематика для анимации).
 - **Требование 4** — выигрывает от KL-8 fix (collision-aware selection); базовый геометрический подбор независим.
 - Требования 1, 3, 3.1, 4.1 — от KL-8/KL-12 не блокируются.
