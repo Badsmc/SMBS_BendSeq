@@ -35,6 +35,12 @@ from smbs_core.geometry_backend.io.clamp_validator import (
     load_clamp_config,
     save_clamp_config,
 )
+from smbs_core.geometry_backend.io.tooling_set import (
+    ToolingSet,
+    ToolingSetError,
+    load_set_file,
+    save_set_file,
+)
 
 
 class ToolingLibraryError(Exception):
@@ -236,4 +242,101 @@ class ToolingLibrary:
         default = ClampConfig.from_defaults(positions_mm=())
         self.set_clamp_config(default)
         return default
+
+    def _sets_dir(self) -> Path:
+        """Return <library_root>/sets/. Does NOT create the directory."""
+        return self.library_root / "sets"
+
+    def _set_path(self, set_id: str) -> Path:
+        """Return <library_root>/sets/<set_id>.json. Path-traversal-safe check."""
+        if not set_id or not isinstance(set_id, str):
+            raise ToolingLibraryError(f"Invalid set_id: {set_id!r}")
+        if Path(set_id).name != set_id or "/" in set_id or "\\" in set_id or ".." in set_id:
+            raise ToolingLibraryError(
+                f"Invalid set_id '{set_id}': contains path separators or traversal characters"
+            )
+        return self._sets_dir() / f"{set_id}.json"
+
+    def add_set(self, set_obj: ToolingSet, check_refs: bool = True) -> None:
+        """
+        Save ToolingSet to <library>/sets/<set_id>.json.
+
+        - If set already exists -> ToolingLibraryError (no overwrite; use remove_set + add_set to update).
+        - If check_refs=True: verify punch_id and die_id exist in library via has_tool().
+          Missing reference -> ToolingLibraryError.
+        - Creates sets/ subdirectory lazily.
+        - Atomic write via save_set_file.
+
+        Raises ToolingLibraryError on validation, duplicate, missing refs, or write error.
+        """
+        set_path = self._set_path(set_obj.set_id)
+
+        if set_path.exists():
+            raise ToolingLibraryError(
+                f"ToolingSet '{set_obj.set_id}' already exists. Remove it first or use a different set_id."
+            )
+
+        if check_refs:
+            if not self.has_tool(set_obj.punch_id):
+                raise ToolingLibraryError(
+                    f"ToolingSet '{set_obj.set_id}' references punch_id '{set_obj.punch_id}' "
+                    f"which is not present in library at {self.library_root}"
+                )
+            if not self.has_tool(set_obj.die_id):
+                raise ToolingLibraryError(
+                    f"ToolingSet '{set_obj.set_id}' references die_id '{set_obj.die_id}' "
+                    f"which is not present in library at {self.library_root}"
+                )
+
+        try:
+            save_set_file(set_path, set_obj)
+        except ToolingSetError as e:
+            raise ToolingLibraryError(f"Failed to save ToolingSet '{set_obj.set_id}': {e}") from e
+
+    def get_set(self, set_id: str) -> ToolingSet:
+        """
+        Load ToolingSet by set_id. Raises ToolingLibraryError if not found or malformed.
+        """
+        set_path = self._set_path(set_id)
+        if not set_path.exists():
+            raise ToolingLibraryError(f"ToolingSet '{set_id}' not found at {set_path}")
+        try:
+            return load_set_file(set_path)
+        except ToolingSetError as e:
+            raise ToolingLibraryError(f"Failed to load ToolingSet '{set_id}': {e}") from e
+
+    def list_sets(self) -> tuple[str, ...]:
+        """
+        Return sorted tuple of set_ids present in <library>/sets/.
+        Missing sets/ directory -> empty tuple (not an error).
+        """
+        sets_dir = self._sets_dir()
+        if not sets_dir.exists() or not sets_dir.is_dir():
+            return ()
+        ids = []
+        for item in sorted(sets_dir.iterdir()):
+            if item.is_file() and item.suffix == ".json" and not item.name.endswith(".json.tmp"):
+                ids.append(item.stem)
+        return tuple(sorted(ids))
+
+    def has_set(self, set_id: str) -> bool:
+        """True if <library>/sets/<set_id>.json exists."""
+        try:
+            return self._set_path(set_id).exists()
+        except ToolingLibraryError:
+            return False
+
+    def remove_set(self, set_id: str) -> None:
+        """
+        Remove <library>/sets/<set_id>.json.
+        Raises ToolingLibraryError if set_id invalid or set not found.
+        """
+        set_path = self._set_path(set_id)
+        if not set_path.exists():
+            raise ToolingLibraryError(f"ToolingSet '{set_id}' not found at {set_path}")
+        try:
+            set_path.unlink()
+        except Exception as e:
+            raise ToolingLibraryError(f"Failed to delete ToolingSet '{set_id}': {e}") from e
+
 
