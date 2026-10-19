@@ -88,48 +88,118 @@ class Coordinator:
             # This is intentional plumbing for future requirement 4.
             clamps_config_obj = machine_config.get("clamps_config")
 
-            punch_id_val = machine_config.get("punch_id")
-            die_id_val = machine_config.get("die_id")
-            lib_path_val = machine_config.get("library_path")
-
-            if punch_id_val is not None or die_id_val is not None:
-                if punch_id_val is None or die_id_val is None:
-                    raise ValueError(
-                        "machine_config: punch_id and die_id must be provided together"
-                    )
+            # === S.25b: tooling_set resolution (highest priority) ===
+            tooling_set_id = machine_config.get("tooling_set")
+            if tooling_set_id is not None:
+                lib_path_val = machine_config.get("library_path")
                 if lib_path_val is None:
                     raise ValueError(
-                        "machine_config: library_path required when punch_id/die_id are given"
+                        "machine_config: library_path required when tooling_set is given"
                     )
-                if "punch_path" in machine_config or "die_path" in machine_config:
+                if machine_config.get("punch_id") is not None or machine_config.get("die_id") is not None:
                     raise ValueError(
-                        "machine_config: cannot mix punch_id/die_id with punch_path/die_path"
+                        "machine_config: cannot mix tooling_set with punch_id/die_id"
+                    )
+                if machine_config.get("clamps_config") is not None:
+                    raise ValueError(
+                        "machine_config: cannot mix tooling_set with clamps_config "
+                        "(set already contains clamp_positions_mm)"
                     )
 
-                from smbs_core.geometry_backend.io.tooling_library import ToolingLibrary, ToolingLibraryError
+                from smbs_core.geometry_backend.io.tooling_library import (
+                    ToolingLibrary, ToolingLibraryError,
+                )
                 from smbs_core.geometry_backend.io.tooling_catalog import ToolingCatalogError
                 try:
                     lib = ToolingLibrary(Path(lib_path_val))
-                    punch_desc = lib.get_tool(punch_id_val)
-                    die_desc = lib.get_tool(die_id_val)
+                    tooling_set = lib.get_set(tooling_set_id)
                 except (ToolingLibraryError, ToolingCatalogError) as e:
-                    raise ValueError(f"Failed to resolve tooling from library: {e}") from e
+                    raise ValueError(
+                        f"Failed to resolve tooling_set '{tooling_set_id}' from library: {e}"
+                    ) from e
+
+                # Resolve punch/die via library
+                try:
+                    punch_desc = lib.get_tool(tooling_set.punch_id)
+                    die_desc = lib.get_tool(tooling_set.die_id)
+                except ToolingCatalogError as e:
+                    raise ValueError(
+                        f"tooling_set '{tooling_set_id}' references missing tool: {e}"
+                    ) from e
 
                 if punch_desc.kind != "punch":
                     raise ValueError(
-                        f"punch_id '{punch_id_val}' resolved to kind '{punch_desc.kind}', expected 'punch'"
+                        f"tooling_set '{tooling_set_id}' punch_id '{tooling_set.punch_id}' "
+                        f"resolved to kind '{punch_desc.kind}', expected 'punch'"
                     )
                 if die_desc.kind != "die":
                     raise ValueError(
-                        f"die_id '{die_id_val}' resolved to kind '{die_desc.kind}', expected 'die'"
+                        f"tooling_set '{tooling_set_id}' die_id '{tooling_set.die_id}' "
+                        f"resolved to kind '{die_desc.kind}', expected 'die'"
                     )
 
+                # Build ClampConfig from tooling_set.clamp_positions_mm (if non-empty)
+                # Otherwise use default (positions will be empty — caller must provide).
+                # This is plumbing: ClampConfig is stored but not enforced yet (requirement 4).
+                if tooling_set.clamp_positions_mm:
+                    from smbs_core.geometry_backend.io.clamp_validator import ClampConfig
+                    clamps_config_from_set = ClampConfig.from_defaults(tooling_set.clamp_positions_mm)
+                else:
+                    clamps_config_from_set = None
+
+                # Rewrite machine_config to path-based (drop tooling_set keys)
                 machine_config = dict(machine_config)
                 machine_config["punch_path"] = str(punch_desc.fcstd_path)
                 machine_config["die_path"] = str(die_desc.fcstd_path)
-                machine_config.pop("punch_id", None)
-                machine_config.pop("die_id", None)
+                if clamps_config_from_set is not None:
+                    machine_config["clamps_config"] = clamps_config_from_set
+                machine_config.pop("tooling_set", None)
                 machine_config.pop("library_path", None)
+
+            # === S.22g: id-based resolution ===
+            else:
+                punch_id_val = machine_config.get("punch_id")
+                die_id_val = machine_config.get("die_id")
+                lib_path_val = machine_config.get("library_path")
+
+                if punch_id_val is not None or die_id_val is not None:
+                    if punch_id_val is None or die_id_val is None:
+                        raise ValueError(
+                            "machine_config: punch_id and die_id must be provided together"
+                        )
+                    if lib_path_val is None:
+                        raise ValueError(
+                            "machine_config: library_path required when punch_id/die_id are given"
+                        )
+                    if "punch_path" in machine_config or "die_path" in machine_config:
+                        raise ValueError(
+                            "machine_config: cannot mix punch_id/die_id with punch_path/die_path"
+                        )
+
+                    from smbs_core.geometry_backend.io.tooling_library import ToolingLibrary, ToolingLibraryError
+                    from smbs_core.geometry_backend.io.tooling_catalog import ToolingCatalogError
+                    try:
+                        lib = ToolingLibrary(Path(lib_path_val))
+                        punch_desc = lib.get_tool(punch_id_val)
+                        die_desc = lib.get_tool(die_id_val)
+                    except (ToolingLibraryError, ToolingCatalogError) as e:
+                        raise ValueError(f"Failed to resolve tooling from library: {e}") from e
+
+                    if punch_desc.kind != "punch":
+                        raise ValueError(
+                            f"punch_id '{punch_id_val}' resolved to kind '{punch_desc.kind}', expected 'punch'"
+                        )
+                    if die_desc.kind != "die":
+                        raise ValueError(
+                            f"die_id '{die_id_val}' resolved to kind '{die_desc.kind}', expected 'die'"
+                        )
+
+                    machine_config = dict(machine_config)
+                    machine_config["punch_path"] = str(punch_desc.fcstd_path)
+                    machine_config["die_path"] = str(die_desc.fcstd_path)
+                    machine_config.pop("punch_id", None)
+                    machine_config.pop("die_id", None)
+                    machine_config.pop("library_path", None)
 
         run_id = run_id or f"run_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
         run_dir = self.runs_root / run_id
