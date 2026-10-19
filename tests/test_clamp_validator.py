@@ -10,6 +10,7 @@ from smbs_core.geometry_backend.io.clamp_validator import (
     validate_punch_chain,
     load_clamp_config,
     save_clamp_config,
+    validate_config_dict,
     DEFAULT_CLAMP_WIDTH_MM,
     DEFAULT_GAP_BETWEEN_MM,
 )
@@ -178,6 +179,17 @@ class TestClampValidator(unittest.TestCase):
         self.assertTrue(res.valid)
         self.assertEqual(len(res.errors), 0)
 
+    def test_validate_config_dict_public_api(self):
+        """validate_config_dict validates and returns ClampConfig."""
+        data = ClampConfig.from_defaults((75.0,)).to_dict()
+        cfg = validate_config_dict(data)
+        self.assertEqual(cfg, ClampConfig.from_defaults((75.0,)))
+
+        # Invalid data raises
+        with self.assertRaises(ClampValidatorError):
+            validate_config_dict({"schema_version": "1.0"})  # missing clamps
+
 
 if __name__ == "__main__":
     unittest.main()
+
