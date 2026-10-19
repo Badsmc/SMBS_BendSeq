@@ -4,7 +4,7 @@
 > **Open blockers:** KL-12 (per-panel kinematics) and KL-8 (tooling collision) — see Known Limitations.
 > **Requirement 4.1 (clamp constraints) — validator only, NOT enforced in planning.**
 
-**Status (HEAD `6a507f6`):** Stage 1/2/3/4 functionally complete. 350 tests, 5 failures (all KL-8), 0 errors, 3 expectedFailures (KL-7/KL-8). Stage 4 adds headless viewer + offscreen PNG renderer (Layer 5); geometry is `PREVIEW_ONLY` pending KL-12 fix (S.13b). Ready for production use where tooling model matches; `NO_SOLUTION` + honest diagnostics otherwise. See `Known Limitations` below.
+**Status (HEAD `461bae9`):** Stage 7 COMPLETE. 485 tests / 5 failures (all KL-8) / 0 errors / 3 expectedFailures. Requirement 3.1 (Tooling Sets) closed. Next: KL-12 (per-panel kinematics) per revised order §8.
 
 ## Project Stages
 
@@ -194,6 +194,7 @@ Summary: MVP (requirement 1 — bend sequence numbers on flat pattern) can start
 
 
 **Branch protection:** NOT enabled on GitHub (organizational risk per audit 2026-10-19). Action item: enable in GitHub UI (Settings → Branches → stage-1-fix-correctness → Require status checks + Require PR reviews). Not blocking code.
+
 ## Historical: Phases 0-11 (pre-refactor, completed before Stage track)
 
 | Phase | Description | Status | Verification |
