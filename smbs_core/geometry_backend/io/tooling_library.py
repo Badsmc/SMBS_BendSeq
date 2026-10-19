@@ -29,6 +29,12 @@ from smbs_core.geometry_backend.io.tooling_catalog import (
     KIND_DIE,
     VALID_KINDS,
 )
+from smbs_core.geometry_backend.io.clamp_validator import (
+    ClampConfig,
+    ClampValidatorError,
+    load_clamp_config,
+    save_clamp_config,
+)
 
 
 class ToolingLibraryError(Exception):
@@ -186,3 +192,48 @@ class ToolingLibrary:
             if "Ambiguous tool_id" in err_msg:
                 return True
             return False
+
+    def get_clamp_config(self) -> ClampConfig:
+        """
+        Load <library_root>/config.json via load_clamp_config.
+
+        If config.json exists -> return loaded config (validated by schema).
+        If config.json missing -> return DEFAULT config with empty positions
+            (ClampConfig.from_defaults(positions_mm=())).
+
+        Does NOT auto-create config.json — use ensure_clamp_config() for that.
+
+        Raises ClampValidatorError on malformed JSON, invalid schema, or invalid fields.
+        """
+        return load_clamp_config(self.library_root)
+
+    def set_clamp_config(self, config: ClampConfig) -> None:
+        """
+        Save config to <library_root>/config.json via save_clamp_config.
+
+        Atomic write (already handled inside save_clamp_config).
+        Overwrites existing file.
+
+        Raises ClampValidatorError on validation failure or write error.
+        """
+        save_clamp_config(self.library_root, config)
+
+    def ensure_clamp_config(self) -> ClampConfig:
+        """
+        Ensure <library_root>/config.json exists.
+
+        If exists -> return loaded config (same as get_clamp_config()).
+        If missing -> create DEFAULT config (empty positions) via set_clamp_config,
+                     then return it.
+
+        Idempotent: repeated calls do not overwrite existing config.
+
+        Raises ClampValidatorError on malformed existing config or write error.
+        """
+        config_file = self.library_root / "config.json"
+        if config_file.exists():
+            return self.get_clamp_config()
+        default = ClampConfig.from_defaults(positions_mm=())
+        self.set_clamp_config(default)
+        return default
+
