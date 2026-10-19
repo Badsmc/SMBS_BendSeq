@@ -99,6 +99,40 @@ Summary: MVP (requirement 1 — bend sequence numbers on flat pattern) can start
 - **Discover:** 415 tests / **5 failures** (all KL-8) / **0 errors** / **3 expectedFailures**
 
 
+## Stage 6 — Requirement 4.1 (Clamp constraints) — COMPLETE
+
+**Requirement 4.1 (roadmap):** пользователь задаёт длину лапок, промежутки, количество. Программа проверяет, что пуансон надёжно удерживается (стыки на лапках, ≥2 лапки под пуансоном, свес ≤30%).
+
+**Что реализовано (S.24a–S.24c):**
+
+| Модуль | Ответственность |
+|---|---|
+| `smbs_core/contracts/schemas/tooling_library_config.schema.json` | Контракт `<library>/config.json` (clamps + punch_chain + bend_line_tolerance) |
+| `smbs_core/geometry_backend/io/clamp_validator.py` | `ClampConfig`, `PunchSegment`, `validate_punch_chain` (5 правил Q2), `load/save_clamp_config`, `validate_config_dict` |
+| `ToolingLibrary.get_clamp_config / set_clamp_config / ensure_clamp_config` | Чтение/запись/гарантия `<library>/config.json` |
+| `smbs-cli --clamps-config PATH` | CLI валидация JSON через `validate_config_dict` + передача в `Coordinator.start_run(machine_config["clamps_config"])` |
+
+**Правила валидации (from ROADMAP §11 Q2):**
+1. ≥ 2 блока под пуансоном (по количеству)
+2. Все стыки пуансонов внутри зон `[center - W/2, center + W/2]` (tolerance 0.1mm)
+3. Зазоры между пуансонами запрещены (если `no_gaps_between_punches=True`)
+4. Свес крайних пуансонов ≤ 30% от их длины (настраиваемый ratio)
+5. Длина пуансона = длина линии гиба − 10..15мм (правило подбора, requirement 4)
+
+**Honest plumbing:** в `run_pipeline.py` `machine_config["clamps_config"]` принимается, но **не используется** в planning. Enforcement (validate_punch_chain при каждом bend, отклонение invalid) — **requirement 4 (Phase E, optimal tooling selection)**. S.24c явно логирует в stderr: `"validated, not enforced — enforcement is requirement 4"`.
+
+**Deferred (backlog):**
+- UI-редактор раскладки лапок в FCMacro (JSON-файл достаточно для MVP).
+- Auto-repositioning clamps при отсутствии валидной конфигурации (requirement 4).
+- Persistence config в артефактах run-директории (когда появится punch chain per bend, requirement 4).
+
+**Test metrics (post Stage 6):**
+- **Discover:** 449 tests / 5 failures (KL-8) / 0 errors / 3 expectedFailures
+- Stage 6 добавил: +14 тестов (13 clamp_validator + 1 validate_config_dict + 8 tooling_library_clamps + 5 cli_clamps_config = 27... поправлю: 13+1=14, +8=22, +5=27, но baseline было 422 → 435 (S.24a) → 443 (S.24b) → 444 (S.24c-pre) → 449 (S.24c). Итого +27 тестов от 422.)
+
+**Commits:** S.24a-schema, S.24a-code, S.24a-tests, S.24a-docs, S.24b-code, S.24b-tests, S.24c-pre, S.24c-code, S.24c-tests (см. git log).
+
+
 ## Known Limitations
 
 **Template:** each entry uses **Symptom / Cause / Impact / Follow-up**. Priority: P1 (production blocker), P2 (workaround exists), P3 (cosmetic).
