@@ -475,6 +475,24 @@ Original roadmap: 4–6 sessions / 14–28 commits. **Coordinator revision: ~5 s
 - Auto-detection of datums (sidecar remains manual)
 - Import wizard beyond basic role resolution
 
+### Phase D — Requirement 4.1 (Clamp constraints) — COMPLETE (2026-10-19)
+
+**Status:** DONE. All sub-steps (S.24a–S.24c) committed and pushed. Requirement 4.1 from roadmap §3 is functionally complete.
+
+**Delivered:**
+- `tooling_library_config.schema.json` — контракт для `<library>/config.json` (#7 approved, S.24a)
+- `clamp_validator.py` — `ClampConfig`, `PunchSegment`, `validate_punch_chain` (5 Q2 rules), `load/save_clamp_config`, `validate_config_dict`
+- `ToolingLibrary.get_clamp_config / set_clamp_config / ensure_clamp_config`
+- `smbs-cli --clamps-config PATH` + `Coordinator.start_run(machine_config["clamps_config"])` plumbing
+- Baseline: 449 tests / 5F / 0E / 3xF (+27 tests from Stage 6)
+
+**Deferred (backlog):**
+- UI-редактор раскладки лапок в FCMacro (JSON-файл достаточно для MVP).
+- Auto-repositioning clamps (requirement 4).
+- Enforcement of validate_punch_chain during planning (requirement 4, Phase E).
+
+**Next:** requirement 3.1 (Tooling sets) per roadmap §8 order (3 → 4.1 → 3.1 → 4 → 2 → 5). KL-12 / KL-8 remain in backlog.
+
 ### Q2 — Clamp constraint spec (RESOLVED 2026-10-18)
 
 **Status:** Spec accepted, implementation deferred to requirement 4.1 start.
