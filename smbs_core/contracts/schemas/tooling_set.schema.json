@@ -1,0 +1,21 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "SMBS Tooling Set",
+  "description": "Named set of punch + die + clamp positions for a specific bending task (Requirement 3.1).",
+  "type": "object",
+  "required": ["schema_version", "set_id", "punch_id", "die_id", "clamp_positions_mm"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {"type": "string", "enum": ["1.0"]},
+    "set_id": {"type": "string", "minLength": 1, "maxLength": 128},
+    "description": {"type": "string", "maxLength": 1024},
+    "punch_id": {"type": "string", "minLength": 1},
+    "die_id": {"type": "string", "minLength": 1},
+    "clamp_positions_mm": {
+      "type": "array",
+      "items": {"type": "number"},
+      "minItems": 0
+    },
+    "metadata": {"type": "object"}
+  }
+}
