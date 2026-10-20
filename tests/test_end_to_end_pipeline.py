@@ -42,7 +42,7 @@ class TestEndToEndPipeline(unittest.TestCase):
         writer.Transfer(occ_shape, STEPControl_AsIs)
         writer.Write(str(filepath))
 
-    def test_pipeline_fixture_l(self):
+    def test_plumbing_fixture_l_no_tooling_honestly_no_solution(self):
         """Full pipeline execution on Fixture L (1 bend)."""
         l_shape = create_l_bracket_shape(angle_deg=90.0, radius=1.0, thickness=1.5, length=50.0, l1=95.5, l2=47.5)
         step_file = Path(self.temp_dir) / "fixture_l.step"
@@ -57,28 +57,52 @@ class TestEndToEndPipeline(unittest.TestCase):
 
         # Stage 1 Baseline
         self.assertEqual(res["baseline_status"], "VALID")
-        # Stage 2 Search
-        self.assertEqual(res["planning_status"], "SUCCESS")
-        # Stage 3 Independent Verification
-        self.assertEqual(res["verification_status"], "VERIFIED")
-        # Export
-        self.assertEqual(res["export_status"], "EXPORTED")
-        self.assertTrue(res["production_eligible"])
 
-        # Check files
+        # Plumbing test: no machine_config -> SIMPLIFIED synthetic tooling.
+        # Pipeline is honest: APPROACH returns UNKNOWN under PRODUCTION (invariant #1),
+        # so planning is NO_SOLUTION and export is BLOCKED. Verifier cannot certify
+        # without real tooling geometry. Real tooling physics e2e is in
+        # test_physics_e2e_with_real_tooling.py (Commit 4).
+        #
+        # This test verifies PLUMBING: pipeline completes, produces honest artifacts,
+        # does NOT falsely certify or export.
+        self.assertEqual(
+            res["planning_status"], "NO_SOLUTION",
+            f"SIMPLIFIED tooling under PRODUCTION must return NO_SOLUTION, "
+            f"got {res['planning_status']}"
+        )
+        self.assertNotEqual(
+            res["verification_status"], "VERIFIED",
+            f"Verifier must not certify SIMPLIFIED tooling (invariant #1), "
+            f"got {res['verification_status']}"
+        )
+        self.assertFalse(
+            res["production_eligible"],
+            "production_eligible must be False without real tooling (invariant #1)"
+        )
+        self.assertEqual(
+            res["export_status"], "BLOCKED",
+            f"Export must be BLOCKED without VERIFIED status (invariant #2), "
+            f"got {res['export_status']}"
+        )
+
+        # Plumbing artifacts MUST be produced even on NO_SOLUTION:
         run_dir = Path(res["run_dir"])
-        export_file = run_dir / "10_part_bendseq.json"
-        report_file = run_dir / "11_run_report.json"
-        self.assertTrue(export_file.exists())
-        self.assertTrue(report_file.exists())
+        self.assertTrue(
+            (run_dir / "07_search_result.json").exists(),
+            "search_result must be produced (plumbing)"
+        )
+        self.assertTrue(
+            (run_dir / "11_run_report.json").exists(),
+            "run_report must be produced (plumbing)"
+        )
+        # Final export MUST NOT be produced (only _candidate):
+        self.assertFalse(
+            (run_dir / "10_part_bendseq.json").exists(),
+            "final export must not be produced without VERIFIED status (invariant #2)"
+        )
 
-        # Verify export schema
-        part_bendseq = self.file_store.read_json_verified(export_file, expected_schema_name="part_bendseq")
-        self.assertEqual(len(part_bendseq["sequence"]), 1)
-        self.assertTrue(part_bendseq["sequence"][0]["bend_id"].startswith("BEND_01"))
-        self.assertEqual(part_bendseq["sequence"][0]["verification_status"], "VERIFIED")
-
-    def test_pipeline_fixture_u(self):
+    def test_plumbing_fixture_u_no_tooling_honestly_no_solution(self):
         """Full pipeline execution on Fixture U (2 bends)."""
         u_shape = create_u_bracket_shape_perfect_concentric(l1=95.5, l_mid=50.0, l2=47.5, radius=1.0, thickness=1.5, length=50.0)
         step_file = Path(self.temp_dir) / "fixture_u.step"
@@ -92,17 +116,52 @@ class TestEndToEndPipeline(unittest.TestCase):
         )
 
         self.assertEqual(res["baseline_status"], "VALID")
-        self.assertEqual(res["planning_status"], "SUCCESS")
-        self.assertEqual(res["verification_status"], "VERIFIED")
-        self.assertEqual(res["export_status"], "EXPORTED")
-        self.assertTrue(res["production_eligible"])
 
+        # Plumbing test: no machine_config -> SIMPLIFIED synthetic tooling.
+        # Pipeline is honest: APPROACH returns UNKNOWN under PRODUCTION (invariant #1),
+        # so planning is NO_SOLUTION and export is BLOCKED. Verifier cannot certify
+        # without real tooling geometry. Real tooling physics e2e is in
+        # test_physics_e2e_with_real_tooling.py (Commit 4).
+        #
+        # This test verifies PLUMBING: pipeline completes, produces honest artifacts,
+        # does NOT falsely certify or export.
+        self.assertEqual(
+            res["planning_status"], "NO_SOLUTION",
+            f"SIMPLIFIED tooling under PRODUCTION must return NO_SOLUTION, "
+            f"got {res['planning_status']}"
+        )
+        self.assertNotEqual(
+            res["verification_status"], "VERIFIED",
+            f"Verifier must not certify SIMPLIFIED tooling (invariant #1), "
+            f"got {res['verification_status']}"
+        )
+        self.assertFalse(
+            res["production_eligible"],
+            "production_eligible must be False without real tooling (invariant #1)"
+        )
+        self.assertEqual(
+            res["export_status"], "BLOCKED",
+            f"Export must be BLOCKED without VERIFIED status (invariant #2), "
+            f"got {res['export_status']}"
+        )
+
+        # Plumbing artifacts MUST be produced even on NO_SOLUTION:
         run_dir = Path(res["run_dir"])
-        export_file = run_dir / "10_part_bendseq.json"
-        part_bendseq = self.file_store.read_json_verified(export_file, expected_schema_name="part_bendseq")
-        self.assertEqual(len(part_bendseq["sequence"]), 2)
+        self.assertTrue(
+            (run_dir / "07_search_result.json").exists(),
+            "search_result must be produced (plumbing)"
+        )
+        self.assertTrue(
+            (run_dir / "11_run_report.json").exists(),
+            "run_report must be produced (plumbing)"
+        )
+        # Final export MUST NOT be produced (only _candidate):
+        self.assertFalse(
+            (run_dir / "10_part_bendseq.json").exists(),
+            "final export must not be produced without VERIFIED status (invariant #2)"
+        )
 
-    def test_pipeline_stepped_busbar_4bend(self):
+    def test_plumbing_stepped_busbar_4bend_no_tooling_honestly_no_solution(self):
         """Full pipeline execution on Stepped Busbar (4 bends)."""
         occ_shape = create_4bend_stepped_busbar(l1=40.0, l2=30.0, l3=50.0, l4=30.0, l5=40.0)
         step_file = Path(self.temp_dir) / "fixture_4bend.step"
@@ -116,15 +175,50 @@ class TestEndToEndPipeline(unittest.TestCase):
         )
 
         self.assertEqual(res["baseline_status"], "VALID")
-        self.assertEqual(res["planning_status"], "SUCCESS")
-        self.assertEqual(res["verification_status"], "VERIFIED")
-        self.assertEqual(res["export_status"], "EXPORTED")
-        self.assertTrue(res["production_eligible"])
 
+        # Plumbing test: no machine_config -> SIMPLIFIED synthetic tooling.
+        # Pipeline is honest: APPROACH returns UNKNOWN under PRODUCTION (invariant #1),
+        # so planning is NO_SOLUTION and export is BLOCKED. Verifier cannot certify
+        # without real tooling geometry. Real tooling physics e2e is in
+        # test_physics_e2e_with_real_tooling.py (Commit 4).
+        #
+        # This test verifies PLUMBING: pipeline completes, produces honest artifacts,
+        # does NOT falsely certify or export.
+        self.assertEqual(
+            res["planning_status"], "NO_SOLUTION",
+            f"SIMPLIFIED tooling under PRODUCTION must return NO_SOLUTION, "
+            f"got {res['planning_status']}"
+        )
+        self.assertNotEqual(
+            res["verification_status"], "VERIFIED",
+            f"Verifier must not certify SIMPLIFIED tooling (invariant #1), "
+            f"got {res['verification_status']}"
+        )
+        self.assertFalse(
+            res["production_eligible"],
+            "production_eligible must be False without real tooling (invariant #1)"
+        )
+        self.assertEqual(
+            res["export_status"], "BLOCKED",
+            f"Export must be BLOCKED without VERIFIED status (invariant #2), "
+            f"got {res['export_status']}"
+        )
+
+        # Plumbing artifacts MUST be produced even on NO_SOLUTION:
         run_dir = Path(res["run_dir"])
-        export_file = run_dir / "10_part_bendseq.json"
-        part_bendseq = self.file_store.read_json_verified(export_file, expected_schema_name="part_bendseq")
-        self.assertEqual(len(part_bendseq["sequence"]), 4)
+        self.assertTrue(
+            (run_dir / "07_search_result.json").exists(),
+            "search_result must be produced (plumbing)"
+        )
+        self.assertTrue(
+            (run_dir / "11_run_report.json").exists(),
+            "run_report must be produced (plumbing)"
+        )
+        # Final export MUST NOT be produced (only _candidate):
+        self.assertFalse(
+            (run_dir / "10_part_bendseq.json").exists(),
+            "final export must not be produced without VERIFIED status (invariant #2)"
+        )
 
 
 if __name__ == '__main__':
