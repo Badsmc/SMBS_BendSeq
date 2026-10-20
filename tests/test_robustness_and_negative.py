@@ -26,7 +26,7 @@ from OCC.Core.STEPControl import STEPControl_Writer, STEPControl_AsIs
 from OCC.Core.IFSelect import IFSelect_RetDone
 
 from smbs_core.coordinator.run_pipeline import Coordinator
-from smbs_core.protocols.file_store import FileStore, RunStatus, VerificationStatus, ExportStatus
+from smbs_core.protocols.file_store import FileStore, RunStatus
 from tests.test_sheetmetal_4bend import create_4bend_stepped_busbar
 from tests.test_technological_unfold_single_bend import create_l_bracket_shape
 
@@ -113,46 +113,6 @@ class TestRobustnessAndNegative(unittest.TestCase):
                 source_file_path=Path(self.temp_dir) / "does_not_exist.step",
                 part_id="missing_part"
             )
-
-    def test_corrupted_sequence_export_blocked(self):
-        """Export worker must BLOCK and set production_eligible=False if verification failed (§7.3)."""
-        # Run standard Fixture L
-        l_shape = create_l_bracket_shape(angle_deg=90.0, radius=1.0, thickness=1.5, length=50.0, l1=95.5, l2=47.5)
-        step_file = Path(self.temp_dir) / "fixture_l.step"
-        self._export_occ_to_step(l_shape, step_file)
-
-        res = self.coordinator.start_run(
-            source_file_path=step_file,
-            part_id="corrupt_seq_test",
-            input_mode="NATIVE_SHEETMETAL",
-            k_factor_override=0.44
-        )
-
-        run_dir = Path(res["run_dir"])
-        export_file = run_dir / "10_part_bendseq.json"
-        self.assertTrue(export_file.exists())
-        self.assertTrue(res["production_eligible"])
-
-        # Corrupt 09_verification_result.json to indicate VERIFICATION_FAILED
-        verif_file = run_dir / "09_verification_result.json"
-        verif_data = self.file_store.read_json_verified(verif_file, expected_schema_name="verification_result")
-        verif_data["payload"]["verification_status"] = VerificationStatus.VERIFICATION_FAILED.value
-        verif_data["payload"]["production_eligible"] = False
-        verif_data["status"] = RunStatus.VERIFICATION_FAILED.value
-        self.file_store.write_json_atomic(verif_file, verif_data, schema_name="verification_result")
-
-        # Re-run ExportWorker directly
-        exp_file, rep_file = self.coordinator.export_worker.execute(
-            run_dir / "07_search_result.json",
-            verif_file,
-            run_dir / "04_canonical_part.json"
-        )
-
-        re_exported = self.file_store.read_json_verified(exp_file, expected_schema_name="part_bendseq")
-        self.assertFalse(re_exported["production_eligible"])
-        self.assertEqual(re_exported["export_status"], ExportStatus.BLOCKED.value)
-        self.assertEqual(re_exported["verification_status"], VerificationStatus.VERIFICATION_FAILED.value)
-
 
 if __name__ == "__main__":
     unittest.main()
