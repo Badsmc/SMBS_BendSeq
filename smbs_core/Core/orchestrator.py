@@ -24,6 +24,8 @@ from smbs_core.Physics.validator import PhysicalValidator
 from smbs_core.Solvers.dfs_backward import DFSBackwardPlanner
 from smbs_core.Core.bend_graph import BendGraph, BendRecord, IncompleteBendError
 from smbs_core.Core.panel_graph import PanelGraph
+from smbs_core.geometry_backend.panel_face_resolver import resolve_panel_faces
+from OCC.Core.TopoDS import TopoDS_Shape
 from smbs_core.Core.fold_state import FoldState
 from smbs_core.models.tooling import AlignmentStatus, GeometryStatus
 
@@ -124,6 +126,38 @@ class BendSeqOrchestrator:
             )
             bg.add_bend(rec)
             pg.add_bend_connection(b_id, rec.parent_panel_id, rec.child_panel_id)
+
+        # KL-8b: populate face_indices from B-Rep.
+        # Preconditions (both required — semantic, not fallbacks):
+        #   (a) target_shape is a real OCC B-Rep shape — mock/synthetic shapes
+        #       in unit tests have no B-Rep faces to resolve.
+        #   (b) features contains "panels" metadata — required to fit planes
+        #       (normal + centroid per panel). Mock FeatureExtractor in
+        #       test_bendseq / test_stage3_regression omits it by design.
+        # If either precondition fails, we skip resolution entirely — no
+        # silent default is applied to any panel/bend field. If we DO attempt
+        # resolution, strict KeyError on pd["normal"], pd["centroid"],
+        # bi["origin"], bi["child_panel_id"] surfaces contract violations
+        # (invariant #3).
+        # Note: production path (Coordinator -> SolverWorker) calls
+        # resolve_panel_faces with real features — bypasses this guard.
+        if isinstance(target_shape, TopoDS_Shape) and "panels" in features:
+            canonical_payload = {
+                "thickness_mm": {"value": features["thickness"]},
+                "panels": {
+                    pid: {
+                        "normal": pd["normal"],
+                        "centroid": pd["centroid"],
+                    } for pid, pd in features["panels"].items()
+                },
+                "bends": {
+                    bid: {
+                        "axis_point": bi["origin"],
+                        "child_panel_id": bi["child_panel_id"],
+                    } for bid, bi in bends_map.items()
+                },
+            }
+            resolve_panel_faces(target_shape, pg, canonical_payload)
 
         root_fold_state = FoldState.initial(target_shape, bg, pg)
         validator = PhysicalValidator(self.machine, self.backend)
