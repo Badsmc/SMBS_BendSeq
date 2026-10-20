@@ -302,7 +302,17 @@ class TestPhase3RealCAD(unittest.TestCase):
 
         summary_results = {}
 
+        # Policy per case (M4, 2026-10-20):
+        # - Positive cases (should_succeed=True): EXPLORATORY because machine_frame
+        #   is absent from toollibrary/ — machine_collision returns honest UNKNOWN.
+        #   Invariant #11 (UNKNOWN != VALID) is preserved: we assert
+        #   steps_invalid==0 && steps_unknown>0, NOT all_steps_valid.
+        # - Negative case (should_succeed=False): PRODUCTION because unsafe config
+        #   must be rejected by strict policy, not masked by EXPLORATORY.
+        # TODO(KL-16): when machine_frame.FCStd is added, unify policies to PRODUCTION
+        #   and assert all_steps_valid for positive cases.
         for name, model, expected_bends, should_succeed in test_cases:
+            policy = "EXPLORATORY" if should_succeed else "PRODUCTION"
             out_json = os.path.join(ROOT_DIR, f"test_stage6_{name}_output.json")
             if os.path.exists(out_json):
                 os.remove(out_json)
@@ -314,7 +324,8 @@ class TestPhase3RealCAD(unittest.TestCase):
                     algorithm="dfs",
                     output_file=out_json,
                     punch_path=self.tooling_punch,
-                    die_path=self.tooling_die
+                    die_path=self.tooling_die,
+                    unknown_policy=policy
                 )
             else:
                 res = orchestrator.run_planning(
@@ -322,7 +333,8 @@ class TestPhase3RealCAD(unittest.TestCase):
                     algorithm="dfs",
                     output_file=out_json,
                     punch_path=self.tooling_punch,
-                    die_path=self.tooling_die
+                    die_path=self.tooling_die,
+                    unknown_policy=policy
                 )
             t_plan = time.time() - t0
 
@@ -340,15 +352,34 @@ class TestPhase3RealCAD(unittest.TestCase):
                 self.assertTrue(os.path.exists(out_json), f"Output JSON {out_json} must be created")
                 with open(out_json, "r", encoding="utf-8") as f:
                     data = json.load(f)
-                    self.assertIn("steps", data)
-                    self.assertEqual(len(data["steps"]), expected_bends)
+                    self.assertIn("sequence", data)
+                    self.assertEqual(len(data["sequence"]), expected_bends)
 
                 self.assertEqual(len(res["sequence"]), expected_bends, f"Must find {expected_bends} steps for {name}")
-                self.assertTrue(res["validation"]["all_steps_valid"], f"All steps must be physically valid for {name}")
+                # M4 (EXPLORATORY without machine_frame in toollibrary/):
+                # steps_unknown > 0 is expected (machine_collision returns honest UNKNOWN
+                # when no machine model — see KL-16 backlog in docs/PROGRESS.md).
+                # We assert NO physical dead-ends (steps_invalid == 0), NOT all-valid —
+                # because UNKNOWN != VALID (invariant #11).
+                self.assertEqual(
+                    res["validation"]["steps_invalid"], 0,
+                    f"No INVALID steps allowed for {name} under EXPLORATORY policy, "
+                    f"got validation: {res['validation']}"
+                )
+                self.assertGreater(
+                    res["validation"]["steps_unknown"], 0,
+                    f"M4: expected UNKNOWN steps due to missing machine_frame (KL-16). "
+                    f"If this fails, machine_frame was added — update this test to assert "
+                    f"all_steps_valid instead. Validation: {res['validation']}"
+                )
             else:
                 # Document proven impossibility without masking rejection
                 self.assertFalse(res["success"], f"Unsolvable configuration {name} must not be masked as success")
-                self.assertIn("exhausted", str(res.get("error", "")))
+                err_msg = str(res.get("error", "")).upper()
+                self.assertTrue(
+                    "NO_SOLUTION" in err_msg or "EXHAUSTED" in err_msg,
+                    f"Expected unsolvable error for {name}, got: {res.get('error')}"
+                )
 
             if os.path.exists(out_json):
                 os.remove(out_json)
