@@ -96,6 +96,10 @@ class SolverWorker:
         for bid, bdata in bends_dict.items():
             panel_graph.add_bend_connection(bid, bdata["parent_panel_id"], bdata["child_panel_id"])
 
+        # Populate panel face_indices from shape B-Rep (KL-12)
+        from smbs_core.geometry_backend.panel_face_resolver import resolve_panel_faces
+        resolve_panel_faces(occ_shape, panel_graph, canonical_part["payload"])
+
         bend_records: Dict[str, BendRecord] = {}
         bend_axes: Dict[str, Tuple[Tuple[float, float, float], Tuple[float, float, float]]] = {}
         bend_transforms: Dict[str, float] = {}

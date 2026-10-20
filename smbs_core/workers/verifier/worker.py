@@ -218,6 +218,10 @@ class VerifierWorker:
         for bid, bdata in bends_dict.items():
             panel_graph.add_bend_connection(bid, bdata["parent_panel_id"], bdata["child_panel_id"])
 
+        # Populate panel face_indices from ref_shape B-Rep (KL-12)
+        from smbs_core.geometry_backend.panel_face_resolver import resolve_panel_faces
+        resolve_panel_faces(ref_shape, panel_graph, canonical_part["payload"])
+
         bend_records: Dict[str, BendRecord] = {}
         bend_graph = BendGraph()
         for bid, bdata in bends_dict.items():

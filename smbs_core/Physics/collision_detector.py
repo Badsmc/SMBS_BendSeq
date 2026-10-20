@@ -144,10 +144,14 @@ class CollisionDetector:
                         adjacent_pairs += 1
                         continue
                     checked_pairs += 1
-                    mp_shape = panel_shapes[mp_id]
-                    res = self._check_intersection(fp_shape, mp_shape, f"Panel {mp_id}", f"Panel {fp_id}")
-                    if not res.is_valid:
-                        return res
+                    # KL-12 guard: intersect_volume returns 0 for intersecting thin-walled
+                    # planar compounds, producing false VALID. Return honest UNKNOWN
+                    # for planar panels until proper self-collision detection is implemented
+                    # (KL-8 SELF scope). See PROGRESS.md KL-12.
+                    return CollisionResult(
+                        CollisionStatus.UNKNOWN,
+                        "Planar self-collision detection not implemented (see KL-8 SELF scope)"
+                    )
 
             if checked_pairs > 0:
                 return CollisionResult(CollisionStatus.VALID, "Clear")

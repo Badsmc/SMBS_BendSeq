@@ -151,6 +151,20 @@ class PythonOCCBackend(GeometryBackend):
         fixed_shape = self.extract_faces(shape, fixed_faces) if fixed_faces else None
 
         if moving_shape is None or moving_shape.IsNull():
+            # KL-12: distinguish per-panel intent from legacy callers.
+            # Production (SolverWorker/VerifierWorker via resolver) passes numeric face indices
+            #   {'0', '6'} — extraction failed is a real error → raise.
+            # Legacy callers pass either empty set (PanelGraph with empty face_indices) or
+            #   panel IDs {'PANEL_xxx'} (panel_graph=None, e.g. collision_detector trajectory) —
+            #   fallback to whole-part rotation to preserve pre-KL-12 behavior.
+            # TODO(KL-12-req-2): replace sniff test with explicit `strict_per_panel: bool` flag
+            #   once all callers populate face_indices and legacy paths are removed.
+            has_numeric_faces = any(f.isdigit() for f in moving_faces)
+            if has_numeric_faces:
+                raise InvalidRotationError(
+                    f"rotate_subtree failed: moving_shape is None or IsNull for moving_panels={moving_panels} "
+                    f"(moving_faces={moving_faces})"
+                )
             return self.transform_shape(
                 shape,
                 translation=(0, 0, 0),
