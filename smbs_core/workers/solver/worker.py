@@ -225,9 +225,25 @@ class SolverWorker:
         raw_seq = res.get("sequence", [])
 
         # Tooling status from validator assembly
-        actual_tooling_status = validator.tooling_status.value if hasattr(validator.tooling_status, "value") else str(validator.tooling_status)
+        # S.26-fix: normalize case BEFORE validation.
+        # Previously: .value returned lowercase ("real"/"simplified"/"missing"), but
+        # the `in` check used uppercase tuple → always False → silent downgrade to
+        # SIMPLIFIED. This masked REAL tooling as SIMPLIFIED in user-facing output.
+        # Contract requires ["REAL", "SIMPLIFIED", "MISSING"] (all schemas: search_result,
+        # part_bendseq, tooling_manifest).
+        actual_tooling_status_raw = (
+            validator.tooling_status.value
+            if hasattr(validator.tooling_status, "value")
+            else str(validator.tooling_status)
+        )
+        actual_tooling_status = str(actual_tooling_status_raw).upper()
         if actual_tooling_status not in ("REAL", "SIMPLIFIED", "MISSING"):
-            actual_tooling_status = "SIMPLIFIED"
+            # Invariant #3: no silent fallback on critical params. Raise actionable error.
+            raise ValueError(
+                f"SolverWorker: invalid tooling_status {actual_tooling_status_raw!r} "
+                f"from PhysicalValidator; expected one of REAL/SIMPLIFIED/MISSING "
+                f"(case-insensitive). Got normalised: {actual_tooling_status!r}."
+            )
 
         # Punch ID from tooling manifest if present
         default_tool_id = "UNKNOWN"
@@ -274,8 +290,19 @@ class SolverWorker:
                 }
 
             # tool_id and tooling_status (Items 5, 7)
+            # S.26-fix: step_item.tooling_status from planner is raw enum .value
+            # (lowercase "real"/"simplified"/"missing"). Normalize to match schema enum
+            # before writing to candidate_sequence (same pattern as step_collision_status,
+            # step_planner_status, step_alignment_status above — those already do .upper()).
             step_tool_id = step_item.get("tool_id") or default_tool_id
-            step_tooling_status = step_item.get("tooling_status") or actual_tooling_status
+            step_tooling_status_raw = step_item.get("tooling_status") or actual_tooling_status
+            step_tooling_status = str(step_tooling_status_raw).upper()
+            if step_tooling_status not in ("REAL", "SIMPLIFIED", "MISSING"):
+                raise ValueError(
+                    f"SolverWorker: invalid step tooling_status {step_tooling_status_raw!r} "
+                    f"for bend {bid!r}; expected one of REAL/SIMPLIFIED/MISSING. "
+                    f"Normalised: {step_tooling_status!r}."
+                )
             if step_tool_id == "UNKNOWN" and not tooling_manifest:
                 step_tooling_status = "MISSING"
 
