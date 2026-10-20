@@ -4,7 +4,7 @@
 > **Open blockers:** KL-12 (per-panel kinematics) and KL-8 (tooling collision) — see Known Limitations.
 > **Requirement 4.1 (clamp constraints) — validator only, NOT enforced in planning.**
 
-**Status (HEAD `461bae9`):** Stage 7 COMPLETE. 485 tests / 5 failures (all KL-8) / 0 errors / 3 expectedFailures. Requirement 3.1 (Tooling Sets) closed. Next: KL-12 (per-panel kinematics) per revised order §8.
+**Status (HEAD `36ce0a4`):** Stage 8 (KL-12 v1) IN PROGRESS. 489 tests / 5 failures (all KL-8) / 0 errors / 3 expectedFailures. KL-12 v1 (per-panel face_indices resolver + strict rotate_subtree + honest UNKNOWN guard) closed; side edges & planar self-collision deferred. Next: KL-8 (tooling collision / APPROACH).
 
 ## Project Stages
 
@@ -172,8 +172,25 @@ Summary: MVP (requirement 1 — bend sequence numbers on flat pattern) can start
   - **Impact:** Bypassed via `inspect.signature` in 3 planners. Functional, not contract-clean.
   - **Follow-up:** Add `unknown_policy` parameter to `MockValidator`. Cosmetic, no behavioral impact.
 
-- **KL-12 (P1, OPEN, discovered in Stage 4 audit)**: `PanelGraph` has no `face_indices` populated from `04_canonical_part.json`. `PythonOCCBackend.rotate_subtree` therefore falls back to whole-part rotation (`pythonocc_backend.py:294` — `extract_faces` returns `None` for empty `face_ids`). Effect: solver and verifier re-simulation rotate the entire part instead of the per-panel subtree; `PhysicalValidator.validate_step` (validator.py:174) passes because whole-part rotation still changes the shape; `collision_detector.py:71` skips self-collision when `face_indices` are empty. `PanelTopologyBuilder.build_panel_graph` is the only code path that fills `face_indices`, but its `PANEL_{f_hash[:8]}` IDs never match the topology-extractor IDs in `04_canonical_part.json` (never exercised on real shapes — only with `shape=None` in `test_phase4_extraction`). Fix path: cluster faces by plane + map to canonical panel IDs by centroid+normal (S.13b backlog). Viewer (Stage 4) is `PREVIEW_ONLY` until then; honest marking via `StepView.geometry_precision`.
-  - **UPDATE 2026-10-18 (S.20/S.21a-pre/S.21a-pre2 audit)**: root cause fully mapped. `PanelTopologyBuilder.build_panel_graph` uses `PANEL_{f_hash[:8]}` (single-face hash), while `FeatureExtractor` uses `PANEL_{stable_hash(centroid, normal)}` (cluster hash) — IDs never match, so `face_indices` is always empty. 90/90 existing runs have no `face_indices`. **H2 (runtime face_indices enrichment) tested and rejected**: `rotate_subtree` on multi-step unfold loses 16/22 faces (cylinders dropped), invalidates `face_indices` after step 1 (indices remap on topology change), and `intersect_volume` on planar compound pairs always returns 0 (mathematically correct for 2D surfaces). **Fix paths identified:** (A) bbox approximation for `self_collision` (~1 session, honest `SELF_BBOX_APPROXIMATION` marking, baseline 5F→4F); (B) solid-preserving split+fuse in `rotate_subtree` (~2–3 sessions, closes KL-12 fully, unblocks viewer `PER_PANEL_KINEMATIC`). **DECISION 2026-10-18: KL-12 deferred to backlog.** Rationale: KL-12 does not block roadmap requirements 3–5 (tooling library, tooling sets, optimal selection), only requirement 2 (animation). Roadmap §8 order honored: requirements 3 → 4.1 → 3.1 → 4 → 2 → 5. KL-12 resumed after requirement 4 or as a dedicated stage.
+- **KL-12 — Per-panel kinematics (partial, v1)**:
+  - **Status:** KL-12 v1 — infrastructure ready, self-collision detection deferred. NOT a full fix.
+  - **Done (2026-10-20):**
+    - `smbs_core/geometry_backend/panel_face_resolver.py` — runtime plane-fit resolver populates `panel.face_indices` from B-Rep (centroid + normal, distance threshold `thickness/2 + 0.2mm`). `canonical_part.schema.json` does NOT contain `face_indices` by design (platform-independent contract); runtime reconstruction is the architectural path. Historical code populated `face_indices` only in offline `panel_topology.py` (`PanelTopologyExtractor`) — never in production runtime.
+    - `SolverWorker` / `VerifierWorker` invoke resolver after `PanelGraph` assembly, before `FoldState` construction / re-simulation.
+    - `PythonOCCBackend.rotate_subtree` — strict `InvalidRotationError` for callers with numeric face indices (production path); legacy callers (empty set, panel IDs) preserved with deprecated whole-part fallback. **TODO before main merge:** replace sniff test with explicit `strict_per_panel: bool` flag (marked in code).
+    - `collision_detector.self_collision` — returns honest `UNKNOWN` for non-adjacent planar pairs, fixing **false VALID** from `intersect_volume` returning 0 on 2D surface intersection (invariant #11 respected: symptom not hidden).
+  - **Known limitations (v1):**
+    - **Side edges NOT assigned** — for fixture_l, 6/10 faces assigned; 4 side edges (perpendicular to panel normal) unassigned. Impact: `rotate_subtree` leaves side edges behind. **Acceptable for current SELF** (detection not called), **NOT acceptable for req 2 (animation)** — KL-12 v2.
+    - **Planar self-collision detection NOT implemented** — honest `UNKNOWN` returned. Correct per invariant #1 (better than false VALID), but does not detect actual collisions. **KL-12 v3 / KL-8 SELF scope.**
+    - **5 e2e failures unchanged** — they fail at APPROACH (synthetic SIMPLIFIED tooling, KL-8 scope), before SELF. KL-12 does not unblock them; APPROACH remains blocked by KL-8.
+  - **Process deviation:**
+    KL-12 v1 implemented without standalone session-1 diagnosis report (no separate `KL-12_diagnosis.md`). Root-cause evidence and design decisions were established in-flight across steps 2.1–2.5, documented in commit messages (`5235d2f`, `36ce0a4`). Diagnosis is now reproducible from the commit history and the diff above. Deviation noted; for future investigative KL work, a written diagnosis report is required before code changes.
+  - **Baseline:** 485 → 489 tests (+4 resolver unit tests in `tests/test_panel_face_resolver.py`), 5F → 5F, 0E → 0E, 3xF → 3xF.
+  - **Follow-up order:**
+    1. **KL-8** (next) — APPROACH collision, blocks 5 e2e. True root cause of the 5 failures.
+    2. **KL-12 v2** (before req 2 / animation) — resolver side edges.
+    3. **KL-12 v3 / KL-8 SELF** — planar self-collision (2D boolean between panel faces).
+    4. **Sniff test → `strict_per_panel`** — before main merge.
 
 - **KL-13 (P3, OPEN, discovered in S.18 audit)**: runs generated before 2026-10-17 lack `bend_line_flat_pattern` in `04_canonical_part.json`. Flat annotations (requirement 1) require this field. `flat_annotations.py` refuses such runs with actionable error; `axis_point` is **not** used as fallback (it lives in the folded-model coordinate system, not on the flat pattern — using it would place numbers off the flat pattern). Impact: 3 old runs (`run_20261012_034042_cf4c34`, `run_20261012_034045_9a351d`, and one more) cannot display annotations. Fix path: regenerate old runs with current pipeline (`smbs-cli part.FCStd`). Not a bug — pipeline evolution. See `smbs_core/addon/README.md` "Known issue: old runs".
 
