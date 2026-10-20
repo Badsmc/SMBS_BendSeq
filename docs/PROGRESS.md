@@ -4,7 +4,11 @@
 > **Open blockers:** KL-12 (per-panel kinematics) and KL-8 (tooling collision) — see Known Limitations.
 > **Requirement 4.1 (clamp constraints) — validator only, NOT enforced in planning.**
 
-**Status (HEAD `36ce0a4`):** Stage 8 (KL-12 v1) IN PROGRESS. 489 tests / 5 failures (all KL-8) / 0 errors / 3 expectedFailures. KL-12 v1 (per-panel face_indices resolver + strict rotate_subtree + honest UNKNOWN guard) closed; side edges & planar self-collision deferred. Next: KL-8 (tooling collision / APPROACH).
+**Status (HEAD `91571fe`):** Stage 8 COMPLETE. **497 tests / 0 failures / 0 errors / 3 expectedFailures.**
+KL-8 closed. All physically-verifiable pipeline stages (APPROACH, SELF, TOOL,
+TRAJECTORY, RETRACT) return VALID on compatible parts with real tooling;
+MACHINE honest UNKNOWN (KL-16: no machine_frame.FCStd). Next: Req 6a
+(search SLA — Lazy A*), then Req 4.
 
 ## Project Stages
 
@@ -146,19 +150,121 @@ Summary: MVP (requirement 1 — bend sequence numbers on flat pattern) can start
 - Baseline: **485 / 5F / 0E / 3xF** (KL-8 open)
 
 
+## Stage 8 — KL-8 (tooling collision, APPROACH scope)
+
+**Status:** COMPLETE (2026-10-20). Baseline 485 → 497, F: 5 → 0. **First 0F
+in project history.** Zero regressions, zero silent workarounds, zero xfails.
+
+**Commits (6 sequential):**
+- **Commit 1** (`9ae3993`): KL-8c-fix — `place_part_on_tool_station` checks
+  punch AND die. Root cause (Q19-Q21): greedy return of first die-valid
+  candidate without punch check. At trajectory -10°, selected candidate with
+  95.5mm flange vertical along punch → vol=1959 mm³ false collision on
+  fixture_l. Regression test with stash-proof (fails on stash, passes on fix).
+- **Commit 2** (`b8bacf3`): KL-8b-fix — `BendSeqOrchestrator` calls
+  `resolve_panel_faces` (like SolverWorker/VerifierWorker from KL-12 v1).
+  + M4 policy per test case (EXPLORATORY for positive, PRODUCTION for negative).
+- **Commit 3A** (`5196820`): KL-8a-reclassify — plumbing tests renamed
+  (`test_plumbing_*_no_tooling_honestly_no_solution`) and asserted honest:
+  `NO_SOLUTION`, `verification_status != VERIFIED`, `production_eligible=False`,
+  `export_status=BLOCKED`, 07/11 produced, 10 not produced (invariant #2).
+  Git archaeology (Session 1.5): these tests never passed machine_config;
+  before 90ab5d8 (UNKNOWN != VALID) they passed on false VALID; after — fail
+  honestly. Not a code regression — broken test design.
+- **S.26** (`d3a26e5`): silent downgrade fix — `worker.py:228-230`
+  `GeometryStatus.REAL.value` = `"real"` (lowercase), `in ("REAL",...)` check
+  always False → silent downgrade to `"SIMPLIFIED"`. Contract error at
+  `07_search_result.json` was the symptom; masked by SIMPLIFIED-only test path.
+  Fixed: `.upper()` before validation + `raise ValueError` on invalid.
+- **Commit 4A** (`3fe349a`): physics e2e with real tooling — 4 tests.
+  Orchestrator EXPLORATORY: `PARTIAL`, `steps_invalid=0`, `steps_unknown>0`
+  (honest M4). Per-stage: APPROACH/SELF/TOOL/TRAJECTORY/RETRACT = VALID,
+  MACHINE = UNKNOWN (KL-16).
+- **Commit 4B** (`91571fe`): ExportWorker §7.3 unit-level tests. Original
+  pipeline-level test_corrupted failed on setup (no initial export without
+  machine_frame). Replaced with inline-fixture unit test:
+  VERIFIED→EXPORTED, VERIFICATION_FAILED→BLOCKED.
+
+**Acceptance (honest):**
+- APPROACH / SELF / TOOL / TRAJECTORY / RETRACT = VALID on L40 and fixture_l
+  with `puancon.FCStd` + `matrica.FCStd`.
+- MACHINE = UNKNOWN (KL-16, no machine_frame).
+- 4 pipeline plumbing tests honest: NO_SOLUTION, BLOCKED, production_eligible=False
+  (invariant #1).
+- Final export (10_part_bendseq.json) only on VERIFIED (invariant #2).
+- ExportWorker §7.3 contract verified in isolation.
+
+
+## Requirement 6 — Search SLA (planned, next after KL-8)
+
+**Status:** PLANNED. Priority: **immediately after Stage 8 close, before Req 4.**
+
+**Goal:** Guaranteed response within 4 min for any part. Honest
+`UNKNOWN(timeout)` if not solved — never false `NO_SOLUTION` masking timeout.
+
+**Acceptance (reference set N=4..12):**
+- p50 wall-clock ≤ 30 sec
+- p95 wall-clock ≤ 4 min
+- SOLVED on all physically compatible fixtures with real tooling
+- Honest UNKNOWN(timeout) on incompatible — never NO_SOLUTION masking timeout
+- 3D-validation calls ≤ nodes_expanded (not nodes_expanded × b)
+
+**Phase 6a (low-risk, behavior-preserving, ~1 session):**
+- Lazy A* (deferred 3D validation, heappush → heappop)
+- Admissible heuristic + epsilon tie-breaker (Center-First / Outside-In)
+- DFS Prefix Pruning + Move Ordering + DFBnB
+- cProfile before/after on N=10..12
+
+**Phase 6b (only if 6a misses SLA):**
+- Precedence DAG (orientation-aware design first)
+- ARA* / Beam Search (two-phase time budget)
+- Reverse Search (3D→2D) — research, separate session
+
+**Explicitly rejected:** bitmask dedup by `mask` alone — non-commutativity of
+bend order; `tuple(path)` required (Session 1.5 analysis).
+
+
 ## Known Limitations
 
 **Template:** each entry uses **Symptom / Cause / Impact / Follow-up**. Priority: P1 (production blocker), P2 (workaround exists), P3 (cosmetic).
 
 ### Active
 
-- **KL-8 (Stage 2, P1, blocked by KL-12): Real tooling collision in `place_part_on_tool_station`.**
-  - **Symptom:** 5 e2e tests fail with `INVALID` on TOOL stage, `vol≈1111 mm³`. `EXPLORATORY` policy does not bypass (INVALID is never bypassed, per invariant #2).
-  - **Cause:** Positioning between `place_part_on_tool_station` and real `matrica.FCStd` produces a physical collision. Requires separate audit of datum alignment against the real tooling model.
-  - **Impact:** Search returns `NO_SOLUTION` honestly; verifier returns `VERIFICATION_FAILED` with `SOLVER_FAILED` diagnostic. No fabrication. Expected.
-  - **Follow-up:** Separate positioning audit post-Stage-3. Not blocking Stage 2/3 close.
+- **KL-8 (CLOSED 2026-10-20, Stage 8):** tooling collision, APPROACH scope.
+  All 5 baseline failures resolved: 4 pipeline plumbing tests reclassified
+  honestly (KL-8a), 1 real bug fixed (place_part punch+die check), plus
+  silent downgrade (S.26). Baseline 485/5F → 497/0F. See Stage 8 section.
 
-  - **UPDATE 2026-10-18 (S.19a/S.19a2 audit)**: `place_part_on_tool_station` now uses die V-groove axis + mounting_plane normal (not hardcoded `(1,0,0)`/`(0,0,1)`) and tries both axis signs (`±axis_dir`). APPROACH-stage die collisions eliminated. HOWEVER, KL-8 is now **blocked by KL-12**: after APPROACH passes, the next stage `SELF` returns `UNKNOWN` (`No extracted panel geometry available for self_collision`) because `PanelGraph.panels[*].face_indices` is empty. Under `PRODUCTION` policy, `UNKNOWN != VALID` (invariant #1) → step rejected → `NO_SOLUTION` → e2e tests still fail with `production_eligible=false`. **Fix path: KL-12 (per-panel kinematics) must be closed before KL-8 can be verified. Priority: KL-12 → KL-8.**
+- **KL-16 (P1, OPEN):** `machine_frame.FCStd` / `machine_bed.FCStd` absent from
+  `toollibrary/`. `machine_collision` returns honest UNKNOWN without model.
+  Under PRODUCTION: step rejected. Test 4 (`test_stage6_full_planning_pipeline`)
+  and physics e2e use EXPLORATORY (M4, product decision 2026-10-20).
+  Fix path: add machine model to toollibrary (CAD task, separate session) →
+  unify policy to PRODUCTION → assert all_steps_valid.
+
+- **KL-17 (P3, OPEN):** Mocks of `FeatureExtractor` in `tests/test_bendseq.py`
+  and `tests/test_stage3_regression.py` omit `"panels"` key by design.
+  Companions to `orchestrator.py` resolver preconditions (`"panels" in features`).
+  Fix path: add `"panels": {}` to mocks OR update mock contract helpers.
+
+- **KL-18 (P3, OPEN):** `orchestrator.py:102`
+  `thickness = features.get("thickness", 2.0)` — silent default. Not triggered
+  in production (real extractor provides thickness) or current tests.
+  Fix path: strict `features["thickness"]` with mock contract updates
+  (companion to KL-17).
+
+- **KL-19 (CLOSED S.26):** `worker.py:228-230` silent REAL→SIMPLIFIED
+  downgrade due to case mismatch. Fixed in `d3a26e5`.
+
+- **KL-20 (P2, OPEN):** `step_item.tooling_status` (from planner) may diverge
+  from `validator.tooling_status`. Current: `step_item.get("tooling_status") or
+  actual_tooling_status` — trusts planner if present. Semantic consistency
+  check deferred. Not blocking.
+
+- **KL-8d (P2, OPEN):** CLI without tooling silently falls to SIMPLIFIED →
+  PRODUCTION → always NO_SOLUTION. UX bug: user without `--punch-id`/
+  `--die-id`/`--tooling-set`/`--tooling-config` gets NO_SOLUTION, not
+  "missing tooling". Fix: explicit requirement or `--allow-synthetic` flag.
 
 - **KL-9 (Stage 2, P2): `2_1_3_4_ok` baseline INVALID (inherited KL-7).**
   - **Symptom:** Part `2-1-3-4-(ok).FCStd` fails Stage 1 baseline with facets mismatch (90 vs 94).
@@ -172,25 +278,13 @@ Summary: MVP (requirement 1 — bend sequence numbers on flat pattern) can start
   - **Impact:** Bypassed via `inspect.signature` in 3 planners. Functional, not contract-clean.
   - **Follow-up:** Add `unknown_policy` parameter to `MockValidator`. Cosmetic, no behavioral impact.
 
-- **KL-12 — Per-panel kinematics (partial, v1)**:
-  - **Status:** KL-12 v1 — infrastructure ready, self-collision detection deferred. NOT a full fix.
-  - **Done (2026-10-20):**
-    - `smbs_core/geometry_backend/panel_face_resolver.py` — runtime plane-fit resolver populates `panel.face_indices` from B-Rep (centroid + normal, distance threshold `thickness/2 + 0.2mm`). `canonical_part.schema.json` does NOT contain `face_indices` by design (platform-independent contract); runtime reconstruction is the architectural path. Historical code populated `face_indices` only in offline `panel_topology.py` (`PanelTopologyExtractor`) — never in production runtime.
-    - `SolverWorker` / `VerifierWorker` invoke resolver after `PanelGraph` assembly, before `FoldState` construction / re-simulation.
-    - `PythonOCCBackend.rotate_subtree` — strict `InvalidRotationError` for callers with numeric face indices (production path); legacy callers (empty set, panel IDs) preserved with deprecated whole-part fallback. **TODO before main merge:** replace sniff test with explicit `strict_per_panel: bool` flag (marked in code).
-    - `collision_detector.self_collision` — returns honest `UNKNOWN` for non-adjacent planar pairs, fixing **false VALID** from `intersect_volume` returning 0 on 2D surface intersection (invariant #11 respected: symptom not hidden).
-  - **Known limitations (v1):**
-    - **Side edges NOT assigned** — for fixture_l, 6/10 faces assigned; 4 side edges (perpendicular to panel normal) unassigned. Impact: `rotate_subtree` leaves side edges behind. **Acceptable for current SELF** (detection not called), **NOT acceptable for req 2 (animation)** — KL-12 v2.
-    - **Planar self-collision detection NOT implemented** — honest `UNKNOWN` returned. Correct per invariant #1 (better than false VALID), but does not detect actual collisions. **KL-12 v3 / KL-8 SELF scope.**
-    - **5 e2e failures unchanged** — they fail at APPROACH (synthetic SIMPLIFIED tooling, KL-8 scope), before SELF. KL-12 does not unblock them; APPROACH remains blocked by KL-8.
-  - **Process deviation:**
-    KL-12 v1 implemented without standalone session-1 diagnosis report (no separate `KL-12_diagnosis.md`). Root-cause evidence and design decisions were established in-flight across steps 2.1–2.5, documented in commit messages (`5235d2f`, `36ce0a4`). Diagnosis is now reproducible from the commit history and the diff above. Deviation noted; for future investigative KL work, a written diagnosis report is required before code changes.
-  - **Baseline:** 485 → 489 tests (+4 resolver unit tests in `tests/test_panel_face_resolver.py`), 5F → 5F, 0E → 0E, 3xF → 3xF.
-  - **Follow-up order:**
-    1. **KL-8** (next) — APPROACH collision, blocks 5 e2e. True root cause of the 5 failures.
-    2. **KL-12 v2** (before req 2 / animation) — resolver side edges.
-    3. **KL-12 v3 / KL-8 SELF** — planar self-collision (2D boolean between panel faces).
-    4. **Sniff test → `strict_per_panel`** — before main merge.
+- **KL-12 v1 (PARTIAL, Stage 8a):** infrastructure ready, detection deferred.
+  - v2 (P2): resolver side edges (6/10 on fixture_l). NOT OK for Req 2
+    (animation). Before Req 2.
+  - v3 (P1): planar self-collision detection (2D boolean). KL-8 SELF scope.
+    Currently honest UNKNOWN for non-adjacent planar pairs (correct per
+    invariant #1 — better false UNKNOWN than false VALID).
+  - Sniff test → `strict_per_panel` flag: before main merge.
 
 - **KL-13 (P3, OPEN, discovered in S.18 audit)**: runs generated before 2026-10-17 lack `bend_line_flat_pattern` in `04_canonical_part.json`. Flat annotations (requirement 1) require this field. `flat_annotations.py` refuses such runs with actionable error; `axis_point` is **not** used as fallback (it lives in the folded-model coordinate system, not on the flat pattern — using it would place numbers off the flat pattern). Impact: 3 old runs (`run_20261012_034042_cf4c34`, `run_20261012_034045_9a351d`, and one more) cannot display annotations. Fix path: regenerate old runs with current pipeline (`smbs-cli part.FCStd`). Not a bug — pipeline evolution. See `smbs_core/addon/README.md` "Known issue: old runs".
 
@@ -211,6 +305,31 @@ Summary: MVP (requirement 1 — bend sequence numbers on flat pattern) can start
 
 
 **Branch protection:** NOT enabled on GitHub (organizational risk per audit 2026-10-19). Action item: enable in GitHub UI (Settings → Branches → stage-1-fix-correctness → Require status checks + Require PR reviews). Not blocking code.
+
+
+## Process notes (2026-10-20)
+
+**Session 2 protocol deviations (documented for audit):**
+1. S.25c-docs: `--amend` + `--force-with-lease` without prior explicit
+   greenlight. Force-push verified safe (docs-only commit), but process
+   deviation. Mitigation: no amend/force-push without green light via
+   заказчик.
+2. Commit 4A / 4B: raw diff of new test files not included in initial evidence;
+   requested separately. Root cause: tool output pattern — diff computed but
+   not echoed. Accepted after follow-up. Mitigation for Stage 9: raw diff is
+   first-class evidence for every new file, not a follow-up request.
+3. KL-12 v1 (Stage 8a): implemented without standalone diagnosis report
+   (Session 1). Root-cause evidence in commit messages. Deviation noted.
+   KL-8 (Stage 8) followed proper investigative protocol (Session 1.5-1.8
+   pre-checks + Q&A before code). Baseline restored via git archaeology
+   (PROGRESS.md previously claimed "5 failures — all KL-8 (e2e with real tooling
+   matrica.FCStd)" — inaccurate; only 1 test used real tooling, 4 plumbing
+   used SIMPLIFIED synthetic).
+
+**Standing protocol:** invariant #8 (reference files) — zero violations in
+Stage 8. `SMBendTests/reference/*.json` remain dirty unstaged throughout,
+never touched, never staged, never committed.
+
 
 ## Historical: Phases 0-11 (pre-refactor, completed before Stage track)
 

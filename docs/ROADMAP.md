@@ -331,7 +331,15 @@
 
 ## 8. Рекомендованный порядок (если отличается от пользовательского)
 
-> **Revised order (2026-10-19, per external audit):** Stage 8 = KL-12 → KL-8 → requirement 4 → requirement 2 (animation). This deviates from the original §8 order below (requirement 4 → animation → KL-12/KL-8 backlog). Rationale: KL-12 blocks physical correctness of all intermediate configurations; requirement 4 without working per-panel kinematics is plumbing-only. See docs/PROGRESS.md for audit summary.
+> **Revised order (2026-10-20, Stage 8 close):**
+> KL-12 v1 ✅ → KL-8 ✅ → **Req 6a (Search SLA, Lazy A*)** → Req 4 →
+> Req 2 (after KL-12 v2 side edges) → Req 6b (only if 6a misses SLA).
+> KL-12 v3 (planar self-collision) tracked under KL-8 SELF / Req 4 enforcement.
+> Original §8 order (requirement 4 → animation → KL-12/KL-8 backlog) superseded.
+> Rationale: KL-12 v1 unblocked KL-8, which surfaced 3 silent bugs (place_part
+> greedy return, REAL→SIMPLIFIED downgrade, FeatureExtractor mock contract).
+> Req 6a is behavior-preserving search hygiene — low risk, required for
+> "guaranteed 2-4 min" user-facing promise.
 
 **Пользовательский:** 1 → 2 → 3 → 3.1 → 4 → 4.1 → 5.
 
