@@ -254,11 +254,21 @@ class CollisionDetector:
                         gp_Ax3(v_station, v_dir_world, target_normal)
                     )
                     cand = BRepBuilderAPI_Transform(shape, trsf, False).Shape()
+                    die_ok = True
                     if die_world:
                         res_d = self._check_intersection(cand, die_world, "Part", "Die")
-                        if res_d.is_valid:
-                            return cand
-                    if best_shape is None:
+                        die_ok = res_d.is_valid
+                    punch_ok = True
+                    punch_world = (
+                        self.assembly.get_world_shape(ToolingKind.PUNCH)
+                        if self.assembly is not None else None
+                    )
+                    if punch_world is not None and not punch_world.IsNull():
+                        res_p = self._check_intersection(cand, punch_world, "Part", "Punch")
+                        punch_ok = res_p.is_valid
+                    if die_ok and punch_ok:
+                        return cand
+                    if die_ok and best_shape is None:
                         best_shape = cand
 
             return best_shape or shape
