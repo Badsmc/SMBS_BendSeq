@@ -110,6 +110,16 @@ class AStarBackwardPlanner:
 
         g_scores: Dict[str, float] = {start_fp: 0.0}
 
+        # Step 3 (move ordering preprocessing): precompute moving_subtree per
+        # bend_id once. Traversal order is unchanged (same (moving_sz, b_id)
+        # sort key); this eliminates redundant BFS in bend_sort_key,
+        # predict_successor_fingerprint, and step_info construction on large N.
+        _moving_cache: Dict[str, Set[str]] = {}
+        if self.panel_graph:
+            for _b in self.bend_graph.all_bends():
+                if _b.id in initial_state.remaining_bends:
+                    _moving_cache[_b.id] = self.panel_graph.moving_subtree(_b.id)
+
         while open_set and self.nodes_explored < max_iterations:
             if timeout is not None and (time.time() - start_time) >= timeout:
                 return {
@@ -186,7 +196,9 @@ class AStarBackwardPlanner:
                     "length": bend_rec_pop.length,
                     "axis": bend_rec_pop.axis_direction,
                     "origin": bend_rec_pop.axis_origin,
-                    "moving_panels": list(self.panel_graph.moving_subtree(p["bend_id"])) if self.panel_graph else [],
+                    "moving_panels": list(_moving_cache.get(p["bend_id"], set())) if _moving_cache else (
+                        list(self.panel_graph.moving_subtree(p["bend_id"])) if self.panel_graph else []
+                    ),
                     "collision_status": c_stat,
                     "tooling_status": t_stat,
                     "alignment_status": a_stat,
@@ -224,6 +236,8 @@ class AStarBackwardPlanner:
                 }
 
             def bend_sort_key(b_id: str):
+                if b_id in _moving_cache:
+                    return (len(_moving_cache[b_id]), b_id)
                 moving_sz = len(self.panel_graph.moving_subtree(b_id)) if self.panel_graph else 0
                 return (moving_sz, b_id)
 
@@ -232,7 +246,9 @@ class AStarBackwardPlanner:
             for bend_id in candidates:
                 bend_rec = self.bend_graph.bends[bend_id]
 
-                moving_panels_for_pred = self.panel_graph.moving_subtree(bend_id) if self.panel_graph else None
+                moving_panels_for_pred = _moving_cache.get(bend_id) if _moving_cache else (
+                    self.panel_graph.moving_subtree(bend_id) if self.panel_graph else None
+                )
 
                 # 1. Predictive Fingerprint & Cache check for GEOMETRY REUSE
                 pred_fp = current_state.predict_successor_fingerprint(
