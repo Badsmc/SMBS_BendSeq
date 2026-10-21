@@ -1,14 +1,18 @@
 # SMBS Core - Engineering Implementation Progress
 
 > **Project status:** advanced prototype with several completed functional subsystems, **NOT a complete automatic planning system**.
-> **Open blockers:** KL-12 (per-panel kinematics) and KL-8 (tooling collision) — see Known Limitations.
+> **Open blockers:** KL-12 (per-panel kinematics; v2 raised to P1 per KL-22) — see Known Limitations.
 > **Requirement 4.1 (clamp constraints) — validator only, NOT enforced in planning.**
 
-**Status (HEAD `91571fe`):** Stage 8 COMPLETE. **497 tests / 0 failures / 0 errors / 3 expectedFailures.**
+**Status (HEAD `22956e5`):** Stage 8 + KL-22 COMPLETE. **500 tests / 0 failures / 0 errors / 3 expectedFailures.**
 KL-8 closed. All physically-verifiable pipeline stages (APPROACH, SELF, TOOL,
 TRAJECTORY, RETRACT) return VALID on compatible parts with real tooling;
-MACHINE honest UNKNOWN (KL-16: no machine_frame.FCStd). Next: Req 6a
-(search SLA — Lazy A*), then Req 4.
+MACHINE honest UNKNOWN (KL-16: no machine_frame.FCStd). KL-22 closed:
+`rotate_subtree` preserves unassigned side edges (78 → 78 face identity),
+multi-depth search unblocked. Req 6a resumable — measured baseline on
+`box_100out_50in_ok` (N=8): PARTIAL, seq_len=8, 2149.85s, 274 nodes,
+UNFOLD_TRANSFORM=0; vs p95 SLA 240s → ×8.95 over budget. Phase 6a mandatory:
+Lazy A* + heuristic + move ordering + DFBnB. Then Req 4.
 
 ## Project Stages
 
@@ -195,9 +199,10 @@ in project history.** Zero regressions, zero silent workarounds, zero xfails.
 - ExportWorker §7.3 contract verified in isolation.
 
 
-## Requirement 6 — Search SLA (planned, next after KL-8)
+## Requirement 6 — Search SLA (in progress; Phase 1 done, KL-22 closed)
 
-**Status:** PLANNED. Priority: **immediately after Stage 8 close, before Req 4.**
+**Status:** UNBLOCKED (2026-10-21). Phase 1 cProfile done; empirical baseline
+measured. Next: Lazy A* + remaining Phase 6a items.
 
 **Goal:** Guaranteed response within 4 min for any part. Honest
 `UNKNOWN(timeout)` if not solved — never false `NO_SOLUTION` masking timeout.
@@ -209,16 +214,40 @@ in project history.** Zero regressions, zero silent workarounds, zero xfails.
 - Honest UNKNOWN(timeout) on incompatible — never NO_SOLUTION masking timeout
 - 3D-validation calls ≤ nodes_expanded (not nodes_expanded × b)
 
-**Phase 6a (low-risk, behavior-preserving, ~1 session):**
-- Lazy A* (deferred 3D validation, heappush → heappop)
-- Admissible heuristic + epsilon tie-breaker (Center-First / Outside-In)
-- DFS Prefix Pruning + Move Ordering + DFBnB
-- cProfile before/after on N=10..12
+**Phase 1 — cProfile (DONE, 2026-10-21):**
+- Bottleneck: `PhysicalValidator.validate_step` at 97–99.7% cumtime.
+- N=8 `box_100out_50in_ok` real tooling: `BRepAlgoAPI_Common` +
+  `MakeShape_Build` = 97% of pre-fix runtime.
+- N=10 `2_1_3_4_ok` synthetic tooling: `BRepBuilderAPI_Sewing_Perform` = 55%.
+- `heappush`/`heappop`/heuristic: negligible (<0.1%). Lazy A* direction
+  confirmed by profile, not intuition.
 
-**Phase 6b (only if 6a misses SLA):**
+**Empirical baseline (post KL-22 fix, 2026-10-21):**
+- Fixture: `fixtures/freecad/box_100out_50in_ok/part_3d.brep` (N=8, real tooling)
+- Result: **PARTIAL, seq_len=8, planning_time=2149.85s (35.8 min), 274 nodes,
+  ~7.85s/node, UNFOLD_TRANSFORM=0, steps_invalid=0, steps_unknown=8.**
+- vs p95 SLA target 240s → **×8.95 over budget**.
+
+**Expected Lazy A* effect:** defer 3D validation to pop → ~274 validates vs
+~2192 (nodes × 8 bends) ≈ 8× speedup → box N=8 ≈ 270s. **Still on SLA
+boundary, not under it.** Therefore Phase 6a is NOT just Lazy A*.
+
+**Phase 6a (next, behavior-preserving) — all 4 mandatory:**
+1. Lazy A* (deferred 3D validation, heappush → heappop) — necessary, not sufficient.
+2. Admissible heuristic + ε tie-breaker (Center-First / Outside-In) — required for node count.
+3. DFS Prefix Pruning + Move Ordering — required.
+4. DFBnB with `best_cost` upper bound — required.
+- cProfile before/after each step on N=8 real tooling (measure, don't assume).
+
+**Phase 6b (only if 6a still misses SLA on N=10..12):**
 - Precedence DAG (orientation-aware design first)
 - ARA* / Beam Search (two-phase time budget)
 - Reverse Search (3D→2D) — research, separate session
+
+**Coverage gap:** N=10..12 fixtures absent from repo. box N=8 profileable
+only after KL-22 fix. `2_1_3_4_ok` N=10 profileable directly via
+`BendSeqOrchestrator.run_planning(target_shape=part_3d.brep)`, bypassing
+Stage 1 (KL-9/KL-7 issue). Full e2e through Coordinator still blocked.
 
 **Explicitly rejected:** bitmask dedup by `mask` alone — non-commutativity of
 bend order; `tuple(path)` required (Session 1.5 analysis).
@@ -279,8 +308,13 @@ bend order; `tuple(path)` required (Session 1.5 analysis).
   - **Follow-up:** Add `unknown_policy` parameter to `MockValidator`. Cosmetic, no behavioral impact.
 
 - **KL-12 v1 (PARTIAL, Stage 8a):** infrastructure ready, detection deferred.
-  - v2 (P2): resolver side edges (6/10 on fixture_l). NOT OK for Req 2
-    (animation). Before Req 2.
+  - **v2 (P1, raised 2026-10-21 per KL-22):** resolver side edges
+    (6/10 on fixture_l; 41/78 assigned on box_100out_50in_ok). **Production
+    correctness blocker on box-like parts**, not just Req 2 animation.
+    Without v2, fixtures with unassigned faces stay `production_eligible=False`
+    even after KL-22 fix (side edges stationary during unfold — see KL-22
+    trade-off). Required before Req 2 AND before any box-like part can reach
+    VERIFIED.
   - v3 (P1): planar self-collision detection (2D boolean). KL-8 SELF scope.
     Currently honest UNKNOWN for non-adjacent planar pairs (correct per
     invariant #1 — better false UNKNOWN than false VALID).
@@ -295,6 +329,27 @@ bend order; `tuple(path)` required (Session 1.5 analysis).
   - **Cause (before fix):** No forward-reconstruction step (`SheetMetalFolder.fold_from_canonical_part` was not called).
   - **Fix:** S.9.3 (commit `4c9524e`) added fold correctness via `FrameAligner.align_full_frame` + `SheetMetalFolder.fold_from_canonical_part`, followed by metric comparison against `ref_shape`. Two new tests in `81946ab`: `test_verifier_detects_fold_fabrication` (strict `FOLD_SHAPE_MISMATCH`) and `test_verifier_fails_when_no_flat_pattern` (B2 regression). `production_eligible = unfold_ok AND fold_ok AND not unknown_steps AND has_all_bends`.
   - **Status:** CLOSED.
+
+- **KL-22 (CLOSED 2026-10-21): `rotate_subtree` face identity collapsed across depth ≥ 2 unfolds on BRep fixtures with unassigned side edges.**
+  - **Symptom:** `box_100out_50in_ok` A* returned FAILED with ~40
+    `UNFOLD_TRANSFORM` rejections; `InvalidRotationError: moving_shape is
+    None or IsNull`; depth 2+ unreachable.
+  - **Cause:** `resolve_panel_faces` v1 assigns only planar panel faces.
+    Side edges, fillets, chamfers unassigned (37/78 faces on box). During
+    `rotate_subtree`, unassigned faces fall out of `BRepBuilderAPI_Sewing`:
+    face count 78 → 41. `panel.face_indices` become stale on next unfold.
+  - **Fix:** `pythonocc_backend.rotate_subtree` attaches unassigned faces to
+    FIXED side before sewing (`ed366e7`). Identity preserved 78 → 78 at every
+    depth. Regression tests in `22956e5` (`tests/test_multidepth_search.py`,
+    3 unit tests): depth 1 preserves face count, depth 2 does not raise,
+    depth 2 preserves face count.
+  - **Trade-off:** unassigned faces stay stationary during unfold even when
+    adjacent to a moving panel. Preserves search reachability but side-edge
+    kinematics incorrect. Combined with KL-16 (machine), such fixtures stay
+    `production_eligible=False` — honest PARTIAL, never fake VERIFIED.
+    Semantic side-edge motion is KL-12 v2 (P1 now).
+  - **Post-fix measurement:** box A* → PARTIAL, seq_len=8, 2149.85s,
+    274 nodes, UNFOLD_TRANSFORM=0, steps_invalid=0, steps_unknown=8.
 
 ### Inherited from Stage 1
 
@@ -329,6 +384,48 @@ bend order; `tuple(path)` required (Session 1.5 analysis).
 **Standing protocol:** invariant #8 (reference files) — zero violations in
 Stage 8. `SMBendTests/reference/*.json` remain dirty unstaged throughout,
 never touched, never staged, never committed.
+
+
+## Process notes (2026-10-21)
+
+**Session 3 — KL-22 diagnostic + fix + Req 6a Phase 1:**
+
+1. **Method that worked:** `cProfile` before code (bottleneck =
+   `validate_step` 97–99.7%). Lazy A* direction confirmed by profile,
+   not intuition.
+2. **STOP discipline:** When targeted box run returned FAILED
+   (`UNFOLD_TRANSFORM` on POSITIVE fixture), Lead issued STOP. Root cause
+   diagnosed (face identity collapse 78→41) before any code. Result: KL-22
+   is latent bug exposed by strict check (from `5235d2f`, KL-12 v1),
+   NOT a regression.
+3. **Hypothesis test before fix:** One targeted experiment (sew with
+   fixed ∪ unassigned) returned 78 → 78. Minimal fix validated empirically
+   before touching code. Model for future KL fixes.
+4. **Evidence integrity incident (2026-10-21):** During Commit 3 prep, a
+   `cat -n docs/PROGRESS.md` report presented 358 lines with header
+   `# SMBS BendSeq — Project Progress & Tracking`, used to draft 8 doc
+   updates. Subsequent disk check (`wc -l`, `head`, `git show HEAD:`,
+   `git status docs/`) showed the actual file is 357 lines with header
+   `# SMBS Core - Engineering Implementation Progress`, identical to HEAD
+   `879d893`; working tree clean; no docs commits since Session 2.
+   **The 358-line report did not match any commit or working state** — the
+   OLD blocks were invalid, the 8 drafted updates were voided before any
+   commit. Cause per operator: terminal output truncation + stitched `sed`
+   chunks introduced lines that weren't in the file. **Lesson:** only
+   `cat -n <file> > /tmp/file.txt && sha256 <file>` (single continuous
+   numbering) is acceptable raw evidence for full-file diffs.
+5. **Process deviations (non-blocking):** Multiple `run_planning`
+   invocations without `timeout` wrapper (36+ min, 30+ `ps aux` polls).
+   Fix: `timeout <N>` mandatory for any command >1 min. Background
+   launches without prior confirmation (6×, same pattern as Session 2
+   Commit 4A/4B). Hypothesis runner expanded beyond Lead-specified scope
+   without approval (accepted after-the-fact). New rule: any new /tmp
+   runner variant requires Lead review before execution.
+
+**Req 6a scope refinement (2026-10-21):** Lazy A* is correct direction
+per profile but insufficient alone. Baseline box N=8 = 2149.85s vs SLA
+240s → Phase 6a scope: Lazy A* + heuristic + move ordering + DFBnB all
+mandatory. Phase 6b (precedence DAG etc.) may still be needed for N=10..12.
 
 
 ## Historical: Phases 0-11 (pre-refactor, completed before Stage track)
