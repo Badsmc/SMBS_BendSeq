@@ -87,7 +87,8 @@ class AStarBackwardPlanner:
         initial_state: FoldState,
         max_iterations: int = 5000,
         timeout: Optional[float] = None,
-        unknown_policy: str = "PRODUCTION"
+        unknown_policy: str = "PRODUCTION",
+        depth_limit: Optional[int] = None
     ) -> Dict[str, Any]:
         start_time = time.time()
         self.nodes_explored = 0
@@ -234,6 +235,16 @@ class AStarBackwardPlanner:
                     "planning_time": time.time() - start_time,
                     "rejections": rejections
                 }
+
+            # Step 4 (4c-i): depth-bounded DFS safety net.
+            # depth_limit is None by default (no bound, behavior unchanged).
+            # When set, nodes at depth >= depth_limit are popped, counted in
+            # nodes_explored, but not expanded. Goal check above guarantees
+            # depth_limit == N still returns the solution at exactly depth N.
+            # Pending nodes are never pushed deeper than depth_limit, since
+            # expansion only occurs from depth < depth_limit.
+            if depth_limit is not None and len(current_path) >= depth_limit:
+                continue
 
             def bend_sort_key(b_id: str):
                 if b_id in _moving_cache:

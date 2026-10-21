@@ -67,5 +67,33 @@ class TestStage18AStar(unittest.TestCase):
         # Check that nodes explored is minimal
         self.assertGreater(result["nodes_explored"], 0)
 
+    def test_astar_depth_limit_no_solution(self):
+        """Step 4 (4c-i): depth_limit < N makes goal unreachable → NO_SOLUTION.
+
+        Verifies the safety net bounds per-branch depth without changing
+        any behavior when depth_limit is None (default).
+        """
+        bg = BendGraph()
+        bg.add_bend(BendRecord("B1", "F1", "P1", "P2", (0,0,0), (0,1,0), 90.0, 1.0, 1.0))
+        bg.add_bend(BendRecord("B2", "F2", "P2", "P3", (10,0,0), (0,1,0), 90.0, 1.0, 1.0))
+        bg.add_bend(BendRecord("B3", "F3", "P3", "P4", (20,0,0), (0,1,0), 90.0, 1.0, 1.0))
+
+        initial_state = FoldState.initial(part_shape=None, bend_graph=bg, panel_graph=None)
+        validator = MockValidator()
+        planner = AStarBackwardPlanner(bend_graph=bg, validator=validator)
+
+        # N=3, depth_limit=2 → cannot reach goal (requires depth 3)
+        result = planner.solve(initial_state, depth_limit=2)
+
+        self.assertFalse(result["success"], "depth_limit=2 < N=3 must not solve")
+        self.assertIn(
+            result["termination_reason"],
+            ("NO_SOLUTION", "NODE_LIMIT_EXHAUSTED"),
+            "depth-limited failure must terminate via search exhaustion, not silently"
+        )
+        self.assertGreater(result["nodes_explored"], 0,
+                           "some nodes must have been explored before giving up")
+
+
 if __name__ == "__main__":
     unittest.main()
