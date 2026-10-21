@@ -23,17 +23,29 @@ class PriorityQueueNode:
         state: Optional[FoldState],
         path: Optional[List[Dict[str, Any]]],
         counter: int = 0,
-        pending: Optional[Dict[str, Any]] = None
+        pending: Optional[Dict[str, Any]] = None,
+        g_score: float = 0.0,
+        moving_sz: int = 0
     ):
         self.f_score = f_score
         self.state = state
         self.path = path
         self.counter = counter
         self.pending = pending
+        self.g_score = g_score
+        self.moving_sz = moving_sz
 
     def __lt__(self, other: "PriorityQueueNode") -> bool:
+        # Primary: lower f_score
         if abs(self.f_score - other.f_score) > 1e-6:
             return self.f_score < other.f_score
+        # Tie-break 1: prefer deeper nodes (higher g) — DFS-like descent
+        if abs(self.g_score - other.g_score) > 1e-6:
+            return self.g_score > other.g_score
+        # Tie-break 2: prefer more peripheral bends (smaller moving subtree)
+        if self.moving_sz != other.moving_sz:
+            return self.moving_sz < other.moving_sz
+        # Tie-break 3: FIFO (deterministic)
         return self.counter < other.counter
 
 
@@ -53,15 +65,22 @@ class AStarBackwardPlanner:
 
     def compute_heuristic(self, state: FoldState, bend_id: Optional[str] = None) -> float:
         """
-        Admissible heuristic guiding backward unfold search.
-        In backward planning, unfolding inner bends (larger subtree) is penalized so that
-        outer bends unfold first, leading naturally to center-first forward sequences.
+        Strictly admissible heuristic for backward A* unfold search.
+
+        Each remaining bend requires exactly one unfold step, so
+        h(state) = |state.remaining_bends| is exactly h* for this problem:
+        every state reachable on any optimal path from initial to goal has
+        g + h == N (constant), which makes f_score non-discriminating.
+        All ordering preferences — prefer deeper nodes (higher g),
+        prefer peripheral bends (smaller moving_subtree) — are encoded
+        in PriorityQueueNode.__lt__, not in h. This preserves admissibility
+        (h <= h*) and A*-optimality while biasing traversal toward
+        greedy descent along promising branches (Center-First / Outside-In).
+
+        bend_id is accepted for backward-compatibility with callers that
+        pass it; it is ignored in this admissible formulation.
         """
-        h = float(len(state.remaining_bends))
-        if self.panel_graph and bend_id:
-            moving_count = len(self.panel_graph.moving_subtree(bend_id))
-            h += 0.1 * moving_count
-        return h
+        return float(len(state.remaining_bends))
 
     def solve(
         self,
@@ -85,7 +104,9 @@ class AStarBackwardPlanner:
             self.cache.put(start_fp, {"visited": True, "state": initial_state})
 
         counter += 1
-        heapq.heappush(open_set, PriorityQueueNode(0.0, initial_state, [], counter))
+        heapq.heappush(open_set, PriorityQueueNode(
+            0.0, initial_state, [], counter, g_score=0.0, moving_sz=0
+        ))
 
         g_scores: Dict[str, float] = {start_fp: 0.0}
 
@@ -264,7 +285,11 @@ class AStarBackwardPlanner:
                         }
 
                         counter += 1
-                        heapq.heappush(open_set, PriorityQueueNode(f_score, next_state, current_path + [step_info], counter))
+                        heapq.heappush(open_set, PriorityQueueNode(
+                            f_score, next_state, current_path + [step_info], counter,
+                            g_score=tentative_g,
+                            moving_sz=len(moving_panels_for_pred) if moving_panels_for_pred is not None else 0
+                        ))
                 else:
                     # Cache miss — push pending; validate deferred to heappop (Lazy A*)
                     tentative_g = current_g + 1.0
@@ -272,10 +297,8 @@ class AStarBackwardPlanner:
                     if tentative_g < g_scores.get(pred_fp, float('inf')):
                         g_scores[pred_fp] = tentative_g
 
+                        # Strictly admissible: h_pred == len(successor.remaining_bends)
                         h_pred = float(len(current_state.remaining_bends) - 1)
-                        if self.panel_graph and moving_panels_for_pred is not None:
-                            h_pred += 0.1 * len(moving_panels_for_pred)
-
                         f_score = tentative_g + h_pred
 
                         counter += 1
@@ -288,7 +311,9 @@ class AStarBackwardPlanner:
                                 "bend_id": bend_id,
                                 "pred_fp": pred_fp,
                                 "step_number": len(current_path) + 1
-                            }
+                            },
+                            g_score=tentative_g,
+                            moving_sz=len(moving_panels_for_pred) if moving_panels_for_pred is not None else 0
                         ))
 
         if self.nodes_explored >= max_iterations:
