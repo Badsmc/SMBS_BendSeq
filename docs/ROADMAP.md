@@ -302,7 +302,7 @@
 
 - **Q1** [требование 3]: Как обозначать роль объекта в FCStd (пуансон/матрица/станина/упор)? Почему blocker: импорт библиотеки и определение ролей невозможны без соглашения. Ожидается: соглашение об именовании + подтверждение в UI, либо свойства объекта.
 - **Q2** [требование 4.1]: Точная математика удержания пуансона лапками. Почему blocker: constraint checker нельзя написать корректно. Ожидается: рабочая длина пуансона полностью поддерживается зонами лапок (перекрытие ≥ X мм).
-- **Q3** [требование 4]: Что значит «оптимальный» набор? Почему blocker: целевая функция определяет алгоритм. Ожидается: минимум замен при удовлетворении всех гибов.
+- **Q3** [требование 4]: Что значит «оптимальный» набор? Почему blocker: целевая функция определяет алгоритм. Ожидается: минимум замен при удовлетворении всех гибов. **RESOLVED 2026-10-21 (Q3=A)** — implemented in `select_tooling` DP (S.30b-core).
 - **Q13** [требование 5]: Что входит в «дальнейшую визуализацию»? Почему blocker для 5: без scope нельзя планировать. Ожидается: список приоритетных функций.
 
 ### Важные (влияют на дизайн, но можно начать с допущения)
@@ -314,7 +314,7 @@
 - **Q8** [требование 3]: Где хранить библиотеку? Дефолт: пользовательский конфиг + проектный override.
 - **Q9** [требование 3.1]: «Сэт» — сохраняемый артефакт? Дефолт: да.
 - **Q10** [требование 3.1]: Замена пуансона — авто или флаг? Дефолт: флаг + предложенная точка, пользователь подтверждает.
-- **Q11** [требование 4]: Подбор длины — per-bend или per-sequence? Дефолт: per-bend с учётом соседних гибов.
+- **Q11** [требование 4]: Подбор длины — per-bend или per-sequence? Дефолт: per-bend с учётом соседних гибов. **RESOLVED 2026-10-21 (Q11=C, sectional punch)** — supersedes "per-bend" default; implemented as `DEFAULT_SEGMENT_CATALOG = (10, 15, 20, 50, 100)` + `_compose_segments` greedy in `run_pipeline.py` / `selection.py` (S.30b-core / S.30c-integration).
 - **Q12** [требование 4.1]: Могут ли лапки переставляться между гибами? Дефолт: фиксированы; перестановка = «замена».
 
 ### Nice-to-have (можно уточнить позже)
@@ -568,6 +568,22 @@ Original roadmap: 4–6 sessions / 14–28 commits. **Coordinator revision: ~5 s
 - KL-15 (target_object_name disambiguation, P2) — see PROGRESS.md.
 
 **Next:** requirement 4.1 (Clamp constraints) per roadmap §8 order (3 → 4.1 → 3.1 → 4 → 2 → 5). KL-12 / KL-8 remain in backlog.
+
+### Current order of requirements (updated 2026-10-21)
+
+```
+Req 1 (Phase A)   ✅ COMPLETE
+Req 3 (Phase B)   ✅ COMPLETE
+Req 4.1 (Phase D) ✅ COMPLETE
+Req 3.1 (Phase C) ✅ COMPLETE
+Stage 8 (KL-8)    ✅ COMPLETE (5F -> 0F)
+KL-22             ✅ COMPLETE (face identity)
+Req 6a (Phase 6a) ✅ COMPLETE (SLA 49.26s / 9 nodes)
+Req 4 (Phase E)   ✅ COMPLETE (S.30a/b/c, clamp enforcement + DP min changes)
+```
+
+Next: Req 2 (Phase F, FreeCAD animation) — requires KL-12 v2.
+After: Req 5 (Phase G, Open block) — Q13 pending.
 
 ### Status of sections 1–10
 
