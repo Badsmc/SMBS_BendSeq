@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "smbs://contracts/tooling_selection.schema.json",
+  "title": "ToolingSelection",
+  "description": "Optimal tooling selection assignments per bend (Requirement 4, Phase E). Assignments validated against clamp constraints (Requirement 4.1).",
+  "type": "object",
+  "required": [
+    "schema_name", "schema_version", "run_id", "part_id",
+    "input_fingerprint", "producer", "units", "frame_convention",
+    "status", "payload", "diagnostics", "created_at", "content_hash"
+  ],
+  "properties": {
+    "schema_name": { "const": "tooling_selection" },
+    "schema_version": { "type": "string" },
+    "run_id": { "type": "string" },
+    "part_id": { "type": "string" },
+    "input_fingerprint": { "type": "string" },
+    "producer": { "type": "object" },
+    "units": { "type": "string", "enum": ["mm", "m", "in"] },
+    "frame_convention": { "type": "string" },
+    "status": { "type": "string", "enum": ["SUCCESS", "PARTIAL", "FAILED", "UNKNOWN"] },
+    "diagnostics": { "type": "array", "items": { "type": "string" } },
+    "created_at": { "type": "string" },
+    "content_hash": { "type": "string" },
+    "payload": {
+      "type": "object",
+      "required": ["objective", "assignments", "total_tool_changes", "warnings"],
+      "properties": {
+        "objective": {
+          "type": "string",
+          "enum": ["MIN_TOOL_CHANGES", "MIN_SEGMENT_COUNT", "MIN_COST"]
+        },
+        "assignments": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["bend_id", "punch_id", "die_id", "segment_composition",
+                         "clamp_validation", "changes_from_previous"],
+            "properties": {
+              "bend_id": { "type": "string" },
+              "punch_id": { "type": "string" },
+              "die_id": { "type": "string" },
+              "segment_composition": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "object",
+                  "required": ["length_mm", "start_mm", "end_mm"],
+                  "properties": {
+                    "length_mm": { "type": "number", "exclusiveMinimum": 0 },
+                    "start_mm": { "type": "number" },
+                    "end_mm": { "type": "number" },
+                    "segment_id": { "type": ["string", "null"] }
+                  }
+                }
+              },
+              "clamp_validation": {
+                "type": "object",
+                "required": ["valid"],
+                "properties": {
+                  "valid": { "type": "boolean" },
+                  "errors": { "type": "array", "items": { "type": "string" } },
+                  "warnings": { "type": "array", "items": { "type": "string" } }
+                }
+              },
+              "changes_from_previous": {
+                "type": "object",
+                "required": ["punch_changed", "die_changed"],
+                "properties": {
+                  "punch_changed": { "type": "boolean" },
+                  "die_changed": { "type": "boolean" }
+                }
+              },
+              "tool_change_count": { "type": "integer", "minimum": 0 }
+            }
+          }
+        },
+        "total_tool_changes": { "type": "integer", "minimum": 0 },
+        "warnings": { "type": "array", "items": { "type": "string" } }
+      }
+    }
+  }
+}
