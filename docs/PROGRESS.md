@@ -2,9 +2,9 @@
 
 > **Project status:** advanced prototype with several completed functional subsystems, **NOT a complete automatic planning system**.
 > **Open blockers:** KL-12 (per-panel kinematics; v2 raised to P1 per KL-22) — see Known Limitations.
-> **Requirement 4.1 (clamp constraints) — validator only, NOT enforced in planning.**
+> **Requirement 4.1 (clamp constraints) — validator (S.24a–S.24c) + enforcement per-bend in `12_tooling_selection.json` (Req 4 Phase E, S.30c).**
 
-**Status (HEAD `425195f`):** Stage 8 + KL-22 + Req 6a Phase 6a COMPLETE. **501 tests / 0 failures / 0 errors / 3 expectedFailures.**
+**Status (HEAD `9cf5bed`):** Stage 8 + KL-22 + Req 6a Phase 6a + Req 4 Phase E COMPLETE. **523 tests / 0 failures / 0 errors / 3 expectedFailures.**
 KL-8 closed. All physically-verifiable pipeline stages (APPROACH, SELF, TOOL,
 TRAJECTORY, RETRACT) return VALID on compatible parts with real tooling;
 MACHINE honest UNKNOWN (KL-16: no machine_frame.FCStd). KL-22 closed.
@@ -12,7 +12,7 @@ Req 6a Phase 6a COMPLETE (all 4 steps: Lazy A* + admissible h + epsilon tie-brea
 move ordering cache + depth_limit safety net). Empirical results:
 box N=8 wall 47.73-50.32s noise band (49.26s step 2, 9 nodes, 8 valid + 1 invalid);
 2_1_3_4_ok N=10 wall 1.0-1.29s (11 nodes). Search SLA p95 <= 240s MET (4.9x under budget).
-Next: Requirement 4.
+Next: Requirement 2 (Phase F, FreeCAD animation) — requires KL-12 v2.
 
 ## Project Stages
 
@@ -197,6 +197,54 @@ in project history.** Zero regressions, zero silent workarounds, zero xfails.
   (invariant #1).
 - Final export (10_part_bendseq.json) only on VERIFIED (invariant #2).
 - ExportWorker §7.3 contract verified in isolation.
+
+## Stage 9 — Requirement 4 Phase E (Optimal tooling selection) — COMPLETE (2026-10-21)
+
+**Status:** COMPLETE. S.30a-schema + S.30b-core + S.30c-integration committed and
+pushed to `stage-1-fix-correctness`. 523 tests / 0F / 0E / 3xF.
+
+**Scope (per ROADMAP §3 Requirement 4 + §11 Q2/Q3/Q11 resolutions):**
+- Clamp enforcement per bend (Requirement 4.1 `validate_punch_chain` called for
+  every assignment; previously validator-only per PROGRESS line 5).
+- Segment composition per Q11=C (bend_line_length − 10..15mm).
+- DP min tool changes per Q3=A.
+- Artifact `12_tooling_selection.json` (contract `tooling_selection.schema.json`,
+  #7 approved 2026-10-21).
+
+**Modules:**
+- `smbs_core/contracts/schemas/tooling_selection.schema.json` (S.30a-schema)
+- `smbs_core/tooling/selection.py` — `select_tooling(...)` DP algorithm + clamp enforcement (S.30b-core)
+- `smbs_core/coordinator/run_pipeline.py` — `_write_tooling_selection(...)` hook
+  after `export_worker.execute(...)` (S.30c-integration)
+
+**Commits:**
+- S.30a-schema `d2501bb`: schema + 7 contract tests
+- S.30b-core `0214359`: selection.py + 12 unit/DP tests
+- S.30c-integration `9cf5bed`: run_pipeline hook + 3 integration tests
+
+**Behavior:**
+- Library-resolved tooling (tooling_set or punch_id/die_id): `select_tooling`
+  runs, `12_tooling_selection.json` written with `status=SUCCESS` (all bends
+  assigned) or `PARTIAL` (some bends unassignable, warnings explain).
+- Path-based tooling (punch_path/die_path without library): `status=UNKNOWN`,
+  `assignments=[]`, diagnostic "Phase E requires library-resolved tooling".
+- clamps_config=None: `ToolingSelectionError` caught, `status=UNKNOWN`.
+
+**Honest limitation (documented, not a defect):**
+Optimal selection **across alternatives** is not exercised because `ToolingSet`
+currently holds one punch + one die. `select_tooling` accepts `Sequence[ToolDescriptor]`
+and DP is ready; multi-alternative set is future work. Current pipeline = single
+(punch, die) → clamp enforcement + segment composition + honest status.
+
+**Pre-existing finding (not Phase E scope, tracked):**
+F-RP-1: `run_pipeline.py` lines 291–315 build `tooling_manifest.payload.punch` /
+`payload.die` with hardcoded `height_mm=100.0`, `tip_radius_mm=1.0`, `v_opening_mm=12.0`,
+`segment_layout_mm=[100.0, 200.0]` — not sourced from `ToolDescriptor.metadata`.
+This means search (`07`) uses hardcoded params, while Phase E uses real sidecar
+metadata. Fix path: source manifest fields from `punch_desc.metadata` /
+`die_desc.metadata` (P3, backlog).
+
+
 
 
 ## Requirement 6 — Search SLA (Phase 6a COMPLETE 2026-10-21)
@@ -485,6 +533,29 @@ Search SLA p95 <= 240s met (actual 49.26s = 4.9x under budget). Phase 6a CLOSED.
 Protocol note: commit before final Lead green-light recurred 5 times across
 steps 1-4 and PROGRESS update (each recovered via post-factum verification).
 Enforce raw-first -> green-light -> commit strictly in subsequent sessions.
+
+**Req 4 Phase E — evidence-integrity incidents (2026-10-21):**
+Session 4 continued the raw-first discipline but hit 4 evidence-integrity
+episodes that shaped the working protocol:
+1. F1/F2 (module list + grep) delivered as summary; re-requested as raw.
+2. `orchestrator.py` lines 1–6 looked like corruption (def before docstring);
+   `git show 4bb29d1:` confirmed the structure is real (Lead false STOP —
+   corrected after git archaeology).
+3. `run_pipeline.py` chunk 00 base64 contained a `:` (invalid base64 char);
+   re-generated with `INVALID: NONE` pre-check. Base64 delivery dropped for
+   plain text after this.
+4. `selection.py` / `test_tooling_selection.py` (354 / 297 lines) initially
+   delivered as wc+sha only. Adopted chunked `cat -n ... | sed -n 'X,Yp'`
+   as exception for files >200 lines (numbers preserved).
+
+**New standing rules adopted:**
+- For files ≤200 lines: single `cat -n file` raw in chat.
+- For files >200 lines: `cat -n file | sed -n 'X,Yp'` chunked, ≤80 lines per
+  message, one chunk per message.
+- For binary / high-value files: base64 with `INVALID: NONE` pre-check and
+  per-chunk `sha256` — only if plain text truncation is confirmed.
+- STOP on summary-instead-of-raw applies from the first violation, no
+  post-factum acceptance.
 
 
 ## Historical: Phases 0-11 (pre-refactor, completed before Stage track)
