@@ -1,5 +1,7 @@
 # Roadmap: SMBS/BendSeq FreeCAD Integration
 
+> **Updated:** 2026-10-21 (KL-22 CLOSED; Req 6a unblocked; baseline 500/0F/0E/3xF).
+
 ## 1. Executive Summary
 
 ### Что можно начинать сейчас (без согласований и уточнений)
@@ -331,15 +333,29 @@
 
 ## 8. Рекомендованный порядок (если отличается от пользовательского)
 
-> **Revised order (2026-10-20, Stage 8 close):**
-> KL-12 v1 ✅ → KL-8 ✅ → **Req 6a (Search SLA, Lazy A*)** → Req 4 →
+> **Revised order (2026-10-21, KL-22 close):**
+> KL-12 v1 ✅ → KL-8 ✅ → **KL-22 ✅ (multi-depth unblocked, box baseline 2149s)** →
+> **Req 6a (Search SLA: Lazy A* + Phase 6a heuristic/ordering/DFBnB)** → Req 4 →
 > Req 2 (after KL-12 v2 side edges) → Req 6b (only if 6a misses SLA).
+> KL-12 v2 (side edges) raised P2 → P1 — production correctness blocker on
+> box-like parts, not just Req 2 animation. See KL-22 trade-off.
 > KL-12 v3 (planar self-collision) tracked under KL-8 SELF / Req 4 enforcement.
 > Original §8 order (requirement 4 → animation → KL-12/KL-8 backlog) superseded.
-> Rationale: KL-12 v1 unblocked KL-8, which surfaced 3 silent bugs (place_part
-> greedy return, REAL→SIMPLIFIED downgrade, FeatureExtractor mock contract).
-> Req 6a is behavior-preserving search hygiene — low risk, required for
-> "guaranteed 2-4 min" user-facing promise.
+>
+> Rationale: KL-22 uncovered during Req 6a profiling — depth 2+ unfolds failed
+> on all BRep fixtures because resolver v1 leaves 37/78 faces unassigned.
+> Fix preserves face identity (unassigned faces attached to fixed side).
+> Without KL-22 fix, Req 6a metrics cannot be measured (SOLVED required,
+> not faster failure). Post-fix baseline on box N=8: 2149.85s, 274 nodes,
+> SLA p95 target 240s → ×8.95 over budget.
+>
+> Phase 6a scope refinement (2026-10-21): all 4 items mandatory:
+> 1. Lazy A* (defer 3D to pop) — necessary (~8× speedup implied by profile)
+> 2. Admissible heuristic + ε tie-breaker — required for node count
+> 3. DFS Prefix Pruning + Move Ordering — required
+> 4. DFBnB upper bound — required
+> Lazy A* alone brings box N=8 to ~270s — on SLA boundary, not under it.
+> Phase 6b (precedence DAG, ARA*, Beam, Reverse Search) only if 6a misses.
 
 **Пользовательский:** 1 → 2 → 3 → 3.1 → 4 → 4.1 → 5.
 
