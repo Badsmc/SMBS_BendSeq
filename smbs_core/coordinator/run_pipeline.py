@@ -30,6 +30,10 @@ from smbs_core.workers.baseline.worker import BaselineWorker
 from smbs_core.workers.solver.worker import SolverWorker
 from smbs_core.workers.verifier.worker import VerifierWorker
 from smbs_core.workers.export.worker import ExportWorker
+from smbs_core.geometry_backend.io.tooling_catalog import ToolDescriptor
+from smbs_core.tooling.selection import ToolingSelectionError, select_tooling
+
+DEFAULT_SEGMENT_CATALOG = (10.0, 15.0, 20.0, 50.0, 100.0)
 
 
 class Coordinator:
@@ -82,6 +86,9 @@ class Coordinator:
         if not source_path.exists():
             raise FileNotFoundError(f"Source file does not exist: {source_path}")
 
+        resolved_punch_desc: Optional[ToolDescriptor] = None
+        resolved_die_desc: Optional[ToolDescriptor] = None
+
         if machine_config is not None:
             # clamps_config_obj is loaded (validated by CLI) but NOT used in planning yet.
             # Punch chain validation against clamps is requirement 4 (Phase E, optimal tooling selection).
@@ -126,6 +133,9 @@ class Coordinator:
                     raise ValueError(
                         f"tooling_set '{tooling_set_id}' references missing tool: {e}"
                     ) from e
+
+                resolved_punch_desc = punch_desc
+                resolved_die_desc = die_desc
 
                 if punch_desc.kind != "punch":
                     raise ValueError(
@@ -193,6 +203,9 @@ class Coordinator:
                         raise ValueError(
                             f"die_id '{die_id_val}' resolved to kind '{die_desc.kind}', expected 'die'"
                         )
+
+                    resolved_punch_desc = punch_desc
+                    resolved_die_desc = die_desc
 
                     machine_config = dict(machine_config)
                     machine_config["punch_path"] = str(punch_desc.fcstd_path)
@@ -434,6 +447,19 @@ class Coordinator:
         part_bendseq = self.file_store.read_json_verified(export_file, expected_schema_name="part_bendseq")
         run_report = self.file_store.read_json_verified(report_file, expected_schema_name="envelope")
 
+        # 8. Optimal Tooling Selection (Req 4, Phase E)
+        tooling_selection_file = self._write_tooling_selection(
+            run_dir=run_dir,
+            run_id=run_id,
+            part_id=part_id,
+            input_fingerprint=input_fingerprint,
+            search_result=search_result,
+            canonical_part=canonical_part,
+            machine_config=machine_config,
+            punch_desc=resolved_punch_desc,
+            die_desc=resolved_die_desc,
+        )
+
         return {
             "status": RunStatus.SUCCESS.value if part_bendseq["production_eligible"] else part_bendseq["planning_status"],
             "run_id": run_id,
@@ -446,6 +472,7 @@ class Coordinator:
             "verification_result_path": str(verif_result_file),
             "export_file_path": str(export_file),
             "run_report_path": str(report_file),
+            "tooling_selection_path": str(tooling_selection_file),
             "planning_status": part_bendseq["planning_status"],
             "verification_status": part_bendseq["verification_status"],
             "export_status": part_bendseq["export_status"],
@@ -458,3 +485,76 @@ class Coordinator:
             "canonical_part": canonical_part["payload"],
             "run_report": run_report["payload"]
         }
+
+    def _write_tooling_selection(
+        self,
+        run_dir: Path,
+        run_id: str,
+        part_id: str,
+        input_fingerprint: str,
+        search_result: Dict[str, Any],
+        canonical_part: Dict[str, Any],
+        machine_config: Optional[Dict[str, Any]],
+        punch_desc: Optional[ToolDescriptor],
+        die_desc: Optional[ToolDescriptor],
+    ) -> Path:
+        """Writes 12_tooling_selection.json (Req 4 Phase E)."""
+        payload: Dict[str, Any] = {}
+        status = "UNKNOWN"
+        diagnostics: list[str] = []
+
+        if punch_desc is None or die_desc is None:
+            diagnostics.append(
+                "Phase E requires library-resolved tooling; path-based input not supported"
+            )
+            payload = {
+                "objective": "MIN_TOOL_CHANGES",
+                "assignments": [],
+                "total_tool_changes": 0,
+                "warnings": [],
+            }
+        else:
+            clamps_config = (machine_config or {}).get("clamps_config")
+            segment_catalog = (machine_config or {}).get("segment_catalog", DEFAULT_SEGMENT_CATALOG)
+
+            try:
+                payload = select_tooling(
+                    candidate_sequence=search_result["payload"]["candidate_sequence"],
+                    bends_map=canonical_part["payload"]["bends"],
+                    clamps_config=clamps_config,
+                    available_punches=[punch_desc],
+                    available_dies=[die_desc],
+                    segment_catalog=segment_catalog,
+                )
+                status = "SUCCESS" if len(payload["assignments"]) == len(search_result["payload"]["candidate_sequence"]) else "PARTIAL"
+                if status == "PARTIAL":
+                    diagnostics.append(
+                        "Some bends could not be assigned; see warnings"
+                    )
+            except ToolingSelectionError as e:
+                diagnostics.append(str(e))
+                payload = {
+                    "objective": "MIN_TOOL_CHANGES",
+                    "assignments": [],
+                    "total_tool_changes": 0,
+                    "warnings": [],
+                }
+
+        envelope = {
+            "schema_name": "tooling_selection",
+            "schema_version": "1.0",
+            "run_id": run_id,
+            "part_id": part_id,
+            "input_fingerprint": input_fingerprint,
+            "producer": {"name": "coordinator", "version": "1.0"},
+            "units": "mm",
+            "frame_convention": "STANDARD_CARTESIAN_MM",
+            "status": status,
+            "diagnostics": diagnostics,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "payload": payload,
+        }
+
+        out_file = run_dir / "12_tooling_selection.json"
+        self.file_store.write_json_atomic(out_file, envelope, schema_name="tooling_selection")
+        return out_file
