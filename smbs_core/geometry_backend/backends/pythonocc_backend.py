@@ -144,6 +144,24 @@ class PythonOCCBackend(GeometryBackend):
                     moving_faces.update(str(idx) for idx in panel.face_indices)
                 else:
                     fixed_faces.update(str(idx) for idx in panel.face_indices)
+
+            # KL-22: resolver v1 assigns only planar panel faces; side edges,
+            # fillets, and chamfers remain unassigned. Without explicit
+            # preservation, unassigned faces fall out of BRepBuilderAPI_Sewing
+            # (78 -> 41 faces on box_100out_50in_ok) and panel.face_indices
+            # become stale on the next unfold (depth >= 2 -> InvalidRotationError).
+            # Attach unassigned faces to the FIXED side to keep face identity
+            # stable across successive rotations.
+            #
+            # Trade-off (documented in KL-22): unassigned faces stay stationary
+            # even when geometrically adjacent to a moving panel. This preserves
+            # search reachability for Req 6a SLA measurement; semantic side-edge
+            # kinematics remains open as KL-12 v2 (P2, before Req 2). Results on
+            # fixtures with unassigned faces stay production_eligible=False.
+            all_face_count = len(self.get_faces(shape))
+            all_faces_idx = set(str(i) for i in range(all_face_count))
+            assigned = moving_faces | fixed_faces
+            fixed_faces = fixed_faces | (all_faces_idx - assigned)
         else:
             moving_faces = set(moving_panels)
 
