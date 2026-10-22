@@ -239,8 +239,10 @@ def run_view(args: argparse.Namespace) -> int:
             "verification_status": verif_status,
             "production_eligible": prod_elig,
             "diagnostics": diags,
-            "kl12_warning": "PREVIEW_ONLY (KL-12): whole-part rotation, not a physical re-simulation.",
-            "geometry_precision": "PREVIEW_ONLY",
+            "kl12_warning": frames[0].step_view.geometry_warning if frames else None,
+            "geometry_precision": (
+                frames[0].step_view.geometry_precision if frames else "PREVIEW_ONLY"
+            ),
             "total_frames": len(frames),
             "rendered_frames": len(rendered_frames),
             "stride": stride,
@@ -280,7 +282,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         type=str,
         default="backward",
         choices=["backward", "forward"],
-        help="Playback direction ('backward' supported; 'forward' deferred until S.13b)"
+        help="Playback direction: 'backward' (unfold) or 'forward' (fold)"
     )
     view_parser.add_argument("--dump-frames", type=str, default=None, help="Directory to dump frame JSON files")
     view_parser.add_argument("--json", action="store_true", help="Output single JSON representation to stdout")

@@ -3,7 +3,7 @@ player.py - State-machine timeline player for viewer (Stage 4, S.14).
 
 Reads 09_verification_result.json as the sole source of production_eligible
 (invariant #9). Never computes it. Absence of 09 => verification_status="UNVERIFIED"
-(invariant #1: UNKNOWN != VALID). Forward mode deferred until KL-12 is closed (S.13b).
+(invariant #1: UNKNOWN != VALID). Forward mode implemented via honest reversal of backward StepViews (S.33, Req 2 F.1).
 """
 from __future__ import annotations
 
@@ -50,6 +50,7 @@ class Player:
         self.initial_shape = initial_shape
 
         self._cached_frames: Optional[Tuple[Frame, ...]] = None
+        self._cached_forward_frames: Optional[Tuple[Frame, ...]] = None
         self._current_index: Optional[int] = None
         self._direction: str = "backward"
 
@@ -59,9 +60,15 @@ class Player:
 
     @property
     def frames(self) -> Tuple[Frame, ...]:
-        if self._cached_frames is not None:
-            return self._cached_frames
+        if self._direction == "forward":
+            if self._cached_forward_frames is None:
+                self._cached_forward_frames = self._build_forward_frames()
+            return self._cached_forward_frames
+        if self._cached_frames is None:
+            self._cached_frames = self._build_backward_frames()
+        return self._cached_frames
 
+    def _build_backward_frames(self) -> Tuple[Frame, ...]:
         # 1. Resolve verification fields strictly without calculation
         v_res = self.artifacts.verification_result
         if v_res is None:
@@ -126,8 +133,25 @@ class Player:
                 )
             )
 
-        self._cached_frames = tuple(frames_list)
-        return self._cached_frames
+        return tuple(frames_list)
+
+    def _build_forward_frames(self) -> Tuple[Frame, ...]:
+        # Forward = honest reversal of backward StepViews. Verification fields
+        # are keyed by bend_id (direction-invariant), so reversal preserves
+        # honest marking.
+        if self._cached_frames is None:
+            self._cached_frames = self._build_backward_frames()
+        return tuple(
+            Frame(
+                frame_index=i,
+                step_view=f.step_view,
+                verification_status=f.verification_status,
+                production_eligible=f.production_eligible,
+                diagnostics=f.diagnostics,
+                step_verification=f.step_verification,
+            )
+            for i, f in enumerate(reversed(self._cached_frames))
+        )
 
     @property
     def total(self) -> int:
@@ -167,14 +191,14 @@ class Player:
         return None
 
     def switch_direction(self, direction: str) -> None:
-        """
-        Switch playback direction.
-        'backward' is supported.
-        'forward' is deferred until KL-12 is resolved (S.13b).
-        """
+        """Switch playback direction: 'backward' (unfold) or 'forward' (fold).
+        Forward mode is honest reversal of backward StepViews — same kinematics,
+        same verification fields (looked up by bend_id, direction-invariant).
+        Current position is reset on direction change."""
         if direction == "forward":
-            raise PlayerError("forward not implemented until KL-12 closed (S.13b)")
+            self._direction = "forward"
         elif direction == "backward":
             self._direction = "backward"
         else:
             raise PlayerError(f"Unsupported playback direction: '{direction}'")
+        self._current_index = None
