@@ -13,14 +13,21 @@ from pathlib import Path
 from typing import Any, Iterator, Optional
 
 from smbs_core.Core.fold_state import FoldState
+from smbs_core.geometry_backend.panel_face_resolver import resolve_panel_faces
 from smbs_core.viewer.graph_builder import ViewerGraphs
 from smbs_core.viewer.run_loader import RunArtifacts
 
 
 GEOMETRY_PRECISION_PREVIEW = "PREVIEW_ONLY"
+GEOMETRY_PRECISION_VALID = "VALID_PER_PANEL"
 GEOMETRY_WARNING_PREVIEW = (
     "Kinematic preview (whole-part rotation); not a physical re-simulation. "
     "PanelGraph has no face_indices populated from 04_canonical_part (see KL-12)."
+)
+GEOMETRY_WARNING_PARTIAL = (
+    "Partial per-panel kinematic preview: faces assigned to panels where "
+    "possible, but some faces remain unassigned (bridge caps / cross-bend) "
+    "and stay stationary during unfold — see KL-12 v3."
 )
 
 
@@ -106,6 +113,50 @@ def replay_backward(
         geom_path = artifacts.geometry_shape_path
         target_shape = load_brep(geom_path)
 
+    # KL-12 v2 integration (Req 2 F.1): assign B-Rep faces to panels before
+    # any rotation. Resolver is idempotent (preserves non-empty face_indices)
+    # and safely no-ops for non-TopoDS_Shape (mock/initial_shape path).
+    try:
+        resolve_panel_faces(
+            target_shape,
+            graphs.panel_graph,
+            artifacts.canonical_part["payload"],
+        )
+    except (ValueError, KeyError) as err:
+        raise ReplayerError(
+            f"Panel face resolution failed before replay: {err}"
+        ) from err
+
+    # 3-state honest precision:
+    #   no faces assigned      -> PREVIEW_ONLY + original warning (whole-part rotation)
+    #   some faces assigned    -> PREVIEW_ONLY + PARTIAL warning (per-panel where possible,
+    #                             unassigned faces stationary during unfold)
+    #   all faces assigned     -> VALID_PER_PANEL, no warning
+    try:
+        from OCC.Core.TopoDS import TopoDS_Shape
+        is_topods = isinstance(target_shape, TopoDS_Shape)
+    except ImportError:
+        is_topods = False
+
+    if not is_topods:
+        precision = GEOMETRY_PRECISION_PREVIEW
+        warning: Optional[str] = GEOMETRY_WARNING_PREVIEW
+    else:
+        total_faces = len(backend.get_faces(target_shape)) if hasattr(backend, "get_faces") else 0
+        assigned_indices: set = set()
+        for p in graphs.panel_graph.panels.values():
+            assigned_indices.update(p.face_indices)
+        n_assigned = len(assigned_indices)
+        if total_faces > 0 and n_assigned == total_faces:
+            precision = GEOMETRY_PRECISION_VALID
+            warning = None
+        elif n_assigned > 0:
+            precision = GEOMETRY_PRECISION_PREVIEW
+            warning = GEOMETRY_WARNING_PARTIAL
+        else:
+            precision = GEOMETRY_PRECISION_PREVIEW
+            warning = GEOMETRY_WARNING_PREVIEW
+
     # 2. Build initial FoldState (step 0: fully folded)
     current_state = FoldState.initial(
         part_shape=target_shape,
@@ -123,8 +174,8 @@ def replay_backward(
         collision_status=None,
         tooling_status=None,
         alignment_status=None,
-        geometry_precision=GEOMETRY_PRECISION_PREVIEW,
-        geometry_warning=GEOMETRY_WARNING_PREVIEW
+        geometry_precision=precision,
+        geometry_warning=warning
     )
 
     # 3. Iterate through candidate sequence
@@ -205,8 +256,8 @@ def replay_backward(
             collision_status=step_info["collision_status"],
             tooling_status=step_info["tooling_status"],
             alignment_status=step_info["alignment_status"],
-            geometry_precision=GEOMETRY_PRECISION_PREVIEW,
-            geometry_warning=GEOMETRY_WARNING_PREVIEW
+            geometry_precision=precision,
+            geometry_warning=warning
         )
 
     # 4. Final defensive invariant: after completing full sequence, remaining_bends must be empty

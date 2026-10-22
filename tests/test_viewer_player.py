@@ -320,13 +320,16 @@ class TestViewerPlayer(unittest.TestCase):
         self.assertIsNone(player.prev())
         self.assertEqual(player.current().frame_index, 0)
 
-    def test_switch_direction_forward_raises(self):
+    def test_switch_direction_forward_works(self):
         artifacts, _ = _make_artifacts_with_verification(verification_payload=None)
         graphs = build_graphs(artifacts)
         player = Player(artifacts, graphs, self.backend, initial_shape=self.init_shape)
-        with self.assertRaises(PlayerError) as ctx:
-            player.switch_direction("forward")
-        self.assertIn("KL-12", str(ctx.exception))
+        backward = list(player.frames)
+        player.switch_direction("forward")
+        self.assertEqual(player.direction, "forward")
+        forward = list(player.frames)
+        self.assertEqual(len(forward), len(backward))
+        self.assertEqual(forward[0].step_view.bend_id, backward[-1].step_view.bend_id)
 
     def test_switch_direction_backward_noop(self):
         artifacts, _ = _make_artifacts_with_verification(verification_payload=None)

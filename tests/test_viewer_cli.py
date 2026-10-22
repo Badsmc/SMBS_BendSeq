@@ -167,15 +167,14 @@ class TestViewerCLI(unittest.TestCase):
             self.assertIn("verification_status: VERIFIED", out)
             self.assertIn("production_eligible: true", out)
 
-    def test_cli_direction_forward_exit_1(self):
+    def test_cli_direction_forward_exit_0(self):
+        """Forward direction is supported in F.1; exits 0."""
         if not self.real_verified_run.is_dir():
             self.skipTest("real verified run not found")
 
-        with patch("sys.stderr", new_callable=io.StringIO) as mock_err:
+        with patch("sys.stdout", new_callable=io.StringIO) as mock_out:
             code = main(["view", str(self.real_verified_run), "--direction", "forward"])
-            self.assertEqual(code, 1)
-            err = mock_err.getvalue()
-            self.assertIn("KL-12", err)
+            self.assertEqual(code, 0)
 
     def test_cli_occ_unavailable_without_flag_exit_2(self):
         if not self.real_verified_run.is_dir():
