@@ -1,10 +1,10 @@
 # SMBS Core - Engineering Implementation Progress
 
 > **Project status:** advanced prototype with several completed functional subsystems, **NOT a complete automatic planning system**.
-> **Open blockers:** KL-12 v3 (planar self-collision + bridge caps) — v2 (side edges) CLOSED in S.31. See Known Limitations.
+> **Open blockers:** KL-12 v3 (planar self-collision + bridge caps) — v2 (side edges) CLOSED in S.31; Req 2 Phase F.1 (headless per-panel kinematics) CLOSED in S.33. See Known Limitations.
 > **Requirement 4.1 (clamp constraints) — validator (S.24a–S.24c) + enforcement per-bend in `12_tooling_selection.json` (Req 4 Phase E, S.30c).**
 
-**Status (HEAD `3eb4376`):** Stage 8 + KL-22 + Req 6a Phase 6a + Req 4 Phase E + KL-12 v2 COMPLETE. **532 tests / 0 failures / 0 errors / 3 expectedFailures.**
+**Status (HEAD `1724748`):** Stage 8 + KL-22 + Req 6a Phase 6a + Req 4 Phase E + KL-12 v2 + Req 2 Phase F.1 COMPLETE. **537 tests / 0 failures / 0 errors / 3 expectedFailures.**
 KL-8 closed. All physically-verifiable pipeline stages (APPROACH, SELF, TOOL,
 TRAJECTORY, RETRACT) return VALID on compatible parts with real tooling;
 MACHINE honest UNKNOWN (KL-16: no machine_frame.FCStd). KL-22 closed.
@@ -17,10 +17,19 @@ KL-12 v2 (side edges) CLOSED in S.31: fixture_l 6/10 → 8/10 assigned
 assigned; verified via rotate_subtree face-count preservation (9/9 panels,
 angle=0). Bridge caps span bend lines, cannot be rigidly assigned to a
 single panel (KL-22 trade-off preserved, v3 scope).
-Next: Requirement 2 (Phase F, FreeCAD animation) — KL-12 v2 done, Req 2
-unblocked. Bridge caps on box-like parts still require KL-12 v3 for full
-`production_eligible=True` on those fixtures; Req 2 animation targets
-L-family fixtures first (bridge caps not present there).
+Req 2 Phase F.1 (headless per-panel kinematics) CLOSED in S.33 (1724748):
+replayer calls `resolve_panel_faces` before unfold; 3-state honest precision
+(no faces assigned → PREVIEW_ONLY + original whole-part warning; some faces
+→ PREVIEW_ONLY + PARTIAL warning with KL-12 v3 note; all faces →
+VALID_PER_PANEL, no warning). Forward direction implemented as honest
+reversal of backward StepViews; `switch_direction` resets current position.
+Baseline 532 → 537 (5 new F.1 tests).
+Note (correction to S.32): bridge caps are NOT universally absent on L-family
+fixtures — `run_20261012_034042_cf4c34` (real L-part) has bridge caps (faces
+1,4 unassigned, 8/10). The 3-state warning honestly marks such fixtures.
+Next: Req 2 Phase F.2 (FCMacro QTimer Timeline UI). Then F.3 (tooling visual,
+pending tooling_placement #7). Box-like parts with bridge caps still require
+KL-12 v3 for full `production_eligible=True`.
 
 ## Project Stages
 
@@ -412,6 +421,13 @@ bend order; `tuple(path)` required (Session 1.5 analysis).
     box_100out_50in_ok 41/78 → 78/78. Verified via `rotate_subtree` face-count
     preservation (9/9 panels, angle=0, face_count=78 OK). Baseline 523 → 532
     (6 v2 tests + 3 discipline: uniqueness ×2, bridge caps unassigned ×1).
+  - **v2 → Req 2 F.1 integration (CLOSED 2026-10-22, S.33 / 1724748):**
+    viewer replayer calls `resolve_panel_faces` before unfold; 3-state honest
+    precision (no faces → PREVIEW_ONLY + original warning; some faces →
+    PREVIEW_ONLY + PARTIAL; all faces → VALID_PER_PANEL, no warning).
+    Forward direction = honest reversal of backward StepViews. Baseline
+    532 → 537 (5 F.1 tests). Viewer manifest now reads precision from
+    first frame (was hardcoded PREVIEW_ONLY).
   - **v3 (P1, OPEN):** planar self-collision detection (2D boolean) + bridge
     caps spanning bend lines (fixture_l faces 1,4). KL-8 SELF scope.
     Currently honest UNKNOWN for non-adjacent planar pairs (correct per
