@@ -123,6 +123,22 @@ def format_precision_badge(frame: Frame) -> Tuple[str, Tuple[float, float, float
     return ("UNKNOWN", COLOR_GRAY)
 
 
+def format_machine_frame_badge(machine_frame_present: bool) -> Tuple[str, Tuple[float, float, float]]:
+    """machine_frame availability -> (text, rgb). F.3a: always SIMPLIFIED."""
+    if machine_frame_present:
+        return ("MACHINE: LOADED", COLOR_GREEN)
+    return ("MACHINE: SIMPLIFIED (KL-16 pending)", COLOR_YELLOW)
+
+
+def format_tooling_badge(punch_present: bool, die_present: bool) -> Tuple[str, Tuple[float, float, float]]:
+    """punch/die visual availability -> (text, rgb)."""
+    if punch_present and die_present:
+        return ("TOOLING: PUNCH + DIE", COLOR_GREEN)
+    if punch_present or die_present:
+        return ("TOOLING: PARTIAL", COLOR_ORANGE)
+    return ("TOOLING: NONE", COLOR_GRAY)
+
+
 def format_step_header(frame: Frame) -> str:
     """Human-readable header line for dialog top."""
     sv = frame.step_view

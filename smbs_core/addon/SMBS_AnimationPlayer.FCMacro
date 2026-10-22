@@ -47,6 +47,11 @@ class AnimationPlayerDialog(QtWidgets.QDialog):
 
         self.controller = None
         self._first_show = True
+        self.machine = None      # PressBrakeMachine
+        self.assembly = None     # ToolingAssembly
+        self.punch_shape = None  # Part.Shape or None
+        self.die_shape = None    # Part.Shape or None
+        self.machine_frame_shape = None  # Part.Shape or None (None в F.3a)
         self._init_ui()
         self._load_run()
 
@@ -75,6 +80,17 @@ class AnimationPlayerDialog(QtWidgets.QDialog):
         self.lbl_warning.setWordWrap(True)
         self.lbl_warning.setStyleSheet("color: #616161; font-style: italic;")
         layout.addWidget(self.lbl_warning)
+
+        tooling_row = QtWidgets.QHBoxLayout()
+        self.lbl_tooling = QtWidgets.QLabel("—")
+        self.lbl_machine_frame = QtWidgets.QLabel("—")
+        for lbl in (self.lbl_tooling, self.lbl_machine_frame):
+            lbl.setAlignment(QtCore.Qt.AlignCenter)
+            lbl.setMinimumHeight(28)
+            lbl.setStyleSheet("border-radius: 4px; padding: 2px 8px; color: white; background-color: rgb(127,127,127);")
+        tooling_row.addWidget(self.lbl_tooling)
+        tooling_row.addWidget(self.lbl_machine_frame)
+        layout.addLayout(tooling_row)
 
         self.slider = QtWidgets.QSlider(QtCore.Qt.Horizontal)
         self.slider.setMinimum(0)
@@ -144,6 +160,18 @@ class AnimationPlayerDialog(QtWidgets.QDialog):
             return
 
         self.controller = AnimationController(player)
+        try:
+            from smbs_core.models.tooling import ToolingKind
+            from smbs_core.Physics.machine_kinematics import PressBrakeMachine
+            self.machine = PressBrakeMachine.with_default_tooling()
+            self.assembly = self.machine.setup_assembly(backend)
+            self.punch_shape = self.assembly.get_world_shape(ToolingKind.PUNCH)
+            self.die_shape = self.assembly.get_world_shape(ToolingKind.DIE)
+            self.machine_frame_shape = self.assembly.get_world_shape(ToolingKind.MACHINE_FRAME)
+        except Exception as e:
+            self.lbl_status.setText(f"Tooling assembly failed: {e}")
+            self.machine = None
+            self.assembly = None
         self.slider.setMaximum(player.total - 1)
         self.controller.reset()
         self._update_ui()
@@ -167,6 +195,16 @@ class AnimationPlayerDialog(QtWidgets.QDialog):
         if existing is not None:
             doc.removeObject(OBJECT_NAME)
         Part.show(frame.step_view.state.part_shape, OBJECT_NAME)
+        for name in ("SMBS_Punch", "SMBS_Die", "SMBS_MachineFrame"):
+            obj = doc.getObject(name)
+            if obj is not None:
+                doc.removeObject(name)
+        if self.punch_shape is not None:
+            Part.show(self.punch_shape, "SMBS_Punch")
+        if self.die_shape is not None:
+            Part.show(self.die_shape, "SMBS_Die")
+        if self.machine_frame_shape is not None:
+            Part.show(self.machine_frame_shape, "SMBS_MachineFrame")
         if self._first_show:
             try:
                 Gui.SendMsgToActiveView("ViewFit")
@@ -195,6 +233,11 @@ class AnimationPlayerDialog(QtWidgets.QDialog):
             f"border-radius: 4px; padding: 2px 8px; color: white;"
         )
         self.lbl_warning.setText(frame.step_view.geometry_warning or "")
+        from smbs_core.viewer.fc_animation import (
+            format_machine_frame_badge, format_tooling_badge,
+        )
+        self.lbl_machine_frame.setText(format_machine_frame_badge(self.machine_frame_shape is not None)[0])
+        self.lbl_tooling.setText(format_tooling_badge(self.punch_shape is not None, self.die_shape is not None)[0])
         self.slider.blockSignals(True)
         self.slider.setValue(frame.frame_index)
         self.slider.blockSignals(False)
@@ -246,6 +289,12 @@ class AnimationPlayerDialog(QtWidgets.QDialog):
 
     def closeEvent(self, event):
         self.timer.stop()
+        doc = App.ActiveDocument
+        if doc is not None:
+            for name in (OBJECT_NAME, "SMBS_Punch", "SMBS_Die", "SMBS_MachineFrame"):
+                obj = doc.getObject(name)
+                if obj is not None:
+                    doc.removeObject(name)
         super().closeEvent(event)
 
 
