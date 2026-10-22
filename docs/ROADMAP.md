@@ -333,9 +333,9 @@
 
 ## 8. Рекомендованный порядок (если отличается от пользовательского)
 
-> **Revised order (2026-10-22, Req 2 F.1 close):**
+> **Revised order (2026-10-22, Req 2 F.2 close):**
 > KL-12 v1 ✅ → KL-8 ✅ → KL-22 ✅ → Req 6a ✅ → Req 4 ✅ → KL-12 v2 ✅ (S.31) →
-> **Req 2 F.1 ✅ (S.33)** → **Req 2 F.2 (FCMacro QTimer Timeline UI)** →
+> Req 2 F.1 ✅ (S.33) → **Req 2 F.2 ✅ (S.35)** →
 > **Req 2 F.3 (tooling visual, pending tooling_placement #7)** →
 > Req 6b (only if 6a misses SLA).
 > KL-12 v2 (side edges) CLOSED in S.31 (3eb4376): fixture_l 8/10, box 78/78.
@@ -348,6 +348,13 @@
 > bridge caps are NOT universally absent on L-family —
 > `run_20261012_034042_cf4c34` (real L-part) has them (8/10); 3-state warning
 > marks such fixtures honestly.
+> Req 2 F.2 (FreeCAD Timeline UI) CLOSED in S.35 (8d0ce71): headless
+> AnimationController (`smbs_core/viewer/fc_animation.py`) + QDialog/QTimer
+> `smbs_core/addon/SMBS_AnimationPlayer.FCMacro`. Baseline 537 → 544.
+> Manual GUI smoke: NOT YET PERFORMED (honest flag). Known follow-up:
+> render.py BANNER_TEXT hardcoded — PNG fallback still marks PREVIEW_ONLY
+> even when `geometry_precision=VALID_PER_PANEL`; deferred to F.3 or S.37;
+> does not block DoD Req 2 (viewport is source of truth).
 > KL-12 v3 (planar self-collision + bridge caps) tracked under KL-8 SELF /
 > Req 4 enforcement.
 > Original §8 order (requirement 4 → animation → KL-12/KL-8 backlog) superseded.

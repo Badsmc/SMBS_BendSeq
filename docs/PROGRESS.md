@@ -1,10 +1,10 @@
 # SMBS Core - Engineering Implementation Progress
 
 > **Project status:** advanced prototype with several completed functional subsystems, **NOT a complete automatic planning system**.
-> **Open blockers:** KL-12 v3 (planar self-collision + bridge caps) — v2 (side edges) CLOSED in S.31; Req 2 Phase F.1 (headless per-panel kinematics) CLOSED in S.33. See Known Limitations.
+> **Open blockers:** KL-12 v3 (planar self-collision + bridge caps) — v2 (side edges) CLOSED in S.31; Req 2 Phase F.1 (headless per-panel kinematics) CLOSED in S.33; Req 2 Phase F.2 (FreeCAD Timeline UI) CLOSED in S.35 (manual GUI smoke pending). See Known Limitations.
 > **Requirement 4.1 (clamp constraints) — validator (S.24a–S.24c) + enforcement per-bend in `12_tooling_selection.json` (Req 4 Phase E, S.30c).**
 
-**Status (HEAD `1724748`):** Stage 8 + KL-22 + Req 6a Phase 6a + Req 4 Phase E + KL-12 v2 + Req 2 Phase F.1 COMPLETE. **537 tests / 0 failures / 0 errors / 3 expectedFailures.**
+**Status (HEAD `8d0ce71`):** Stage 8 + KL-22 + Req 6a Phase 6a + Req 4 Phase E + KL-12 v2 + Req 2 Phase F.1 + F.2 COMPLETE. **544 tests / 0 failures / 0 errors / 3 expectedFailures.**
 KL-8 closed. All physically-verifiable pipeline stages (APPROACH, SELF, TOOL,
 TRAJECTORY, RETRACT) return VALID on compatible parts with real tooling;
 MACHINE honest UNKNOWN (KL-16: no machine_frame.FCStd). KL-22 closed.
@@ -27,9 +27,23 @@ Baseline 532 → 537 (5 new F.1 tests).
 Note (correction to S.32): bridge caps are NOT universally absent on L-family
 fixtures — `run_20261012_034042_cf4c34` (real L-part) has bridge caps (faces
 1,4 unassigned, 8/10). The 3-state warning honestly marks such fixtures.
-Next: Req 2 Phase F.2 (FCMacro QTimer Timeline UI). Then F.3 (tooling visual,
-pending tooling_placement #7). Box-like parts with bridge caps still require
-KL-12 v3 for full `production_eligible=True`.
+
+Req 2 Phase F.2 (FreeCAD Timeline UI) CLOSED in S.35 (8d0ce71):
+`smbs_core/viewer/fc_animation.py` (headless AnimationController +
+badge helpers, no FreeCAD/Qt imports, unit-testable) +
+`smbs_core/addon/SMBS_AnimationPlayer.FCMacro` (QDialog + QTimer modal;
+renders frames via Part.show with cleanup; honest badge display; timer
+stops on close/end/seek). Baseline 537 → 544 (7 new F.2 tests).
+**Manual GUI smoke: NOT YET PERFORMED** — no "verified in FreeCAD" claims
+until user runs macro and confirms behavior.
+Known follow-up (not blocker for DoD Req 2): `smbs_core/viewer/render.py`
+BANNER_TEXT hardcoded — PNG fallback still marks PREVIEW_ONLY even when
+`StepView.geometry_precision=VALID_PER_PANEL`. Viewport path (FCMacro) is
+source of truth and unaffected. Deferred to F.3 or separate fix.
+
+Next: Req 2 Phase F.3 (tooling visual, pending tooling_placement #7).
+Box-like parts with bridge caps still require KL-12 v3 for full
+`production_eligible=True`.
 
 ## Project Stages
 
@@ -428,6 +442,12 @@ bend order; `tuple(path)` required (Session 1.5 analysis).
     Forward direction = honest reversal of backward StepViews. Baseline
     532 → 537 (5 F.1 tests). Viewer manifest now reads precision from
     first frame (was hardcoded PREVIEW_ONLY).
+  - **v2 → Req 2 F.2 (CLOSED 2026-10-22, S.35 / 8d0ce71):** FreeCAD Timeline
+    UI. `smbs_core/viewer/fc_animation.py` (headless controller: play/pause/
+    tick/step, badge mapping, unit-testable) + `smbs_core/addon/
+    SMBS_AnimationPlayer.FCMacro` (QDialog + QTimer modal, Part.show per
+    frame, honest badge display). Baseline 537 → 544 (7 F.2 tests). Manual
+    GUI smoke: NOT YET PERFORMED.
   - **v3 (P1, OPEN):** planar self-collision detection (2D boolean) + bridge
     caps spanning bend lines (fixture_l faces 1,4). KL-8 SELF scope.
     Currently honest UNKNOWN for non-adjacent planar pairs (correct per
