@@ -333,14 +333,21 @@
 
 ## 8. Рекомендованный порядок (если отличается от пользовательского)
 
-> **Revised order (2026-10-22, KL-12 v2 close):**
-> KL-12 v1 ✅ → KL-8 ✅ → KL-22 ✅ → Req 6a ✅ → Req 4 ✅ → **KL-12 v2 ✅ (S.31)** →
-> **Req 2 (FreeCAD animation)** → Req 6b (only if 6a misses SLA).
-> KL-12 v2 (side edges) CLOSED in S.31: fixture_l 8/10, box 78/78 assigned;
-> verified via `rotate_subtree` face-count preservation. Bridge caps (fixture_l
-> faces 1,4) deferred to v3 — box-like parts with bridge caps remain
-> `production_eligible=False` until v3 lands, but this does NOT block Req 2
-> (animation targets L-family fixtures first, where bridge caps are absent).
+> **Revised order (2026-10-22, Req 2 F.1 close):**
+> KL-12 v1 ✅ → KL-8 ✅ → KL-22 ✅ → Req 6a ✅ → Req 4 ✅ → KL-12 v2 ✅ (S.31) →
+> **Req 2 F.1 ✅ (S.33)** → **Req 2 F.2 (FCMacro QTimer Timeline UI)** →
+> **Req 2 F.3 (tooling visual, pending tooling_placement #7)** →
+> Req 6b (only if 6a misses SLA).
+> KL-12 v2 (side edges) CLOSED in S.31 (3eb4376): fixture_l 8/10, box 78/78.
+> Req 2 F.1 (headless per-panel kinematics) CLOSED in S.33 (1724748):
+> replayer calls `resolve_panel_faces` before unfold; 3-state honest
+> precision (PREVIEW_ONLY / VALID_PER_PANEL, conditional warning); forward
+> direction = honest reversal. Baseline 532 → 537. Bridge caps (fixture_l
+> faces 1,4) deferred to v3 — box-like parts remain `production_eligible=False`
+> until v3 lands, but this does NOT block Req 2. Correction (to S.32):
+> bridge caps are NOT universally absent on L-family —
+> `run_20261012_034042_cf4c34` (real L-part) has them (8/10); 3-state warning
+> marks such fixtures honestly.
 > KL-12 v3 (planar self-collision + bridge caps) tracked under KL-8 SELF /
 > Req 4 enforcement.
 > Original §8 order (requirement 4 → animation → KL-12/KL-8 backlog) superseded.
