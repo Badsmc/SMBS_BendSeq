@@ -6,6 +6,8 @@ from smbs_core.viewer.fc_animation import (
     format_verification_badge,
     format_precision_badge,
     format_step_header,
+    format_machine_frame_badge,
+    format_tooling_badge,
     COLOR_GREEN, COLOR_ORANGE, COLOR_GRAY, COLOR_YELLOW,
 )
 from smbs_core.viewer.player import Player
@@ -87,6 +89,42 @@ class TestAnimationController(unittest.TestCase):
         self.assertIn("Step 1", format_step_header(f1))
         self.assertIn("B1", format_step_header(f1))
 
+    def test_format_machine_frame_badge_loaded(self):
+        txt, col = format_machine_frame_badge(True)
+        self.assertEqual(txt, "MACHINE: LOADED")
+        self.assertEqual(col, COLOR_GREEN)
+
+    def test_format_machine_frame_badge_simplified(self):
+        txt, col = format_machine_frame_badge(False)
+        self.assertEqual(txt, "MACHINE: SIMPLIFIED (KL-16 pending)")
+        self.assertEqual(col, COLOR_YELLOW)
+
+    def test_format_machine_frame_badge_returns_tuple(self):
+        res = format_machine_frame_badge(False)
+        self.assertIsInstance(res, tuple)
+        self.assertEqual(len(res), 2)
+        self.assertIsInstance(res[0], str)
+        self.assertEqual(len(res[1]), 3)
+
+    def test_format_tooling_badge_both_present(self):
+        txt, col = format_tooling_badge(True, True)
+        self.assertEqual(txt, "TOOLING: PUNCH + DIE")
+        self.assertEqual(col, COLOR_GREEN)
+
+    def test_format_tooling_badge_partial(self):
+        txt_p, col_p = format_tooling_badge(True, False)
+        self.assertEqual(txt_p, "TOOLING: PARTIAL")
+        self.assertEqual(col_p, COLOR_ORANGE)
+        txt_d, col_d = format_tooling_badge(False, True)
+        self.assertEqual(txt_d, "TOOLING: PARTIAL")
+        self.assertEqual(col_d, COLOR_ORANGE)
+
+    def test_format_tooling_badge_none(self):
+        txt, col = format_tooling_badge(False, False)
+        self.assertEqual(txt, "TOOLING: NONE")
+        self.assertEqual(col, COLOR_GRAY)
+
 
 if __name__ == "__main__":
     unittest.main()
+
