@@ -39,6 +39,23 @@ from PySide6 import QtCore, QtWidgets
 OBJECT_NAME = "SMBS_Animation"
 
 
+def _to_fc_shape(shape):
+    """Convert OCC TopoDS_Shape to FreeCAD Part.Shape via Part.__fromPythonOCC__."""
+    if shape is None:
+        return None
+    if isinstance(shape, Part.Shape):
+        return shape
+    if hasattr(Part, "__fromPythonOCC__"):
+        try:
+            return Part.__fromPythonOCC__(shape)
+        except Exception:
+            pass
+    try:
+        return Part.Shape(shape)
+    except Exception:
+        return None
+
+
 class AnimationPlayerDialog(QtWidgets.QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -194,17 +211,25 @@ class AnimationPlayerDialog(QtWidgets.QDialog):
         existing = doc.getObject(OBJECT_NAME)
         if existing is not None:
             doc.removeObject(OBJECT_NAME)
-        Part.show(frame.step_view.state.shape, OBJECT_NAME)
+        fc_part = _to_fc_shape(frame.step_view.state.shape)
+        if fc_part is not None:
+            Part.show(fc_part, OBJECT_NAME)
         for name in ("SMBS_Punch", "SMBS_Die", "SMBS_MachineFrame"):
             obj = doc.getObject(name)
             if obj is not None:
                 doc.removeObject(name)
         if self.punch_shape is not None:
-            Part.show(self.punch_shape, "SMBS_Punch")
+            fc_punch = _to_fc_shape(self.punch_shape)
+            if fc_punch is not None:
+                Part.show(fc_punch, "SMBS_Punch")
         if self.die_shape is not None:
-            Part.show(self.die_shape, "SMBS_Die")
+            fc_die = _to_fc_shape(self.die_shape)
+            if fc_die is not None:
+                Part.show(fc_die, "SMBS_Die")
         if self.machine_frame_shape is not None:
-            Part.show(self.machine_frame_shape, "SMBS_MachineFrame")
+            fc_frame = _to_fc_shape(self.machine_frame_shape)
+            if fc_frame is not None:
+                Part.show(fc_frame, "SMBS_MachineFrame")
         if self._first_show:
             try:
                 Gui.SendMsgToActiveView("ViewFit")
