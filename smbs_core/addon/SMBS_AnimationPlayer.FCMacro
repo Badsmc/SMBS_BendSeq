@@ -194,7 +194,7 @@ class AnimationPlayerDialog(QtWidgets.QDialog):
         existing = doc.getObject(OBJECT_NAME)
         if existing is not None:
             doc.removeObject(OBJECT_NAME)
-        Part.show(frame.step_view.state.part_shape, OBJECT_NAME)
+        Part.show(frame.step_view.state.shape, OBJECT_NAME)
         for name in ("SMBS_Punch", "SMBS_Die", "SMBS_MachineFrame"):
             obj = doc.getObject(name)
             if obj is not None:
@@ -236,8 +236,18 @@ class AnimationPlayerDialog(QtWidgets.QDialog):
         from smbs_core.viewer.fc_animation import (
             format_machine_frame_badge, format_tooling_badge,
         )
-        self.lbl_machine_frame.setText(format_machine_frame_badge(self.machine_frame_shape is not None)[0])
-        self.lbl_tooling.setText(format_tooling_badge(self.punch_shape is not None, self.die_shape is not None)[0])
+        mt, mc = format_machine_frame_badge(self.machine_frame_shape is not None)
+        tt, tc = format_tooling_badge(self.punch_shape is not None, self.die_shape is not None)
+        self.lbl_machine_frame.setText(mt)
+        self.lbl_machine_frame.setStyleSheet(
+            f"background-color: rgb({int(mc[0]*255)},{int(mc[1]*255)},{int(mc[2]*255)}); "
+            f"border-radius: 4px; padding: 2px 8px; color: white;"
+        )
+        self.lbl_tooling.setText(tt)
+        self.lbl_tooling.setStyleSheet(
+            f"background-color: rgb({int(tc[0]*255)},{int(tc[1]*255)},{int(tc[2]*255)}); "
+            f"border-radius: 4px; padding: 2px 8px; color: white;"
+        )
         self.slider.blockSignals(True)
         self.slider.setValue(frame.frame_index)
         self.slider.blockSignals(False)
