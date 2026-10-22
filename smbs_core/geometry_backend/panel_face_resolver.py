@@ -9,12 +9,13 @@ Does NOT modify canonical_part.schema.json.
 Preserves existing non-empty face_indices.
 Safe against non-BRep objects (e.g. MagicMock in unit tests).
 
-Known limitation (KL-12 v1):
-- Side edges (faces perpendicular to panel normal) are not assigned to any panel.
-  For fixture_l, 4 of 10 faces (indices [1, 3, 4, 7]) are unassigned.
-  Impact: rotate_subtree moves panel top/bottom faces but leaves side edges behind.
-  Acceptable for KL-12 self_collision (uses top/bottom only).
-  Follow-up for req 2 (animation): extend resolver to include side edges per panel.
+Known limitation (KL-12 v2):
+- Side edges (planar faces perpendicular to a panel normal) are assigned to
+  the nearest panel by perpendicular-plane distance.
+- Bridge caps spanning multiple panels across a bend line (fixture_l faces
+  1, 4) cannot be rigidly assigned to a single panel — they stay unassigned.
+  Impact: such caps remain stationary during rotate_subtree (KL-22 trade-off
+  preserved). Deferred to KL-12 v3 (planar self-collision).
 """
 
 import math
@@ -107,8 +108,9 @@ def resolve_panel_faces(
         raise ValueError("resolve_panel_faces: canonical_payload missing thickness_mm.value")
     thickness = float(thickness_info["value"])
 
-    # P2 fix: tighter plane threshold (half-thickness + 0.2mm tolerance)
-    plane_dist_threshold = (thickness / 2.0) + 0.2
+    # P2 fix: threshold covers both faces of sheet + tolerance.
+    # thickness/2 was insufficient for float-boundary (98.3 - 99.25 = -0.95 case).
+    plane_dist_threshold = thickness + 0.2
 
     panels_meta = canonical_payload.get("panels", {})
     bends_meta = canonical_payload.get("bends", {})
@@ -155,6 +157,7 @@ def resolve_panel_faces(
 
     # 2. Match planar faces to panels
     assigned_faces: Dict[str, List[int]] = {p.id: [] for p in panels_to_resolve}
+    assigned_face_indices = set()
 
     for fd in face_data:
         if fd["type"] == GeomAbs_Plane and fd["normal"] is not None:
@@ -174,6 +177,34 @@ def resolve_panel_faces(
 
             if best_pid is not None:
                 assigned_faces[best_pid].append(fd["idx"])
+                assigned_face_indices.add(fd["idx"])
+
+    # 2b. Match side edges (unassigned planar faces perpendicular to panel normal)
+    for fd in face_data:
+        if fd["idx"] in assigned_face_indices:
+            continue
+        if fd["type"] == GeomAbs_Plane and fd["normal"] is not None:
+            best_pid: Optional[str] = None
+            min_dist = float('inf')
+            min_dist_cog = float('inf')
+
+            for panel in panels_to_resolve:
+                p_info = panels_meta.get(panel.id, {})
+                p_norm = tuple(p_info.get("normal", panel.normal or (0.0, 0.0, 1.0)))
+                p_cent = tuple(p_info.get("centroid", (0.0, 0.0, 0.0)))
+
+                if not _is_parallel(fd["normal"], p_norm):
+                    d = _dist_point_to_plane(fd["cog"], p_cent, p_norm)
+                    if d <= plane_dist_threshold:
+                        d_cog = _dist_sq(fd["cog"], p_cent)
+                        if d < min_dist or (abs(d - min_dist) < 1e-4 and d_cog < min_dist_cog):
+                            min_dist = d
+                            min_dist_cog = d_cog
+                            best_pid = panel.id
+
+            if best_pid is not None:
+                assigned_faces[best_pid].append(fd["idx"])
+                assigned_face_indices.add(fd["idx"])
 
     # 3. Match cylindrical faces to bends -> child panels (v1-approximation)
     for fd in face_data:
@@ -191,6 +222,7 @@ def resolve_panel_faces(
 
             if best_child_pid is not None and best_child_pid in assigned_faces:
                 assigned_faces[best_child_pid].append(fd["idx"])
+                assigned_face_indices.add(fd["idx"])
 
     # 4. Check for unassigned panels and populate PanelGraph (Actionable fail on empty)
     for panel in panels_to_resolve:
@@ -204,3 +236,9 @@ def resolve_panel_faces(
             )
         panel.face_indices = sorted(indices)
         logger.debug(f"Resolved panel {panel.id} -> face_indices {panel.face_indices}")
+
+    # 5. Log remaining unassigned faces for diagnostic / future reference
+    all_indices = set(fd["idx"] for fd in face_data)
+    unassigned_indices = sorted(all_indices - assigned_face_indices)
+    if unassigned_indices:
+        logger.debug(f"resolve_panel_faces: {len(unassigned_indices)} faces remain unassigned: {unassigned_indices}")
