@@ -333,13 +333,16 @@
 
 ## 8. Рекомендованный порядок (если отличается от пользовательского)
 
-> **Revised order (2026-10-21, KL-22 close):**
-> KL-12 v1 ✅ → KL-8 ✅ → **KL-22 ✅ (multi-depth unblocked, box baseline 2149s)** →
-> **Req 6a (Search SLA: Lazy A* + Phase 6a heuristic/ordering/DFBnB)** → Req 4 →
-> Req 2 (after KL-12 v2 side edges) → Req 6b (only if 6a misses SLA).
-> KL-12 v2 (side edges) raised P2 → P1 — production correctness blocker on
-> box-like parts, not just Req 2 animation. See KL-22 trade-off.
-> KL-12 v3 (planar self-collision) tracked under KL-8 SELF / Req 4 enforcement.
+> **Revised order (2026-10-22, KL-12 v2 close):**
+> KL-12 v1 ✅ → KL-8 ✅ → KL-22 ✅ → Req 6a ✅ → Req 4 ✅ → **KL-12 v2 ✅ (S.31)** →
+> **Req 2 (FreeCAD animation)** → Req 6b (only if 6a misses SLA).
+> KL-12 v2 (side edges) CLOSED in S.31: fixture_l 8/10, box 78/78 assigned;
+> verified via `rotate_subtree` face-count preservation. Bridge caps (fixture_l
+> faces 1,4) deferred to v3 — box-like parts with bridge caps remain
+> `production_eligible=False` until v3 lands, but this does NOT block Req 2
+> (animation targets L-family fixtures first, where bridge caps are absent).
+> KL-12 v3 (planar self-collision + bridge caps) tracked under KL-8 SELF /
+> Req 4 enforcement.
 > Original §8 order (requirement 4 → animation → KL-12/KL-8 backlog) superseded.
 >
 > Rationale: KL-22 uncovered during Req 6a profiling — depth 2+ unfolds failed
