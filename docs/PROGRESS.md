@@ -1,10 +1,10 @@
 # SMBS Core - Engineering Implementation Progress
 
 > **Project status:** advanced prototype with several completed functional subsystems, **NOT a complete automatic planning system**.
-> **Open blockers:** KL-12 (per-panel kinematics; v2 raised to P1 per KL-22) — see Known Limitations.
+> **Open blockers:** KL-12 v3 (planar self-collision + bridge caps) — v2 (side edges) CLOSED in S.31. See Known Limitations.
 > **Requirement 4.1 (clamp constraints) — validator (S.24a–S.24c) + enforcement per-bend in `12_tooling_selection.json` (Req 4 Phase E, S.30c).**
 
-**Status (HEAD `9cf5bed`):** Stage 8 + KL-22 + Req 6a Phase 6a + Req 4 Phase E COMPLETE. **523 tests / 0 failures / 0 errors / 3 expectedFailures.**
+**Status (HEAD `3eb4376`):** Stage 8 + KL-22 + Req 6a Phase 6a + Req 4 Phase E + KL-12 v2 COMPLETE. **532 tests / 0 failures / 0 errors / 3 expectedFailures.**
 KL-8 closed. All physically-verifiable pipeline stages (APPROACH, SELF, TOOL,
 TRAJECTORY, RETRACT) return VALID on compatible parts with real tooling;
 MACHINE honest UNKNOWN (KL-16: no machine_frame.FCStd). KL-22 closed.
@@ -12,7 +12,15 @@ Req 6a Phase 6a COMPLETE (all 4 steps: Lazy A* + admissible h + epsilon tie-brea
 move ordering cache + depth_limit safety net). Empirical results:
 box N=8 wall 47.73-50.32s noise band (49.26s step 2, 9 nodes, 8 valid + 1 invalid);
 2_1_3_4_ok N=10 wall 1.0-1.29s (11 nodes). Search SLA p95 <= 240s MET (4.9x under budget).
-Next: Requirement 2 (Phase F, FreeCAD animation) — requires KL-12 v2.
+KL-12 v2 (side edges) CLOSED in S.31: fixture_l 6/10 → 8/10 assigned
+(bridge caps 1,4 remain unassigned); box_100out_50in_ok 41/78 → 78/78
+assigned; verified via rotate_subtree face-count preservation (9/9 panels,
+angle=0). Bridge caps span bend lines, cannot be rigidly assigned to a
+single panel (KL-22 trade-off preserved, v3 scope).
+Next: Requirement 2 (Phase F, FreeCAD animation) — KL-12 v2 done, Req 2
+unblocked. Bridge caps on box-like parts still require KL-12 v3 for full
+`production_eligible=True` on those fixtures; Req 2 animation targets
+L-family fixtures first (bridge caps not present there).
 
 ## Project Stages
 
@@ -395,16 +403,20 @@ bend order; `tuple(path)` required (Session 1.5 analysis).
   - **Follow-up:** Add `unknown_policy` parameter to `MockValidator`. Cosmetic, no behavioral impact.
 
 - **KL-12 v1 (PARTIAL, Stage 8a):** infrastructure ready, detection deferred.
-  - **v2 (P1, raised 2026-10-21 per KL-22):** resolver side edges
-    (6/10 on fixture_l; 41/78 assigned on box_100out_50in_ok). **Production
-    correctness blocker on box-like parts**, not just Req 2 animation.
-    Without v2, fixtures with unassigned faces stay `production_eligible=False`
-    even after KL-22 fix (side edges stationary during unfold — see KL-22
-    trade-off). Required before Req 2 AND before any box-like part can reach
-    VERIFIED.
-  - v3 (P1): planar self-collision detection (2D boolean). KL-8 SELF scope.
+  - **v2 (CLOSED 2026-10-22, S.31 / 3eb4376):** resolver side edges.
+    Threshold: `thickness/2 + 0.2` → `thickness + 0.2` (covers both sheet
+    surfaces + float-boundary `98.3 - 99.25 = -0.95000…` case). New step 2b:
+    perpendicular planar faces assigned to nearest panel by perpendicular-
+    plane distance, tie-break by 3D cog distance.
+    Results: fixture_l 6/10 → 8/10 (bridge caps 1,4 stay unassigned);
+    box_100out_50in_ok 41/78 → 78/78. Verified via `rotate_subtree` face-count
+    preservation (9/9 panels, angle=0, face_count=78 OK). Baseline 523 → 532
+    (6 v2 tests + 3 discipline: uniqueness ×2, bridge caps unassigned ×1).
+  - **v3 (P1, OPEN):** planar self-collision detection (2D boolean) + bridge
+    caps spanning bend lines (fixture_l faces 1,4). KL-8 SELF scope.
     Currently honest UNKNOWN for non-adjacent planar pairs (correct per
-    invariant #1 — better false UNKNOWN than false VALID).
+    invariant #1 — better false UNKNOWN than false VALID). Bridge caps remain
+    stationary during unfold (KL-22 trade-off preserved) until v3.
   - Sniff test → `strict_per_panel` flag: before main merge.
 
 - **KL-13 (P3, OPEN, discovered in S.18 audit)**: runs generated before 2026-10-17 lack `bend_line_flat_pattern` in `04_canonical_part.json`. Flat annotations (requirement 1) require this field. `flat_annotations.py` refuses such runs with actionable error; `axis_point` is **not** used as fallback (it lives in the folded-model coordinate system, not on the flat pattern — using it would place numbers off the flat pattern). Impact: 3 old runs (`run_20261012_034042_cf4c34`, `run_20261012_034045_9a351d`, and one more) cannot display annotations. Fix path: regenerate old runs with current pipeline (`smbs-cli part.FCStd`). Not a bug — pipeline evolution. See `smbs_core/addon/README.md` "Known issue: old runs".
