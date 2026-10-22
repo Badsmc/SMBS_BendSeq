@@ -56,6 +56,24 @@ def _to_fc_shape(shape):
         return None
 
 
+def _update_feature(doc, name, fc_shape):
+    """In-place update of Part::Feature: set .Shape, recompute. Removes
+    object if fc_shape is None (e.g. tooling not loaded)."""
+    if fc_shape is None:
+        obj = doc.getObject(name)
+        if obj is not None:
+            doc.removeObject(name)
+            doc.recompute()
+        return None
+    obj = doc.getObject(name)
+    if obj is None:
+        obj = doc.addObject("Part::Feature", name)
+    obj.Shape = fc_shape
+    obj.Visibility = True
+    doc.recompute()
+    return obj
+
+
 class AnimationPlayerDialog(QtWidgets.QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -193,6 +211,7 @@ class AnimationPlayerDialog(QtWidgets.QDialog):
         self.controller.reset()
         self._update_ui()
         self.lbl_status.setText(f"Loaded {run_dir_str} — {player.total} frames")
+        self._render_current()
 
     def _ensure_document(self):
         if App.ActiveDocument is None:
@@ -208,28 +227,14 @@ class AnimationPlayerDialog(QtWidgets.QDialog):
         if frame is None:
             return
         doc = self._ensure_document()
-        existing = doc.getObject(OBJECT_NAME)
-        if existing is not None:
-            doc.removeObject(OBJECT_NAME)
         fc_part = _to_fc_shape(frame.step_view.state.shape)
-        if fc_part is not None:
-            Part.show(fc_part, OBJECT_NAME)
-        for name in ("SMBS_Punch", "SMBS_Die", "SMBS_MachineFrame"):
-            obj = doc.getObject(name)
-            if obj is not None:
-                doc.removeObject(name)
-        if self.punch_shape is not None:
-            fc_punch = _to_fc_shape(self.punch_shape)
-            if fc_punch is not None:
-                Part.show(fc_punch, "SMBS_Punch")
-        if self.die_shape is not None:
-            fc_die = _to_fc_shape(self.die_shape)
-            if fc_die is not None:
-                Part.show(fc_die, "SMBS_Die")
-        if self.machine_frame_shape is not None:
-            fc_frame = _to_fc_shape(self.machine_frame_shape)
-            if fc_frame is not None:
-                Part.show(fc_frame, "SMBS_MachineFrame")
+        _update_feature(doc, OBJECT_NAME, fc_part)
+        fc_punch = _to_fc_shape(self.punch_shape) if self.punch_shape is not None else None
+        _update_feature(doc, "SMBS_Punch", fc_punch)
+        fc_die = _to_fc_shape(self.die_shape) if self.die_shape is not None else None
+        _update_feature(doc, "SMBS_Die", fc_die)
+        fc_frame = _to_fc_shape(self.machine_frame_shape) if self.machine_frame_shape is not None else None
+        _update_feature(doc, "SMBS_MachineFrame", fc_frame)
         if self._first_show:
             try:
                 Gui.SendMsgToActiveView("ViewFit")
