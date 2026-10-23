@@ -85,7 +85,7 @@ Not in this version:
 
 **Preview behavior note:** Preview merges the FCStd document into the active FreeCAD document in its *original modeling coordinates*. Tools are NOT aligned to each other or to a machine — this is intentional. Alignment happens in `ToolingAssembly.place()` (pipeline side, via datums from sidecar). Backlog: "Preview assembled tooling" feature (show punch+die aligned as they would be on the machine).
 
-## Animation Player (Req 2 Phase F.2, S.35)
+## Animation Player (Req 2 Phase F.2 + F.3a, S.35 / S.37)
 
 Macro: `SMBS_AnimationPlayer.FCMacro`
 
@@ -102,11 +102,15 @@ Honest marking (badges, read-only from `StepView`, never computed):
 - **Precision** (from `StepView.geometry_precision`): `VALID_PER_PANEL` (green) / `PREVIEW_ONLY` (yellow).
 - Warning text below badges when `StepView.geometry_warning` is not `None` (e.g. partial per-panel kinematics with unassigned bridge caps — see KL-12 v3 in `docs/PROGRESS.md`).
 
-Not in this version:
-- **Tooling visualization** (punch / die / machine frame) — deferred to Req 2 Phase F.3, pending `tooling_placement` design (item #7).
-- **Reverse Play loop** — `AnimationController.step_backward()` exists, but Play always advances forward from step 0; reverse via user pressing Step ◀.
-- **Persistent viewport optimization** — each frame removes and re-adds the `SMBS_Animation` object (`Part.show`); not optimized for very long sequences.
+**Tooling visualization (F.3a, S.37):** punch and die rendered in machine assembly position via `PressBrakeMachine.with_default_tooling()` + `ToolingAssembly.place()` (`smbs_core/Physics/machine_kinematics.py`, `smbs_core/Physics/tooling_assembly.py`). Machine frame: badge `MACHINE: SIMPLIFIED (KL-16 pending)`. `tooling_placement` computed on-the-fly from `tooling_manifest` + `candidate_sequence` + `bend_line_flat_pattern` (option (a), no new schema, #7 clean). Rendering uses persistent `Part::Feature` objects (SMBS_Animation, SMBS_Punch, SMBS_Die) updated in-place via `obj.touch()` + `Gui.updateGui()` — the F.2 "remove + Part.show per frame" pattern did not refresh FreeCAD's ViewObject.
 
-**Manual GUI test status: NOT YET PERFORMED.** The FCMacro GUI is not unit-testable in CI. Headless logic (`smbs_core/viewer/fc_animation.py`: controller state machine + badge mapping) is covered by 7 tests in `tests/test_viewer_fc_animation.py`. User must run the macro in FreeCAD and confirm: dialog opens, badges render correctly for both VERIFIED and VERIFICATION_FAILED fixtures, Play advances frames, Step buttons work, slider seeks, shape updates visibly, dialog close stops the timer. **Do NOT claim "verified in FreeCAD" until this is performed** — honest marking extends to our own test status.
+Not in this version:
+- **Backgauge visual** — deferred to F.3b.
+- **Punch descent animation** (punch moves down on each bend) — deferred to F.3b. Current F.3a shows punch/die at static assembly position.
+- **Machine frame geometry** — deferred to F.3b (blocked on KL-16, no machine_frame.FCStd yet); badge `SIMPLIFIED` is honest placeholder.
+- **Reverse Play loop** — `AnimationController.step_backward()` exists, but Play always advances forward from step 0; reverse via user pressing Step ◀.
+- **Non-modal dialog** — dialog uses `exec()` (modal); reconsider in F.3b for interactive viewport manipulation during playback.
+
+**Manual GUI test status: PERFORMED in S.37 (smoke 1-7).** The FCMacro GUI is not unit-testable in CI. Headless logic (`smbs_core/viewer/fc_animation.py`: controller state machine + badge mapping, now including `format_machine_frame_badge` / `format_tooling_badge`) is covered by 13 tests in `tests/test_viewer_fc_animation.py`. Smoke found and fixed 4 pre-existing F.2 bugs (part_shape AttributeError, Part.Shape(occ) C++ abort, initial render missing, GUI refresh after in-place .Shape). Verified in FreeCAD: dialog opens, badges render with correct colors (verification, precision, tooling, machine_frame), Play advances frames, Step buttons work, slider seeks, shape updates visibly per frame, dialog close stops timer and cleans all 4 objects (SMBS_Animation, SMBS_Punch, SMBS_Die, SMBS_MachineFrame). **Known limitation:** panel shells disconnect after first unfold (visible as "separated panels") — pre-existing replayer behaviour, KL-12 v3 scope, not F.3a regression.
 
 **Known follow-up (not blocker):** `smbs_core/viewer/render.py` PNG fallback has `BANNER_TEXT = "PREVIEW_ONLY (KL-12) - not a physical re-simulation"` hardcoded (`cli.py:213` calls `render_frame_png` without precision / banner_text arguments). PNG output therefore still marks PREVIEW_ONLY even when `StepView.geometry_precision=VALID_PER_PANEL`. Does not affect the viewport path (this FCMacro is the source of truth for DoD Req 2). Deferred to F.3 or a separate S.37 fix.

@@ -1,10 +1,10 @@
 # SMBS Core - Engineering Implementation Progress
 
 > **Project status:** advanced prototype with several completed functional subsystems, **NOT a complete automatic planning system**.
-> **Open blockers:** KL-12 v3 (planar self-collision + bridge caps) — v2 (side edges) CLOSED in S.31; Req 2 Phase F.1 (headless per-panel kinematics) CLOSED in S.33; Req 2 Phase F.2 (FreeCAD Timeline UI) CLOSED in S.35 (manual GUI smoke pending). See Known Limitations.
+> **Open blockers:** KL-12 v3 (planar self-collision + bridge caps + panel shell disconnection observed in F.3a smoke) — v2 (side edges) CLOSED in S.31; Req 2 Phase F.1 CLOSED in S.33; Req 2 Phase F.2 CLOSED in S.35; Req 2 Phase F.3a (tooling visualization, punch/die) CLOSED in S.37. Manual GUI smoke for F.2/F.3a: PERFORMED (S.37 smoke 7 — PASS on tooling overlay; shell disconnection is pre-existing KL-12 v3, visible at PREVIEW_ONLY). See Known Limitations.
 > **Requirement 4.1 (clamp constraints) — validator (S.24a–S.24c) + enforcement per-bend in `12_tooling_selection.json` (Req 4 Phase E, S.30c).**
 
-**Status (HEAD `8d0ce71`):** Stage 8 + KL-22 + Req 6a Phase 6a + Req 4 Phase E + KL-12 v2 + Req 2 Phase F.1 + F.2 COMPLETE. **544 tests / 0 failures / 0 errors / 3 expectedFailures.**
+**Status (HEAD `87cdbad`):** Stage 8 + KL-22 + Req 6a Phase 6a + Req 4 Phase E + KL-12 v2 + Req 2 Phase F.1 + F.2 + F.3a COMPLETE. **550 tests / 0 failures / 0 errors / 3 expectedFailures.**
 KL-8 closed. All physically-verifiable pipeline stages (APPROACH, SELF, TOOL,
 TRAJECTORY, RETRACT) return VALID on compatible parts with real tooling;
 MACHINE honest UNKNOWN (KL-16: no machine_frame.FCStd). KL-22 closed.
@@ -41,8 +41,29 @@ BANNER_TEXT hardcoded — PNG fallback still marks PREVIEW_ONLY even when
 `StepView.geometry_precision=VALID_PER_PANEL`. Viewport path (FCMacro) is
 source of truth and unaffected. Deferred to F.3 or separate fix.
 
-Next: Req 2 Phase F.3 (tooling visual, pending tooling_placement #7).
-Box-like parts with bridge caps still require KL-12 v3 for full
+Req 2 Phase F.3a (tooling visualization, punch/die) CLOSED in S.37a-f
+(814eb19..87cdbad): `PressBrakeMachine.with_default_tooling()` +
+`ToolingAssembly.place()` in `_load_run`; punch/die shapes rendered via
+persistent Part::Feature (`_update_feature` with `obj.touch()` +
+`Gui.updateGui()`); `closeEvent` cleans SMBS_Animation/SMBS_Punch/SMBS_Die.
+Machine frame: badge `MACHINE: SIMPLIFIED (KL-16 pending)`. tooling_placement
+= (a) on-the-fly, schemas unchanged (#7 clean). Baseline 544 → 550 (6 new
+badge tests). **First real GUI smoke revealed 4 pre-existing F.2 bugs**
+(`part_shape` attr, `Part.Shape(occ)` C++ abort, initial render missing,
+GUI refresh after in-place .Shape) — all fixed in S.37b/c/d/e/f, each an
+independent commit. Remaining F.3a UX follow-ups (backgauge, punch descent,
+machine frame geometry, modal dialog reconsideration) deferred to F.3b.
+**Known limitation (pre-existing, NOT F.3a regression):** after first
+unfold, single solid → `TopoDS_Compound` of disconnected shells
+(L/U/Z fixtures, verified via `TopoDS_SOLID` explorer: solids 1→0,
+shells 1→2→3→4, 22 faces preserved). Visual symptom: panels appear
+separated at Step ≥1 (visible in PNG render and FreeCAD viewport alike —
+same shape path). This is replayer/KL-12 v3 territory, not addon scope.
+
+Next: Req 2 Phase F.3b (punch descent + backgauge + machine frame geometry;
+after KL-16) or KL-12 v3 (planar self-collision + bridge caps + panel shell
+connection — fixes visual "separated panels" seen in F.3a smoke). Box-like
+parts with bridge caps still require KL-12 v3 for full
 `production_eligible=True`.
 
 ## Project Stages
