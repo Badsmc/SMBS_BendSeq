@@ -539,6 +539,11 @@ class TopologyWorker:
                 _raise_topology_incomplete(b_id, "signed_angle", 505)
             direction_str = "UP" if angle_val >= 0 else "DOWN"
 
+            if "origin" not in b_info or b_info["origin"] is None:
+                _raise_topology_incomplete(b_id, "origin", 543)
+            if "axis" not in b_info or b_info["axis"] is None:
+                _raise_topology_incomplete(b_id, "axis", 545)
+
             canonical_bends[b_id] = {
                 "bend_id": b_id,
                 "parent_panel_id": p1,
@@ -568,8 +573,8 @@ class TopologyWorker:
                     "source": ParameterSource.DEFAULT_POLICY.value if geom_result["payload"].get("k_factor", {}).get("value") is None else ParameterSource.SHEETMETAL_NATIVE.value,
                     "confidence": ConfidenceLevel.ESTIMATED.value if geom_result["payload"].get("k_factor", {}).get("value") is None else ConfidenceLevel.CONFIRMED.value
                 },
-                "axis_point": [float(x) for x in b_info.get("origin", [0,0,0])],
-                "axis_direction": [float(x) for x in b_info.get("axis", [1,0,0])]
+                "axis_point": [float(x) for x in b_info["origin"]],
+                "axis_direction": [float(x) for x in b_info["axis"]]
             }
 
             # Propagate bend_line_flat_pattern using proven geometric mapping
