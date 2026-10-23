@@ -3,8 +3,9 @@
 > **Project status:** advanced prototype with several completed functional subsystems, **NOT a complete automatic planning system**.
 > **Open blockers:** KL-12 v3 (planar self-collision + bridge caps + panel shell disconnection observed in F.3a smoke) — v2 (side edges) CLOSED in S.31; Req 2 Phase F.1 CLOSED in S.33; Req 2 Phase F.2 CLOSED in S.35; Req 2 Phase F.3a (tooling visualization, punch/die) CLOSED in S.37. Manual GUI smoke for F.2/F.3a: PERFORMED (S.37 smoke 7 — PASS on tooling overlay; shell disconnection is pre-existing KL-12 v3, visible at PREVIEW_ONLY). See Known Limitations.
 > **Requirement 4.1 (clamp constraints) — validator (S.24a–S.24c) + enforcement per-bend in `12_tooling_selection.json` (Req 4 Phase E, S.30c).**
+> **Open P0 defects (annotated 2026-10-23, HEAD `91d07c0`, baseline 550 / 0F / 0E / 3xF):** 5 code + 4 doc — see `docs/AUDIT_FULL_2026-10-23.md`. Current release verdict: **NOT READY**.
 
-**Status (HEAD `87cdbad`):** Stage 8 + KL-22 + Req 6a Phase 6a + Req 4 Phase E + KL-12 v2 + Req 2 Phase F.1 + F.2 + F.3a COMPLETE. **550 tests / 0 failures / 0 errors / 3 expectedFailures.**
+**Status (HEAD `91d07c0`):** Stage 8 + KL-22 + Req 6a Phase 6a + Req 4 Phase E + KL-12 v2 + Req 2 Phase F.1 + F.2 + F.3a COMPLETE. **550 tests / 0 failures / 0 errors / 3 expectedFailures.**
 KL-8 closed. All physically-verifiable pipeline stages (APPROACH, SELF, TOOL,
 TRAJECTORY, RETRACT) return VALID on compatible parts with real tooling;
 MACHINE honest UNKNOWN (KL-16: no machine_frame.FCStd). KL-22 closed.
@@ -65,6 +66,27 @@ after KL-16) or KL-12 v3 (planar self-collision + bridge caps + panel shell
 connection — fixes visual "separated panels" seen in F.3a smoke). Box-like
 parts with bridge caps still require KL-12 v3 for full
 `production_eligible=True`.
+
+## Open P0 Defects (2026-10-23 audit)
+
+Snapshot: HEAD `91d07c0`, baseline 550 / 0F / 0E / 3xF, annotated 2026-10-23.
+Audit evidence, per-defect resolution criteria, and scope: `docs/AUDIT_FULL_2026-10-23.md`.
+
+The baseline is green, but the audit identified the following P0 defects that current tests do not catch (integrity invariants, not functional regressions). Status: **NOT READY** for release until all are closed with reproducible evidence + negative test case.
+
+| ID | File:lines | Defect |
+|---|---|---|
+| P0-CODE-1 | `topology/worker.py:540, 561–565` | `direction` derived from `signed_angle` sign only; marked `confidence=CONFIRMED`. No axis/normal context. |
+| P0-CODE-2 | `topology/worker.py:552, 557, 571, 572` | Silent defaults `radius=1.0`, `length=50.0`, `axis_point=[0,0,0]`, `axis_direction=[1,0,0]` — all marked `CONFIRMED`. |
+| P0-CODE-3 | `baseline/worker.py:702, 704–712, 760` | `hausdorff = max(bbox_delta)` — not Hausdorff. `area_delta` computed (line 700) but not in `is_pass`. |
+| P0-CODE-4 | `geometry/worker.py:179, 249, 273` | Dead `status_worker`; literal `RunStatus.SUCCESS.value` on unfold failure. `02_geometry_result.json` = `SUCCESS` even when unfold fails. |
+| P0-CODE-5 | `adapter.py:127–128, 214–215, 249, 164–165` | FreeCAD preference defaults (0.44 / 1.0) flow to `NormalizedBendLine(confidence=CONFIRMED)`. `EstimateThickness` → `thickness_confidence=CONFIRMED`. |
+| P0-DOC-1 | `docs/RELEASE_AUDIT.md` | Stage 3 "READY FOR RELEASE" without SHA/scope → annotated `HISTORICAL` 2026-10-23. |
+| P0-DOC-2 | `docs/REGRESSION_REPORT.md` | 32/32 PASS from commit `c76e95f` (main) → annotated `HISTORICAL` 2026-10-23. |
+| P0-DOC-3 | `docs/TEST_MATRIX.md` | ">70 (74 typically)" pre-refactor matrix → annotated `HISTORICAL` 2026-10-23. |
+| P0-DOC-4 | `docs/PROGRESS.md` (this file) | No open P0 registry; stale HEAD `87cdbad` → resolved in this commit (this section + line 7 fix). |
+
+Do not close a P0 without reproducible evidence + negative test case. See `docs/WORKING_CHECKLIST.md` for active task tracking.
 
 ## Project Stages
 

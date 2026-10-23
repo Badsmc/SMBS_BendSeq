@@ -1,3 +1,12 @@
+# HISTORICAL — Test Matrix (pre-refactor, 2026-10-11, base commit d63eac2)
+#
+# Audited body date: 2026-10-11, pre-refactor legacy suite (SMBS baseline 7a0d87b)
+# Deprecated at commit: 289daa3 (2026-10-17)
+# Does NOT describe current HEAD: 91d07c0 (stage-1-fix-correctness)
+# Current test count: 550 (see docs/PROGRESS.md §Test Metrics)
+# Current release decision: NOT READY
+#   → see docs/AUDIT_FULL_2026-10-23.md §Release Verdict
+#
 > **DEPRECATED (2026-10-17).** This file predates the Stage 1/2/3 refactor.
 > Canonical progress and test metrics: `docs/PROGRESS.md` §Test Metrics.
 > Kept for historical reference only. Do not update.
@@ -39,3 +48,21 @@ Total tests: >70 (74 run typically).
 - `test_stage16_simulation.py`: Validates kinematic playback.
 
 *Note: 6 tests natively attempt to import FreeCAD components intended for GUI execution, resulting in expected skips/errors during automated CLI execution.*
+
+---
+
+## Current Status (annotated 2026-10-23)
+
+This file is a HISTORICAL snapshot. The ">70 (74 run typically)" estimate
+above refers to the pre-refactor legacy suite inherited from SMBS baseline
+commit `7a0d87b`. It does not enumerate current test suites.
+
+It does NOT describe:
+- Current HEAD: 91d07c0 (stage-1-fix-correctness), baseline 550 tests.
+- Current test suites (test_kl12_v2_side_edges.py, test_req2_f1_per_panel_kinematics.py, etc.).
+- The line-41 6-skip/error note was observed in a legacy CLI environment; current FreeCAD-python runs may behave differently.
+- Open P0 code defects: P0-CODE-1..5.
+- Open P0 documentation defects: P0-DOC-1..4.
+
+**Current release decision: NOT READY.**
+Evidence and open blockers: `docs/AUDIT_FULL_2026-10-23.md` §Release Verdict.
