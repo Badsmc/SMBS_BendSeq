@@ -1,3 +1,12 @@
+# HISTORICAL — Regression Report (2026-10-12, ТЗ v1.2, base commit c76e95f)
+#
+# Audited body date: 2026-10-12, specification ТЗ v1.2 (2026-10-11)
+# Deprecated at commit: 289daa3 (2026-10-17)
+# Does NOT describe current HEAD: 91d07c0 (stage-1-fix-correctness)
+# Current test count: 550 (see docs/PROGRESS.md §Test Metrics)
+# Current release decision: NOT READY
+#   → see docs/AUDIT_FULL_2026-10-23.md §Release Verdict
+#
 > **DEPRECATED (2026-10-17).** This file predates the Stage 1/2/3 refactor.
 > Canonical progress and test metrics: `docs/PROGRESS.md` §Test Metrics.
 > Kept for historical reference only. Do not update.
@@ -77,3 +86,21 @@
   tests/test_phase10_cli.py \
   tests/test_robustness_and_negative.py
 ```
+
+---
+
+## Current Status (annotated 2026-10-23)
+
+This file is a HISTORICAL snapshot. The "32/32 PASS" result above was
+produced on 2026-10-12 against base commit `c76e95f` (main) using the
+11 test files listed in §4. It covers the Stage 1 baseline verification
+package for ТЗ v1.2 only.
+
+It does NOT describe:
+- Current HEAD: 91d07c0 (stage-1-fix-correctness), baseline 550 tests.
+- Test suites for Stages 2–8, Req 6a, Req 4, Req 2 F.1/F.2/F.3a.
+- Open P0 code defects: P0-CODE-1..5.
+- Open P0 documentation defects: P0-DOC-1..4.
+
+**Current release decision: NOT READY.**
+Evidence and open blockers: `docs/AUDIT_FULL_2026-10-23.md` §Release Verdict.

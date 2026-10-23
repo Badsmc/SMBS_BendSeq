@@ -1,6 +1,7 @@
 # Roadmap: SMBS/BendSeq FreeCAD Integration
 
-> **Updated:** 2026-10-21 (KL-22 CLOSED; Req 6a unblocked; baseline 500/0F/0E/3xF).
+> **Updated:** 2026-10-23 (HEAD `91d07c0`; baseline **550**/0F/0E/3xF; KL-12 v3 INVESTIGATED → BLOCKED; Req 2 F.1/F.2/F.3a COMPLETE).
+> **Release verdict: NOT READY.** Open P0 defects: P0-CODE-1..5 + P0-DOC-1..4. See `docs/AUDIT_FULL_2026-10-23.md` §Release Verdict and `docs/PROGRESS.md` §Open P0 Defects.
 
 ## 1. Executive Summary
 
@@ -619,3 +620,20 @@ After: Req 5 (Phase G, Open block) — Q13 pending.
 ### Status of sections 1–10
 
 Sections 1–10 of this document are the original roadmap and remain authoritative for phases, dependencies, matrices, and detailed requirement descriptions. This addendum is a **delta**, not a replacement.
+
+---
+
+### Current Status (annotated 2026-10-23)
+
+Snapshot: HEAD `91d07c0` (stage-1-fix-correctness), baseline 550 / 0F / 0E / 3xF.
+
+**Progress since 2026-10-21 (§11 entry above):**
+- Req 2 Phase F.1 CLOSED in S.33 (`1724748`).
+- Req 2 Phase F.2 CLOSED in S.35 (`8d0ce71`).
+- Req 2 Phase F.3a CLOSED in S.37 (6 commits: `814eb19` feature + 4 hotfixes + `91d07c0` docs).
+- **KL-12 v3** (planar self-collision + bridge caps + shell disconnection) INVESTIGATED S.38 → **BLOCKED**. Root cause: rigid-body kinematic model without bend-region deformation; 7 recombine approaches probed, none produce solid. Forward-fold track reframed as separate architecture item (see `docs/PROGRESS.md` §Open P0 Defects).
+- KL-16 (machine frame) still OPEN — no `machine_frame.FCStd`.
+
+**Not described in §1–§11:** post-2026-10-21 P0 code defects (see `docs/AUDIT_FULL_2026-10-23.md`), release-readiness reclassification of §8 (was `P2 before Req 2`, now `BLOCKED pending architecture`).
+
+**Release verdict: NOT READY.** See `docs/AUDIT_FULL_2026-10-23.md` §Release Verdict.

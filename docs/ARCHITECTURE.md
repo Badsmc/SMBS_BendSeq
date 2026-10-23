@@ -1,5 +1,7 @@
 # smbs_core Architecture
 
+> **Architecture scope (annotated 2026-10-23):** This document covers Layers 1–5 (Stages 1–4: geometry backend, core, physics/solvers, CLI/IO, viewer). It does NOT cover later stages (Stages 5–9, Req 6, Req 2 F.1–F.3a) — see footer and `docs/PROGRESS.md`. Current HEAD: `91d07c0` (stage-1-fix-correctness). Current release verdict: **NOT READY** (see `docs/AUDIT_FULL_2026-10-23.md`).
+
 ```
 ┌──────────────────────────────────────────────────────┐
 │  СЛОЙ 5: Viewer / FreeCAD Adapter                    │
@@ -42,6 +44,9 @@
 2. All geometric operations MUST go through `GeometryBackend`.
 3. `UNKNOWN` status MUST NEVER be treated as `VALID`.
 4. No hardcoded fallback values, path assumptions, or silent error swallowing.
+5. **`confidence=CONFIRMED` is reserved** for parameters whose `source` is `SHEETMETAL_NATIVE` or `GEOMETRIC_VERIFIED`. Parameters derived from defaults or inference MUST carry `confidence=ESTIMATED` or `confidence=UNKNOWN`.
+6. **`production_eligible=True` is a release gate**, not a functional flag. It requires: `verification_status=VERIFIED`, all metrics within tolerance, AND all P0 defects in `docs/AUDIT_FULL_2026-10-23.md` closed with reproducible evidence and a negative test case.
+7. **Silent fallback on critical geometric parameters is prohibited.** Any missing or inferred value MUST be surfaced as `UNKNOWN` or `ESTIMATED` in `source`/`confidence`, never masked as `CONFIRMED`.
 
 ---
 
@@ -133,3 +138,29 @@ Confirmed decisions: bend annotations will be **3D annotations** (not TechDraw);
 - Viewer does not modify solver state, search tree, or verification results.
 - Viewer is not a re-verification path; `production_eligible` cannot be recomputed client-side.
 
+---
+
+## Current Status (annotated 2026-10-23)
+
+This architecture document describes Layers 1–5 (Stages 1–4). It predates:
+
+- Stage 5 (Tooling library, Phase B).
+- Stage 6 (Req 4.1 Clamp constraints).
+- Stage 8 (KL-8 tooling collision, APPROACH scope).
+- Stage 9 / Req 4 Phase E (Optimal tooling selection).
+- Req 6 — Search SLA (Phase 6a, 2026-10-21).
+- Req 2 Phases F.1 / F.2 / F.3a (per-panel kinematics, FreeCAD Timeline UI, tooling overlay).
+
+The Stage 4 `### Deferred` section records forward-fold as "blocked on
+KL-12 (S.13b)" — this remains TRUE as of 2026-10-23. The architectural
+forward-fold track is tracked in `docs/ROADMAP.md` under KL-12 v3.
+
+**Not described here:** P0-CODE-1..5 / P0-DOC-1..4 (see
+`docs/AUDIT_FULL_2026-10-23.md`), and Acceptance Principles 13–15 (now
+in Core Architectural Rules above, items 5–7).
+
+**Full architecture refresh (Stages 5–9, Req 6, Req 2):** tracked in
+`docs/WORKING_CHECKLIST.md` as an open P1 documentation task. Not performed
+in this standardization pass.
+
+**Current release decision: NOT READY.**

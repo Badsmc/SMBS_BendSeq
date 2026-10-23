@@ -1,3 +1,11 @@
+# HISTORICAL — Release Audit (2026-10-10, v0.1.0, Headless Core scope only)
+#
+# Audited body date: 2026-10-10, version 0.1.0
+# Deprecated at commit: 289daa3 (2026-10-17)
+# Does NOT describe current HEAD: 91d07c0 (stage-1-fix-correctness)
+# Current release decision: NOT READY
+#   → see docs/AUDIT_FULL_2026-10-23.md §Release Verdict
+#
 > **DEPRECATED (2026-10-17).** This file predates the Stage 1/2/3 refactor.
 > Canonical progress and test metrics: `docs/PROGRESS.md` §Test Metrics.
 > Kept for historical reference only. Do not update.
@@ -49,3 +57,19 @@
 - `grep -rn "except: pass" smbs_core/`: **0 instances** in code.
 - `grep -rn "TODO\|FIXME\|XXX" smbs_core/`: **0 instances**.
 - `grep -rn "/Users/" smbs_core/`: **0 instances** in source files.
+
+---
+
+## Current Status (annotated 2026-10-23)
+
+This file is a HISTORICAL snapshot. The "READY FOR RELEASE" decision above
+was made on 2026-10-10, version 0.1.0, and covers the Headless Core scope
+(Layer 1–4) only.
+
+It does NOT describe:
+- Current HEAD: 91d07c0 (stage-1-fix-correctness), baseline 550 tests.
+- Open P0 code defects: P0-CODE-1..5.
+- Open P0 documentation defects: P0-DOC-1..4.
+
+**Current release decision: NOT READY.**
+Evidence and open blockers: `docs/AUDIT_FULL_2026-10-23.md` §Release Verdict.
