@@ -64,13 +64,16 @@ def _update_feature(doc, name, fc_shape):
         if obj is not None:
             doc.removeObject(name)
             doc.recompute()
+            Gui.updateGui()
         return None
     obj = doc.getObject(name)
     if obj is None:
         obj = doc.addObject("Part::Feature", name)
+    obj.touch()
     obj.Shape = fc_shape
     obj.Visibility = True
     doc.recompute()
+    Gui.updateGui()
     return obj
 
 
@@ -296,6 +299,7 @@ class AnimationPlayerDialog(QtWidgets.QDialog):
         else:
             self.timer.stop()
         self._update_ui()
+        self._render_current()
 
     def _on_step_fwd(self):
         self.timer.stop()
