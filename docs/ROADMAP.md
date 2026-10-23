@@ -333,10 +333,11 @@
 
 ## 8. Рекомендованный порядок (если отличается от пользовательского)
 
-> **Revised order (2026-10-22, Req 2 F.2 close):**
+> **Revised order (2026-10-23, Req 2 F.3a close):**
 > KL-12 v1 ✅ → KL-8 ✅ → KL-22 ✅ → Req 6a ✅ → Req 4 ✅ → KL-12 v2 ✅ (S.31) →
-> Req 2 F.1 ✅ (S.33) → **Req 2 F.2 ✅ (S.35)** →
-> **Req 2 F.3 (tooling visual, pending tooling_placement #7)** →
+> Req 2 F.1 ✅ (S.33) → Req 2 F.2 ✅ (S.35) → **Req 2 F.3a ✅ (S.37)** →
+> **Req 2 F.3b (punch descent + backgauge + machine frame; after KL-16) или
+> KL-12 v3 (planar self-collision + bridge caps + panel shell connection)** →
 > Req 6b (only if 6a misses SLA).
 > KL-12 v2 (side edges) CLOSED in S.31 (3eb4376): fixture_l 8/10, box 78/78.
 > Req 2 F.1 (headless per-panel kinematics) CLOSED in S.33 (1724748):
@@ -351,12 +352,25 @@
 > Req 2 F.2 (FreeCAD Timeline UI) CLOSED in S.35 (8d0ce71): headless
 > AnimationController (`smbs_core/viewer/fc_animation.py`) + QDialog/QTimer
 > `smbs_core/addon/SMBS_AnimationPlayer.FCMacro`. Baseline 537 → 544.
-> Manual GUI smoke: NOT YET PERFORMED (honest flag). Known follow-up:
-> render.py BANNER_TEXT hardcoded — PNG fallback still marks PREVIEW_ONLY
-> even when `geometry_precision=VALID_PER_PANEL`; deferred to F.3 or S.37;
-> does not block DoD Req 2 (viewport is source of truth).
-> KL-12 v3 (planar self-collision + bridge caps) tracked under KL-8 SELF /
-> Req 4 enforcement.
+> Req 2 F.3a (tooling visualization, punch/die) CLOSED in S.37a-f
+> (814eb19..87cdbad): PressBrakeMachine.with_default_tooling() +
+> ToolingAssembly.place(); punch/die as persistent Part::Feature; machine
+> frame badge SIMPLIFIED (KL-16 pending); tooling_placement (a) on-the-fly,
+> schemas unchanged (#7 clean); baseline 544 → 550. First real GUI smoke
+> revealed 4 pre-existing F.2 bugs (part_shape, Part.Shape(occ) C++ abort,
+> initial render missing, GUI refresh after .Shape update) — all fixed.
+> Manual GUI smoke: PERFORMED (S.37 smoke 7 — PASS on tooling overlay;
+> shell disconnection at Step ≥1 is pre-existing KL-12 v3, see below).
+> Known follow-up: render.py BANNER_TEXT hardcoded — PNG fallback still
+> marks PREVIEW_ONLY even when `geometry_precision=VALID_PER_PANEL`;
+> deferred to S.37 (separate fix); does not block DoD Req 2 (viewport is
+> source of truth).
+> KL-12 v3 (planar self-collision + bridge caps + panel shell disconnection)
+> tracked under KL-8 SELF / Req 4 enforcement. Extended scope (S.37 smoke):
+> after first unfold, single solid → TopoDS_Compound of disconnected shells
+> (L/U/Z, diagnostics: solids 1→0, shells 1→2→3→4, 22 faces preserved).
+> Pre-existing replayer behaviour, visible at PREVIEW_ONLY. Not F.3a
+> regression; F.3b visual polish may also touch this.
 > Original §8 order (requirement 4 → animation → KL-12/KL-8 backlog) superseded.
 >
 > Rationale: KL-22 uncovered during Req 6a profiling — depth 2+ unfolds failed
