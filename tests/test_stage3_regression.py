@@ -169,7 +169,8 @@ class TestRegressionSuites(unittest.TestCase):
             result = self.orchestrator.run_planning(
                 target_shape=target_shape,
                 algorithm="dfs",
-                output_file=output_file
+                output_file=output_file,
+                unknown_policy="EXPLORATORY"
             )
             
             self.assertTrue(result["success"] or result["status"] == "PARTIAL", f"Planning failed for {profile_name}: {result.get('error')}")
@@ -178,8 +179,8 @@ class TestRegressionSuites(unittest.TestCase):
             
             with open(output_file, 'r') as f:
                 data = json.load(f)
-                self.assertIn("steps", data)
-                self.assertEqual(len(data["steps"]), expected_bends_count)
+                self.assertIn("sequence", data)
+                self.assertEqual(len(data["sequence"]), expected_bends_count)
 
     def test_l_profile(self):
         self._run_and_verify("L", 1)

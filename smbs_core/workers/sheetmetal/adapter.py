@@ -18,6 +18,7 @@ from smbs_core.protocols.file_store import (
     RunStatus,
 )
 from smbs_core.contracts.models import DiagnosticEntry
+from smbs_core.Core.bend_graph import IncompleteBendError
 
 
 @dataclass
@@ -30,6 +31,7 @@ class NormalizedBendLine:
     start_point: List[float]
     end_point: List[float]
     confidence: ConfidenceLevel = ConfidenceLevel.CONFIRMED
+    bend_line_flat: Optional[Dict[str, List[float]]] = None
 
 
 @dataclass
@@ -195,7 +197,16 @@ class SheetMetalAdapter:
                     elif isinstance(b_info, dict) and "direction" in b_info:
                         direction_str = str(b_info["direction"]).upper()
 
-                    raw_angle = getattr(b_info, "angle", 90.0)
+                    if hasattr(b_info, "signed_angle"):
+                        raw_angle = b_info.signed_angle
+                    elif hasattr(b_info, "angle"):
+                        raw_angle = b_info.angle
+                    elif isinstance(b_info, dict) and "signed_angle" in b_info:
+                        raw_angle = b_info["signed_angle"]
+                    elif isinstance(b_info, dict) and "angle" in b_info:
+                        raw_angle = b_info["angle"]
+                    else:
+                        raise IncompleteBendError(f"Bend {b_id} missing mandatory angle in workers/sheetmetal/adapter.py:199")
                     if abs(raw_angle) <= (math.pi + 1e-4):
                         b_angle = math.degrees(raw_angle)
                     else:
@@ -206,9 +217,25 @@ class SheetMetalAdapter:
                     # Extract line geometry endpoints
                     start_pt = [0.0, 0.0, 0.0]
                     end_pt = [0.0, 0.0, 0.0]
-                    if hasattr(b_info, "line") and hasattr(b_info.line, "StartPoint"):
-                        start_pt = [b_info.line.StartPoint.x, b_info.line.StartPoint.y, b_info.line.StartPoint.z]
-                        end_pt = [b_info.line.EndPoint.x, b_info.line.EndPoint.y, b_info.line.EndPoint.z]
+                    line_geom = getattr(b_info, "line", None)
+                    if line_geom is not None:
+                        if hasattr(line_geom, "Vertexes") and len(line_geom.Vertexes) >= 2:
+                            v0 = line_geom.Vertexes[0].Point
+                            v1 = line_geom.Vertexes[1].Point
+                            start_pt = [float(v0.x), float(v0.y), float(v0.z)]
+                            end_pt = [float(v1.x), float(v1.y), float(v1.z)]
+                        elif hasattr(line_geom, "StartPoint") and hasattr(line_geom, "EndPoint"):
+                            start_pt = [float(line_geom.StartPoint.x), float(line_geom.StartPoint.y), float(line_geom.StartPoint.z)]
+                            end_pt = [float(line_geom.EndPoint.x), float(line_geom.EndPoint.y), float(line_geom.EndPoint.z)]
+
+                    flat_line_dict = {
+                        "start": [start_pt[0], start_pt[1]],
+                        "end": [end_pt[0], end_pt[1]],
+                        "start_mm": start_pt,
+                        "end_mm": end_pt,
+                        "angle_deg": b_angle,
+                        "radius_mm": b_radius
+                    }
 
                     normalized_bends.append(
                         NormalizedBendLine(
@@ -220,6 +247,7 @@ class SheetMetalAdapter:
                             start_point=start_pt,
                             end_point=end_pt,
                             confidence=ConfidenceLevel.CONFIRMED,
+                            bend_line_flat=flat_line_dict,
                         )
                     )
 

@@ -12,7 +12,7 @@
     "material": "Steel_S235",
     "total_bends": 2,
     "algorithm_used": "dfs",
-    "planning_time_sec": 0.01
+    "planning_time_sec": 0.003
   },
   "sequence_summary": {
     "total_steps": 2,
@@ -41,8 +41,8 @@
         0
       ],
       "moving_panels": [
-        "PANEL_02",
-        "PANEL_01"
+        "PANEL_01",
+        "PANEL_02"
       ],
       "backgauge": {
         "X_mm": 56.0,

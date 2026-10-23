@@ -1,0 +1,19 @@
+{
+  "fixture_id": "four_bend",
+  "volume_mm3": 15074.668072,
+  "bbox_mm": [
+    137.0,
+    50.0,
+    68.5
+  ],
+  "face_count": 22,
+  "cylindrical_face_count": 8,
+  "surface_area_mm2": 20852.544152,
+  "formulas": {
+    "volume": "V = (l1 + l2 + l3 + l4 + l5) * w * t + 4 * (pi / 4) * ((r + t)**2 - r**2) * w",
+    "bbox": "[dx, dy, dz] = [l1 + l3 + l5 + 2*(2*r + t), w, l2 + l4 + 2*(r + t) + (2*r + t)]",
+    "surface_area": "A = 2 * (l1 + l2 + l3 + l4 + l5) * w + 2 * pi * (2*r + t) * w + 2 * (w * t) + 2 * ((l1 + l2 + l3 + l4 + l5) * t + pi * ((r + t)**2 - r**2))",
+    "face_count": "22 faces: 10 flange major faces + 2 end faces + 2 side profile faces + 8 cylindrical faces",
+    "cylindrical_face_count": "8 faces: 4 inner cylinders (radius r) + 4 outer cylinders (radius r + t)"
+  }
+}

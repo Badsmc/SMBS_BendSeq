@@ -1,3 +1,9 @@
+> **DEPRECATED (2026-10-17).** This file predates the Stage 1/2/3 refactor.
+> Canonical progress and test metrics: `docs/PROGRESS.md` §Test Metrics.
+> Kept for historical reference only. Do not update.
+
+---
+
 # REGRESSION & QUALIFICATION REPORT — SMBS / BendSeq (ТЗ v1.2)
 
 **Дата:** 12.10.2026  

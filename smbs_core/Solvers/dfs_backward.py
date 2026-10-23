@@ -55,7 +55,8 @@ class DFSBackwardPlanner(BasePlanner):
         max_depth: int = 500,
         timeout: Optional[float] = None,
         tooling_override: Optional[Dict[str, Any]] = None,
-        max_iterations: int = 5000
+        max_iterations: int = 5000,
+        unknown_policy: str = "PRODUCTION"
     ) -> Dict[str, Any]:
         """
         Execute optimized backward DFS search with backtracking, validation cache, and dead-state pruning.
@@ -169,17 +170,28 @@ class DFSBackwardPlanner(BasePlanner):
                     continue
 
                 # 2. Validation Cache Check
-                cache_key = (fingerprint, bend_id, toolset_hash)
+                cache_key = (fingerprint, bend_id, toolset_hash, unknown_policy)
                 if cache_key in self.validation_cache:
                     self.metrics["cache_hits"] += 1
                     val_result = self.validation_cache[cache_key]
                 else:
                     self.metrics["occ_evaluations"] += 1
+                    kwargs = {"tooling_override": tooling_override}
+                    if unknown_policy != "PRODUCTION":
+                        kwargs["unknown_policy"] = unknown_policy
+                    else:
+                        # Check if validator accepts unknown_policy
+                        try:
+                            import inspect
+                            if "unknown_policy" in inspect.signature(self.validator.validate_step).parameters:
+                                kwargs["unknown_policy"] = unknown_policy
+                        except Exception:
+                            pass
                     val_result = self.validator.validate_step(
                         current,
                         bend_rec,
                         self.panel_graph,
-                        tooling_override=tooling_override
+                        **kwargs
                     )
                     self.validation_cache[cache_key] = val_result
 
@@ -198,11 +210,21 @@ class DFSBackwardPlanner(BasePlanner):
             # DFS Recurse on valid successors
             for bend_id, successor in valid_successors:
                 moving_panels = list(self.panel_graph.moving_subtree(bend_id)) if self.panel_graph else []
+                coll_raw = getattr(val_result, "collision_status", "VALID")
+                c_stat = coll_raw.value if hasattr(coll_raw, "value") else str(coll_raw)
+                tool_raw = getattr(val_result, "tooling_status", "SIMPLIFIED")
+                t_stat = tool_raw.value if hasattr(tool_raw, "value") else str(tool_raw)
+                align_raw = getattr(val_result, "alignment_status", "CANNOT_VERIFY")
+                a_stat = align_raw.value if hasattr(align_raw, "value") else str(align_raw)
                 action = {
                     "bend_id": bend_id,
                     "unfolded_angle": 0.0,
                     "moving_panels": moving_panels,
-                    "step_number": len(current.remaining_bends)
+                    "step_number": len(current.remaining_bends),
+                    "collision_status": c_stat,
+                    "tooling_status": t_stat,
+                    "alignment_status": a_stat,
+                    "has_unknown": getattr(val_result, "has_unknown", False)
                 }
                 
                 current_path.append(action)
@@ -232,10 +254,12 @@ class DFSBackwardPlanner(BasePlanner):
             for i, step in enumerate(forward_sequence):
                 step["step_number"] = i + 1
 
+            seq_has_unknown = any(s.get("has_unknown", False) or s.get("collision_status") == "UNKNOWN" for s in forward_sequence)
             return {
                 "success": True,
                 "termination_reason": "GOAL_REACHED",
                 "sequence": forward_sequence,
+                "sequence_has_unknown": seq_has_unknown,
                 "explored_count": self.metrics["explored_count"],
                 "rejections_count": len(self.rejection_records),
                 "dead_states_count": len(dead_states),

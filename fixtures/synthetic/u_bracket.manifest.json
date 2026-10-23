@@ -1,0 +1,68 @@
+{
+  "schema_name": "fixture_manifest",
+  "schema_version": "1.0",
+  "fixture_id": "u_bracket_synthetic_001",
+  "class": "SYNTHETIC",
+  "source": {
+    "type": "MANUAL_BREP_AND_ANALYTICAL",
+    "construction_method": "independent_occ_primitives"
+  },
+  "input_files": [
+    {
+      "role": "PART_3D",
+      "path": "fixtures/synthetic/u_bracket.brep",
+      "content_hash": "sha256:010af4486d1bc83879bb7d07d20ab7ec20ed02f83575f2c7b64615dc7bbbf988",
+      "units": "mm",
+      "artifact_provenance": "DIRECT_EXPORT"
+    },
+    {
+      "role": "EXPECTED_JSON",
+      "path": "fixtures/synthetic/u_bracket.expected.json",
+      "content_hash": "sha256:428390453eea12eaeb0c4afc82e55d0d48204fa160ab8f06f48240b025ed885f",
+      "units": "mm",
+      "artifact_provenance": "DIRECT_EXPORT"
+    }
+  ],
+  "ground_truth": {
+    "bends_count": 2,
+    "bend_sequence": [
+      {
+        "bend_id": "BEND_01",
+        "angle_deg": 90.0,
+        "direction": "UP",
+        "radius_internal_mm": 1.0,
+        "requires_gooseneck": false,
+        "source": "GEOMETRIC_INFERENCE"
+      },
+      {
+        "bend_id": "BEND_02",
+        "angle_deg": 90.0,
+        "direction": "UP",
+        "radius_internal_mm": 1.0,
+        "requires_gooseneck": false,
+        "source": "GEOMETRIC_INFERENCE"
+      }
+    ],
+    "bend_sequence_operator_confirmed": false,
+    "expected_status": "POSITIVE",
+    "production_eligible": true,
+    "thickness_mm": 1.5,
+    "radius_internal_mm": 1.0,
+    "k_factor": null,
+    "requires_gooseneck": false,
+    "negative_reason": null,
+    "source_of_truth": "GEOMETRIC_INFERENCE"
+  },
+  "tolerance_profile": {
+    "linear_tol_mm": 0.001,
+    "angular_tol_deg": 0.001,
+    "volume_tol_mm3": 0.001,
+    "bbox_tol_mm": 0.001,
+    "surface_distance_tol_mm": 0.01
+  },
+  "known_limitations": [
+    "k_factor не используется при построении — фикстура чисто геометрическая",
+    "Springback не учтён",
+    "expected values verified analytically; ground truth source is geometric construction"
+  ]
+}

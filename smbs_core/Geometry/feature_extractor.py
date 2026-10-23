@@ -93,7 +93,12 @@ class FeatureExtractor:
             return (0.0, 0.0, 1.0)
         return (v[0] / mag, v[1] / mag, v[2] / mag)
 
-    def extract_features(self, shape: Any, known_thickness: Optional[float] = None) -> Dict[str, Any]:
+    def extract_features(
+        self,
+        shape: Any,
+        known_thickness: Optional[float] = None,
+        diagnostics: Optional[List[Dict[str, Any]]] = None,
+    ) -> Dict[str, Any]:
         if shape is None:
             raise FeatureExtractionError("Cannot extract features from None shape.")
 
@@ -108,7 +113,7 @@ class FeatureExtractor:
             else:
                 thickness = self._detect_thickness(shape)
 
-        bends = self._detect_bends(shape, thickness)
+        bends = self._detect_bends(shape, thickness, diagnostics=diagnostics)
 
         if not bends:
             raise FeatureExtractionError("No valid bend features detected in shape.")
@@ -184,14 +189,22 @@ class FeatureExtractor:
 
         return None
 
-    def _detect_bends(self, shape: Any, thickness: Optional[float]) -> Dict[str, Dict[str, Any]]:
+    def _detect_bends(
+        self,
+        shape: Any,
+        thickness: Optional[float],
+        diagnostics: Optional[List[Dict[str, Any]]] = None,
+    ) -> Dict[str, Dict[str, Any]]:
         if hasattr(shape, "get") and shape.get("type") in ("mock_shape", "mock_box"):
+            mock_signed_angle = float(shape.get("signed_angle", 90.0))
             return {
                 "BEND_01": {
                     "bend_id": "BEND_01",
                     "origin": (0.0, 0.0, 0.0),
                     "axis": (1.0, 0.0, 0.0),
-                    "angle": 90.0,
+                    "signed_angle": mock_signed_angle,
+                    "angle_deg": abs(mock_signed_angle),
+                    "angle": abs(mock_signed_angle),
                     "radius": 2.0,
                     "length": 100.0,
                     "parent_panel_id": "PANEL_A",
@@ -262,7 +275,9 @@ class FeatureExtractor:
                 })
 
         panels, face_to_panel = self._group_panels(shape, adj_map, faces, unique_cyls, thickness)
-        edges = self._build_panel_edges(unique_cyls, panels, face_to_panel, faces, adj_map)
+        edges = self._build_panel_edges(
+            unique_cyls, panels, face_to_panel, faces, adj_map, shape=shape, diagnostics=diagnostics
+        )
         bends = self._canonicalize_bends(edges, panels, thickness)
         self._last_panels = panels
         return bends
@@ -337,17 +352,28 @@ class FeatureExtractor:
 
                 # Anti-parallel opposite sheet faces separated by thickness
                 is_thickness_pair = False
+                v_perp_sq = (
+                    (v[0] - (v[0]*ni[0] + v[1]*ni[1] + v[2]*ni[2])*ni[0])**2 +
+                    (v[1] - (v[0]*ni[0] + v[1]*ni[1] + v[2]*ni[2])*ni[1])**2 +
+                    (v[2] - (v[0]*ni[0] + v[1]*ni[1] + v[2]*ni[2])*ni[2])**2
+                )
+                dist_perp = math.sqrt(v_perp_sq)
+
                 if thickness is not None:
-                    is_thickness_pair = abs(dot + 1.0) < 1e-2 and abs(dist_along_n - thickness) < 0.25 * thickness
+                    is_thickness_pair = (
+                        abs(dot + 1.0) < 1e-2 and
+                        abs(dist_along_n - thickness) < 0.25 * thickness and
+                        dist_perp < 2.0 * thickness
+                    )
                 else:
-                    is_thickness_pair = abs(dot + 1.0) < 1e-2 and 0.2 <= dist_along_n <= 25.0
+                    is_thickness_pair = abs(dot + 1.0) < 1e-2 and 0.2 <= dist_along_n <= 25.0 and dist_perp < 5.0
 
                 if is_thickness_pair:
                     union(fi_id, fj_id)
                     has_pair[fi_id] = True
                     has_pair[fj_id] = True
-                # Coplanar segments on the same side
-                elif abs(dot - 1.0) < 1e-2 and dist_along_n < 1e-2:
+                # Coplanar segments on the same side (only merge if adjacent / connected)
+                elif abs(dot - 1.0) < 1e-2 and dist_along_n < 1e-2 and (fj_id in adj_map.get(fi_id, set())):
                     union(fi_id, fj_id)
 
         # 3. Filter out un-paired faces (keep only panels that form physical sheet thickness pairs)
@@ -404,7 +430,44 @@ class FeatureExtractor:
         face_to_panel: Dict[str, str],
         faces: List[Any],
         adj_map: Dict[str, Set[str]],
+        shape: Optional[Any] = None,
+        diagnostics: Optional[List[Dict[str, Any]]] = None,
     ) -> List[dict]:
+        edge_to_faces = None
+        if shape is not None and not getattr(shape, "IsNull", lambda: True)():
+            try:
+                from OCC.Core.TopExp import topexp
+                from OCC.Core.TopAbs import TopAbs_FACE, TopAbs_EDGE
+                from OCC.Core.TopTools import TopTools_IndexedDataMapOfShapeListOfShape
+                edge_to_faces = TopTools_IndexedDataMapOfShapeListOfShape()
+                topexp.MapShapesAndAncestors(shape, TopAbs_EDGE, TopAbs_FACE, edge_to_faces)
+            except Exception as e:
+                logger.debug("MapShapesAndAncestors failed: %s", e)
+                edge_to_faces = None
+
+        def find_common_edges(f1: Any, f2: Any) -> List[Any]:
+            if edge_to_faces is None:
+                return []
+            try:
+                from OCC.Core.TopExp import TopExp_Explorer
+                from OCC.Core.TopAbs import TopAbs_EDGE
+                from OCC.Core.TopTools import TopTools_ListIteratorOfListOfShape
+                common = []
+                exp = TopExp_Explorer(f1, TopAbs_EDGE)
+                while exp.More():
+                    e = exp.Current()
+                    adj_list = edge_to_faces.FindFromKey(e)
+                    it = TopTools_ListIteratorOfListOfShape(adj_list)
+                    while it.More():
+                        if it.Value().IsSame(f2):
+                            common.append(e)
+                            break
+                        it.Next()
+                    exp.Next()
+                return common
+            except Exception:
+                return []
+
         edges_by_pair = {}
         all_cyls = []
         for i, f in enumerate(faces):
@@ -416,8 +479,23 @@ class FeatureExtractor:
         for u in all_cyls:
             c_id = u['id']
             c_data = u['data']
+            cyl_face = faces[int(c_id)]
             adj_p_faces = [fid for fid in adj_map.get(c_id, set()) if fid in face_to_panel]
-            connected_panels = sorted(list({face_to_panel[fid] for fid in adj_p_faces}))
+
+            if edge_to_faces is not None:
+                real_panels = []
+                for fid in adj_p_faces:
+                    flat_face = faces[int(fid)]
+                    common_edges = find_common_edges(cyl_face, flat_face)
+                    # A true sheet flange panel meets the bend cylinder along a straight line edge (generatrix).
+                    # Transverse corner relief cuts / notches meet along circular arcs (or other non-line edges).
+                    is_real_panel = any(self.backend.get_edge_curve_type(e) == "line" for e in common_edges)
+                    if is_real_panel:
+                        real_panels.append(face_to_panel[fid])
+                connected_panels = sorted(list(set(real_panels)))
+            else:
+                connected_panels = sorted(list({face_to_panel[fid] for fid in adj_p_faces}))
+
             if len(connected_panels) == 2:
                 p_a, p_b = connected_panels
                 pair_key = (p_a, p_b)
@@ -442,6 +520,22 @@ class FeatureExtractor:
 
                 if pair_key not in edges_by_pair or edge_cand['radius'] < edges_by_pair[pair_key]['radius']:
                     edges_by_pair[pair_key] = edge_cand
+            elif len(connected_panels) > 2:
+                if diagnostics is not None:
+                    diagnostics.append({
+                        "code": "BEND_TOUCHES_MULTIPLE_PANELS",
+                        "message": f"cyl {c_id} touches {len(connected_panels)} real panels via line edges: {connected_panels}",
+                        "level": "WARNING",
+                        "stage": "feature_extraction"
+                    })
+            elif len(connected_panels) < 2:
+                if diagnostics is not None:
+                    diagnostics.append({
+                        "code": "BEND_TOUCHES_INSUFFICIENT_PANELS",
+                        "message": f"cyl {c_id} touches {len(connected_panels)} real panels via line edges",
+                        "level": "WARNING",
+                        "stage": "feature_extraction"
+                    })
 
         return list(edges_by_pair.values())
 
@@ -508,6 +602,8 @@ class FeatureExtractor:
                     "origin": edge["origin"],
                     "axis": edge["axis"],
                     "signed_angle": signed_ang,
+                    "angle_deg": abs(signed_ang),
+                    "angle": abs(signed_ang),
                     "radius": edge["radius"],
                     "length": edge["height"],
                     "parent_panel_id": parent_p,

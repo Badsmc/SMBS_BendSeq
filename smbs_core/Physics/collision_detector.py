@@ -126,23 +126,52 @@ class CollisionDetector:
 
             panel_shapes = self._extract_panel_shapes(shape, panel_graph)
 
+            checked_pairs = 0
+            adjacent_pairs = 0
+            extracted_panels = 0
+            total_panels_needed = 0
+
             for fp_id in fixed_panels:
                 if fp_id not in panel_shapes or panel_shapes[fp_id] is None:
                     continue
+                extracted_panels += 1
                 fp_shape = panel_shapes[fp_id]
-
                 for mp_id in moving_panels:
-                    if panel_graph.are_adjacent(fp_id, mp_id):
-                        continue
+                    total_panels_needed += 1
                     if mp_id not in panel_shapes or panel_shapes[mp_id] is None:
                         continue
-                    mp_shape = panel_shapes[mp_id]
+                    if panel_graph.are_adjacent(fp_id, mp_id):
+                        adjacent_pairs += 1
+                        continue
+                    checked_pairs += 1
+                    # KL-12 guard: intersect_volume returns 0 for intersecting thin-walled
+                    # planar compounds, producing false VALID. Return honest UNKNOWN
+                    # for planar panels until proper self-collision detection is implemented
+                    # (KL-8 SELF scope). See PROGRESS.md KL-12.
+                    return CollisionResult(
+                        CollisionStatus.UNKNOWN,
+                        "Planar self-collision detection not implemented (see KL-8 SELF scope)"
+                    )
 
-                    res = self._check_intersection(fp_shape, mp_shape, f"Panel {mp_id}", f"Panel {fp_id}")
-                    if not res.is_valid:
-                        return res
+            if checked_pairs > 0:
+                return CollisionResult(CollisionStatus.VALID, "Clear")
 
-            return CollisionResult(CollisionStatus.VALID, "Clear")
+            # checked_pairs == 0:
+            if extracted_panels == 0:
+                return CollisionResult(CollisionStatus.UNKNOWN, "No extracted panel geometry available for self_collision")
+            # If some moving panels needed were missing:
+            missing_moving = False
+            for mp_id in moving_panels:
+                if mp_id not in panel_shapes or panel_shapes[mp_id] is None:
+                    missing_moving = True
+                    break
+            if missing_moving:
+                return CollisionResult(CollisionStatus.UNKNOWN, "Insufficient panel data for self_collision check")
+
+            if adjacent_pairs > 0:
+                # All extracted pairs adjacent and all moving panels present -> proven
+                return CollisionResult(CollisionStatus.VALID, "All non-adjacent pair candidates are adjacent; nothing to check")
+            return CollisionResult(CollisionStatus.UNKNOWN, "Insufficient panel data for self_collision check")
         except Exception as e:
             logger.error(f"self_collision exception: {e}")
             return CollisionResult(CollisionStatus.UNKNOWN, f"self_collision Exception: {e}")
@@ -173,33 +202,74 @@ class CollisionDetector:
                 return shape
 
             v_world = gp_Pnt(*die_vcenter.origin).Transformed(die_trsf)
+            v_dir_world = gp_Dir(*die_vcenter.direction).Transformed(die_trsf)
 
             die_world = self.assembly.get_world_shape(ToolingKind.DIE)
             die_bb = self.backend.get_bounding_box(die_world) if die_world else None
             die_top_z = die_bb[5] if die_bb else v_world.Z()
             v_station = gp_Pnt(v_world.X(), v_world.Y(), die_top_z)
 
+            # Try to read mounting_plane direction (semantically correct)
+            target_normal = None
+            try:
+                die_mount = None
+                if hasattr(self.assembly.die, 'datums') and self.assembly.die.datums:
+                    die_mount = self.assembly.die.datums.get(DatumRole.MOUNTING_PLANE)
+                elif hasattr(self.assembly.die, 'mounting_plane'):
+                    die_mount = self.assembly.die.mounting_plane
+
+                if die_mount and hasattr(die_mount, 'direction') and die_mount.direction:
+                    target_normal = gp_Dir(*die_mount.direction).Transformed(die_trsf)
+            except Exception:
+                pass
+
+            if target_normal is None:
+                logger.warning(
+                    "place_part_on_tool_station: die has no mounting_plane datum; "
+                    "falling back to world-up (0,0,1) for target_normal. "
+                    "This is safe only if the die is mounted with its V-groove axis horizontal."
+                )
+                target_normal = gp_Dir(0, 0, 1)
+
             axis_dir = gp_Dir(*b_axis)
 
-            # Evaluate orientations to find clear placement if possible
+            # Try both signs of the bend axis: the part may be flipped 180° around
+            # the tooling V-groove. This handles the case where axis_dir and v_dir_world
+            # have opposite signs (e.g. +Y vs -Y — typical for fixture_l vs matrica.FCStd).
             best_shape = None
-            for n_vec in [(0, 0, 1), (0, 0, -1), (0, 1, 0), (0, -1, 0)]:
-                dot = abs(sum(axis_dir.Coord()[i] * n_vec[i] for i in range(3)))
-                if dot > 0.9:
-                    continue
-
-                trsf = gp_Trsf()
-                trsf.SetDisplacement(
-                    gp_Ax3(gp_Pnt(*b_orig), axis_dir, gp_Dir(*n_vec)),
-                    gp_Ax3(v_station, gp_Dir(1, 0, 0), gp_Dir(0, 0, 1))
+            for axis_sign in (+1.0, -1.0):
+                eff_axis = gp_Dir(
+                    axis_dir.X() * axis_sign,
+                    axis_dir.Y() * axis_sign,
+                    axis_dir.Z() * axis_sign,
                 )
-                cand = BRepBuilderAPI_Transform(shape, trsf, False).Shape()
-                if die_world:
-                    res_d = self._check_intersection(cand, die_world, "Part", "Die")
-                    if res_d.is_valid:
+                for n_vec in [(1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1)]:
+                    dot = abs(sum(eff_axis.Coord()[i] * n_vec[i] for i in range(3)))
+                    if dot > 0.9:
+                        continue
+
+                    trsf = gp_Trsf()
+                    trsf.SetDisplacement(
+                        gp_Ax3(gp_Pnt(*b_orig), eff_axis, gp_Dir(*n_vec)),
+                        gp_Ax3(v_station, v_dir_world, target_normal)
+                    )
+                    cand = BRepBuilderAPI_Transform(shape, trsf, False).Shape()
+                    die_ok = True
+                    if die_world:
+                        res_d = self._check_intersection(cand, die_world, "Part", "Die")
+                        die_ok = res_d.is_valid
+                    punch_ok = True
+                    punch_world = (
+                        self.assembly.get_world_shape(ToolingKind.PUNCH)
+                        if self.assembly is not None else None
+                    )
+                    if punch_world is not None and not punch_world.IsNull():
+                        res_p = self._check_intersection(cand, punch_world, "Part", "Punch")
+                        punch_ok = res_p.is_valid
+                    if die_ok and punch_ok:
                         return cand
-                if best_shape is None:
-                    best_shape = cand
+                    if die_ok and best_shape is None:
+                        best_shape = cand
 
             return best_shape or shape
         except Exception as e:
@@ -212,20 +282,29 @@ class CollisionDetector:
 
         placed_shape = self.place_part_on_tool_station(shape, bend_info)
 
-        # Do not fail approach on simplified/synthetic solid die blocks without V-notches
-        is_die_simplified = self.assembly.die and getattr(self.assembly.die, 'geometry_status', None) == GeometryStatus.SIMPLIFIED
-        if not is_die_simplified:
-            die = self.assembly.get_world_shape(ToolingKind.DIE)
-            if die:
-                res = self._check_intersection(placed_shape, die, "Part", "Die")
-                if not res.is_valid:
-                    return res
+        checked_any = False
 
+        # 1. Die subcheck
+        is_die_simplified = self.assembly.die and getattr(self.assembly.die, 'geometry_status', None) == GeometryStatus.SIMPLIFIED
+        die = self.assembly.get_world_shape(ToolingKind.DIE)
+        if not is_die_simplified and die is not None:
+            die_res = self._check_intersection(placed_shape, die, "Part", "Die")
+            if not die_res.is_valid:
+                return die_res
+            checked_any = True
+
+        # 2. Machine frame subcheck
         machine = self.assembly.get_world_shape(ToolingKind.MACHINE_FRAME)
-        if machine:
-            res = self._check_intersection(placed_shape, machine, "Part", "Machine Frame")
-            if not res.is_valid:
-                return res
+        if machine is not None:
+            mach_res = self._check_intersection(placed_shape, machine, "Part", "Machine Frame")
+            if not mach_res.is_valid:
+                return mach_res
+            checked_any = True
+
+        if not checked_any:
+            if is_die_simplified:
+                return CollisionResult(CollisionStatus.UNKNOWN, "Simplified tooling — cannot verify approach collision with die")
+            return CollisionResult(CollisionStatus.UNKNOWN, "No die or machine_frame shape available for approach_collision")
 
         return CollisionResult(CollisionStatus.VALID, "Clear")
 
@@ -236,20 +315,24 @@ class CollisionDetector:
         placed_shape = self.place_part_on_tool_station(shape, bend_info)
 
         is_punch_simplified = self.assembly.punch and getattr(self.assembly.punch, 'geometry_status', None) == GeometryStatus.SIMPLIFIED
-        if not is_punch_simplified:
-            punch = self.assembly.get_world_shape(ToolingKind.PUNCH)
-            if punch:
-                res = self._check_intersection(placed_shape, punch, "Part", "Punch")
-                if not res.is_valid:
-                    return res
+        if is_punch_simplified:
+            return CollisionResult(CollisionStatus.UNKNOWN, "Simplified tooling — cannot verify punch collision")
+        punch = self.assembly.get_world_shape(ToolingKind.PUNCH)
+        if punch is None:
+            return CollisionResult(CollisionStatus.UNKNOWN, "No punch shape available for tool_collision")
+        res = self._check_intersection(placed_shape, punch, "Part", "Punch")
+        if not res.is_valid:
+            return res
 
         is_die_simplified = self.assembly.die and getattr(self.assembly.die, 'geometry_status', None) == GeometryStatus.SIMPLIFIED
-        if not is_die_simplified:
-            die = self.assembly.get_world_shape(ToolingKind.DIE)
-            if die:
-                res = self._check_intersection(placed_shape, die, "Part", "Die")
-                if not res.is_valid:
-                    return res
+        if is_die_simplified:
+            return CollisionResult(CollisionStatus.UNKNOWN, "Simplified tooling — cannot verify die collision")
+        die = self.assembly.get_world_shape(ToolingKind.DIE)
+        if die is None:
+            return CollisionResult(CollisionStatus.UNKNOWN, "No die shape available for tool_collision")
+        res = self._check_intersection(placed_shape, die, "Part", "Die")
+        if not res.is_valid:
+            return res
 
         return CollisionResult(CollisionStatus.VALID, "Clear")
 
@@ -258,18 +341,26 @@ class CollisionDetector:
             return CollisionResult(CollisionStatus.UNKNOWN, "No tooling assembly available for machine_collision")
 
         placed_shape = self.place_part_on_tool_station(shape, bend_info)
+        checked_any = False
 
+        # 1. Machine frame subcheck
         machine = self.assembly.get_world_shape(ToolingKind.MACHINE_FRAME)
-        if machine:
+        if machine is not None:
             res = self._check_intersection(placed_shape, machine, "Part", "Machine Frame")
             if not res.is_valid:
                 return res
+            checked_any = True
 
+        # 2. Machine bed subcheck
         bed = self.assembly.get_world_shape(ToolingKind.MACHINE_BED)
-        if bed:
+        if bed is not None:
             res = self._check_intersection(placed_shape, bed, "Part", "Machine Bed")
             if not res.is_valid:
                 return res
+            checked_any = True
+
+        if not checked_any:
+            return CollisionResult(CollisionStatus.UNKNOWN, "No machine_frame or machine_bed shape available for machine_collision")
 
         return CollisionResult(CollisionStatus.VALID, "Clear")
 
@@ -297,7 +388,12 @@ class CollisionDetector:
         
         origin = bend_info.get("origin", (0.0, 0.0, 0.0))
         axis = bend_info.get("axis", (1.0, 0.0, 0.0))
-        moving_panels = panel_graph.moving_subtree(bend_id) if panel_graph else None
+        moving_panels = bend_info.get("moving_panels")
+        if not moving_panels and panel_graph and bend_id:
+            moving_panels = panel_graph.moving_subtree(bend_id)
+
+        if not moving_panels:
+            return CollisionResult(CollisionStatus.UNKNOWN, "trajectory_collision: moving_panels not provided; cannot verify trajectory")
 
         for i in range(1, steps + 1):
             current_angle = step_angle * i
@@ -315,9 +411,10 @@ class CollisionDetector:
             
             # Check collisions at this intermediate step
             # 1. Self collision
-            self_res = self.self_collision(inter_shape, bend_id, panel_graph)
-            if not self_res.is_valid:
-                return CollisionResult(self_res.status, f"Trajectory Self-Collision at {current_angle:.1f} deg: {self_res.message}")
+            if panel_graph is not None and bend_id:
+                self_res = self.self_collision(inter_shape, bend_id, panel_graph)
+                if not self_res.is_valid:
+                    return CollisionResult(self_res.status, f"Trajectory Self-Collision at {current_angle:.1f} deg: {self_res.message}")
             
             # 2. Tool collision
             tool_res = self.tool_collision(inter_shape, bend_info, bend_id, panel_graph)
@@ -325,9 +422,10 @@ class CollisionDetector:
                 return CollisionResult(tool_res.status, f"Trajectory Tool-Collision at {current_angle:.1f} deg: {tool_res.message}")
             
             # 3. Machine collision
-            mach_res = self.machine_collision(inter_shape, bend_info, bend_id, panel_graph)
-            if not mach_res.is_valid:
-                return CollisionResult(mach_res.status, f"Trajectory Machine-Collision at {current_angle:.1f} deg: {mach_res.message}")
+            if self.assembly.get_world_shape(ToolingKind.MACHINE_FRAME) is not None or self.assembly.get_world_shape(ToolingKind.MACHINE_BED) is not None:
+                mach_res = self.machine_collision(inter_shape, bend_info, bend_id, panel_graph)
+                if not mach_res.is_valid:
+                    return CollisionResult(mach_res.status, f"Trajectory Machine-Collision at {current_angle:.1f} deg: {mach_res.message}")
                 
         return CollisionResult(CollisionStatus.VALID, "Clear")
 

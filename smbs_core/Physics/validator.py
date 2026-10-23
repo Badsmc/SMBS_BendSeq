@@ -26,7 +26,8 @@ class ValidationResult:
         diagnostics: Optional[Dict[str, Any]] = None,
         collision_status: CollisionStatus = CollisionStatus.UNKNOWN,
         tooling_status: GeometryStatus = GeometryStatus.MISSING,
-        alignment_status: AlignmentStatus = AlignmentStatus.CANNOT_VERIFY
+        alignment_status: AlignmentStatus = AlignmentStatus.CANNOT_VERIFY,
+        has_unknown: bool = False
     ):
         self.valid = valid
         self.reason = reason
@@ -36,6 +37,7 @@ class ValidationResult:
         self.collision_status = collision_status
         self.tooling_status = tooling_status
         self.alignment_status = alignment_status
+        self.has_unknown = has_unknown
 
     def __repr__(self) -> str:
         status = "VALID" if self.valid else f"INVALID[{self.stage}:{self.reason}]"
@@ -74,7 +76,8 @@ class PhysicalValidator:
         current_state: FoldState,
         bend_record: BendRecord,
         panel_graph: Optional[PanelGraph] = None,
-        tooling_override: Optional[Dict[str, Any]] = None
+        tooling_override: Optional[Dict[str, Any]] = None,
+        unknown_policy: str = "PRODUCTION"
     ) -> ValidationResult:
         bend_id = bend_record.id
         current_fp = current_state.fingerprint()
@@ -106,22 +109,47 @@ class PhysicalValidator:
             bend_info["origin"] = current_axis_origin
             bend_info["axis"] = current_axis_dir
 
-            app_res = self.detector.approach_collision(current_state.shape, bend_info)
-            if not app_res.is_valid:
-                logger.info(f"Reject [{bend_id}] stage=APPROACH: {app_res.message}")
-                res = ValidationResult(
-                    valid=False, reason=app_res.message, stage="APPROACH",
-                    collision_status=app_res.status, tooling_status=self.tooling_status, alignment_status=self.alignment_status
-                )
-                self.invalid_transitions[cache_key] = res
-                return res
+            step_has_unknown = False
 
+            # Helper for collision checks with unknown_policy handling
+            def evaluate_collision(coll_res: Any, stage_name: str):
+                nonlocal step_has_unknown
+                if coll_res.status == CollisionStatus.INVALID:
+                    logger.info(f"Reject [{bend_id}] stage={stage_name}: {coll_res.message}")
+                    res = ValidationResult(
+                        valid=False, reason=coll_res.message, stage=stage_name,
+                        collision_status=coll_res.status, tooling_status=self.tooling_status, alignment_status=self.alignment_status,
+                        has_unknown=False
+                    )
+                    self.invalid_transitions[cache_key] = res
+                    return res
+                if coll_res.status == CollisionStatus.UNKNOWN:
+                    if unknown_policy == "PRODUCTION":
+                        logger.info(f"Reject [{bend_id}] stage={stage_name} [PRODUCTION]: {coll_res.message}")
+                        res = ValidationResult(
+                            valid=False, reason=f"[PRODUCTION] {coll_res.message}", stage=stage_name,
+                            collision_status=coll_res.status, tooling_status=self.tooling_status, alignment_status=self.alignment_status,
+                            has_unknown=True
+                        )
+                        self.invalid_transitions[cache_key] = res
+                        return res
+                    else:  # EXPLORATORY
+                        step_has_unknown = True
+                return None
+
+            # 1. APPROACH
+            app_res = self.detector.approach_collision(current_state.shape, bend_info)
+            early_exit = evaluate_collision(app_res, "APPROACH")
+            if early_exit is not None:
+                return early_exit
+
+            # 2. UNFOLD_TRANSFORM
             moving_panels = panel_graph.moving_subtree(bend_id) if panel_graph else set()
             if not moving_panels:
                 logger.info(f"Reject [{bend_id}] stage=UNFOLD_TRANSFORM: empty moving panels subtree.")
                 res = ValidationResult(
                     valid=False, reason=f"Cannot unfold bend {bend_id}: empty moving panels subtree.", stage="UNFOLD_TRANSFORM",
-                    collision_status="invalid", tooling_status=self.tooling_status, alignment_status=self.alignment_status
+                    collision_status=CollisionStatus.INVALID, tooling_status=self.tooling_status, alignment_status=self.alignment_status
                 )
                 self.invalid_transitions[cache_key] = res
                 return res
@@ -140,7 +168,7 @@ class PhysicalValidator:
                 logger.info(f"Reject [{bend_id}] stage=UNFOLD_TRANSFORM: {trsf_err}")
                 res = ValidationResult(
                     valid=False, reason=f"Unfold transformation failed: {trsf_err}", stage="UNFOLD_TRANSFORM",
-                    collision_status="invalid", tooling_status=self.tooling_status, alignment_status=self.alignment_status
+                    collision_status=CollisionStatus.INVALID, tooling_status=self.tooling_status, alignment_status=self.alignment_status
                 )
                 self.invalid_transitions[cache_key] = res
                 return res
@@ -149,60 +177,40 @@ class PhysicalValidator:
                 logger.info(f"Reject [{bend_id}] stage=UNFOLD_TRANSFORM: geometry was unchanged after unfolding.")
                 res = ValidationResult(
                     valid=False, reason=f"Unfold transformation resulted in unchanged geometry for bend {bend_id}", stage="UNFOLD_TRANSFORM",
-                    collision_status="invalid", tooling_status=self.tooling_status, alignment_status=self.alignment_status
+                    collision_status=CollisionStatus.INVALID, tooling_status=self.tooling_status, alignment_status=self.alignment_status
                 )
                 self.invalid_transitions[cache_key] = res
                 return res
 
+            # 3. SELF
             self_res = self.detector.self_collision(unfolded_shape, bend_id, panel_graph)
-            if not self_res.is_valid:
-                logger.info(f"Reject [{bend_id}] stage=SELF: {self_res.message}")
-                res = ValidationResult(
-                    valid=False, reason=self_res.message, stage="SELF",
-                    collision_status=self_res.status, tooling_status=self.tooling_status, alignment_status=self.alignment_status
-                )
-                self.invalid_transitions[cache_key] = res
-                return res
+            early_exit = evaluate_collision(self_res, "SELF")
+            if early_exit is not None:
+                return early_exit
 
+            # 4. TOOL
             tool_res = self.detector.tool_collision(unfolded_shape, bend_info, bend_id, panel_graph)
-            if not tool_res.is_valid:
-                logger.info(f"Reject [{bend_id}] stage=TOOL: {tool_res.message}")
-                res = ValidationResult(
-                    valid=False, reason=tool_res.message, stage="TOOL",
-                    collision_status=tool_res.status, tooling_status=self.tooling_status, alignment_status=self.alignment_status
-                )
-                self.invalid_transitions[cache_key] = res
-                return res
+            early_exit = evaluate_collision(tool_res, "TOOL")
+            if early_exit is not None:
+                return early_exit
 
+            # 5. MACHINE
             mach_res = self.detector.machine_collision(unfolded_shape, bend_info, bend_id, panel_graph)
-            if not mach_res.is_valid:
-                logger.info(f"Reject [{bend_id}] stage=MACHINE: {mach_res.message}")
-                res = ValidationResult(
-                    valid=False, reason=mach_res.message, stage="MACHINE",
-                    collision_status=mach_res.status, tooling_status=self.tooling_status, alignment_status=self.alignment_status
-                )
-                self.invalid_transitions[cache_key] = res
-                return res
+            early_exit = evaluate_collision(mach_res, "MACHINE")
+            if early_exit is not None:
+                return early_exit
 
+            # 6. BEND_TRAJECTORY
             traj_res = self.detector.trajectory_collision(current_state.shape, bend_info, bend_id=bend_id, panel_graph=panel_graph, dtheta=5.0)
-            if not traj_res.is_valid:
-                logger.info(f"Reject [{bend_id}] stage=BEND_TRAJECTORY: {traj_res.message}")
-                res = ValidationResult(
-                    valid=False, reason=traj_res.message, stage="BEND_TRAJECTORY",
-                    collision_status=traj_res.status, tooling_status=self.tooling_status, alignment_status=self.alignment_status
-                )
-                self.invalid_transitions[cache_key] = res
-                return res
+            early_exit = evaluate_collision(traj_res, "BEND_TRAJECTORY")
+            if early_exit is not None:
+                return early_exit
 
+            # 7. RETRACT
             ret_res = self.detector.retract_collision(unfolded_shape, bend_info)
-            if not ret_res.is_valid:
-                logger.info(f"Reject [{bend_id}] stage=RETRACT: {ret_res.message}")
-                res = ValidationResult(
-                    valid=False, reason=ret_res.message, stage="RETRACT",
-                    collision_status=ret_res.status, tooling_status=self.tooling_status, alignment_status=self.alignment_status
-                )
-                self.invalid_transitions[cache_key] = res
-                return res
+            early_exit = evaluate_collision(ret_res, "RETRACT")
+            if early_exit is not None:
+                return early_exit
 
             next_fold_state = current_state.apply_unfold(
                 bend_id=bend_id,
@@ -210,15 +218,18 @@ class PhysicalValidator:
                 moving_panels=moving_panels
             )
 
+            step_coll_status = CollisionStatus.UNKNOWN if step_has_unknown else CollisionStatus.VALID
+
             return ValidationResult(
                 valid=True,
-                reason="Step validated physically.",
+                reason="Step validated physically." if not step_has_unknown else "Step accepted under EXPLORATORY policy with UNKNOWN subchecks.",
                 stage="valid",
                 next_state=next_fold_state,
                 diagnostics={"bend_id": bend_id, "signed_angle": bend_record.signed_angle},
-                collision_status=CollisionStatus.VALID,
+                collision_status=step_coll_status,
                 tooling_status=self.tooling_status,
-                alignment_status=self.alignment_status
+                alignment_status=self.alignment_status,
+                has_unknown=step_has_unknown
             )
         finally:
             if hasattr(self.detector, 'end_step'):

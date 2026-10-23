@@ -35,7 +35,7 @@ try:
     from OCC.Core.GProp import GProp_GProps
     from OCC.Core.BRepGProp import brepgprop, brepgprop_SurfaceProperties
     from OCC.Core.TopExp import TopExp_Explorer
-    from OCC.Core.TopAbs import TopAbs_FACE, TopAbs_SOLID, TopAbs_COMPOUND, TopAbs_EDGE
+    from OCC.Core.TopAbs import TopAbs_FACE, TopAbs_SOLID, TopAbs_COMPOUND, TopAbs_EDGE, TopAbs_REVERSED
     from OCC.Core.BRepAdaptor import BRepAdaptor_Surface, BRepAdaptor_Curve
     from OCC.Core.GeomAbs import GeomAbs_Plane, GeomAbs_Cylinder
     from OCC.Core.BRep import BRep_Tool, BRep_Builder
@@ -144,6 +144,24 @@ class PythonOCCBackend(GeometryBackend):
                     moving_faces.update(str(idx) for idx in panel.face_indices)
                 else:
                     fixed_faces.update(str(idx) for idx in panel.face_indices)
+
+            # KL-22: resolver v1 assigns only planar panel faces; side edges,
+            # fillets, and chamfers remain unassigned. Without explicit
+            # preservation, unassigned faces fall out of BRepBuilderAPI_Sewing
+            # (78 -> 41 faces on box_100out_50in_ok) and panel.face_indices
+            # become stale on the next unfold (depth >= 2 -> InvalidRotationError).
+            # Attach unassigned faces to the FIXED side to keep face identity
+            # stable across successive rotations.
+            #
+            # Trade-off (documented in KL-22): unassigned faces stay stationary
+            # even when geometrically adjacent to a moving panel. This preserves
+            # search reachability for Req 6a SLA measurement; semantic side-edge
+            # kinematics remains open as KL-12 v2 (P2, before Req 2). Results on
+            # fixtures with unassigned faces stay production_eligible=False.
+            all_face_count = len(self.get_faces(shape))
+            all_faces_idx = set(str(i) for i in range(all_face_count))
+            assigned = moving_faces | fixed_faces
+            fixed_faces = fixed_faces | (all_faces_idx - assigned)
         else:
             moving_faces = set(moving_panels)
 
@@ -151,6 +169,20 @@ class PythonOCCBackend(GeometryBackend):
         fixed_shape = self.extract_faces(shape, fixed_faces) if fixed_faces else None
 
         if moving_shape is None or moving_shape.IsNull():
+            # KL-12: distinguish per-panel intent from legacy callers.
+            # Production (SolverWorker/VerifierWorker via resolver) passes numeric face indices
+            #   {'0', '6'} — extraction failed is a real error → raise.
+            # Legacy callers pass either empty set (PanelGraph with empty face_indices) or
+            #   panel IDs {'PANEL_xxx'} (panel_graph=None, e.g. collision_detector trajectory) —
+            #   fallback to whole-part rotation to preserve pre-KL-12 behavior.
+            # TODO(KL-12-req-2): replace sniff test with explicit `strict_per_panel: bool` flag
+            #   once all callers populate face_indices and legacy paths are removed.
+            has_numeric_faces = any(f.isdigit() for f in moving_faces)
+            if has_numeric_faces:
+                raise InvalidRotationError(
+                    f"rotate_subtree failed: moving_shape is None or IsNull for moving_panels={moving_panels} "
+                    f"(moving_faces={moving_faces})"
+                )
             return self.transform_shape(
                 shape,
                 translation=(0, 0, 0),
@@ -361,7 +393,10 @@ class PythonOCCBackend(GeometryBackend):
         if surf.GetType() == GeomAbs_Plane:
             pln = surf.Plane()
             d = pln.Axis().Direction()
-            return (d.X(), d.Y(), d.Z())
+            nx, ny, nz = d.X(), d.Y(), d.Z()
+            if face.Orientation() == TopAbs_REVERSED:
+                return (-nx, -ny, -nz)
+            return (nx, ny, nz)
         props = GProp_GProps()
         brepgprop.SurfaceProperties(face, props)
         cm = props.CentreOfMass()
@@ -417,3 +452,19 @@ class PythonOCCBackend(GeometryBackend):
         algo = BRepAlgoAPI_Cut(shape1, shape2)
         algo.Build()
         return algo.Shape() if algo.IsDone() else shape1
+
+    def get_edge_curve_type(self, edge: Any) -> str:
+        """Returns 'circle', 'line', 'other', or 'unknown'."""
+        from OCC.Core.BRepAdaptor import BRepAdaptor_Curve
+        from OCC.Core.GeomAbs import GeomAbs_Circle, GeomAbs_Line
+        try:
+            curve = BRepAdaptor_Curve(edge)
+            t = curve.GetType()
+            if t == GeomAbs_Circle:
+                return "circle"
+            elif t == GeomAbs_Line:
+                return "line"
+            else:
+                return "other"
+        except Exception:
+            return "unknown"

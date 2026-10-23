@@ -1,0 +1,106 @@
+{
+  "sequence_name": "2-1-3-4 door profile ground truth sequence",
+  "description": "Operator confirmed bending sequence for 2-1-3-4 fixture. Sequence starts with the complex 4-bend flange (BEND_02 -> BEND_01 -> BEND_03 -> BEND_04), followed by remaining 6 perimeter bends.",
+  "bends": [
+    {
+      "step": 1,
+      "bend_id": "BEND_02",
+      "angle_deg": -45.0,
+      "direction": "DOWN",
+      "radius_internal_mm": 1.0,
+      "requires_gooseneck": false,
+      "source": "OPERATOR_CONFIRMED",
+      "operator_confirmed": true
+    },
+    {
+      "step": 2,
+      "bend_id": "BEND_01",
+      "angle_deg": 45.0,
+      "direction": "UP",
+      "radius_internal_mm": 1.0,
+      "requires_gooseneck": false,
+      "source": "OPERATOR_CONFIRMED",
+      "operator_confirmed": true
+    },
+    {
+      "step": 3,
+      "bend_id": "BEND_03",
+      "angle_deg": 90.0,
+      "direction": "UP",
+      "radius_internal_mm": 1.0,
+      "requires_gooseneck": true,
+      "source": "OPERATOR_CONFIRMED",
+      "operator_confirmed": true
+    },
+    {
+      "step": 4,
+      "bend_id": "BEND_04",
+      "angle_deg": 90.0,
+      "direction": "UP",
+      "radius_internal_mm": 1.0,
+      "requires_gooseneck": true,
+      "source": "OPERATOR_CONFIRMED",
+      "operator_confirmed": true
+    },
+    {
+      "step": 5,
+      "bend_id": "BEND_05",
+      "angle_deg": 90.0,
+      "direction": "UP",
+      "radius_internal_mm": 1.0,
+      "requires_gooseneck": false,
+      "source": "SHEETMETAL_NATIVE",
+      "operator_confirmed": false
+    },
+    {
+      "step": 6,
+      "bend_id": "BEND_06",
+      "angle_deg": 90.0,
+      "direction": "UP",
+      "radius_internal_mm": 1.0,
+      "requires_gooseneck": false,
+      "source": "SHEETMETAL_NATIVE",
+      "operator_confirmed": false
+    },
+    {
+      "step": 7,
+      "bend_id": "BEND_07",
+      "angle_deg": 90.0,
+      "direction": "UP",
+      "radius_internal_mm": 1.0,
+      "requires_gooseneck": false,
+      "source": "SHEETMETAL_NATIVE",
+      "operator_confirmed": false
+    },
+    {
+      "step": 8,
+      "bend_id": "BEND_08",
+      "angle_deg": 90.0,
+      "direction": "UP",
+      "radius_internal_mm": 1.0,
+      "requires_gooseneck": false,
+      "source": "SHEETMETAL_NATIVE",
+      "operator_confirmed": false
+    },
+    {
+      "step": 9,
+      "bend_id": "BEND_09",
+      "angle_deg": 90.0,
+      "direction": "UP",
+      "radius_internal_mm": 1.0,
+      "requires_gooseneck": false,
+      "source": "SHEETMETAL_NATIVE",
+      "operator_confirmed": false
+    },
+    {
+      "step": 10,
+      "bend_id": "BEND_10",
+      "angle_deg": 90.0,
+      "direction": "UP",
+      "radius_internal_mm": 1.0,
+      "requires_gooseneck": false,
+      "source": "SHEETMETAL_NATIVE",
+      "operator_confirmed": false
+    }
+  ]
+}

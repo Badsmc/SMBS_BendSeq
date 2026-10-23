@@ -1,0 +1,81 @@
+{
+  "schema_name": "fixture_manifest",
+  "schema_version": "1.0",
+  "fixture_id": "u_10_30_10_ok",
+  "class": "FREECAD_NATIVE",
+  "source": {
+    "type": "FREECAD_FCSTD",
+    "path": "fixtures/freecad/u_10_30_10_ok/source.FCStd",
+    "content_hash": "sha256:818da10e755c7378b8804454b16deaf880a06d3e4493ccde29fc3c1b05062a8b",
+    "freecad_version": "1.1.3",
+    "sheetmetal_version": "unknown",
+    "created_in_gui": true
+  },
+  "input_files": [
+    {
+      "role": "PART_3D",
+      "path": "fixtures/freecad/u_10_30_10_ok/part_3d.brep",
+      "content_hash": "sha256:1d1f76ce32ec1cb351b71827b514f506ac5a4dabe7b41dc0ef7933604eb94adb",
+      "units": "mm",
+      "artifact_provenance": "DIRECT_EXPORT"
+    },
+    {
+      "role": "FLAT_PATTERN",
+      "path": "fixtures/freecad/u_10_30_10_ok/flat_pattern.brep",
+      "content_hash": "sha256:b743eed8f78b6c74650899a62cea1d7f8a9d77010219c508698cf97a28521ab4",
+      "units": "mm",
+      "artifact_provenance": "DIRECT_EXPORT"
+    },
+    {
+      "role": "BENDS_METADATA",
+      "path": "fixtures/freecad/u_10_30_10_ok/bends.json",
+      "content_hash": "sha256:f9bc02152530996aacbcc57e1079d6409f4cc392371830f15899d9537b868461",
+      "units": "mm",
+      "artifact_provenance": "DIRECT_EXPORT"
+    }
+  ],
+  "ground_truth": {
+    "bends_count": 2,
+    "bend_sequence": [
+      {
+        "bend_id": "BEND_01",
+        "angle_deg": 90.0,
+        "direction": "UP",
+        "radius_internal_mm": 1.0,
+        "requires_gooseneck": false,
+        "source": "SHEETMETAL_NATIVE"
+      },
+      {
+        "bend_id": "BEND_02",
+        "angle_deg": 90.0,
+        "direction": "UP",
+        "radius_internal_mm": 1.0,
+        "requires_gooseneck": false,
+        "source": "SHEETMETAL_NATIVE"
+      }
+    ],
+    "bend_sequence_operator_confirmed": false,
+    "expected_status": "POSITIVE",
+    "production_eligible": true,
+    "thickness_mm": 1.5,
+    "radius_internal_mm": 1.0,
+    "radius_punch_mm": 0.8,
+    "k_factor": 0.4,
+    "die_v_opening_mm": 12.0,
+    "requires_gooseneck": false,
+    "negative_reason": null,
+    "source_of_truth": "SHEETMETAL_NATIVE"
+  },
+  "tolerance_profile": {
+    "linear_tol_mm": 0.001,
+    "angular_tol_deg": 0.001,
+    "volume_tol_mm3": 0.001,
+    "bbox_tol_mm": 0.001,
+    "surface_distance_tol_mm": 0.01
+  },
+  "known_limitations": [
+    "Springback не учтён",
+    "Станок UNKNOWN (модель/усилие не уточнены)",
+    "Gooseneck параметры — только радиус рабочей части"
+  ]
+}

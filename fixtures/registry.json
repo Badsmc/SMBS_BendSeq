@@ -1,0 +1,182 @@
+{
+  "fixtures": [
+    {
+      "fixture_id": "l_bracket_synthetic_001",
+      "class": "SYNTHETIC",
+      "manifest": "fixtures/synthetic/l_bracket.manifest.json",
+      "status": "NOT_RUN"
+    },
+    {
+      "fixture_id": "u_bracket_synthetic_001",
+      "class": "SYNTHETIC",
+      "manifest": "fixtures/synthetic/u_bracket.manifest.json",
+      "status": "NOT_RUN"
+    },
+    {
+      "fixture_id": "four_bend_synthetic_001",
+      "class": "SYNTHETIC",
+      "manifest": "fixtures/synthetic/four_bend.manifest.json",
+      "status": "NOT_RUN"
+    },
+    {
+      "fixture_id": "l_ok",
+      "class": "FREECAD_NATIVE",
+      "manifest": "fixtures/freecad/l_ok/manifest.json",
+      "status": "NOT_RUN",
+      "requires": [
+        "FreeCAD",
+        "SheetMetal"
+      ]
+    },
+    {
+      "fixture_id": "l_30_6_false",
+      "class": "FREECAD_NATIVE",
+      "manifest": "fixtures/freecad/l_30_6_false/manifest.json",
+      "status": "NOT_RUN",
+      "requires": [
+        "FreeCAD",
+        "SheetMetal"
+      ]
+    },
+    {
+      "fixture_id": "u_90deg_90deg_ok",
+      "class": "FREECAD_NATIVE",
+      "manifest": "fixtures/freecad/u_90deg_90deg_ok/manifest.json",
+      "status": "NOT_RUN",
+      "requires": [
+        "FreeCAD",
+        "SheetMetal"
+      ]
+    },
+    {
+      "fixture_id": "u_10_30_10_ok",
+      "class": "FREECAD_NATIVE",
+      "manifest": "fixtures/freecad/u_10_30_10_ok/manifest.json",
+      "status": "NOT_RUN",
+      "requires": [
+        "FreeCAD",
+        "SheetMetal"
+      ]
+    },
+    {
+      "fixture_id": "u_10_10_20_false",
+      "class": "FREECAD_NATIVE",
+      "manifest": "fixtures/freecad/u_10_10_20_false/manifest.json",
+      "status": "NOT_RUN",
+      "requires": [
+        "FreeCAD",
+        "SheetMetal"
+      ]
+    },
+    {
+      "fixture_id": "u_60deg_30deg_ok",
+      "class": "FREECAD_NATIVE",
+      "manifest": "fixtures/freecad/u_60deg_30deg_ok/manifest.json",
+      "status": "NOT_RUN",
+      "requires": [
+        "FreeCAD",
+        "SheetMetal"
+      ]
+    },
+    {
+      "fixture_id": "u_10_15_10_punch2_ok",
+      "class": "FREECAD_NATIVE",
+      "manifest": "fixtures/freecad/u_10_15_10_punch2_ok/manifest.json",
+      "status": "NOT_RUN",
+      "requires": [
+        "FreeCAD",
+        "SheetMetal"
+      ]
+    },
+    {
+      "fixture_id": "z_ok",
+      "class": "FREECAD_NATIVE",
+      "manifest": "fixtures/freecad/z_ok/manifest.json",
+      "status": "NOT_RUN",
+      "requires": [
+        "FreeCAD",
+        "SheetMetal"
+      ]
+    },
+    {
+      "fixture_id": "z_10_20_10_ok",
+      "class": "FREECAD_NATIVE",
+      "manifest": "fixtures/freecad/z_10_20_10_ok/manifest.json",
+      "status": "NOT_RUN",
+      "requires": [
+        "FreeCAD",
+        "SheetMetal"
+      ]
+    },
+    {
+      "fixture_id": "z_10_20_10_false",
+      "class": "FREECAD_NATIVE",
+      "manifest": "fixtures/freecad/z_10_20_10_false/manifest.json",
+      "status": "NOT_RUN",
+      "requires": [
+        "FreeCAD",
+        "SheetMetal"
+      ]
+    },
+    {
+      "fixture_id": "135_ok",
+      "class": "FREECAD_NATIVE",
+      "manifest": "fixtures/freecad/135_ok/manifest.json",
+      "status": "NOT_RUN",
+      "requires": [
+        "FreeCAD",
+        "SheetMetal"
+      ]
+    },
+    {
+      "fixture_id": "box_100out_50in_ok",
+      "class": "FREECAD_NATIVE",
+      "manifest": "fixtures/freecad/box_100out_50in_ok/manifest.json",
+      "status": "NOT_RUN",
+      "requires": [
+        "FreeCAD",
+        "SheetMetal"
+      ]
+    },
+    {
+      "fixture_id": "box_100in_50out_false",
+      "class": "FREECAD_NATIVE",
+      "manifest": "fixtures/freecad/box_100in_50out_false/manifest.json",
+      "status": "NOT_RUN",
+      "requires": [
+        "FreeCAD",
+        "SheetMetal"
+      ]
+    },
+    {
+      "fixture_id": "sqin_200_25_10_ok",
+      "class": "FREECAD_NATIVE",
+      "manifest": "fixtures/freecad/sqin_200_25_10_ok/manifest.json",
+      "status": "NOT_RUN",
+      "requires": [
+        "FreeCAD",
+        "SheetMetal"
+      ]
+    },
+    {
+      "fixture_id": "sqout_200_25_10_ok",
+      "class": "FREECAD_NATIVE",
+      "manifest": "fixtures/freecad/sqout_200_25_10_ok/manifest.json",
+      "status": "NOT_RUN",
+      "requires": [
+        "FreeCAD",
+        "SheetMetal"
+      ]
+    },
+    {
+      "fixture_id": "2_1_3_4_ok",
+      "class": "FREECAD_NATIVE",
+      "manifest": "fixtures/freecad/2_1_3_4_ok/manifest.json",
+      "status": "NOT_RUN",
+      "requires": [
+        "FreeCAD",
+        "SheetMetal"
+      ]
+    }
+  ]
+}

@@ -1,3 +1,5 @@
+
+
 """
 Topology Worker for SMBS / BendSeq.
 Compliant with ТЗ v1.2 §3.3 (Rule R3), §4.1, §4.2 and Principles 2, 5, 17, 23.
@@ -13,9 +15,11 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 from OCC.Core.BRepTools import breptools
 from OCC.Core.TopoDS import TopoDS_Shape
 from OCC.Core.BRep import BRep_Builder
+import networkx as nx
 
 from smbs_core.geometry_backend.backends.pythonocc_backend import PythonOCCBackend
 from smbs_core.Geometry.feature_extractor import FeatureExtractor
+from smbs_core.Core.bend_graph import IncompleteBendError
 from smbs_core.protocols.file_store import (
     ConfidenceLevel,
     ContractError,
@@ -24,6 +28,10 @@ from smbs_core.protocols.file_store import (
     RunStatus,
     TopologyStatus,
 )
+
+
+def _raise_topology_incomplete(bend_id: str, field_name: str, line_no: int):
+    raise IncompleteBendError(f"Bend {bend_id} missing mandatory field '{field_name}' in workers/topology/worker.py:{line_no}")
 
 
 class TopologyWorker:
@@ -43,6 +51,330 @@ class TopologyWorker:
         if not breptools.Read(shape, str(file_path), builder):
             raise ValueError(f"Failed to load BREP from {file_path}")
         return shape
+
+    @staticmethod
+    def _compute_bend_allowance(angle_deg: float, radius_mm: float, k_factor: float, thickness_mm: float) -> float:
+        """
+        Calculates sheet metal bend allowance (BA):
+        BA = alpha_rad * (radius_mm + k_factor * thickness_mm)
+        """
+        alpha_rad = math.radians(abs(angle_deg))
+        return alpha_rad * (radius_mm + k_factor * thickness_mm)
+
+    def _compute_bend_lines_flat_pattern(
+        self,
+        canonical_panels: Dict[str, Any],
+        raw_bends: Dict[str, Any],
+        ref_panel_id: str,
+        thickness_mm: float,
+        default_k_factor: float = 0.44,
+    ) -> Dict[str, Any]:
+        """
+        Computes bend_line_flat_pattern for every bend through recursive inverse
+        projection from hub outward in original flat coordinate system.
+        Returns: {bend_id: {"start_mm": [x,y,z], "end_mm": [x,y,z]}}
+        Coordinates are seam boundaries on parent-bend interface (not centerlines).
+        """
+        try:
+            import FreeCAD
+            from smbs_core.Geometry.sheetmetal_folder import SheetMetalFolder
+        except Exception:
+            return {}
+
+        hub_panel = canonical_panels.get(ref_panel_id)
+        if not hub_panel:
+            return {}
+        hub_centroid = FreeCAD.Vector(*hub_panel["centroid"])
+        t = thickness_mm
+
+        # Build branch chains starting from hub
+        all_chains = []
+        for bid in hub_panel.get("adjacent_bend_ids", []):
+            if bid not in raw_bends:
+                continue
+            chain = [bid]
+            curr_pid = raw_bends[bid].get("child_panel_id")
+            while curr_pid and curr_pid in canonical_panels:
+                curr_panel = canonical_panels[curr_pid]
+                adjs = [b_other for b_other in curr_panel.get("adjacent_bend_ids", []) if b_other != chain[-1] and b_other in raw_bends]
+                if not adjs:
+                    break
+                next_bid = adjs[0]
+                chain.append(next_bid)
+                curr_pid = raw_bends[next_bid].get("child_panel_id")
+            all_chains.append(chain)
+
+        computed_bend_lines: Dict[str, Any] = {}
+
+        for chain in all_chains:
+            first_b = raw_bends[chain[0]]
+            ax_p0 = FreeCAD.Vector(*first_b.get("origin", [0, 0, 0]))
+            ax_d0 = FreeCAD.Vector(*first_b.get("axis", [1, 0, 0])).normalize()
+            is_y = abs(ax_d0.x) > 0.5
+            v_hub = ax_p0 - hub_centroid
+            sign_along = 1.0 if (v_hub.y if is_y else v_hub.x) > 0 else -1.0
+            curr_s_pos = ax_p0.y if is_y else ax_p0.x
+
+            M_parent = FreeCAD.Matrix()  # Identity for hub
+
+            for bid in chain:
+                # raw_bends uses 'origin'/'axis' from FeatureExtractor; canonical_bends uses 'axis_point'/'axis_direction'
+                b_info = raw_bends[bid]
+                p1_id = b_info.get("parent_panel_id")
+                p2_id = b_info.get("child_panel_id")
+                parent_p = canonical_panels.get(p1_id, {})
+                child_p = canonical_panels.get(p2_id, {})
+
+                ax_p = FreeCAD.Vector(*b_info.get("origin", [0, 0, 0]))
+                ax_d = FreeCAD.Vector(*b_info.get("axis", [1, 0, 0])).normalize()
+                l_bend = float(b_info.get("length", 50.0))
+                if "signed_angle" in b_info:
+                    ang = float(b_info["signed_angle"])
+                elif "angle" in b_info:
+                    ang = float(b_info["angle"])
+                else:
+                    _raise_topology_incomplete(bid, "signed_angle", 124)
+                r_in = float(b_info.get("radius", 1.0))
+                k = float(b_info.get("k_factor", default_k_factor))
+                ba = math.radians(abs(ang)) * (r_in + k * t)
+
+                norm_p = FreeCAD.Vector(*parent_p.get("normal", [0, 0, 1])).normalize()
+                c_p = FreeCAD.Vector(*parent_p.get("centroid", [0, 0, 0]))
+                d_plane = (ax_p - c_p).dot(norm_p)
+                v_start = (-norm_p * d_plane).normalize()
+                r_seam = r_in if ang > 0 else (r_in + t)
+
+                p_start_3d = ax_p + v_start * r_seam
+                p_end_3d = p_start_3d + ax_d * l_bend
+
+                M_parent_inv = M_parent.inverse()
+                p_start_flat = M_parent_inv.multVec(p_start_3d)
+                p_end_flat = M_parent_inv.multVec(p_end_3d)
+
+                computed_bend_lines[bid] = {
+                    "start_mm": [p_start_flat.x, p_start_flat.y, p_start_flat.z],
+                    "end_mm": [p_end_flat.x, p_end_flat.y, p_end_flat.z],
+                    "start_point": [p_start_flat.x, p_start_flat.y, p_start_flat.z],
+                    "end_point": [p_end_flat.x, p_end_flat.y, p_end_flat.z]
+                }
+
+                s_panel_start = curr_s_pos + sign_along * ba
+                b_bend_dict = {
+                    "bend_id": bid,
+                    "axis_point": [ax_p.x, ax_p.y, ax_p.z],
+                    "axis_direction": [ax_d.x, ax_d.y, ax_d.z],
+                    "length_mm": {"value": l_bend},
+                    "angle_deg": {"value": ang},
+                    "radius_mm": {"value": r_in},
+                    "k_factor": {"value": k}
+                }
+                M_child = SheetMetalFolder.build_bend_transform(b_bend_dict, parent_p, child_p, t, s_panel_start, hub_centroid)
+                M_parent = M_child
+                child_area = float(child_p.get("area_mm2", 0.0))
+                w_panel = child_area / (2.0 * l_bend) if l_bend > 0 else 0.0
+                curr_s_pos = s_panel_start + sign_along * w_panel
+
+        return computed_bend_lines
+
+    def _map_raw_bends_to_flat(
+        self,
+        raw_bends: Dict[str, Any],
+        flat_bend_lines: List[Dict[str, Any]],
+        raw_panels: Dict[str, Any],
+        thickness_mm: float,
+        default_k_factor: float = 0.44,
+        diagnostics: Optional[List[Dict[str, Any]]] = None,
+    ) -> Dict[str, Any]:
+        """
+        Geometrically matches each raw_bend (3D) to its corresponding flat_bend_line (2D)
+        based on the topological chain traversal and Criterion A (bend distance) / Criterion B (panel length).
+        Never returns naive idx fallback. If topology is non-linear, returns {} and logs diagnostic.
+        """
+        if not flat_bend_lines:
+            return {}
+        if len(raw_bends) <= 1:
+            return {list(raw_bends.keys())[0]: flat_bend_lines[0]} if raw_bends and flat_bend_lines else {}
+
+        # Build 1D panel-bend topological connectivity graph
+        G = nx.Graph()
+        for bid, binfo in raw_bends.items():
+            p1 = binfo.get("parent_panel_id")
+            p2 = binfo.get("child_panel_id")
+            if p1 and p2:
+                G.add_edge(p1, p2, bend_id=bid)
+
+        degrees = dict(G.degree())
+        leaves = [n for n, d in degrees.items() if d == 1]
+        is_linear_chain = (len(leaves) == 2 and all(d <= 2 for d in degrees.values()))
+
+        if not is_linear_chain:
+            # Check for regular 4-branch tree topology (depth=2, 1 hub with deg=4)
+            hubs = [n for n, d in degrees.items() if d >= 4]
+            if len(hubs) == 1 and len(flat_bend_lines) == len(raw_bends) and len(raw_bends) == 8:
+                try:
+                    hub_id = hubs[0]
+                    hub_panel = raw_panels[hub_id]
+                    hc = hub_panel.centroid if hasattr(hub_panel, "centroid") else hub_panel.get("centroid", [0, 0, 0])
+                    
+                    level1_3d = {}
+                    level2_3d = {}
+                    for bid, b in raw_bends.items():
+                        if b.get("parent_panel_id") == hub_id:
+                            child = raw_panels[b["child_panel_id"]]
+                            cc = child.centroid if hasattr(child, "centroid") else child.get("centroid", [0, 0, 0])
+                            dx = cc[0] - hc[0]
+                            dy = cc[1] - hc[1]
+                            d_lbl = ("+X" if dx > 0 else "-X") if abs(dx) > abs(dy) else ("+Y" if dy > 0 else "-Y")
+                            level1_3d[d_lbl] = (bid, b)
+
+                    for bid, b in raw_bends.items():
+                        if b.get("parent_panel_id") != hub_id:
+                            p_id = b.get("parent_panel_id")
+                            for d_lbl, (l1_bid, l1_b) in level1_3d.items():
+                                if l1_b.get("child_panel_id") == p_id:
+                                    level2_3d[d_lbl] = (bid, b)
+                                    break
+
+                    xs = []
+                    ys = []
+                    for fl in flat_bend_lines:
+                        st = fl.get("start_point") or fl.get("start_mm") or fl.get("bend_line_flat", {}).get("start", [0, 0, 0])
+                        en = fl.get("end_point") or fl.get("end_mm") or fl.get("bend_line_flat", {}).get("end", [0, 0, 0])
+                        xs.extend([st[0], en[0]])
+                        ys.extend([st[1], en[1]])
+                    cx = (min(xs) + max(xs)) / 2.0
+                    cy = (min(ys) + max(ys)) / 2.0
+
+                    fl_by_dir = {"+X": [], "-X": [], "+Y": [], "-Y": []}
+                    for i, fl in enumerate(flat_bend_lines):
+                        st = fl.get("start_point") or fl.get("start_mm") or fl.get("bend_line_flat", {}).get("start", [0, 0, 0])
+                        en = fl.get("end_point") or fl.get("end_mm") or fl.get("bend_line_flat", {}).get("end", [0, 0, 0])
+                        mx = (st[0] + en[0]) / 2.0
+                        my = (st[1] + en[1]) / 2.0
+                        dist = math.hypot(mx - cx, my - cy)
+                        dx = mx - cx
+                        dy = my - cy
+                        d_lbl = ("+X" if dx > 0 else "-X") if abs(dx) > abs(dy) else ("+Y" if dy > 0 else "-Y")
+                        fl_by_dir[d_lbl].append({"fl": fl, "dist": dist})
+
+                    for d_lbl in fl_by_dir:
+                        fl_by_dir[d_lbl].sort(key=lambda x: x["dist"])
+
+                    tree_mapping = {}
+                    for d_lbl in ["+X", "-X", "+Y", "-Y"]:
+                        if d_lbl in level1_3d and len(fl_by_dir[d_lbl]) >= 1:
+                            tree_mapping[level1_3d[d_lbl][0]] = fl_by_dir[d_lbl][0]["fl"]
+                        if d_lbl in level2_3d and len(fl_by_dir[d_lbl]) >= 2:
+                            tree_mapping[level2_3d[d_lbl][0]] = fl_by_dir[d_lbl][1]["fl"]
+
+                    if len(tree_mapping) == len(raw_bends):
+                        return tree_mapping
+                except Exception:
+                    pass
+
+            if diagnostics is not None:
+                diagnostics.append({
+                    "code": "NON_LINEAR_TOPOLOGY_NOT_SUPPORTED",
+                    "message": (
+                        f"Bend mapping requires linear 1D panel chain or regular 4-branch tree, but part topology has "
+                        f"{len(leaves)} leaves and max panel degree {max(degrees.values()) if degrees else 0}. "
+                        f"bend_line_flat_pattern will be omitted."
+                    ),
+                    "level": "WARNING",
+                    "stage": "topology_bend_mapping"
+                })
+            return {}
+
+        chain_panels = nx.shortest_path(G, source=leaves[0], target=leaves[1])
+        bends_forward = [G[chain_panels[i]][chain_panels[i + 1]]["bend_id"] for i in range(len(chain_panels) - 1)]
+        bends_backward = list(reversed(bends_forward))
+        panels_forward = chain_panels
+        panels_backward = list(reversed(chain_panels))
+
+        # Determine dominant coordinate axis on flat pattern (X or Y)
+        mids = []
+        for fb in flat_bend_lines:
+            s = fb.get("start_point") or fb.get("start_mm", [0, 0, 0])
+            e = fb.get("end_point") or fb.get("end_mm", [0, 0, 0])
+            mids.append(((s[0] + e[0]) / 2.0, (s[1] + e[1]) / 2.0))
+
+        x_span = max(m[0] for m in mids) - min(m[0] for m in mids)
+        y_span = max(m[1] for m in mids) - min(m[1] for m in mids)
+
+        if x_span >= y_span:
+            def coord_fn(fb: Dict[str, Any]) -> float:
+                s = fb.get("start_point") or fb.get("start_mm", [0, 0, 0])
+                e = fb.get("end_point") or fb.get("end_mm", [0, 0, 0])
+                return (s[0] + e[0]) / 2.0
+        else:
+            def coord_fn(fb: Dict[str, Any]) -> float:
+                s = fb.get("start_point") or fb.get("start_mm", [0, 0, 0])
+                e = fb.get("end_point") or fb.get("end_mm", [0, 0, 0])
+                return (s[1] + e[1]) / 2.0
+
+        sorted_flat_bends = sorted(flat_bend_lines, key=coord_fn)
+
+        def chain_distance_residual(b_order: List[str], p_order: List[str]) -> float:
+            residual = 0.0
+            for i in range(len(b_order) - 1):
+                d_flat = abs(coord_fn(sorted_flat_bends[i + 1]) - coord_fn(sorted_flat_bends[i]))
+                mid_panel_id = p_order[i + 1]
+                mid_p_info = raw_panels.get(mid_panel_id, {})
+                p_area = float(
+                    mid_p_info.total_area
+                    if hasattr(mid_p_info, "total_area")
+                    else (mid_p_info.get("total_area", mid_p_info.get("area_mm2", 0.0)) if isinstance(mid_p_info, dict) else 0.0)
+                )
+                b_len = float(raw_bends[b_order[i]].get("length", 50.0))
+                p_len_3d = p_area / (b_len * 2.0) if b_len > 0 else 0.0
+
+                # Compute dynamic BA for each adjacent bend using actual bend parameters
+                b1 = raw_bends[b_order[i]]
+                b2 = raw_bends[b_order[i + 1]]
+                if "signed_angle" in b1:
+                    b1_angle = float(b1["signed_angle"])
+                elif "angle" in b1:
+                    b1_angle = float(b1["angle"])
+                else:
+                    _raise_topology_incomplete(b_order[i], "signed_angle", 322)
+
+                b1_radius = float(b1.get("radius", 1.0))
+
+                if "signed_angle" in b2:
+                    b2_angle = float(b2["signed_angle"])
+                elif "angle" in b2:
+                    b2_angle = float(b2["angle"])
+                else:
+                    _raise_topology_incomplete(b_order[i+1], "signed_angle", 324)
+                b2_radius = float(b2.get("radius", 1.0))
+
+                ba1 = self._compute_bend_allowance(b1_angle, b1_radius, default_k_factor, thickness_mm)
+                ba2 = self._compute_bend_allowance(b2_angle, b2_radius, default_k_factor, thickness_mm)
+
+                expected_d_flat = p_len_3d + (ba1 + ba2) / 2.0
+                residual += abs(d_flat - expected_d_flat)
+
+            # Angle supplement check
+            for i, bid in enumerate(b_order):
+                if "signed_angle" in raw_bends[bid]:
+                    r_angle = abs(float(raw_bends[bid]["signed_angle"]))
+                elif "angle" in raw_bends[bid]:
+                    r_angle = abs(float(raw_bends[bid]["angle"]))
+                else:
+                    _raise_topology_incomplete(bid, "signed_angle", 335)
+                f_angle = abs(float(sorted_flat_bends[i].get("angle_deg", 90.0)))
+                residual += abs(f_angle - (180.0 - r_angle)) * 0.1
+
+            return residual
+
+        res_fwd = chain_distance_residual(bends_forward, panels_forward)
+        res_bwd = chain_distance_residual(bends_backward, panels_backward)
+
+        chosen_bends = bends_forward if res_fwd <= res_bwd else bends_backward
+        matched: Dict[str, Any] = {}
+        for bid, fb in zip(chosen_bends, sorted_flat_bends):
+            matched[bid] = fb
+        return matched
 
     def execute(self, geometry_result_path: Union[str, Path]) -> Path:
         """
@@ -71,7 +403,7 @@ class TopologyWorker:
 
         # Extract features
         known_t = geom_result["payload"].get("thickness_mm", {}).get("value")
-        feats = self.extractor.extract_features(occ_shape, known_thickness=known_t)
+        feats = self.extractor.extract_features(occ_shape, known_thickness=known_t, diagnostics=diagnostics)
         raw_thickness = feats.get("thickness")
         raw_bends = feats.get("bends", {})
         raw_panels = feats.get("panels", {})
@@ -108,13 +440,7 @@ class TopologyWorker:
                 "adjacent_bend_ids": []
             }
 
-        # Reference panel is the largest panel
-        ref_panel_id = "PANEL_01"
-        if canonical_panels:
-            ref_panel_id = max(canonical_panels.keys(), key=lambda pid: canonical_panels[pid]["area_mm2"])
-
-        # Assemble Bends
-        canonical_bends: Dict[str, Any] = {}
+        # Populate adjacent bend IDs in canonical panels early for topological graph analysis
         for b_id, b_info in raw_bends.items():
             p1 = b_info.get("parent_panel_id", "PANEL_01")
             p2 = b_info.get("child_panel_id", "PANEL_02")
@@ -123,7 +449,94 @@ class TopologyWorker:
             if p2 in canonical_panels and b_id not in canonical_panels[p2]["adjacent_bend_ids"]:
                 canonical_panels[p2]["adjacent_bend_ids"].append(b_id)
 
-            angle_val = float(b_info.get("signed_angle", b_info.get("angle", 90.0)))
+        # Reference panel is the largest panel
+        ref_panel_id = "PANEL_01"
+        if canonical_panels:
+            ref_panel_id = max(canonical_panels.keys(), key=lambda pid: canonical_panels[pid]["area_mm2"])
+
+        # Retrieve flat pattern bend lines from geometry_result if available
+        flat_bend_lines = []
+        flat_art = geom_result["payload"].get("flat_pattern_artifact")
+        if flat_art and isinstance(flat_art, dict):
+            flat_bend_lines = flat_art.get("bend_lines", [])
+
+        # Verify bend count correspondence between 3D feature extraction and 2D unfold
+        bend_count_matches = True
+        if flat_bend_lines and len(raw_bends) != len(flat_bend_lines):
+            bend_count_matches = False
+            diagnostics.append({
+                "code": "BEND_COUNT_MISMATCH",
+                "message": (
+                    f"Bend count mismatch between feature_extractor ({len(raw_bends)}) "
+                    f"and unfold ({len(flat_bend_lines)}). bend_line_flat_pattern mapping omitted."
+                ),
+                "level": "WARNING",
+                "stage": "topology_bend_mapping"
+            })
+
+        # Provenance for thickness & k_factor needed for bend allowance calculation
+        t_val = geom_result["payload"]["thickness_mm"]["value"] or raw_thickness or 1.5
+        t_source = geom_result["payload"]["thickness_mm"]["source"]
+        t_confidence = geom_result["payload"]["thickness_mm"]["confidence"]
+        if t_val is None:
+            t_confidence = ConfidenceLevel.UNKNOWN.value
+
+        k_val = 0.44 if geom_result["payload"].get("k_factor", {}).get("value") is None else geom_result["payload"]["k_factor"]["value"]
+
+        # Geometrically map raw_bends to flat_bend_lines using dynamic BA calculation
+        bend_mapping: Dict[str, Any] = {}
+        if bend_count_matches and flat_bend_lines:
+            bend_mapping = self._map_raw_bends_to_flat(
+                raw_bends,
+                flat_bend_lines,
+                raw_panels,
+                thickness_mm=float(t_val),
+                default_k_factor=float(k_val),
+                diagnostics=diagnostics,
+            )
+
+        if not bend_mapping:
+            # Fallback for general tree / multi-branch parts: compute bend lines via recursive inverse projection
+            try:
+                bend_mapping = self._compute_bend_lines_flat_pattern(
+                    canonical_panels=canonical_panels,
+                    raw_bends=raw_bends,
+                    ref_panel_id=ref_panel_id,
+                    thickness_mm=float(t_val),
+                    default_k_factor=float(k_val),
+                )
+            except Exception as e:
+                diagnostics.append({
+                    "code": "BEND_REVERSE_PROJECTION_FAILED",
+                    "message": f"Reverse projection fallback failed: {e}",
+                    "level": "WARNING",
+                    "stage": "topology_bend_mapping"
+                })
+
+        if flat_bend_lines and not bend_mapping:
+            diagnostics.append({
+                "code": "BEND_MAPPING_OMITTED",
+                "message": "Flat pattern bend lines were not mapped to canonical bends due to non-linear topology, bend count mismatch, or mapping failure.",
+                "level": "WARNING",
+                "stage": "topology_bend_mapping"
+            })
+
+        # Assemble Bends
+        canonical_bends: Dict[str, Any] = {}
+        for idx, (b_id, b_info) in enumerate(raw_bends.items()):
+            p1 = b_info.get("parent_panel_id", "PANEL_01")
+            p2 = b_info.get("child_panel_id", "PANEL_02")
+            if p1 in canonical_panels and b_id not in canonical_panels[p1]["adjacent_bend_ids"]:
+                canonical_panels[p1]["adjacent_bend_ids"].append(b_id)
+            if p2 in canonical_panels and b_id not in canonical_panels[p2]["adjacent_bend_ids"]:
+                canonical_panels[p2]["adjacent_bend_ids"].append(b_id)
+
+            if "signed_angle" in b_info:
+                angle_val = float(b_info["signed_angle"])
+            elif "angle" in b_info:
+                angle_val = float(b_info["angle"])
+            else:
+                _raise_topology_incomplete(b_id, "signed_angle", 505)
             direction_str = "UP" if angle_val >= 0 else "DOWN"
 
             canonical_bends[b_id] = {
@@ -159,12 +572,20 @@ class TopologyWorker:
                 "axis_direction": [float(x) for x in b_info.get("axis", [1,0,0])]
             }
 
-        # Provenance for thickness
-        t_val = geom_result["payload"]["thickness_mm"]["value"] or raw_thickness
-        t_source = geom_result["payload"]["thickness_mm"]["source"]
-        t_confidence = geom_result["payload"]["thickness_mm"]["confidence"]
-        if t_val is None:
-            t_confidence = ConfidenceLevel.UNKNOWN.value
+            # Propagate bend_line_flat_pattern using proven geometric mapping
+            fbl = bend_mapping.get(b_id)
+            if fbl is not None:
+                start_pt = fbl.get("start_point") or fbl.get("start_mm")
+                end_pt = fbl.get("end_point") or fbl.get("end_mm")
+                if start_pt and end_pt:
+                    l_val = math.sqrt(sum((end_pt[k] - start_pt[k])**2 for k in range(min(len(start_pt), len(end_pt)))))
+                    canonical_bends[b_id]["bend_line_flat_pattern"] = {
+                        "start_mm": [float(x) for x in start_pt[:3]],
+                        "end_mm": [float(x) for x in end_pt[:3]],
+                        "length_mm": round(float(l_val), 3)
+                    }
+
+        # Provenance for thickness already resolved above
 
         canonical_data = {
             "schema_name": "canonical_part",

@@ -1,0 +1,304 @@
+# -*- coding: utf-8 -*-
+"""
+SMBS_ToolingLibrary.FCMacro - FreeCAD macro: manage tooling library (Phase B, S.22f).
+
+Install:
+  1. Copy to FreeCAD macros directory (Macro -> Macros... -> Add).
+  2. Edit SMBS_REPO_PATH and SMBS_LIBRARY_PATH below.
+  3. Macro -> Macros... -> SMBS_ToolingLibrary -> Execute.
+
+Features:
+  - List punches/dies from library (Tabs: Punches and Dies)
+  - Add tool: select FCStd + sidecar -> ToolingLibrary.add_tool
+  - Remove tool: selected tool -> ToolingLibrary.remove_tool
+  - Preview selected tool (Part.show in active doc)
+  - Bootstrap library (create punch/ + die/ if missing)
+  - Status bar with diagnostics from add/remove
+"""
+
+# ==== USER CONFIG ====
+SMBS_REPO_PATH = r"/Users/badmc/Desktop/SMBS_BendSeq"
+SMBS_LIBRARY_PATH = r"/Users/badmc/Desktop/SMBS_BendSeq/toollibrary"
+# =====================
+
+import sys
+from pathlib import Path
+
+import FreeCAD as App
+import FreeCADGui as Gui
+import Part
+from PySide6 import QtCore, QtWidgets
+
+
+class ToolingLibraryDialog(QtWidgets.QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("SMBS Tooling Library Manager")
+        self.resize(600, 480)
+
+        self.repo_path = Path(SMBS_REPO_PATH)
+        self.library_path = Path(SMBS_LIBRARY_PATH) if SMBS_LIBRARY_PATH else self.repo_path / "toollibrary"
+        self.lib = None
+
+        self._init_ui()
+        self._load_library()
+
+    def _init_ui(self):
+        layout = QtWidgets.QVBoxLayout(self)
+
+        # 1. Library path bar
+        path_layout = QtWidgets.QHBoxLayout()
+        path_label = QtWidgets.QLabel("Library:")
+        self.path_edit = QtWidgets.QLineEdit(str(self.library_path))
+        self.path_edit.setReadOnly(True)
+        btn_change = QtWidgets.QPushButton("Change...")
+        btn_change.clicked.connect(self._on_change_library)
+        path_layout.addWidget(path_label)
+        path_layout.addWidget(self.path_edit)
+        path_layout.addWidget(btn_change)
+        layout.addLayout(path_layout)
+
+        # 2. Tabs for Punches and Dies
+        self.tabs = QtWidgets.QTabWidget()
+        self.punch_list = QtWidgets.QListWidget()
+        self.die_list = QtWidgets.QListWidget()
+
+        self.punch_list.itemSelectionChanged.connect(self._on_selection_changed)
+        self.die_list.itemSelectionChanged.connect(self._on_selection_changed)
+
+        self.tabs.addTab(self.punch_list, "Punches (0)")
+        self.tabs.addTab(self.die_list, "Dies (0)")
+        self.tabs.currentChanged.connect(self._on_selection_changed)
+        layout.addWidget(self.tabs)
+
+        # 3. Selected item details box
+        self.info_group = QtWidgets.QGroupBox("Tool Details")
+        info_layout = QtWidgets.QVBoxLayout(self.info_group)
+        self.lbl_selected_id = QtWidgets.QLabel("Selected: none")
+        self.lbl_selected_meta = QtWidgets.QLabel("Metadata: -")
+        self.lbl_selected_meta.setWordWrap(True)
+        info_layout.addWidget(self.lbl_selected_id)
+        info_layout.addWidget(self.lbl_selected_meta)
+        layout.addWidget(self.info_group)
+
+        # 4. Action buttons
+        btn_layout = QtWidgets.QHBoxLayout()
+        btn_add = QtWidgets.QPushButton("Add Tool...")
+        btn_add.clicked.connect(self._on_add_tool)
+        btn_remove = QtWidgets.QPushButton("Remove")
+        btn_remove.clicked.connect(self._on_remove_tool)
+        btn_preview = QtWidgets.QPushButton("Preview")
+        btn_preview.clicked.connect(self._on_preview_tool)
+        btn_refresh = QtWidgets.QPushButton("Refresh")
+        btn_refresh.clicked.connect(self._refresh_lists)
+
+        btn_layout.addWidget(btn_add)
+        btn_layout.addWidget(btn_remove)
+        btn_layout.addWidget(btn_preview)
+        btn_layout.addWidget(btn_refresh)
+        layout.addLayout(btn_layout)
+
+        # 5. Status bar
+        self.status_label = QtWidgets.QLabel("Status: Ready")
+        self.status_label.setStyleSheet("color: gray;")
+        layout.addWidget(self.status_label)
+
+    def _set_status(self, text: str, is_error: bool = False):
+        color = "red" if is_error else "black"
+        self.status_label.setStyleSheet(f"color: {color};")
+        self.status_label.setText(f"Status: {text}")
+        if is_error:
+            App.Console.PrintError(f"SMBS ToolingLibrary: {text}\n")
+        else:
+            App.Console.PrintMessage(f"SMBS ToolingLibrary: {text}\n")
+
+    def _load_library(self):
+        from smbs_core.geometry_backend.io.tooling_library import ToolingLibrary, ToolingLibraryError
+
+        try:
+            self.lib = ToolingLibrary(self.library_path)
+            self._set_status(f"Loaded library from {self.library_path}")
+            self._refresh_lists()
+        except ToolingLibraryError as e:
+            err_msg = str(e)
+            if "Missing required punch subdirectory" in err_msg or "Missing required die subdirectory" in err_msg:
+                reply = QtWidgets.QMessageBox.question(
+                    self,
+                    "Initialize Library",
+                    f"Library directory at '{self.library_path}' lacks required punch/ and die/ subdirectories.\n\n"
+                    "Create missing subdirectories now?",
+                    QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No
+                )
+                if reply == QtWidgets.QMessageBox.Yes:
+                    try:
+                        (self.library_path / "punch").mkdir(parents=True, exist_ok=True)
+                        (self.library_path / "die").mkdir(parents=True, exist_ok=True)
+                        self.lib = ToolingLibrary(self.library_path)
+                        self._set_status("Library initialized.")
+                        self._refresh_lists()
+                        return
+                    except Exception as create_err:
+                        self._set_status(f"Failed to create subdirectories: {create_err}", is_error=True)
+                        return
+            self._set_status(f"Failed to load library: {e}", is_error=True)
+            QtWidgets.QMessageBox.critical(self, "Library Error", str(e))
+
+    def _on_change_library(self):
+        new_dir = QtWidgets.QFileDialog.getExistingDirectory(
+            self, "Select Tooling Library Root", str(self.library_path)
+        )
+        if new_dir:
+            self.library_path = Path(new_dir)
+            self.path_edit.setText(str(self.library_path))
+            self._load_library()
+
+    def _refresh_lists(self):
+        if not self.lib:
+            return
+
+        self.punch_list.clear()
+        self.die_list.clear()
+
+        try:
+            catalog = self.lib.list_tools()
+        except Exception as e:
+            self._set_status(f"Failed to scan catalog: {e}", is_error=True)
+            return
+
+        for p in catalog.punches:
+            radius = p.metadata.get("radius_mm", "?")
+            angle = p.metadata.get("angle_deg", "?")
+            item = QtWidgets.QListWidgetItem(f"{p.tool_id}  (r={radius}mm, a={angle}°)")
+            item.setData(QtCore.Qt.UserRole, p)
+            self.punch_list.addItem(item)
+
+        for d in catalog.dies:
+            v_w = d.metadata.get("v_width_mm", "?")
+            angle = d.metadata.get("angle_deg", "?")
+            item = QtWidgets.QListWidgetItem(f"{d.tool_id}  (V={v_w}mm, a={angle}°)")
+            item.setData(QtCore.Qt.UserRole, d)
+            self.die_list.addItem(item)
+
+        self.tabs.setTabText(0, f"Punches ({len(catalog.punches)})")
+        self.tabs.setTabText(1, f"Dies ({len(catalog.dies)})")
+        self._on_selection_changed()
+        self._set_status("Refreshed catalog.")
+
+    def _current_descriptor(self):
+        cur_list = self.punch_list if self.tabs.currentIndex() == 0 else self.die_list
+        item = cur_list.currentItem()
+        if item:
+            return item.data(QtCore.Qt.UserRole)
+        return None
+
+    def _on_selection_changed(self):
+        desc = self._current_descriptor()
+        if not desc:
+            self.lbl_selected_id.setText("Selected: none")
+            self.lbl_selected_meta.setText("Metadata: -")
+            return
+
+        self.lbl_selected_id.setText(f"Selected: [{desc.kind}] {desc.tool_id} (Sidecar: {'YES' if desc.has_sidecar else 'NO'})")
+        meta_str = ", ".join(f"{k}={v}" for k, v in desc.metadata.items()) if desc.metadata else "none"
+        self.lbl_selected_meta.setText(f"Metadata: {meta_str}\nPath: {desc.fcstd_path}")
+
+    def _on_add_tool(self):
+        if not self.lib:
+            return
+
+        file_path, _ = QtWidgets.QFileDialog.getOpenFileName(
+            self, "Select Tool FCStd Model", str(self.repo_path), "FreeCAD Models (*.FCStd)"
+        )
+        if not file_path:
+            return
+
+        from smbs_core.geometry_backend.io.tooling_library import ToolingLibraryError
+
+        try:
+            desc = self.lib.add_tool(Path(file_path))
+            self._set_status(f"Added '{desc.tool_id}' as {desc.kind}")
+            self._refresh_lists()
+            QtWidgets.QMessageBox.information(
+                self, "Tool Added", f"Tool '{desc.tool_id}' successfully added as {desc.kind}."
+            )
+        except ToolingLibraryError as e:
+            self._set_status(f"Failed to add tool: {e}", is_error=True)
+            QtWidgets.QMessageBox.warning(self, "Add Tool Error", str(e))
+        except Exception as e:
+            self._set_status(f"Unexpected error: {e}", is_error=True)
+            QtWidgets.QMessageBox.critical(self, "Error", f"Unexpected error: {e}")
+
+    def _on_remove_tool(self):
+        desc = self._current_descriptor()
+        if not desc:
+            QtWidgets.QMessageBox.information(self, "Remove Tool", "Please select a tool to remove.")
+            return
+
+        reply = QtWidgets.QMessageBox.question(
+            self,
+            "Confirm Remove",
+            f"Are you sure you want to remove [{desc.kind}] '{desc.tool_id}' from library?",
+            QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No
+        )
+        if reply != QtWidgets.QMessageBox.Yes:
+            return
+
+        from smbs_core.geometry_backend.io.tooling_library import ToolingLibraryError
+
+        try:
+            self.lib.remove_tool(desc.tool_id, kind=desc.kind)
+            self._set_status(f"Removed '{desc.tool_id}' from {desc.kind}")
+            self._refresh_lists()
+        except ToolingLibraryError as e:
+            self._set_status(f"Failed to remove tool: {e}", is_error=True)
+            QtWidgets.QMessageBox.warning(self, "Remove Tool Error", str(e))
+
+    def _on_preview_tool(self):
+        desc = self._current_descriptor()
+        if not desc:
+            QtWidgets.QMessageBox.information(self, "Preview", "Please select a tool to preview.")
+            return
+
+        if App.ActiveDocument is None:
+            App.newDocument("SMBS_ToolingPreview")
+            try:
+                Gui.ActiveDocument = Gui.activeDocument()
+            except Exception:
+                pass
+
+        doc = App.ActiveDocument
+
+        # .FCStd is a FreeCAD document (ZIP), not a BREP file.
+        # Part.Shape().read() and Part.insert() do not support .FCStd.
+        # doc.mergeProject() is the native API to merge a FreeCAD project into the current document.
+        try:
+            doc.mergeProject(str(desc.fcstd_path))
+            doc.recompute()
+            Gui.SendMsgToActiveView("ViewFit")
+            self._set_status(f"Displayed preview for '{desc.tool_id}' in 3D view.")
+        except Exception as e:
+            self._set_status(f"Failed to display tool: {e}", is_error=True)
+            QtWidgets.QMessageBox.warning(self, "Preview Error", f"Failed to display shape: {e}")
+
+
+def run_macro() -> None:
+    try:
+        Gui.runCommand('Std_ViewReportView', 0)
+    except Exception:
+        pass
+
+    repo = Path(SMBS_REPO_PATH)
+    if not repo.is_dir():
+        App.Console.PrintError(f"SMBS: SMBS_REPO_PATH is not a directory: {SMBS_REPO_PATH}\n")
+        QtWidgets.QMessageBox.critical(None, "SMBS Tooling Library", f"Invalid repo path: {SMBS_REPO_PATH}")
+        return
+
+    if str(repo) not in sys.path:
+        sys.path.insert(0, str(repo))
+
+    dialog = ToolingLibraryDialog()
+    dialog.exec()
+
+
+if __name__ == "__main__":
+    run_macro()

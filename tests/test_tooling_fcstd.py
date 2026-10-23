@@ -53,7 +53,7 @@ class TestToolingSystem(unittest.TestCase):
             os.remove(self.sidecar_path)
             
         loader = FcstdToolingLoader()
-        tool = loader.load(self.fcstd_path, ToolingKind.PUNCH)
+        tool = loader.load(self.fcstd_path, ToolingKind.PUNCH, target_object_name="Body")
         
         self.assertEqual(tool.geometry_status, "SIMPLIFIED")
         self.assertIn(DatumRole.MOUNTING_PLANE, tool.datums)
@@ -77,7 +77,7 @@ class TestToolingSystem(unittest.TestCase):
             json.dump(sidecar_data, f)
             
         loader = FcstdToolingLoader()
-        tool = loader.load(self.fcstd_path, ToolingKind.PUNCH)
+        tool = loader.load(self.fcstd_path, ToolingKind.PUNCH, target_object_name="Body")
         
         self.assertEqual(tool.geometry_status, "REAL")
         self.assertEqual(tool.id, "TestPunch")
@@ -101,7 +101,7 @@ class TestToolingSystem(unittest.TestCase):
             json.dump(sidecar_data_punch, f)
             
         loader = FcstdToolingLoader()
-        punch = loader.load(self.fcstd_path, ToolingKind.PUNCH)
+        punch = loader.load(self.fcstd_path, ToolingKind.PUNCH, target_object_name="Body")
         
         # Создаем валидную матрицу
         sidecar_data_die = {
@@ -114,7 +114,7 @@ class TestToolingSystem(unittest.TestCase):
         with open(self.sidecar_path, 'w') as f:
             json.dump(sidecar_data_die, f)
             
-        die = loader.load(self.fcstd_path, ToolingKind.DIE)
+        die = loader.load(self.fcstd_path, ToolingKind.DIE, target_object_name="Body")
         
         backend = MockBackend()
         assembly = ToolingAssembly(backend, self.machine)
@@ -152,6 +152,24 @@ class TestToolingSystem(unittest.TestCase):
         box2_clear = backend.transform_shape(box2, translation=(10.05, 0, 0))
         res2 = detector._check_intersection(box1, box2_clear, tolerance_volume=0.1)
         self.assertEqual(res2.status, CollisionStatus.VALID)
+
+    def test_get_world_shape_with_mock_returns_dict_unchanged(self):
+        """Проверяет, что get_world_shape с MockBackend возвращает dict без падений на OCC."""
+        backend = MockBackend()
+        assembly = ToolingAssembly(backend, self.machine)
+        from smbs_core.models.tooling import Tooling, GeometryStatus
+        mock_tool = Tooling(
+            id="MockDie",
+            kind=ToolingKind.DIE,
+            source_file="mock.fcstd",
+            shape={"mock": "shape_dict"},
+            local_frame=None,
+            geometry_status=GeometryStatus.REAL,
+            datums={}
+        )
+        assembly.die = mock_tool
+        shape = assembly.get_world_shape(ToolingKind.DIE)
+        self.assertEqual(shape, {"mock": "shape_dict"})
 
 if __name__ == '__main__':
     unittest.main()
