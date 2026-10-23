@@ -423,7 +423,14 @@ class TopologyWorker:
         # Check for symmetric ambiguities
         bend_geometries: List[Tuple[float, float, float]] = []
         for b_id, b_info in raw_bends.items():
-            key = (round(b_info.get("length", 0.0), 2), round(abs(b_info.get("signed_angle", 0.0)), 1), round(b_info.get("radius", 0.0), 2))
+            b_len = b_info.get("length")
+            b_ang = b_info.get("signed_angle")
+            b_rad = b_info.get("radius")
+            key = (
+                round(b_len, 2) if b_len is not None else 0.0,
+                round(abs(b_ang), 1) if b_ang is not None else 0.0,
+                round(b_rad, 2) if b_rad is not None else 0.0,
+            )
             if key in bend_geometries:
                 # Potential symmetry check: if distance topologies are identical
                 pass
@@ -540,9 +547,13 @@ class TopologyWorker:
             direction_str = "UP" if angle_val >= 0 else "DOWN"
 
             if "origin" not in b_info or b_info["origin"] is None:
-                _raise_topology_incomplete(b_id, "origin", 543)
+                _raise_topology_incomplete(b_id, "origin", 550)
             if "axis" not in b_info or b_info["axis"] is None:
-                _raise_topology_incomplete(b_id, "axis", 545)
+                _raise_topology_incomplete(b_id, "axis", 552)
+            if "radius" not in b_info or b_info["radius"] is None:
+                _raise_topology_incomplete(b_id, "radius", 554)
+            if "length" not in b_info or b_info["length"] is None:
+                _raise_topology_incomplete(b_id, "length", 556)
 
             canonical_bends[b_id] = {
                 "bend_id": b_id,
@@ -554,12 +565,12 @@ class TopologyWorker:
                     "confidence": ConfidenceLevel.CONFIRMED.value
                 },
                 "radius_mm": {
-                    "value": float(b_info.get("radius", 1.0)),
+                    "value": float(b_info["radius"]),
                     "source": ParameterSource.GEOMETRIC_INFERENCE.value,
                     "confidence": ConfidenceLevel.CONFIRMED.value
                 },
                 "length_mm": {
-                    "value": float(b_info.get("length", 50.0)),
+                    "value": float(b_info["length"]),
                     "source": ParameterSource.GEOMETRIC_INFERENCE.value,
                     "confidence": ConfidenceLevel.CONFIRMED.value
                 },
