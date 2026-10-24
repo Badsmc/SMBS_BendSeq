@@ -14,7 +14,7 @@ from OCC.Core.BRepAdaptor import BRepAdaptor_Surface
 from OCC.Core.BRepGProp import brepgprop
 from OCC.Core.GProp import GProp_GProps
 from OCC.Core.GeomAbs import GeomAbs_Plane
-from OCC.Core.TopAbs import TopAbs_FACE, TopAbs_EDGE
+from OCC.Core.TopAbs import TopAbs_FACE, TopAbs_EDGE, TopAbs_REVERSED
 from OCC.Core.TopExp import TopExp_Explorer
 from OCC.Core.TopoDS import TopoDS_Face, TopoDS_Shape, topods
 from OCC.Core.gp import gp_Trsf, gp_Mat, gp_Vec, gp_Pnt, gp_Ax3, gp_Dir
@@ -70,6 +70,8 @@ class FrameAligner:
         ax = pln.Axis()
         d = ax.Direction()
         normal = (d.X(), d.Y(), d.Z())
+        if face.Orientation() == TopAbs_REVERSED:
+            normal = (-normal[0], -normal[1], -normal[2])
 
         props = GProp_GProps()
         brepgprop.SurfaceProperties(face, props)
