@@ -16,8 +16,9 @@ from OCC.Core.BRepExtrema import BRepExtrema_DistShapeShape
 from OCC.Core.gp import gp_Pnt, gp_Trsf, gp_Vec
 from OCC.Core.ShapeUpgrade import ShapeUpgrade_UnifySameDomain
 from OCC.Core.TopAbs import TopAbs_FACE, TopAbs_REVERSED, TopAbs_SHELL, TopAbs_SOLID, TopAbs_VERTEX
-from OCC.Core.TopExp import TopExp_Explorer
+from OCC.Core.TopExp import TopExp_Explorer, topexp
 from OCC.Core.TopoDS import TopoDS_Face, TopoDS_Shape, topods
+from OCC.Core.TopTools import TopTools_IndexedMapOfShape
 
 from smbs_core.Geometry.frame_aligner import FrameAligner, FrameAlignmentResult
 from smbs_core.protocols.file_store import (
@@ -129,19 +130,20 @@ class BaselineWorker:
         """
         Computes two-way vertex Hausdorff distance between two shapes:
         H(S1, S2) = max(max_{v1 in S1} dist(v1, S2), max_{v2 in S2} dist(v2, S1)).
+        Deduplicates topological vertices to avoid redundant multi-visit evaluations.
         """
         def directed_hausdorff(s1: TopoDS_Shape, s2: TopoDS_Shape) -> float:
+            vmap = TopTools_IndexedMapOfShape()
+            topexp.MapShapes(s1, TopAbs_VERTEX, vmap)
             max_d = 0.0
-            exp = TopExp_Explorer(s1, TopAbs_VERTEX)
-            while exp.More():
-                v = exp.Current()
+            for i in range(1, vmap.Size() + 1):
+                v = topods.Vertex(vmap.FindKey(i))
                 ext = BRepExtrema_DistShapeShape(v, s2)
                 ext.Perform()
                 if ext.IsDone():
                     d = ext.Value()
                     if d > max_d:
                         max_d = d
-                exp.Next()
             return max_d
 
         d1 = directed_hausdorff(shape1, shape2)
