@@ -92,13 +92,13 @@ In session S.48e root-cause investigation (E1/E2 probes), this hypothesis was **
 
 ---
 
-## P1 Code Hygiene
+## P1 Code Hygiene (CLOSED S.55)
 
-| ID | File | Defect |
-|---|---|---|
-| P1-CODE-1 | `sheetmetal_folder.py:1310–1388` | Dead fallback (`40, 30, 50, 30, 40` literal + `NotImplementedError`); no production caller. |
-| P1-CODE-2 | `sheetmetal_folder.py:1214, 1236, 1286, 1313–1315, 1337–1339, 1371–1373` | Silent geometry defaults (`or 1.5/50.0/90.0/1.0/0.44`) in active and fallback branches. |
-| P1-CODE-3 | `sheetmetal_folder.py:1323, 1356`; `pythonocc_backend.py:286, 318–319, 323` | Hardcoded `95.5/47.5/50.0` (fixture_l overfit). |
+| ID | File | Defect | Status |
+|---|---|---|---|
+| P1-CODE-1 | `sheetmetal_folder.py:1310–1388` | Dead fallback (`40, 30, 50, 30, 40` literal + `NotImplementedError`); no production caller. | CLOSED S.55 (`4761aef`) |
+| P1-CODE-2 | `sheetmetal_folder.py:1214, 1236, 1286, 1313–1315, 1337–1339, 1371–1373` | Silent geometry defaults (`or 1.5/50.0/90.0/1.0/0.44`) in active and fallback branches. | CLOSED S.55 (`4a2b0e3`, `a28c71e`, `bc5b92e`) |
+| P1-CODE-3 | `sheetmetal_folder.py:1323, 1356`; `pythonocc_backend.py:286, 318–319, 323` | Hardcoded `95.5/47.5/50.0` (fixture_l overfit). | CLOSED S.55 (`16a6685`, `1f3178d`) |
 
 ---
 
