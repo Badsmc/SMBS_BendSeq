@@ -322,6 +322,11 @@ class SheetMetalFolder:
             pos_path = [bends[b]["bend_line_flat_pattern"]["start_mm"][0 if is_x else 1] for b in bend_path]
 
         ref_idx = visited_p.index(ref_panel_id) if ref_panel_id in visited_p else 0
+        # S.48e: far-end leaf reference anchor causes left-branch Z-inversion;
+        # fold from leaf-0 to get upright orientation (S.48d bbox-align handles pos).
+        if ref_idx == len(visited_p) - 1 and len(visited_p) > 1:
+            ref_idx = 0
+            ref_panel_id = visited_p[0]
 
         # Load flat pattern as FreeCAD Part.Shape
         if isinstance(flat_pattern, (str, Path)):

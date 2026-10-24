@@ -63,7 +63,7 @@ class TestBaselineTopologyCanonical(unittest.TestCase):
         self._run_fixture_test(
             part_id="u_bracket",
             fixture_rel_path="fixtures/synthetic/u_bracket.brep",
-            max_hausdorff=1.1,
+            max_hausdorff=0.2,
             expected_metrics={
                 "ref_faces_raw": 14,
                 "ref_faces_canonical": 14,
