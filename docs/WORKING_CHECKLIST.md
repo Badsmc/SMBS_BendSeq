@@ -61,10 +61,9 @@
 | P1-hygiene-verifier-dup | `_find_largest_planar_face` deduplicated into `smbs_core/Geometry/face_utils.py` | `5a02f72` | `smbs_core/Geometry/face_utils.py` (578 tests) | 2026-10-24 |
 | P1-hygiene-baseline-metrics | `baseline_metrics` surfaced on baseline INVALID (contract symmetry) | `c41263d` | `smbs_core/coordinator/run_pipeline.py` (578 tests) | 2026-10-24 |
 | P1-hygiene-test-05-workaround | Direct `json.load` workaround in `test_hausdorff_gate_enforcement` removed | `c41263d` | `tests/test_baseline_topology_canonical.py` (578 tests) | 2026-10-24 |
+| P1-hygiene-angle-override | Annotate `angle_override_deg` as DEBUG_OVERRIDE in `fold_from_flat_pattern`/`fold_multi_bend_from_flat_pattern` signatures | `941ae36` | `smbs_core/Geometry/sheetmetal_folder.py` (578 tests) | 2026-10-25 |
+| P1-hygiene-proposal-2 | S.46 caching investigation closed: `StateCache` already integrated (Phase 7 COMPLETE), no further runner optimization required | — (S.46 audit; no code change) | `docs/PROGRESS.md` Phase 7; `smbs_core/workers/solver/worker.py:183-201` (578 tests) | 2026-10-25 |
 
 ## Upcoming Tasks (Post-P0 Remediation)
 
-| ID | Task | Priority | Note / Location |
-|---|---|---|---|
-| P1-hygiene-angle-override | Add comment annotation to `angle_override` | P1 | `tests/test_baseline_topology_canonical.py:65` |
-| P1-hygiene-proposal-2 | Re-evaluate search test caching / runner opt | P1 | Investigated during S.46 audit |
+*(None — all P1-hygiene items CLOSED in S.56; see §Done)*
