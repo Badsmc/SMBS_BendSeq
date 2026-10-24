@@ -13,7 +13,7 @@ from OCC.Core.BRepTools import breptools
 from OCC.Core.GeomAbs import GeomAbs_Cylinder, GeomAbs_Plane
 from OCC.Core.GProp import GProp_GProps
 from OCC.Core.BRepExtrema import BRepExtrema_DistShapeShape
-from OCC.Core.gp import gp_Pnt, gp_Vec
+from OCC.Core.gp import gp_Pnt, gp_Trsf, gp_Vec
 from OCC.Core.ShapeUpgrade import ShapeUpgrade_UnifySameDomain
 from OCC.Core.TopAbs import TopAbs_FACE, TopAbs_REVERSED, TopAbs_SHELL, TopAbs_SOLID, TopAbs_VERTEX
 from OCC.Core.TopExp import TopExp_Explorer
@@ -601,6 +601,19 @@ class BaselineWorker:
 
         restored_shape = SheetMetalFolder.fold_from_canonical_part(canonical_part, fold_flat_input)
 
+        # Dynamic origin alignment to reference shape frame (Invariant #5 compliant)
+        bb_ref = Bnd_Box()
+        brepbndlib.Add(ref_shape, bb_ref)
+        bb_rest = Bnd_Box()
+        brepbndlib.Add(restored_shape, bb_rest)
+        dx = bb_ref.CornerMin().X() - bb_rest.CornerMin().X()
+        dy = bb_ref.CornerMin().Y() - bb_rest.CornerMin().Y()
+        dz = bb_ref.CornerMin().Z() - bb_rest.CornerMin().Z()
+        if abs(dx) > 1e-3 or abs(dy) > 1e-3 or abs(dz) > 1e-3:
+            trsf = gp_Trsf()
+            trsf.SetTranslation(gp_Vec(dx, dy, dz))
+            restored_shape = BRepBuilderAPI_Transform(restored_shape, trsf, True).Shape()
+
         restored_brep_path = run_dir / "restored.brep"
         breptools.Write(restored_shape, str(restored_brep_path))
         restored_hash = compute_file_sha256(restored_brep_path)
@@ -637,7 +650,7 @@ class BaselineWorker:
         )
 
         # Check part symmetry transformations if not directly matched in CANONICAL mode
-        from OCC.Core.gp import gp_Trsf, gp_Ax1, gp_Pnt, gp_Dir
+        from OCC.Core.gp import gp_Ax1, gp_Dir
         active_can_shape = canonical_rest_shape
         active_top_rest_can = top_rest_can
         if not res_can["topology_matches"]:

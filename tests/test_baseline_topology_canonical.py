@@ -31,7 +31,7 @@ class TestBaselineTopologyCanonical(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self.temp_dir, ignore_errors=True)
 
-    def _run_fixture_test(self, part_id: str, fixture_rel_path: str, expected_metrics: dict):
+    def _run_fixture_test(self, part_id: str, fixture_rel_path: str, expected_metrics: dict, max_hausdorff: float = None):
         source_path = (Path.cwd() / fixture_rel_path).resolve()
         res = self.coordinator.start_run(
             source_file_path=source_path,
@@ -52,10 +52,18 @@ class TestBaselineTopologyCanonical(unittest.TestCase):
                 f"Metric {metric_name} mismatch for {part_id}: expected {expected_val}, got {b_metrics.get(metric_name)}"
             )
 
+        if max_hausdorff is not None:
+            self.assertLess(
+                b_metrics.get("hausdorff_distance_mm", 9999.0),
+                max_hausdorff,
+                f"Hausdorff distance exceeded for {part_id}: got {b_metrics.get('hausdorff_distance_mm')}, expected < {max_hausdorff}"
+            )
+
     def test_u_bracket(self):
         self._run_fixture_test(
             part_id="u_bracket",
             fixture_rel_path="fixtures/synthetic/u_bracket.brep",
+            max_hausdorff=1.1,
             expected_metrics={
                 "ref_faces_raw": 14,
                 "ref_faces_canonical": 14,
