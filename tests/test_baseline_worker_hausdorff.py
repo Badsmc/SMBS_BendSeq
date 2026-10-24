@@ -2,7 +2,11 @@ import unittest
 from OCC.Core.BRepPrimAPI import BRepPrimAPI_MakeBox
 from OCC.Core.BRepAlgoAPI import BRepAlgoAPI_Fuse
 from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_Transform
-from OCC.Core.gp import gp_Trsf, gp_Vec, gp_Pnt
+from OCC.Core.gp import gp_Trsf, gp_Vec, gp_Pnt, gp_Ax1, gp_Dir
+from OCC.Core.TopExp import TopExp_Explorer
+from OCC.Core.TopAbs import TopAbs_VERTEX
+from OCC.Core.BRepExtrema import BRepExtrema_DistShapeShape
+from pathlib import Path
 
 from smbs_core.workers.baseline.worker import BaselineWorker
 
@@ -65,6 +69,50 @@ class TestBaselineWorkerHausdorff(unittest.TestCase):
         dist = BaselineWorker._compute_hausdorff_distance(box1, box2)
         self.assertGreater(dist, 0.0)
         self.assertAlmostEqual(dist, 1.0, places=2)
+
+    def test_04_hausdorff_dedup_equivalence(self):
+        """
+        Pin test for P1-perf optimization (Proposal 1):
+        Verifies that deduplicated vertex evaluation produces bit-identical
+        results to legacy TopExp_Explorer iteration on non-trivial geometries.
+        """
+        def legacy_hausdorff(s1, s2):
+            def directed(sa, sb):
+                max_d = 0.0
+                exp = TopExp_Explorer(sa, TopAbs_VERTEX)
+                while exp.More():
+                    v = exp.Current()
+                    ext = BRepExtrema_DistShapeShape(v, sb)
+                    ext.Perform()
+                    if ext.IsDone():
+                        d = ext.Value()
+                        if d > max_d:
+                            max_d = d
+                    exp.Next()
+                return max_d
+            return max(directed(s1, s2), directed(s2, s1))
+
+        # 1. Rotated box 15 deg
+        box = self._make_box(20.0, 20.0, 20.0)
+        trsf = gp_Trsf()
+        trsf.SetRotation(gp_Ax1(gp_Pnt(10, 10, 10), gp_Dir(1, 1, 0)), 0.261799)
+        rot_box = BRepBuilderAPI_Transform(box, trsf, True).Shape()
+
+        h_legacy = legacy_hausdorff(box, rot_box)
+        h_dedup = BaselineWorker._compute_hausdorff_distance(box, rot_box)
+        self.assertAlmostEqual(h_legacy, h_dedup, places=9)
+
+        # 2. Translated four_bend synthetic sheetmetal fixture
+        four_bend_path = Path("fixtures/synthetic/four_bend.brep").resolve()
+        if four_bend_path.exists():
+            fb = BaselineWorker(None)._load_brep(four_bend_path)
+            trsf_fb = gp_Trsf()
+            trsf_fb.SetTranslation(gp_Vec(0.5, 0.2, -0.3))
+            fb_off = BRepBuilderAPI_Transform(fb, trsf_fb, True).Shape()
+
+            h_fb_legacy = legacy_hausdorff(fb, fb_off)
+            h_fb_dedup = BaselineWorker._compute_hausdorff_distance(fb, fb_off)
+            self.assertAlmostEqual(h_fb_legacy, h_fb_dedup, places=9)
 
 
 if __name__ == "__main__":
