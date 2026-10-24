@@ -184,10 +184,7 @@ class TestBaselineTopologyCanonical(unittest.TestCase):
             )
         self.assertFalse(res["pass"])
         self.assertEqual(res["baseline_status"], "INVALID")
-        import json
-        with open(Path(res["run_dir"]) / "04_baseline_result.json") as f:
-            baseline_data = json.load(f)
-        metrics = baseline_data["payload"]["metrics"]
+        metrics = res["baseline_metrics"]
         self.assertLess(metrics["bbox_delta_mm"][0], 0.1)
         self.assertLess(metrics["volume_delta_mm3"], 0.1)
         self.assertLess(metrics["surface_area_delta_mm2"], 0.1)

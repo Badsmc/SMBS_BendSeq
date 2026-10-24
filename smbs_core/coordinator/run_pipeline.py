@@ -288,6 +288,7 @@ class Coordinator:
                 "stage": "baseline",
                 "baseline_status": baseline_result["payload"]["baseline_status"],
                 "pass": False,
+                "baseline_metrics": baseline_result["payload"]["metrics"],
                 "diagnostics": baseline_result["diagnostics"]
             }
 
