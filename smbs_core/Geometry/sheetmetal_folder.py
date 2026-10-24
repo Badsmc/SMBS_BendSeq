@@ -569,12 +569,12 @@ class SheetMetalFolder:
     @classmethod
     def fold_one_bend(
         cls,
-        l1: float = 95.5,
-        l2: float = 47.5,
+        l1: float = 95.5,       # FIXTURE_DEFAULT (benchmark L-bracket leg length)
+        l2: float = 47.5,       # FIXTURE_DEFAULT (benchmark L-bracket leg length)
         bend_r: float = 1.0,
         thickness: float = 1.5,
         kfactor: float = 0.44,
-        width: float = 50.0,
+        width: float = 50.0,    # FIXTURE_DEFAULT (benchmark panel width)
         angle_deg: float = 90.0,
         flat_pattern: Optional[TopoDS_Shape | Part.Shape | str | Path] = None,
         canonical_part: Optional[Dict[str, Any]] = None
@@ -614,13 +614,13 @@ class SheetMetalFolder:
     @classmethod
     def fold_u_bracket(
         cls,
-        l1: float = 95.5,
-        l_mid: float = 50.0,
-        l2: float = 47.5,
+        l1: float = 95.5,       # FIXTURE_DEFAULT (benchmark U-bracket leg length)
+        l_mid: float = 50.0,    # FIXTURE_DEFAULT (benchmark U-bracket mid-panel length)
+        l2: float = 47.5,       # FIXTURE_DEFAULT (benchmark U-bracket leg length)
         bend_r: float = 1.0,
         thickness: float = 1.5,
         kfactor: float = 0.44,
-        width: float = 50.0
+        width: float = 50.0     # FIXTURE_DEFAULT (benchmark panel width)
     ) -> TopoDS_Shape:
         """Folds 2-bend U-profile into monolithic solid with 4 cylindrical fillet faces."""
         neutral_r = bend_r + kfactor * thickness
