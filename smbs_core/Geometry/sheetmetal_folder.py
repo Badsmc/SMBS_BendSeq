@@ -531,10 +531,6 @@ class SheetMetalFolder:
         for op in reversed(inv_ops):
             op(res)
 
-        # For synthetic u_bracket where flat_pattern is shifted by bbox min corner:
-        if abs(bb.XMin - 43.5) < 1e-2 and abs(bb.ZMin - (-102.715)) < 1e-2:
-            res.translate(FreeCAD.Vector(-43.5, 0, 102.715))
-
         # 10. Unify coplanar faces into clean B-Rep
         occ_s = cls._to_occ_shape(res)
         unifier = ShapeUpgrade_UnifySameDomain(occ_s, True, True, True)

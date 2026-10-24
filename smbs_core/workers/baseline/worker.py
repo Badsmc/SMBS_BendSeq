@@ -597,11 +597,7 @@ class BaselineWorker:
         # axis_point/centroid are in original flat's coordinate system.
         # TODO(B.4.4): unify this with fold_from_canonical_part's method dispatcher
         # so both "which fold method" and "which flat" decisions live in one place.
-        panel_degs = [len(p.get("adjacent_bend_ids", [])) for p in canonical_part.get("payload", canonical_part).get("panels", {}).values()]
-        max_p_deg = max(panel_degs) if panel_degs else 0
-        b_count = len(canonical_part.get("payload", canonical_part).get("bends", {}))
-        _is_general_tree_3b = (max_p_deg >= 3 and not (max_p_deg == 4 and b_count == 8))
-        fold_flat_input = flat_shape if _is_general_tree_3b else aligned_flat
+        fold_flat_input = flat_shape
 
         restored_shape = SheetMetalFolder.fold_from_canonical_part(canonical_part, fold_flat_input)
 
