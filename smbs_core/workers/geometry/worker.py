@@ -186,58 +186,74 @@ class GeometryWorker:
                     "stage": "sheetmetal_unfold"
                 })
             else:
-                import Part
-                # Convert occ_shape to Part.Shape for SheetMetal
-                tmp_step = run_dir / "temp_for_sm.step"
-                writer = STEPControl_Writer()
-                writer.Transfer(occ_shape, STEPControl_AsIs)
-                writer.Write(str(tmp_step))
-                fc_shape = Part.read(str(tmp_step))
-                if tmp_step.exists():
-                    tmp_step.unlink()
+                tmp_step = None
+                try:
+                    import Part
+                    # Convert occ_shape to Part.Shape for SheetMetal
+                    tmp_step = run_dir / "temp_for_sm.step"
+                    writer = STEPControl_Writer()
+                    writer.Transfer(occ_shape, STEPControl_AsIs)
+                    writer.Write(str(tmp_step))
+                    fc_shape = Part.read(str(tmp_step))
 
-                unfold_res: SheetMetalUnfoldResult = self.sheetmetal_adapter.unfold(
-                    fc_shape,
-                    k_factor_override=payload.get("k_factor_override"),
-                    standard_override=payload.get("standard_override")
-                )
+                    unfold_res: SheetMetalUnfoldResult = self.sheetmetal_adapter.unfold(
+                        fc_shape,
+                        k_factor_override=payload.get("k_factor_override"),
+                        standard_override=payload.get("standard_override")
+                    )
 
-                if unfold_res.status == RunStatus.SUCCESS and unfold_res.unfolded_shape:
-                    flat_brep_path = run_dir / "flat_pattern.brep"
-                    unfold_res.unfolded_shape.exportBrep(str(flat_brep_path))
-                    flat_hash = compute_file_sha256(flat_brep_path)
-                    flat_bend_lines_data = []
-                    for bl in unfold_res.bend_lines:
-                        bl_dict = {
-                            "bend_id": bl.bend_id,
-                            "direction": bl.direction,
-                            "angle_deg": bl.angle_deg,
-                            "radius_mm": bl.radius_mm,
-                            "k_factor": bl.k_factor,
-                            "start_point": bl.start_point,
-                            "end_point": bl.end_point,
+                    if unfold_res.status == RunStatus.SUCCESS and unfold_res.unfolded_shape:
+                        flat_brep_path = run_dir / "flat_pattern.brep"
+                        unfold_res.unfolded_shape.exportBrep(str(flat_brep_path))
+                        flat_hash = compute_file_sha256(flat_brep_path)
+                        flat_bend_lines_data = []
+                        for bl in unfold_res.bend_lines:
+                            bl_dict = {
+                                "bend_id": bl.bend_id,
+                                "direction": bl.direction,
+                                "angle_deg": bl.angle_deg,
+                                "radius_mm": bl.radius_mm,
+                                "k_factor": bl.k_factor,
+                                "start_point": bl.start_point,
+                                "end_point": bl.end_point,
+                            }
+                            if bl.bend_line_flat is not None:
+                                bl_dict["bend_line_flat"] = bl.bend_line_flat
+                            flat_bend_lines_data.append(bl_dict)
+
+                        flat_pattern_artifact = {
+                            "file_path": str(flat_brep_path.relative_to(run_dir.parent.parent)),
+                            "format": "BREP",
+                            "content_hash": flat_hash,
+                            "bend_lines": flat_bend_lines_data
                         }
-                        if bl.bend_line_flat is not None:
-                            bl_dict["bend_line_flat"] = bl.bend_line_flat
-                        flat_bend_lines_data.append(bl_dict)
-
-                    flat_pattern_artifact = {
-                        "file_path": str(flat_brep_path.relative_to(run_dir.parent.parent)),
-                        "format": "BREP",
-                        "content_hash": flat_hash,
-                        "bend_lines": flat_bend_lines_data
-                    }
-                    thickness_val = unfold_res.thickness_mm
-                    thickness_source = ParameterSource.SHEETMETAL_NATIVE
-                    thickness_confidence = unfold_res.thickness_confidence
-                    k_factor_val = unfold_res.k_factor
-                    bends_count = len(unfold_res.bend_lines)
-                else:
+                        thickness_val = unfold_res.thickness_mm
+                        thickness_source = ParameterSource.SHEETMETAL_NATIVE
+                        thickness_confidence = unfold_res.thickness_confidence
+                        k_factor_val = unfold_res.k_factor
+                        bends_count = len(unfold_res.bend_lines)
+                    else:
+                        worker_status = RunStatus.WORKER_ERROR
+                        diagnostics.extend([
+                            {"code": d.code, "message": d.message, "level": d.level, "stage": d.stage or "unfold"}
+                            for d in unfold_res.diagnostics
+                        ])
+                except Exception as e:
                     worker_status = RunStatus.WORKER_ERROR
-                    diagnostics.extend([
-                        {"code": d.code, "message": d.message, "level": d.level, "stage": d.stage or "unfold"}
-                        for d in unfold_res.diagnostics
-                    ])
+                    diagnostics.append({
+                        "code": f"UNFOLD_EXCEPTION_{type(e).__name__}",
+                        "message": f"Native sheet metal pipeline raised: {type(e).__name__}: {e}",
+                        "level": "ERROR",
+                        "stage": "sheetmetal_unfold"
+                    })
+                finally:
+                    if tmp_step is not None and tmp_step.exists():
+                        try:
+                            tmp_step.unlink()
+                        except OSError:
+                            # Best-effort cleanup: file-system level failure on temp file
+                            # does not affect pipeline status (already captured).
+                            pass
 
         # 5. Assemble and write 02_geometry_result.json
         result_payload = {
