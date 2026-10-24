@@ -57,12 +57,12 @@
 | P0-GEOM-H4c | Far-end leaf reference fold Z-inversion fix | `bdca336` | 10/10 fixtures h=0.0000mm bit-identical (576 tests) | 2026-10-24 |
 | P0-CODE-3c/GEOM | Enable hausdorff surface-distance gate in is_pass | `fda5abf` | `test_hausdorff_gate_enforcement` in `tests/test_baseline_topology_canonical.py` (577 tests) | 2026-10-24 |
 | S.50-docs | Canonical docs clearance, P0-GEOM, Errata | `ce68906` | `docs/AUDIT_FULL_2026-10-23.md`, `docs/WORKING_CHECKLIST.md` (577 tests) | 2026-10-24 |
+| P0-CODE-4-adjacent | Exception handling in native unfold (`geometry/worker.py`) | `917eb71` | `tests/test_geometry_worker_unfold_failure.py` (578 tests) | 2026-10-24 |
 
 ## Upcoming Tasks (Post-P0 Remediation)
 
 | ID | Task | Priority | Note / Location |
 |---|---|---|---|
-| P0-CODE-4-adjacent | Exception handling in `geometry/worker.py:189–201` | P1 | STEPControl write / Part.read / adapter.unfold not wrapped in try/except; if raised, `02_geometry_result.json` is missing (S.43 commit note) |
 | P1-hygiene-aligned-flat | Clean up dead aligned_flat references and stale comments | P1 | `smbs_core/workers/baseline/worker.py:589, 592–599` |
 | P1-hygiene-verifier-dup | Deduplicate `_find_largest_planar_face` | P1 | `smbs_core/workers/verifier/worker.py:85` vs `smbs_core/workers/baseline/worker.py:153` |
 | P1-hygiene-baseline-metrics | Contract audit for `res["baseline_metrics"]` | P1 | Flag 66: top-level pipeline return on baseline INVALID |
