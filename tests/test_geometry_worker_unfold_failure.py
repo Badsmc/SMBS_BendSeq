@@ -2,6 +2,7 @@ import unittest
 from unittest.mock import MagicMock, patch
 from pathlib import Path
 import sys
+from typing import Optional
 
 from OCC.Core.BRepPrimAPI import BRepPrimAPI_MakeBox
 from OCC.Core.gp import gp_Pnt
@@ -44,13 +45,19 @@ class TestGeometryWorkerUnfoldFailure(unittest.TestCase):
             worker.sheetmetal_adapter.unfold.return_value = unfold_result
         return worker
 
-    def _run(self, worker):
+    def _run(self, worker, assert_cleaned_file: Optional[str] = None):
         import tempfile
+        unlinked = []
+        def track_unlink(p_self):
+            unlinked.append(Path(p_self).name)
+
         with tempfile.TemporaryDirectory() as tmp_dir:
             manifest_file = Path(tmp_dir) / "manifest.json"
-            with patch.object(Path, "exists", return_value=True), patch.object(Path, "unlink", return_value=None):
+            with patch.object(Path, "exists", return_value=True), patch.object(Path, "unlink", autospec=True, side_effect=track_unlink):
                 worker.execute(str(manifest_file))
             saved = worker.file_store.write_json_atomic.call_args
+            if assert_cleaned_file is not None:
+                self.assertIn(assert_cleaned_file, unlinked, f"Expected {assert_cleaned_file} to be unlinked during execution")
             return saved[0][1]
 
     def test_01_backend_unavailable_marks_backend_unavailable(self):
@@ -99,7 +106,7 @@ class TestGeometryWorkerUnfoldFailure(unittest.TestCase):
                 mock_writer = mock_writer_cls.return_value
                 mock_writer.Transfer = MagicMock()
                 mock_writer.Write = MagicMock()
-                payload = self._run(worker)
+                payload = self._run(worker, assert_cleaned_file="temp_for_sm.step")
 
         self.assertEqual(payload["status"], "WORKER_ERROR")
         self.assertEqual(payload["payload"]["geometry_status"], "WORKER_ERROR")
