@@ -87,6 +87,25 @@ class TestGeometryWorkerUnfoldFailure(unittest.TestCase):
         self.assertEqual(payload["status"], "SUCCESS")
         self.assertEqual(payload["payload"]["geometry_status"], "SUCCESS")
 
+    def test_04_unfold_exception_marks_worker_error(self):
+        fake_part = MagicMock()
+        fake_part.read.return_value = BRepPrimAPI_MakeBox(gp_Pnt(0, 0, 0), gp_Pnt(20, 20, 20)).Shape()
+
+        worker = self._make_worker("NATIVE_SHEETMETAL", is_available=True)
+        worker.sheetmetal_adapter.unfold.side_effect = RuntimeError("Simulated CAD kernel crash during unfold")
+
+        with patch.dict(sys.modules, {"Part": fake_part}):
+            with patch("smbs_core.workers.geometry.worker.STEPControl_Writer") as mock_writer_cls:
+                mock_writer = mock_writer_cls.return_value
+                mock_writer.Transfer = MagicMock()
+                mock_writer.Write = MagicMock()
+                payload = self._run(worker)
+
+        self.assertEqual(payload["status"], "WORKER_ERROR")
+        self.assertEqual(payload["payload"]["geometry_status"], "WORKER_ERROR")
+        diag_codes = [d["code"] for d in payload["diagnostics"]]
+        self.assertIn("UNFOLD_EXCEPTION_RuntimeError", diag_codes)
+
 
 if __name__ == "__main__":
     unittest.main()
