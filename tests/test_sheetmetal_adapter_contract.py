@@ -52,7 +52,7 @@ class TestSheetMetalAdapterContract(unittest.TestCase):
         self.assertEqual(res.status, RunStatus.SUCCESS)
         self.assertIsNotNone(res.unfolded_shape)
         self.assertAlmostEqual(res.thickness_mm, 1.5, places=2)
-        self.assertEqual(res.thickness_confidence, ConfidenceLevel.CONFIRMED)
+        self.assertEqual(res.thickness_confidence, ConfidenceLevel.ESTIMATED)
         self.assertEqual(res.k_factor, 0.44)
         self.assertEqual(res.k_factor_confidence, ConfidenceLevel.CONFIRMED)
 
