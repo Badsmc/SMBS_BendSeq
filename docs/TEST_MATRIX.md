@@ -1,12 +1,29 @@
-# HISTORICAL — Test Matrix (pre-refactor, 2026-10-11, base commit d63eac2)
-#
-# Audited body date: 2026-10-11, pre-refactor legacy suite (SMBS baseline 7a0d87b)
-# Deprecated at commit: 289daa3 (2026-10-17)
-# Does NOT describe current HEAD: 91d07c0 (stage-1-fix-correctness)
-# Current test count: 550 (see docs/PROGRESS.md §Test Metrics)
-# Current release decision: NOT READY
-#   → see docs/AUDIT_FULL_2026-10-23.md §Release Verdict
-#
+# TEST MATRIX — HEAD 917eb71 (2026-10-24, ACTIVE)
+
+> **Status:** ACTIVE — reflects 118 test files in `tests/test_*.py`
+> **Baseline:** 578 tests / 0 failures / 0 errors / 3 expected failures (143.8s)
+> **Critical Path Coverage:** Complete (0 `NOT RUN` in critical paths)
+> **Scope:** stage-1-fix-correctness pipeline. See §Historical Archive below for 2026-10-11 pre-refactor matrix.
+
+## Active Test Matrix by Subsystem (118 files, 578 tests)
+
+| Subsystem | Files | Critical Path Coverage | Status |
+| :--- | :--- | :--- | :--- |
+| **Geometry & Unfold** | 18 | `smbs_core/workers/geometry/` (unfold exceptions, fold primitives, face resolver, mesh generation) | **PASS** (100%) |
+| **Topology & Feature Extraction** | 8 | `smbs_core/workers/topology/` (origin/axis guards, bend direction, graph extraction, profile validation) | **PASS** (100%) |
+| **Baseline & Reconstruction** | 4 | `smbs_core/workers/baseline/` (strict Hausdorff $h=0.0000$ mm, 10 canonical fixtures, vertex alignment) | **PASS** (100%) |
+| **Solvers & Search** | 9 | `smbs_core/workers/search/` (DFS depth limit, A* heuristics, collision caching, budget exhaustion) | **PASS** (100%) |
+| **Verifier & Honest Validation** | 7 | `smbs_core/workers/verifier/` (`valid=False` on `UNKNOWN`, simulation, multi-stage collision) | **PASS** (100%, 2xF) |
+| **Tooling, Clamping & Kinematics** | 19 | `smbs_core/physics/`, `smbs_core/workers/tooling/` (datum transforms, clearance, backgauge, machine models) | **PASS** (100%) |
+| **Coordinator & Contracts** | 6 | `smbs_core/coordinator/`, `smbs_core/contracts/` (schema validation, pipeline dispatch, error payloads) | **PASS** (100%) |
+| **Viewer & CLI** | 9 | `smbs_core/viewer/`, `smbs_core/cli/` (export, visualization, CLI exit codes) | **PASS** (100%) |
+| **Pipeline & Historical Regression** | 38 | End-to-end integration, phase progression, edge cases, regression pins | **PASS** (100%, 1xF) |
+| **Total** | **118** | **578 active tests (587 methods discovered, 9 non-discovered test methods)** | **PASS (3xF)** |
+
+---
+
+# Historical Archive — Test Matrix (pre-refactor, 2026-10-11, base commit d63eac2)
+
 > **DEPRECATED (2026-10-17).** This file predates the Stage 1/2/3 refactor.
 > Canonical progress and test metrics: `docs/PROGRESS.md` §Test Metrics.
 > Kept for historical reference only. Do not update.

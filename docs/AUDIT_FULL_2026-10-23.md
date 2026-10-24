@@ -133,17 +133,17 @@ Claims below were made in the external 2026-10-23 audit. Each was disproven by r
 
 ## Release Verdict
 
-**Current verdict: RELEASE BLOCKERS CLEARED (Ready for final release report).**
+**Current verdict: READY FOR RELEASE (HEAD 917eb71).** All six conditions MET.
 
 A release is READY only if **all** below hold:
-1. Every P0-CODE-n has `VERIFIED` evidence (test + commit SHA + `cat -n` proof). — **MET** (S.40–S.49-gate: P0-CODE-1..5 and P0-GEOM closed with verified negative tests).
+1. Every P0-CODE-n has `VERIFIED` evidence (test + commit SHA + `cat -n` proof). — **MET** (S.40–S.49-gate: P0-CODE-1..5 and P0-GEOM closed with verified negative tests; S.51 exception safety).
 2. Every P0-DOC-n is closed (this pass closes them). — **MET** (S.39/S.50: P0-DOC-1..4 resolved and annotated).
-3. `docs/REGRESSION_REPORT.md` exists for the current HEAD with reproducible command. — *Pending post-S.50 refresh.*
-4. `docs/TEST_MATRIX.md` reflects current test files; no `NOT RUN` in critical paths. — *Pending post-S.50 refresh.*
-5. `docs/RELEASE_AUDIT.md` (or successor) explicitly states READY with audited SHA. — *Pending post-S.50 sign-off.*
+3. `docs/REGRESSION_REPORT.md` exists for the current HEAD with reproducible command. — **MET** (S.53, HEAD `917eb71`, 578 tests / 0F / 0E / 3xF).
+4. `docs/TEST_MATRIX.md` reflects current test files; no `NOT RUN` in critical paths. — **MET** (S.53, 118 test files across 9 subsystems).
+5. `docs/RELEASE_AUDIT.md` (or successor) explicitly states READY with audited SHA. — **MET** (S.53, HEAD `917eb71`).
 6. No `HISTORICAL` report is used in the active evidence chain. — **MET** (active verification relies on living tests only).
 
-As of 2026-10-24 (HEAD `fda5abf`, baseline 577 tests / 0F / 0E / 3xF), **core engineering blockers (Conditions 1 & 2) are fully MET**. Operational release reports (Conditions 3–5) can proceed against verified code.
+As of 2026-10-24 (HEAD `917eb71`, baseline 578 tests / 0F / 0E / 3xF), **all six release conditions are fully MET**. Qualified for release under stage-1-fix-correctness pipeline scope.
 
 ---
 
