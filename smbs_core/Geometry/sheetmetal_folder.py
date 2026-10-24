@@ -82,7 +82,7 @@ class SheetMetalFolder:
         cls,
         flat_pattern: TopoDS_Shape | Part.Shape | str | Path,
         canonical_part: Dict[str, Any],
-        angle_override_deg: Optional[float] = None
+        angle_override_deg: Optional[float] = None   # DEBUG_OVERRIDE (synthetic-fixture test bypass)
     ) -> TopoDS_Shape:
         """
         Executes honest physical sheet metal fold for a single bend directly from flat pattern B-Rep:
@@ -281,7 +281,7 @@ class SheetMetalFolder:
         cls,
         flat_pattern: TopoDS_Shape | Part.Shape | str | Path,
         canonical_part: Dict[str, Any],
-        angle_override_deg: Optional[float] = None
+        angle_override_deg: Optional[float] = None   # DEBUG_OVERRIDE (synthetic-fixture test bypass)
     ) -> TopoDS_Shape:
         """
         Executes honest physical sheet metal fold for multi-bend parts (1D linear chains) directly from flat pattern B-Rep:
