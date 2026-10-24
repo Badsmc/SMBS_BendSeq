@@ -12,11 +12,7 @@
 
 ## Next — P1 (hygiene, not a release blocker)
 
-| ID | Task | Acceptance | Ref |
-|---|---|---|---|
-| P1-CODE-1-remove | `sheetmetal_folder.py:1310–1388`: remove dead fallback (`40, 30, 50, 30, 40` + `NotImplementedError`) or annotate `LEGACY_FALLBACK_UNUSED`. | No production caller reaches this branch. | P1-CODE-1 |
-| P1-CODE-2-surface | `sheetmetal_folder.py:1214, 1236, 1286, 1313–1315, 1337–1339, 1371–1373`: replace silent `or 1.5/50.0/90.0/1.0/0.44` with explicit raise or `UNKNOWN`. | Missing param → explicit fail or `UNKNOWN`. | P1-CODE-2 |
-| P1-CODE-3-fixture | `sheetmetal_folder.py:1323, 1356` + `pythonocc_backend.py:286, 318–319, 323`: remove or annotate `95.5/47.5/50.0` (fixture_l overfit). | Comment `# FIXTURE_DEFAULT` or removal. | P1-CODE-3 |
+*(None — all P1-CODE items CLOSED in S.55; see §Done)*
 
 ## In Progress
 
@@ -58,6 +54,9 @@
 | P0-CODE-3c/GEOM | Enable hausdorff surface-distance gate in is_pass | `fda5abf` | `test_hausdorff_gate_enforcement` in `tests/test_baseline_topology_canonical.py` (577 tests) | 2026-10-24 |
 | S.50-docs | Canonical docs clearance, P0-GEOM, Errata | `ce68906` | `docs/AUDIT_FULL_2026-10-23.md`, `docs/WORKING_CHECKLIST.md` (577 tests) | 2026-10-24 |
 | P0-CODE-4-adjacent | Exception handling in native unfold (`geometry/worker.py`) | `917eb71` | `tests/test_geometry_worker_unfold_failure.py` (578 tests) | 2026-10-24 |
+| P1-CODE-1 | Replace dead fallback in `fold_from_canonical_part` with explicit precondition check | `4761aef` | `smbs_core/Geometry/sheetmetal_folder.py` (578 tests) | 2026-10-24 |
+| P1-CODE-2 | Eliminate silent fallback defaults across `fold_from_canonical_part`, `fold_from_flat_pattern`, `fold_multi_bend_from_flat_pattern`, `fold_tree_from_flat_pattern` | `4a2b0e3`, `a28c71e`, `bc5b92e` | `smbs_core/Geometry/sheetmetal_folder.py` (578 tests) | 2026-10-25 |
+| P1-CODE-3 | Annotate fixture defaults in `fold_one_bend`/`fold_u_bracket`; reject silent fabrication in `measure_planar_flange_lengths` | `16a6685`, `1f3178d` | `smbs_core/Geometry/sheetmetal_folder.py`, `smbs_core/geometry_backend/backends/pythonocc_backend.py` (578 tests) | 2026-10-25 |
 
 ## Upcoming Tasks (Post-P0 Remediation)
 
