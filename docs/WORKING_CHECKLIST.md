@@ -20,9 +20,7 @@
 
 ## In Progress
 
-| ID | Task | Status | Note |
-|---|---|---|---|
-| P0-DOC-pass | Post-audit documentation standardization | IN PROGRESS | Steps 1–8 applied (uncommitted); Step 9 (this file), Step 10 (`AUDIT_FULL`), commit pending |
+*(None — all in-progress remediation tasks committed)*
 
 ## Blocked
 
@@ -44,6 +42,30 @@
 
 ## Done
 
-| ID | Task | Evidence | Date |
+| ID | Task | Commit | Evidence | Date |
+|---|---|---|---|---|
+| P0-DOC-pass | Post-audit documentation standardization | `af87274` | S.39 docs pass (all P0-DOC closed) | 2026-10-23 |
+| P0-CODE-1-fix | Strict origin/axis guards; direction formula unchanged (triple product confirmed) | `9dd2249` | `tests/test_topology_worker_direction.py` (554 tests) | 2026-10-24 |
+| P0-CODE-2-fix | Strict radius/length guards, no silent defaults | `2fcd8ab` | `tests/test_topology_worker_radius_length.py` (558 tests) | 2026-10-24 |
+| P0-CODE-3a,b-fix | Real Hausdorff metric + area_delta gate | `e95aac3` | `tests/test_baseline_worker_hausdorff.py` (561 tests) | 2026-10-24 |
+| P0-CODE-4-fix | Wire status_worker to result_payload status | `bb75ef1` | `tests/test_geometry_worker_unfold_failure.py` (564 tests) | 2026-10-24 |
+| P0-CODE-5-fix | Strict confidence provenance in SheetMetalAdapter | `bc495aa` | `tests/test_sheetmetal_adapter_confidence.py` (571 tests) | 2026-10-24 |
+| P0-GEOM-H1/H5 | Orientation-aware outward normal in FrameAligner | `57663e9` | `tests/test_frame_aligner_orientation.py` (573 tests) | 2026-10-24 |
+| P0-GEOM-H4b | Direct flat pattern fold input | `0a34af8` | `tests/test_baseline_fold_flat_input.py` (575 tests) | 2026-10-24 |
+| P0-GEOM-H4a | Dynamic origin alignment in baseline | `74935bb` | 9/10 fixtures h=0.0000mm (575 tests) | 2026-10-24 |
+| P1-perf | Deduplicate BRep vertices in Hausdorff computation | `7611c5f` | `test_04` in `tests/test_baseline_worker_hausdorff.py` (576 tests; 259.4s -> 137.2s) | 2026-10-24 |
+| P0-GEOM-H4c | Far-end leaf reference fold Z-inversion fix | `bdca336` | 10/10 fixtures h=0.0000mm bit-identical (576 tests) | 2026-10-24 |
+| P0-CODE-3c/GEOM | Enable hausdorff surface-distance gate in is_pass | `fda5abf` | `test_hausdorff_gate_enforcement` in `tests/test_baseline_topology_canonical.py` (577 tests) | 2026-10-24 |
+| S.50-docs | Canonical docs clearance, P0-GEOM, Errata | `ce68906` | `docs/AUDIT_FULL_2026-10-23.md`, `docs/WORKING_CHECKLIST.md` (577 tests) | 2026-10-24 |
+
+## Upcoming Tasks (Post-P0 Remediation)
+
+| ID | Task | Priority | Note / Location |
 |---|---|---|---|
-| *(empty — populated after P0-DOC-pass commit)* | | | |
+| P0-CODE-4-adjacent | Exception handling in `geometry/worker.py:189–201` | P1 | STEPControl write / Part.read / adapter.unfold not wrapped in try/except; if raised, `02_geometry_result.json` is missing (S.43 commit note) |
+| P1-hygiene-aligned-flat | Clean up dead aligned_flat references and stale comments | P1 | `smbs_core/workers/baseline/worker.py:589, 592–599` |
+| P1-hygiene-verifier-dup | Deduplicate `_find_largest_planar_face` | P1 | `smbs_core/workers/verifier/worker.py:85` vs `smbs_core/workers/baseline/worker.py:153` |
+| P1-hygiene-baseline-metrics | Contract audit for `res["baseline_metrics"]` | P1 | Flag 66: top-level pipeline return on baseline INVALID |
+| P1-hygiene-test-05-workaround | Clean up direct json read in `test_05` | P1 | Flag 67: `tests/test_baseline_topology_canonical.py:188` |
+| P1-hygiene-angle-override | Add comment annotation to `angle_override` | P1 | `tests/test_baseline_topology_canonical.py:65` |
+| P1-hygiene-proposal-2 | Re-evaluate search test caching / runner opt | P1 | Investigated during S.46 audit |

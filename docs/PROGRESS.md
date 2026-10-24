@@ -3,9 +3,9 @@
 > **Project status:** advanced prototype with several completed functional subsystems, **NOT a complete automatic planning system**.
 > **Open blockers:** KL-12 v3 (planar self-collision + bridge caps + panel shell disconnection observed in F.3a smoke) — v2 (side edges) CLOSED in S.31; Req 2 Phase F.1 CLOSED in S.33; Req 2 Phase F.2 CLOSED in S.35; Req 2 Phase F.3a (tooling visualization, punch/die) CLOSED in S.37. Manual GUI smoke for F.2/F.3a: PERFORMED (S.37 smoke 7 — PASS on tooling overlay; shell disconnection is pre-existing KL-12 v3, visible at PREVIEW_ONLY). See Known Limitations.
 > **Requirement 4.1 (clamp constraints) — validator (S.24a–S.24c) + enforcement per-bend in `12_tooling_selection.json` (Req 4 Phase E, S.30c).**
-> **Open P0 defects (annotated 2026-10-23, HEAD `91d07c0`, baseline 550 / 0F / 0E / 3xF):** 5 code + 4 doc — see `docs/AUDIT_FULL_2026-10-23.md`. Current release verdict: **NOT READY**.
+> **P0 defects (annotated 2026-10-23, resolved S.40–S.50, HEAD `ce68906`, baseline 577 / 0F / 0E / 3xF):** 5 code + 4 doc + P0-GEOM CLOSED — see `docs/AUDIT_FULL_2026-10-23.md`. Release blockers: **CLEARED**.
 
-**Status (HEAD `91d07c0`):** Stage 8 + KL-22 + Req 6a Phase 6a + Req 4 Phase E + KL-12 v2 + Req 2 Phase F.1 + F.2 + F.3a COMPLETE. **550 tests / 0 failures / 0 errors / 3 expectedFailures.**
+**Status (HEAD `ce68906`):** Stage 8 + KL-22 + Req 6a Phase 6a + Req 4 Phase E + KL-12 v2 + Req 2 Phase F.1 + F.2 + F.3a + P0 Remediation (S.40–S.50) COMPLETE. **577 tests / 0 failures / 0 errors / 3 expectedFailures.**
 KL-8 closed. All physically-verifiable pipeline stages (APPROACH, SELF, TOOL,
 TRAJECTORY, RETRACT) return VALID on compatible parts with real tooling;
 MACHINE honest UNKNOWN (KL-16: no machine_frame.FCStd). KL-22 closed.
@@ -67,26 +67,27 @@ connection — fixes visual "separated panels" seen in F.3a smoke). Box-like
 parts with bridge caps still require KL-12 v3 for full
 `production_eligible=True`.
 
-## Open P0 Defects (2026-10-23 audit)
+## Closed P0 Defects (2026-10-23 audit, closed S.40–S.50)
 
-Snapshot: HEAD `91d07c0`, baseline 550 / 0F / 0E / 3xF, annotated 2026-10-23.
+Snapshot: HEAD `ce68906`, baseline 577 / 0F / 0E / 3xF. All P0 release blockers CLOSED.
 Audit evidence, per-defect resolution criteria, and scope: `docs/AUDIT_FULL_2026-10-23.md`.
 
-The baseline is green, but the audit identified the following P0 defects that current tests do not catch (integrity invariants, not functional regressions). Status: **NOT READY** for release until all are closed with reproducible evidence + negative test case.
+All P0 code defects, B-Rep geometry discrepancies, and documentation defects have been closed with reproducible negative test pins and verified commits:
 
-| ID | File:lines | Defect |
-|---|---|---|
-| P0-CODE-1 | `topology/worker.py:540, 561–565` | `direction` derived from `signed_angle` sign only; marked `confidence=CONFIRMED`. No axis/normal context. |
-| P0-CODE-2 | `topology/worker.py:552, 557, 571, 572` | Silent defaults `radius=1.0`, `length=50.0`, `axis_point=[0,0,0]`, `axis_direction=[1,0,0]` — all marked `CONFIRMED`. |
-| P0-CODE-3 | `baseline/worker.py:702, 704–712, 760` | `hausdorff = max(bbox_delta)` — not Hausdorff. `area_delta` computed (line 700) but not in `is_pass`. |
-| P0-CODE-4 | `geometry/worker.py:179, 249, 273` | Dead `status_worker`; literal `RunStatus.SUCCESS.value` on unfold failure. `02_geometry_result.json` = `SUCCESS` even when unfold fails. |
-| P0-CODE-5 | `adapter.py:127–128, 214–215, 249, 164–165` | FreeCAD preference defaults (0.44 / 1.0) flow to `NormalizedBendLine(confidence=CONFIRMED)`. `EstimateThickness` → `thickness_confidence=CONFIRMED`. |
-| P0-DOC-1 | `docs/RELEASE_AUDIT.md` | Stage 3 "READY FOR RELEASE" without SHA/scope → annotated `HISTORICAL` 2026-10-23. |
-| P0-DOC-2 | `docs/REGRESSION_REPORT.md` | 32/32 PASS from commit `c76e95f` (main) → annotated `HISTORICAL` 2026-10-23. |
-| P0-DOC-3 | `docs/TEST_MATRIX.md` | ">70 (74 typically)" pre-refactor matrix → annotated `HISTORICAL` 2026-10-23. |
-| P0-DOC-4 | `docs/PROGRESS.md` (this file) | No open P0 registry; stale HEAD `87cdbad` → resolved in this commit (this section + line 7 fix). |
+| ID | File:lines | Defect | Resolution | Commit | Test Reference |
+|---|---|---|---|---|---|
+| P0-CODE-1 | `topology/worker.py:534–565` | `direction` derived from `signed_angle` sign only; marked `CONFIRMED`. | L540 formula refuted (signed_angle already encodes axis·(n1×n2) via FeatureExtractor triple product). Added strict origin/axis guards (IncompleteBendError on missing/None); direction formula unchanged. | `9dd2249` (S.40) | `tests/test_topology_worker_direction.py` |
+| P0-CODE-2 | `topology/worker.py:552, 557, 571, 572` | Silent defaults `radius=1.0`, `length=50.0`, etc. marked `CONFIRMED`. | Strict radius/length guards; raise IncompleteBendError; no silent defaults. | `2fcd8ab` (S.41) | `tests/test_topology_worker_radius_length.py` |
+| P0-CODE-3 | `baseline/worker.py:700, 702, 704–712, 760` | `hausdorff = max(bbox_delta)` — not Hausdorff. `area_delta` not in `is_pass`. | Real vertex Hausdorff via `BRepExtrema_DistShapeShape` + `area_delta` & `hausdorff` gates. | `e95aac3` (S.42), `fda5abf` (S.49-gate) | `tests/test_baseline_worker_hausdorff.py`, `tests/test_baseline_topology_canonical.py` |
+| P0-CODE-4 | `geometry/worker.py:179, 249, 273` | Dead `status_worker`; literal `RunStatus.SUCCESS.value` on unfold failure. | Wired `worker_status` to `result_payload["status"]`; unfold failure → `WORKER_ERROR`. | `bb75ef1` (S.43) | `tests/test_geometry_worker_unfold_failure.py` |
+| P0-CODE-5 | `adapter.py:127–128, 214–215, 249, 164–165` | FreeCAD preference defaults flow to `NormalizedBendLine(confidence=CONFIRMED)`. | Strict confidence provenance: defaults marked `source=DEFAULT_POLICY, confidence=ESTIMATED`. | `bc495aa` (S.44) | `tests/test_sheetmetal_adapter_confidence.py` |
+| P0-GEOM | `sheetmetal_folder.py` & baseline | B-Rep reconstruction discrepancies on 10 canonical fixtures. | H5 outward normal (`57663e9`), H4b direct flat input (`0a34af8`), H4a bbox align (`74935bb`), H4c far-end leaf fold Z-flip fix (`bdca336`), Hausdorff gate (`fda5abf`). All 10 fixtures: `h=0.0000mm`. | `bdca336`, `fda5abf` | `tests/test_baseline_topology_canonical.py` |
+| P0-DOC-1 | `docs/RELEASE_AUDIT.md` | Stage 3 "READY FOR RELEASE" without SHA/scope. | Annotated `HISTORICAL` 2026-10-23 (S.39). | `af87274` (S.39) | `docs/RELEASE_AUDIT.md` |
+| P0-DOC-2 | `docs/REGRESSION_REPORT.md` | 32/32 PASS from commit `c76e95f` (main). | Annotated `HISTORICAL` 2026-10-23 (S.39). | `af87274` (S.39) | `docs/REGRESSION_REPORT.md` |
+| P0-DOC-3 | `docs/TEST_MATRIX.md` | ">70 (74 typically)" pre-refactor matrix. | Annotated `HISTORICAL` 2026-10-23 (S.39). | `af87274` (S.39) | `docs/TEST_MATRIX.md` |
+| P0-DOC-4 | `docs/PROGRESS.md` (this file) | No open P0 registry; stale HEAD `87cdbad`. | §Open P0 Defects added S.39 (af87274); renamed §Closed P0 Defects S.50b; HEAD updated S.50 (ce68906). | `af87274`, `ce68906` | `docs/PROGRESS.md` |
 
-Do not close a P0 without reproducible evidence + negative test case. See `docs/WORKING_CHECKLIST.md` for active task tracking.
+The rule "Do not close a P0 without reproducible evidence + negative test case" was applied throughout (see table above). With all P0 items closed, this rule transitions to historical context in §Process & Session Log.
 
 ## Project Stages
 
@@ -647,6 +648,25 @@ episodes that shaped the working protocol:
   per-chunk `sha256` — only if plain text truncation is confirmed.
 - STOP on summary-instead-of-raw applies from the first violation, no
   post-factum acceptance.
+
+
+## Process & Session Log: S.40–S.50 (2026-10-24)
+
+### Milestone: P0 Integrity Remediation & B-Rep Geometry Restoration
+Chronological record of remediation sessions closing integrity invariants and B-Rep reconstruction discrepancies (verified against commit history and test counts):
+
+- **S.40 (`9dd2249`):** P0-CODE-1 closed. Formula check: signed_angle already encodes triple product; direction formula unchanged. Removed silent origin/axis fallbacks in `topology/worker.py`; raised `IncompleteBendError` on missing origin/axis. Added `tests/test_topology_worker_direction.py` (4 tests). Baseline: 550 → 554 / 0F / 0E / 3xF. Runtime: ~133s → ~125s.
+- **S.41 (`2fcd8ab`):** P0-CODE-2 closed. Removed silent radius/length defaults in `topology/worker.py`; raised `IncompleteBendError` on missing parameters. Added `tests/test_topology_worker_radius_length.py` (4 tests). Baseline: 554 → 558 / 0F / 0E / 3xF. Runtime: ~123s.
+- **S.42 (`e95aac3`):** P0-CODE-3 (partial) closed. Replaced `hausdorff = max(bbox_delta)` with real vertex Hausdorff computation via `BRepExtrema_DistShapeShape`; added `area_delta` to `is_pass` in `baseline/worker.py`. Added `tests/test_baseline_worker_hausdorff.py` (3 tests). Baseline: 558 → 561 / 0F / 0E / 3xF. Runtime: ~122s → ~215s.
+- **S.43 (`bb75ef1`):** P0-CODE-4 closed. Bound `worker_status` to `result_payload["status"]` on unfold failure in `geometry/worker.py`. Added `tests/test_geometry_worker_unfold_failure.py` (3 tests). Baseline: 561 → 564 / 0F / 0E / 3xF. Residual risk noted: exception path L189–201 (P0-CODE-4-adjacent).
+- **S.44 (`bc495aa`):** P0-CODE-5 closed. Strict confidence provenance in `SheetMetalAdapter`: FreeCAD defaults marked `source=DEFAULT_POLICY, confidence=ESTIMATED`. Added `tests/test_sheetmetal_adapter_confidence.py` (7 tests). Baseline: 564 → 571 / 0F / 0E / 3xF. Runtime: ~225s → ~237s.
+- **S.47 (`57663e9`):** P0-GEOM (H5) closed. Orientation-aware outward normal logic in `FrameAligner` (covered H1 symmetric-arm ambiguity, no separate H1 fix needed). Added `tests/test_frame_aligner_orientation.py` (2 tests). Baseline: 571 → 573 / 0F / 0E / 3xF. Runtime: ~225s → ~216s.
+- **S.48b (`0a34af8`):** P0-GEOM (H4a/b) closed. Direct flat pattern fold input bypassing synthetic hacks. Added `tests/test_baseline_fold_flat_input.py` (2 tests). Baseline: 573 → 575 / 0F / 0E / 3xF. Runtime: ~216s → ~249s.
+- **S.48d (`74935bb`):** P0-GEOM (H4c/origin) closed. Dynamic origin alignment in baseline. Inline assertion in `tests/test_baseline_topology_canonical.py`. Baseline: 575 tests (0 net). Runtime: ~248s → ~259s.
+- **S.49 (`7611c5f`):** P1-perf closed. Deduplicated BRep vertices in Hausdorff distance computation. Added test_04 in `tests/test_baseline_worker_hausdorff.py`. Baseline: 575 → 576 / 0F / 0E / 3xF. Runtime: 259.4s → 137.2s (−122.2s, −47%).
+- **S.48e (`bdca336`):** P0-GEOM (H4c corrected) closed. Leaf reference panel fold Z-inversion fixed in `sheetmetal_folder.py`. Disproved S.48c/d chamfer hypothesis; `u_bracket` Hausdorff distance dropped from 1.0355mm to 0.0000mm bit-identical (all 10 canonical fixtures at 0.0000mm). Tightened assertion in `tests/test_baseline_topology_canonical.py`. Baseline: 576 tests (0 net). Runtime: 137.2s → 171.4s.
+- **S.49-gate (`fda5abf`):** P0-GEOM (final) closed. Re-enabled Hausdorff surface-distance gate (`hausdorff <= tol["surface_distance_tol_mm"]`) in `baseline/worker.py:750`. Added regression pin `test_hausdorff_gate_enforcement` in `tests/test_baseline_topology_canonical.py`. Baseline: 576 → 577 tests (+1). Runtime: 171.2s → 175.8s.
+- **S.50 (`ce68906`):** Docs core closed. Canonical registry clearance in `docs/AUDIT_FULL_2026-10-23.md` (Release blockers: CLEARED, P0-GEOM closure, Errata) and `docs/WORKING_CHECKLIST.md` (Next-P0 cleared). Baseline: 577 tests (0 net). Runtime: 156.2s.
 
 
 ## Historical: Phases 0-11 (pre-refactor, completed before Stage track)
