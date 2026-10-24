@@ -95,20 +95,32 @@ class SheetMetalFolder:
         7. Unifies coplanar faces via ShapeUpgrade_UnifySameDomain.
         """
         payload = canonical_part.get("payload", canonical_part)
-        thickness = payload.get("thickness_mm", {}).get("value") or 1.5
+        thickness_val = payload.get("thickness_mm", {}).get("value")
+        if thickness_val is None:
+            raise ValueError("fold_from_flat_pattern requires payload.thickness_mm.value")
+        thickness = thickness_val
         bends = payload.get("bends", {})
         if len(bends) != 1:
             raise ValueError(f"fold_from_flat_pattern only supports single bend parts, got {len(bends)}")
 
         bend = next(iter(bends.values()))
-        bend_r = bend.get("radius_mm", {}).get("value") or 1.0
-        kfactor = bend.get("k_factor", {}).get("value") or 0.44
+        bend_r_val = bend.get("radius_mm", {}).get("value")
+        if bend_r_val is None:
+            raise ValueError("fold_from_flat_pattern requires bend.radius_mm.value")
+        bend_r = bend_r_val
+        kfactor_val = bend.get("k_factor", {}).get("value")
+        if kfactor_val is None:
+            raise ValueError("fold_from_flat_pattern requires bend.k_factor.value")
+        kfactor = kfactor_val
 
         if angle_override_deg is not None:
             raw_angle = angle_override_deg
             angle_deg = abs(angle_override_deg)
         else:
-            raw_angle = bend.get("angle_deg", {}).get("value") or 90.0
+            raw_angle_val = bend.get("angle_deg", {}).get("value")
+            if raw_angle_val is None:
+                raise ValueError("fold_from_flat_pattern requires bend.angle_deg.value (or angle_override_deg)")
+            raw_angle = raw_angle_val
             angle_deg = abs(raw_angle)
 
         line_info = bend["bend_line_flat_pattern"]
