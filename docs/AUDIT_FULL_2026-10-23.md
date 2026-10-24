@@ -1,8 +1,9 @@
 # Audit — SMBS/BendSeq (2026-10-23)
 
 > **Purpose:** Authoritative post-S.38 audit capturing verified defects, rejected external claims, and the current release verdict. All other docs reference this file for P0 registry and release readiness.
-> **Scope:** `Badsmc/SMBS_BendSeq` only. Branch `stage-1-fix-correctness`, HEAD `91d07c0`. `SMBS_FreeCad` explicitly excluded (not inspected, referenced, or copied).
-> **Verdict:** **NOT READY** for release.
+> **Scope:** `Badsmc/SMBS_BendSeq` only. Branch `stage-1-fix-correctness`, HEAD `91d07c0` (audited baseline: 550 tests / 0F / 0E / 3xF). `SMBS_FreeCad` explicitly excluded (not inspected, referenced, or copied).
+> **Verdict (historical 2026-10-23):** **NOT READY** for release.
+> **Updated (S.50 / 2026-10-24):** HEAD `fda5abf`, baseline 577 tests (0F / 0E / 3xF). Release blockers: **CLEARED** (all P0-CODE-1..5 and P0-GEOM closed with negative regression pins).
 
 ---
 
@@ -54,6 +55,29 @@ All P0 defects are **integrity defects**, not functional regressions. Baseline r
 - **Impact:** FreeCAD defaults indistinguishable from real parameters downstream.
 - **Acceptance:** `source=DEFAULT_POLICY, confidence=ESTIMATED` for defaults.
 - **Ref:** `docs/WORKING_CHECKLIST.md` §Next P0 (P0-CODE-5-fix).
+
+---
+
+## P0-GEOM Defects — B-Rep Restoration Discrepancies (CLOSED)
+
+During the S.45–S.46 audit of baseline B-Rep reconstruction, canonical sheetmetal fixtures exhibited non-zero Hausdorff surface distances (up to 112mm) due to coordinate frame misalignment and folding kinematics discrepancies. All issues were investigated and resolved across sessions S.47–S.49-gate:
+
+- **H1/H5 (Outward Normal):** FrameAligner failed on ambiguous face normal senses. Fixed in S.47 (`57663e9`) with orientation-aware outward normal logic.
+- **H4b (Flat Pattern Input):** Direct flat pattern fold input bypassing synthetic hacks. Closed in S.48b (`0a34af8`).
+- **H4a (Dynamic Origin Alignment):** Resolved translation offsets across 9/10 fixtures. Closed in S.48d (`74935bb`).
+- **H4c (Leaf Reference Panel Kinematics):** Inverted fold on far-end leaf (`u_bracket`). Closed in S.48e (`bdca336`).
+- **Gate Enforcement:** Hausdorff surface-distance tolerance (`<= 0.2mm`) re-enabled in baseline `is_pass`. Closed in S.49-gate (`fda5abf`).
+- **Evidence:** All 10/10 canonical fixtures pass with `hausdorff = 0.0000mm` bit-identical (`tests/test_baseline_topology_canonical.py`).
+
+### Errata (S.48c/d chamfer → Z-flip)
+
+In session S.48c and S.48d commit messages, a remaining 1.0355mm discrepancy in `u_bracket` was hypothesized to be caused by CAD chamfer generation differences during folding.
+
+In session S.48e root-cause investigation (E1/E2 probes), this hypothesis was **disproven**:
+1. The 1.0355mm discrepancy was a measurement artifact of an inverted bracket (`rotate(Z, 180°)` + fold + `rotate(Z, -180°)` preserved +Z, resulting in inverted ∩ orientation vs reference ∪ orientation).
+2. Fixing the reference panel selection to an unbranched far-end leaf (`ref_idx = 0`, Panel 0) eliminated the Z-inversion entirely.
+3. Hausdorff distance dropped from 1.0355mm to **0.0000mm bit-identical** without touching CAD chamfer logic.
+4. Commit `bdca336` (S.48e) and this section explicitly record this correction.
 
 ---
 
@@ -109,17 +133,17 @@ Claims below were made in the external 2026-10-23 audit. Each was disproven by r
 
 ## Release Verdict
 
-**Current verdict: NOT READY.**
+**Current verdict: RELEASE BLOCKERS CLEARED (Ready for final release report).**
 
 A release is READY only if **all** below hold:
-1. Every P0-CODE-n has `VERIFIED` evidence (test + commit SHA + `cat -n` proof).
-2. Every P0-DOC-n is closed (this pass closes them).
-3. `docs/REGRESSION_REPORT.md` exists for the current HEAD with reproducible command.
-4. `docs/TEST_MATRIX.md` reflects current test files; no `NOT RUN` in critical paths.
-5. `docs/RELEASE_AUDIT.md` (or successor) explicitly states READY with audited SHA.
-6. No `HISTORICAL` report is used in the active evidence chain.
+1. Every P0-CODE-n has `VERIFIED` evidence (test + commit SHA + `cat -n` proof). — **MET** (S.40–S.49-gate: P0-CODE-1..5 and P0-GEOM closed with verified negative tests).
+2. Every P0-DOC-n is closed (this pass closes them). — **MET** (S.39/S.50: P0-DOC-1..4 resolved and annotated).
+3. `docs/REGRESSION_REPORT.md` exists for the current HEAD with reproducible command. — *Pending post-S.50 refresh.*
+4. `docs/TEST_MATRIX.md` reflects current test files; no `NOT RUN` in critical paths. — *Pending post-S.50 refresh.*
+5. `docs/RELEASE_AUDIT.md` (or successor) explicitly states READY with audited SHA. — *Pending post-S.50 sign-off.*
+6. No `HISTORICAL` report is used in the active evidence chain. — **MET** (active verification relies on living tests only).
 
-As of 2026-10-23, **condition 1 is unmet** (5 P0-CODE open). Other conditions may become satisfiable independently.
+As of 2026-10-24 (HEAD `fda5abf`, baseline 577 tests / 0F / 0E / 3xF), **core engineering blockers (Conditions 1 & 2) are fully MET**. Operational release reports (Conditions 3–5) can proceed against verified code.
 
 ---
 
