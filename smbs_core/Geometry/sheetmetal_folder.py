@@ -1212,7 +1212,6 @@ class SheetMetalFolder:
         Extracts bend and panel parameters and synthesizes the exact folded shape.
         """
         payload = canonical_part.get("payload", canonical_part)
-        thickness = payload.get("thickness_mm", {}).get("value") or 1.5
         bends = payload.get("bends", {})
         panels = payload.get("panels", {})
 
@@ -1234,17 +1233,18 @@ class SheetMetalFolder:
                     ref_pid = payload.get("reference_panel_id")
                     if ref_pid and ref_pid in panels:
                         ref_area = panels[ref_pid].get("area_mm2", 0.0)
-                        w = b0.get("length_mm", {}).get("value") or 50.0
-                        ref_len = ref_area / (2.0 * w) if w > 0 else 0.0
-                        is_square_ref = abs(w - ref_len) < 1e-2
-                        if is_square_ref:
-                            fc_s = cls._to_fc_shape(aligned_flat)
-                            if bend_parallel_to_y and fc_s.BoundBox.YLength > fc_s.BoundBox.XLength:
-                                bb = fc_s.BoundBox
-                                cx = (bb.XMin + bb.XMax) / 2.0
-                                cy = (bb.YMin + bb.YMax) / 2.0
-                                fc_s.rotate(FreeCAD.Vector(cx, cy, bb.ZMin), FreeCAD.Vector(0, 0, 1), 90.0)
-                                flat_candidate = cls._to_occ_shape(fc_s)
+                        w_raw = b0.get("length_mm", {}).get("value")
+                        if w_raw is not None and w_raw > 0:
+                            ref_len = ref_area / (2.0 * w_raw)
+                            is_square_ref = abs(w_raw - ref_len) < 1e-2
+                            if is_square_ref:
+                                fc_s = cls._to_fc_shape(aligned_flat)
+                                if bend_parallel_to_y and fc_s.BoundBox.YLength > fc_s.BoundBox.XLength:
+                                    bb = fc_s.BoundBox
+                                    cx = (bb.XMin + bb.XMax) / 2.0
+                                    cy = (bb.YMin + bb.YMax) / 2.0
+                                    fc_s.rotate(FreeCAD.Vector(cx, cy, bb.ZMin), FreeCAD.Vector(0, 0, 1), 90.0)
+                                    flat_candidate = cls._to_occ_shape(fc_s)
                 # Dispatcher by topology (Stage 1 Task 1.0.1b-3b / B.4)
                 # 1. Check max panel degree to detect branching
                 max_panel_degree = max([len(p.get("adjacent_bend_ids", [])) for p in panels.values()]) if panels else 0
@@ -1284,8 +1284,8 @@ class SheetMetalFolder:
                 # Check bend angles for 3a star box (must all be orthogonal 90.0 deg)
                 all_angles_90 = True
                 for b in bends.values():
-                    ang = abs(b.get("angle_deg", {}).get("value") or 90.0)
-                    if abs(ang - 90.0) > 1e-3:
+                    ang_raw = b.get("angle_deg", {}).get("value")
+                    if ang_raw is None or abs(abs(ang_raw) - 90.0) > 1e-3:
                         all_angles_90 = False
                         break
 
