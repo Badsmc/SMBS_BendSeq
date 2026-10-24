@@ -174,9 +174,11 @@ class GeometryWorker:
         k_factor_val = None
         bends_count = 0
 
+        worker_status = RunStatus.SUCCESS
+
         if input_mode == "NATIVE_SHEETMETAL":
             if not self.sheetmetal_adapter.is_available:
-                status_worker = RunStatus.BACKEND_UNAVAILABLE
+                worker_status = RunStatus.BACKEND_UNAVAILABLE
                 diagnostics.append({
                     "code": "BACKEND_UNAVAILABLE",
                     "message": "Native sheet metal requested but FreeCAD SheetMetal is unavailable.",
@@ -231,6 +233,7 @@ class GeometryWorker:
                     k_factor_val = unfold_res.k_factor
                     bends_count = len(unfold_res.bend_lines)
                 else:
+                    worker_status = RunStatus.WORKER_ERROR
                     diagnostics.extend([
                         {"code": d.code, "message": d.message, "level": d.level, "stage": d.stage or "unfold"}
                         for d in unfold_res.diagnostics
@@ -246,7 +249,7 @@ class GeometryWorker:
             "producer": {"name": "geometry_worker", "version": "1.1"},
             "units": "mm",
             "frame_convention": "STANDARD_CARTESIAN_MM",
-            "status": RunStatus.SUCCESS.value,
+            "status": worker_status.value,
             "diagnostics": diagnostics,
             "created_at": datetime.now(timezone.utc).isoformat(),
             "payload": {
@@ -270,7 +273,7 @@ class GeometryWorker:
                 "detected_faces_count": faces_count,
                 "detected_bends_count": bends_count,
                 "root_face_id": "Face1",
-                "geometry_status": RunStatus.SUCCESS.value
+                "geometry_status": worker_status.value
             }
         }
 
