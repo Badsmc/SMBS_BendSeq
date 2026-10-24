@@ -293,7 +293,10 @@ class SheetMetalFolder:
         6. Branch fusion and coordinate restoration: fuse monolithic solid, invert standardization, and unify coplanar faces.
         """
         payload = canonical_part.get("payload", canonical_part)
-        thickness = payload.get("thickness_mm", {}).get("value") or 1.5
+        thickness_val = payload.get("thickness_mm", {}).get("value")
+        if thickness_val is None:
+            raise ValueError("fold_multi_bend_from_flat_pattern requires payload.thickness_mm.value")
+        thickness = thickness_val
         bends = payload.get("bends", {})
         panels = payload.get("panels", {})
         ref_panel_id = payload.get("reference_panel_id")
@@ -401,9 +404,18 @@ class SheetMetalFolder:
             if angle_override_deg is not None and i == 0:
                 ang = abs(angle_override_deg)
             else:
-                ang = abs(binfo.get("angle_deg", {}).get("value") or 90.0)
-            R = binfo.get("radius_mm", {}).get("value") or 1.0
-            k = binfo.get("k_factor", {}).get("value") or 0.44
+                ang_val = binfo.get("angle_deg", {}).get("value")
+                if ang_val is None:
+                    raise ValueError(f"fold_multi_bend_from_flat_pattern requires bend.angle_deg.value for bend {bend_path[i]} (or angle_override_deg for i=0)")
+                ang = abs(ang_val)
+            R_val = binfo.get("radius_mm", {}).get("value")
+            if R_val is None:
+                raise ValueError(f"fold_multi_bend_from_flat_pattern requires bend.radius_mm.value for bend {bend_path[i]}")
+            R = R_val
+            k_val = binfo.get("k_factor", {}).get("value")
+            if k_val is None:
+                raise ValueError(f"fold_multi_bend_from_flat_pattern requires bend.k_factor.value for bend {bend_path[i]}")
+            k = k_val
             ba = math.radians(ang) * (R + k * thickness)
             pos = pos_path[i]
             t1 = pos - ba / 2.0
@@ -724,7 +736,10 @@ class SheetMetalFolder:
         payload = canonical_part.get("payload", canonical_part)
         bends = payload.get("bends", {})
         panels = payload.get("panels", {})
-        t = payload.get("thickness_mm", {}).get("value") or 1.5
+        t_val = payload.get("thickness_mm", {}).get("value")
+        if t_val is None:
+            raise ValueError("fold_tree_from_flat_pattern requires payload.thickness_mm.value")
+        t = t_val
 
         # 1. Identify hub panel (panel with max degree >= 3)
         hub_pid = None
