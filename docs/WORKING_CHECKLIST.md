@@ -57,14 +57,14 @@
 | P1-CODE-1 | Replace dead fallback in `fold_from_canonical_part` with explicit precondition check | `4761aef` | `smbs_core/Geometry/sheetmetal_folder.py` (578 tests) | 2026-10-24 |
 | P1-CODE-2 | Eliminate silent fallback defaults across `fold_from_canonical_part`, `fold_from_flat_pattern`, `fold_multi_bend_from_flat_pattern`, `fold_tree_from_flat_pattern` | `4a2b0e3`, `a28c71e`, `bc5b92e` | `smbs_core/Geometry/sheetmetal_folder.py` (578 tests) | 2026-10-25 |
 | P1-CODE-3 | Annotate fixture defaults in `fold_one_bend`/`fold_u_bracket`; reject silent fabrication in `measure_planar_flange_lengths` | `16a6685`, `1f3178d` | `smbs_core/Geometry/sheetmetal_folder.py`, `smbs_core/geometry_backend/backends/pythonocc_backend.py` (578 tests) | 2026-10-25 |
+| P1-hygiene-aligned-flat | Dead `aligned_flat` and `transformer` removed from baseline worker | `21902db` | `smbs_core/workers/baseline/worker.py` (578 tests) | 2026-10-24 |
+| P1-hygiene-verifier-dup | `_find_largest_planar_face` deduplicated into `smbs_core/Geometry/face_utils.py` | `5a02f72` | `smbs_core/Geometry/face_utils.py` (578 tests) | 2026-10-24 |
+| P1-hygiene-baseline-metrics | `baseline_metrics` surfaced on baseline INVALID (contract symmetry) | `c41263d` | `smbs_core/coordinator/run_pipeline.py` (578 tests) | 2026-10-24 |
+| P1-hygiene-test-05-workaround | Direct `json.load` workaround in `test_hausdorff_gate_enforcement` removed | `c41263d` | `tests/test_baseline_topology_canonical.py` (578 tests) | 2026-10-24 |
 
 ## Upcoming Tasks (Post-P0 Remediation)
 
 | ID | Task | Priority | Note / Location |
 |---|---|---|---|
-| P1-hygiene-aligned-flat | Clean up dead aligned_flat references and stale comments | P1 | `smbs_core/workers/baseline/worker.py:589, 592–599` |
-| P1-hygiene-verifier-dup | Deduplicate `_find_largest_planar_face` | P1 | `smbs_core/workers/verifier/worker.py:85` vs `smbs_core/workers/baseline/worker.py:153` |
-| P1-hygiene-baseline-metrics | Contract audit for `res["baseline_metrics"]` | P1 | Flag 66: top-level pipeline return on baseline INVALID |
-| P1-hygiene-test-05-workaround | Clean up direct json read in `test_05` | P1 | Flag 67: `tests/test_baseline_topology_canonical.py:188` |
 | P1-hygiene-angle-override | Add comment annotation to `angle_override` | P1 | `tests/test_baseline_topology_canonical.py:65` |
 | P1-hygiene-proposal-2 | Re-evaluate search test caching / runner opt | P1 | Investigated during S.46 audit |
