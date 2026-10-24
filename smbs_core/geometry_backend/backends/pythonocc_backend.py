@@ -283,7 +283,7 @@ class PythonOCCBackend(GeometryBackend):
         Excludes side capping faces (normal along Y) and small end-cap faces.
         """
         if shape is None or shape.IsNull():
-            return 95.5, 47.5
+            raise ValueError("measure_planar_flange_lengths requires a valid non-null shape")
         try:
             faces = self.get_faces(shape)
             planar_faces = [f for f in faces if self.get_surface_type(f) == "plane"]
@@ -315,12 +315,16 @@ class PythonOCCBackend(GeometryBackend):
                     if 10.0 < flange_len < 90.0:
                         c_lens.append(round(flange_len, 4))
 
-            l_parent = max(p_lens) if p_lens else 95.5
-            l_child = max(c_lens) if c_lens else 47.5
+            if not p_lens:
+                raise ValueError("measure_planar_flange_lengths could not identify parent planar flange face (expected 80-105mm extent along Z)")
+            if not c_lens:
+                raise ValueError("measure_planar_flange_lengths could not identify child planar flange face (expected 10-90mm flange length)")
+            l_parent = max(p_lens)
+            l_child = max(c_lens)
             return l_parent, l_child
         except Exception as err:
             logger.error("Error measuring flange lengths: %s", err)
-            return 95.5, 47.5
+            raise
 
     def extract_faces(self, shape: Any, face_ids: Set[str]) -> Any:
         if shape is None or shape.IsNull() or not face_ids:
