@@ -30,7 +30,7 @@ class NormalizedBendLine:
     k_factor: float
     start_point: List[float]
     end_point: List[float]
-    confidence: ConfidenceLevel = ConfidenceLevel.CONFIRMED
+    confidence: ConfidenceLevel = ConfidenceLevel.UNKNOWN
     bend_line_flat: Optional[Dict[str, List[float]]] = None
 
 
@@ -138,7 +138,12 @@ class SheetMetalAdapter:
                 )
             )
 
-        k_val = k_factor_override if k_factor_override is not None else pref_k
+        if k_factor_override is not None:
+            k_val = k_factor_override
+            k_confidence = ConfidenceLevel.CONFIRMED
+        else:
+            k_val = pref_k
+            k_confidence = ConfidenceLevel.ESTIMATED
         std_val = standard_override.lower() if standard_override is not None else pref_std
 
         bac = SheetMetalNewUnfolder.BendAllowanceCalculator.from_single_value(k_val, std_val)
@@ -162,7 +167,7 @@ class SheetMetalAdapter:
                 estimated_t = SheetMetalNewUnfolder.EstimateThickness.using_best_method(fc_shape, root_face_idx)
 
             if estimated_t is not None and estimated_t > 0:
-                t_confidence = ConfidenceLevel.CONFIRMED
+                t_confidence = ConfidenceLevel.ESTIMATED
         except Exception as e:
             diagnostics.append(
                 DiagnosticEntry(
@@ -211,13 +216,36 @@ class SheetMetalAdapter:
                         b_angle = math.degrees(raw_angle)
                     else:
                         b_angle = float(raw_angle)
-                    b_radius = getattr(b_info, "radius", 1.0)
-                    b_k = getattr(b_info, "k_factor", k_val)
 
-                    # Extract line geometry endpoints
+                    # Extract radius with strict validation (Invariant #3)
+                    if isinstance(b_info, dict):
+                        raw_radius = b_info.get("radius")
+                    else:
+                        raw_radius = getattr(b_info, "radius", None)
+                    if raw_radius is None:
+                        raise IncompleteBendError(f"Bend {b_id} missing mandatory radius in workers/sheetmetal/adapter.py:226")
+                    b_radius = float(raw_radius)
+
+                    # Extract k_factor provenance
+                    if isinstance(b_info, dict):
+                        raw_k = b_info.get("k_factor")
+                    else:
+                        raw_k = getattr(b_info, "k_factor", None)
+                    if raw_k is not None:
+                        b_k = float(raw_k)
+                        b_k_confidence = ConfidenceLevel.CONFIRMED
+                    else:
+                        b_k = k_val
+                        b_k_confidence = k_confidence
+
+                    # Extract line geometry endpoints with dual-access
                     start_pt = [0.0, 0.0, 0.0]
                     end_pt = [0.0, 0.0, 0.0]
-                    line_geom = getattr(b_info, "line", None)
+                    if isinstance(b_info, dict):
+                        line_geom = b_info.get("line")
+                    else:
+                        line_geom = getattr(b_info, "line", None)
+
                     if line_geom is not None:
                         if hasattr(line_geom, "Vertexes") and len(line_geom.Vertexes) >= 2:
                             v0 = line_geom.Vertexes[0].Point
@@ -237,6 +265,11 @@ class SheetMetalAdapter:
                         "radius_mm": b_radius
                     }
 
+                    # Determine per-bend confidence
+                    bend_conf = ConfidenceLevel.CONFIRMED
+                    if b_k_confidence != ConfidenceLevel.CONFIRMED or line_geom is None:
+                        bend_conf = ConfidenceLevel.ESTIMATED
+
                     normalized_bends.append(
                         NormalizedBendLine(
                             bend_id=b_id,
@@ -246,7 +279,7 @@ class SheetMetalAdapter:
                             k_factor=b_k,
                             start_point=start_pt,
                             end_point=end_pt,
-                            confidence=ConfidenceLevel.CONFIRMED,
+                            confidence=bend_conf,
                             bend_line_flat=flat_line_dict,
                         )
                     )
@@ -259,13 +292,15 @@ class SheetMetalAdapter:
                 thickness_mm=estimated_t,
                 thickness_confidence=t_confidence,
                 k_factor=k_val,
-                k_factor_confidence=ConfidenceLevel.CONFIRMED,
+                k_factor_confidence=k_confidence,
                 k_factor_standard=std_val,
                 root_face_name=facename,
                 root_normal=root_n,
                 bend_lines=normalized_bends,
                 diagnostics=diagnostics,
             )
+        except IncompleteBendError:
+            raise
         except Exception as e:
             diagnostics.append(
                 DiagnosticEntry(
