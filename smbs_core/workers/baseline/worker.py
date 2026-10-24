@@ -584,19 +584,13 @@ class BaselineWorker:
             self.file_store.write_json_atomic(out_file, result_payload, schema_name="baseline_result")
             return out_file
 
-        # 4. Transform flat pattern into aligned orientation T * flat
-        transformer = BRepBuilderAPI_Transform(flat_shape, align_res.transform, True)
-        aligned_flat = transformer.Shape()
-
-        # 5. Restore 3D shape by physical folding via SheetMetalFolder (§5.1)
+        # 4. Restore 3D shape by physical folding via SheetMetalFolder (§5.1)
         from smbs_core.Geometry.sheetmetal_folder import SheetMetalFolder
 
-        # Step B.4.1 + KL-5: 1D and 3a paths were designed for aligned_flat (their
-        # fold_X_bend methods build folded solid in +Z direction relative to flat,
-        # and FrameAligner ensures flat's orientation matches reference part).
-        # General tree (3b) uses absolute coordinates from canonical_part['bends']
-        # and MUST receive original flat_pattern.brep (not aligned), because
+        # Step B.4.1 + KL-5: General tree (3b) uses absolute coordinates from canonical_part['bends']
+        # and MUST receive original flat_pattern.brep (flat_shape), because
         # axis_point/centroid are in original flat's coordinate system.
+        # Downstream: restored_shape is aligned to ref_shape via bounding-box origin correction.
         # TODO(B.4.4): unify this with fold_from_canonical_part's method dispatcher
         # so both "which fold method" and "which flat" decisions live in one place.
         fold_flat_input = flat_shape
