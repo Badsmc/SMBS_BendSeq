@@ -17,13 +17,11 @@ from OCC.Core.BRepGProp import brepgprop
 from OCC.Core.GProp import GProp_GProps
 from OCC.Core.Bnd import Bnd_Box
 from OCC.Core.BRepBndLib import brepbndlib
-from OCC.Core.TopAbs import TopAbs_SOLID, TopAbs_SHELL, TopAbs_VERTEX, TopAbs_FACE
+from OCC.Core.TopAbs import TopAbs_SOLID, TopAbs_SHELL, TopAbs_VERTEX
 from OCC.Core.TopExp import TopExp_Explorer, topexp
-from OCC.Core.TopoDS import TopoDS_Shape, TopoDS_Face, topods
+from OCC.Core.TopoDS import TopoDS_Shape, topods
 from OCC.Core.TopTools import TopTools_IndexedMapOfShape
 from OCC.Core.BRepExtrema import BRepExtrema_DistShapeShape
-from OCC.Core.BRepAdaptor import BRepAdaptor_Surface
-from OCC.Core.GeomAbs import GeomAbs_Plane
 from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_Transform
 
 from smbs_core.geometry_backend.backends.pythonocc_backend import PythonOCCBackend
@@ -34,6 +32,7 @@ from smbs_core.Core.panel_graph import PanelGraph, Panel
 from smbs_core.Core.bend_graph import BendGraph, BendRecord
 from smbs_core.Geometry.sheetmetal_folder import SheetMetalFolder
 from smbs_core.Geometry.frame_aligner import FrameAligner, AlignmentStatus
+from smbs_core.Geometry.face_utils import find_largest_planar_face
 from smbs_core.protocols.file_store import (
     ContractError,
     FileStore,
@@ -80,24 +79,6 @@ class VerifierWorker:
         extents = [xmax - xmin, ymax - ymin, zmax - zmin]
 
         return vol, area, extents
-
-    @staticmethod
-    def _find_largest_planar_face(shape: TopoDS_Shape) -> Optional[TopoDS_Face]:
-        max_area = -1.0
-        best_face = None
-        exp = TopExp_Explorer(shape, TopAbs_FACE)
-        while exp.More():
-            face = topods.Face(exp.Current())
-            surf = BRepAdaptor_Surface(face, True)
-            if surf.GetType() == GeomAbs_Plane:
-                props = GProp_GProps()
-                brepgprop.SurfaceProperties(face, props)
-                area = props.Mass()
-                if area > max_area:
-                    max_area = area
-                    best_face = face
-            exp.Next()
-        return best_face
 
     @staticmethod
     def _compute_hausdorff_distance(shape1: TopoDS_Shape, shape2: TopoDS_Shape) -> float:
@@ -377,8 +358,8 @@ class VerifierWorker:
                 })
             else:
                 try:
-                    ref_face = self._find_largest_planar_face(ref_shape)
-                    flat_face = self._find_largest_planar_face(flat_shape)
+                    ref_face = find_largest_planar_face(ref_shape)
+                    flat_face = find_largest_planar_face(flat_shape)
                     if not ref_face or not flat_face:
                         fold_metrics_ok = False
                         diagnostics.append({

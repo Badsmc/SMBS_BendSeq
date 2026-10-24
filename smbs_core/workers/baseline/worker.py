@@ -17,10 +17,11 @@ from OCC.Core.gp import gp_Pnt, gp_Trsf, gp_Vec
 from OCC.Core.ShapeUpgrade import ShapeUpgrade_UnifySameDomain
 from OCC.Core.TopAbs import TopAbs_FACE, TopAbs_REVERSED, TopAbs_SHELL, TopAbs_SOLID, TopAbs_VERTEX
 from OCC.Core.TopExp import TopExp_Explorer, topexp
-from OCC.Core.TopoDS import TopoDS_Face, TopoDS_Shape, topods
+from OCC.Core.TopoDS import TopoDS_Shape, topods
 from OCC.Core.TopTools import TopTools_IndexedMapOfShape
 
 from smbs_core.Geometry.frame_aligner import FrameAligner, FrameAlignmentResult
+from smbs_core.Geometry.face_utils import find_largest_planar_face
 from smbs_core.protocols.file_store import (
     AlignmentStatus,
     FileStore,
@@ -149,26 +150,6 @@ class BaselineWorker:
         d1 = directed_hausdorff(shape1, shape2)
         d2 = directed_hausdorff(shape2, shape1)
         return max(d1, d2)
-
-    def _find_largest_planar_face(self, shape: TopoDS_Shape) -> TopoDS_Face:
-        max_area = -1.0
-        best_face = None
-        exp = TopExp_Explorer(shape, TopAbs_FACE)
-        while exp.More():
-            face = topods.Face(exp.Current())
-            surf = BRepAdaptor_Surface(face, True)
-            if surf.GetType() == GeomAbs_Plane:
-                props = GProp_GProps()
-                brepgprop.SurfaceProperties(face, props)
-                area = props.Mass()
-                if area > max_area:
-                    max_area = area
-                    best_face = face
-            exp.Next()
-
-        if not best_face:
-            raise ValueError("No planar face found in shape.")
-        return best_face
 
     def _get_shape_properties(self, shape: TopoDS_Shape) -> Tuple[float, float, List[float]]:
         """Returns (volume, surface_area, bbox_extents)."""
@@ -501,8 +482,10 @@ class BaselineWorker:
         flat_shape = self._load_brep(flat_brep_path)
 
         # 2. Extract reference faces for alignment
-        ref_face = self._find_largest_planar_face(ref_shape)
-        flat_face = self._find_largest_planar_face(flat_shape)
+        ref_face = find_largest_planar_face(ref_shape)
+        flat_face = find_largest_planar_face(flat_shape)
+        if not ref_face or not flat_face:
+            raise ValueError("No planar face found in shape.")
 
         # 3. Align full frame T = (R, t) (§5.2)
         align_res: FrameAlignmentResult = FrameAligner.align_full_frame(flat_face, ref_face)
