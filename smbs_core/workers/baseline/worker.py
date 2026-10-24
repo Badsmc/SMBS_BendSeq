@@ -747,6 +747,7 @@ class BaselineWorker:
             and rel_vol_delta <= tol["relative_volume_tol"]
             and area_delta <= tol["surface_area_tol_mm2"]
             and all(b <= tol["bbox_tol_mm"] for b in bbox_delta)
+            and hausdorff <= tol["surface_distance_tol_mm"]
             and topology_matches
         )
 

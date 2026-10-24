@@ -172,5 +172,26 @@ class TestBaselineTopologyCanonical(unittest.TestCase):
             }
         )
 
+    def test_hausdorff_gate_enforcement(self):
+        """P0-GEOM S.49-gate: high hausdorff (> surface_distance_tol_mm) forces is_pass=False."""
+        from unittest.mock import patch
+        from smbs_core.workers.baseline.worker import BaselineWorker
+        with patch.object(BaselineWorker, "_compute_hausdorff_distance", return_value=0.5):
+            res = self.coordinator.start_run(
+                source_file_path=(Path.cwd() / "fixtures/freecad/135_ok/source.FCStd").resolve(),
+                part_id="135_ok",
+                k_factor_override=0.44,
+            )
+        self.assertFalse(res["pass"])
+        self.assertEqual(res["baseline_status"], "INVALID")
+        import json
+        with open(Path(res["run_dir"]) / "04_baseline_result.json") as f:
+            baseline_data = json.load(f)
+        metrics = baseline_data["payload"]["metrics"]
+        self.assertLess(metrics["bbox_delta_mm"][0], 0.1)
+        self.assertLess(metrics["volume_delta_mm3"], 0.1)
+        self.assertLess(metrics["surface_area_delta_mm2"], 0.1)
+        self.assertEqual(metrics["hausdorff_distance_mm"], 0.5)
+
 if __name__ == "__main__":
     unittest.main()
