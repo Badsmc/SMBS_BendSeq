@@ -669,6 +669,38 @@ Chronological record of remediation sessions closing integrity invariants and B-
 - **S.50 (`ce68906`):** Docs core closed. Canonical registry clearance in `docs/AUDIT_FULL_2026-10-23.md` (Release blockers: CLEARED, P0-GEOM closure, Errata) and `docs/WORKING_CHECKLIST.md` (Next-P0 cleared). Baseline: 577 tests (0 net). Runtime: 156.2s.
 
 
+## Process & Session Log: S.51–S.58 (2026-10-24–2026-10-25)
+
+### Milestone: Post-release hygiene (P1-CODE + P1-hygiene + P1-DOC)
+
+**Note:** Reconstructed from commit metadata (`git log --stat`, `git show`). Detailed session narrative for S.51–S.58 not preserved in this log. For full context, see per-commit `git show`. S.52 was a planned label in S.54 handoff but actual commits are labeled S.54; no separate S.52 session commits exist in the repository.
+
+- **S.51 (`917eb71`):** P0-CODE-4-adjacent closed. Wrapped native sheetmetal unfold path (`import Part`, STEP conversion, `Part.read`, unfold, `exportBrep`) in try-except-finally in `geometry/worker.py`. On exception: `worker_status=WORKER_ERROR` with `UNFOLD_EXCEPTION_<type>` diagnostic; `finally` ensures `temp_for_sm.step` cleanup with narrowed `OSError` suppression. Added `test_04_unfold_exception_marks_worker_error` regression pin. Baseline: 577 → 578 / 0F / 0E / 3xF (148.2s).
+- **S.53 (`c621a82`):** Release reports refresh (Conditions 3-5) + `AUDIT_FULL_2026-10-23.md` READY FOR RELEASE sign-off. Baseline: 578 (0 net).
+- **S.54 (5 commits, `3d6ca31`..`5a02f72`):** Post-P0 hygiene batch.
+  - `3d6ca31` docs: move P0-CODE-4-adjacent to §Done registry.
+  - `21902db` code: remove dead `aligned_flat`/`transformer` in baseline worker.
+  - `8a546ef` test: pin `temp_for_sm.step` cleanup assertion in `test_04`.
+  - `c41263d` code+test: surface `baseline_metrics` on baseline INVALID (contract symmetry); remove `test_05` `json.load` workaround.
+  - `5a02f72` code: deduplicate `_find_largest_planar_face` into shared `smbs_core/Geometry/face_utils.py`.
+  Baseline: 578 / 0F / 0E / 3xF throughout.
+- **S.55 (7 commits, `4761aef`..`1f6489c`):** P1-CODE series closure.
+  - `4761aef` P1-CODE-1: replace dead fallback in `fold_from_canonical_part` with explicit precondition check.
+  - `4a2b0e3`, `a28c71e`, `bc5b92e` P1-CODE-2 (G1/G2/G3): eliminate silent fallback defaults across `fold_from_canonical_part`, `fold_from_flat_pattern`, `fold_multi_bend_from_flat_pattern`, `fold_tree_from_flat_pattern`.
+  - `16a6685`, `1f3178d` P1-CODE-3: annotate fixture defaults in `fold_one_bend`/`fold_u_bracket`; reject 95.5/47.5 fabrication in `measure_planar_flange_lengths`.
+  - `1f6489c` docs: close P1-CODE-1/2/3 in WORKING_CHECKLIST registry.
+  Baseline: 578 / 0F / 0E / 3xF throughout.
+- **S.56 (3 commits, `9959f86`..`143b35e`):** P1-hygiene closure.
+  - `9959f86` docs: close 4 items (aligned-flat, verifier-dup, baseline-metrics, test-05) in §Done.
+  - `941ae36` code: annotate `angle_override_deg` as DEBUG_OVERRIDE in `fold_from_flat_pattern`/`fold_multi_bend_from_flat_pattern` signatures.
+  - `143b35e` docs: close angle-override + proposal-2 (S.46 caching investigation: `StateCache` already integrated, no action).
+  Baseline: 578 / 0F / 0E / 3xF.
+- **S.57 (`7f23052`):** P1-DOC-A..F audit candidates resolved (6/6, all no-code-change decisions). §Pending Candidates marked `(None)`; §Resolved Candidates section added to `AUDIT_FULL_2026-10-23.md`. Baseline: 578 (docs-only).
+- **S.58 (`176ca78`):** §P1 Code Hygiene section in `AUDIT_FULL_2026-10-23.md` marked `(CLOSED S.55)` with per-item closure SHAs (P1-CODE-1/2/3). Baseline: 578 (docs-only).
+
+**Registry state (post-S.58):** All P0, P1-CODE, P1-hygiene, P1-DOC series CLOSED. See `docs/WORKING_CHECKLIST.md §Done` and `docs/AUDIT_FULL_2026-10-23.md §Resolved Candidates`.
+
+
 ## Historical: Phases 0-11 (pre-refactor, completed before Stage track)
 
 | Phase | Description | Status | Verification |
