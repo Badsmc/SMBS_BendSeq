@@ -120,14 +120,18 @@ Claims below were made in the external 2026-10-23 audit. Each was disproven by r
 
 ## Pending Candidates (P1, not blocking release)
 
-| ID | Candidate | Needs |
-|---|---|---|
-| P1-DOC-A | verifier vertex Hausdorff ≠ surface Hausdorff | Decide: acceptable approximation or upgrade to surface |
-| P1-DOC-B | verifier `if ext.IsDone()` without else (silent skip) | Document as KNOWN_LIMITATION |
-| P1-DOC-C | topology `angle` vs `signed_angle` unsignedness | Review `FeatureExtractor` |
-| P1-DOC-D | topology `axis_point`/`axis_direction` without wrapper | Verify against canonical schema |
-| P1-DOC-E | geometry `diagnostics` do not gate status | Document + cover in P0-CODE-4 fix |
-| P1-DOC-F | `metrics_ok` / `fold_metrics_ok` composition | Full raw review in next session |
+*(None — all P1-DOC candidates resolved in S.57; see §Resolved Candidates)*
+
+## Resolved Candidates (S.57, 2026-10-25)
+
+| ID | Candidate | Decision | Evidence |
+|---|---|---|---|
+| P1-DOC-A | verifier vertex Hausdorff ≠ surface Hausdorff | Accept as KNOWN_LIMITATION. Vertex-sampled surface distance, identical to baseline worker; both gate `surface_distance_tol_mm`. Surface upgrade = KL-track (runtime risk). | `verifier/worker.py:83-107` ≡ `baseline/worker.py:129-153`; gates at `verifier:345`, `baseline:727` |
+| P1-DOC-B | verifier `if ext.IsDone()` without else (silent skip) | Accept as KNOWN_LIMITATION. Symmetric pattern both workers, test-pinned legacy implementation. Defence-in-depth: 5 other gates fire on gross geometry error. | `verifier:98`, `baseline:144`, pin in `tests/test_baseline_worker_hausdorff.py:85-92` |
+| P1-DOC-C | topology `angle` vs `signed_angle` unsignedness | Design choice, not bug. `signed_angle` = authoritative kinematic; `angle` = convenience unsigned projection. `FeatureExtractor` header: "Preserves signed_angle_deg (never abs(angle))". | `bend_graph.py:70-82`, `feature_extractor.py:4,59-87,604-606`, `topology/worker.py:131-136,334-339,542` |
+| P1-DOC-D | topology `axis_point`/`axis_direction` without wrapper | Schema-mandated flat 3-element arrays; wrapper would break `FileStore.validate_against_schema`. Scalar params use provenance wrapper (source/confidence); axis vectors have no ambiguity. | `canonical_part.schema.json:191-202`, `topology/worker.py:587-588` |
+| P1-DOC-E | geometry `diagnostics` do not gate status | Covered by S.51 (`917eb71`). All 4 error codepaths set `worker_status` in lockstep with diagnostic; zero dangling ERROR diagnostics; test-pinned. | `geometry/worker.py:122-155,180-187,235-241,242-250`; `test_geometry_worker_unfold_failure.py` |
+| P1-DOC-F | `metrics_ok` / `fold_metrics_ok` composition | Composition verified correct. 6-condition AND (`metrics_ok`) + independent forward reconstruction (`fold_metrics_ok`) + strict `if/elif/else` ladder. `production_eligible` derived solely in VerifierWorker (Inv #10). | `verifier/worker.py:338-345,349-423,428-459` |
 
 ---
 
