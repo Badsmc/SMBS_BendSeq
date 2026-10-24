@@ -2,19 +2,13 @@
 
 > **Purpose:** Lightweight daily tracker. Not a roadmap (see `docs/ROADMAP.md`), not an architecture doc (see `docs/ARCHITECTURE.md`), not a release audit (see `docs/AUDIT_FULL_2026-10-23.md`).
 > **Rule:** Move a task to **Done** only after the acceptance condition is met and a verification reference is linked (test name, commit SHA, or `cat -n` evidence). No "Done" without proof.
-> **Snapshot:** HEAD `91d07c0`, 2026-10-23.
+> **Snapshot:** HEAD `fda5abf`, 2026-10-24.
 
 ---
 
 ## Next — P0 (blocks release)
 
-| ID | Task | Acceptance | Ref |
-|---|---|---|---|
-| P0-CODE-1-fix | Replace sign-only `direction` derivation in `topology/worker.py:540` with axis/normal-aware derivation; `CONFIRMED` only with verified source. | New test: flipped bend orientation yields correct UP/DOWN; baseline 550/0F/0E/3xF preserved. | P0-CODE-1 |
-| P0-CODE-2-fix | In `topology/worker.py:552–572`: replace silent `radius=1.0`, `length=50.0`, `axis_point=[0,0,0]`, `axis_direction=[1,0,0]` with `raise IncompleteBendError` or `confidence=ESTIMATED`. | Missing param → raise or ESTIMATED; no silent `CONFIRMED`. | P0-CODE-2 |
-| P0-CODE-3-fix | In `baseline/worker.py:702, 704–712`: replace `hausdorff = max(bbox_delta)` with real surface/vertex Hausdorff; add `area_delta` to `is_pass`. | New test: same bbox + different surface → `is_pass=False`. | P0-CODE-3 |
-| P0-CODE-4-fix | In `geometry/worker.py:179, 249, 273`: wire `status_worker` to `result_payload["status"]`; unfold failure → `WORKER_ERROR`. | New test: unfold fails → `02_geometry_result.json` `status != SUCCESS`. | P0-CODE-4 |
-| P0-CODE-5-fix | In `adapter.py:127–128, 214–215, 249`: propagate FreeCAD preference defaults as `source=DEFAULT_POLICY, confidence=ESTIMATED`. | New test: absent pref → `confidence=ESTIMATED`. | P0-CODE-5 |
+*(None — all P0 items CLOSED in S.40–S.50; see `docs/AUDIT_FULL_2026-10-23.md` §Release Verdict)*
 
 ## Next — P1 (hygiene, not a release blocker)
 
