@@ -5,33 +5,33 @@
 
 ## 1. Executive Summary
 
-### Что можно начинать сейчас (без согласований и уточнений)
-- **Требование 1** — цифры логического порядка гибов на развёртке в FreeCAD.
-- **FreeCAD workbench scaffolding** (как часть требования 1) — переиспользуется требованиями 2, 3, 3.1, 4.
-- Read-only research spike по FreeCAD Qt API для аннотаций (без коммитов кода).
+### What can be started now (without approvals or clarifications)
+- **Requirement 1** — logical bend sequence numbers on the flat pattern in FreeCAD.
+- **FreeCAD workbench scaffolding** (as part of Requirement 1) — reused by Requirements 2, 3, 3.1, 4.
+- Read-only research spike on the FreeCAD Qt API for annotations (no code commits).
 
-### Что требует уточнений у пользователя (blocker)
-- **Q1** (требование 3): как обозначать роль объекта в FCStd (пуансон/матрица/станина/упор).
-- **Q2** (требование 4.1): точная математика удержания пуансона лапками станины.
-- **Q3** (требование 4): что значит «оптимальный» набор инструмента (целевая функция).
-- **Q13** (требование 5): что входит в «дальнейшую визуализацию».
+### What requires user clarifications (blockers)
+- **Q1** (Requirement 3): how to designate object roles in FCStd (punch/die/frame/backgauge).
+- **Q2** (Requirement 4.1): exact math of punch retention by frame clamps.
+- **Q3** (Requirement 4): definition of "optimal" tooling set (objective function).
+- **Q13** (Requirement 5): scope of "further visualization".
 
-### Что требует согласования инварианта #7
-- `contracts/schemas/tooling_manifest.schema.json` — расширение под библиотеку (3), сэты (3.1), лапки (4.1).
-- `contracts/schemas/tooling_selection.schema.json` — новый, результат подбора (4).
-- Возможно `tooling_set.schema.json` / `tooling_station.schema.json` — уточнить упаковку в рамках #7.
+### What requires Invariant #7 approval
+- `contracts/schemas/tooling_manifest.schema.json` — extension for library (3), sets (3.1), clamps (4.1).
+- `contracts/schemas/tooling_selection.schema.json` — new schema, selection output (4).
+- Possibly `tooling_set.schema.json` / `tooling_station.schema.json` — clarify packaging under #7.
 
-### Что зависит от KL-8 / KL-12
-- **Требование 2** — требует KL-12 fix (честная per-panel кинематика для анимации).
-- **Требование 4** — выигрывает от KL-8 fix (collision-aware selection); базовый геометрический подбор независим.
-- Требования 1, 3, 3.1, 4.1 — от KL-8/KL-12 не блокируются.
+### What depends on KL-8 / KL-12
+- **Requirement 2** — requires KL-12 fix (honest per-panel kinematics for animation).
+- **Requirement 4** — benefits from KL-8 fix (collision-aware selection); basic geometric selection is independent.
+- Requirements 1, 3, 3.1, 4.1 — not blocked by KL-8/KL-12.
 
-### Ключевые решения и рекомендованный порядок
-1. Требование 1 стартует немедленно — не трогает контракты и не зависит от KL.
-2. Библиотека инструмента (3) — фундамент для 3.1, 4, 4.1, 2; стартует после #7 и Q1.
-3. Constraint checker лапок (4.1) идёт **до** алгоритма подбора (4).
-4. Анимация (2) — после библиотеки (3) и KL-12 fix.
-5. Требование 5 остаётся открытым блоком до ответа Q13.
+### Key decisions and recommended order
+1. Requirement 1 starts immediately — touches no contracts and does not depend on KL.
+2. Tooling library (3) — foundation for 3.1, 4, 4.1, 2; starts after #7 and Q1.
+3. Clamp constraint checker (4.1) precedes selection algorithm (4).
+4. Animation (2) — after library (3) and KL-12 fix.
+5. Requirement 5 remains an open block pending answer to Q13.
 
 ---
 
