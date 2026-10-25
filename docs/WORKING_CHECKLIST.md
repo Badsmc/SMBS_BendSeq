@@ -29,7 +29,7 @@
 
 | ID | Task | Note |
 |---|---|---|
-| P1-DOC-refresh-arch | Full ARCHITECTURE refresh (Stages 5–9, Req 6, Req 2) | Separate track |
+| P1-DOC-refresh-arch | Full ARCHITECTURE content refresh (Stages 5–9, Req 6, Req 2) — truth-up of stale facts completed S.63 (`bc9acad`); content addition = separate epic track | Separate track |
 | P1-DOC-refresh-roadmap | ROADMAP §1–§7 refresh (post-Stage 4) | Separate track |
 
 ## Done
