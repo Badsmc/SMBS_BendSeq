@@ -29,7 +29,6 @@
 
 | ID | Task | Note |
 |---|---|---|
-| P1-DOC-translate-arch | Translate `docs/ARCHITECTURE.md` ASCII diagram (RU → EN) | Deferred from Step 6 |
 | P1-DOC-translate-roadmap | Translate `docs/ROADMAP.md` §1–§3 (RU → EN) | Deferred from Step 8 |
 | P1-DOC-refresh-arch | Full ARCHITECTURE refresh (Stages 5–9, Req 6, Req 2) | Separate track |
 | P1-DOC-refresh-roadmap | ROADMAP §1–§7 refresh (post-Stage 4) | Separate track |
@@ -63,6 +62,7 @@
 | P1-hygiene-proposal-2 | S.46 caching investigation closed: `StateCache` already integrated (Phase 7 COMPLETE), no further runner optimization required | — (S.46 audit; no code change) | `docs/PROGRESS.md` Phase 7; `smbs_core/workers/solver/worker.py:183-201` (578 tests) | 2026-10-25 |
 | KL-23 | Cyclic N≥8 tie-break — investigated, closed as KNOWN_LIMITATION | — (no code change; cyclic topology rejected at `panel_topology.py:13`; already accepted in `RELEASE_AUDIT.md:26`) | `docs/PROGRESS.md:504-508`; `docs/RELEASE_AUDIT.md:26` (578 tests) | 2026-10-25 |
 | P1-DOC-term-tz | Standardize ТЗ → technical specification across docs, smbs_core, tests | `4b4d065`, `4d50858`, `53a613e` | 23 files / 30 line replacements (R1: 1/7, R2: 13/14, R3: 9/9); `docs/history/*` excluded per S.39 урок 9 (historical archive) | 2026-10-25 |
+| P1-DOC-translate-arch | Translate `docs/ARCHITECTURE.md` ASCII diagram (RU → EN) | `90860aa` | 6 lines translated (lines 7, 15, 22, 29, 36, 38); 56-char box alignment preserved; zero Cyrillic remaining | 2026-10-25 |
 
 ## Upcoming Tasks (Post-P0 Remediation)
 
