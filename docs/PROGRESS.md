@@ -527,9 +527,12 @@ bend order; `tuple(path)` required (Session 1.5 analysis).
   on cyclic topology graphs unproven. If cyclic fixtures exhibit deep search tree
   thrashing, activate `solve(depth_limit=N+buffer)` or refine tie-break.
 
-- **KL-24 (P2, OPEN, Phase 6a follow-up): Pending-pop uses parent_g + 1.0 instead of g_scores[pred_fp].**
+- **KL-24 (P2, CLOSED S.66 `4dd9a0e`, Phase 6a follow-up): Pending-pop uses parent_g + 1.0 instead of g_scores[pred_fp].**
   Latent discrepancy in `astar_backward.py` pending-pop branch. Safe under unit cost
   and equal-fp deduplication; revisit if non-unit edge costs or N>=20 are introduced.
+  **Resolved S.66 (`4dd9a0e`):** Pending-pop branch updated to `current_g = g_scores.get(current_fp, p["parent_g"] + 1.0)`
+  aligning with line 214 authoritative lookup. Verified by `tests/test_kl24_pending_g_scores.py`.
+  *Bonus S.66 finding (future candidate, no ID assigned):* pending-pop dead-state check asymmetry observed during audit — `pred_fp in dead_states` not tested in pending branch. Not addressed in this commit (scope discipline).
 
 - **KL-25 (P2, CLOSED S.65 `4686d24`, Phase 6a follow-up): Silent fallback via inspect.signature try/except: pass in solvers.**
   Solvers catch all `TypeError` when checking validator signature. Belongs to KL-20
