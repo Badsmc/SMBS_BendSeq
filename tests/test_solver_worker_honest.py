@@ -329,6 +329,41 @@ class TestSolverWorkerHonest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "tooling_status divergence"):
             worker.execute(req_file)
 
+    @patch("smbs_core.workers.solver.worker.PhysicalValidator")
+    @patch("smbs_core.workers.solver.worker.SolverWorker._load_brep", return_value=MagicMock())
+    @patch("smbs_core.workers.solver.worker.AStarBackwardPlanner")
+    def test_solver_worker_emits_diagnostic_on_no_solution_simplified_production(
+        self, mock_planner_cls, mock_load_brep, mock_validator_cls
+    ):
+        """KL-8d: NO_SOLUTION with SIMPLIFIED tooling under PRODUCTION emits actionable diagnostic."""
+        mock_planner = MagicMock()
+        mock_planner.solve.return_value = {
+            "success": False,
+            "termination_reason": "NO_MORE_CANDIDATES",
+            "sequence": [],
+            "nodes_explored": 0,
+            "rejections": []
+        }
+        mock_planner_cls.return_value = mock_planner
+
+        mock_validator = MagicMock()
+        mock_validator.tooling_status = "SIMPLIFIED"
+        mock_validator_cls.return_value = mock_validator
+
+        worker = SolverWorker(self.file_store)
+        req_file = self._create_search_request(unknown_policy="PRODUCTION")
+        res_file = worker.execute(req_file)
+
+        res_data = self.file_store.read_json_verified(res_file, expected_schema_name="search_result")
+        self.assertEqual(res_data["payload"]["planning_status"], "NO_SOLUTION")
+        self.assertEqual(res_data["status"], "NO_SOLUTION")
+        expected_msg = (
+            "No tooling provided (SIMPLIFIED synthetic); PRODUCTION policy rejects "
+            "UNKNOWN collisions. Provide --punch-id/--die-id or --tooling-set/"
+            "--tooling-config (or run with EXPLORATORY policy if supported)."
+        )
+        self.assertIn(expected_msg, res_data["diagnostics"])
+
 
 if __name__ == "__main__":
     unittest.main()
