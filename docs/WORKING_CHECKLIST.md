@@ -73,6 +73,7 @@
 | KL-20 | Reject fabricated `tooling_status` in SolverWorker | `180f6c5` | `solver/worker.py:298` replaced `or` fallback with explicit None check + rank-based fidelity check (REAL > SIMPLIFIED > MISSING); +2 tests in `test_solver_worker_honest.py`; baseline 592/OK | 2026-10-25 |
 | KL-8d | Actionable diagnostic on NO_SOLUTION + SIMPLIFIED + PRODUCTION | `9763c1d` | `solver/worker.py:441` appends explicit diagnostic explaining missing tooling and how to resolve; +1 test in `test_solver_worker_honest.py`; baseline 593/OK | 2026-10-25 |
 | KL-17 | Align mock feature extractors with `panels` contract | `350dc7b` | Added `"panels": {}` to mocks in `test_bendseq.py` and `test_stage3_regression.py` (5 profiles); updated `orchestrator.py:154` comment; baseline 593/OK | 2026-10-25 |
+| KL-13 | Legacy runs pre-2026-10-17 fail-fast (FlatAnnotationsError) — design choice, no code change | — (audit S.68; `flat_annotations.py:40-52` already fail-fast, no `axis_point` fallback; `smbs_core/addon/README.md` "Known issue: old runs") | `docs/PROGRESS.md:535`; resolution = regenerate old runs via `smbs-cli part.FCStd` | 2026-10-25 |
 
 ## Upcoming Tasks (Post-P0 Remediation)
 

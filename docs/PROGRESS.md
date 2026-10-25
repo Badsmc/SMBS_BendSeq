@@ -460,10 +460,9 @@ bend order; `tuple(path)` required (Session 1.5 analysis).
   A3 `get_face_center`: `ValueError` null; `RuntimeError` on calc failure.
   +4 tests in new `tests/test_pythonocc_backend.py`.
 
-- **Orphan note (S.64):** `smbs_core/Geometry/technological_unfold.py`
-  (no `er`) verified via `grep -rn "technological_unfold" smbs_core/ tests/`
-  to have zero imports — orphan dead code. Cataloged for future cleanup.
-  Not removed in S.64 (out of inv#3 scope).
+- **Orphan note (S.64 → CLOSED S.68 `2e0d483`):** `smbs_core/Geometry/technological_unfold.py`
+  (no `er`) verified 0 imports — dead code. Removed in S.68 (`2e0d483`, 187 lines).
+  Active implementation = `technological_unfolder.py` (with 'er').
 
 - **KL-19 (CLOSED S.26):** `worker.py:228-230` silent REAL→SIMPLIFIED
   downgrade due to case mismatch. Fixed in `d3a26e5`.
@@ -532,7 +531,7 @@ bend order; `tuple(path)` required (Session 1.5 analysis).
     stationary during unfold (KL-22 trade-off preserved) until v3.
   - Sniff test → `strict_per_panel` flag: before main merge.
 
-- **KL-13 (P3, OPEN, discovered in S.18 audit)**: runs generated before 2026-10-17 lack `bend_line_flat_pattern` in `04_canonical_part.json`. Flat annotations (requirement 1) require this field. `flat_annotations.py` refuses such runs with actionable error; `axis_point` is **not** used as fallback (it lives in the folded-model coordinate system, not on the flat pattern — using it would place numbers off the flat pattern). Impact: 3 old runs (`run_20261012_034042_cf4c34`, `run_20261012_034045_9a351d`, and one more) cannot display annotations. Fix path: regenerate old runs with current pipeline (`smbs-cli part.FCStd`). Not a bug — pipeline evolution. See `smbs_core/addon/README.md` "Known issue: old runs".
+- **KL-13 (P3, CLOSED S.68 — design choice / fail-fast by design, discovered in S.18 audit):** runs generated before 2026-10-17 lack `bend_line_flat_pattern` in `04_canonical_part.json`. Flat annotations (requirement 1) require this field. `flat_annotations.py` refuses such runs with actionable error; `axis_point` is **not** used as fallback (it lives in the folded-model coordinate system, not on the flat pattern — using it would place numbers off the flat pattern). Impact: 3 old runs (`run_20261012_034042_cf4c34`, `run_20261012_034045_9a351d`, and one more) cannot display annotations. Fix path: regenerate old runs with current pipeline (`smbs-cli part.FCStd`). Not a bug — pipeline evolution. See `smbs_core/addon/README.md` "Known issue: old runs". **Resolved S.68 (`2e0d483` commit context):** audit confirmed `flat_annotations.py:40-52` already fail-fast with actionable `FlatAnnotationsError` — no silent fallback (inv#3 compliant). Reclassified as design choice; no code change.
 
 - **KL-23 (P1, OPEN, Phase 6a follow-up): Cyclic fixture N>=8 tie-breaker generalization.**
   Current reference fixtures (`box_100out_50in_ok`, `2_1_3_4_ok`) are tree-like;
