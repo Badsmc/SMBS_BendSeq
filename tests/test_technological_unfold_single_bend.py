@@ -337,6 +337,30 @@ def test_unfold_single_bend_real_step_model():
     print(f"✅ Real FreeCAD STEP ({b_id}) B-Rep Cylinder Extraction passed: BA={res.bend_allowance} mm, cyl_faces_rem={rep.cylindrical_faces}, is_analytic={res.is_analytic_flat_pattern}")
 
 
+import unittest
+from unittest.mock import MagicMock
+
+
+class TestTechnologicalUnfolderA1A2(unittest.TestCase):
+    def test_a1_analytic_flat_length_raises_on_invalid_bbox(self):
+        """A1 inv#3: invalid bbox must raise, not fabricate 100.0+ba."""
+        backend = MagicMock(spec=["get_bounding_box"])
+        backend.get_bounding_box.return_value = (0, 0, 0, 0, 0, 0)
+        unfolder = TechnologicalUnfolder(backend=backend)
+        with self.assertRaisesRegex(ValueError, "invalid bounding box"):
+            unfolder._compute_analytic_flat_length(None, MagicMock(), ba=10.0, thickness=1.5)
+
+    def test_a2_synthetic_flat_pattern_raises_on_invalid_bbox(self):
+        """A2 inv#3: synthetic flat pattern must raise, not return folded shape as flat."""
+        backend = MagicMock()
+        backend.get_bounding_box.return_value = (0, 0, 0, 0, 0, 0)
+        unfolder = TechnologicalUnfolder(backend=backend)
+        with self.assertRaisesRegex(RuntimeError, "invalid bounding box"):
+            unfolder._create_synthetic_flat_pattern(
+                MagicMock(), MagicMock(), ba=10.0, thickness=1.5, bend_length=50.0
+            )
+
+
 def main():
     print("\n==========================================")
     print("  RUNNING SINGLE BEND TECHNOLOGICAL UNFOLD TESTS (FULL DOD)")
@@ -345,8 +369,13 @@ def main():
     test_unfold_single_bend_plus_45deg()
     test_unfold_single_bend_minus_45deg()
     test_unfold_single_bend_real_step_model()
+    suite = unittest.TestLoader().loadTestsFromTestCase(TestTechnologicalUnfolderA1A2)
+    res = unittest.TextTestRunner(verbosity=2).run(suite)
+    if not res.wasSuccessful():
+        sys.exit(1)
     print("\nALL SINGLE BEND TECHNOLOGICAL UNFOLD TESTS PASSED 100% (FULL DOD)!")
 
 
 if __name__ == '__main__':
     main()
+
