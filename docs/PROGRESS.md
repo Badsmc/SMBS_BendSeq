@@ -467,10 +467,14 @@ bend order; `tuple(path)` required (Session 1.5 analysis).
 - **KL-19 (CLOSED S.26):** `worker.py:228-230` silent REAL→SIMPLIFIED
   downgrade due to case mismatch. Fixed in `d3a26e5`.
 
-- **KL-20 (P2, OPEN):** `step_item.tooling_status` (from planner) may diverge
+- **KL-20 (P2, CLOSED S.66 `180f6c5`):** `step_item.tooling_status` (from planner) may diverge
   from `validator.tooling_status`. Current: `step_item.get("tooling_status") or
-  actual_tooling_status` — trusts planner if present. Semantic consistency
-  check deferred. Not blocking.
+  actual_tooling_status` — trusts planner if present.
+  **Resolved S.66 (`180f6c5`):** Replaced `or` fallback in `solver/worker.py` with explicit `None` check
+  and rank-based fidelity validation (`_TOOLING_RANK = {"MISSING": 0, "SIMPLIFIED": 1, "REAL": 2}`).
+  Step cannot claim higher fidelity than validator ran with; raises `ValueError` on divergence (inv#2/#3).
+  Verified by +2 tests in `tests/test_solver_worker_honest.py`.
+  *Bonus S.66 finding (future candidate, no ID assigned):* `tooling_override` accepted in `validator.validate_step()` signature but unused in body; cataloged for future cleanup.
 
 - **KL-8d (P2, OPEN):** CLI without tooling silently falls to SIMPLIFIED →
   PRODUCTION → always NO_SOLUTION. UX bug: user without `--punch-id`/
