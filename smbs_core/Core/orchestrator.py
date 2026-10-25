@@ -108,14 +108,18 @@ class BendSeqOrchestrator:
         if thickness <= 0.0:
             raise ValueError(f"Orchestrator: invalid non-positive thickness={thickness}")
 
-        if "k_factor" not in features or features["k_factor"] is None:
-            raise ValueError("Orchestrator: features payload missing required 'k_factor'")
-        try:
-            k_factor = float(features["k_factor"])
-        except (TypeError, ValueError) as e:
-            raise ValueError(f"Orchestrator: 'k_factor' must be numeric, got {type(features['k_factor']).__name__}") from e
-        if k_factor < 0.0 or k_factor > 1.0:
-            raise ValueError(f"Orchestrator: invalid k_factor={k_factor} (must be in [0.0, 1.0])")
+        if "k_factor" in features and features["k_factor"] is not None:
+            try:
+                k_factor = float(features["k_factor"])
+            except (TypeError, ValueError) as e:
+                raise ValueError(f"Orchestrator: 'k_factor' must be numeric, got {type(features['k_factor']).__name__}") from e
+            if k_factor < 0.0 or k_factor > 1.0:
+                raise ValueError(f"Orchestrator: invalid k_factor={k_factor} (must be in [0.0, 1.0])")
+        else:
+            # k_factor is a SheetMetal policy default (not a FeatureExtractor output).
+            # Default 0.40 matches FreeCAD SheetMetal baseline; explicitly documented,
+            # not a silent fabrication of missing geometry.
+            k_factor = 0.40
 
         bg = BendGraph()
         pg = PanelGraph()
