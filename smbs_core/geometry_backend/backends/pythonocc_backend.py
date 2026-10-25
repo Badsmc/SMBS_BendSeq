@@ -258,24 +258,28 @@ class PythonOCCBackend(GeometryBackend):
 
     def get_surface_area(self, shape: Any) -> float:
         if shape is None or shape.IsNull():
-            return 0.0
+            raise ValueError("get_surface_area: shape is None or null")
         try:
             props = GProp_GProps()
             brepgprop.SurfaceProperties(shape, props)
-            return float(props.Mass())
-        except Exception:
-            return 0.0
+            area = float(props.Mass())
+        except Exception as e:
+            raise RuntimeError(f"get_surface_area: SurfaceProperties failed: {e}") from e
+        if area <= 0.0:
+            raise ValueError(f"get_surface_area: degenerate shape (area={area})")
+        return area
 
     def get_face_center(self, face: Any) -> Tuple[float, float, float]:
         if face is None or face.IsNull():
-            return (0.0, 0.0, 0.0)
+            raise ValueError("get_face_center: face is None or null")
         try:
             props = GProp_GProps()
             brepgprop.SurfaceProperties(face, props)
             cg = props.CentreOfMass()
-            return (cg.X(), cg.Y(), cg.Z())
-        except Exception:
-            return (0.0, 0.0, 0.0)
+            center = (cg.X(), cg.Y(), cg.Z())
+        except Exception as e:
+            raise RuntimeError(f"get_face_center: SurfaceProperties failed: {e}") from e
+        return center
 
     def measure_planar_flange_lengths(self, shape: Any, bend_record: Any) -> Tuple[float, float]:
         """
