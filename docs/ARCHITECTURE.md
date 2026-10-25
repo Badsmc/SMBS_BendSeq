@@ -8,7 +8,7 @@
 │  • run_dir → timeline (viewer/ modules)              │
 │  • CLI: python -m smbs_core.viewer view <run_dir>    │
 │  • Offscreen HLR+PIL renderer (PREVIEW_ONLY)         │
-│  • FreeCAD addon GUI — deferred (post KL-12)         │
+│  • FreeCAD addon GUI — S.69 (freecad_smbs/)          │
 └──────────────────────────────────────────────────────┘
                         ↑↓ JSON / STEP
 ┌──────────────────────────────────────────────────────┐
@@ -124,7 +124,7 @@ player.Player                → tuple[Frame, ...]      (production_eligible fro
 
 - **Forward fold mode** — blocked on KL-12 (S.13b). `Player.switch_direction("forward")` raises `PlayerError`.
 - **Per-panel kinematic unfold** (`PER_PANEL_KINEMATIC`) — blocked on KL-12.
-- **FreeCAD addon GUI** — deferred; better aligned after S.13b so the 3D viewport shows honest per-panel kinematics, not whole-part rotation.
+- **FreeCAD addon GUI** — S.69 scaffold + menu + read-only commands + «Расчёт» (3D annotations) in `freecad_smbs/`; playback (Simulation) deferred to S.70, tooling editor to S.71. Headless `python -m smbs_core.viewer view <run_dir>` unchanged.
 
 ### Future extensions (Layer 6+)
 
