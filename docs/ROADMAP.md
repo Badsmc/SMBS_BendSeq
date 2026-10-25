@@ -206,66 +206,66 @@
 
 ---
 
-### Требование 4: Расчёт набора инструмента
+### Requirement 4: Tooling selection
 
-- **Что уже есть:**
+- **What already exists:**
   - Stage 2 search — `candidate_sequence`.
-  - `tooling_manifest` (после Phase B).
-- **Что добавить:**
-  - Алгоритм подбора: вход — доступные пуансоны (тип, длина, кол-во) и гибы; выход — назначение по гибам (по Q3).
-  - Модуль `smbs_core/tooling/selection.py` (предлагаемый путь).
-  - Интеграция с search (post-process или внутри A*/DFS).
-  - Учёт constraint checker из Phase D.
-- **Зависимости:** Phase B, Phase D.
-- **Оценка:** 4–6 сессий, 14–28 коммитов.
-- **Риски:** неопределённая целевая функция; сложность assignment; интеграция с search; ручная валидация.
+  - `tooling_manifest` (after Phase B).
+- **What to add:**
+  - Selection algorithm: input — available punches (type, length, count) and bends; output — per-bend assignment (per Q3).
+  - `smbs_core/tooling/selection.py` module (proposed path).
+  - Integration with search (post-process or inside A*/DFS).
+  - Use of constraint checker from Phase D.
+- **Dependencies:** Phase B, Phase D.
+- **Estimate:** 4–6 sessions, 14–28 commits.
+- **Risks:** undefined objective function; assignment complexity; search integration; manual validation.
 - **Definition of Done:**
-  - Для последовательности гибов и доступных пуансонов система выдаёт назначение по гибам.
-  - Назначение удовлетворяет constraint checker (4.1).
-  - Отчёт о заменах.
-  - Результат сохраняется в `tooling_selection`.
-- **Требуемые уточнения у пользователя:**
-  - Q3: Что значит «оптимальный» — минимум пуансонов / замен / стоимости? → целевая функция. → Ожидается: минимум замен при удовлетворении всех гибов.
-  - Q11: Подбор длины — per-bend или per-sequence? → алгоритм. → Ожидается: per-bend с учётом соседних гибов.
-- **Требуемые согласования (инвариант #7):** новый `tooling_selection.schema.json`.
-- **Связь с KL-8/KL-12:** выигрывает от KL-8 fix (collision-aware selection); базовый геометрический подбор независим.
+  - For bend sequence and available punches, system produces per-bend assignment.
+  - Assignment satisfies constraint checker (4.1).
+  - Changeover report.
+  - Result saved in `tooling_selection`.
+- **Required user clarifications:**
+  - Q3: What "optimal" means — minimum punches / changeovers / cost? → objective function. → Expected: minimum changeovers while satisfying all bends.
+  - Q11: Length selection — per-bend or per-sequence? → algorithm. → Expected: per-bend considering neighboring bends.
+- **Required approvals (Invariant #7):** new `tooling_selection.schema.json`.
+- **Relation to KL-8/KL-12:** benefits from KL-8 fix (collision-aware selection); basic geometric selection independent.
 
 ---
 
-### Требование 4.1: Учёт лапок станины
+### Requirement 4.1: Frame clamp consideration
 
-- **Что уже есть:** ничего специфичного.
-- **Что добавить:**
-  - Модель лапок: длина, промежуток, количество.
-  - Constraint checker: пуансон должен надёжно удерживаться (по Q2).
-  - Интеграция в selection (Phase E).
-- **Зависимости:** Phase B (модель станины/лапок в библиотеке).
-- **Оценка:** 2–3 сессии, 7–14 коммитов.
-- **Риски:** неоднозначная математика; конфиг под станок; геометрическая аппроксимация.
+- **What already exists:** nothing specific.
+- **What to add:**
+  - Clamp model: length, gap, count.
+  - Constraint checker: punch must be reliably retained (per Q2).
+  - Integration into selection (Phase E).
+- **Dependencies:** Phase B (frame/clamp model in library).
+- **Estimate:** 2–3 sessions, 7–14 commits.
+- **Risks:** ambiguous math; machine-specific config; geometric approximation.
 - **Definition of Done:**
-  - Checker валидирует удержание пуансона лапками при заданной конфигурации.
-  - Selection (4) использует checker.
-  - Невалидное назначение отклоняется с понятной причиной.
-- **Требуемые уточнения у пользователя:**
-  - Q2: Точная математика удержания. Промежуток 50 мм, пуансон 10 мм — «не держится». Нужно перекрытие ≥ X мм с каждой стороны? Или полное нахождение в зоне лапок? → constraint. → Ожидается: рабочая длина пуансона полностью поддерживается зонами лапок (перекрытие ≥ X мм).
-  - Q12: Могут ли лапки переставляться между гибами? → solver. → Ожидается: фиксированы на последовательность; перестановка = событие «замена».
-- **Требуемые согласования (инвариант #7):** `tooling_manifest.schema.json` (extend) или новый `tooling_station.schema.json`.
-- **Связь с KL-8/KL-12:** не блокируется.
+  - Checker validates punch retention by clamps for given configuration.
+  - Selection (4) uses the checker.
+  - Invalid assignment rejected with clear reason.
+- **Required user clarifications:**
+  - Q2: Exact retention math. Gap 50 mm, punch 10 mm — "not retained". Need overlap ≥ X mm on each side? Or full containment in clamp zone? → constraint. → Expected: working length of punch fully supported by clamp zones (overlap ≥ X mm).
+  - Q12: Can clamps be repositioned between bends? → solver. → Expected: fixed per sequence; repositioning = "changeover" event.
+- **Required approvals (Invariant #7):** `tooling_manifest.schema.json` (extend) or new `tooling_station.schema.json`.
+- **Relation to KL-8/KL-12:** not blocked.
 
 ---
 
-### Требование 5: Дальнейшая визуализация (открытый блок)
+### Requirement 5: Further visualization (open block)
 
-- **Что уже есть:** TBD.
-- **Что добавить:** TBD до Q13.
-- **Зависимости:** TBD.
-- **Оценка:** TBD.
-- **Риски:** TBD.
+- **What already exists:** TBD.
+- **What to add:** TBD until Q13.
+- **Dependencies:** TBD.
+- **Estimate:** TBD.
+- **Risks:** TBD.
 - **Definition of Done:** TBD.
-- **Требуемые уточнения у пользователя:**
-  - Q13: Что входит в «дальнейшую визуализацию»? (коллизии, усилия гибки, экспорт в форматы станков, отчётность?) → без этого нельзя планировать. → Ожидается: список приоритетных функций.
-- **Требуемые согласования (инвариант #7):** TBD.
-- **Связь с KL-8/KL-12:** TBD.
+- **Required user clarifications:**
+  - Q13: What's included in "further visualization"? (collisions, bending forces, export to machine formats, reporting?) → without this, planning is impossible. → Expected: list of prioritized features.
+- **Required approvals (Invariant #7):** TBD.
+- **Relation to KL-8/KL-12:** TBD.
 
 ---
 
