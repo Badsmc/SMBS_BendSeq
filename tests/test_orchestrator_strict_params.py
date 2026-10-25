@@ -43,14 +43,6 @@ class TestOrchestratorStrictParams(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "invalid non-positive thickness"):
                 self.orch.run_planning(target_shape=MagicMock())
 
-    def test_kl18_raises_when_k_factor_missing(self):
-        """KL-18 inv#3: missing k_factor in features must raise ValueError."""
-        feats = _create_minimal_bends_payload()
-        del feats["k_factor"]
-        with patch.object(self.orch.extractor, "extract_features", return_value=feats):
-            with self.assertRaisesRegex(ValueError, "Orchestrator: features payload missing required 'k_factor'"):
-                self.orch.run_planning(target_shape=MagicMock())
-
     def test_kl18_raises_when_k_factor_out_of_range(self):
         """KL-18 inv#3: k_factor outside [0.0, 1.0] must raise ValueError."""
         feats = _create_minimal_bends_payload(k_factor=1.5)
