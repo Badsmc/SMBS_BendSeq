@@ -15,6 +15,12 @@ from freecad_smbs.ui.badges import (
     get_badge_hex,
     get_badge_rgba,
 )
+from smbs_core.viewer.flat_annotations import (
+    BendAnnotation,
+    FlatAnnotationsError,
+    compute_annotations,
+)
+from smbs_core.viewer.graph_builder import build_graphs
 from smbs_core.viewer.run_loader import RunArtifacts, load_run as _core_load_run
 
 
@@ -22,6 +28,12 @@ def load_run(run_dir: Union[str, Path]) -> RunArtifacts:
     """Load and parse run artifacts strictly in read-only mode."""
     path = Path(run_dir).expanduser().resolve()
     return _core_load_run(path)
+
+
+def get_annotations(artifacts: RunArtifacts) -> List[BendAnnotation]:
+    """Compute bend annotations (read-only). Raises FlatAnnotationsError on invalid run."""
+    graphs = build_graphs(artifacts)
+    return compute_annotations(artifacts, graphs)
 
 
 def present_info(artifacts: RunArtifacts) -> Dict[str, Any]:

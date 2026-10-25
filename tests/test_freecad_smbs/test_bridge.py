@@ -37,7 +37,20 @@ class TestSMBSBridge(unittest.TestCase):
             json.dumps({
                 "schema_name": "canonical_part",
                 "payload": {
-                    "bends": {},
+                    "bends": {
+                        "B01": {
+                            "bend_line_flat_pattern": {
+                                "start_mm": [0.0, 5.0, 0.0],
+                                "end_mm": [10.0, 5.0, 0.0],
+                            }
+                        },
+                        "B02": {
+                            "bend_line_flat_pattern": {
+                                "start_mm": [0.0, 15.0, 0.0],
+                                "end_mm": [10.0, 15.0, 0.0],
+                            }
+                        },
+                    },
                     "geometry_artifact": {
                         "file_path": "geometry.brep",
                         "format": "BREP",
@@ -180,3 +193,30 @@ class TestSMBSBridge(unittest.TestCase):
         limitations_str = " ".join(info["limitations"])
         self.assertIn("KL-12", limitations_str)
         self.assertIn("KL-16", limitations_str)
+
+    def test_bridge_get_annotations(self):
+        """C4: Verify smbs_bridge.get_annotations computes BendAnnotation list."""
+        from unittest.mock import MagicMock, patch
+        from freecad_smbs.integration.smbs_bridge import get_annotations
+
+        mock_graphs = MagicMock()
+        mock_graphs.direction_by_bend = {"B01": "up", "B02": "down"}
+
+        with patch("freecad_smbs.integration.smbs_bridge.build_graphs", return_value=mock_graphs):
+            artifacts = load_run(self.run_path)
+            anns = get_annotations(artifacts)
+
+        self.assertEqual(len(anns), 2)
+        self.assertEqual(anns[0].step, 1)
+        self.assertEqual(anns[0].bend_id, "B01")
+        self.assertEqual(anns[0].midpoint, (5.0, 5.0, 0.0))  # (start + end) / 2
+        self.assertEqual(anns[0].ui_direction, "up")
+        self.assertEqual(anns[0].verification, "UNVERIFIED")
+
+        self.assertEqual(anns[1].step, 2)
+        self.assertEqual(anns[1].bend_id, "B02")
+        self.assertEqual(anns[1].midpoint, (5.0, 15.0, 0.0))
+        self.assertEqual(anns[1].ui_direction, "down")
+
+        info = present_info(artifacts)
+        self.assertEqual(info["step_count"], 2)
