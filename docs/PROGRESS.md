@@ -490,11 +490,11 @@ bend order; `tuple(path)` required (Session 1.5 analysis).
   *Bonus S.66 finding (future candidate, no ID assigned):* `cli.py` currently does not
   expose `--unknown-policy` or `--allow-synthetic` flags; cataloged for future CLI polish.
 
-- **KL-9 (Stage 2, P2): `2_1_3_4_ok` baseline INVALID (inherited KL-7).**
+- **KL-9 (Stage 2, P2, BLOCKED on Stage 1 B.3.3): `2_1_3_4_ok` baseline INVALID (inherited KL-7).**
   - **Symptom:** Part `2-1-3-4-(ok).FCStd` fails Stage 1 baseline with facets mismatch (90 vs 94).
-  - **Cause:** Inherited from Stage 1 KL-7 (flat-pattern reconstruction).
+  - **Cause:** Inherited from Stage 1 KL-7 (`make_bend_sector` does not adapt flat-pattern relief cuts in BA zone, commit `5ba8e59`).
   - **Impact:** `test_verifier_worker_2_1_3_4_deferred` is `@expectedFailure`.
-  - **Follow-up:** Resolve via Stage 1 KL-7.
+  - **Follow-up:** Blocked on Stage 1 CAD task B.3.3 (refactor `make_bend_sector` to adapt flat contour). Volume is exact (0.0005% delta).
 
 - **KL-10 (Stage 2, P3, CLOSED S.65 `4686d24`): `MockValidator` without `unknown_policy`.**
   - **Symptom:** `test_stage10/11/18/19` use a `MockValidator` that does not accept the `unknown_policy` parameter.
