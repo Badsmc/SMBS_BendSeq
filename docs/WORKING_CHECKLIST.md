@@ -24,7 +24,6 @@
 |---|---|---|---|
 | KL-12-v3 | Forward fold (panel shell → solid) | Architecture: rigid-body model needs bend-region deformation | Investigated S.38; 7 recombine approaches probed; none produce solid |
 | KL-16 | Machine frame (`machine_frame.FCStd`) | CAD session — file missing | Required for machine collision check |
-| KL-23 | Cyclic N≥8 tie-break | Scheduling | P1; after P0-CODE fixes |
 
 ## Deferred (separate session, P1-docs)
 
@@ -63,6 +62,7 @@
 | P1-hygiene-test-05-workaround | Direct `json.load` workaround in `test_hausdorff_gate_enforcement` removed | `c41263d` | `tests/test_baseline_topology_canonical.py` (578 tests) | 2026-10-24 |
 | P1-hygiene-angle-override | Annotate `angle_override_deg` as DEBUG_OVERRIDE in `fold_from_flat_pattern`/`fold_multi_bend_from_flat_pattern` signatures | `941ae36` | `smbs_core/Geometry/sheetmetal_folder.py` (578 tests) | 2026-10-25 |
 | P1-hygiene-proposal-2 | S.46 caching investigation closed: `StateCache` already integrated (Phase 7 COMPLETE), no further runner optimization required | — (S.46 audit; no code change) | `docs/PROGRESS.md` Phase 7; `smbs_core/workers/solver/worker.py:183-201` (578 tests) | 2026-10-25 |
+| KL-23 | Cyclic N≥8 tie-break — investigated, closed as KNOWN_LIMITATION | — (no code change; cyclic topology rejected at `panel_topology.py:13`; already accepted in `RELEASE_AUDIT.md:26`) | `docs/PROGRESS.md:504-508`; `docs/RELEASE_AUDIT.md:26` (578 tests) | 2026-10-25 |
 
 ## Upcoming Tasks (Post-P0 Remediation)
 
