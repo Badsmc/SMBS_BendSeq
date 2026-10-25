@@ -99,8 +99,23 @@ class BendSeqOrchestrator:
             }
 
         bends_map = features["bends"]
-        k_factor = features.get("k_factor", 0.40)
-        thickness = features.get("thickness", 2.0)
+        if "thickness" not in features or features["thickness"] is None:
+            raise ValueError("Orchestrator: features payload missing required 'thickness'")
+        try:
+            thickness = float(features["thickness"])
+        except (TypeError, ValueError) as e:
+            raise ValueError(f"Orchestrator: 'thickness' must be numeric, got {type(features['thickness']).__name__}") from e
+        if thickness <= 0.0:
+            raise ValueError(f"Orchestrator: invalid non-positive thickness={thickness}")
+
+        if "k_factor" not in features or features["k_factor"] is None:
+            raise ValueError("Orchestrator: features payload missing required 'k_factor'")
+        try:
+            k_factor = float(features["k_factor"])
+        except (TypeError, ValueError) as e:
+            raise ValueError(f"Orchestrator: 'k_factor' must be numeric, got {type(features['k_factor']).__name__}") from e
+        if k_factor < 0.0 or k_factor > 1.0:
+            raise ValueError(f"Orchestrator: invalid k_factor={k_factor} (must be in [0.0, 1.0])")
 
         bg = BendGraph()
         pg = PanelGraph()
