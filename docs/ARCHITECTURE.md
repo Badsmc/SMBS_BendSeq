@@ -1,6 +1,6 @@
 # smbs_core Architecture
 
-> **Architecture scope (annotated 2026-10-23):** This document covers Layers 1–5 (Stages 1–4: geometry backend, core, physics/solvers, CLI/IO, viewer). It does NOT cover later stages (Stages 5–9, Req 6, Req 2 F.1–F.3a) — see footer and `docs/PROGRESS.md`. Current HEAD: `91d07c0` (stage-1-fix-correctness). Current release verdict: **NOT READY** (see `docs/AUDIT_FULL_2026-10-23.md`).
+> **Architecture scope (annotated 2026-10-25):** This document covers Layers 1–5 (Stages 1–4: geometry backend, core, physics/solvers, CLI/IO, viewer). It does NOT cover later stages (Stages 5–9, Req 6, Req 2 F.1–F.3a) — see footer and `docs/PROGRESS.md`. Current HEAD: `87d7c03` (stage-1-fix-correctness). Current release verdict: **READY** (qualified at HEAD `917eb71`; see `docs/AUDIT_FULL_2026-10-23.md` §Release Verdict).
 
 ```
 ┌──────────────────────────────────────────────────────┐
@@ -140,7 +140,7 @@ Confirmed decisions: bend annotations will be **3D annotations** (not TechDraw);
 
 ---
 
-## Current Status (annotated 2026-10-23)
+## Current Status (annotated 2026-10-25)
 
 This architecture document describes Layers 1–5 (Stages 1–4). It predates:
 
@@ -155,12 +155,12 @@ The Stage 4 `### Deferred` section records forward-fold as "blocked on
 KL-12 (S.13b)" — this remains TRUE as of 2026-10-23. The architectural
 forward-fold track is tracked in `docs/ROADMAP.md` under KL-12 v3.
 
-**Not described here:** P0-CODE-1..5 / P0-DOC-1..4 (see
-`docs/AUDIT_FULL_2026-10-23.md`), and Acceptance Principles 13–15 (now
-in Core Architectural Rules above, items 5–7).
+**Not described here:** P0-CODE-1..5 / P0-DOC-1..4 history (all closed S.39–S.51;
+see `docs/AUDIT_FULL_2026-10-23.md`, `docs/PROGRESS.md` S.40–S.50). Acceptance
+Principles 13–15 now in Core Architectural Rules above, items 5–7.
 
-**Full architecture refresh (Stages 5–9, Req 6, Req 2):** tracked in
-`docs/WORKING_CHECKLIST.md` as an open P1 documentation task. Not performed
-in this standardization pass.
+**Full content refresh (Stages 5–9, Req 6, Req 2):** stale current-state
+facts truth-upped S.63 (this pass); full content addition of Stages 5–9,
+Req 6, Req 2 tracked separately in `docs/WORKING_CHECKLIST.md` §Deferred.
 
-**Current release decision: NOT READY.**
+**Current release decision: READY** (qualified at HEAD `917eb71`; see `docs/AUDIT_FULL_2026-10-23.md` §Release Verdict).
