@@ -202,7 +202,7 @@ class AStarBackwardPlanner:
                 current_state = next_state
                 current_path = p["parent_path"] + [step_info]
                 current_fp = pred_fp
-                current_g = p["parent_g"] + 1.0
+                current_g = g_scores.get(current_fp, p["parent_g"] + 1.0)
             else:
                 current_state = current_node.state
                 current_path = current_node.path
