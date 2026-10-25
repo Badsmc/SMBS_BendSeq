@@ -439,6 +439,17 @@ class SolverWorker:
         else:
             optimality_claim = "feasible_unoptimized"
 
+        if (
+            planning_status == RunStatus.NO_SOLUTION
+            and actual_tooling_status == "SIMPLIFIED"
+            and unknown_policy == "PRODUCTION"
+        ):
+            diagnostics.append(
+                "No tooling provided (SIMPLIFIED synthetic); PRODUCTION policy rejects "
+                "UNKNOWN collisions. Provide --punch-id/--die-id or --tooling-set/"
+                "--tooling-config (or run with EXPLORATORY policy if supported)."
+            )
+
         search_result_payload = {
             "schema_name": "search_result",
             "schema_version": "1.1",
