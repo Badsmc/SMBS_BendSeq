@@ -1,5 +1,5 @@
 """
-Independent Verifier Worker for SMBS / BendSeq (ТЗ v1.2 §7.1, Principles 8, 24).
+Independent Verifier Worker for SMBS / BendSeq (technical specification v1.2 §7.1, Principles 8, 24).
 Simulates candidate sequence step-by-step using PhysicalValidator without solver cache.
 Validates each transition and checks full B-Rep invariants against reference 3D model.
 Writes 09_verification_result.json.

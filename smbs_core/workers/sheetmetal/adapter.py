@@ -1,6 +1,6 @@
 """
 SheetMetalAdapter - Dedicated contract adapter for FreeCAD SheetMetal Workbench.
-Compliant with ТЗ v1.2 §3.1, §3.2, §3.3 (Rules R1-R5) and Principles 1, 16, 23.
+Compliant with technical specification v1.2 §3.1, §3.2, §3.3 (Rules R1-R5) and Principles 1, 16, 23.
 """
 
 from __future__ import annotations

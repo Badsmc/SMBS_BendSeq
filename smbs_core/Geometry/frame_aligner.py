@@ -1,6 +1,6 @@
 """
 Frame Aligner for SMBS / BendSeq.
-Compliant with ТЗ v1.2 §5.2 and Principles 15, 18.
+Compliant with technical specification v1.2 §5.2 and Principles 15, 18.
 Calculates full 3D orthonormal frame alignment T = (R, t) between flat pattern and reference 3D model.
 Enforces det(R) = +1.0 and rejects ambiguous frames with FRAME_AMBIGUOUS.
 """

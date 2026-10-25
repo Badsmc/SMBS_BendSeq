@@ -1,5 +1,5 @@
 """
-cli.py - Headless Command-Line Interface for SMBS Core Bending Sequence Planner (ТЗ v1.2 §4.1).
+cli.py - Headless Command-Line Interface for SMBS Core Bending Sequence Planner (technical specification v1.2 §4.1).
 Usage:
     smbs-cli <model_path> [--mode NATIVE_SHEETMETAL] [--algorithm astar] [--budget 5000] [--output sequence.json]
 """

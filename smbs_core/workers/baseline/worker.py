@@ -325,7 +325,7 @@ class BaselineWorker:
                 canonical_part_path, expected_schema_name="canonical_part"
             )
         except Exception:
-            # KNOWN DEVIATION (Task 1.0.1b-3a / ТЗ §23):
+            # KNOWN DEVIATION (Task 1.0.1b-3a / technical specification §23):
             # Fallback to plain JSON reading is temporarily permitted to allow topology error handling
             # (AMBIGUOUS_TOPOLOGY_ROOT, NON_TREE_TOPOLOGY, DISCONNECTED_PANEL_GRAPH) on synthetic test fixtures
             # that omit full canonical_part schema fields.

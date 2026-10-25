@@ -1,5 +1,5 @@
 """
-Solver Worker for SMBS / BendSeq (ТЗ v1.2 §6).
+Solver Worker for SMBS / BendSeq (technical specification v1.2 §6).
 Implements deterministic search with ResourceBudget, unknown_policy, and full metrics tracking.
 Reads 06_search_request.json -> writes 07_search_result.json.
 """

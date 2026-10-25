@@ -1,6 +1,6 @@
 """
 sheetmetal_folder.py - Unified physical sheet metal folding engine using SheetMetalBendSolid.
-Compliant with ТЗ v1.2 §5.1, §5.2 and Principles 2, 7, 23.
+Compliant with technical specification v1.2 §5.1, §5.2 and Principles 2, 7, 23.
 Reconstructs folded 3D B-Rep solids with true cylindrical fillets (headless, without Sketcher or GUI).
 """
 
