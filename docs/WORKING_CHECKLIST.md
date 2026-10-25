@@ -25,6 +25,7 @@
 | KL-12-v3 | Forward fold (panel shell → solid) | Architecture: rigid-body model needs bend-region deformation | Investigated S.38; 7 recombine approaches probed; none produce solid |
 | KL-16 | Machine frame (`machine_frame.FCStd`) | CAD session — file missing | Required for machine collision check |
 | F.3b | Req 2 Phase F.3b (punch descent + backgauge + machine frame overlay) | KL-16 (`machine_frame.FCStd` missing) | Machine frame overlay requires machine frame geometry |
+| KL-9 | `2_1_3_4_ok` baseline validation | Stage 1 B.3.3 (`make_bend_sector` relief-cut adaptation) | Inherited KL-7 (`5ba8e59`); volume exact (0.0005% delta), +4 corner facet faces on Hub; test `@expectedFailure` |
 
 ## Deferred (separate session, P1-docs)
 
