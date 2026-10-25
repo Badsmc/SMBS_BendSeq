@@ -41,10 +41,10 @@ All 3 expected failures are pinned non-blocking fixtures with verified `@unittes
 
 ---
 
-# REGRESSION & QUALIFICATION REPORT — SMBS / BendSeq (ТЗ v1.2)
+# REGRESSION & QUALIFICATION REPORT — SMBS / BendSeq (technical specification v1.2)
 
 **Дата:** 12.10.2026  
-**Спецификация:** ТЗ v1.2 (11.10.2026, основа: архитектурный мануал v1.0 + аудит)  
+**Спецификация:** technical specification v1.2 (11.10.2026, основа: архитектурный мануал v1.0 + аудит)  
 **Коммит базы:** `HEAD` (main)  
 **Окружение:** FreeCAD 1.1.3 / OpenCASCADE 7.7.x / Python 3.11.11 / pydantic 2.14.1 / jsonschema 4.26.0 (macOS Darwin arm64)
 
@@ -52,7 +52,7 @@ All 3 expected failures are pinned non-blocking fixtures with verified `@unittes
 
 ## 1. Шкала зрелости компонентов (§0, §8)
 
-| Компонент | Статус ТЗ v1.0 | Статус ТЗ v1.2 | Основание и доказательства |
+| Компонент | Статус technical specification v1.0 | Статус technical specification v1.2 | Основание и доказательства |
 | :--- | :--- | :--- | :--- |
 | **Файловая прослойка (IPC & FileStore)** | Отсутствовала | **QUALIFIED** | 12 JSON-схем, строгая валидация jsonschema, атомарная запись (`*.tmp` -> fsync -> rename), SHA-256 канонических хэшей (`tests/test_contracts_and_filestore.py`). |
 | **SheetMetal Adapter** | Не изолирован | **VERIFIED** | Нативный FreeCAD SheetMetal адаптер (`SheetMetalAdapter`), нормализация знаков углов, радиусов и осей. Вывод getUnfold зафиксирован в fixture `tests/fixtures/sheetmetal_contract.json` (`tests/test_sheetmetal_adapter_contract.py`). |
@@ -80,7 +80,7 @@ All 3 expected failures are pinned non-blocking fixtures with verified `@unittes
 
 ## 3. Реестр тестовых наборов v1.2
 
-| Тестовый модуль | Число тестов | Результат | Покрываемые требования ТЗ v1.2 |
+| Тестовый модуль | Число тестов | Результат | Покрываемые требования technical specification v1.2 |
 | :--- | :---: | :---: | :--- |
 | `tests/test_contracts_and_filestore.py` | 7 | **PASS** | §4.2, §4.5 (JSON schemas, SHA-256, atomic rename, tamper detection). |
 | `tests/test_sheetmetal_bend_solid.py` | 1 | **PASS** | §5.1 (Headless примитив `bend_solid`, проверка геометрии цилиндра и аналитического объема). |
@@ -93,13 +93,13 @@ All 3 expected failures are pinned non-blocking fixtures with verified `@unittes
 | `tests/test_end_to_end_pipeline.py` | 3 | **PASS** | §6, §7 (Full 3-stage pipeline on L, U, 4-bend fixtures). |
 | `tests/test_phase10_cli.py` | 2 | **PASS** | §4.1 (Headless CLI execution and exit code contracts). |
 | `tests/test_robustness_and_negative.py` | 4 | **PASS** | §6.5, §7.3, §9.10, §10 (Timeout, resource limits, reverse verification blocking). |
-| **ИТОГО** | **32** | **32 / 32 PASS (100%)** | Все критерии приёмки ТЗ v1.2 выполнены и верифицированы. |
+| **ИТОГО** | **32** | **32 / 32 PASS (100%)** | Все критерии приёмки technical specification v1.2 выполнены и верифицированы. |
 
 ---
 
 ## 4. Воспроизведение тестов
 
-Для запуска полного верификационного пакета ТЗ v1.2:
+Для запуска полного верификационного пакета technical specification v1.2:
 ```bash
 /Applications/FreeCAD.app/Contents/Resources/bin/python -m unittest \
   tests/test_contracts_and_filestore.py \
@@ -122,7 +122,7 @@ All 3 expected failures are pinned non-blocking fixtures with verified `@unittes
 This file is a HISTORICAL snapshot. The "32/32 PASS" result above was
 produced on 2026-10-12 against base commit `c76e95f` (main) using the
 11 test files listed in §4. It covers the Stage 1 baseline verification
-package for ТЗ v1.2 only.
+package for technical specification v1.2 only.
 
 It does NOT describe:
 - Current HEAD: 91d07c0 (stage-1-fix-correctness), baseline 550 tests.
