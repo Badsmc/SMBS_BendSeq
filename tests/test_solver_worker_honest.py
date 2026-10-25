@@ -272,6 +272,63 @@ class TestSolverWorkerHonest(unittest.TestCase):
 
         mock_greedy_cls.assert_called_once()
 
+    @patch("smbs_core.workers.solver.worker.SolverWorker._load_brep", return_value=MagicMock())
+    @patch("smbs_core.workers.solver.worker.AStarBackwardPlanner")
+    def test_solver_worker_rejects_real_step_when_validator_simplified(self, mock_planner_cls, mock_load_brep):
+        """KL-20 inv#2/#3: planner step cannot claim REAL tooling when validator executed SIMPLIFIED."""
+        mock_planner = MagicMock()
+        mock_planner.solve.return_value = {
+            "success": True,
+            "termination_reason": "GOAL_REACHED",
+            "sequence": [
+                {
+                    "bend_id": "B1",
+                    "collision_status": "VALID",
+                    "planner_status": "VALID",
+                    "tooling_status": "REAL"
+                }
+            ],
+            "nodes_explored": 5,
+            "rejections": []
+        }
+        mock_planner_cls.return_value = mock_planner
+
+        worker = SolverWorker(self.file_store)
+        req_file = self._create_search_request(unknown_policy="PRODUCTION")
+        with self.assertRaisesRegex(ValueError, "tooling_status divergence"):
+            worker.execute(req_file)
+
+    @patch("smbs_core.workers.solver.worker.PhysicalValidator")
+    @patch("smbs_core.workers.solver.worker.SolverWorker._load_brep", return_value=MagicMock())
+    @patch("smbs_core.workers.solver.worker.AStarBackwardPlanner")
+    def test_solver_worker_rejects_simplified_step_when_validator_missing(self, mock_planner_cls, mock_load_brep, mock_validator_cls):
+        """KL-20 inv#2/#3: planner step cannot claim SIMPLIFIED tooling when validator executed MISSING."""
+        mock_planner = MagicMock()
+        mock_planner.solve.return_value = {
+            "success": True,
+            "termination_reason": "GOAL_REACHED",
+            "sequence": [
+                {
+                    "bend_id": "B1",
+                    "collision_status": "VALID",
+                    "planner_status": "VALID",
+                    "tooling_status": "SIMPLIFIED"
+                }
+            ],
+            "nodes_explored": 5,
+            "rejections": []
+        }
+        mock_planner_cls.return_value = mock_planner
+
+        mock_validator = MagicMock()
+        mock_validator.tooling_status = "MISSING"
+        mock_validator_cls.return_value = mock_validator
+
+        worker = SolverWorker(self.file_store)
+        req_file = self._create_search_request(unknown_policy="PRODUCTION")
+        with self.assertRaisesRegex(ValueError, "tooling_status divergence"):
+            worker.execute(req_file)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -37,6 +37,8 @@ from smbs_core.protocols.file_store import (
     AlignmentStatus,
 )
 
+_TOOLING_RANK = {"MISSING": 0, "SIMPLIFIED": 1, "REAL": 2}
+
 
 class SolverWorker:
     """
@@ -295,14 +297,26 @@ class SolverWorker:
             # before writing to candidate_sequence (same pattern as step_collision_status,
             # step_planner_status, step_alignment_status above — those already do .upper()).
             step_tool_id = step_item.get("tool_id") or default_tool_id
-            step_tooling_status_raw = step_item.get("tooling_status") or actual_tooling_status
-            step_tooling_status = str(step_tooling_status_raw).upper()
-            if step_tooling_status not in ("REAL", "SIMPLIFIED", "MISSING"):
-                raise ValueError(
-                    f"SolverWorker: invalid step tooling_status {step_tooling_status_raw!r} "
-                    f"for bend {bid!r}; expected one of REAL/SIMPLIFIED/MISSING. "
-                    f"Normalised: {step_tooling_status!r}."
-                )
+            step_tooling_status_raw = step_item.get("tooling_status")
+            if step_tooling_status_raw is None:
+                step_tooling_status = actual_tooling_status
+            else:
+                step_tooling_status = str(step_tooling_status_raw).upper()
+                if step_tooling_status not in ("REAL", "SIMPLIFIED", "MISSING"):
+                    raise ValueError(
+                        f"SolverWorker: invalid step tooling_status {step_tooling_status_raw!r} "
+                        f"for bend {bid!r}; expected one of REAL/SIMPLIFIED/MISSING. "
+                        f"Normalised: {step_tooling_status!r}."
+                    )
+                # Invariant #2/#3: step cannot claim higher tooling fidelity
+                # than validator actually executed with.
+                if _TOOLING_RANK[step_tooling_status] > _TOOLING_RANK[actual_tooling_status]:
+                    raise ValueError(
+                        f"SolverWorker: tooling_status divergence for bend {bid!r}: "
+                        f"step claims {step_tooling_status!r} but validator ran with "
+                        f"{actual_tooling_status!r} (fidelity decrease is fabrication)."
+                    )
+
             if step_tool_id == "UNKNOWN" and not tooling_manifest:
                 step_tooling_status = "MISSING"
 
