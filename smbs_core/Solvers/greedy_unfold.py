@@ -67,13 +67,6 @@ class GreedyUnfoldPlanner(BasePlanner):
                 kwargs = {}
                 if unknown_policy != "PRODUCTION":
                     kwargs["unknown_policy"] = unknown_policy
-                else:
-                    try:
-                        import inspect
-                        if "unknown_policy" in inspect.signature(self.validator.validate_step).parameters:
-                            kwargs["unknown_policy"] = unknown_policy
-                    except Exception:
-                        pass
                 val_result: ValidationResult = self.validator.validate_step(
                     current_state=current,
                     bend_record=bend_rec,

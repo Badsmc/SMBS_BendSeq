@@ -153,13 +153,6 @@ class AStarBackwardPlanner:
                     kwargs = {}
                     if unknown_policy != "PRODUCTION":
                         kwargs["unknown_policy"] = unknown_policy
-                    else:
-                        try:
-                            import inspect
-                            if "unknown_policy" in inspect.signature(self.validator.validate_step).parameters:
-                                kwargs["unknown_policy"] = unknown_policy
-                        except Exception:
-                            pass
                     val_res = self.validator.validate_step(
                         current_state=p["parent_state"],
                         bend_record=bend_rec_pop,

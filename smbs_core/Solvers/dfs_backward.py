@@ -179,14 +179,6 @@ class DFSBackwardPlanner(BasePlanner):
                     kwargs = {"tooling_override": tooling_override}
                     if unknown_policy != "PRODUCTION":
                         kwargs["unknown_policy"] = unknown_policy
-                    else:
-                        # Check if validator accepts unknown_policy
-                        try:
-                            import inspect
-                            if "unknown_policy" in inspect.signature(self.validator.validate_step).parameters:
-                                kwargs["unknown_policy"] = unknown_policy
-                        except Exception:
-                            pass
                     val_result = self.validator.validate_step(
                         current,
                         bend_rec,
