@@ -13,6 +13,7 @@ MOCK_FEATURES = {
         "thickness": 2.0,
         "k_factor": 0.40,
         "material": "Steel_S235",
+        "panels": {},
         "bends": {
             "BEND_01": {
                 "origin": (0, 0, 0),
@@ -29,6 +30,7 @@ MOCK_FEATURES = {
         "thickness": 2.0,
         "k_factor": 0.40,
         "material": "Steel_S235",
+        "panels": {},
         "bends": {
             "BEND_01": {
                 "origin": (0, -50, 0),
@@ -54,6 +56,7 @@ MOCK_FEATURES = {
         "thickness": 2.0,
         "k_factor": 0.40,
         "material": "Steel_S235",
+        "panels": {},
         "bends": {
             "BEND_01": {
                 "origin": (0, -50, 0),
@@ -79,6 +82,7 @@ MOCK_FEATURES = {
         "thickness": 2.0,
         "k_factor": 0.40,
         "material": "Steel_S235",
+        "panels": {},
         "bends": {
             "BEND_01": {
                 "origin": (0, -50, 0),
@@ -113,6 +117,7 @@ MOCK_FEATURES = {
         "thickness": 2.0,
         "k_factor": 0.40,
         "material": "Steel_S235",
+        "panels": {},
         "bends": {
             "BEND_01": {
                 "origin": (-50, 0, 0),

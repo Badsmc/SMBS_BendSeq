@@ -151,8 +151,8 @@ class BendSeqOrchestrator:
         #   (a) target_shape is a real OCC B-Rep shape — mock/synthetic shapes
         #       in unit tests have no B-Rep faces to resolve.
         #   (b) features contains "panels" metadata — required to fit planes
-        #       (normal + centroid per panel). Mock FeatureExtractor in
-        #       test_bendseq / test_stage3_regression omits it by design.
+        #       (normal + centroid per panel). Mocks include empty "panels"
+        #       dict for contract completeness.
         # If either precondition fails, we skip resolution entirely — no
         # silent default is applied to any panel/bend field. If we DO attempt
         # resolution, strict KeyError on pd["normal"], pd["centroid"],
