@@ -129,80 +129,80 @@
 
 ---
 
-### Требование 2: Анимация гибки в FreeCAD
+### Requirement 2: Bending animation in FreeCAD
 
-- **Что уже есть:**
-  - `smbs_core/viewer/replayer.py` — пошаговый backward unfold (через `backend.rotate_subtree`).
-  - `smbs_core/viewer/player.py` — таймлайн (reset/next/prev).
+- **What already exists:**
+  - `smbs_core/viewer/replayer.py` — step-by-step backward unfold (via `backend.rotate_subtree`).
+  - `smbs_core/viewer/player.py` — timeline (reset/next/prev).
   - `smbs_core/viewer/render.py` — HLR + PIL → PNG.
   - `smbs_core/viewer/cli.py` — `view <run_dir>`.
-- **Что добавить:**
-  - FreeCAD-анимация: движение объектов по таймлайну (QTimer), синхронизация с `candidate_sequence`.
-  - Визуализация оснастки: пуансон, матрица, станина, упор — из библиотеки (Phase B).
-  - Timeline UI в FreeCAD.
-  - Интеграция с KL-12 fix — per-panel кинематика.
-- **Зависимости:** Phase B (библиотека оснастки), KL-12 fix.
-- **Оценка:** 4–6 сессий, 14–28 коммитов.
-- **Риски:** KL-12 fix меняет семантику `rotate_subtree`; потокобезопасность GUI; позиционирование оснастки относительно линии гиба; производительность на сложных деталях.
+- **What to add:**
+  - FreeCAD animation: object movement along timeline (QTimer), synchronized with `candidate_sequence`.
+  - Tooling visualization: punch, die, frame, backgauge — from library (Phase B).
+  - Timeline UI in FreeCAD.
+  - Integration with KL-12 fix — per-panel kinematics.
+- **Dependencies:** Phase B (tooling library), KL-12 fix.
+- **Estimate:** 4–6 sessions, 14–28 commits.
+- **Risks:** KL-12 fix alters `rotate_subtree` semantics; GUI thread-safety; positioning tooling relative to bend line; performance on complex parts.
 - **Definition of Done:**
-  - Пользователь загружает run с оснасткой из библиотеки.
-  - Анимация проигрывает шаги гибки; пуансон, матрица, станина, упор видимы и движутся согласованно.
-  - Каждый шаг honest-marked; при `UNVERIFIED` — бейдж.
-  - Нет `PREVIEW_ONLY` по причине KL-12 (KL-12 fix выполнен).
-- **Требуемые уточнения у пользователя:**
-  - Q6: Скорость/длительность анимации? → влияет на таймлайн. → Ожидается: например, 1 с на гиб, настраиваемо.
-  - Q7: Должна ли оснастка двигаться (пуансон опускается, упор переставляется) или быть статичной? → сложность и реализм. → Ожидается: пуансон опускается, упор переставляется между гибами.
-- **Требуемые согласования (инвариант #7):** нет новых; использует `tooling_manifest` из Phase B.
-- **Связь с KL-8/KL-12:** **требует KL-12 fix** (per-panel кинематика). KL-8 влияет на `production_eligible`, но анимация играет с бейджем.
+  - User loads a run with tooling from the library.
+  - Animation plays bend steps; punch, die, frame, backgauge visible and moving coherently.
+  - Each step honest-marked; `UNVERIFIED` badge when applicable.
+  - No `PREVIEW_ONLY` caused by KL-12 (KL-12 fix completed).
+- **Required user clarifications:**
+  - Q6: Animation speed/duration? → affects timeline. → Expected: e.g. 1 s per bend, configurable.
+  - Q7: Should tooling move (punch descends, backgauge repositions) or be static? → complexity and realism. → Expected: punch descends, backgauge repositions between bends.
+- **Required approvals (Invariant #7):** no new ones; uses `tooling_manifest` from Phase B.
+- **Relation to KL-8/KL-12:** **requires KL-12 fix** (per-panel kinematics). KL-8 affects `production_eligible`, but animation plays with badge.
 
 ---
 
-### Требование 3: Библиотека инструмента (FCStd)
+### Requirement 3: Tooling library (FCStd)
 
-- **Что уже есть:**
-  - `contracts/schemas/tooling_manifest.schema.json` — простой контракт оснастки.
-  - `place_part_on_tool_station` — существующая логика размещения.
-- **Что добавить:**
-  - Хранилище библиотеки: директория FCStd + индекс метаданных (по #7).
-  - Модуль импорта FCStd: определение ролей (пуансон/матрица/станина/упор) — по Q1.
-  - FreeCAD-команда добавления инструмента в библиотеку.
-  - Персистентность: местоположение — по Q8.
-- **Зависимости:** нет (но требует #7 и Q1 до кода).
-- **Оценка:** 4–6 сессий, 14–28 коммитов.
-- **Риски:** эвристика ролей объектов; API импорта внешних FCStd; права/локальность хранилища; версионирование геометрии.
+- **What already exists:**
+  - `contracts/schemas/tooling_manifest.schema.json` — simple tooling contract.
+  - `place_part_on_tool_station` — existing placement logic.
+- **What to add:**
+  - Library store: FCStd directory + metadata index (per #7).
+  - FCStd import module: role detection (punch/die/frame/backgauge) — per Q1.
+  - FreeCAD command to add tooling to library.
+  - Persistence: location — per Q8.
+- **Dependencies:** none (but requires #7 and Q1 before code).
+- **Estimate:** 4–6 sessions, 14–28 commits.
+- **Risks:** object role heuristics; external FCStd import API; store permissions/locality; geometry versioning.
 - **Definition of Done:**
-  - Пользователь добавляет FCStd в библиотеку через workbench.
-  - Роли определены (авто + подтверждение) — по Q1.
-  - Библиотека персистентна между сессиями.
-  - Список инструментов с размерами.
-  - Повторный импорт обновляет существующую запись.
-- **Требуемые уточнения у пользователя:**
-  - Q1: Как обозначать роль объекта в FCStd? → определяет импорт. → Ожидается: соглашение об именовании + подтверждение в UI, либо свойства объекта.
-  - Q8: Где хранить библиотеку — проект / пользовательский конфиг / оба? → персистентность и шаринг. → Ожидается: пользовательский конфиг по умолчанию, проектный override.
-- **Требуемые согласования (инвариант #7):** `tooling_manifest.schema.json` — extend: роли, геометрия (путь FCStd, имя объекта), размеры.
-- **Связь с KL-8/KL-12:** не блокируется.
+  - User adds FCStd to library via workbench.
+  - Roles identified (auto + confirmation) — per Q1.
+  - Library persistent across sessions.
+  - Tooling list with dimensions.
+  - Re-import updates existing record.
+- **Required user clarifications:**
+  - Q1: How to designate object role in FCStd? → defines import. → Expected: naming convention + UI confirmation, or object properties.
+  - Q8: Where to store library — project / user config / both? → persistence and sharing. → Expected: user config by default, project override.
+- **Required approvals (Invariant #7):** `tooling_manifest.schema.json` — extend: roles, geometry (FCStd path, object name), dimensions.
+- **Relation to KL-8/KL-12:** not blocked.
 
 ---
 
-### Требование 3.1: Набор/сэт из библиотеки
+### Requirement 3.1: Set from library
 
-- **Что уже есть:** библиотека из Phase B.
-- **Что добавить:**
-  - Понятие «сэт» — именованная коллекция инструментов.
-  - UI выбора: конкретный сэт или вся библиотека.
-  - Логика замены пуансона: флаг + предложенная точка замены (по Q10).
-- **Зависимости:** Phase B.
-- **Оценка:** 3–4 сессии, 10–18 коммитов.
-- **Риски:** семантика неполного сэта; момент допустимой замены; UI-сложность.
+- **What already exists:** library from Phase B.
+- **What to add:**
+  - Notion of "set" — named collection of tools.
+  - Selection UI: specific set or entire library.
+  - Punch changeover logic: flag + proposed changeover point (per Q10).
+- **Dependencies:** Phase B.
+- **Estimate:** 3–4 sessions, 10–18 commits.
+- **Risks:** incomplete-set semantics; permissible changeover moment; UI complexity.
 - **Definition of Done:**
-  - Пользователь создаёт именованный сэт из библиотеки.
-  - Может выбрать сэт или «вся библиотека» для run.
-  - Система флагует гибы, требующие замены пуансона.
-- **Требуемые уточнения у пользователя:**
-  - Q9: «Сэт» — сохраняемый артефакт или временный выбор? → хранение. → Ожидается: сохраняемый артефакт.
-  - Q10: При необходимости замены пуансона — авто-планирование или только флаг? → scope. → Ожидается: флаг + предложенная точка, пользователь подтверждает.
-- **Требуемые согласования (инвариант #7):** `tooling_manifest.schema.json` (extend) или новый `tooling_set.schema.json` — уточнить в #7.
-- **Связь с KL-8/KL-12:** не блокируется.
+  - User creates named set from library.
+  - Can select set or "entire library" for a run.
+  - System flags bends requiring punch changeover.
+- **Required user clarifications:**
+  - Q9: "Set" — persisted artifact or temporary selection? → storage. → Expected: persisted artifact.
+  - Q10: When punch changeover is needed — auto-planning or flag-only? → scope. → Expected: flag + proposed point, user confirms.
+- **Required approvals (Invariant #7):** `tooling_manifest.schema.json` (extend) or new `tooling_set.schema.json` — clarify in #7.
+- **Relation to KL-8/KL-12:** not blocked.
 
 ---
 
