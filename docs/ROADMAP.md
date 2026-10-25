@@ -35,63 +35,63 @@
 
 ---
 
-## 2. Фазы
+## 2. Phases
 
-### Phase A: Foundation + Requirement 1 — цифры на развёртке
-- **Требования:** 1
-- **Обоснование группировки:** workbench scaffolding нужен всем последующим фазам; требование 1 не трогает схемы и не зависит от KL.
-- **Оценка:** 3–4 сессии, 10–20 коммитов.
-- **Требуемые уточнения:** Q4, Q5 (важные, не blocker — можно стартовать с дефолтами).
-- **Требуемые согласования:** нет.
-- **Риски:** FreeCAD Qt API для аннотаций; ручное GUI-тестирование; маппинг `bend_id` → визуальная линия.
+### Phase A: Foundation + Requirement 1 — flat pattern sequence numbers
+- **Requirements:** 1
+- **Grouping rationale:** workbench scaffolding is needed by all subsequent phases; Requirement 1 touches no schemas and does not depend on KL.
+- **Estimate:** 3–4 sessions, 10–20 commits.
+- **Required clarifications:** Q4, Q5 (important, not blockers — can start with defaults).
+- **Required approvals:** none.
+- **Risks:** FreeCAD Qt API for annotations; manual GUI testing; mapping `bend_id` → visual line.
 
 ### Phase B: Tooling library (Requirement 3)
-- **Требования:** 3
-- **Обоснование группировки:** фундамент для 3.1, 4, 4.1, 2.
-- **Оценка:** 4–6 сессий, 14–28 коммитов.
-- **Требуемые уточнения:** Q1 (blocker), Q8 (важное).
-- **Требуемые согласования:** `tooling_manifest.schema.json` (extend).
-- **Риски:** эвристика определения ролей объектов в FCStd; API импорта внешних FCStd; персистентность.
+- **Requirements:** 3
+- **Grouping rationale:** foundation for 3.1, 4, 4.1, 2.
+- **Estimate:** 4–6 sessions, 14–28 commits.
+- **Required clarifications:** Q1 (blocker), Q8 (important).
+- **Required approvals:** `tooling_manifest.schema.json` (extend).
+- **Risks:** heuristics for object role detection in FCStd; external FCStd import API; persistence.
 
 ### Phase C: Tooling sets (Requirement 3.1)
-- **Требования:** 3.1
-- **Обоснование группировки:** логическое расширение библиотеки; можно параллельно с Phase D.
-- **Оценка:** 3–4 сессии, 10–18 коммитов.
-- **Требуемые уточнения:** Q9, Q10.
-- **Требуемые согласования:** `tooling_manifest.schema.json` (extend) или новый `tooling_set.schema.json` — уточнить в #7.
-- **Риски:** семантика неполного сэта; момент допустимой замены пуансона; UI-сложность.
+- **Requirements:** 3.1
+- **Grouping rationale:** logical extension of the library; can run in parallel with Phase D.
+- **Estimate:** 3–4 sessions, 10–18 commits.
+- **Required clarifications:** Q9, Q10.
+- **Required approvals:** `tooling_manifest.schema.json` (extend) or new `tooling_set.schema.json` — clarify under #7.
+- **Risks:** semantics of incomplete set; permissible punch changeover moment; UI complexity.
 
 ### Phase D: Clamp constraints (Requirement 4.1)
-- **Требования:** 4.1
-- **Обоснование группировки:** constraint checker — предпосылка для корректного подбора (4); меньше по объёму, чем C.
-- **Оценка:** 2–3 сессии, 7–14 коммитов.
-- **Требуемые уточнения:** Q2 (blocker), Q12 (важное).
-- **Требуемые согласования:** `tooling_manifest.schema.json` (extend) или новый `tooling_station.schema.json`.
-- **Риски:** неоднозначная математика удержания; конфиг под конкретный станок; геометрическая аппроксимация реальных лапок.
+- **Requirements:** 4.1
+- **Grouping rationale:** constraint checker is a prerequisite for correct selection (4); smaller in scope than C.
+- **Estimate:** 2–3 sessions, 7–14 commits.
+- **Required clarifications:** Q2 (blocker), Q12 (important).
+- **Required approvals:** `tooling_manifest.schema.json` (extend) or new `tooling_station.schema.json`.
+- **Risks:** ambiguous retention math; machine-specific config; geometric approximation of physical clamps.
 
 ### Phase E: Optimal tooling selection (Requirement 4)
-- **Требования:** 4
-- **Обоснование группировки:** использует библиотеку (B), сэты (C) и checker (D).
-- **Оценка:** 4–6 сессий, 14–28 коммитов.
-- **Требуемые уточнения:** Q3 (blocker), Q11 (важное).
-- **Требуемые согласования:** новый `tooling_selection.schema.json`.
-- **Риски:** неопределённая целевая функция; сложность assignment; интеграция с search (Stage 2); ручная валидация на реальных деталях.
+- **Requirements:** 4
+- **Grouping rationale:** uses library (B), sets (C), and checker (D).
+- **Estimate:** 4–6 sessions, 14–28 commits.
+- **Required clarifications:** Q3 (blocker), Q11 (important).
+- **Required approvals:** new `tooling_selection.schema.json`.
+- **Risks:** undefined objective function; assignment complexity; integration with search (Stage 2); manual validation on real parts.
 
 ### Phase F: FreeCAD animation (Requirement 2)
-- **Требования:** 2
-- **Обоснование группировки:** требует библиотеки (B) для визуала оснастки и KL-12 fix для честной кинематики.
-- **Оценка:** 4–6 сессий, 14–28 коммитов.
-- **Требуемые уточнения:** Q6, Q7.
-- **Требуемые согласования:** нет новых (использует `tooling_manifest` из Phase B); зависит от #7 фазы B.
-- **Риски:** KL-12 fix меняет семантику `rotate_subtree` — код анимации должен соответствовать; QTimer и потокобезопасность GUI; позиционирование оснастки относительно линии гиба.
+- **Requirements:** 2
+- **Grouping rationale:** requires library (B) for tooling visuals and KL-12 fix for honest kinematics.
+- **Estimate:** 4–6 sessions, 14–28 commits.
+- **Required clarifications:** Q6, Q7.
+- **Required approvals:** no new ones (uses `tooling_manifest` from Phase B); depends on Phase B #7.
+- **Risks:** KL-12 fix alters `rotate_subtree` semantics — animation code must conform; QTimer and GUI thread-safety; positioning tooling relative to bend line.
 
 ### Phase G: Open block (Requirement 5)
-- **Требования:** 5
-- **Обоснование группировки:** открытый блок, планирование невозможно до Q13.
-- **Оценка:** TBD.
-- **Требуемые уточнения:** Q13.
-- **Требуемые согласования:** TBD.
-- **Риски:** TBD.
+- **Requirements:** 5
+- **Grouping rationale:** open block, planning not possible before Q13.
+- **Estimate:** TBD.
+- **Required clarifications:** Q13.
+- **Required approvals:** TBD.
+- **Risks:** TBD.
 
 ---
 
