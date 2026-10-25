@@ -67,6 +67,7 @@
 | A1-A2 | Eliminate fabrication in TechnologicalUnfolder (`_compute_analytic_flat_length`, `_create_synthetic_flat_pattern`) | `cdc5327` | +2 tests in `test_technological_unfold_single_bend.py`; baseline 580/OK | 2026-10-25 |
 | A3-A3ext | Eliminate fabrication in PythonOCCBackend (`get_surface_area`, `get_face_center`) | `344f598` | +4 tests in new `test_pythonocc_backend.py`; baseline 584/OK | 2026-10-25 |
 | KL-18-fix | Strict `thickness` in BendSeqOrchestrator; documented `k_factor` policy default | `d8577d0` (fixes `8973bc4` regression) | +3 tests in new `test_orchestrator_strict_params.py`; baseline 587/OK | 2026-10-25 |
+| KL-25+KL-10 | Eliminate `inspect.signature` reflection in solvers; align mock validators | `4686d24` | Removed try/except inspect block from dfs/greedy/astar; aligned MockValidator in stage 11/18/19; +2 tests in `test_kl25_unknown_policy.py`; baseline 589/OK | 2026-10-25 |
 
 ## Upcoming Tasks (Post-P0 Remediation)
 

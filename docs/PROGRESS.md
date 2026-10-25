@@ -483,11 +483,11 @@ bend order; `tuple(path)` required (Session 1.5 analysis).
   - **Impact:** `test_verifier_worker_2_1_3_4_deferred` is `@expectedFailure`.
   - **Follow-up:** Resolve via Stage 1 KL-7.
 
-- **KL-10 (Stage 2, P3): `MockValidator` without `unknown_policy`.**
+- **KL-10 (Stage 2, P3, CLOSED S.65 `4686d24`): `MockValidator` without `unknown_policy`.**
   - **Symptom:** `test_stage10/11/18/19` use a `MockValidator` that does not accept the `unknown_policy` parameter.
   - **Cause:** Mock created before `unknown_policy` became standard in S.8c.
   - **Impact:** Bypassed via `inspect.signature` in 3 planners. Functional, not contract-clean.
-  - **Follow-up:** Add `unknown_policy` parameter to `MockValidator`. Cosmetic, no behavioral impact.
+  - **Resolved S.65 (`4686d24`):** Added `unknown_policy: str = "PRODUCTION"` parameter to `MockValidator.validate_step` in `test_stage11_complex_sequences.py`, `test_stage18_astar.py`, `test_stage19_astar_optimized.py`. Aligns with `PhysicalValidator` contract.
 
 - **KL-12 v1 (PARTIAL, Stage 8a):** infrastructure ready, detection deferred.
   - **v2 (CLOSED 2026-10-22, S.31 / 3eb4376):** resolver side edges.
@@ -531,9 +531,10 @@ bend order; `tuple(path)` required (Session 1.5 analysis).
   Latent discrepancy in `astar_backward.py` pending-pop branch. Safe under unit cost
   and equal-fp deduplication; revisit if non-unit edge costs or N>=20 are introduced.
 
-- **KL-25 (P2, OPEN, Phase 6a follow-up): Silent fallback via inspect.signature try/except: pass in solvers.**
+- **KL-25 (P2, CLOSED S.65 `4686d24`, Phase 6a follow-up): Silent fallback via inspect.signature try/except: pass in solvers.**
   Solvers catch all `TypeError` when checking validator signature. Belongs to KL-20
   class of contract cleanliness issues.
+  **Resolved S.65 (`4686d24`):** Removed `else: try: import inspect; inspect.signature(...); except Exception: pass` block from `dfs_backward.py`, `greedy_unfold.py`, `astar_backward.py`. PRODUCTION policy relies on validator's own default; non-PRODUCTION passed explicitly. Eliminates flag #15 broad except and inner-loop reflection overhead. Verified by `tests/test_kl25_unknown_policy.py` (+2 tests: mock accepts EXPLORATORY, no inspect.signature in solvers).
 
 ### Closed
 
