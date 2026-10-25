@@ -200,7 +200,7 @@ class TechnologicalUnfolder:
 
         bb = self.backend.get_bounding_box(shape)
         if not bb or bb == (0, 0, 0, 0, 0, 0):
-            return 100.0 + ba
+            raise ValueError(f"Cannot compute analytic flat length: invalid bounding box {bb} for shape")
         x_min, y_min, z_min, x_max, y_max, z_max = bb
         radius = getattr(bend_record, 'radius', 1.0)
         origin = getattr(bend_record, 'axis_origin', (0.0, 0.0, 0.0))
@@ -229,20 +229,16 @@ class TechnologicalUnfolder:
         Fallback synthetic flat pattern creation:
         Assembles flat parent flange + flat neutral BA strip + flat child flange into a 100% planar box.
         """
-        try:
-            bb = self.backend.get_bounding_box(shape)
-            if bb and bb != (0, 0, 0, 0, 0, 0):
-                w_flat = self._compute_analytic_flat_length(shape, bend_record, ba, thickness)
-                h = abs(bb[4] - bb[1])
-                t = thickness
+        bb = self.backend.get_bounding_box(shape)
+        if not bb or bb == (0, 0, 0, 0, 0, 0):
+            raise RuntimeError(f"Cannot create synthetic flat pattern: invalid bounding box {bb}")
 
-                from OCC.Core.BRepPrimAPI import BRepPrimAPI_MakeBox
-                flat_box = BRepPrimAPI_MakeBox(w_flat, h, t).Shape()
-                return flat_box
-        except Exception:
-            pass
+        w_flat = self._compute_analytic_flat_length(shape, bend_record, ba, thickness)
+        h = abs(bb[4] - bb[1])
+        t = thickness
 
-        return shape
+        from OCC.Core.BRepPrimAPI import BRepPrimAPI_MakeBox
+        return BRepPrimAPI_MakeBox(w_flat, h, t).Shape()
 
     def _evaluate_flatness(
         self,
