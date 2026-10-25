@@ -95,37 +95,37 @@
 
 ---
 
-## 3. Детально по требованиям
+## 3. Requirements in Detail
 
-### Требование 1: Цифры на развёртке
+### Requirement 1: Flat pattern sequence numbers
 
-- **Что уже есть:**
-  - `smbs_core/viewer/run_loader.py` — загрузка `04/07/09.json` + `geometry.brep`.
-  - `smbs_core/viewer/graph_builder.py` — `BendGraph` + `PanelGraph` из `04`.
-  - `smbs_core/viewer/player.py` — читает `production_eligible` из `09`.
-  - `07_search_result.json` — `candidate_sequence[i].bend_id` даёт логический порядок.
+- **What already exists:**
+  - `smbs_core/viewer/run_loader.py` — loading `04/07/09.json` + `geometry.brep`.
+  - `smbs_core/viewer/graph_builder.py` — `BendGraph` + `PanelGraph` from `04`.
+  - `smbs_core/viewer/player.py` — reads `production_eligible` from `09`.
+  - `07_search_result.json` — `candidate_sequence[i].bend_id` gives the logical sequence.
   - `04_canonical_part.json` — `bend_line_flat_pattern.{start_mm,end_mm}`, `axis_point`, `axis_direction`.
-  - CLI pipeline (`smbs-cli part.FCStd`) — полный прогон в `runs/run_XXX/`.
-- **Что добавить:**
-  - FreeCAD workbench: `smbs_workbench/` (или в существующей структуре) — toolbar + команда «Рассчитать».
-  - Команда: запуск пайплайна (или чтение существующего run) + загрузка `04/07/09`.
-  - Маппинг `bend_id` → геометрическая линия развёртки по `bend_line_flat_pattern`.
-  - Рендеринг номеров 1..N в 3D-виде FreeCAD (Draft/Annotation) или в TechDraw — по ответу Q4.
-  - Honest marking: при `production_eligible=false` или отсутствии `09` — бейдж `UNVERIFIED` (по ответу Q5, дефолт — показывать с бейджем).
-- **Зависимости:** нет.
-- **Оценка:** 3–4 сессии, 10–20 коммитов.
-- **Риски:** FreeCAD Qt API; ручное GUI-тестирование; корректность маппинга `bend_line_flat_pattern` на отображаемую геометрию.
+  - CLI pipeline (`smbs-cli part.FCStd`) — full run in `runs/run_XXX/`.
+- **What to add:**
+  - FreeCAD workbench: `smbs_workbench/` (or in existing structure) — toolbar + "Compute" command.
+  - Command: launching the pipeline (or reading an existing run) + loading `04/07/09`.
+  - Mapping `bend_id` → geometric flat pattern line via `bend_line_flat_pattern`.
+  - Rendering numbers 1..N in FreeCAD 3D view (Draft/Annotation) or in TechDraw — per answer to Q4.
+  - Honest marking: when `production_eligible=false` or missing `09` — `UNVERIFIED` badge (per answer to Q5, default — display with badge).
+- **Dependencies:** none.
+- **Estimate:** 3–4 sessions, 10–20 commits.
+- **Risks:** FreeCAD Qt API; manual GUI testing; correctness of `bend_line_flat_pattern` mapping onto displayed geometry.
 - **Definition of Done:**
-  - Пользователь открывает `part.FCStd` с загруженным SMBS workbench.
-  - Нажимает «Рассчитать» → цифры 1..N появляются у линий гиба на развёртке.
-  - Порядок соответствует `candidate_sequence` из `07`.
-  - При `UNVERIFIED` — явный бейдж; без `09` — `UNVERIFIED`.
-  - Нет крэша при отсутствующих файлах.
-- **Требуемые уточнения у пользователя:**
-  - Q4: Где отображать цифры — 3D-развёртка или 2D TechDraw? → определяет API и UX. → Ожидается: 3D-аннотации на развёрнутой детали, либо TechDraw-вид.
-  - Q5: Что показывать при `production_eligible=false`? → инвариант #1. → Ожидается: показывать с бейджем `UNVERIFIED`, либо не показывать — решение пользователя; дефолт — с бейджем.
-- **Требуемые согласования (инвариант #7):** нет. Нумерация вычисляется на лету из `04`+`07`; новый артефакт не создаётся.
-- **Связь с KL-8/KL-12:** не блокируется. KL-8 влияет на `production_eligible`, но не на нумерацию; KL-12 не затрагивает маппинг `bend_id`.
+  - User opens `part.FCStd` with SMBS workbench loaded.
+  - Clicks "Compute" → numbers 1..N appear near bend lines on the flat pattern.
+  - Order matches `candidate_sequence` from `07`.
+  - Explicit badge on `UNVERIFIED`; without `09` — `UNVERIFIED`.
+  - No crash when files are missing.
+- **Required user clarifications:**
+  - Q4: Where to display numbers — 3D flat pattern or 2D TechDraw? → defines API and UX. → Expected: 3D annotations on unfolded part, or TechDraw view.
+  - Q5: What to display when `production_eligible=false`? → Invariant #1. → Expected: show with `UNVERIFIED` badge, or do not show — user decision; default — with badge.
+- **Required approvals (Invariant #7):** none. Numbering is computed on the fly from `04`+`07`; no new artifact is created.
+- **Relation to KL-8/KL-12:** not blocked. KL-8 affects `production_eligible`, but not numbering; KL-12 does not affect `bend_id` mapping.
 
 ---
 
