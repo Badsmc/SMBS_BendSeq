@@ -476,10 +476,18 @@ bend order; `tuple(path)` required (Session 1.5 analysis).
   Verified by +2 tests in `tests/test_solver_worker_honest.py`.
   *Bonus S.66 finding (future candidate, no ID assigned):* `tooling_override` accepted in `validator.validate_step()` signature but unused in body; cataloged for future cleanup.
 
-- **KL-8d (P2, OPEN):** CLI without tooling silently falls to SIMPLIFIED →
+- **KL-8d (P2, CLOSED S.66 `9763c1d`):** CLI without tooling silently falls to SIMPLIFIED →
   PRODUCTION → always NO_SOLUTION. UX bug: user without `--punch-id`/
   `--die-id`/`--tooling-set`/`--tooling-config` gets NO_SOLUTION, not
-  "missing tooling". Fix: explicit requirement or `--allow-synthetic` flag.
+  "missing tooling".
+  **Resolved S.66 (`9763c1d`, Option B diagnostic-only):** In `solver/worker.py`, when
+  `planning_status == NO_SOLUTION` and `actual_tooling_status == "SIMPLIFIED"` and
+  `unknown_policy == "PRODUCTION"`, appends explicit actionable diagnostic explaining
+  that PRODUCTION rejects UNKNOWN collisions and pointing to `--punch-id/--die-id`,
+  `--tooling-set`, `--tooling-config`, or EXPLORATORY policy. Verified by +1 test in
+  `tests/test_solver_worker_honest.py`.
+  *Bonus S.66 finding (future candidate, no ID assigned):* `cli.py` currently does not
+  expose `--unknown-policy` or `--allow-synthetic` flags; cataloged for future CLI polish.
 
 - **KL-9 (Stage 2, P2): `2_1_3_4_ok` baseline INVALID (inherited KL-7).**
   - **Symptom:** Part `2-1-3-4-(ok).FCStd` fails Stage 1 baseline with facets mismatch (90 vs 94).
