@@ -24,6 +24,7 @@
 |---|---|---|---|
 | KL-12-v3 | Forward fold (panel shell → solid) | Architecture: rigid-body model needs bend-region deformation | Investigated S.38; 7 recombine approaches probed; none produce solid |
 | KL-16 | Machine frame (`machine_frame.FCStd`) | CAD session — file missing | Required for machine collision check |
+| F.3b | Req 2 Phase F.3b (punch descent + backgauge + machine frame overlay) | KL-16 (`machine_frame.FCStd` missing) | Machine frame overlay requires machine frame geometry |
 
 ## Deferred (separate session, P1-docs)
 
@@ -63,6 +64,9 @@
 | P1-DOC-term-tz | Standardize ТЗ → technical specification across docs, smbs_core, tests | `4b4d065`, `4d50858`, `53a613e` | 23 files / 30 line replacements (R1: 1/7, R2: 13/14, R3: 9/9); `docs/history/*` excluded per S.39 урок 9 (historical archive) | 2026-10-25 |
 | P1-DOC-translate-arch | Translate `docs/ARCHITECTURE.md` ASCII diagram (RU → EN) | `90860aa` | 6 lines translated (lines 7, 15, 22, 29, 36, 38); 56-char box alignment preserved; zero Cyrillic remaining | 2026-10-25 |
 | P1-DOC-translate-roadmap | Translate `docs/ROADMAP.md` §1–§3 (RU → EN) | `d1eba1f`, `6edd5b4`, `c37b7ae`, `e79fc61`, `965d8ae` | 5 atomic commits (§1 / §2 / §3 Req1 / §3 Req2-3.1 / §3 Req4-5); 639 lines stable; zero Cyrillic in §1-§3 (lines 1-271); §4+ (lines 272+) untranslated as out-of-scope | 2026-10-25 |
+| A1-A2 | Eliminate fabrication in TechnologicalUnfolder (`_compute_analytic_flat_length`, `_create_synthetic_flat_pattern`) | `cdc5327` | +2 tests in `test_technological_unfold_single_bend.py`; baseline 580/OK | 2026-10-25 |
+| A3-A3ext | Eliminate fabrication in PythonOCCBackend (`get_surface_area`, `get_face_center`) | `344f598` | +4 tests in new `test_pythonocc_backend.py`; baseline 584/OK | 2026-10-25 |
+| KL-18-fix | Strict `thickness` in BendSeqOrchestrator; documented `k_factor` policy default | `d8577d0` (fixes `8973bc4` regression) | +3 tests in new `test_orchestrator_strict_params.py`; baseline 587/OK | 2026-10-25 |
 
 ## Upcoming Tasks (Post-P0 Remediation)
 

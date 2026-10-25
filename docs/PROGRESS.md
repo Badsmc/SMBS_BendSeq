@@ -438,11 +438,31 @@ bend order; `tuple(path)` required (Session 1.5 analysis).
   Companions to `orchestrator.py` resolver preconditions (`"panels" in features`).
   Fix path: add `"panels": {}` to mocks OR update mock contract helpers.
 
-- **KL-18 (P3, OPEN):** `orchestrator.py:102`
-  `thickness = features.get("thickness", 2.0)` — silent default. Not triggered
-  in production (real extractor provides thickness) or current tests.
-  Fix path: strict `features["thickness"]` with mock contract updates
-  (companion to KL-17).
+- **KL-18 (P3, CLOSED S.64 `d8577d0`):** `orchestrator.py:102` — silent
+  `thickness = features.get("thickness", 2.0)` eliminated; strict
+  `features["thickness"]` with positive-number validation. Initial fix
+  `8973bc4` also enforced strict `k_factor` (wrong: `FeatureExtractor` does
+  not emit it — SheetMetal policy default, not geometric feature), breaking
+  8 tests; fixed forward in `d8577d0`. New tests: 3 in
+  `tests/test_orchestrator_strict_params.py`.
+
+- **A1-A2 (P2, CLOSED S.64 `cdc5327`):** `technological_unfolder.py` inv#3
+  fabrication eliminated. A1: `_compute_analytic_flat_length` raises
+  `ValueError` on invalid bbox (was `100.0 + ba`). A2:
+  `_create_synthetic_flat_pattern` raises `RuntimeError` + propagates inner
+  exceptions (was `except: pass; return shape` — falsely labeled folded
+  shape as flat). +2 tests in `test_technological_unfold_single_bend.py`.
+
+- **A3-A3ext (P2, CLOSED S.64 `344f598`):** `pythonocc_backend.py` inv#3
+  fabrication eliminated. A3-ext `get_surface_area`: `ValueError` null;
+  `RuntimeError` on calc failure; `ValueError` on degenerate area (<=0).
+  A3 `get_face_center`: `ValueError` null; `RuntimeError` on calc failure.
+  +4 tests in new `tests/test_pythonocc_backend.py`.
+
+- **Orphan note (S.64):** `smbs_core/Geometry/technological_unfold.py`
+  (no `er`) verified via `grep -rn "technological_unfold" smbs_core/ tests/`
+  to have zero imports — orphan dead code. Cataloged for future cleanup.
+  Not removed in S.64 (out of inv#3 scope).
 
 - **KL-19 (CLOSED S.26):** `worker.py:228-230` silent REAL→SIMPLIFIED
   downgrade due to case mismatch. Fixed in `d3a26e5`.
