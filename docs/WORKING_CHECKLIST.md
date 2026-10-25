@@ -2,7 +2,7 @@
 
 > **Purpose:** Lightweight daily tracker. Not a roadmap (see `docs/ROADMAP.md`), not an architecture doc (see `docs/ARCHITECTURE.md`), not a release audit (see `docs/AUDIT_FULL_2026-10-23.md`).
 > **Rule:** Move a task to **Done** only after the acceptance condition is met and a verification reference is linked (test name, commit SHA, or `cat -n` evidence). No "Done" without proof.
-> **Snapshot:** HEAD `fda5abf`, 2026-10-24.
+> **Snapshot:** HEAD `2df0f77`, 2026-10-25 (Baseline: 613 / OK / 3× expected failures).
 
 ---
 
@@ -33,6 +33,14 @@
 |---|---|---|
 | P1-DOC-refresh-arch | Full ARCHITECTURE content refresh (Stages 5–9, Req 6, Req 2) — truth-up of stale facts completed S.63 (`bc9acad`); content addition = separate epic track | Separate track |
 | P1-DOC-refresh-roadmap | ROADMAP §1–§7 refresh (post-Stage 4) | Separate track |
+
+## Planned sessions (post-S.69)
+
+| Session | Scope | Prerequisites |
+|---|---|---|
+| **S.70** | FreeCAD Workbench «Симуляция» — port F.2/F.3a playback from `SMBS_AnimationPlayer.FCMacro` into `commands/simulate.py` + `ui/`. PREVIEW_ONLY banner persists. | `SMBS_AnimationPlayer.FCMacro` (canonical). Q6=1s/bend configurable confirmed. |
+| **S.71** | FreeCAD Workbench «Оснастка» — Task Panel with 5 tabs (punch / die / machine frame / backgauge / clamps). β1 honesty: `TOOLING: MISSING` for absent `.FCStd`; `MACHINE: SIMPLIFIED (KL-16 pending)`. | `SMBS_ToolingLibrary.FCMacro` (canonical). KL-16 (`machine_frame.FCStd`) still missing; backgauge / clamps `.FCStd` still missing. |
+| **S.72** | FreeCAD Workbench «Верификация» dialog + «Настройки» + «Диагностика» + backlog sweep (G3, G4, G5, M1, N4, README line 116, KL-26 fail-fast check). | — |
 
 ## Done
 
@@ -74,6 +82,10 @@
 | KL-8d | Actionable diagnostic on NO_SOLUTION + SIMPLIFIED + PRODUCTION | `9763c1d` | `solver/worker.py:441` appends explicit diagnostic explaining missing tooling and how to resolve; +1 test in `test_solver_worker_honest.py`; baseline 593/OK | 2026-10-25 |
 | KL-17 | Align mock feature extractors with `panels` contract | `350dc7b` | Added `"panels": {}` to mocks in `test_bendseq.py` and `test_stage3_regression.py` (5 profiles); updated `orchestrator.py:154` comment; baseline 593/OK | 2026-10-25 |
 | KL-13 | Legacy runs pre-2026-10-17 fail-fast (FlatAnnotationsError) — design choice, no code change | — (audit S.68; `flat_annotations.py:40-52` already fail-fast, no `axis_point` fallback; `smbs_core/addon/README.md` "Known issue: old runs") | `docs/PROGRESS.md:535`; resolution = regenerate old runs via `smbs-cli part.FCStd` | 2026-10-25 |
+| S.69-C1 | FreeCAD addon scaffold — `freecad_smbs/Init.py` (headless-safe), `InitGui.py`, `tests/test_freecad_smbs/test_scaffold.py` | `c1f7287` | baseline 595/OK | 2026-10-25 |
+| S.69-C2 | Menu + toolbar + disabled command stubs + `ui/badges.py` + `resources/tooling_paths.py` + 6 SVG icons | `deaff33` | baseline 604/OK | 2026-10-25 |
+| S.69-C3 | Read-only bridge (`integration/smbs_bridge.py`) + active `open_run` / `info` / `verify` (Q5 badge logic) | `fff04b3` | baseline 609/OK | 2026-10-25 |
+| S.69-C4 | «Расчёт» — 3D annotations from `compute_annotations` (B1); `ui/annotations.py` Z-override `flat_zmax+3.0` | `2df0f77` | baseline 613/OK | 2026-10-25 |
 
 ## Upcoming Tasks (Post-P0 Remediation)
 

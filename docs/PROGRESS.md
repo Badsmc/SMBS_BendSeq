@@ -125,7 +125,7 @@ The rule "Do not close a P0 without reproducible evidence + negative test case" 
 
 **Non-goals / deferred:**
 - Forward fold mode — blocked on KL-12 (S.13b). `Player.switch_direction("forward")` raises `PlayerError`.
-- FreeCAD addon GUI — not started; better after per-panel kinematics (KL-12 close).
+- FreeCAD addon GUI — `freecad_smbs/` scaffold + menu + toolbar + «Открыть run» + «Инфо» + «Верификация» + «Расчёт» (3D annotations) implemented S.69 (`c1f7287..2df0f77`). Playback deferred to S.70; tooling editor to S.71.
 - Animated GIF/MP4, interactive playback in a 3D viewport — out of scope for headless viewer.
 
 ## Test Metrics (post Stage 4)
@@ -551,6 +551,12 @@ bend order; `tuple(path)` required (Session 1.5 analysis).
   class of contract cleanliness issues.
   **Resolved S.65 (`4686d24`):** Removed `else: try: import inspect; inspect.signature(...); except Exception: pass` block from `dfs_backward.py`, `greedy_unfold.py`, `astar_backward.py`. PRODUCTION policy relies on validator's own default; non-PRODUCTION passed explicitly. Eliminates flag #15 broad except and inner-loop reflection overhead. Verified by `tests/test_kl25_unknown_policy.py` (+2 tests: mock accepts EXPLORATORY, no inspect.signature in solvers).
 
+- **KL-26 (P3, OPEN, macro-parity, S.69):**
+  - **Symptom:** flat-pattern annotations may render green (`verification_status="VERIFIED"`) while verification dialog shows orange (`production_eligible=false`) if a `09_verification_result.json` payload contains inconsistent fields.
+  - **Cause:** `smbs_core/viewer/flat_annotations.py:109` reads `payload.verification_status`; `freecad_smbs/integration/smbs_bridge.py:89-91` reads `payload.production_eligible`. Both are legitimate 09 fields but not cross-validated.
+  - **Impact:** honesty invariant #2 (`INVALID never passes`) theoretically weakened at the annotation-color surface for malformed 09. Pre-existing macro parity (`SMBS_AnnotateBends.FCMacro`); not S.69 regression.
+  - **Follow-up:** S.72 — add bridge-level assertion or schema-level consistency check (`verification_status="VERIFIED" ∧ production_eligible=false` → fail-fast). Do not weaken; hard raise.
+
 ### Closed
 
 - **KL-11 (Stage 3, CLOSED in S.9.3): VerifierWorker checked only unfold correctness.**
@@ -705,7 +711,7 @@ Chronological record of remediation sessions closing integrity invariants and B-
 - **S.50 (`ce68906`):** Docs core closed. Canonical registry clearance in `docs/AUDIT_FULL_2026-10-23.md` (Release blockers: CLEARED, P0-GEOM closure, Errata) and `docs/WORKING_CHECKLIST.md` (Next-P0 cleared). Baseline: 577 tests (0 net). Runtime: 156.2s.
 
 
-## Process & Session Log: S.51–S.58 (2026-10-24–2026-10-25)
+## Process & Session Log: S.51–S.69 (2026-10-24–2026-10-25)
 
 ### Milestone: Post-release hygiene (P1-CODE + P1-hygiene + P1-DOC)
 
@@ -735,6 +741,36 @@ Chronological record of remediation sessions closing integrity invariants and B-
 - **S.58 (`176ca78`):** §P1 Code Hygiene section in `AUDIT_FULL_2026-10-23.md` marked `(CLOSED S.55)` with per-item closure SHAs (P1-CODE-1/2/3). Baseline: 578 (docs-only).
 
 **Registry state (post-S.58):** All P0, P1-CODE, P1-hygiene, P1-DOC series CLOSED. See `docs/WORKING_CHECKLIST.md §Done` and `docs/AUDIT_FULL_2026-10-23.md §Resolved Candidates`.
+
+**S.59–S.68** (atomic per-session logs): post-S.58 commits on `stage-1-fix-correctness` — code defects closed (KL-13 design choice, KL-17, KL-18, A1-A3, KL-8d, KL-24, KL-25, KL-9 reclass). Baseline at S.69 entry: `593 / OK / 3×F`. Full scope in individual commit messages; registry clean entering S.69.
+
+**S.69 (2026-10-25) — UI/UX track: FreeCAD workbench (un-deferred per client request).**
+
+- **Scope:** additive module `freecad_smbs/` — Menu bar + Toolbar + Task Panel (hybrid, option (d)); three primary commands (Расчёт / Симуляция / Оснастка) plus Открыть run / Инфо / Верификация. No `smbs_core/` modifications.
+- **Commits (4 code + this docs):**
+  - `c1f7287` C1 — scaffold (`Init.py` headless-safe, `InitGui.py`, `tests/test_freecad_smbs/test_scaffold.py`). Baseline 593 → 595.
+  - `deaff33` C2 — menu + toolbar + disabled command stubs + `ui/badges.py` + `resources/tooling_paths.py` + 6 SVG icons. Baseline 595 → 604.
+  - `fff04b3` C3 — read-only bridge (`integration/smbs_bridge.py`), active `open_run` / `info` / `verify` with Q5 badge logic (VERIFIED green / VERIFICATION_FAILED orange / UNVERIFIED gray). Baseline 604 → 609.
+  - `2df0f77` C4 — «Расчёт» (`commands/calculate.py`, option B1: read-only visualization), `ui/annotations.py` (`App::AnnotationLabel`, `DisplayMode="Object"`, Z = flat_zmax + 3.0 mm). Baseline 609 → 613.
+- **Raw-audit findings that prevented fabrication:**
+  - **D1 / Blocker 1:** `smbs_core/addon/{SMBS_AnnotateBends,SMBS_AnimationPlayer,SMBS_ToolingLibrary}.FCMacro` = canonical implementations (option (b)), not prototypes. Workbench wraps / copies them, does not reinvent.
+  - **D2:** `compute_annotations(artifacts, graphs)` two-argument signature (graphs via `build_graphs`). Missed in preliminary spec; caught by C4 pre-spec audit.
+- **Macro parity (documented as known limitations):**
+  - Z override `flat_zmax + 3.0 mm` (macros use `ANNOTATION_Z_OFFSET_MM = 3.0`).
+  - Fixed font size 15 (macro parity).
+  - Duplicate `SMBS_FlatPattern` on repeated «Расчёт» (macro parity; documented as backlog for S.70).
+- **Honesty invariants held:**
+  - inv #1 — UNKNOWN ≠ VALID (missing 09 → gray `UNVERIFIED`).
+  - inv #2 — INVALID never passes (see KL-26).
+  - inv #6 — no fabricated design / kinematics.
+  - inv #7 — zero schema changes.
+  - inv #8 — 5× M reference untouched.
+  - inv #10 — `production_eligible` sourced only from `09_verification_result.json`.
+  - inv #16 — no push performed in S.69.
+- **Backlog (deferred):**
+  - **S.70** — Симуляция (F.2/F.3a playback port from `SMBS_AnimationPlayer.FCMacro`). `get_annotations` coverage extension into `test_bridge_readonly`.
+  - **S.71** — Оснастка (Task Panel, 5 tabs: punch / die / machine frame / backgauge / clamps). β1 honesty: `TOOLING: MISSING` for absent `.FCStd`; `MACHINE: SIMPLIFIED (KL-16 pending)` for synthetic frame.
+  - **S.72** — Верификация dialog + Настройки + Диагностика + backlog sweep (G3 `open_run` silent excepts → UX feedback; G4 `resources/__init__.py`; G5 `test_bridge.py` tabs/spaces; M1 `InitGui.py` silent excepts rationale comment; README line 116 PNG fallback hardcoded `PREVIEW_ONLY (KL-12)`; KL-26 fail-fast check).
 
 
 ## Historical: Phases 0-11 (pre-refactor, completed before Stage track)
