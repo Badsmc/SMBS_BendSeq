@@ -62,7 +62,7 @@
 | KL-23 | Cyclic N≥8 tie-break — investigated, closed as KNOWN_LIMITATION | — (no code change; cyclic topology rejected at `panel_topology.py:13`; already accepted in `RELEASE_AUDIT.md:26`) | `docs/PROGRESS.md:504-508`; `docs/RELEASE_AUDIT.md:26` (578 tests) | 2026-10-25 |
 | P1-DOC-term-tz | Standardize ТЗ → technical specification across docs, smbs_core, tests | `4b4d065`, `4d50858`, `53a613e` | 23 files / 30 line replacements (R1: 1/7, R2: 13/14, R3: 9/9); `docs/history/*` excluded per S.39 урок 9 (historical archive) | 2026-10-25 |
 | P1-DOC-translate-arch | Translate `docs/ARCHITECTURE.md` ASCII diagram (RU → EN) | `90860aa` | 6 lines translated (lines 7, 15, 22, 29, 36, 38); 56-char box alignment preserved; zero Cyrillic remaining | 2026-10-25 |
-| P1-DOC-translate-roadmap | Translate `docs/ROADMAP.md` §1–§3 (RU → EN) | `d1eba1f`, `6cb3f9f`, `c37b7ae`, `e79fc61`, `965d8ae` | 5 atomic commits (§1 / §2 / §3 Req1 / §3 Req2-3.1 / §3 Req4-5); 639 lines stable; zero Cyrillic in §1-§3 (lines 1-271); §4+ (lines 272+) untranslated as out-of-scope | 2026-10-25 |
+| P1-DOC-translate-roadmap | Translate `docs/ROADMAP.md` §1–§3 (RU → EN) | `d1eba1f`, `6edd5b4`, `c37b7ae`, `e79fc61`, `965d8ae` | 5 atomic commits (§1 / §2 / §3 Req1 / §3 Req2-3.1 / §3 Req4-5); 639 lines stable; zero Cyrillic in §1-§3 (lines 1-271); §4+ (lines 272+) untranslated as out-of-scope | 2026-10-25 |
 
 ## Upcoming Tasks (Post-P0 Remediation)
 
