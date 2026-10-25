@@ -81,6 +81,7 @@ class TestSolvers(unittest.TestCase):
         orchestrator.extractor = type('MockExtractor', (), {
             'extract_features': lambda self, shape: {
                 "thickness": 2.0, "k_factor": 0.40,
+                "panels": {},
                 "bends": {
                     "BEND_01": {"origin": (0,0,0), "axis": (1,0,0), "angle": 90.0},
                     "BEND_02": {"origin": (1,0,0), "axis": (1,0,0), "angle": 90.0},
@@ -110,6 +111,7 @@ class TestSolvers(unittest.TestCase):
         orchestrator.extractor = type('MockExtractor', (), {
             'extract_features': lambda self, shape: {
                 "thickness": 2.0, "k_factor": 0.40,
+                "panels": {},
                 "bends": {
                     "BEND_01": {"origin": (0,0,0), "axis": (1,0,0), "angle": 90.0},
                     "BEND_02": {"origin": (1,0,0), "axis": (1,0,0), "angle": 90.0},
