@@ -1,6 +1,6 @@
 """
 Contract test for SheetMetalAdapter.
-Complies with ТЗ v1.2 §3.1, §3.3 (Rules R1-R5) and Principles 1, 16, 23.
+Complies with technical specification v1.2 §3.1, §3.3 (Rules R1-R5) and Principles 1, 16, 23.
 """
 
 import sys

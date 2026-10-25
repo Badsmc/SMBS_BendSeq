@@ -1,5 +1,5 @@
 """
-End-to-End Pipeline & Qualification Test Suite (ТЗ v1.2 §1.3, §4, §5, §6, §7).
+End-to-End Pipeline & Qualification Test Suite (technical specification v1.2 §1.3, §4, §5, §6, §7).
 Verifies complete 3-stage pipeline from input model to production 10_part_bendseq.json v1.1.
 Fixtures tested:
 - Fixture L (1 bend)

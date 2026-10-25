@@ -1,5 +1,5 @@
 """
-test_frame_aligner_contract.py - Contract tests for FrameAligner (ТЗ v1.2 §5.2).
+test_frame_aligner_contract.py - Contract tests for FrameAligner (technical specification v1.2 §5.2).
 
 Verifies:
 1. Normal alignment: normal_dot == +1.0.

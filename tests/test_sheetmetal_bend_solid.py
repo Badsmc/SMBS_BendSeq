@@ -1,6 +1,6 @@
 """
 test_sheetmetal_bend_solid.py - Dedicated contract test for SheetMetalBendSolid.bend_solid.
-Compliant with ТЗ v1.2 §3.1, §3.3 R1.
+Compliant with technical specification v1.2 §3.1, §3.3 R1.
 
 Verifies:
 1. bend_solid produces a genuine FreeCAD Part.Solid.
