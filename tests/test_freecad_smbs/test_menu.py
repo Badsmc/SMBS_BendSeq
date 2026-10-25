@@ -45,14 +45,18 @@ class TestSMBSMenuAndCommands(unittest.TestCase):
         self.assertEqual(res["MenuText"], "Открыть run…")
         self.assertTrue(Path(res["Pixmap"]).exists())
 
-    def test_calculate_stub_disabled(self):
-        """CalculateCommand remains disabled until C4."""
+    def test_calculate_active(self):
+        """CalculateCommand active state depends on current_run (C4 implementation)."""
         cmd = CalculateCommand()
         self.assertFalse(cmd.IsActive())
         res = cmd.GetResources()
         self.assertEqual(res["MenuText"], "Расчёт")
-        self.assertIn("S.69 C4", res["ToolTip"])
+        self.assertNotIn("S.69 C4", res["ToolTip"])
         self.assertTrue(Path(res["Pixmap"]).exists())
+
+        # When a run is loaded, CalculateCommand becomes active
+        set_current_run(MagicMock())
+        self.assertTrue(cmd.IsActive())
 
     def test_simulate_is_disabled(self):
         """SimulateCommand is permanently disabled in S.69 (deferred to S.70)."""
