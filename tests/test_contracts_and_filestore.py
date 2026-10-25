@@ -1,6 +1,6 @@
 """
 Unit tests for FileStore, SHA-256 content hashing, and JSON Schemas.
-Tests compliance with ТЗ v1.2 §4.2, §4.5, §7.2 and Principles 2, 8, 12, 13, 21, 23, 24.
+Tests compliance with technical specification v1.2 §4.2, §4.5, §7.2 and Principles 2, 8, 12, 13, 21, 23, 24.
 """
 
 import json

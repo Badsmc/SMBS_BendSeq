@@ -1,5 +1,5 @@
 """
-test_fold_one_bend.py - Unit test suite for 1-bend folding assembly (ТЗ v1.2 §5.1 Step 2).
+test_fold_one_bend.py - Unit test suite for 1-bend folding assembly (technical specification v1.2 §5.1 Step 2).
 
 Verifies:
 1. fold_one_bend reconstructs a 3D folded L-bracket from its flat pattern components.

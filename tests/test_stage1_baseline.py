@@ -1,5 +1,5 @@
 """
-Stage 1 Baseline Test Suite (ТЗ v1.2 §5).
+Stage 1 Baseline Test Suite (technical specification v1.2 §5).
 Verifies that unfold -> align full frame -> fold all -> compare holds for fixtures:
 - L-Profile (1 bend)
 - U-Channel (2 bends)

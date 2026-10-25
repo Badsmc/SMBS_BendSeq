@@ -1,6 +1,6 @@
 """
 Test for vertical slice: Coordinator -> Geometry Worker -> JSON / BREP artifacts.
-Compliant with ТЗ v1.2 §4.1, §4.4, §4.5 and Principles 1, 2, 8, 12, 13, 21, 24.
+Compliant with technical specification v1.2 §4.1, §4.4, §4.5 and Principles 1, 2, 8, 12, 13, 21, 24.
 """
 
 import os

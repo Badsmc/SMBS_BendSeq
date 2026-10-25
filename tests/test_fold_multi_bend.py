@@ -1,5 +1,5 @@
 """
-test_fold_multi_bend.py - Unit test suite for multi-bend folding assembly (ТЗ v1.2 §5.1 Step 3).
+test_fold_multi_bend.py - Unit test suite for multi-bend folding assembly (technical specification v1.2 §5.1 Step 3).
 
 Verifies:
 1. fold_u_bracket reconstructs a 2-bend U-profile from flat pattern components:
