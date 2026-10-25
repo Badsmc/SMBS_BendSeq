@@ -4,7 +4,7 @@
 
 ```
 ┌──────────────────────────────────────────────────────┐
-│  СЛОЙ 5: Viewer / FreeCAD Adapter                    │
+│  LAYER 5: Viewer / FreeCAD Adapter                   │
 │  • run_dir → timeline (viewer/ modules)              │
 │  • CLI: python -m smbs_core.viewer view <run_dir>    │
 │  • Offscreen HLR+PIL renderer (PREVIEW_ONLY)         │
@@ -12,30 +12,30 @@
 └──────────────────────────────────────────────────────┘
                         ↑↓ JSON / STEP
 ┌──────────────────────────────────────────────────────┐
-│  СЛОЙ 4: CLI + IO                                    │
+│  LAYER 4: CLI + IO                                   │
 │  • smbs-cli                                          │
 │  • bendseq_writer (JSON v1.0)                        │
 │  • step_reader, fcstd_reader, tooling_loader         │
 └──────────────────────────────────────────────────────┘
                         ↑↓
 ┌──────────────────────────────────────────────────────┐
-│  СЛОЙ 3: Physics + Solvers + Geometry                │
+│  LAYER 3: Physics + Solvers + Geometry               │
 │  • Validator, CollisionDetector, ToolingAssembly     │
 │  • FeatureExtractor, PanelTopology                   │
 │  • A*, DFS, Greedy                                   │
 └──────────────────────────────────────────────────────┘
                         ↑↓
 ┌──────────────────────────────────────────────────────┐
-│  СЛОЙ 2: Core                                        │
+│  LAYER 2: Core                                       │
 │  • FoldState, BendTransform, StateCache              │
 │  • BendGraph, PanelGraph                             │
 │  • Orchestrator                                      │
 └──────────────────────────────────────────────────────┘
                         ↑↓
 ┌──────────────────────────────────────────────────────┐
-│  СЛОЙ 1: GeometryBackend (ABC)                       │
+│  LAYER 1: GeometryBackend (ABC)                      │
 │  • PythonOCCBackend, MockBackend                     │
-│  • НЕ импортирует FreeCAD                            │
+│  • does NOT import FreeCAD                           │
 └──────────────────────────────────────────────────────┘
 ```
 
