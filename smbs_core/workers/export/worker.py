@@ -1,5 +1,5 @@
 """
-Export Worker for SMBS / BendSeq (ТЗ v1.2 §7.2, §7.3, Principle 21).
+Export Worker for SMBS / BendSeq (technical specification v1.2 §7.2, §7.3, Principle 21).
 Enforces 5-point reverse validation checks before generating production part_bendseq.json v1.1.
 Writes 10_part_bendseq.json and 11_run_report.json.
 """

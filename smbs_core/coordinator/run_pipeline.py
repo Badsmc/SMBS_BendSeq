@@ -1,6 +1,6 @@
 """
 Pipeline Coordinator for SMBS / BendSeq.
-Compliant with ТЗ v1.2 §4.1, §4.2, §4.5 and Principles 2, 8, 21.
+Compliant with technical specification v1.2 §4.1, §4.2, §4.5 and Principles 2, 8, 21.
 Coordinates complete end-to-end pipeline:
 Coordinator
  ├─ 01_input_manifest.json → Geometry/SheetMetal Worker → 02_geometry_result.json + geometry.brep

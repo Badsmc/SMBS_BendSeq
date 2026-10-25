@@ -1,7 +1,7 @@
 """
 Pydantic Models for SMBS / BendSeq File Contracts.
 Mirroring JSON Schemas in smbs_core/contracts/schemas/.
-Compliant with ТЗ v1.2.
+Compliant with technical specification v1.2.
 """
 
 from __future__ import annotations

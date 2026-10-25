@@ -1,6 +1,6 @@
 """
 Protocols and File Store for SMBS / BendSeq.
-Compliant with Architectural Principles 2, 4, 7, 8, 12, 13, 21, 23, 24 and Sections 4, 7 of ТЗ v1.2.
+Compliant with Architectural Principles 2, 4, 7, 8, 12, 13, 21, 23, 24 and Sections 4, 7 of technical specification v1.2.
 """
 
 from __future__ import annotations
@@ -122,7 +122,7 @@ def compute_file_sha256(file_path: Union[str, Path]) -> str:
 class FileStore:
     """
     Atomic, versioned, checksum-verifying file store for inter-worker contracts.
-    Implements §4.2, §4.5 of ТЗ v1.2.
+    Implements §4.2, §4.5 of technical specification v1.2.
     """
 
     def __init__(self, schemas_dir: Optional[Union[str, Path]] = None):

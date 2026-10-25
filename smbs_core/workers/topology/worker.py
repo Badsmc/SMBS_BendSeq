@@ -2,7 +2,7 @@
 
 """
 Topology Worker for SMBS / BendSeq.
-Compliant with ТЗ v1.2 §3.3 (Rule R3), §4.1, §4.2 and Principles 2, 5, 17, 23.
+Compliant with technical specification v1.2 §3.3 (Rule R3), §4.1, §4.2 and Principles 2, 5, 17, 23.
 Extracts canonical panel and bend topology from geometry.brep and writes 04_canonical_part.json.
 """
 

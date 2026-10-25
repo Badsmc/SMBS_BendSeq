@@ -1,6 +1,6 @@
 """
 Geometry Worker for SMBS / BendSeq.
-Compliant with ТЗ v1.2 §4.1, §4.4, §4.5 and Principles 1, 2, 7, 10, 16, 23.
+Compliant with technical specification v1.2 §4.1, §4.4, §4.5 and Principles 1, 2, 7, 10, 16, 23.
 Reads 01_input_manifest.json -> writes 02_geometry_result.json + geometry.brep.
 """
 
