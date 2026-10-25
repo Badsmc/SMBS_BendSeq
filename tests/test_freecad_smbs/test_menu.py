@@ -1,15 +1,20 @@
 """
-Unit tests for SMBS workbench menu, toolbar, and command stubs (Commit C2).
-Validates per-command IsActive status and command resources.
+Unit tests for SMBS workbench menu, toolbar, and commands (Commit C3 evolution).
+Validates active vs disabled command status and command resources.
 """
 from __future__ import annotations
 
 import unittest
 from pathlib import Path
+from unittest.mock import MagicMock
 
 from freecad_smbs.commands.calculate import CalculateCommand
 from freecad_smbs.commands.info import InfoCommand
-from freecad_smbs.commands.open_run import OpenRunCommand
+from freecad_smbs.commands.open_run import (
+    OpenRunCommand,
+    get_current_run,
+    set_current_run,
+)
 from freecad_smbs.commands.simulate import SimulateCommand
 from freecad_smbs.commands.tooling import ToolingCommand
 from freecad_smbs.commands.verify import VerifyCommand
@@ -26,15 +31,22 @@ from freecad_smbs.InitGui import (
 
 
 class TestSMBSMenuAndCommands(unittest.TestCase):
-    def test_open_run_stub_disabled(self):
+    def setUp(self):
+        set_current_run(None)
+
+    def tearDown(self):
+        set_current_run(None)
+
+    def test_open_run_active(self):
+        """OpenRunCommand is active (C3 implementation)."""
         cmd = OpenRunCommand()
-        self.assertFalse(cmd.IsActive())
+        self.assertTrue(cmd.IsActive())
         res = cmd.GetResources()
         self.assertEqual(res["MenuText"], "Открыть run…")
-        self.assertIn("S.69 C3", res["ToolTip"])
         self.assertTrue(Path(res["Pixmap"]).exists())
 
     def test_calculate_stub_disabled(self):
+        """CalculateCommand remains disabled until C4."""
         cmd = CalculateCommand()
         self.assertFalse(cmd.IsActive())
         res = cmd.GetResources()
@@ -43,6 +55,7 @@ class TestSMBSMenuAndCommands(unittest.TestCase):
         self.assertTrue(Path(res["Pixmap"]).exists())
 
     def test_simulate_is_disabled(self):
+        """SimulateCommand is permanently disabled in S.69 (deferred to S.70)."""
         cmd = SimulateCommand()
         self.assertFalse(cmd.IsActive())
         res = cmd.GetResources()
@@ -51,6 +64,7 @@ class TestSMBSMenuAndCommands(unittest.TestCase):
         self.assertTrue(Path(res["Pixmap"]).exists())
 
     def test_tooling_is_disabled(self):
+        """ToolingCommand is permanently disabled in S.69 (deferred to S.71)."""
         cmd = ToolingCommand()
         self.assertFalse(cmd.IsActive())
         res = cmd.GetResources()
@@ -58,27 +72,34 @@ class TestSMBSMenuAndCommands(unittest.TestCase):
         self.assertIn("S.71", res["ToolTip"])
         self.assertTrue(Path(res["Pixmap"]).exists())
 
-    def test_verify_stub_disabled(self):
+    def test_verify_active(self):
+        """VerifyCommand active state depends on current_run (C3 implementation)."""
         cmd = VerifyCommand()
         self.assertFalse(cmd.IsActive())
         res = cmd.GetResources()
         self.assertEqual(res["MenuText"], "Верификация")
-        self.assertIn("S.69 C3", res["ToolTip"])
         self.assertTrue(Path(res["Pixmap"]).exists())
 
-    def test_info_stub_disabled(self):
+        # When a run is loaded, VerifyCommand becomes active
+        set_current_run(MagicMock())
+        self.assertTrue(cmd.IsActive())
+
+    def test_info_active(self):
+        """InfoCommand active state depends on current_run (C3 implementation)."""
         cmd = InfoCommand()
         self.assertFalse(cmd.IsActive())
         res = cmd.GetResources()
         self.assertEqual(res["MenuText"], "Инфо о run")
-        self.assertIn("S.69 C3", res["ToolTip"])
         self.assertTrue(Path(res["Pixmap"]).exists())
+
+        # When a run is loaded, InfoCommand becomes active
+        set_current_run(MagicMock())
+        self.assertTrue(cmd.IsActive())
 
     def test_menu_registration(self):
         wb = SMBSWorkbench()
         wb.Initialize()
 
-        # Check menu items structure
         expected_menu = [
             CMD_OPEN_RUN,
             "Separator",
@@ -91,7 +112,6 @@ class TestSMBSMenuAndCommands(unittest.TestCase):
         ]
         self.assertEqual(wb.menu_items, expected_menu)
 
-        # Check toolbar items structure
         expected_toolbar = [
             CMD_OPEN_RUN,
             CMD_CALCULATE,
@@ -102,6 +122,5 @@ class TestSMBSMenuAndCommands(unittest.TestCase):
         ]
         self.assertEqual(wb.toolbar_items, expected_toolbar)
 
-        # Check all commands mapped in COMMANDS_MAP
         for cmd_name in expected_toolbar:
             self.assertIn(cmd_name, COMMANDS_MAP)

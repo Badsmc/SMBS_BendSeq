@@ -52,6 +52,7 @@ def register_commands() -> None:
         try:
             FreeCADGui.addCommand(cmd_name, cmd_cls())
         except Exception:
+            # FreeCAD may re-init workbench; addCommand is idempotent; swallow for safety
             pass
 
 
