@@ -27,7 +27,7 @@ class MockValidator(PhysicalValidator):
         from smbs_core.geometry_backend.backends.mock_backend import MockBackend
         super().__init__(None, MockBackend())
 
-    def validate_step(self, current_state, bend_record, panel_graph=None, tooling_override=None):
+    def validate_step(self, current_state, bend_record, panel_graph=None, tooling_override=None, unknown_policy: str = "PRODUCTION"):
         moving = panel_graph.moving_subtree(bend_record.id) if panel_graph else set()
         next_state = current_state.apply_unfold(
             bend_id=bend_record.id,

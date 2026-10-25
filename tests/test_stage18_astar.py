@@ -28,7 +28,7 @@ class MockValidator(PhysicalValidator):
         from smbs_core.geometry_backend.backends.mock_backend import MockBackend
         super().__init__(None, MockBackend())
 
-    def validate_step(self, current_state, bend_record, panel_graph=None, tooling_override=None):
+    def validate_step(self, current_state, bend_record, panel_graph=None, tooling_override=None, unknown_policy: str = "PRODUCTION"):
         # Always return valid for simple testing of the search logic
         next_state = current_state.apply_unfold(
             bend_id=bend_record.id,

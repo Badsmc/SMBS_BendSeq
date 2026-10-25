@@ -28,7 +28,7 @@ class MockValidator:
         # invalid_bends is a dict: state_fingerprint -> set of bend_ids that fail
         self.invalid_bends = invalid_bends or {}
 
-    def validate_step(self, current: FoldState, bend_rec: BendRecord, panel_graph: Any, tooling_override=None):
+    def validate_step(self, current: FoldState, bend_rec: BendRecord, panel_graph: Any, tooling_override=None, unknown_policy: str = "PRODUCTION"):
         class Res:
             pass
         res = Res()
