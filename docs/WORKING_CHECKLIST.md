@@ -71,6 +71,7 @@
 | KL-24 | Authoritative `g_scores` lookup in A* pending-pop branch | `4dd9a0e` | `astar_backward.py:205` uses `g_scores.get(current_fp, ...)` aligning with non-pending branch; +1 test in `test_kl24_pending_g_scores.py`; baseline 590/OK | 2026-10-25 |
 | KL-20 | Reject fabricated `tooling_status` in SolverWorker | `180f6c5` | `solver/worker.py:298` replaced `or` fallback with explicit None check + rank-based fidelity check (REAL > SIMPLIFIED > MISSING); +2 tests in `test_solver_worker_honest.py`; baseline 592/OK | 2026-10-25 |
 | KL-8d | Actionable diagnostic on NO_SOLUTION + SIMPLIFIED + PRODUCTION | `9763c1d` | `solver/worker.py:441` appends explicit diagnostic explaining missing tooling and how to resolve; +1 test in `test_solver_worker_honest.py`; baseline 593/OK | 2026-10-25 |
+| KL-17 | Align mock feature extractors with `panels` contract | `350dc7b` | Added `"panels": {}` to mocks in `test_bendseq.py` and `test_stage3_regression.py` (5 profiles); updated `orchestrator.py:154` comment; baseline 593/OK | 2026-10-25 |
 
 ## Upcoming Tasks (Post-P0 Remediation)
 

@@ -433,10 +433,11 @@ bend order; `tuple(path)` required (Session 1.5 analysis).
   Fix path: add machine model to toollibrary (CAD task, separate session) →
   unify policy to PRODUCTION → assert all_steps_valid.
 
-- **KL-17 (P3, OPEN):** Mocks of `FeatureExtractor` in `tests/test_bendseq.py`
-  and `tests/test_stage3_regression.py` omit `"panels"` key by design.
-  Companions to `orchestrator.py` resolver preconditions (`"panels" in features`).
-  Fix path: add `"panels": {}` to mocks OR update mock contract helpers.
+- **KL-17 (P3, CLOSED S.66 `350dc7b`):** Mocks of `FeatureExtractor` in `tests/test_bendseq.py`
+  and `tests/test_stage3_regression.py` omitted `"panels"` key by design.
+  **Resolved S.66 (`350dc7b`):** Added `"panels": {}` to mock feature dicts in `tests/test_bendseq.py`
+  (2 dicts) and `tests/test_stage3_regression.py` (5 `MOCK_FEATURES` profiles), aligning with production
+  `FeatureExtractor.extract_features` contract. Updated `smbs_core/Core/orchestrator.py:154` comment.
 
 - **KL-18 (P3, CLOSED S.64 `d8577d0`):** `orchestrator.py:102` — silent
   `thickness = features.get("thickness", 2.0)` eliminated; strict
