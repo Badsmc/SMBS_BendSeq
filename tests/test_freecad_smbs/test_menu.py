@@ -69,13 +69,13 @@ class TestSMBSMenuAndCommands(unittest.TestCase):
         set_current_run(MagicMock())
         self.assertTrue(cmd.IsActive())
 
-    def test_tooling_is_disabled(self):
-        """ToolingCommand is permanently disabled in S.69 (deferred to S.71)."""
+    def test_tooling_active(self):
+        """ToolingCommand is active (S.71 implementation; library is repo-relative)."""
         cmd = ToolingCommand()
-        self.assertFalse(cmd.IsActive())
+        self.assertTrue(cmd.IsActive())  # always active, no current_run dependency
         res = cmd.GetResources()
         self.assertEqual(res["MenuText"], "Оснастка")
-        self.assertIn("S.71", res["ToolTip"])
+        self.assertNotIn("S.71", res["ToolTip"])
         self.assertTrue(Path(res["Pixmap"]).exists())
 
     def test_verify_active(self):
