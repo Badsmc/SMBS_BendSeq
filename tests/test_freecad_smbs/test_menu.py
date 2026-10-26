@@ -58,14 +58,16 @@ class TestSMBSMenuAndCommands(unittest.TestCase):
         set_current_run(MagicMock())
         self.assertTrue(cmd.IsActive())
 
-    def test_simulate_is_disabled(self):
-        """SimulateCommand is permanently disabled in S.69 (deferred to S.70)."""
+    def test_simulate_active(self):
+        """SimulateCommand active state depends on current_run (S.70 implementation)."""
         cmd = SimulateCommand()
         self.assertFalse(cmd.IsActive())
         res = cmd.GetResources()
         self.assertEqual(res["MenuText"], "Симуляция")
-        self.assertIn("S.70", res["ToolTip"])
+        self.assertNotIn("S.70", res["ToolTip"])  # tooltip no longer references future session
         self.assertTrue(Path(res["Pixmap"]).exists())
+        set_current_run(MagicMock())
+        self.assertTrue(cmd.IsActive())
 
     def test_tooling_is_disabled(self):
         """ToolingCommand is permanently disabled in S.69 (deferred to S.71)."""
