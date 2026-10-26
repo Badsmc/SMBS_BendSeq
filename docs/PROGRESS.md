@@ -711,7 +711,7 @@ Chronological record of remediation sessions closing integrity invariants and B-
 - **S.50 (`ce68906`):** Docs core closed. Canonical registry clearance in `docs/AUDIT_FULL_2026-10-23.md` (Release blockers: CLEARED, P0-GEOM closure, Errata) and `docs/WORKING_CHECKLIST.md` (Next-P0 cleared). Baseline: 577 tests (0 net). Runtime: 156.2s.
 
 
-## Process & Session Log: S.51–S.69 (2026-10-24–2026-10-25)
+## Process & Session Log: S.51–S.70 (2026-10-24–2026-10-26)
 
 ### Milestone: Post-release hygiene (P1-CODE + P1-hygiene + P1-DOC)
 
@@ -768,9 +768,22 @@ Chronological record of remediation sessions closing integrity invariants and B-
   - inv #10 — `production_eligible` sourced only from `09_verification_result.json`.
   - inv #16 — no push performed in S.69.
 - **Backlog (deferred):**
-  - **S.70** — Симуляция (F.2/F.3a playback port from `SMBS_AnimationPlayer.FCMacro`). `get_annotations` coverage extension into `test_bridge_readonly`.
   - **S.71** — Оснастка (Task Panel, 5 tabs: punch / die / machine frame / backgauge / clamps). β1 honesty: `TOOLING: MISSING` for absent `.FCStd`; `MACHINE: SIMPLIFIED (KL-16 pending)` for synthetic frame.
   - **S.72** — Верификация dialog + Настройки + Диагностика + backlog sweep (G3 `open_run` silent excepts → UX feedback; G4 `resources/__init__.py`; G5 `test_bridge.py` tabs/spaces; M1 `InitGui.py` silent excepts rationale comment; README line 116 PNG fallback hardcoded `PREVIEW_ONLY (KL-12)`; KL-26 fail-fast check).
+
+**S.70 (2026-10-26) — UI/UX track: FreeCAD Workbench «Симуляция» (Req 2 F.2 + F.3a port).**
+
+- **Scope:** Port `SMBS_AnimationPlayer.FCMacro` dialog into `freecad_smbs/`. **F.2 + F.3a only.** F.3b (punch descent, backgauge motion, machine frame geometry) **remains BLOCKED on KL-16**. Q7 (tooling moves) RESOLVED as decision, impl deferred to F.3b.
+- **Commits (2 code + this docs):**
+  - `2ae4b76` C1 — `smbs_bridge.get_player(artifacts)` — lazy OCC backend + eager `player.frames` (raises `PlayerError` on malformed 09). Headless-safe: no top-level OCC import. Baseline 613 → 615.
+  - `50a4c67` C2 — `ui/animation_dialog.py` (new, ~315 lines, headless-safe, lazy FreeCAD/PySide): macro parity `_on_slider_changed` (`reset()` + `next()` x N), `closeEvent` 4-object None-safe, `MACHINE: SIMPLIFIED (KL-16 pending)` badge when frame None, static punch/die. `commands/simulate.py` active (`IsActive = current_run is not None`). `test_menu.py` evolution (stub → active). Baseline 615 → 618.
+- **Architecture (ii') Copy-UI + Wrap-headless** (S.69 C4 precedent): copy Qt dialog from macro (`ui/animation_dialog.py`), wrap headless `AnimationController` + `Player` + `format_*` badges from `smbs_core/viewer/fc_animation.py` (13 existing headless tests). No reimplementation.
+- **Honesty invariants held:** PREVIEW_ONLY (KL-12) banner persists per-frame; MACHINE: SIMPLIFIED (KL-16) when frame None; UNVERIFIED when 09 absent; production_eligible only from 09 (inv #10).
+- **Not in S.70 (blocked):** punch descent animation (F.3b, KL-16), backgauge motion (F.3b), machine frame geometry (F.3b + KL-16), forward fold (KL-12 v3).
+- **Backlog (deferred S.72):**
+  - O1 — unused `from pathlib import Path` in `tests/test_freecad_smbs/test_animation_dialog.py`.
+  - O2 — rationale comment for catch-all in `_load_player_into_ui` (tooling setup failure → dialog degraded-but-honest).
+  - S.71 (planned) — Оснастка (5-tab Task Panel). S.72 (planned) — Верификация dialog + Настройки + Диагностика.
 
 
 ## Historical: Phases 0-11 (pre-refactor, completed before Stage track)

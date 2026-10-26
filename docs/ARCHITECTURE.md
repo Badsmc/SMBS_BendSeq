@@ -124,7 +124,7 @@ player.Player                → tuple[Frame, ...]      (production_eligible fro
 
 - **Forward fold mode** — blocked on KL-12 (S.13b). `Player.switch_direction("forward")` raises `PlayerError`.
 - **Per-panel kinematic unfold** (`PER_PANEL_KINEMATIC`) — blocked on KL-12.
-- **FreeCAD addon GUI** — S.69 scaffold + menu + read-only commands + «Расчёт» (3D annotations) in `freecad_smbs/`; playback (Simulation) deferred to S.70, tooling editor to S.71. Headless `python -m smbs_core.viewer view <run_dir>` unchanged.
+- **FreeCAD addon GUI** — S.69 scaffold + menu + read-only commands + «Расчёт» (3D annotations); S.70 «Симуляция» (F.2+F.3a playback, PREVIEW_ONLY, `MACHINE: SIMPLIFIED (KL-16 pending)` badge). Tooling editor deferred to S.71; F.3b (punch descent + backgauge motion + machine frame) blocked on KL-16. Headless `python -m smbs_core.viewer view <run_dir>` unchanged.
 
 ### Future extensions (Layer 6+)
 
