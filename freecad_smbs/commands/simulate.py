@@ -1,26 +1,42 @@
-"""
-simulate.py - Command stub for simulation playback (deferred to S.70).
-"""
+"""simulate.py - Command: bend sequence playback (F.2 + F.3a, S.70)."""
+
 from __future__ import annotations
 
 from pathlib import Path
 from typing import Any, Dict
 
-ICON_PATH: Path = Path(__file__).resolve().parent.parent / "resources" / "icons" / "simulate.svg"
+from freecad_smbs.commands.open_run import get_current_run
+from freecad_smbs.integration import smbs_bridge
+from freecad_smbs.ui.dialogs import show_error
+
+ICON_PATH = Path(__file__).resolve().parent.parent / "resources" / "icons" / "simulate.svg"
 
 
 class SimulateCommand:
-    """Command to launch bend sequence animation player (deferred to S.70)."""
-
     def GetResources(self) -> Dict[str, Any]:
         return {
             "Pixmap": str(ICON_PATH),
             "MenuText": "Симуляция",
-            "ToolTip": "Запуск симуляции процесса гибки (Реализация: S.70)",
+            "ToolTip": "Воспроизведение процесса гибки (F.2/F.3a; PREVIEW_ONLY, KL-12)",
         }
 
     def Activated(self) -> None:
-        pass
+        artifacts = get_current_run()
+        if artifacts is None:
+            show_error("SMBS: Симуляция", "Сначала откройте директорию запуска (SMBS → Открыть run…).")
+            return
+        try:
+            player = smbs_bridge.get_player(artifacts)
+        except Exception as e:
+            show_error("SMBS: Симуляция", f"Не удалось построить плеер:\n{e}")
+            return
+        try:
+            from freecad_smbs.ui.animation_dialog import AnimationPlayerDialog
+
+            dialog = AnimationPlayerDialog(artifacts, player)
+            dialog.exec()
+        except Exception as e:
+            show_error("SMBS: Симуляция", f"Не удалось открыть диалог воспроизведения:\n{e}")
 
     def IsActive(self) -> bool:
-        return False
+        return get_current_run() is not None
