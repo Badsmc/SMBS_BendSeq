@@ -8,6 +8,7 @@ falls back to whole-part rotation. Not a physical re-simulation.
 """
 from __future__ import annotations
 
+import copy
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterator, Optional
@@ -260,6 +261,112 @@ def replay_backward(
                 geometry_precision=precision, geometry_warning=warning,
             )
             return
+
+    # N=2 constructive stepwise path (P1b): use SheetMetalFolder prefix folding.
+    # Yields genuine B-Rep solids at steps 0, 1, 2 for linear 2-bend sequences (KL-12 v3 step 2).
+    # Lazy-imported to keep replayer.py safe in headless envs (plain python3 without FreeCAD Mod).
+    if candidate_seq and len(candidate_seq) == 2 and artifacts.flat_pattern_path is not None and artifacts.canonical_part is not None:
+        try:
+            from smbs_core.Geometry.sheetmetal_folder import SheetMetalFolder
+            _folder_cls: Optional[Any] = SheetMetalFolder
+        except (ImportError, ModuleNotFoundError):
+            _folder_cls = None
+
+        if _folder_cls is not None:
+            try:
+                flat_shape = load_brep(artifacts.flat_pattern_path)
+            except ReplayerError:
+                flat_shape = None
+
+            if flat_shape is not None and _is_valid_solid(flat_shape):
+                bid0 = candidate_seq[0]["bend_id"]
+                bid1 = candidate_seq[1]["bend_id"]
+
+                # Validate required sequence fields defensively
+                for step_idx, step_data in enumerate(candidate_seq):
+                    bid = step_data.get("bend_id")
+                    for fld in ("planner_status", "collision_status", "tooling_status", "alignment_status"):
+                        if fld not in step_data:
+                            raise ReplayerError(
+                                f"Step {step_idx + 1} for bend '{bid}' is missing required status field '{fld}'"
+                            )
+                    bend_rec = graphs.bend_graph.get_bend(bid)
+                    if bend_rec is None:
+                        raise ReplayerError(f"bend_id '{bid}' not in bend_graph")
+                    moving_panels = graphs.panel_graph.moving_subtree(bid)
+                    if not moving_panels:
+                        raise ReplayerError(f"Empty moving_subtree for bend '{bid}'")
+                    if bid not in graphs.direction_by_bend:
+                        raise ReplayerError(f"bend_id '{bid}' missing from direction_by_bend")
+
+                # All-or-nothing constructive generation
+                try:
+                    s0_shape = _folder_cls.fold_from_canonical_part(artifacts.canonical_part, flat_shape)
+
+                    cp_step1 = copy.deepcopy(artifacts.canonical_part)
+                    cp_payload = cp_step1.get("payload", cp_step1)
+                    if "bends" in cp_payload and bid0 in cp_payload["bends"]:
+                        bend_entry = cp_payload["bends"][bid0]
+                        if isinstance(bend_entry.get("angle_deg"), dict):
+                            bend_entry["angle_deg"]["value"] = 0.0
+                        else:
+                            bend_entry["angle_deg"] = 0.0
+
+                    s1_shape = _folder_cls.fold_from_canonical_part(cp_step1, flat_shape)
+                    s2_shape = flat_shape
+
+                    all_solids_valid = (
+                        _is_valid_solid(s0_shape) and
+                        _is_valid_solid(s1_shape) and
+                        _is_valid_solid(s2_shape)
+                    )
+                except Exception:
+                    all_solids_valid = False
+
+                if all_solids_valid:
+                    precision = GEOMETRY_PRECISION_VALID
+                    warning = None
+
+                    moving_panels0 = graphs.panel_graph.moving_subtree(bid0)
+                    ui_dir0 = graphs.direction_by_bend[bid0]
+
+                    moving_panels1 = graphs.panel_graph.moving_subtree(bid1)
+                    ui_dir1 = graphs.direction_by_bend[bid1]
+
+                    current_state = FoldState.initial(
+                        part_shape=s0_shape,
+                        bend_graph=graphs.bend_graph,
+                        panel_graph=graphs.panel_graph,
+                    )
+                    yield StepView(
+                        step_index=0, bend_id=None, state=current_state,
+                        ui_direction=None, planner_status=None,
+                        collision_status=None, tooling_status=None, alignment_status=None,
+                        geometry_precision=precision, geometry_warning=warning,
+                    )
+
+                    current_state = current_state.apply_unfold(bid0, s1_shape, moving_panels0)
+                    yield StepView(
+                        step_index=1, bend_id=bid0, state=current_state,
+                        ui_direction=ui_dir0,
+                        planner_status=candidate_seq[0]["planner_status"],
+                        collision_status=candidate_seq[0]["collision_status"],
+                        tooling_status=candidate_seq[0]["tooling_status"],
+                        alignment_status=candidate_seq[0]["alignment_status"],
+                        geometry_precision=precision, geometry_warning=warning,
+                    )
+
+                    current_state = current_state.apply_unfold(bid1, s2_shape, moving_panels1)
+                    yield StepView(
+                        step_index=2, bend_id=bid1, state=current_state,
+                        ui_direction=ui_dir1,
+                        planner_status=candidate_seq[1]["planner_status"],
+                        collision_status=candidate_seq[1]["collision_status"],
+                        tooling_status=candidate_seq[1]["tooling_status"],
+                        alignment_status=candidate_seq[1]["alignment_status"],
+                        geometry_precision=precision, geometry_warning=warning,
+                    )
+                    return
 
     # Fallback: N >= 2 or N=1 disk path failed → existing rigid rotate_subtree loop.
     current_state = FoldState.initial(
