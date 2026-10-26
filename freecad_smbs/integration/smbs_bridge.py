@@ -134,3 +134,16 @@ def get_player(artifacts: RunArtifacts) -> Any:
     _ = player.frames  # eager build; raises PlayerError on malformed 09
     return player
 
+
+def get_tooling_library(library_path: Union[str, Path, None] = None) -> Any:
+    """Load ToolingLibrary from canonical repo toollibrary/ (S.71).
+
+    Lazy import keeps bridge headless-safe for plain python3 tests.
+    Raises ToolingLibraryError on missing subdirs / malformed sidecars.
+    """
+    from smbs_core.geometry_backend.io.tooling_library import ToolingLibrary
+
+    if library_path is None:
+        library_path = Path(__file__).resolve().parents[2] / "toollibrary"
+    return ToolingLibrary(Path(library_path))
+
