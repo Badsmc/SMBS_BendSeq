@@ -98,7 +98,7 @@ run_loader.load_run()        → RunArtifacts
 graph_builder.build_graphs() → ViewerGraphs (BendGraph + PanelGraph + direction_by_bend)
     │
     ▼
-replayer.replay_backward()   → Iterator[StepView]     (PREVIEW_ONLY for N≥2; VALID_PER_PANEL for N=1 disk-state via P1a)
+replayer.replay_backward()   → Iterator[StepView]     (PREVIEW_ONLY for N≥3; VALID_PER_PANEL for N=1 disk-state via P1a and N=2 constructive via P1b)
     │
     ▼
 player.Player                → tuple[Frame, ...]      (production_eligible from 09 ONLY)
@@ -112,7 +112,7 @@ player.Player                → tuple[Frame, ...]      (production_eligible fro
 - `production_eligible` is read from `09_verification_result.payload.production_eligible`. **Never computed** by viewer (invariant #9).
 - Missing `09` → `verification_status="UNVERIFIED"`, `production_eligible=None`, `diagnostics=()`. (invariant #1: `UNKNOWN != VALID`).
 - `diagnostics` are taken from `09_verification_result.diagnostics` (top-level; per L1 audit, `payload` has none).
-- Every `StepView` carries `geometry_precision="PREVIEW_ONLY"` and `geometry_warning` referencing KL-12 (for N≥2). For N=1 with valid `flat_pattern.brep`, P1a disk-state path yields `VALID_PER_PANEL`, no warning — genuine solid on both steps (`_is_valid_solid` gate via `BRepCheck_Analyzer`).
+- Every `StepView` carries `geometry_precision="PREVIEW_ONLY"` and `geometry_warning` referencing KL-12 for N≥3 (tree structures, unverified). N=1 (P1a) and N=2 linear (P1b) constructive paths yield `VALID_PER_PANEL` with no warning — all states genuine solids (`_is_valid_solid` gate via `BRepCheck_Analyzer`).
 - Every rendered PNG carries a red banner `PREVIEW_ONLY (KL-12) - not a physical re-simulation` (unchanged — PNG renderer not yet updated; P1c scope).
 - `render.py` fails loudly on visible-edge discretization loss (`RenderError`); hidden-edge loss surfaces in the PNG subtitle and in `manifest.json` diagnostics.
 
@@ -122,9 +122,9 @@ player.Player                → tuple[Frame, ...]      (production_eligible fro
 
 ### Deferred
 
-- **Forward fold mode** — blocked on KL-12 (S.13b). `Player.switch_direction("forward")` raises `PlayerError`.
+- **Forward fold mode** — `Player.switch_direction("forward")` does not raise; returns honest reversal of backward StepViews (introduced S.33 Req 2 F.1). Physical correctness of forward direction depends on underlying replayer producing valid solids — for N≤2 constructive paths (P1a/P1b) both directions yield genuine solids; for N≥3 forward remains PREVIEW_ONLY.
 - **Per-panel kinematic unfold** (`PER_PANEL_KINEMATIC`) — blocked on KL-12.
-- **FreeCAD addon GUI** — S.69 scaffold + menu + read-only commands + «Расчёт» (3D annotations); S.70 «Симуляция» (F.2+F.3a playback, PREVIEW_ONLY, `MACHINE: SIMPLIFIED (KL-16 pending)` badge); S.71 «Оснастка» (5-tab Task Panel: Punches/Dies/Machine Frame/Backgauge/Clamps, β1 honesty, case-insensitive resolver for real `.FCStd`, no sidecar → direct display, KL-28). F.3b (punch descent + backgauge motion + machine frame geometry) blocked on KL-16. Headless `python -m smbs_core.viewer view <run_dir>` unchanged. **P1a (2026-10-26):** `replayer` N=1 disk-state path yields `VALID_PER_PANEL` — both states genuine solids (`_is_valid_solid` gate). N≥2 remains PREVIEW_ONLY (P1b). KL-12-v3 remains OPEN (multi-bend).
+- **FreeCAD addon GUI** — S.69 scaffold + menu + read-only commands + «Расчёт» (3D annotations); S.70 «Симуляция» (F.2+F.3a playback, PREVIEW_ONLY, `MACHINE: SIMPLIFIED (KL-16 pending)` badge); S.71 «Оснастка» (5-tab Task Panel: Punches/Dies/Machine Frame/Backgauge/Clamps, β1 honesty, case-insensitive resolver for real `.FCStd`, no sidecar → direct display, KL-28). F.3b (punch descent + backgauge motion + machine frame geometry) blocked on KL-16. Headless `python -m smbs_core.viewer view <run_dir>` unchanged. **P1a (2026-10-26):** `replayer` N=1 disk-state path yields `VALID_PER_PANEL` — both states genuine solids (`_is_valid_solid` gate). **P1b (2026-10-26):** `replayer` N=2 constructive branch yields `VALID_PER_PANEL` for linear 2-bend chains (U, Z) — `fold_step` 0° guard + `fold_from_canonical_part` intermediate. All-or-nothing fallback to `PREVIEW_ONLY` on any invalid solid. N≥3 tree structures remain `PREVIEW_ONLY` (P1b-extended). KL-12-v3 status: N≤2 CLOSED, N≥3 tree OPEN.
 
 ### Known Limitations (Core)
 
