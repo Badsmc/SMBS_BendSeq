@@ -2,7 +2,7 @@
 
 > **Purpose:** Lightweight daily tracker. Not a roadmap (see `docs/ROADMAP.md`), not an architecture doc (see `docs/ARCHITECTURE.md`), not a release audit (see `docs/AUDIT_FULL_2026-10-23.md`).
 > **Rule:** Move a task to **Done** only after the acceptance condition is met and a verification reference is linked (test name, commit SHA, or `cat -n` evidence). No "Done" without proof.
-> **Snapshot:** HEAD `2df0f77`, 2026-10-25 (Baseline: 613 / OK / 3× expected failures).
+> **Snapshot:** HEAD `50a4c67`, 2026-10-26 (Baseline: 618 / OK / 3× expected failures).
 
 ---
 
@@ -34,11 +34,10 @@
 | P1-DOC-refresh-arch | Full ARCHITECTURE content refresh (Stages 5–9, Req 6, Req 2) — truth-up of stale facts completed S.63 (`bc9acad`); content addition = separate epic track | Separate track |
 | P1-DOC-refresh-roadmap | ROADMAP §1–§7 refresh (post-Stage 4) | Separate track |
 
-## Planned sessions (post-S.69)
+## Planned sessions (post-S.70)
 
 | Session | Scope | Prerequisites |
 |---|---|---|
-| **S.70** | FreeCAD Workbench «Симуляция» — port F.2/F.3a playback from `SMBS_AnimationPlayer.FCMacro` into `commands/simulate.py` + `ui/`. PREVIEW_ONLY banner persists. | `SMBS_AnimationPlayer.FCMacro` (canonical). Q6=1s/bend configurable confirmed. |
 | **S.71** | FreeCAD Workbench «Оснастка» — Task Panel with 5 tabs (punch / die / machine frame / backgauge / clamps). β1 honesty: `TOOLING: MISSING` for absent `.FCStd`; `MACHINE: SIMPLIFIED (KL-16 pending)`. | `SMBS_ToolingLibrary.FCMacro` (canonical). KL-16 (`machine_frame.FCStd`) still missing; backgauge / clamps `.FCStd` still missing. |
 | **S.72** | FreeCAD Workbench «Верификация» dialog + «Настройки» + «Диагностика» + backlog sweep (G3, G4, G5, M1, N4, README line 116, KL-26 fail-fast check). | — |
 
@@ -86,6 +85,8 @@
 | S.69-C2 | Menu + toolbar + disabled command stubs + `ui/badges.py` + `resources/tooling_paths.py` + 6 SVG icons | `deaff33` | baseline 604/OK | 2026-10-25 |
 | S.69-C3 | Read-only bridge (`integration/smbs_bridge.py`) + active `open_run` / `info` / `verify` (Q5 badge logic) | `fff04b3` | baseline 609/OK | 2026-10-25 |
 | S.69-C4 | «Расчёт» — 3D annotations from `compute_annotations` (B1); `ui/annotations.py` Z-override `flat_zmax+3.0` | `2df0f77` | baseline 613/OK | 2026-10-25 |
+| S.70-C1 | bridge `get_player` — lazy OCC backend + eager `player.frames` (PlayerError on malformed 09); headless-safe | `2ae4b76` | baseline 615/OK | 2026-10-26 |
+| S.70-C2 | «Симуляция» — `ui/animation_dialog.py` (F.2+F.3a port, macro parity, headless-safe); `commands/simulate.py` active | `50a4c67` | baseline 618/OK | 2026-10-26 |
 
 ## Upcoming Tasks (Post-P0 Remediation)
 
