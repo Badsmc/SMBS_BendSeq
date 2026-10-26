@@ -1,6 +1,7 @@
 """
-Unit tests for tooling_panel module (S.71 C2a).
-Tests headless module safety, constants, class creatability, and real toollibrary catalog loading.
+Unit tests for tooling_panel module (S.71 C2b).
+Tests headless module safety, constants, class creatability, helpers,
+clamp config defaults, and real toollibrary catalog loading.
 """
 from __future__ import annotations
 
@@ -40,6 +41,100 @@ class TestToolingPanelHeadless(unittest.TestCase):
 
         self.assertIsNone(tooling_panel._PanelClass)
         self.assertTrue(callable(tooling_panel.ToolingPanel))
+
+    def test_parse_positions_mm_valid(self):
+        """Parse comma-separated positions into sorted tuple of floats."""
+        from freecad_smbs.ui.tooling_panel import _parse_positions_mm
+
+        self.assertEqual(_parse_positions_mm("10.0, 100.0, 200.0"), (10.0, 100.0, 200.0))
+
+    def test_parse_positions_mm_sorts_dedupes(self):
+        """Positions are deduplicated and sorted in ascending order."""
+        from freecad_smbs.ui.tooling_panel import _parse_positions_mm
+
+        self.assertEqual(_parse_positions_mm("200.0, 10.0, 10.0"), (10.0, 200.0))
+
+    def test_parse_positions_mm_invalid(self):
+        """Non-numeric input raises ValueError."""
+        from freecad_smbs.ui.tooling_panel import _parse_positions_mm
+
+        with self.assertRaises(ValueError):
+            _parse_positions_mm("abc")
+
+    def test_apply_clamp_config_fields_roundtrip(self):
+        """apply_clamp_config_fields replaces fields while preserving all 9 fields."""
+        from freecad_smbs.ui.tooling_panel import _apply_clamp_config_fields
+        from smbs_core.geometry_backend.io.clamp_validator import ClampConfig
+
+        cfg = ClampConfig.from_defaults()
+        updated = _apply_clamp_config_fields(cfg, {"width_mm": 200.0})
+        self.assertEqual(updated.width_mm, 200.0)
+        self.assertEqual(updated.gap_between_mm, cfg.gap_between_mm)
+        self.assertEqual(updated.overhang_ratio, cfg.overhang_ratio)
+        self.assertEqual(updated.joint_tolerance_mm, cfg.joint_tolerance_mm)
+        self.assertEqual(updated.min_clamps_under_punch, cfg.min_clamps_under_punch)
+        self.assertEqual(updated.positions_mm, cfg.positions_mm)
+        self.assertEqual(updated.repositionable, cfg.repositionable)
+        self.assertEqual(updated.joints_must_be_on_clamps, cfg.joints_must_be_on_clamps)
+        self.assertEqual(updated.no_gaps_between_punches, cfg.no_gaps_between_punches)
+
+        with self.assertRaises(ValueError):
+            _apply_clamp_config_fields(cfg, {"invalid_field_name": 123})
+
+    def test_machine_frame_badge_when_missing(self):
+        """Machine frame missing returns SIMPLIFIED badge (KL-16 pending) and yellow color."""
+        finder = None
+        try:
+            try:
+                from smbs_core.viewer.fc_animation import format_machine_frame_badge, COLOR_YELLOW
+            except ModuleNotFoundError as e:
+                if "OCC" in str(e):
+                    import types
+                    from unittest.mock import MagicMock
+
+                    class OCCMockFinder:
+                        def find_spec(self, fullname, path, target=None):
+                            if fullname == "OCC" or fullname.startswith("OCC."):
+                                from importlib.machinery import ModuleSpec
+
+                                return ModuleSpec(fullname, self, is_package=True)
+                            return None
+
+                        def create_module(self, spec):
+                            mod = types.ModuleType(spec.name)
+                            mod.__path__ = []
+                            return mod
+
+                        def exec_module(self, module):
+                            module.__getattr__ = lambda name: MagicMock()
+
+                    finder = OCCMockFinder()
+                    sys.meta_path.insert(0, finder)
+                    from smbs_core.viewer.fc_animation import format_machine_frame_badge, COLOR_YELLOW
+                else:
+                    raise
+
+            self.assertEqual(
+                format_machine_frame_badge(False),
+                ("MACHINE: SIMPLIFIED (KL-16 pending)", COLOR_YELLOW),
+            )
+        finally:
+            if finder and finder in sys.meta_path:
+                sys.meta_path.remove(finder)
+
+    def test_clamp_config_defaults_match_raw(self):
+        """ClampConfig defaults match raw audit R1.1 values across all 9 fields."""
+        from smbs_core.geometry_backend.io.clamp_validator import ClampConfig
+
+        cfg = ClampConfig.from_defaults()
+        self.assertEqual(cfg.width_mm, 150.0)
+        self.assertEqual(cfg.gap_between_mm, 50.0)
+        self.assertEqual(cfg.overhang_ratio, 0.30)
+        self.assertEqual(cfg.joint_tolerance_mm, 0.1)
+        self.assertEqual(cfg.min_clamps_under_punch, 2)
+        self.assertTrue(cfg.repositionable)
+        self.assertTrue(cfg.joints_must_be_on_clamps)
+        self.assertTrue(cfg.no_gaps_between_punches)
 
 
 class TestToolingCatalogHeadless(unittest.TestCase):

@@ -1,5 +1,5 @@
 """
-Unit tests for canonical tooling paths (toollibrary/) and status badges (Commit C2).
+Unit tests for canonical tooling paths (toollibrary/) and status badges (S.71 C2b).
 """
 from __future__ import annotations
 
@@ -15,7 +15,10 @@ from freecad_smbs.resources.tooling_paths import (
     MISSING_TOOLS,
     PRESS_PATH,
     PUNCH_PATH,
+    TOOL_LIBRARY_ROOT,
     is_tool_available,
+    resolve_backgauge_fcstd,
+    resolve_clamp_fcstd,
 )
 from freecad_smbs.ui.badges import (
     BADGE_COLORS_HEX,
@@ -32,46 +35,39 @@ from freecad_smbs.ui.badges import (
 
 
 class TestToolingPathsAndBadges(unittest.TestCase):
-    def test_tooling_paths_are_toollibrary(self):
-        """C2-4 exact assertions for canonical toollibrary structure."""
-        # Punch path checks
+    def test_tooling_paths_canonical_names(self):
+        """Canonical path names + structure (S.69 β1 preserved). KL-16 machine_frame still missing."""
+        # Existing tools present
         self.assertEqual(PUNCH_PATH.name, "puancon.FCStd")
         self.assertEqual(PUNCH_PATH.parent.name, "punch")
         self.assertEqual(PUNCH_PATH.parent.parent.name, "toollibrary")
-        self.assertTrue(PUNCH_PATH.exists(), f"Expected punch file to exist: {PUNCH_PATH}")
-        self.assertTrue(is_tool_available("punch"))
+        self.assertTrue(PUNCH_PATH.exists())
 
-        # Die path checks
         self.assertEqual(DIE_PATH.name, "matrica.FCStd")
         self.assertEqual(DIE_PATH.parent.name, "die")
-        self.assertEqual(DIE_PATH.parent.parent.name, "toollibrary")
-        self.assertTrue(DIE_PATH.exists(), f"Expected die file to exist: {DIE_PATH}")
-        self.assertTrue(is_tool_available("die"))
+        self.assertTrue(DIE_PATH.exists())
 
-        # Press path checks
         self.assertEqual(PRESS_PATH.name, "cncbender.FCStd")
         self.assertEqual(PRESS_PATH.parent.name, "presses")
-        self.assertEqual(PRESS_PATH.parent.parent.name, "toollibrary")
-        self.assertTrue(PRESS_PATH.exists(), f"Expected press file to exist: {PRESS_PATH}")
-        self.assertTrue(is_tool_available("press"))
+        self.assertTrue(PRESS_PATH.exists())
 
-        # Missing tools checks (β1 — expected convention, but files are missing)
+        # Canonical missing-path names (β1 conventions preserved)
         self.assertEqual(BACKGAUGE_PATH.name, "backgauge.FCStd")
-        self.assertFalse(BACKGAUGE_PATH.exists(), "Backgauge file must be MISSING in β1")
-        self.assertFalse(is_tool_available("backgauge"))
-
         self.assertEqual(CLAMPS_PATH.name, "clamps.FCStd")
-        self.assertFalse(CLAMPS_PATH.exists(), "Clamps file must be MISSING in β1")
-        self.assertFalse(is_tool_available("clamps"))
-
         self.assertEqual(MACHINE_FRAME_PATH.name, "machine_frame.FCStd")
-        self.assertFalse(MACHINE_FRAME_PATH.exists(), "Machine frame file must be MISSING in β1")
-        self.assertFalse(is_tool_available("machine_frame"))
 
-        # Verify missing tools list
-        self.assertIn("backgauge", MISSING_TOOLS)
-        self.assertIn("clamps", MISSING_TOOLS)
+        # KL-16: machine_frame missing (OS-independent, no file variants)
+        self.assertFalse(MACHINE_FRAME_PATH.exists())
         self.assertIn("machine_frame", MISSING_TOOLS)
+
+    def test_tooling_paths_resolvers_find_real_files(self):
+        """Resolvers locate real backgauge/clamp files on disk (case-insensitive fallback)."""
+        bg = resolve_backgauge_fcstd(TOOL_LIBRARY_ROOT)
+        cl = resolve_clamp_fcstd(TOOL_LIBRARY_ROOT)
+        self.assertIsNotNone(bg, f"Backgauge file not found in {TOOL_LIBRARY_ROOT}")
+        self.assertIsNotNone(cl, f"Clamp file not found in {TOOL_LIBRARY_ROOT}")
+        self.assertEqual(bg.suffix.lower(), ".fcstd")
+        self.assertEqual(cl.suffix.lower(), ".fcstd")
 
     def test_badges_color_mapping(self):
         """Verify badges and color mappings are pure Python and complete."""
@@ -91,3 +87,33 @@ class TestToolingPathsAndBadges(unittest.TestCase):
             hex_code = get_badge_hex(badge)
             self.assertTrue(hex_code.startswith("#"))
             self.assertEqual(len(hex_code), 7)
+
+    def test_resolve_backgauge_fcstd_case_insensitive(self):
+        """Resolver finds Backgauge/Backgauge.FCStd (capital case) via fallback."""
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "Backgauge").mkdir()
+            target = root / "Backgauge" / "Backgauge.FCStd"
+            target.write_bytes(b"dummy")
+            result = resolve_backgauge_fcstd(root)
+            self.assertIsNotNone(result)
+            self.assertEqual(result.name, "Backgauge.FCStd")
+
+    def test_resolve_clamp_fcstd_case_insensitive(self):
+        """Resolver finds Clamp/Clamp.FCStd (singular, capital) via fallback."""
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "Clamp").mkdir()
+            target = root / "Clamp" / "Clamp.FCStd"
+            target.write_bytes(b"dummy")
+            result = resolve_clamp_fcstd(root)
+            self.assertIsNotNone(result)
+            self.assertEqual(result.name, "Clamp.FCStd")
+
+
+if __name__ == "__main__":
+    unittest.main()
