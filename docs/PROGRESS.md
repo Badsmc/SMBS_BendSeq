@@ -711,7 +711,7 @@ Chronological record of remediation sessions closing integrity invariants and B-
 - **S.50 (`ce68906`):** Docs core closed. Canonical registry clearance in `docs/AUDIT_FULL_2026-10-23.md` (Release blockers: CLEARED, P0-GEOM closure, Errata) and `docs/WORKING_CHECKLIST.md` (Next-P0 cleared). Baseline: 577 tests (0 net). Runtime: 156.2s.
 
 
-## Process & Session Log: S.51–S.70 (2026-10-24–2026-10-26)
+## Process & Session Log: S.51–S.71 (2026-10-24–2026-10-26)
 
 ### Milestone: Post-release hygiene (P1-CODE + P1-hygiene + P1-DOC)
 
@@ -784,6 +784,21 @@ Chronological record of remediation sessions closing integrity invariants and B-
   - O1 — unused `from pathlib import Path` in `tests/test_freecad_smbs/test_animation_dialog.py`.
   - O2 — rationale comment for catch-all in `_load_player_into_ui` (tooling setup failure → dialog degraded-but-honest).
   - S.71 (planned) — Оснастка (5-tab Task Panel). S.72 (planned) — Верификация dialog + Настройки + Диагностика.
+
+**S.71 (2026-10-26) — UI/UX track: FreeCAD Workbench «Оснастка» (5-tab Task Panel).**
+
+- **Scope:** Tooling library editor. 5 tabs (Punches / Dies / Machine Frame / Backgauge / Clamps). β1 honesty. Q-s71-6: no path selector (canonical `toollibrary/`, path change deferred S.72). Q-s71-9(a): direct display (no sidecar required). Q-s71-10: `clamp.FCStd` template cloned per `positions_mm`. Q-s71-11: KL-16 blocked (`cncbender` ≠ `machine_frame`).
+- **Commits (3 code + this docs):**
+  - `36d8889` C1 — `smbs_bridge.get_tooling_library(library_path=None)` lazy + eager tests. Baseline 618 → 622.
+  - `6fc3318` C2a — `ui/tooling_panel.py` skeleton (Punches/Dies, macro parity `_load_library` bootstrap). `commands/tooling.py` active. Baseline 622 → 628.
+  - `269abe9` C2b — extend to 5 tabs; Machine Frame badge (KL-16 honest); Backgauge + Clamps real `.FCStd` via `resolve_backgauge_fcstd` / `resolve_clamp_fcstd` (case + singular/plural fallback); Clamps 9-field editor → `ClampConfig`; 3D preview `mergeProject` / `Part.makeCompound` per position; `closeEvent` cleanup. Client files `toollibrary/Backgauge/Backgauge.FCStd` + `toollibrary/Clamp/Clamp.FCStd` committed (no sidecar). Baseline 628 → 637.
+- **Architecture (ii') Copy-UI + Wrap-headless** (S.69 C4 / S.70 C2 precedent): copy macro Qt dialog (2-tab); extend with 3 new tabs. Headless backend = `ToolingLibrary` / `ToolingCatalog` / `ClampConfig` unchanged. New: case-insensitive resolvers in `tooling_paths.py`.
+- **Honesty invariants held:** `MACHINE: SIMPLIFIED (KL-16 pending)`, `TOOLING: MISSING` for absent geometry, `BACKGAUGE: PRESENT (no sidecar)` / `CLAMP: PRESENT (no sidecar)` for real files. No fabricated `.FCStd`.
+- **Not in S.71 (blocked):** F.3b (punch descent + backgauge motion) — KL-16; machine frame geometry — KL-16; backgauge/clamp sidecars — future CAD; path selector — S.72.
+- **Backlog (deferred S.72):**
+  - **KL-28 (P3, OPEN, sidecar-less tooling):** backgauge/clamps `.FCStd` без `.tooling.json`. Direct display only. Datums (`mounting_plane` / `working_axis` / `working_point`) needed for pipeline integration.
+  - **O10-O13:** flake8 sweep `tooling_panel.py`; redundant `import FreeCAD` inside `_on_preview_clamps`; `test_tooling_paths_resolvers_find_real_files` depends on real disk files; `.DS_Store` gitignore (added this C3).
+  - **Path selector** (`Mod/SMBS/ToolingLibraryPath` prefs) — S.72.
 
 
 ## Historical: Phases 0-11 (pre-refactor, completed before Stage track)

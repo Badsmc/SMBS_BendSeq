@@ -38,3 +38,4 @@ runs/
 *.tmp
 test_output.json
 restored_*.brep
+**/.DS_Store

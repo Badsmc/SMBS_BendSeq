@@ -2,7 +2,7 @@
 
 > **Purpose:** Lightweight daily tracker. Not a roadmap (see `docs/ROADMAP.md`), not an architecture doc (see `docs/ARCHITECTURE.md`), not a release audit (see `docs/AUDIT_FULL_2026-10-23.md`).
 > **Rule:** Move a task to **Done** only after the acceptance condition is met and a verification reference is linked (test name, commit SHA, or `cat -n` evidence). No "Done" without proof.
-> **Snapshot:** HEAD `50a4c67`, 2026-10-26 (Baseline: 618 / OK / 3× expected failures).
+> **Snapshot:** HEAD `269abe9`, 2026-10-26 (Baseline: 637 / OK / 3× expected failures).
 
 ---
 
@@ -26,6 +26,7 @@
 | KL-16 | Machine frame (`machine_frame.FCStd`) | CAD session — file missing | Required for machine collision check |
 | F.3b | Req 2 Phase F.3b (punch descent + backgauge + machine frame overlay) | KL-16 (`machine_frame.FCStd` missing) | Machine frame overlay requires machine frame geometry |
 | KL-9 | `2_1_3_4_ok` baseline validation | Stage 1 B.3.3 (`make_bend_sector` relief-cut adaptation) | Inherited KL-7 (`5ba8e59`); volume exact (0.0005% delta), +4 corner facet faces on Hub; test `@expectedFailure` |
+| KL-28 | Backgauge/Clamp `.tooling.json` sidecar (datums) | CAD session — datums undefined | Files present (S.71 C2b), no sidecar → direct display only |
 
 ## Deferred (separate session, P1-docs)
 
@@ -34,12 +35,11 @@
 | P1-DOC-refresh-arch | Full ARCHITECTURE content refresh (Stages 5–9, Req 6, Req 2) — truth-up of stale facts completed S.63 (`bc9acad`); content addition = separate epic track | Separate track |
 | P1-DOC-refresh-roadmap | ROADMAP §1–§7 refresh (post-Stage 4) | Separate track |
 
-## Planned sessions (post-S.70)
+## Planned sessions (post-S.71)
 
 | Session | Scope | Prerequisites |
 |---|---|---|
-| **S.71** | FreeCAD Workbench «Оснастка» — Task Panel with 5 tabs (punch / die / machine frame / backgauge / clamps). β1 honesty: `TOOLING: MISSING` for absent `.FCStd`; `MACHINE: SIMPLIFIED (KL-16 pending)`. | `SMBS_ToolingLibrary.FCMacro` (canonical). KL-16 (`machine_frame.FCStd`) still missing; backgauge / clamps `.FCStd` still missing. |
-| **S.72** | FreeCAD Workbench «Верификация» dialog + «Настройки» + «Диагностика» + backlog sweep (G3, G4, G5, M1, N4, README line 116, KL-26 fail-fast check). | — |
+| **S.72** | FreeCAD Workbench «Верификация» dialog + «Настройки» (path selector prefs) + «Диагностика» + backlog sweep (KL-28 sidecar, O10-O13 sweep, G3, G4, G5, M1, N4, README line 116, KL-26 fail-fast check). | — |
 
 ## Done
 
@@ -87,6 +87,9 @@
 | S.69-C4 | «Расчёт» — 3D annotations from `compute_annotations` (B1); `ui/annotations.py` Z-override `flat_zmax+3.0` | `2df0f77` | baseline 613/OK | 2026-10-25 |
 | S.70-C1 | bridge `get_player` — lazy OCC backend + eager `player.frames` (PlayerError on malformed 09); headless-safe | `2ae4b76` | baseline 615/OK | 2026-10-26 |
 | S.70-C2 | «Симуляция» — `ui/animation_dialog.py` (F.2+F.3a port, macro parity, headless-safe); `commands/simulate.py` active | `50a4c67` | baseline 618/OK | 2026-10-26 |
+| S.71-C1 | bridge `get_tooling_library` — lazy import + eager tests | `36d8889` | baseline 622/OK | 2026-10-26 |
+| S.71-C2a | «Оснастка» skeleton — Punches/Dies tabs (macro parity) + command active | `6fc3318` | baseline 628/OK | 2026-10-26 |
+| S.71-C2b | 5-tab extend + real backgauge/clamp `.FCStd` (case-insensitive resolver + 3D preview) | `269abe9` | baseline 637/OK | 2026-10-26 |
 
 ## Upcoming Tasks (Post-P0 Remediation)
 
