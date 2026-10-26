@@ -489,11 +489,13 @@ bend order; `tuple(path)` required (Session 1.5 analysis).
   *Bonus S.66 finding (future candidate, no ID assigned):* `cli.py` currently does not
   expose `--unknown-policy` or `--allow-synthetic` flags; cataloged for future CLI polish.
 
-- **KL-9 (Stage 2, P2, BLOCKED on Stage 1 B.3.3): `2_1_3_4_ok` baseline INVALID (inherited KL-7).**
-  - **Symptom:** Part `2-1-3-4-(ok).FCStd` fails Stage 1 baseline with facets mismatch (90 vs 94).
-  - **Cause:** Inherited from Stage 1 KL-7 (`make_bend_sector` does not adapt flat-pattern relief cuts in BA zone, commit `5ba8e59`).
-  - **Impact:** `test_verifier_worker_2_1_3_4_deferred` is `@expectedFailure`.
-  - **Follow-up:** Blocked on Stage 1 CAD task B.3.3 (refactor `make_bend_sector` to adapt flat contour). Volume is exact (0.0005% delta).
+- **KL-9 (Stage 2, P2, DEFERRED, dedicated CAD track): `2_1_3_4_ok` baseline INVALID (inherited KL-7; empirical mechanism 2026-10-26).**
+  - **Symptom:** Part `2-1-3-4-(ok).FCStd` fails Stage 1 baseline with facets mismatch (90 vs 94 = +4 faces). `test_verifier_worker_2_1_3_4_deferred` now `@unittest.skip` (was `@expectedFailure`).
+  - **Cause (2026-10-26 probe R5+R6):** `fold_tree_general_from_flat_pattern` (`sheetmetal_folder.py:1187`) computes `box_hub` boundaries from `bend.axis_point`. Relief cut walls in `flat_pattern.brep` sit at **0.200 mm offset** from bend axes (BEND_03: axis X=7.791327, relief wall X=7.991327, delta=0.2mm = observed `hausdorff_distance_mm`). `box_hub` captures phantom material 7.791→7.991 in relief notch.
+  - **Impact:** 3 independent face splits observed: 5.25→3.75+1.5, 34.05→33.75+0.3, 146024.4→146023.4. Each from a different corner mechanism. `counts_match: False` → `topology_matches: False` → gate fails. Volume/bbox/hausdorff/cyl_areas **all PASS** already — only face count topology wrong.
+  - **Not in metadata:** `bend_line_flat_pattern.start_mm/end_mm` holds the bend axis segment, NOT the relief cut contour. Edge at 7.991 not recoverable from canonical_part. Requires geometric detection from `flat_pattern.brep` (narrow planar walls perpendicular to bend axis near bend line endpoints, area <10mm²).
+  - **Follow-up (dedicated CAD track):** Multi-session refactor of `fold_tree_general_from_flat_pattern` — relief cut detection + `box_hub` boundary alignment + branch boundary alignment + cross-fixture regression testing. Bounded fix attempt explored 2026-10-26 (probe R5+R6) → deemed churn risk (3 independent splits, L-shaped relief geometry, ≥100 lines, 11-fixture regression surface). Fallback to honest permanent limitation via `@skip`.
+  - **KL-7 (inherited):** `make_bend_sector` (`5ba8e59`) generates cylindrical sector without adapting flat-pattern relief cuts. This is one **component** of KL-9 but not the full mechanism — the 0.2mm axis_point→relief-edge boundary offset in hub/branch construction is the primary trigger.
 
 - **KL-10 (Stage 2, P3, CLOSED S.65 `4686d24`): `MockValidator` without `unknown_policy`.**
   - **Symptom:** `test_stage10/11/18/19` use a `MockValidator` that does not accept the `unknown_policy` parameter.
@@ -832,6 +834,36 @@ Chronological record of remediation sessions closing integrity invariants and B-
   - **P1c** — FreeCAD UI integration (remove `PREVIEW_ONLY` banner for reconstructed solids where honest), full fixture sweep, `Player.switch_direction("forward")` genuinely bidirectional.
   - **Forward fold** — works for N=1 (2 valid solids reversed); PREVIEW_ONLY for N≥2 (P1b/P1c).
   - **O16** — `test_viewer_replayer_preview.py::test_replay_backward_real_run_structure` «discovers first run in runs/» — fragile order dependence (pre-existing, not P1a regression).
+
+## Core Correctness track: P2 (2026-10-26)
+
+**KL-9 — empirical mechanism audit, honest `@skip` decision.**
+
+- **Scope:** Empirically reproduce `2_1_3_4_ok` baseline failure, identify exact mechanism, decide bounded fix vs fallback. **Outcome C (honest limitation) chosen** — probe confirmed bounded fix is multi-session epic with cross-fixture risk (per Q-p2-1 criteria: `>100 lines`, 3 independent splits, ≥11 fixtures regression surface).
+- **Commit:** `ec4883e` P2-code (baseline 641/OK/3×F → 641/OK/1 skip/2×F, test-only change).
+- **Probe evidence (Q-p2-1, session start):**
+  - `Coordinator.start_run` on `2-1-3-4-(ok).FCStd` → `status: WORKER_ERROR`, `pass: False`, `is_valid_brep: True`, `faces: 90→94 (+4)`, `volume_delta: 1.50mm³ (0.000506%)`, `hausdorff: 0.2mm`.
+  - Boolean cut on synthetic sector (`probe_p2_relief_cut.py`): **viable** (1 solid, 6 faces, BRepCheck valid) — approach technically confirmed.
+  - Face area discrepancy analysis (`restored.brep` vs `geometry.brep`): 3 independent splits (5.25→3.75+1.5 at BEND_03 corner; 34.05→33.75+0.3 at BEND_01/02 corner; 146024.4→146023.4 large face).
+  - **Exact mechanism:** `BEND_03 axis_point.x = 7.791327`, relief wall in `flat_pattern.brep` at `X = 7.991327` — **0.200 mm offset**, matching observed hausdorff. `box_hub` boundary from `axis_point` cuts 0.2mm into relief notch.
+- **Critical metadata finding (R6):** `bend_line_flat_pattern.start_mm[s_axis]` = `7.791327` (= axis_point), **not** 7.991. Relief edge not recorded in canonical_part. **Path A1 (metadata-based)** eliminated. **Path A2 (boolean cut)** requires geometric detection from BREP.
+- **Decision rationale (Q-p2-1 fallback criteria met):**
+  - ≥100 lines estimated (3 splits × detection + boundary alignment + cross-fixture tests)
+  - L-shaped/stepped relief geometry (non-trivial detection from BREP)
+  - Cross-fixture regression surface (11 other fixtures must stay bit-identical)
+  - `S.38` precedent: 7 speculative approaches → all failed → churn. Probe confirmed 3 independent sub-fixes here — same territory.
+- **Honesty invariants held:**
+  - inv #1 — `@skip` correctly marks known limitation (не fake pass)
+  - inv #2 — no test weakening (assertions preserved for eventual fix)
+  - inv #4 — root cause documented with empirical evidence (0.2mm offset, exact face splits)
+  - inv #7 — `smbs_core/contracts/schemas/*` untouched
+  - inv #8 — 5× M reference untouched
+- **What P2 does NOT deliver:**
+  - `2_1_3_4_ok` **not fixed** — part still fails Stage 1 baseline
+  - `test_verifier_worker_2_1_3_4_deferred` **not passing** — deferred to dedicated CAD track
+  - KL-9 **not closed** — deferred with empirical mechanism documented
+- **Backlog (deferred to dedicated CAD track):**
+  - **P2b** (future): multi-session refactor of `fold_tree_general_from_flat_pattern` — relief cut detection from `flat_pattern.brep` + `box_hub`/branch boundary alignment + cross-fixture regression. Reuse probe `probe_p2_relief_cut.py` as starting point.
 
 
 ## Historical: Phases 0-11 (pre-refactor, completed before Stage track)

@@ -2,7 +2,7 @@
 
 > **Purpose:** Lightweight daily tracker. Not a roadmap (see `docs/ROADMAP.md`), not an architecture doc (see `docs/ARCHITECTURE.md`), not a release audit (see `docs/AUDIT_FULL_2026-10-23.md`).
 > **Rule:** Move a task to **Done** only after the acceptance condition is met and a verification reference is linked (test name, commit SHA, or `cat -n` evidence). No "Done" without proof.
-> **Snapshot:** HEAD `93b4b64`, 2026-10-26 (Baseline: 641 / OK / 3× expected failures).
+> **Snapshot:** HEAD `ec4883e`, 2026-10-26 (Baseline: 641 / OK / 1 skip / 2× expected failures).
 
 ---
 
@@ -25,7 +25,7 @@
 | KL-12-v3 | Forward fold (panel shell → solid) | Architecture: rigid-body model needs bend-region deformation | **P1a (2026-10-26) closed N=1 case** via disk-state replayer (VALID_PER_PANEL, real fixture verified). Multi-bend (N≥2) remains blocked — P1b scope (stepwise prefix-fold primitive). |
 | KL-16 | Machine frame (`machine_frame.FCStd`) | CAD session — file missing | Required for machine collision check |
 | F.3b | Req 2 Phase F.3b (punch descent + backgauge + machine frame overlay) | KL-16 (`machine_frame.FCStd` missing) | Machine frame overlay requires machine frame geometry |
-| KL-9 | `2_1_3_4_ok` baseline validation | Stage 1 B.3.3 (`make_bend_sector` relief-cut adaptation) | Inherited KL-7 (`5ba8e59`); volume exact (0.0005% delta), +4 corner facet faces on Hub; test `@expectedFailure` |
+| KL-9 | `2_1_3_4_ok` baseline validation | Dedicated CAD track — empirical mechanism 2026-10-26 | Inherited KL-7 (`5ba8e59`); **0.2mm `axis_point` → relief-edge offset** in `box_hub` (`sheetmetal_folder.py:1187`). 3 independent splits (5.25→3.75+1.5, 34.05→33.75+0.3, 146024.4→146023.4). ≥100 lines refactor + cross-fixture regression → deferred. Test `@skip` (`ec4883e`). |
 | KL-28 | Backgauge/Clamp `.tooling.json` sidecar (datums) | CAD session — datums undefined | Files present (S.71 C2b), no sidecar → direct display only |
 
 ## Deferred (separate session, P1-docs)
@@ -43,6 +43,7 @@
 | **P1b** | Core track: multi-bend (N≥2) stepwise prefix-fold primitive. Extend `make_bend_sector` for 0° inactive bends OR planar-slab substitution. | `SheetMetalBendSolid.bend_solid` crashes at 0° (BOPAlgo SelfIntersect). Requires new OCC primitive. |
 | **P1c** | Core track: FreeCAD UI integration + full fixture sweep + `Player.switch_direction("forward")` bidirectional verification. Remove `PREVIEW_ONLY` banner for reconstructed N=1 solids in UI. | After P1b. |
 | **P2** | Core track: KL-9 (`2_1_3_4_ok` fixture — `make_bend_sector` relief-cut, +4 corner facet faces; remove `@expectedFailure`). | After P1a verified. |
+| **P2b** | Core track: KL-9 dedicated CAD refactor — relief-cut detection from `flat_pattern.brep` + `box_hub`/branch boundary alignment + cross-fixture regression. Multi-session epic. | P2 probe `probe_p2_relief_cut.py` confirmed viable. Requires geometric BREP analysis (not metadata). |
 
 ## Done
 
@@ -95,6 +96,8 @@
 | S.71-C2b | 5-tab extend + real backgauge/clamp `.FCStd` (case-insensitive resolver + 3D preview) | `269abe9` | baseline 637/OK | 2026-10-26 |
 | P1a-Code | replayer N=1 disk-state (VALID_PER_PANEL for single-bend; N≥2 unchanged) | `f31170d` | baseline 641/OK | 2026-10-26 |
 | P1a-Hygiene | narrow ImportError fallback (ModuleNotFoundError OCC-only) + `test_n2` skip guard | `93b4b64` | baseline 641/OK | 2026-10-26 |
+| P2-Code | KL-9 empirical audit — root cause confirmed (0.2mm `box_hub` offset, 3 splits); bounded-fix attempt rejected as churn; `@expectedFailure` → `@skip` honest | `ec4883e` | baseline 641/OK/1 skip/2×F | 2026-10-26 |
+| P2-Docs | PROGRESS KL-9 empirical mechanism + WORKING_CHECKLIST §Blocked + ARCHITECTURE note | `<P2-docs SHA>` | baseline 641/OK/1 skip/2×F | 2026-10-26 |
 
 ## Upcoming Tasks (Post-P0 Remediation)
 
