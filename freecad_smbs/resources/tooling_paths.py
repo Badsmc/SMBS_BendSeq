@@ -6,7 +6,7 @@ References toollibrary/ directory. Does NOT create or synthesize missing .FCStd 
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 # Repository and Tooling Library root resolution
 REPO_ROOT: Path = Path(__file__).resolve().parent.parent.parent
@@ -32,7 +32,11 @@ ALL_TOOLING_PATHS: Dict[str, Path] = {
     "machine_frame": MACHINE_FRAME_PATH,
 }
 
-# Registry of missing tools per β1
+# Registry of missing tools per β1.
+# NOTE: computed from canonical Path.exists() at import time. OS-dependent for
+# paths with case/naming variants (e.g. Backgauge/ vs backgauge/, Clamp/ vs
+# clamps/). For accurate presence checks use resolve_backgauge_fcstd() and
+# resolve_clamp_fcstd().
 MISSING_TOOLS: List[str] = [
     name for name, path in ALL_TOOLING_PATHS.items() if not path.exists()
 ]
@@ -49,3 +53,75 @@ def get_tool_path_or_missing(name: str) -> Path:
     if name not in ALL_TOOLING_PATHS:
         raise KeyError(f"Unknown tooling entity '{name}'")
     return ALL_TOOLING_PATHS[name]
+
+
+# ---------------------------------------------------------------------------
+# Case-insensitive file resolution (S.71 C2b)
+#
+# Canonical paths assume lowercase + singular naming. Real user files may use
+# mixed case ("Backgauge/Backgauge.FCStd", "Clamp/Clamp.FCStd") or alternate
+# filenames ("clamps.FCStd" vs "Clamp.FCStd"). These resolvers find the actual
+# .FCStd file with case/naming fallback, OS-independent (APFS, ext4, NTFS).
+# ---------------------------------------------------------------------------
+
+def _find_fcstd_case_insensitive(directory: Path) -> Optional[Path]:
+    """Return first *.FCStd (case-insensitive ext) in directory, or None."""
+    if not directory.exists() or not directory.is_dir():
+        return None
+    for f in directory.iterdir():
+        if f.is_file() and f.suffix.lower() == ".fcstd":
+            return f
+    return None
+
+
+def resolve_backgauge_fcstd(library_root: Path) -> Optional[Path]:
+    """Resolve backgauge .FCStd with case-insensitive fallback.
+
+    Canonical: library_root/backgauge/backgauge.FCStd
+    Fallback: any dir case-variant (Backgauge/, BACKGAUGE/) → first *.FCStd
+    """
+    if not library_root.exists() or not library_root.is_dir():
+        return None
+    # 1. Exact canonical check: if both directory and file exist with exact casing
+    for d in library_root.iterdir():
+        if d.is_dir() and d.name == "backgauge":
+            for f in d.iterdir():
+                if f.is_file() and f.name == "backgauge.FCStd":
+                    return f
+            return _find_fcstd_case_insensitive(d)
+    # 2. Case-insensitive fallback
+    for d in library_root.iterdir():
+        if d.is_dir() and d.name.lower() == "backgauge":
+            return _find_fcstd_case_insensitive(d)
+    return None
+
+
+def resolve_clamp_fcstd(library_root: Path) -> Optional[Path]:
+    """Resolve clamp .FCStd with case + singular/plural fallback.
+
+    Canonical candidates (in order):
+      library_root/clamps/clamps.FCStd   (plural, canonical)
+      library_root/clamps/clamp.FCStd    (plural dir, singular file)
+      library_root/clamp/clamp.FCStd     (singular dir, singular file)
+    Fallback: any dir named Clamp(s)/clamp(s) → first *.FCStd
+    """
+    if not library_root.exists() or not library_root.is_dir():
+        return None
+    # 1. Exact canonical candidates
+    for dir_name, file_name in (
+        ("clamps", "clamps.FCStd"),
+        ("clamps", "clamp.FCStd"),
+        ("clamp", "clamp.FCStd"),
+    ):
+        for d in library_root.iterdir():
+            if d.is_dir() and d.name == dir_name:
+                for f in d.iterdir():
+                    if f.is_file() and f.name == file_name:
+                        return f
+    # 2. Case/naming-insensitive fallback
+    for d in library_root.iterdir():
+        if d.is_dir() and d.name.lower() in ("clamps", "clamp"):
+            found = _find_fcstd_case_insensitive(d)
+            if found:
+                return found
+    return None
