@@ -865,6 +865,43 @@ Chronological record of remediation sessions closing integrity invariants and B-
 - **Backlog (deferred to dedicated CAD track):**
   - **P2b** (future): multi-session refactor of `fold_tree_general_from_flat_pattern` — relief cut detection from `flat_pattern.brep` + `box_hub`/branch boundary alignment + cross-fixture regression. Reuse probe `probe_p2_relief_cut.py` as starting point.
 
+## Core Correctness track: P1b (2026-10-26)
+
+**KL-12-v3 step 2 — multi-bend (N=2) constructive stepwise prefix-fold.**
+
+- **Scope:** N=2 linear chains (U, Z profiles via `fold_multi_bend_from_flat_pattern`). Constructive intermediate states via `SheetMetalFolder.fold_from_canonical_part` with inactive bends at 0°. **N≥3 tree structures (box, star, `fold_tree_from_flat_pattern` / `fold_tree_general_from_flat_pattern`) remain unverified** — `PREVIEW_ONLY` preserved.
+- **Commit:** `b7f1251` P1b-code (baseline 641 → 648, +7 tests).
+- **Probe evidence (Probe A + B1a + trajectory):**
+  - Probe A: 0° inactive bend → `fold_step` degenerate rectangle (zero X width from `unfold_len=0`) → `SheetMetalBendSolid.bend_solid:223` → `BOPAlgo SelfIntersect` crash. Root cause confirmed.
+  - Probe B1a: monkey-patch `bend_solid` to return `Part.makeCompound([])` for zero-area face → **valid solid at intermediate state** (1 solid, 10 faces, volume 6803.46 mm³).
+  - Trajectory (backward replay, `run_20261018_190131_085a13` U-10-30-10):
+
+    | State | BEND_01 | BEND_02 | Solids | Faces | Volume (mm³) |
+    |---|---|---|---|---|---|
+    | 0 (folded) | 90° | 90° | 1 | 14 | 6824.67 |
+    | 1 (BEND_01 unfolded) | 0° | 90° | 1 | 10 | 6803.46 |
+    | 2 (flat) | 0° | 0° | 1 | 14 | 6782.26 |
+
+  - Permutation symmetry: `[BEND_01, BEND_02]` vs `[BEND_02, BEND_01]` order yields bit-identical intermediate volume (6803.46 mm³) and face count (10).
+  - Physical delta: +21.2057 mm³ per 90° bend sector (mathematically consistent across both bends).
+- **Implementation:**
+  - `sheetmetal_folder.py::fold_step` (lines ~461-491): guard `if abs(angle_deg) < 1e-6 or unfold_len < 1e-6: b_sector = Part.makeCompound([])`. `_canonicalize_bend_sector` moved into `else`. Mirror guard `if not b_sector.isNull() and len(b_sector.Faces) > 0:` inside `if down:`. `fused = fixed_s.fuse(b_sector).fuse(mov)` unchanged. **Backward compatible** — no behavior change for non-zero bends.
+  - `replayer.py::replay_backward` (lines ~264-370): N=2 constructive branch. Lazy import `SheetMetalFolder` (headless-safe, same pattern as P1a `resolve_panel_faces` narrowing). Step 0 = `fold_from_canonical_part(canonical, flat)` (Q-p1b-1 α: constructive folded). Step 1 = `fold_from_canonical_part(modified_canonical[bend0=0°], flat)`. Step 2 = `flat_pattern.brep` (Q-p1b-2). FIFO order (Q-p1b-2). **All-or-nothing fallback** (Q-p1b-4 α): if any of `_is_valid_solid(s0/s1/s2)` fails → skip to existing rotate loop, `PREVIEW_ONLY`.
+  - `tests/test_replayer_multi_bend_solid.py` (new, 7 tests): trajectory (strict volume decrease), permutation symmetry, precision/warnings, fallback on missing flat, fallback on constructive exception, fallback on unassigned faces (PREVIEW_ONLY), headless no-folder import.
+- **Honesty invariants held:**
+  - inv #1 — `VALID_PER_PANEL` only when all 3 constructive states pass `_is_valid_solid()` (BRepCheck_Analyzer + exactly 1 solid). No fabrication.
+  - inv #2 — fallback to `PREVIEW_ONLY` on any failure; no false solid claim.
+  - inv #7 — `smbs_core/contracts/schemas/*` untouched.
+  - inv #8 — 5× M reference untouched.
+  - Headless-safe verified: `import smbs_core.viewer.replayer` under plain python3 → no `SheetMetalBendSolid` / `FreeCAD` / `Part` / `OCC` leak (R6 `HEADLESS_OK`).
+- **What P1b does NOT deliver:**
+  - N≥3 tree structures (box, star) — `fold_tree_from_flat_pattern` / `fold_tree_general_from_flat_pattern` are separate functions, unverified for 0° guard. Remaining KL-12-v3 scope.
+  - N=2 with relief cuts — not tested (KL-9-adjacent, separate track).
+- **KL-12-v3 status: N=1 CLOSED (P1a), N=2 CLOSED (P1b), N≥3 tree OPEN (P1b-extended).**
+- **Backlog:**
+  - **P1b-extended** — N≥3 tree probe (separate session; probe-first discipline).
+  - **P1c** — FreeCAD UI integration (remove `PREVIEW_ONLY` banner for genuine N≤2 solids in `animation_dialog.py`; verify `Player.switch_direction("forward")` produces physically valid solids for N≤2; PNG banner update `render.py:213`).
+
 
 ## Historical: Phases 0-11 (pre-refactor, completed before Stage track)
 
