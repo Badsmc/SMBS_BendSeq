@@ -13,10 +13,19 @@ from pathlib import Path
 from typing import Any, Iterator, Optional
 
 from smbs_core.Core.fold_state import FoldState
+# Optional import: panel_face_resolver has top-level OCC imports. Headless envs
+# (plain python3, CI without OCC) must import replayer safely — same pattern as
+# load_brep's lazy OCC import (line 65). When unavailable, replay_backward
+# degrades to PREVIEW_ONLY (whole-part rotation). Narrowed to OCC-only to avoid
+# swallowing unrelated ImportError bugs.
 try:
     from smbs_core.geometry_backend.panel_face_resolver import resolve_panel_faces
-except ImportError:
+except ModuleNotFoundError as e:
+    if (e.name or "").split(".")[0] != "OCC":
+        raise
     resolve_panel_faces = None
+except ImportError:
+    raise
 from smbs_core.viewer.graph_builder import ViewerGraphs
 from smbs_core.viewer.run_loader import RunArtifacts
 
