@@ -126,6 +126,10 @@ player.Player                → tuple[Frame, ...]      (production_eligible fro
 - **Per-panel kinematic unfold** (`PER_PANEL_KINEMATIC`) — blocked on KL-12.
 - **FreeCAD addon GUI** — S.69 scaffold + menu + read-only commands + «Расчёт» (3D annotations); S.70 «Симуляция» (F.2+F.3a playback, PREVIEW_ONLY, `MACHINE: SIMPLIFIED (KL-16 pending)` badge); S.71 «Оснастка» (5-tab Task Panel: Punches/Dies/Machine Frame/Backgauge/Clamps, β1 honesty, case-insensitive resolver for real `.FCStd`, no sidecar → direct display, KL-28). F.3b (punch descent + backgauge motion + machine frame geometry) blocked on KL-16. Headless `python -m smbs_core.viewer view <run_dir>` unchanged. **P1a (2026-10-26):** `replayer` N=1 disk-state path yields `VALID_PER_PANEL` — both states genuine solids (`_is_valid_solid` gate). N≥2 remains PREVIEW_ONLY (P1b). KL-12-v3 remains OPEN (multi-bend).
 
+### Known Limitations (Core)
+
+- **KL-9 (2026-10-26):** `fold_tree_general_from_flat_pattern` general tree folding uses `bend.axis_point` for `box_hub` boundaries. Relief cut walls in `flat_pattern.brep` are at 0.2mm offset (BEND_03 case: axis X=7.791 vs relief X=7.991). Produces +4 corner facet splits on `2_1_3_4_ok` (90→94). `bend_line_flat_pattern` metadata does NOT include relief contour (only bend axis segment). Requires geometric detection from BREP. Deferred to dedicated CAD track — see PROGRESS.md KL-9 (empirical mechanism 2026-10-26). Test `@skip` in `tests/test_verifier_worker_honest.py::test_verifier_worker_2_1_3_4_deferred`.
+
 ### Future extensions (Layer 6+)
 
 See `docs/ROADMAP.md` for details. Layers 6+ cover FreeCAD GUI integration (bend annotations, tooling animation), tooling library (FCStd import), optimal tooling selection (with clamp constraints). Depend on KL-12 fix for honest per-panel kinematics.
