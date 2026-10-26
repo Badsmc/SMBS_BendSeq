@@ -142,6 +142,10 @@ class TestReplayerSingleBendSolid(unittest.TestCase):
             self.assertEqual(v.geometry_precision, GEOMETRY_PRECISION_PREVIEW)
             self.assertIsNotNone(v.geometry_warning)
 
+    @unittest.skipUnless(
+        (Path(__file__).resolve().parent.parent / "runs/run_20261012_034044_3ccc14").exists(),
+        "fixture_u run not present on disk (runs/ not checked into repo)",
+    )
     def test_n2_unchanged(self):
         """N=2 (fixture_u) -> rotate path, 3 StepViews, unchanged behavior."""
         root = Path(__file__).resolve().parent.parent
