@@ -2,7 +2,7 @@
 
 > **Purpose:** Lightweight daily tracker. Not a roadmap (see `docs/ROADMAP.md`), not an architecture doc (see `docs/ARCHITECTURE.md`), not a release audit (see `docs/AUDIT_FULL_2026-10-23.md`).
 > **Rule:** Move a task to **Done** only after the acceptance condition is met and a verification reference is linked (test name, commit SHA, or `cat -n` evidence). No "Done" without proof.
-> **Snapshot:** HEAD `269abe9`, 2026-10-26 (Baseline: 637 / OK / 3× expected failures).
+> **Snapshot:** HEAD `93b4b64`, 2026-10-26 (Baseline: 641 / OK / 3× expected failures).
 
 ---
 
@@ -22,7 +22,7 @@
 
 | ID | Task | Blocked by | Note |
 |---|---|---|---|
-| KL-12-v3 | Forward fold (panel shell → solid) | Architecture: rigid-body model needs bend-region deformation | Investigated S.38; 7 recombine approaches probed; none produce solid |
+| KL-12-v3 | Forward fold (panel shell → solid) | Architecture: rigid-body model needs bend-region deformation | **P1a (2026-10-26) closed N=1 case** via disk-state replayer (VALID_PER_PANEL, real fixture verified). Multi-bend (N≥2) remains blocked — P1b scope (stepwise prefix-fold primitive). |
 | KL-16 | Machine frame (`machine_frame.FCStd`) | CAD session — file missing | Required for machine collision check |
 | F.3b | Req 2 Phase F.3b (punch descent + backgauge + machine frame overlay) | KL-16 (`machine_frame.FCStd` missing) | Machine frame overlay requires machine frame geometry |
 | KL-9 | `2_1_3_4_ok` baseline validation | Stage 1 B.3.3 (`make_bend_sector` relief-cut adaptation) | Inherited KL-7 (`5ba8e59`); volume exact (0.0005% delta), +4 corner facet faces on Hub; test `@expectedFailure` |
@@ -40,6 +40,9 @@
 | Session | Scope | Prerequisites |
 |---|---|---|
 | **S.72** | FreeCAD Workbench «Верификация» dialog + «Настройки» (path selector prefs) + «Диагностика» + backlog sweep (KL-28 sidecar, O10-O13 sweep, G3, G4, G5, M1, N4, README line 116, KL-26 fail-fast check). | — |
+| **P1b** | Core track: multi-bend (N≥2) stepwise prefix-fold primitive. Extend `make_bend_sector` for 0° inactive bends OR planar-slab substitution. | `SheetMetalBendSolid.bend_solid` crashes at 0° (BOPAlgo SelfIntersect). Requires new OCC primitive. |
+| **P1c** | Core track: FreeCAD UI integration + full fixture sweep + `Player.switch_direction("forward")` bidirectional verification. Remove `PREVIEW_ONLY` banner for reconstructed N=1 solids in UI. | After P1b. |
+| **P2** | Core track: KL-9 (`2_1_3_4_ok` fixture — `make_bend_sector` relief-cut, +4 corner facet faces; remove `@expectedFailure`). | After P1a verified. |
 
 ## Done
 
@@ -90,6 +93,8 @@
 | S.71-C1 | bridge `get_tooling_library` — lazy import + eager tests | `36d8889` | baseline 622/OK | 2026-10-26 |
 | S.71-C2a | «Оснастка» skeleton — Punches/Dies tabs (macro parity) + command active | `6fc3318` | baseline 628/OK | 2026-10-26 |
 | S.71-C2b | 5-tab extend + real backgauge/clamp `.FCStd` (case-insensitive resolver + 3D preview) | `269abe9` | baseline 637/OK | 2026-10-26 |
+| P1a-Code | replayer N=1 disk-state (VALID_PER_PANEL for single-bend; N≥2 unchanged) | `f31170d` | baseline 641/OK | 2026-10-26 |
+| P1a-Hygiene | narrow ImportError fallback (ModuleNotFoundError OCC-only) + `test_n2` skip guard | `93b4b64` | baseline 641/OK | 2026-10-26 |
 
 ## Upcoming Tasks (Post-P0 Remediation)
 
