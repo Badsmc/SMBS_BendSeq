@@ -800,6 +800,39 @@ Chronological record of remediation sessions closing integrity invariants and B-
   - **O10-O13:** flake8 sweep `tooling_panel.py`; redundant `import FreeCAD` inside `_on_preview_clamps`; `test_tooling_paths_resolvers_find_real_files` depends on real disk files; `.DS_Store` gitignore (added this C3).
   - **Path selector** (`Mod/SMBS/ToolingLibraryPath` prefs) — S.72.
 
+## Core Correctness track: P1a (2026-10-26)
+
+**KL-12-v3 step 1 — single-bend disk-state replayer.**
+
+- **Scope:** First `smbs_core/` modification since S.68. N=1 disk-state path in `replayer.py`: use existing `flat_pattern.brep` (valid solid) as target state 1, avoiding `rotate_subtree` → `Sewing` → torn-shells. Multi-bend (N≥2) unchanged (P1b scope).
+- **Commits:** `f31170d` P1a-code (baseline 637 → 641) + `93b4b64` P1a-hygiene (baseline unchanged).
+- **Probe evidence (Q-p1-1):**
+  - `fixture_l` (1 bend, `create_l_bracket_shape`): `fold_from_canonical_part` → 1 solid, vol delta **0.000053%**, Hausdorff **0.000000 mm** vs `geometry.brep`.
+  - `fixture_u` (2 bends): 1 solid, vol delta **0.000000%** vs `geometry.brep` (final-only; no intermediate states).
+  - **`SheetMetalFolder.fold_from_canonical_part`** = final fold only. **`SheetMetalBendSolid.bend_solid`** crashes at 0° inactive bend (`BOPAlgo SelfIntersect`) → multi-bend stepwise requires new primitive (P1b).
+- **Direction A (chosen over B = deformable primitive, C = honest permanent limitation):** Constructive path. Reuses `sheetmetal_folder.make_bend_sector`, produces genuine solids.
+- **P1a implementation:**
+  - `replayer._is_valid_solid(shape)` — `BRepCheck_Analyzer.IsValid()` + exactly-1-solid check, lazy OCC imports (headless-safe).
+  - `replayer.replay_backward` — N=1 branch: if `len(candidate_seq) == 1 and artifacts.flat_pattern_path is not None`, load `flat_pattern.brep`, check `_is_valid_solid()` for both shapes. If both valid → yield 2 StepViews with `VALID_PER_PANEL`, `warning=None`. Else fall through to existing `rotate_subtree` loop.
+  - N≥2 unchanged (rotate path, `PREVIEW_ONLY`/`PARTIAL` preserved).
+- **Frame alignment Q-p1a-1 (verified α):** Base flange of `run_20261012_034042_cf4c34` stationary between `geometry.brep` (X∈[0, 95.5]) and `flat_pattern.brep` (same origin, X∈[0, 95.5] base). No positional fix required.
+- **Real fixture check:** `runs/run_20261012_034042_cf4c34` → `steps: 2, precision: VALID_PER_PANEL`, both `state.shape` genuine solids.
+- **Test changes (4 files):**
+  - New `tests/test_replayer_single_bend_solid.py` (4 tests: disk-solid, fallback-missing, fallback-invalid, N=2 unchanged guarded by `@skipUnless`).
+  - `test_req2_f1_per_panel_kinematics.py` — N=1 assertions PREVIEW_ONLY→VALID_PER_PANEL + `assertGreater(len)`→`assertEqual(len, 2)` + `assertIsNotNone(warning)`→`assertIsNone(warning)` (strictly stronger).
+  - `test_viewer_replayer_preview.py` — branching added: N=1 → VALID; N≥2 → PREVIEW preserved.
+- **Honesty invariants held:**
+  - inv #1 — `VALID_PER_PANEL` claimed only when `_is_valid_solid()` empirically True. No fabricated precision.
+  - inv #7 — `smbs_core/contracts/schemas/*` untouched.
+  - inv #8 — 5× M reference untouched.
+  - `PREVIEW_ONLY` preserved for N≥2.
+- **Known limitations (backlog):**
+  - **KL-12-v3 remains OPEN** — P1a = step 1 only. Multi-bend (N≥2) still PREVIEW_ONLY with torn shells (P1b).
+  - **P1b** (next session): stepwise prefix-fold primitive for N≥2 — extend `make_bend_sector` to handle 0° inactive bends OR planar-slab substitution. Hard problem (S.38 territory).
+  - **P1c** — FreeCAD UI integration (remove `PREVIEW_ONLY` banner for reconstructed solids where honest), full fixture sweep, `Player.switch_direction("forward")` genuinely bidirectional.
+  - **Forward fold** — works for N=1 (2 valid solids reversed); PREVIEW_ONLY for N≥2 (P1b/P1c).
+  - **O16** — `test_viewer_replayer_preview.py::test_replay_backward_real_run_structure` «discovers first run in runs/» — fragile order dependence (pre-existing, not P1a regression).
+
 
 ## Historical: Phases 0-11 (pre-refactor, completed before Stage track)
 

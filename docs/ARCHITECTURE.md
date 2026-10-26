@@ -98,7 +98,7 @@ run_loader.load_run()        → RunArtifacts
 graph_builder.build_graphs() → ViewerGraphs (BendGraph + PanelGraph + direction_by_bend)
     │
     ▼
-replayer.replay_backward()   → Iterator[StepView]     (PREVIEW_ONLY, KL-12)
+replayer.replay_backward()   → Iterator[StepView]     (PREVIEW_ONLY for N≥2; VALID_PER_PANEL for N=1 disk-state via P1a)
     │
     ▼
 player.Player                → tuple[Frame, ...]      (production_eligible from 09 ONLY)
@@ -112,8 +112,8 @@ player.Player                → tuple[Frame, ...]      (production_eligible fro
 - `production_eligible` is read from `09_verification_result.payload.production_eligible`. **Never computed** by viewer (invariant #9).
 - Missing `09` → `verification_status="UNVERIFIED"`, `production_eligible=None`, `diagnostics=()`. (invariant #1: `UNKNOWN != VALID`).
 - `diagnostics` are taken from `09_verification_result.diagnostics` (top-level; per L1 audit, `payload` has none).
-- Every `StepView` carries `geometry_precision="PREVIEW_ONLY"` and `geometry_warning` referencing KL-12.
-- Every rendered PNG carries a red banner `PREVIEW_ONLY (KL-12) - not a physical re-simulation`.
+- Every `StepView` carries `geometry_precision="PREVIEW_ONLY"` and `geometry_warning` referencing KL-12 (for N≥2). For N=1 with valid `flat_pattern.brep`, P1a disk-state path yields `VALID_PER_PANEL`, no warning — genuine solid on both steps (`_is_valid_solid` gate via `BRepCheck_Analyzer`).
+- Every rendered PNG carries a red banner `PREVIEW_ONLY (KL-12) - not a physical re-simulation` (unchanged — PNG renderer not yet updated; P1c scope).
 - `render.py` fails loudly on visible-edge discretization loss (`RenderError`); hidden-edge loss surfaces in the PNG subtitle and in `manifest.json` diagnostics.
 
 ### Backend
@@ -124,7 +124,7 @@ player.Player                → tuple[Frame, ...]      (production_eligible fro
 
 - **Forward fold mode** — blocked on KL-12 (S.13b). `Player.switch_direction("forward")` raises `PlayerError`.
 - **Per-panel kinematic unfold** (`PER_PANEL_KINEMATIC`) — blocked on KL-12.
-- **FreeCAD addon GUI** — S.69 scaffold + menu + read-only commands + «Расчёт» (3D annotations); S.70 «Симуляция» (F.2+F.3a playback, PREVIEW_ONLY, `MACHINE: SIMPLIFIED (KL-16 pending)` badge); S.71 «Оснастка» (5-tab Task Panel: Punches/Dies/Machine Frame/Backgauge/Clamps, β1 honesty, case-insensitive resolver for real `.FCStd`, no sidecar → direct display, KL-28). F.3b (punch descent + backgauge motion + machine frame geometry) blocked on KL-16. Headless `python -m smbs_core.viewer view <run_dir>` unchanged.
+- **FreeCAD addon GUI** — S.69 scaffold + menu + read-only commands + «Расчёт» (3D annotations); S.70 «Симуляция» (F.2+F.3a playback, PREVIEW_ONLY, `MACHINE: SIMPLIFIED (KL-16 pending)` badge); S.71 «Оснастка» (5-tab Task Panel: Punches/Dies/Machine Frame/Backgauge/Clamps, β1 honesty, case-insensitive resolver for real `.FCStd`, no sidecar → direct display, KL-28). F.3b (punch descent + backgauge motion + machine frame geometry) blocked on KL-16. Headless `python -m smbs_core.viewer view <run_dir>` unchanged. **P1a (2026-10-26):** `replayer` N=1 disk-state path yields `VALID_PER_PANEL` — both states genuine solids (`_is_valid_solid` gate). N≥2 remains PREVIEW_ONLY (P1b). KL-12-v3 remains OPEN (multi-bend).
 
 ### Future extensions (Layer 6+)
 
