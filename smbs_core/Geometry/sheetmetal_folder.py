@@ -461,31 +461,35 @@ class SheetMetalFolder:
             if down:
                 mov = mov.mirror(FreeCAD.Vector(0, 0, thickness / 2.0), FreeCAD.Vector(0, 0, 1))
 
-            p1 = FreeCAD.Vector(t1_x, 0, thickness)
-            p2 = FreeCAD.Vector(t1_x + unfold_len, 0, thickness)
-            p3 = FreeCAD.Vector(t1_x + unfold_len, width, thickness)
-            p4 = FreeCAD.Vector(t1_x, width, thickness)
-            bend_face = Part.Face(Part.makePolygon([p1, p2, p3, p4, p1]))
-            bend_edge = Part.makeLine(p1, p4)
-            neutral_r = R + k * thickness
+            if abs(angle_deg) < 1e-6 or unfold_len < 1e-6:
+                b_sector = Part.makeCompound([])
+            else:
+                p1 = FreeCAD.Vector(t1_x, 0, thickness)
+                p2 = FreeCAD.Vector(t1_x + unfold_len, 0, thickness)
+                p3 = FreeCAD.Vector(t1_x + unfold_len, width, thickness)
+                p4 = FreeCAD.Vector(t1_x, width, thickness)
+                bend_face = Part.Face(Part.makePolygon([p1, p2, p3, p4, p1]))
+                bend_edge = Part.makeLine(p1, p4)
+                neutral_r = R + k * thickness
 
-            b_sector = SheetMetalBendSolid.bend_solid(
-                sel_face=bend_face,
-                sel_edge=bend_edge,
-                bend_r=R,
-                thickness=thickness,
-                neutral_radius=neutral_r,
-                axis=axis,
-                flipped=False
-            )
-            b_sector = cls._canonicalize_bend_sector(b_sector)
+                b_sector = SheetMetalBendSolid.bend_solid(
+                    sel_face=bend_face,
+                    sel_edge=bend_edge,
+                    bend_r=R,
+                    thickness=thickness,
+                    neutral_radius=neutral_r,
+                    axis=axis,
+                    flipped=False
+                )
+                b_sector = cls._canonicalize_bend_sector(b_sector)
 
             mov.translate(FreeCAD.Vector(-unfold_len, 0, 0))
             mov.rotate(FreeCAD.Vector(t1_x, 0, thickness + R), axis, -angle_deg)
 
             if down:
                 mov = mov.mirror(FreeCAD.Vector(0, 0, thickness / 2.0), FreeCAD.Vector(0, 0, 1))
-                b_sector = b_sector.mirror(FreeCAD.Vector(0, 0, thickness / 2.0), FreeCAD.Vector(0, 0, 1))
+                if not b_sector.isNull() and len(b_sector.Faces) > 0:
+                    b_sector = b_sector.mirror(FreeCAD.Vector(0, 0, thickness / 2.0), FreeCAD.Vector(0, 0, 1))
 
             fused = fixed_s.fuse(b_sector).fuse(mov)
             return fused
