@@ -115,3 +115,22 @@ def present_verification(artifacts: RunArtifacts) -> Dict[str, Any]:
         "reasons": reasons,
         "summary": summary,
     }
+
+
+def get_player(artifacts: RunArtifacts) -> Any:
+    """Build Player for simulation playback (F.2 + F.3a).
+
+    Lazy imports of OCC backend keep bridge headless-safe for plain python3 tests.
+    Eagerly builds frames -> raises PlayerError / GraphBuilderError on bad 09 or run.
+    Read-only: does not modify artifacts or smbs_core.
+    """
+    from smbs_core.geometry_backend.backends.pythonocc_backend import PythonOCCBackend
+    from smbs_core.viewer.graph_builder import build_graphs
+    from smbs_core.viewer.player import Player
+
+    graphs = build_graphs(artifacts)
+    backend = PythonOCCBackend()
+    player = Player(artifacts, graphs, backend)
+    _ = player.frames  # eager build; raises PlayerError on malformed 09
+    return player
+
