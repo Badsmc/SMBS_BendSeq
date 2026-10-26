@@ -13,7 +13,10 @@ from pathlib import Path
 from typing import Any, Iterator, Optional
 
 from smbs_core.Core.fold_state import FoldState
-from smbs_core.geometry_backend.panel_face_resolver import resolve_panel_faces
+try:
+    from smbs_core.geometry_backend.panel_face_resolver import resolve_panel_faces
+except ImportError:
+    resolve_panel_faces = None
 from smbs_core.viewer.graph_builder import ViewerGraphs
 from smbs_core.viewer.run_loader import RunArtifacts
 
@@ -75,6 +78,36 @@ def load_brep(path: Path) -> Any:
     return shape
 
 
+def _is_valid_solid(shape: Any) -> bool:
+    """Check TopoDS_Shape is a single valid solid via BRepCheck_Analyzer.
+
+    Returns False if shape is None/Null, not exactly 1 solid, or BRepCheck invalid.
+    Import-guarded for OCC availability (same pattern as load_brep).
+    """
+    if shape is None:
+        return False
+    try:
+        from OCC.Core.TopoDS import TopoDS_Shape
+        from OCC.Core.TopAbs import TopAbs_SOLID
+        from OCC.Core.TopExp import TopExp_Explorer
+        from OCC.Core.BRepCheck import BRepCheck_Analyzer
+    except ImportError:
+        return False
+    if not isinstance(shape, TopoDS_Shape) or shape.IsNull():
+        return False
+    exp = TopExp_Explorer(shape, TopAbs_SOLID)
+    n_solids = 0
+    while exp.More():
+        n_solids += 1
+        exp.Next()
+    if n_solids != 1:
+        return False
+    try:
+        return bool(BRepCheck_Analyzer(shape).IsValid())
+    except Exception:
+        return False
+
+
 def replay_backward(
     artifacts: RunArtifacts,
     graphs: ViewerGraphs,
@@ -116,16 +149,17 @@ def replay_backward(
     # KL-12 v2 integration (Req 2 F.1): assign B-Rep faces to panels before
     # any rotation. Resolver is idempotent (preserves non-empty face_indices)
     # and safely no-ops for non-TopoDS_Shape (mock/initial_shape path).
-    try:
-        resolve_panel_faces(
-            target_shape,
-            graphs.panel_graph,
-            artifacts.canonical_part["payload"],
-        )
-    except (ValueError, KeyError) as err:
-        raise ReplayerError(
-            f"Panel face resolution failed before replay: {err}"
-        ) from err
+    if resolve_panel_faces is not None:
+        try:
+            resolve_panel_faces(
+                target_shape,
+                graphs.panel_graph,
+                artifacts.canonical_part["payload"],
+            )
+        except (ValueError, KeyError) as err:
+            raise ReplayerError(
+                f"Panel face resolution failed before replay: {err}"
+            ) from err
 
     # 3-state honest precision:
     #   no faces assigned      -> PREVIEW_ONLY + original warning (whole-part rotation)
@@ -157,7 +191,68 @@ def replay_backward(
             precision = GEOMETRY_PRECISION_PREVIEW
             warning = GEOMETRY_WARNING_PREVIEW
 
-    # 2. Build initial FoldState (step 0: fully folded)
+    # 2. Extract candidate sequence
+    try:
+        candidate_seq = artifacts.search_result["payload"]["candidate_sequence"]
+    except (KeyError, TypeError) as err:
+        raise ReplayerError(f"Missing 'candidate_sequence' in search_result payload: {err}") from err
+
+    # N=1 disk-state path (P1a): use existing physical solids, no rigid rotation.
+    # For single-bend parts, flat_pattern.brep IS the target state 1; loading it
+    # avoids the rotate_subtree → Sewing → torn-shells failure (KL-12 v3).
+    if candidate_seq and len(candidate_seq) == 1 and artifacts.flat_pattern_path is not None:
+        try:
+            flat_shape = load_brep(artifacts.flat_pattern_path)
+        except ReplayerError:
+            flat_shape = None
+
+        if _is_valid_solid(flat_shape) and _is_valid_solid(target_shape):
+            # Both disk states are single valid solids → honest VALID_PER_PANEL.
+            precision = GEOMETRY_PRECISION_VALID
+            warning = None
+
+            bid = candidate_seq[0]["bend_id"]
+            for fld in ("planner_status", "collision_status", "tooling_status", "alignment_status"):
+                if fld not in candidate_seq[0]:
+                    raise ReplayerError(
+                        f"Step 1 for bend '{bid}' is missing required status field '{fld}'"
+                    )
+            bend_rec = graphs.bend_graph.get_bend(bid)
+            if bend_rec is None:
+                raise ReplayerError(f"bend_id '{bid}' not in bend_graph")
+            moving_panels = graphs.panel_graph.moving_subtree(bid)
+            if not moving_panels:
+                raise ReplayerError(f"Empty moving_subtree for bend '{bid}'")
+            try:
+                ui_dir = graphs.direction_by_bend[bid]
+            except KeyError as ke:
+                raise ReplayerError(f"bend_id '{bid}' missing from direction_by_bend") from ke
+
+            current_state = FoldState.initial(
+                part_shape=target_shape,
+                bend_graph=graphs.bend_graph,
+                panel_graph=graphs.panel_graph,
+            )
+            yield StepView(
+                step_index=0, bend_id=None, state=current_state,
+                ui_direction=None, planner_status=None,
+                collision_status=None, tooling_status=None, alignment_status=None,
+                geometry_precision=precision, geometry_warning=warning,
+            )
+
+            current_state = current_state.apply_unfold(bid, flat_shape, moving_panels)
+            yield StepView(
+                step_index=1, bend_id=bid, state=current_state,
+                ui_direction=ui_dir,
+                planner_status=candidate_seq[0]["planner_status"],
+                collision_status=candidate_seq[0]["collision_status"],
+                tooling_status=candidate_seq[0]["tooling_status"],
+                alignment_status=candidate_seq[0]["alignment_status"],
+                geometry_precision=precision, geometry_warning=warning,
+            )
+            return
+
+    # Fallback: N >= 2 or N=1 disk path failed → existing rigid rotate_subtree loop.
     current_state = FoldState.initial(
         part_shape=target_shape,
         bend_graph=graphs.bend_graph,
@@ -177,12 +272,6 @@ def replay_backward(
         geometry_precision=precision,
         geometry_warning=warning
     )
-
-    # 3. Iterate through candidate sequence
-    try:
-        candidate_seq = artifacts.search_result["payload"]["candidate_sequence"]
-    except (KeyError, TypeError) as err:
-        raise ReplayerError(f"Missing 'candidate_sequence' in search_result payload: {err}") from err
 
     if not candidate_seq:
         return

@@ -22,17 +22,16 @@ REAL_L_RUN = ROOT / "runs/run_20261012_034042_cf4c34"
 
 class TestF1PerPanelKinematics(unittest.TestCase):
     def test_backward_precision_partial_on_real_l_run(self):
-        """Real L-part run_20261012_034042_cf4c34: 8/10 faces assigned (bridge caps 1,4
-        unassigned). Honest classification: PREVIEW_ONLY + PARTIAL warning."""
+        """Real L-part run_20261012_034042_cf4c34: P1a disk-state path produces
+        genuine solids -> VALID_PER_PANEL."""
         artifacts = load_run(REAL_L_RUN)
         graphs = build_graphs(artifacts)
         backend = PythonOCCBackend()
         frames = list(replay_backward(artifacts, graphs, backend))
-        self.assertGreater(len(frames), 1)
+        self.assertEqual(len(frames), 2)
         for f in frames:
-            self.assertEqual(f.geometry_precision, GEOMETRY_PRECISION_PREVIEW)
-            self.assertIsNotNone(f.geometry_warning)
-            self.assertIn("KL-12", f.geometry_warning)
+            self.assertEqual(f.geometry_precision, GEOMETRY_PRECISION_VALID)
+            self.assertIsNone(f.geometry_warning)
 
     def test_backward_precision_preview_on_mock_shape(self):
         """Mock initial_shape + MockBackend: resolver skips -> precision PREVIEW, warning present."""
@@ -61,13 +60,13 @@ class TestF1PerPanelKinematics(unittest.TestCase):
             self.assertEqual(f.frame_index, i)
 
     def test_forward_precision_partial(self):
-        """Forward frames preserve per-frame honest precision (PARTIAL on this run)."""
+        """Forward frames preserve per-frame honest precision (VALID_PER_PANEL on this run)."""
         artifacts = load_run(REAL_L_RUN)
         graphs = build_graphs(artifacts)
         player = Player(artifacts, graphs, PythonOCCBackend())
         player.switch_direction("forward")
         for f in player.frames:
-            self.assertEqual(f.step_view.geometry_precision, GEOMETRY_PRECISION_PREVIEW)
+            self.assertEqual(f.step_view.geometry_precision, GEOMETRY_PRECISION_VALID)
 
     def test_resolver_idempotent_on_double_replay(self):
         """Second replay_backward must not duplicate or re-assign faces."""

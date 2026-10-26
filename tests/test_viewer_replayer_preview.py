@@ -13,6 +13,7 @@ from smbs_core.geometry_backend.base import InvalidRotationError
 from smbs_core.viewer.graph_builder import build_graphs
 from smbs_core.viewer.replayer import (
     GEOMETRY_PRECISION_PREVIEW,
+    GEOMETRY_PRECISION_VALID,
     GEOMETRY_WARNING_PREVIEW,
     ReplayerError,
     StepView,
@@ -350,9 +351,14 @@ class TestViewerReplayerPreview(unittest.TestCase):
 
         views = list(replay_backward(real_artifacts, real_graphs, occ_backend))
         self.assertEqual(len(views), len(cand_seq) + 1)
-        for v in views:
-            self.assertEqual(v.geometry_precision, GEOMETRY_PRECISION_PREVIEW)
-            self.assertIn("KL-12", v.geometry_warning)
+        if len(cand_seq) == 1 and real_artifacts.flat_pattern_path is not None:
+            for v in views:
+                self.assertEqual(v.geometry_precision, GEOMETRY_PRECISION_VALID)
+                self.assertIsNone(v.geometry_warning)
+        else:
+            for v in views:
+                self.assertEqual(v.geometry_precision, GEOMETRY_PRECISION_PREVIEW)
+                self.assertIn("KL-12", v.geometry_warning)
         self.assertEqual(views[-1].state.remaining_bends, set())
 
 
