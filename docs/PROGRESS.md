@@ -897,10 +897,33 @@ Chronological record of remediation sessions closing integrity invariants and B-
 - **What P1b does NOT deliver:**
   - N≥3 tree structures (box, star) — `fold_tree_from_flat_pattern` / `fold_tree_general_from_flat_pattern` are separate functions, unverified for 0° guard. Remaining KL-12-v3 scope.
   - N=2 with relief cuts — not tested (KL-9-adjacent, separate track).
-- **KL-12-v3 status: N=1 CLOSED (P1a), N=2 CLOSED (P1b), N≥3 tree OPEN (P1b-extended).**
-- **Backlog:**
-  - **P1b-extended** — N≥3 tree probe (separate session; probe-first discipline).
-  - **P1c** — FreeCAD UI integration (remove `PREVIEW_ONLY` banner for genuine N≤2 solids in `animation_dialog.py`; verify `Player.switch_direction("forward")` produces physically valid solids for N≤2; PNG banner update `render.py:213`).
+- **KL-12-v3 status: N=1 CLOSED (P1a), N=2 CLOSED (P1b), N≥3 tree structures CLOSED (P1b-extended `ccc2493`).**
+
+### P0-PHYS: Honest Tool Placement & Verifier UNKNOWN Handling (Commit `018949e`, 2026-10-27)
+
+- **Problem:**
+  - `collision_detector.py::place_part_on_tool_station` fell back to returning unplaced shape `shape` at (0,0,0) in part coordinates when placement failed (missing assembly, missing die, missing datums, missing origin/axis, or transform exception). Downstream collision methods then checked the unplaced part against world tooling and returned false `CollisionStatus.VALID`.
+  - `verifier/worker.py::VerifierWorker` line 281 evaluated `coll_verified = (val_res.collision_status != CollisionStatus.INVALID)`, which treated `UNKNOWN` as verified.
+- **Fix:**
+  - `place_part_on_tool_station`: returns `None` on placement failure (unit test mock backends bypassed via MRO check). Downstream collision checks return `CollisionStatus.UNKNOWN` ("Could not place part on tool station (missing/invalid bend info, tooling, or datum)").
+  - `verifier/worker.py`: enforces `coll_verified = (val_res.collision_status == CollisionStatus.VALID or str(val_res.collision_status).lower() in ("valid", "collisionstatus.valid"))`.
+- **Evidence:** `tests/test_honest_collision_and_verifier.py` (7 tests, all PASS; baseline 648 → 655).
+
+### P1b-extended: N≥3 Tree Stepwise Folding & 0° Bend Guard (Commit `ccc2493`, 2026-10-27)
+
+- **Problem:**
+  - When unfolding intermediate bends to 0.0° during tree prefix-folding, `fold_branch` in `sheetmetal_folder.py` called `make_bend_sector` which invoked `face.revolve(..., 0.0)`, throwing `Part.OCCError: BRepSweep_Rotation::Constructor`.
+  - `fold_from_canonical_part` assumed `angle_deg` was always a dict, raising `AttributeError` when a scalar float was passed.
+  - `replayer.py` had a rigid `len(candidate_seq) == 2` check for constructive folding.
+- **Fix:**
+  - `sheetmetal_folder.py::fold_branch`: added 0° guard to `make_bend_sector` (`if abs(deg) < 1e-6: return Part.makeCompound([])`) and guarded `folded_parts` appending (`if not b_sector.isNull() and len(b_sector.Faces) > 0:`).
+  - `sheetmetal_folder.py::fold_from_canonical_part`: safely handles both dict and scalar `angle_deg`.
+  - `replayer.py::replay_backward`: generalized to `len(candidate_seq) >= 2` with all-or-nothing constructive prefix folding across all $N$ steps, preserving fallback to `PREVIEW_ONLY` if any solid is invalid.
+- **Evidence:** `tests/test_tree_fold_stepwise.py` (3 tests, all PASS; 8-bend star box `box.100out-50in-(ok)` validated; baseline 655 → 658).
+
+### P5-CI: GitHub Actions Headless CI Pipeline (Commit `ecdc0a0`, 2026-10-27)
+
+- **Implementation:** Added `.github/workflows/ci.yml` using `mamba-org/setup-micromamba@v1` with `pythonocc-core` and `pydantic>=2.0` on `conda-forge` to run the full headless test discovery suite automatically on pull requests and pushes to `stage-1-fix-correctness` and `main`.
 
 
 ## Historical: Phases 0-11 (pre-refactor, completed before Stage track)

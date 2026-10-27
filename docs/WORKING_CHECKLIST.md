@@ -22,7 +22,7 @@
 
 | ID | Task | Blocked by | Note |
 |---|---|---|---|
-| KL-12-v3 | Forward fold (panel shell → solid) | Architecture: rigid-body model needs bend-region deformation | **N=1 CLOSED (P1a)**, **N=2 linear CLOSED (P1b `b7f1251`)**. Remaining: **N≥3 tree structures** (box, star) — unverified for 0° guard, P1b-extended scope. PREVIEW_ONLY preserved for N≥3. |
+| KL-12-v3 | Forward fold (panel shell → solid) | Architecture: rigid-body model needs bend-region deformation | **N=1 CLOSED (P1a)**, **N=2 linear CLOSED (P1b `b7f1251`)**, **N≥3 tree structures CLOSED (P1b-extended `ccc2493`)**. 0° bend guard + all-or-nothing constructive prefix-fold in replayer. |
 | KL-16 | Machine frame (`machine_frame.FCStd`) | CAD session — file missing | Required for machine collision check |
 | F.3b | Req 2 Phase F.3b (punch descent + backgauge + machine frame overlay) | KL-16 (`machine_frame.FCStd` missing) | Machine frame overlay requires machine frame geometry |
 | KL-9 | `2_1_3_4_ok` baseline validation | Dedicated CAD track — empirical mechanism 2026-10-26 | Inherited KL-7 (`5ba8e59`); **0.2mm `axis_point` → relief-edge offset** in `box_hub` (`sheetmetal_folder.py:1187`). 3 independent splits (5.25→3.75+1.5, 34.05→33.75+0.3, 146024.4→146023.4). ≥100 lines refactor + cross-fixture regression → deferred. Test `@skip` (`ec4883e`). |
@@ -40,8 +40,7 @@
 | Session | Scope | Prerequisites |
 |---|---|---|
 | **S.72** | FreeCAD Workbench «Верификация» dialog + «Настройки» (path selector prefs) + «Диагностика» + backlog sweep (KL-28 sidecar, O10-O13 sweep, G3, G4, G5, M1, N4, README line 116, KL-26 fail-fast check). | — |
-| **P1b-extended** | Core track: N≥3 tree structures (box, star) — 0° guard verification for `fold_tree_from_flat_pattern` / `fold_tree_general_from_flat_pattern`. Probe-first. | P1b N=2 verified. Tree fold functions separate from `fold_multi_bend_from_flat_pattern`. |
-| **P1c** | Core track: FreeCAD UI integration + full fixture sweep + `Player.switch_direction("forward")` bidirectional verification. Remove `PREVIEW_ONLY` banner for reconstructed N=1 solids in UI. | After P1b. |
+| **P1c** | Core track: FreeCAD UI integration + full fixture sweep + `Player.switch_direction("forward")` bidirectional verification. Remove `PREVIEW_ONLY` banner for reconstructed N=1 solids in UI. | After P1b/P1b-extended. |
 | **P2** | Core track: KL-9 (`2_1_3_4_ok` fixture — `make_bend_sector` relief-cut, +4 corner facet faces; remove `@expectedFailure`). | After P1a verified. |
 | **P2b** | Core track: KL-9 dedicated CAD refactor — relief-cut detection from `flat_pattern.brep` + `box_hub`/branch boundary alignment + cross-fixture regression. Multi-session epic. | P2 probe `probe_p2_relief_cut.py` confirmed viable. Requires geometric BREP analysis (not metadata). |
 
@@ -49,6 +48,9 @@
 
 | ID | Task | Commit | Evidence | Date |
 |---|---|---|---|---|
+| P0-PHYS-honest | Reject unplaced tool collision; enforce UNKNOWN != VALID in VerifierWorker | `018949e` | `tests/test_honest_collision_and_verifier.py` (655 tests) | 2026-10-27 |
+| P1b-extended | N≥3 tree structures 0° bend guard + generalized constructive stepwise replayer | `ccc2493` | `tests/test_tree_fold_stepwise.py` (658 tests) | 2026-10-27 |
+| P5-CI | GitHub Actions workflow with pythonocc-core on conda-forge | `ecdc0a0` | `.github/workflows/ci.yml` | 2026-10-27 |
 | P0-DOC-pass | Post-audit documentation standardization | `af87274` | S.39 docs pass (all P0-DOC closed) | 2026-10-23 |
 | P0-CODE-1-fix | Strict origin/axis guards; direction formula unchanged (triple product confirmed) | `9dd2249` | `tests/test_topology_worker_direction.py` (554 tests) | 2026-10-24 |
 | P0-CODE-2-fix | Strict radius/length guards, no silent defaults | `2fcd8ab` | `tests/test_topology_worker_radius_length.py` (558 tests) | 2026-10-24 |
