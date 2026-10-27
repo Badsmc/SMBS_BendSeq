@@ -35,8 +35,8 @@ ALL_TOOLING_PATHS: Dict[str, Path] = {
 # Registry of missing tools per β1.
 # NOTE: computed from canonical Path.exists() at import time. OS-dependent for
 # paths with case/naming variants (e.g. Backgauge/ vs backgauge/, Clamp/ vs
-# clamps/). For accurate presence checks use resolve_backgauge_fcstd() and
-# resolve_clamp_fcstd().
+# clamps/). For accurate presence checks use resolve_backgauge_fcstd(),
+# resolve_clamp_fcstd(), and resolve_machine_frame_fcstd().
 MISSING_TOOLS: List[str] = [
     name for name, path in ALL_TOOLING_PATHS.items() if not path.exists()
 ]
@@ -121,6 +121,38 @@ def resolve_clamp_fcstd(library_root: Path) -> Optional[Path]:
     # 2. Case/naming-insensitive fallback
     for d in library_root.iterdir():
         if d.is_dir() and d.name.lower() in ("clamps", "clamp"):
+            found = _find_fcstd_case_insensitive(d)
+            if found:
+                return found
+    return None
+
+
+def resolve_machine_frame_fcstd(library_root: Path) -> Optional[Path]:
+    """Resolve machine_frame .FCStd with directory and naming fallback (KL-16).
+
+    Canonical candidates (in order):
+      library_root/machine_frame/machine_frame.FCStd (canonical KL-16)
+      library_root/machine_frame.FCStd               (root legacy)
+      library_root/presses/machine_frame.FCStd       (presses dir)
+      library_root/presses/cncbender.FCStd           (presses fallback)
+    Fallback: any dir named machine_frame/frame/presses -> first *.FCStd
+    """
+    if not library_root.exists() or not library_root.is_dir():
+        return None
+    # 1. Exact canonical candidates
+    for dir_name, file_name in (
+        ("machine_frame", "machine_frame.FCStd"),
+        ("", "machine_frame.FCStd"),
+        ("presses", "machine_frame.FCStd"),
+        ("presses", "cncbender.FCStd"),
+    ):
+        target = (library_root / dir_name / file_name) if dir_name else (library_root / file_name)
+        if target.is_file():
+            return target
+
+    # 2. Case/naming-insensitive directory search
+    for d in library_root.iterdir():
+        if d.is_dir() and d.name.lower() in ("machine_frame", "machineframe", "frame", "presses"):
             found = _find_fcstd_case_insensitive(d)
             if found:
                 return found

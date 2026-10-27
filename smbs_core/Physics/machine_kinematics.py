@@ -73,10 +73,19 @@ class PressBrakeMachine:
     def with_default_tooling(cls) -> "PressBrakeMachine":
         default_p = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "toollibrary", "punch", "puancon.FCStd"))
         default_d = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "toollibrary", "die", "matrica.FCStd"))
+        default_f = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "toollibrary", "machine_frame", "machine_frame.FCStd"))
+        if not os.path.exists(default_f):
+            for alt_name in ("machine_frame.FCStd", "cncbender.FCStd"):
+                alt_p = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "toollibrary", "presses", alt_name))
+                if os.path.exists(alt_p):
+                    default_f = alt_p
+                    break
         return cls(punch_path=default_p if os.path.exists(default_p) else None,
                    die_path=default_d if os.path.exists(default_d) else None,
+                   machine_frame_path=default_f if os.path.exists(default_f) else None,
                    punch_target_object_name="Body" if os.path.exists(default_p) else None,
-                   die_target_object_name="Body" if os.path.exists(default_d) else None)
+                   die_target_object_name="Body" if os.path.exists(default_d) else None,
+                   machine_frame_target_object_name=None)
 
     @classmethod
     def from_config(cls, config: Dict[str, Any]) -> "PressBrakeMachine":
@@ -135,12 +144,28 @@ class PressBrakeMachine:
             logger.info("Created synthetic SIMPLIFIED die tooling.")
         
         if self.machine_frame_path and os.path.exists(self.machine_frame_path):
-            self.machine_frame = loader.load(
-                self.machine_frame_path,
-                ToolingKind.MACHINE_FRAME,
-                target_object_name=self.machine_frame_target_object_name,
-            )
-            self.config.frame = self.machine_frame
+            try:
+                self.machine_frame = loader.load(
+                    self.machine_frame_path,
+                    ToolingKind.MACHINE_FRAME,
+                    target_object_name=self.machine_frame_target_object_name,
+                )
+                if (
+                    self.machine_frame
+                    and self.machine_frame.shape
+                    and (not hasattr(self.machine_frame.shape, "IsNull") or not self.machine_frame.shape.IsNull())
+                ):
+                    self.config.frame = self.machine_frame
+                else:
+                    self.machine_frame = None
+                    self.config.frame = None
+            except Exception as e:
+                logger.warning(
+                    f"Failed to load machine frame from {self.machine_frame_path}: {e}. "
+                    "Retaining honest UNKNOWN without fabricated geometry."
+                )
+                self.machine_frame = None
+                self.config.frame = None
         else:
             self.machine_frame = None
             self.config.frame = None

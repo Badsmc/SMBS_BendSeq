@@ -43,8 +43,8 @@ class TestDiagnosticsHeadless(unittest.TestCase):
         self.assertTrue(toollib["path_exists"])
         self.assertGreater(toollib["punches_count"], 0)
         self.assertGreater(toollib["dies_count"], 0)
-        # KL-16 honesty: machine_frame.FCStd is not yet present
-        self.assertFalse(toollib["machine_frame_present"])
+        # KL-16: machine_frame.FCStd is present in toollibrary
+        self.assertTrue(toollib["machine_frame_present"])
 
     def test_diagnostics_command_metadata(self):
         """DiagnosticsCommand exposes proper menu and icon resources."""

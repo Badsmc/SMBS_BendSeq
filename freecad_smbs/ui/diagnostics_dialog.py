@@ -22,6 +22,7 @@ from freecad_smbs.resources.tooling_paths import (
     TOOL_LIBRARY_ROOT,
     resolve_backgauge_fcstd,
     resolve_clamp_fcstd,
+    resolve_machine_frame_fcstd,
 )
 from freecad_smbs.ui.preferences_dialog import get_smbs_preferences
 
@@ -92,9 +93,9 @@ def collect_environment_diagnostics() -> Dict[str, Any]:
         if die_dir.is_dir():
             dies_count = len(list(die_dir.glob("*.FCStd")))
 
-        # Honest KL-16 check: machine_frame.FCStd is missing
-        mf_path = configured_lib_path / "machine_frame.FCStd"
-        machine_frame_present = mf_path.is_file()
+        # Honest KL-16 check: machine_frame.FCStd presence
+        machine_frame_fcstd = resolve_machine_frame_fcstd(configured_lib_path)
+        machine_frame_present = machine_frame_fcstd is not None
 
         backgauge_fcstd = resolve_backgauge_fcstd(configured_lib_path)
         clamp_fcstd = resolve_clamp_fcstd(configured_lib_path)
