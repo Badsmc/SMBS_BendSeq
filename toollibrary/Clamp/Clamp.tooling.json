@@ -1,0 +1,31 @@
+{
+  "schema_version": "1.0",
+  "id": "Clamp",
+  "kind": "clamp",
+  "source": "Clamp.FCStd",
+  "datums": {
+    "mounting_plane": {
+      "kind": "plane",
+      "origin": [75.0, 75.0, 40.0],
+      "normal": [0.0, 0.0, 1.0],
+      "tolerance_mm": 0.05
+    },
+    "working_axis": {
+      "kind": "axis",
+      "origin": [75.0, 75.0, 0.0],
+      "direction": [1.0, 0.0, 0.0],
+      "tolerance_mm": 0.02
+    },
+    "working_plane": {
+      "kind": "plane",
+      "origin": [75.0, 75.0, 0.0],
+      "normal": [0.0, 0.0, -1.0],
+      "tolerance_mm": 0.05
+    }
+  },
+  "metadata": {
+    "width_mm": 150.0,
+    "length_mm": 150.0,
+    "height_mm": 40.0
+  }
+}

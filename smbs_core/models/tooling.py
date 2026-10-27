@@ -18,6 +18,7 @@ class ToolingKind(Enum):
     MACHINE_FRAME = "machine_frame"
     RAM = "ram"
     BACKGAUGE = "backgauge"
+    CLAMP = "clamp"
 
 
 class DatumRole(Enum):
@@ -28,6 +29,7 @@ class DatumRole(Enum):
     V_OPENING = "v_opening"
     STOP_FACE = "stop_face"
     REFERENCE_PLANE = "reference_plane"
+    WORKING_PLANE = "working_plane"
 
 
 class GeometryStatus(Enum):

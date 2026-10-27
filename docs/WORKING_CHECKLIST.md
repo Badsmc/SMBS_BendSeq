@@ -22,10 +22,8 @@
 
 | ID | Task | Blocked by | Note |
 |---|---|---|---|
-| KL-16 | Machine frame (`machine_frame.FCStd`) | CAD session — file missing | Required for machine collision check |
-| F.3b | Req 2 Phase F.3b (punch descent + backgauge + machine frame overlay) | KL-16 (`machine_frame.FCStd` missing) | Machine frame overlay requires machine frame geometry |
+| KL-16 | Machine frame (`machine_frame.FCStd`) | External CAD model (optional user file) | Required for machine collision check. `PressBrakeMachine` supports real loading when supplied; keeps honest `UNKNOWN` when missing. |
 | KL-9 | `2_1_3_4_ok` baseline validation | Dedicated CAD track — empirical mechanism 2026-10-26 | Inherited KL-7 (`5ba8e59`); **0.2mm `axis_point` → relief-edge offset** in `box_hub` (`sheetmetal_folder.py:1187`). 3 independent splits (5.25→3.75+1.5, 34.05→33.75+0.3, 146024.4→146023.4). ≥100 lines refactor + cross-fixture regression → deferred. Test `@skip` (`ec4883e`). |
-| KL-28 | Backgauge/Clamp `.tooling.json` sidecar (datums) | CAD session — datums undefined | Files present (S.71 C2b), no sidecar → direct display only |
 
 ## Deferred (separate session, P1-docs)
 
@@ -46,6 +44,7 @@
 
 | ID | Task | Commit | Evidence | Date |
 |---|---|---|---|---|
+| F.3b+KL-28 | Punch descent kinematics + Backgauge motion overlay + Backgauge/Clamp canonical sidecars (KL-28) + honest machine_frame loading (KL-16) | HEAD | `tests/test_f3b_kl16_kl28.py` (695 tests) | 2026-10-27 |
 | S.72 | FreeCAD Workbench «Верификация» dialog + «Настройки» prefs + «Диагностика» + backlog sweep (G3, M1, O1, O2, O11, KL-26 fail-fast) | `a1adb6a`..`45e2ea1` | `tests/test_freecad_smbs/` (690 tests) | 2026-10-27 |
 | KL-12-v3 | Orientation-aware single-bend folding (X & Y axes) + 0° bend guard + canonicalized bend sector; L/U/Z yield VALID_PER_PANEL | `aac91b8` | `tests/test_fold_one_bend.py` (675 tests) | 2026-10-27 |
 | P0-PHYS-honest | Reject unplaced tool collision; enforce UNKNOWN != VALID in VerifierWorker | `018949e` | `tests/test_honest_collision_and_verifier.py` (655 tests) | 2026-10-27 |
