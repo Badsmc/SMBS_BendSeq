@@ -5,6 +5,7 @@ Enforces strict read-only access to run artifacts without mutating smbs_core/.
 """
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
@@ -146,4 +147,168 @@ def get_tooling_library(library_path: Union[str, Path, None] = None) -> Any:
     if library_path is None:
         library_path = Path(__file__).resolve().parents[2] / "toollibrary"
     return ToolingLibrary(Path(library_path))
+
+
+@dataclass
+class PipelineRunResult:
+    """Structured result of executing the SMBS planning pipeline on an FCStd model."""
+    run_dir: Path
+    planning_status: str  # "SUCCESS", "NO_SOLUTION", "ERROR", "TIMEOUT", "PARTIAL"
+    candidate_sequence: List[Dict[str, Any]] = field(default_factory=list)
+    part_id: Optional[str] = None
+    verification_status: Optional[str] = None
+    production_eligible: Optional[bool] = None
+    error_message: Optional[str] = None
+    diagnostics: Any = None
+    artifacts: Optional[RunArtifacts] = None
+    status: Optional[str] = None
+
+
+def run_pipeline_on_fcstd(
+    fcstd_path: Union[str, Path],
+    *,
+    library_path: Union[str, Path, None] = None,
+    punch_id: Optional[str] = None,
+    die_id: Optional[str] = None,
+    tooling_set_id: Optional[str] = None,
+    clamps_config: Optional[Any] = None,
+    search_algorithm: str = "astar",
+    budget: int = 5000,
+    timeout: float = 60.0,
+    out_runs_dir: Union[str, Path, None] = None,
+    k_factor_override: Optional[float] = None,
+    unknown_policy: str = "PRODUCTION",
+    coordinator_cls: Optional[Any] = None,
+) -> PipelineRunResult:
+    """
+    Programmatic entrypoint to run the full SMBS pipeline on an FCStd file.
+    Reuses smbs_core.coordinator.run_pipeline.Coordinator directly.
+    """
+    path = Path(fcstd_path).expanduser().resolve()
+    if not path.is_file():
+        return PipelineRunResult(
+            run_dir=Path(),
+            planning_status="ERROR",
+            candidate_sequence=[],
+            part_id=path.stem,
+            error_message=f"Файл детали не найден: {path}",
+            diagnostics=[f"File not found: {path}"],
+        )
+
+    # Determine workspace_root
+    repo_root = Path(__file__).resolve().parents[2]
+    if out_runs_dir is not None:
+        out_path = Path(out_runs_dir).expanduser().resolve()
+        if out_path.name == "runs":
+            workspace_root = out_path.parent
+        else:
+            workspace_root = out_path
+    else:
+        workspace_root = repo_root
+
+    # Resolve tooling
+    default_lib = repo_root / "toollibrary"
+    lib_path = Path(library_path) if library_path else default_lib
+
+    machine_config: Optional[Dict[str, Any]] = None
+    if tooling_set_id is not None:
+        machine_config = {
+            "tooling_set": tooling_set_id,
+            "library_path": str(lib_path),
+        }
+    elif punch_id is not None and die_id is not None:
+        machine_config = {
+            "punch_id": punch_id,
+            "die_id": die_id,
+            "library_path": str(lib_path),
+        }
+
+    if clamps_config is not None:
+        if machine_config is None:
+            machine_config = {}
+        machine_config["clamps_config"] = clamps_config
+
+    # Instantiate Coordinator (allowing injection for unit tests)
+    if coordinator_cls is None:
+        from smbs_core.coordinator.run_pipeline import Coordinator
+        coord = Coordinator(workspace_root=workspace_root)
+    else:
+        coord = coordinator_cls(workspace_root=workspace_root)
+
+    resource_budget = {
+        "max_nodes": budget,
+        "max_wall_time_s": timeout,
+        "max_cache_entries": 10000,
+        "max_geometry_ops": 20000,
+        "max_trajectory_samples": 500,
+        "max_memory_mb": 2048.0,
+    }
+
+    try:
+        res = coord.start_run(
+            source_file_path=path,
+            part_id=path.stem,
+            input_mode="NATIVE_SHEETMETAL",
+            k_factor_override=k_factor_override,
+            search_algorithm=search_algorithm,
+            machine_config=machine_config,
+            resource_budget=resource_budget,
+            unknown_policy=unknown_policy,
+        )
+    except Exception as e:
+        return PipelineRunResult(
+            run_dir=Path(),
+            planning_status="ERROR",
+            candidate_sequence=[],
+            part_id=path.stem,
+            error_message=f"Ошибка выполнения конвейера: {e}",
+            diagnostics=[str(e)],
+        )
+
+    run_dir = Path(res.get("run_dir", ""))
+    planning_status = res.get("planning_status", "UNKNOWN")
+    sequence = res.get("sequence", [])
+    verif_status = res.get("verification_status")
+    prod_elig = res.get("production_eligible")
+    status = res.get("status")
+
+    # Extract diagnostics and error messages
+    diagnostics = res.get("run_report", {}).get("diagnostics", [])
+    if not diagnostics and "search_result_path" in res:
+        try:
+            import json
+            sr_file = Path(res["search_result_path"])
+            if sr_file.is_file():
+                sr_data = json.loads(sr_file.read_text(encoding="utf-8"))
+                diagnostics = sr_data.get("diagnostics", [])
+        except Exception:
+            pass
+
+    error_message: Optional[str] = None
+    if planning_status != "SUCCESS":
+        if diagnostics:
+            error_message = "; ".join(str(d) for d in diagnostics)
+        else:
+            error_message = f"Последовательность не найдена ({planning_status})"
+
+    # Try loading RunArtifacts
+    artifacts: Optional[RunArtifacts] = None
+    if run_dir.is_dir():
+        try:
+            artifacts = load_run(run_dir)
+        except Exception:
+            pass
+
+    return PipelineRunResult(
+        run_dir=run_dir,
+        planning_status=planning_status,
+        candidate_sequence=sequence,
+        part_id=path.stem,
+        verification_status=verif_status,
+        production_eligible=prod_elig,
+        error_message=error_message,
+        diagnostics=diagnostics,
+        artifacts=artifacts,
+        status=status,
+    )
 
