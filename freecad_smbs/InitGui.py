@@ -77,10 +77,42 @@ class SMBSWorkbench(Workbench):  # type: ignore[misc]
     ToolTip = "Sheet Metal Bending Sequence Planner"
     Icon = ""
 
+    def register_commands(self) -> None:
+        """Register SMBS commands in FreeCADGui command registry."""
+        try:
+            import FreeCADGui
+        except ImportError:
+            FreeCADGui = None
+
+        if FreeCADGui is None or not hasattr(FreeCADGui, "addCommand"):
+            return
+
+        from freecad_smbs.commands.calculate import CalculateCommand
+        from freecad_smbs.commands.info import InfoCommand
+        from freecad_smbs.commands.open_run import OpenRunCommand
+        from freecad_smbs.commands.simulate import SimulateCommand
+        from freecad_smbs.commands.tooling import ToolingCommand
+        from freecad_smbs.commands.verify import VerifyCommand
+
+        commands_map = {
+            "SMBS_OpenRun": OpenRunCommand,
+            "SMBS_Calculate": CalculateCommand,
+            "SMBS_Simulate": SimulateCommand,
+            "SMBS_Tooling": ToolingCommand,
+            "SMBS_Verify": VerifyCommand,
+            "SMBS_Info": InfoCommand,
+        }
+
+        for cmd_name, cmd_cls in commands_map.items():
+            try:
+                FreeCADGui.addCommand(cmd_name, cmd_cls())
+            except Exception:
+                pass
+
     def Initialize(self) -> None:
         """Initialize workbench UI components (commands, menus, toolbars)."""
         # C2-2: Register commands BEFORE appendMenu / appendToolbar
-        register_commands()
+        self.register_commands()
 
         # Menu layout per Spec-final §3.2
         self.menu_items: List[str] = [
