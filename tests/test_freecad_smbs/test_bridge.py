@@ -183,6 +183,24 @@ class TestSMBSBridge(unittest.TestCase):
         self.assertEqual(verif["color_rgba"], (0.0, 0.6, 0.0, 1.0))
         self.assertEqual(verif["color_hex"], "#2E7D32")
 
+    def test_present_verification_kl26_fail_fast(self):
+        """KL-26: verification_status='VERIFIED' ∧ production_eligible=False must raise ValueError."""
+        vr_file = self.run_path / "09_verification_result.json"
+        vr_file.write_text(
+            json.dumps({
+                "schema_name": "verification_result",
+                "payload": {
+                    "verification_status": "VERIFIED",
+                    "production_eligible": False,
+                },
+            }),
+            encoding="utf-8",
+        )
+        artifacts = load_run(self.run_path)
+        with self.assertRaises(ValueError) as ctx:
+            present_verification(artifacts)
+        self.assertIn("KL-26", str(ctx.exception))
+
     def test_present_info_content(self):
         """Verify present_info reports correct step counts and honesty limitations."""
         artifacts = load_run(self.run_path)

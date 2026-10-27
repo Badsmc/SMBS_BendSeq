@@ -75,9 +75,12 @@ class OpenRunCommand:
                 "Выберите директорию SMBS run",
                 last_dir or str(Path.cwd()),
             )
-        except Exception:
-            # Fallback if invoked outside interactive Qt event loop
-            pass
+        except ImportError:
+            # Running in headless / non-GUI test environment
+            selected_dir = ""
+        except Exception as e:
+            show_error("SMBS: Ошибка диалога", f"Не удалось открыть диалог выбора директории:\n{e}")
+            return
 
         if not selected_dir:
             return

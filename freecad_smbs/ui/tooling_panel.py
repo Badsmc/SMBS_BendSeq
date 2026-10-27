@@ -601,7 +601,6 @@ class ToolingPanel:
                         return
 
                     import Part
-                    import FreeCAD as App
 
                     original_active = App.ActiveDocument
                     temp_name = "SMBS_ClampTemplate_Temp"
