@@ -28,12 +28,15 @@ try:
     if _repo_root not in sys.path:
         sys.path.insert(0, _repo_root)
 except Exception:
+    # Dynamic repo root resolution fallback in case __file__ is absent
     pass
 
 # Import command classes (duck-typed, headless-safe)
 from freecad_smbs.commands.calculate import CalculateCommand
+from freecad_smbs.commands.diagnostics import DiagnosticsCommand
 from freecad_smbs.commands.info import InfoCommand
 from freecad_smbs.commands.open_run import OpenRunCommand
+from freecad_smbs.commands.preferences import PreferencesCommand
 from freecad_smbs.commands.run_active import RunActiveCommand
 from freecad_smbs.commands.simulate import SimulateCommand
 from freecad_smbs.commands.tooling import ToolingCommand
@@ -47,6 +50,8 @@ CMD_SIMULATE: str = "SMBS_Simulate"
 CMD_TOOLING: str = "SMBS_Tooling"
 CMD_VERIFY: str = "SMBS_Verify"
 CMD_INFO: str = "SMBS_Info"
+CMD_DIAGNOSTICS: str = "SMBS_Diagnostics"
+CMD_PREFERENCES: str = "SMBS_Preferences"
 
 # Command definitions mapping
 COMMANDS_MAP = {
@@ -57,6 +62,8 @@ COMMANDS_MAP = {
     CMD_TOOLING: ToolingCommand,
     CMD_VERIFY: VerifyCommand,
     CMD_INFO: InfoCommand,
+    CMD_DIAGNOSTICS: DiagnosticsCommand,
+    CMD_PREFERENCES: PreferencesCommand,
 }
 
 
@@ -87,6 +94,8 @@ class SMBSWorkbench(Workbench):  # type: ignore[misc]
     CMD_TOOLING = "SMBS_Tooling"
     CMD_VERIFY = "SMBS_Verify"
     CMD_INFO = "SMBS_Info"
+    CMD_DIAGNOSTICS = "SMBS_Diagnostics"
+    CMD_PREFERENCES = "SMBS_Preferences"
 
     def register_commands(self) -> None:
         """Register SMBS commands in FreeCADGui command registry."""
@@ -99,8 +108,10 @@ class SMBSWorkbench(Workbench):  # type: ignore[misc]
             return
 
         from freecad_smbs.commands.calculate import CalculateCommand
+        from freecad_smbs.commands.diagnostics import DiagnosticsCommand
         from freecad_smbs.commands.info import InfoCommand
         from freecad_smbs.commands.open_run import OpenRunCommand
+        from freecad_smbs.commands.preferences import PreferencesCommand
         from freecad_smbs.commands.run_active import RunActiveCommand
         from freecad_smbs.commands.simulate import SimulateCommand
         from freecad_smbs.commands.tooling import ToolingCommand
@@ -114,12 +125,15 @@ class SMBSWorkbench(Workbench):  # type: ignore[misc]
             self.CMD_TOOLING: ToolingCommand,
             self.CMD_VERIFY: VerifyCommand,
             self.CMD_INFO: InfoCommand,
+            self.CMD_DIAGNOSTICS: DiagnosticsCommand,
+            self.CMD_PREFERENCES: PreferencesCommand,
         }
 
         for cmd_name, cmd_cls in commands_map.items():
             try:
                 FreeCADGui.addCommand(cmd_name, cmd_cls())
             except Exception:
+                # Re-registration of existing FreeCAD command; ignore duplicate registration
                 pass
 
     def Initialize(self) -> None:
@@ -138,6 +152,9 @@ class SMBSWorkbench(Workbench):  # type: ignore[misc]
             "Separator",
             self.CMD_VERIFY,
             self.CMD_INFO,
+            "Separator",
+            self.CMD_DIAGNOSTICS,
+            self.CMD_PREFERENCES,
         ]
         if hasattr(self, "appendMenu"):
             self.appendMenu(["SMBS"], self.menu_items)
@@ -151,6 +168,8 @@ class SMBSWorkbench(Workbench):  # type: ignore[misc]
             self.CMD_TOOLING,
             self.CMD_VERIFY,
             self.CMD_INFO,
+            self.CMD_DIAGNOSTICS,
+            self.CMD_PREFERENCES,
         ]
         if hasattr(self, "appendToolbar"):
             self.appendToolbar("SMBS", self.toolbar_items)
@@ -171,4 +190,5 @@ if FreeCADGui is not None and hasattr(FreeCADGui, "addWorkbench"):
     try:
         FreeCADGui.addWorkbench(SMBSWorkbench())
     except Exception:
+        # Workbench re-registration in FreeCAD GUI; ignore duplicate workbench error
         pass
