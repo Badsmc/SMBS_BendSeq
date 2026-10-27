@@ -1,0 +1,31 @@
+{
+  "schema_version": "1.0",
+  "id": "Backgauge",
+  "kind": "backgauge",
+  "source": "Backgauge.FCStd",
+  "datums": {
+    "mounting_plane": {
+      "kind": "plane",
+      "origin": [0.0, 0.0, 0.0],
+      "normal": [0.0, 0.0, -1.0],
+      "tolerance_mm": 0.05
+    },
+    "working_axis": {
+      "kind": "axis",
+      "origin": [0.0, 100.0, 7.0],
+      "direction": [0.0, 1.0, 0.0],
+      "tolerance_mm": 0.02
+    },
+    "stop_face": {
+      "kind": "plane",
+      "origin": [0.0, 100.0, 7.0],
+      "normal": [-1.0, 0.0, 0.0],
+      "tolerance_mm": 0.05
+    }
+  },
+  "metadata": {
+    "length_mm": 100.0,
+    "width_mm": 200.0,
+    "thickness_mm": 14.0
+  }
+}

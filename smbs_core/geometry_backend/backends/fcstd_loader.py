@@ -50,6 +50,8 @@ ROLE_STRING_MAP: Dict[str, ToolingKind] = {
     "ram": ToolingKind.RAM,
     "bed": ToolingKind.MACHINE_BED,
     "machine_bed": ToolingKind.MACHINE_BED,
+    "clamp": ToolingKind.CLAMP,
+    "clamps": ToolingKind.CLAMP,
 }
 
 # Substring patterns for NAME level matching
@@ -66,6 +68,8 @@ NAME_PATTERNS: List[Tuple[str, ToolingKind]] = [
     ("stop", ToolingKind.BACKGAUGE),
     ("ram", ToolingKind.RAM),
     ("bed", ToolingKind.MACHINE_BED),
+    ("clamp", ToolingKind.CLAMP),
+    ("clamps", ToolingKind.CLAMP),
 ]
 
 

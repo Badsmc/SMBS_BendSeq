@@ -32,7 +32,9 @@ class PressBrakeMachine:
         die_path: Optional[str] = None,
         punch_target_object_name: Optional[str] = None,
         die_target_object_name: Optional[str] = None,
-        filepath: Optional[str] = None
+        filepath: Optional[str] = None,
+        machine_frame_path: Optional[str] = None,
+        machine_frame_target_object_name: Optional[str] = None,
     ):
         self.name = name
         self.max_tonnage = max_tonnage
@@ -43,6 +45,8 @@ class PressBrakeMachine:
         self.die_path = die_path
         self.punch_target_object_name = punch_target_object_name
         self.die_target_object_name = die_target_object_name
+        self.machine_frame_path = machine_frame_path
+        self.machine_frame_target_object_name = machine_frame_target_object_name
 
         self.config = MachineConfiguration(
             id=name,
@@ -59,6 +63,7 @@ class PressBrakeMachine:
         self.assembly: Optional[ToolingAssembly] = None
         self.punch: Optional[Tooling] = None
         self.die: Optional[Tooling] = None
+        self.machine_frame: Optional[Tooling] = None
 
     @classmethod
     def default_setup(cls) -> "PressBrakeMachine":
@@ -82,7 +87,9 @@ class PressBrakeMachine:
             die_path=config.get("die_path"),
             punch_target_object_name=config.get("punch_target_object_name"),
             die_target_object_name=config.get("die_target_object_name"),
-            filepath=config.get("source_file")
+            filepath=config.get("source_file"),
+            machine_frame_path=config.get("machine_frame_path"),
+            machine_frame_target_object_name=config.get("machine_frame_target_object_name"),
         )
 
     def setup_assembly(self, backend: GeometryBackend) -> ToolingAssembly:
@@ -126,6 +133,17 @@ class PressBrakeMachine:
                 datums=d_datums
             )
             logger.info("Created synthetic SIMPLIFIED die tooling.")
+        
+        if self.machine_frame_path and os.path.exists(self.machine_frame_path):
+            self.machine_frame = loader.load(
+                self.machine_frame_path,
+                ToolingKind.MACHINE_FRAME,
+                target_object_name=self.machine_frame_target_object_name,
+            )
+            self.config.frame = self.machine_frame
+        else:
+            self.machine_frame = None
+            self.config.frame = None
 
-        self.assembly.place(self.punch, self.die)
+        self.assembly.place(self.punch, self.die, machine_frame=self.machine_frame)
         return self.assembly

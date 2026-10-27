@@ -53,6 +53,34 @@ def _update_feature(doc: Any, name: str, fc_shape: Any) -> Any:
     return obj
 
 
+def _compute_punch_offset_mm(frame: Any, max_stroke_mm: float = 100.0) -> float:
+    """Computes punch descent offset in mm for animation playback (F.3b).
+
+    Offset represents ram/punch stroke downwards from open height (0.0)
+    towards bottom dead center (BDC). Step 0 (rest / flat pattern) is 0.0.
+    Active bend steps descend towards BDC (positive offset down along Z).
+    """
+    if frame is None:
+        return 0.0
+
+    if isinstance(frame, dict):
+        step_idx = frame.get("step_index", 0)
+        is_bending = frame.get("is_bending")
+        if is_bending is None:
+            is_bending = (step_idx > 0)
+    else:
+        # Frame or StepView object
+        step_view = getattr(frame, "step_view", frame)
+        step_idx = getattr(step_view, "step_index", getattr(frame, "frame_index", 0))
+        bend_id = getattr(step_view, "bend_id", None)
+        is_bending = getattr(frame, "is_bending", bend_id is not None or step_idx > 0)
+
+    if step_idx == 0 or not is_bending:
+        return 0.0
+
+    return float(max_stroke_mm)
+
+
 class AnimationPlayerDialog:
     """Lazy wrapper — real Qt base resolved at instance creation."""
 
@@ -90,6 +118,7 @@ class AnimationPlayerDialog:
                     self.punch_shape = None
                     self.die_shape = None
                     self.machine_frame_shape = None
+                    self.backgauge_shape = None
 
                     self._init_ui()
                     self._setup_timer(tick_interval_ms)
@@ -174,6 +203,15 @@ class AnimationPlayerDialog:
                         self.punch_shape = self.assembly.get_world_shape(ToolingKind.PUNCH)
                         self.die_shape = self.assembly.get_world_shape(ToolingKind.DIE)
                         self.machine_frame_shape = self.assembly.get_world_shape(ToolingKind.MACHINE_FRAME)
+
+                        from freecad_smbs.resources.tooling_paths import resolve_backgauge_fcstd, TOOL_LIBRARY_ROOT
+                        bg_path = resolve_backgauge_fcstd(TOOL_LIBRARY_ROOT)
+                        if bg_path and bg_path.is_file():
+                            from smbs_core.geometry_backend.backends.fcstd_loader import FcstdToolingLoader
+                            bg_tool = FcstdToolingLoader().load(str(bg_path), ToolingKind.BACKGAUGE)
+                            self.backgauge_shape = bg_tool.shape
+                        else:
+                            self.backgauge_shape = None
                     except Exception as e:
                         # Rationale (O2): If tooling assembly fails, allow animation to proceed
                         # in degraded-but-honest mode (part kinematics still plays; tooling objects omitted).
@@ -203,11 +241,21 @@ class AnimationPlayerDialog:
                     fc_part = _to_fc_shape(frame.step_view.state.shape)
                     _update_feature(doc, OBJECT_NAME, fc_part)
                     fc_punch = _to_fc_shape(self.punch_shape) if self.punch_shape is not None else None
+                    if fc_punch is not None:
+                        punch_offset = _compute_punch_offset_mm(frame, max_stroke_mm=100.0)
+                        if punch_offset != 0.0:
+                            try:
+                                import FreeCAD as App
+                                fc_punch = fc_punch.translated(App.Vector(0.0, 0.0, -punch_offset))
+                            except Exception:
+                                pass
                     _update_feature(doc, "SMBS_Punch", fc_punch)
                     fc_die = _to_fc_shape(self.die_shape) if self.die_shape is not None else None
                     _update_feature(doc, "SMBS_Die", fc_die)
                     fc_frame = _to_fc_shape(self.machine_frame_shape) if self.machine_frame_shape is not None else None
                     _update_feature(doc, "SMBS_MachineFrame", fc_frame)
+                    fc_backgauge = _to_fc_shape(self.backgauge_shape) if self.backgauge_shape is not None else None
+                    _update_feature(doc, "SMBS_Backgauge", fc_backgauge)
                     if self._first_show:
                         try:
                             Gui.SendMsgToActiveView("ViewFit")
@@ -306,7 +354,7 @@ class AnimationPlayerDialog:
                     self.timer.stop()
                     doc = App.ActiveDocument
                     if doc is not None:
-                        for name in (OBJECT_NAME, "SMBS_Punch", "SMBS_Die", "SMBS_MachineFrame"):
+                        for name in (OBJECT_NAME, "SMBS_Punch", "SMBS_Die", "SMBS_MachineFrame", "SMBS_Backgauge"):
                             obj = doc.getObject(name)
                             if obj is not None:
                                 doc.removeObject(name)

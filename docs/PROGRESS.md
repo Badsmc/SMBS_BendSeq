@@ -1,7 +1,7 @@
 # SMBS Core - Engineering Implementation Progress
 
 > **Project status:** advanced prototype with several completed functional subsystems, **NOT a complete automatic planning system**.
-> **Open blockers:** KL-16 (machine frame pending supply of machine_frame.FCStd), KL-28 (backgauge/clamp sidecars). KL-12-v3 CLOSED in S.74 (single-bend orientation-aware fold + 0° guard + canonicalized bend sector; L/U/Z fixtures yield VALID_PER_PANEL without shell disconnection). See Known Limitations.
+> **Open blockers:** KL-16 (machine frame pending external machine_frame.FCStd supply; honest UNKNOWN preserved), KL-9 (2_1_3_4_ok relief-edge design ready). KL-12-v3 CLOSED in S.74. KL-28 CLOSED in S.76 (Backgauge and Clamp canonical sidecars). F.3b CLOSED in S.76. See Known Limitations.
 > **Requirement 4.1 (clamp constraints) — validator (S.24a–S.24c) + enforcement per-bend in `12_tooling_selection.json` (Req 4 Phase E, S.30c).**
 > **P0 defects (annotated 2026-10-23, resolved S.40–S.50, HEAD `ce68906`, baseline 577 / 0F / 0E / 3xF):** 5 code + 4 doc + P0-GEOM CLOSED — see `docs/AUDIT_FULL_2026-10-23.md`. Release blockers: **CLEARED**.
 
@@ -995,6 +995,30 @@ Chronological record of remediation sessions closing integrity invariants and B-
   - Added test suites `tests/test_freecad_smbs/test_verification_dialog.py`, `test_preferences.py`, `test_diagnostics.py`.
   - All 68 tests in `tests/test_freecad_smbs/` pass cleanly.
   - Baseline: **690 tests / 0 failures / 0 errors / 1 skipped / 2 expectedFailures**.
+
+### S.76 — F.3b Punch Descent + Backgauge Overlay + KL-28 Sidecars + KL-16 Honesty
+
+- **KL-28 Sidecars (CLOSED):**
+  - Created canonical tooling sidecars with verified datums:
+    - `toollibrary/Backgauge/Backgauge.tooling.json`: kind `backgauge`, source `Backgauge.FCStd`, datums `mounting_plane`, `working_axis`, `stop_face`, metadata dimensions (100x200x14mm).
+    - `toollibrary/Clamp/Clamp.tooling.json`: kind `clamp`, source `Clamp.FCStd`, datums `mounting_plane`, `working_axis`, `working_plane`, metadata dimensions (150x150x40mm).
+  - Extended core enums in `smbs_core/models/tooling.py`:
+    - Added `ToolingKind.CLAMP = "clamp"`.
+    - Added `DatumRole.WORKING_PLANE = "working_plane"`.
+  - Updated `ROLE_STRING_MAP` and `NAME_PATTERNS` in `smbs_core/geometry_backend/backends/fcstd_loader.py` to recognize `clamp` / `clamps`.
+- **KL-16 Machine Frame Loading & Honesty:**
+  - Extended `PressBrakeMachine.__init__` and `from_config` to accept `machine_frame_path` and `machine_frame_target_object_name`.
+  - In `setup_assembly`: if `machine_frame_path` exists on disk, loads real B-Rep geometry via `FcstdToolingLoader` and attaches to `assembly.machine_frame` and `config.frame`.
+  - When machine frame is absent, keeps `assembly.machine_frame = None`; `CollisionDetector.machine_collision` returns honest `CollisionStatus.UNKNOWN` (Invariant #1: `UNKNOWN ≠ VALID`).
+- **F.3b Punch Descent Kinematics & Backgauge Motion Overlay:**
+  - Added `_compute_punch_offset_mm(frame, max_stroke_mm=100.0)` in `freecad_smbs/ui/animation_dialog.py` for ram descent kinematics towards bottom dead center (BDC).
+  - In `AnimationPlayerDialog`:
+    - Resolves and loads `backgauge_shape` via `resolve_backgauge_fcstd(TOOL_LIBRARY_ROOT)`.
+    - In `_render_current`: applies punch descent translation along ram stroke direction to `SMBS_Punch`, renders `SMBS_Backgauge` in 3D scene.
+    - Updated `closeEvent` to cleanly remove `SMBS_Backgauge` feature along with other tooling features.
+- **Verification:**
+  - Added test pin suite `tests/test_f3b_kl16_kl28.py` covering KL-28 sidecars, KL-16 honest UNKNOWN and real scratch loading, and F.3b punch stroke kinematics.
+  - All 695 tests in the test discovery suite pass cleanly (`0 failures, 0 errors, 1 skipped, 2 expectedFailures`).
 
 ## Historical: Phases 0-11 (pre-refactor, completed before Stage track)
 
