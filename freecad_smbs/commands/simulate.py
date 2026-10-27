@@ -17,7 +17,7 @@ class SimulateCommand:
         return {
             "Pixmap": str(ICON_PATH),
             "MenuText": "Симуляция",
-            "ToolTip": "Воспроизведение процесса гибки (F.2/F.3a; PREVIEW_ONLY, KL-12)",
+            "ToolTip": "Воспроизведение процесса гибки (F.2/F.3/P1c; двунаправленное)",
         }
 
     def Activated(self) -> None:

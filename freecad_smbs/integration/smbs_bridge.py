@@ -53,8 +53,8 @@ def present_info(artifacts: RunArtifacts) -> Dict[str, Any]:
     has_flat = artifacts.flat_pattern_path is not None and artifacts.flat_pattern_path.exists()
 
     limitations = [
-        "KL-12: panel shells disconnect after first unfold (KL-12 v3 scope, PREVIEW_ONLY).",
-        "KL-16: machine frame pending supply of machine_frame.FCStd.",
+        "KL-12: N≥3 complex tree branches remain PREVIEW_ONLY (N≤2 linear chains yield VALID_PER_PANEL).",
+        "KL-16: machine frame collision check UNKNOWN when machine_frame.FCStd is not provided.",
     ]
 
     return {

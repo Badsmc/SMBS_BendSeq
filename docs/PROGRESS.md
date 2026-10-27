@@ -1020,6 +1020,23 @@ Chronological record of remediation sessions closing integrity invariants and B-
   - Added test pin suite `tests/test_f3b_kl16_kl28.py` covering KL-28 sidecars, KL-16 honest UNKNOWN and real scratch loading, and F.3b punch stroke kinematics.
   - All 695 tests in the test discovery suite pass cleanly (`0 failures, 0 errors, 1 skipped, 2 expectedFailures`).
 
+### S.77 — P1c FreeCAD UI Full Integration & Bidirectional Sweep
+
+- **Bidirectional Playback in FreeCAD UI (Fold / Unfold):**
+  - Added direction selector `cmb_direction` (`"Unfold (backward)"` and `"Fold (forward)"`) to `AnimationPlayerDialog` (`freecad_smbs/ui/animation_dialog.py`).
+  - Switching playback direction resets timeline position, updates frame count/slider maximum, and refreshes 3D viewport.
+  - Made `Gui.updateGui()` call None-safe/attribute-safe in `_update_feature` to allow execution in headless and test environments without GUI loop.
+- **Direction-Aware Step Headers:**
+  - Updated `format_step_header(frame, direction)` in `smbs_core/viewer/fc_animation.py`:
+    - In forward mode (`Fold`): Step 0 displays `"Step 0 — flat pattern"`, subsequent steps display `"Step i — {bend_id} ({ui_direction})"`.
+    - In backward mode (`Unfold`): Step 0 displays `"Step 0 — initial (fully folded)"`, maintaining full backward compatibility.
+- **Limitation and Tooltip Truth-Up:**
+  - Updated `freecad_smbs/commands/simulate.py` tooltip to `"Воспроизведение процесса гибки (F.2/F.3/P1c; двунаправленное)"`.
+  - Updated `freecad_smbs/integration/smbs_bridge.py` limitations to accurately reflect that N≤2 linear chains yield `VALID_PER_PANEL` solids, while N≥3 complex tree branches remain `PREVIEW_ONLY`.
+- **Verification:**
+  - Added `tests/test_p1c_full_fixture_sweep.py` verifying bidirectional navigation, solid validation, header formatting, and UI direction switching across benchmark runs.
+  - Full test suite baseline: **700 tests / 0 failures / 0 errors / 1 skipped / 2 expectedFailures**.
+
 ## Historical: Phases 0-11 (pre-refactor, completed before Stage track)
 
 | Phase | Description | Status | Verification |
