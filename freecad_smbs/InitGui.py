@@ -16,6 +16,20 @@ except ImportError:
     FreeCADGui = None
     Workbench = object  # type: ignore[assignment,misc]
 
+import sys
+from pathlib import Path
+
+try:
+    if "__file__" in globals():
+        _repo_root = str(Path(__file__).resolve().parent.parent)
+    else:
+        import freecad_smbs
+        _repo_root = str(Path(freecad_smbs.__file__).resolve().parent.parent)
+    if _repo_root not in sys.path:
+        sys.path.insert(0, _repo_root)
+except Exception:
+    pass
+
 # Import command classes (duck-typed, headless-safe)
 from freecad_smbs.commands.calculate import CalculateCommand
 from freecad_smbs.commands.info import InfoCommand
