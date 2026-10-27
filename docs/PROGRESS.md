@@ -925,6 +925,31 @@ Chronological record of remediation sessions closing integrity invariants and B-
 
 - **Implementation:** Added `ci/workflows/ci.yml` using `mamba-org/setup-micromamba@v1` with `pythonocc-core` and `pydantic>=2.0` on `conda-forge` to run the full headless test discovery suite automatically on pull requests and pushes to `stage-1-fix-correctness` and `main` (ready to activate via `.github/workflows/` or GitHub UI).
 
+### S.72: FreeCAD Centralized Bootstrap, 0° Matrix, Dynamic PNG Banner & Hygiene (Commits `a6e42cb`..`17f537e`, 2026-10-27)
+
+- **Centralized Bootstrap & In-Memory BREP (`a6e42cb`):**
+  - Added `smbs_core/geometry_backend/freecad_bootstrap.py` resolving FreeCAD and SheetMetal paths across macOS, Linux, and Windows via standard paths and `FREECAD_LIB` / `FREECAD_MOD_SHEETMETAL` environment variables.
+  - Optimized BREP conversions across `sheetmetal_folder.py`, `adapter.py`, `geometry/worker.py`, and `fcstd_loader.py` to use in-memory `exportBrepToString` / `ReadFromString` / `WriteToString` / `importBrepFromString` with transparent disk fallback.
+- **0° Matrix Normalization (`5bd0b7c`):**
+  - Fixed neutral/unfolded 0° bend transformation matrix to parent/identity frame without inversion/reflection artifacts.
+- **Dynamic Replay PNG Banner (`401dc4d`):**
+  - Replaced hardcoded `PREVIEW_ONLY` banner in `smbs_core/viewer/render.py` with dynamic color-coded banner driven by `StepView.geometry_precision`: green `#2E7D32` for `VALID_PER_PANEL`, red `#C62828` for `PREVIEW_ONLY`.
+- **Hygiene & Cleanup (`deedca1`..`17f537e`):**
+  - Removed unreferenced dead module `backward_graph.py` (0 calls in codebase).
+  - Archived outdated historical reports (`KNOWN_LIMITATIONS.md`, `TEST_MATRIX.md`, etc.) to `docs/archive/`.
+  - Updated `README.md` to reflect usable prototype state. Baseline: 663 tests OK (1 skip, 2 expected failures).
+
+### S.73: Workbench Auto-Path & One-Click Sequence Calculation on Active Document (Commits `f63c595`..HEAD, 2026-10-27)
+
+- **Workbench Initialization Robustness (`f63c595`, `7af5be2`, `3bfc916`):**
+  - Resolved dynamic repo root in `freecad_smbs/__init__.py`, `Init.py`, `InitGui.py` so the workbench finds `smbs_core` automatically without manual `PYTHONPATH` export.
+  - Handled FreeCAD C++ GUI scope-clearing by registering workbench commands as methods on `SMBSWorkbench` and storing command identifiers as instance attributes `self.CMD_*`.
+- **Programmatic Pipeline API (`b52e911`):**
+  - Added `PipelineRunResult` dataclass and callable `run_pipeline_on_fcstd` programmatic API to `freecad_smbs/integration/smbs_bridge.py`, wrapping `Coordinator.start_run` without CLI invocation.
+- **One-Click Active Document Calculation (`8dad8d2`..HEAD):**
+  - Added `RunActiveCommand` (`SMBS_RunActive`, button "Рассчитать последовательность") as the primary workbench action on the menu and toolbar.
+  - Automatically verifies `ActiveDocument` presence and saved status, passes tooling preferences (`BaseApp/Preferences/Mod/SMBS`), executes planning with modal progress context, logs progress to FreeCAD Report view (`App.Console.PrintMessage`), sets `current_run`, renders numbered bend annotations directly onto the flat pattern on `SUCCESS`, and displays structured result dialog.
+  - Baseline: 663 tests OK + 52 workbench tests OK.
 
 ## Historical: Phases 0-11 (pre-refactor, completed before Stage track)
 

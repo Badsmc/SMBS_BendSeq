@@ -10,7 +10,9 @@ What works:
 - Unfold via native SheetMetal
 - Planning (A* / DFS backward search)
 - Fold constructive path for N=1 and N=2 linear (`VALID_PER_PANEL`)
-- FreeCAD workbench `freecad_smbs` (OpenRun, Calculate, Simulate, Tooling, Verify, Info)
+- FreeCAD workbench `freecad_smbs`:
+  - 1-click calculation for active document (**Рассчитать последовательность**) with auto-annotations on flat pattern
+  - OpenRun, Calculate, Simulate, Tooling, Verify, Info
 - Dynamic PNG banners from `geometry_precision` (green `VALID_PER_PANEL`, red `PREVIEW_ONLY`)
 - Cross-platform FreeCAD bootstrap (`FREECAD_LIB`, `FREECAD_MOD_SHEETMETAL`) with in-memory BREP conversion
 
@@ -22,6 +24,25 @@ Known limits:
 See `docs/PROGRESS.md` for the full limitation list.
 
 ## Quick start
+
+### 1. In FreeCAD (Primary User Experience)
+
+Install the workbench via symlink:
+```bash
+# macOS
+ln -s /path/to/SMBS_BendSeq/freecad_smbs \
+  ~/Library/Application\ Support/FreeCAD/Mod/freecad_smbs
+
+# Linux
+# ln -s /path/to/SMBS_BendSeq/freecad_smbs ~/.local/share/FreeCAD/Mod/freecad_smbs
+```
+
+1. Open FreeCAD and switch to the **SMBS** workbench.
+2. Open or create your sheet metal model (`.FCStd`) and save it.
+3. Click **Рассчитать последовательность** (Calculate Sequence) on the toolbar.
+4. The pipeline automatically calculates the sequence, attaches numbered bend annotations to the unfolded pattern, and prepares **Симуляция** (Simulate) and **Верификация** (Verify).
+
+### 2. Headless CLI (for CI / Batch Runs)
 
 ```bash
 export PYTHONPATH=/path/to/SMBS_BendSeq:$PYTHONPATH
@@ -35,19 +56,6 @@ python -m smbs_core.cli path/to/part.FCStd
 # View and render replay frames to PNG
 python -m smbs_core.viewer.cli view runs/run_<id> --render-png /tmp/frames
 ```
-
-## FreeCAD workbench
-
-```bash
-# macOS
-ln -s /path/to/SMBS_BendSeq/freecad_smbs \
-  ~/Library/Application\ Support/FreeCAD/Mod/freecad_smbs
-
-# Linux
-# ln -s /path/to/SMBS_BendSeq/freecad_smbs ~/.local/share/FreeCAD/Mod/freecad_smbs
-```
-
-Then open FreeCAD → workbench **SMBS**.
 
 ## Architecture & Workflows
 
