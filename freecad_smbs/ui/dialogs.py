@@ -68,29 +68,47 @@ def show_pipeline_result(result: Any) -> None:
     run_dir = getattr(result, "run_dir", "")
     err_msg = getattr(result, "error_message", None)
 
-    if planning_status == "SUCCESS":
+    if planning_status in ("SUCCESS", "PARTIAL") and seq:
         steps_lines = []
         for s in seq:
             step_no = s.get("step", "?")
             bid = s.get("bend_id", "?")
             direction = s.get("direction", "")
+            if isinstance(direction, dict):
+                direction = direction.get("value", "")
             ang = s.get("angle", s.get("angle_deg", ""))
+            if isinstance(ang, dict):
+                ang = ang.get("value", "")
             ang_str = f" {ang}°" if ang != "" else ""
             steps_lines.append(f"  Шаг {step_no}: {bid} ({direction}{ang_str})")
         steps_text = "\n".join(steps_lines) if steps_lines else "  (нет шагов)"
 
-        elig_str = "Готово к производству (production_eligible=true)" if prod_elig else "Не готово к производству (production_eligible=false)"
-        msg = (
-            f"Последовательность успешно рассчитана!\n\n"
-            f"Порядок гибки ({len(seq)} шагов):\n"
-            f"{steps_text}\n\n"
-            f"Верификация: {verif_status}\n"
-            f"Статус: {elig_str}\n"
-            f"Директория запуска: {run_dir}\n\n"
-            f"Метки шагов добавлены на развёртку детали.\n"
-            f"Команды Симуляция и Верификация готовы к работе."
-        )
-        show_info("SMBS: Расчёт завершён", msg)
+        if planning_status == "SUCCESS":
+            elig_str = "Готово к производству (production_eligible=true)" if prod_elig else "Не подтверждено для производства (production_eligible=false)"
+            msg = (
+                f"Последовательность успешно рассчитана!\n\n"
+                f"Порядок гибки ({len(seq)} шагов):\n"
+                f"{steps_text}\n\n"
+                f"Верификация: {verif_status}\n"
+                f"Статус: {elig_str}\n"
+                f"Директория запуска: {run_dir}\n\n"
+                f"Метки шагов нанесены на развёртку детали.\n"
+                f"Команды Симуляция и Верификация готовы к работе."
+            )
+            show_info("SMBS: Расчёт завершён", msg)
+        else:  # PARTIAL (EXPLORATORY / without physical tooling)
+            msg = (
+                f"Геометрическая последовательность гибки найдена!\n\n"
+                f"Порядок гибки ({len(seq)} шагов):\n"
+                f"{steps_text}\n\n"
+                f"Верификация: {verif_status} (EXPLORATORY / без оснастки)\n"
+                f"Статус: Предварительный расчёт (production_eligible=false)\n"
+                f"Директория запуска: {run_dir}\n\n"
+                f"Метки шагов нанесены на развёртку детали.\n"
+                f"Команды Симуляция и Верификация готовы к работе.\n\n"
+                f"Примечание: Для полной производственной сертификации выберите инструмент в меню «Оснастка»."
+            )
+            show_info("SMBS: Геометрический расчёт (EXPLORATORY)", msg)
     elif planning_status == "NO_SOLUTION":
         msg = (
             f"Последовательность гибки не найдена (NO_SOLUTION).\n\n"
