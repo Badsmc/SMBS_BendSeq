@@ -88,7 +88,16 @@ def present_verification(artifacts: RunArtifacts) -> Dict[str, Any]:
         )
     else:
         payload = artifacts.verification_result.get("payload", {})
+        raw_status = payload.get("verification_status")
         raw_eligible = payload.get("production_eligible")
+
+        # KL-26: Fail-fast on inconsistent verification payload (Invariant #1, #2)
+        if raw_status == "VERIFIED" and raw_eligible is False:
+            raise ValueError(
+                "Inconsistent 09_verification_result: verification_status='VERIFIED' "
+                "but production_eligible=False. Honest invariant violation (KL-26)."
+            )
+
         if raw_eligible is True:
             status = BADGE_VERIFIED
             eligible = True

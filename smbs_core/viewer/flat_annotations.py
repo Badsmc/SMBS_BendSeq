@@ -112,6 +112,13 @@ def compute_annotations(
                 f"09_verification_result present but payload.verification_status missing: {err}"
             ) from err
 
+        raw_eligible = vr.get("payload", {}).get("production_eligible")
+        if verification == VERIFICATION_VERIFIED and raw_eligible is False:
+            raise FlatAnnotationsError(
+                "Inconsistent 09_verification_result: verification_status='VERIFIED' "
+                "but production_eligible=False. Honest invariant violation (KL-26)."
+            )
+
     try:
         canonical_bends = artifacts.canonical_part["payload"]["bends"]
     except (KeyError, TypeError) as err:

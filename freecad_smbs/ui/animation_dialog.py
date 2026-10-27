@@ -175,6 +175,8 @@ class AnimationPlayerDialog:
                         self.die_shape = self.assembly.get_world_shape(ToolingKind.DIE)
                         self.machine_frame_shape = self.assembly.get_world_shape(ToolingKind.MACHINE_FRAME)
                     except Exception as e:
+                        # Rationale (O2): If tooling assembly fails, allow animation to proceed
+                        # in degraded-but-honest mode (part kinematics still plays; tooling objects omitted).
                         self.lbl_status.setText(f"Tooling assembly failed: {e}")
                         self.machine = None
                         self.assembly = None

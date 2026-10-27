@@ -451,5 +451,28 @@ class TestViewerFlatAnnotations(unittest.TestCase):
         self.assertEqual(result, [])
 
 
+    def test_09_kl26_inconsistent_verification_raises(self):
+        """KL-26: verification_status='VERIFIED' with production_eligible=False raises FlatAnnotationsError."""
+        bends = {
+            "B1": _make_bend(
+                parent_panel_id="P1",
+                child_panel_id="P2",
+                direction="UP",
+                bend_line_flat_pattern={"start_mm": [0.0, 0.0, 0.0], "end_mm": [1.0, 0.0, 0.0]},
+            )
+        }
+        seq = [{"step": 1, "bend_id": "B1"}]
+        artifacts = _make_artifacts(
+            seq,
+            bends,
+            verification_payload={"verification_status": "VERIFIED", "production_eligible": False},
+        )
+        graphs = build_graphs(artifacts)
+
+        with self.assertRaises(FlatAnnotationsError) as ctx:
+            compute_annotations(artifacts, graphs)
+        self.assertIn("KL-26", str(ctx.exception))
+
+
 if __name__ == "__main__":
     unittest.main()

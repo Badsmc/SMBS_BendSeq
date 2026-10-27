@@ -1,7 +1,6 @@
 """Headless-safe tests for animation_dialog module and get_player bridge (S.70)."""
 
 import unittest
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from freecad_smbs.integration.smbs_bridge import get_player
