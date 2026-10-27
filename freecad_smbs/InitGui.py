@@ -34,11 +34,13 @@ except Exception:
 from freecad_smbs.commands.calculate import CalculateCommand
 from freecad_smbs.commands.info import InfoCommand
 from freecad_smbs.commands.open_run import OpenRunCommand
+from freecad_smbs.commands.run_active import RunActiveCommand
 from freecad_smbs.commands.simulate import SimulateCommand
 from freecad_smbs.commands.tooling import ToolingCommand
 from freecad_smbs.commands.verify import VerifyCommand
 
 # Command registry identifiers
+CMD_RUN_ACTIVE: str = "SMBS_RunActive"
 CMD_OPEN_RUN: str = "SMBS_OpenRun"
 CMD_CALCULATE: str = "SMBS_Calculate"
 CMD_SIMULATE: str = "SMBS_Simulate"
@@ -48,6 +50,7 @@ CMD_INFO: str = "SMBS_Info"
 
 # Command definitions mapping
 COMMANDS_MAP = {
+    CMD_RUN_ACTIVE: RunActiveCommand,
     CMD_OPEN_RUN: OpenRunCommand,
     CMD_CALCULATE: CalculateCommand,
     CMD_SIMULATE: SimulateCommand,
@@ -77,6 +80,7 @@ class SMBSWorkbench(Workbench):  # type: ignore[misc]
     ToolTip = "Sheet Metal Bending Sequence Planner"
     Icon = ""
 
+    CMD_RUN_ACTIVE = "SMBS_RunActive"
     CMD_OPEN_RUN = "SMBS_OpenRun"
     CMD_CALCULATE = "SMBS_Calculate"
     CMD_SIMULATE = "SMBS_Simulate"
@@ -97,11 +101,13 @@ class SMBSWorkbench(Workbench):  # type: ignore[misc]
         from freecad_smbs.commands.calculate import CalculateCommand
         from freecad_smbs.commands.info import InfoCommand
         from freecad_smbs.commands.open_run import OpenRunCommand
+        from freecad_smbs.commands.run_active import RunActiveCommand
         from freecad_smbs.commands.simulate import SimulateCommand
         from freecad_smbs.commands.tooling import ToolingCommand
         from freecad_smbs.commands.verify import VerifyCommand
 
         commands_map = {
+            self.CMD_RUN_ACTIVE: RunActiveCommand,
             self.CMD_OPEN_RUN: OpenRunCommand,
             self.CMD_CALCULATE: CalculateCommand,
             self.CMD_SIMULATE: SimulateCommand,
@@ -123,6 +129,7 @@ class SMBSWorkbench(Workbench):  # type: ignore[misc]
 
         # Menu layout per Spec-final §3.2
         self.menu_items = [
+            self.CMD_RUN_ACTIVE,
             self.CMD_OPEN_RUN,
             "Separator",
             self.CMD_CALCULATE,
@@ -137,6 +144,7 @@ class SMBSWorkbench(Workbench):  # type: ignore[misc]
 
         # Toolbar layout per Spec-final §3.2
         self.toolbar_items = [
+            self.CMD_RUN_ACTIVE,
             self.CMD_OPEN_RUN,
             self.CMD_CALCULATE,
             self.CMD_SIMULATE,
