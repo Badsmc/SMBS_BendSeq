@@ -62,9 +62,11 @@ class GeometryWorker:
             return shape
         elif path.suffix.lower() == ".fcstd":
             # Read via FreeCAD Part
-            fc_lib = "/Applications/FreeCAD.app/Contents/Resources/lib"
-            if os.path.exists(fc_lib) and fc_lib not in sys.path:
-                sys.path.append(fc_lib)
+            try:
+                from smbs_core.geometry_backend.freecad_bootstrap import ensure_freecad_paths
+                ensure_freecad_paths()
+            except ImportError:
+                pass
             import FreeCAD
             import Part
             doc = FreeCAD.openDocument(str(path))

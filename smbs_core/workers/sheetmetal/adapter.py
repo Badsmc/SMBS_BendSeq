@@ -67,18 +67,11 @@ class SheetMetalAdapter:
         self.sheetmetal_version = None
 
         try:
-            fc_lib = "/Applications/FreeCAD.app/Contents/Resources/lib"
-            if os.path.exists(fc_lib) and fc_lib not in sys.path:
-                sys.path.append(fc_lib)
-
-            sm_mod_paths = [
-                os.path.expanduser("~/Library/Application Support/FreeCAD/v1-1/Mod/sheetmetal"),
-                os.path.expanduser("~/.local/share/FreeCAD/Mod/sheetmetal"),
-                "/usr/share/freecad/Mod/sheetmetal",
-            ]
-            for p in sm_mod_paths:
-                if os.path.exists(p) and p not in sys.path:
-                    sys.path.append(p)
+            try:
+                from smbs_core.geometry_backend.freecad_bootstrap import ensure_freecad_paths
+                ensure_freecad_paths()
+            except ImportError:
+                pass
 
             import FreeCAD
             import SheetMetalNewUnfolder

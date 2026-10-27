@@ -13,13 +13,11 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 # Ensure FreeCAD and SheetMetal module paths are present
-fc_lib = "/Applications/FreeCAD.app/Contents/Resources/lib"
-if os.path.exists(fc_lib) and fc_lib not in sys.path:
-    sys.path.append(fc_lib)
-
-sm_mod = os.path.expanduser("~/Library/Application Support/FreeCAD/v1-1/Mod/sheetmetal")
-if os.path.exists(sm_mod) and sm_mod not in sys.path:
-    sys.path.append(sm_mod)
+try:
+    from smbs_core.geometry_backend.freecad_bootstrap import ensure_freecad_paths
+    ensure_freecad_paths()
+except ImportError:
+    pass
 
 import FreeCAD
 import Part
@@ -47,7 +45,21 @@ class SheetMetalFolder:
 
     @staticmethod
     def _to_occ_shape(fc_shape: Part.Shape) -> TopoDS_Shape:
-        """Converts FreeCAD Part.Shape to OpenCASCADE TopoDS_Shape."""
+        """Converts FreeCAD Part.Shape to OpenCASCADE TopoDS_Shape.
+
+        Attempts pure in-memory string deserialization first for performance;
+        falls back to temporary file if string export/import fails.
+        """
+        if hasattr(fc_shape, "exportBrepToString") and hasattr(breptools, "ReadFromString"):
+            try:
+                brep_str = fc_shape.exportBrepToString()
+                occ_s = breptools.ReadFromString(brep_str)
+                if occ_s is not None and not occ_s.IsNull():
+                    return occ_s
+            except Exception:
+                pass
+
+        # Fallback to file-based transfer
         tf = tempfile.NamedTemporaryFile(suffix=".brep", delete=False)
         tf_name = tf.name
         tf.close()
@@ -64,7 +76,23 @@ class SheetMetalFolder:
 
     @staticmethod
     def _to_fc_shape(occ_shape: TopoDS_Shape) -> Part.Shape:
-        """Converts OpenCASCADE TopoDS_Shape to FreeCAD Part.Shape."""
+        """Converts OpenCASCADE TopoDS_Shape to FreeCAD Part.Shape.
+
+        Attempts pure in-memory string deserialization first for performance;
+        falls back to temporary file if string export/import fails.
+        """
+        if hasattr(breptools, "WriteToString"):
+            try:
+                brep_str = breptools.WriteToString(occ_shape)
+                fc_s = Part.Shape()
+                if hasattr(fc_s, "importBrepFromString"):
+                    fc_s.importBrepFromString(brep_str)
+                    if not fc_s.isNull():
+                        return fc_s
+            except Exception:
+                pass
+
+        # Fallback to file-based transfer
         tf = tempfile.NamedTemporaryFile(suffix=".brep", delete=False)
         tf_name = tf.name
         tf.close()
