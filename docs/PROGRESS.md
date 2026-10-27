@@ -921,9 +921,9 @@ Chronological record of remediation sessions closing integrity invariants and B-
   - `replayer.py::replay_backward`: generalized to `len(candidate_seq) >= 2` with all-or-nothing constructive prefix folding across all $N$ steps, preserving fallback to `PREVIEW_ONLY` if any solid is invalid.
 - **Evidence:** `tests/test_tree_fold_stepwise.py` (3 tests, all PASS; 8-bend star box `box.100out-50in-(ok)` validated; baseline 655 → 658).
 
-### P5-CI: GitHub Actions Headless CI Pipeline (Commit `ecdc0a0`, 2026-10-27)
+### P5-CI: GitHub Actions Headless CI Pipeline (Commit `ec1150d`, 2026-10-27)
 
-- **Implementation:** Added `.github/workflows/ci.yml` using `mamba-org/setup-micromamba@v1` with `pythonocc-core` and `pydantic>=2.0` on `conda-forge` to run the full headless test discovery suite automatically on pull requests and pushes to `stage-1-fix-correctness` and `main`.
+- **Implementation:** Added `ci/workflows/ci.yml` using `mamba-org/setup-micromamba@v1` with `pythonocc-core` and `pydantic>=2.0` on `conda-forge` to run the full headless test discovery suite automatically on pull requests and pushes to `stage-1-fix-correctness` and `main` (ready to activate via `.github/workflows/` or GitHub UI).
 
 
 ## Historical: Phases 0-11 (pre-refactor, completed before Stage track)

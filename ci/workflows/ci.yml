@@ -1,0 +1,40 @@
+name: SMBS BendSeq CI
+
+on:
+  push:
+    branches:
+      - main
+      - stage-1-fix-correctness
+  pull_request:
+    branches:
+      - main
+      - stage-1-fix-correctness
+
+jobs:
+  test:
+    name: Headless Test Suite (Python 3.11 + OCC)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash -el {0}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Setup Micromamba (Conda) with pythonocc-core
+        uses: mamba-org/setup-micromamba@v1
+        with:
+          environment-name: smbs-env
+          create-args: >-
+            python=3.11
+            pythonocc-core
+            pydantic>=2.0
+          condarc: |
+            channels:
+              - conda-forge
+
+      - name: Run Unit & Headless OCC Test Suite
+        run: |
+          python -c "import OCC.Core.BRep, OCC.Core.gp; print('OCC successfully imported')"
+          PYTHONPATH=. python -m unittest discover -s tests -t . -p 'test_*.py'
