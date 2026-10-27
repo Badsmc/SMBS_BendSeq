@@ -113,6 +113,65 @@ class TestSMBSMenuAndCommands(unittest.TestCase):
             mock_render_annotations.assert_called_once()
             mock_show_result.assert_called_once()
 
+    @patch("freecad_smbs.commands.run_active.show_pipeline_result")
+    @patch("freecad_smbs.commands.run_active.render_flat_pattern_annotations")
+    @patch("freecad_smbs.integration.smbs_bridge.get_annotations")
+    @patch("freecad_smbs.integration.smbs_bridge.run_pipeline_on_fcstd")
+    def test_run_active_partial_exploratory(
+        self,
+        mock_run_pipeline,
+        mock_get_annotations,
+        mock_render_annotations,
+        mock_show_result,
+    ):
+        """When tooling is not specified, runs EXPLORATORY, binds run, renders annotations on PARTIAL."""
+        with tempfile.NamedTemporaryFile(suffix=".FCStd") as tf:
+            mock_doc = MagicMock()
+            mock_doc.FileName = tf.name
+            mock_doc.MustExecute = False
+            mock_app = MagicMock()
+            mock_app.ActiveDocument = mock_doc
+            mock_app.ParamGet.return_value.GetString.side_effect = lambda name, default="": default
+            mock_app.ParamGet.return_value.GetBool.side_effect = lambda name, default=False: default
+
+            mock_artifacts = MagicMock()
+            mock_run_pipeline.return_value = PipelineRunResult(
+                run_dir=Path("/fake/run"),
+                planning_status="PARTIAL",
+                verification_status="VERIFICATION_FAILED",
+                production_eligible=False,
+                candidate_sequence=[{"step": 1, "bend_id": "b1", "direction": {"value": "UP"}, "angle_deg": {"value": 90.0}}],
+                artifacts=mock_artifacts,
+            )
+            mock_get_annotations.return_value = [MagicMock()]
+
+            with patch.dict("sys.modules", {"FreeCAD": mock_app}):
+                cmd = RunActiveCommand()
+                cmd.Activated()
+
+            mock_run_pipeline.assert_called_once()
+            call_kwargs = mock_run_pipeline.call_args[1]
+            self.assertEqual(call_kwargs.get("unknown_policy"), "EXPLORATORY")
+            self.assertEqual(get_current_run(), mock_artifacts)
+            mock_render_annotations.assert_called_once()
+            mock_show_result.assert_called_once()
+
+    @patch("freecad_smbs.ui.dialogs.show_info")
+    def test_show_pipeline_result_partial_dialog(self, mock_show_info):
+        """show_pipeline_result handles PARTIAL sequence with informative exploratory title."""
+        from freecad_smbs.ui.dialogs import show_pipeline_result
+        res = PipelineRunResult(
+            run_dir=Path("/fake/run"),
+            planning_status="PARTIAL",
+            verification_status="VERIFICATION_FAILED",
+            production_eligible=False,
+            candidate_sequence=[{"step": 1, "bend_id": "b1", "direction": "UP", "angle": 90.0}],
+        )
+        show_pipeline_result(res)
+        mock_show_info.assert_called_once()
+        self.assertIn("EXPLORATORY", mock_show_info.call_args[0][0])
+        self.assertIn("Шаг 1: b1", mock_show_info.call_args[0][1])
+
     def test_open_run_active(self):
         """OpenRunCommand is active (C3 implementation)."""
         cmd = OpenRunCommand()

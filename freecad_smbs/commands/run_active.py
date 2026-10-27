@@ -100,12 +100,19 @@ class RunActiveCommand:
         die_arg = die_id if (use_tooling and die_id) else None
         lib_arg = Path(lib_path) if (use_tooling and lib_path) else None
 
+        # Determine policy: if real tooling is provided, PRODUCTION; otherwise default to EXPLORATORY
+        if punch_arg and die_arg:
+            default_policy = "PRODUCTION"
+        else:
+            default_policy = "EXPLORATORY"
+        policy = _get_pref_string("UnknownPolicy", default_policy)
+
         if hasattr(App, "Console"):
-            App.Console.PrintMessage(f"SMBS: Запуск расчёта последовательности для '{fcstd_path.name}'\n")
+            App.Console.PrintMessage(f"SMBS: Запуск расчёта последовательности для '{fcstd_path.name}' (политика: {policy})\n")
             if punch_arg and die_arg:
                 App.Console.PrintMessage(f"SMBS: Оснастка: {punch_arg} / {die_arg} (библиотека: {lib_arg})\n")
             else:
-                App.Console.PrintMessage("SMBS: Оснастка не задана — расчёт без инструментальных ограничений\n")
+                App.Console.PrintMessage("SMBS: Оснастка не задана — геометрический расчёт (EXPLORATORY)\n")
 
         # Execute pipeline with progress feedback
         with ProgressContext("SMBS: Расчёт", f"Планирование последовательности для {fcstd_path.name}…") as prog:
@@ -115,6 +122,7 @@ class RunActiveCommand:
                 library_path=lib_arg,
                 punch_id=punch_arg,
                 die_id=die_arg,
+                unknown_policy=policy,
             )
             prog.update_text("Обработка результатов…")
 
@@ -132,8 +140,8 @@ class RunActiveCommand:
         if result.artifacts is not None:
             set_current_run(result.artifacts)
 
-        # On SUCCESS, render annotations automatically
-        if result.planning_status == "SUCCESS" and result.artifacts is not None:
+        # On SUCCESS or PARTIAL (valid sequence found), render annotations automatically
+        if result.planning_status in ("SUCCESS", "PARTIAL") and result.artifacts is not None and result.candidate_sequence:
             try:
                 annotations = smbs_bridge.get_annotations(result.artifacts)
                 if annotations:
