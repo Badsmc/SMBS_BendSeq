@@ -128,6 +128,7 @@ class SheetMetalFolder:
             raise ValueError("fold_from_flat_pattern requires payload.thickness_mm.value")
         thickness = thickness_val
         bends = payload.get("bends", {})
+        panels = payload.get("panels", {})
         if len(bends) != 1:
             raise ValueError(f"fold_from_flat_pattern only supports single bend parts, got {len(bends)}")
 
@@ -151,6 +152,19 @@ class SheetMetalFolder:
             raw_angle = raw_angle_val
             angle_deg = abs(raw_angle)
 
+        if angle_deg < 1e-6:
+            # 0° bend guard: part remains flat
+            if isinstance(flat_pattern, (str, Path)):
+                flat_fc = Part.Shape()
+                flat_fc.read(str(flat_pattern))
+            elif isinstance(flat_pattern, TopoDS_Shape):
+                flat_fc = cls._to_fc_shape(flat_pattern)
+            elif isinstance(flat_pattern, Part.Shape):
+                flat_fc = flat_pattern
+            else:
+                raise TypeError(f"Unsupported flat_pattern type: {type(flat_pattern)}")
+            return cls._to_occ_shape(flat_fc)
+
         line_info = bend["bend_line_flat_pattern"]
         p_start = line_info["start_mm"]
         p_end = line_info["end_mm"]
@@ -167,8 +181,14 @@ class SheetMetalFolder:
         # 2. In-plane normal perpendicular to bend line
         N = FreeCAD.Vector(0, 0, 1.0)
         T = N.cross(L_dir)
-        if T.x < 0:
-            T = -T
+        is_parallel_to_x = abs(L_dy) < abs(L_dx)
+
+        if is_parallel_to_x:
+            if T.y < 0:
+                T = -T
+        else:
+            if T.x < 0:
+                T = -T
 
         neutral_r = bend_r + kfactor * thickness
         unfold_len = neutral_r * math.radians(angle_deg)
@@ -202,47 +222,111 @@ class SheetMetalFolder:
             flat_fc = flat_fc.copy()
             flat_fc.translate(FreeCAD.Vector(-bb_curr.XMin, -bb_curr.YMin, -bb_curr.ZMin))
 
-        # 3. Cut flat pattern into fixed and moving flanges
-        min_y = min(p_start[1], p_end[1])
-        max_y = max(p_start[1], p_end[1])
-        cut_box = Part.makeBox(
-            unfold_len,
-            (max_y - min_y) + 10.0,
-            thickness + 10.0,
-            FreeCAD.Vector(t1_pt.x, min_y - 5.0, -5.0)
-        )
-        cut_solid = flat_fc.cut(cut_box)
-        legs = sorted(cut_solid.Solids, key=lambda s: s.BoundBox.XMin)
-        if len(legs) < 2:
-            raise ValueError(f"Expected 2 flanges after cutting flat pattern along bend line, got {len(legs)}")
-        leg_fixed, leg_moving = legs[0], legs[1]
+        ref_panel_id = payload.get("reference_panel_id")
+        ref_panel = panels.get(ref_panel_id, {})
+        ref_centroid = ref_panel.get("centroid")
 
-        # 4. Physical bend solid sector via SheetMetalBendSolid
-        p1 = FreeCAD.Vector(t1_pt.x, min_y, thickness)
-        p2 = FreeCAD.Vector(t2_pt.x, min_y, thickness)
-        p3 = FreeCAD.Vector(t2_pt.x, max_y, thickness)
-        p4 = FreeCAD.Vector(t1_pt.x, max_y, thickness)
+        # 3. Cut flat pattern into fixed and moving flanges & fold
+        if is_parallel_to_x:
+            min_x = min(p_start[0], p_end[0])
+            max_x = max(p_start[0], p_end[0])
+            cut_box = Part.makeBox(
+                (max_x - min_x) + 10.0,
+                unfold_len,
+                thickness + 10.0,
+                FreeCAD.Vector(min_x - 5.0, t1_pt.y, -5.0)
+            )
+            cut_solid = flat_fc.cut(cut_box)
+            legs = sorted(cut_solid.Solids, key=lambda s: s.BoundBox.YMin)
+            if len(legs) < 2:
+                raise ValueError(f"Expected 2 flanges after cutting flat pattern along bend line, got {len(legs)}")
 
-        bend_face = Part.Face(Part.makePolygon([p1, p2, p3, p4, p1]))
-        bend_edge = Part.makeLine(p1, p4)
+            if ref_centroid is not None and ref_centroid[1] > t2_pt.y:
+                leg_fixed, leg_moving = legs[1], legs[0]
+                trans_dir = T
+                rot_anchor = t2_pt.y
+            else:
+                leg_fixed, leg_moving = legs[0], legs[1]
+                trans_dir = -T
+                rot_anchor = t1_pt.y
 
-        b_sector = SheetMetalBendSolid.bend_solid(
-            sel_face=bend_face,
-            sel_edge=bend_edge,
-            bend_r=bend_r,
-            thickness=thickness,
-            neutral_radius=neutral_r,
-            axis=L_dir,
-            flipped=False
-        )
+            # 4. Physical bend solid sector via SheetMetalBendSolid
+            p1 = FreeCAD.Vector(min_x, t1_pt.y, thickness)
+            p2 = FreeCAD.Vector(max_x, t1_pt.y, thickness)
+            p3 = FreeCAD.Vector(max_x, t2_pt.y, thickness)
+            p4 = FreeCAD.Vector(min_x, t2_pt.y, thickness)
 
-        # 5. Rotate moving flange around physical bend axis
-        leg_rot = leg_moving.copy()
-        leg_rot.translate(-T * unfold_len)
+            bend_face = Part.Face(Part.makePolygon([p1, p2, p3, p4, p1]))
+            bend_edge = Part.makeLine(p1, p2)
 
-        rot_center = FreeCAD.Vector(t1_pt.x, min_y, thickness + bend_r)
-        rot_angle = -angle_deg if raw_angle < 0 else angle_deg
-        leg_rot.rotate(rot_center, L_dir, rot_angle)
+            b_sector = SheetMetalBendSolid.bend_solid(
+                sel_face=bend_face,
+                sel_edge=bend_edge,
+                bend_r=bend_r,
+                thickness=thickness,
+                neutral_radius=neutral_r,
+                axis=L_dir,
+                flipped=False
+            )
+            b_sector = cls._canonicalize_bend_sector(b_sector)
+
+            # 5. Rotate moving flange around physical bend axis
+            leg_rot = leg_moving.copy()
+            leg_rot.translate(trans_dir * unfold_len)
+
+            rot_center = FreeCAD.Vector(min_x, rot_anchor, thickness + bend_r)
+            rot_angle = -angle_deg if raw_angle < 0 else angle_deg
+            leg_rot.rotate(rot_center, L_dir, rot_angle)
+        else:
+            min_y = min(p_start[1], p_end[1])
+            max_y = max(p_start[1], p_end[1])
+            cut_box = Part.makeBox(
+                unfold_len,
+                (max_y - min_y) + 10.0,
+                thickness + 10.0,
+                FreeCAD.Vector(t1_pt.x, min_y - 5.0, -5.0)
+            )
+            cut_solid = flat_fc.cut(cut_box)
+            legs = sorted(cut_solid.Solids, key=lambda s: s.BoundBox.XMin)
+            if len(legs) < 2:
+                raise ValueError(f"Expected 2 flanges after cutting flat pattern along bend line, got {len(legs)}")
+
+            if ref_centroid is not None and ref_centroid[0] > t2_pt.x:
+                leg_fixed, leg_moving = legs[1], legs[0]
+                trans_dir = T
+                rot_anchor = t2_pt.x
+            else:
+                leg_fixed, leg_moving = legs[0], legs[1]
+                trans_dir = -T
+                rot_anchor = t1_pt.x
+
+            # 4. Physical bend solid sector via SheetMetalBendSolid
+            p1 = FreeCAD.Vector(t1_pt.x, min_y, thickness)
+            p2 = FreeCAD.Vector(t2_pt.x, min_y, thickness)
+            p3 = FreeCAD.Vector(t2_pt.x, max_y, thickness)
+            p4 = FreeCAD.Vector(t1_pt.x, max_y, thickness)
+
+            bend_face = Part.Face(Part.makePolygon([p1, p2, p3, p4, p1]))
+            bend_edge = Part.makeLine(p1, p4)
+
+            b_sector = SheetMetalBendSolid.bend_solid(
+                sel_face=bend_face,
+                sel_edge=bend_edge,
+                bend_r=bend_r,
+                thickness=thickness,
+                neutral_radius=neutral_r,
+                axis=L_dir,
+                flipped=False
+            )
+            b_sector = cls._canonicalize_bend_sector(b_sector)
+
+            # 5. Rotate moving flange around physical bend axis
+            leg_rot = leg_moving.copy()
+            leg_rot.translate(trans_dir * unfold_len)
+
+            rot_center = FreeCAD.Vector(rot_anchor, min_y, thickness + bend_r)
+            rot_angle = -angle_deg if raw_angle < 0 else angle_deg
+            leg_rot.rotate(rot_center, L_dir, rot_angle)
 
         # 6. Fuse monolithic solid & unify coplanar faces
         fused = leg_fixed.fuse(b_sector).fuse(leg_rot)

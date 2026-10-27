@@ -22,7 +22,6 @@
 
 | ID | Task | Blocked by | Note |
 |---|---|---|---|
-| KL-12-v3 | Forward fold (panel shell → solid) | Architecture: rigid-body model needs bend-region deformation | **N=1 CLOSED (P1a)**, **N=2 linear CLOSED (P1b `b7f1251`)**, **N≥3 tree structures CLOSED (P1b-extended `ccc2493`)**. 0° bend guard + all-or-nothing constructive prefix-fold in replayer. |
 | KL-16 | Machine frame (`machine_frame.FCStd`) | CAD session — file missing | Required for machine collision check |
 | F.3b | Req 2 Phase F.3b (punch descent + backgauge + machine frame overlay) | KL-16 (`machine_frame.FCStd` missing) | Machine frame overlay requires machine frame geometry |
 | KL-9 | `2_1_3_4_ok` baseline validation | Dedicated CAD track — empirical mechanism 2026-10-26 | Inherited KL-7 (`5ba8e59`); **0.2mm `axis_point` → relief-edge offset** in `box_hub` (`sheetmetal_folder.py:1187`). 3 independent splits (5.25→3.75+1.5, 34.05→33.75+0.3, 146024.4→146023.4). ≥100 lines refactor + cross-fixture regression → deferred. Test `@skip` (`ec4883e`). |
@@ -48,6 +47,7 @@
 
 | ID | Task | Commit | Evidence | Date |
 |---|---|---|---|---|
+| KL-12-v3 | Orientation-aware single-bend folding (X & Y axes) + 0° bend guard + canonicalized bend sector; L/U/Z yield VALID_PER_PANEL | `HEAD` | `tests/test_fold_one_bend.py` (675 tests) | 2026-10-27 |
 | P0-PHYS-honest | Reject unplaced tool collision; enforce UNKNOWN != VALID in VerifierWorker | `018949e` | `tests/test_honest_collision_and_verifier.py` (655 tests) | 2026-10-27 |
 | P1b-extended | N≥3 tree structures 0° bend guard + generalized constructive stepwise replayer | `ccc2493` | `tests/test_tree_fold_stepwise.py` (658 tests) | 2026-10-27 |
 | P5-CI | GitHub Actions workflow with pythonocc-core on conda-forge | `ec1150d` | `ci/workflows/ci.yml` | 2026-10-27 |

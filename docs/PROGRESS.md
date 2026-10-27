@@ -1,7 +1,7 @@
 # SMBS Core - Engineering Implementation Progress
 
 > **Project status:** advanced prototype with several completed functional subsystems, **NOT a complete automatic planning system**.
-> **Open blockers:** KL-12 v3 (planar self-collision + bridge caps + panel shell disconnection observed in F.3a smoke) — v2 (side edges) CLOSED in S.31; Req 2 Phase F.1 CLOSED in S.33; Req 2 Phase F.2 CLOSED in S.35; Req 2 Phase F.3a (tooling visualization, punch/die) CLOSED in S.37. Manual GUI smoke for F.2/F.3a: PERFORMED (S.37 smoke 7 — PASS on tooling overlay; shell disconnection is pre-existing KL-12 v3, visible at PREVIEW_ONLY). See Known Limitations.
+> **Open blockers:** KL-16 (machine frame pending supply of machine_frame.FCStd), KL-28 (backgauge/clamp sidecars). KL-12-v3 CLOSED in S.74 (single-bend orientation-aware fold + 0° guard + canonicalized bend sector; L/U/Z fixtures yield VALID_PER_PANEL without shell disconnection). See Known Limitations.
 > **Requirement 4.1 (clamp constraints) — validator (S.24a–S.24c) + enforcement per-bend in `12_tooling_selection.json` (Req 4 Phase E, S.30c).**
 > **P0 defects (annotated 2026-10-23, resolved S.40–S.50, HEAD `ce68906`, baseline 577 / 0F / 0E / 3xF):** 5 code + 4 doc + P0-GEOM CLOSED — see `docs/AUDIT_FULL_2026-10-23.md`. Release blockers: **CLEARED**.
 
@@ -950,6 +950,19 @@ Chronological record of remediation sessions closing integrity invariants and B-
   - Added `RunActiveCommand` (`SMBS_RunActive`, button "Рассчитать последовательность") as the primary workbench action on the menu and toolbar.
   - Automatically verifies `ActiveDocument` presence and saved status, passes tooling preferences (`BaseApp/Preferences/Mod/SMBS`), executes planning with modal progress context, logs progress to FreeCAD Report view (`App.Console.PrintMessage`), sets `current_run`, renders numbered bend annotations directly onto the flat pattern on `SUCCESS`, and displays structured result dialog.
   - Baseline: 663 tests OK + 52 workbench tests OK.
+
+### S.74: KL-12-v3 Residual Closure — Orientation-Aware Single-Bend Folding & 0° Guard (2026-10-27)
+
+- **Root Cause & Fix in `SheetMetalFolder.fold_from_flat_pattern`:**
+  - `fold_from_flat_pattern` hardcoded cutting and rotation assuming bend lines ran strictly parallel to Y (`L_dir=(0,1,0)`). For parts with bend lines parallel to X (such as canonical `L-(ok).FCStd`), `max_y - min_y == 0`, cutting a 10mm hole in a 200mm sheet and raising `ValueError: Expected 2 flanges after cutting flat pattern along bend line, got 1`.
+  - Generalized `fold_from_flat_pattern` to support both X- and Y-aligned bend axes (`is_parallel_to_x = abs(L_dy) < abs(L_dx)`), correctly orienting cut boxes, bend faces, bend edges, rotation centers, and distinguishing fixed vs moving flanges via `reference_panel_id` centroid.
+  - Added 0° bend guard to single-bend folding returning flat shape when `angle_deg < 1e-6`.
+  - Added `_canonicalize_bend_sector` call to canonicalize B-Spline end caps into planar faces.
+- **Verification:**
+  - `tests/test_fold_one_bend.py`: added negative regression pins `test_fold_from_canonical_part_x_axis_bend` and `test_single_bend_0deg_guard` (RED before fix, GREEN after fix).
+  - Canonical fixtures `L-(ok)` and `135-(ok)` pass baseline verification with Hausdorff delta `2.8e-14` mm and `1.0e-11` mm.
+  - Full fixture sweep: `L-(ok)`, `U-90deg-90deg-(ok)`, `Z-(ok)` replay yielding `VALID_PER_PANEL` across all steps without shell disconnection.
+  - Baseline: **675 tests / 0 failures / 0 errors / 1 skipped / 2 expectedFailures**.
 
 ## Historical: Phases 0-11 (pre-refactor, completed before Stage track)
 
