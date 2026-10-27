@@ -149,6 +149,105 @@ class TestFoldOneBend(unittest.TestCase):
         self.assertAlmostEqual(bb.ZMin, ref_bb.ZMin, places=3)
         self.assertAlmostEqual(bb.ZMax, ref_bb.ZMax, places=3)
 
+    def test_fold_from_canonical_part_x_axis_bend(self):
+        """
+        Pin bug KL-12-v3 residual: single bend part whose bend line runs along X
+        (e.g. L-(ok).FCStd: p_start=[0, 48.8, 0], p_end=[200, 48.8, 0]) must NOT
+        fail with 'Expected 2 flanges after cutting flat pattern along bend line, got 1'.
+        Must yield a valid monolithic solid.
+        """
+        from smbs_core.Geometry.sheetmetal_folder import SheetMetalFolder
+        from OCC.Core.BRepCheck import BRepCheck_Analyzer
+
+        thickness = 1.5
+        width_x = 200.0
+        flange_y1 = 47.5
+        flange_y2 = 47.5
+        bend_r = 1.0
+        kfactor = 0.44
+        neutral_r = bend_r + kfactor * thickness
+        ba = math.radians(90.0) * neutral_r
+        total_y = flange_y1 + ba + flange_y2
+        bend_y = flange_y1 + ba / 2.0
+
+        flat_fc = Part.makeBox(width_x, total_y, thickness, FreeCAD.Vector(0, 0, 0))
+        canonical_part = {
+            "payload": {
+                "thickness_mm": {"value": thickness},
+                "reference_panel_id": "PANEL_REF",
+                "panels": {
+                    "PANEL_REF": {
+                        "panel_id": "PANEL_REF",
+                        "centroid": [100.0, flange_y1 / 2.0, thickness / 2.0],
+                        "normal": [0.0, 0.0, 1.0],
+                        "adjacent_bend_ids": ["BEND_01"],
+                    },
+                    "PANEL_MOV": {
+                        "panel_id": "PANEL_MOV",
+                        "centroid": [100.0, total_y - flange_y2 / 2.0, thickness / 2.0],
+                        "normal": [0.0, 0.0, 1.0],
+                        "adjacent_bend_ids": ["BEND_01"],
+                    },
+                },
+                "bends": {
+                    "BEND_01": {
+                        "bend_id": "BEND_01",
+                        "radius_mm": {"value": bend_r},
+                        "k_factor": {"value": kfactor},
+                        "angle_deg": {"value": 90.0},
+                        "bend_line_flat_pattern": {
+                            "start_mm": [0.0, bend_y, 0.0],
+                            "end_mm": [width_x, bend_y, 0.0],
+                            "length_mm": width_x,
+                        },
+                    }
+                },
+            }
+        }
+
+        folded = SheetMetalFolder.fold_from_canonical_part(canonical_part, flat_fc)
+        self.assertIsNotNone(folded)
+        self.assertFalse(folded.IsNull())
+        self.assertTrue(BRepCheck_Analyzer(folded).IsValid())
+
+    def test_single_bend_0deg_guard(self):
+        """Single bend part with 0° angle must return valid flat solid without error."""
+        from smbs_core.Geometry.sheetmetal_folder import SheetMetalFolder
+        from OCC.Core.BRepCheck import BRepCheck_Analyzer
+
+        thickness = 1.5
+        width_x = 200.0
+        total_y = 100.0
+        flat_fc = Part.makeBox(width_x, total_y, thickness, FreeCAD.Vector(0, 0, 0))
+        canonical_part = {
+            "payload": {
+                "thickness_mm": {"value": thickness},
+                "reference_panel_id": "PANEL_REF",
+                "panels": {
+                    "PANEL_REF": {"panel_id": "PANEL_REF", "adjacent_bend_ids": ["BEND_01"]},
+                    "PANEL_MOV": {"panel_id": "PANEL_MOV", "adjacent_bend_ids": ["BEND_01"]},
+                },
+                "bends": {
+                    "BEND_01": {
+                        "bend_id": "BEND_01",
+                        "radius_mm": {"value": 1.0},
+                        "k_factor": {"value": 0.44},
+                        "angle_deg": {"value": 0.0},
+                        "bend_line_flat_pattern": {
+                            "start_mm": [0.0, 50.0, 0.0],
+                            "end_mm": [width_x, 50.0, 0.0],
+                            "length_mm": width_x,
+                        },
+                    }
+                },
+            }
+        }
+
+        folded = SheetMetalFolder.fold_from_canonical_part(canonical_part, flat_fc)
+        self.assertIsNotNone(folded)
+        self.assertFalse(folded.IsNull())
+        self.assertTrue(BRepCheck_Analyzer(folded).IsValid())
+
 
 if __name__ == "__main__":
     unittest.main()
