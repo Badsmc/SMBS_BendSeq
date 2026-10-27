@@ -991,6 +991,9 @@ class SheetMetalFolder:
         ang = get_val(bend, "angle_deg")
         r_in = get_val(bend, "radius_mm")
 
+        if abs(ang) < 1e-6:
+            return FreeCAD.Matrix()
+
         rot = FreeCAD.Rotation(ax_d, ang)
         v_end = rot.multVec(v_start)
 
@@ -1099,6 +1102,7 @@ class SheetMetalFolder:
 
         bb_f = fc_flat.BoundBox
         folded_parts = []
+        transforms_by_panel: Dict[str, FreeCAD.Matrix] = {}
 
         b0 = branch_bends[0]
         ax_p0 = FreeCAD.Vector(*b0["axis_point"])
@@ -1162,10 +1166,19 @@ class SheetMetalFolder:
                 )
 
             panel_cut = fc_flat.common(box_p)
-            start_v = compute_start_vec(bend)
-            b_sector = make_bend_sector(bend["axis_point"], bend["axis_direction"], start_v, r_in, t, L_bend, ang)
 
-            m_p = cls.build_bend_transform(bend, p_parent, p_child, t, s_panel_start, hub_centroid)
+            if abs(ang) < 1e-6:
+                if i == 0:
+                    m_p = FreeCAD.Matrix()
+                else:
+                    m_p = transforms_by_panel.get(bend["parent_panel_id"], FreeCAD.Matrix())
+                b_sector = Part.makeCompound([])
+            else:
+                start_v = compute_start_vec(bend)
+                b_sector = make_bend_sector(bend["axis_point"], bend["axis_direction"], start_v, r_in, t, L_bend, ang)
+                m_p = cls.build_bend_transform(bend, p_parent, p_child, t, s_panel_start, hub_centroid)
+
+            transforms_by_panel[bend["child_panel_id"]] = m_p
             panel_folded = panel_cut.transformShape(m_p)
 
             if not b_sector.isNull() and len(b_sector.Faces) > 0:
