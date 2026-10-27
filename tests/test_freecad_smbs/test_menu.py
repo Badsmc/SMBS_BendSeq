@@ -22,8 +22,10 @@ from freecad_smbs.commands.tooling import ToolingCommand
 from freecad_smbs.commands.verify import VerifyCommand
 from freecad_smbs.InitGui import (
     CMD_CALCULATE,
+    CMD_DIAGNOSTICS,
     CMD_INFO,
     CMD_OPEN_RUN,
+    CMD_PREFERENCES,
     CMD_RUN_ACTIVE,
     CMD_SIMULATE,
     CMD_TOOLING,
@@ -251,6 +253,9 @@ class TestSMBSMenuAndCommands(unittest.TestCase):
             "Separator",
             CMD_VERIFY,
             CMD_INFO,
+            "Separator",
+            CMD_DIAGNOSTICS,
+            CMD_PREFERENCES,
         ]
         self.assertEqual(wb.menu_items, expected_menu)
 
@@ -262,6 +267,8 @@ class TestSMBSMenuAndCommands(unittest.TestCase):
             CMD_TOOLING,
             CMD_VERIFY,
             CMD_INFO,
+            CMD_DIAGNOSTICS,
+            CMD_PREFERENCES,
         ]
         self.assertEqual(wb.toolbar_items, expected_toolbar)
 

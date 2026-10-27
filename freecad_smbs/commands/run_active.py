@@ -107,8 +107,10 @@ class RunActiveCommand:
             default_policy = "EXPLORATORY"
         policy = _get_pref_string("UnknownPolicy", default_policy)
 
+        algo = _get_pref_string("SearchAlgorithm", "astar")
+
         if hasattr(App, "Console"):
-            App.Console.PrintMessage(f"SMBS: Запуск расчёта последовательности для '{fcstd_path.name}' (политика: {policy})\n")
+            App.Console.PrintMessage(f"SMBS: Запуск расчёта последовательности для '{fcstd_path.name}' (алгоритм: {algo}, политика: {policy})\n")
             if punch_arg and die_arg:
                 App.Console.PrintMessage(f"SMBS: Оснастка: {punch_arg} / {die_arg} (библиотека: {lib_arg})\n")
             else:
@@ -122,6 +124,7 @@ class RunActiveCommand:
                 library_path=lib_arg,
                 punch_id=punch_arg,
                 die_id=die_arg,
+                search_algorithm=algo,
                 unknown_policy=policy,
             )
             prog.update_text("Обработка результатов…")
