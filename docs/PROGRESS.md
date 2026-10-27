@@ -553,13 +553,12 @@ bend order; `tuple(path)` required (Session 1.5 analysis).
   class of contract cleanliness issues.
   **Resolved S.65 (`4686d24`):** Removed `else: try: import inspect; inspect.signature(...); except Exception: pass` block from `dfs_backward.py`, `greedy_unfold.py`, `astar_backward.py`. PRODUCTION policy relies on validator's own default; non-PRODUCTION passed explicitly. Eliminates flag #15 broad except and inner-loop reflection overhead. Verified by `tests/test_kl25_unknown_policy.py` (+2 tests: mock accepts EXPLORATORY, no inspect.signature in solvers).
 
-- **KL-26 (P3, OPEN, macro-parity, S.69):**
-  - **Symptom:** flat-pattern annotations may render green (`verification_status="VERIFIED"`) while verification dialog shows orange (`production_eligible=false`) if a `09_verification_result.json` payload contains inconsistent fields.
-  - **Cause:** `smbs_core/viewer/flat_annotations.py:109` reads `payload.verification_status`; `freecad_smbs/integration/smbs_bridge.py:89-91` reads `payload.production_eligible`. Both are legitimate 09 fields but not cross-validated.
-  - **Impact:** honesty invariant #2 (`INVALID never passes`) theoretically weakened at the annotation-color surface for malformed 09. Pre-existing macro parity (`SMBS_AnnotateBends.FCMacro`); not S.69 regression.
-  - **Follow-up:** S.72 — add bridge-level assertion or schema-level consistency check (`verification_status="VERIFIED" ∧ production_eligible=false` → fail-fast). Do not weaken; hard raise.
-
 ### Closed
+
+- **KL-26 (CLOSED S.75 `45e2ea1`, macro-parity, S.69 follow-up): Inconsistent 09_verification_result status.**
+  - **Symptom:** flat-pattern annotations rendered green (`verification_status="VERIFIED"`) while verification dialog showed orange (`production_eligible=false`) if a `09_verification_result.json` payload contained inconsistent fields.
+  - **Fix:** Added fail-fast assertions in `smbs_bridge.present_verification` and `smbs_core/viewer/flat_annotations.py` raising a hard error on contradictory states (`verification_status='VERIFIED' ∧ production_eligible=False`).
+  - **Evidence:** Regression tests in `tests/test_freecad_smbs/test_bridge.py`, `tests/test_viewer_flat_annotations.py`, and `tests/test_freecad_smbs/test_verification_dialog.py`.
 
 - **KL-11 (Stage 3, CLOSED in S.9.3): VerifierWorker checked only unfold correctness.**
   - **Symptom (before fix):** Verifier checked that unfolding produces the correct flat pattern, but **not** that re-folding the flat pattern produces the correct 3D shape. `production_eligible=True` did not guarantee fold correctness.
@@ -963,6 +962,39 @@ Chronological record of remediation sessions closing integrity invariants and B-
   - Canonical fixtures `L-(ok)` and `135-(ok)` pass baseline verification with Hausdorff delta `2.8e-14` mm and `1.0e-11` mm.
   - Full fixture sweep: `L-(ok)`, `U-90deg-90deg-(ok)`, `Z-(ok)` replay yielding `VALID_PER_PANEL` across all steps without shell disconnection.
   - Baseline: **675 tests / 0 failures / 0 errors / 1 skipped / 2 expectedFailures**.
+
+### S.75: FreeCAD Workbench Polish, Preferences, Diagnostics & Backlog Sweep (Commits `a1adb6a`..`45e2ea1`, 2026-10-27)
+
+- **«Верификация» Inspector Dialog (`a1adb6a`):**
+  - Added `freecad_smbs/ui/verification_dialog.py` and connected `VerifyCommand`:
+    - Status badge with color encoding: green `#2E7D32` for `VERIFIED`, orange `#EF6C00` for `VERIFICATION_FAILED`, gray `#757575` for `UNVERIFIED`.
+    - Per-stage breakdown covering: `APPROACH`, `SELF`, `TOOL`, `TRAJECTORY`, `RETRACT`, `MACHINE`, `SHAPE_METRICS`, and `FOLD_CORRECTNESS`.
+    - Steps table with collision and kinematics verification flags.
+    - Independent metrics table (B-Rep validity, solids count, shells count, volume delta, Hausdorff distance, bbox delta).
+    - Refusal reasons and diagnostics panel.
+    - Pure-Python `extract_verification_details` function and lazy Qt UI wrapper (headless-safe).
+- **«Настройки» Preferences Dialog (`1501e33`):**
+  - Added `freecad_smbs/ui/preferences_dialog.py` and `commands/preferences.py`:
+    - Tooling library path configuration (`User parameter:BaseApp/Preferences/Mod/SMBS/ToolingLibraryPath`) with browse directory dialog and canonical reset.
+    - Default search algorithm selector (`astar`, `dfs`, `greedy`), passed through `RunActiveCommand` to `run_pipeline_on_fcstd`.
+    - Unknown collision policy selector (`PRODUCTION` vs `EXPLORATORY`).
+    - Registered as `CMD_PREFERENCES` (`SMBS_Preferences`) on menu and toolbar with dedicated SVG icon.
+- **«Диагностика» Environment Dialog (`1501e33`):**
+  - Added `freecad_smbs/ui/diagnostics_dialog.py` and `commands/diagnostics.py`:
+    - Comprehensive environment inspection: FreeCAD version and GUI presence, SheetMetal addon installation/path/version, PythonOCC/OpenCASCADE availability, Tooling Library paths/punches/dies/machine_frame (KL-16 honest check), and active document save/uncomputed status.
+    - Ready status indicator badge and markdown report export to system clipboard.
+    - Registered as `CMD_DIAGNOSTICS` (`SMBS_Diagnostics`) on menu and toolbar with dedicated SVG icon.
+- **Backlog Hygiene & KL-26 Fail-Fast (`45e2ea1`):**
+  - **KL-26 (CLOSED):** Added fail-fast assertions in `smbs_bridge.present_verification` and `smbs_core/viewer/flat_annotations.py` to prevent contradictory payloads (`verification_status='VERIFIED' ∧ production_eligible=False`).
+  - **G3:** Replaced silent `except Exception: pass` in `freecad_smbs/commands/open_run.py` with user-facing error reporting (`show_error`).
+  - **M1:** Added rationale comments explaining FreeCAD re-registration exception handling in `freecad_smbs/InitGui.py`.
+  - **O1:** Removed unused `Path` import in `tests/test_freecad_smbs/test_animation_dialog.py`.
+  - **O2:** Added rationale comment for tooling assembly catch-all in `freecad_smbs/ui/animation_dialog.py`.
+  - **O11:** Removed redundant `import FreeCAD as App` inside `_on_preview_clamps` in `tooling_panel.py`.
+- **Verification:**
+  - Added test suites `tests/test_freecad_smbs/test_verification_dialog.py`, `test_preferences.py`, `test_diagnostics.py`.
+  - All 68 tests in `tests/test_freecad_smbs/` pass cleanly.
+  - Baseline: **690 tests / 0 failures / 0 errors / 1 skipped / 2 expectedFailures**.
 
 ## Historical: Phases 0-11 (pre-refactor, completed before Stage track)
 

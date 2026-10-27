@@ -38,7 +38,6 @@
 
 | Session | Scope | Prerequisites |
 |---|---|---|
-| **S.72** | FreeCAD Workbench «Верификация» dialog + «Настройки» (path selector prefs) + «Диагностика» + backlog sweep (KL-28 sidecar, O10-O13 sweep, G3, G4, G5, M1, N4, README line 116, KL-26 fail-fast check). | — |
 | **P1c** | Core track: FreeCAD UI integration + full fixture sweep + `Player.switch_direction("forward")` bidirectional verification. Remove `PREVIEW_ONLY` banner for reconstructed N=1 solids in UI. | After P1b/P1b-extended. |
 | **P2** | Core track: KL-9 (`2_1_3_4_ok` fixture — `make_bend_sector` relief-cut, +4 corner facet faces; remove `@expectedFailure`). | After P1a verified. |
 | **P2b** | Core track: KL-9 dedicated CAD refactor — relief-cut detection from `flat_pattern.brep` + `box_hub`/branch boundary alignment + cross-fixture regression. Multi-session epic. | P2 probe `probe_p2_relief_cut.py` confirmed viable. Requires geometric BREP analysis (not metadata). |
@@ -47,7 +46,8 @@
 
 | ID | Task | Commit | Evidence | Date |
 |---|---|---|---|---|
-| KL-12-v3 | Orientation-aware single-bend folding (X & Y axes) + 0° bend guard + canonicalized bend sector; L/U/Z yield VALID_PER_PANEL | `HEAD` | `tests/test_fold_one_bend.py` (675 tests) | 2026-10-27 |
+| S.72 | FreeCAD Workbench «Верификация» dialog + «Настройки» prefs + «Диагностика» + backlog sweep (G3, M1, O1, O2, O11, KL-26 fail-fast) | `a1adb6a`..`45e2ea1` | `tests/test_freecad_smbs/` (690 tests) | 2026-10-27 |
+| KL-12-v3 | Orientation-aware single-bend folding (X & Y axes) + 0° bend guard + canonicalized bend sector; L/U/Z yield VALID_PER_PANEL | `aac91b8` | `tests/test_fold_one_bend.py` (675 tests) | 2026-10-27 |
 | P0-PHYS-honest | Reject unplaced tool collision; enforce UNKNOWN != VALID in VerifierWorker | `018949e` | `tests/test_honest_collision_and_verifier.py` (655 tests) | 2026-10-27 |
 | P1b-extended | N≥3 tree structures 0° bend guard + generalized constructive stepwise replayer | `ccc2493` | `tests/test_tree_fold_stepwise.py` (658 tests) | 2026-10-27 |
 | P5-CI | GitHub Actions workflow with pythonocc-core on conda-forge | `ec1150d` | `ci/workflows/ci.yml` | 2026-10-27 |
