@@ -262,10 +262,10 @@ def replay_backward(
             )
             return
 
-    # N=2 constructive stepwise path (P1b): use SheetMetalFolder prefix folding.
-    # Yields genuine B-Rep solids at steps 0, 1, 2 for linear 2-bend sequences (KL-12 v3 step 2).
+    # N >= 2 constructive stepwise path (P1b/P1b-extended): use SheetMetalFolder prefix folding.
+    # Yields genuine B-Rep solids at steps 0, 1, ..., N for multi-bend sequences (KL-12 v3).
     # Lazy-imported to keep replayer.py safe in headless envs (plain python3 without FreeCAD Mod).
-    if candidate_seq and len(candidate_seq) == 2 and artifacts.flat_pattern_path is not None and artifacts.canonical_part is not None:
+    if candidate_seq and len(candidate_seq) >= 2 and artifacts.flat_pattern_path is not None and artifacts.canonical_part is not None:
         try:
             from smbs_core.Geometry.sheetmetal_folder import SheetMetalFolder
             _folder_cls: Optional[Any] = SheetMetalFolder
@@ -279,9 +279,6 @@ def replay_backward(
                 flat_shape = None
 
             if flat_shape is not None and _is_valid_solid(flat_shape):
-                bid0 = candidate_seq[0]["bend_id"]
-                bid1 = candidate_seq[1]["bend_id"]
-
                 # Validate required sequence fields defensively
                 for step_idx, step_data in enumerate(candidate_seq):
                     bid = step_data.get("bend_id")
@@ -301,25 +298,29 @@ def replay_backward(
 
                 # All-or-nothing constructive generation
                 try:
+                    step_shapes = []
                     s0_shape = _folder_cls.fold_from_canonical_part(artifacts.canonical_part, flat_shape)
+                    step_shapes.append(s0_shape)
 
-                    cp_step1 = copy.deepcopy(artifacts.canonical_part)
-                    cp_payload = cp_step1.get("payload", cp_step1)
-                    if "bends" in cp_payload and bid0 in cp_payload["bends"]:
-                        bend_entry = cp_payload["bends"][bid0]
-                        if isinstance(bend_entry.get("angle_deg"), dict):
-                            bend_entry["angle_deg"]["value"] = 0.0
-                        else:
-                            bend_entry["angle_deg"] = 0.0
+                    cp_prog = copy.deepcopy(artifacts.canonical_part)
+                    cp_payload = cp_prog.get("payload", cp_prog)
+                    bends_dict = cp_payload.get("bends", {})
 
-                    s1_shape = _folder_cls.fold_from_canonical_part(cp_step1, flat_shape)
-                    s2_shape = flat_shape
+                    for step_idx, step_data in enumerate(candidate_seq[:-1]):
+                        bid = step_data["bend_id"]
+                        if bid in bends_dict:
+                            bend_entry = bends_dict[bid]
+                            if isinstance(bend_entry.get("angle_deg"), dict):
+                                bend_entry["angle_deg"]["value"] = 0.0
+                            else:
+                                bend_entry["angle_deg"] = 0.0
+                        s_k = _folder_cls.fold_from_canonical_part(cp_prog, flat_shape)
+                        step_shapes.append(s_k)
 
-                    all_solids_valid = (
-                        _is_valid_solid(s0_shape) and
-                        _is_valid_solid(s1_shape) and
-                        _is_valid_solid(s2_shape)
-                    )
+                    # Final step is the flat pattern
+                    step_shapes.append(flat_shape)
+
+                    all_solids_valid = all(_is_valid_solid(s) for s in step_shapes)
                 except Exception:
                     all_solids_valid = False
 
@@ -327,14 +328,8 @@ def replay_backward(
                     precision = GEOMETRY_PRECISION_VALID
                     warning = None
 
-                    moving_panels0 = graphs.panel_graph.moving_subtree(bid0)
-                    ui_dir0 = graphs.direction_by_bend[bid0]
-
-                    moving_panels1 = graphs.panel_graph.moving_subtree(bid1)
-                    ui_dir1 = graphs.direction_by_bend[bid1]
-
                     current_state = FoldState.initial(
-                        part_shape=s0_shape,
+                        part_shape=step_shapes[0],
                         bend_graph=graphs.bend_graph,
                         panel_graph=graphs.panel_graph,
                     )
@@ -345,27 +340,25 @@ def replay_backward(
                         geometry_precision=precision, geometry_warning=warning,
                     )
 
-                    current_state = current_state.apply_unfold(bid0, s1_shape, moving_panels0)
-                    yield StepView(
-                        step_index=1, bend_id=bid0, state=current_state,
-                        ui_direction=ui_dir0,
-                        planner_status=candidate_seq[0]["planner_status"],
-                        collision_status=candidate_seq[0]["collision_status"],
-                        tooling_status=candidate_seq[0]["tooling_status"],
-                        alignment_status=candidate_seq[0]["alignment_status"],
-                        geometry_precision=precision, geometry_warning=warning,
-                    )
+                    for step_idx, step_data in enumerate(candidate_seq):
+                        bid = step_data["bend_id"]
+                        moving_panels = graphs.panel_graph.moving_subtree(bid)
+                        ui_dir = graphs.direction_by_bend[bid]
+                        next_shape = step_shapes[step_idx + 1]
 
-                    current_state = current_state.apply_unfold(bid1, s2_shape, moving_panels1)
-                    yield StepView(
-                        step_index=2, bend_id=bid1, state=current_state,
-                        ui_direction=ui_dir1,
-                        planner_status=candidate_seq[1]["planner_status"],
-                        collision_status=candidate_seq[1]["collision_status"],
-                        tooling_status=candidate_seq[1]["tooling_status"],
-                        alignment_status=candidate_seq[1]["alignment_status"],
-                        geometry_precision=precision, geometry_warning=warning,
-                    )
+                        current_state = current_state.apply_unfold(bid, next_shape, moving_panels)
+                        yield StepView(
+                            step_index=step_idx + 1,
+                            bend_id=bid,
+                            state=current_state,
+                            ui_direction=ui_dir,
+                            planner_status=step_data["planner_status"],
+                            collision_status=step_data["collision_status"],
+                            tooling_status=step_data["tooling_status"],
+                            alignment_status=step_data["alignment_status"],
+                            geometry_precision=precision,
+                            geometry_warning=warning,
+                        )
                     return
 
     # Fallback: N >= 2 or N=1 disk path failed → existing rigid rotate_subtree loop.

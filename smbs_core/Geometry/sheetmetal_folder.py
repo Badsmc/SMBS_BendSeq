@@ -1040,6 +1040,8 @@ class SheetMetalFolder:
 
         # General bend sector generator without hardcoded segment starts
         def make_bend_sector(axis_p_list, axis_d_list, start_v, r, thick, length, deg):
+            if abs(deg) < 1e-6:
+                return Part.makeCompound([])
             r_o = r + thick
             ax_p = FreeCAD.Vector(*axis_p_list)
             ax_d = FreeCAD.Vector(*axis_d_list).normalize()
@@ -1138,7 +1140,8 @@ class SheetMetalFolder:
             m_p = cls.build_bend_transform(bend, p_parent, p_child, t, s_panel_start, hub_centroid)
             panel_folded = panel_cut.transformShape(m_p)
 
-            folded_parts.append(b_sector)
+            if not b_sector.isNull() and len(b_sector.Faces) > 0:
+                folded_parts.append(b_sector)
             folded_parts.append(panel_folded)
 
         branch = folded_parts[0]
@@ -1315,8 +1318,9 @@ class SheetMetalFolder:
                 # Check bend angles for 3a star box (must all be orthogonal 90.0 deg)
                 all_angles_90 = True
                 for b in bends.values():
-                    ang_raw = b.get("angle_deg", {}).get("value")
-                    if ang_raw is None or abs(abs(ang_raw) - 90.0) > 1e-3:
+                    ang_entry = b.get("angle_deg")
+                    ang_raw = ang_entry.get("value") if isinstance(ang_entry, dict) else ang_entry
+                    if ang_raw is None or abs(abs(float(ang_raw)) - 90.0) > 1e-3:
                         all_angles_90 = False
                         break
 
