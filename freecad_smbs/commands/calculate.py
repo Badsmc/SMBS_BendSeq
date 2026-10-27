@@ -27,7 +27,7 @@ class CalculateCommand:
         return {
             "Pixmap": str(ICON_PATH),
             "MenuText": "Расчёт",
-            "ToolTip": "Отобразить последовательность гибки на раскладке",
+            "ToolTip": "Отобразить / обновить последовательность гибки на раскладке для текущего run",
         }
 
     def Activated(self) -> None:
@@ -35,7 +35,7 @@ class CalculateCommand:
         if artifacts is None:
             show_error(
                 "SMBS: Расчёт",
-                "Сначала откройте директорию запуска (меню SMBS → Открыть run…).",
+                "Нет загруженного run. Сначала рассчитайте последовательность (кнопка «Рассчитать последовательность») или откройте существующий run (меню SMBS → Открыть run…).",
             )
             return
 
