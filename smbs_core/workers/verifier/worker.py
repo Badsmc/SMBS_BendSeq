@@ -278,7 +278,11 @@ class VerifierWorker:
 
             is_valid_step = bool(val_res.valid)
             step_has_unknown = bool(getattr(val_res, "has_unknown", False))
-            coll_verified = (val_res.collision_status != CollisionStatus.INVALID)
+            # Honest verification: UNKNOWN is never treated as verified
+            coll_verified = (
+                val_res.collision_status == CollisionStatus.VALID
+                or str(val_res.collision_status).lower() in ("valid", "collisionstatus.valid")
+            )
 
             step_verifications.append({
                 "step": st_num,
