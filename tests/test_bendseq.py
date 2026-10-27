@@ -15,7 +15,6 @@ if SYS_PATH not in sys.path:
     sys.path.insert(0, SYS_PATH)
 
 from smbs_core.Core.state_cache import StateCache
-from smbs_core.Core.backward_graph import BackwardGraph, BendState
 from smbs_core.Core.orchestrator import BendSeqOrchestrator
 from smbs_core.Geometry.feature_extractor import FeatureExtractor
 from smbs_core.Solvers.astar_backward import AStarBackwardPlanner
