@@ -77,6 +77,13 @@ class SMBSWorkbench(Workbench):  # type: ignore[misc]
     ToolTip = "Sheet Metal Bending Sequence Planner"
     Icon = ""
 
+    CMD_OPEN_RUN = "SMBS_OpenRun"
+    CMD_CALCULATE = "SMBS_Calculate"
+    CMD_SIMULATE = "SMBS_Simulate"
+    CMD_TOOLING = "SMBS_Tooling"
+    CMD_VERIFY = "SMBS_Verify"
+    CMD_INFO = "SMBS_Info"
+
     def register_commands(self) -> None:
         """Register SMBS commands in FreeCADGui command registry."""
         try:
@@ -95,12 +102,12 @@ class SMBSWorkbench(Workbench):  # type: ignore[misc]
         from freecad_smbs.commands.verify import VerifyCommand
 
         commands_map = {
-            "SMBS_OpenRun": OpenRunCommand,
-            "SMBS_Calculate": CalculateCommand,
-            "SMBS_Simulate": SimulateCommand,
-            "SMBS_Tooling": ToolingCommand,
-            "SMBS_Verify": VerifyCommand,
-            "SMBS_Info": InfoCommand,
+            self.CMD_OPEN_RUN: OpenRunCommand,
+            self.CMD_CALCULATE: CalculateCommand,
+            self.CMD_SIMULATE: SimulateCommand,
+            self.CMD_TOOLING: ToolingCommand,
+            self.CMD_VERIFY: VerifyCommand,
+            self.CMD_INFO: InfoCommand,
         }
 
         for cmd_name, cmd_cls in commands_map.items():
@@ -115,27 +122,27 @@ class SMBSWorkbench(Workbench):  # type: ignore[misc]
         self.register_commands()
 
         # Menu layout per Spec-final §3.2
-        self.menu_items: List[str] = [
-            CMD_OPEN_RUN,
+        self.menu_items = [
+            self.CMD_OPEN_RUN,
             "Separator",
-            CMD_CALCULATE,
-            CMD_SIMULATE,
-            CMD_TOOLING,
+            self.CMD_CALCULATE,
+            self.CMD_SIMULATE,
+            self.CMD_TOOLING,
             "Separator",
-            CMD_VERIFY,
-            CMD_INFO,
+            self.CMD_VERIFY,
+            self.CMD_INFO,
         ]
         if hasattr(self, "appendMenu"):
             self.appendMenu(["SMBS"], self.menu_items)
 
         # Toolbar layout per Spec-final §3.2
-        self.toolbar_items: List[str] = [
-            CMD_OPEN_RUN,
-            CMD_CALCULATE,
-            CMD_SIMULATE,
-            CMD_TOOLING,
-            CMD_VERIFY,
-            CMD_INFO,
+        self.toolbar_items = [
+            self.CMD_OPEN_RUN,
+            self.CMD_CALCULATE,
+            self.CMD_SIMULATE,
+            self.CMD_TOOLING,
+            self.CMD_VERIFY,
+            self.CMD_INFO,
         ]
         if hasattr(self, "appendToolbar"):
             self.appendToolbar("SMBS", self.toolbar_items)
