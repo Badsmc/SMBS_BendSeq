@@ -19,6 +19,7 @@ from freecad_smbs.resources.tooling_paths import (
     is_tool_available,
     resolve_backgauge_fcstd,
     resolve_clamp_fcstd,
+    resolve_machine_frame_fcstd,
 )
 from freecad_smbs.ui.badges import (
     BADGE_COLORS_HEX,
@@ -51,23 +52,26 @@ class TestToolingPathsAndBadges(unittest.TestCase):
         self.assertEqual(PRESS_PATH.parent.name, "presses")
         self.assertTrue(PRESS_PATH.exists())
 
-        # Canonical missing-path names (β1 conventions preserved)
+        # Canonical path names (β1 conventions preserved)
         self.assertEqual(BACKGAUGE_PATH.name, "backgauge.FCStd")
         self.assertEqual(CLAMPS_PATH.name, "clamps.FCStd")
         self.assertEqual(MACHINE_FRAME_PATH.name, "machine_frame.FCStd")
 
-        # KL-16: machine_frame missing (OS-independent, no file variants)
-        self.assertFalse(MACHINE_FRAME_PATH.exists())
-        self.assertIn("machine_frame", MISSING_TOOLS)
+        # KL-16: machine_frame is present in toollibrary/machine_frame/
+        self.assertTrue(MACHINE_FRAME_PATH.exists())
+        self.assertNotIn("machine_frame", MISSING_TOOLS)
 
     def test_tooling_paths_resolvers_find_real_files(self):
-        """Resolvers locate real backgauge/clamp files on disk (case-insensitive fallback)."""
+        """Resolvers locate real backgauge/clamp/machine_frame files on disk."""
         bg = resolve_backgauge_fcstd(TOOL_LIBRARY_ROOT)
         cl = resolve_clamp_fcstd(TOOL_LIBRARY_ROOT)
+        mf = resolve_machine_frame_fcstd(TOOL_LIBRARY_ROOT)
         self.assertIsNotNone(bg, f"Backgauge file not found in {TOOL_LIBRARY_ROOT}")
         self.assertIsNotNone(cl, f"Clamp file not found in {TOOL_LIBRARY_ROOT}")
+        self.assertIsNotNone(mf, f"Machine frame file not found in {TOOL_LIBRARY_ROOT}")
         self.assertEqual(bg.suffix.lower(), ".fcstd")
         self.assertEqual(cl.suffix.lower(), ".fcstd")
+        self.assertEqual(mf.suffix.lower(), ".fcstd")
 
     def test_badges_color_mapping(self):
         """Verify badges and color mappings are pure Python and complete."""
@@ -113,6 +117,19 @@ class TestToolingPathsAndBadges(unittest.TestCase):
             result = resolve_clamp_fcstd(root)
             self.assertIsNotNone(result)
             self.assertEqual(result.name, "Clamp.FCStd")
+
+    def test_resolve_machine_frame_fcstd_fallback(self):
+        """Resolver finds machine_frame.FCStd in machine_frame/ or fallback dirs."""
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "machine_frame").mkdir()
+            target = root / "machine_frame" / "machine_frame.FCStd"
+            target.write_bytes(b"dummy")
+            result = resolve_machine_frame_fcstd(root)
+            self.assertIsNotNone(result)
+            self.assertEqual(result.name, "machine_frame.FCStd")
 
 
 if __name__ == "__main__":

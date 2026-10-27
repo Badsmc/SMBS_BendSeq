@@ -1,7 +1,7 @@
 # SMBS Core - Engineering Implementation Progress
 
 > **Project status:** advanced prototype with several completed functional subsystems, **NOT a complete automatic planning system**.
-> **Open blockers:** KL-16 (machine frame pending external machine_frame.FCStd supply; honest UNKNOWN preserved), KL-9 (2_1_3_4_ok relief-edge design ready). KL-12-v3 CLOSED in S.74. KL-28 CLOSED in S.76 (Backgauge and Clamp canonical sidecars). F.3b CLOSED in S.76. See Known Limitations.
+> **Open blockers:** KL-9 (2_1_3_4_ok relief-edge design ready). KL-16 CLOSED in S.78 (machine frame CAD + sidecar added to toollibrary/machine_frame/, real collision check VALID/INVALID, honest UNKNOWN on absent). KL-12-v3 CLOSED in S.74. KL-28 CLOSED in S.76 (Backgauge and Clamp canonical sidecars). F.3b CLOSED in S.76. See Known Limitations.
 > **Requirement 4.1 (clamp constraints) — validator (S.24a–S.24c) + enforcement per-bend in `12_tooling_selection.json` (Req 4 Phase E, S.30c).**
 > **P0 defects (annotated 2026-10-23, resolved S.40–S.50, HEAD `ce68906`, baseline 577 / 0F / 0E / 3xF):** 5 code + 4 doc + P0-GEOM CLOSED — see `docs/AUDIT_FULL_2026-10-23.md`. Release blockers: **CLEARED**.
 
@@ -426,12 +426,13 @@ bend order; `tuple(path)` required (Session 1.5 analysis).
   honestly (KL-8a), 1 real bug fixed (place_part punch+die check), plus
   silent downgrade (S.26). Baseline 485/5F → 497/0F. See Stage 8 section.
 
-- **KL-16 (P1, OPEN):** `machine_frame.FCStd` / `machine_bed.FCStd` absent from
-  `toollibrary/`. `machine_collision` returns honest UNKNOWN without model.
-  Under PRODUCTION: step rejected. Test 4 (`test_stage6_full_planning_pipeline`)
-  and physics e2e use EXPLORATORY (M4, product decision 2026-10-20).
-  Fix path: add machine model to toollibrary (CAD task, separate session) →
-  unify policy to PRODUCTION → assert all_steps_valid.
+- **KL-16 (P1, CLOSED S.78):** `toollibrary/machine_frame/machine_frame.FCStd`
+  and `machine_frame.tooling.json` added to repository. `PressBrakeMachine`
+  and `ToolingAssembly` load real B-Rep geometry and perform real collision
+  check (`VALID` when clear, `INVALID` on intersection, honest `UNKNOWN` when
+  model is absent or unconfigured, zero fabrication on loading error). FreeCAD
+  UI badge transitions from `MACHINE: SIMPLIFIED (KL-16 pending)` to
+  `MACHINE: LOADED` when frame is present.
 
 - **KL-17 (P3, CLOSED S.66 `350dc7b`):** Mocks of `FeatureExtractor` in `tests/test_bendseq.py`
   and `tests/test_stage3_regression.py` omitted `"panels"` key by design.

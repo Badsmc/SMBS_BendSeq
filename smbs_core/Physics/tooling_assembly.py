@@ -108,10 +108,19 @@ class ToolingAssembly:
         self.assembly_trsf[ToolingKind.PUNCH] = punch_trsf
 
         # 3. Machine Frame / Bed
-        if machine_frame:
-            self.assembly_trsf[ToolingKind.MACHINE_FRAME] = gp_Trsf()
-        if bed:
+        if machine_frame and machine_frame.shape:
+            if hasattr(machine_frame, "datums") and machine_frame.datums and DatumRole.MOUNTING_PLANE in machine_frame.datums:
+                frame_mount = machine_frame.datums[DatumRole.MOUNTING_PLANE]
+                self.assembly_trsf[ToolingKind.MACHINE_FRAME] = self._align_planes(frame_mount, self.machine.bed_top_plane)
+            else:
+                self.assembly_trsf[ToolingKind.MACHINE_FRAME] = gp_Trsf()
+        else:
+            self.assembly_trsf.pop(ToolingKind.MACHINE_FRAME, None)
+
+        if bed and bed.shape:
             self.assembly_trsf[ToolingKind.MACHINE_BED] = gp_Trsf()
+        else:
+            self.assembly_trsf.pop(ToolingKind.MACHINE_BED, None)
 
         # 4. Alignment verification
         punch_tip_local = punch.datums[DatumRole.TIP_POINT].origin

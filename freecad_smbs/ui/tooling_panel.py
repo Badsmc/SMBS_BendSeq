@@ -130,9 +130,10 @@ class ToolingPanel:
                     widget = QtWidgets.QWidget()
                     vbox = QtWidgets.QVBoxLayout(widget)
 
-                    presses_dir = self.library_path / "presses" if self.library_path else None
-                    frame_path = presses_dir / "machine_frame.FCStd" if presses_dir else None
-                    machine_frame_exists = frame_path.exists() if frame_path else False
+                    from freecad_smbs.resources.tooling_paths import resolve_machine_frame_fcstd
+
+                    self._machine_frame_fcstd = resolve_machine_frame_fcstd(self.library_path) if self.library_path else None
+                    machine_frame_exists = self._machine_frame_fcstd is not None
 
                     from smbs_core.viewer.fc_animation import format_machine_frame_badge
 
@@ -146,15 +147,33 @@ class ToolingPanel:
                     lbl_badge.setAlignment(QtCore.Qt.AlignCenter)
                     vbox.addWidget(lbl_badge)
 
-                    lbl_info = QtWidgets.QLabel(
-                        "Станина пресса (Machine Frame):\n\n"
-                        "• Модель: toollibrary/presses/machine_frame.FCStd\n"
-                        "• Статус: отсутствует (KL-16 pending, P1 OPEN)\n"
-                        "• В симуляции используется упрощённое габаритное представление.\n"
-                        "• После поставки модели KL-16 станина будет автоматически загружаться в просмотрщик."
-                    )
+                    if machine_frame_exists:
+                        sidecar_path = self._machine_frame_fcstd.parent / f"{self._machine_frame_fcstd.stem}.tooling.json"
+                        sidecar_txt = "sidecar загружен" if sidecar_path.is_file() else "без sidecar"
+                        info_txt = (
+                            "Станина пресса (Machine Frame):\n\n"
+                            f"• Модель: {self._machine_frame_fcstd.name} ({sidecar_txt})\n"
+                            "• Статус: загружен (KL-16 закрыт)\n"
+                            "• В симуляции и валидаторе используется реальная B-Rep геометрия станины.\n"
+                            "• Проверка коллизий станины активна (VALID/INVALID)."
+                        )
+                    else:
+                        info_txt = (
+                            "Станина пресса (Machine Frame):\n\n"
+                            "• Модель: toollibrary/machine_frame/machine_frame.FCStd\n"
+                            "• Статус: отсутствует (честный UNKNOWN / SIMPLIFIED)\n"
+                            "• В симуляции используется упрощённое габаритное представление.\n"
+                            "• Проверка коллизий вернёт UNKNOWN при отсутствии файла."
+                        )
+                    lbl_info = QtWidgets.QLabel(info_txt)
                     lbl_info.setWordWrap(True)
                     vbox.addWidget(lbl_info)
+
+                    btn_preview = QtWidgets.QPushButton("Просмотр в 3D")
+                    btn_preview.setEnabled(machine_frame_exists)
+                    btn_preview.clicked.connect(self._on_preview_machine_frame)
+                    vbox.addWidget(btn_preview)
+
                     vbox.addStretch()
                     return widget
 
@@ -570,6 +589,25 @@ class ToolingPanel:
                         self._set_status(f"Ошибка отображения инструмента: {e}", is_error=True)
                         QtWidgets.QMessageBox.warning(self, "Ошибка просмотра", f"Не удалось отобразить форму: {e}")
 
+                def _on_preview_machine_frame(self) -> None:
+                    if self._machine_frame_fcstd is None:
+                        return
+                    if App.ActiveDocument is None:
+                        App.newDocument("SMBS_MachineFramePreview")
+                        try:
+                            Gui.ActiveDocument = Gui.activeDocument()
+                        except Exception:
+                            pass
+                    doc = App.ActiveDocument
+                    try:
+                        doc.mergeProject(str(self._machine_frame_fcstd))
+                        doc.recompute()
+                        Gui.SendMsgToActiveView("ViewFit")
+                        self._set_status(f"Станина пресса отображена: {self._machine_frame_fcstd.name}")
+                    except Exception as e:
+                        self._set_status(f"Ошибка отображения станины: {e}", is_error=True)
+                        QtWidgets.QMessageBox.warning(self, "Ошибка просмотра", str(e))
+
                 def _on_preview_backgauge(self) -> None:
                     if self._backgauge_fcstd is None:
                         return
@@ -661,7 +699,7 @@ class ToolingPanel:
                     if doc is not None:
                         for obj in list(doc.Objects):
                             if obj.Name.startswith("SMBS_Clamp_") or obj.Name in (
-                                "SMBS_BackgaugePreview", "SMBS_ClampsPreview"
+                                "SMBS_BackgaugePreview", "SMBS_ClampsPreview", "SMBS_MachineFramePreview"
                             ):
                                 try:
                                     doc.removeObject(obj.Name)
