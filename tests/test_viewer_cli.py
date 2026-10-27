@@ -261,6 +261,8 @@ class TestViewerCLI(unittest.TestCase):
         self.assertIn("diagnostics", manifest)
         self.assertIn("frames", manifest)
         self.assertEqual(len(manifest["frames"]), manifest["rendered_frames"])
+        self.assertIn("geometry_precision", manifest["frames"][0])
+        self.assertEqual(manifest["frames"][0]["geometry_precision"], "VALID_PER_PANEL")
 
     def test_cli_render_png_stride(self):
         if not self.real_verified_run.is_dir():

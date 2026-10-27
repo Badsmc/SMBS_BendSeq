@@ -217,7 +217,9 @@ def run_view(args: argparse.Namespace) -> int:
                     height=args.render_height,
                     title=title,
                     subtitle=subtitle,
-                    view_dir=args.view_dir
+                    view_dir=args.view_dir,
+                    geometry_precision=sv.geometry_precision,
+                    geometry_warning=sv.geometry_warning,
                 )
             except RenderError as e:
                 sys.stderr.write(f"Render error on frame {i}: {e}\n")
@@ -228,7 +230,8 @@ def run_view(args: argparse.Namespace) -> int:
                 "index": i,
                 "file": out_path.name,
                 "bend_id": sv.bend_id,
-                "render_kind": rk
+                "render_kind": rk,
+                "geometry_precision": sv.geometry_precision,
             })
 
         manifest = {
