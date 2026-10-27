@@ -1,18 +1,56 @@
-# SMBS / BendSeq
+# SMBS_BendSeq
 
-> **Status (annotated 2026-10-23):** advanced prototype, **NOT READY for release**. HEAD `91d07c0`, baseline 550 tests. See §Current Status and `docs/AUDIT_FULL_2026-10-23.md`.
+Headless bend-sequence planner for sheet metal (FreeCAD / PythonOCC).
 
-Sheet Metal Bending Sequence Planner & Verification Engine.
+## Status (2026-10)
 
-## Specification
-Built according to **ТЗ v1.2** (11.10.2026), incorporating:
-- 24 architectural principles (headless-first, file-based isolation, no silent defaults, provenance tracking).
-- 3 execution stages:
-  1. **Baseline**: Unfold -> Align -> Fold -> Compare (B-Rep Hausdorff & invariant check).
-  2. **Search**: Pre-filter + A*/DFS backward planning with PhysicalValidator on each state transition.
-  3. **Verification**: Independent Verifier process without access to solver cache, validating physical transitions and producing canonical `part_bendseq.json` (v1.1).
+**Usable prototype** on branch `stage-1-fix-correctness`.
 
-## Architecture
+What works:
+- Unfold via native SheetMetal
+- Planning (A* / DFS backward search)
+- Fold constructive path for N=1 and N=2 linear (`VALID_PER_PANEL`)
+- FreeCAD workbench `freecad_smbs` (OpenRun, Calculate, Simulate, Tooling, Verify, Info)
+- Dynamic PNG banners from `geometry_precision` (green `VALID_PER_PANEL`, red `PREVIEW_ONLY`)
+- Cross-platform FreeCAD bootstrap (`FREECAD_LIB`, `FREECAD_MOD_SHEETMETAL`) with in-memory BREP conversion
+
+Known limits:
+- N≥3 tree intermediate steps may fall back to `PREVIEW_ONLY` (KL-12-v3 residual)
+- Machine frame simplified (KL-16)
+- Relief cuts not fully inherited (KL-9)
+
+See `docs/PROGRESS.md` for the full limitation list.
+
+## Quick start
+
+```bash
+export PYTHONPATH=/path/to/SMBS_BendSeq:$PYTHONPATH
+# optional overrides:
+# export FREECAD_LIB=/path/to/FreeCAD/lib
+# export FREECAD_MOD_SHEETMETAL=/path/to/Mod/SheetMetal
+
+# Run planning pipeline
+python -m smbs_core.cli path/to/part.FCStd
+
+# View and render replay frames to PNG
+python -m smbs_core.viewer.cli view runs/run_<id> --render-png /tmp/frames
+```
+
+## FreeCAD workbench
+
+```bash
+# macOS
+ln -s /path/to/SMBS_BendSeq/freecad_smbs \
+  ~/Library/Application\ Support/FreeCAD/Mod/freecad_smbs
+
+# Linux
+# ln -s /path/to/SMBS_BendSeq/freecad_smbs ~/.local/share/FreeCAD/Mod/freecad_smbs
+```
+
+Then open FreeCAD → workbench **SMBS**.
+
+## Architecture & Workflows
+
 ```
 smbs_core/
 ├── contracts/
@@ -28,9 +66,10 @@ smbs_core/
 │   ├── verifier/      # Independent verifier worker
 │   └── export/        # Canonical part_bendseq.json v1.1 generator
 ├── Core/              # Bend transform, FoldState, state cache
-├── Geometry/          # Feature extraction, bend matcher, panel topology
+├── Geometry/          # Feature extraction, bend matcher, panel topology, sheetmetal folder
 ├── Physics/           # Collision detector, tooling assembly, machine kinematics
 ├── Solvers/           # Backward planning search implementations
+├── viewer/            # Replayer, render (HLR), CLI viewer
 └── IO/                # Tooling loaders, step readers
 ```
 
@@ -38,33 +77,16 @@ smbs_core/
 
 | Document | Purpose |
 |---|---|
-| `docs/PROGRESS.md` | Current snapshot: HEAD, baseline, open P0 defects |
+| `docs/PROGRESS.md` | Current snapshot: HEAD, baseline, milestones, limitations |
 | `docs/ROADMAP.md` | Authoritative plan: phases, dependencies, acceptance |
-| `docs/ARCHITECTURE.md` | Implemented Layers 1–5 (Stages 1–4); Stages 5+ pending |
-| `docs/KNOWN_LIMITATIONS.md` | Historical; canonical list in `PROGRESS.md` §Known Limitations |
+| `docs/ARCHITECTURE.md` | Implemented Layers 1–5 (Stages 1–4) |
 | `docs/WORKING_CHECKLIST.md` | Active task tracking (Next / In Progress / Done) |
-| `docs/TEST_MATRIX.md` | Historical; current matrix in `PROGRESS.md` §Test Metrics |
-| `docs/REGRESSION_REPORT.md` | Historical Stage 1 baseline evidence |
-| `docs/RELEASE_AUDIT.md` | Historical; current verdict in `AUDIT_FULL` |
 | `docs/AUDIT_FULL_2026-10-23.md` | Full audit: P0 registry, evidence, scope |
+| `docs/archive/` | Historical reports (KNOWN_LIMITATIONS, TEST_MATRIX, REGRESSION_REPORT, RELEASE_AUDIT) |
 
-## Runtime Environment
-- Python 3.11+
-- OpenCASCADE (pythonocc-core 7.7+) / FreeCAD 1.1.3
+## Tests
 
----
-
-## Current Status (annotated 2026-10-23)
-
-**HEAD:** `91d07c0` (stage-1-fix-correctness). Baseline 550 / 0F / 0E / 3xF.  
-**Release verdict: NOT READY.** See `docs/AUDIT_FULL_2026-10-23.md` §Release Verdict.
-
-- **Open P0 defects:** P0-CODE-1..5 (integrity) + P0-DOC-1..4 (historical annotation). See `docs/PROGRESS.md` §Open P0 Defects.
-- **KL-12 v3 (forward fold, panel shell disconnection):** INVESTIGATED → **BLOCKED**. Root cause: rigid-body kinematic model without bend-region deformation.
-- **KL-16 (machine frame):** missing `machine_frame.FCStd`; CAD session pending.
-- **Verified (by 550-test baseline):** worker contracts, SheetMetal native unfold, backward search + validator, independent verifier with strict `UNKNOWN != VALID` gate, export gate `production_eligible`.
-- **Not verified:** physical fold for arbitrary parts (only L / U / 4-bend fixtures), forward-fold animation, `confidence=CONFIRMED` integrity (see P0-CODE-1..5).
-
----
-
-*README body (§Specification, §Architecture, §Runtime Environment) reflects intended design from commit `d63eac2` (2026-10-11). Status and Documentation Index were added 2026-10-23 during the post-audit standardization pass. For verified state see §Current Status and `docs/PROGRESS.md`.*
+```bash
+PYTHONPATH=. /Applications/FreeCAD.app/Contents/Resources/bin/python \
+  -m unittest discover -s tests -t . -p 'test_*.py'
+```
