@@ -100,6 +100,13 @@ class RunActiveCommand:
         die_arg = die_id if (use_tooling and die_id) else None
         lib_arg = Path(lib_path) if (use_tooling and lib_path) else None
 
+        if hasattr(App, "Console"):
+            App.Console.PrintMessage(f"SMBS: Запуск расчёта последовательности для '{fcstd_path.name}'\n")
+            if punch_arg and die_arg:
+                App.Console.PrintMessage(f"SMBS: Оснастка: {punch_arg} / {die_arg} (библиотека: {lib_arg})\n")
+            else:
+                App.Console.PrintMessage("SMBS: Оснастка не задана — расчёт без инструментальных ограничений\n")
+
         # Execute pipeline with progress feedback
         with ProgressContext("SMBS: Расчёт", f"Планирование последовательности для {fcstd_path.name}…") as prog:
             prog.update_text("Развёртка детали и канонический анализ…")
@@ -111,6 +118,16 @@ class RunActiveCommand:
             )
             prog.update_text("Обработка результатов…")
 
+        if hasattr(App, "Console"):
+            App.Console.PrintMessage(
+                f"SMBS: Расчёт завершён со статусом {result.planning_status} "
+                f"(verification: {result.verification_status}, eligible: {result.production_eligible}).\n"
+            )
+            if result.run_dir and Path(result.run_dir).is_dir():
+                App.Console.PrintMessage(f"SMBS: Директория запуска: {result.run_dir}\n")
+            if result.error_message:
+                App.Console.PrintError(f"SMBS: Ошибка: {result.error_message}\n")
+
         # Bind run state
         if result.artifacts is not None:
             set_current_run(result.artifacts)
@@ -121,6 +138,8 @@ class RunActiveCommand:
                 annotations = smbs_bridge.get_annotations(result.artifacts)
                 if annotations:
                     render_flat_pattern_annotations(doc, result.artifacts, annotations)
+                    if hasattr(App, "Console"):
+                        App.Console.PrintMessage(f"SMBS: На раскладку нанесено {len(annotations)} меток гибов.\n")
             except Exception as e:
                 if hasattr(App, "Console"):
                     App.Console.PrintWarning(f"SMBS: Не удалось отрисовать 3D-аннотации: {e}\n")
