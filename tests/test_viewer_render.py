@@ -70,6 +70,28 @@ class TestViewerRender(unittest.TestCase):
             self.assertLess(g, 100)
             self.assertLess(b, 100)
 
+    def test_render_frame_png_banner_valid_per_panel(self):
+        shape = self._make_box()
+        if shape is None:
+            self.skipTest("OCC not available")
+
+        from PIL import Image
+        out_png = self.tmp_dir / "banner_valid.png"
+        render_frame_png(
+            shape,
+            out_png,
+            width=800,
+            height=600,
+            title="test banner valid",
+            geometry_precision="VALID_PER_PANEL",
+        )
+        with Image.open(out_png) as img:
+            # Check a pixel inside the top green banner (width // 2, 10)
+            r, g, b = img.getpixel((400, 10))[:3]
+            self.assertLess(r, 100)
+            self.assertGreater(g, 100)
+            self.assertLess(b, 100)
+
     def test_render_frame_png_empty_shape_raises(self):
         out_png = self.tmp_dir / "err.png"
         with self.assertRaises(RenderError):

@@ -14,6 +14,7 @@ from typing import Any, List, Optional, Tuple
 RENDER_KIND_HLR = "HLR"
 RENDER_KIND_BBOX_FALLBACK = "BBOX_WIREFRAME"
 BANNER_TEXT = "PREVIEW_ONLY (KL-12) - not a physical re-simulation"
+BANNER_TEXT_VALID = "VALID_PER_PANEL (KL-12) - verified solid"
 
 
 class RenderError(Exception):
@@ -182,6 +183,8 @@ def render_frame_png(
     title: str,
     subtitle: str = "",
     view_dir: Tuple[float, float, float] = (1.0, 1.0, 1.0),
+    geometry_precision: str = "PREVIEW_ONLY",
+    geometry_warning: Optional[str] = None,
 ) -> str:
     """
     Render a single TopoDS_Shape to PNG via HLR + PIL.
@@ -265,10 +268,16 @@ def render_frame_png(
     draw = ImageDraw.Draw(image)
     font = ImageFont.load_default()
 
-    # Red banner: PREVIEW_ONLY (KL-12)
     banner_h = 32
-    draw.rectangle([(0, 0), (width, banner_h)], fill="#C62828")
-    draw.text((15, 9), BANNER_TEXT, fill="white", font=font)
+    if geometry_precision == "VALID_PER_PANEL":
+        # Green status bar for physically verified B-Rep solids
+        draw.rectangle([(0, 0), (width, banner_h)], fill="#2E7D32")
+        draw.text((15, 9), BANNER_TEXT_VALID, fill="white", font=font)
+    else:
+        # Red warning banner for kinematic preview (fallback)
+        draw.rectangle([(0, 0), (width, banner_h)], fill="#C62828")
+        banner_msg = geometry_warning or BANNER_TEXT
+        draw.text((15, 9), banner_msg, fill="white", font=font)
 
     # 4. Draw hidden dashed edges first
     for seg in hid_segs:
