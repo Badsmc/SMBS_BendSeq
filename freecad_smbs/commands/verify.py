@@ -42,6 +42,17 @@ class VerifyCommand:
             )
             return
 
+        try:
+            from PySide6 import QtWidgets
+            app = QtWidgets.QApplication.instance()
+            if app is not None:
+                from freecad_smbs.ui.verification_dialog import VerificationDialog
+                dlg = VerificationDialog(artifacts)
+                dlg.exec()
+                return
+        except Exception:
+            pass
+
         verif = smbs_bridge.present_verification(artifacts)
         status = verif["status"]
 
