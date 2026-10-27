@@ -96,10 +96,11 @@ def resolve_role(
     # 1. PROPERTY level & 2. NAME level via FreeCAD document inspection
     if path_obj.exists() and path_obj.is_file():
         # Ensure FreeCAD lib path is present if available
-        import sys
-        for lib_p in ("/Applications/FreeCAD.app/Contents/Resources/lib", "/usr/lib/freecad/lib"):
-            if os.path.exists(lib_p) and lib_p not in sys.path:
-                sys.path.append(lib_p)
+        try:
+            from smbs_core.geometry_backend.freecad_bootstrap import ensure_freecad_paths
+            ensure_freecad_paths()
+        except ImportError:
+            pass
 
         try:
             import FreeCAD as App  # type: ignore
