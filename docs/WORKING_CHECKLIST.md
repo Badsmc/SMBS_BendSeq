@@ -36,7 +36,6 @@
 
 | Session | Scope | Prerequisites |
 |---|---|---|
-| **P1c** | Core track: FreeCAD UI integration + full fixture sweep + `Player.switch_direction("forward")` bidirectional verification. Remove `PREVIEW_ONLY` banner for reconstructed N=1 solids in UI. | After P1b/P1b-extended. |
 | **P2** | Core track: KL-9 (`2_1_3_4_ok` fixture — `make_bend_sector` relief-cut, +4 corner facet faces; remove `@expectedFailure`). | After P1a verified. |
 | **P2b** | Core track: KL-9 dedicated CAD refactor — relief-cut detection from `flat_pattern.brep` + `box_hub`/branch boundary alignment + cross-fixture regression. Multi-session epic. | P2 probe `probe_p2_relief_cut.py` confirmed viable. Requires geometric BREP analysis (not metadata). |
 
@@ -44,7 +43,8 @@
 
 | ID | Task | Commit | Evidence | Date |
 |---|---|---|---|---|
-| F.3b+KL-28 | Punch descent kinematics + Backgauge motion overlay + Backgauge/Clamp canonical sidecars (KL-28) + honest machine_frame loading (KL-16) | HEAD | `tests/test_f3b_kl16_kl28.py` (695 tests) | 2026-10-27 |
+| P1c | FreeCAD UI bidirectional playback (Fold/Unfold) + direction-aware headers + full fixture sweep + updated tooltips and limitations | HEAD | `tests/test_p1c_full_fixture_sweep.py` (700 tests) | 2026-10-27 |
+| F.3b+KL-28 | Punch descent kinematics + Backgauge motion overlay + Backgauge/Clamp canonical sidecars (KL-28) + honest machine_frame loading (KL-16) | `7e0048b` | `tests/test_f3b_kl16_kl28.py` (695 tests) | 2026-10-27 |
 | S.72 | FreeCAD Workbench «Верификация» dialog + «Настройки» prefs + «Диагностика» + backlog sweep (G3, M1, O1, O2, O11, KL-26 fail-fast) | `a1adb6a`..`45e2ea1` | `tests/test_freecad_smbs/` (690 tests) | 2026-10-27 |
 | KL-12-v3 | Orientation-aware single-bend folding (X & Y axes) + 0° bend guard + canonicalized bend sector; L/U/Z yield VALID_PER_PANEL | `aac91b8` | `tests/test_fold_one_bend.py` (675 tests) | 2026-10-27 |
 | P0-PHYS-honest | Reject unplaced tool collision; enforce UNKNOWN != VALID in VerifierWorker | `018949e` | `tests/test_honest_collision_and_verifier.py` (655 tests) | 2026-10-27 |

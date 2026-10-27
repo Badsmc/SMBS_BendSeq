@@ -40,7 +40,8 @@ def _update_feature(doc: Any, name: str, fc_shape: Any) -> Any:
         if obj is not None:
             doc.removeObject(name)
             doc.recompute()
-            Gui.updateGui()
+            if hasattr(Gui, "updateGui"):
+                Gui.updateGui()
         return None
     obj = doc.getObject(name)
     if obj is None:
@@ -49,7 +50,8 @@ def _update_feature(doc: Any, name: str, fc_shape: Any) -> Any:
     obj.Shape = fc_shape
     obj.Visibility = True
     doc.recompute()
-    Gui.updateGui()
+    if hasattr(Gui, "updateGui"):
+        Gui.updateGui()
     return obj
 
 
@@ -94,6 +96,11 @@ class AnimationPlayerDialog:
         global _DialogClass
         if _DialogClass is None:
             from PySide6 import QtCore, QtWidgets
+            try:
+                from smbs_core.geometry_backend.freecad_bootstrap import ensure_freecad_paths
+                ensure_freecad_paths()
+            except Exception:
+                pass
             import FreeCAD as App
             import FreeCADGui as Gui
 
@@ -173,14 +180,19 @@ class AnimationPlayerDialog:
                     self.btn_back = QtWidgets.QPushButton("◀ Step")
                     self.btn_play = QtWidgets.QPushButton("▶ Play")
                     self.btn_fwd = QtWidgets.QPushButton("Step ▶")
+                    self.cmb_direction = QtWidgets.QComboBox()
+                    self.cmb_direction.addItem("Unfold (backward)")
+                    self.cmb_direction.addItem("Fold (forward)")
                     self.btn_reset.clicked.connect(self._on_reset)
                     self.btn_back.clicked.connect(self._on_step_back)
                     self.btn_play.clicked.connect(self._on_play_pause)
                     self.btn_fwd.clicked.connect(self._on_step_fwd)
+                    self.cmb_direction.currentIndexChanged.connect(self._on_direction_changed)
                     controls.addWidget(self.btn_reset)
                     controls.addWidget(self.btn_back)
                     controls.addWidget(self.btn_play)
                     controls.addWidget(self.btn_fwd)
+                    controls.addWidget(self.cmb_direction)
                     layout.addLayout(controls)
 
                     self.lbl_status = QtWidgets.QLabel("")
@@ -274,7 +286,8 @@ class AnimationPlayerDialog:
                     frame = self.controller.current()
                     if frame is None:
                         return
-                    self.lbl_header.setText(format_step_header(frame))
+                    direction = getattr(self.player, "direction", "backward")
+                    self.lbl_header.setText(format_step_header(frame, direction=direction))
                     vt, vc = format_verification_badge(frame)
                     pt, pc = format_precision_badge(frame)
                     self.lbl_verif.setText(vt)
@@ -304,6 +317,15 @@ class AnimationPlayerDialog:
                     self.slider.setValue(frame.frame_index)
                     self.slider.blockSignals(False)
                     self.btn_play.setText("❚❚ Pause" if self.controller.is_playing() else "▶ Play")
+
+                def _on_direction_changed(self, index: int) -> None:
+                    self.timer.stop()
+                    direction = "forward" if index == 1 else "backward"
+                    self.player.switch_direction(direction)
+                    self.controller.reset()
+                    self.slider.setMaximum(self.player.total - 1)
+                    self._update_ui()
+                    self._render_current()
 
                 def _on_reset(self) -> None:
                     self.timer.stop()

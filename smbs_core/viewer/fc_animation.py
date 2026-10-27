@@ -139,9 +139,19 @@ def format_tooling_badge(punch_present: bool, die_present: bool) -> Tuple[str, T
     return ("TOOLING: NONE", COLOR_GRAY)
 
 
-def format_step_header(frame: Frame) -> str:
+def format_step_header(frame: Frame, direction: str = "backward") -> str:
     """Human-readable header line for dialog top."""
     sv = frame.step_view
+    if direction == "forward":
+        if frame.frame_index == 0:
+            return "Step 0 — flat pattern"
+        parts = [f"Step {frame.frame_index}"]
+        if sv.bend_id:
+            parts.append(sv.bend_id)
+        if sv.ui_direction:
+            parts.append(f"({sv.ui_direction})")
+        return " — ".join(parts)
+
     if sv.step_index == 0:
         return "Step 0 — initial (fully folded)"
     parts = [f"Step {sv.step_index}"]
