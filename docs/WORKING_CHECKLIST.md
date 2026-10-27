@@ -50,7 +50,7 @@
 |---|---|---|---|---|
 | P0-PHYS-honest | Reject unplaced tool collision; enforce UNKNOWN != VALID in VerifierWorker | `018949e` | `tests/test_honest_collision_and_verifier.py` (655 tests) | 2026-10-27 |
 | P1b-extended | N≥3 tree structures 0° bend guard + generalized constructive stepwise replayer | `ccc2493` | `tests/test_tree_fold_stepwise.py` (658 tests) | 2026-10-27 |
-| P5-CI | GitHub Actions workflow with pythonocc-core on conda-forge | `ecdc0a0` | `.github/workflows/ci.yml` | 2026-10-27 |
+| P5-CI | GitHub Actions workflow with pythonocc-core on conda-forge | `ec1150d` | `ci/workflows/ci.yml` | 2026-10-27 |
 | P0-DOC-pass | Post-audit documentation standardization | `af87274` | S.39 docs pass (all P0-DOC closed) | 2026-10-23 |
 | P0-CODE-1-fix | Strict origin/axis guards; direction formula unchanged (triple product confirmed) | `9dd2249` | `tests/test_topology_worker_direction.py` (554 tests) | 2026-10-24 |
 | P0-CODE-2-fix | Strict radius/length guards, no silent defaults | `2fcd8ab` | `tests/test_topology_worker_radius_length.py` (558 tests) | 2026-10-24 |
