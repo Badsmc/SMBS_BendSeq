@@ -11,10 +11,23 @@ from pathlib import Path
 
 try:
     if "__file__" in globals():
-        _repo_root = str(Path(__file__).resolve().parent.parent)
+        _wb_dir = Path(__file__).resolve().parent
     else:
         import freecad_smbs
-        _repo_root = str(Path(freecad_smbs.__file__).resolve().parent.parent)
+        _wb_dir = Path(freecad_smbs.__file__).resolve().parent
+
+    _repo_root = None
+    _marker = _wb_dir / ".smbs_repo_path"
+    if _marker.exists():
+        try:
+            _p = Path(_marker.read_text(encoding="utf-8").strip())
+            if _p.is_dir() and (_p / "smbs_core").is_dir():
+                _repo_root = str(_p.resolve())
+        except Exception:
+            pass
+
+    if not _repo_root:
+        _repo_root = str(_wb_dir.parent)
     if _repo_root not in sys.path:
         sys.path.insert(0, _repo_root)
 except Exception:
