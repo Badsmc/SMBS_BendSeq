@@ -296,12 +296,38 @@ def replay_backward(
                     if bid not in graphs.direction_by_bend:
                         raise ReplayerError(f"bend_id '{bid}' missing from direction_by_bend")
 
-                # All-or-nothing constructive generation
+                # Constructive stepwise generation with per-step precision (P1b / Stage 1 P0)
                 try:
-                    step_shapes = []
                     s0_shape = _folder_cls.fold_from_canonical_part(artifacts.canonical_part, flat_shape)
-                    step_shapes.append(s0_shape)
+                except Exception:
+                    s0_shape = None
 
+                if s0_shape is not None:
+                    step_shapes = []
+                    step_precisions = []
+                    step_warnings = []
+
+                    # Step 0: Fully folded 3D part
+                    if _is_valid_solid(s0_shape):
+                        step_shapes.append(s0_shape)
+                        step_precisions.append(GEOMETRY_PRECISION_VALID)
+                        step_warnings.append(None)
+                    elif target_shape is not None and _is_valid_solid(target_shape):
+                        step_shapes.append(target_shape)
+                        step_precisions.append(GEOMETRY_PRECISION_VALID)
+                        step_warnings.append(None)
+                    else:
+                        step_shapes.append(s0_shape)
+                        step_precisions.append(GEOMETRY_PRECISION_PREVIEW)
+                        step_warnings.append("Step 0 shape is not a verified monolithic solid")
+
+                    fold_tracker = FoldState.initial(
+                        part_shape=step_shapes[0],
+                        bend_graph=graphs.bend_graph,
+                        panel_graph=graphs.panel_graph,
+                    )
+
+                    # Intermediate steps 1..N-1
                     cp_prog = copy.deepcopy(artifacts.canonical_part)
                     cp_payload = cp_prog.get("payload", cp_prog)
                     bends_dict = cp_payload.get("bends", {})
@@ -314,20 +340,55 @@ def replay_backward(
                                 bend_entry["angle_deg"]["value"] = 0.0
                             else:
                                 bend_entry["angle_deg"] = 0.0
-                        s_k = _folder_cls.fold_from_canonical_part(cp_prog, flat_shape)
-                        step_shapes.append(s_k)
+                        try:
+                            s_k = _folder_cls.fold_from_canonical_part(cp_prog, flat_shape)
+                        except Exception:
+                            s_k = None
 
-                    # Final step is the flat pattern
+                        if s_k is not None and _is_valid_solid(s_k):
+                            step_shapes.append(s_k)
+                            step_precisions.append(GEOMETRY_PRECISION_VALID)
+                            step_warnings.append(None)
+                        else:
+                            # Non-monolithic or folding failed on this step
+                            if s_k is None:
+                                try:
+                                    axis_origin, axis_dir = fold_tracker.bend_axes[bid]
+                                    moving_panels = graphs.panel_graph.moving_subtree(bid)
+                                    bend_rec = graphs.bend_graph.get_bend(bid)
+                                    signed_angle = bend_rec.signed_angle
+                                    s_k = backend.rotate_subtree(
+                                        shape=step_shapes[-1],
+                                        axis_origin=axis_origin,
+                                        axis_direction=axis_dir,
+                                        signed_angle_deg=-signed_angle,
+                                        moving_panels=moving_panels,
+                                        panel_graph=graphs.panel_graph,
+                                    )
+                                except Exception:
+                                    s_k = None
+                            if s_k is None:
+                                s_k = step_shapes[-1]
+
+                            step_shapes.append(s_k)
+                            step_precisions.append(GEOMETRY_PRECISION_PREVIEW)
+                            step_warnings.append(
+                                f"Intermediate step {step_idx + 1} for bend '{bid}' is not a verified monolithic solid (preview only)"
+                            )
+
+                        moving_panels = graphs.panel_graph.moving_subtree(bid)
+                        fold_tracker = fold_tracker.apply_unfold(bid, step_shapes[-1], moving_panels)
+
+                    # Final step N: flat pattern
                     step_shapes.append(flat_shape)
+                    if _is_valid_solid(flat_shape):
+                        step_precisions.append(GEOMETRY_PRECISION_VALID)
+                        step_warnings.append(None)
+                    else:
+                        step_precisions.append(GEOMETRY_PRECISION_PREVIEW)
+                        step_warnings.append("Flat pattern shape is not a verified monolithic solid")
 
-                    all_solids_valid = all(_is_valid_solid(s) for s in step_shapes)
-                except Exception:
-                    all_solids_valid = False
-
-                if all_solids_valid:
-                    precision = GEOMETRY_PRECISION_VALID
-                    warning = None
-
+                    # Yield all StepViews with per-step precision and diagnostic
                     current_state = FoldState.initial(
                         part_shape=step_shapes[0],
                         bend_graph=graphs.bend_graph,
@@ -337,7 +398,8 @@ def replay_backward(
                         step_index=0, bend_id=None, state=current_state,
                         ui_direction=None, planner_status=None,
                         collision_status=None, tooling_status=None, alignment_status=None,
-                        geometry_precision=precision, geometry_warning=warning,
+                        geometry_precision=step_precisions[0],
+                        geometry_warning=step_warnings[0],
                     )
 
                     for step_idx, step_data in enumerate(candidate_seq):
@@ -356,8 +418,8 @@ def replay_backward(
                             collision_status=step_data["collision_status"],
                             tooling_status=step_data["tooling_status"],
                             alignment_status=step_data["alignment_status"],
-                            geometry_precision=precision,
-                            geometry_warning=warning,
+                            geometry_precision=step_precisions[step_idx + 1],
+                            geometry_warning=step_warnings[step_idx + 1],
                         )
                     return
 
