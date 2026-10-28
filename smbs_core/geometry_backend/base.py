@@ -143,3 +143,11 @@ class GeometryBackend(ABC):
     def get_edge_curve_type(self, edge: Any) -> str:
         """Returns 'circle', 'line', 'other', or 'unknown'."""
         return "unknown"
+
+    def min_distance(self, shape_a: Any, shape_b: Any) -> Optional[float]:
+        """Compute minimum distance in mm between two shapes. Returns None on failure or if unsupported."""
+        return None
+
+    def section_overlap_length(self, shape_a: Any, shape_b: Any) -> Optional[float]:
+        """Compute total length of intersection section curves in mm between two shapes. Returns None on failure or if unsupported."""
+        return None

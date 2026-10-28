@@ -119,3 +119,21 @@ class MockBackend(GeometryBackend):
 
     def cut(self, shape1: Any, shape2: Any) -> Any:
         return {"type": "cut_shape", "base": shape1, "tool": shape2}
+
+    def min_distance(self, shape_a: Any, shape_b: Any) -> Optional[float]:
+        if shape_a is None or shape_b is None:
+            return None
+        if isinstance(shape_a, dict) and "simulated_distance" in shape_a:
+            return float(shape_a["simulated_distance"])
+        if isinstance(shape_b, dict) and "simulated_distance" in shape_b:
+            return float(shape_b["simulated_distance"])
+        return 10.0
+
+    def section_overlap_length(self, shape_a: Any, shape_b: Any) -> Optional[float]:
+        if shape_a is None or shape_b is None:
+            return None
+        if isinstance(shape_a, dict) and "simulated_section_len" in shape_a:
+            return float(shape_a["simulated_section_len"])
+        if isinstance(shape_b, dict) and "simulated_section_len" in shape_b:
+            return float(shape_b["simulated_section_len"])
+        return 0.0
