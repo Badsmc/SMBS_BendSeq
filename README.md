@@ -10,8 +10,8 @@ What works:
 - Unfold via native SheetMetal
 - Planning (A* / DFS backward search)
 - Fold constructive path for N=1 and N=2 linear (`VALID_PER_PANEL`)
-- Relief cut boundary detection and clamped box-hub folding (KL-9 closed)
-- Real press brake machine frame B-Rep collision geometry & sidecar (`machine_frame.FCStd`, KL-16 closed)
+- Relief cut boundary detection and clamped box-hub folding
+- Real press brake machine frame B-Rep collision geometry & tooling catalog (`machine_frame.FCStd`, `puancon.FCStd`, `matrica.FCStd`)
 - FreeCAD workbench `freecad_smbs`:
   - 1-click calculation for active document (**Рассчитать последовательность**) with auto-annotations on flat pattern
   - OpenRun, Calculate, Simulate (bidirectional unfold/fold with punch descent), Tooling, Verify, Info
@@ -19,7 +19,7 @@ What works:
 - Cross-platform FreeCAD bootstrap (`FREECAD_LIB`, `FREECAD_MOD_SHEETMETAL`) with in-memory BREP conversion
 
 Known limits:
-- N≥3 tree intermediate steps may fall back to `PREVIEW_ONLY` (KL-12-v3 residual)
+- Complex multi-bend tree topologies (N≥3) intermediate visualization steps may fall back to `PREVIEW_ONLY` where exact rigid face partitioning is ambiguous.
 
 See `docs/PROGRESS.md` for the full limitation list.
 

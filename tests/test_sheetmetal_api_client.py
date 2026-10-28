@@ -7,12 +7,13 @@ import sys
 import unittest
 import math
 
-sys.path.insert(0, '/Users/badmc/Desktop/SMBS_BendSeq')
-sys.path.insert(0, '/Users/badmc/.gemini/antigravity-ide/brain/f7f8efb2-5153-4bda-9d68-1afe2a983f3c/scratch')
+from pathlib import Path
+_ROOT = str(Path(__file__).resolve().parent.parent)
+if _ROOT not in sys.path: sys.path.insert(0, _ROOT)
 sys.path.append('/Applications/FreeCAD.app/Contents/Resources/lib')
 
 from smbs_core.api.sheetmetal_client import SheetMetalApiClient, SheetMetalApiClientError
-from test_user_final_concentricity import create_l_bracket_shape_concentric
+from tests.test_technological_unfold_single_bend import create_l_bracket_shape as create_l_bracket_shape_concentric
 import FreeCAD
 import Part
 

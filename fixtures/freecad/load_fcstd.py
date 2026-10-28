@@ -27,7 +27,9 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 sys.path.append("/Applications/FreeCAD.app/Contents/Resources/lib")
-sys.path.append("/Users/badmc/Library/Application Support/FreeCAD/v1-1/Mod/sheetmetal")
+_sm_user_dir = str(Path.home() / "Library/Application Support/FreeCAD/v1-1/Mod/sheetmetal")
+if _sm_user_dir not in sys.path:
+    sys.path.append(_sm_user_dir)
 
 import FreeCAD
 import Part
@@ -255,7 +257,7 @@ def compute_file_sha256(path: Path) -> str:
 
 
 def get_sheetmetal_version() -> str:
-    pkg_path = Path("/Users/badmc/Library/Application Support/FreeCAD/v1-1/Mod/sheetmetal/package.xml")
+    pkg_path = Path.home() / "Library/Application Support/FreeCAD/v1-1/Mod/sheetmetal/package.xml"
     if pkg_path.exists():
         try:
             tree = ET.parse(pkg_path)

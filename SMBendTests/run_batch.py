@@ -8,7 +8,7 @@ FREECAD_LIB = '/Applications/FreeCAD.app/Contents/Resources/lib'
 if os.path.exists(FREECAD_LIB) and FREECAD_LIB not in sys.path:
     sys.path.append(FREECAD_LIB)
 
-FREECAD_MOD = '/Users/badmc/Library/Application Support/FreeCAD/v1-1/Mod'
+FREECAD_MOD = os.path.expanduser('~/Library/Application Support/FreeCAD/v1-1/Mod')
 if os.path.exists(FREECAD_MOD) and FREECAD_MOD not in sys.path:
     sys.path.append(FREECAD_MOD)
 
