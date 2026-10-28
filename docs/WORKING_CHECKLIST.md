@@ -2,7 +2,7 @@
 
 > **Purpose:** Lightweight daily tracker. Not a roadmap (see `docs/ROADMAP.md`), not an architecture doc (see `docs/ARCHITECTURE.md`), not a release audit (see `docs/AUDIT_FULL_2026-10-23.md`).
 > **Rule:** Move a task to **Done** only after the acceptance condition is met and a verification reference is linked (test name, commit SHA, or `cat -n` evidence). No "Done" without proof.
-> **Snapshot:** HEAD `b7f1251`, 2026-10-26 (Baseline: 648 / OK / 1 skip / 2× expected failures).
+> **Snapshot:** HEAD, 2026-10-28 (Baseline: 707 / OK / 0 skip / 2× expected failures).
 
 ---
 
@@ -20,9 +20,7 @@
 
 ## Blocked
 
-| ID | Task | Blocked by | Note |
-|---|---|---|---|
-| KL-9 | `2_1_3_4_ok` baseline validation | Dedicated CAD track — empirical mechanism 2026-10-26 | Inherited KL-7 (`5ba8e59`); **0.2mm `axis_point` → relief-edge offset** in `box_hub` (`sheetmetal_folder.py:1187`). 3 independent splits (5.25→3.75+1.5, 34.05→33.75+0.3, 146024.4→146023.4). ≥100 lines refactor + cross-fixture regression → deferred. Test `@skip` (`ec4883e`). |
+*(None — KL-9 CLOSED; all items unblocked)*
 
 ## Deferred (separate session, P1-docs)
 
@@ -35,13 +33,13 @@
 
 | Session | Scope | Prerequisites |
 |---|---|---|
-| **P2** | Core track: KL-9 (`2_1_3_4_ok` fixture — `make_bend_sector` relief-cut, +4 corner facet faces; remove `@expectedFailure`). | After P1a verified. |
-| **P2b** | Core track: KL-9 dedicated CAD refactor — relief-cut detection from `flat_pattern.brep` + `box_hub`/branch boundary alignment + cross-fixture regression. Multi-session epic. | P2 probe `probe_p2_relief_cut.py` confirmed viable. Requires geometric BREP analysis (not metadata). |
+| **P2** | Core track: KL-9 (`2_1_3_4_ok` fixture — `make_bend_sector` relief-cut, +4 corner facet faces) — CLOSED S.79. | Complete. |
 
 ## Done
 
 | ID | Task | Commit | Evidence | Date |
 |---|---|---|---|---|
+| KL-9 | Relief-cut edge alignment & CAD refactor: geometric BRep detect_relief_notch_intervals, box_hub cut clamping, bend sector trimming. Fixture 2_1_3_4 yields 90 faces (was 94), counts_match=True, hausdorff=0.0000 mm. Zero cross-fixture regression. | HEAD | `scripts/probe_p2_relief_cut.py`, `tests/test_kl9_relief_cut.py`, `tests/test_verifier_worker_honest.py` (707 tests) | 2026-10-28 |
 | KL-16 | Machine frame collision geometry: committed CAD & sidecar, wired PressBrakeMachine/ToolingAssembly/validator, honest UNKNOWN on missing, zero fabrication on error, UI badge MACHINE: LOADED | HEAD | `tests/test_f3b_kl16_kl28.py`, `tests/test_freecad_smbs/` (703 tests) | 2026-10-27 |
 | P1c | FreeCAD UI bidirectional playback (Fold/Unfold) + direction-aware headers + full fixture sweep + updated tooltips and limitations | `e971545` | `tests/test_p1c_full_fixture_sweep.py` (700 tests) | 2026-10-27 |
 | F.3b+KL-28 | Punch descent kinematics + Backgauge motion overlay + Backgauge/Clamp canonical sidecars (KL-28) + honest machine_frame loading (KL-16) | `7e0048b` | `tests/test_f3b_kl16_kl28.py` (695 tests) | 2026-10-27 |

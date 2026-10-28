@@ -35,6 +35,10 @@ from OCC.Core.TopoDS import topods, TopoDS_Shell, TopoDS_Solid
 from OCC.Core.TopExp import TopExp_Explorer
 from OCC.Core.TopAbs import TopAbs_FACE, TopAbs_REVERSED
 from OCC.Core.BRepLProp import BRepLProp_SLProps
+from OCC.Core.BRepBndLib import brepbndlib
+from OCC.Core.Bnd import Bnd_Box
+from OCC.Core.GProp import GProp_GProps
+from OCC.Core.BRepGProp import brepgprop
 
 
 class SheetMetalFolder:
@@ -1122,7 +1126,8 @@ class SheetMetalFolder:
         cls,
         branch_bends: List[Dict[str, Any]],
         flat_candidate: TopoDS_Shape | Part.Shape,
-        canonical_part: Dict[str, Any]
+        canonical_part: Dict[str, Any],
+        relief_notches: Optional[Dict[str, Any]] = None,
     ) -> Part.Shape:
         """
         Folds a single branch (chain of bends from the hub outward).
@@ -1260,6 +1265,17 @@ class SheetMetalFolder:
             else:
                 start_v = compute_start_vec(bend)
                 b_sector = make_bend_sector(bend["axis_point"], bend["axis_direction"], start_v, r_in, t, L_bend, ang)
+                if relief_notches and bend.get("bend_id") in relief_notches:
+                    for notch in relief_notches[bend["bend_id"]].get("notches", []):
+                        nx_min, nx_max = notch["x"]
+                        ny_min, ny_max = notch["y"]
+                        cut_prism = Part.makeBox(
+                            nx_max - nx_min,
+                            ny_max - ny_min,
+                            t + 6.0,
+                            FreeCAD.Vector(nx_min, ny_min, -3.0)
+                        )
+                        b_sector = b_sector.cut(cut_prism)
                 m_p = cls.build_bend_transform(bend, p_parent, p_child, t, s_panel_start, hub_centroid)
 
             transforms_by_panel[bend["child_panel_id"]] = m_p
@@ -1285,6 +1301,189 @@ class SheetMetalFolder:
         unif.SetAngularTolerance(1e-4)
         unif.Build()
         return cls._to_fc_shape(unif.Shape())
+    @classmethod
+    def detect_relief_notch_intervals(
+        cls,
+        flat_candidate: TopoDS_Shape | Part.Shape,
+        canonical_part: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """
+        Pure geometric BRep detection of relief notch intervals (KL-9 / P2).
+        Scans vertical planar faces of flat_pattern BRep near root bend endpoints.
+        Returns dict mapping bend_id to relief notch parameters and coordinates.
+        If no physical relief notches are present, returns empty dict (honest fallback, zero fabrication).
+        """
+        try:
+            payload = canonical_part.get("payload", canonical_part)
+            bends = payload.get("bends", {})
+            panels = payload.get("panels", {})
+            ref_panel_id = payload.get("reference_panel_id")
+            if not ref_panel_id or ref_panel_id not in panels:
+                return {}
+
+            hub_panel = panels[ref_panel_id]
+            hub_centroid = FreeCAD.Vector(*hub_panel["centroid"])
+            adj_bids = hub_panel.get("adjacent_bend_ids", [])
+            if len(adj_bids) < 3:
+                return {}
+
+            hub_x_min, hub_x_max = None, None
+            hub_y_min, hub_y_max = None, None
+            for bid in adj_bids:
+                b = bends[bid]
+                ax_d = FreeCAD.Vector(*b["axis_direction"]).normalize()
+                ax_p = FreeCAD.Vector(*b["axis_point"])
+                is_y = abs(ax_d.x) > 0.5
+                v_hub = ax_p - hub_centroid
+                sign_along = 1.0 if (v_hub.y if is_y else v_hub.x) > 0 else -1.0
+                if is_y:
+                    if sign_along < 0:
+                        hub_y_min = ax_p.y
+                    else:
+                        hub_y_max = ax_p.y
+                else:
+                    if sign_along < 0:
+                        hub_x_min = ax_p.x
+                    else:
+                        hub_x_max = ax_p.x
+
+            if None in (hub_x_min, hub_x_max, hub_y_min, hub_y_max):
+                return {}
+
+            occ_flat = cls._to_occ_shape(flat_candidate) if isinstance(flat_candidate, Part.Shape) else flat_candidate
+            if occ_flat is None or occ_flat.IsNull():
+                return {}
+
+            exp = TopExp_Explorer(occ_flat, TopAbs_FACE)
+            vert_faces = []
+            while exp.More():
+                f = exp.Current()
+                surf = BRepAdaptor_Surface(f)
+                if surf.GetType() == GeomAbs_Plane:
+                    n = surf.Plane().Axis().Direction()
+                    if abs(n.Z()) < 1e-3:
+                        bb = Bnd_Box()
+                        brepbndlib.Add(f, bb)
+                        xmin, ymin, zmin, xmax, ymax, zmax = bb.Get()
+                        props = GProp_GProps()
+                        brepgprop.SurfaceProperties(f, props)
+                        vert_faces.append({
+                            "face": f,
+                            "area": props.Mass(),
+                            "normal": (n.X(), n.Y(), n.Z()),
+                            "x": (xmin, xmax),
+                            "y": (ymin, ymax),
+                        })
+                exp.Next()
+
+            results = {}
+            for bid in adj_bids:
+                b = bends[bid]
+                ax_d = FreeCAD.Vector(*b["axis_direction"]).normalize()
+                ax_p = FreeCAD.Vector(*b["axis_point"])
+                is_y = abs(ax_d.x) > 0.5
+                v_hub = ax_p - hub_centroid
+                sign_along = 1.0 if (v_hub.y if is_y else v_hub.x) > 0 else -1.0
+
+                bl = b.get("bend_line_flat_pattern")
+                L_val = b.get("length_mm", {})
+                L = float(L_val.get("value", 0.0) if isinstance(L_val, dict) else L_val)
+                if L <= 0:
+                    continue
+
+                if is_y:
+                    p1_x = ax_p.x
+                    p2_x = ax_p.x + ax_d.x * L
+                    b_trans_min = min(p1_x, p2_x)
+                    b_trans_max = max(p1_x, p2_x)
+
+                    gap_min = b_trans_min - hub_x_min
+                    gap_max = hub_x_max - b_trans_max
+                    if gap_min > 0.05 or gap_max > 0.05:
+                        cand = [vf for vf in vert_faces 
+                                if abs(abs(vf["normal"][0]) - 1.0) < 1e-2 
+                                and vf["area"] < 25.0
+                                and hub_x_min - 0.5 <= vf["x"][0] <= hub_x_max + 0.5]
+                        bend_y = ax_p.y
+                        cand_y = [vf for vf in cand if vf["y"][0] <= bend_y + 5.0 and vf["y"][1] >= bend_y - 5.0]
+                        notches = []
+                        if gap_min > 0.05:
+                            w_hub = [vf for vf in cand_y if vf["normal"][0] > 0.5 and vf["x"][0] < b_trans_min]
+                            w_flange = [vf for vf in cand_y if vf["normal"][0] < -0.5 and vf["x"][0] <= b_trans_min + 0.01]
+                            if w_hub and w_flange:
+                                x0 = max(vf["x"][0] for vf in w_hub)
+                                x1 = min(vf["x"][0] for vf in w_flange)
+                                y0 = min(min(vf["y"][0] for vf in w_hub), min(vf["y"][0] for vf in w_flange))
+                                y1 = max(max(vf["y"][1] for vf in w_hub), max(vf["y"][1] for vf in w_flange))
+                                notches.append({"x": (x0, x1), "y": (y0, y1)})
+                        if gap_max > 0.05:
+                            w_flange = [vf for vf in cand_y if vf["normal"][0] > 0.5 and vf["x"][0] >= b_trans_max - 0.01]
+                            w_hub = [vf for vf in cand_y if vf["normal"][0] < -0.5 and vf["x"][0] > b_trans_max]
+                            if w_hub and w_flange:
+                                x0 = max(vf["x"][0] for vf in w_flange)
+                                x1 = min(vf["x"][0] for vf in w_hub)
+                                y0 = min(min(vf["y"][0] for vf in w_hub), min(vf["y"][0] for vf in w_flange))
+                                y1 = max(max(vf["y"][1] for vf in w_hub), max(vf["y"][1] for vf in w_flange))
+                                notches.append({"x": (x0, x1), "y": (y0, y1)})
+
+                        results[bid] = {
+                            "is_y": is_y,
+                            "sign_along": sign_along,
+                            "b_coord": ax_p.y,
+                            "b_trans_min": b_trans_min,
+                            "b_trans_max": b_trans_max,
+                            "hub_bounds": (hub_x_min, hub_x_max, hub_y_min, hub_y_max),
+                            "notches": notches
+                        }
+                else:
+                    p1_y = ax_p.y
+                    p2_y = ax_p.y + ax_d.y * L
+                    b_trans_min = min(p1_y, p2_y)
+                    b_trans_max = max(p1_y, p2_y)
+
+                    gap_min = b_trans_min - hub_y_min
+                    gap_max = hub_y_max - b_trans_max
+                    if gap_min > 0.05 or gap_max > 0.05:
+                        cand = [vf for vf in vert_faces 
+                                if abs(abs(vf["normal"][1]) - 1.0) < 1e-2 
+                                and vf["area"] < 25.0
+                                and hub_y_min - 0.5 <= vf["y"][0] <= hub_y_max + 0.5]
+                        bend_x = ax_p.x
+                        cand_x = [vf for vf in cand if vf["x"][0] <= bend_x + 5.0 and vf["x"][1] >= bend_x - 5.0]
+                        notches = []
+                        if gap_min > 0.05:
+                            w_hub = [vf for vf in cand_x if vf["normal"][1] > 0.5 and vf["y"][0] < b_trans_min]
+                            w_flange = [vf for vf in cand_x if vf["normal"][1] < -0.5 and vf["y"][0] <= b_trans_min + 0.01]
+                            if w_hub and w_flange:
+                                y0 = max(vf["y"][0] for vf in w_hub)
+                                y1 = min(vf["y"][0] for vf in w_flange)
+                                x0 = min(min(vf["x"][0] for vf in w_hub), min(vf["x"][0] for vf in w_flange))
+                                x1 = max(max(vf["x"][1] for vf in w_hub), max(vf["x"][1] for vf in w_flange))
+                                notches.append({"x": (x0, x1), "y": (y0, y1)})
+                        if gap_max > 0.05:
+                            w_flange = [vf for vf in cand_x if vf["normal"][1] > 0.5 and vf["y"][0] >= b_trans_max - 0.01]
+                            w_hub = [vf for vf in cand_x if vf["normal"][1] < -0.5 and vf["y"][0] > b_trans_max]
+                            if w_hub and w_flange:
+                                y0 = max(vf["y"][0] for vf in w_flange)
+                                y1 = min(vf["y"][0] for vf in w_hub)
+                                x0 = min(min(vf["x"][0] for vf in w_hub), min(vf["x"][0] for vf in w_flange))
+                                x1 = max(max(vf["x"][1] for vf in w_hub), max(vf["x"][1] for vf in w_flange))
+                                notches.append({"x": (x0, x1), "y": (y0, y1)})
+
+                        results[bid] = {
+                            "is_y": is_y,
+                            "sign_along": sign_along,
+                            "b_coord": ax_p.x,
+                            "b_trans_min": b_trans_min,
+                            "b_trans_max": b_trans_max,
+                            "hub_bounds": (hub_x_min, hub_x_max, hub_y_min, hub_y_max),
+                            "notches": notches
+                        }
+
+            return results
+        except Exception:
+            return {}
+
     @classmethod
     def fold_tree_general_from_flat_pattern(
         cls,
@@ -1336,7 +1535,67 @@ class SheetMetalFolder:
                 else:
                     hub_x_max = ax_p.x
 
-        box_hub = Part.makeBox(hub_x_max - hub_x_min, hub_y_max - hub_y_min, t + 4.0, FreeCAD.Vector(hub_x_min, hub_y_min, -2.0))
+        # Check for geometric relief notches (KL-9 / P2)
+        occ_flat = cls._to_occ_shape(fc_flat) if isinstance(fc_flat, Part.Shape) else fc_flat
+        relief_info = cls.detect_relief_notch_intervals(occ_flat, canonical_part)
+
+        if not relief_info:
+            box_hub = Part.makeBox(hub_x_max - hub_x_min, hub_y_max - hub_y_min, t + 4.0, FreeCAD.Vector(hub_x_min, hub_y_min, -2.0))
+        else:
+            env_x_min, env_x_max = hub_x_min, hub_x_max
+            env_y_min, env_y_max = hub_y_min, hub_y_max
+            cuts_to_apply = []
+
+            for bid, info in relief_info.items():
+                is_y = info["is_y"]
+                sign_along = info["sign_along"]
+                b_coord = info["b_coord"]
+                t_min = info["b_trans_min"]
+                t_max = info["b_trans_max"]
+
+                if is_y:
+                    if sign_along < 0:
+                        env_y_min = min(env_y_min, bb.YMin - 1.0)
+                        cut_box = Part.makeBox(
+                            t_max - t_min,
+                            b_coord - (bb.YMin - 5.0),
+                            t + 6.0,
+                            FreeCAD.Vector(t_min, bb.YMin - 5.0, -3.0)
+                        )
+                        cuts_to_apply.append(cut_box)
+                    else:
+                        env_y_max = max(env_y_max, bb.YMax + 1.0)
+                        cut_box = Part.makeBox(
+                            t_max - t_min,
+                            (bb.YMax + 5.0) - b_coord,
+                            t + 6.0,
+                            FreeCAD.Vector(t_min, b_coord, -3.0)
+                        )
+                        cuts_to_apply.append(cut_box)
+                else:
+                    if sign_along < 0:
+                        env_x_min = min(env_x_min, bb.XMin - 1.0)
+                        cut_box = Part.makeBox(
+                            b_coord - (bb.XMin - 5.0),
+                            t_max - t_min,
+                            t + 6.0,
+                            FreeCAD.Vector(bb.XMin - 5.0, t_min, -3.0)
+                        )
+                        cuts_to_apply.append(cut_box)
+                    else:
+                        env_x_max = max(env_x_max, bb.XMax + 1.0)
+                        cut_box = Part.makeBox(
+                            (bb.XMax + 5.0) - b_coord,
+                            t_max - t_min,
+                            t + 6.0,
+                            FreeCAD.Vector(b_coord, t_min, -3.0)
+                        )
+                        cuts_to_apply.append(cut_box)
+
+            box_hub = Part.makeBox(env_x_max - env_x_min, env_y_max - env_y_min, t + 4.0, FreeCAD.Vector(env_x_min, env_y_min, -2.0))
+            for c in cuts_to_apply:
+                box_hub = box_hub.cut(c)
+
         hub_shape = fc_flat.common(box_hub)
 
         all_branches = []
@@ -1355,7 +1614,7 @@ class SheetMetalFolder:
 
         full_shape = hub_shape
         for br in all_branches:
-            br_shape = cls.fold_branch(br, fc_flat, canonical_part)
+            br_shape = cls.fold_branch(br, fc_flat, canonical_part, relief_notches=relief_info)
             full_shape = full_shape.fuse(br_shape)
 
         full_clean = full_shape.removeSplitter()
