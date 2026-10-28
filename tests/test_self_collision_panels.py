@@ -213,7 +213,6 @@ class TestSelfCollisionPanels(unittest.TestCase):
         """SC-H2: Under PRODUCTION policy, UNKNOWN at SELF stage MUST block production_eligible (must be False)."""
         from smbs_core.Core.fold_state import FoldState
         from smbs_core.Core.bend_graph import BendRecord
-        from smbs_core.contracts.models import VerificationStatus
 
         # Create mock backend where self_collision will yield UNKNOWN
         class UnknownBackend(MockBackend):
