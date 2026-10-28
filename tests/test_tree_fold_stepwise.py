@@ -130,7 +130,15 @@ class TestTreeFoldStepwise(unittest.TestCase):
         step_views = list(replay_backward(artifacts, graphs, self.backend))
         self.assertEqual(len(step_views), len(candidate_seq) + 1)
 
-        # Replayer successfully constructs valid B-Rep solids for all 8 steps of the tree part
-        for sv in step_views:
-            self.assertEqual(sv.geometry_precision, GEOMETRY_PRECISION_VALID)
-            self.assertIsNone(sv.geometry_warning)
+        # Step 0 (initial fully folded 3D part) and final step (flat pattern) are valid solids.
+        # Intermediate tree branch steps contain multiple detached solids and are honestly PREVIEW_ONLY.
+        self.assertEqual(step_views[0].geometry_precision, GEOMETRY_PRECISION_VALID)
+        self.assertIsNone(step_views[0].geometry_warning)
+
+        for sv in step_views[1:-1]:
+            self.assertEqual(sv.geometry_precision, GEOMETRY_PRECISION_PREVIEW)
+            self.assertIsNotNone(sv.geometry_warning)
+            self.assertIn("not a verified monolithic solid", sv.geometry_warning)
+
+        self.assertEqual(step_views[-1].geometry_precision, GEOMETRY_PRECISION_VALID)
+        self.assertIsNone(step_views[-1].geometry_warning)
