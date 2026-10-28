@@ -23,8 +23,9 @@ import logging
 from typing import Dict, Any, List, Tuple, Optional
 
 from OCC.Core.TopoDS import TopoDS_Shape
-from OCC.Core.TopAbs import TopAbs_FACE
+from OCC.Core.TopAbs import TopAbs_FACE, TopAbs_VERTEX
 from OCC.Core.TopExp import TopExp_Explorer
+from OCC.Core.BRep import BRep_Tool
 from OCC.Core.BRepAdaptor import BRepAdaptor_Surface
 from OCC.Core.GeomAbs import GeomAbs_Plane, GeomAbs_Cylinder
 from OCC.Core.GProp import GProp_GProps
@@ -134,6 +135,7 @@ def resolve_panel_faces(
 
         data = {
             "idx": idx,
+            "face": f,
             "type": stype,
             "area": area,
             "cog": cog_tuple,
@@ -237,8 +239,126 @@ def resolve_panel_faces(
         panel.face_indices = sorted(indices)
         logger.debug(f"Resolved panel {panel.id} -> face_indices {panel.face_indices}")
 
-    # 5. Log remaining unassigned faces for diagnostic / future reference
+    # 5. Classify remaining unassigned faces (bridge-caps vs relief cuts) with actionable diagnostics
     all_indices = set(fd["idx"] for fd in face_data)
     unassigned_indices = sorted(all_indices - assigned_face_indices)
+
+    bridge_caps: List[int] = []
+    face_diagnostics: Dict[int, Dict[str, Any]] = {}
+
+    for u_idx in unassigned_indices:
+        fd = face_data[u_idx]
+        face_shape = fd.get("face")
+
+        spanning_bends: List[str] = []
+        adjacent_panels: set = set()
+
+        if fd["type"] == GeomAbs_Plane and face_shape is not None and bends_meta:
+            v_exp = TopExp_Explorer(face_shape, TopAbs_VERTEX)
+            verts = []
+            while v_exp.More():
+                pnt = BRep_Tool.Pnt(v_exp.Current())
+                verts.append((float(pnt.X()), float(pnt.Y()), float(pnt.Z())))
+                v_exp.Next()
+
+            if verts:
+                for bid, bdata in bends_meta.items():
+                    ap = tuple(bdata.get("axis_point", (0.0, 0.0, 0.0)))
+
+                    p1_id = bdata.get("parent_panel_id") or bdata.get("panel_a_id")
+                    p2_id = bdata.get("child_panel_id") or bdata.get("panel_b_id")
+
+                    if (not p1_id or not p2_id) and hasattr(panel_graph, "_bend_edges") and bid in panel_graph._bend_edges:
+                        p1_edge, p2_edge = panel_graph._bend_edges[bid]
+                        p1_id = p1_id or p1_edge
+                        p2_id = p2_id or p2_edge
+
+                    if not p1_id and p2_id:
+                        other_panels = [p for p in panels_meta.keys() if p != p2_id]
+                        if len(other_panels) == 1:
+                            p1_id = other_panels[0]
+
+                    if not p1_id or not p2_id or p1_id not in panels_meta or p2_id not in panels_meta:
+                        continue
+
+                    c1 = tuple(panels_meta[p1_id].get("centroid", (0.0, 0.0, 0.0)))
+                    c2 = tuple(panels_meta[p2_id].get("centroid", (0.0, 0.0, 0.0)))
+
+                    ax_dir = bdata.get("axis_direction")
+                    if ax_dir is None:
+                        n1_vec = tuple(panels_meta[p1_id].get("normal", (0.0, 0.0, 1.0)))
+                        n2_vec = tuple(panels_meta[p2_id].get("normal", (1.0, 0.0, 0.0)))
+                        cross_d = (
+                            n1_vec[1] * n2_vec[2] - n1_vec[2] * n2_vec[1],
+                            n1_vec[2] * n2_vec[0] - n1_vec[0] * n2_vec[2],
+                            n1_vec[0] * n2_vec[1] - n1_vec[1] * n2_vec[0],
+                        )
+                        c_norm = _norm(cross_d)
+                        if c_norm > 1e-4:
+                            ax_dir = tuple(d / c_norm for d in cross_d)
+                        else:
+                            ax_dir = (0.0, 1.0, 0.0)
+                    else:
+                        dir_norm = _norm(ax_dir)
+                        if dir_norm < 1e-6:
+                            ax_dir = (0.0, 1.0, 0.0)
+                        else:
+                            ax_dir = tuple(d / dir_norm for d in ax_dir)
+
+                    def _perp_to_axis(v: Tuple[float, float, float], d_ax: Tuple[float, float, float]) -> Tuple[float, float, float]:
+                        dot_p = sum(a * b for a, b in zip(v, d_ax))
+                        return tuple(a - dot_p * b for a, b in zip(v, d_ax))
+
+                    v1 = tuple(c - a for c, a in zip(c1, ap))
+                    v2 = tuple(c - a for c, a in zip(c2, ap))
+                    v1_perp = _perp_to_axis(v1, ax_dir)
+                    v2_perp = _perp_to_axis(v2, ax_dir)
+
+                    n1 = _norm(v1_perp)
+                    n2 = _norm(v2_perp)
+                    if n1 < 1e-3 or n2 < 1e-3:
+                        continue
+                    v1_u = tuple(a / n1 for a in v1_perp)
+                    v2_u = tuple(a / n2 for a in v2_perp)
+
+                    proj1 = [sum((vx - a) * d for vx, a, d in zip(pt, ap, v1_u)) for pt in verts]
+                    proj2 = [sum((vx - a) * d for vx, a, d in zip(pt, ap, v2_u)) for pt in verts]
+
+                    if max(proj1) > 0.5 and max(proj2) > 0.5:
+                        spanning_bends.append(bid)
+                        adjacent_panels.add(p1_id)
+                        adjacent_panels.add(p2_id)
+
+        if spanning_bends:
+            bridge_caps.append(u_idx)
+            face_diagnostics[u_idx] = {
+                "face_index": u_idx,
+                "classification": "BRIDGE_CAP",
+                "spanning_bends": spanning_bends,
+                "adjacent_panels": sorted(list(adjacent_panels)),
+                "reason": (
+                    f"Planar face {u_idx} spans across bend(s) {spanning_bends} "
+                    f"connecting panels {sorted(list(adjacent_panels))}; "
+                    f"cannot be rigidly assigned to a single moving panel"
+                ),
+                "area": fd["area"],
+                "cog": fd["cog"],
+            }
+        else:
+            face_diagnostics[u_idx] = {
+                "face_index": u_idx,
+                "classification": "UNASSIGNED_RELIEF",
+                "reason": f"Face {u_idx} does not match canonical panel planes within threshold",
+                "area": fd["area"],
+                "cog": fd["cog"],
+            }
+
+    panel_graph.unassigned_faces = unassigned_indices
+    panel_graph.face_diagnostics = face_diagnostics
+    panel_graph.bridge_caps = bridge_caps
+
     if unassigned_indices:
-        logger.debug(f"resolve_panel_faces: {len(unassigned_indices)} faces remain unassigned: {unassigned_indices}")
+        logger.info(
+            f"resolve_panel_faces: {len(unassigned_indices)} faces remain unassigned "
+            f"({len(bridge_caps)} bridge-caps: {bridge_caps}): {unassigned_indices}"
+        )

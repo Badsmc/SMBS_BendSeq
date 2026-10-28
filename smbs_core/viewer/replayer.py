@@ -196,7 +196,15 @@ def replay_backward(
             warning = None
         elif n_assigned > 0:
             precision = GEOMETRY_PRECISION_PREVIEW
-            warning = GEOMETRY_WARNING_PARTIAL
+            unassigned_count = total_faces - n_assigned
+            bridge_caps = getattr(graphs.panel_graph, "bridge_caps", [])
+            if bridge_caps:
+                warning = (
+                    f"PREVIEW_ONLY (KL-12) - partial face assignment: {unassigned_count} unassigned face(s) "
+                    f"({len(bridge_caps)} bridge-cap(s) spanning bends; stationary during unfold)"
+                )
+            else:
+                warning = GEOMETRY_WARNING_PARTIAL
         else:
             precision = GEOMETRY_PRECISION_PREVIEW
             warning = GEOMETRY_WARNING_PREVIEW
