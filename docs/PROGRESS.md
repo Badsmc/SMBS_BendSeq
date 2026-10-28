@@ -1,7 +1,7 @@
 # SMBS Core - Engineering Implementation Progress
 
 > **Project status:** advanced prototype with several completed functional subsystems, **NOT a complete automatic planning system**.
-> **Open blockers:** KL-9 (2_1_3_4_ok relief-edge design ready). KL-16 CLOSED in S.78 (machine frame CAD + sidecar added to toollibrary/machine_frame/, real collision check VALID/INVALID, honest UNKNOWN on absent). KL-12-v3 CLOSED in S.74. KL-28 CLOSED in S.76 (Backgauge and Clamp canonical sidecars). F.3b CLOSED in S.76. See Known Limitations.
+> **Open blockers:** (None — all closed). KL-9 CLOSED in S.79 (geometric BRep relief notch detection, box_hub clamping, sector trimming; 2_1_3_4 yields 90 faces, counts_match=True, hausdorff=0.0000 mm). KL-16 CLOSED in S.78. KL-12-v3 CLOSED in S.74. KL-28 CLOSED in S.76. F.3b CLOSED in S.76. See Known Limitations.
 > **Requirement 4.1 (clamp constraints) — validator (S.24a–S.24c) + enforcement per-bend in `12_tooling_selection.json` (Req 4 Phase E, S.30c).**
 > **P0 defects (annotated 2026-10-23, resolved S.40–S.50, HEAD `ce68906`, baseline 577 / 0F / 0E / 3xF):** 5 code + 4 doc + P0-GEOM CLOSED — see `docs/AUDIT_FULL_2026-10-23.md`. Release blockers: **CLEARED**.
 
@@ -490,13 +490,10 @@ bend order; `tuple(path)` required (Session 1.5 analysis).
   *Bonus S.66 finding (future candidate, no ID assigned):* `cli.py` currently does not
   expose `--unknown-policy` or `--allow-synthetic` flags; cataloged for future CLI polish.
 
-- **KL-9 (Stage 2, P2, DEFERRED, dedicated CAD track): `2_1_3_4_ok` baseline INVALID (inherited KL-7; empirical mechanism 2026-10-26).**
-  - **Symptom:** Part `2-1-3-4-(ok).FCStd` fails Stage 1 baseline with facets mismatch (90 vs 94 = +4 faces). `test_verifier_worker_2_1_3_4_deferred` now `@unittest.skip` (was `@expectedFailure`).
-  - **Cause (2026-10-26 probe R5+R6):** `fold_tree_general_from_flat_pattern` (`sheetmetal_folder.py:1187`) computes `box_hub` boundaries from `bend.axis_point`. Relief cut walls in `flat_pattern.brep` sit at **0.200 mm offset** from bend axes (BEND_03: axis X=7.791327, relief wall X=7.991327, delta=0.2mm = observed `hausdorff_distance_mm`). `box_hub` captures phantom material 7.791→7.991 in relief notch.
-  - **Impact:** 3 independent face splits observed: 5.25→3.75+1.5, 34.05→33.75+0.3, 146024.4→146023.4. Each from a different corner mechanism. `counts_match: False` → `topology_matches: False` → gate fails. Volume/bbox/hausdorff/cyl_areas **all PASS** already — only face count topology wrong.
-  - **Not in metadata:** `bend_line_flat_pattern.start_mm/end_mm` holds the bend axis segment, NOT the relief cut contour. Edge at 7.991 not recoverable from canonical_part. Requires geometric detection from `flat_pattern.brep` (narrow planar walls perpendicular to bend axis near bend line endpoints, area <10mm²).
-  - **Follow-up (dedicated CAD track):** Multi-session refactor of `fold_tree_general_from_flat_pattern` — relief cut detection + `box_hub` boundary alignment + branch boundary alignment + cross-fixture regression testing. Bounded fix attempt explored 2026-10-26 (probe R5+R6) → deemed churn risk (3 independent splits, L-shaped relief geometry, ≥100 lines, 11-fixture regression surface). Fallback to honest permanent limitation via `@skip`.
-  - **KL-7 (inherited):** `make_bend_sector` (`5ba8e59`) generates cylindrical sector without adapting flat-pattern relief cuts. This is one **component** of KL-9 but not the full mechanism — the 0.2mm axis_point→relief-edge boundary offset in hub/branch construction is the primary trigger.
+- **KL-9 (Stage 2, P2, CLOSED S.79): `2_1_3_4_ok` baseline VALID (geometric relief-cut edge alignment & CAD refactor).**
+  - **Symptom:** Part `2-1-3-4-(ok).FCStd` previously failed Stage 1 baseline with facets mismatch (90 vs 94 = +4 faces) and hausdorff = 0.2000 mm due to 0.2 mm offset between `axis_point` and physical corner relief notch edge.
+  - **Root Cause & Resolution:** Implemented `SheetMetalFolder.detect_relief_notch_intervals` (pure geometric BRep analysis on vertical planar faces of `flat_pattern.brep`, zero fabrication, honest fallback on plain parts). In `fold_tree_general_from_flat_pattern`, clamped `box_hub` cutting boundaries to physical relief notch walls and trimmed bend sector boundaries.
+  - **Results:** `SMBendTests/2-1-3-4-(ok).FCStd` reconstructs exact 90 faces (Reference: 90 faces), `counts_match = True`, `hausdorff_distance_mm = 0.0000 mm` (target <= 0.05 mm met). Zero regression across canonical benchmarks (`box`, `SQin`, `SQout`, `U`, `Z`). Removed `@skip` from `test_verifier_worker_2_1_3_4_deferred`. Dedicated regression suite `tests/test_kl9_relief_cut.py` added (707 tests green).
 
 - **KL-10 (Stage 2, P3, CLOSED S.65 `4686d24`): `MockValidator` without `unknown_policy`.**
   - **Symptom:** `test_stage10/11/18/19` use a `MockValidator` that does not accept the `unknown_policy` parameter.

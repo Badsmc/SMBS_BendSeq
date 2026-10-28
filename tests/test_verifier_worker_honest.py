@@ -322,27 +322,11 @@ class TestVerifierWorkerHonest(unittest.TestCase):
         )
         self.assertEqual(res.get("status"), "SUCCESS")
 
-    @unittest.skip(
-        "KL-9: box_hub boundary uses axis_point, relief-cut edge at 0.2mm offset. "
-        "General tree folding produces +4 corner facet splits on 2_1_3_4_ok "
-        "(3 independent splits: 5.25->3.75+1.5, 34.05->33.75+0.3, 146024.4->146023.4). "
-        "Requires multi-session CAD refactor of fold_tree_general_from_flat_pattern "
-        "to detect relief cuts from flat_pattern.brep geometry (not available in "
-        "bend_line_flat_pattern metadata). See PROGRESS.md KL-9 (empirical mechanism 2026-10-26)."
-    )
     def test_verifier_worker_2_1_3_4_deferred(self):
         """
-        Deferred test for complex sequence 2-1-3-4 (KL-9 limitation).
-
-        Part produces 94 faces vs reference 90 due to 0.2mm relief-cut edge
-        offset: box_hub boundary computed from bend.axis_point (BEND_03 X=7.791)
-        while relief wall in flat_pattern.brep is at X=7.991 (delta = 0.2mm,
-        matching observed hausdorff_distance_mm=0.2). Fix requires geometric
-        relief-cut detection (narrow planar walls perpendicular to bend axis
-        near bend line endpoints, area < 10mm²) plus boundary alignment in
-        both box_hub and branch construction. Deferred to dedicated CAD track.
-
-        See docs/PROGRESS.md KL-9 and 2026-10-26 probe evidence.
+        Verification test for complex sequence 2-1-3-4 (KL-9).
+        Validates exact 90 reference vs 90 restored face reconstruction with counts_match=True
+        and hausdorff <= 0.05 mm following geometric relief-cut alignment in box_hub and bend sectors.
         """
         from smbs_core.coordinator.run_pipeline import Coordinator
         coord = Coordinator()
