@@ -102,14 +102,13 @@ Honest marking (badges, read-only from `StepView`, never computed):
 - **Precision** (from `StepView.geometry_precision`): `VALID_PER_PANEL` (green) / `PREVIEW_ONLY` (yellow).
 - Warning text below badges when `StepView.geometry_warning` is not `None` (e.g. partial per-panel kinematics with unassigned bridge caps — see KL-12 v3 in `docs/PROGRESS.md`).
 
-**Tooling visualization (F.3a, S.37):** punch and die rendered in machine assembly position via `PressBrakeMachine.with_default_tooling()` + `ToolingAssembly.place()` (`smbs_core/Physics/machine_kinematics.py`, `smbs_core/Physics/tooling_assembly.py`). Machine frame: badge `MACHINE: SIMPLIFIED (KL-16 pending)`. `tooling_placement` computed on-the-fly from `tooling_manifest` + `candidate_sequence` + `bend_line_flat_pattern` (option (a), no new schema, #7 clean). Rendering uses persistent `Part::Feature` objects (SMBS_Animation, SMBS_Punch, SMBS_Die) updated in-place via `obj.touch()` + `Gui.updateGui()` — the F.2 "remove + Part.show per frame" pattern did not refresh FreeCAD's ViewObject.
+**Tooling visualization (F.3a/F.3b):** punch and die rendered in machine assembly position via `PressBrakeMachine.with_default_tooling()` + `ToolingAssembly.place()` (`smbs_core/Physics/machine_kinematics.py`, `smbs_core/Physics/tooling_assembly.py`). Machine frame: badge `MACHINE: LOADED` (real B-Rep CAD model & sidecar, KL-16 closed) or `MACHINE: MISSING / SIMPLIFIED` if absent. `tooling_placement` computed on-the-fly from `tooling_manifest` + `candidate_sequence` + `bend_line_flat_pattern` (option (a), no new schema, #7 clean). Rendering uses persistent `Part::Feature` objects (SMBS_Animation, SMBS_Punch, SMBS_Die, SMBS_MachineFrame) updated in-place via `obj.touch()` + `Gui.updateGui()`.
 
-Not in this version:
-- **Backgauge visual** — deferred to F.3b.
-- **Punch descent animation** (punch moves down on each bend) — deferred to F.3b. Current F.3a shows punch/die at static assembly position.
-- **Machine frame geometry** — deferred to F.3b (blocked on KL-16, no machine_frame.FCStd yet); badge `SIMPLIFIED` is honest placeholder.
-- **Reverse Play loop** — `AnimationController.step_backward()` exists, but Play always advances forward from step 0; reverse via user pressing Step ◀.
-- **Non-modal dialog** — dialog uses `exec()` (modal); reconsider in F.3b for interactive viewport manipulation during playback.
+Features in current version:
+- **Backgauge visual** — resolved via tooling library and sidecar geometry.
+- **Punch descent animation** — active bends descend punch towards BDC, Step 0 open height.
+- **Machine frame geometry** — real B-Rep CAD model (`machine_frame.FCStd`) with collision detection (KL-16 closed).
+- **Bidirectional playback** — both `Unfold (backward)` and `Fold (forward)` modes supported.
 
 **Manual GUI test status: PERFORMED in S.37 (smoke 1-7).** The FCMacro GUI is not unit-testable in CI. Headless logic (`smbs_core/viewer/fc_animation.py`: controller state machine + badge mapping, now including `format_machine_frame_badge` / `format_tooling_badge`) is covered by 13 tests in `tests/test_viewer_fc_animation.py`. Smoke found and fixed 4 pre-existing F.2 bugs (part_shape AttributeError, Part.Shape(occ) C++ abort, initial render missing, GUI refresh after in-place .Shape). Verified in FreeCAD: dialog opens, badges render with correct colors (verification, precision, tooling, machine_frame), Play advances frames, Step buttons work, slider seeks, shape updates visibly per frame, dialog close stops timer and cleans all 4 objects (SMBS_Animation, SMBS_Punch, SMBS_Die, SMBS_MachineFrame). **Known limitation:** panel shells disconnect after first unfold (visible as "separated panels") — pre-existing replayer behaviour, KL-12 v3 scope, not F.3a regression.
 
