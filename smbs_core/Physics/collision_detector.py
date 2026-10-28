@@ -14,6 +14,10 @@ from smbs_core.models.tooling import GeometryStatus
 
 logger = logging.getLogger(__name__)
 
+SELF_COLLISION_GAP_TOL_MM = 0.05
+SELF_COLLISION_CONTACT_TOL_MM = 1e-3
+SELF_COLLISION_MIN_SECTION_LEN_MM = 0.1
+
 
 class CollisionStatus(Enum):
     VALID = "valid"
@@ -144,14 +148,35 @@ class CollisionDetector:
                         adjacent_pairs += 1
                         continue
                     checked_pairs += 1
-                    # KL-12 guard: intersect_volume returns 0 for intersecting thin-walled
-                    # planar compounds, producing false VALID. Return honest UNKNOWN
-                    # for planar panels until proper self-collision detection is implemented
-                    # (KL-8 SELF scope). See PROGRESS.md KL-12.
-                    return CollisionResult(
-                        CollisionStatus.UNKNOWN,
-                        "Planar self-collision detection not implemented (see KL-8 SELF scope)"
-                    )
+                    mp_shape = panel_shapes[mp_id]
+
+                    dist = self.backend.min_distance(fp_shape, mp_shape)
+                    if dist is None:
+                        return CollisionResult(
+                            CollisionStatus.UNKNOWN,
+                            f"distance query failed between panel {fp_id} and {mp_id}"
+                        )
+                    if dist > SELF_COLLISION_GAP_TOL_MM:
+                        continue  # clear
+
+                    sec_len = self.backend.section_overlap_length(fp_shape, mp_shape)
+                    if sec_len is None:
+                        return CollisionResult(
+                            CollisionStatus.UNKNOWN,
+                            f"section query failed between panel {fp_id} and {mp_id}"
+                        )
+                    if sec_len >= SELF_COLLISION_MIN_SECTION_LEN_MM:
+                        return CollisionResult(
+                            CollisionStatus.INVALID,
+                            f"Panel self-intersection between {fp_id} and {mp_id} (section_len={sec_len:.4f} mm)"
+                        )
+                    if dist <= SELF_COLLISION_CONTACT_TOL_MM:
+                        return CollisionResult(
+                            CollisionStatus.INVALID,
+                            f"Panel contact/penetration between {fp_id} and {mp_id} (dist={dist:.6f} mm)"
+                        )
+                    # gap_tol >= dist > contact_tol: small gap, no section overlap -> consider VALID (clear with small gap)
+                    continue
 
             if checked_pairs > 0:
                 return CollisionResult(CollisionStatus.VALID, "Clear")
