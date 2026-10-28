@@ -1,0 +1,29 @@
+{
+  "schema_version": "1.0",
+  "id": "puancon",
+  "kind": "punch",
+  "source": "puancon.FCStd",
+  "datums": {
+    "mounting_plane": {
+      "kind": "plane",
+      "origin": [-403.564, -3700.154, 0.0],
+      "normal": [0, -1, 0],
+      "tolerance_mm": 0.05
+    },
+    "working_axis": {
+      "kind": "axis",
+      "origin": [-403.564, -3833.561, 0.0],
+      "direction": [0, 0, 1],
+      "tolerance_mm": 0.02
+    },
+    "tip_point": {
+      "kind": "point",
+      "position": [-403.564, -3833.561, 0.0]
+    }
+  },
+  "metadata": {
+    "angle_deg": 88,
+    "radius_mm": 1.0,
+    "height_mm": 133.4
+  }
+}

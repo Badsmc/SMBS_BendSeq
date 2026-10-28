@@ -1,0 +1,98 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "smbs://contracts/envelope.schema.json",
+  "title": "ContractEnvelope",
+  "description": "Base envelope required for every SMBS inter-worker file artifact (§4.2)",
+  "type": "object",
+  "required": [
+    "schema_name",
+    "schema_version",
+    "run_id",
+    "part_id",
+    "input_fingerprint",
+    "producer",
+    "units",
+    "frame_convention",
+    "status",
+    "payload",
+    "diagnostics",
+    "created_at",
+    "content_hash"
+  ],
+  "properties": {
+    "schema_name": {
+      "type": "string"
+    },
+    "schema_version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+$"
+    },
+    "run_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "part_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "input_fingerprint": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "producer": {
+      "type": "object",
+      "required": ["name", "version"],
+      "properties": {
+        "name": { "type": "string" },
+        "version": { "type": "string" }
+      }
+    },
+    "units": {
+      "type": "string",
+      "enum": ["mm", "m", "in"]
+    },
+    "frame_convention": {
+      "type": "string",
+      "enum": ["Z_UP_X_ALONG_BEND", "STANDARD_CARTESIAN_MM"]
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "SUCCESS",
+        "PARTIAL",
+        "NO_SOLUTION",
+        "TIMEOUT",
+        "RESOURCE_EXHAUSTED",
+        "INVALID_INPUT",
+        "UNKNOWN",
+        "BACKEND_UNAVAILABLE",
+        "CONTRACT_ERROR",
+        "WORKER_ERROR",
+        "VERIFICATION_FAILED"
+      ]
+    },
+    "payload": {
+      "type": "object"
+    },
+    "diagnostics": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["code", "message", "level"],
+        "properties": {
+          "code": { "type": "string" },
+          "message": { "type": "string" },
+          "level": { "type": "string", "enum": ["INFO", "WARNING", "ERROR"] },
+          "stage": { "type": "string" }
+        }
+      }
+    },
+    "created_at": {
+      "type": "string"
+    },
+    "content_hash": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    }
+  }
+}

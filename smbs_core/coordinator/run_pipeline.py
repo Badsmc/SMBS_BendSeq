@@ -1,0 +1,561 @@
+"""
+Pipeline Coordinator for SMBS / BendSeq.
+Compliant with technical specification v1.2 §4.1, §4.2, §4.5 and Principles 2, 8, 21.
+Coordinates complete end-to-end pipeline:
+Coordinator
+ ├─ 01_input_manifest.json → Geometry/SheetMetal Worker → 02_geometry_result.json + geometry.brep
+ ├─ 03_problem.json → Topology Worker → 04_canonical_part.json
+ ├─ Stage 1: Baseline Worker → 04_baseline_result.json + restored.brep
+ ├─ Stage 2: 06_search_request.json → Solver Worker → 07_search_result.json
+ ├─ Stage 3: 08_verification_request.json → Verifier Worker → 09_verification_result.json
+ └─ Export Worker → 10_part_bendseq.json + 11_run_report.json
+"""
+
+from __future__ import annotations
+import os
+import uuid
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Dict, Optional, Union
+
+from smbs_core.protocols.file_store import (
+    ContractError,
+    FileStore,
+    RunStatus,
+    compute_file_sha256,
+)
+from smbs_core.workers.geometry.worker import GeometryWorker
+from smbs_core.workers.topology.worker import TopologyWorker
+from smbs_core.workers.baseline.worker import BaselineWorker
+from smbs_core.workers.solver.worker import SolverWorker
+from smbs_core.workers.verifier.worker import VerifierWorker
+from smbs_core.workers.export.worker import ExportWorker
+from smbs_core.geometry_backend.io.tooling_catalog import ToolDescriptor
+from smbs_core.tooling.selection import ToolingSelectionError, select_tooling
+
+DEFAULT_SEGMENT_CATALOG = (10.0, 15.0, 20.0, 50.0, 100.0)
+
+
+class Coordinator:
+    """
+    Coordinator orchestrating worker execution via strictly versioned file artifacts.
+    Coordinator NEVER performs geometric operations or collision checks directly (§4.1).
+    """
+
+    def __init__(self, workspace_root: Optional[Union[str, Path]] = None):
+        self.workspace_root = Path(workspace_root or Path(__file__).resolve().parent.parent.parent)
+        self.runs_root = self.workspace_root / "runs"
+        self.runs_root.mkdir(parents=True, exist_ok=True)
+        self.file_store = FileStore()
+
+        # Registered workers
+        self.geometry_worker = GeometryWorker(self.file_store)
+        self.topology_worker = TopologyWorker(self.file_store)
+        self.baseline_worker = BaselineWorker(self.file_store)
+        self.solver_worker = SolverWorker(self.file_store)
+        self.verifier_worker = VerifierWorker(self.file_store)
+        self.export_worker = ExportWorker(self.file_store)
+
+    def start_run(
+        self,
+        source_file_path: Union[str, Path],
+        part_id: str,
+        input_mode: str = "NATIVE_SHEETMETAL",
+        target_object_name: Optional[str] = None,
+        run_id: Optional[str] = None,
+        comparison_mode: str = "CANONICAL",
+        k_factor_override: Optional[float] = None,
+        standard_override: Optional[str] = None,
+        tolerance_profile: Optional[Dict[str, float]] = None,
+        resource_budget: Optional[Dict[str, Any]] = None,
+        search_algorithm: str = "astar",
+        machine_config: Optional[Dict[str, Any]] = None,
+        unknown_policy: str = "PRODUCTION",
+    ) -> Dict[str, Any]:
+        """
+        Executes full pipeline:
+        Stage 1: Geometry -> Topology -> Baseline.
+        Stage 2: Search Request -> Solver -> Search Result.
+        Stage 3: Verification Request -> Verifier -> Export Worker.
+        Returns final verified part_bendseq report.
+        """
+        source_path = Path(source_file_path)
+        if not source_path.is_absolute():
+            source_path = self.workspace_root / source_path
+
+        if not source_path.exists():
+            raise FileNotFoundError(f"Source file does not exist: {source_path}")
+
+        resolved_punch_desc: Optional[ToolDescriptor] = None
+        resolved_die_desc: Optional[ToolDescriptor] = None
+
+        if machine_config is not None:
+            # clamps_config_obj is loaded (validated by CLI) but NOT used in planning yet.
+            # Punch chain validation against clamps is requirement 4 (Phase E, optimal tooling selection).
+            # This is intentional plumbing for future requirement 4.
+            clamps_config_obj = machine_config.get("clamps_config")
+
+            # === S.25b: tooling_set resolution (highest priority) ===
+            tooling_set_id = machine_config.get("tooling_set")
+            if tooling_set_id is not None:
+                lib_path_val = machine_config.get("library_path")
+                if lib_path_val is None:
+                    raise ValueError(
+                        "machine_config: library_path required when tooling_set is given"
+                    )
+                if machine_config.get("punch_id") is not None or machine_config.get("die_id") is not None:
+                    raise ValueError(
+                        "machine_config: cannot mix tooling_set with punch_id/die_id"
+                    )
+                if machine_config.get("clamps_config") is not None:
+                    raise ValueError(
+                        "machine_config: cannot mix tooling_set with clamps_config "
+                        "(set already contains clamp_positions_mm)"
+                    )
+
+                from smbs_core.geometry_backend.io.tooling_library import (
+                    ToolingLibrary, ToolingLibraryError,
+                )
+                from smbs_core.geometry_backend.io.tooling_catalog import ToolingCatalogError
+                try:
+                    lib = ToolingLibrary(Path(lib_path_val))
+                    tooling_set = lib.get_set(tooling_set_id)
+                except (ToolingLibraryError, ToolingCatalogError) as e:
+                    raise ValueError(
+                        f"Failed to resolve tooling_set '{tooling_set_id}' from library: {e}"
+                    ) from e
+
+                # Resolve punch/die via library
+                try:
+                    punch_desc = lib.get_tool(tooling_set.punch_id)
+                    die_desc = lib.get_tool(tooling_set.die_id)
+                except ToolingCatalogError as e:
+                    raise ValueError(
+                        f"tooling_set '{tooling_set_id}' references missing tool: {e}"
+                    ) from e
+
+                resolved_punch_desc = punch_desc
+                resolved_die_desc = die_desc
+
+                if punch_desc.kind != "punch":
+                    raise ValueError(
+                        f"tooling_set '{tooling_set_id}' punch_id '{tooling_set.punch_id}' "
+                        f"resolved to kind '{punch_desc.kind}', expected 'punch'"
+                    )
+                if die_desc.kind != "die":
+                    raise ValueError(
+                        f"tooling_set '{tooling_set_id}' die_id '{tooling_set.die_id}' "
+                        f"resolved to kind '{die_desc.kind}', expected 'die'"
+                    )
+
+                # Build ClampConfig from tooling_set.clamp_positions_mm (if non-empty)
+                # Otherwise use default (positions will be empty — caller must provide).
+                # This is plumbing: ClampConfig is stored but not enforced yet (requirement 4).
+                if tooling_set.clamp_positions_mm:
+                    from smbs_core.geometry_backend.io.clamp_validator import ClampConfig
+                    clamps_config_from_set = ClampConfig.from_defaults(tooling_set.clamp_positions_mm)
+                else:
+                    clamps_config_from_set = None
+
+                # Rewrite machine_config to path-based (drop tooling_set keys)
+                machine_config = dict(machine_config)
+                machine_config["punch_path"] = str(punch_desc.fcstd_path)
+                machine_config["die_path"] = str(die_desc.fcstd_path)
+                if clamps_config_from_set is not None:
+                    machine_config["clamps_config"] = clamps_config_from_set
+                machine_config.pop("tooling_set", None)
+                machine_config.pop("library_path", None)
+
+            # === S.22g: id-based resolution ===
+            else:
+                punch_id_val = machine_config.get("punch_id")
+                die_id_val = machine_config.get("die_id")
+                lib_path_val = machine_config.get("library_path")
+
+                if punch_id_val is not None or die_id_val is not None:
+                    if punch_id_val is None or die_id_val is None:
+                        raise ValueError(
+                            "machine_config: punch_id and die_id must be provided together"
+                        )
+                    if lib_path_val is None:
+                        raise ValueError(
+                            "machine_config: library_path required when punch_id/die_id are given"
+                        )
+                    if "punch_path" in machine_config or "die_path" in machine_config:
+                        raise ValueError(
+                            "machine_config: cannot mix punch_id/die_id with punch_path/die_path"
+                        )
+
+                    from smbs_core.geometry_backend.io.tooling_library import ToolingLibrary, ToolingLibraryError
+                    from smbs_core.geometry_backend.io.tooling_catalog import ToolingCatalogError
+                    try:
+                        lib = ToolingLibrary(Path(lib_path_val))
+                        punch_desc = lib.get_tool(punch_id_val)
+                        die_desc = lib.get_tool(die_id_val)
+                    except (ToolingLibraryError, ToolingCatalogError) as e:
+                        raise ValueError(f"Failed to resolve tooling from library: {e}") from e
+
+                    if punch_desc.kind != "punch":
+                        raise ValueError(
+                            f"punch_id '{punch_id_val}' resolved to kind '{punch_desc.kind}', expected 'punch'"
+                        )
+                    if die_desc.kind != "die":
+                        raise ValueError(
+                            f"die_id '{die_id_val}' resolved to kind '{die_desc.kind}', expected 'die'"
+                        )
+
+                    resolved_punch_desc = punch_desc
+                    resolved_die_desc = die_desc
+
+                    machine_config = dict(machine_config)
+                    machine_config["punch_path"] = str(punch_desc.fcstd_path)
+                    machine_config["die_path"] = str(die_desc.fcstd_path)
+                    machine_config.pop("punch_id", None)
+                    machine_config.pop("die_id", None)
+                    machine_config.pop("library_path", None)
+
+        run_id = run_id or f"run_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
+        run_dir = self.runs_root / run_id
+        run_dir.mkdir(parents=True, exist_ok=True)
+
+        input_fingerprint = compute_file_sha256(source_path)
+
+        # 0. Write 01_input_manifest.json
+        manifest_data = {
+            "schema_name": "input_manifest",
+            "schema_version": "1.1",
+            "run_id": run_id,
+            "part_id": part_id,
+            "input_fingerprint": input_fingerprint,
+            "producer": {"name": "coordinator", "version": "1.1"},
+            "units": "mm",
+            "frame_convention": "STANDARD_CARTESIAN_MM",
+            "status": RunStatus.SUCCESS.value,
+            "diagnostics": [],
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "payload": {
+                "source_file_path": str(source_path),
+                "input_mode": input_mode,
+                "target_object_name": target_object_name,
+                "comparison_mode": comparison_mode,
+                "k_factor_override": k_factor_override,
+                "standard_override": standard_override,
+                "linear_tolerance_mm": 0.1,
+                "angular_tolerance_deg": 0.5
+            }
+        }
+
+        manifest_file = run_dir / "01_input_manifest.json"
+        self.file_store.write_json_atomic(manifest_file, manifest_data, schema_name="input_manifest")
+
+        # 1. Geometry Worker
+        geom_result_file = self.geometry_worker.execute(manifest_file)
+        geom_result = self.file_store.read_json_verified(geom_result_file, expected_schema_name="geometry_result")
+
+        # Verify geometry.brep exists and hash matches
+        geom_artifact_info = geom_result["payload"]["geometry_artifact"]
+        brep_file = self.workspace_root / geom_artifact_info["file_path"]
+        if not brep_file.exists():
+            brep_file = run_dir / Path(geom_artifact_info["file_path"]).name
+            if not brep_file.exists():
+                raise ContractError(f"Worker promised geometry.brep at {brep_file}, but file not found.")
+
+        actual_brep_hash = compute_file_sha256(brep_file)
+        if actual_brep_hash != geom_artifact_info["content_hash"]:
+            raise ContractError(
+                f"Binary integrity mismatch: promised {geom_artifact_info['content_hash']} != actual {actual_brep_hash}"
+            )
+
+        # 2. Topology Worker (§4.1, 04_canonical_part.json)
+        canonical_part_file = self.topology_worker.execute(geom_result_file)
+        canonical_part = self.file_store.read_json_verified(canonical_part_file, expected_schema_name="canonical_part")
+
+        # 3. Stage 1 Baseline Worker (§5.1, unfold -> align -> fold -> compare)
+        baseline_result_file = self.baseline_worker.execute(
+            geom_result_file,
+            canonical_part_file,
+            tolerance_profile=tolerance_profile,
+            comparison_mode=comparison_mode
+        )
+        baseline_result = self.file_store.read_json_verified(baseline_result_file, expected_schema_name="baseline_result")
+
+        # If Baseline fails, abort search according to §1.3
+        if not baseline_result["payload"]["pass"]:
+            return {
+                "run_id": run_id,
+                "run_dir": str(run_dir),
+                "status": RunStatus.WORKER_ERROR.value,
+                "stage": "baseline",
+                "baseline_status": baseline_result["payload"]["baseline_status"],
+                "pass": False,
+                "baseline_metrics": baseline_result["payload"]["metrics"],
+                "diagnostics": baseline_result["diagnostics"]
+            }
+
+        # 4. Stage 2: Create Tooling Manifest & 06_search_request.json
+        tooling_diagnostics = []
+        if machine_config:
+            punch_path = machine_config.get("punch_path")
+            die_path = machine_config.get("die_path")
+            punch_id = Path(punch_path).stem if punch_path else "punch_real"
+            die_id = Path(die_path).stem if die_path else "die_real"
+            press_id = machine_config.get("press_id", "press_100t")
+            bed_length = float(machine_config.get("bed_length_mm", 3000.0))
+
+            payload_punch = {
+                "tool_id": punch_id,
+                "punch_type": "straight",
+                "height_mm": 100.0,
+                "tip_radius_mm": 1.0,
+                "tip_angle_deg": 88.0,
+                "tooling_status": "REAL",
+                "model_path": str(punch_path) if punch_path else None,
+                "model_hash": None,
+                "segment_layout_mm": [100.0, 200.0]
+            }
+            if "punch_target_object_name" in machine_config:
+                payload_punch["target_object_name"] = machine_config["punch_target_object_name"]
+
+            payload_die = {
+                "tool_id": die_id,
+                "v_opening_mm": 12.0,
+                "v_angle_deg": 88.0,
+                "height_mm": 80.0,
+                "shoulder_radius_mm": 1.0,
+                "tooling_status": "REAL",
+                "model_path": str(die_path) if die_path else None,
+                "model_hash": None,
+                "segment_layout_mm": [100.0, 200.0]
+            }
+            if "die_target_object_name" in machine_config:
+                payload_die["target_object_name"] = machine_config["die_target_object_name"]
+
+            payload_press = {
+                "press_id": press_id,
+                "max_tonnage_tons": float(machine_config.get("max_tonnage_tons", 100.0)),
+                "bed_length_mm": bed_length,
+                "stroke_mm": float(machine_config.get("stroke_mm", 200.0)),
+                "open_height_mm": float(machine_config.get("open_height_mm", 350.0))
+            }
+        else:
+            tooling_diagnostics.append("machine_config not provided; default SIMPLIFIED tooling")
+            payload_press = {
+                "press_id": "press_100t",
+                "max_tonnage_tons": 100.0,
+                "bed_length_mm": 3000.0,
+                "stroke_mm": 200.0,
+                "open_height_mm": 350.0
+            }
+            payload_punch = {
+                "tool_id": "PUNCH_STD_R1",
+                "punch_type": "straight",
+                "height_mm": 100.0,
+                "tip_radius_mm": 1.0,
+                "tip_angle_deg": 88.0,
+                "tooling_status": "SIMPLIFIED",
+                "segment_layout_mm": [100.0, 200.0]
+            }
+            payload_die = {
+                "tool_id": "DIE_V12",
+                "v_opening_mm": 12.0,
+                "v_angle_deg": 88.0,
+                "height_mm": 80.0,
+                "shoulder_radius_mm": 1.0,
+                "tooling_status": "SIMPLIFIED",
+                "segment_layout_mm": [100.0, 200.0]
+            }
+
+        tooling_manifest_data = {
+            "schema_name": "tooling_manifest",
+            "schema_version": "1.1",
+            "run_id": run_id,
+            "part_id": part_id,
+            "input_fingerprint": input_fingerprint,
+            "producer": {"name": "coordinator", "version": "1.1"},
+            "units": "mm",
+            "frame_convention": "STANDARD_CARTESIAN_MM",
+            "status": RunStatus.SUCCESS.value,
+            "diagnostics": tooling_diagnostics,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "payload": {
+                "press": payload_press,
+                "punch": payload_punch,
+                "die": payload_die
+            }
+        }
+        tooling_file = run_dir / "tooling_manifest.json"
+        tooling_hash = self.file_store.write_json_atomic(tooling_file, tooling_manifest_data, schema_name="tooling_manifest")
+
+        canonical_part_hash = canonical_part["content_hash"]
+        budget = resource_budget or {
+            "max_wall_time_s": 30.0,
+            "max_nodes": 50000,
+            "max_cache_entries": 20000,
+            "max_geometry_ops": 5000,
+            "max_trajectory_samples": 2000,
+            "max_memory_mb": 2048.0
+        }
+
+        search_req_data = {
+            "schema_name": "search_request",
+            "schema_version": "1.1",
+            "run_id": run_id,
+            "part_id": part_id,
+            "input_fingerprint": input_fingerprint,
+            "producer": {"name": "coordinator", "version": "1.1"},
+            "units": "mm",
+            "frame_convention": "STANDARD_CARTESIAN_MM",
+            "status": RunStatus.SUCCESS.value,
+            "diagnostics": [],
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "payload": {
+                "canonical_part_ref": {
+                    "file_path": str(canonical_part_file.relative_to(self.workspace_root)),
+                    "content_hash": canonical_part_hash
+                },
+                "tooling_manifest_ref": {
+                    "file_path": str(tooling_file.relative_to(self.workspace_root)),
+                    "content_hash": tooling_hash
+                },
+                "search_algorithm": search_algorithm,
+                "candidate_order_policy": "outside_in",
+                "unknown_policy": unknown_policy,
+                "cost_weights": {"w_tool": 100.0, "w_flip": 20.0, "w_setup": 10.0, "w_time": 1.0},
+                "resource_budget": budget
+            }
+        }
+        search_req_file = run_dir / "06_search_request.json"
+        self.file_store.write_json_atomic(search_req_file, search_req_data, schema_name="search_request")
+
+        # 5. Invoke Solver Worker
+        search_result_file = self.solver_worker.execute(search_req_file)
+        search_result = self.file_store.read_json_verified(search_result_file, expected_schema_name="search_result")
+
+        # 6. Stage 3: Invoke Independent Verifier Worker
+        verif_result_file = self.verifier_worker.execute(
+            search_result_file,
+            canonical_part_file,
+            tolerance_profile=tolerance_profile
+        )
+        verif_result = self.file_store.read_json_verified(verif_result_file, expected_schema_name="verification_result")
+
+        # 7. Invoke Export Worker (§7.2, §7.3)
+        export_file, report_file = self.export_worker.execute(
+            search_result_file,
+            verif_result_file,
+            canonical_part_file
+        )
+        part_bendseq = self.file_store.read_json_verified(export_file, expected_schema_name="part_bendseq")
+        run_report = self.file_store.read_json_verified(report_file, expected_schema_name="envelope")
+
+        # 8. Optimal Tooling Selection (Req 4, Phase E)
+        tooling_selection_file = self._write_tooling_selection(
+            run_dir=run_dir,
+            run_id=run_id,
+            part_id=part_id,
+            input_fingerprint=input_fingerprint,
+            search_result=search_result,
+            canonical_part=canonical_part,
+            machine_config=machine_config,
+            punch_desc=resolved_punch_desc,
+            die_desc=resolved_die_desc,
+        )
+
+        return {
+            "status": RunStatus.SUCCESS.value if part_bendseq["production_eligible"] else part_bendseq["planning_status"],
+            "run_id": run_id,
+            "run_dir": str(run_dir),
+            "manifest_path": str(manifest_file),
+            "geometry_result_path": str(geom_result_file),
+            "canonical_part_path": str(canonical_part_file),
+            "baseline_result_path": str(baseline_result_file),
+            "search_result_path": str(search_result_file),
+            "verification_result_path": str(verif_result_file),
+            "export_file_path": str(export_file),
+            "run_report_path": str(report_file),
+            "tooling_selection_path": str(tooling_selection_file),
+            "planning_status": part_bendseq["planning_status"],
+            "verification_status": part_bendseq["verification_status"],
+            "export_status": part_bendseq["export_status"],
+            "production_eligible": part_bendseq["production_eligible"],
+            "sequence": part_bendseq["sequence"],
+            "baseline_status": baseline_result["payload"]["baseline_status"],
+            "pass": baseline_result["payload"]["pass"],
+            "baseline_metrics": baseline_result["payload"]["metrics"],
+            "payload": geom_result["payload"],
+            "canonical_part": canonical_part["payload"],
+            "run_report": run_report["payload"]
+        }
+
+    def _write_tooling_selection(
+        self,
+        run_dir: Path,
+        run_id: str,
+        part_id: str,
+        input_fingerprint: str,
+        search_result: Dict[str, Any],
+        canonical_part: Dict[str, Any],
+        machine_config: Optional[Dict[str, Any]],
+        punch_desc: Optional[ToolDescriptor],
+        die_desc: Optional[ToolDescriptor],
+    ) -> Path:
+        """Writes 12_tooling_selection.json (Req 4 Phase E)."""
+        payload: Dict[str, Any] = {}
+        status = "UNKNOWN"
+        diagnostics: list[str] = []
+
+        if punch_desc is None or die_desc is None:
+            diagnostics.append(
+                "Phase E requires library-resolved tooling; path-based input not supported"
+            )
+            payload = {
+                "objective": "MIN_TOOL_CHANGES",
+                "assignments": [],
+                "total_tool_changes": 0,
+                "warnings": [],
+            }
+        else:
+            clamps_config = (machine_config or {}).get("clamps_config")
+            segment_catalog = (machine_config or {}).get("segment_catalog", DEFAULT_SEGMENT_CATALOG)
+
+            try:
+                payload = select_tooling(
+                    candidate_sequence=search_result["payload"]["candidate_sequence"],
+                    bends_map=canonical_part["payload"]["bends"],
+                    clamps_config=clamps_config,
+                    available_punches=[punch_desc],
+                    available_dies=[die_desc],
+                    segment_catalog=segment_catalog,
+                )
+                status = "SUCCESS" if len(payload["assignments"]) == len(search_result["payload"]["candidate_sequence"]) else "PARTIAL"
+                if status == "PARTIAL":
+                    diagnostics.append(
+                        "Some bends could not be assigned; see warnings"
+                    )
+            except ToolingSelectionError as e:
+                diagnostics.append(str(e))
+                payload = {
+                    "objective": "MIN_TOOL_CHANGES",
+                    "assignments": [],
+                    "total_tool_changes": 0,
+                    "warnings": [],
+                }
+
+        envelope = {
+            "schema_name": "tooling_selection",
+            "schema_version": "1.0",
+            "run_id": run_id,
+            "part_id": part_id,
+            "input_fingerprint": input_fingerprint,
+            "producer": {"name": "coordinator", "version": "1.0"},
+            "units": "mm",
+            "frame_convention": "STANDARD_CARTESIAN_MM",
+            "status": status,
+            "diagnostics": diagnostics,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "payload": payload,
+        }
+
+        out_file = run_dir / "12_tooling_selection.json"
+        self.file_store.write_json_atomic(out_file, envelope, schema_name="tooling_selection")
+        return out_file

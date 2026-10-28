@@ -1,0 +1,30 @@
+{
+  "schema_version": "1.0",
+  "id": "matrica",
+  "kind": "die",
+  "source": "matrica.FCStd",
+  "datums": {
+    "mounting_plane": {
+      "kind": "plane",
+      "origin": [-412.308, -3900.49, 0.0],
+      "normal": [0, 1, 0],
+      "tolerance_mm": 0.05
+    },
+    "working_axis": {
+      "kind": "axis",
+      "origin": [-412.308, -3856.341, 0.0],
+      "direction": [0, 0, 1],
+      "tolerance_mm": 0.02
+    },
+    "v_center": {
+      "kind": "axis",
+      "origin": [-412.308, -3856.341, 0.0],
+      "direction": [0, 0, 1]
+    }
+  },
+  "metadata": {
+    "v_width_mm": 12,
+    "angle_deg": 88,
+    "height_mm": 60.0
+  }
+}

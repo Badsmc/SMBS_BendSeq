@@ -1,0 +1,94 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "smbs://contracts/geometry_result.schema.json",
+  "title": "GeometryResult",
+  "description": "Output of Geometry Worker containing validated B-Rep shape and flat pattern (§4.1, §4.4)",
+  "type": "object",
+  "required": [
+    "schema_name",
+    "schema_version",
+    "run_id",
+    "part_id",
+    "input_fingerprint",
+    "producer",
+    "units",
+    "frame_convention",
+    "status",
+    "payload",
+    "diagnostics",
+    "created_at",
+    "content_hash"
+  ],
+  "properties": {
+    "schema_name": { "const": "geometry_result" },
+    "schema_version": { "type": "string" },
+    "run_id": { "type": "string" },
+    "part_id": { "type": "string" },
+    "input_fingerprint": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "producer": { "type": "object" },
+    "units": { "type": "string", "enum": ["mm", "m", "in"] },
+    "frame_convention": { "type": "string" },
+    "status": { "type": "string" },
+    "diagnostics": { "type": "array" },
+    "created_at": { "type": "string" },
+    "content_hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "payload": {
+      "type": "object",
+      "required": [
+        "geometry_artifact",
+        "thickness_mm",
+        "detected_faces_count",
+        "detected_bends_count",
+        "geometry_status"
+      ],
+      "properties": {
+        "geometry_artifact": {
+          "type": "object",
+          "required": ["file_path", "format", "content_hash"],
+          "properties": {
+            "file_path": { "type": "string" },
+            "format": { "type": "string", "enum": ["BREP", "STEP"] },
+            "content_hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+          }
+        },
+        "flat_pattern_artifact": {
+          "type": ["object", "null"],
+          "properties": {
+            "file_path": { "type": "string" },
+            "format": { "type": "string", "enum": ["BREP", "STEP"] },
+            "content_hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+            "bend_lines": {
+              "type": "array",
+              "items": { "type": "object" }
+            }
+          }
+        },
+        "thickness_mm": {
+          "type": "object",
+          "required": ["value", "source", "confidence"],
+          "properties": {
+            "value": { "type": ["number", "null"] },
+            "unit": { "type": "string", "default": "mm" },
+            "source": { "type": "string" },
+            "confidence": { "type": "string" }
+          }
+        },
+        "k_factor": {
+          "type": "object",
+          "properties": {
+            "value": { "type": ["number", "null"] },
+            "source": { "type": "string" },
+            "confidence": { "type": "string" }
+          }
+        },
+        "detected_faces_count": { "type": "integer" },
+        "detected_bends_count": { "type": "integer" },
+        "root_face_id": { "type": ["string", "null"] },
+        "geometry_status": {
+          "type": "string",
+          "enum": ["SUCCESS", "BACKEND_UNAVAILABLE", "WORKER_ERROR"]
+        }
+      }
+    }
+  }
+}

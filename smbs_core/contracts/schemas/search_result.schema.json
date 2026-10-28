@@ -1,0 +1,137 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "smbs://contracts/search_result.schema.json",
+  "title": "SearchResult",
+  "description": "Solver search output with candidate sequence and measured solver metrics (§4.1, §6.1, §6.2)",
+  "type": "object",
+  "required": [
+    "schema_name",
+    "schema_version",
+    "run_id",
+    "part_id",
+    "input_fingerprint",
+    "producer",
+    "units",
+    "frame_convention",
+    "status",
+    "payload",
+    "diagnostics",
+    "created_at",
+    "content_hash"
+  ],
+  "properties": {
+    "schema_name": { "const": "search_result" },
+    "schema_version": { "type": "string" },
+    "run_id": { "type": "string" },
+    "part_id": { "type": "string" },
+    "input_fingerprint": { "type": "string" },
+    "producer": { "type": "object" },
+    "units": { "type": "string", "enum": ["mm", "m", "in"] },
+    "frame_convention": { "type": "string" },
+    "status": { "type": "string" },
+    "diagnostics": { "type": "array" },
+    "created_at": { "type": "string" },
+    "content_hash": { "type": "string" },
+    "payload": {
+      "type": "object",
+      "required": [
+        "planning_status",
+        "termination_reason",
+        "optimality_claim",
+        "candidate_sequence",
+        "solver_metrics"
+      ],
+      "properties": {
+        "planning_status": {
+          "type": "string",
+          "enum": [
+            "SUCCESS",
+            "NO_SOLUTION",
+            "TIMEOUT",
+            "RESOURCE_EXHAUSTED",
+            "UNKNOWN",
+            "PARTIAL"
+          ]
+        },
+        "termination_reason": {
+          "type": "string",
+          "enum": [
+            "GOAL_REACHED",
+            "NO_MORE_CANDIDATES",
+            "TIME_EXHAUSTED",
+            "NODE_LIMIT_EXHAUSTED",
+            "RESOURCE_LIMIT_EXHAUSTED",
+            "UNKNOWN_ABORT"
+          ]
+        },
+        "optimality_claim": {
+          "type": "string",
+          "enum": ["optimal", "best_found_under_budget", "feasible_unoptimized"]
+        },
+        "total_cost": { "type": "number" },
+        "candidate_sequence": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "step",
+              "bend_id",
+              "direction",
+              "angle_deg",
+              "radius_mm",
+              "backgauge",
+              "tool_id",
+              "planner_status",
+              "collision_status",
+              "tooling_status",
+              "alignment_status"
+            ],
+            "properties": {
+              "step": { "type": "integer", "minimum": 1 },
+              "bend_id": { "type": "string" },
+              "direction": { "type": "object" },
+              "angle_deg": { "type": "object" },
+              "radius_mm": { "type": "object" },
+              "k_factor": { "type": "object" },
+              "backgauge": {
+                "type": "object",
+                "required": ["x_mm", "r_mm", "confidence"],
+                "properties": {
+                  "x_mm": { "type": ["number", "null"] },
+                  "r_mm": { "type": ["number", "null"] },
+                  "z1_mm": { "type": ["number", "null"] },
+                  "z2_mm": { "type": ["number", "null"] },
+                  "confidence": { "type": "string", "enum": ["CONFIRMED", "ESTIMATED", "UNKNOWN"] }
+                }
+              },
+              "tool_id": { "type": "string" },
+              "planner_status": { "type": "string", "enum": ["VALID", "INVALID", "UNKNOWN"] },
+              "collision_status": { "type": "string", "enum": ["VALID", "INVALID", "UNKNOWN", "INSUFFICIENT_CLEARANCE"] },
+              "tooling_status": { "type": "string", "enum": ["REAL", "SIMPLIFIED", "MISSING"] },
+              "alignment_status": { "type": "string", "enum": ["OK", "CANNOT_VERIFY", "FRAME_AMBIGUOUS"] }
+            }
+          }
+        },
+        "solver_metrics": {
+          "type": "object",
+          "required": [
+            "prefilter_checks",
+            "exact_collision_queries",
+            "trajectory_samples",
+            "solver_nodes",
+            "wall_time_s",
+            "peak_memory_mb"
+          ],
+          "properties": {
+            "prefilter_checks": { "type": "integer" },
+            "exact_collision_queries": { "type": "integer" },
+            "trajectory_samples": { "type": "integer" },
+            "solver_nodes": { "type": "integer" },
+            "wall_time_s": { "type": "number" },
+            "peak_memory_mb": { "type": "number" }
+          }
+        }
+      }
+    }
+  }
+}
