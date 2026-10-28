@@ -15,6 +15,8 @@ Headless-safe:
 """
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from freecad_smbs.ui.badges import (
@@ -43,9 +45,28 @@ def extract_verification_details(artifacts: Any) -> Dict[str, Any]:
     Extract structured verification information from RunArtifacts.
     Pure Python, headless-safe, strict honesty rules (Invariant #1, #2, KL-26).
     """
-    run_id = getattr(artifacts, "run_id", "—")
-    part_id = getattr(artifacts, "part_id", "—")
+    run_id = getattr(artifacts, "run_id", None)
+    part_id = getattr(artifacts, "part_id", None)
     vr = getattr(artifacts, "verification_result", None)
+    cp = getattr(artifacts, "canonical_part", None)
+    run_dir = getattr(artifacts, "run_dir", None)
+
+    if not run_id or run_id == "—":
+        if vr and vr.get("run_id"):
+            run_id = vr.get("run_id")
+        elif cp and cp.get("run_id"):
+            run_id = cp.get("run_id")
+        elif run_dir:
+            run_id = Path(run_dir).name
+        else:
+            run_id = "—"
+    if not part_id or part_id == "—":
+        if vr and vr.get("part_id"):
+            part_id = vr.get("part_id")
+        elif cp and cp.get("part_id"):
+            part_id = cp.get("part_id")
+        else:
+            part_id = "—"
 
     stages: Dict[str, Dict[str, Any]] = {}
     for st_key, st_label in STAGE_LABELS.items():
@@ -149,6 +170,34 @@ def extract_verification_details(artifacts: Any) -> Dict[str, Any]:
                 stages[st_key]["status"] = "PASSED" if step_verifications else "UNCHECKED"
                 stages[st_key]["details"] = "Замечаний нет" if step_verifications else "Не проверялось"
 
+        # Baseline geometric verification (Stage 04: SheetMetalFolder restored shape vs CAD canonical part)
+        baseline_result = getattr(artifacts, "baseline_result", None)
+        if baseline_result is None and run_dir:
+            bf = Path(run_dir) / "04_baseline_result.json"
+            if bf.is_file():
+                try:
+                    baseline_result = json.loads(bf.read_text(encoding="utf-8"))
+                except Exception:
+                    pass
+
+        if baseline_result:
+            b_payload = baseline_result.get("payload", {})
+            b_status = b_payload.get("baseline_status")
+            b_metrics = b_payload.get("metrics", {})
+            if b_status == "VALID":
+                if "FOLD_CORRECTNESS" not in stage_errors:
+                    hd = b_metrics.get("hausdorff_distance_mm", 0.0)
+                    res_f = b_metrics.get("faces_count_restored")
+                    ref_f = b_metrics.get("faces_count_reference")
+                    stages["FOLD_CORRECTNESS"]["status"] = "PASSED"
+                    stages["FOLD_CORRECTNESS"]["details"] = f"Развёртка восстановлена (Hausdorff: {hd:.4f} мм, грани: {res_f}/{ref_f})"
+                if "SHAPE_METRICS" not in stage_errors:
+                    stages["SHAPE_METRICS"]["status"] = "PASSED"
+                    stages["SHAPE_METRICS"]["details"] = "B-Rep топология и геометрия совпадают с эталоном"
+
+                if not metrics or metrics.get("hausdorff_distance_mm", 0.0) >= 9999.0 or not metrics.get("is_valid_brep"):
+                    metrics = dict(b_metrics)
+
     return {
         "status": status,
         "badge_text": badge_text,
@@ -219,11 +268,11 @@ class VerificationDialog:
                     main_layout.addWidget(meta_box)
 
                     # 3. Tab Widget
-                    tabs = QtWidgets.QTabWidget()
-                    tabs.addTab(self._build_stages_tab(), "Этапы проверки")
-                    tabs.addTab(self._build_steps_tab(), "Шаги гибки")
-                    tabs.addTab(self._build_metrics_tab(), "Метрики формы")
-                    main_layout.addWidget(tabs, stretch=1)
+                    self.tabs = QtWidgets.QTabWidget()
+                    self.tabs.addTab(self._build_stages_tab(), "Этапы проверки")
+                    self.tabs.addTab(self._build_steps_tab(), "Шаги гибки")
+                    self.tabs.addTab(self._build_metrics_tab(), "Метрики формы")
+                    main_layout.addWidget(self.tabs, stretch=1)
 
                     # 4. Refusal Reasons / Diagnostics Box (if any)
                     reasons = self.details.get("reasons", [])
