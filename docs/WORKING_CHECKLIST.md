@@ -39,6 +39,7 @@
 
 | ID | Task | Commit | Evidence | Date |
 |---|---|---|---|---|
+| KL-8-SELF | Panel self-collision: replaced UNKNOWN placeholder with exact BRepExtrema_DistShapeShape proximity + BRepAlgoAPI_Section overlap queries for non-adjacent panels. Tolerances: gap_tol=0.05mm, contact_tol=1e-3mm, min_section_len=0.1mm. Strict contact/penetration=INVALID. UNKNOWN strictly blocks production_eligible under PRODUCTION policy. | HEAD | `tests/test_self_collision_panels.py` (SC-* matrix: 10 tests) | 2026-10-28 |
 | KL-9 | Relief-cut edge alignment & CAD refactor: geometric BRep detect_relief_notch_intervals, box_hub cut clamping, bend sector trimming. Fixture 2_1_3_4 yields 90 faces (was 94), counts_match=True, hausdorff=0.0000 mm. Zero cross-fixture regression. | HEAD | `scripts/probe_p2_relief_cut.py`, `tests/test_kl9_relief_cut.py`, `tests/test_verifier_worker_honest.py` (707 tests) | 2026-10-28 |
 | KL-16 | Machine frame collision geometry: committed CAD & sidecar, wired PressBrakeMachine/ToolingAssembly/validator, honest UNKNOWN on missing, zero fabrication on error, UI badge MACHINE: LOADED | HEAD | `tests/test_f3b_kl16_kl28.py`, `tests/test_freecad_smbs/` (703 tests) | 2026-10-27 |
 | P1c | FreeCAD UI bidirectional playback (Fold/Unfold) + direction-aware headers + full fixture sweep + updated tooltips and limitations | `e971545` | `tests/test_p1c_full_fixture_sweep.py` (700 tests) | 2026-10-27 |
