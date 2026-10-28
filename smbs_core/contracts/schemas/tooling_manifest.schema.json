@@ -296,6 +296,87 @@
               }
             }
           }
+        },
+        "applied_tooling_set": {
+          "type": "object",
+          "required": [
+            "set_id",
+            "punch_id",
+            "die_id",
+            "clamp_positions_mm"
+          ],
+          "properties": {
+            "set_id": {
+              "type": "string"
+            },
+            "punch_id": {
+              "type": "string"
+            },
+            "die_id": {
+              "type": "string"
+            },
+            "clamp_positions_mm": {
+              "type": "array",
+              "items": {
+                "type": "number"
+              }
+            },
+            "description": {
+              "type": "string"
+            },
+            "validation": {
+              "type": "object",
+              "required": [
+                "set_id",
+                "is_valid",
+                "fully_compatible",
+                "compatible_bends",
+                "incompatible_bends",
+                "requires_changeover"
+              ],
+              "properties": {
+                "set_id": {
+                  "type": "string"
+                },
+                "is_valid": {
+                  "type": "boolean"
+                },
+                "fully_compatible": {
+                  "type": "boolean"
+                },
+                "compatible_bends": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "incompatible_bends": {
+                  "type": "object"
+                },
+                "requires_changeover": {
+                  "type": "boolean"
+                },
+                "proposed_changeover_steps": {
+                  "type": "array",
+                  "items": {
+                    "type": "integer"
+                  }
+                },
+                "clamp_validation": {
+                  "type": [
+                    "object",
+                    "null"
+                  ]
+                },
+                "warnings": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
         }
       }
     }

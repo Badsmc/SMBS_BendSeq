@@ -25,6 +25,7 @@ _PREFS_FALLBACK: Dict[str, Any] = {
     "tooling_library_path": str(TOOL_LIBRARY_ROOT),
     "search_algorithm": DEFAULT_SEARCH_ALGORITHM,
     "unknown_policy": DEFAULT_UNKNOWN_POLICY,
+    "tooling_set_id": "",
 }
 
 _DialogClass: Optional[type] = None
@@ -45,10 +46,12 @@ def get_smbs_preferences() -> Dict[str, Any]:
             policy = param.GetString("UnknownPolicy", DEFAULT_UNKNOWN_POLICY)
             if not policy:
                 policy = DEFAULT_UNKNOWN_POLICY
+            tooling_set = param.GetString("ToolingSetId", "")
             return {
                 "tooling_library_path": tool_path,
                 "search_algorithm": algo,
                 "unknown_policy": policy,
+                "tooling_set_id": tooling_set,
             }
     except Exception:
         pass
@@ -71,6 +74,8 @@ def set_smbs_preferences(prefs: Dict[str, Any]) -> None:
                 param.SetString("SearchAlgorithm", str(prefs["search_algorithm"]))
             if "unknown_policy" in prefs:
                 param.SetString("UnknownPolicy", str(prefs["unknown_policy"]))
+            if "tooling_set_id" in prefs:
+                param.SetString("ToolingSetId", str(prefs["tooling_set_id"]))
     except Exception:
         pass
 
@@ -141,6 +146,22 @@ class PreferencesDialog:
                         self.combo_policy.setCurrentIndex(pol_idx)
                     grid.addWidget(self.combo_policy, 3, 1)
 
+                    # 4. Active Tooling Set
+                    grid.addWidget(QtWidgets.QLabel("Активный набор оснастки (Tooling Set):"), 4, 0)
+                    self.combo_tooling_set = QtWidgets.QComboBox()
+                    self.combo_tooling_set.addItem("— Не выбран (отдельные инструменты) —", "")
+                    lib_dir = Path(current_prefs["tooling_library_path"])
+                    sets_dir = lib_dir / "sets"
+                    if sets_dir.is_dir():
+                        for p in sorted(sets_dir.glob("*.json")):
+                            if not p.name.endswith(".tmp"):
+                                self.combo_tooling_set.addItem(p.stem, p.stem)
+                    cur_set = current_prefs.get("tooling_set_id", "")
+                    set_idx = self.combo_tooling_set.findData(cur_set)
+                    if set_idx >= 0:
+                        self.combo_tooling_set.setCurrentIndex(set_idx)
+                    grid.addWidget(self.combo_tooling_set, 4, 1)
+
                     main_layout.addWidget(box)
 
                     # Buttons
@@ -177,16 +198,19 @@ class PreferencesDialog:
                     prod_idx = self.combo_policy.findData("PRODUCTION")
                     if prod_idx >= 0:
                         self.combo_policy.setCurrentIndex(prod_idx)
+                    self.combo_tooling_set.setCurrentIndex(0)
 
                 def _on_save(self) -> None:
                     chosen_path = self.edit_path.text().strip()
                     chosen_algo = self.combo_algo.currentData()
                     chosen_policy = self.combo_policy.currentData()
+                    chosen_set = self.combo_tooling_set.currentData() or ""
 
                     set_smbs_preferences({
                         "tooling_library_path": chosen_path,
                         "search_algorithm": chosen_algo,
                         "unknown_policy": chosen_policy,
+                        "tooling_set_id": chosen_set,
                     })
                     self.accept()
 

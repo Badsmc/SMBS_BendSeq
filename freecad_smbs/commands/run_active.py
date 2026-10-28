@@ -92,16 +92,18 @@ class RunActiveCommand:
 
         # Tooling preferences
         use_tooling = _get_pref_bool("UseTooling", False)
+        tooling_set_id = _get_pref_string("ToolingSetId", "")
         lib_path = _get_pref_string("ToolingLibraryPath", "")
         punch_id = _get_pref_string("PunchId", "")
         die_id = _get_pref_string("DieId", "")
 
-        punch_arg = punch_id if (use_tooling and punch_id) else None
-        die_arg = die_id if (use_tooling and die_id) else None
-        lib_arg = Path(lib_path) if (use_tooling and lib_path) else None
+        set_arg = tooling_set_id if tooling_set_id else None
+        punch_arg = punch_id if (use_tooling and punch_id and not set_arg) else None
+        die_arg = die_id if (use_tooling and die_id and not set_arg) else None
+        lib_arg = Path(lib_path) if ((use_tooling or set_arg) and lib_path) else None
 
-        # Determine policy: if real tooling is provided, PRODUCTION; otherwise default to EXPLORATORY
-        if punch_arg and die_arg:
+        # Determine policy: if real tooling or tooling set is provided, PRODUCTION; otherwise default to EXPLORATORY
+        if set_arg or (punch_arg and die_arg):
             default_policy = "PRODUCTION"
         else:
             default_policy = "EXPLORATORY"
@@ -111,7 +113,9 @@ class RunActiveCommand:
 
         if hasattr(App, "Console"):
             App.Console.PrintMessage(f"SMBS: Запуск расчёта последовательности для '{fcstd_path.name}' (алгоритм: {algo}, политика: {policy})\n")
-            if punch_arg and die_arg:
+            if set_arg:
+                App.Console.PrintMessage(f"SMBS: Набор оснастки: '{set_arg}' (библиотека: {lib_arg})\n")
+            elif punch_arg and die_arg:
                 App.Console.PrintMessage(f"SMBS: Оснастка: {punch_arg} / {die_arg} (библиотека: {lib_arg})\n")
             else:
                 App.Console.PrintMessage("SMBS: Оснастка не задана — геометрический расчёт (EXPLORATORY)\n")
@@ -122,6 +126,7 @@ class RunActiveCommand:
             result = smbs_bridge.run_pipeline_on_fcstd(
                 fcstd_path=fcstd_path,
                 library_path=lib_arg,
+                tooling_set_id=set_arg,
                 punch_id=punch_arg,
                 die_id=die_arg,
                 search_algorithm=algo,

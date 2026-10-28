@@ -31,7 +31,7 @@ class TestToolingPanelHeadless(unittest.TestCase):
 
         self.assertEqual(
             LIBRARY_TAB_TITLES,
-            ("Пуансоны", "Матрицы", "Станина", "Задний упор", "Лапки"),
+            ("Пуансоны", "Матрицы", "Станина", "Задний упор", "Лапки", "Наборы"),
         )
         self.assertEqual(SECTION_CATALOG_MM, (10.0, 15.0, 20.0, 50.0, 100.0))
 
