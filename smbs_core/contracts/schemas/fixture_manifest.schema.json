@@ -1,0 +1,195 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "smbs://contracts/fixture_manifest.schema.json",
+  "title": "FixtureManifest",
+  "description": "Golden reference fixture manifest schema (§15.3, Task 1.0.1a)",
+  "type": "object",
+  "required": [
+    "schema_name",
+    "schema_version",
+    "fixture_id",
+    "class",
+    "source",
+    "input_files",
+    "ground_truth",
+    "tolerance_profile"
+  ],
+  "properties": {
+    "schema_name": { "const": "fixture_manifest" },
+    "schema_version": { "const": "1.0" },
+    "fixture_id": { "type": "string" },
+    "class": {
+      "type": "string",
+      "enum": [
+        "SYNTHETIC",
+        "FREECAD_NATIVE",
+        "CAD_IMPORTED",
+        "REAL_PRODUCTION",
+        "NEGATIVE",
+        "BENCHMARK"
+      ]
+    },
+    "source": {
+      "type": "object",
+      "required": ["type"],
+      "properties": {
+        "type": { "type": "string" },
+        "path": { "type": "string" },
+        "content_hash": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "freecad_version": { "type": "string" },
+        "sheetmetal_version": { "type": "string" },
+        "created_in_gui": { "type": "boolean" },
+        "brep_path": { "type": "string" },
+        "expected_path": { "type": "string" },
+        "brep_hash": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "expected_hash": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "construction_method": { "type": "string" }
+      }
+    },
+    "input_files": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["role", "path", "content_hash", "units"],
+        "properties": {
+          "role": {
+            "type": "string",
+            "enum": ["PART_3D", "FLAT_PATTERN", "BENDS_METADATA", "EXPECTED_JSON"]
+          },
+          "path": { "type": "string" },
+          "content_hash": {
+            "type": "string",
+            "pattern": "^sha256:[a-f0-9]{64}$"
+          },
+          "units": {
+            "type": "string",
+            "enum": ["mm", "inch"]
+          },
+          "artifact_provenance": {
+            "type": "string",
+            "enum": ["DIRECT_EXPORT", "RECOMPUTED"]
+          }
+        }
+      }
+    },
+    "ground_truth": {
+      "type": "object",
+      "required": [
+        "bends_count",
+        "bend_sequence",
+        "bend_sequence_operator_confirmed",
+        "expected_status",
+        "production_eligible",
+        "thickness_mm",
+        "radius_internal_mm",
+        "requires_gooseneck",
+        "negative_reason",
+        "source_of_truth"
+      ],
+      "properties": {
+        "bends_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "bend_sequence": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "bend_id",
+              "angle_deg",
+              "direction",
+              "radius_internal_mm",
+              "requires_gooseneck",
+              "source"
+            ],
+            "properties": {
+              "bend_id": {
+                "type": "string",
+                "pattern": "^BEND_[0-9]{2}$"
+              },
+              "angle_deg": { "type": "number" },
+              "direction": {
+                "type": "string",
+                "enum": ["UP", "DOWN"]
+              },
+              "radius_internal_mm": { "type": "number" },
+              "requires_gooseneck": { "type": "boolean" },
+              "source": {
+                "type": "string",
+                "enum": [
+                  "SHEETMETAL_NATIVE",
+                  "OPERATOR_CONFIRMED",
+                  "GEOMETRIC_INFERENCE",
+                  "USER_INPUT",
+                  "CONFIGURATION",
+                  "DEFAULT_POLICY",
+                  "UNKNOWN"
+                ]
+              },
+              "operator_confirmed": { "type": "boolean" },
+              "step": {
+                "type": "integer",
+                "minimum": 1
+              }
+            }
+          }
+        },
+        "bend_sequence_operator_confirmed": { "type": "boolean" },
+        "expected_status": {
+          "type": "string",
+          "enum": ["POSITIVE", "NEGATIVE", "AMBIGUOUS"]
+        },
+        "production_eligible": { "type": "boolean" },
+        "thickness_mm": { "type": "number" },
+        "radius_internal_mm": { "type": "number" },
+        "radius_punch_mm": { "type": "number" },
+        "k_factor": { "type": ["number", "null"] },
+        "die_v_opening_mm": { "type": "number" },
+        "requires_gooseneck": { "type": "boolean" },
+        "negative_reason": { "type": ["string", "null"] },
+        "source_of_truth": {
+          "type": "string",
+          "enum": [
+            "SHEETMETAL_NATIVE",
+            "GEOMETRIC_INFERENCE",
+            "USER_INPUT",
+            "CONFIGURATION",
+            "DEFAULT_POLICY",
+            "UNKNOWN"
+          ]
+        }
+      }
+    },
+    "tolerance_profile": {
+      "type": "object",
+      "required": [
+        "linear_tol_mm",
+        "angular_tol_deg",
+        "volume_tol_mm3",
+        "bbox_tol_mm",
+        "surface_distance_tol_mm"
+      ],
+      "properties": {
+        "linear_tol_mm": { "type": "number" },
+        "angular_tol_deg": { "type": "number" },
+        "volume_tol_mm3": { "type": "number" },
+        "bbox_tol_mm": { "type": "number" },
+        "surface_distance_tol_mm": { "type": "number" }
+      }
+    },
+    "known_limitations": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  }
+}

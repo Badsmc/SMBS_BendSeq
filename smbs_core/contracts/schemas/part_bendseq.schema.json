@@ -1,0 +1,142 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "smbs://contracts/part_bendseq.schema.json",
+  "title": "PartBendSeq_v1.1",
+  "description": "Canonical production bend sequence export contract v1.1 (§7.2, Principle 21)",
+  "type": "object",
+  "required": [
+    "schema_name",
+    "schema_version",
+    "run_id",
+    "part_id",
+    "units",
+    "input_mode",
+    "planning_status",
+    "verification_status",
+    "export_status",
+    "production_eligible",
+    "sequence",
+    "verification",
+    "metadata",
+    "created_at",
+    "content_hash"
+  ],
+  "properties": {
+    "schema_name": { "const": "part_bendseq" },
+    "schema_version": { "const": "1.1" },
+    "run_id": { "type": "string" },
+    "part_id": { "type": "string" },
+    "units": { "type": "string", "enum": ["mm", "m", "in"] },
+    "input_mode": {
+      "type": "string",
+      "enum": ["NATIVE_SHEETMETAL", "NEUTRAL_BREP", "CANONICAL_PART"]
+    },
+    "planning_status": {
+      "type": "string",
+      "enum": ["SUCCESS", "NO_SOLUTION", "TIMEOUT", "RESOURCE_EXHAUSTED", "UNKNOWN", "PARTIAL"]
+    },
+    "verification_status": {
+      "type": "string",
+      "enum": ["VERIFIED", "VERIFICATION_FAILED", "NOT_RUN"]
+    },
+    "export_status": {
+      "type": "string",
+      "enum": ["EXPORTED", "BLOCKED", "NOT_RUN"]
+    },
+    "production_eligible": { "type": "boolean" },
+    "created_at": { "type": "string" },
+    "content_hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "sequence": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "step",
+          "bend_id",
+          "direction",
+          "angle_deg",
+          "radius_mm",
+          "k_factor",
+          "backgauge",
+          "tool_id",
+          "planner_status",
+          "collision_status",
+          "tooling_status",
+          "alignment_status",
+          "verification_status"
+        ],
+        "properties": {
+          "step": { "type": "integer", "minimum": 1 },
+          "bend_id": { "type": "string" },
+          "direction": {
+            "type": "object",
+            "required": ["value", "source", "confidence"],
+            "properties": {
+              "value": { "type": ["string", "null"], "enum": ["UP", "DOWN", null] },
+              "source": { "type": "string" },
+              "confidence": { "type": "string", "enum": ["CONFIRMED", "ESTIMATED", "UNKNOWN"] }
+            }
+          },
+          "angle_deg": {
+            "type": "object",
+            "required": ["value", "source", "confidence"],
+            "properties": {
+              "value": { "type": ["number", "null"] },
+              "source": { "type": "string" },
+              "confidence": { "type": "string", "enum": ["CONFIRMED", "ESTIMATED", "UNKNOWN"] }
+            }
+          },
+          "radius_mm": {
+            "type": "object",
+            "required": ["value", "source", "confidence"],
+            "properties": {
+              "value": { "type": ["number", "null"] },
+              "source": { "type": "string" },
+              "confidence": { "type": "string", "enum": ["CONFIRMED", "ESTIMATED", "UNKNOWN"] }
+            }
+          },
+          "k_factor": {
+            "type": "object",
+            "required": ["value", "source", "confidence"],
+            "properties": {
+              "value": { "type": ["number", "null"] },
+              "source": { "type": "string" },
+              "confidence": { "type": "string", "enum": ["CONFIRMED", "ESTIMATED", "UNKNOWN"] }
+            }
+          },
+          "backgauge": {
+            "type": "object",
+            "required": ["x_mm", "r_mm", "z1_mm", "z2_mm", "confidence"],
+            "properties": {
+              "x_mm": { "type": ["number", "null"] },
+              "r_mm": { "type": ["number", "null"] },
+              "z1_mm": { "type": ["number", "null"] },
+              "z2_mm": { "type": ["number", "null"] },
+              "confidence": { "type": "string", "enum": ["CONFIRMED", "ESTIMATED", "UNKNOWN"] }
+            }
+          },
+          "tool_id": { "type": "string" },
+          "planner_status": { "type": "string", "enum": ["VALID", "INVALID", "UNKNOWN"] },
+          "collision_status": { "type": "string", "enum": ["VALID", "INVALID", "INSUFFICIENT_CLEARANCE", "UNKNOWN"] },
+          "tooling_status": { "type": "string", "enum": ["REAL", "SIMPLIFIED", "MISSING"] },
+          "alignment_status": { "type": "string", "enum": ["OK", "CANNOT_VERIFY", "FRAME_AMBIGUOUS"] },
+          "verification_status": { "type": "string", "enum": ["VERIFIED", "VERIFICATION_FAILED"] }
+        }
+      }
+    },
+    "verification": {
+      "type": "object"
+    },
+    "metadata": {
+      "type": "object",
+      "required": ["solver", "termination_reason", "tolerance_profile", "commit", "backend"],
+      "properties": {
+        "solver": { "type": "string" },
+        "termination_reason": { "type": "string" },
+        "tolerance_profile": { "type": "string" },
+        "commit": { "type": "string" },
+        "backend": { "type": "string" }
+      }
+    }
+  }
+}

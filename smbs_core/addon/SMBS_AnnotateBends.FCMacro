@@ -1,0 +1,260 @@
+# -*- coding: utf-8 -*-
+"""
+SMBS_AnnotateBends.FCMacro - FreeCAD macro: annotate flat pattern (S.18b/c).
+
+Final approach: App::AnnotationLabel with DisplayMode="Text" (hide anchor line/dot).
+If DisplayMode doesn't work in this FreeCAD version — annotation still renders correctly
+(verified in prior iterations), only a small cosmetic anchor remains.
+
+Honest marking:
+  - green  = VERIFIED
+  - orange = VERIFICATION_FAILED
+  - gray   = UNVERIFIED
+"""
+
+# ==== USER CONFIG ====
+SMBS_REPO_PATH = r"/Users/badmc/Desktop/SMBS_BendSeq"
+ANNOTATION_Z_OFFSET_MM = 3.0
+ANNOTATION_FONT_SIZE = 15
+SHOW_SUMMARY_DIALOG = False
+# =====================
+
+import sys
+from pathlib import Path
+
+import FreeCAD as App
+import FreeCADGui as Gui
+import Part
+from PySide6 import QtWidgets
+
+
+def _fail(msg: str) -> None:
+    App.Console.PrintError(f"SMBS: {msg}\n")
+    try:
+        QtWidgets.QMessageBox.critical(None, "SMBS: Annotate Bends", msg)
+    except KeyboardInterrupt:
+        App.Console.PrintWarning("SMBS: user dismissed error dialog\n")
+
+
+def _info(msg: str) -> None:
+    App.Console.PrintMessage(f"SMBS: {msg}\n")
+    if not SHOW_SUMMARY_DIALOG:
+        return
+    try:
+        QtWidgets.QMessageBox.information(None, "SMBS: Annotate Bends", msg)
+    except KeyboardInterrupt:
+        App.Console.PrintWarning("SMBS: user dismissed summary dialog\n")
+
+
+def _color_rgba(verification: str):
+    if verification == "VERIFIED":
+        return (0.0, 0.6, 0.0, 1.0)
+    if verification == "VERIFICATION_FAILED":
+        return (1.0, 0.5, 0.0, 1.0)
+    return (0.5, 0.5, 0.5, 1.0)
+
+
+def _style_annotationlabel(vo, label_name: str, rgba) -> None:
+    # DisplayMode: only "Line" and "Object" are available in FreeCAD 1.1.
+    # "Line" draws a leader line from BasePosition to text (zero-length = dot).
+    # "Object" may render only the text without the leader line.
+    if hasattr(vo, "DisplayMode"):
+        try:
+            vo.DisplayMode = "Object"
+            App.Console.PrintMessage(f"SMBS: {label_name} DisplayMode=Object OK\n")
+        except Exception as e:
+            App.Console.PrintWarning(f"SMBS: {label_name} DisplayMode=Object failed: {e}\n")
+
+    # TextColor (4-tuple)
+    for attempt in (rgba, rgba[:3]):
+        try:
+            vo.TextColor = attempt
+            App.Console.PrintMessage(f"SMBS: {label_name} TextColor={attempt} OK\n")
+            break
+        except Exception as e:
+            App.Console.PrintWarning(f"SMBS: {label_name} TextColor failed: {e}\n")
+
+    # FontSize
+    if hasattr(vo, "FontSize"):
+        try:
+            vo.FontSize = ANNOTATION_FONT_SIZE
+            App.Console.PrintMessage(f"SMBS: {label_name} FontSize={ANNOTATION_FONT_SIZE} OK\n")
+        except Exception as e:
+            App.Console.PrintWarning(f"SMBS: {label_name} FontSize failed: {e}\n")
+
+    # Frame=False
+    if hasattr(vo, "Frame"):
+        try:
+            vo.Frame = False
+            App.Console.PrintMessage(f"SMBS: {label_name} Frame=False OK\n")
+        except Exception:
+            pass
+
+    # BackgroundColor transparent
+    if hasattr(vo, "BackgroundColor"):
+        try:
+            vo.BackgroundColor = (0.0, 0.0, 0.0, 0.0)
+            App.Console.PrintMessage(f"SMBS: {label_name} BackgroundColor=(0,0,0,0) OK\n")
+        except Exception:
+            pass
+
+    if hasattr(vo, "Justification"):
+        try:
+            vo.Justification = "Center"
+        except Exception:
+            pass
+
+    vo.Visibility = True
+
+
+def run_macro() -> None:
+    try:
+        Gui.runCommand('Std_ViewReportView', 0)
+    except Exception:
+        pass
+
+    repo = Path(SMBS_REPO_PATH)
+    if not repo.is_dir():
+        _fail(f"SMBS_REPO_PATH is not a directory: {SMBS_REPO_PATH}")
+        return
+
+    if str(repo) not in sys.path:
+        sys.path.insert(0, str(repo))
+
+    try:
+        from smbs_core.viewer.run_loader import load_run, RunLoaderError
+        from smbs_core.viewer.graph_builder import build_graphs, GraphBuilderError
+        from smbs_core.viewer.flat_annotations import compute_annotations, FlatAnnotationsError
+    except ImportError as e:
+        _fail(f"Cannot import smbs_core.viewer: {e}")
+        return
+
+    run_dir_str = QtWidgets.QFileDialog.getExistingDirectory(
+        None, "Select SMBS run directory (contains 04/07/*.brep)", str(repo / "runs"),
+    )
+    if not run_dir_str:
+        _info("Cancelled.")
+        return
+    run_dir = Path(run_dir_str)
+
+    try:
+        artifacts = load_run(run_dir)
+    except RunLoaderError as e:
+        _fail(f"Cannot load run: {e}")
+        return
+
+    try:
+        graphs = build_graphs(artifacts)
+    except GraphBuilderError as e:
+        _fail(f"Cannot build graphs: {e}")
+        return
+
+    try:
+        annotations = compute_annotations(artifacts, graphs)
+    except FlatAnnotationsError as e:
+        _fail(f"Cannot compute annotations:\n\n{e}")
+        return
+
+    if not annotations:
+        _info("No annotations (empty candidate_sequence).")
+        return
+
+    if artifacts.flat_pattern_path is None:
+        _fail(f"flat_pattern.brep not found.")
+        return
+
+    try:
+        flat_shape = Part.Shape()
+        flat_shape.read(str(artifacts.flat_pattern_path))
+    except Exception as e:
+        _fail(f"Cannot read flat_pattern.brep: {e}")
+        return
+
+    if App.ActiveDocument is None:
+        App.newDocument("SMBS_FlatPattern")
+        try:
+            Gui.ActiveDocument = Gui.activeDocument()
+        except Exception:
+            pass
+
+    doc = App.ActiveDocument
+
+    try:
+        flat_obj = Part.show(flat_shape, "SMBS_FlatPattern")
+    except Exception as e:
+        _fail(f"Cannot display flat pattern: {e}")
+        return
+
+    try:
+        flat_bb = flat_obj.Shape.BoundBox
+        flat_top_z = flat_bb.ZMax
+    except Exception:
+        flat_top_z = 0.0
+    annotation_z = flat_top_z + ANNOTATION_Z_OFFSET_MM
+
+    verification = annotations[0].verification
+    rgba = _color_rgba(verification)
+    App.Console.PrintMessage(
+        f"SMBS: flat bbox Z=[{flat_bb.ZMin:.2f},{flat_bb.ZMax:.2f}], "
+        f"annotations at Z={annotation_z:.2f}, verification={verification}, rgba={rgba}\n"
+    )
+
+    created_labels = []
+    for ann in annotations:
+        try:
+            label = doc.addObject("App::AnnotationLabel", f"SMBS_step_{ann.step:03d}")
+            label.LabelText = [str(ann.step)]
+            label.BasePosition = App.Vector(ann.midpoint[0], ann.midpoint[1], annotation_z)
+            created_labels.append(label)
+        except Exception as e:
+            _fail(f"Failed to create annotation step {ann.step}: {e}")
+            return
+
+    try:
+        doc.recompute()
+    except Exception:
+        pass
+
+    for label in created_labels:
+        vo = label.ViewObject
+        if vo:
+            _style_annotationlabel(vo, label.Name, rgba)
+
+    try:
+        doc.recompute()
+    except Exception:
+        pass
+
+    try:
+        Gui.Selection.clearSelection()
+    except Exception:
+        pass
+
+    try:
+        Gui.SendMsgToActiveView("ViewFit")
+        Gui.activeDocument().activeView().viewAxonometric()
+        Gui.SendMsgToActiveView("ViewFit")
+    except Exception:
+        pass
+
+    for label in created_labels:
+        vo = label.ViewObject
+        if vo:
+            tc = getattr(vo, "TextColor", "N/A")
+            dm = getattr(vo, "DisplayMode", "N/A")
+            App.Console.PrintMessage(
+                f"SMBS: FINAL {label.Name} TextColor={tc} DisplayMode={dm} "
+                f"Visibility={vo.Visibility}\n"
+            )
+
+    summary = (
+        f"Added {len(created_labels)} annotation(s).\n\n"
+        f"Verification: {verification}\n"
+        f"Steps: {', '.join(str(a.step) for a in annotations)}\n"
+        f"Z={annotation_z:.1f} mm."
+    )
+    _info(summary)
+
+
+if __name__ == "__main__":
+    run_macro()
