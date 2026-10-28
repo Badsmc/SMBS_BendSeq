@@ -8,9 +8,34 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Dict, List, Optional
 
-# Repository and Tooling Library root resolution
-REPO_ROOT: Path = Path(__file__).resolve().parent.parent.parent
-TOOL_LIBRARY_ROOT: Path = REPO_ROOT / "toollibrary"
+import os
+
+def _resolve_repo_root() -> Path:
+    env_root = os.environ.get("SMBS_REPO_ROOT")
+    if env_root and Path(env_root).is_dir():
+        return Path(env_root).resolve()
+
+    marker = Path(__file__).resolve().parent.parent / ".smbs_repo_path"
+    if marker.exists():
+        try:
+            m_path = Path(marker.read_text(encoding="utf-8").strip())
+            if m_path.is_dir() and (m_path / "toollibrary").is_dir():
+                return m_path.resolve()
+        except Exception:
+            pass
+
+    candidate = Path(__file__).resolve().parent.parent.parent
+    if (candidate / "toollibrary").is_dir():
+        return candidate.resolve()
+
+    for parent in Path(__file__).resolve().parents:
+        if (parent / "toollibrary").is_dir() and (parent / "smbs_core").is_dir():
+            return parent.resolve()
+
+    return candidate.resolve()
+
+REPO_ROOT: Path = _resolve_repo_root()
+TOOL_LIBRARY_ROOT: Path = Path(os.environ.get("SMBS_TOOLING_PATH") or (REPO_ROOT / "toollibrary")).resolve()
 
 # Canonical paths for existing tooling assets
 PUNCH_PATH: Path = TOOL_LIBRARY_ROOT / "punch" / "puancon.FCStd"

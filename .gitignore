@@ -39,3 +39,4 @@ runs/
 test_output.json
 restored_*.brep
 **/.DS_Store
+.smbs_repo_path
