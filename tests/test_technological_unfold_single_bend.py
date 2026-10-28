@@ -27,7 +27,9 @@ import os
 import sys
 import math
 
-sys.path.insert(0, '/Users/badmc/Desktop/SMBS_BendSeq')
+from pathlib import Path
+_ROOT = str(Path(__file__).resolve().parent.parent)
+if _ROOT not in sys.path: sys.path.insert(0, _ROOT)
 
 from smbs_core.geometry_backend.backends.pythonocc_backend import PythonOCCBackend
 from smbs_core.Geometry.technological_unfolder import TechnologicalUnfolder

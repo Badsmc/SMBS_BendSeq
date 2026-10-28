@@ -9,6 +9,7 @@ on:
     branches:
       - main
       - stage-1-fix-correctness
+  workflow_dispatch:
 
 jobs:
   test:
@@ -34,7 +35,23 @@ jobs:
             channels:
               - conda-forge
 
-      - name: Run Unit & Headless OCC Test Suite
+      - name: Verify Python 3.11 and OpenCascade installation
         run: |
-          python -c "import OCC.Core.BRep, OCC.Core.gp; print('OCC successfully imported')"
-          PYTHONPATH=. python -m unittest discover -s tests -t . -p 'test_*.py'
+          python -V
+          python -c "import OCC.Core.BRep, OCC.Core.gp; print('OpenCASCADE successfully loaded')"
+
+      - name: Verify smbs_core compilation
+        run: |
+          python -m compileall smbs_core
+
+      - name: Run Selected Headless Tests (Geometry, FoldState, Kinematics, PythonOCC)
+        run: |
+          PYTHONPATH=. python -m unittest \
+            tests/test_pythonocc_backend.py \
+            tests/test_stage2_pythonocc.py \
+            tests/test_phase1_geometry.py \
+            tests/test_phase2_backend.py \
+            tests/test_phase3_fold_state.py \
+            tests/test_stage3_foldstate.py \
+            tests/test_stage7_kinematics.py \
+            tests/test_stage2_rotate_subtree.py

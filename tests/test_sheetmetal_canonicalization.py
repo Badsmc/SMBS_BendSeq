@@ -13,7 +13,9 @@ import math
 import subprocess
 import unittest
 
-sys.path.insert(0, '/Users/badmc/Desktop/SMBS_BendSeq')
+from pathlib import Path
+_ROOT = str(Path(__file__).resolve().parent.parent)
+if _ROOT not in sys.path: sys.path.insert(0, _ROOT)
 sys.path.append('/Applications/FreeCAD.app/Contents/Resources/lib')
 
 from smbs_core.geometry_backend.backends.pythonocc_backend import PythonOCCBackend
@@ -77,9 +79,10 @@ class TestSheetMetalCanonicalization(unittest.TestCase):
         seeds = ["0", "1", "42", "999"]
         results = {}
 
-        code = """
+        code = f"""
 import sys
-sys.path.insert(0, '/Users/badmc/Desktop/SMBS_BendSeq')
+_ROOT = {repr(_ROOT)}
+if _ROOT not in sys.path: sys.path.insert(0, _ROOT)
 sys.path.append('/Applications/FreeCAD.app/Contents/Resources/lib')
 
 from smbs_core.geometry_backend.backends.pythonocc_backend import PythonOCCBackend
@@ -105,6 +108,7 @@ print(repr((l_bends, u_bends)))
         for s in seeds:
             env = os.environ.copy()
             env["PYTHONHASHSEED"] = s
+            env["PYTHONPATH"] = f"{_ROOT}:{env.get('PYTHONPATH', '')}"
             proc = subprocess.run([python_bin, "-c", code], env=env, capture_output=True, text=True, check=True)
             results[s] = proc.stdout.strip()
 
@@ -138,9 +142,10 @@ print(repr((l_bends, u_bends)))
 
     def test_root_selection_is_deterministic_for_symmetric_parts(self):
         """Root selection is 100% deterministic even for fully symmetric U-bracket with l1 == l2."""
-        code = """
+        code = f"""
 import sys
-sys.path.insert(0, '/Users/badmc/Desktop/SMBS_BendSeq')
+_ROOT = {repr(_ROOT)}
+if _ROOT not in sys.path: sys.path.insert(0, _ROOT)
 sys.path.append('/Applications/FreeCAD.app/Contents/Resources/lib')
 
 from smbs_core.geometry_backend.backends.pythonocc_backend import PythonOCCBackend
@@ -160,6 +165,7 @@ print(first_bend['parent_panel_id'])
         for seed in ["0", "1", "42", "999"]:
             env = os.environ.copy()
             env["PYTHONHASHSEED"] = seed
+            env["PYTHONPATH"] = f"{_ROOT}:{env.get('PYTHONPATH', '')}"
             proc = subprocess.run([python_bin, "-c", code], env=env, capture_output=True, text=True, check=True)
             roots.add(proc.stdout.strip())
 

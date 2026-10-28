@@ -7,14 +7,16 @@ import sys
 import unittest
 import math
 
-sys.path.insert(0, '/Users/badmc/Desktop/SMBS_BendSeq')
-sys.path.insert(0, '/Users/badmc/Desktop/SMBS_BendSeq/tests')
-sys.path.insert(0, '/Users/badmc/.gemini/antigravity-ide/brain/f7f8efb2-5153-4bda-9d68-1afe2a983f3c/scratch')
+from pathlib import Path
+_ROOT = str(Path(__file__).resolve().parent.parent)
+if _ROOT not in sys.path: sys.path.insert(0, _ROOT)
+_TESTS = str(Path(__file__).resolve().parent)
+if _TESTS not in sys.path: sys.path.insert(0, _TESTS)
 sys.path.append('/Applications/FreeCAD.app/Contents/Resources/lib')
 
 
 from smbs_core.api.sheetmetal_client import SheetMetalApiClient
-from test_user_final_concentricity import create_l_bracket_shape_concentric
+from tests.test_technological_unfold_single_bend import create_l_bracket_shape as create_l_bracket_shape_concentric
 import FreeCAD
 import Part
 import tempfile
@@ -121,9 +123,9 @@ class TestSheetMetalParamsApi(unittest.TestCase):
         self.assertAlmostEqual(angle_deg, 90.0, places=2)
 
     def test_check_temp_part_step_thickness(self):
-        step_path = '/Users/badmc/temp_part.step'
+        step_path = str(Path(__file__).resolve().parent.parent / 'temp_part.step')
         if not os.path.exists(step_path):
-            step_path = '/Users/badmc/Desktop/SMBS_BendSeq/temp_part.step'
+            step_path = str(Path(__file__).resolve().parent.parent / 'temp_part.step')
         if not os.path.exists(step_path):
             self.skipTest("temp_part.step not found")
 
@@ -152,9 +154,9 @@ class TestSheetMetalParamsApi(unittest.TestCase):
         extractor = FeatureExtractor(backend, sm_client=self.client)
 
         parts_to_test = []
-        step_path = '/Users/badmc/temp_part.step'
+        step_path = str(Path(__file__).resolve().parent.parent / 'temp_part.step')
         if not os.path.exists(step_path):
-            step_path = '/Users/badmc/Desktop/SMBS_BendSeq/temp_part.step'
+            step_path = str(Path(__file__).resolve().parent.parent / 'temp_part.step')
         if os.path.exists(step_path):
             s_step_fc = Part.Shape()
             s_step_fc.read(step_path)
@@ -233,9 +235,9 @@ class TestSheetMetalParamsApi(unittest.TestCase):
 
     def test_get_thickness_raises_on_implausible_face(self):
         from smbs_core.api.sheetmetal_client import SheetMetalApiClientError
-        step_path = '/Users/badmc/temp_part.step'
+        step_path = str(Path(__file__).resolve().parent.parent / 'temp_part.step')
         if not os.path.exists(step_path):
-            step_path = '/Users/badmc/Desktop/SMBS_BendSeq/temp_part.step'
+            step_path = str(Path(__file__).resolve().parent.parent / 'temp_part.step')
         if not os.path.exists(step_path):
             self.skipTest("temp_part.step not found")
 

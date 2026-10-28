@@ -16,7 +16,9 @@ import tempfile
 import subprocess
 import unittest
 
-sys.path.insert(0, '/Users/badmc/Desktop/SMBS_BendSeq')
+from pathlib import Path
+_ROOT = str(Path(__file__).resolve().parent.parent)
+if _ROOT not in sys.path: sys.path.insert(0, _ROOT)
 sys.path.append('/Applications/FreeCAD.app/Contents/Resources/lib')
 
 import FreeCAD
@@ -197,9 +199,10 @@ class TestSheetMetal4Bend(unittest.TestCase):
 
     def test_4bend_root_is_unique(self):
         """4. Root panel is 100% deterministic across PYTHONHASHSEED in {0, 1, 42, 999}."""
-        code = """
+        code = f"""
 import sys
-sys.path.insert(0, '/Users/badmc/Desktop/SMBS_BendSeq')
+_ROOT = {repr(_ROOT)}
+if _ROOT not in sys.path: sys.path.insert(0, _ROOT)
 sys.path.append('/Applications/FreeCAD.app/Contents/Resources/lib')
 
 from smbs_core.geometry_backend.backends.pythonocc_backend import PythonOCCBackend
@@ -218,6 +221,7 @@ print(first_bend['parent_panel_id'])
         for seed in ["0", "1", "42", "999"]:
             env = os.environ.copy()
             env["PYTHONHASHSEED"] = seed
+            env["PYTHONPATH"] = f"{_ROOT}:{env.get('PYTHONPATH', '')}"
             proc = subprocess.run([python_bin, "-c", code], env=env, capture_output=True, text=True, check=True)
             roots.add(proc.stdout.strip())
 

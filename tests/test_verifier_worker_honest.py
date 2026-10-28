@@ -19,6 +19,9 @@ from smbs_core.protocols.file_store import FileStore, VerificationStatus
 from smbs_core.workers.verifier.worker import VerifierWorker
 
 
+REPO_ROOT = Path(__file__).resolve().parent.parent
+
+
 class TestVerifierWorkerHonest(unittest.TestCase):
     def setUp(self):
         self.temp_dir = tempfile.mkdtemp()
@@ -45,7 +48,7 @@ class TestVerifierWorkerHonest(unittest.TestCase):
         verifier MUST calculate non-zero hausdorff and delta metrics,
         and MUST reject with VERIFICATION_FAILED rather than claiming 0.001 / VERIFIED.
         """
-        src_run = Path("/Users/badmc/Desktop/SMBS_BendSeq/runs/run_20261012_034042_cf4c34")
+        src_run = REPO_ROOT / Path("runs/run_20261012_034042_cf4c34")
         run_dir = self._setup_run_env(src_run)
 
         # Distort the geometry.brep reference shape by 15-degree rotation
@@ -88,7 +91,7 @@ class TestVerifierWorkerHonest(unittest.TestCase):
         verifier must fail step verification with VERIFICATION_FAILED.
         Fold check must not be executed (avoiding double diagnostics).
         """
-        src_run = Path("/Users/badmc/Desktop/SMBS_BendSeq/runs/run_20261012_034042_cf4c34")
+        src_run = REPO_ROOT / Path("runs/run_20261012_034042_cf4c34")
         run_dir = self._setup_run_env(src_run)
 
         res_file = run_dir / "07_search_result.json"
@@ -116,7 +119,7 @@ class TestVerifierWorkerHonest(unittest.TestCase):
         Under default PRODUCTION policy, if tooling is SIMPLIFIED and collision check
         yields UNKNOWN, step validation fails and verifier returns VERIFICATION_FAILED.
         """
-        src_run = Path("/Users/badmc/Desktop/SMBS_BendSeq/runs/run_20261012_034044_3ccc14")  # fixture_u
+        src_run = REPO_ROOT / Path("runs/run_20261012_034044_3ccc14")  # fixture_u
         run_dir = self._setup_run_env(src_run)
 
         out_file = self.verifier.execute(
@@ -137,7 +140,7 @@ class TestVerifierWorkerHonest(unittest.TestCase):
         production status (schema enum has no PARTIAL, so VERIFICATION_FAILED with
         UNKNOWN_STEPS_UNDER_EXPLORATORY diagnostic is returned).
         """
-        src_run = Path("/Users/badmc/Desktop/SMBS_BendSeq/runs/run_20261012_034044_3ccc14")  # fixture_u
+        src_run = REPO_ROOT / Path("runs/run_20261012_034044_3ccc14")  # fixture_u
         run_dir = self._setup_run_env(src_run)
 
         out_file = self.verifier.execute(
@@ -157,7 +160,7 @@ class TestVerifierWorkerHonest(unittest.TestCase):
         If solver returned NO_SOLUTION or empty candidate_sequence,
         verifier returns VERIFICATION_FAILED with SOLVER_FAILED diagnostic.
         """
-        src_run = Path("/Users/badmc/Desktop/SMBS_BendSeq/runs/run_20261012_034042_cf4c34")
+        src_run = REPO_ROOT / Path("runs/run_20261012_034042_cf4c34")
         run_dir = self._setup_run_env(src_run)
 
         res_file = run_dir / "07_search_result.json"
@@ -189,7 +192,7 @@ class TestVerifierWorkerHonest(unittest.TestCase):
         candidate_sequence from canonical_part bends — this is test scaffolding
         to reach fold-correctness stage, not a fabricated solver result.
         """
-        src_run = Path("/Users/badmc/Desktop/SMBS_BendSeq/runs/run_20261017_152542_b3e3cb")
+        src_run = REPO_ROOT / Path("runs/run_20261017_152542_b3e3cb")
         run_dir = self._setup_run_env(src_run)
 
         cp_file = run_dir / "04_canonical_part.json"
@@ -241,7 +244,7 @@ class TestVerifierWorkerHonest(unittest.TestCase):
         B2 regression: missing flat_pattern.brep must yield
         FOLD_CHECK_SKIPPED_NO_FLAT_SHAPE and VERIFICATION_FAILED, never silent True.
         """
-        src_run = Path("/Users/badmc/Desktop/SMBS_BendSeq/runs/run_20261017_152542_b3e3cb")
+        src_run = REPO_ROOT / Path("runs/run_20261017_152542_b3e3cb")
         run_dir = self._setup_run_env(src_run)
         (run_dir / "flat_pattern.brep").unlink()
 
@@ -291,7 +294,7 @@ class TestVerifierWorkerHonest(unittest.TestCase):
         to raise an exception, verifier must not crash with traceback,
         but must catch it and report FOLD_RECONSTRUCTION_FAILED.
         """
-        src_run = Path("/Users/badmc/Desktop/SMBS_BendSeq/runs/run_20261012_034042_cf4c34")  # fixture_l (missing bend_line_flat_pattern)
+        src_run = REPO_ROOT / Path("runs/run_20261012_034042_cf4c34")  # fixture_l (missing bend_line_flat_pattern)
         run_dir = self._setup_run_env(src_run)
 
         out_file = self.verifier.execute(
@@ -315,7 +318,7 @@ class TestVerifierWorkerHonest(unittest.TestCase):
         from smbs_core.coordinator.run_pipeline import Coordinator
         coord = Coordinator()
         res = coord.start_run(
-            source_file_path=Path("/Users/badmc/Desktop/SMBS_BendSeq/SMBendTests/U-10-30-10-(OK).FCStd"),
+            source_file_path=REPO_ROOT / Path("SMBendTests/U-10-30-10-(OK).FCStd"),
             part_id="u_prof_test",
             search_algorithm="dfs",
             unknown_policy="PRODUCTION"
@@ -331,7 +334,7 @@ class TestVerifierWorkerHonest(unittest.TestCase):
         from smbs_core.coordinator.run_pipeline import Coordinator
         coord = Coordinator()
         res = coord.start_run(
-            source_file_path=Path("/Users/badmc/Desktop/SMBS_BendSeq/SMBendTests/2-1-3-4-(ok).FCStd"),
+            source_file_path=REPO_ROOT / Path("SMBendTests/2-1-3-4-(ok).FCStd"),
             part_id="part_2134",
             search_algorithm="dfs"
         )
