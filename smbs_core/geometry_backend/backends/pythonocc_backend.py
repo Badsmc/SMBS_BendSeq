@@ -31,7 +31,8 @@ try:
     from OCC.Core.gp import gp_Trsf, gp_Ax1, gp_Pnt, gp_Dir, gp_Vec, gp_Ax3
     from OCC.Core.Bnd import Bnd_Box
     from OCC.Core.BRepBndLib import brepbndlib
-    from OCC.Core.BRepAlgoAPI import BRepAlgoAPI_Common, BRepAlgoAPI_Fuse, BRepAlgoAPI_Cut
+    from OCC.Core.BRepAlgoAPI import BRepAlgoAPI_Common, BRepAlgoAPI_Fuse, BRepAlgoAPI_Cut, BRepAlgoAPI_Section
+    from OCC.Core.BRepExtrema import BRepExtrema_DistShapeShape
     from OCC.Core.GProp import GProp_GProps
     from OCC.Core.BRepGProp import brepgprop, brepgprop_SurfaceProperties
     from OCC.Core.TopExp import TopExp_Explorer
@@ -476,3 +477,48 @@ class PythonOCCBackend(GeometryBackend):
                 return "other"
         except Exception:
             return "unknown"
+
+    def min_distance(self, shape_a: Any, shape_b: Any) -> Optional[float]:
+        if shape_a is None or shape_b is None:
+            return None
+        try:
+            if hasattr(shape_a, "IsNull") and shape_a.IsNull():
+                return None
+            if hasattr(shape_b, "IsNull") and shape_b.IsNull():
+                return None
+            extrema = BRepExtrema_DistShapeShape(shape_a, shape_b)
+            extrema.Perform()
+            if not extrema.IsDone():
+                return None
+            return float(extrema.Value())
+        except Exception as e:
+            logger.error(f"min_distance exception: {e}")
+            return None
+
+    def section_overlap_length(self, shape_a: Any, shape_b: Any) -> Optional[float]:
+        if shape_a is None or shape_b is None:
+            return None
+        try:
+            if hasattr(shape_a, "IsNull") and shape_a.IsNull():
+                return None
+            if hasattr(shape_b, "IsNull") and shape_b.IsNull():
+                return None
+            sec = BRepAlgoAPI_Section(shape_a, shape_b)
+            sec.Build()
+            if not sec.IsDone():
+                return None
+            sec_shape = sec.Shape()
+            if sec_shape is None or sec_shape.IsNull():
+                return 0.0
+            exp = TopExp_Explorer(sec_shape, TopAbs_EDGE)
+            total_len = 0.0
+            while exp.More():
+                edge = exp.Current()
+                props = GProp_GProps()
+                brepgprop.LinearProperties(edge, props)
+                total_len += props.Mass()
+                exp.Next()
+            return float(total_len)
+        except Exception as e:
+            logger.error(f"section_overlap_length exception: {e}")
+            return None
