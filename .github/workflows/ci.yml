@@ -54,4 +54,5 @@ jobs:
             tests/test_phase3_fold_state.py \
             tests/test_stage3_foldstate.py \
             tests/test_stage7_kinematics.py \
-            tests/test_stage2_rotate_subtree.py
+            tests/test_stage2_rotate_subtree.py \
+            tests/test_self_collision_panels.py
