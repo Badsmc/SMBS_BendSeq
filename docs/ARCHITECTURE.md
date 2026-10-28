@@ -50,6 +50,20 @@
 
 ---
 
+## Tooling Sets (Requirement 3.1)
+
+- **Model & Storage:** Named tooling set (`set_id`, `punch_id`, `die_id`, `clamp_positions_mm`, `description`, `metadata`) stored as JSON under `<library>/sets/<set_id>.json` conforming to `tooling_set.schema.json`.
+- **Validation Contract (`set_validator.py`):** Non-blocking validation against canonical part bends and sheet thickness:
+  - Punch tip radius vs bend radius ($R_{punch} \le 1.2 R_{bend}$).
+  - Punch and die tip angle vs bend angle ($\alpha_{tool} \le \alpha_{bend} + 1.0^\circ$).
+  - Die V-opening width vs sheet thickness ($3.5 T \le V \le 15.0 T$).
+  - Clamp configuration validation (minimum 2 clamps under punch chain).
+  - Punch changeover detection (Requirement Q10): flags `requires_changeover` and provides `proposed_changeover_steps` when part has bends of mixed compatibility.
+- **Manifest Integration:** Recorded into `tooling_manifest.json` under `payload.applied_tooling_set` with full validation diagnostics.
+- **Workbench UI:** `ToolingPanel` 6th tab ("Наборы") supporting interactive creation, viewing, and deletion of sets; set selection in `PreferencesDialog` and pipeline execution via `RunActiveCommand`.
+
+---
+
 ## Stage 3 Verifier (Independent Verification)
 
 **Purpose:** Independently verify a solver-produced `candidate_sequence` against the reference 3D model. Independence from `SolverWorker` is a first-order rule: `VerifierWorker` MUST NOT read solver cache, search tree, or pruned states.

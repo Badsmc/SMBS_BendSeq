@@ -40,18 +40,21 @@ class TestPreferencesHeadless(unittest.TestCase):
         self.assertIn("tooling_library_path", prefs)
         self.assertIn("search_algorithm", prefs)
         self.assertIn("unknown_policy", prefs)
+        self.assertIn("tooling_set_id", prefs)
 
         # Update preferences
         new_prefs = {
             "tooling_library_path": "/tmp/custom_toollib",
             "search_algorithm": "dfs",
             "unknown_policy": "EXPLORATORY",
+            "tooling_set_id": "test_set_123",
         }
         set_smbs_preferences(new_prefs)
         updated = get_smbs_preferences()
         self.assertEqual(updated["tooling_library_path"], "/tmp/custom_toollib")
         self.assertEqual(updated["search_algorithm"], "dfs")
         self.assertEqual(updated["unknown_policy"], "EXPLORATORY")
+        self.assertEqual(updated["tooling_set_id"], "test_set_123")
 
     def test_preferences_command_metadata(self):
         """PreferencesCommand exposes proper menu and icon resources."""

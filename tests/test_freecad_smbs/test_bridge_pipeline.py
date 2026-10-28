@@ -113,6 +113,38 @@ class TestBridgePipeline(unittest.TestCase):
         self.assertIn("не найден", str(result.error_message))
         self.assertEqual(len(result.candidate_sequence), 0)
 
+    def test_run_pipeline_with_tooling_set(self):
+        recorded_kwargs = {}
+
+        class MockCapturingCoordinator:
+            def __init__(self, workspace_root=None):
+                pass
+
+            def start_run(self, **kwargs):
+                nonlocal recorded_kwargs
+                recorded_kwargs = kwargs
+                return {
+                    "status": "SUCCESS",
+                    "planning_status": "SUCCESS",
+                    "verification_status": "VERIFIED",
+                    "production_eligible": True,
+                    "sequence": [],
+                    "run_report": {"diagnostics": []},
+                }
+
+        result = run_pipeline_on_fcstd(
+            self.dummy_fcstd,
+            tooling_set_id="my_production_set",
+            coordinator_cls=MockCapturingCoordinator,
+        )
+        self.assertEqual(result.planning_status, "SUCCESS")
+        self.assertIn("machine_config", recorded_kwargs)
+        self.assertEqual(
+            recorded_kwargs["machine_config"]["tooling_set"],
+            "my_production_set",
+        )
+
+
 
 if __name__ == "__main__":
     unittest.main()

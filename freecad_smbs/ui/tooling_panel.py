@@ -10,7 +10,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Optional
 
-LIBRARY_TAB_TITLES = ("Пуансоны", "Матрицы", "Станина", "Задний упор", "Лапки")
+LIBRARY_TAB_TITLES = ("Пуансоны", "Матрицы", "Станина", "Задний упор", "Лапки", "Наборы")
 SECTION_CATALOG_MM = (10.0, 15.0, 20.0, 50.0, 100.0)  # Q11=C reference display
 
 _PanelClass: Optional[type] = None
@@ -62,13 +62,14 @@ class ToolingPanel:
                 def _init_ui(self) -> None:
                     layout = QtWidgets.QVBoxLayout(self)
 
-                    # 5-tab widget (Punches, Dies, Machine Frame, Backgauge, Clamps)
+                    # 6-tab widget (Punches, Dies, Machine Frame, Backgauge, Clamps, Sets)
                     self.tabs = QtWidgets.QTabWidget()
                     self.tabs.addTab(self._build_punch_tab(), "Пуансоны (0)")
                     self.tabs.addTab(self._build_die_tab(), "Матрицы (0)")
                     self.tabs.addTab(self._build_machine_frame_tab(), LIBRARY_TAB_TITLES[2])
                     self.tabs.addTab(self._build_backgauge_tab(), LIBRARY_TAB_TITLES[3])
                     self.tabs.addTab(self._build_clamps_tab(), LIBRARY_TAB_TITLES[4])
+                    self.tabs.addTab(self._build_sets_tab(), "Наборы (0)")
                     self.tabs.currentChanged.connect(self._on_selection_changed)
                     layout.addWidget(self.tabs)
 
@@ -330,6 +331,169 @@ class ToolingPanel:
                     self._populate_clamps_ui()
                     return widget
 
+                def _build_sets_tab(self) -> QtWidgets.QWidget:
+                    widget = QtWidgets.QWidget()
+                    vbox = QtWidgets.QVBoxLayout(widget)
+
+                    lbl_info = QtWidgets.QLabel(
+                        "Именованные наборы оснастки (пуансон + матрица + лапки) "
+                        "для быстрой настройки и пакетного расчёта (Requirement 3.1)."
+                    )
+                    lbl_info.setStyleSheet("color: #555; font-style: italic;")
+                    lbl_info.setWordWrap(True)
+                    vbox.addWidget(lbl_info)
+
+                    self.sets_list = QtWidgets.QListWidget()
+                    self.sets_list.itemSelectionChanged.connect(self._on_selection_changed)
+                    vbox.addWidget(self.sets_list)
+
+                    btn_box = QtWidgets.QHBoxLayout()
+                    btn_create = QtWidgets.QPushButton("Создать набор…")
+                    btn_create.clicked.connect(self._on_create_set)
+                    btn_del = QtWidgets.QPushButton("Удалить набор")
+                    btn_del.clicked.connect(self._on_remove_set)
+                    btn_box.addWidget(btn_create)
+                    btn_box.addWidget(btn_del)
+                    vbox.addLayout(btn_box)
+
+                    return widget
+
+                def _on_create_set(self) -> None:
+                    if not self.library:
+                        return
+
+                    from smbs_core.geometry_backend.io.tooling_set import ToolingSet, ToolingSetError
+                    from smbs_core.geometry_backend.io.tooling_library import ToolingLibraryError
+
+                    try:
+                        catalog = self.library.list_tools()
+                    except Exception as e:
+                        QtWidgets.QMessageBox.critical(self, "Ошибка", f"Не удалось прочитать инструменты: {e}")
+                        return
+
+                    if not catalog.punches or not catalog.dies:
+                        QtWidgets.QMessageBox.warning(
+                            self,
+                            "Создание набора",
+                            "В библиотеке должен быть хотя бы один пуансон и одна матрица для создания набора.",
+                        )
+                        return
+
+                    dlg = QtWidgets.QDialog(self)
+                    dlg.setWindowTitle("Создать набор оснастки")
+                    dlg.resize(420, 240)
+                    dlg_layout = QtWidgets.QVBoxLayout(dlg)
+
+                    form = QtWidgets.QFormLayout()
+                    edit_name = QtWidgets.QLineEdit()
+                    edit_name.setPlaceholderText("например: standard_90deg_v12")
+                    form.addRow("ID набора:", edit_name)
+
+                    edit_desc = QtWidgets.QLineEdit()
+                    edit_desc.setPlaceholderText("Описание набора (опционально)")
+                    form.addRow("Описание:", edit_desc)
+
+                    combo_p = QtWidgets.QComboBox()
+                    for p in catalog.punches:
+                        combo_p.addItem(p.tool_id, p.tool_id)
+                    form.addRow("Пуансон:", combo_p)
+
+                    combo_d = QtWidgets.QComboBox()
+                    for d in catalog.dies:
+                        combo_d.addItem(d.tool_id, d.tool_id)
+                    form.addRow("Матрица:", combo_d)
+
+                    edit_clamps = QtWidgets.QLineEdit()
+                    try:
+                        clamp_cfg = self.library.get_clamp_config()
+                        default_clamps_str = ", ".join(str(p) for p in clamp_cfg.positions_mm)
+                    except Exception:
+                        default_clamps_str = "75.0, 275.0"
+                    edit_clamps.setText(default_clamps_str)
+                    edit_clamps.setPlaceholderText("например: 75.0, 275.0")
+                    form.addRow("Позиции лапок (мм):", edit_clamps)
+
+                    dlg_layout.addLayout(form)
+
+                    bbox = QtWidgets.QDialogButtonBox(
+                        QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel
+                    )
+                    bbox.accepted.connect(dlg.accept)
+                    bbox.rejected.connect(dlg.reject)
+                    dlg_layout.addWidget(bbox)
+
+                    if dlg.exec() != QtWidgets.QDialog.Accepted:
+                        return
+
+                    set_id = edit_name.text().strip()
+                    if not set_id:
+                        QtWidgets.QMessageBox.warning(self, "Ошибка ввода", "ID набора не может быть пустым.")
+                        return
+
+                    punch_id = combo_p.currentData()
+                    die_id = combo_d.currentData()
+                    desc_text = edit_desc.text().strip()
+
+                    try:
+                        clamp_pos = _parse_positions_mm(edit_clamps.text())
+                    except ValueError as e:
+                        QtWidgets.QMessageBox.warning(self, "Ошибка ввода", f"Некорректный формат позиций лапок:\n{e}")
+                        return
+
+                    try:
+                        tset = ToolingSet(
+                            set_id=set_id,
+                            punch_id=punch_id,
+                            die_id=die_id,
+                            clamp_positions_mm=clamp_pos,
+                            description=desc_text,
+                        )
+                        self.library.add_set(tset, check_refs=True)
+                        self._set_status(f"Набор '{set_id}' успешно создан.")
+                        self._refresh_lists()
+                        QtWidgets.QMessageBox.information(
+                            self, "Набор создан", f"Набор оснастки '{set_id}' успешно добавлен в библиотеку."
+                        )
+                    except (ToolingSetError, ToolingLibraryError) as e:
+                        self._set_status(f"Ошибка создания набора: {e}", is_error=True)
+                        QtWidgets.QMessageBox.warning(self, "Ошибка создания набора", str(e))
+                    except Exception as e:
+                        self._set_status(f"Неожиданная ошибка: {e}", is_error=True)
+                        QtWidgets.QMessageBox.critical(self, "Ошибка", f"Неожиданная ошибка: {e}")
+
+                def _on_remove_set(self) -> None:
+                    if not self.library:
+                        return
+
+                    item = self.sets_list.currentItem()
+                    if not item:
+                        QtWidgets.QMessageBox.information(
+                            self, "Удаление набора", "Пожалуйста, выберите набор для удаления из списка."
+                        )
+                        return
+
+                    tset = item.data(QtCore.Qt.UserRole)
+                    set_id = tset.set_id if tset else item.text().split()[0]
+
+                    reply = QtWidgets.QMessageBox.question(
+                        self,
+                        "Подтверждение удаления",
+                        f"Удалить набор оснастки '{set_id}' из библиотеки?",
+                        QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
+                    )
+                    if reply != QtWidgets.QMessageBox.Yes:
+                        return
+
+                    from smbs_core.geometry_backend.io.tooling_library import ToolingLibraryError
+
+                    try:
+                        self.library.remove_set(set_id)
+                        self._set_status(f"Набор '{set_id}' удалён из библиотеки.")
+                        self._refresh_lists()
+                    except ToolingLibraryError as e:
+                        self._set_status(f"Ошибка удаления набора: {e}", is_error=True)
+                        QtWidgets.QMessageBox.warning(self, "Ошибка удаления", str(e))
+
                 def _populate_clamps_ui(self) -> None:
                     if not self.library:
                         return
@@ -466,8 +630,26 @@ class ToolingPanel:
                         item.setData(QtCore.Qt.UserRole, d)
                         self.die_list.addItem(item)
 
+                    # Sets tab refresh
+                    self.sets_list.clear()
+                    try:
+                        set_ids = self.library.list_sets()
+                    except Exception:
+                        set_ids = ()
+
+                    for s_id in set_ids:
+                        try:
+                            tset = self.library.get_set(s_id)
+                            item = QtWidgets.QListWidgetItem(f"{tset.set_id}  (П: {tset.punch_id}, М: {tset.die_id})")
+                            item.setData(QtCore.Qt.UserRole, tset)
+                            self.sets_list.addItem(item)
+                        except Exception:
+                            item = QtWidgets.QListWidgetItem(s_id)
+                            self.sets_list.addItem(item)
+
                     self.tabs.setTabText(0, f"Пуансоны ({len(catalog.punches)})")
                     self.tabs.setTabText(1, f"Матрицы ({len(catalog.dies)})")
+                    self.tabs.setTabText(5, f"Наборы ({len(set_ids)})")
                     self._on_selection_changed()
                     self._set_status("Список инструментов обновлён.")
 
@@ -484,6 +666,26 @@ class ToolingPanel:
                     return None
 
                 def _on_selection_changed(self) -> None:
+                    idx = self.tabs.currentIndex()
+                    if idx == 5:
+                        item = self.sets_list.currentItem()
+                        if not item:
+                            self.lbl_selected_id.setText("Выбрано: нет")
+                            self.lbl_selected_meta.setText("Метаданные: —")
+                            return
+                        tset = item.data(QtCore.Qt.UserRole)
+                        if not tset:
+                            self.lbl_selected_id.setText(f"Выбран набор: {item.text()}")
+                            self.lbl_selected_meta.setText("Метаданные: —")
+                            return
+                        self.lbl_selected_id.setText(f"Выбран набор: {tset.set_id}")
+                        clamps_str = ", ".join(f"{p:.1f}" for p in tset.clamp_positions_mm) if tset.clamp_positions_mm else "нет"
+                        desc_str = tset.description if tset.description else "нет"
+                        self.lbl_selected_meta.setText(
+                            f"Пуансон: {tset.punch_id}\nМатрица: {tset.die_id}\nЛапки (X): [{clamps_str}] мм\nОписание: {desc_str}"
+                        )
+                        return
+
                     desc = self._current_descriptor()
                     if not desc:
                         self.lbl_selected_id.setText("Выбрано: нет")
@@ -504,11 +706,14 @@ class ToolingPanel:
                         return
 
                     cur_idx = self.tabs.currentIndex()
+                    if cur_idx == 5:
+                        self._on_create_set()
+                        return
                     if cur_idx not in (0, 1):
                         QtWidgets.QMessageBox.information(
                             self,
                             "Добавление инструмента",
-                            "Добавление моделей (.FCStd) поддерживается на вкладках 'Пуансоны' и 'Матрицы'.",
+                            "Добавление моделей (.FCStd) поддерживается на вкладках 'Пуансоны' и 'Матрицы', а на вкладке 'Наборы' создаются наборы оснастки.",
                         )
                         return
 
@@ -538,6 +743,11 @@ class ToolingPanel:
                         QtWidgets.QMessageBox.critical(self, "Ошибка", f"Неожиданная ошибка: {e}")
 
                 def _on_remove_tool(self) -> None:
+                    cur_idx = self.tabs.currentIndex()
+                    if cur_idx == 5:
+                        self._on_remove_set()
+                        return
+
                     desc = self._current_descriptor()
                     if not desc:
                         QtWidgets.QMessageBox.information(

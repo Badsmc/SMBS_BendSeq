@@ -198,10 +198,15 @@
   - User creates named set from library.
   - Can select set or "entire library" for a run.
   - System flags bends requiring punch changeover.
+- **Status (2026-10-28):** ✅ FULLY COMPLETE
+  - Named ToolingSet model (`tooling_set.py`, `tooling_set.schema.json`) + library CRUD (`tooling_library.py`).
+  - Validation contract & Q10 changeover detection (`smbs_core/tooling/set_validator.py`).
+  - Manifest integration (`applied_tooling_set` in `tooling_manifest.json`).
+  - FreeCAD Workbench integration (`ToolingPanel` "Наборы" tab, `PreferencesDialog`, `run_active.py`).
 - **Required user clarifications:**
   - Q9: "Set" — persisted artifact or temporary selection? → storage. → Expected: persisted artifact.
   - Q10: When punch changeover is needed — auto-planning or flag-only? → scope. → Expected: flag + proposed point, user confirms.
-- **Required approvals (Invariant #7):** `tooling_manifest.schema.json` (extend) or new `tooling_set.schema.json` — clarify in #7.
+- **Required approvals (Invariant #7):** `tooling_manifest.schema.json` (extend) and `tooling_set.schema.json` (new) — completed.
 - **Relation to KL-8/KL-12:** not blocked.
 
 ---

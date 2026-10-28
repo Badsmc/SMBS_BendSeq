@@ -88,6 +88,7 @@ class Coordinator:
 
         resolved_punch_desc: Optional[ToolDescriptor] = None
         resolved_die_desc: Optional[ToolDescriptor] = None
+        resolved_tooling_set: Optional[Any] = None
 
         if machine_config is not None:
             # clamps_config_obj is loaded (validated by CLI) but NOT used in planning yet.
@@ -124,6 +125,8 @@ class Coordinator:
                     raise ValueError(
                         f"Failed to resolve tooling_set '{tooling_set_id}' from library: {e}"
                     ) from e
+
+                resolved_tooling_set = tooling_set
 
                 # Resolve punch/die via library
                 try:
@@ -383,6 +386,30 @@ class Coordinator:
                 "die": payload_die
             }
         }
+
+        tooling_set_validation_dict: Optional[Dict[str, Any]] = None
+        if resolved_tooling_set is not None:
+            from smbs_core.tooling.set_validator import validate_tooling_set
+            validation_report = validate_tooling_set(
+                tooling_set=resolved_tooling_set,
+                canonical_part=canonical_part,
+                punch_desc=resolved_punch_desc,
+                die_desc=resolved_die_desc,
+            )
+            tooling_set_validation_dict = validation_report.to_dict()
+            for w in validation_report.warnings:
+                if w not in tooling_diagnostics:
+                    tooling_diagnostics.append(w)
+
+            tooling_manifest_data["payload"]["applied_tooling_set"] = {
+                "set_id": resolved_tooling_set.set_id,
+                "punch_id": resolved_tooling_set.punch_id,
+                "die_id": resolved_tooling_set.die_id,
+                "clamp_positions_mm": list(resolved_tooling_set.clamp_positions_mm),
+                "description": resolved_tooling_set.description,
+                "validation": tooling_set_validation_dict,
+            }
+
         tooling_file = run_dir / "tooling_manifest.json"
         tooling_hash = self.file_store.write_json_atomic(tooling_file, tooling_manifest_data, schema_name="tooling_manifest")
 
@@ -484,7 +511,9 @@ class Coordinator:
             "baseline_metrics": baseline_result["payload"]["metrics"],
             "payload": geom_result["payload"],
             "canonical_part": canonical_part["payload"],
-            "run_report": run_report["payload"]
+            "run_report": run_report["payload"],
+            "applied_tooling_set": resolved_tooling_set.set_id if resolved_tooling_set is not None else None,
+            "tooling_set_validation": tooling_set_validation_dict,
         }
 
     def _write_tooling_selection(
