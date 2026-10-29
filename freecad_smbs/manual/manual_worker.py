@@ -48,7 +48,7 @@ class ManualSequenceInput:
     """Input payload for manual sequence execution."""
     selections: List[BendSelectionItem]
     tooling_set_id: Optional[str] = None
-    unknown_policy: str = "EXPLORATORY"  # "EXPLORATORY" (default) or "PRODUCTION"
+    unknown_policy: str = "PRODUCTION"  # "PRODUCTION" (default) or "EXPLORATORY"
     part_id: Optional[str] = None
     cancel_token: Optional[threading.Event] = None
 

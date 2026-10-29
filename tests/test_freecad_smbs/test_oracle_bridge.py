@@ -48,8 +48,21 @@ class TestOracleBridge(unittest.TestCase):
             OracleBridge(tooling_set_id=None)
         self.assertIn("tooling_set_id is required", str(ctx.exception))
 
-    def test_oracle_bridge_works_on_real_run(self):
-        """Phase 4c.1 / I2: Validates all 4 steps on real baseline run_20261012_034045_9a351d."""
+    def test_oracle_bridge_initializes_tooling(self):
+        """Phase 4c.1 / K1: Verifies OracleBridge loads real tooling datums and assembly transforms."""
+        from smbs_core.models.tooling import DatumRole, ToolingKind
+        bridge = OracleBridge(tooling_set_id="standard_90deg_v12")
+        self.assertIsNotNone(bridge.validator.assembly)
+        self.assertIsNotNone(bridge.validator.assembly.die)
+        self.assertIsNotNone(bridge.validator.assembly.die.datums)
+        self.assertTrue(bridge.validator.assembly.die.datums[DatumRole.V_CENTER].confirmed)
+        self.assertNotEqual(bridge.validator.assembly.assembly_trsf, {})
+        self.assertIn(ToolingKind.DIE, bridge.validator.assembly.assembly_trsf)
+        self.assertIn(ToolingKind.PUNCH, bridge.validator.assembly.assembly_trsf)
+
+    def test_oracle_bridge_production_policy_on_real_run(self):
+        """Phase 4c.1 / K1: Validates all 4 steps on real baseline run_20261012_034045_9a351d under PRODUCTION."""
+        import time
         rdir = REPO_ROOT / "runs/run_20261012_034045_9a351d"
         p4_path = rdir / "04_canonical_part.json"
         s7_path = rdir / "07_search_result.json"
@@ -95,16 +108,25 @@ class TestOracleBridge(unittest.TestCase):
         bridge = OracleBridge(tooling_set_id=self.tooling_set_id)
         current_state = FoldState.initial(ref_shape, bg, pg)
 
+        start_time = time.time()
         for step_idx, bid in enumerate(seq, start=1):
+            t0 = time.time()
             res = bridge.validate_step(
                 current_state=current_state,
                 bend_record=bend_records[bid],
                 panel_graph=pg,
-                unknown_policy="EXPLORATORY"
+                unknown_policy="PRODUCTION"
             )
+            dt = time.time() - t0
             self.assertTrue(res.valid, f"Step {step_idx} ({bid}) failed: {res.reason} ({res.stage})")
             self.assertEqual(res.stage, "valid")
+            self.assertEqual(res.reason, "Step validated physically.")
+            self.assertFalse(res.has_unknown, f"Step {step_idx} must not have UNKNOWN subchecks under PRODUCTION")
             current_state = res.next_state
+
+        total_elapsed = time.time() - start_time
+        # Physical collision checks on 4 steps with real B-Rep geometry take > 1 second (K3)
+        self.assertGreater(total_elapsed, 1.0, f"Validation completed too fast ({total_elapsed:.2f}s); expected > 1.0s")
 
     def test_oracle_bridge_uses_preserving_order(self):
         """Phase 4c.1 / I1: Invariant check that transform_compound_preserving_order preserves face indexing."""
@@ -189,7 +211,9 @@ class TestOracleBridge(unittest.TestCase):
             bg.add_bend(rec)
             bend_records[bid] = rec
 
-        bridge = OracleBridge(tooling_set_id=self.tooling_set_id)
+        # Validate using baseline simplified machine to match known_orders_box kinematic self-collision probe
+        mach_simp = PressBrakeMachine()
+        bridge = OracleBridge(machine=mach_simp, tooling_set_id=self.tooling_set_id)
         current_state = FoldState.initial(ref_shape, bg, pg)
 
         failed_step = None
@@ -254,7 +278,9 @@ class TestOracleBridge(unittest.TestCase):
             bg.add_bend(rec)
             bend_records[bid] = rec
 
-        bridge = OracleBridge(tooling_set_id=self.tooling_set_id)
+        # Validate using baseline simplified machine to match known_orders_box kinematic self-collision probe
+        mach_simp = PressBrakeMachine()
+        bridge = OracleBridge(machine=mach_simp, tooling_set_id=self.tooling_set_id)
         current_state = FoldState.initial(ref_shape, bg, pg)
 
         for step_idx, bid in enumerate(valid_seq, start=1):
