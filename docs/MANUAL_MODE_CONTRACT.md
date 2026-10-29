@@ -133,11 +133,11 @@ class ManualSequenceResult:
         ...
 ```
 - The produced artifacts (`04_canonical_part.json`, `07_search_result.json`, `09_verification_result.json`, `10_part_bendseq.json`) are byte-for-byte schema compliant with existing AutoMod.
-- **Phase Emission Policy (C3):**
-  - In Phase 4a, `run_manual_sequence_on_fcstd` emits **strictly** `01_input_manifest.json`, `02_geometry_result.json`, and `04_canonical_part.json`.
-  - `07_search_result.json` is **strictly deferred** to Phase 4c / Phase 6 after validation through the Physical Oracle. Downstream VerifierWorker processes `07` only after valid sequencing has occurred.
+- **Phase Emission Policy (C3 & Y10 Update):**
+  - In Phase 4a, `run_manual_sequence_on_fcstd` emitted **strictly** `01_input_manifest.json`, `02_geometry_result.json`, and `04_canonical_part.json`.
+  - In Phase 4c, Option **(A)** is adopted: `run_manual_sequence_on_fcstd` validates the sequence against Physical Oracle, computes backgauge positions, writes `06_search_request.json` and `07_search_result.json` (with honest backgauge and tool statuses), and invokes `VerifierWorker.execute()` to produce `09_verification_result.json`. This closes the full downstream pipeline in Phase 4c without manual artifact patching.
   - `candidate_sequence` in `07_search_result.json` populates strictly from `manual_input.selections` in the user's order.
-- Existing `VerifierWorker` can process the resulting run directory with zero code changes.
+- Existing `VerifierWorker` processes the resulting run directory with zero mock bypasses (`unknown_policy="PRODUCTION"`).
 
 ### 4.4 Cancellation Protocol (§Y4)
 `cancel_token` is an optional `threading.Event` passed into `ManualSequenceInput` or directly to `run_manual_sequence_on_fcstd`.
@@ -276,14 +276,147 @@ for order_idx, sel in enumerate(input.selections, start=1):
 
 ### 6.2 Tooling Lifecycle & Station Setup (Answers Y6 & Phase 6 Prep)
 To ensure the Physical Oracle (`PhysicalValidator`) and downstream `VerifierWorker` have complete station geometry (including `die.datums[DatumRole.V_CENTER]` and `assembly_trsf` needed by `place_part_on_tool_station`):
-1. **Source of Truth:** In Phase 6, `ManualSequenceWorker` resolves tooling via `ToolingLibrary` from `toollibrary/` (standard SMBS catalog), never by copying artifacts from arbitrary prior runs.
+1. **Source of Truth:** `ManualSequenceWorker` resolves tooling via `toollibrary/` (standard SMBS catalog), never by copying artifacts from arbitrary prior runs.
 2. **Configuration Resolution:**
    - User or UI specifies `tooling_set_id` (default: `"standard_90deg_v12"` or configured machine set) or explicit `punch_id` / `die_id` in `ManualSequenceInput`.
-   - `ToolingLibrary.get_set(tooling_set_id)` loads punch and die descriptors containing exact datum definitions (`V_CENTER`, `MOUNTING_PLANE`).
+   - Tooling files contain sidecar `.tooling.json` with verified datum definitions (`V_CENTER`, `WORKING_AXIS`, `MOUNTING_PLANE`).
 3. **Machine Setup:**
    - `PressBrakeMachine.from_config(machine_config)` configures the tooling station with verified datums and geometry.
    - `tooling_manifest.json` and `06_search_request.json` are generated atomically by the worker prior to invoking Oracle steps.
-   - This prevents `"Could not place part on tool station (missing/invalid bend info, tooling, or datum)"` errors when validating steps against Physical Oracle.
+
+### 6.3 Machine & Tooling Setup Lifecycle in Clean Environment (C6)
+In a fresh / clean environment, `PressBrakeMachine()` without tooling arguments creates synthetic simplified tooling with unconfirmed datums (`confirmed=False`), which causes `assembly.place()` to reject placement (`assembly_trsf={}`) and aborts step validation with `"Could not place part on tool station (missing/invalid bend info, tooling, or datum)"`.
+To prevent this in Phase 4c:
+1. **Defaults:**
+   - `tooling_set_id: str`: Default `"standard_90deg_v12"`, pointing to standard tools in `toollibrary/`:
+     - `punch_path = "toollibrary/punch/puancon.FCStd"` (with `puancon.tooling.json`)
+     - `die_path = "toollibrary/die/matrica.FCStd"` (with `matrica.tooling.json`)
+     - `machine_frame_path = "toollibrary/machine_frame/machine_frame.FCStd"` (with `machine_frame.tooling.json`)
+   - `machine_config: PressBrakeMachine | None`: If `None`, defaults to:
+     ```python
+     DEFAULT_PRESSBRAKE_CONFIG = {
+         "name": "press_100t",
+         "bed_length_mm": 2000.0,
+         "max_tonnage": 100.0,
+         "backgauge_x_max_mm": 800.0,
+         "backgauge_r_max_mm": 250.0,
+         "punch_path": "toollibrary/punch/puancon.FCStd",
+         "die_path": "toollibrary/die/matrica.FCStd",
+         "machine_frame_path": "toollibrary/machine_frame/machine_frame.FCStd"
+     }
+     ```
+   - `punch_id` and `die_id` are optional overrides.
+2. **Worker Setup Pseudocode (`_setup_machine_and_tooling`):**
+   ```python
+   def _setup_machine_and_tooling(self, input_config: ManualSequenceInput) -> Tuple[PressBrakeMachine, PhysicalValidator]:
+       if input_config.machine_config is not None:
+           machine = input_config.machine_config
+       else:
+           machine = PressBrakeMachine.from_config(DEFAULT_PRESSBRAKE_CONFIG)
+
+       backend = PythonOCCBackend()
+       validator = PhysicalValidator(machine=machine, backend=backend)
+       
+       # Assert datums are populated and confirmed from sidecars
+       assert validator.assembly.die is not None and validator.assembly.die.datums is not None, "Die datums missing"
+       assert validator.assembly.punch is not None and validator.assembly.punch.datums is not None, "Punch datums missing"
+       assert validator.alignment_status == AlignmentStatus.ALIGNED, "Tooling assembly must be ALIGNED"
+       assert bool(validator.assembly.assembly_trsf), "assembly_trsf must be populated"
+
+       return machine, validator
+   ```
+3. **Mandatory Phase 4c Test:** `test_physical_validator_initialized_with_datums` verifying that in a clean environment, `validator.assembly.die.datums` and `validator.assembly.punch.datums` have confirmed datums and `assembly_trsf` is non-empty before any Oracle calls.
+
+### 6.4 Empirical Permutations & Order Gating (C7)
+To ensure sequence tests verify true physical collisions rather than setup failures, test expectations are empirically established against the Physical Oracle and persisted in fixtures:
+1. **`test_box` (3 Bends):**
+   - Canonical bend IDs: `['BEND_01_0528d4fa', 'BEND_02_64374506', 'BEND_03_bc0dd183']`.
+   - In 3D solid geometry, Flange 1 and Flange 3 are bent upward (+Z), while Flange 2 has opposite normal.
+   - Fixture `tests/fixtures/manual/known_orders_box.json`:
+     ```json
+     {
+       "valid": ["BEND_01_0528d4fa", "BEND_03_bc0dd183", "BEND_02_64374506"],
+       "invalid": ["BEND_02_64374506", "BEND_01_0528d4fa", "BEND_03_bc0dd183"],
+       "expected_collision_stage": "SELF",
+       "expected_collision_step": 1
+     }
+     ```
+2. **`test_pentagon` (5 Bends, U-Profile with Lips):**
+   - Canonical bend IDs: `['BEND_01_ca10577b', 'BEND_02_3de1a41d', 'BEND_03_5a4ce735', 'BEND_04_cf35e4cd', 'BEND_05_f1c34949']`.
+   - The U-profile with returned lips requires outer-to-inner bending. If inner bends (`BEND_01`, `BEND_02`) or base bend (`BEND_03`) are processed prematurely, returning flanges self-intersect or collide with tools during retract/approach.
+   - Fixture `tests/fixtures/manual/known_orders_pentagon.json`:
+     ```json
+     {
+       "valid": ["BEND_04_cf35e4cd", "BEND_05_f1c34949", "BEND_01_ca10577b", "BEND_02_3de1a41d", "BEND_03_5a4ce735"],
+       "invalid": ["BEND_05_f1c34949", "BEND_04_cf35e4cd", "BEND_03_5a4ce735", "BEND_02_3de1a41d", "BEND_01_ca10577b"],
+       "expected_collision_stage": "SELF",
+       "expected_collision_step": 1
+     }
+     ```
+3. **Execution Invariant:** Tests in Phase 4c load expectations dynamically from `known_orders_box.json` and `known_orders_pentagon.json` without hardcoding sequence strings in test methods.
+
+### 6.5 Backgauge & Step Execution Protocol (C8)
+1. **`BackgaugeCalculator` Signature & API:**
+   ```python
+   class BackgaugeCalculator:
+       def __init__(self, machine: PressBrakeMachine): ...
+       
+       def is_backgauge_feasible(self, shape: Any, bend_info: Dict[str, Any]) -> bool: ...
+
+       def compute_step_backgauge(
+           self,
+           step_number: int,
+           bend_info: Dict[str, Any],
+           part_thickness: float = 2.0,
+           confirmed_geometry: bool = False
+       ) -> Dict[str, Any]: ...
+   ```
+2. **Fields of Return Dictionary:**
+   - `X_mm` (float): Horizontal gauge position relative to die V-centerline.
+   - `R_mm` (float): Vertical gauge finger height relative to die top surface.
+   - `Z1_mm`, `Z2_mm` (float): Lateral finger stops along the machine bed.
+   - `finger_touch_point_1`, `finger_touch_point_2` (Tuple[float, float, float]): 3D touch points $(X, Z, R)$.
+   - `part_stability_score` (float): Stability index $[0.0, 1.0]$.
+   - `reference_edge` (str): Basing reference feature (e.g. `"REAR_FLANGE_PARALLEL"`).
+   - `geometry_confirmed` (bool): Whether stop position was verified against B-Rep edges.
+   - `warning` (Optional[str]): Informational warning if coordinates are approximated.
+   *Example for `test_box` Step 1 (length=100.0, thickness=1.5, V=12.0):*
+   `X_mm = 56.0`, `R_mm = 0.75`, `Z1_mm = -30.0`, `Z2_mm = 30.0`.
+3. **Fail-Closed Failure Record Format:**
+   If backgauge calculation fails or `is_backgauge_feasible` returns `False`, step returns:
+   ```json
+   {
+     "step": 1,
+     "bend_id": "BEND_01_...",
+     "valid": false,
+     "stage": "BACKGAUGE",
+     "collision_record": {
+       "type": "BACKGAUGE",
+       "message": "Backgauge infeasible: flange depth exceeds maximum stop travel (X > 800 mm)",
+       "stage": "BACKGAUGE"
+     }
+   }
+   ```
+4. **Step Execution Order:**
+   Within each sequence step $i$:
+   $$\text{bg} = \text{compute\_step\_backgauge}(\dots) \;\longrightarrow\; \text{res} = \text{validate\_step}(\text{state}, \text{bend\_rec}, \dots) \;\longrightarrow\; \text{state} = \text{res.next\_state}$$
+5. **Initial FoldState Reconstruction:**
+   Reconstructed from `04_canonical_part.json` and `geometry.brep`:
+   ```python
+   ref_shape = backend.load_from_brep_string(open(geom_path).read())
+   panel_graph = PanelGraph()
+   # Populate panels and connections from canonical_part payload
+   resolve_panel_faces(ref_shape, panel_graph, canonical_part["payload"])
+   bend_graph = BendGraph()
+   # Populate BendRecords from canonical_part["payload"]["bends"]
+   state = FoldState.initial(part_shape=ref_shape, bend_graph=bend_graph, panel_graph=panel_graph)
+   ```
+
+### 6.6 3D Oracle Invariance Under 2D Planar Reflection (Y11)
+`planar_reflection: bool` (determined in §7.1 / Decision D3) is strictly a **2D page/drawing property** of the TechDraw projection camera basis.
+- The 3D solid shape, `FoldState`, `BendTransform`, `PhysicalValidator`, and `BackgaugeCalculator` operate exclusively in 3D CAD world coordinates.
+- Because `test_mirror.FCStd` has the identical 3D sheet metal Body as `test_box.FCStd` (differing solely in the TechDraw page view projection vector $\vec{D}=(0,0,-1)$ vs $(0,0,1)$), `FoldState.initial` and step-by-step physical validation are completely invariant to 2D reflection.
+- Both `test_box` and `test_mirror` evaluate to identical Oracle validation results and identical backgauge coordinate values in 3D.
 
 ---
 
