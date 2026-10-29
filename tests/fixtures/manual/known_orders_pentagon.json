@@ -1,0 +1,11 @@
+{
+  "total_permutations": 120,
+  "valid_count": 0,
+  "invalid_count": 120,
+  "first_invalid": {
+    "sequence": ["BEND_01_ca10577b", "BEND_02_3de1a41d", "BEND_03_5a4ce735", "BEND_04_cf35e4cd", "BEND_05_f1c34949"],
+    "fail_step": 1,
+    "fail_stage": "SELF",
+    "fail_reason": "Panel self-intersection between PANEL_8a9c7549 and PANEL_d00fee2c (section_len=36.5000 mm)"
+  }
+}

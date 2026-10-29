@@ -1,0 +1,12 @@
+{
+  "tooling_set_id": "standard_90deg_v12",
+  "punch_id": "puancon",
+  "die_id": "matrica",
+  "punch_path": "toollibrary/punch/puancon.FCStd",
+  "die_path": "toollibrary/die/matrica.FCStd",
+  "machine_frame_path": "toollibrary/machine_frame/machine_frame.FCStd",
+  "bed_length_mm": 2000.0,
+  "max_tonnage": 100.0,
+  "backgauge_x_max_mm": 800.0,
+  "backgauge_r_max_mm": 250.0
+}

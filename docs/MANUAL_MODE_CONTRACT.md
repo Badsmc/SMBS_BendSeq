@@ -274,38 +274,28 @@ for order_idx, sel in enumerate(input.selections, start=1):
 2. **Fail-Closed Guarantee:** If backgauge computation raises an exception or fails critical safety limits, the step is marked `valid=False`, with `stage="BACKGAUGE"`, and execution halts immediately (`ok=False`).
 3. Successful backgauge coordinates ($X, R, Z_1, Z_2$) are recorded into `OracleStepResult.backgauge` and serialized into `candidate_sequence[i]["backgauge"]` in `07_search_result.json`.
 
-### 6.2 Tooling Lifecycle & Station Setup (Answers Y6 & Phase 6 Prep)
+### 6.2 Tooling Lifecycle & Station Setup (Answers Y6, H4 & Phase 6 Prep)
 To ensure the Physical Oracle (`PhysicalValidator`) and downstream `VerifierWorker` have complete station geometry (including `die.datums[DatumRole.V_CENTER]` and `assembly_trsf` needed by `place_part_on_tool_station`):
 1. **Source of Truth:** `ManualSequenceWorker` resolves tooling via `toollibrary/` (standard SMBS catalog), never by copying artifacts from arbitrary prior runs.
-2. **Configuration Resolution:**
-   - User or UI specifies `tooling_set_id` (default: `"standard_90deg_v12"` or configured machine set) or explicit `punch_id` / `die_id` in `ManualSequenceInput`.
-   - Tooling files contain sidecar `.tooling.json` with verified datum definitions (`V_CENTER`, `WORKING_AXIS`, `MOUNTING_PLANE`).
+2. **Explicit Tooling Requirement (H4 - Fail Closed):**
+   - `tooling_set_id: str` is **strictly required** in `ManualSequenceInput`.
+   - If `tooling_set_id is None` or empty, `ManualSequenceWorker` fails immediately with `ContractError("tooling_set_id is required; Manual Mode requires explicit tooling configuration")`.
+   - Silent fallback to default tooling is strictly prohibited (adhering to LAW-1 fail-closed principle).
+   - For tests, explicit configuration is loaded from fixture `tests/fixtures/manual/tooling_std.json`.
 3. **Machine Setup:**
    - `PressBrakeMachine.from_config(machine_config)` configures the tooling station with verified datums and geometry.
    - `tooling_manifest.json` and `06_search_request.json` are generated atomically by the worker prior to invoking Oracle steps.
 
-### 6.3 Machine & Tooling Setup Lifecycle in Clean Environment (C6)
+### 6.3 Machine & Tooling Setup Lifecycle in Clean Environment (C6, H4)
 In a fresh / clean environment, `PressBrakeMachine()` without tooling arguments creates synthetic simplified tooling with unconfirmed datums (`confirmed=False`), which causes `assembly.place()` to reject placement (`assembly_trsf={}`) and aborts step validation with `"Could not place part on tool station (missing/invalid bend info, tooling, or datum)"`.
 To prevent this in Phase 4c:
-1. **Defaults:**
-   - `tooling_set_id: str`: Default `"standard_90deg_v12"`, pointing to standard tools in `toollibrary/`:
+1. **Strictly Required Tooling Configuration:**
+   - `tooling_set_id: str` (e.g. `"standard_90deg_v12"` loaded explicitly from `tests/fixtures/manual/tooling_std.json`):
      - `punch_path = "toollibrary/punch/puancon.FCStd"` (with `puancon.tooling.json`)
      - `die_path = "toollibrary/die/matrica.FCStd"` (with `matrica.tooling.json`)
      - `machine_frame_path = "toollibrary/machine_frame/machine_frame.FCStd"` (with `machine_frame.tooling.json`)
-   - `machine_config: PressBrakeMachine | None`: If `None`, defaults to:
-     ```python
-     DEFAULT_PRESSBRAKE_CONFIG = {
-         "name": "press_100t",
-         "bed_length_mm": 2000.0,
-         "max_tonnage": 100.0,
-         "backgauge_x_max_mm": 800.0,
-         "backgauge_r_max_mm": 250.0,
-         "punch_path": "toollibrary/punch/puancon.FCStd",
-         "die_path": "toollibrary/die/matrica.FCStd",
-         "machine_frame_path": "toollibrary/machine_frame/machine_frame.FCStd"
-     }
-     ```
-   - `punch_id` and `die_id` are optional overrides.
+   - `machine_config: PressBrakeMachine`: Constructed explicitly from the resolved tooling set.
+
 2. **Worker Setup Pseudocode (`_setup_machine_and_tooling`):**
    ```python
    def _setup_machine_and_tooling(self, input_config: ManualSequenceInput) -> Tuple[PressBrakeMachine, PhysicalValidator]:
@@ -327,35 +317,40 @@ To prevent this in Phase 4c:
    ```
 3. **Mandatory Phase 4c Test:** `test_physical_validator_initialized_with_datums` verifying that in a clean environment, `validator.assembly.die.datums` and `validator.assembly.punch.datums` have confirmed datums and `assembly_trsf` is non-empty before any Oracle calls.
 
-### 6.4 Empirical Permutations & Order Gating (C7)
-To ensure sequence tests verify true physical collisions rather than setup failures, test expectations are empirically established against the Physical Oracle and persisted in fixtures:
-1. **`test_box` (3 Bends):**
-   - Canonical bend IDs: `['BEND_01_0528d4fa', 'BEND_02_64374506', 'BEND_03_bc0dd183']`.
-   - In 3D solid geometry, Flange 1 and Flange 3 are bent upward (+Z), while Flange 2 has opposite normal.
-   - Fixture `tests/fixtures/manual/known_orders_box.json`:
-     ```json
-     {
-       "valid": ["BEND_01_0528d4fa", "BEND_03_bc0dd183", "BEND_02_64374506"],
-       "invalid": ["BEND_02_64374506", "BEND_01_0528d4fa", "BEND_03_bc0dd183"],
-       "expected_collision_stage": "SELF",
-       "expected_collision_step": 1
-     }
-     ```
-2. **`test_pentagon` (5 Bends, U-Profile with Lips):**
-   - Canonical bend IDs: `['BEND_01_ca10577b', 'BEND_02_3de1a41d', 'BEND_03_5a4ce735', 'BEND_04_cf35e4cd', 'BEND_05_f1c34949']`.
-   - The U-profile with returned lips requires outer-to-inner bending. If inner bends (`BEND_01`, `BEND_02`) or base bend (`BEND_03`) are processed prematurely, returning flanges self-intersect or collide with tools during retract/approach.
-   - Fixture `tests/fixtures/manual/known_orders_pentagon.json`:
-     ```json
-     {
-       "valid": ["BEND_04_cf35e4cd", "BEND_05_f1c34949", "BEND_01_ca10577b", "BEND_02_3de1a41d", "BEND_03_5a4ce735"],
-       "invalid": ["BEND_05_f1c34949", "BEND_04_cf35e4cd", "BEND_03_5a4ce735", "BEND_02_3de1a41d", "BEND_01_ca10577b"],
-       "expected_collision_stage": "SELF",
-       "expected_collision_step": 1
-     }
-     ```
-3. **Execution Invariant:** Tests in Phase 4c load expectations dynamically from `known_orders_box.json` and `known_orders_pentagon.json` without hardcoding sequence strings in test methods.
+### 6.4 Empirical Permutations & Order Gating (C7, H1, H2)
+To establish ground truth for Phase 4c physical validation, an exhaustive empirical permutation probe ($N!$) was executed using `PhysicalValidator` with `PythonOCCBackend` and canonical parts produced by `TopologyWorker`:
 
-### 6.5 Backgauge & Step Execution Protocol (C8)
+1. **`test_box` (3 Bends, $3! = 6$ Permutations):**
+   - Canonical bend IDs: `['BEND_01_0528d4fa', 'BEND_02_64374506', 'BEND_03_bc0dd183']`.
+   - **Exhaustive Probe Results:**
+     ```
+     Total permutations: 6
+     Valid: 0
+     Invalid: 6
+     Perm ('BEND_01_0528d4fa', 'BEND_02_64374506', 'BEND_03_bc0dd183') -> INVALID at step 1 (SELF): Panel self-intersection between PANEL_f09bf15c and PANEL_0ab8e963 (section_len=182.9270 mm)
+     Perm ('BEND_01_0528d4fa', 'BEND_03_bc0dd183', 'BEND_02_64374506') -> INVALID at step 1 (SELF): Panel self-intersection between PANEL_f09bf15c and PANEL_0ab8e963 (section_len=182.9270 mm)
+     Perm ('BEND_02_64374506', 'BEND_01_0528d4fa', 'BEND_03_bc0dd183') -> INVALID at step 1 (SELF): Panel self-intersection between PANEL_0ab8e963 and PANEL_9eccff07 (section_len=292.9905 mm)
+     Perm ('BEND_02_64374506', 'BEND_03_bc0dd183', 'BEND_01_0528d4fa') -> INVALID at step 1 (SELF): Panel self-intersection between PANEL_0ab8e963 and PANEL_9eccff07 (section_len=292.9905 mm)
+     Perm ('BEND_03_bc0dd183', 'BEND_01_0528d4fa', 'BEND_02_64374506') -> INVALID at step 1 (SELF): Panel self-intersection between PANEL_0ab8e963 and PANEL_f09bf15c (section_len=389.5000 mm)
+     Perm ('BEND_03_bc0dd183', 'BEND_02_64374506', 'BEND_01_0528d4fa') -> INVALID at step 1 (SELF): Panel self-intersection between PANEL_0ab8e963 and PANEL_f09bf15c (section_len=389.5000 mm)
+     ```
+   - **Physical Root Cause (KL-12 / KL-22):** In sheet metal boxes with closed or tight corner reliefs, orthogonal flanges touch along corner relief edges (`dist = 0.0 mm`, `sec_len = 139.3 mm`). Because `self_collision` evaluates non-adjacent panels across all fixed/moving pairs on the 3D solid without corner relief clearance masking, backward unfolding rotates the flange through the adjacent side panel, triggering `CollisionStatus.INVALID (SELF)`.
+
+2. **`test_pentagon` (5 Bends, $5! = 120$ Permutations):**
+   - Canonical bend IDs: `['BEND_01_ca10577b', 'BEND_02_3de1a41d', 'BEND_03_5a4ce735', 'BEND_04_cf35e4cd', 'BEND_05_f1c34949']`.
+   - **Exhaustive Probe Results:**
+     ```
+     Total permutations: 120
+     Valid: 0
+     Invalid: 120
+     First invalid: ('BEND_01_ca10577b', 'BEND_02_3de1a41d', 'BEND_03_5a4ce735', 'BEND_04_cf35e4cd', 'BEND_05_f1c34949') at step 1 (SELF): Panel self-intersection between PANEL_8a9c7549 and PANEL_d00fee2c (section_len=36.5000 mm)
+     ```
+   - **Sub-gate 4c.0 Architectural Decision (Oracle Gating Policy):**
+     As required by Sub-gate 4c.0: because `PhysicalValidator` rejects all permutations at step 1 due to B-Rep sewing face reordering and corner relief contact in `self_collision`, **Physical Oracle is invoked in Phase 4c as an active advisory / collision validator**, but self-collision step rejections are recorded truthfully in `07_search_result.json` and `ValidationResult`. For Phase 4c unit tests (`test_manual_worker.py`), `test_pentagon_collision_detected` explicitly tests that Oracle detects collision on invalid sequences at step 1, while valid execution flows are verified against geometric and backgauge feasibility.
+
+3. **Execution Invariant:** Tests in Phase 4c load expectations dynamically from `tests/fixtures/manual/known_orders_box.json` and `tests/fixtures/manual/known_orders_pentagon.json` without hardcoding sequence strings in test methods.
+
+### 6.5 Backgauge & Step Execution Protocol (C8, H3)
 1. **`BackgaugeCalculator` Signature & API:**
    ```python
    class BackgaugeCalculator:
@@ -371,17 +366,26 @@ To ensure sequence tests verify true physical collisions rather than setup failu
            confirmed_geometry: bool = False
        ) -> Dict[str, Any]: ...
    ```
-2. **Fields of Return Dictionary:**
-   - `X_mm` (float): Horizontal gauge position relative to die V-centerline.
-   - `R_mm` (float): Vertical gauge finger height relative to die top surface.
-   - `Z1_mm`, `Z2_mm` (float): Lateral finger stops along the machine bed.
-   - `finger_touch_point_1`, `finger_touch_point_2` (Tuple[float, float, float]): 3D touch points $(X, Z, R)$.
-   - `part_stability_score` (float): Stability index $[0.0, 1.0]$.
-   - `reference_edge` (str): Basing reference feature (e.g. `"REAR_FLANGE_PARALLEL"`).
-   - `geometry_confirmed` (bool): Whether stop position was verified against B-Rep edges.
-   - `warning` (Optional[str]): Informational warning if coordinates are approximated.
-   *Example for `test_box` Step 1 (length=100.0, thickness=1.5, V=12.0):*
-   `X_mm = 56.0`, `R_mm = 0.75`, `Z1_mm = -30.0`, `Z2_mm = 30.0`.
+2. **Empirically Verified Probe Output (H3):**
+   Input extracted from `test_box` `04_canonical_part.json` for bend `BEND_01_0528d4fa`:
+   `{"bend_id": "BEND_01_0528d4fa", "length": 100.0, "angle": 90.0}`, `part_thickness = 1.5`, `V = 12.0 mm`.
+   Actual return value:
+   ```json
+   {
+     "X_mm": 56.0,
+     "R_mm": 0.75,
+     "Z1_mm": -25.0,
+     "Z2_mm": 25.0,
+     "finger_touch_point_1": [56.0, -25.0, 0.75],
+     "finger_touch_point_2": [56.0, 25.0, 0.75],
+     "part_stability_score": 0.95,
+     "reference_edge": "REAR_FLANGE_PARALLEL",
+     "geometry_confirmed": true,
+     "warning": null
+   }
+   ```
+   *(Calculation formula: $X = \max(20.0, 100.0 \times 0.5) + 12.0 / 2 = 50.0 + 6.0 = 56.0\text{ mm}$; $R = 1.5 \times 0.5 = 0.75\text{ mm}$; margin $=\max(25, 20)=25\text{ mm} \implies Z_1=-25.0, Z_2=25.0\text{ mm}$, touch span $=50.0\text{ mm} \implies \text{stability}=0.95$)*.
+
 3. **Fail-Closed Failure Record Format:**
    If backgauge calculation fails or `is_backgauge_feasible` returns `False`, step returns:
    ```json
