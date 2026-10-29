@@ -47,8 +47,11 @@ logger = logging.getLogger("smbs.manual_worker")
 class ManualSequenceInput:
     """Input payload for manual sequence execution."""
     selections: List[BendSelectionItem]
+    tooling_set_id: Optional[str] = None
+    unknown_policy: str = "EXPLORATORY"  # "EXPLORATORY" (default) or "PRODUCTION"
     part_id: Optional[str] = None
     cancel_token: Optional[threading.Event] = None
+
 
 
 @dataclass
