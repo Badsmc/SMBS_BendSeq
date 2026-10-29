@@ -134,22 +134,75 @@ class OracleBridge:
         if tooling_set_id is None:
             raise ValueError("tooling_set_id is required; Manual Mode requires explicit tooling configuration")
         self.tooling_set_id = tooling_set_id
-        self.machine = machine or PressBrakeMachine()
         self.backend = backend or PythonOCCBackend()
-        # Bind the index-preserving transform directly to this backend instance
+        # Bind the index-preserving transform directly to this backend instance (J1)
         self.backend.rotate_subtree = transform_compound_preserving_order
+
+        if machine is not None:
+            self.machine = machine
+        else:
+            # Load real tooling configuration from tooling library / tooling_set_id (K1)
+            from freecad_smbs.resources.tooling_paths import (
+                TOOL_LIBRARY_ROOT,
+                resolve_machine_frame_fcstd,
+                PUNCH_PATH,
+                DIE_PATH
+            )
+            from smbs_core.geometry_backend.io.tooling_set import ToolingSet
+
+            set_json_path = TOOL_LIBRARY_ROOT / "sets" / f"{tooling_set_id}.json"
+            punch_fcstd = PUNCH_PATH
+            die_fcstd = DIE_PATH
+
+            if set_json_path.exists():
+                try:
+                    import json
+                    with open(set_json_path, "r", encoding="utf-8") as f:
+                        tset = ToolingSet.from_dict(json.load(f))
+                    p_cand = TOOL_LIBRARY_ROOT / "punch" / f"{tset.punch_id}.FCStd"
+                    d_cand = TOOL_LIBRARY_ROOT / "die" / f"{tset.die_id}.FCStd"
+                    if p_cand.exists():
+                        punch_fcstd = p_cand
+                    if d_cand.exists():
+                        die_fcstd = d_cand
+                except Exception as e:
+                    logger.warning(f"Could not load set file {set_json_path}: {e}")
+
+            frame_fcstd = resolve_machine_frame_fcstd(TOOL_LIBRARY_ROOT)
+
+            self.machine = PressBrakeMachine(
+                punch_path=str(punch_fcstd) if punch_fcstd and punch_fcstd.exists() else None,
+                die_path=str(die_fcstd) if die_fcstd and die_fcstd.exists() else None,
+                machine_frame_path=str(frame_fcstd) if frame_fcstd and frame_fcstd.exists() else None,
+                punch_target_object_name="Body",
+                die_target_object_name="Body",
+                machine_frame_target_object_name=None
+            )
+
         self.validator = PhysicalValidator(self.machine, self.backend)
+
+        # Patch assembly.place to preserve machine_frame across validator.alignment_status calls
+        if hasattr(self.validator, "assembly") and self.validator.assembly:
+            orig_place = self.validator.assembly.place
+
+            def preserving_place(punch, die, machine_frame=None, bed=None):
+                if machine_frame is None and getattr(self.validator.assembly, "machine_frame", None) is not None:
+                    machine_frame = self.validator.assembly.machine_frame
+                return orig_place(punch, die, machine_frame=machine_frame, bed=bed)
+
+            self.validator.assembly.place = preserving_place
 
     def validate_step(
         self,
         current_state: FoldState,
         bend_record: BendRecord,
         panel_graph: PanelGraph,
-        unknown_policy: str = "EXPLORATORY"
+        unknown_policy: str = "PRODUCTION"
     ) -> ValidationResult:
         """
         Validates a single folding step physically.
         Returns ValidationResult with valid=True/False and canonical stage.
+        Default policy is strictly 'PRODUCTION' (K1).
         """
         return self.validator.validate_step(
             current_state=current_state,

@@ -174,14 +174,31 @@ Extracts 2D/3D contours → computes T_4x4 and T_inv
 Validates fixed sequence step-by-step → Writes 07_search_result.json
        │
        ▼
-### 4.3 Phase Emission Policy & Verification Strategy (Decisions C3, J2)
+### 4.3 Phase Emission Policy & Verification Strategy (Decisions C3, J2, K4)
 To preserve honest verification boundaries and prevent test fabrication:
 - **Phase 4a:** `run_manual_sequence_on_fcstd` produces strictly `01_input_manifest.json`, `02_geometry_result.json`, `04_canonical_part.json`, `geometry.brep`, and `flat_pattern.brep`.
 - **Phase 4c.1 / 4c.2:** `ManualSequenceWorker` evaluates user sequence via `OracleBridge.validate_step` and produces `07_search_result.json`.
-- **Phase 4c.3 Verification Strategy — Decision J2 (Option A):**
+- **Phase 4c.3 Verification Strategy — Decision J2 (Option A) & K4 Specification:**
   Baseline `VerifierWorker` uses legacy `backend.rotate_subtree` with sewing, which fails on multi-bend parts. Therefore, **Manual Mode does NOT invoke baseline `VerifierWorker`**.
-  Instead, `OracleBridge` produces a dedicated, truthful manual verification result: `09_manual_verification_result.json`.
-  Baseline `09_verification_result.json` is not emitted in Manual Mode, preventing regression against legacy verifier issues while ensuring complete traceability.
+  Instead, `ManualSequenceWorker` / `OracleBridge` produces a dedicated, truthful manual verification result: `09_manual_verification_result.json`.
+  
+  **Schema for `09_manual_verification_result.json`:**
+  - `schema_name`: `"manual_verification_result"` (version `"1.0"`)
+  - `status`: `"SUCCESS"` | `"WORKER_ERROR"`
+  - `payload.verification_status`:
+    - `"PASSED"`: all $N$ steps physically checked and clear (`valid=True`, `has_unknown=False`).
+    - `"PASSED_WITH_UNKNOWN"`: all steps accepted under `EXPLORATORY` policy, but contains $\ge 1$ step with `UNKNOWN` subchecks.
+    - `"FAILED"`: sequence rejected by oracle (collision, trajectory, kinematics, or tool clash).
+  - `payload.production_eligible`: `True` only if `verification_status == "PASSED"`; `False` otherwise.
+  - `payload.step_verifications`: list of per-step records (`step`, `bend_id`, `status: "CONFIRMED" | "FAILED"`, `stage`, `has_unknown`, `reason`).
+  - `payload.independent_metrics`: volume, area, and bounding box delta against target B-Rep.
+  
+  **Consumer UI:**
+  - `VerificationDialog`: reads `09_manual_verification_result.json` as first-class verification artifact (fallback from `09_verification_result.json`), mapping:
+    - `"PASSED"` $\to$ Green badge (`BADGE_VERIFIED`)
+    - `"PASSED_WITH_UNKNOWN"` $\to$ Orange badge (`BADGE_UNVERIFIED` with explicit warning)
+    - `"FAILED"` $\to$ Red/Orange badge (`BADGE_VERIFICATION_FAILED`)
+  - `SMBS_AnimationPlayer` / `SimulationDialog`: reads step simulation and backgauge records from `07_search_result.json` and verification confirmation from `09_manual_verification_result.json`.
 - **Phase 4d:** Produces `10_part_bendseq.json` when `ok=True`, and renders FreeCAD 3D labels and TechDraw 2D balloons.
 
 ---
