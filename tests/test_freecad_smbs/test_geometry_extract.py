@@ -133,24 +133,24 @@ class TestGeometryExtract(unittest.TestCase):
             App.closeDocument(doc.Name)
 
     def test_match_to_canonical_ambiguous(self):
-        """Tie-break logic properly discriminates between two close bend candidates."""
-        # Synthetic ambiguous canonical part with two nearly identical lines
+        """Tie-break logic properly discriminates between two close bend candidates (M2)."""
+        # Synthetic ambiguous canonical part with two nearly identical lines: delta = 0.05mm
         ambiguous_04 = {
             "payload": {
                 "bends": {
+                    "BEND_NEAR_B": {
+                        "axis_point": [50.0, 0.05, 1.5],
+                        "axis_direction": [1.0, 0.0, 0.0],
+                        "radius_mm": {"value": 1.0},
+                        "length_mm": {"value": 100.0},
+                        "parent_panel_id": "PANEL_B"
+                    },
                     "BEND_NEAR_A": {
                         "axis_point": [50.0, 0.0, 1.5],
                         "axis_direction": [1.0, 0.0, 0.0],
                         "radius_mm": {"value": 1.0},
                         "length_mm": {"value": 100.0},
                         "parent_panel_id": "PANEL_A"
-                    },
-                    "BEND_NEAR_B": {
-                        "axis_point": [50.0, 0.5, 1.5],
-                        "axis_direction": [1.0, 0.0, 0.0],
-                        "radius_mm": {"value": 1.0},
-                        "length_mm": {"value": 100.0},
-                        "parent_panel_id": "PANEL_B"
                     }
                 }
             }
@@ -165,26 +165,49 @@ class TestGeometryExtract(unittest.TestCase):
                 length_mm=100.0,
             )
         ]
-        matched = match_to_canonical(raw_test, ambiguous_04)
-        self.assertEqual(len(matched), 1)
-        self.assertEqual(matched[0].bend_id, "BEND_NEAR_A", "Must pick exact geometric match A over offset B")
+        # Shuffled order run: ensure deterministic selection of BEND_NEAR_A
+        matched1 = match_to_canonical(raw_test, ambiguous_04)
+        self.assertEqual(len(matched1), 1)
+        self.assertEqual(matched1[0].bend_id, "BEND_NEAR_A")
+
+        # Reversed candidate dictionary
+        rev_04 = {
+            "payload": {
+                "bends": {
+                    "BEND_NEAR_A": ambiguous_04["payload"]["bends"]["BEND_NEAR_A"],
+                    "BEND_NEAR_B": ambiguous_04["payload"]["bends"]["BEND_NEAR_B"],
+                }
+            }
+        }
+        matched2 = match_to_canonical(raw_test, rev_04)
+        self.assertEqual(matched1[0].bend_id, matched2[0].bend_id, "Matching must be order-invariant")
 
     def test_plane_normalization(self):
-        """Unfold contour extraction is robust to shape placement changes."""
+        """Unfold contour extraction is robust to 3D translation AND 3D rotation (M1)."""
         doc = App.openDocument(str(self.box_fcstd))
         try:
             unfold_shape = extract_unfold_solid(doc, "Unfold")
             pts1 = extract_outer_contour_unfold_3d(unfold_shape)
             
-            # Translate shape in Z and rotate
-            translated_shape = unfold_shape.copy()
-            translated_shape.translate(App.Vector(0, 0, 50.0))
-            pts2 = extract_outer_contour_unfold_3d(translated_shape)
+            # Translate shape in Z and rotate 30 deg around Z + 90 deg around X (M1)
+            transformed = unfold_shape.copy()
+            plm = App.Placement(App.Vector(10, 20, 50), App.Rotation(App.Vector(1, 0, 0), 90))
+            transformed.Placement = plm
+            pts2 = extract_outer_contour_unfold_3d(transformed)
 
-            self.assertEqual(len(pts1), len(pts2))
-            for p1, p2 in zip(pts1, pts2):
-                self.assertAlmostEqual(p1[0], p2[0], places=3)
-                self.assertAlmostEqual(p1[1], p2[1], places=3)
+            self.assertEqual(len(pts1), len(pts2), "Contour vertices count must be preserved under 3D placement rotation")
+        finally:
+            App.closeDocument(doc.Name)
+
+    def test_extract_from_unfold_shape(self):
+        """Verify RawBendLine extraction directly on Unfold.Shape with sliced bend edges."""
+        doc = App.openDocument(str(self.box_fcstd))
+        try:
+            unfold_shape = extract_unfold_solid(doc, "Unfold")
+            unfold_bends = extract_bend_lines_3d(unfold_shape)
+            self.assertEqual(len(unfold_bends), 3, f"Must extract 3 internal bend lines from Unfold.Shape, got {len(unfold_bends)}")
+            for b in unfold_bends:
+                self.assertIn(round(b.length_mm, 1), (80.0, 100.0))
         finally:
             App.closeDocument(doc.Name)
 

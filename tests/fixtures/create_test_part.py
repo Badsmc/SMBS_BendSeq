@@ -85,8 +85,9 @@ def create_box_unfold_shape(
 ) -> Part.Shape:
     """
     Creates the true unfolded 2D sheet blank with 8 outer vertices
-    (cross contour with corner reliefs).
+    and 3 internal bend lines on the top face (Z=thickness) for selection.
     """
+    import BOPTools.SplitAPI
     b_center = Part.makeBox(base_w, base_l, thickness)
     b_f1 = Part.makeBox(base_w, flange_h, thickness)
     b_f1.translate(App.Vector(0, -flange_h, 0))
@@ -95,7 +96,14 @@ def create_box_unfold_shape(
     b_f3 = Part.makeBox(flange_h, base_l, thickness)
     b_f3.translate(App.Vector(-flange_h, 0, 0))
     cross = b_center.fuse(b_f1).fuse(b_f2).fuse(b_f3).removeSplitter()
-    return cross
+
+    # 3 bend line edges on top surface (Z=thickness)
+    l1 = Part.makeLine((0, 0, thickness), (base_w, 0, thickness))
+    l2 = Part.makeLine((0, base_l, thickness), (base_w, base_l, thickness))
+    l3 = Part.makeLine((0, 0, thickness), (0, base_l, thickness))
+
+    sliced = BOPTools.SplitAPI.slice(cross, [l1, l2, l3], "Split")
+    return sliced
 
 
 def create_pentagon_5bend_shape(
@@ -164,7 +172,8 @@ def create_pentagon_unfold_shape(
     h1: float = 40.0,
     h2: float = 20.0,
 ) -> Part.Shape:
-    """Creates true unfolded blank for 5-bend part (8 outer vertices)."""
+    """Creates true unfolded blank for 5-bend part with 5 internal bend lines on top face."""
+    import BOPTools.SplitAPI
     b_center = Part.makeBox(base_w, base_l, thickness)
     b_f1 = Part.makeBox(base_w, h1 + h2, thickness)
     b_f1.translate(App.Vector(0, base_l, 0))
@@ -173,7 +182,16 @@ def create_pentagon_unfold_shape(
     b_f3 = Part.makeBox(h1, base_l, thickness)
     b_f3.translate(App.Vector(-h1, 0, 0))
     shape = b_center.fuse(b_f1).fuse(b_f2).fuse(b_f3).removeSplitter()
-    return shape
+
+    # 5 bend lines on top surface (Z=thickness)
+    l1 = Part.makeLine((0, base_l, thickness), (base_w, base_l, thickness))
+    l2 = Part.makeLine((0, 0, thickness), (base_w, 0, thickness))
+    l3 = Part.makeLine((0, 0, thickness), (0, base_l, thickness))
+    l4 = Part.makeLine((0, base_l + h1, thickness), (base_w, base_l + h1, thickness))
+    l5 = Part.makeLine((0, -h1, thickness), (base_w, -h1, thickness))
+
+    sliced = BOPTools.SplitAPI.slice(shape, [l1, l2, l3, l4, l5], "Split")
+    return sliced
 
 
 def create_test_box_fcstd(target_path: Path) -> Path:

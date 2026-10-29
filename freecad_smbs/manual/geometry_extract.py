@@ -92,7 +92,6 @@ def extract_outer_contour_unfold_3d(
     best_face = None
     max_area = -1.0
     for f in shape.Faces:
-        # Check planarity: surface has normal axis
         axis = getattr(getattr(f, "Surface", None), "Axis", None)
         if axis is not None and f.Area > max_area:
             max_area = f.Area
@@ -104,16 +103,26 @@ def extract_outer_contour_unfold_3d(
     # Outer wire has the maximum length or contains the outer vertices
     outer_wire = best_face.OuterWire if hasattr(best_face, "OuterWire") else best_face.Wires[0]
     
-    # Plane normal orientation
+    # Construct face orthonormal 2D basis (u_vec, v_vec) perpendicular to normal
     axis = best_face.Surface.Axis
-    normal_unit = (float(axis.x), float(axis.y), float(axis.z))
+    n_mag = math.sqrt(axis.x**2 + axis.y**2 + axis.z**2) or 1.0
+    normal = App.Vector(axis.x / n_mag, axis.y / n_mag, axis.z / n_mag)
 
-    # Extract distinct polygon vertices
+    # Pick non-collinear reference vector to build basis
+    ref = App.Vector(0, 0, 1) if abs(normal.z) < 0.9 else App.Vector(1, 0, 0)
+    u_vec = normal.cross(ref).normalize()
+    v_vec = normal.cross(u_vec).normalize()
+    origin = best_face.CenterOfMass
+
+    # Extract distinct polygon vertices projected into the local face plane
     raw_points: List[Point2D] = []
     seen = []
     for v in outer_wire.Vertexes:
-        pt = (round(float(v.Point.x), 4), round(float(v.Point.y), 4))
-        # Deduplicate sequential / closed points
+        diff = v.Point - origin
+        u_coord = round(float(diff.dot(u_vec)), 4)
+        v_coord = round(float(diff.dot(v_vec)), 4)
+        pt = (u_coord, v_coord)
+
         if not seen or math.hypot(pt[0] - seen[-1][0], pt[1] - seen[-1][1]) > 0.05:
             seen.append(pt)
             raw_points.append(pt)
@@ -128,17 +137,42 @@ def extract_outer_contour_unfold_3d(
 def extract_outer_contour_drawing_2d(view: Any) -> List[Point2D]:
     """
     Extracts 2D contour vertices directly from a FreeCAD TechDraw::DrawViewPart (U2).
+    Uses projected outer boundary vertices to exclude internal bend lines.
     """
     if view is None:
         return []
 
     points: List[Point2D] = []
     try:
+        # If view has Source geometry, project its true outer boundary vertices
+        if hasattr(view, "Source") and view.Source:
+            source_obj = view.Source[0]
+            if hasattr(source_obj, "Shape"):
+                # Find largest planar face
+                best_face = None
+                max_area = -1.0
+                for f in source_obj.Shape.Faces:
+                    axis = getattr(getattr(f, "Surface", None), "Axis", None)
+                    if axis is not None and f.Area > max_area:
+                        max_area = f.Area
+                        best_face = f
+                if best_face is not None:
+                    outer_w = best_face.OuterWire if hasattr(best_face, "OuterWire") else best_face.Wires[0]
+                    for v in outer_w.Vertexes:
+                        proj = view.projectPoint(v.Point) if hasattr(view, "projectPoint") else v.Point
+                        pt = (round(float(proj.x), 4), round(float(proj.y), 4))
+                        if not points or math.hypot(pt[0] - points[-1][0], pt[1] - points[-1][1]) > 0.05:
+                            points.append(pt)
+                    if len(points) > 2 and math.hypot(points[0][0] - points[-1][0], points[0][1] - points[-1][1]) < 0.05:
+                        points.pop()
+                    if len(points) >= 3:
+                        return points
+
+        # Fallback to visible vertices
         visible_vertexes = view.getVisibleVertexes()
         seen = []
         for v in visible_vertexes:
             pt = (round(float(v.x), 4), round(float(v.y), 4))
-            # Deduplicate close points
             is_dup = False
             for s in seen:
                 if math.hypot(pt[0] - s[0], pt[1] - s[1]) < 0.05:
@@ -156,7 +190,7 @@ def extract_bend_lines_3d(shape: Any) -> List[RawBendLine]:
     """
     Extracts raw unmapped candidate bend lines from 3D CAD shape (U1).
     Decoupled from canonical mapping: analyzes cylindrical fillet surfaces
-    and straight bend axis edges.
+    or straight internal bend edges on unfolded flat blanks.
     """
     if shape is None or shape.isNull():
         return []
@@ -169,6 +203,76 @@ def extract_bend_lines_3d(shape: Any) -> List[RawBendLine]:
         if "cyl" in name or hasattr(f.Surface, "Radius"):
             cyl_faces.append(f)
 
+    # If no cylinder faces found, this is an unfolded sheet metal solid!
+    if not cyl_faces:
+        # Group planar sheet faces by normal axis.
+        # Top sheet face (sliced into multiple panels) has normal axis ~ (0, 0, 1) or (-0, -0, -1)
+        face_groups: Dict[Tuple[float, float, float], List[Any]] = {}
+        for f in shape.Faces:
+            axis = getattr(getattr(f, "Surface", None), "Axis", None)
+            if axis is not None and f.Area > 200.0:  # significant area
+                norm = App.Vector(axis.x, axis.y, axis.z).normalize()
+                # Find matching group
+                matched_grp = None
+                for g_key in face_groups:
+                    g_vec = App.Vector(g_key[0], g_key[1], g_key[2])
+                    # Coplanar: parallel normal and same plane distance
+                    if abs(norm.dot(g_vec)) > 0.95:
+                        first_f = face_groups[g_key][0]
+                        if abs((f.CenterOfMass - first_f.CenterOfMass).dot(norm)) < 0.1:
+                            matched_grp = g_key
+                            break
+                if matched_grp is not None:
+                    face_groups[matched_grp].append(f)
+                else:
+                    face_groups[(round(norm.x, 3), round(norm.y, 3), round(norm.z, 3))] = [f]
+
+        # The sliced surface is the group with the most panels (>1) or largest total area
+        best_grp = max(face_groups.values(), key=lambda grp: (len(grp), sum(f.Area for f in grp)), default=[])
+        if not best_grp:
+            return []
+
+        # Count edge occurrences among the sliced panel faces
+        edge_count: Dict[Tuple[float, float, float, float], int] = {}
+        edge_map: Dict[Tuple[float, float, float, float], Any] = {}
+        for f in best_grp:
+            for e in f.Edges:
+                if hasattr(e, "Curve") and "line" in getattr(getattr(e, "Curve"), "__class__", type("")).__name__.lower():
+                    if e.Length > 10.0:
+                        m = e.CenterOfMass
+                        key = (round(float(m.x), 2), round(float(m.y), 2), round(float(m.z), 2), round(float(e.Length), 2))
+                        edge_count[key] = edge_count.get(key, 0) + 1
+                        edge_map[key] = e
+
+        # An internal bend line borders >= 2 panel faces on the sheet!
+        normal_vec = best_grp[0].Surface.Axis
+        n_unit = App.Vector(normal_vec.x, normal_vec.y, normal_vec.z).normalize()
+
+        for key, count in edge_count.items():
+            if count >= 2:
+                e = edge_map[key]
+                p1 = e.Vertexes[0].Point
+                p2 = e.Vertexes[1].Point
+                d_vec = (p2.x - p1.x, p2.y - p1.y, p2.z - p1.z)
+                mag = math.sqrt(d_vec[0]**2 + d_vec[1]**2 + d_vec[2]**2) or 1.0
+                u_dir = (d_vec[0] / mag, d_vec[1] / mag, d_vec[2] / mag)
+                if u_dir[0] < -1e-6 or (abs(u_dir[0]) < 1e-6 and (u_dir[1] < -1e-6 or (abs(u_dir[1]) < 1e-6 and u_dir[2] < 0))):
+                    u_dir = (-u_dir[0], -u_dir[1], -u_dir[2])
+
+                raw_lines.append(
+                    RawBendLine(
+                        midpoint=(key[0], key[1], key[2]),
+                        direction=u_dir,
+                        normal=(float(n_unit.x), float(n_unit.y), float(n_unit.z)),
+                        radius_mm=1.0,
+                        length_mm=key[3],
+                        adjacent_panel_areas=(0.0, 0.0),
+                        source_edge_ref="",
+                    )
+                )
+
+        return raw_lines
+
     # Group cylinder faces by concentric axis line
     processed_axes: List[Tuple[Point3D, Vector3D]] = []
 
@@ -177,26 +281,20 @@ def extract_bend_lines_3d(shape: Any) -> List[RawBendLine]:
         center = f.Surface.Center
         radius = float(f.Surface.Radius)
 
-        # Direction unit vector
         norm_len = math.sqrt(axis.x**2 + axis.y**2 + axis.z**2)
         if norm_len < 1e-6:
             continue
         v_dir = (axis.x / norm_len, axis.y / norm_len, axis.z / norm_len)
 
-        # Standardize direction sign
         if v_dir[0] < -1e-6 or (abs(v_dir[0]) < 1e-6 and (v_dir[1] < -1e-6 or (abs(v_dir[1]) < 1e-6 and v_dir[2] < 0))):
             v_dir = (-v_dir[0], -v_dir[1], -v_dir[2])
 
-        # Point on the cylinder axis line
         p_axis = (float(center.x), float(center.y), float(center.z))
 
-        # Check if already processed by evaluating distance from p_axis to existing axis lines
         is_duplicate = False
         for p_cand, d_cand in processed_axes:
-            # Parallel check
             cos_a = abs(sum(v_dir[k] * d_cand[k] for k in range(3)))
             if cos_a > 0.95:
-                # Distance from p_axis to line (p_cand, d_cand)
                 diff = (p_axis[0] - p_cand[0], p_axis[1] - p_cand[1], p_axis[2] - p_cand[2])
                 dot_proj = sum(diff[k] * d_cand[k] for k in range(3))
                 perp = tuple(diff[k] - dot_proj * d_cand[k] for k in range(3))
