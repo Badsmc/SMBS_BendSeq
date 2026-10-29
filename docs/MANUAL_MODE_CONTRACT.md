@@ -355,8 +355,14 @@ To prevent this in Phase 4c:
    ```
 3. **Mandatory Phase 4c Test:** `test_physical_validator_initialized_with_datums` verifying that in a clean environment, `validator.assembly.die.datums` and `validator.assembly.punch.datums` have confirmed datums and `assembly_trsf` is non-empty before any Oracle calls.
 
-### 6.4 Empirical Permutations & Order Gating (C7, I1, I2, I3)
-With the implementation of the **Index-Preserving Compound Transform** (I1) and **Primary Sheet Face Resolution** (I3), the Physical Oracle accurately and reliably validates multi-bend sequences without spurious self-intersections:
+### 6.4 Empirical Permutations & Order Gating (C7, I1, I2, I3, M2)
+With the implementation of the **Index-Preserving Compound Transform** (I1) and **Primary Sheet Face Resolution** (I3), the Physical Oracle accurately and reliably validates multi-bend sequences without spurious self-intersections.
+
+#### Authoritative Fixture SHA256 Hashes (M2 Contractual Lock):
+Any regeneration of test fixtures must preserve or deliberately update these hashes alongside `tests/fixtures/manual/known_orders_*.json`:
+- `test_box.FCStd`: `30d05140ee08970fb4e226551d9a884c58e814170beaa2c866b8290f8ac93394`
+- `test_mirror.FCStd`: `09e93e4e4dd41875d350d45b7863ae013ab4d7a35e12913268af51e62eb717c3`
+- `test_pentagon.FCStd`: `436786bc3e46c46fe1f136554e97cb8b2b74e50b1e1d9db9aa49691d0d6f7b6c`
 
 1. **`test_box` (3 Bends, $3! = 6$ Permutations):**
    - Canonical bend IDs: `['BEND_01_0528d4fa', 'BEND_02_64374506', 'BEND_03_bc0dd183']`.

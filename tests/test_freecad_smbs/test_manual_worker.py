@@ -316,8 +316,73 @@ class TestManualWorker(unittest.TestCase):
         self.assertIn(s7["payload"]["planning_status"], ["FAILED", "NO_SOLUTION"])
 
         v9 = json.loads((res.run_dir / "09_manual_verification_result.json").read_text(encoding="utf-8"))
+        # M3: Worker completed successfully; verification result itself is FAILED
+        self.assertEqual(v9["status"], "SUCCESS")
         self.assertEqual(v9["payload"]["verification_status"], "FAILED")
         self.assertFalse(v9["payload"]["production_eligible"])
+        self.assertEqual(v9["payload"]["step_verifications"][1]["stage"], "BEND_TRAJECTORY")
+
+    def test_manual_worker_validates_with_real_tooling(self):
+        """
+        Phase 4c.2 / M1: Validates that ManualSequenceWorker executes physical collision validation
+        with real tooling (tooling_set_id="standard_90deg_v12", PRODUCTION policy) without simplified bypass.
+        Verifies:
+        - tooling_status is REAL.
+        - wall_time_s reflects genuine physical OCC boolean checks.
+        """
+        pent_path = FIXTURES_DIR / "test_pentagon.FCStd"
+        orders_path = FIXTURES_DIR / "manual" / "known_orders_pentagon.json"
+        known_orders = json.loads(orders_path.read_text(encoding="utf-8"))
+        valid_pent_seq = known_orders["first_valid"]
+
+        pent_sels = self._extract_snapshots_from_unfold(pent_path)
+        res_canon = run_manual_sequence_on_fcstd(
+            pent_path,
+            ManualSequenceInput(pent_sels),
+            out_runs_dir=self.temp_runs,
+            phases=["01", "02", "04"],
+        )
+        sel_by_bid = {s.bend_id: s for s in res_canon.selections}
+        reordered_sels = [
+            BendSelectionItem(
+                order=idx,
+                edge_ref=sel_by_bid[bid].edge_ref,
+                object_name=sel_by_bid[bid].object_name,
+                raw_snapshot=sel_by_bid[bid].raw_snapshot,
+                bend_id=bid
+            )
+            for idx, bid in enumerate(valid_pent_seq, start=1)
+        ]
+
+        # Execute mini pipeline with real tooling and PRODUCTION policy
+        res = run_manual_sequence_on_fcstd(
+            pent_path,
+            ManualSequenceInput(reordered_sels, tooling_set_id="standard_90deg_v12", unknown_policy="PRODUCTION"),
+            out_runs_dir=self.temp_runs,
+        )
+
+        self.assertTrue(res.ok)
+        self.assertEqual(res.planning_status, "SUCCESS")
+
+        s7 = json.loads((res.run_dir / "07_search_result.json").read_text(encoding="utf-8"))
+        self.assertEqual(s7["payload"]["planning_status"], "SUCCESS")
+        cand_seq = s7["payload"]["candidate_sequence"]
+        self.assertEqual(len(cand_seq), 5)
+
+        # M1 requirement: real tooling must be recorded on every step
+        for step in cand_seq:
+            self.assertEqual(step["tooling_status"], "REAL")
+            self.assertEqual(step["collision_status"], "VALID")
+            self.assertFalse(step["has_unknown"])
+
+        # M1 requirement: real validation duration reflects physical OCC checks (> 50s for 5 steps)
+        self.assertGreater(s7["payload"]["solver_metrics"]["wall_time_s"], 50.0)
+
+        v9 = json.loads((res.run_dir / "09_manual_verification_result.json").read_text(encoding="utf-8"))
+        self.assertEqual(v9["status"], "SUCCESS")
+        self.assertEqual(v9["payload"]["verification_status"], "PASSED")
+        self.assertTrue(v9["payload"]["production_eligible"])
+        self.assertFalse(v9["payload"]["has_unknown"])
 
     def test_verifier_accepts_well_formed_artifacts(self):
         """
