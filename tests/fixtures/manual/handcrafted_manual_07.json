@@ -1,0 +1,141 @@
+{
+  "content_hash": "placeholder_content_hash_for_schema_smoke_test",
+  "created_at": "2026-10-29T18:00:00+00:00",
+  "diagnostics": [],
+  "frame_convention": "STANDARD_CARTESIAN_MM",
+  "input_fingerprint": "0000000000000000000000000000000000000000000000000000000000000000",
+  "part_id": "test_box",
+  "payload": {
+    "planning_status": "SUCCESS",
+    "termination_reason": "GOAL_REACHED",
+    "optimality_claim": "feasible_unoptimized",
+    "total_cost": 1.0,
+    "candidate_sequence": [
+      {
+        "step": 1,
+        "bend_id": "BEND_03_bc0dd183",
+        "direction": {
+          "confidence": "CONFIRMED",
+          "source": "GEOMETRIC_INFERENCE",
+          "value": "UP"
+        },
+        "angle_deg": {
+          "confidence": "CONFIRMED",
+          "source": "GEOMETRIC_INFERENCE",
+          "value": 90.0
+        },
+        "radius_mm": {
+          "confidence": "CONFIRMED",
+          "source": "GEOMETRIC_INFERENCE",
+          "value": 2.5
+        },
+        "k_factor": {
+          "confidence": "CONFIRMED",
+          "source": "SHEETMETAL_NATIVE",
+          "value": 0.44
+        },
+        "backgauge": {
+          "confidence": "ESTIMATED",
+          "x_mm": 20.0,
+          "r_mm": 0.0,
+          "z1_mm": -25.0,
+          "z2_mm": 25.0
+        },
+        "tool_id": "PUNCH_STD_R1",
+        "planner_status": "VALID",
+        "collision_status": "VALID",
+        "tooling_status": "SIMPLIFIED",
+        "alignment_status": "OK"
+      },
+      {
+        "step": 2,
+        "bend_id": "BEND_02_64374506",
+        "direction": {
+          "confidence": "CONFIRMED",
+          "source": "GEOMETRIC_INFERENCE",
+          "value": "DOWN"
+        },
+        "angle_deg": {
+          "confidence": "CONFIRMED",
+          "source": "GEOMETRIC_INFERENCE",
+          "value": 90.0
+        },
+        "radius_mm": {
+          "confidence": "CONFIRMED",
+          "source": "GEOMETRIC_INFERENCE",
+          "value": 2.5
+        },
+        "k_factor": {
+          "confidence": "CONFIRMED",
+          "source": "SHEETMETAL_NATIVE",
+          "value": 0.44
+        },
+        "backgauge": {
+          "confidence": "ESTIMATED",
+          "x_mm": 20.0,
+          "r_mm": 0.0,
+          "z1_mm": -25.0,
+          "z2_mm": 25.0
+        },
+        "tool_id": "PUNCH_STD_R1",
+        "planner_status": "VALID",
+        "collision_status": "VALID",
+        "tooling_status": "SIMPLIFIED",
+        "alignment_status": "OK"
+      },
+      {
+        "step": 3,
+        "bend_id": "BEND_01_0528d4fa",
+        "direction": {
+          "confidence": "CONFIRMED",
+          "source": "GEOMETRIC_INFERENCE",
+          "value": "UP"
+        },
+        "angle_deg": {
+          "confidence": "CONFIRMED",
+          "source": "GEOMETRIC_INFERENCE",
+          "value": 90.0
+        },
+        "radius_mm": {
+          "confidence": "CONFIRMED",
+          "source": "GEOMETRIC_INFERENCE",
+          "value": 2.5
+        },
+        "k_factor": {
+          "confidence": "CONFIRMED",
+          "source": "SHEETMETAL_NATIVE",
+          "value": 0.44
+        },
+        "backgauge": {
+          "confidence": "ESTIMATED",
+          "x_mm": 20.0,
+          "r_mm": 0.0,
+          "z1_mm": -25.0,
+          "z2_mm": 25.0
+        },
+        "tool_id": "PUNCH_STD_R1",
+        "planner_status": "VALID",
+        "collision_status": "VALID",
+        "tooling_status": "SIMPLIFIED",
+        "alignment_status": "OK"
+      }
+    ],
+    "solver_metrics": {
+      "prefilter_checks": 0,
+      "exact_collision_queries": 3,
+      "trajectory_samples": 5,
+      "solver_nodes": 3,
+      "wall_time_s": 0.05,
+      "peak_memory_mb": 15.0
+    }
+  },
+  "producer": {
+    "name": "manual_worker",
+    "version": "1.1"
+  },
+  "run_id": "run_manual_placeholder",
+  "schema_name": "search_result",
+  "schema_version": "1.1",
+  "status": "SUCCESS",
+  "units": "mm"
+}
