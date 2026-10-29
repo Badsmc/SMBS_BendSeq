@@ -1,0 +1,46 @@
+{
+  "schema_name": "canonical_part",
+  "schema_version": "1.1",
+  "run_id": "test_box_synthetic_01",
+  "part_id": "test_box",
+  "status": "SUCCESS",
+  "payload": {
+    "thickness_mm": {"value": 1.5, "source": "GEOMETRIC_INFERENCE", "confidence": "CONFIRMED"},
+    "k_factor": {"value": 0.44, "source": "SHEETMETAL_NATIVE", "confidence": "CONFIRMED"},
+    "bends": {
+      "BEND_01": {
+        "bend_id": "BEND_01",
+        "parent_panel_id": "PANEL_BASE",
+        "child_panel_id": "PANEL_F1",
+        "axis_point": [50.0, 0.0, 1.5],
+        "axis_direction": [1.0, 0.0, 0.0],
+        "radius_mm": {"value": 1.0, "source": "GEOMETRIC_INFERENCE", "confidence": "CONFIRMED"},
+        "length_mm": {"value": 100.0, "source": "GEOMETRIC_INFERENCE", "confidence": "CONFIRMED"},
+        "angle_deg": {"value": 90.0, "source": "GEOMETRIC_INFERENCE", "confidence": "CONFIRMED"},
+        "direction": {"value": "UP", "source": "GEOMETRIC_INFERENCE", "confidence": "CONFIRMED"}
+      },
+      "BEND_02": {
+        "bend_id": "BEND_02",
+        "parent_panel_id": "PANEL_BASE",
+        "child_panel_id": "PANEL_F2",
+        "axis_point": [50.0, 80.0, 1.5],
+        "axis_direction": [1.0, 0.0, 0.0],
+        "radius_mm": {"value": 1.0, "source": "GEOMETRIC_INFERENCE", "confidence": "CONFIRMED"},
+        "length_mm": {"value": 100.0, "source": "GEOMETRIC_INFERENCE", "confidence": "CONFIRMED"},
+        "angle_deg": {"value": 90.0, "source": "GEOMETRIC_INFERENCE", "confidence": "CONFIRMED"},
+        "direction": {"value": "UP", "source": "GEOMETRIC_INFERENCE", "confidence": "CONFIRMED"}
+      },
+      "BEND_03": {
+        "bend_id": "BEND_03",
+        "parent_panel_id": "PANEL_BASE",
+        "child_panel_id": "PANEL_F3",
+        "axis_point": [0.0, 40.0, 1.5],
+        "axis_direction": [0.0, 1.0, 0.0],
+        "radius_mm": {"value": 1.0, "source": "GEOMETRIC_INFERENCE", "confidence": "CONFIRMED"},
+        "length_mm": {"value": 80.0, "source": "GEOMETRIC_INFERENCE", "confidence": "CONFIRMED"},
+        "angle_deg": {"value": 90.0, "source": "GEOMETRIC_INFERENCE", "confidence": "CONFIRMED"},
+        "direction": {"value": "UP", "source": "GEOMETRIC_INFERENCE", "confidence": "CONFIRMED"}
+      }
+    }
+  }
+}
