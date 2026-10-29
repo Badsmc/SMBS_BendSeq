@@ -287,16 +287,24 @@ class CollisionStage(str, Enum):
 
 
 @dataclass
-class BendSelection:
-    order: int                           # 1-based order of click (1, 2, 3...)
-    bend_id: str                         # Canonical bend ID (e.g. "BEND_01")
-    edge_ref: str                        # FreeCAD sub-element name (e.g. "Edge14")
-    object_name: str                     # FreeCAD document object name
-    mid_point: Tuple[float, float, float]
+class RawBendLineSnapshot:
+    """Immutable snapshot of raw edge geometry at click time (Decision B2-A)."""
+    midpoint: Tuple[float, float, float]
     direction: Tuple[float, float, float]
-    length_mm: float
+    normal: Tuple[float, float, float]
     radius_mm: float
-    angle_deg: float
+    length_mm: float
+    adjacent_panel_areas: Tuple[float, float] = (0.0, 0.0)
+    source_edge_ref: str = ""
+
+
+@dataclass
+class BendSelection:
+    order: int                                     # 1-based order of click (1, 2, 3...)
+    edge_ref: str                                  # FreeCAD sub-element name (e.g. "Edge14")
+    object_name: str                               # FreeCAD document object name ("Unfold")
+    raw_snapshot: RawBendLineSnapshot              # Immutable snapshot of edge geometry
+    bend_id: Optional[str] = None                  # Canonical ID resolved in Phase 4 (None at click time)
 
 
 @dataclass
