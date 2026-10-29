@@ -132,6 +132,33 @@ class TestGeometryExtract(unittest.TestCase):
         finally:
             App.closeDocument(doc.Name)
 
+    def test_match_against_real_04(self):
+        """B3: match_to_canonical succeeds against real 04_canonical_part.json produced by TopologyWorker."""
+        real_json = FIXTURES_DIR / "manual" / "canonical_box_real.json"
+        self.assertTrue(real_json.exists(), f"Real canonical JSON must exist at {real_json}")
+        with open(real_json) as f:
+            real_04 = json.load(f)
+
+        doc = App.openDocument(str(self.box_fcstd))
+        try:
+            # 1. Matching from 3D Body shape
+            body = doc.getObject("Body")
+            raw_bends_body = extract_bend_lines_3d(body.Shape)
+            matched_body = match_to_canonical(raw_bends_body, real_04)
+            self.assertEqual(len(matched_body), 3, f"Must match 3 bends from 3D body against real 04, got {len(matched_body)}")
+
+            # 2. Matching from Unfold shape (flat pattern internal sliced edges)
+            unfold = doc.getObject("Unfold")
+            raw_bends_unfold = extract_bend_lines_3d(unfold.Shape)
+            matched_unfold = match_to_canonical(raw_bends_unfold, real_04)
+            self.assertEqual(len(matched_unfold), 3, f"Must match 3 bends from Unfold against real 04, got {len(matched_unfold)}")
+
+            expected_ids = {"BEND_01_0528d4fa", "BEND_02_64374506", "BEND_03_bc0dd183"}
+            self.assertEqual({b.bend_id for b in matched_body}, expected_ids)
+            self.assertEqual({b.bend_id for b in matched_unfold}, expected_ids)
+        finally:
+            App.closeDocument(doc.Name)
+
     def test_match_to_canonical_ambiguous(self):
         """Tie-break logic properly discriminates between two close bend candidates (M2)."""
         # Synthetic ambiguous canonical part with two nearly identical lines: delta = 0.05mm

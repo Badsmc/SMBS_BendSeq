@@ -176,6 +176,23 @@ class TestManualSequencePanel(unittest.TestCase):
         self.assertIsNone(self.panel.get_selections()[0].bend_id)
         self.assertIn("перестроена", self.panel.status.text())
 
+    def test_stale_not_fired_by_annotations(self):
+        """Y5: Recomputes that do not change Unfold shape topology do not falsely mark panel stale."""
+        unfold = self.doc.getObject("Unfold")
+        shape = unfold.Shape
+        snap = RawBendLineSnapshot((0, 0, 0), (1, 0, 0), (0, 0, 1), 1.0, 100.0)
+        self.panel._selections = [BendSelectionItem(1, "EdgeA", "Unfold", snap, bend_id="BEND_01")]
+
+        # First record shape hash
+        self.panel._last_unfold_hash = shape.hashCode()
+
+        # Recompute occurs, but shape hashCode is identical
+        marked = self.panel.mark_stale(new_shape=shape)
+        self.assertFalse(marked, "Panel must NOT be marked stale if Unfold shape topology has not changed")
+        self.assertFalse(self.panel._stale)
+        self.assertEqual(self.panel.get_selections()[0].bend_id, "BEND_01")
+
 
 if __name__ == "__main__":
     unittest.main()
+
