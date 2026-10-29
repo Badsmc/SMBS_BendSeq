@@ -73,6 +73,18 @@ class TestHandModFixtures(unittest.TestCase):
         finally:
             App.closeDocument(doc.Name)
 
+    def test_pentagon_has_5_cylindrical_bends(self):
+        """C2: Verify test_pentagon has exactly 5 distinct cylindrical bend features."""
+        from freecad_smbs.manual.geometry_extract import extract_bend_lines_3d
+        pentagon_path = FIXTURES_DIR / "test_pentagon.FCStd"
+        doc = App.openDocument(str(pentagon_path))
+        try:
+            body = doc.getObject("Body")
+            raw_bends = extract_bend_lines_3d(body.Shape)
+            self.assertEqual(len(raw_bends), 5, f"test_pentagon Body must contain 5 cylindrical bend features, got {len(raw_bends)}")
+        finally:
+            App.closeDocument(doc.Name)
+
     def test_mirror_structure(self):
         """Verify test_mirror.FCStd contains Body, Unfold, and TechDraw Page."""
         mirror_path = FIXTURES_DIR / "test_mirror.FCStd"
@@ -86,6 +98,18 @@ class TestHandModFixtures(unittest.TestCase):
             # Check TechDraw page presence
             page = doc.getObject("Page")
             self.assertIsNotNone(page, "test_mirror must have TechDraw Page object")
+        finally:
+            App.closeDocument(doc.Name)
+
+    def test_mirror_has_3_cylindrical_bends(self):
+        """C2: Verify test_mirror has exactly 3 distinct cylindrical bend features."""
+        from freecad_smbs.manual.geometry_extract import extract_bend_lines_3d
+        mirror_path = FIXTURES_DIR / "test_mirror.FCStd"
+        doc = App.openDocument(str(mirror_path))
+        try:
+            body = doc.getObject("Body")
+            raw_bends = extract_bend_lines_3d(body.Shape)
+            self.assertEqual(len(raw_bends), 3, f"test_mirror Body must contain 3 cylindrical bend features, got {len(raw_bends)}")
         finally:
             App.closeDocument(doc.Name)
 

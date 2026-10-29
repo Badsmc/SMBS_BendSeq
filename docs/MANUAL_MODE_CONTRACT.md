@@ -133,7 +133,10 @@ class ManualSequenceResult:
         ...
 ```
 - The produced artifacts (`04_canonical_part.json`, `07_search_result.json`, `09_verification_result.json`, `10_part_bendseq.json`) are byte-for-byte schema compliant with existing AutoMod.
-- `07_search_result.json` populates `candidate_sequence` strictly from `manual_input.selections` in the user's order.
+- **Phase Emission Policy (C3):**
+  - In Phase 4a, `run_manual_sequence_on_fcstd` emits **strictly** `01_input_manifest.json`, `02_geometry_result.json`, and `04_canonical_part.json`.
+  - `07_search_result.json` is **strictly deferred** to Phase 4c / Phase 6 after validation through the Physical Oracle. Downstream VerifierWorker processes `07` only after valid sequencing has occurred.
+  - `candidate_sequence` in `07_search_result.json` populates strictly from `manual_input.selections` in the user's order.
 - Existing `VerifierWorker` can process the resulting run directory with zero code changes.
 
 ### 4.4 Cancellation Protocol (§Y4)
@@ -266,10 +269,21 @@ for order_idx, sel in enumerate(input.selections, start=1):
 
 ## 6. § Backgauge Placement (Answers Q5 & Y1)
 
-### Sequential Execution & Fail-Closed Policy:
+### 6.1 Sequential Execution & Fail-Closed Policy:
 1. `compute_step_backgauge` is executed **sequentially in the same step loop** right before or after the Oracle step check.
 2. **Fail-Closed Guarantee:** If backgauge computation raises an exception or fails critical safety limits, the step is marked `valid=False`, with `stage="BACKGAUGE"`, and execution halts immediately (`ok=False`).
 3. Successful backgauge coordinates ($X, R, Z_1, Z_2$) are recorded into `OracleStepResult.backgauge` and serialized into `candidate_sequence[i]["backgauge"]` in `07_search_result.json`.
+
+### 6.2 Tooling Lifecycle & Station Setup (Answers Y6 & Phase 6 Prep)
+To ensure the Physical Oracle (`PhysicalValidator`) and downstream `VerifierWorker` have complete station geometry (including `die.datums[DatumRole.V_CENTER]` and `assembly_trsf` needed by `place_part_on_tool_station`):
+1. **Source of Truth:** In Phase 6, `ManualSequenceWorker` resolves tooling via `ToolingLibrary` from `toollibrary/` (standard SMBS catalog), never by copying artifacts from arbitrary prior runs.
+2. **Configuration Resolution:**
+   - User or UI specifies `tooling_set_id` (default: `"standard_90deg_v12"` or configured machine set) or explicit `punch_id` / `die_id` in `ManualSequenceInput`.
+   - `ToolingLibrary.get_set(tooling_set_id)` loads punch and die descriptors containing exact datum definitions (`V_CENTER`, `MOUNTING_PLANE`).
+3. **Machine Setup:**
+   - `PressBrakeMachine.from_config(machine_config)` configures the tooling station with verified datums and geometry.
+   - `tooling_manifest.json` and `06_search_request.json` are generated atomically by the worker prior to invoking Oracle steps.
+   - This prevents `"Could not place part on tool station (missing/invalid bend info, tooling, or datum)"` errors when validating steps against Physical Oracle.
 
 ---
 
