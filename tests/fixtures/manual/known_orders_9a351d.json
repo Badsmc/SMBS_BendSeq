@@ -1,0 +1,14 @@
+{
+  "run_id": "run_20261012_034045_9a351d",
+  "tooling_set_id": "standard_90deg_v12",
+  "total_permutations": 24,
+  "valid_count": 24,
+  "invalid_count": 0,
+  "canonical_valid_sequence": [
+    "BEND_04_a89052fc",
+    "BEND_02_a2a477de",
+    "BEND_03_764c088a",
+    "BEND_01_7cd7d6cd"
+  ],
+  "note": "On 9a351d (4-bend channel with symmetric parallel flanges), all 24 permutations are collision-free under standard_90deg_v12 tooling because flanges are shallow (12.5mm length) and do not obstruct the punch/die during approach or bend trajectory. Invalid sequence rejection is tested on test_box (order BEND_01 -> BEND_02 fails at step 2 with BEND_TRAJECTORY) and test_pentagon (order BEND_01 -> BEND_03 fails at step 2 with BEND_TRAJECTORY)."
+}

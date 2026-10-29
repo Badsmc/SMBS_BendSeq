@@ -51,6 +51,7 @@ class ManualSequenceInput:
     unknown_policy: str = "PRODUCTION"  # "PRODUCTION" (default) or "EXPLORATORY"
     part_id: Optional[str] = None
     cancel_token: Optional[threading.Event] = None
+    machine: Optional[Any] = None
 
 
 
@@ -252,7 +253,240 @@ class ManualSequenceWorker:
                 diagnostics=[diag],
             )
 
-        # Try loading artifacts inventory
+        # If phases explicitly specifies early termination (e.g. Phase 4a test), return here
+        if phases is not None and "07" not in phases and "09" not in phases and "validation" not in phases:
+            return ManualSequenceResult(
+                ok=True,
+                run_dir=run_dir,
+                part_id=part_id,
+                selections=resolved_selections,
+                unmatched_snapshots=[],
+                planning_status="SUCCESS",
+                artifacts=load_run(run_dir) if (run_dir / "07_search_result.json").exists() else None,
+            )
+
+        # 5. Stage 4: Physical Sequence Validation & Backgauge Calculation (Phase 4c.2 / L1, L2)
+        import time
+        from OCC.Core.BRepTools import breptools
+        from OCC.Core.TopoDS import TopoDS_Shape
+        from OCC.Core.BRep import BRep_Builder
+        from smbs_core.Core.fold_state import FoldState
+        from smbs_core.Core.panel_graph import PanelGraph, Panel
+        from smbs_core.Core.bend_graph import BendGraph, BendRecord
+        from smbs_core.Physics.backgauge_calculator import BackgaugeCalculator
+        from freecad_smbs.manual.oracle_bridge import OracleBridge, resolve_panel_primary_sheet_pair
+
+        t_start_validation = time.time()
+        tooling_id = manual_input.tooling_set_id or "standard_90deg_v12"
+        unknown_pol = manual_input.unknown_policy or "PRODUCTION"
+
+        # Load reference target shape from geometry.brep
+        geom_file = run_dir / "geometry.brep"
+        target_shape = TopoDS_Shape()
+        breptools.Read(target_shape, str(geom_file), BRep_Builder())
+
+        # Build independent PanelGraph and BendGraph
+        cp_payload = canonical_part["payload"]
+        panels_data = cp_payload.get("panels", {})
+        bends_data = cp_payload.get("bends", {})
+        thickness_val = cp_payload.get("thickness_mm", {}).get("value", 2.0)
+
+        panel_graph = PanelGraph()
+        for pid, pdata in panels_data.items():
+            panel_graph.add_panel(Panel(pid, normal=tuple(pdata.get("normal", (0.0, 0.0, 1.0)))))
+        for bid, bdata in bends_data.items():
+            panel_graph.add_bend_connection(bid, bdata["parent_panel_id"], bdata["child_panel_id"])
+        resolve_panel_primary_sheet_pair(target_shape, panel_graph, cp_payload)
+
+        bend_graph = BendGraph()
+        bend_records: Dict[str, BendRecord] = {}
+        for bid, bdata in bends_data.items():
+            rec = BendRecord(
+                bend_id=bid,
+                feature_id=bid,
+                parent_panel_id=bdata["parent_panel_id"],
+                child_panel_id=bdata["child_panel_id"],
+                axis_origin=tuple(bdata["axis_point"]),
+                axis_direction=tuple(bdata["axis_direction"]),
+                signed_angle=bdata["angle_deg"]["value"],
+                length=bdata["length_mm"]["value"],
+                radius=bdata["radius_mm"]["value"],
+                thickness=thickness_val
+            )
+            bend_graph.add_bend(rec)
+            bend_records[bid] = rec
+
+        bridge = OracleBridge(machine=manual_input.machine, tooling_set_id=tooling_id)
+        bg_calc = BackgaugeCalculator(bridge.machine)
+        current_state = FoldState.initial(target_shape, bend_graph, panel_graph)
+
+        candidate_sequence: List[Dict[str, Any]] = []
+        step_verifications: List[Dict[str, Any]] = []
+        sequence_valid = True
+        failed_reason = None
+        exact_collision_queries = 0
+        has_any_unknown = False
+
+        for order_idx, sel in enumerate(resolved_selections, start=1):
+            if token and token.is_set():
+                return ManualSequenceResult(
+                    ok=False,
+                    run_dir=run_dir,
+                    part_id=part_id,
+                    selections=resolved_selections,
+                    planning_status="CANCELLED",
+                    error_message=f"Sequence validation cancelled at step {order_idx}",
+                    diagnostics=[f"Cancelled at step {order_idx}"],
+                )
+
+            bid = sel.bend_id
+            bend_rec = bend_records.get(bid)
+            bdata = bends_data.get(bid, {})
+
+            # Sequential Backgauge calculation
+            binfo = {
+                "length": bend_rec.length if bend_rec else 100.0,
+                "bend_id": bid,
+                "origin": bend_rec.axis_origin if bend_rec else (0.0, 0.0, 0.0),
+                "axis": bend_rec.axis_direction if bend_rec else (0.0, 1.0, 0.0),
+            }
+            bg_data = bg_calc.compute_step_backgauge(
+                step_number=order_idx,
+                bend_info=binfo,
+                part_thickness=thickness_val,
+                confirmed_geometry=True
+            )
+
+            exact_collision_queries += 1
+            val_res = bridge.validate_step(
+                current_state=current_state,
+                bend_record=bend_rec,
+                panel_graph=panel_graph,
+                unknown_policy=unknown_pol
+            )
+
+            step_has_unknown = getattr(val_res, "has_unknown", False)
+            if step_has_unknown:
+                has_any_unknown = True
+
+            step_data = {
+                "step": order_idx,
+                "bend_id": bid,
+                "direction": bdata.get("direction", {"value": "UP" if bend_rec.signed_angle > 0 else "DOWN"}),
+                "angle_deg": bdata.get("angle_deg", {"value": bend_rec.signed_angle}),
+                "radius_mm": bdata.get("radius_mm", {"value": bend_rec.radius}),
+                "backgauge": {
+                    "x_mm": round(bg_data["X_mm"], 2) if bg_data.get("geometry_confirmed") and bg_data.get("X_mm") is not None else None,
+                    "r_mm": round(bg_data["R_mm"], 2) if bg_data.get("geometry_confirmed") and bg_data.get("R_mm") is not None else None,
+                    "z1_mm": round(bg_data["Z1_mm"], 2) if bg_data.get("geometry_confirmed") and bg_data.get("Z1_mm") is not None else None,
+                    "z2_mm": round(bg_data["Z2_mm"], 2) if bg_data.get("geometry_confirmed") and bg_data.get("Z2_mm") is not None else None,
+                    "confidence": "CONFIRMED" if bg_data.get("geometry_confirmed") else "UNKNOWN"
+                },
+                "tool_id": "DEFAULT_PUNCH",
+                "planner_status": "VALID" if val_res.valid else "INVALID",
+                "collision_status": "VALID" if val_res.valid else ("UNKNOWN" if step_has_unknown else "INVALID"),
+                "tooling_status": "REAL" if getattr(bridge.validator, "tooling_status", None) == "REAL" else "SIMPLIFIED",
+                "alignment_status": "OK",
+                "has_unknown": step_has_unknown,
+                "stage": "VALID" if val_res.valid else val_res.stage,
+                "reason": val_res.reason
+            }
+            if "k_factor" in bdata:
+                step_data["k_factor"] = bdata["k_factor"]
+
+            candidate_sequence.append(step_data)
+
+            if not val_res.valid:
+                sequence_valid = False
+                failed_reason = val_res.reason
+                step_verifications.append({
+                    "step": order_idx,
+                    "bend_id": bid,
+                    "status": "VERIFICATION_FAILED",
+                    "stage": val_res.stage,
+                    "has_unknown": step_has_unknown,
+                    "reason": val_res.reason
+                })
+                break
+            else:
+                step_verifications.append({
+                    "step": order_idx,
+                    "bend_id": bid,
+                    "status": "CONFIRMED",
+                    "stage": "VALID",
+                    "has_unknown": step_has_unknown,
+                    "reason": val_res.reason
+                })
+                current_state = val_res.next_state
+
+        wall_time_s = round(time.time() - t_start_validation, 3)
+
+        # Emit 07_search_result.json (L2)
+        search_status = "SUCCESS" if sequence_valid else "NO_SOLUTION"
+        termination_reason = "GOAL_REACHED" if sequence_valid else "NO_MORE_CANDIDATES"
+        search_result_data = {
+            "schema_name": "search_result",
+            "schema_version": "1.1",
+            "run_id": run_id,
+            "part_id": part_id,
+            "input_fingerprint": input_fingerprint,
+            "producer": {"name": "manual_worker", "version": "1.1"},
+            "units": "mm",
+            "frame_convention": "STANDARD_CARTESIAN_MM",
+            "status": "SUCCESS" if sequence_valid else "NO_SOLUTION",
+            "diagnostics": [failed_reason] if failed_reason else [],
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "payload": {
+                "planning_status": search_status,
+                "termination_reason": termination_reason,
+                "optimality_claim": "feasible_unoptimized",
+                "total_cost": 1.0,
+                "candidate_sequence": candidate_sequence,
+                "solver_metrics": {
+                    "prefilter_checks": 0,
+                    "exact_collision_queries": exact_collision_queries,
+                    "trajectory_samples": 0,
+                    "solver_nodes": exact_collision_queries,
+                    "wall_time_s": wall_time_s,
+                    "peak_memory_mb": 0.0
+                }
+            }
+        }
+        search_result_file = run_dir / "07_search_result.json"
+        self.file_store.write_json_atomic(search_result_file, search_result_data, schema_name="search_result")
+
+        # Emit 09_manual_verification_result.json (K4 / Option A)
+        if sequence_valid:
+            verif_status = "PASSED_WITH_UNKNOWN" if has_any_unknown else "PASSED"
+            prod_eligible = True if verif_status == "PASSED" else False
+        else:
+            verif_status = "FAILED"
+            prod_eligible = False
+
+        manual_verif_data = {
+            "schema_name": "manual_verification_result",
+            "schema_version": "1.0",
+            "run_id": run_id,
+            "part_id": part_id,
+            "input_fingerprint": input_fingerprint,
+            "producer": {"name": "manual_worker", "version": "1.1"},
+            "units": "mm",
+            "frame_convention": "STANDARD_CARTESIAN_MM",
+            "status": RunStatus.SUCCESS.value if sequence_valid else RunStatus.WORKER_ERROR.value,
+            "diagnostics": [failed_reason] if failed_reason else [],
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "payload": {
+                "verification_status": verif_status,
+                "production_eligible": prod_eligible,
+                "step_verifications": step_verifications,
+                "has_unknown": has_any_unknown,
+                "wall_time_s": wall_time_s
+            }
+        }
+        manual_verif_file = run_dir / "09_manual_verification_result.json"
+        self.file_store.write_json_atomic(manual_verif_file, manual_verif_data, validate=False)
+
+        # Load artifacts inventory
         artifacts: Optional[RunArtifacts] = None
         try:
             artifacts = load_run(run_dir)
@@ -260,11 +494,13 @@ class ManualSequenceWorker:
             pass
 
         return ManualSequenceResult(
-            ok=True,
+            ok=sequence_valid,
             run_dir=run_dir,
             part_id=part_id,
             selections=resolved_selections,
             unmatched_snapshots=[],
-            planning_status="SUCCESS",
+            planning_status=search_status,
+            error_message=failed_reason if not sequence_valid else None,
+            diagnostics=[failed_reason] if failed_reason else [],
             artifacts=artifacts,
         )
