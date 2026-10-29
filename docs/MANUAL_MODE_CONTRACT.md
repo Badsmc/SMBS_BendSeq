@@ -174,31 +174,28 @@ Extracts 2D/3D contours → computes T_4x4 and T_inv
 Validates fixed sequence step-by-step → Writes 07_search_result.json
        │
        ▼
-[Stage 6: VerifierWorker & ExportWorker (Phase 6)]
-Verifies steps independently (09_verification_result.json) → Writes 10_part_bendseq.json
-       │
-       ▼
-[Stage 7: Render Annotations (Phase 7)]
-3D scene labels (App::AnnotationLabel) + TechDraw balloon/labels via T_inv
-```
-
-**Decision:** Option (B) from B4 + Option (A) from B1 + Option (B5) Return Adapter:
-- Single entry point, single run-dir transaction.
-- Panel remains thin and decoupled from FreeCAD worker pipelines.
-- Full downstream compatibility with existing Verifier and simulation UI.
+### 4.3 Phase Emission Policy & Verification Strategy (Decisions C3, J2)
+To preserve honest verification boundaries and prevent test fabrication:
+- **Phase 4a:** `run_manual_sequence_on_fcstd` produces strictly `01_input_manifest.json`, `02_geometry_result.json`, `04_canonical_part.json`, `geometry.brep`, and `flat_pattern.brep`.
+- **Phase 4c.1 / 4c.2:** `ManualSequenceWorker` evaluates user sequence via `OracleBridge.validate_step` and produces `07_search_result.json`.
+- **Phase 4c.3 Verification Strategy — Decision J2 (Option A):**
+  Baseline `VerifierWorker` uses legacy `backend.rotate_subtree` with sewing, which fails on multi-bend parts. Therefore, **Manual Mode does NOT invoke baseline `VerifierWorker`**.
+  Instead, `OracleBridge` produces a dedicated, truthful manual verification result: `09_manual_verification_result.json`.
+  Baseline `09_verification_result.json` is not emitted in Manual Mode, preventing regression against legacy verifier issues while ensuring complete traceability.
+- **Phase 4d:** Produces `10_part_bendseq.json` when `ok=True`, and renders FreeCAD 3D labels and TechDraw 2D balloons.
 
 ---
 
-## 5. § FoldState Lifecycle (Answers Q4)
+## 5. § FoldState Lifecycle (Answers Q4, J1, J3)
 
 ### 5.1 Verification Loop & State Evolution
-The user-defined sequence $[B_1, B_2, \dots, B_N]$ is validated step-by-step on the evolving `FoldState`.
+The user-defined sequence $[B_1, B_2, \dots, B_N]$ is validated step-by-step on the evolving `FoldState` via `OracleBridge`:
 
 ```python
-# FoldState Lifecycle in ManualSequenceSolver
+# FoldState Lifecycle in ManualSequenceSolver via OracleBridge (J1)
+bridge = OracleBridge(machine=machine, backend=backend)
 state = FoldState.initial(target_shape, bend_graph, panel_graph)
 steps_results = []
-accumulated_states = [state]
 
 for order_idx, sel in enumerate(input.selections, start=1):
     bend_id = sel.bend_id
@@ -216,29 +213,19 @@ for order_idx, sel in enumerate(input.selections, start=1):
         break
 
     # 2. Sequential Backgauge Calculation (Fail-Closed)
-    try:
-        bg_data = backgauge_calc.compute_step_backgauge(
-            step_number=order_idx,
-            bend_info={"length": bend_rec.length, "bend_id": bend_id, "geometry_confirmed": False},
-            part_thickness=canonical_part["thickness_mm"]["value"],
-            confirmed_geometry=False
-        )
-    except Exception as bg_err:
-        steps_results.append(OracleStepResult(
-            step_order=order_idx,
-            bend_id=bend_id,
-            valid=False,
-            stage="BACKGAUGE",
-            reason=f"Backgauge calculation failed: {bg_err}"
-        ))
-        break
+    bg_data = backgauge_calc.compute_step_backgauge(
+        step_number=order_idx,
+        bend_info={"length": bend_rec.length, "bend_id": bend_id, "geometry_confirmed": True},
+        part_thickness=canonical_part["thickness_mm"]["value"],
+        confirmed_geometry=True
+    )
 
-    # 3. Invoke Physical Oracle (black box)
-    val_res = validator.validate_step(
+    # 3. Invoke OracleBridge (J1, J3)
+    val_res = bridge.validate_step(
         current_state=state,
         bend_record=bend_rec,
         panel_graph=panel_graph,
-        unknown_policy="PRODUCTION"
+        unknown_policy=input.unknown_policy  # Explicit: "EXPLORATORY" or "PRODUCTION"
     )
 
     if not val_res.valid:
@@ -248,22 +235,21 @@ for order_idx, sel in enumerate(input.selections, start=1):
             valid=False,
             stage=val_res.stage,
             reason=val_res.reason,
-            backgauge=bg_data
+            collision_record=val_res.collision_record
         ))
-        break  # Sequence invalid; stop progression
+        break
 
-    # 4. Advance state
-    state = val_res.next_state
-    accumulated_states.append(state)
-    
     steps_results.append(OracleStepResult(
         step_order=order_idx,
         bend_id=bend_id,
         valid=True,
         stage="VALID",
-        backgauge=bg_data
+        backgauge=bg_data,
+        next_state=val_res.next_state
     ))
+    state = val_res.next_state
 ```
+
 
 ---
 
@@ -613,7 +599,7 @@ class OracleStepResult:
     step_order: int
     bend_id: str
     valid: bool
-    stage: str
+    stage: str                           # "VALID" for success; canonical stage ("BEND_TRAJECTORY", "SELF", "BACKGAUGE", "TOOL", "MACHINE", "KINEMATICS", "APPROACH") for failure (J4)
     tool_id: str = "UNKNOWN"
     tooling_status: str = "SIMPLIFIED"
     backgauge: Dict[str, Any] = field(default_factory=dict)
