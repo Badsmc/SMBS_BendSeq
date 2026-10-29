@@ -117,7 +117,7 @@ class TestManualWorker(unittest.TestCase):
         # 1. test_box
         box_sels = self._extract_snapshots_from_unfold(self.box_path)
         self.assertEqual(len(box_sels), 3)
-        res_box = run_manual_sequence_on_fcstd(self.box_path, ManualSequenceInput(box_sels), out_runs_dir=self.temp_runs)
+        res_box = run_manual_sequence_on_fcstd(self.box_path, ManualSequenceInput(box_sels), out_runs_dir=self.temp_runs, phases=["01", "02", "04"])
         self.assertTrue(res_box.ok)
         self.assertEqual(len(res_box.selections), 3)
         self.assertEqual(len(res_box.unmatched_snapshots), 0)
@@ -125,7 +125,7 @@ class TestManualWorker(unittest.TestCase):
         # 2. test_pentagon
         pent_sels = self._extract_snapshots_from_unfold(self.pentagon_path)
         self.assertEqual(len(pent_sels), 5)
-        res_pent = run_manual_sequence_on_fcstd(self.pentagon_path, ManualSequenceInput(pent_sels), out_runs_dir=self.temp_runs)
+        res_pent = run_manual_sequence_on_fcstd(self.pentagon_path, ManualSequenceInput(pent_sels), out_runs_dir=self.temp_runs, phases=["01", "02", "04"])
         self.assertTrue(res_pent.ok)
         self.assertEqual(len(res_pent.selections), 5)
         self.assertEqual(len(res_pent.unmatched_snapshots), 0)
@@ -133,7 +133,7 @@ class TestManualWorker(unittest.TestCase):
         # 3. test_mirror
         mirror_sels = self._extract_snapshots_from_unfold(self.mirror_path)
         self.assertEqual(len(mirror_sels), 3)
-        res_mirror = run_manual_sequence_on_fcstd(self.mirror_path, ManualSequenceInput(mirror_sels), out_runs_dir=self.temp_runs)
+        res_mirror = run_manual_sequence_on_fcstd(self.mirror_path, ManualSequenceInput(mirror_sels), out_runs_dir=self.temp_runs, phases=["01", "02", "04"])
         self.assertTrue(res_mirror.ok)
         self.assertEqual(len(res_mirror.selections), 3)
         self.assertEqual(len(res_mirror.unmatched_snapshots), 0)
@@ -177,6 +177,7 @@ class TestManualWorker(unittest.TestCase):
             self.box_path,
             ManualSequenceInput(box_sels),
             out_runs_dir=custom_target,
+            phases=["01", "02", "04"],
         )
 
         self.assertTrue(res.ok)
@@ -199,19 +200,124 @@ class TestManualWorker(unittest.TestCase):
         self.assertEqual(res.planning_status, "CANCELLED")
 
     def test_worker_emits_only_01_02_04(self):
-        """C3: In Phase 4a, run_manual_sequence_on_fcstd emits strictly 01, 02, and 04 artifacts (not 07)."""
+        """C3: When phases restricts early termination, emits strictly 01, 02, and 04 artifacts (not 07)."""
         box_sels = self._extract_snapshots_from_unfold(self.box_path)
         res = run_manual_sequence_on_fcstd(
             self.box_path,
             ManualSequenceInput(box_sels),
             out_runs_dir=self.temp_runs,
+            phases=["01", "02", "04"],
         )
         self.assertTrue(res.ok)
         self.assertTrue((res.run_dir / "01_input_manifest.json").is_file())
         self.assertTrue((res.run_dir / "02_geometry_result.json").is_file())
         self.assertTrue((res.run_dir / "04_canonical_part.json").is_file())
-        self.assertFalse((res.run_dir / "07_search_result.json").exists(), "07_search_result.json must NOT be emitted in Phase 4a (deferred to Phase 4c/6)")
-        self.assertFalse((res.run_dir / "09_verification_result.json").exists(), "09_verification_result.json must NOT be emitted in Phase 4a")
+        self.assertFalse((res.run_dir / "07_search_result.json").exists())
+        self.assertFalse((res.run_dir / "09_verification_result.json").exists())
+
+    def test_manual_worker_emits_07_and_09_with_real_backgauge(self):
+        """Phase 4c.2 / L2: Verifies that ManualSequenceWorker emits truthful 07 and 09 with real backgauge data."""
+        # Use known valid sequence for test_box from fixture
+        orders_path = FIXTURES_DIR / "manual" / "known_orders_box.json"
+        known_orders = json.loads(orders_path.read_text(encoding="utf-8"))
+        valid_bids = known_orders["first_valid"]
+
+        box_sels = self._extract_snapshots_from_unfold(self.box_path)
+        # Reorder selections according to valid sequence (BEND_01 -> BEND_03 -> BEND_02)
+        # First resolve canonically to get bend_ids
+        res_canon = run_manual_sequence_on_fcstd(
+            self.box_path,
+            ManualSequenceInput(box_sels),
+            out_runs_dir=self.temp_runs,
+            phases=["01", "02", "04"],
+        )
+        sel_by_bid = {s.bend_id: s for s in res_canon.selections}
+        reordered_sels = [
+            BendSelectionItem(
+                order=idx,
+                edge_ref=sel_by_bid[bid].edge_ref,
+                object_name=sel_by_bid[bid].object_name,
+                raw_snapshot=sel_by_bid[bid].raw_snapshot,
+                bend_id=bid
+            )
+            for idx, bid in enumerate(valid_bids, start=1)
+        ]
+
+        from smbs_core.Physics.machine_kinematics import PressBrakeMachine
+        mach_simp = PressBrakeMachine()
+
+        res = run_manual_sequence_on_fcstd(
+            self.box_path,
+            ManualSequenceInput(reordered_sels, tooling_set_id="standard_90deg_v12", unknown_policy="EXPLORATORY", machine=mach_simp),
+            out_runs_dir=self.temp_runs,
+        )
+
+        self.assertTrue(res.ok)
+        self.assertTrue((res.run_dir / "07_search_result.json").is_file())
+        self.assertTrue((res.run_dir / "09_manual_verification_result.json").is_file())
+
+        s7 = json.loads((res.run_dir / "07_search_result.json").read_text(encoding="utf-8"))
+        self.assertEqual(s7["payload"]["planning_status"], "SUCCESS")
+        cand_seq = s7["payload"]["candidate_sequence"]
+        self.assertEqual(len(cand_seq), 3)
+
+        # Check real backgauge fields are populated (not empty, not constants)
+        for step in cand_seq:
+            self.assertIn("backgauge", step)
+            bg = step["backgauge"]
+            self.assertIn("x_mm", bg)
+            self.assertIn("r_mm", bg)
+            self.assertIn("z1_mm", bg)
+            self.assertIn("z2_mm", bg)
+            self.assertGreater(bg["x_mm"], 0.0)
+
+        v9 = json.loads((res.run_dir / "09_manual_verification_result.json").read_text(encoding="utf-8"))
+        self.assertIn(v9["payload"]["verification_status"], ["PASSED", "PASSED_WITH_UNKNOWN"])
+
+    def test_manual_worker_rejects_invalid_sequence(self):
+        """Phase 4c.2 / L2: Verifies that invalid user sequence fails closed with FAILED in 07 and 09."""
+        from smbs_core.Physics.machine_kinematics import PressBrakeMachine
+        orders_path = FIXTURES_DIR / "manual" / "known_orders_box.json"
+        known_orders = json.loads(orders_path.read_text(encoding="utf-8"))
+        invalid_bids = known_orders["first_invalid"]["sequence"]
+
+        box_sels = self._extract_snapshots_from_unfold(self.box_path)
+        res_canon = run_manual_sequence_on_fcstd(
+            self.box_path,
+            ManualSequenceInput(box_sels),
+            out_runs_dir=self.temp_runs,
+            phases=["01", "02", "04"],
+        )
+        sel_by_bid = {s.bend_id: s for s in res_canon.selections}
+        reordered_sels = [
+            BendSelectionItem(
+                order=idx,
+                edge_ref=sel_by_bid[bid].edge_ref,
+                object_name=sel_by_bid[bid].object_name,
+                raw_snapshot=sel_by_bid[bid].raw_snapshot,
+                bend_id=bid
+            )
+            for idx, bid in enumerate(invalid_bids, start=1)
+        ]
+
+        mach_simp = PressBrakeMachine()
+        res = run_manual_sequence_on_fcstd(
+            self.box_path,
+            ManualSequenceInput(reordered_sels, tooling_set_id="standard_90deg_v12", unknown_policy="EXPLORATORY", machine=mach_simp),
+            out_runs_dir=self.temp_runs,
+        )
+
+        self.assertFalse(res.ok)
+        self.assertIn(res.planning_status, ["FAILED", "NO_SOLUTION"])
+        self.assertTrue((res.run_dir / "07_search_result.json").is_file())
+        self.assertTrue((res.run_dir / "09_manual_verification_result.json").is_file())
+
+        s7 = json.loads((res.run_dir / "07_search_result.json").read_text(encoding="utf-8"))
+        self.assertIn(s7["payload"]["planning_status"], ["FAILED", "NO_SOLUTION"])
+
+        v9 = json.loads((res.run_dir / "09_manual_verification_result.json").read_text(encoding="utf-8"))
+        self.assertEqual(v9["payload"]["verification_status"], "FAILED")
+        self.assertFalse(v9["payload"]["production_eligible"])
 
     def test_verifier_accepts_well_formed_artifacts(self):
         """
@@ -227,6 +333,7 @@ class TestManualWorker(unittest.TestCase):
             self.box_path,
             ManualSequenceInput(box_sels),
             out_runs_dir=self.temp_runs,
+            phases=["01", "02", "04"],
         )
         self.assertTrue(res.ok)
 
@@ -260,3 +367,4 @@ class TestManualWorker(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+

@@ -156,13 +156,34 @@ class TestOracleBridge(unittest.TestCase):
             panel_graph=pg
         )
 
-        f_exp2 = TopExp_Explorer(unfolded, TopAbs_FACE)
-        count_after = 0
-        while f_exp2.More():
-            count_after += 1
-            f_exp2.Next()
+        from OCC.Core.GProp import GProp_GProps
+        from OCC.Core.BRepGProp import brepgprop
 
-        self.assertEqual(count_before, count_after)
+        def get_face_centers(shp):
+            exp = TopExp_Explorer(shp, TopAbs_FACE)
+            centers = []
+            while exp.More():
+                gp = GProp_GProps()
+                brepgprop.SurfaceProperties(exp.Current(), gp)
+                cm = gp.CentreOfMass()
+                centers.append((cm.X(), cm.Y(), cm.Z()))
+                exp.Next()
+            return centers
+
+        centers_before = get_face_centers(ref_shape)
+        centers_after = get_face_centers(unfolded)
+
+        self.assertEqual(len(centers_before), len(centers_after))
+
+        # Moving faces must have non-zero rigid displacement (L4)
+        for f_idx in [0, 2, 6]:
+            disp = sum((a - b)**2 for a, b in zip(centers_before[f_idx], centers_after[f_idx]))**0.5
+            self.assertGreater(disp, 1.0, f"Moving face {f_idx} was not transformed")
+
+        # Fixed faces must remain strictly identical with zero displacement (L4)
+        for f_idx in [1, 3, 4, 5, 7]:
+            disp = sum((a - b)**2 for a, b in zip(centers_before[f_idx], centers_after[f_idx]))**0.5
+            self.assertLess(disp, 1e-4, f"Fixed face {f_idx} was unexpectedly moved")
 
     def test_oracle_bridge_rejects_invalid_order(self):
         """Phase 4c.1 / J4: Validates that test_box invalid sequence is rejected at step 2 (BEND_TRAJECTORY)."""

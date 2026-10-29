@@ -199,7 +199,42 @@ To preserve honest verification boundaries and prevent test fabrication:
     - `"PASSED_WITH_UNKNOWN"` $\to$ Orange badge (`BADGE_UNVERIFIED` with explicit warning)
     - `"FAILED"` $\to$ Red/Orange badge (`BADGE_VERIFICATION_FAILED`)
   - `SMBS_AnimationPlayer` / `SimulationDialog`: reads step simulation and backgauge records from `07_search_result.json` and verification confirmation from `09_manual_verification_result.json`.
+  **Schema for `07_search_result.json` in Manual Mode (L2):**
+  - `schema_name`: `"search_result"` (version `"1.0"`, compatible with auto-pipeline consumers)
+  - `payload.planning_status`: `"SUCCESS"` | `"FAILED"`
+  - `payload.candidate_sequence`: list of user-ordered steps with authoritative fields:
+    - `step`: step order (1-indexed)
+    - `bend_id`: canonical bend identifier
+    - `has_unknown`: boolean flag (`False` under `PRODUCTION` with real tooling)
+    - `stage`: `"VALID"` on success, or failure stage (`"BEND_TRAJECTORY"`, `"TOOL"`, `"SELF"`, `"APPROACH"`, etc.)
+    - `backgauge`: dictionary containing real calculated coordinates:
+      - `backgauge_x_mm`: float distance to finger stop
+      - `backgauge_r_mm`: float finger height adjustment
+      - `backgauge_z1_mm`, `backgauge_z2_mm`: float lateral finger positions
+      - `finger_count`: 2
+    - `reason`: physical oracle explanation message
+  - `payload.solver_metrics`:
+    - `exact_collision_queries`: int (number of steps evaluated by `OracleBridge`)
+    - `wall_time_s`: float (actual measured execution wall time)
+    - `prefilter_checks`: 0 (Manual Mode evaluates the fixed user sequence directly without heuristic pruning)
+  - `payload.total_cost`: 1.0 (fixed reference cost)
+
 - **Phase 4d:** Produces `10_part_bendseq.json` when `ok=True`, and renders FreeCAD 3D labels and TechDraw 2D balloons.
+
+### 4.4 Known Performance Limitations & Concurrency (Requirements L1)
+1. **Execution Latency:**
+   Full physical validation (`PhysicalValidator.validate_step`) with real B-Rep CAD geometry (punches, dies, machine frame) takes approximately **~22s per bend step** in OpenCASCADE due to exact non-manifold Boolean operations, contact distance computations, and multi-slice trajectory sweeping.
+   - 3-bend part (`test_box`): ~66–70s
+   - 4-bend part (`9a351d`): ~85–90s
+   - 5-bend part (`test_pentagon`): ~110s
+2. **Threading Invariant:**
+   `ManualSequenceWorker.run` **must always be executed inside a worker thread / QThread** (never in FreeCAD's main GUI thread).
+3. **Stepwise Progress Notification:**
+   `ManualSequenceWorker` emits progress updates before every step: `progress_callback(current_step, total_steps, bend_id)`.
+4. **Interruption:**
+   The `cancel_token` (threading.Event) is checked between validation steps to allow immediate user cancellation without freezing FreeCAD.
+5. **Test Sweep Policy:**
+   Full permutations sweeps are prohibited in unit tests. Unit tests evaluate strictly pre-calculated canonical sequences from `tests/fixtures/manual/known_orders_*.json`.
 
 ---
 
