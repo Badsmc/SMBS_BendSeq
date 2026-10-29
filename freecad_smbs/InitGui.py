@@ -1,7 +1,8 @@
 """
-InitGui.py - GUI initialization for FreeCAD SMBS Workbench.
+InitGui.py - GUI initialization for FreeCAD SMBS Workbench (HandMod-V.0.0.1).
 
-Registers workbench, commands, menus, and toolbars in FreeCAD GUI.
+Primary entry: «Ручная последовательность» (manual bend order).
+Auto-search command kept for reference but not primary.
 """
 from __future__ import annotations
 
@@ -41,13 +42,12 @@ try:
     if _repo_root not in sys.path:
         sys.path.insert(0, _repo_root)
 except Exception:
-    # Dynamic repo root resolution fallback in case __file__ is absent
     pass
 
-# Import command classes (duck-typed, headless-safe)
 from freecad_smbs.commands.calculate import CalculateCommand
 from freecad_smbs.commands.diagnostics import DiagnosticsCommand
 from freecad_smbs.commands.info import InfoCommand
+from freecad_smbs.commands.manual_sequence import ManualSequenceCommand
 from freecad_smbs.commands.open_run import OpenRunCommand
 from freecad_smbs.commands.preferences import PreferencesCommand
 from freecad_smbs.commands.run_active import RunActiveCommand
@@ -55,7 +55,7 @@ from freecad_smbs.commands.simulate import SimulateCommand
 from freecad_smbs.commands.tooling import ToolingCommand
 from freecad_smbs.commands.verify import VerifyCommand
 
-# Command registry identifiers
+CMD_MANUAL: str = "SMBS_ManualSequence"
 CMD_RUN_ACTIVE: str = "SMBS_RunActive"
 CMD_OPEN_RUN: str = "SMBS_OpenRun"
 CMD_CALCULATE: str = "SMBS_Calculate"
@@ -66,8 +66,8 @@ CMD_INFO: str = "SMBS_Info"
 CMD_DIAGNOSTICS: str = "SMBS_Diagnostics"
 CMD_PREFERENCES: str = "SMBS_Preferences"
 
-# Command definitions mapping
 COMMANDS_MAP = {
+    CMD_MANUAL: ManualSequenceCommand,
     CMD_RUN_ACTIVE: RunActiveCommand,
     CMD_OPEN_RUN: OpenRunCommand,
     CMD_CALCULATE: CalculateCommand,
@@ -81,25 +81,23 @@ COMMANDS_MAP = {
 
 
 def register_commands() -> None:
-    """Register SMBS commands in FreeCADGui command registry."""
     if FreeCADGui is None or not hasattr(FreeCADGui, "addCommand"):
         return
-
     for cmd_name, cmd_cls in COMMANDS_MAP.items():
         try:
             FreeCADGui.addCommand(cmd_name, cmd_cls())
         except Exception:
-            # FreeCAD may re-init workbench; addCommand is idempotent; swallow for safety
             pass
 
 
 class SMBSWorkbench(Workbench):  # type: ignore[misc]
-    """FreeCAD GUI Workbench for SMBS."""
+    """FreeCAD GUI Workbench for SMBS HandMod."""
 
-    MenuText = "SMBS"
-    ToolTip = "Sheet Metal Bending Sequence Planner"
+    MenuText = "SMBS HandMod"
+    ToolTip = "Sheet Metal Bending Sequence — Manual Mode"
     Icon = ""
 
+    CMD_MANUAL = "SMBS_ManualSequence"
     CMD_RUN_ACTIVE = "SMBS_RunActive"
     CMD_OPEN_RUN = "SMBS_OpenRun"
     CMD_CALCULATE = "SMBS_Calculate"
@@ -111,7 +109,6 @@ class SMBSWorkbench(Workbench):  # type: ignore[misc]
     CMD_PREFERENCES = "SMBS_Preferences"
 
     def register_commands(self) -> None:
-        """Register SMBS commands in FreeCADGui command registry."""
         try:
             import FreeCADGui
         except ImportError:
@@ -123,6 +120,7 @@ class SMBSWorkbench(Workbench):  # type: ignore[misc]
         from freecad_smbs.commands.calculate import CalculateCommand
         from freecad_smbs.commands.diagnostics import DiagnosticsCommand
         from freecad_smbs.commands.info import InfoCommand
+        from freecad_smbs.commands.manual_sequence import ManualSequenceCommand
         from freecad_smbs.commands.open_run import OpenRunCommand
         from freecad_smbs.commands.preferences import PreferencesCommand
         from freecad_smbs.commands.run_active import RunActiveCommand
@@ -131,6 +129,7 @@ class SMBSWorkbench(Workbench):  # type: ignore[misc]
         from freecad_smbs.commands.verify import VerifyCommand
 
         commands_map = {
+            self.CMD_MANUAL: ManualSequenceCommand,
             self.CMD_RUN_ACTIVE: RunActiveCommand,
             self.CMD_OPEN_RUN: OpenRunCommand,
             self.CMD_CALCULATE: CalculateCommand,
@@ -146,16 +145,15 @@ class SMBSWorkbench(Workbench):  # type: ignore[misc]
             try:
                 FreeCADGui.addCommand(cmd_name, cmd_cls())
             except Exception:
-                # Re-registration of existing FreeCAD command; ignore duplicate registration
                 pass
 
     def Initialize(self) -> None:
-        """Initialize workbench UI components (commands, menus, toolbars)."""
-        # C2-2: Register commands BEFORE appendMenu / appendToolbar
         self.register_commands()
 
-        # Menu layout per Spec-final §3.2
+        # HandMod: manual first
         self.menu_items = [
+            self.CMD_MANUAL,
+            "Separator",
             self.CMD_RUN_ACTIVE,
             self.CMD_OPEN_RUN,
             "Separator",
@@ -172,8 +170,8 @@ class SMBSWorkbench(Workbench):  # type: ignore[misc]
         if hasattr(self, "appendMenu"):
             self.appendMenu(["SMBS"], self.menu_items)
 
-        # Toolbar layout per Spec-final §3.2
         self.toolbar_items = [
+            self.CMD_MANUAL,
             self.CMD_RUN_ACTIVE,
             self.CMD_OPEN_RUN,
             self.CMD_CALCULATE,
@@ -188,11 +186,9 @@ class SMBSWorkbench(Workbench):  # type: ignore[misc]
             self.appendToolbar("SMBS", self.toolbar_items)
 
     def Activated(self) -> None:
-        """Called when SMBS workbench is activated."""
         pass
 
     def Deactivated(self) -> None:
-        """Called when SMBS workbench is deactivated."""
         pass
 
     def GetClassName(self) -> str:
@@ -203,5 +199,4 @@ if FreeCADGui is not None and hasattr(FreeCADGui, "addWorkbench"):
     try:
         FreeCADGui.addWorkbench(SMBSWorkbench())
     except Exception:
-        # Workbench re-registration in FreeCAD GUI; ignore duplicate workbench error
         pass
