@@ -23,8 +23,14 @@ try:
     import FreeCAD as App
     import Part
 except ImportError:
-    App = None
-    Part = None
+    try:
+        from smbs_core.geometry_backend.freecad_bootstrap import ensure_freecad_paths
+        ensure_freecad_paths()
+        import FreeCAD as App
+        import Part
+    except Exception:
+        App = None
+        Part = None
 
 
 Point2D = Tuple[float, float]
@@ -346,7 +352,7 @@ def extract_bend_lines_3d(shape: Any) -> List[RawBendLine]:
 
 
 def match_to_canonical(
-    raw_lines: List[RawBendLine],
+    raw_lines: List[Union[RawBendLine, Any]],
     canonical_part_04: Dict[str, Any],
 ) -> List[BendLine]:
     """
@@ -368,31 +374,42 @@ def match_to_canonical(
             if bid in used_canonical_ids:
                 continue
 
-            # Candidate geometry: axis_point and axis_direction
-            cand_p = tuple(bdata.get("axis_point", [0, 0, 0]))
-            cand_d = tuple(bdata.get("axis_direction", [1, 0, 0]))
+            # Candidate geometry: try matching against bend_line_flat_pattern (for unfold clicks)
+            # or axis_point/axis_direction (for 3D bent part clicks)
+            cand_candidates: List[Tuple[Point3D, Vector3D]] = []
+            fbl = bdata.get("bend_line_flat_pattern")
+            if fbl and "start_mm" in fbl and "end_mm" in fbl:
+                s_pt = fbl["start_mm"]
+                e_pt = fbl["end_mm"]
+                mid_f = ((s_pt[0] + e_pt[0]) * 0.5, (s_pt[1] + e_pt[1]) * 0.5, (s_pt[2] + e_pt[2]) * 0.5)
+                d_f = (e_pt[0] - s_pt[0], e_pt[1] - s_pt[1], e_pt[2] - s_pt[2])
+                cand_candidates.append((mid_f, d_f))
+
+            if "axis_point" in bdata and "axis_direction" in bdata:
+                cand_candidates.append((tuple(bdata["axis_point"]), tuple(bdata["axis_direction"])))
+
             cand_rad = float(bdata.get("radius_mm", {}).get("value", 1.0))
             cand_len = float(bdata.get("length_mm", {}).get("value", raw.length_mm))
             cand_angle = float(bdata.get("angle_deg", {}).get("value", 90.0))
             p_panel = bdata.get("parent_panel_id", "")
             c_panel = bdata.get("child_panel_id", "")
 
-            # Normalized distance (clamped to 10mm)
-            dist = math.sqrt(sum((raw.midpoint[k] - cand_p[k])**2 for k in range(3)))
-            norm_dist = min(1.0, dist / 10.0)
+            # Evaluate best score across flat pattern vs 3D axis targets
+            best_cand_score = 1.0
+            for cand_p, cand_d in cand_candidates:
+                dist = math.sqrt(sum((raw.midpoint[k] - cand_p[k])**2 for k in range(3)))
+                norm_dist = min(1.0, dist / 10.0)
 
-            # Cosine direction
-            mag_cand_d = math.sqrt(sum(x**2 for x in cand_d)) or 1.0
-            cos_dir = abs(sum(raw.direction[k] * (cand_d[k] / mag_cand_d) for k in range(3)))
-            cos_dir = min(1.0, max(0.0, cos_dir))
+                mag_cand_d = math.sqrt(sum(x**2 for x in cand_d)) or 1.0
+                cos_dir = abs(sum(raw.direction[k] * (cand_d[k] / mag_cand_d) for k in range(3)))
+                cos_dir = min(1.0, max(0.0, cos_dir))
 
-            # Score metric §3.2
-            score = 0.5 * norm_dist + 0.3 * (1.0 - cos_dir) + 0.2 * 0.0
+                sc = 0.5 * norm_dist + 0.3 * (1.0 - cos_dir)
+                if sc < best_cand_score:
+                    best_cand_score = sc
 
             delta_rad = abs(raw.radius_mm - cand_rad)
-
-            # Lexicographical key for tie-break
-            tie_break_key = (score, delta_rad, p_panel, bid)
+            tie_break_key = (best_cand_score, delta_rad, p_panel, bid)
             candidates.append((tie_break_key, bid, bdata, cand_angle, cand_len, cand_rad))
 
         if not candidates:

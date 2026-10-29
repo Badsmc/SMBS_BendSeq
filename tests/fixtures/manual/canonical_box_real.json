@@ -1,0 +1,265 @@
+{
+  "content_hash": "b425cc06ae28d3a8881ae15d486b2900400bff8b75d3736c1864aa955ddc5bf9",
+  "created_at": "2026-10-29T18:02:29.041203+00:00",
+  "diagnostics": [],
+  "frame_convention": "STANDARD_CARTESIAN_MM",
+  "input_fingerprint": "7d56c1d287bd63882d567f63848b73e5d76064bd766252a131d4f7c033a595b3",
+  "part_id": "test_box",
+  "payload": {
+    "bends": {
+      "BEND_01_0528d4fa": {
+        "angle_deg": {
+          "confidence": "CONFIRMED",
+          "source": "GEOMETRIC_INFERENCE",
+          "value": 90.0
+        },
+        "axis_direction": [
+          -1.0,
+          0.0,
+          0.0
+        ],
+        "axis_point": [
+          100.0,
+          80.0,
+          1.5
+        ],
+        "bend_id": "BEND_01_0528d4fa",
+        "bend_line_flat_pattern": {
+          "end_mm": [
+            0.0,
+            80.0,
+            -1.0
+          ],
+          "length_mm": 100.0,
+          "start_mm": [
+            100.0,
+            80.0,
+            -1.0
+          ]
+        },
+        "child_panel_id": "PANEL_0ab8e963",
+        "direction": {
+          "confidence": "CONFIRMED",
+          "source": "GEOMETRIC_INFERENCE",
+          "value": "UP"
+        },
+        "k_factor": {
+          "confidence": "CONFIRMED",
+          "source": "SHEETMETAL_NATIVE",
+          "value": 0.44
+        },
+        "length_mm": {
+          "confidence": "CONFIRMED",
+          "source": "GEOMETRIC_INFERENCE",
+          "value": 100.0
+        },
+        "parent_panel_id": "PANEL_b6528a74",
+        "radius_mm": {
+          "confidence": "CONFIRMED",
+          "source": "GEOMETRIC_INFERENCE",
+          "value": 2.5
+        }
+      },
+      "BEND_02_64374506": {
+        "angle_deg": {
+          "confidence": "CONFIRMED",
+          "source": "GEOMETRIC_INFERENCE",
+          "value": -90.0
+        },
+        "axis_direction": [
+          0.0,
+          -1.0,
+          0.0
+        ],
+        "axis_point": [
+          0.0,
+          80.0,
+          1.5
+        ],
+        "bend_id": "BEND_02_64374506",
+        "bend_line_flat_pattern": {
+          "end_mm": [
+            0.0,
+            0.0,
+            -2.5
+          ],
+          "length_mm": 80.0,
+          "start_mm": [
+            0.0,
+            80.0,
+            -2.5
+          ]
+        },
+        "child_panel_id": "PANEL_9eccff07",
+        "direction": {
+          "confidence": "CONFIRMED",
+          "source": "GEOMETRIC_INFERENCE",
+          "value": "DOWN"
+        },
+        "k_factor": {
+          "confidence": "CONFIRMED",
+          "source": "SHEETMETAL_NATIVE",
+          "value": 0.44
+        },
+        "length_mm": {
+          "confidence": "CONFIRMED",
+          "source": "GEOMETRIC_INFERENCE",
+          "value": 80.0
+        },
+        "parent_panel_id": "PANEL_b6528a74",
+        "radius_mm": {
+          "confidence": "CONFIRMED",
+          "source": "GEOMETRIC_INFERENCE",
+          "value": 2.5
+        }
+      },
+      "BEND_03_bc0dd183": {
+        "angle_deg": {
+          "confidence": "CONFIRMED",
+          "source": "GEOMETRIC_INFERENCE",
+          "value": 90.0
+        },
+        "axis_direction": [
+          -1.0,
+          0.0,
+          0.0
+        ],
+        "axis_point": [
+          100.0,
+          0.0,
+          1.5
+        ],
+        "bend_id": "BEND_03_bc0dd183",
+        "bend_line_flat_pattern": {
+          "end_mm": [
+            0.0,
+            0.0,
+            -1.0
+          ],
+          "length_mm": 100.0,
+          "start_mm": [
+            100.0,
+            0.0,
+            -1.0
+          ]
+        },
+        "child_panel_id": "PANEL_f09bf15c",
+        "direction": {
+          "confidence": "CONFIRMED",
+          "source": "GEOMETRIC_INFERENCE",
+          "value": "UP"
+        },
+        "k_factor": {
+          "confidence": "CONFIRMED",
+          "source": "SHEETMETAL_NATIVE",
+          "value": 0.44
+        },
+        "length_mm": {
+          "confidence": "CONFIRMED",
+          "source": "GEOMETRIC_INFERENCE",
+          "value": 100.0
+        },
+        "parent_panel_id": "PANEL_b6528a74",
+        "radius_mm": {
+          "confidence": "CONFIRMED",
+          "source": "GEOMETRIC_INFERENCE",
+          "value": 2.5
+        }
+      }
+    },
+    "geometry_artifact": {
+      "content_hash": "eead201a2d550985ab361c6b6ab64a284fcef3e393c7cde3f322d60f2645752e",
+      "file_path": "runs/probe_test_box/geometry.brep",
+      "format": "BREP"
+    },
+    "input_mode": "CANONICAL_PART",
+    "panels": {
+      "PANEL_0ab8e963": {
+        "adjacent_bend_ids": [
+          "BEND_01_0528d4fa"
+        ],
+        "area_mm2": 5550.000000000001,
+        "centroid": [
+          49.99999999999999,
+          80.75675675675676,
+          -14.62387387387387
+        ],
+        "normal": [
+          0.0,
+          1.0,
+          0.0
+        ],
+        "panel_id": "PANEL_0ab8e963"
+      },
+      "PANEL_9eccff07": {
+        "adjacent_bend_ids": [
+          "BEND_02_64374506"
+        ],
+        "area_mm2": 4439.999999999998,
+        "centroid": [
+          -0.7567567567567568,
+          40.0,
+          17.623873873873876
+        ],
+        "normal": [
+          1.0,
+          -0.0,
+          -0.0
+        ],
+        "panel_id": "PANEL_9eccff07"
+      },
+      "PANEL_b6528a74": {
+        "adjacent_bend_ids": [
+          "BEND_01_0528d4fa",
+          "BEND_02_64374506",
+          "BEND_03_bc0dd183"
+        ],
+        "area_mm2": 14760.5,
+        "centroid": [
+          51.12385251177128,
+          40.0,
+          0.7431150706276887
+        ],
+        "normal": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "panel_id": "PANEL_b6528a74"
+      },
+      "PANEL_f09bf15c": {
+        "adjacent_bend_ids": [
+          "BEND_03_bc0dd183"
+        ],
+        "area_mm2": 5550.0,
+        "centroid": [
+          50.0,
+          -0.7567567567567566,
+          17.623873873873872
+        ],
+        "normal": [
+          -0.0,
+          1.0,
+          -0.0
+        ],
+        "panel_id": "PANEL_f09bf15c"
+      }
+    },
+    "reference_panel_id": "PANEL_b6528a74",
+    "thickness_mm": {
+      "confidence": "ESTIMATED",
+      "source": "SHEETMETAL_NATIVE",
+      "unit": "mm",
+      "value": 1.5
+    }
+  },
+  "producer": {
+    "name": "topology_worker",
+    "version": "1.1"
+  },
+  "run_id": "probe_test_box",
+  "schema_name": "canonical_part",
+  "schema_version": "1.1",
+  "status": "SUCCESS",
+  "units": "mm"
+}

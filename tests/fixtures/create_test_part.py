@@ -146,14 +146,14 @@ def create_pentagon_5bend_shape(
     f3.rotate(App.Vector(0, 0, 0), App.Vector(0, 1, 0), -90)
     f3.translate(App.Vector(0, 0, thickness))
 
-    # Lip 4: on top of Flange 1, bent inward (-Y)
+    # Lip 4: on top of Flange 1 (-Z), bent inward (-Y)
     c4 = Part.makeCylinder(radius + thickness, base_w)
     c4.rotate(App.Vector(0, 0, 0), App.Vector(0, 1, 0), -90)
-    c4.translate(App.Vector(base_w, base_l, thickness + h1))
+    c4.translate(App.Vector(base_w, base_l, thickness - h1))
     f4 = Part.makeBox(base_w, h2, thickness)
-    f4.translate(App.Vector(0, base_l - h2, thickness + h1))
+    f4.translate(App.Vector(0, base_l - h2, thickness - h1 - thickness))
 
-    # Lip 5: on top of Flange 2, bent inward (+Y)
+    # Lip 5: on top of Flange 2 (+Z), bent inward (+Y)
     c5 = Part.makeCylinder(radius + thickness, base_w)
     c5.rotate(App.Vector(0, 0, 0), App.Vector(0, 1, 0), -90)
     c5.translate(App.Vector(base_w, 0, thickness + h1))

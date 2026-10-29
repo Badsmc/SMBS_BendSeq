@@ -80,11 +80,71 @@ To prevent accidental misidentification when bends are closely spaced (e.g. 5–
 
 ---
 
-## 4. § Integration Mode: Architecture of `run_manual_sequence_on_fcstd` (Answers Q2 & B1)
+## 4. § Integration Mode: Architecture of `run_manual_sequence_on_fcstd` (Answers Q2, B1, B3, B4, B5)
 
-### 4.1 Artifact 04 Lifecycle: Option (A) — Autonomous Mini-Pipeline
-In Manual Mode, the user opens an arbitrary `.FCStd` file and clicks edges without prior pipeline runs.
-`ManualSequenceWorker` autonomously runs a staged mini-pipeline into an isolated run directory (`runs/run_manual_<timestamp>_<uuid>`):
+### 4.1 Boundary Contract: Option (B) — Worker Does Full Autonomous Resolution
+In HandMod, `ManualSequencePanel` is kept **thin** and stores selections with `bend_id: Optional[str] = None` along with immutable `RawBendLineSnapshot` (captured at click time).
+
+The entry point:
+```python
+def run_manual_sequence_on_fcstd(
+    fcstd_path: Union[str, Path],
+    manual_input: ManualSequenceInput,
+    *,
+    out_runs_dir: Union[str, Path, None] = None,
+    library_path: Union[str, Path, None] = None,
+    tooling_set_id: Optional[str] = None,
+    cancel_token: Optional[threading.Event] = None,
+    phases: Optional[List[str]] = None,  # e.g. ["04"] for Phase 4a mini-pipeline
+) -> ManualSequenceResult:
+```
+
+**Worker Execution Flow (One Transaction, Isolated Run Dir):**
+1. Runs `GeometryWorker` → generates `01_input_manifest.json` and `02_geometry_result.json` + `geometry.brep` + `flat_pattern.brep`.
+2. Runs `TopologyWorker` → generates `04_canonical_part.json`.
+3. Resolves each `BendSelectionItem.raw_snapshot` against real `04_canonical_part.json` via `match_to_canonical`:
+   - If **all** items resolve with score $\le 0.6$ (or distance $\le 4.0\text{ mm}$): assigns canonical `bend_id` to each item.
+   - If **any** item fails to resolve: fails immediately (`ok=False`, `planning_status="ERROR"`), records `unmatched_snapshots: List[RawBendLineSnapshot]` in the result, and logs clear diagnostic without running downstream stages.
+4. Validates sequence step-by-step through Physical Oracle (Phases 4c/6) unless restricted by `phases`.
+
+### 4.2 Run Directory Policy (§B4)
+- **Default Directory:** `<repo_root>/runs/run_manual_<YYYYMMDD_HHMMSS>_<uuid6>` (consistent with SMBS AutoMod convention).
+- **Custom Directory:** If `out_runs_dir` is passed, runs are created under `Path(out_runs_dir).expanduser().resolve() / run_id`.
+- **Retention / Cleanup:** Run directories contain complete standard artifacts (01, 02, 04, 07, 09, 10). Automated retention policy cleans up temporary runs exceeding the configured limit (default: keep latest 50 manual runs; overridden via preferences).
+
+### 4.3 Return Type & Downstream Compatibility (§B5)
+`run_manual_sequence_on_fcstd` returns `ManualSequenceResult`, defined as:
+```python
+@dataclass
+class ManualSequenceResult:
+    ok: bool
+    run_dir: Path
+    part_id: str
+    selections: List[BendSelectionItem]  # with bend_id resolved
+    unmatched_snapshots: List[RawBendLineSnapshot] = field(default_factory=list)
+    steps: List[OracleStepResult] = field(default_factory=list)
+    planning_status: str = "UNKNOWN"      # "SUCCESS", "NO_SOLUTION", "ERROR"
+    error_message: Optional[str] = None
+    diagnostics: List[str] = field(default_factory=list)
+    artifacts: Optional[RunArtifacts] = None
+
+    def to_pipeline_run_result(self) -> PipelineRunResult:
+        """Adapter allowing existing VerificationDialog, AnimationPlayerDialog, and UI tooling to operate without modification."""
+        ...
+```
+- The produced artifacts (`04_canonical_part.json`, `07_search_result.json`, `09_verification_result.json`, `10_part_bendseq.json`) are byte-for-byte schema compliant with existing AutoMod.
+- `07_search_result.json` populates `candidate_sequence` strictly from `manual_input.selections` in the user's order.
+- Existing `VerifierWorker` can process the resulting run directory with zero code changes.
+
+### 4.4 Cancellation Protocol (§Y4)
+`cancel_token` is an optional `threading.Event` passed into `ManualSequenceInput` or directly to `run_manual_sequence_on_fcstd`.
+- Worker checks `cancel_token.is_set()` between validation steps.
+- If cancellation is requested, worker stops further execution, marks `planning_status="CANCELLED"`, and returns a partial result with already executed steps.
+
+### 4.5 Topological Stale Invalidation (§Y5)
+To avoid false invalidations when FreeCAD fires document recompute events (e.g. from 3D annotation labels, view rotations, or zoom events):
+- `ManualSequencePanel.mark_stale(new_shape)` checks topological shape identity via `new_shape.hashCode()` (or edge count + bounding box).
+- Recompute events that leave the `Unfold` shape topology unchanged do NOT invalidate selections.
 
 ```
 User clicks "Проверить" in ManualSequencePanel
@@ -98,30 +158,31 @@ Writes 01_input_manifest.json → 02_geometry_result.json + geometry.brep + flat
 Reads 02_geometry_result.json → Writes 04_canonical_part.json
        │
        ▼
-[Stage 3: Edge Matching against 04]
+[Stage 3: Edge Matching against 04 (Worker Internal)]
 Validates user-selected edges → resolves canonical bend_id list [B_1, B_2, ... B_N]
+(Fails-fast with unmatched_snapshots if any bend cannot be mapped)
        │
        ▼
-[Stage 4: Coordinate Alignment]
+[Stage 4: Coordinate Alignment (Phase 5)]
 Extracts 2D/3D contours → computes T_4x4 and T_inv
        │
        ▼
-[Stage 5: ManualSequenceSolver & Oracle]
+[Stage 5: ManualSequenceSolver & Oracle (Phase 6)]
 Validates fixed sequence step-by-step → Writes 07_search_result.json
        │
        ▼
-[Stage 6: VerifierWorker & ExportWorker]
+[Stage 6: VerifierWorker & ExportWorker (Phase 6)]
 Verifies steps independently (09_verification_result.json) → Writes 10_part_bendseq.json
        │
        ▼
-[Stage 7: Render Annotations]
+[Stage 7: Render Annotations (Phase 7)]
 3D scene labels (App::AnnotationLabel) + TechDraw balloon/labels via T_inv
 ```
 
-**Decision:** Option (C) from Q2 + Option (A) from B1:
-- Zero dependency on prior AutoMod runs.
-- Isolated run directory managed via `FileStore`.
-- Full artifact compliance (01, 02, 04, 07, 09, 10) so FreeCAD Verify dialog, Simulate dialog, and Export work immediately.
+**Decision:** Option (B) from B4 + Option (A) from B1 + Option (B5) Return Adapter:
+- Single entry point, single run-dir transaction.
+- Panel remains thin and decoupled from FreeCAD worker pipelines.
+- Full downstream compatibility with existing Verifier and simulation UI.
 
 ---
 

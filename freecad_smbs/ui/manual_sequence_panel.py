@@ -108,6 +108,7 @@ class ManualSequencePanel:
         self._is_running: bool = False
         self._cancel_requested: bool = False
         self._stale: bool = False
+        self._last_unfold_hash: Optional[int] = None
         self._observer_attached: bool = False
         self._doc = initial_doc
 
@@ -356,12 +357,24 @@ class ManualSequencePanel:
             self.btn_calc.setEnabled(True)
             self.btn_cancel.setEnabled(False)
 
-    def mark_stale(self) -> None:
-        """P2: Marks panel state as stale upon document recompute."""
+    def mark_stale(self, new_shape: Optional[Any] = None) -> bool:
+        """
+        P2/Y5: Evaluates whether topological shape change occurred before marking stale.
+        Prevents false invalidation on recompute triggered by UI annotations or camera actions.
+        Returns True if panel was actually marked stale.
+        """
+        if new_shape is not None and hasattr(new_shape, "hashCode"):
+            current_hash = new_shape.hashCode()
+            if self._last_unfold_hash is not None and current_hash == self._last_unfold_hash:
+                # Shape is topologically identical; do not invalidate
+                return False
+            self._last_unfold_hash = current_hash
+
         self._stale = True
         for sel in self._selections:
             sel.bend_id = None
         self._set_status("⚠️ Модель была перестроена. Нажмите Очистить и выберите заново.")
+        return True
 
     def get_selections(self) -> List[BendSelectionItem]:
         return list(self._selections)
