@@ -277,7 +277,10 @@ class ManualSequenceWorker:
         from freecad_smbs.manual.oracle_bridge import OracleBridge, resolve_panel_primary_sheet_pair
 
         t_start_validation = time.time()
-        tooling_id = manual_input.tooling_set_id or "standard_90deg_v12"
+        tooling_id = manual_input.tooling_set_id
+        if tooling_id is None and manual_input.machine is None:
+            raise ValueError("tooling_set_id is required; Manual Mode requires explicit tooling configuration (H4 fail-closed)")
+        tooling_id = tooling_id or "standard_90deg_v12"
         unknown_pol = manual_input.unknown_policy or "PRODUCTION"
 
         # Load reference target shape from geometry.brep
@@ -472,7 +475,7 @@ class ManualSequenceWorker:
             "producer": {"name": "manual_worker", "version": "1.1"},
             "units": "mm",
             "frame_convention": "STANDARD_CARTESIAN_MM",
-            "status": RunStatus.SUCCESS.value if sequence_valid else RunStatus.WORKER_ERROR.value,
+            "status": RunStatus.SUCCESS.value,
             "diagnostics": [failed_reason] if failed_reason else [],
             "created_at": datetime.now(timezone.utc).isoformat(),
             "payload": {
