@@ -166,11 +166,12 @@ class TestAlignment(unittest.TestCase):
         self.assertTrue(any("FORCED" in w for w in res.warnings))
 
     def test_alignment_recovers_known_perturbation(self):
-        """D1.1: Recovers known synthetic 2D rotation and translation under noise."""
-        doc = App.openDocument(str(self.box_path))
+        """D1.1 & F1: Recovers known synthetic 2D rotation and translation under noise on both standard and mirror views."""
+        # 1. Standard Box: T_inv directly recovers T_known
+        doc_box = App.openDocument(str(self.box_path))
         try:
-            view = doc.getObject("View")
-            P_true = np.array(extract_outer_contour_drawing_2d(view))[:, :2]
+            view_box = doc_box.getObject("View")
+            P_box = np.array(extract_outer_contour_drawing_2d(view_box))[:, :2]
 
             theta = 0.03
             c, s = math.cos(theta), math.sin(theta)
@@ -178,23 +179,75 @@ class TestAlignment(unittest.TestCase):
             t_known = np.array([3.7, -2.1])
 
             np.random.seed(42)
-            noise = np.random.normal(0, 0.05, P_true.shape)
-            P_noisy = (R_known @ P_true.T).T + t_known + noise
+            noise = np.random.normal(0, 0.05, P_box.shape)
+            P_box_noisy = (R_known @ P_box.T).T + t_known + noise
 
-            res = align_drawing_to_unfold(P_noisy, P_true)
-            self.assertLess(res.rms_error_mm, 0.15, f"Expected RMS < 0.15mm, got {res.rms_error_mm}")
+            res_box = align_drawing_to_unfold(P_box_noisy, P_box)
+            self.assertLess(res_box.rms_error_mm, 0.15)
 
-            # Recovered mapping P_true -> P_noisy via inverse transform
-            T_inv = np.array(res.transform_inv_4x4)
-            R_rec = T_inv[:2, :2]
-            t_rec = T_inv[:2, 3]
+            T_inv_box = np.array(res_box.transform_inv_4x4)
+            R_rec_box = T_inv_box[:2, :2]
+            t_rec_box = T_inv_box[:2, 3]
 
-            angle_rec = math.atan2(R_rec[1, 0], R_rec[0, 0])
-            t_err = float(np.linalg.norm(t_rec - t_known))
-            rot_err = abs(angle_rec - theta)
+            angle_rec_box = math.atan2(R_rec_box[1, 0], R_rec_box[0, 0])
+            t_err_box = float(np.linalg.norm(t_rec_box - t_known))
+            rot_err_box = abs(angle_rec_box - theta)
 
-            self.assertLess(t_err, 0.1, f"Translation error {t_err} must be < 0.1mm")
-            self.assertLess(rot_err, 0.01, f"Rotation error {rot_err} must be < 0.01 rad")
+            self.assertLess(t_err_box, 0.1, f"Box translation error {t_err_box} must be < 0.1mm")
+            self.assertLess(rot_err_box, 0.01, f"Box rotation error {rot_err_box} must be < 0.01 rad")
+        finally:
+            App.closeDocument(doc_box.Name)
+
+        # 2. F1: Mirror View: Composition T_comp = T_pert^-1 @ T_clean recovers T_known
+        doc_mirror = App.openDocument(str(self.mirror_path))
+        try:
+            view_mirror = doc_mirror.getObject("View")
+            unfold_mirror = extract_unfold_solid(doc_mirror)
+            c3d_mirror = np.array(extract_outer_contour_unfold_3d(unfold_mirror))[:, :2]
+            c2d_mirror = np.array(extract_outer_contour_drawing_2d(view_mirror))[:, :2]
+
+            res_clean = align_drawing_to_unfold(c2d_mirror, c3d_mirror)
+            T_clean = np.array(res_clean.transform_4x4)
+
+            np.random.seed(42)
+            noise_m = np.random.normal(0, 0.05, c2d_mirror.shape)
+            c2d_pert = (R_known @ c2d_mirror.T).T + t_known + noise_m
+
+            res_pert = align_drawing_to_unfold(c2d_pert, c3d_mirror)
+            T_pert_inv = np.array(res_pert.transform_inv_4x4)
+
+            # Composition mapping c2d -> c2d_pert: T_comp = T_pert^-1 @ T_clean
+            T_comp = T_pert_inv @ T_clean
+            R_comp = T_comp[:2, :2]
+            t_comp = T_comp[:2, 3]
+
+            angle_comp = math.atan2(R_comp[1, 0], R_comp[0, 0])
+            t_err_mirror = float(np.linalg.norm(t_comp - t_known))
+            rot_err_mirror = abs(angle_comp - theta)
+            frob_err = float(np.linalg.norm(R_comp - R_known))
+
+            self.assertLess(t_err_mirror, 0.05, f"Mirror composition translation error {t_err_mirror} must be < 0.05mm")
+            self.assertLess(rot_err_mirror, 0.005, f"Mirror composition rotation error {rot_err_mirror} must be < 0.005 rad")
+            self.assertLess(frob_err, 0.01, f"Mirror composition Frobenius norm error {frob_err} must be < 0.01")
+        finally:
+            App.closeDocument(doc_mirror.Name)
+
+    def test_extract_contour_uses_consistent_source(self):
+        """F2: Verifies primary projectPoint branch matches direct model projection."""
+        doc = App.openDocument(str(self.box_path))
+        try:
+            view = doc.getObject("View")
+            c2d = extract_outer_contour_drawing_2d(view)
+
+            # Direct projection from source shape face
+            source = view.Source[0]
+            best_face = max(source.Shape.Faces, key=lambda f: f.Area)
+            direct_pts = [view.projectPoint(v.Point) for v in best_face.OuterWire.Vertexes]
+            direct_2d = [(round(p.x, 4), round(p.y, 4)) for p in direct_pts]
+            if len(direct_2d) > 2 and math.hypot(direct_2d[0][0] - direct_2d[-1][0], direct_2d[0][1] - direct_2d[-1][1]) < 0.05:
+                direct_2d.pop()
+
+            np.testing.assert_allclose(c2d, direct_2d, atol=1e-4, err_msg="extract_outer_contour_drawing_2d must strictly match projectPoint")
         finally:
             App.closeDocument(doc.Name)
 

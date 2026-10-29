@@ -333,10 +333,18 @@ To ensure the Physical Oracle (`PhysicalValidator`) and downstream `VerifierWork
 ```
 *(PCA fallback removed per YAGNI/E2 as Kabsch SVD is strictly optimal in least-squares sense).*
 
-### 7.5 Gate Policy & force_alignment UX (Y8)
+### 7.5 Mirror View Composition & Perturbation Semantics (F1)
+- On mirrored drawing views ($\vec{D}=(0,0,-1)$), the extracted drawing contour $c_{2D}$ is intrinsically reflected relative to the 3D unfold geometry $c_{3D}$.
+- Consequently, $T_{\text{align}}$ incorporates the reflection component. A forward transformation $T_{\text{known}}$ applied directly in page space $(u, v)$ is recovered via the transformation composition:
+  $$T_{\text{comp}} = T_{\text{pert}}^{-1} \cdot T_{\text{clean}}$$
+- $T_{\text{comp}}$ precisely reconstructs $T_{\text{known}}$ with translation error $\|t_{\text{comp}} - t_{\text{known}}\| < 0.05\text{ mm}$ and $\|R_{\text{comp}} - R_{\text{known}}\|_F < 0.01$.
+- For downstream TechDraw annotations (Phase 4d), $T^{-1}$ maps directly from 3D canonical unfold coordinates $(X, Y, Z)$ to page coordinates $(u, v)$ regardless of reflection.
+
+### 7.6 Gate Policy, force_alignment UX & Test Scope (Y8, F3)
 - If RMS $\le 0.5\text{ mm}$: `ok=True`.
 - If RMS $> 0.5\text{ mm}$ and `force_alignment=False`: `ok=False`, `warnings=["RMS <val> > threshold 0.5"]`.
 - If RMS $> 0.5\text{ mm}$ and `force_alignment=True`: `ok=True`, `warnings=["FORCED: RMS <val> > threshold 0.5"]`. Downstream UI is required to present this warning.
+- **Known Test Limitation (F3):** Unit tests `test_alignment_rms_gate` and `test_alignment_force_flag` use compact 4-vertex planar synthetic contours to verify gate boundary transitions rapidly. Realistic physical tolerances against CAD models under noise ($\sigma=0.3\text{ mm}$) are validated in `test_alignment_noise_robustness` across `test_box`, `test_mirror`, and `test_pentagon`.
 
 ---
 

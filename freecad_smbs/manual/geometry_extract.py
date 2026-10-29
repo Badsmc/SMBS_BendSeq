@@ -146,9 +146,18 @@ def extract_outer_contour_unfold_3d(
 
 def extract_outer_contour_drawing_2d(view: Any) -> List[Point2D]:
     """
-    Extracts 2D contour vertices directly from a FreeCAD TechDraw::DrawViewPart (U2).
-    B8: De-scales points by view.Scale so coordinates are strictly in model millimeters,
-    ensuring downstream Kabsch operates on true isometric geometry.
+    Extracts 2D contour vertices directly from a FreeCAD TechDraw::DrawViewPart (U2, F2).
+
+    Coordinate Extraction & Scaling Policy (F2):
+    1. Primary Source: view.projectPoint(v.Point) over view.Source[0].Shape.Faces (OuterWire).
+       - TechDraw projectPoint projects 3D model vertices along view.Direction into view space.
+       - Returns unscaled coordinates directly in 1:1 model millimeters (invariant to view.Scale).
+       - Preserves true topological boundary ordering of the unfolded flat face without edge thickness artifacts.
+    2. Fallback Source: view.getVisibleVertexes().
+       - TechDraw getVisibleVertexes returns page-projected vertices scaled by view.Scale.
+       - De-scaling: coordinates are divided by view.Scale (pt / view.Scale) to restore model millimeters.
+    Both branches yield identical model-millimeter coordinates, ensuring downstream Kabsch operates
+    on true isometric geometry regardless of drawing view display scale.
     """
     if view is None:
         return []
