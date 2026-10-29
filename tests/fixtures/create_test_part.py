@@ -46,7 +46,6 @@ def create_box_3bend_shape(
     Creates a 3D sheet metal U/box shape with 3 bends (two parallel side flanges + one rear flange).
     All bends have radius=radius, thickness=thickness, angle=90.0 deg.
     """
-    # Base bottom panel
     base = Part.makeBox(base_w, base_l, thickness)
 
     # Flange 1: along X-axis at Y=0, bent UP (+Z)
@@ -78,6 +77,27 @@ def create_box_3bend_shape(
     return shape
 
 
+def create_box_unfold_shape(
+    thickness: float = 1.5,
+    base_w: float = 100.0,
+    base_l: float = 80.0,
+    flange_h: float = 30.0,
+) -> Part.Shape:
+    """
+    Creates the true unfolded 2D sheet blank with 8 outer vertices
+    (cross contour with corner reliefs).
+    """
+    b_center = Part.makeBox(base_w, base_l, thickness)
+    b_f1 = Part.makeBox(base_w, flange_h, thickness)
+    b_f1.translate(App.Vector(0, -flange_h, 0))
+    b_f2 = Part.makeBox(base_w, flange_h, thickness)
+    b_f2.translate(App.Vector(0, base_l, 0))
+    b_f3 = Part.makeBox(flange_h, base_l, thickness)
+    b_f3.translate(App.Vector(-flange_h, 0, 0))
+    cross = b_center.fuse(b_f1).fuse(b_f2).fuse(b_f3).removeSplitter()
+    return cross
+
+
 def create_pentagon_5bend_shape(
     thickness: float = 1.5,
     radius: float = 1.0,
@@ -95,30 +115,64 @@ def create_pentagon_5bend_shape(
     base = Part.makeBox(base_w, base_l, thickness)
 
     # Flange 1 (+Y edge, bent +Z)
+    c1 = Part.makeCylinder(radius + thickness, base_w)
+    c1.rotate(App.Vector(0, 0, 0), App.Vector(0, 1, 0), -90)
+    c1.translate(App.Vector(base_w, base_l, thickness))
     f1 = Part.makeBox(base_w, h1, thickness)
     f1.rotate(App.Vector(0, 0, 0), App.Vector(1, 0, 0), -90)
     f1.translate(App.Vector(0, base_l, thickness))
 
     # Flange 2 (-Y edge, bent +Z)
+    c2 = Part.makeCylinder(radius + thickness, base_w)
+    c2.rotate(App.Vector(0, 0, 0), App.Vector(0, 1, 0), -90)
+    c2.translate(App.Vector(base_w, 0, thickness))
     f2 = Part.makeBox(base_w, h1, thickness)
     f2.rotate(App.Vector(0, 0, 0), App.Vector(1, 0, 0), 90)
     f2.translate(App.Vector(0, 0, thickness))
 
     # Flange 3 (-X edge, bent +Z)
+    c3 = Part.makeCylinder(radius + thickness, base_l)
+    c3.rotate(App.Vector(0, 0, 0), App.Vector(1, 0, 0), 90)
+    c3.translate(App.Vector(0, base_l, thickness))
     f3 = Part.makeBox(h1, base_l, thickness)
     f3.rotate(App.Vector(0, 0, 0), App.Vector(0, 1, 0), -90)
     f3.translate(App.Vector(0, 0, thickness))
 
     # Lip 4: on top of Flange 1, bent inward (-Y)
+    c4 = Part.makeCylinder(radius + thickness, base_w)
+    c4.rotate(App.Vector(0, 0, 0), App.Vector(0, 1, 0), -90)
+    c4.translate(App.Vector(base_w, base_l, thickness + h1))
     f4 = Part.makeBox(base_w, h2, thickness)
     f4.translate(App.Vector(0, base_l - h2, thickness + h1))
 
     # Lip 5: on top of Flange 2, bent inward (+Y)
+    c5 = Part.makeCylinder(radius + thickness, base_w)
+    c5.rotate(App.Vector(0, 0, 0), App.Vector(0, 1, 0), -90)
+    c5.translate(App.Vector(base_w, 0, thickness + h1))
     f5 = Part.makeBox(base_w, h2, thickness)
     f5.translate(App.Vector(0, 0, thickness + h1))
 
-    shape = base.fuse(f1).fuse(f2).fuse(f3).fuse(f4).fuse(f5)
+    shape = base.fuse(c1).fuse(f1).fuse(c2).fuse(f2).fuse(c3).fuse(f3).fuse(c4).fuse(f4).fuse(c5).fuse(f5)
     shape = shape.removeSplitter()
+    return shape
+
+
+def create_pentagon_unfold_shape(
+    thickness: float = 1.5,
+    base_w: float = 120.0,
+    base_l: float = 80.0,
+    h1: float = 40.0,
+    h2: float = 20.0,
+) -> Part.Shape:
+    """Creates true unfolded blank for 5-bend part (8 outer vertices)."""
+    b_center = Part.makeBox(base_w, base_l, thickness)
+    b_f1 = Part.makeBox(base_w, h1 + h2, thickness)
+    b_f1.translate(App.Vector(0, base_l, 0))
+    b_f2 = Part.makeBox(base_w, h1 + h2, thickness)
+    b_f2.translate(App.Vector(0, -(h1 + h2), 0))
+    b_f3 = Part.makeBox(h1, base_l, thickness)
+    b_f3.translate(App.Vector(-h1, 0, 0))
+    shape = b_center.fuse(b_f1).fuse(b_f2).fuse(b_f3).removeSplitter()
     return shape
 
 
@@ -131,14 +185,24 @@ def create_test_box_fcstd(target_path: Path) -> Path:
     body.Label = "TestBoxBody"
     body.Shape = shape
 
-    # Create Unfold representation
-    # Unfolded shape is a flat sheet matching overall blank dimensions
-    # Base: 100x80, Flanges: 30 on 3 sides
-    unfold_shape = Part.makeBox(100.0 + 30.0, 80.0 + 60.0, 1.5)
-    unfold_shape.translate(App.Vector(-30.0, -30.0, 0.0))
+    unfold_shape = create_box_unfold_shape(thickness=1.5)
     unfold_obj = doc.addObject("Part::Feature", "Unfold")
     unfold_obj.Label = "Unfold_3Bend"
     unfold_obj.Shape = unfold_shape
+
+    # Add TechDraw page with top view of Unfold (8 vertices)
+    try:
+        import TechDraw
+        page = doc.addObject("TechDraw::DrawPage", "Page")
+        template = doc.addObject("TechDraw::DrawSVGTemplate", "Template")
+        page.Template = template
+        view = doc.addObject("TechDraw::DrawViewPart", "View")
+        view.Source = [unfold_obj]
+        view.Direction = App.Vector(0, 0, 1)
+        view.Scale = 1.0
+        page.addView(view)
+    except Exception as e:
+        print(f"TechDraw note: {e}")
 
     doc.recompute()
     doc.saveAs(str(target_path))
@@ -155,11 +219,23 @@ def create_test_pentagon_fcstd(target_path: Path) -> Path:
     body.Label = "TestPentagonBody"
     body.Shape = shape
 
-    unfold_shape = Part.makeBox(120.0 + 40.0, 80.0 + 120.0, 1.5)
-    unfold_shape.translate(App.Vector(-40.0, -60.0, 0.0))
+    unfold_shape = create_pentagon_unfold_shape(thickness=1.5)
     unfold_obj = doc.addObject("Part::Feature", "Unfold")
     unfold_obj.Label = "Unfold_5Bend"
     unfold_obj.Shape = unfold_shape
+
+    try:
+        import TechDraw
+        page = doc.addObject("TechDraw::DrawPage", "Page")
+        template = doc.addObject("TechDraw::DrawSVGTemplate", "Template")
+        page.Template = template
+        view = doc.addObject("TechDraw::DrawViewPart", "View")
+        view.Source = [unfold_obj]
+        view.Direction = App.Vector(0, 0, 1)
+        view.Scale = 1.0
+        page.addView(view)
+    except Exception as e:
+        print(f"TechDraw note: {e}")
 
     doc.recompute()
     doc.saveAs(str(target_path))
@@ -176,8 +252,7 @@ def create_test_mirror_fcstd(target_path: Path) -> Path:
     body.Label = "TestMirrorBody"
     body.Shape = shape
 
-    unfold_shape = Part.makeBox(130.0, 140.0, 1.5)
-    unfold_shape.translate(App.Vector(-30.0, -30.0, 0.0))
+    unfold_shape = create_box_unfold_shape(thickness=1.5)
     unfold_obj = doc.addObject("Part::Feature", "Unfold")
     unfold_obj.Label = "Unfold_Mirror"
     unfold_obj.Shape = unfold_shape
@@ -186,14 +261,16 @@ def create_test_mirror_fcstd(target_path: Path) -> Path:
     try:
         import TechDraw
         page = doc.addObject("TechDraw::DrawPage", "Page")
+        template = doc.addObject("TechDraw::DrawSVGTemplate", "Template")
+        page.Template = template
         view = doc.addObject("TechDraw::DrawViewPart", "View")
         view.Source = [unfold_obj]
-        # Invert direction / mirror X axis to simulate mirrored projection
+        # Invert direction (0, 0, -1) to simulate mirrored / flipped bottom projection
         view.Direction = App.Vector(0, 0, -1)
         view.Scale = 1.0
         page.addView(view)
     except Exception as e:
-        print(f"Warning: TechDraw view creation note: {e}")
+        print(f"TechDraw note: {e}")
 
     doc.recompute()
     doc.saveAs(str(target_path))
