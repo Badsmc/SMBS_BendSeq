@@ -114,19 +114,23 @@ def extract_outer_contour_unfold_3d(
     n_mag = math.sqrt(axis.x**2 + axis.y**2 + axis.z**2) or 1.0
     normal = App.Vector(axis.x / n_mag, axis.y / n_mag, axis.z / n_mag)
 
-    # Pick non-collinear reference vector to build basis
-    ref = App.Vector(0, 0, 1) if abs(normal.z) < 0.9 else App.Vector(1, 0, 0)
-    u_vec = normal.cross(ref).normalize()
-    v_vec = normal.cross(u_vec).normalize()
-    origin = best_face.CenterOfMass
+    # For flat sheet metal unfold parts lying in the XY plane (normal along +Z or -Z),
+    # align u_vec strictly with +X and v_vec with +Y so 2D unfold coordinates match
+    # canonical CAD world coordinates (X, Y) without introducing artificial rotations or reflections.
+    if abs(normal.z) > 0.9:
+        u_vec = App.Vector(1.0, 0.0, 0.0)
+        v_vec = App.Vector(0.0, 1.0, 0.0)
+    else:
+        ref = App.Vector(0.0, 0.0, 1.0)
+        u_vec = normal.cross(ref).normalize()
+        v_vec = normal.cross(u_vec).normalize()
 
     # Extract distinct polygon vertices projected into the local face plane
     raw_points: List[Point2D] = []
     seen = []
     for v in outer_wire.Vertexes:
-        diff = v.Point - origin
-        u_coord = round(float(diff.dot(u_vec)), 4)
-        v_coord = round(float(diff.dot(v_vec)), 4)
+        u_coord = round(float(v.Point.dot(u_vec)), 4)
+        v_coord = round(float(v.Point.dot(v_vec)), 4)
         pt = (u_coord, v_coord)
 
         if not seen or math.hypot(pt[0] - seen[-1][0], pt[1] - seen[-1][1]) > 0.05:
@@ -143,10 +147,13 @@ def extract_outer_contour_unfold_3d(
 def extract_outer_contour_drawing_2d(view: Any) -> List[Point2D]:
     """
     Extracts 2D contour vertices directly from a FreeCAD TechDraw::DrawViewPart (U2).
-    Uses projected outer boundary vertices to exclude internal bend lines.
+    B8: De-scales points by view.Scale so coordinates are strictly in model millimeters,
+    ensuring downstream Kabsch operates on true isometric geometry.
     """
     if view is None:
         return []
+
+    scale = float(getattr(view, "Scale", 1.0)) or 1.0
 
     points: List[Point2D] = []
     try:
@@ -166,6 +173,10 @@ def extract_outer_contour_drawing_2d(view: Any) -> List[Point2D]:
                     outer_w = best_face.OuterWire if hasattr(best_face, "OuterWire") else best_face.Wires[0]
                     for v in outer_w.Vertexes:
                         proj = view.projectPoint(v.Point) if hasattr(view, "projectPoint") else v.Point
+                        # Note: view.projectPoint projects 3D model coordinates into view coordinates (in mm).
+                        # B8: If view is scaled, ensure coordinates are de-scaled to 1:1 model mm.
+                        # TechDraw projectPoint returns unscaled 3D coordinates projected along view.Direction.
+                        # If getVisibleVertexes is used, it returns scaled coordinates.
                         pt = (round(float(proj.x), 4), round(float(proj.y), 4))
                         if not points or math.hypot(pt[0] - points[-1][0], pt[1] - points[-1][1]) > 0.05:
                             points.append(pt)
@@ -178,7 +189,7 @@ def extract_outer_contour_drawing_2d(view: Any) -> List[Point2D]:
         visible_vertexes = view.getVisibleVertexes()
         seen = []
         for v in visible_vertexes:
-            pt = (round(float(v.x), 4), round(float(v.y), 4))
+            pt = (round(float(v.x) / scale, 4), round(float(v.y) / scale, 4))
             is_dup = False
             for s in seen:
                 if math.hypot(pt[0] - s[0], pt[1] - s[1]) < 0.05:

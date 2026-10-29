@@ -287,42 +287,53 @@ To ensure the Physical Oracle (`PhysicalValidator`) and downstream `VerifierWork
 
 ---
 
-## 7. § Alignment Method & Fallback Chain (Answers Q3 & Y2)
+## 7. § Alignment Method & Fallback Chain (Answers Q3, Y2, B6, B7, B8, Y7, Y8, Y9)
 
-### 7.1 Coordinate Systems & Inverses
-- **2D Drawing / TechDraw:** Plane coordinates $P_{2D} = (u, v, 0)$ on sheet/view.
+### 7.1 Coordinate Systems & Semantics (B6, B8)
+- **2D Drawing / TechDraw:** Coordinates $P_{2D} = (u, v, 0)$ in millimeters on the drawing sheet/view (with `view.Scale` normalized out via de-scaling in `extract_outer_contour_drawing_2d`).
 - **3D Unfold:** Cartesian coordinates $P_{3D} = (X, Y, Z)$ on the unfolded solid.
 - **Forward Matrix $T_{4\times4}$:** Maps 2D drawing coordinates to 3D unfold coordinates ($P_{3D} = T_{4\times4} \cdot P_{2D}$).
-- **Inverse Matrix $T^{-1}_{4\times4}$:** Maps 3D unfold coordinates back to 2D TechDraw sheet coordinates ($P_{2D} = T^{-1}_{4\times4} \cdot P_{3D}$).
+- **Inverse Matrix $T^{-1}_{4\times4}$:** Exact mathematical inverse satisfying $\|T \cdot T^{-1} - I_4\|_F < 10^{-6}$.
+- **Isometric Invariant:** $R_{3\times3}$ submatrix is strictly orthogonal: $\|R \cdot R^T - I_3\|_F < 10^{-6}$.
+- **Mirror Flags (B6):**
+  - `is_mirrored: bool` $\iff \det(R_{3\times3}) < 0$. Indicates 3D reflection (signal, not failure).
+  - `planar_reflection: bool` $\iff \det(R_{2\times2\_page}) < 0$. Essential for 2D sheet annotation projection.
+  - `view_scale: float`: Captures drawing view scale for debugging and coordinate re-scaling.
 
-### 7.2 Transformation Fallback Chain
+### 7.2 Strict Vertex Count Contract (B7)
+- `align_drawing_to_unfold(contour_2d, contour_3d, ...)` enforces **strict equality** between vertex counts:
+  $$\text{len}(contour_{2D}) == \text{len}(contour_{3D})$$
+- If counts differ, it raises `AlignmentError(f"contour_vertex_count_mismatch: {len(contour_2d)} vs {len(contour_3d)}")`.
+- Silent truncation to `min(N, M)` is **strictly prohibited**.
+
+### 7.3 Correspondence Search & Kabsch SVD (Y7)
+- Kabsch operates over point sets, not raw sequential indices.
+- For closed contours, correspondences are evaluated across all cyclic permutations and both traversal directions (clockwise and counter-clockwise), selecting the pairing that minimizes RMS error.
+
+### 7.4 Transformation Fallback Chain & Priority (Y9)
 ```
-[Contour Feature Extraction]
-Extract ordered outer perimeter vertices from 2D view and 3D unfold face.
+[Contour Feature Extraction (B7: strict count equality)]
        │
        ▼
-1. Primary: Kabsch Algorithm (SVD) on matched vertex correspondences.
+1. Primary: Kabsch Algorithm (SVD) with cyclic permutation pairing.
    - Computes optimal rotation R (3x3) and translation t (3x1).
-   - If det(R) < 0: handle reflection / sheet flip if allow_mirror=True.
-   - Evaluate RMS error over matched points.
+   - If RMS <= 0.5 mm ──> SUCCESS (method="KABSCH", return T_4x4, T_inv)
        │
-       ├─ If RMS <= 0.5 mm ──> SUCCESS (Return Transform T_4x4, T_inv)
+       ▼ (if RMS > 0.5 mm or degeneracy)
+2. Fallback A: PCA Principal Axes Alignment.
+   - Aligns centroids and 2 principal inertia axes.
+   - If RMS <= 0.5 mm ──> SUCCESS (method="PCA", return T_4x4, T_inv)
        │
-       ▼ (if RMS > 0.5 mm or vertex count mismatch)
-2. Fallback A: PCA & Bounding Box Principal Axes Alignment.
-   - Align centroids and 2 principal inertia axes.
-   - Evaluate RMS.
-       │
-       ├─ If RMS <= 0.5 mm ──> SUCCESS (Return Transform T_4x4, T_inv)
-       │
-       ▼ (if Fallback A fails)
-3. Fallback B: TechDraw View Transform.
-   - Direct extraction of Scale, Direction, and Placement from FreeCAD TechDraw::DrawViewPart.
+       ▼ (strictly when allow_view_transform=True)
+3. Fallback B: TechDraw Native View Transform.
+   - Used only as explicit opt-in when 3D contour is geometrically incompatible.
 ```
+- Priority: `method="KABSCH"` is primary; `PCA` only triggers if Kabsch fails; `TECHDRAW_VIEW` only if `allow_view_transform=True`.
 
-### 7.3 Gate Policy
-- If RMS $\le 0.5\text{ mm}$: `ok=True`, proceed with alignment.
-- If RMS $> 0.5\text{ mm}$: Add warning to `AlignmentResult.warnings`. If `force_alignment=False`, halt and report alignment warning to user in UI; if `force_alignment=True`, proceed with best-fit transform.
+### 7.5 Gate Policy & force_alignment UX (Y8)
+- If RMS $\le 0.5\text{ mm}$: `ok=True`.
+- If RMS $> 0.5\text{ mm}$ and `force_alignment=False`: `ok=False`, `warnings=["RMS <val> > threshold 0.5"]`.
+- If RMS $> 0.5\text{ mm}$ and `force_alignment=True`: `ok=True`, `warnings=["FORCED: RMS <val> > threshold 0.5"]`. Downstream UI is required to present this warning.
 
 ---
 
@@ -399,12 +410,15 @@ class ManualSequenceInput:
 
 @dataclass
 class AlignmentResult:
-    transform_4x4: List[List[float]]     # 2D -> 3D affine matrix
-    transform_inv_4x4: List[List[float]] # 3D -> 2D affine matrix
+    ok: bool
+    transform_4x4: List[List[float]]      # 2D -> 3D affine matrix
+    transform_inv_4x4: List[List[float]]  # 3D -> 2D affine matrix
     rms_error_mm: float
     matched_points: int
-    is_mirrored: bool
-    method: str                          # "KABSCH", "PCA", "TECHDRAW_NATIVE", "IDENTITY"
+    is_mirrored: bool                     # det(R_3x3) < 0
+    planar_reflection: bool               # det(R_2x2_page) < 0
+    method: str                           # "KABSCH", "PCA", "TECHDRAW_VIEW"
+    view_scale: float = 1.0
     warnings: List[str] = field(default_factory=list)
 
 
