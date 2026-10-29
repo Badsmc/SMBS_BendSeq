@@ -1,0 +1,42 @@
+{
+  "total_permutations": 6,
+  "valid_permutations": [],
+  "invalid_permutations": [
+    {
+      "sequence": ["BEND_01_0528d4fa", "BEND_02_64374506", "BEND_03_bc0dd183"],
+      "fail_step": 1,
+      "fail_stage": "SELF",
+      "fail_reason": "Panel self-intersection between PANEL_f09bf15c and PANEL_0ab8e963 (section_len=182.9270 mm)"
+    },
+    {
+      "sequence": ["BEND_01_0528d4fa", "BEND_03_bc0dd183", "BEND_02_64374506"],
+      "fail_step": 1,
+      "fail_stage": "SELF",
+      "fail_reason": "Panel self-intersection between PANEL_f09bf15c and PANEL_0ab8e963 (section_len=182.9270 mm)"
+    },
+    {
+      "sequence": ["BEND_02_64374506", "BEND_01_0528d4fa", "BEND_03_bc0dd183"],
+      "fail_step": 1,
+      "fail_stage": "SELF",
+      "fail_reason": "Panel self-intersection between PANEL_0ab8e963 and PANEL_9eccff07 (section_len=292.9905 mm)"
+    },
+    {
+      "sequence": ["BEND_02_64374506", "BEND_03_bc0dd183", "BEND_01_0528d4fa"],
+      "fail_step": 1,
+      "fail_stage": "SELF",
+      "fail_reason": "Panel self-intersection between PANEL_0ab8e963 and PANEL_9eccff07 (section_len=292.9905 mm)"
+    },
+    {
+      "sequence": ["BEND_03_bc0dd183", "BEND_01_0528d4fa", "BEND_02_64374506"],
+      "fail_step": 1,
+      "fail_stage": "SELF",
+      "fail_reason": "Panel self-intersection between PANEL_0ab8e963 and PANEL_f09bf15c (section_len=389.5000 mm)"
+    },
+    {
+      "sequence": ["BEND_03_bc0dd183", "BEND_02_64374506", "BEND_01_0528d4fa"],
+      "fail_step": 1,
+      "fail_stage": "SELF",
+      "fail_reason": "Panel self-intersection between PANEL_0ab8e963 and PANEL_f09bf15c (section_len=389.5000 mm)"
+    }
+  ]
+}
