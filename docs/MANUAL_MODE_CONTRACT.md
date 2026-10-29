@@ -289,46 +289,49 @@ To ensure the Physical Oracle (`PhysicalValidator`) and downstream `VerifierWork
 
 ## 7. § Alignment Method & Fallback Chain (Answers Q3, Y2, B6, B7, B8, Y7, Y8, Y9)
 
-### 7.1 Coordinate Systems & Semantics (B6, B8)
-- **2D Drawing / TechDraw:** Coordinates $P_{2D} = (u, v, 0)$ in millimeters on the drawing sheet/view (with `view.Scale` normalized out via de-scaling in `extract_outer_contour_drawing_2d`).
+### 7.1 Coordinate Systems & Semantics (B6, B8, D3)
+- **2D Drawing / TechDraw:** Coordinates $P_{2D} = (u, v)$ in millimeters on the drawing sheet/view (with `view.Scale` normalized out via de-scaling in `extract_outer_contour_drawing_2d`).
 - **3D Unfold:** Cartesian coordinates $P_{3D} = (X, Y, Z)$ on the unfolded solid.
 - **Forward Matrix $T_{4\times4}$:** Maps 2D drawing coordinates to 3D unfold coordinates ($P_{3D} = T_{4\times4} \cdot P_{2D}$).
 - **Inverse Matrix $T^{-1}_{4\times4}$:** Exact mathematical inverse satisfying $\|T \cdot T^{-1} - I_4\|_F < 10^{-6}$.
 - **Isometric Invariant:** $R_{3\times3}$ submatrix is strictly orthogonal: $\|R \cdot R^T - I_3\|_F < 10^{-6}$.
+- **Page Basis & Planar Reflection (D3):**
+  Given TechDraw view orientation vectors $\vec{D} = \text{view.Direction}$ and $\vec{X} = \text{view.XDirection}$:
+  $$\vec{page}_x = \frac{\vec{X}}{\|\vec{X}\|}, \quad \vec{page}_y = \frac{\vec{D} \times \vec{page}_x}{\|\vec{D} \times \vec{page}_x\|}$$
+  The $2\times2$ in-plane reflection tensor on the drawing page is computed as:
+  $$R^{page}_{2\times2} = \begin{pmatrix} \vec{page}_x \cdot R \cdot \vec{page}_x & \vec{page}_x \cdot R \cdot \vec{page}_y \\ \vec{page}_y \cdot R \cdot \vec{page}_x & \vec{page}_y \cdot R \cdot \vec{page}_y \end{pmatrix}$$
+  $$\text{planar\_reflection} \iff \det(R^{page}_{2\times2}) < 0$$
+  For standard top views ($\vec{D}=(0,0,1)$), $\det(R^{page}_{2\times2}) = +1$ (`False`). For mirrored views ($\vec{D}=(0,0,-1)$), $\det(R^{page}_{2\times2}) = -1$ (`True`).
 - **Mirror Flags (B6):**
-  - `is_mirrored: bool` $\iff \det(R_{3\times3}) < 0$. Indicates 3D reflection (signal, not failure).
-  - `planar_reflection: bool` $\iff \det(R_{2\times2\_page}) < 0$. Essential for 2D sheet annotation projection.
+  - `is_mirrored: bool` $\iff \det(R_{2\times2}) < 0$. Indicates reflection (signal, not failure).
+  - `planar_reflection: bool` $\iff \det(R^{page}_{2\times2}) < 0$. Essential for 2D sheet annotation projection via $T^{-1}$.
   - `view_scale: float`: Captures drawing view scale for debugging and coordinate re-scaling.
 
-### 7.2 Strict Vertex Count Contract (B7)
+### 7.2 Strict Vertex Count Contract (B7) & Complexity Guard (E3)
 - `align_drawing_to_unfold(contour_2d, contour_3d, ...)` enforces **strict equality** between vertex counts:
   $$\text{len}(contour_{2D}) == \text{len}(contour_{3D})$$
 - If counts differ, it raises `AlignmentError(f"contour_vertex_count_mismatch: {len(contour_2d)} vs {len(contour_3d)}")`.
 - Silent truncation to `min(N, M)` is **strictly prohibited**.
+- **Complexity Guard (E3):** If vertex count $N > 500$, raises `AlignmentError("contour_too_large: ...")` to protect the UI thread from freezing.
 
-### 7.3 Correspondence Search & Kabsch SVD (Y7)
+### 7.3 Correspondence Search & 2D Kabsch SVD (Y7)
 - Kabsch operates over point sets, not raw sequential indices.
-- For closed contours, correspondences are evaluated across all cyclic permutations and both traversal directions (clockwise and counter-clockwise), selecting the pairing that minimizes RMS error.
+- Evaluates cyclic permutations and traversal winding directions, prioritizing proper rigid rotations ($\det(R)=+1$) before evaluating reflection candidates.
 
-### 7.4 Transformation Fallback Chain & Priority (Y9)
+### 7.4 Transformation Fallback Chain & Priority (Y9, E2)
 ```
 [Contour Feature Extraction (B7: strict count equality)]
        │
        ▼
-1. Primary: Kabsch Algorithm (SVD) with cyclic permutation pairing.
-   - Computes optimal rotation R (3x3) and translation t (3x1).
+1. Primary: 2D Kabsch Algorithm (SVD) with cyclic permutation pairing.
+   - Computes optimal rotation R (2x2) and translation t (2x1).
    - If RMS <= 0.5 mm ──> SUCCESS (method="KABSCH", return T_4x4, T_inv)
        │
-       ▼ (if RMS > 0.5 mm or degeneracy)
-2. Fallback A: PCA Principal Axes Alignment.
-   - Aligns centroids and 2 principal inertia axes.
-   - If RMS <= 0.5 mm ──> SUCCESS (method="PCA", return T_4x4, T_inv)
-       │
-       ▼ (strictly when allow_view_transform=True)
-3. Fallback B: TechDraw Native View Transform.
+       ▼ (strictly when allow_view_transform=True and RMS > 0.5 mm)
+2. Fallback: TechDraw Native View Transform.
    - Used only as explicit opt-in when 3D contour is geometrically incompatible.
 ```
-- Priority: `method="KABSCH"` is primary; `PCA` only triggers if Kabsch fails; `TECHDRAW_VIEW` only if `allow_view_transform=True`.
+*(PCA fallback removed per YAGNI/E2 as Kabsch SVD is strictly optimal in least-squares sense).*
 
 ### 7.5 Gate Policy & force_alignment UX (Y8)
 - If RMS $\le 0.5\text{ mm}$: `ok=True`.
