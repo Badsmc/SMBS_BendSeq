@@ -317,38 +317,44 @@ To prevent this in Phase 4c:
    ```
 3. **Mandatory Phase 4c Test:** `test_physical_validator_initialized_with_datums` verifying that in a clean environment, `validator.assembly.die.datums` and `validator.assembly.punch.datums` have confirmed datums and `assembly_trsf` is non-empty before any Oracle calls.
 
-### 6.4 Empirical Permutations & Order Gating (C7, H1, H2)
-To establish ground truth for Phase 4c physical validation, an exhaustive empirical permutation probe ($N!$) was executed using `PhysicalValidator` with `PythonOCCBackend` and canonical parts produced by `TopologyWorker`:
+### 6.4 Empirical Permutations & Order Gating (C7, I1, I2, I3)
+With the implementation of the **Index-Preserving Compound Transform** (I1) and **Primary Sheet Face Resolution** (I3), the Physical Oracle accurately and reliably validates multi-bend sequences without spurious self-intersections:
 
 1. **`test_box` (3 Bends, $3! = 6$ Permutations):**
    - Canonical bend IDs: `['BEND_01_0528d4fa', 'BEND_02_64374506', 'BEND_03_bc0dd183']`.
    - **Exhaustive Probe Results:**
      ```
      Total permutations: 6
-     Valid: 0
-     Invalid: 6
-     Perm ('BEND_01_0528d4fa', 'BEND_02_64374506', 'BEND_03_bc0dd183') -> INVALID at step 1 (SELF): Panel self-intersection between PANEL_f09bf15c and PANEL_0ab8e963 (section_len=182.9270 mm)
-     Perm ('BEND_01_0528d4fa', 'BEND_03_bc0dd183', 'BEND_02_64374506') -> INVALID at step 1 (SELF): Panel self-intersection between PANEL_f09bf15c and PANEL_0ab8e963 (section_len=182.9270 mm)
-     Perm ('BEND_02_64374506', 'BEND_01_0528d4fa', 'BEND_03_bc0dd183') -> INVALID at step 1 (SELF): Panel self-intersection between PANEL_0ab8e963 and PANEL_9eccff07 (section_len=292.9905 mm)
-     Perm ('BEND_02_64374506', 'BEND_03_bc0dd183', 'BEND_01_0528d4fa') -> INVALID at step 1 (SELF): Panel self-intersection between PANEL_0ab8e963 and PANEL_9eccff07 (section_len=292.9905 mm)
-     Perm ('BEND_03_bc0dd183', 'BEND_01_0528d4fa', 'BEND_02_64374506') -> INVALID at step 1 (SELF): Panel self-intersection between PANEL_0ab8e963 and PANEL_f09bf15c (section_len=389.5000 mm)
-     Perm ('BEND_03_bc0dd183', 'BEND_02_64374506', 'BEND_01_0528d4fa') -> INVALID at step 1 (SELF): Panel self-intersection between PANEL_0ab8e963 and PANEL_f09bf15c (section_len=389.5000 mm)
+     Valid: 3
+     Invalid: 3
+     Valid sequences:
+       ['BEND_01_0528d4fa', 'BEND_03_bc0dd183', 'BEND_02_64374506']
+       ['BEND_03_bc0dd183', 'BEND_01_0528d4fa', 'BEND_02_64374506']
+       ['BEND_03_bc0dd183', 'BEND_02_64374506', 'BEND_01_0528d4fa']
+     First invalid:
+       Sequence: ['BEND_01_0528d4fa', 'BEND_02_64374506', 'BEND_03_bc0dd183']
+       Fail step: 2, stage: BEND_TRAJECTORY
+       Fail reason: Trajectory Self-Collision at -5.0 deg: Panel self-intersection between PANEL_f09bf15c and PANEL_9eccff07 (section_len=40.3287 mm)
      ```
-   - **Physical Root Cause (KL-12 / KL-22):** In sheet metal boxes with closed or tight corner reliefs, orthogonal flanges touch along corner relief edges (`dist = 0.0 mm`, `sec_len = 139.3 mm`). Because `self_collision` evaluates non-adjacent panels across all fixed/moving pairs on the 3D solid without corner relief clearance masking, backward unfolding rotates the flange through the adjacent side panel, triggering `CollisionStatus.INVALID (SELF)`.
+   - Persisted in fixture `tests/fixtures/manual/known_orders_box.json`.
 
 2. **`test_pentagon` (5 Bends, $5! = 120$ Permutations):**
    - Canonical bend IDs: `['BEND_01_ca10577b', 'BEND_02_3de1a41d', 'BEND_03_5a4ce735', 'BEND_04_cf35e4cd', 'BEND_05_f1c34949']`.
    - **Exhaustive Probe Results:**
      ```
      Total permutations: 120
-     Valid: 0
-     Invalid: 120
-     First invalid: ('BEND_01_ca10577b', 'BEND_02_3de1a41d', 'BEND_03_5a4ce735', 'BEND_04_cf35e4cd', 'BEND_05_f1c34949') at step 1 (SELF): Panel self-intersection between PANEL_8a9c7549 and PANEL_d00fee2c (section_len=36.5000 mm)
+     Valid: 60
+     Invalid: 60
+     First valid: ['BEND_01_ca10577b', 'BEND_02_3de1a41d', 'BEND_03_5a4ce735', 'BEND_04_cf35e4cd', 'BEND_05_f1c34949']
+     First invalid:
+       Sequence: ['BEND_01_ca10577b', 'BEND_03_5a4ce735', 'BEND_02_3de1a41d', 'BEND_04_cf35e4cd', 'BEND_05_f1c34949']
+       Fail step: 2, stage: BEND_TRAJECTORY
+       Fail reason: Trajectory Self-Collision at -5.0 deg: Panel self-intersection between PANEL_8a9c7549 and PANEL_c86d0917 (section_len=55.3574 mm)
      ```
-   - **Sub-gate 4c.0 Architectural Decision (Oracle Gating Policy):**
-     As required by Sub-gate 4c.0: because `PhysicalValidator` rejects all permutations at step 1 due to B-Rep sewing face reordering and corner relief contact in `self_collision`, **Physical Oracle is invoked in Phase 4c as an active advisory / collision validator**, but self-collision step rejections are recorded truthfully in `07_search_result.json` and `ValidationResult`. For Phase 4c unit tests (`test_manual_worker.py`), `test_pentagon_collision_detected` explicitly tests that Oracle detects collision on invalid sequences at step 1, while valid execution flows are verified against geometric and backgauge feasibility.
+   - Persisted in fixture `tests/fixtures/manual/known_orders_pentagon.json`.
 
-3. **Execution Invariant:** Tests in Phase 4c load expectations dynamically from `tests/fixtures/manual/known_orders_box.json` and `tests/fixtures/manual/known_orders_pentagon.json` without hardcoding sequence strings in test methods.
+3. **Execution Invariant:** Tests in Phase 4c (`test_manual_worker.py`) load expectations dynamically from `tests/fixtures/manual/known_orders_box.json` and `tests/fixtures/manual/known_orders_pentagon.json` without hardcoding sequence strings in test methods.
+
 
 ### 6.5 Backgauge & Step Execution Protocol (C8, H3)
 1. **`BackgaugeCalculator` Signature & API:**
@@ -421,6 +427,28 @@ To establish ground truth for Phase 4c physical validation, an exhaustive empiri
 - The 3D solid shape, `FoldState`, `BendTransform`, `PhysicalValidator`, and `BackgaugeCalculator` operate exclusively in 3D CAD world coordinates.
 - Because `test_mirror.FCStd` has the identical 3D sheet metal Body as `test_box.FCStd` (differing solely in the TechDraw page view projection vector $\vec{D}=(0,0,-1)$ vs $(0,0,1)$), `FoldState.initial` and step-by-step physical validation are completely invariant to 2D reflection.
 - Both `test_box` and `test_mirror` evaluate to identical Oracle validation results and identical backgauge coordinate values in 3D.
+
+### 6.7 Architectural Solution for Multi-Bend Physical Validation (I1, I2, I3)
+Exhaustive empirical analysis across all historical pipeline runs (`runs/`) revealed two fundamental limitations in the baseline AutoMod geometry pipeline:
+1. **Core Issue 1 — B-Rep Sewing Face Reordering (I1 / I2):**
+   `backend.rotate_subtree` traditionally recombined moving and fixed subtrees via `BRepBuilderAPI_Sewing(1e-4)`. In OpenCASCADE, sewing rebuilds edge sharing and unpredictably permutes the face iteration order (`TopExp_Explorer(shape, TopAbs_FACE)`). Consequently, `panel.face_indices` resolved on the root solid became invalid on unfolded shapes, causing `_extract_panel_shapes` to extract unrelated faces and triggering spurious `CollisionStatus.INVALID (SELF)` across all multi-bend runs.
+2. **Core Issue 2 — Side Edges and Relief Notches (I3):**
+   In standard sheet metal geometry, corner relief notches and bridge caps have normals orthogonal to the panel plane. When included in `panel.face_indices`, unfolding rotated these corner faces into adjacent stationary walls, triggering false contact (`dist = 0.0 mm`).
+
+**Contractual Solution for Manual Mode Phase 4c:**
+- **Index-Preserving Compound Transform (I1):**
+  `oracle_bridge.transform_compound_preserving_order` iterates through each face of `shape` by exact index $i \in [0, N-1]$. If $i \in \text{moving\_faces}$, it applies rigid $SE(3)$ transformation `BRepBuilderAPI_Transform(face, trsf, True).Shape()`; otherwise it preserves the exact face geometry. All faces are added sequentially into a `TopoDS_Compound`. This guarantees:
+  $$\text{Face}(i, \text{unfolded\_compound}) \equiv T_{\text{rigid}}(\text{Face}(i, \text{source\_shape}))$$
+  The 1-to-1 mapping of `panel.face_indices` remains perfectly stable across arbitrary sequence depths.
+- **Primary Sheet Pair Resolution (I3):**
+  Each panel in sheet metal represents a physical sheet with exactly two opposing primary planar faces of equal area $A \approx \text{length} \times \text{width}$. The resolver filters `panel.face_indices` to the two largest planar faces parallel to the panel normal, leaving small relief cuts and side edges unassigned.
+- **Empirical Validation:**
+  - `run_20261012_034045_9a351d` (4 bends): all 4 candidate steps pass with `valid=True, stage="valid"`.
+  - `run_20261012_034044_3ccc14` (2 bends): all 2 candidate steps pass with `valid=True, stage="valid"`.
+  - `run_20261012_034042_cf4c34` (1 bend): step 1 passes with `valid=True, stage="valid"`.
+  - `test_box.FCStd` (3 bends): exactly 3 valid and 3 invalid sequences.
+  - `test_pentagon.FCStd` (5 bends): exactly 60 valid and 60 invalid sequences.
+
 
 ---
 

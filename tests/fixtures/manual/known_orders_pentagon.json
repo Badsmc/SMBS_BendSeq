@@ -1,11 +1,61 @@
 {
   "total_permutations": 120,
-  "valid_count": 0,
-  "invalid_count": 120,
+  "valid_count": 60,
+  "invalid_count": 60,
+  "first_valid": [
+    "BEND_01_ca10577b",
+    "BEND_02_3de1a41d",
+    "BEND_03_5a4ce735",
+    "BEND_04_cf35e4cd",
+    "BEND_05_f1c34949"
+  ],
+  "valid_permutations_sample": [
+    [
+      "BEND_01_ca10577b",
+      "BEND_02_3de1a41d",
+      "BEND_03_5a4ce735",
+      "BEND_04_cf35e4cd",
+      "BEND_05_f1c34949"
+    ],
+    [
+      "BEND_01_ca10577b",
+      "BEND_02_3de1a41d",
+      "BEND_03_5a4ce735",
+      "BEND_05_f1c34949",
+      "BEND_04_cf35e4cd"
+    ],
+    [
+      "BEND_01_ca10577b",
+      "BEND_02_3de1a41d",
+      "BEND_04_cf35e4cd",
+      "BEND_03_5a4ce735",
+      "BEND_05_f1c34949"
+    ],
+    [
+      "BEND_01_ca10577b",
+      "BEND_02_3de1a41d",
+      "BEND_04_cf35e4cd",
+      "BEND_05_f1c34949",
+      "BEND_03_5a4ce735"
+    ],
+    [
+      "BEND_01_ca10577b",
+      "BEND_02_3de1a41d",
+      "BEND_05_f1c34949",
+      "BEND_03_5a4ce735",
+      "BEND_04_cf35e4cd"
+    ]
+  ],
   "first_invalid": {
-    "sequence": ["BEND_01_ca10577b", "BEND_02_3de1a41d", "BEND_03_5a4ce735", "BEND_04_cf35e4cd", "BEND_05_f1c34949"],
-    "fail_step": 1,
-    "fail_stage": "SELF",
-    "fail_reason": "Panel self-intersection between PANEL_8a9c7549 and PANEL_d00fee2c (section_len=36.5000 mm)"
+    "sequence": [
+      "BEND_01_ca10577b",
+      "BEND_03_5a4ce735",
+      "BEND_02_3de1a41d",
+      "BEND_04_cf35e4cd",
+      "BEND_05_f1c34949"
+    ],
+    "fail_step": 2,
+    "fail_stage": "BEND_TRAJECTORY",
+    "fail_reason": "Trajectory Self-Collision at -5.0 deg: Panel self-intersection between PANEL_8a9c7549 and PANEL_c86d0917 (section_len=55.3574 mm)"
   }
 }
