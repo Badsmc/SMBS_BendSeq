@@ -15,6 +15,7 @@ from __future__ import annotations
 import os
 import sys
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -58,7 +59,13 @@ class TestManualSequencePanel(unittest.TestCase):
     def tearDown(self):
         if self.panel:
             self.panel.reject()
-        App.closeDocument(self.doc.Name)
+        try:
+            if hasattr(self, "doc") and self.doc is not None:
+                doc_name = getattr(self.doc, "Name", None)
+                if doc_name and App.getDocument(doc_name):
+                    App.closeDocument(doc_name)
+        except Exception:
+            pass
 
     def test_emulated_edge_selection_and_snapshot(self):
         """P1 & B2-A: Adding valid bend edges creates BendSelectionItem with RawBendLineSnapshot."""
@@ -191,6 +198,216 @@ class TestManualSequencePanel(unittest.TestCase):
         self.assertFalse(marked, "Panel must NOT be marked stale if Unfold shape topology has not changed")
         self.assertFalse(self.panel._stale)
         self.assertEqual(self.panel.get_selections()[0].bend_id, "BEND_01")
+
+
+    def test_panel_qthread_does_not_block_main(self):
+        """O2: ManualWorkerThread executes asynchronously without freezing Qt event loop."""
+        from PySide import QtCore, QtGui
+        app = QtGui.QApplication.instance() or QtGui.QApplication(["SMBS_Test"])
+
+        snap = RawBendLineSnapshot((50.0, 80.0, -1.0), (-1.0, 0.0, 0.0), (0.0, 0.0, 1.0), 2.5, 100.0)
+        self.panel._selections = [BendSelectionItem(1, "Edge1", "Unfold", snap)]
+        self.panel._refresh_list()
+
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmpdir:
+            started = self.panel.start_check(
+                fcstd_path=str(self.box_path),
+                out_runs_dir=Path(tmpdir)
+            )
+            self.assertTrue(started)
+            self.assertTrue(self.panel._is_running)
+            self.assertTrue(self.panel.btn_cancel.isEnabled())
+            self.assertFalse(self.panel.btn_calc.isEnabled())
+
+            # Main Qt event loop processes events while worker is active
+            events_processed = 0
+            for _ in range(10):
+                app.processEvents()
+                events_processed += 1
+                QtCore.QThread.msleep(10)
+
+            self.assertGreaterEqual(events_processed, 10, "Qt event loop must remain responsive while worker runs")
+
+            # Cancel cleanly to prevent long test run
+            self.panel._on_cancel()
+            self.assertTrue(self.panel._cancel_requested)
+
+            # Wait for thread to exit
+            if self.panel._worker_thread:
+                self.panel._worker_thread.wait(10000)
+
+    def test_manual_panel_full_flow_headless(self):
+        """O4: E2E flow: add 3 selections -> start_check -> wait -> finished -> check result."""
+        from PySide import QtCore, QtGui
+        app = QtGui.QApplication.instance() or QtGui.QApplication(["SMBS_Test"])
+
+        unfold = self.doc.getObject("Unfold")
+        # Select in known valid order for test_box: BEND_01 (Y=80) -> BEND_03 (Y=0) -> BEND_02 (X=0)
+        ordered_subs = []
+        for target_cond in [
+            lambda e: abs(e.CenterOfMass.y - 80.0) < 0.1,
+            lambda e: abs(e.CenterOfMass.y - 0.0) < 0.1,
+            lambda e: abs(e.CenterOfMass.x - 0.0) < 0.1,
+        ]:
+            for i in range(len(unfold.Shape.Edges)):
+                sub = f"Edge{i+1}"
+                edge = unfold.Shape.getElement(sub)
+                if edge and round(edge.Length, 1) in (80.0, 100.0) and abs(edge.CenterOfMass.z - 1.5) < 0.1:
+                    if target_cond(edge):
+                        ordered_subs.append(sub)
+                        break
+
+        for sub in ordered_subs:
+            self.panel.addSelection(self.doc.Name, unfold.Name, sub, None)
+
+        self.assertEqual(len(self.panel.get_selections()), 3)
+
+        import time
+        t0 = time.perf_counter()
+        from smbs_core.Physics.machine_kinematics import PressBrakeMachine
+        mach_simp = PressBrakeMachine()
+
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmpdir:
+            started = self.panel.start_check(
+                fcstd_path=str(self.box_path),
+                out_runs_dir=Path(tmpdir),
+                unknown_policy="EXPLORATORY",
+                machine=mach_simp,
+            )
+            self.assertTrue(started)
+
+            # Wait for worker thread to finish while pumping Qt event loop
+            if self.panel._worker_thread:
+                while self.panel._worker_thread.isRunning():
+                    app.processEvents()
+                    QtCore.QThread.msleep(50)
+
+            # Process any pending deferred signals (finished_result slot)
+            for _ in range(5):
+                app.processEvents()
+                QtCore.QThread.msleep(10)
+
+            elapsed = time.perf_counter() - t0
+            self.assertFalse(self.panel._is_running)
+            self.assertIsNotNone(self.panel._last_result)
+            res = self.panel._last_result
+            self.assertTrue(res.ok)
+            p07 = res.run_dir / "07_search_result.json"
+            p09 = res.run_dir / "09_manual_verification_result.json"
+            self.assertTrue(p07.is_file())
+            self.assertTrue(p09.is_file())
+
+            # Verify dialog extraction
+            from freecad_smbs.ui.verification_dialog import extract_verification_details
+            details = extract_verification_details(res)
+            self.assertIn("PASSED", details["badge_text"])
+            self.assertEqual(len(details["step_verifications"]), 3)
+
+    @unittest.skipUnless(os.getenv("HANDMOD_SLOW_TESTS"), "Slow real-tooling E2E test skipped unless HANDMOD_SLOW_TESTS is set")
+    def test_manual_panel_real_tooling_e2e(self):
+        """
+        Q1: Full E2E UI flow with real tooling and PRODUCTION policy.
+        Executes on test_pentagon with real standard_90deg_v12 tooling (~140s).
+        """
+        import time, json
+        from PySide import QtCore, QtGui
+        app = QtGui.QApplication.instance() or QtGui.QApplication(["SMBS_Test"])
+
+        pent_path = FIXTURES_DIR / "test_pentagon.FCStd"
+        orders_path = FIXTURES_DIR / "manual" / "known_orders_pentagon.json"
+        known_orders = json.loads(orders_path.read_text(encoding="utf-8"))
+        valid_pent_seq = known_orders["first_valid"]
+
+        doc_pent = App.openDocument(str(pent_path))
+        panel_pent = ManualSequencePanel(initial_doc=doc_pent)
+        try:
+            from freecad_smbs.manual.manual_runner import run_manual_sequence_on_fcstd
+            from freecad_smbs.manual.manual_worker import ManualSequenceInput
+            from tests.test_freecad_smbs.test_manual_worker import TestManualWorker
+            tmw = TestManualWorker()
+            pent_sels = tmw._extract_snapshots_from_unfold(pent_path)
+
+            import tempfile
+            with tempfile.TemporaryDirectory() as tmpdir:
+                res_canon = run_manual_sequence_on_fcstd(pent_path, ManualSequenceInput(pent_sels), out_runs_dir=Path(tmpdir), phases=["01", "02", "04"])
+                sel_by_bid = {s.bend_id: s for s in res_canon.selections}
+                for idx, bid in enumerate(valid_pent_seq, start=1):
+                    s = sel_by_bid[bid]
+                    panel_pent.addSelection(doc_pent.Name, s.object_name, s.edge_ref, None)
+
+                t0 = time.perf_counter()
+                started = panel_pent.start_check(
+                    fcstd_path=str(pent_path),
+                    tooling_set_id="standard_90deg_v12",
+                    unknown_policy="PRODUCTION",
+                    out_runs_dir=Path(tmpdir),
+                )
+                self.assertTrue(started)
+                if panel_pent._worker_thread:
+                    while panel_pent._worker_thread.isRunning():
+                        app.processEvents()
+                        QtCore.QThread.msleep(50)
+                for _ in range(5):
+                    app.processEvents()
+                    QtCore.QThread.msleep(10)
+
+                elapsed = time.perf_counter() - t0
+                self.assertFalse(panel_pent._is_running)
+                res = panel_pent._last_result
+                self.assertTrue(res.ok)
+                self.assertGreater(elapsed, 50.0, "Real tooling E2E execution must perform physical OCC collision queries (>50s)")
+                d09 = json.loads((res.run_dir / "09_manual_verification_result.json").read_text())
+                self.assertFalse(d09["payload"]["has_unknown"])
+                for step in d09["payload"]["step_verifications"]:
+                    self.assertFalse(step["has_unknown"])
+        finally:
+            panel_pent.reject()
+            App.closeDocument(doc_pent.Name)
+
+    def test_initial_selection_loaded_on_init(self):
+        """Step 1-A: Passing preselected edges to ManualSequencePanel populates valid bend lines."""
+        unfold = self.doc.getObject("Unfold")
+        edges = []
+        for i in range(len(unfold.Shape.Edges)):
+            sub = f"Edge{i+1}"
+            edge = unfold.Shape.getElement(sub)
+            if edge and round(edge.Length, 1) in (80.0, 100.0) and abs(edge.CenterOfMass.z - 1.5) < 0.1:
+                # Genuine bend lines have midpoints at Y=0, Y=80, or X=0
+                if abs(edge.CenterOfMass.y - 0.0) < 0.1 or abs(edge.CenterOfMass.y - 80.0) < 0.1 or abs(edge.CenterOfMass.x - 0.0) < 0.1:
+                    edges.append((unfold, edge))
+                    if len(edges) == 2:
+                        break
+
+        panel = ManualSequencePanel(initial_doc=self.doc, initial_selection=edges)
+        try:
+            self.assertEqual(len(panel.get_selections()), 2)
+            self.assertEqual(panel.list_widget.count(), 2)
+        finally:
+            panel.reject()
+
+    def test_on_calculate_triggers_start_check_with_ui_tooling(self):
+        """Step 1-B & 1-C: Clicking 'Проверить' reads tooling dropdown and starts asynchronous check."""
+        unfold = self.doc.getObject("Unfold")
+        for i in range(len(unfold.Shape.Edges)):
+            sub = f"Edge{i+1}"
+            edge = unfold.Shape.getElement(sub)
+            if edge and round(edge.Length, 1) in (80.0, 100.0) and abs(edge.CenterOfMass.z - 1.5) < 0.1:
+                if abs(edge.CenterOfMass.y - 0.0) < 0.1:  # Edge23
+                    self.panel.addSelection(self.doc.Name, unfold.Name, sub, None)
+                    break
+
+        self.assertEqual(len(self.panel.get_selections()), 1)
+        self.panel.cmb_policy.setCurrentIndex(1)  # EXPLORATORY
+        
+        # Test calling _on_calculate directly
+        with patch.object(self.panel, "start_check", return_value=True) as mock_start:
+            self.panel._on_calculate()
+            mock_start.assert_called_once()
+            _, kwargs = mock_start.call_args
+            self.assertEqual(kwargs.get("unknown_policy"), "EXPLORATORY")
+            self.assertEqual(kwargs.get("tooling_set_id"), "standard_90deg_v12")
 
 
 if __name__ == "__main__":

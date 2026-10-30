@@ -109,6 +109,7 @@ class ManualSequenceWorker:
         out_runs_dir: Union[str, Path, None] = None,
         cancel_token: Optional[threading.Event] = None,
         phases: Optional[List[str]] = None,
+        progress_callback: Optional[Callable[[int, int, str], None]] = None,
     ) -> ManualSequenceResult:
         """
         Executes Stages 1-3:
@@ -331,6 +332,13 @@ class ManualSequenceWorker:
         has_any_unknown = False
 
         for order_idx, sel in enumerate(resolved_selections, start=1):
+            bid = sel.bend_id
+            if progress_callback:
+                try:
+                    progress_callback(order_idx, len(resolved_selections), bid or "")
+                except Exception:
+                    pass
+
             if token and token.is_set():
                 return ManualSequenceResult(
                     ok=False,

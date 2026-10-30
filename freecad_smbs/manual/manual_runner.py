@@ -26,6 +26,7 @@ def run_manual_sequence_on_fcstd(
     tooling_set_id: Optional[str] = None,
     cancel_token: Optional[threading.Event] = None,
     phases: Optional[List[str]] = None,
+    progress_callback: Optional[Callable[[int, int, str], None]] = None,
 ) -> ManualSequenceResult:
     """
     Public entry point to run manual bend sequencing pipeline on an FCStd model.
@@ -38,4 +39,5 @@ def run_manual_sequence_on_fcstd(
         out_runs_dir=out_runs_dir,
         cancel_token=cancel_token,
         phases=phases,
+        progress_callback=progress_callback,
     )

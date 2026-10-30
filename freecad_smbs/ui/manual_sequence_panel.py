@@ -12,27 +12,31 @@ Features:
 from __future__ import annotations
 
 import math
+import threading
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 try:
-    from PySide import QtCore, QtGui  # type: ignore
-    from PySide.QtGui import (
-        QDialog, QVBoxLayout, QHBoxLayout, QListWidget, QPushButton, QLabel, QMessageBox
+    from PySide6 import QtCore, QtGui, QtWidgets  # type: ignore
+    from PySide6.QtWidgets import (
+        QDialog, QVBoxLayout, QHBoxLayout, QListWidget, QPushButton, QLabel, QMessageBox, QProgressBar, QComboBox
     )
 except ImportError:
     try:
-        from PySide2 import QtCore, QtGui  # type: ignore
+        from PySide2 import QtCore, QtGui, QtWidgets  # type: ignore
         from PySide2.QtWidgets import (
-            QDialog, QVBoxLayout, QHBoxLayout, QListWidget, QPushButton, QLabel, QMessageBox,
+            QDialog, QVBoxLayout, QHBoxLayout, QListWidget, QPushButton, QLabel, QMessageBox, QProgressBar, QComboBox
         )
     except ImportError:
-        QtCore = QtGui = None  # type: ignore
-        QDialog = object  # type: ignore
-
-from freecad_smbs.manual.geometry_extract import (
-    RawBendLine,
-    extract_bend_lines_3d,
-)
+        try:
+            from PySide import QtCore, QtGui  # type: ignore
+            from PySide.QtGui import (
+                QDialog, QVBoxLayout, QHBoxLayout, QListWidget, QPushButton, QLabel, QMessageBox, QProgressBar, QComboBox
+            )
+        except ImportError:
+            QtCore = QtGui = QtWidgets = None  # type: ignore
+            QDialog = object  # type: ignore
+            QProgressBar = object  # type: ignore
+            QComboBox = object  # type: ignore
 
 
 class RawBendLineSnapshot:
@@ -95,13 +99,83 @@ class BendSelectionItem:
         }
 
 
+from freecad_smbs.manual.geometry_extract import (
+    RawBendLine,
+    extract_bend_lines_3d,
+)
+
+
+
+if QtCore is not None and hasattr(QtCore, "QThread"):
+    class ManualWorkerThread(QtCore.QThread):
+        """
+        Worker thread for executing ManualSequenceWorker off the main Qt UI thread (O2).
+        Emits step_progress(step_idx, total_steps, bend_id) and finished_result(result).
+        """
+        step_progress = QtCore.Signal(int, int, str)
+        finished_result = QtCore.Signal(object)
+
+        def __init__(
+            self,
+            fcstd_path: Any,
+            manual_input: Any,
+            out_runs_dir: Optional[Any] = None,
+            parent: Optional[Any] = None,
+        ) -> None:
+            super().__init__(parent)
+            self.fcstd_path = fcstd_path
+            self.manual_input = manual_input
+            self.out_runs_dir = out_runs_dir
+            self.cancel_token = threading.Event()
+            self.manual_input.cancel_token = self.cancel_token
+
+        def run(self) -> None:
+            from freecad_smbs.manual.manual_runner import run_manual_sequence_on_fcstd
+
+            def _on_step_progress(step_idx: int, total_steps: int, bend_id: str) -> None:
+                self.step_progress.emit(step_idx, total_steps, bend_id)
+
+            try:
+                res = run_manual_sequence_on_fcstd(
+                    fcstd_path=self.fcstd_path,
+                    manual_input=self.manual_input,
+                    out_runs_dir=self.out_runs_dir,
+                    progress_callback=_on_step_progress,
+                )
+            except Exception as e:
+                from freecad_smbs.manual.manual_worker import ManualSequenceResult
+                from pathlib import Path
+                res = ManualSequenceResult(
+                    ok=False,
+                    run_dir=Path(self.out_runs_dir or "."),
+                    part_id="unknown",
+                    planning_status="ERROR",
+                    error_message=str(e),
+                )
+            self.finished_result.emit(res)
+
+        def request_cancel(self) -> None:
+            self.cancel_token.set()
+else:
+    class ManualWorkerThread:  # type: ignore
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            self.cancel_token = threading.Event()
+        def request_cancel(self) -> None:
+            self.cancel_token.set()
+
+
 class ManualSequencePanel:
     """
     TaskDialog-style interactive panel for HandMod manual bend selection.
     Subscribes to FreeCAD Gui.Selection via SelectionObserver.
     """
 
-    def __init__(self, initial_doc: Optional[Any] = None):
+    def __init__(
+        self,
+        initial_doc: Optional[Any] = None,
+        initial_selection: Optional[List[Any]] = None,
+        **kwargs: Any,
+    ):
         self.form = None
         self._selections: List[BendSelectionItem] = []
         self._suppress_observer: bool = False
@@ -110,10 +184,23 @@ class ManualSequencePanel:
         self._stale: bool = False
         self._last_unfold_hash: Optional[int] = None
         self._observer_attached: bool = False
-        self._doc = initial_doc
+
+        # Support both ManualSequencePanel(doc) and ManualSequencePanel(selected_edges)
+        if isinstance(initial_doc, list):
+            self._doc = None
+            preselected = initial_doc
+        else:
+            self._doc = initial_doc
+            preselected = initial_selection or kwargs.get("selected_edges")
+
+        self._worker_thread: Optional[Any] = None
+        self._last_result: Optional[Any] = None
 
         self._build_ui()
         self._attach_observer()
+
+        if preselected:
+            self._load_initial_selection(preselected)
 
     def _build_ui(self) -> None:
         if QtCore is None:
@@ -145,6 +232,23 @@ class ManualSequencePanel:
             btn_row.addWidget(b)
         layout.addLayout(btn_row)
 
+        tooling_row = QHBoxLayout()
+        lbl_tooling = QLabel("Оснастка:")
+        self.cmb_tooling = QComboBox()
+        self._populate_tooling_sets()
+        tooling_row.addWidget(lbl_tooling)
+        tooling_row.addWidget(self.cmb_tooling)
+        layout.addLayout(tooling_row)
+
+        policy_row = QHBoxLayout()
+        lbl_policy = QLabel("Политика:")
+        self.cmb_policy = QComboBox()
+        self.cmb_policy.addItem("PRODUCTION (Строгая физика)", "PRODUCTION")
+        self.cmb_policy.addItem("EXPLORATORY (Геометрическая)", "EXPLORATORY")
+        policy_row.addWidget(lbl_policy)
+        policy_row.addWidget(self.cmb_policy)
+        layout.addLayout(policy_row)
+
         action_row = QHBoxLayout()
         self.btn_calc = QPushButton("Проверить")
         self.btn_calc.setDefault(True)
@@ -153,6 +257,12 @@ class ManualSequencePanel:
         action_row.addWidget(self.btn_calc)
         action_row.addWidget(self.btn_cancel)
         layout.addLayout(action_row)
+
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setRange(0, 100)
+        self.progress_bar.setValue(0)
+        self.progress_bar.setVisible(False)
+        layout.addWidget(self.progress_bar)
 
         self.status = QLabel("Готово. Выбирайте линии гиба на развёртке.")
         self.status.setWordWrap(True)
@@ -165,6 +275,21 @@ class ManualSequencePanel:
         self.btn_clear.clicked.connect(self._on_clear)
         self.btn_calc.clicked.connect(self._on_calculate)
         self.btn_cancel.clicked.connect(self._on_cancel)
+
+    def _populate_tooling_sets(self) -> None:
+        try:
+            from freecad_smbs.resources.tooling_paths import TOOL_LIBRARY_ROOT
+            from smbs_core.geometry_backend.io.tooling_library import ToolingLibrary
+            lib = ToolingLibrary(TOOL_LIBRARY_ROOT)
+            sets = lib.list_sets()
+            for s in sets:
+                if not s.endswith(" 2"):  # Skip duplicate artifacts if any
+                    self.cmb_tooling.addItem(s, s)
+        except Exception:
+            pass
+        if self.cmb_tooling.count() == 0:
+            self.cmb_tooling.addItem("standard_90deg_v12", "standard_90deg_v12")
+
 
     def _attach_observer(self) -> None:
         try:
@@ -328,34 +453,197 @@ class ManualSequencePanel:
         self._set_status("Последовательность очищена.")
 
     def _on_cancel(self) -> None:
-        """P4: Cancel ongoing verification."""
+        """P4 / O2: Cancel ongoing verification."""
         if self._is_running:
             self._cancel_requested = True
+            if self._worker_thread is not None and hasattr(self._worker_thread, "request_cancel"):
+                self._worker_thread.request_cancel()
             self._set_status("Отмена расчёта по запросу пользователя...")
 
+    def _load_initial_selection(self, selected_edges: List[Any]) -> None:
+        """Loads preselected edges passed from Gui.Selection (Step 1-A)."""
+        import FreeCAD as App
+        doc = self._doc or App.ActiveDocument
+        if doc is None:
+            return
+
+        for item in selected_edges:
+            obj = None
+            edge = None
+            sub_name = ""
+            if isinstance(item, tuple) and len(item) == 2:
+                obj, sub = item
+                if hasattr(sub, "ShapeType") and sub.ShapeType == "Edge":
+                    edge = sub
+            elif hasattr(item, "ShapeType") and item.ShapeType == "Edge":
+                edge = item
+
+            if edge is not None:
+                # Find matching edge index on object
+                if obj is not None and hasattr(obj, "Shape"):
+                    for i, e in enumerate(obj.Shape.Edges, start=1):
+                        if abs(e.Length - edge.Length) < 1e-3 and abs(e.CenterOfMass.x - edge.CenterOfMass.x) < 1e-3 and abs(e.CenterOfMass.y - edge.CenterOfMass.y) < 1e-3:
+                            sub_name = f"Edge{i}"
+                            break
+                    if sub_name:
+                        self._process_edge_selection(doc, obj, sub_name, edge)
+                else:
+                    # Search across document objects
+                    for o in doc.Objects:
+                        if hasattr(o, "Shape") and ("unfold" in o.Name.lower() or "body" in o.Name.lower()):
+                            for i, e in enumerate(o.Shape.Edges, start=1):
+                                if abs(e.Length - edge.Length) < 1e-3 and abs(e.CenterOfMass.x - edge.CenterOfMass.x) < 1e-3 and abs(e.CenterOfMass.y - edge.CenterOfMass.y) < 1e-3:
+                                    sub_name = f"Edge{i}"
+                                    self._process_edge_selection(doc, o, sub_name, edge)
+                                    break
+                            if sub_name:
+                                break
+
     def _on_calculate(self) -> None:
+        """User clicked 'Проверить' button."""
+        tooling_id = "standard_90deg_v12"
+        if hasattr(self, "cmb_tooling") and self.cmb_tooling is not None:
+            tooling_id = self.cmb_tooling.currentData() or self.cmb_tooling.currentText() or tooling_id
+        policy = "PRODUCTION"
+        if hasattr(self, "cmb_policy") and self.cmb_policy is not None:
+            policy = self.cmb_policy.currentData() or self.cmb_policy.currentText() or policy
+
+        self.start_check(tooling_set_id=tooling_id, unknown_policy=policy)
+
+    def start_check(
+        self,
+        fcstd_path: Optional[Any] = None,
+        tooling_set_id: str = "standard_90deg_v12",
+        unknown_policy: str = "PRODUCTION",
+        out_runs_dir: Optional[Any] = None,
+        machine: Optional[Any] = None,
+    ) -> bool:
+        """
+        Starts verification pipeline asynchronously via ManualWorkerThread (O2).
+        Returns True if worker started, False otherwise.
+        """
         if not self._selections:
             self._set_status("Сначала выберите линии гиба на развёртке.")
-            return
+            return False
 
         if self._stale:
             self._set_status("⚠️ Модель изменилась (recompute). Выберите линии заново.")
-            return
+            return False
+
+        if self._is_running:
+            return False
+
+        if fcstd_path is None:
+            if self._doc is not None and hasattr(self._doc, "FileName") and self._doc.FileName:
+                fcstd_path = self._doc.FileName
+            else:
+                try:
+                    import FreeCAD as App
+                    if App.ActiveDocument and App.ActiveDocument.FileName:
+                        fcstd_path = App.ActiveDocument.FileName
+                except Exception:
+                    pass
+
+        if not fcstd_path:
+            self._set_status("⚠️ Документ не сохранён в FCStd. Сначала сохраните модель.")
+            return False
+
+        from freecad_smbs.manual.manual_worker import ManualSequenceInput
+
+        manual_input = ManualSequenceInput(
+            selections=list(self._selections),
+            tooling_set_id=tooling_set_id,
+            unknown_policy=unknown_policy,
+            machine=machine,
+        )
 
         self._is_running = True
         self._cancel_requested = False
-        self.btn_calc.setEnabled(False)
-        self.btn_cancel.setEnabled(True)
-        self._set_status(f"Проверка {len(self._selections)} шагов... (ManualSequenceWorker)")
+        if hasattr(self, "btn_calc") and self.btn_calc:
+            self.btn_calc.setEnabled(False)
+        if hasattr(self, "btn_cancel") and self.btn_cancel:
+            self.btn_cancel.setEnabled(True)
+        if hasattr(self, "progress_bar") and self.progress_bar:
+            self.progress_bar.setVisible(True)
+            self.progress_bar.setRange(0, len(self._selections))
+            self.progress_bar.setValue(0)
 
-        # Trigger worker or callback
-        try:
-            # Phase 4 hook
-            pass
-        finally:
-            self._is_running = False
+        self._set_status(f"Запуск проверки {len(self._selections)} шагов...")
+
+        self._worker_thread = ManualWorkerThread(
+            fcstd_path=fcstd_path,
+            manual_input=manual_input,
+            out_runs_dir=out_runs_dir,
+            parent=self.form if hasattr(self, "form") else None,
+        )
+
+        if hasattr(self._worker_thread, "step_progress"):
+            self._worker_thread.step_progress.connect(self._on_worker_progress)
+        if hasattr(self._worker_thread, "finished_result"):
+            self._worker_thread.finished_result.connect(self._on_worker_finished)
+
+        if hasattr(self._worker_thread, "start"):
+            self._worker_thread.start()
+        return True
+
+    def _on_worker_progress(self, step_idx: int, total_steps: int, bend_id: str) -> None:
+        """Called on progress signal from worker thread."""
+        if hasattr(self, "progress_bar") and self.progress_bar:
+            self.progress_bar.setValue(step_idx)
+        self._set_status(f"Проверка шага {step_idx} из {total_steps} ({bend_id})...")
+
+    def _on_worker_finished(self, result: Any) -> None:
+        """Called when worker thread completes."""
+        self._is_running = False
+        self._last_result = result
+        if hasattr(self, "btn_calc") and self.btn_calc:
             self.btn_calc.setEnabled(True)
+        if hasattr(self, "btn_cancel") and self.btn_cancel:
             self.btn_cancel.setEnabled(False)
+        if hasattr(self, "progress_bar") and self.progress_bar:
+            if hasattr(self.progress_bar, "maximum"):
+                self.progress_bar.setValue(self.progress_bar.maximum())
+
+        # Update status message and report view (Step 3)
+        try:
+            import FreeCAD as App
+            console = getattr(App, "Console", None)
+        except Exception:
+            console = None
+
+        if getattr(result, "ok", False):
+            self._set_status("✓ Проверка завершена успешно. Открытие результатов...")
+            if console:
+                console.PrintMessage(
+                    f"SMBS HandMod: Успешно проверено {len(self._selections)} шагов. "
+                    f"Директория запуска: {getattr(result, 'run_dir', '—')}\n"
+                )
+        else:
+            err = getattr(result, "error_message", "Проверка завершилась с ошибкой")
+            stage = getattr(result, "stage", "validation")
+            self._set_status(f"⚠️ [{stage}] {err}")
+            if console:
+                console.PrintError(
+                    f"SMBS HandMod ОШИБКА: [{stage}] {err}\n"
+                    f"Директория: {getattr(result, 'run_dir', '—')}\n"
+                )
+
+        # Open VerificationDialog (non-blocking)
+        try:
+            if getattr(self, "auto_show_dialog", True):
+                from freecad_smbs.ui.verification_dialog import VerificationDialog
+                artifacts = getattr(result, "artifacts", None)
+                if artifacts is None:
+                    from freecad_smbs.integration.smbs_bridge import load_run
+                    run_dir = getattr(result, "run_dir", None)
+                    if run_dir:
+                        artifacts = load_run(run_dir)
+                if artifacts:
+                    self._last_dialog = VerificationDialog(artifacts, parent=self.form)
+                    if hasattr(self._last_dialog, "show"):
+                        self._last_dialog.show()
+        except Exception as e:
+            self._set_status(f"Ошибка открытия диалога верификации: {e}")
 
     def mark_stale(self, new_shape: Optional[Any] = None) -> bool:
         """

@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from freecad_smbs.ui.badges import (
+    BADGE_PREVIEW_ONLY,
     BADGE_UNVERIFIED,
     BADGE_VERIFICATION_FAILED,
     BADGE_VERIFIED,
@@ -50,6 +51,20 @@ def extract_verification_details(artifacts: Any) -> Dict[str, Any]:
     vr = getattr(artifacts, "verification_result", None)
     cp = getattr(artifacts, "canonical_part", None)
     run_dir = getattr(artifacts, "run_dir", None)
+
+    # O1: Prioritize 09_manual_verification_result.json if present in run_dir
+    is_manual = False
+    if run_dir:
+        manual_vr_path = Path(run_dir) / "09_manual_verification_result.json"
+        if manual_vr_path.is_file():
+            try:
+                vr = json.loads(manual_vr_path.read_text(encoding="utf-8"))
+                is_manual = True
+            except Exception:
+                pass
+
+    if vr is not None and vr.get("schema_name") == "manual_verification_result":
+        is_manual = True
 
     if not run_id or run_id == "—":
         if vr and vr.get("run_id"):
@@ -88,7 +103,7 @@ def extract_verification_details(artifacts: Any) -> Dict[str, Any]:
             "units": "mm",
             "independence_level": "—",
             "created_at": "—",
-            "reasons": ["Файл 09_verification_result.json отсутствует в директории run."],
+            "reasons": ["Файлы верификации 09_*.json отсутствуют в директории run."],
             "metrics": {},
             "step_verifications": [],
             "stages": stages,
@@ -98,6 +113,77 @@ def extract_verification_details(artifacts: Any) -> Dict[str, Any]:
     payload = vr.get("payload", {})
     raw_status = payload.get("verification_status", "VERIFICATION_FAILED")
     raw_eligible = payload.get("production_eligible")
+
+    # Handle Manual Verification Result schema (O1 / K4 / Option A)
+    if is_manual:
+        units = vr.get("units", "mm")
+        created_at = vr.get("created_at", "—")
+        step_verifications = payload.get("step_verifications", [])
+        has_unknown = payload.get("has_unknown", False)
+        wall_time_s = payload.get("wall_time_s", 0.0)
+        diagnostics = vr.get("diagnostics", [])
+
+        reasons = []
+        for step in step_verifications:
+            if step.get("status") in ("VERIFICATION_FAILED", "FAILED") or step.get("stage") != "VALID":
+                reason_msg = step.get("reason") or f"Коллизия на шаге {step.get('step')} ({step.get('stage')})"
+                reasons.append(reason_msg)
+
+        if raw_status == "PASSED":
+            status = BADGE_VERIFIED
+            badge_text = "PASSED — Готов к производству (HandMod)"
+            badge_color = get_badge_hex(BADGE_VERIFIED)
+            for st_key in stages:
+                stages[st_key]["status"] = "PASSED"
+                stages[st_key]["details"] = "Физическая валидация пройдена"
+        elif raw_status == "PASSED_WITH_UNKNOWN":
+            status = BADGE_UNVERIFIED
+            badge_text = "PASSED_WITH_UNKNOWN — Предупреждение: есть непроверенные контакты"
+            badge_color = get_badge_hex(BADGE_PREVIEW_ONLY)
+            for st_key in stages:
+                stages[st_key]["status"] = "UNCHECKED"
+                stages[st_key]["details"] = "Принято по политике EXPLORATORY"
+        else:
+            status = BADGE_VERIFICATION_FAILED
+            badge_text = "FAILED — Отклонено физическим оракулом (HandMod)"
+            badge_color = get_badge_hex(BADGE_VERIFICATION_FAILED)
+            for step in step_verifications:
+                stg = step.get("stage", "").upper()
+                for st_key in stages:
+                    if st_key in stg or (st_key == "TRAJECTORY" and "BEND_TRAJECTORY" in stg):
+                        stages[st_key]["status"] = "FAILED"
+                        stages[st_key]["details"] = step.get("reason", "Обнаружена коллизия")
+
+        # Map steps to step_tab format
+        formatted_steps = []
+        for s in step_verifications:
+            s_stat = s.get("status", "CONFIRMED")
+            formatted_steps.append({
+                "step": s.get("step", 1),
+                "bend_id": s.get("bend_id", "—"),
+                "status": "VERIFIED" if s_stat in ("CONFIRMED", "VALID", "PASSED") else "VERIFICATION_FAILED",
+                "collision_verified": s_stat in ("CONFIRMED", "VALID", "PASSED"),
+                "kinematics_verified": s_stat in ("CONFIRMED", "VALID", "PASSED"),
+                "stage": s.get("stage", "VALID"),
+                "reason": s.get("reason", ""),
+            })
+
+        return {
+            "status": status,
+            "badge_text": badge_text,
+            "badge_color": badge_color,
+            "production_eligible": bool(raw_eligible),
+            "run_id": run_id,
+            "part_id": part_id,
+            "units": units,
+            "independence_level": "PHYSICAL_ORACLE (Manual)",
+            "created_at": created_at,
+            "reasons": reasons,
+            "metrics": {"wall_time_s": wall_time_s},
+            "step_verifications": formatted_steps,
+            "stages": stages,
+            "diagnostics": diagnostics,
+        }
 
     # KL-26 Fail-Fast Assertion: status="VERIFIED" with production_eligible=False is contradictory
     if raw_status == "VERIFIED" and raw_eligible is False:
@@ -336,9 +422,10 @@ class VerificationDialog:
 
                     w = QtWidgets.QWidget()
                     layout = QtWidgets.QVBoxLayout(w)
-                    table = QtWidgets.QTableWidget()
-                    table.setColumnCount(5)
-                    table.setHorizontalHeaderLabels(["Шаг", "Гиб", "Статус", "Коллизии", "Кинематика"])
+                    self.step_table = QtWidgets.QTableWidget()
+                    table = self.step_table
+                    table.setColumnCount(7)
+                    table.setHorizontalHeaderLabels(["Шаг", "Гиб", "Статус", "Этап", "Коллизии", "Кинематика", "Причина"])
                     table.horizontalHeader().setStretchLastSection(True)
                     table.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
 
@@ -358,6 +445,10 @@ class VerificationDialog:
                         else:
                             st_item.setForeground(QtGui.QBrush(QtGui.QColor("#C62828")))
 
+                        stage_val = step.get("stage", "—")
+                        stage_item = QtWidgets.QTableWidgetItem(str(stage_val))
+                        stage_item.setTextAlignment(QtCore.Qt.AlignCenter)
+
                         coll_val = "✓" if step.get("collision_verified") else "✗"
                         coll_item = QtWidgets.QTableWidgetItem(coll_val)
                         coll_item.setTextAlignment(QtCore.Qt.AlignCenter)
@@ -366,11 +457,16 @@ class VerificationDialog:
                         kin_item = QtWidgets.QTableWidgetItem(kin_val)
                         kin_item.setTextAlignment(QtCore.Qt.AlignCenter)
 
+                        reason_val = step.get("reason", "")
+                        reason_item = QtWidgets.QTableWidgetItem(str(reason_val))
+
                         table.setItem(row, 0, step_no)
                         table.setItem(row, 1, bend_id)
                         table.setItem(row, 2, st_item)
-                        table.setItem(row, 3, coll_item)
-                        table.setItem(row, 4, kin_item)
+                        table.setItem(row, 3, stage_item)
+                        table.setItem(row, 4, coll_item)
+                        table.setItem(row, 5, kin_item)
+                        table.setItem(row, 6, reason_item)
 
                     layout.addWidget(table)
                     return w
