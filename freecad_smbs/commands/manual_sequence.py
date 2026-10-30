@@ -63,12 +63,12 @@ class ManualSequenceCommand:
         # Open task panel / dialog
         try:
             from freecad_smbs.ui.manual_sequence_panel import ManualSequencePanel
-            panel = ManualSequencePanel(selected_edges)
+            panel = ManualSequencePanel(initial_doc_or_selection=App.ActiveDocument, initial_selection=selected_edges)
             Gui.Control.showDialog(panel)
         except Exception as e:
             from freecad_smbs.ui.dialogs import show_error
             show_error(
                 "SMBS HandMod",
                 f"Не удалось открыть панель ручного выбора:\n{e}\n\n"
-                "(UI ещё в разработке — см. docs/HANDMOD_DESIGN.md)",
+                "(см. docs/HANDMOD_DESIGN.md)",
             )

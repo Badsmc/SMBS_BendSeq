@@ -240,13 +240,18 @@ To preserve honest verification boundaries and prevent test fabrication:
 
 ### 4.5 Phase 4c.3 Scope: GUI Integration & Verification Dialog Binding
 Phase 4c.3 bridges the physical validation output with the FreeCAD graphical user interface:
-1. **`VerificationDialog` Binding:**
+1. **`VerificationDialog` Binding (O1):**
    - Update `VerificationDialog` to load and parse `09_manual_verification_result.json` as a first-class verification artifact.
    - Display `PASSED` (green badge), `PASSED_WITH_UNKNOWN` (orange warning badge), or `FAILED` (red badge with failing step and reason).
-2. **`SimulationDialog` / `AnimationPlayer` Binding:**
-   - Verify that `SimulationDialog` correctly visualizes step sequences and backgauge coordinates directly from `07_search_result.json`.
-3. **`ManualSequencePanel` Interactive Verification:**
+2. **`SimulationDialog` / `AnimationPlayer` Binding (O3, Q2):**
+   - Reads step candidate sequence and backgauge records directly from `07_search_result.json`.
+   - **Backgauge 3D Scene Visualization (Q2):** When step frames advance, `SMBS_Backgauge` is created/updated as a 3D `Part::Feature` in the active FreeCAD document via `_update_feature(doc, "SMBS_Backgauge", fc_backgauge)` and translated in the machine frame according to step coordinates $X$ and $R$ (`App.Vector(x_val, 0.0, r_val)`).
+3. **`ManualSequencePanel` Interactive Verification (O2, O4, Q1, Q5):**
    - Wire the "Verify" button in `ManualSequencePanel` to trigger `run_manual_sequence_on_fcstd` asynchronously in `QThread` with responsive progress updates.
+   - **Public Observer Protocol (Q5):** Edge clicks are processed via `ManualSequencePanel.addSelection(doc_name, obj_name, sub_name, pnt)`, which strictly implements the FreeCAD `Gui.SelectionObserver` protocol. Real headless tests invoke this public callback to simulate user 3D viewport clicks.
+   - **E2E Test Scope & Performance Duality (Q1):**
+     - Fast UI-Flow E2E (`test_manual_panel_full_flow_headless`): Tests the complete end-to-end integration between 3D selection, QThread background processing, progress bars, run directory creation, and verification dialog binding in ~1.5s using simplified machine tooling (`machine=mach_simp`, `unknown_policy="EXPLORATORY"`).
+     - Full Physics Real-Tooling E2E (`test_manual_panel_real_tooling_e2e`): Covers end-to-end execution with real standard tooling (`standard_90deg_v12`) under `unknown_policy="PRODUCTION"` (requiring >50s of exact OpenCASCADE collision queries, guarded by `@unittest.skipUnless(os.getenv("HANDMOD_SLOW_TESTS"), ...)`). Dedicated non-UI real tooling physics validation is also covered in `test_manual_worker_validates_with_real_tooling` (143s).
 
 ---
 
@@ -375,6 +380,38 @@ Any regeneration of test fixtures must preserve or deliberately update these has
 - `test_box.FCStd`: `165cd832fa42718197ca8cd796df5f7cf24c68ab67e9fa5a8db2f9de5381d562`
 - `test_mirror.FCStd`: `0177698df296bfc9a384b4899378b3c1e046ff38c33dd9928930fc4788a55ea4`
 - `test_pentagon.FCStd`: `7fc0ae668ea39ea26a04cd37487f5ccd77b88cd49cdb2419232f80120a6d08d1`
+
+#### Authoritative Canonical Part Content Hashes (`04_canonical_part.json` / Q3):
+Because FreeCAD `saveAs` ZIP timestamps introduce variations in `.FCStd` binary hash upon re-save, the true invariant stability of the canonical geometry extraction is defined by the SHA256 of the semantic canonical payload (`04_canonical_part.json` payload with normalized geometry artifact path):
+- `test_box` canonical content: `deb122299325060c6d7a9cede91aaa58258cb3f46f03fca406891b70f473a5b1`
+- `test_mirror` canonical content: `deb122299325060c6d7a9cede91aaa58258cb3f46f03fca406891b70f473a5b1`
+- `test_pentagon` canonical content: `35b358c222243439b6cbf768824e05c06d0cba041f77d718c3be69d6c5e78eb4`
+
+**Mathematical & Algorithmic Specification of `semantic_canonical_sha256` (Q3):**
+The hash is computed over the canonical part `payload` dictionary with ephemeral run-dependent paths removed:
+```python
+def compute_semantic_canonical_sha256(canonical_part_dict: dict) -> str:
+    # 1. Extract payload
+    p = copy.deepcopy(canonical_part_dict["payload"])
+    
+    # 2. Strip ephemeral run-directory path while keeping immutable B-Rep content_hash
+    if "geometry_artifact" in p and isinstance(p["geometry_artifact"], dict):
+        p["geometry_artifact"].pop("file_path", None)
+        
+    # 3. Canonical JSON serialization (sorted keys, compact separators)
+    canonical_bytes = json.dumps(p, sort_keys=True, separators=(',', ':')).encode('utf-8')
+    
+    # 4. SHA256 digest
+    return hashlib.sha256(canonical_bytes).hexdigest()
+```
+
+**Definition of `content_hash` in `04_canonical_part.json` and Identity for `test_box` / `test_mirror` (Q3):**
+- In `04_canonical_part.json`, `payload.geometry_artifact.content_hash` is the SHA256 of `geometry.brep`: `compute_file_sha256(brep_path)`.
+- When exporting `geometry.brep` via `BRepTools::Write`, OpenCASCADE serializes the geometric shapes and topology of the CAD body.
+- Because `test_box.FCStd` and `test_mirror.FCStd` share the exact identical 3D sheet metal Body (`test_mirror` only reflects the 2D TechDraw projection vector $\vec{D}=(0,0,-1)$ on the drawing page), their exported `geometry.brep` files contain the identical byte sequence, yielding identical `content_hash`:
+  `eead201a2d550985ab361c6b6ab64a284fcef3e393c7cde3f322d60f2645752e`.
+- Combined with identical canonical panels, bends, thickness, and reference panel ID, their canonical payloads serialize to the exact same JSON byte stream, yielding the identical invariant digest `deb122299325060c6d7a9cede91aaa58258cb3f46f03fca406891b70f473a5b1`.
+- The top-level envelope field `04_canonical_part.json["content_hash"]` differs between individual runs because it digests the entire envelope including ephemeral fields (`run_id`, `created_at`). Therefore, `semantic_canonical_sha256` (computed on `payload` without `file_path`) is the authoritative invariant hash.
 
 1. **`test_box` (3 Bends, $3! = 6$ Permutations):**
    - Canonical bend IDs: `['BEND_01_0528d4fa', 'BEND_02_64374506', 'BEND_03_bc0dd183']`.

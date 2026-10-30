@@ -177,6 +177,111 @@ class TestVerificationDialogHeadless(unittest.TestCase):
             extract_verification_details(mock_artifacts)
         self.assertIn("KL-26", str(ctx.exception))
 
+    def test_verification_dialog_reads_manual_artifact_passed(self):
+        """O1: extract_verification_details reads 09_manual_verification_result.json when PASSED."""
+        import tempfile, json
+        from freecad_smbs.ui.verification_dialog import extract_verification_details
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            run_dir = Path(tmpdir)
+            manual_09 = {
+                "schema_name": "manual_verification_result",
+                "schema_version": "1.0",
+                "run_id": "run_manual_passed_test",
+                "part_id": "box_part",
+                "units": "mm",
+                "created_at": "2026-10-30T05:00:00Z",
+                "diagnostics": [],
+                "payload": {
+                    "verification_status": "PASSED",
+                    "production_eligible": True,
+                    "has_unknown": False,
+                    "wall_time_s": 65.4,
+                    "step_verifications": [
+                        {
+                            "step": 1,
+                            "bend_id": "BEND_01",
+                            "status": "CONFIRMED",
+                            "stage": "VALID",
+                            "has_unknown": False,
+                            "reason": "Step validated physically."
+                        }
+                    ]
+                }
+            }
+            (run_dir / "09_manual_verification_result.json").write_text(json.dumps(manual_09))
+
+            mock_artifacts = MagicMock()
+            mock_artifacts.run_dir = run_dir
+            mock_artifacts.verification_result = None
+
+            details = extract_verification_details(mock_artifacts)
+            self.assertEqual(details["status"], BADGE_VERIFIED)
+            self.assertTrue(details["production_eligible"])
+            self.assertIn("PASSED — Готов к производству (HandMod)", details["badge_text"])
+            self.assertEqual(details["badge_color"], "#2E7D32")
+            self.assertEqual(len(details["step_verifications"]), 1)
+            self.assertEqual(details["step_verifications"][0]["stage"], "VALID")
+            self.assertEqual(details["step_verifications"][0]["status"], "VERIFIED")
+            self.assertTrue(details["step_verifications"][0]["collision_verified"])
+
+    def test_verification_dialog_reads_manual_artifact_failed(self):
+        """O1: extract_verification_details reads 09_manual_verification_result.json when FAILED."""
+        import tempfile, json
+        from freecad_smbs.ui.verification_dialog import extract_verification_details
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            run_dir = Path(tmpdir)
+            manual_09 = {
+                "schema_name": "manual_verification_result",
+                "schema_version": "1.0",
+                "run_id": "run_manual_failed_test",
+                "part_id": "box_part",
+                "units": "mm",
+                "created_at": "2026-10-30T05:00:00Z",
+                "diagnostics": ["Collision detected at step 2"],
+                "payload": {
+                    "verification_status": "FAILED",
+                    "production_eligible": False,
+                    "has_unknown": False,
+                    "wall_time_s": 28.5,
+                    "step_verifications": [
+                        {
+                            "step": 1,
+                            "bend_id": "BEND_01",
+                            "status": "CONFIRMED",
+                            "stage": "VALID",
+                            "has_unknown": False,
+                            "reason": "Step validated physically."
+                        },
+                        {
+                            "step": 2,
+                            "bend_id": "BEND_02",
+                            "status": "VERIFICATION_FAILED",
+                            "stage": "BEND_TRAJECTORY",
+                            "has_unknown": False,
+                            "reason": "Collision between part and punch"
+                        }
+                    ]
+                }
+            }
+            (run_dir / "09_manual_verification_result.json").write_text(json.dumps(manual_09))
+
+            mock_artifacts = MagicMock()
+            mock_artifacts.run_dir = run_dir
+            mock_artifacts.verification_result = None
+
+            details = extract_verification_details(mock_artifacts)
+            self.assertEqual(details["status"], BADGE_VERIFICATION_FAILED)
+            self.assertFalse(details["production_eligible"])
+            self.assertIn("FAILED — Отклонено физическим оракулом (HandMod)", details["badge_text"])
+            self.assertEqual(details["badge_color"], "#EF6C00")
+            self.assertEqual(len(details["step_verifications"]), 2)
+            self.assertEqual(details["step_verifications"][1]["stage"], "BEND_TRAJECTORY")
+            self.assertEqual(details["step_verifications"][1]["status"], "VERIFICATION_FAILED")
+            self.assertFalse(details["step_verifications"][1]["collision_verified"])
+            self.assertIn("Collision between part and punch", details["reasons"][0])
+
 
 class TestVerifyCommandIntegration(unittest.TestCase):
     """Test VerifyCommand behavior."""

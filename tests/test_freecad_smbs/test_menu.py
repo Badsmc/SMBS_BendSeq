@@ -24,6 +24,7 @@ from freecad_smbs.InitGui import (
     CMD_CALCULATE,
     CMD_DIAGNOSTICS,
     CMD_INFO,
+    CMD_MANUAL,
     CMD_OPEN_RUN,
     CMD_PREFERENCES,
     CMD_RUN_ACTIVE,
@@ -244,6 +245,8 @@ class TestSMBSMenuAndCommands(unittest.TestCase):
         wb.Initialize()
 
         expected_menu = [
+            CMD_MANUAL,
+            "Separator",
             CMD_RUN_ACTIVE,
             CMD_OPEN_RUN,
             "Separator",
@@ -260,6 +263,7 @@ class TestSMBSMenuAndCommands(unittest.TestCase):
         self.assertEqual(wb.menu_items, expected_menu)
 
         expected_toolbar = [
+            CMD_MANUAL,
             CMD_RUN_ACTIVE,
             CMD_OPEN_RUN,
             CMD_CALCULATE,

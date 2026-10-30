@@ -34,13 +34,16 @@ def _to_fc_shape(shape: Any) -> Any:
 
 def _update_feature(doc: Any, name: str, fc_shape: Any) -> Any:
     """In-place update of Part::Feature (macro parity). None -> safe remove."""
-    import FreeCADGui as Gui
+    try:
+        import FreeCADGui as Gui
+    except Exception:
+        Gui = None
     if fc_shape is None:
         obj = doc.getObject(name)
         if obj is not None:
             doc.removeObject(name)
             doc.recompute()
-            if hasattr(Gui, "updateGui"):
+            if Gui is not None and hasattr(Gui, "updateGui"):
                 Gui.updateGui()
         return None
     obj = doc.getObject(name)
@@ -95,14 +98,72 @@ class AnimationPlayerDialog:
     ) -> Any:
         global _DialogClass
         if _DialogClass is None:
-            from PySide6 import QtCore, QtWidgets
+            try:
+                from PySide6 import QtCore, QtWidgets
+            except ImportError:
+                try:
+                    from PySide2 import QtCore, QtWidgets
+                except ImportError:
+                    try:
+                        from PySide import QtCore, QtGui as QtWidgets
+                    except ImportError:
+                        QtCore = QtWidgets = None
             try:
                 from smbs_core.geometry_backend.freecad_bootstrap import ensure_freecad_paths
                 ensure_freecad_paths()
             except Exception:
                 pass
-            import FreeCAD as App
-            import FreeCADGui as Gui
+            try:
+                import FreeCAD as App
+                import FreeCADGui as Gui
+            except Exception:
+                App = Gui = None
+
+            # Check if active GUI application instance exists; if not (headless), use safe fallback
+            has_qapp = False
+            if QtWidgets is not None and hasattr(QtWidgets, "QApplication"):
+                has_qapp = QtWidgets.QApplication.instance() is not None
+
+            if QtWidgets is None or not has_qapp:
+                class _DialogFallback:
+                    def __init__(self, artifacts: Any, player: Any, parent: Any = None, **kwargs: Any) -> None:
+                        self.artifacts = artifacts
+                        self.player = player
+                        self._manual_07_backgauge = self._load_from_manual_07()
+
+                    def _load_from_manual_07(self) -> dict:
+                        from pathlib import Path
+                        if not self.artifacts:
+                            return {}
+                        sr = getattr(self.artifacts, "search_result", None)
+                        if not sr:
+                            run_dir = getattr(self.artifacts, "run_dir", None)
+                            if run_dir:
+                                p07 = Path(run_dir) / "07_search_result.json"
+                                if p07.is_file():
+                                    try:
+                                        import json
+                                        sr = json.loads(p07.read_text(encoding="utf-8"))
+                                    except Exception:
+                                        pass
+                        if not sr or not isinstance(sr, dict):
+                            return {}
+                        payload = sr.get("payload", {})
+                        seq = payload.get("candidate_sequence", [])
+                        step_bg = {}
+                        for step in seq:
+                            b_id = step.get("bend_id")
+                            s_num = step.get("step") or step.get("step_number")
+                            bg = step.get("backgauge")
+                            if bg and isinstance(bg, dict):
+                                if b_id:
+                                    step_bg[b_id] = bg
+                                if s_num is not None:
+                                    step_bg[s_num] = bg
+                        return step_bg
+
+                _DialogClass = _DialogFallback
+                return _DialogFallback(artifacts, player, parent, **{"tick_interval_ms": tick_interval_ms})
 
             class _Dialog(QtWidgets.QDialog):
                 def __init__(
@@ -230,6 +291,7 @@ class AnimationPlayerDialog:
                         self.lbl_status.setText(f"Tooling assembly failed: {e}")
                         self.machine = None
                         self.assembly = None
+                    self._manual_07_backgauge = self._load_from_manual_07()
                     self.slider.setMaximum(self.player.total - 1)
                     self.controller.reset()
                     self._update_ui()
@@ -244,6 +306,37 @@ class AnimationPlayerDialog:
                         except Exception:
                             pass
                     return App.ActiveDocument
+
+                def _load_from_manual_07(self) -> dict:
+                    """Reads candidate_sequence backgauge coordinates from 07_search_result.json (O3)."""
+                    if not self.artifacts:
+                        return {}
+                    sr = getattr(self.artifacts, "search_result", None)
+                    if not sr:
+                        run_dir = getattr(self.artifacts, "run_dir", None)
+                        if run_dir:
+                            p07 = Path(run_dir) / "07_search_result.json"
+                            if p07.is_file():
+                                try:
+                                    import json
+                                    sr = json.loads(p07.read_text(encoding="utf-8"))
+                                except Exception:
+                                    pass
+                    if not sr or not isinstance(sr, dict):
+                        return {}
+                    payload = sr.get("payload", {})
+                    seq = payload.get("candidate_sequence", [])
+                    step_bg = {}
+                    for step in seq:
+                        b_id = step.get("bend_id")
+                        s_num = step.get("step") or step.get("step_number")
+                        bg = step.get("backgauge")
+                        if bg and isinstance(bg, dict):
+                            if b_id:
+                                step_bg[b_id] = bg
+                            if s_num is not None:
+                                step_bg[s_num] = bg
+                    return step_bg
 
                 def _render_current(self) -> None:
                     frame = self.controller.current()
@@ -266,7 +359,24 @@ class AnimationPlayerDialog:
                     _update_feature(doc, "SMBS_Die", fc_die)
                     fc_frame = _to_fc_shape(self.machine_frame_shape) if self.machine_frame_shape is not None else None
                     _update_feature(doc, "SMBS_MachineFrame", fc_frame)
+
+                    # Backgauge positioning from 07 candidate sequence (O3)
                     fc_backgauge = _to_fc_shape(self.backgauge_shape) if self.backgauge_shape is not None else None
+                    if fc_backgauge is not None:
+                        bg_coords = None
+                        if hasattr(self, "_manual_07_backgauge") and self._manual_07_backgauge:
+                            bend_id = getattr(frame.step_view, "bend_id", None)
+                            step_idx = getattr(frame.step_view, "step_index", frame.frame_index)
+                            bg_coords = self._manual_07_backgauge.get(bend_id) or self._manual_07_backgauge.get(step_idx)
+                        if bg_coords and bg_coords.get("x_mm") is not None:
+                            try:
+                                import FreeCAD as App
+                                x_val = float(bg_coords.get("x_mm", 0.0))
+                                r_val = float(bg_coords.get("r_mm", 0.0))
+                                # Position backgauge stop relative to die center
+                                fc_backgauge = fc_backgauge.translated(App.Vector(x_val, 0.0, r_val))
+                            except Exception:
+                                pass
                     _update_feature(doc, "SMBS_Backgauge", fc_backgauge)
                     if self._first_show:
                         try:
