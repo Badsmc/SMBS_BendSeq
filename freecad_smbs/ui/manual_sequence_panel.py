@@ -111,6 +111,10 @@ if QtCore is not None and hasattr(QtCore, "QThread"):
         """
         Worker thread for executing ManualSequenceWorker off the main Qt UI thread (O2).
         Emits step_progress(step_idx, total_steps, bend_id) and finished_result(result).
+
+        To ensure absolute stability and prevent macOS GUI crashes (EXC_BAD_ACCESS in TechDraw/Qt
+        when App.openDocument is called from secondary threads while GUI has document open),
+        the worker executes the calculation pipeline in an isolated headless python subprocess.
         """
         step_progress = QtCore.Signal(int, int, str)
         finished_result = QtCore.Signal(object)
@@ -128,23 +132,135 @@ if QtCore is not None and hasattr(QtCore, "QThread"):
             self.out_runs_dir = out_runs_dir
             self.cancel_token = threading.Event()
             self.manual_input.cancel_token = self.cancel_token
+            self._proc: Optional[Any] = None
 
         def run(self) -> None:
-            from freecad_smbs.manual.manual_runner import run_manual_sequence_on_fcstd
+            import os
+            import sys
+            import tempfile
+            import pickle
+            import subprocess
+            from pathlib import Path
+            from freecad_smbs.manual.manual_worker import ManualSequenceResult
+
+            # Check if FreeCAD GUI is active; if active, spawn isolated headless process
+            try:
+                import FreeCAD as App
+                is_gui = getattr(App, "GuiUp", 0) == 1
+            except Exception:
+                is_gui = False
 
             def _on_step_progress(step_idx: int, total_steps: int, bend_id: str) -> None:
                 self.step_progress.emit(step_idx, total_steps, bend_id)
 
+            if not is_gui:
+                # Direct in-process execution for headless tests & CLI
+                from freecad_smbs.manual.manual_runner import run_manual_sequence_on_fcstd
+                try:
+                    res = run_manual_sequence_on_fcstd(
+                        fcstd_path=self.fcstd_path,
+                        manual_input=self.manual_input,
+                        out_runs_dir=self.out_runs_dir,
+                        progress_callback=_on_step_progress,
+                    )
+                except Exception as e:
+                    res = ManualSequenceResult(
+                        ok=False,
+                        run_dir=Path(self.out_runs_dir or "."),
+                        part_id="unknown",
+                        planning_status="ERROR",
+                        error_message=str(e),
+                    )
+                self.finished_result.emit(res)
+                return
+
+            # Isolated subprocess execution for FreeCAD GUI
+            temp_payload = None
+            temp_output = None
             try:
-                res = run_manual_sequence_on_fcstd(
-                    fcstd_path=self.fcstd_path,
-                    manual_input=self.manual_input,
-                    out_runs_dir=self.out_runs_dir,
-                    progress_callback=_on_step_progress,
+                # Prepare picklable copy of manual_input without unpicklable threading.Event
+                from dataclasses import replace
+                picklable_input = replace(self.manual_input, cancel_token=None)
+
+                with tempfile.NamedTemporaryFile(suffix=".smbs_in.pkl", delete=False) as f_in:
+                    temp_payload = f_in.name
+                    pickle.dump({
+                        "fcstd_path": self.fcstd_path,
+                        "manual_input": picklable_input,
+                        "out_runs_dir": self.out_runs_dir,
+                    }, f_in)
+
+                with tempfile.NamedTemporaryFile(suffix=".smbs_out.pkl", delete=False) as f_out:
+                    temp_output = f_out.name
+
+                repo_root = Path(__file__).resolve().parent.parent.parent
+                py_bin = sys.executable
+
+                # Construct environment with repo root and FreeCAD lib in PYTHONPATH
+                env = dict(os.environ)
+                fc_lib = "/Applications/FreeCAD.app/Contents/Resources/lib"
+                curr_pp = env.get("PYTHONPATH", "")
+                env["PYTHONPATH"] = f"{fc_lib}:{repo_root}:{curr_pp}".rstrip(":")
+
+                cmd = [
+                    py_bin,
+                    "-m",
+                    "freecad_smbs.manual.manual_runner",
+                    "--payload",
+                    temp_payload,
+                    "--output",
+                    temp_output,
+                ]
+
+                self._proc = subprocess.Popen(
+                    cmd,
+                    env=env,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    bufsize=1,
                 )
+
+                # Stream stderr for PROGRESS updates
+                for line in self._proc.stderr:
+                    if self.cancel_token.is_set():
+                        self._proc.terminate()
+                        break
+                    line = line.strip()
+                    if line.startswith("PROGRESS:"):
+                        parts = line.split(":")
+                        if len(parts) >= 4:
+                            try:
+                                s_idx = int(parts[1])
+                                t_steps = int(parts[2])
+                                b_id = parts[3]
+                                self.step_progress.emit(s_idx, t_steps, b_id)
+                            except ValueError:
+                                pass
+
+                self._proc.wait()
+
+                if self.cancel_token.is_set():
+                    res = ManualSequenceResult(
+                        ok=False,
+                        run_dir=Path(self.out_runs_dir or "."),
+                        part_id="unknown",
+                        planning_status="CANCELLED",
+                        error_message="Operation cancelled by user",
+                    )
+                elif Path(temp_output).is_file() and Path(temp_output).stat().st_size > 0:
+                    with open(temp_output, "rb") as f_res:
+                        res = pickle.load(f_res)
+                else:
+                    stdout_str, stderr_str = self._proc.communicate() if self._proc.poll() is None else ("", "")
+                    res = ManualSequenceResult(
+                        ok=False,
+                        run_dir=Path(self.out_runs_dir or "."),
+                        part_id="unknown",
+                        planning_status="ERROR",
+                        error_message=f"Subprocess terminated unexpectedly (code {self._proc.returncode}): {stderr_str}",
+                    )
             except Exception as e:
-                from freecad_smbs.manual.manual_worker import ManualSequenceResult
-                from pathlib import Path
                 res = ManualSequenceResult(
                     ok=False,
                     run_dir=Path(self.out_runs_dir or "."),
@@ -152,10 +268,28 @@ if QtCore is not None and hasattr(QtCore, "QThread"):
                     planning_status="ERROR",
                     error_message=str(e),
                 )
+            finally:
+                if temp_payload and Path(temp_payload).exists():
+                    try:
+                        Path(temp_payload).unlink()
+                    except Exception:
+                        pass
+                if temp_output and Path(temp_output).exists():
+                    try:
+                        Path(temp_output).unlink()
+                    except Exception:
+                        pass
+                self._proc = None
+
             self.finished_result.emit(res)
 
         def request_cancel(self) -> None:
             self.cancel_token.set()
+            if self._proc and self._proc.poll() is None:
+                try:
+                    self._proc.terminate()
+                except Exception:
+                    pass
 else:
     class ManualWorkerThread:  # type: ignore
         def __init__(self, *args: Any, **kwargs: Any) -> None:
