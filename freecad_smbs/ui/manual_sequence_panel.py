@@ -12,7 +12,13 @@ Features:
 from __future__ import annotations
 
 import math
+import os
+import sys
+import tempfile
 import threading
+import uuid
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 try:
@@ -177,6 +183,18 @@ if QtCore is not None and hasattr(QtCore, "QThread"):
             # Isolated subprocess execution for FreeCAD GUI
             temp_payload = None
             temp_output = None
+            repo_root = Path(__file__).resolve().parent.parent.parent
+            part_id = getattr(self.manual_input, "part_id", "unknown") or "unknown"
+
+            # Pre-determine run directory for logs so we never report '.'
+            run_id = f"run_manual_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
+            if self.out_runs_dir is not None:
+                runs_root = Path(self.out_runs_dir).expanduser().resolve()
+            else:
+                runs_root = repo_root / "runs"
+            assigned_run_dir = runs_root / run_id
+            assigned_run_dir.mkdir(parents=True, exist_ok=True)
+
             try:
                 # Prepare picklable copy of manual_input without unpicklable threading.Event
                 from dataclasses import replace
@@ -187,14 +205,23 @@ if QtCore is not None and hasattr(QtCore, "QThread"):
                     pickle.dump({
                         "fcstd_path": self.fcstd_path,
                         "manual_input": picklable_input,
-                        "out_runs_dir": self.out_runs_dir,
+                        "out_runs_dir": assigned_run_dir,
                     }, f_in)
 
                 with tempfile.NamedTemporaryFile(suffix=".smbs_out.pkl", delete=False) as f_out:
                     temp_output = f_out.name
 
-                repo_root = Path(__file__).resolve().parent.parent.parent
-                py_bin = sys.executable
+                # In FreeCAD GUI, sys.executable is '/Applications/FreeCAD.app/.../bin/freecad'
+                # Find sibling python binary in bin/ directory
+                py_bin = Path(sys.executable)
+                if py_bin.name.lower() in ("freecad", "freecadcmd"):
+                    candidate = py_bin.parent / "python"
+                    if candidate.is_file():
+                        py_bin = candidate
+                    else:
+                        py_bin = Path(sys.exec_prefix) / "bin" / "python"
+                elif not py_bin.is_file():
+                    py_bin = Path(sys.exec_prefix) / "bin" / "python"
 
                 # Construct environment with repo root and FreeCAD lib in PYTHONPATH
                 env = dict(os.environ)
@@ -203,7 +230,7 @@ if QtCore is not None and hasattr(QtCore, "QThread"):
                 env["PYTHONPATH"] = f"{fc_lib}:{repo_root}:{curr_pp}".rstrip(":")
 
                 cmd = [
-                    py_bin,
+                    str(py_bin),
                     "-m",
                     "freecad_smbs.manual.manual_runner",
                     "--payload",
@@ -221,52 +248,109 @@ if QtCore is not None and hasattr(QtCore, "QThread"):
                     bufsize=1,
                 )
 
-                # Stream stderr for PROGRESS updates
-                for line in self._proc.stderr:
-                    if self.cancel_token.is_set():
-                        self._proc.terminate()
-                        break
-                    line = line.strip()
-                    if line.startswith("PROGRESS:"):
-                        parts = line.split(":")
-                        if len(parts) >= 4:
-                            try:
-                                s_idx = int(parts[1])
-                                t_steps = int(parts[2])
-                                b_id = parts[3]
-                                self.step_progress.emit(s_idx, t_steps, b_id)
-                            except ValueError:
-                                pass
+                collected_stdout = []
+                collected_stderr = []
+
+                # Background thread to safely drain stdout without pipe deadlock
+                def _drain_stdout(proc_stdout):
+                    try:
+                        for line in iter(proc_stdout.readline, ""):
+                            collected_stdout.append(line)
+                    except Exception:
+                        pass
+                    finally:
+                        proc_stdout.close()
+
+                stdout_thread = threading.Thread(target=_drain_stdout, args=(self._proc.stdout,), daemon=True)
+                stdout_thread.start()
+
+                # Stream stderr in worker thread for PROGRESS updates
+                try:
+                    for line in iter(self._proc.stderr.readline, ""):
+                        collected_stderr.append(line)
+                        if self.cancel_token.is_set():
+                            self._proc.terminate()
+                            break
+                        line_s = line.strip()
+                        if line_s.startswith("PROGRESS:"):
+                            parts = line_s.split(":")
+                            if len(parts) >= 4:
+                                try:
+                                    s_idx = int(parts[1])
+                                    t_steps = int(parts[2])
+                                    b_id = parts[3]
+                                    self.step_progress.emit(s_idx, t_steps, b_id)
+                                except ValueError:
+                                    pass
+                except Exception:
+                    pass
+                finally:
+                    self._proc.stderr.close()
 
                 self._proc.wait()
+                stdout_thread.join(timeout=2.0)
+
+                # Persist full execution log into run directory
+                stdout_text = "".join(collected_stdout)
+                stderr_text = "".join(collected_stderr)
+                log_file = assigned_run_dir / "worker_subprocess.log"
+                try:
+                    with open(log_file, "w", encoding="utf-8") as f_log:
+                        f_log.write(f"=== SMBS Manual Subprocess Execution Log ===\n")
+                        f_log.write(f"Run ID: {run_id}\n")
+                        f_log.write(f"Command: {' '.join(cmd)}\n")
+                        f_log.write(f"Exit code: {self._proc.returncode}\n\n")
+                        f_log.write(f"--- STDOUT ---\n{stdout_text}\n\n")
+                        f_log.write(f"--- STDERR ---\n{stderr_text}\n")
+                except Exception:
+                    pass
 
                 if self.cancel_token.is_set():
                     res = ManualSequenceResult(
                         ok=False,
-                        run_dir=Path(self.out_runs_dir or "."),
-                        part_id="unknown",
+                        run_dir=assigned_run_dir,
+                        part_id=part_id,
                         planning_status="CANCELLED",
                         error_message="Operation cancelled by user",
+                        diagnostics=["Operation cancelled by user"],
                     )
-                elif Path(temp_output).is_file() and Path(temp_output).stat().st_size > 0:
+                elif self._proc.returncode == 0 and Path(temp_output).is_file() and Path(temp_output).stat().st_size > 0:
                     with open(temp_output, "rb") as f_res:
                         res = pickle.load(f_res)
                 else:
-                    stdout_str, stderr_str = self._proc.communicate() if self._proc.poll() is None else ("", "")
-                    res = ManualSequenceResult(
-                        ok=False,
-                        run_dir=Path(self.out_runs_dir or "."),
-                        part_id="unknown",
-                        planning_status="ERROR",
-                        error_message=f"Subprocess terminated unexpectedly (code {self._proc.returncode}): {stderr_str}",
-                    )
+                    # Nonzero exit or missing artifact: load structured error if available
+                    err_loaded = None
+                    if Path(temp_output).is_file() and Path(temp_output).stat().st_size > 0:
+                        try:
+                            with open(temp_output, "rb") as f_res:
+                                err_loaded = pickle.load(f_res)
+                        except Exception:
+                            pass
+
+                    if err_loaded and isinstance(err_loaded, ManualSequenceResult):
+                        res = err_loaded
+                        if not res.run_dir or str(res.run_dir) in (".", ""):
+                            res.run_dir = assigned_run_dir
+                    else:
+                        clean_err = stderr_text.strip() or stdout_text.strip() or "No output from subprocess"
+                        res = ManualSequenceResult(
+                            ok=False,
+                            run_dir=assigned_run_dir,
+                            part_id=part_id,
+                            planning_status="ERROR",
+                            error_message=f"Subprocess terminated unexpectedly (code {self._proc.returncode}): {clean_err}",
+                            diagnostics=[clean_err],
+                        )
             except Exception as e:
+                import traceback
+                tb = traceback.format_exc()
                 res = ManualSequenceResult(
                     ok=False,
-                    run_dir=Path(self.out_runs_dir or "."),
-                    part_id="unknown",
+                    run_dir=assigned_run_dir,
+                    part_id=part_id,
                     planning_status="ERROR",
                     error_message=str(e),
+                    diagnostics=[str(e), tb],
                 )
             finally:
                 if temp_payload and Path(temp_payload).exists():

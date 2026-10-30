@@ -132,12 +132,18 @@ class ManualSequenceWorker:
             )
 
         # 1. Determine run directory
-        run_id = f"run_manual_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
         if out_runs_dir is not None:
-            runs_root = Path(out_runs_dir).expanduser().resolve()
+            out_path = Path(out_runs_dir).expanduser().resolve()
+            if out_path.name.startswith("run_"):
+                run_dir = out_path
+                run_id = out_path.name
+            else:
+                run_id = f"run_manual_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
+                run_dir = out_path / run_id
         else:
+            run_id = f"run_manual_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
             runs_root = self.workspace_root / "runs"
-        run_dir = runs_root / run_id
+            run_dir = runs_root / run_id
         run_dir.mkdir(parents=True, exist_ok=True)
 
         if token and token.is_set():
