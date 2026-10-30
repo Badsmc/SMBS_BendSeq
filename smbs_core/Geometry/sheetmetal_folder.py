@@ -1535,6 +1535,16 @@ class SheetMetalFolder:
                 else:
                     hub_x_max = ax_p.x
 
+        # Fallback to boundbox if any boundary is unbounded (e.g. 3-bend U-profile hub)
+        if hub_x_min is None:
+            hub_x_min = bb.XMin
+        if hub_x_max is None:
+            hub_x_max = bb.XMax
+        if hub_y_min is None:
+            hub_y_min = bb.YMin
+        if hub_y_max is None:
+            hub_y_max = bb.YMax
+
         # Check for geometric relief notches (KL-9 / P2)
         occ_flat = cls._to_occ_shape(fc_flat) if isinstance(fc_flat, Part.Shape) else fc_flat
         relief_info = cls.detect_relief_notch_intervals(occ_flat, canonical_part)
