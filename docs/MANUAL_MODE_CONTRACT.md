@@ -235,6 +235,18 @@ To preserve honest verification boundaries and prevent test fabrication:
    The `cancel_token` (threading.Event) is checked between validation steps to allow immediate user cancellation without freezing FreeCAD.
 5. **Test Sweep Policy:**
    Full permutations sweeps are prohibited in unit tests. Unit tests evaluate strictly pre-calculated canonical sequences from `tests/fixtures/manual/known_orders_*.json`.
+6. **Fast-Fail Tests Policy (N5):**
+   Unit tests testing pure status semantics and fast rejection flow (such as `test_manual_worker_rejects_invalid_sequence`) may explicitly pass `machine=PressBrakeMachine()` (simplified kinematic tooling) to verify fail-closed error reporting quickly (~1.6s). Full physical validation against real punch and die geometry (>50s) is strictly validated in dedicated tests (`test_manual_worker_validates_with_real_tooling` and `test_manual_worker_rejects_invalid_pentagon_real_tooling`).
+
+### 4.5 Phase 4c.3 Scope: GUI Integration & Verification Dialog Binding
+Phase 4c.3 bridges the physical validation output with the FreeCAD graphical user interface:
+1. **`VerificationDialog` Binding:**
+   - Update `VerificationDialog` to load and parse `09_manual_verification_result.json` as a first-class verification artifact.
+   - Display `PASSED` (green badge), `PASSED_WITH_UNKNOWN` (orange warning badge), or `FAILED` (red badge with failing step and reason).
+2. **`SimulationDialog` / `AnimationPlayer` Binding:**
+   - Verify that `SimulationDialog` correctly visualizes step sequences and backgauge coordinates directly from `07_search_result.json`.
+3. **`ManualSequencePanel` Interactive Verification:**
+   - Wire the "Verify" button in `ManualSequencePanel` to trigger `run_manual_sequence_on_fcstd` asynchronously in `QThread` with responsive progress updates.
 
 ---
 
@@ -358,11 +370,11 @@ To prevent this in Phase 4c:
 ### 6.4 Empirical Permutations & Order Gating (C7, I1, I2, I3, M2)
 With the implementation of the **Index-Preserving Compound Transform** (I1) and **Primary Sheet Face Resolution** (I3), the Physical Oracle accurately and reliably validates multi-bend sequences without spurious self-intersections.
 
-#### Authoritative Fixture SHA256 Hashes (M2 Contractual Lock):
+#### Authoritative Fixture SHA256 Hashes (M2 / N2 Contractual Lock):
 Any regeneration of test fixtures must preserve or deliberately update these hashes alongside `tests/fixtures/manual/known_orders_*.json`:
-- `test_box.FCStd`: `30d05140ee08970fb4e226551d9a884c58e814170beaa2c866b8290f8ac93394`
-- `test_mirror.FCStd`: `09e93e4e4dd41875d350d45b7863ae013ab4d7a35e12913268af51e62eb717c3`
-- `test_pentagon.FCStd`: `436786bc3e46c46fe1f136554e97cb8b2b74e50b1e1d9db9aa49691d0d6f7b6c`
+- `test_box.FCStd`: `165cd832fa42718197ca8cd796df5f7cf24c68ab67e9fa5a8db2f9de5381d562`
+- `test_mirror.FCStd`: `0177698df296bfc9a384b4899378b3c1e046ff38c33dd9928930fc4788a55ea4`
+- `test_pentagon.FCStd`: `7fc0ae668ea39ea26a04cd37487f5ccd77b88cd49cdb2419232f80120a6d08d1`
 
 1. **`test_box` (3 Bends, $3! = 6$ Permutations):**
    - Canonical bend IDs: `['BEND_01_0528d4fa', 'BEND_02_64374506', 'BEND_03_bc0dd183']`.

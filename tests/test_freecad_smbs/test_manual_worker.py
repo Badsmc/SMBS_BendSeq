@@ -384,6 +384,66 @@ class TestManualWorker(unittest.TestCase):
         self.assertTrue(v9["payload"]["production_eligible"])
         self.assertFalse(v9["payload"]["has_unknown"])
 
+    def test_manual_worker_rejects_invalid_pentagon_real_tooling(self):
+        """
+        Phase 4c.2 / N3: Validates negative verification path on test_pentagon with real tooling.
+        Uses known invalid sequence from known_orders_pentagon.json.
+        Verifies:
+        - Worker terminates at step 2 with status=SUCCESS.
+        - Verification status is FAILED with stage=BEND_TRAJECTORY.
+        - Tooling status is REAL.
+        - Wall time reflects real physical collision calculation (~28s).
+        """
+        pent_path = FIXTURES_DIR / "test_pentagon.FCStd"
+        orders_path = FIXTURES_DIR / "manual" / "known_orders_pentagon.json"
+        known_orders = json.loads(orders_path.read_text(encoding="utf-8"))
+        invalid_pent_seq = known_orders["first_invalid"]["sequence"]
+
+        pent_sels = self._extract_snapshots_from_unfold(pent_path)
+        res_canon = run_manual_sequence_on_fcstd(
+            pent_path,
+            ManualSequenceInput(pent_sels),
+            out_runs_dir=self.temp_runs,
+            phases=["01", "02", "04"],
+        )
+        sel_by_bid = {s.bend_id: s for s in res_canon.selections}
+        reordered_sels = [
+            BendSelectionItem(
+                order=idx,
+                edge_ref=sel_by_bid[bid].edge_ref,
+                object_name=sel_by_bid[bid].object_name,
+                raw_snapshot=sel_by_bid[bid].raw_snapshot,
+                bend_id=bid
+            )
+            for idx, bid in enumerate(invalid_pent_seq, start=1)
+        ]
+
+        res = run_manual_sequence_on_fcstd(
+            pent_path,
+            ManualSequenceInput(reordered_sels, tooling_set_id="standard_90deg_v12", unknown_policy="PRODUCTION"),
+            out_runs_dir=self.temp_runs,
+        )
+
+        self.assertFalse(res.ok)
+        self.assertEqual(res.planning_status, "NO_SOLUTION")
+
+        s7 = json.loads((res.run_dir / "07_search_result.json").read_text(encoding="utf-8"))
+        self.assertEqual(s7["payload"]["planning_status"], "NO_SOLUTION")
+        cand_seq = s7["payload"]["candidate_sequence"]
+        self.assertEqual(len(cand_seq), 2)
+        self.assertEqual(cand_seq[0]["tooling_status"], "REAL")
+        self.assertEqual(cand_seq[0]["stage"], "VALID")
+        self.assertEqual(cand_seq[1]["tooling_status"], "REAL")
+        self.assertEqual(cand_seq[1]["stage"], "BEND_TRAJECTORY")
+
+        v9 = json.loads((res.run_dir / "09_manual_verification_result.json").read_text(encoding="utf-8"))
+        self.assertEqual(v9["status"], "SUCCESS")
+        self.assertEqual(v9["payload"]["verification_status"], "FAILED")
+        self.assertFalse(v9["payload"]["production_eligible"])
+        self.assertEqual(v9["payload"]["step_verifications"][1]["status"], "VERIFICATION_FAILED")
+        self.assertEqual(v9["payload"]["step_verifications"][1]["stage"], "BEND_TRAJECTORY")
+        self.assertGreater(v9["payload"]["wall_time_s"], 15.0)
+
     def test_verifier_accepts_well_formed_artifacts(self):
         """
         C1/B5 Schema Smoke Test:
