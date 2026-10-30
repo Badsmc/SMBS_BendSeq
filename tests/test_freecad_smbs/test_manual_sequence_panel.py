@@ -409,7 +409,113 @@ class TestManualSequencePanel(unittest.TestCase):
             self.assertEqual(kwargs.get("unknown_policy"), "EXPLORATORY")
             self.assertEqual(kwargs.get("tooling_set_id"), "standard_90deg_v12")
 
+    def test_worker_handles_subprocess_nonzero_exit_and_diagnostics(self):
+        """Action 5 & 9: Verify ManualWorkerThread reports nonzero exit status and persists diagnostics."""
+        from freecad_smbs.ui.manual_sequence_panel import ManualWorkerThread
+        from freecad_smbs.manual.manual_worker import ManualSequenceInput
+        import tempfile
+        from unittest.mock import patch, MagicMock
+
+        snap = RawBendLineSnapshot(
+            midpoint=(0.0, 0.0, 1.5),
+            direction=(1.0, 0.0, 0.0),
+            normal=(0.0, 0.0, 1.0),
+            radius_mm=1.0,
+            length_mm=80.0
+        )
+        item = BendSelectionItem(order=1, edge_ref="Edge23", object_name="Unfold", raw_snapshot=snap)
+        manual_input = ManualSequenceInput(
+            selections=[item],
+            tooling_set_id="standard_90deg_v12",
+            unknown_policy="PRODUCTION",
+            part_id="test_part"
+        )
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            thread = ManualWorkerThread(
+                fcstd_path=self.box_path,
+                manual_input=manual_input,
+                out_runs_dir=tmp_dir,
+            )
+
+            # Mock subprocess.Popen to simulate process failing with exit code 1
+            mock_proc = MagicMock()
+            mock_proc.returncode = 1
+            mock_proc.stdout.readline.side_effect = ["Starting calculation...\n", ""]
+            mock_proc.stderr.readline.side_effect = ["Error: Simulated syntax error in worker\n", ""]
+
+            with patch("subprocess.Popen", return_value=mock_proc), \
+                 patch.object(App, "GuiUp", 1, create=True):
+                finished_results = []
+                thread.finished_result.connect(finished_results.append)
+                thread.run()
+
+            self.assertEqual(len(finished_results), 1)
+            res = finished_results[0]
+            self.assertFalse(res.ok)
+            self.assertEqual(res.planning_status, "ERROR")
+            self.assertIn("code 1", res.error_message)
+            self.assertIn("Simulated syntax error", res.error_message)
+            self.assertNotEqual(str(res.run_dir), ".")
+            self.assertTrue(Path(res.run_dir).exists())
+            
+            # Verify log was written
+            log_path = Path(res.run_dir) / "worker_subprocess.log"
+            self.assertTrue(log_path.is_file())
+            content = log_path.read_text(encoding="utf-8")
+            self.assertIn("Exit code: 1", content)
+            self.assertIn("Simulated syntax error", content)
+
+    def test_worker_handles_subprocess_missing_output(self):
+        """Action 6 & 9: Verify ManualWorkerThread handles missing output artifact gracefully."""
+        from freecad_smbs.ui.manual_sequence_panel import ManualWorkerThread
+        from freecad_smbs.manual.manual_worker import ManualSequenceInput
+        import tempfile
+        from unittest.mock import patch, MagicMock
+
+        snap = RawBendLineSnapshot(
+            midpoint=(0.0, 0.0, 1.5),
+            direction=(1.0, 0.0, 0.0),
+            normal=(0.0, 0.0, 1.0),
+            radius_mm=1.0,
+            length_mm=80.0
+        )
+        item = BendSelectionItem(order=1, edge_ref="Edge23", object_name="Unfold", raw_snapshot=snap)
+        manual_input = ManualSequenceInput(
+            selections=[item],
+            tooling_set_id="standard_90deg_v12",
+            unknown_policy="PRODUCTION",
+            part_id="test_part"
+        )
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            thread = ManualWorkerThread(
+                fcstd_path=self.box_path,
+                manual_input=manual_input,
+                out_runs_dir=tmp_dir,
+            )
+
+            # Mock subprocess.Popen with returncode 0 but without creating output file
+            mock_proc = MagicMock()
+            mock_proc.returncode = 0
+            mock_proc.stdout.readline.side_effect = ["Process completed without output\n", ""]
+            mock_proc.stderr.readline.side_effect = [""]
+
+            with patch("subprocess.Popen", return_value=mock_proc), \
+                 patch.object(App, "GuiUp", 1, create=True):
+                finished_results = []
+                thread.finished_result.connect(finished_results.append)
+                thread.run()
+
+            self.assertEqual(len(finished_results), 1)
+            res = finished_results[0]
+            self.assertFalse(res.ok)
+            self.assertEqual(res.planning_status, "ERROR")
+            self.assertIn("code 0", res.error_message)
+            self.assertNotEqual(str(res.run_dir), ".")
+
 
 if __name__ == "__main__":
     unittest.main()
+
 

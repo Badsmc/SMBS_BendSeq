@@ -47,26 +47,50 @@ if __name__ == "__main__":
     import argparse
     import pickle
     import sys
+    import traceback
 
     parser = argparse.ArgumentParser(description="Run SMBS manual sequence in isolated headless process")
     parser.add_argument("--payload", required=True, help="Path to input pickle payload")
     parser.add_argument("--output", required=True, help="Path to output pickle result")
     args = parser.parse_args()
 
-    with open(args.payload, "rb") as f:
-        payload = pickle.load(f)
+    try:
+        with open(args.payload, "rb") as f:
+            payload = pickle.load(f)
 
-    def _cli_progress(step_idx: int, total_steps: int, bend_id: str) -> None:
-        sys.stderr.write(f"PROGRESS:{step_idx}:{total_steps}:{bend_id}\n")
+        def _cli_progress(step_idx: int, total_steps: int, bend_id: str) -> None:
+            sys.stderr.write(f"PROGRESS:{step_idx}:{total_steps}:{bend_id}\n")
+            sys.stderr.flush()
+
+        res = run_manual_sequence_on_fcstd(
+            fcstd_path=payload["fcstd_path"],
+            manual_input=payload["manual_input"],
+            out_runs_dir=payload.get("out_runs_dir"),
+            progress_callback=_cli_progress,
+        )
+
+        with open(args.output, "wb") as f:
+            pickle.dump(res, f)
+    except Exception as e:
+        tb = traceback.format_exc()
+        sys.stderr.write(f"SUBPROCESS_EXCEPTION:{e}\n{tb}\n")
         sys.stderr.flush()
+        # Attempt to write error ManualSequenceResult so parent gets full structured diagnostics
+        try:
+            from freecad_smbs.manual.manual_worker import ManualSequenceResult
+            from pathlib import Path
+            err_res = ManualSequenceResult(
+                ok=False,
+                run_dir=Path(payload.get("out_runs_dir") or "."),
+                part_id=getattr(payload.get("manual_input"), "part_id", "unknown") or "unknown",
+                planning_status="ERROR",
+                error_message=str(e),
+                diagnostics=[str(e), tb],
+            )
+            with open(args.output, "wb") as f_err:
+                pickle.dump(err_res, f_err)
+        except Exception:
+            pass
+        sys.exit(1)
 
-    res = run_manual_sequence_on_fcstd(
-        fcstd_path=payload["fcstd_path"],
-        manual_input=payload["manual_input"],
-        out_runs_dir=payload.get("out_runs_dir"),
-        progress_callback=_cli_progress,
-    )
-
-    with open(args.output, "wb") as f:
-        pickle.dump(res, f)
 
