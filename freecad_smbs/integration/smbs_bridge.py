@@ -280,9 +280,13 @@ def run_pipeline_on_fcstd(
     verif_status = res.get("verification_status")
     prod_elig = res.get("production_eligible")
     status = res.get("status")
+    failed_stage = res.get("stage")
 
     # Extract diagnostics and error messages
     diagnostics = res.get("run_report", {}).get("diagnostics", [])
+    if not diagnostics and "diagnostics" in res:
+        diagnostics = res.get("diagnostics", [])
+
     if not diagnostics and "search_result_path" in res:
         try:
             import json
@@ -296,7 +300,18 @@ def run_pipeline_on_fcstd(
     error_message: Optional[str] = None
     if planning_status != "SUCCESS":
         if diagnostics:
-            error_message = "; ".join(str(d) for d in diagnostics)
+            # Format diagnostics clearly with stage and message
+            diag_strs = []
+            for d in diagnostics:
+                if isinstance(d, dict):
+                    stage_pfx = f"[{d.get('stage')}] " if d.get('stage') else ""
+                    code_s = f"({d.get('code')}) " if d.get('code') else ""
+                    diag_strs.append(f"{stage_pfx}{code_s}{d.get('message', str(d))}")
+                else:
+                    diag_strs.append(str(d))
+            error_message = "; ".join(diag_strs)
+        elif failed_stage:
+            error_message = f"Отказ на этапе конвейера: {failed_stage} (статус: {status})"
         else:
             error_message = f"Последовательность не найдена ({planning_status})"
 
