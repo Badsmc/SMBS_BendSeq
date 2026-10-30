@@ -296,13 +296,23 @@ def create_test_mirror_fcstd(target_path: Path) -> Path:
     return target_path
 
 
-def generate_all_fixtures() -> dict[str, Path]:
-    paths = {
-        "test_box": create_test_box_fcstd(FIXTURES_DIR / "test_box.FCStd"),
-        "test_pentagon": create_test_pentagon_fcstd(FIXTURES_DIR / "test_pentagon.FCStd"),
-        "test_mirror": create_test_mirror_fcstd(FIXTURES_DIR / "test_mirror.FCStd"),
+def generate_all_fixtures(force: bool = False) -> dict[str, Path]:
+    box_p = FIXTURES_DIR / "test_box.FCStd"
+    pent_p = FIXTURES_DIR / "test_pentagon.FCStd"
+    mirr_p = FIXTURES_DIR / "test_mirror.FCStd"
+
+    if force or not box_p.exists():
+        create_test_box_fcstd(box_p)
+    if force or not pent_p.exists():
+        create_test_pentagon_fcstd(pent_p)
+    if force or not mirr_p.exists():
+        create_test_mirror_fcstd(mirr_p)
+
+    return {
+        "test_box": box_p,
+        "test_pentagon": pent_p,
+        "test_mirror": mirr_p,
     }
-    return paths
 
 
 if __name__ == "__main__":
