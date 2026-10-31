@@ -56,12 +56,15 @@ class CollisionDetector:
 
         self.backend = backend
         self._memo_panels: Dict[int, Tuple[Any, Dict[str, Any]]] = {}
+        self.candidate_placement_logs: list = []
 
     def begin_step(self) -> None:
         self._memo_panels.clear()
+        self.candidate_placement_logs.clear()
 
     def end_step(self) -> None:
         self._memo_panels.clear()
+        self.candidate_placement_logs.clear()
 
     def _extract_panel_shapes(self, shape: Any, panel_graph: Any) -> Dict[str, Any]:
         panel_shapes = {}
@@ -296,10 +299,14 @@ class CollisionDetector:
                     )
                     cand = BRepBuilderAPI_Transform(shape, trsf, False).Shape()
                     die_ok = True
+                    die_msg = ""
                     if die_world:
                         res_d = self._check_intersection(cand, die_world, "Part", "Die")
                         die_ok = res_d.is_valid
+                        if not die_ok:
+                            die_msg = res_d.message
                     punch_ok = True
+                    punch_msg = ""
                     punch_world = (
                         self.assembly.get_world_shape(ToolingKind.PUNCH)
                         if self.assembly is not None else None
@@ -307,6 +314,27 @@ class CollisionDetector:
                     if punch_world is not None and not punch_world.IsNull():
                         res_p = self._check_intersection(cand, punch_world, "Part", "Punch")
                         punch_ok = res_p.is_valid
+                        if not punch_ok:
+                            punch_msg = res_p.message
+
+                    rejection_reason = ""
+                    if not die_ok and not punch_ok:
+                        rejection_reason = f"{die_msg}; {punch_msg}"
+                    elif not die_ok:
+                        rejection_reason = die_msg
+                    elif not punch_ok:
+                        rejection_reason = punch_msg
+
+                    self.candidate_placement_logs.append({
+                        "bend_id": bend_info.get("id"),
+                        "axis_sign": axis_sign,
+                        "n_vec": n_vec,
+                        "die_ok": die_ok,
+                        "punch_ok": punch_ok,
+                        "status": "VALID" if (die_ok and punch_ok) else "REJECTED",
+                        "rejection_reason": rejection_reason,
+                    })
+
                     if die_ok and punch_ok:
                         return cand
                     if die_ok and best_shape is None:
