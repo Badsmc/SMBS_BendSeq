@@ -36,7 +36,8 @@ try:
     from OCC.Core.GProp import GProp_GProps
     from OCC.Core.BRepGProp import brepgprop, brepgprop_SurfaceProperties
     from OCC.Core.TopExp import TopExp_Explorer
-    from OCC.Core.TopAbs import TopAbs_FACE, TopAbs_SOLID, TopAbs_COMPOUND, TopAbs_EDGE, TopAbs_REVERSED
+    from OCC.Core.TopAbs import TopAbs_FACE, TopAbs_SOLID, TopAbs_COMPOUND, TopAbs_EDGE, TopAbs_REVERSED, TopAbs_IN, TopAbs_ON
+    from OCC.Core.BRepClass3d import BRepClass3d_SolidClassifier
     from OCC.Core.BRepAdaptor import BRepAdaptor_Surface, BRepAdaptor_Curve
     from OCC.Core.GeomAbs import GeomAbs_Plane, GeomAbs_Cylinder
     from OCC.Core.BRep import BRep_Tool, BRep_Builder
@@ -240,6 +241,40 @@ class PythonOCCBackend(GeometryBackend):
             brepgprop.VolumeProperties(result, props)
             vol = props.Mass()
             collides = vol > 0.01
+
+            # Requirement 6: Topology-aware collision classification.
+            # Open face compounds can produce non-zero BRepGProp volume due to divergence
+            # integration even when no true solid penetration occurs (or surface-only touch).
+            # When intersection has no solids, check whether intersection face sample points
+            # penetrate the solid interior (TopAbs_IN) of shape1 or shape2.
+            if collides:
+                sol_exp = TopExp_Explorer(result, TopAbs_SOLID)
+                has_common_solids = sol_exp.More()
+                if not has_common_solids:
+                    tool_solid = None
+                    for s in (shape2, shape1):
+                        s_exp = TopExp_Explorer(s, TopAbs_SOLID)
+                        if s_exp.More():
+                            tool_solid = topods.Solid(s_exp.Current())
+                            break
+                    if tool_solid is not None and not tool_solid.IsNull():
+                        classifier = BRepClass3d_SolidClassifier(tool_solid)
+                        has_interior_penetration = False
+                        f_exp = TopExp_Explorer(result, TopAbs_FACE)
+                        while f_exp.More():
+                            face = topods.Face(f_exp.Current())
+                            surf = BRepAdaptor_Surface(face)
+                            u_mid = (surf.FirstUParameter() + surf.LastUParameter()) / 2.0
+                            v_mid = (surf.FirstVParameter() + surf.LastVParameter()) / 2.0
+                            pnt = surf.Value(u_mid, v_mid)
+                            classifier.Perform(pnt, 1e-4)
+                            if classifier.State() == TopAbs_IN:
+                                has_interior_penetration = True
+                                break
+                            f_exp.Next()
+                        if not has_interior_penetration:
+                            collides = False
+
             status = "invalid" if collides else "valid"
             msg = f"Intersection detected (vol={vol:.4f} mm³)" if collides else "Clear"
             return CollisionCheckResult(collides=collides, status=status, volume=vol, message=msg)
