@@ -266,18 +266,49 @@ class PythonOCCBackend(GeometryBackend):
             # Case B: Intersection with a solid shape present (open-shell-solid or solid-solid boundary)
             if tool_solid is not None and not tool_solid.IsNull():
                 if has_common_faces:
+                    from OCC.Core.BRepClass import BRepClass_FaceClassifier
+                    from OCC.Core.gp import gp_Pnt2d
+
                     classifier = BRepClass3d_SolidClassifier(tool_solid)
+                    face_classifier = BRepClass_FaceClassifier()
                     has_interior_penetration = False
+                    has_unresolved_partial = False
+
                     while f_exp.More():
                         face = topods.Face(f_exp.Current())
                         surf = BRepAdaptor_Surface(face)
-                        u_mid = (surf.FirstUParameter() + surf.LastUParameter()) / 2.0
-                        v_mid = (surf.FirstVParameter() + surf.LastVParameter()) / 2.0
-                        pnt = surf.Value(u_mid, v_mid)
-                        classifier.Perform(pnt, 1e-4)
-                        if classifier.State() == TopAbs_IN:
-                            has_interior_penetration = True
+                        u0, u1 = surf.FirstUParameter(), surf.LastUParameter()
+                        v0, v1 = surf.FirstVParameter(), surf.LastVParameter()
+
+                        sample_states = []
+                        # Multi-point grid of parameters across face UV domain
+                        sample_fractions = [0.05, 0.15, 0.25, 0.35, 0.5, 0.65, 0.75, 0.85, 0.95]
+                        for u_frac in sample_fractions:
+                            for v_frac in sample_fractions:
+                                u_val = u0 + u_frac * (u1 - u0)
+                                v_val = v0 + v_frac * (v1 - v0)
+                                # Check if UV point lies within the trimmed face domain
+                                face_classifier.Perform(face, gp_Pnt2d(u_val, v_val), 1e-4)
+                                if face_classifier.State() in (TopAbs_IN, TopAbs_ON):
+                                    pnt = surf.Value(u_val, v_val)
+                                    classifier.Perform(pnt, 1e-4)
+                                    st = classifier.State()
+                                    sample_states.append(st)
+                                    if st == TopAbs_IN:
+                                        has_interior_penetration = True
+                                        break
+                            if has_interior_penetration:
+                                break
+
+                        if has_interior_penetration:
                             break
+
+                        # Check if valid domain points lie strictly on the solid boundary (TopAbs_ON).
+                        # If there are no domain points found or points lie OUT (unresolved partial),
+                        # fail-closed to UNKNOWN.
+                        if not sample_states or not all(s == TopAbs_ON for s in sample_states):
+                            has_unresolved_partial = True
+
                         f_exp.Next()
 
                     if has_interior_penetration:
@@ -287,8 +318,16 @@ class PythonOCCBackend(GeometryBackend):
                             volume=vol,
                             message=f"Intersection detected (vol={vol:.4f} mm³)"
                         )
+                    elif has_unresolved_partial:
+                        # Partial intersection or ambiguous surface contact that does not prove full boundary containment
+                        return CollisionCheckResult(
+                            collides=False,
+                            status="unknown",
+                            volume=vol,
+                            message="Unresolved partial surface intersection with solid (fail-closed UNKNOWN)"
+                        )
                     else:
-                        # Faces lie strictly on the boundary (TopAbs_ON) or outside -> tangent contact
+                        # All sample points across all intersection faces lie strictly on the boundary (TopAbs_ON) -> genuine tangent contact
                         return CollisionCheckResult(
                             collides=False,
                             status="valid",

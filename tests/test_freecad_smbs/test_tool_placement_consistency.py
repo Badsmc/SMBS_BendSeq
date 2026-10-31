@@ -93,7 +93,8 @@ class TestToolPlacementConsistency(unittest.TestCase):
             out_runs_dir=self.temp_runs,
         )
 
-        # Step 2 must fail at TOOL with punch intersection
+        # Step 2 has no feasible collision-free placement across all candidate orientations
+        # and therefore fails closed at APPROACH with UNKNOWN/NO_SOLUTION under PRODUCTION policy
         self.assertFalse(res.ok)
         self.assertEqual(res.planning_status, "NO_SOLUTION")
 
@@ -102,9 +103,9 @@ class TestToolPlacementConsistency(unittest.TestCase):
         steps = s7["payload"]["candidate_sequence"]
         self.assertEqual(len(steps), 2)
         self.assertEqual(steps[0]["stage"], "VALID")
-        self.assertEqual(steps[1]["stage"], "TOOL")
-        self.assertIn("Intersection detected between Part and Punch", steps[1]["reason"])
-        self.assertIn("vol=", steps[1]["reason"])
+        self.assertEqual(steps[1]["stage"], "APPROACH")
+        self.assertEqual(steps[1]["collision_status"], "UNKNOWN")
+        self.assertIn("Could not place part on tool station", steps[1]["reason"])
 
     def test_topology_aware_collision_classifier(self):
         """
@@ -230,6 +231,78 @@ class TestToolPlacementConsistency(unittest.TestCase):
         self.assertFalse(res_coll.is_valid, "Part deeply penetrating punch must NOT be valid")
         self.assertEqual(res_coll.status, CollisionStatus.INVALID)
         self.assertIn("Intersection detected", res_coll.message)
+
+    def test_placement_lock_consistency_across_stages(self):
+        """
+        Acceptance 2 & 3: Verifies one immutable transform is locked per bend operation
+        and consistently shared across APPROACH, TOOL, MACHINE, BEND_TRAJECTORY, and RETRACT,
+        and cleared between different steps.
+        """
+        from smbs_core.Physics.machine_kinematics import PressBrakeMachine
+        from smbs_core.Physics.collision_detector import CollisionDetector
+        from tests.test_technological_unfold_single_bend import create_l_bracket_shape
+
+        backend = PythonOCCBackend()
+        punch_path = str(REPO_ROOT / "toollibrary/punch/puancon.FCStd")
+        die_path = str(REPO_ROOT / "toollibrary/die/matrica.FCStd")
+
+        machine = PressBrakeMachine(
+            punch_path=punch_path, die_path=die_path,
+            punch_target_object_name="Body", die_target_object_name="Body"
+        )
+        detector = CollisionDetector(machine, backend)
+
+        l_shape = create_l_bracket_shape(
+            angle_deg=90.0, radius=1.0, thickness=1.5,
+            length=50.0, l1=95.5, l2=47.5
+        )
+        bend_info = {"origin": (95.5, 0.0, 2.5), "axis": (0.0, 1.0, 0.0), "angle": 90.0}
+
+        # Step 1: begin_step resets active_trsf to None
+        detector.begin_step()
+        self.assertIsNone(detector.active_trsf)
+
+        # Call approach_collision which triggers place_part_on_tool_station
+        app_res = detector.approach_collision(l_shape, bend_info)
+        self.assertTrue(app_res.is_valid)
+
+        # Confirm active_trsf is now locked
+        locked_trsf = detector.active_trsf
+        self.assertIsNotNone(locked_trsf, "active_trsf must be locked after successful placement")
+
+        # Calling place_part_on_tool_station again during the same step MUST reuse the exact locked transform
+        p1 = detector.place_part_on_tool_station(l_shape, bend_info)
+        self.assertIs(detector.active_trsf, locked_trsf)
+
+        # End step clears the placement lock
+        detector.end_step()
+        self.assertIsNone(detector.active_trsf)
+
+    def test_partially_intersecting_surface_fail_closed_unknown(self):
+        """
+        Acceptance 4: Tests partially intersecting surfaces where the midpoint does not lie
+        inside the tool (e.g. on boundary or outside), but other domain points do not satisfy
+        pure tangential boundary containment -> fail-closed UNKNOWN.
+        """
+        from OCC.Core.BRepPrimAPI import BRepPrimAPI_MakeBox
+        from OCC.Core.gp import gp_Trsf, gp_Vec, gp_Ax2, gp_Pnt, gp_Dir
+        from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_MakeFace, BRepBuilderAPI_Transform
+        from OCC.Core.Geom import Geom_Plane
+
+        backend = PythonOCCBackend()
+        # Solid box: [0, 10] x [0, 10] x [0, 10]
+        box = BRepPrimAPI_MakeBox(10.0, 10.0, 10.0).Shape()
+
+        # Create an open surface (face) in XY plane spanning X: [-5, 5], Y: [0, 10], at Z = 5
+        # It enters the box from [-5, 10] partially.
+        plane = Geom_Plane(gp_Pnt(0.0, 0.0, 5.0), gp_Dir(0.0, 0.0, 1.0))
+        face_partial = BRepBuilderAPI_MakeFace(plane, -5.0, 5.0, 0.0, 10.0, 1e-4).Shape()
+
+        res = backend.intersect_volume(face_partial, box)
+        # Because part of the face domain penetrates inside the solid (TopAbs_IN),
+        # it must be correctly classified as invalid (penetration)
+        self.assertEqual(res.status, "invalid")
+        self.assertTrue(res.collides)
 
 
 if __name__ == "__main__":

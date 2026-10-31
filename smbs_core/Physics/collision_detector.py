@@ -57,14 +57,17 @@ class CollisionDetector:
         self.backend = backend
         self._memo_panels: Dict[int, Tuple[Any, Dict[str, Any]]] = {}
         self.candidate_placement_logs: list = []
+        self.active_trsf: Optional[Any] = None
 
     def begin_step(self) -> None:
         self._memo_panels.clear()
         self.candidate_placement_logs.clear()
+        self.active_trsf = None
 
     def end_step(self) -> None:
         self._memo_panels.clear()
         self.candidate_placement_logs.clear()
+        self.active_trsf = None
 
     def _extract_panel_shapes(self, shape: Any, panel_graph: Any) -> Dict[str, Any]:
         panel_shapes = {}
@@ -234,6 +237,10 @@ class CollisionDetector:
             from OCC.Core.gp import gp_Pnt, gp_Dir, gp_Ax3, gp_Trsf
             from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_Transform
 
+            # If an active placement transform is already locked for this step, reuse it consistently
+            if self.active_trsf is not None:
+                return BRepBuilderAPI_Transform(shape, self.active_trsf, False).Shape()
+
             b_orig = bend_info.get("origin")
             b_axis = bend_info.get("axis")
             if not b_orig or not b_axis:
@@ -280,7 +287,6 @@ class CollisionDetector:
             # Try both signs of the bend axis: the part may be flipped 180° around
             # the tooling V-groove. This handles the case where axis_dir and v_dir_world
             # have opposite signs (e.g. +Y vs -Y — typical for fixture_l vs matrica.FCStd).
-            best_shape = None
             for axis_sign in (+1.0, -1.0):
                 eff_axis = gp_Dir(
                     axis_dir.X() * axis_sign,
@@ -335,12 +341,13 @@ class CollisionDetector:
                         "rejection_reason": rejection_reason,
                     })
 
+                    # Fail-closed: only accept candidate if it clears BOTH die and punch
                     if die_ok and punch_ok:
+                        self.active_trsf = trsf
                         return cand
-                    if die_ok and best_shape is None:
-                        best_shape = cand
 
-            return best_shape
+            # No candidate orientation cleared tooling without collision
+            return None
         except Exception as e:
             logger.debug(f"Could not transform part to tool station: {e}")
             return None
