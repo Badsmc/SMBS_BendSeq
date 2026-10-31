@@ -240,44 +240,78 @@ class PythonOCCBackend(GeometryBackend):
             props = GProp_GProps()
             brepgprop.VolumeProperties(result, props)
             vol = props.Mass()
-            collides = vol > 0.01
 
-            # Requirement 6: Topology-aware collision classification.
-            # Open face compounds can produce non-zero BRepGProp volume due to divergence
-            # integration even when no true solid penetration occurs (or surface-only touch).
-            # When intersection has no solids, check whether intersection face sample points
-            # penetrate the solid interior (TopAbs_IN) of shape1 or shape2.
-            if collides:
-                sol_exp = TopExp_Explorer(result, TopAbs_SOLID)
-                has_common_solids = sol_exp.More()
-                if not has_common_solids:
-                    tool_solid = None
-                    for s in (shape2, shape1):
-                        s_exp = TopExp_Explorer(s, TopAbs_SOLID)
-                        if s_exp.More():
-                            tool_solid = topods.Solid(s_exp.Current())
+            # Inspect topology of result and input shapes
+            sol_exp = TopExp_Explorer(result, TopAbs_SOLID)
+            has_common_solids = sol_exp.More()
+
+            # Find solid among shape1 and shape2
+            tool_solid = None
+            for s in (shape2, shape1):
+                s_exp = TopExp_Explorer(s, TopAbs_SOLID)
+                if s_exp.More():
+                    tool_solid = topods.Solid(s_exp.Current())
+                    break
+
+            f_exp = TopExp_Explorer(result, TopAbs_FACE)
+            has_common_faces = f_exp.More()
+
+            # Case A: Solid-Solid intersection with common solids
+            if has_common_solids:
+                collides = vol > 0.01
+                status = "invalid" if collides else "valid"
+                msg = f"Intersection detected (vol={vol:.4f} mm³)" if collides else "Clear"
+                return CollisionCheckResult(collides=collides, status=status, volume=vol, message=msg)
+
+            # Case B: Intersection with a solid shape present (open-shell-solid or solid-solid boundary)
+            if tool_solid is not None and not tool_solid.IsNull():
+                if has_common_faces:
+                    classifier = BRepClass3d_SolidClassifier(tool_solid)
+                    has_interior_penetration = False
+                    while f_exp.More():
+                        face = topods.Face(f_exp.Current())
+                        surf = BRepAdaptor_Surface(face)
+                        u_mid = (surf.FirstUParameter() + surf.LastUParameter()) / 2.0
+                        v_mid = (surf.FirstVParameter() + surf.LastVParameter()) / 2.0
+                        pnt = surf.Value(u_mid, v_mid)
+                        classifier.Perform(pnt, 1e-4)
+                        if classifier.State() == TopAbs_IN:
+                            has_interior_penetration = True
                             break
-                    if tool_solid is not None and not tool_solid.IsNull():
-                        classifier = BRepClass3d_SolidClassifier(tool_solid)
-                        has_interior_penetration = False
-                        f_exp = TopExp_Explorer(result, TopAbs_FACE)
-                        while f_exp.More():
-                            face = topods.Face(f_exp.Current())
-                            surf = BRepAdaptor_Surface(face)
-                            u_mid = (surf.FirstUParameter() + surf.LastUParameter()) / 2.0
-                            v_mid = (surf.FirstVParameter() + surf.LastVParameter()) / 2.0
-                            pnt = surf.Value(u_mid, v_mid)
-                            classifier.Perform(pnt, 1e-4)
-                            if classifier.State() == TopAbs_IN:
-                                has_interior_penetration = True
-                                break
-                            f_exp.Next()
-                        if not has_interior_penetration:
-                            collides = False
+                        f_exp.Next()
 
-            status = "invalid" if collides else "valid"
-            msg = f"Intersection detected (vol={vol:.4f} mm³)" if collides else "Clear"
-            return CollisionCheckResult(collides=collides, status=status, volume=vol, message=msg)
+                    if has_interior_penetration:
+                        return CollisionCheckResult(
+                            collides=True,
+                            status="invalid",
+                            volume=vol,
+                            message=f"Intersection detected (vol={vol:.4f} mm³)"
+                        )
+                    else:
+                        # Faces lie strictly on the boundary (TopAbs_ON) or outside -> tangent contact
+                        return CollisionCheckResult(
+                            collides=False,
+                            status="valid",
+                            volume=0.0,
+                            message="Clear (tangential contact on solid boundary)"
+                        )
+                else:
+                    # No common solids and no common faces (e.g. edge or point touch, or empty)
+                    collides = vol > 0.01
+                    status = "invalid" if collides else "valid"
+                    msg = f"Intersection detected (vol={vol:.4f} mm³)" if collides else "Clear"
+                    return CollisionCheckResult(collides=collides, status=status, volume=vol, message=msg)
+
+            # Case C: Neither shape1 nor shape2 contains a solid (e.g. open surface vs open surface)
+            if has_common_faces or vol > 0.01:
+                return CollisionCheckResult(
+                    collides=False,
+                    status="unknown",
+                    volume=vol,
+                    message="Ambiguous open-surface intersection without enclosing solid volume"
+                )
+
+            return CollisionCheckResult(collides=False, status="valid", volume=0.0, message="Clear")
         except Exception as e:
             logger.error(f"OCC intersect_volume exception: {e}")
             return CollisionCheckResult(collides=False, status="unknown", volume=0.0, message=f"OCC Exception: {e}")
