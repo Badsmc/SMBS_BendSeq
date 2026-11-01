@@ -209,12 +209,19 @@ class SolverWorker:
 
         # Check budget limits and planner termination reason (§6.5)
         res_reason = res.get("termination_reason")
-        if wall_time > budget.get("max_wall_time_s", 30.0) or res_reason == "TIME_EXHAUSTED":
-            planning_status = RunStatus.TIMEOUT
-            termination_reason = "TIME_EXHAUSTED"
-        elif res.get("success"):
+        if res.get("success"):
+            # Preserve a found candidate even when the search budget expires.
+            # Downstream verification still determines production eligibility.
             planning_status = RunStatus.SUCCESS
             termination_reason = "GOAL_REACHED"
+            if wall_time > timeout_s or res_reason == "TIME_EXHAUSTED":
+                diagnostics.append(
+                    "Search budget elapsed after finding a candidate; "
+                    "downstream verification is still required."
+                )
+        elif wall_time > timeout_s or res_reason == "TIME_EXHAUSTED":
+            planning_status = RunStatus.TIMEOUT
+            termination_reason = "TIME_EXHAUSTED"
         elif res_reason in ("RESOURCE_EXHAUSTED", "NODE_LIMIT_EXHAUSTED", "RESOURCE_LIMIT_EXHAUSTED"):
             planning_status = RunStatus.RESOURCE_EXHAUSTED
             termination_reason = "NODE_LIMIT_EXHAUSTED"
