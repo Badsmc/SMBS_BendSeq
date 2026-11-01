@@ -13,14 +13,17 @@ class TestPhase9Backgauge(unittest.TestCase):
     def test_backgauge_computed_from_geometry(self):
         bend_info = {"length": 100.0, "angle": 90.0, "geometry_confirmed": True}
         bg = self.calculator.compute_step_backgauge(1, bend_info, part_thickness=2.0)
-        self.assertTrue(bg["geometry_confirmed"])
-        self.assertIsNone(bg["warning"])
+        # P0-1: With no physical backgauge model on machine, geometry cannot be confirmed; returns UNKNOWN
+        self.assertFalse(bg["geometry_confirmed"])
+        self.assertEqual(bg["status"], "UNKNOWN")
+        self.assertIsNotNone(bg["warning"])
         self.assertGreater(bg["X_mm"], 0.0)
 
     def test_backgauge_marks_partial_when_uncertain(self):
         bend_info = {"length": 100.0, "angle": 90.0}
         bg = self.calculator.compute_step_backgauge(1, bend_info, part_thickness=2.0)
         self.assertFalse(bg["geometry_confirmed"])
+        self.assertEqual(bg["status"], "CALCULATED")
         self.assertIsNotNone(bg["warning"])
 
     def test_tool_optimizer_minimizes_stations(self):

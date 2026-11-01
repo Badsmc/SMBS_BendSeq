@@ -164,6 +164,41 @@ class PhysicalValidator:
                 candidate_count += 1
                 candidate_unknown = (self_res.status == CollisionStatus.UNKNOWN)
                 failure = None
+                # Candidate backgauge assessment
+                def _check_candidate_backgauge():
+                    from smbs_core.Physics.backgauge_calculator import BackgaugeCalculator
+                    from smbs_core.Physics.collision_detector import CollisionResult
+                    bg_calc = BackgaugeCalculator(self.machine)
+                    binfo = {
+                        "length": bend_record.length,
+                        "bend_id": bend_id,
+                        "origin": bend_record.axis_origin,
+                        "axis": bend_record.axis_direction,
+                        "signed_angle": bend_record.signed_angle,
+                    }
+                    cand_shape = getattr(self.detector, "place_part_on_tool_station", lambda s, b: None)(current_state.shape, binfo)
+                    part_th = bend_record.thickness if bend_record.thickness is not None else 2.0
+                    bg_res = bg_calc.compute_step_backgauge(
+                        step_number=1,
+                        bend_info=binfo,
+                        part_thickness=part_th,
+                        confirmed_geometry=True,
+                        placement_key=placement_key,
+                        placed_shape=cand_shape
+                    )
+                    # If coordinates exceed machine axis limits, fail candidate closed
+                    if bg_res.get("status") == "INVALID":
+                        return CollisionResult(CollisionStatus.INVALID, f"Backgauge limit exceeded: {bg_res.get('warning')}")
+
+                    # Check collision with physical backgauge fingers if present
+                    if hasattr(self.assembly, 'backgauge') and self.assembly.backgauge and getattr(self.assembly.backgauge, 'shape', None):
+                        coll_res = self.detector.backgauge_collision(cand_shape, self.assembly.backgauge.shape)
+                        if not coll_res.is_valid:
+                            return coll_res
+
+                    # Feasible / reachable
+                    return CollisionResult(CollisionStatus.VALID, "Backgauge candidate feasible")
+
                 for stage, check in (
                     ("APPROACH", lambda: approach),
                     ("TOOL", lambda: self.detector.tool_collision(unfolded_shape, bend_info, bend_id, panel_graph)),
@@ -172,6 +207,7 @@ class PhysicalValidator:
                         current_state.shape, bend_info, bend_id=bend_id,
                         panel_graph=panel_graph, dtheta=5.0)),
                     ("RETRACT", lambda: self.detector.retract_collision(unfolded_shape, bend_info)),
+                    ("BACKGAUGE", _check_candidate_backgauge),
                 ):
                     result = check()
                     if result.status == CollisionStatus.UNKNOWN:
@@ -200,6 +236,15 @@ class PhysicalValidator:
                         alignment_status=self.alignment_status,
                         has_unknown=candidate_unknown)
 
+                # Record stage and failure reason on candidate log if available
+                if self.detector.candidate_placement_logs:
+                    for cl in reversed(self.detector.candidate_placement_logs):
+                        if cl.get("placement_key") == placement_key:
+                            cl["status"] = "REJECTED"
+                            cl["rejection_stage"] = failure[0]
+                            cl["rejection_reason"] = failure[1].message
+                            break
+
                 failures.append(failure)
                 if is_mock:
                     break
@@ -207,10 +252,14 @@ class PhysicalValidator:
             # At most eight geometrically distinct orientation candidates exist in
             # the present two-sign/four-normal convention.
 
-            # A failed setup is not proof that any alternative bend order is impossible.
-            # Preserve UNKNOWN if no candidate could be fully verified.
-            unknowns = [(stage, res) for stage, res in failures if res.status == CollisionStatus.UNKNOWN]
-            if unknowns:
+            # Prioritize candidate-level physical invalidation stages (e.g. BACKGAUGE, TOOL, BEND_TRAJECTORY)
+            # over the terminal PLACEMENT sentinel when candidates were evaluated.
+            invalids = [(stg, res) for stg, res in failures if res.status == CollisionStatus.INVALID]
+            unknowns = [(stg, res) for stg, res in failures if res.status == CollisionStatus.UNKNOWN]
+            if invalids:
+                stage, result = invalids[0]
+                status = CollisionStatus.INVALID
+            elif unknowns:
                 stage, result = unknowns[0]
                 status = CollisionStatus.UNKNOWN
             elif failures:

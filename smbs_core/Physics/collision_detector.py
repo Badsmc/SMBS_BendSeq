@@ -57,12 +57,16 @@ class CollisionDetector:
         self.backend = backend
         self._memo_panels: Dict[int, Tuple[Any, Dict[str, Any]]] = {}
         self.candidate_placement_logs: list = []
+        self.candidate_placement_history: list = []
         self.active_trsf: Optional[Any] = None
         self.active_placement_key = None
         self._rejected_placements = set()
 
     def begin_step(self) -> None:
         self._memo_panels.clear()
+        # Preserve accumulated candidate placement history across steps while clearing per-step logs
+        if self.candidate_placement_logs:
+            self.candidate_placement_history.extend(self.candidate_placement_logs)
         self.candidate_placement_logs.clear()
         self.active_trsf = None
         self.active_placement_key = None
@@ -348,11 +352,13 @@ class CollisionDetector:
 
                     self.candidate_placement_logs.append({
                         "bend_id": bend_info.get("id"),
+                        "placement_key": placement_key,
                         "axis_sign": axis_sign,
                         "n_vec": n_vec,
                         "die_ok": die_ok,
                         "punch_ok": punch_ok,
                         "status": "VALID" if (die_ok and punch_ok) else "REJECTED",
+                        "rejection_stage": "APPROACH" if not (die_ok and punch_ok) else "VALID",
                         "rejection_reason": rejection_reason,
                     })
 
