@@ -1,6 +1,3 @@
-
-def _raise_incomplete(bend_id: str, field_name: str):
-    raise IncompleteBendError(f"Bend {bend_id} missing mandatory field '{field_name}' in Core/orchestrator.py")
 """
 orchestrator.py - Central Coordination Loop for Headless Bend Sequence Planning (SMBS Core)
 """
@@ -30,6 +27,12 @@ from smbs_core.Core.fold_state import FoldState
 from smbs_core.models.tooling import AlignmentStatus, GeometryStatus
 
 logger = logging.getLogger(__name__)
+
+
+def _raise_incomplete(bend_id: str, field_name: str) -> None:
+    raise IncompleteBendError(
+        f"Bend {bend_id} missing mandatory field '{field_name}' in Core/orchestrator.py"
+    )
 
 
 class BendSeqOrchestrator:
