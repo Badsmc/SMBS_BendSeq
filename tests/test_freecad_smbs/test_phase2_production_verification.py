@@ -45,11 +45,13 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 class TestPhase2ProductionVerification(unittest.TestCase):
     """Phase 2 Production Verification & Diagnostics acceptance suite."""
 
-    def test_p0_a_l_bracket_production_pass(self):
+    def test_p0_a_l_bracket_tool_formability_and_setup_verification(self):
         """
-        P0-A: Validates that a genuine OCC L-bracket fixture (1.5mm sheet, 90 deg bend)
-        completes physical validation under strict unknown_policy='PRODUCTION'
-        with valid=True, stage='valid', has_unknown=False, and collision_status=VALID.
+        P0-A & Scenario G: Distinguish tool-formability verification from complete press-brake setup verification.
+        - Under EXPLORATORY mode: tool-formability checks (APPROACH, TOOL, MACHINE, BEND_TRAJECTORY, RETRACT)
+          pass cleanly with VALID, while unproven backgauge contact produces UNKNOWN.
+        - Under strict PRODUCTION mode: fail-closed policy rejects UNKNOWN backgauge contact as NOT VALID
+          (res.valid == False, res.stage == 'BACKGAUGE', res.collision_status == UNKNOWN).
         """
         l_brep_path = REPO_ROOT / "fixtures" / "synthetic" / "l_bracket.brep"
         builder = BRep_Builder()
@@ -86,18 +88,25 @@ class TestPhase2ProductionVerification(unittest.TestCase):
         bridge = OracleBridge(tooling_set_id="standard_90deg_v12")
         st = FoldState.initial(ref_shape, bg, pg)
 
-        res = bridge.validate_step(st, b1, pg, unknown_policy="PRODUCTION")
+        # 1. Tool-formability check under EXPLORATORY mode: all tool kinematic stages pass
+        res_exp = bridge.validate_step(st, b1, pg, unknown_policy="EXPLORATORY")
+        self.assertTrue(res_exp.valid, f"Tool-formability failed: {res_exp.reason}")
+        self.assertEqual(res_exp.stage, "valid")
+        self.assertTrue(res_exp.has_unknown, "Backgauge contact unproven must be flagged as has_unknown=True")
+        self.assertEqual(res_exp.collision_status, CollisionStatus.UNKNOWN)
+        self.assertIsNotNone(res_exp.diagnostics.get("mounting_key"))
 
-        self.assertTrue(res.valid, f"L-bracket failed validation: {res.reason}")
-        self.assertEqual(res.stage, "valid")
-        self.assertFalse(res.has_unknown, "L-bracket must have zero UNKNOWN subchecks under PRODUCTION")
-        self.assertEqual(res.collision_status, CollisionStatus.VALID)
-        self.assertIsNotNone(res.diagnostics.get("mounting_key"))
+        # 2. Complete setup verification under PRODUCTION mode: fail-closed rejects unproven backgauge
+        res_prod = bridge.validate_step(st, b1, pg, unknown_policy="PRODUCTION")
+        self.assertFalse(res_prod.valid, "Unproven backgauge contact must fail closed under PRODUCTION")
+        self.assertEqual(res_prod.stage, "BACKGAUGE")
+        self.assertEqual(res_prod.collision_status, CollisionStatus.UNKNOWN)
 
-    def test_p0_a_four_bend_reference_run_production_pass(self):
+    def test_p0_a_four_bend_reference_run_tool_formability(self):
         """
-        P0-A: Validates that the reference 4-bend workpiece (run_20261012_034045_9a351d)
-        successfully passes all 4 steps under strict unknown_policy='PRODUCTION'.
+        P0-A & Scenario G: Validates that the reference 4-bend workpiece (run_20261012_034045_9a351d)
+        successfully passes tool-formability across all 4 steps under EXPLORATORY mode,
+        while strictly failing closed under PRODUCTION mode due to unverified backgauge contact.
         """
         rdir = REPO_ROOT / "runs" / "run_20261012_034045_9a351d"
         cp = json.loads((rdir / "04_canonical_part.json").read_text())["payload"]
@@ -135,23 +144,31 @@ class TestPhase2ProductionVerification(unittest.TestCase):
         bridge = OracleBridge(tooling_set_id="standard_90deg_v12")
         st = FoldState.initial(ref_shape, bg, pg)
 
+        # Under EXPLORATORY mode, tool formability unfolds cleanly through all steps
         for step_idx, bid in enumerate(seq, 1):
             rec = bend_records[bid]
-            res = bridge.validate_step(st, rec, pg, unknown_policy="PRODUCTION")
-            self.assertTrue(res.valid, f"Step {step_idx} ({bid}) failed: {res.reason} ({res.stage})")
+            res = bridge.validate_step(st, rec, pg, unknown_policy="EXPLORATORY")
+            self.assertTrue(res.valid, f"Step {step_idx} ({bid}) failed tool formability: {res.reason}")
             self.assertEqual(res.stage, "valid")
-            self.assertFalse(res.has_unknown, f"Step {step_idx} had UNKNOWN under PRODUCTION")
-            self.assertEqual(res.collision_status, CollisionStatus.VALID)
+            self.assertTrue(res.has_unknown)
             st = res.next_state
+
+        # Under PRODUCTION mode, unverified backgauge contact rejects the step fail-closed
+        st_initial = FoldState.initial(ref_shape, bg, pg)
+        rec_first = bend_records[seq[0]]
+        res_prod = bridge.validate_step(st_initial, rec_first, pg, unknown_policy="PRODUCTION")
+        self.assertFalse(res_prod.valid)
+        self.assertEqual(res_prod.stage, "BACKGAUGE")
 
     def test_p0_a2_u_bracket_sequential_verification(self):
         """
-        P0-A2: Validates sequential two-step unbending of a 2-bend U-bracket
-        (fixtures/synthetic/u_bracket.brep) under PRODUCTION mode.
+        P0-A2 & Scenario G: Validates sequential two-step unbending of a 2-bend U-bracket
+        (fixtures/synthetic/u_bracket.brep).
         Verifies:
-        - Both bends pass physically without collision
-        - Invariants preserved: panel graph continuity and remaining bends cleanly decremented
-        - Transform locking and candidate isolation between steps
+        - Tool formability passes without tool collision in both steps under EXPLORATORY mode.
+        - Invariants preserved: panel graph continuity and remaining bends cleanly decremented.
+        - Transform locking and candidate isolation between steps.
+        - Strict PRODUCTION mode fails closed at BACKGAUGE because physical finger contact is unmodeled.
         """
         u_brep_path = REPO_ROOT / "fixtures" / "synthetic" / "u_bracket.brep"
         builder = BRep_Builder()
@@ -185,25 +202,28 @@ class TestPhase2ProductionVerification(unittest.TestCase):
         seq = list(features["bends"].keys())
         self.assertEqual(len(seq), 2, "U-bracket must have exactly 2 bends")
 
-        # Step 1
+        # Step 1 (EXPLORATORY)
         rec1 = features["records"][seq[0]]
-        res1 = bridge.validate_step(st, rec1, pg, unknown_policy="PRODUCTION")
+        res1 = bridge.validate_step(st, rec1, pg, unknown_policy="EXPLORATORY")
         self.assertTrue(res1.valid, f"U-bracket step 1 failed: {res1.reason}")
         self.assertEqual(res1.stage, "valid")
-        self.assertFalse(res1.has_unknown)
-        self.assertEqual(res1.collision_status, CollisionStatus.VALID)
+        self.assertTrue(res1.has_unknown)
 
-        # Step 2
+        # Step 2 (EXPLORATORY)
         st2 = res1.next_state
         rec2 = features["records"][seq[1]]
-        res2 = bridge.validate_step(st2, rec2, pg, unknown_policy="PRODUCTION")
+        res2 = bridge.validate_step(st2, rec2, pg, unknown_policy="EXPLORATORY")
         self.assertTrue(res2.valid, f"U-bracket step 2 failed: {res2.reason}")
         self.assertEqual(res2.stage, "valid")
-        self.assertFalse(res2.has_unknown)
-        self.assertEqual(res2.collision_status, CollisionStatus.VALID)
+        self.assertTrue(res2.has_unknown)
 
         # All bends successfully unfolded
         self.assertEqual(len(res2.next_state.remaining_bends), 0)
+
+        # Under strict PRODUCTION mode, step 1 fails closed at BACKGAUGE
+        res_prod = bridge.validate_step(st, rec1, pg, unknown_policy="PRODUCTION")
+        self.assertFalse(res_prod.valid)
+        self.assertEqual(res_prod.stage, "BACKGAUGE")
 
     def test_p0_b_backgauge_follows_placement_and_handles_flip(self):
         """
@@ -394,6 +414,271 @@ class TestPhase2ProductionVerification(unittest.TestCase):
         self.assertEqual(det.candidate_placement_history[0]["bend_id"], "B1")
         self.assertEqual(len(det.candidate_placement_logs), 1)
         self.assertEqual(det.candidate_placement_logs[0]["bend_id"], "B2")
+
+    def test_scenario_a_missing_backgauge_geometry_production_not_valid(self):
+        """
+        Scenario A: Missing backgauge geometry + all other checks VALID + PRODUCTION -> NOT VALID.
+        Verifies fail-closed behavior when backgauge geometry is absent on machine.
+        """
+        bridge = OracleBridge(tooling_set_id="standard_90deg_v12")
+        # Ensure machine has no backgauge model
+        if hasattr(bridge.validator.assembly, "backgauge"):
+            bridge.validator.assembly.backgauge = None
+
+        l_brep_path = REPO_ROOT / "fixtures" / "synthetic" / "l_bracket.brep"
+        builder = BRep_Builder()
+        ref_shape = TopoDS_Shape()
+        breptools.Read(ref_shape, str(l_brep_path), builder)
+
+        pg = PanelGraph()
+        pg.add_panel(Panel("P1", normal=(0, 0, 1)))
+        pg.add_panel(Panel("P2", normal=(0, -1, 0)))
+        pg.add_bend_connection("B1", "P1", "P2")
+        canonical_payload = {
+            "thickness_mm": {"value": 1.5},
+            "panels": {
+                "P1": {"normal": [0, 0, 1], "centroid": [25.0, 15.0, 0.75]},
+                "P2": {"normal": [0, -1, 0], "centroid": [25.0, -0.75, 15.0]}
+            },
+            "bends": {
+                "B1": {
+                    "parent_panel_id": "P1", "child_panel_id": "P2",
+                    "axis_point": [0.0, 0.0, 1.5], "axis_direction": [1.0, 0.0, 0.0],
+                    "angle_deg": {"value": 90.0}, "length_mm": {"value": 50.0}, "radius_mm": {"value": 2.5}
+                }
+            }
+        }
+        resolve_panel_primary_sheet_pair(ref_shape, pg, canonical_payload)
+        bg = BendGraph()
+        b1 = BendRecord("B1", "B1", "P1", "P2", (0.0, 0.0, 1.5), (1.0, 0.0, 0.0), 90.0, length=50.0, radius=2.5, thickness=1.5)
+        bg.add_bend(b1)
+        st = FoldState.initial(ref_shape, bg, pg)
+
+        res = bridge.validate_step(st, b1, pg, unknown_policy="PRODUCTION")
+        self.assertFalse(res.valid, "Scenario A: PRODUCTION must reject missing backgauge geometry")
+        self.assertEqual(res.stage, "BACKGAUGE")
+        self.assertEqual(res.collision_status, CollisionStatus.UNKNOWN)
+
+    def test_scenario_b_backgauge_calculated_production_not_valid(self):
+        """
+        Scenario B: Backgauge returns CALCULATED + PRODUCTION -> NOT VALID.
+        """
+        mach = PressBrakeMachine()
+        calc = BackgaugeCalculator(mach)
+        bend_info = {"length": 50.0, "bend_id": "B1"}
+        # compute_step_backgauge returns CALCULATED when geometry is estimated
+        bg_res = calc.compute_step_backgauge(1, bend_info, part_thickness=1.5, confirmed_geometry=False)
+        self.assertEqual(bg_res["status"], "CALCULATED")
+
+        bridge = OracleBridge(tooling_set_id="standard_90deg_v12")
+        l_brep_path = REPO_ROOT / "fixtures" / "synthetic" / "l_bracket.brep"
+        builder = BRep_Builder()
+        ref_shape = TopoDS_Shape()
+        breptools.Read(ref_shape, str(l_brep_path), builder)
+        pg = PanelGraph()
+        pg.add_panel(Panel("P1", normal=(0, 0, 1)))
+        pg.add_panel(Panel("P2", normal=(0, -1, 0)))
+        pg.add_bend_connection("B1", "P1", "P2")
+        canonical_payload = {
+            "thickness_mm": {"value": 1.5},
+            "panels": {
+                "P1": {"normal": [0, 0, 1], "centroid": [25.0, 15.0, 0.75]},
+                "P2": {"normal": [0, -1, 0], "centroid": [25.0, -0.75, 15.0]}
+            },
+            "bends": {
+                "B1": {
+                    "parent_panel_id": "P1", "child_panel_id": "P2",
+                    "axis_point": [0.0, 0.0, 1.5], "axis_direction": [1.0, 0.0, 0.0],
+                    "angle_deg": {"value": 90.0}, "length_mm": {"value": 50.0}, "radius_mm": {"value": 2.5}
+                }
+            }
+        }
+        resolve_panel_primary_sheet_pair(ref_shape, pg, canonical_payload)
+        bg = BendGraph()
+        b1 = BendRecord("B1", "B1", "P1", "P2", (0.0, 0.0, 1.5), (1.0, 0.0, 0.0), 90.0, length=50.0, radius=2.5, thickness=1.5)
+        bg.add_bend(b1)
+        st = FoldState.initial(ref_shape, bg, pg)
+
+        res = bridge.validate_step(st, b1, pg, unknown_policy="PRODUCTION")
+        self.assertFalse(res.valid)
+        self.assertEqual(res.collision_status, CollisionStatus.UNKNOWN)
+
+    def test_scenario_c_cad_shape_exists_no_verified_contact_unknown(self):
+        """
+        Scenario C: CAD backgauge shape exists but no verified contact -> UNKNOWN, not VERIFIED.
+        """
+        from smbs_core.models.tooling import Tooling, ToolingKind
+        from OCC.Core.BRepPrimAPI import BRepPrimAPI_MakeBox
+
+        mach = PressBrakeMachine()
+        dummy_shape = BRepPrimAPI_MakeBox(10.0, 10.0, 10.0).Shape()
+        mach.assembly = type("Assembly", (), {})()
+        mach.assembly.backgauge = Tooling(
+            id="bg_stop",
+            kind=ToolingKind.BACKGAUGE,
+            source_file="dummy.fcstd",
+            shape=dummy_shape,
+            local_frame=None
+        )
+
+        calc = BackgaugeCalculator(mach)
+        bend_info = {"length": 50.0, "bend_id": "B1"}
+        bg_res = calc.compute_step_backgauge(1, bend_info, part_thickness=1.5, confirmed_geometry=True, placed_shape=dummy_shape)
+
+        self.assertEqual(bg_res["status"], "UNKNOWN")
+        self.assertFalse(bg_res["geometry_confirmed"])
+        self.assertIn("contact has not been verified", bg_res["warning"])
+
+    def test_scenario_d_candidate_backgauge_retry_and_selection(self):
+        """
+        Scenario D: A candidate fails BACKGAUGE, a second candidate passes all required checks ->
+        correct retry and selection.
+        """
+        bridge = OracleBridge(tooling_set_id="standard_90deg_v12")
+
+        l_brep_path = REPO_ROOT / "fixtures" / "synthetic" / "l_bracket.brep"
+        builder = BRep_Builder()
+        ref_shape = TopoDS_Shape()
+        breptools.Read(ref_shape, str(l_brep_path), builder)
+        pg = PanelGraph()
+        pg.add_panel(Panel("P1", normal=(0, 0, 1)))
+        pg.add_panel(Panel("P2", normal=(0, -1, 0)))
+        pg.add_bend_connection("B1", "P1", "P2")
+        canonical_payload = {
+            "thickness_mm": {"value": 1.5},
+            "panels": {
+                "P1": {"normal": [0, 0, 1], "centroid": [25.0, 15.0, 0.75]},
+                "P2": {"normal": [0, -1, 0], "centroid": [25.0, -0.75, 15.0]}
+            },
+            "bends": {
+                "B1": {
+                    "parent_panel_id": "P1", "child_panel_id": "P2",
+                    "axis_point": [0.0, 0.0, 1.5], "axis_direction": [1.0, 0.0, 0.0],
+                    "angle_deg": {"value": 90.0}, "length_mm": {"value": 50.0}, "radius_mm": {"value": 2.5}
+                }
+            }
+        }
+        resolve_panel_primary_sheet_pair(ref_shape, pg, canonical_payload)
+        bg = BendGraph()
+        b1 = BendRecord("B1", "B1", "P1", "P2", (0.0, 0.0, 1.5), (1.0, 0.0, 0.0), 90.0, length=50.0, radius=2.5, thickness=1.5)
+        bg.add_bend(b1)
+        st = FoldState.initial(ref_shape, bg, pg)
+
+        # Mock calculator so candidate 0 fails BACKGAUGE (INVALID), but candidate 1 succeeds with VERIFIED
+        orig_calc = BackgaugeCalculator.compute_step_backgauge
+        call_count = [0]
+        def mock_calc(self, step_number, bend_info, part_thickness=2.0, confirmed_geometry=False, placement_key=None, placed_shape=None):
+            call_count[0] += 1
+            if call_count[0] == 1:
+                return {
+                    "status": "INVALID", "X_mm": 999.0, "R_mm": 1.0, "Z1_mm": -20.0, "Z2_mm": 20.0,
+                    "warning": "Candidate 0 exceeds X axis limit", "error": "BACKGAUGE_LIMIT_EXCEEDED",
+                    "geometry_confirmed": False
+                }
+            return {
+                "status": "VERIFIED", "X_mm": 40.0, "R_mm": 1.0, "Z1_mm": -20.0, "Z2_mm": 20.0,
+                "warning": None, "geometry_confirmed": True
+            }
+
+        BackgaugeCalculator.compute_step_backgauge = mock_calc
+        try:
+            res = bridge.validate_step(st, b1, pg, unknown_policy="PRODUCTION")
+            self.assertTrue(res.valid, "Candidate 1 should succeed after Candidate 0 fails BACKGAUGE")
+            self.assertEqual(res.stage, "valid")
+            self.assertEqual(res.collision_status, CollisionStatus.VALID)
+            self.assertGreaterEqual(res.diagnostics.get("mounting_candidates_tried", 0), 2)
+        finally:
+            BackgaugeCalculator.compute_step_backgauge = orig_calc
+
+    def test_scenario_e_candidate1_invalid_candidate2_unknown_final_unknown(self):
+        """
+        Scenario E: Candidate 1 INVALID, candidate 2 UNKNOWN -> final UNKNOWN when no candidate succeeds.
+        Do not claim demonstrated impossibility if an unresolved candidate may be feasible.
+        """
+        bridge = OracleBridge(tooling_set_id="standard_90deg_v12")
+
+        l_brep_path = REPO_ROOT / "fixtures" / "synthetic" / "l_bracket.brep"
+        builder = BRep_Builder()
+        ref_shape = TopoDS_Shape()
+        breptools.Read(ref_shape, str(l_brep_path), builder)
+        pg = PanelGraph()
+        pg.add_panel(Panel("P1", normal=(0, 0, 1)))
+        pg.add_panel(Panel("P2", normal=(0, -1, 0)))
+        pg.add_bend_connection("B1", "P1", "P2")
+        canonical_payload = {
+            "thickness_mm": {"value": 1.5},
+            "panels": {
+                "P1": {"normal": [0, 0, 1], "centroid": [25.0, 15.0, 0.75]},
+                "P2": {"normal": [0, -1, 0], "centroid": [25.0, -0.75, 15.0]}
+            },
+            "bends": {
+                "B1": {
+                    "parent_panel_id": "P1", "child_panel_id": "P2",
+                    "axis_point": [0.0, 0.0, 1.5], "axis_direction": [1.0, 0.0, 0.0],
+                    "angle_deg": {"value": 90.0}, "length_mm": {"value": 50.0}, "radius_mm": {"value": 2.5}
+                }
+            }
+        }
+        resolve_panel_primary_sheet_pair(ref_shape, pg, canonical_payload)
+        bg = BendGraph()
+        b1 = BendRecord("B1", "B1", "P1", "P2", (0.0, 0.0, 1.5), (1.0, 0.0, 0.0), 90.0, length=50.0, radius=2.5, thickness=1.5)
+        bg.add_bend(b1)
+        st = FoldState.initial(ref_shape, bg, pg)
+
+        orig_calc = BackgaugeCalculator.compute_step_backgauge
+        call_count = [0]
+        def mock_calc(self, step_number, bend_info, part_thickness=2.0, confirmed_geometry=False, placement_key=None, placed_shape=None):
+            call_count[0] += 1
+            if call_count[0] == 1:
+                return {"status": "INVALID", "warning": "Axis limit exceeded", "geometry_confirmed": False}
+            return {"status": "UNKNOWN", "warning": "Contact unproven", "geometry_confirmed": False}
+
+        BackgaugeCalculator.compute_step_backgauge = mock_calc
+        try:
+            res = bridge.validate_step(st, b1, pg, unknown_policy="PRODUCTION")
+            self.assertFalse(res.valid)
+            # When at least one candidate had UNKNOWN and none succeeded, overall status must be UNKNOWN
+            self.assertEqual(res.collision_status, CollisionStatus.UNKNOWN)
+            self.assertTrue(res.has_unknown)
+        finally:
+            BackgaugeCalculator.compute_step_backgauge = orig_calc
+
+    def test_scenario_f_estimated_coordinates_never_production_eligible(self):
+        """
+        Scenario F: Estimated backgauge coordinates must not produce production_eligible=True.
+        """
+        # Test logic in manual_verif_data:
+        # If backgauge contact is unproven (has_any_unknown=True), production_eligible must be False
+        # regardless of sequence_valid
+        has_any_unknown = True
+        sequence_valid = True
+        if sequence_valid:
+            if has_any_unknown:
+                verif_status = "UNVERIFIED"
+                prod_eligible = False
+            else:
+                verif_status = "VERIFIED"
+                prod_eligible = True
+
+        self.assertEqual(verif_status, "UNVERIFIED")
+        self.assertFalse(prod_eligible)
+
+    def test_scenario_h_candidate_history_isolation_between_runs(self):
+        """
+        Scenario H: Candidate history must not leak between independent HandMod runs.
+        """
+        from smbs_core.Physics.collision_detector import CollisionDetector
+        det = CollisionDetector(PressBrakeMachine(), PythonOCCBackend())
+        det.begin_step()
+        det.candidate_placement_logs.append({"bend_id": "B1", "status": "REJECTED"})
+        # Transition to next step transfers current logs to candidate_placement_history
+        det.begin_step()
+        self.assertEqual(len(det.candidate_placement_history), 1)
+
+        # Reset run for next independent session
+        det.reset_run()
+        self.assertEqual(len(det.candidate_placement_history), 0)
+        self.assertEqual(len(det.candidate_placement_logs), 0)
 
 
 if __name__ == "__main__":

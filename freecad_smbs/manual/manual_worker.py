@@ -327,6 +327,8 @@ class ManualSequenceWorker:
             bend_records[bid] = rec
 
         bridge = OracleBridge(machine=manual_input.machine, tooling_set_id=tooling_id)
+        if hasattr(bridge.validator, "detector") and hasattr(bridge.validator.detector, "reset_run"):
+            bridge.validator.detector.reset_run()
         bg_calc = BackgaugeCalculator(bridge.machine)
         current_state = FoldState.initial(target_shape, bend_graph, panel_graph)
 
@@ -380,11 +382,13 @@ class ManualSequenceWorker:
                 "origin": bend_rec.axis_origin if bend_rec else (0.0, 0.0, 0.0),
                 "axis": bend_rec.axis_direction if bend_rec else (0.0, 1.0, 0.0),
             }
+            # Backgauge physical contact verification is independent of bend formability.
+            # Never treat successful bend validation alone as proof of backgauge contact.
             bg_data = bg_calc.compute_step_backgauge(
                 step_number=order_idx,
                 bend_info=binfo,
                 part_thickness=thickness_val,
-                confirmed_geometry=val_res.valid,
+                confirmed_geometry=False,
                 placement_key=chosen_mounting_key
             )
 
@@ -504,12 +508,28 @@ class ManualSequenceWorker:
         self.file_store.write_json_atomic(search_result_file, search_result_data, schema_name="search_result")
 
         # Emit 09_manual_verification_result.json (K4 / Option A)
+        # Authoritative semantics:
+        # - VERIFIED: Manual sequence verified
+        # - PHYSICALLY_INVALID: Manual sequence physically invalid (definite mechanical violation)
+        # - UNVERIFIED: Manual sequence unverified (at least one check/candidate UNKNOWN, or backgauge unproven)
         if sequence_valid:
-            verif_status = "PASSED_WITH_UNKNOWN" if has_any_unknown else "PASSED"
-            prod_eligible = True if verif_status == "PASSED" else False
+            if has_any_unknown:
+                verif_status = "UNVERIFIED"
+                detailed_status = "MANUAL_SEQUENCE_UNVERIFIED"
+                prod_eligible = False
+            else:
+                verif_status = "VERIFIED"
+                detailed_status = "MANUAL_SEQUENCE_VERIFIED"
+                prod_eligible = True
         else:
-            verif_status = "FAILED"
-            prod_eligible = False
+            if has_any_unknown:
+                verif_status = "UNVERIFIED"
+                detailed_status = "MANUAL_SEQUENCE_UNVERIFIED"
+                prod_eligible = False
+            else:
+                verif_status = "PHYSICALLY_INVALID"
+                detailed_status = "MANUAL_SEQUENCE_PHYSICALLY_INVALID"
+                prod_eligible = False
 
         # Gather complete candidate history from all steps
         hist = getattr(bridge.validator.detector, "candidate_placement_history", [])
@@ -530,7 +550,9 @@ class ManualSequenceWorker:
             "created_at": datetime.now(timezone.utc).isoformat(),
             "payload": {
                 "verification_status": verif_status,
+                "detailed_status": detailed_status,
                 "production_eligible": prod_eligible,
+                "sequence_explored_scope": "SPECIFIED_MANUAL_SEQUENCE_ONLY",
                 "step_verifications": step_verifications,
                 "candidate_placement_evaluations": all_candidate_logs,
                 "has_unknown": has_any_unknown,

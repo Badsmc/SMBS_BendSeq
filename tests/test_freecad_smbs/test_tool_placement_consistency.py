@@ -89,12 +89,12 @@ class TestToolPlacementConsistency(unittest.TestCase):
 
         res = run_manual_sequence_on_fcstd(
             self.box_path,
-            ManualSequenceInput(reordered, tooling_set_id="standard_90deg_v12", unknown_policy="PRODUCTION"),
+            ManualSequenceInput(reordered, tooling_set_id="standard_90deg_v12", unknown_policy="EXPLORATORY"),
             out_runs_dir=self.temp_runs,
         )
 
         # Step 2 has no feasible collision-free placement across all candidate orientations
-        # and therefore fails closed at PLACEMENT with UNKNOWN/NO_SOLUTION under PRODUCTION policy
+        # and therefore fails closed at PLACEMENT with UNKNOWN/NO_SOLUTION under EXPLORATORY policy
         self.assertFalse(res.ok)
         self.assertEqual(res.planning_status, "NO_SOLUTION")
 

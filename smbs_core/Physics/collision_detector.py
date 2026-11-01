@@ -62,6 +62,15 @@ class CollisionDetector:
         self.active_placement_key = None
         self._rejected_placements = set()
 
+    def reset_run(self) -> None:
+        """Clear all step logs and candidate history for a clean run."""
+        self._memo_panels.clear()
+        self.candidate_placement_logs.clear()
+        self.candidate_placement_history.clear()
+        self.active_trsf = None
+        self.active_placement_key = None
+        self._rejected_placements.clear()
+
     def begin_step(self) -> None:
         self._memo_panels.clear()
         # Preserve accumulated candidate placement history across steps while clearing per-step logs
