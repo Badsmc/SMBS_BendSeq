@@ -50,6 +50,8 @@ class BackgaugeCalculator:
         - Only returns status='VERIFIED' and geometry_confirmed=True when physical contact
           with a verified backgauge stop is confirmed.
         """
+        if not confirmed_geometry and bend_info.get("geometry_confirmed"):
+            confirmed_geometry = True
         bend_length = bend_info.get("length", 100.0)
         
         v_width = 12.0
@@ -60,8 +62,12 @@ class BackgaugeCalculator:
                 v_width = float(self.machine.die.metadata["v_width_mm"])
 
         # Determine reference edge & dimension
-        # If placed_shape is provided, derive contact bounds along machine X
-        flange_depth = max(20.0, bend_length * 0.5)
+        # In machine coordinate frame, V-die groove lies at Y=0 (or X=0 depending on station orientation).
+        # Analytical estimated flange depth based on bend geometry
+        flange_depth_estimate = max(20.0, bend_length * 0.5)
+        flange_depth = flange_depth_estimate
+        derived_from_shape = False
+
         if placed_shape is not None:
             try:
                 from OCC.Core.BRepBndLib import brepbndlib
@@ -70,9 +76,12 @@ class BackgaugeCalculator:
                 brepbndlib.Add(placed_shape, bbox)
                 if not bbox.IsVoid():
                     xmin, ymin, zmin, xmax, ymax, zmax = bbox.Get()
-                    # Machine coordinate convention: rear stop is along negative or positive X depending on frame.
-                    # Workpiece rear flange extension:
-                    flange_depth = max(flange_depth, abs(xmin))
+                    # In press brake coordinate convention:
+                    # tooling centerline is at Y=0 (or X=0).
+                    # Rear stop extends backward along the machine depth axis (negative X/Y depending on frame).
+                    # Measure rear extension from tooling station reference:
+                    flange_depth = max(flange_depth_estimate, abs(xmin))
+                    derived_from_shape = True
             except Exception:
                 pass
 
@@ -94,9 +103,26 @@ class BackgaugeCalculator:
         touch_point_1 = (x_mm, z1_mm, r_mm)
         touch_point_2 = (x_mm, z2_mm, r_mm)
 
-        # Honest limit validation: DO NOT silently clamp out-of-range coordinates
-        x_limit = getattr(self.machine, 'backgauge_x_max_mm', 800.0)
-        r_limit = getattr(self.machine, 'backgauge_r_max_mm', 250.0)
+        # Honest limit validation: DO NOT silently clamp out-of-range coordinates.
+        # If machine axis limits are unknown/missing, they cannot be silently treated as verified.
+        x_limit = getattr(self.machine, 'backgauge_x_max_mm', None)
+        r_limit = getattr(self.machine, 'backgauge_r_max_mm', None)
+
+        if x_limit is None or r_limit is None:
+            return {
+                "status": "UNKNOWN",
+                "X_mm": x_mm,
+                "R_mm": r_mm,
+                "Z1_mm": z1_mm,
+                "Z2_mm": z2_mm,
+                "finger_touch_point_1": touch_point_1,
+                "finger_touch_point_2": touch_point_2,
+                "part_stability_score": 0.0,
+                "reference_edge": "REAR_FLANGE_PARALLEL",
+                "geometry_confirmed": False,
+                "warning": "Machine backgauge axis limits (X/R) are undefined; reachability cannot be verified.",
+                "error": "BACKGAUGE_AXIS_LIMITS_UNDEFINED"
+            }
 
         if x_mm > x_limit or r_mm > r_limit or x_mm < 0.0 or r_mm < 0.0:
             return {
@@ -114,27 +140,34 @@ class BackgaugeCalculator:
                 "error": "BACKGAUGE_LIMIT_EXCEEDED"
             }
 
-        # Check physical backgauge tool presence on machine
+        # Check physical backgauge tool presence and proven physical contact
         has_backgauge_geom = False
+        physical_contact_proven = False
         if hasattr(self.machine, 'assembly') and self.machine.assembly:
-            from smbs_core.models.tooling import ToolingKind
             bg_tool = getattr(self.machine.assembly, 'backgauge', None)
             if bg_tool and not getattr(bg_tool, 'shape', None) is None:
                 has_backgauge_geom = True
+                # Physical contact verification: requires actual geometric contact check with stop face
+                if placed_shape is not None and hasattr(self.machine.assembly, 'check_backgauge_contact'):
+                    physical_contact_proven = self.machine.assembly.check_backgauge_contact(placed_shape, bg_tool)
 
         stability_score = 0.95 if (z2_mm - z1_mm) >= 50.0 else 0.60
 
-        # Invariant P0-1:
+        # Invariants P0-1 & P0-2:
         # Successful bend validation does NOT prove backgauge contact.
-        # Only mark VERIFIED if physical contact with verified backgauge geometry occurred.
-        # If estimated or backgauge geometry unavailable, distinguish CALCULATED vs UNKNOWN.
-        req_confirmed = confirmed_geometry or bend_info.get("geometry_confirmed", False)
-        if req_confirmed and has_backgauge_geom:
+        # CAD backgauge shape existence does NOT prove verified contact without actual contact evidence.
+        # Only mark VERIFIED if real physical contact and required axis/geometry checks are proven.
+        if physical_contact_proven:
             status = "VERIFIED"
             is_confirmed = True
             warning_msg = None
-        elif req_confirmed and not has_backgauge_geom:
-            # Explicit UNKNOWN with missing requirements
+        elif has_backgauge_geom:
+            # Backgauge CAD model exists but physical contact simulation is not verified
+            status = "UNKNOWN"
+            is_confirmed = False
+            warning_msg = "Backgauge CAD geometry exists, but physical contact has not been verified."
+        elif confirmed_geometry:
+            # Caller requested confirmation, but backgauge geometry is absent on machine
             status = "UNKNOWN"
             is_confirmed = False
             warning_msg = "Backgauge geometry is unavailable on machine assembly; physical finger contact cannot be verified."

@@ -186,18 +186,26 @@ class PhysicalValidator:
                         placement_key=placement_key,
                         placed_shape=cand_shape
                     )
-                    # If coordinates exceed machine axis limits, fail candidate closed
-                    if bg_res.get("status") == "INVALID":
-                        return CollisionResult(CollisionStatus.INVALID, f"Backgauge limit exceeded: {bg_res.get('warning')}")
 
-                    # Check collision with physical backgauge fingers if present
-                    if hasattr(self.assembly, 'backgauge') and self.assembly.backgauge and getattr(self.assembly.backgauge, 'shape', None):
-                        coll_res = self.detector.backgauge_collision(cand_shape, self.assembly.backgauge.shape)
-                        if not coll_res.is_valid:
-                            return coll_res
+                    bg_status = bg_res.get("status", "UNKNOWN")
 
-                    # Feasible / reachable
-                    return CollisionResult(CollisionStatus.VALID, "Backgauge candidate feasible")
+                    # Explicit fail-closed status mapping:
+                    # - INVALID -> INVALID
+                    if bg_status == "INVALID":
+                        return CollisionResult(CollisionStatus.INVALID, f"Backgauge limit exceeded or invalid: {bg_res.get('warning')}")
+
+                    # - VERIFIED -> VALID only when real physical contact and required checks are proven
+                    if bg_status == "VERIFIED":
+                        # Check collision with physical backgauge fingers if present
+                        if hasattr(self.assembly, 'backgauge') and self.assembly.backgauge and getattr(self.assembly.backgauge, 'shape', None):
+                            coll_res = self.detector.backgauge_collision(cand_shape, self.assembly.backgauge.shape)
+                            if not coll_res.is_valid:
+                                return coll_res
+                        return CollisionResult(CollisionStatus.VALID, "Backgauge candidate verified")
+
+                    # - UNKNOWN, CALCULATED, or any unexpected status -> UNKNOWN for physical verification
+                    msg = bg_res.get("warning") or f"Backgauge verification unproven (status={bg_status})"
+                    return CollisionResult(CollisionStatus.UNKNOWN, msg)
 
                 for stage, check in (
                     ("APPROACH", lambda: approach),
@@ -252,19 +260,24 @@ class PhysicalValidator:
             # At most eight geometrically distinct orientation candidates exist in
             # the present two-sign/four-normal convention.
 
-            # Prioritize candidate-level physical invalidation stages (e.g. BACKGAUGE, TOOL, BEND_TRAJECTORY)
-            # over the terminal PLACEMENT sentinel when candidates were evaluated.
-            invalids = [(stg, res) for stg, res in failures if res.status == CollisionStatus.INVALID]
-            unknowns = [(stg, res) for stg, res in failures if res.status == CollisionStatus.UNKNOWN]
-            if invalids:
-                stage, result = invalids[0]
-                status = CollisionStatus.INVALID
-            elif unknowns:
+            # Exclude the terminal ("PLACEMENT", approach) sentinel from unknowns/invalids
+            # if we already evaluated at least one candidate.
+            eval_failures = [f for f in failures if not (f[0] == "PLACEMENT" and candidate_count > 0 and f[1] == approach)]
+            if not eval_failures:
+                eval_failures = failures
+
+            unknowns = [(stg, res) for stg, res in eval_failures if res.status == CollisionStatus.UNKNOWN]
+            invalids = [(stg, res) for stg, res in eval_failures if res.status == CollisionStatus.INVALID]
+
+            if unknowns:
                 stage, result = unknowns[0]
                 status = CollisionStatus.UNKNOWN
+            elif invalids:
+                stage, result = invalids[0]
+                status = CollisionStatus.INVALID
             elif failures:
                 stage, result = failures[0]
-                status = CollisionStatus.INVALID
+                status = CollisionStatus.UNKNOWN
             else:
                 from smbs_core.Physics.collision_detector import CollisionResult
                 stage = "PLACEMENT"
