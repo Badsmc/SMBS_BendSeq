@@ -58,16 +58,28 @@ class CollisionDetector:
         self._memo_panels: Dict[int, Tuple[Any, Dict[str, Any]]] = {}
         self.candidate_placement_logs: list = []
         self.active_trsf: Optional[Any] = None
+        self.active_placement_key = None
+        self._rejected_placements = set()
 
     def begin_step(self) -> None:
         self._memo_panels.clear()
         self.candidate_placement_logs.clear()
         self.active_trsf = None
+        self.active_placement_key = None
+        self._rejected_placements.clear()
+
+    def reject_active_placement(self) -> None:
+        """Reject a complete-stroke candidate; do not reuse it on this step."""
+        if self.active_placement_key is not None:
+            self._rejected_placements.add(self.active_placement_key)
+        self.active_trsf = None
+        self.active_placement_key = None
 
     def end_step(self) -> None:
         self._memo_panels.clear()
-        self.candidate_placement_logs.clear()
         self.active_trsf = None
+        self.active_placement_key = None
+        self._rejected_placements.clear()
 
     def _extract_panel_shapes(self, shape: Any, panel_graph: Any) -> Dict[str, Any]:
         panel_shapes = {}
@@ -294,6 +306,9 @@ class CollisionDetector:
                     axis_dir.Z() * axis_sign,
                 )
                 for n_vec in [(1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1)]:
+                    placement_key = (axis_sign, tuple(n_vec))
+                    if placement_key in self._rejected_placements:
+                        continue
                     dot = abs(sum(eff_axis.Coord()[i] * n_vec[i] for i in range(3)))
                     if dot > 0.9:
                         continue
@@ -344,6 +359,7 @@ class CollisionDetector:
                     # Fail-closed: only accept candidate if it clears BOTH die and punch
                     if die_ok and punch_ok:
                         self.active_trsf = trsf
+                        self.active_placement_key = placement_key
                         return cand
 
             # No candidate orientation cleared tooling without collision
@@ -464,10 +480,19 @@ class CollisionDetector:
         return self._check_intersection(shape, backgauge_shape, "Part", "Backgauge Finger")
 
     def trajectory_collision(self, start_shape: Any, bend_info: Dict[str, Any], bend_id: str = "", panel_graph: Any = None, dtheta: float = 5.0) -> CollisionResult:
+        import math
         if not self.assembly:
             return CollisionResult(CollisionStatus.UNKNOWN, "No tooling assembly available for trajectory_collision")
         
-        target_angle = bend_info.get("angle", 90.0)
+        target_angle = bend_info.get("signed_angle", bend_info.get("angle"))
+        if target_angle is None:
+            return CollisionResult(CollisionStatus.UNKNOWN, "Missing signed bend angle for trajectory")
+        try:
+            target_angle = float(target_angle)
+            if not math.isfinite(target_angle) or not 0 < abs(target_angle) <= 180:
+                raise ValueError("Bend angle outside physical range")
+        except (TypeError, ValueError) as exc:
+            return CollisionResult(CollisionStatus.UNKNOWN, f"Invalid bend angle for trajectory: {exc}")
         # We need to simulate unbending, so the angle to apply is -target_angle
         # if this function is called during backward planning.
         # Wait, the trajectory_collision is called with bend_info from the physical validator.
@@ -475,9 +500,14 @@ class CollisionDetector:
         # `traj_res = self.detector.trajectory_collision(current_state.shape, bend_info, bend_id=bend_id, panel_graph=panel_graph, dtheta=5.0)`
         # It means we start at current_state.shape and we need to unfold by -target_angle.
         
-        import math
         unfold_angle = -target_angle
-        steps = max(1, int(abs(unfold_angle) / dtheta))
+        try:
+            sample_step = float(dtheta)
+            if not math.isfinite(sample_step) or sample_step <= 0:
+                raise ValueError("dtheta must be finite and positive")
+        except (TypeError, ValueError) as exc:
+            return CollisionResult(CollisionStatus.UNKNOWN, f"Invalid trajectory sampling: {exc}")
+        steps = max(1, math.ceil(abs(unfold_angle) / sample_step))
         step_angle = unfold_angle / steps
         
         origin = bend_info.get("origin", (0.0, 0.0, 0.0))
