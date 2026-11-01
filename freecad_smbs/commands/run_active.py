@@ -114,7 +114,10 @@ class RunActiveCommand:
             if punch_arg and die_arg:
                 App.Console.PrintMessage(f"SMBS: Оснастка: {punch_arg} / {die_arg} (библиотека: {lib_arg})\n")
             else:
-                App.Console.PrintMessage("SMBS: Оснастка не задана — геометрический расчёт (EXPLORATORY)\n")
+                App.Console.PrintWarning(
+                    f"SMBS: Оснастка не задана — политика {policy}. "
+                    "Физическая пригодность без реальной оснастки не подтверждена.\n"
+                )
 
         # Execute pipeline with progress feedback
         with ProgressContext("SMBS: Расчёт", f"Планирование последовательности для {fcstd_path.name}…") as prog:
@@ -153,7 +156,9 @@ class RunActiveCommand:
                         App.Console.PrintMessage(f"SMBS: На раскладку нанесено {len(annotations)} меток гибов.\n")
             except Exception as e:
                 if hasattr(App, "Console"):
-                    App.Console.PrintWarning(f"SMBS: Не удалось отрисовать 3D-аннотации: {e}\n")
+                    import traceback
+                App.Console.PrintWarning(f"SMBS: Не удалось отрисовать аннотации: {e}\n")
+                App.Console.PrintWarning(traceback.format_exc())
 
         # Show result dialog
         show_pipeline_result(result)
