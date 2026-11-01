@@ -360,20 +360,6 @@ class ManualSequenceWorker:
             bend_rec = bend_records.get(bid)
             bdata = bends_data.get(bid, {})
 
-            # Sequential Backgauge calculation
-            binfo = {
-                "length": bend_rec.length if bend_rec else 100.0,
-                "bend_id": bid,
-                "origin": bend_rec.axis_origin if bend_rec else (0.0, 0.0, 0.0),
-                "axis": bend_rec.axis_direction if bend_rec else (0.0, 1.0, 0.0),
-            }
-            bg_data = bg_calc.compute_step_backgauge(
-                step_number=order_idx,
-                bend_info=binfo,
-                part_thickness=thickness_val,
-                confirmed_geometry=True
-            )
-
             exact_collision_queries += 1
             val_res = bridge.validate_step(
                 current_state=current_state,
@@ -385,6 +371,22 @@ class ManualSequenceWorker:
             step_has_unknown = getattr(val_res, "has_unknown", False)
             if step_has_unknown:
                 has_any_unknown = True
+
+            # Candidate-specific backgauge calculation following the actual selected mounting orientation
+            chosen_mounting_key = val_res.diagnostics.get("mounting_key") if hasattr(val_res, "diagnostics") else None
+            binfo = {
+                "length": bend_rec.length if bend_rec else 100.0,
+                "bend_id": bid,
+                "origin": bend_rec.axis_origin if bend_rec else (0.0, 0.0, 0.0),
+                "axis": bend_rec.axis_direction if bend_rec else (0.0, 1.0, 0.0),
+            }
+            bg_data = bg_calc.compute_step_backgauge(
+                step_number=order_idx,
+                bend_info=binfo,
+                part_thickness=thickness_val,
+                confirmed_geometry=val_res.valid,
+                placement_key=chosen_mounting_key
+            )
 
             step_data = {
                 "step": order_idx,
@@ -413,6 +415,11 @@ class ManualSequenceWorker:
 
             candidate_sequence.append(step_data)
 
+            # Extract per-candidate placement diagnostics if available
+            cand_evals = []
+            if hasattr(bridge.validator.detector, "candidate_placement_logs"):
+                cand_evals = [log for log in bridge.validator.detector.candidate_placement_logs if log.get("bend_id") == bid]
+
             if not val_res.valid:
                 sequence_valid = False
                 failed_reason = val_res.reason
@@ -422,7 +429,9 @@ class ManualSequenceWorker:
                     "status": "VERIFICATION_FAILED",
                     "stage": val_res.stage,
                     "has_unknown": step_has_unknown,
-                    "reason": val_res.reason
+                    "reason": val_res.reason,
+                    "mounting_key": chosen_mounting_key,
+                    "candidate_evaluations": cand_evals
                 })
                 break
             else:
@@ -440,7 +449,13 @@ class ManualSequenceWorker:
 
         # Emit 07_search_result.json (L2)
         search_status = "SUCCESS" if sequence_valid else "NO_SOLUTION"
-        termination_reason = "GOAL_REACHED" if sequence_valid else "NO_MORE_CANDIDATES"
+        if sequence_valid:
+            termination_reason = "GOAL_REACHED"
+        elif has_any_unknown and unknown_pol == "PRODUCTION":
+            termination_reason = "UNKNOWN_ABORT"
+        else:
+            termination_reason = "NO_MORE_CANDIDATES"
+
         search_result_data = {
             "schema_name": "search_result",
             "schema_version": "1.1",
@@ -480,6 +495,8 @@ class ManualSequenceWorker:
             verif_status = "FAILED"
             prod_eligible = False
 
+        candidate_logs = getattr(bridge.validator.detector, "candidate_placement_logs", [])
+
         manual_verif_data = {
             "schema_name": "manual_verification_result",
             "schema_version": "1.0",
@@ -496,6 +513,7 @@ class ManualSequenceWorker:
                 "verification_status": verif_status,
                 "production_eligible": prod_eligible,
                 "step_verifications": step_verifications,
+                "candidate_placement_evaluations": candidate_logs,
                 "has_unknown": has_any_unknown,
                 "wall_time_s": wall_time_s
             }

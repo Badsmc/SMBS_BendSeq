@@ -34,7 +34,8 @@ class BackgaugeCalculator:
         step_number: int,
         bend_info: Dict[str, Any],
         part_thickness: float = 2.0,
-        confirmed_geometry: bool = False
+        confirmed_geometry: bool = False,
+        placement_key: Optional[Tuple[Any, ...]] = None
     ) -> Dict[str, Any]:
         bend_length = bend_info.get("length", 100.0)
         
@@ -58,6 +59,11 @@ class BackgaugeCalculator:
         if (z2_mm - z1_mm) < 50.0:
             z1_mm = -25.0
             z2_mm = 25.0
+
+        # Handle 180° workpiece flip if mounting key indicates inverted axis
+        if placement_key and len(placement_key) >= 1 and placement_key[0] == -1.0:
+            # Flipping part inverts lateral stop coordinates
+            z1_mm, z2_mm = round(-z2_mm, 2), round(-z1_mm, 2)
 
         touch_point_1 = (x_mm, z1_mm, r_mm)
         touch_point_2 = (x_mm, z2_mm, r_mm)
