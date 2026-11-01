@@ -388,6 +388,25 @@ class ManualSequenceWorker:
                 placement_key=chosen_mounting_key
             )
 
+            # Get candidate evaluations for this specific step
+            step_cand_logs = list(getattr(bridge.validator.detector, "candidate_placement_logs", []))
+            cand_evals = [log for log in step_cand_logs if log.get("bend_id") == bid] or list(step_cand_logs)
+
+            val_align_raw = getattr(bridge.validator, "alignment_status", None)
+            if hasattr(val_align_raw, "value"):
+                val_align_str = val_align_raw.value
+            elif val_align_raw is not None:
+                val_align_str = str(val_align_raw)
+            else:
+                val_align_str = "CANNOT_VERIFY"
+
+            if val_align_str.upper() in ("ALIGNED", "OK"):
+                step_align_status = "OK"
+            elif val_align_str.upper() in ("MISALIGNED", "FRAME_AMBIGUOUS"):
+                step_align_status = "FRAME_AMBIGUOUS"
+            else:
+                step_align_status = "CANNOT_VERIFY"
+
             step_data = {
                 "step": order_idx,
                 "bend_id": bid,
@@ -405,7 +424,7 @@ class ManualSequenceWorker:
                 "planner_status": "VALID" if val_res.valid else "INVALID",
                 "collision_status": "VALID" if val_res.valid else ("UNKNOWN" if step_has_unknown else "INVALID"),
                 "tooling_status": "REAL" if getattr(bridge.validator, "tooling_status", None) == "REAL" else "SIMPLIFIED",
-                "alignment_status": "OK",
+                "alignment_status": step_align_status,
                 "has_unknown": step_has_unknown,
                 "stage": "VALID" if val_res.valid else val_res.stage,
                 "reason": val_res.reason
@@ -414,11 +433,6 @@ class ManualSequenceWorker:
                 step_data["k_factor"] = bdata["k_factor"]
 
             candidate_sequence.append(step_data)
-
-            # Extract per-candidate placement diagnostics if available
-            cand_evals = []
-            if hasattr(bridge.validator.detector, "candidate_placement_logs"):
-                cand_evals = [log for log in bridge.validator.detector.candidate_placement_logs if log.get("bend_id") == bid]
 
             if not val_res.valid:
                 sequence_valid = False
@@ -441,7 +455,9 @@ class ManualSequenceWorker:
                     "status": "CONFIRMED",
                     "stage": "VALID",
                     "has_unknown": step_has_unknown,
-                    "reason": val_res.reason
+                    "reason": val_res.reason,
+                    "mounting_key": chosen_mounting_key,
+                    "candidate_evaluations": cand_evals
                 })
                 current_state = val_res.next_state
 
@@ -495,7 +511,10 @@ class ManualSequenceWorker:
             verif_status = "FAILED"
             prod_eligible = False
 
-        candidate_logs = getattr(bridge.validator.detector, "candidate_placement_logs", [])
+        # Gather complete candidate history from all steps
+        hist = getattr(bridge.validator.detector, "candidate_placement_history", [])
+        curr_logs = getattr(bridge.validator.detector, "candidate_placement_logs", [])
+        all_candidate_logs = list(hist) + [log for log in curr_logs if log not in hist]
 
         manual_verif_data = {
             "schema_name": "manual_verification_result",
@@ -513,7 +532,7 @@ class ManualSequenceWorker:
                 "verification_status": verif_status,
                 "production_eligible": prod_eligible,
                 "step_verifications": step_verifications,
-                "candidate_placement_evaluations": candidate_logs,
+                "candidate_placement_evaluations": all_candidate_logs,
                 "has_unknown": has_any_unknown,
                 "wall_time_s": wall_time_s
             }

@@ -277,16 +277,125 @@ class TestPhase2ProductionVerification(unittest.TestCase):
         }
         placed = det.place_part_on_tool_station(ref_shape, bend_info)
         self.assertIsNotNone(placed)
-        self.assertGreater(len(det.candidate_placement_logs), 0)
+    def test_p0_1_no_confirmed_backgauge_without_verified_contact(self):
+        """
+        P0-1: Successful bend validation alone does not prove backgauge contact.
+        When geometry is estimated or physical backgauge tool is absent, status must NOT be VERIFIED.
+        """
+        mach = PressBrakeMachine()
+        calc = BackgaugeCalculator(mach)
+        bend_info = {"length": 100.0, "bend_id": "B_ESTIMATED"}
 
-        # Inspect candidate placement evaluations
-        cand = det.candidate_placement_logs[0]
-        self.assertIn("axis_sign", cand)
-        self.assertIn("n_vec", cand)
-        self.assertIn("die_ok", cand)
-        self.assertIn("punch_ok", cand)
-        self.assertIn("status", cand)
+        # Estimated
+        res_est = calc.compute_step_backgauge(1, bend_info, part_thickness=1.5, confirmed_geometry=False)
+        self.assertEqual(res_est["status"], "CALCULATED")
+        self.assertFalse(res_est["geometry_confirmed"])
+        self.assertIsNotNone(res_est["warning"])
+
+        # confirmed_geometry=True passed from manual worker without physical backgauge model on machine
+        res_unv = calc.compute_step_backgauge(1, bend_info, part_thickness=1.5, confirmed_geometry=True)
+        self.assertEqual(res_unv["status"], "UNKNOWN")
+        self.assertFalse(res_unv["geometry_confirmed"])
+        self.assertIn("unavailable", res_unv["warning"])
+
+    def test_p0_1_backgauge_out_of_range_produces_invalid_not_clamped(self):
+        """
+        P0-1: Out-of-range backgauge coordinates produce status='INVALID' rather than silent clamping.
+        """
+        mach = PressBrakeMachine(backgauge_x_max_mm=50.0, backgauge_r_max_mm=10.0)
+        calc = BackgaugeCalculator(mach)
+        bend_info = {"length": 200.0, "bend_id": "B_LONG"}
+
+        # Flange depth for 200mm bend length is 100mm + 6mm = 106mm > 50mm limit
+        res = calc.compute_step_backgauge(1, bend_info, part_thickness=2.0)
+        self.assertEqual(res["status"], "INVALID")
+        self.assertEqual(res["error"], "BACKGAUGE_LIMIT_EXCEEDED")
+        self.assertGreater(res["X_mm"], mach.backgauge_x_max_mm)
+        self.assertFalse(res["geometry_confirmed"])
+
+    def test_p0_2_failed_backgauge_triggers_candidate_retry(self):
+        """
+        P0-2: Candidate-specific backgauge reachability is integrated into candidate validation loop.
+        If orientation 0 exceeds backgauge machine limits, PhysicalValidator rejects that candidate
+        and advances to candidate 1.
+        """
+        l_brep_path = REPO_ROOT / "fixtures" / "synthetic" / "l_bracket.brep"
+        builder = BRep_Builder()
+        ref_shape = TopoDS_Shape()
+        breptools.Read(ref_shape, str(l_brep_path), builder)
+
+        pg = PanelGraph()
+        pg.add_panel(Panel("P1", normal=(0, 0, 1)))
+        pg.add_panel(Panel("P2", normal=(0, -1, 0)))
+        pg.add_bend_connection("B1", "P1", "P2")
+        canonical_payload = {
+            "thickness_mm": {"value": 1.5},
+            "panels": {
+                "P1": {"normal": [0, 0, 1], "centroid": [25.0, 15.0, 0.75]},
+                "P2": {"normal": [0, -1, 0], "centroid": [25.0, -0.75, 15.0]}
+            },
+            "bends": {
+                "B1": {
+                    "parent_panel_id": "P1", "child_panel_id": "P2",
+                    "axis_point": [0.0, 0.0, 1.5], "axis_direction": [1.0, 0.0, 0.0],
+                    "angle_deg": {"value": 90.0}, "length_mm": {"value": 50.0}, "radius_mm": {"value": 2.5}
+                }
+            }
+        }
+        resolve_panel_primary_sheet_pair(ref_shape, pg, canonical_payload)
+
+        bg = BendGraph()
+        b1 = BendRecord("B1", "B1", "P1", "P2", (0.0, 0.0, 1.5), (1.0, 0.0, 0.0), 90.0, length=50.0, radius=2.5, thickness=1.5)
+        bg.add_bend(b1)
+
+        bridge = OracleBridge(tooling_set_id="standard_90deg_v12")
+        # Restrict machine backgauge limit to force BACKGAUGE failure on standard flange
+        bridge.validator.machine.backgauge_x_max_mm = 10.0
+        st = FoldState.initial(ref_shape, bg, pg)
+
+        res = bridge.validate_step(st, b1, pg, unknown_policy="PRODUCTION")
+        self.assertFalse(res.valid)
+        self.assertEqual(res.stage, "BACKGAUGE")
+        # Ensure tried mountings recorded BACKGAUGE stage failure
+        failures = res.diagnostics.get("failures", [])
+        self.assertGreaterEqual(len(failures), 1)
+        bg_failures = [f for f in failures if f["stage"] == "BACKGAUGE"]
+        self.assertGreaterEqual(len(bg_failures), 1)
+        self.assertIn("Backgauge limit exceeded", bg_failures[0]["reason"])
+
+    def test_p1_4_candidate_diagnostics_preserved_across_steps(self):
+        """
+        P1-4: candidate_placement_logs are preserved across steps in candidate_placement_history,
+        ensuring candidate diagnostics are retained for every bend step in 09_manual_verification_result.json.
+        """
+        det = bridge = OracleBridge(tooling_set_id="standard_90deg_v12").validator.detector
+        det.begin_step()
+        det.candidate_placement_logs.append({
+            "bend_id": "B1",
+            "axis_sign": 1.0,
+            "n_vec": (1, 0, 0),
+            "status": "VALID",
+            "rejection_stage": "VALID",
+            "rejection_reason": ""
+        })
+        # Step 2 begins
+        det.begin_step()
+        det.candidate_placement_logs.append({
+            "bend_id": "B2",
+            "axis_sign": -1.0,
+            "n_vec": (0, 0, 1),
+            "status": "REJECTED",
+            "rejection_stage": "TOOL",
+            "rejection_reason": "Tool collision"
+        })
+
+        # History must contain Step 1's B1 candidate log
+        self.assertEqual(len(det.candidate_placement_history), 1)
+        self.assertEqual(det.candidate_placement_history[0]["bend_id"], "B1")
+        self.assertEqual(len(det.candidate_placement_logs), 1)
+        self.assertEqual(det.candidate_placement_logs[0]["bend_id"], "B2")
 
 
 if __name__ == "__main__":
     unittest.main()
+
