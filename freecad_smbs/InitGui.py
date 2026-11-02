@@ -86,8 +86,8 @@ def register_commands() -> None:
 class SMBSWorkbench(Workbench):  # type: ignore[misc]
     """FreeCAD GUI Workbench for SMBS."""
 
-    MenuText = "SMBS"
-    ToolTip = "Sheet Metal Bending Sequence Planner"
+    MenuText = "PressBrakeSim 2D"
+    ToolTip = "PressBrakeSim 2D interface preview (development branch)"
     Icon = ""
 
     CMD_RUN_ACTIVE = "SMBS_RunActive"
@@ -146,39 +146,16 @@ class SMBSWorkbench(Workbench):  # type: ignore[misc]
         # C2-2: Register commands BEFORE appendMenu / appendToolbar
         self.register_commands()
 
-        # Menu layout per Spec-final §3.2
-        self.menu_items = [
-            self.CMD_RUN_ACTIVE,
-            self.CMD_OPEN_RUN,
-            "Separator",
-            self.CMD_CALCULATE,
-            self.CMD_SIMULATE,
-            self.CMD_PRESSBRAKE_2D,
-            self.CMD_TOOLING,
-            "Separator",
-            self.CMD_VERIFY,
-            self.CMD_INFO,
-            "Separator",
-            self.CMD_DIAGNOSTICS,
-            self.CMD_PREFERENCES,
-        ]
+        # On the experimental 2D branch, show only the new UI in the primary
+        # menu and toolbar. Legacy commands remain registered (not deleted),
+        # but are intentionally not exposed in this workbench layout.
+        self.menu_items = [self.CMD_PRESSBRAKE_2D]
         if hasattr(self, "appendMenu"):
-            self.appendMenu(["SMBS"], self.menu_items)
+            self.appendMenu("PressBrakeSim 2D", self.menu_items)
 
-        # Toolbar layout per Spec-final §3.2
-        self.toolbar_items = [
-            self.CMD_RUN_ACTIVE,
-            self.CMD_OPEN_RUN,
-            self.CMD_CALCULATE,
-            self.CMD_SIMULATE,
-            self.CMD_TOOLING,
-            self.CMD_VERIFY,
-            self.CMD_INFO,
-            self.CMD_DIAGNOSTICS,
-            self.CMD_PREFERENCES,
-        ]
+        self.toolbar_items = [self.CMD_PRESSBRAKE_2D]
         if hasattr(self, "appendToolbar"):
-            self.appendToolbar("SMBS", self.toolbar_items)
+            self.appendToolbar("PressBrakeSim 2D", self.toolbar_items)
 
     def Activated(self) -> None:
         """Called when SMBS workbench is activated."""
