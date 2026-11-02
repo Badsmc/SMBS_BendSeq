@@ -41,6 +41,7 @@ from freecad_smbs.commands.run_active import RunActiveCommand
 from freecad_smbs.commands.simulate import SimulateCommand
 from freecad_smbs.commands.tooling import ToolingCommand
 from freecad_smbs.commands.verify import VerifyCommand
+from freecad_smbs.commands.pressbrake_2d import PressBrake2DCommand
 
 # Command registry identifiers
 CMD_RUN_ACTIVE: str = "SMBS_RunActive"
@@ -52,6 +53,7 @@ CMD_VERIFY: str = "SMBS_Verify"
 CMD_INFO: str = "SMBS_Info"
 CMD_DIAGNOSTICS: str = "SMBS_Diagnostics"
 CMD_PREFERENCES: str = "SMBS_Preferences"
+CMD_PRESSBRAKE_2D: str = "SMBS_PressBrake2D"
 
 # Command definitions mapping
 COMMANDS_MAP = {
@@ -64,6 +66,7 @@ COMMANDS_MAP = {
     CMD_INFO: InfoCommand,
     CMD_DIAGNOSTICS: DiagnosticsCommand,
     CMD_PREFERENCES: PreferencesCommand,
+    CMD_PRESSBRAKE_2D: PressBrake2DCommand,
 }
 
 
@@ -96,6 +99,7 @@ class SMBSWorkbench(Workbench):  # type: ignore[misc]
     CMD_INFO = "SMBS_Info"
     CMD_DIAGNOSTICS = "SMBS_Diagnostics"
     CMD_PREFERENCES = "SMBS_Preferences"
+    CMD_PRESSBRAKE_2D = "SMBS_PressBrake2D"
 
     def register_commands(self) -> None:
         """Register SMBS commands in FreeCADGui command registry."""
@@ -127,6 +131,7 @@ class SMBSWorkbench(Workbench):  # type: ignore[misc]
             self.CMD_INFO: InfoCommand,
             self.CMD_DIAGNOSTICS: DiagnosticsCommand,
             self.CMD_PREFERENCES: PreferencesCommand,
+            self.CMD_PRESSBRAKE_2D: PressBrake2DCommand,
         }
 
         for cmd_name, cmd_cls in commands_map.items():
@@ -148,6 +153,7 @@ class SMBSWorkbench(Workbench):  # type: ignore[misc]
             "Separator",
             self.CMD_CALCULATE,
             self.CMD_SIMULATE,
+            self.CMD_PRESSBRAKE_2D,
             self.CMD_TOOLING,
             "Separator",
             self.CMD_VERIFY,
