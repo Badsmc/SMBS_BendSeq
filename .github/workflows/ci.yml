@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - development/working-addon
+      - 2D
   pull_request:
     branches:
       - main
@@ -58,3 +59,6 @@ jobs:
             tests/test_stage2_rotate_subtree.py \
             tests/test_self_collision_panels.py \
             tests/test_install_workbench.py
+
+      - name: Test isolated 2D kinematics
+        run: PYTHONPATH=. python -m unittest tests.test_kinematics2d -v
