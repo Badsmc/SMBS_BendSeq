@@ -915,6 +915,198 @@ class BendZoneMathTests(unittest.TestCase):
             self.assertEqual(panel.session.fold_state.angles, {"B01": 60.0, "B02": 0.0})
             panel.timer.stop.assert_called()
 
+    def test_phase4b_manual_bend_order_editor_reverse_z_135_and_validation(self):
+        # Reference Z-(ok) and 135-(ok) graphs & vertices
+        p_up90 = bend_parameters(90.0, 1.0, 1.5, 0.4)
+        p_dn90 = bend_parameters(-90.0, 2.5, 1.5, 0.4)
+        z_b01 = make_bend_zone("B01", ((200.0, 61.26991118430775), (0.0, 61.26991118430775)), p_up90)
+        z_b02 = make_bend_zone("B02", ((0.0, 13.756637061435917), (200.0, 13.756637061435917)), p_dn90)
+        g_z = PanelGraph(
+            ("P01", "P02", "P03"),
+            (
+                GraphEdge("B01", "P02", "P03", 90.0, ((200.0, 61.26991118430775, 0.0), (0.0, 61.26991118430775, 0.0)), z_b01),
+                GraphEdge("B02", "P02", "P01", -90.0, ((0.0, 13.756637061435917, 0.0), (200.0, 13.756637061435917, 0.0)), z_b02),
+            ),
+        )
+        verts_z = {
+            "P01": ((0.0, 0.0), (200.0, 0.0), (200.0, 12.5), (0.0, 12.5)),
+            "P02": ((0.0, 15.013274122871834), (200.0, 15.013274122871834), (200.0, 60.013274122871834), (0.0, 60.013274122871834)),
+            "P03": ((0.0, 62.52654824574367), (200.0, 62.52654824574367), (200.0, 75.02654824574367), (0.0, 75.02654824574367)),
+        }
+
+        # --- Test A & Test B: Z standard (B01 -> B02) vs reverse (B02 -> B01) ---
+        sess_z = LoadedPartSession("Z-(ok)", None, None, g_z, verts_z, "P02", FoldState(g_z, "P02"), 0)
+        self.assertEqual(sess_z.bend_order, ("B01", "B02"))
+        self.assertEqual(sess_z.canonical_order, ("B01", "B02"))
+
+        # Select B02 (index 1) and Move Up -> new order ("B02", "B01"), selected index becomes 0 (B02)
+        sess_z.select_bend_index(1)
+        self.assertEqual(sess_z.active_bend_id, "B02")
+        sess_z.move_up()
+        self.assertEqual(sess_z.bend_order, ("B02", "B01"))
+        self.assertEqual(sess_z.active_bend_index, 0)
+        self.assertEqual(sess_z.active_bend_id, "B02")
+        self.assertEqual(sess_z.fold_state.angles, {"B01": 0.0, "B02": 0.0})
+
+        # Play All in reverse order: B02 (-90) first, then B01 (+90)
+        sess_z.play_all()
+        self.assertEqual(sess_z.playback_status, PlaybackStatus.PLAYING)
+        for _ in range(5):
+            sess_z.advance_time(0.1)
+        # B02 at -45 deg, B01 still at 0 deg
+        self.assertAlmostEqual(sess_z.fold_state.angles["B01"], 0.0, places=9)
+        self.assertAlmostEqual(sess_z.fold_state.angles["B02"], -45.0, places=9)
+        self.assertEqual(sess_z.active_bend_id, "B02")
+
+        # Pause & Resume during reverse order
+        sess_z.pause()
+        self.assertEqual(sess_z.playback_status, PlaybackStatus.PAUSED)
+        sess_z.advance_time(0.1)
+        self.assertAlmostEqual(sess_z.fold_state.angles["B02"], -45.0, places=9)
+        sess_z.resume()
+        for _ in range(5):
+            sess_z.advance_time(0.1)
+        # B02 finished (-90 deg), active bend automatically switched to B01 (index 1, 0 deg)
+        self.assertEqual(sess_z.fold_state.angles, {"B01": 0.0, "B02": -90.0})
+        self.assertEqual(sess_z.active_bend_index, 1)
+        self.assertEqual(sess_z.active_bend_id, "B01")
+
+        # Advance 5 ticks -> B01 at +45 deg while B02 remains -90 deg
+        for _ in range(5):
+            sess_z.advance_time(0.1)
+        self.assertAlmostEqual(sess_z.fold_state.angles["B01"], 45.0, places=9)
+        self.assertAlmostEqual(sess_z.fold_state.angles["B02"], -90.0, places=9)
+
+        # Finish B01 (+90 deg) -> COMPLETED
+        for _ in range(5):
+            sess_z.advance_time(0.1)
+        self.assertEqual(sess_z.fold_state.angles, {"B01": 90.0, "B02": -90.0})
+        self.assertEqual(sess_z.playback_status, PlaybackStatus.COMPLETED)
+
+        # Verify final geometry in reverse order matches 3D slice of Z-(ok).FCStd (< 1e-9 mm)
+        sess_z.select_bend_index(1)  # B01 frame
+        sec_z_rev = sess_z.cross_section(segments=32)
+        oy_z = 61.26991118430775
+        all_z_yz = (
+            [(oy_z + p[0], p[1]) for p in sec_z_rev["fixed_polygon"]]
+            + [(oy_z + p[0], p[1]) for p in sec_z_rev["moving_polygon"]]
+            + [(oy_z + p[0], p[1]) for p in sec_z_rev["other_panel_polygons"][0][1]]
+        )
+        for ref_y, ref_z in (
+            (12.513274122871834, -15.0),
+            (14.013274122871834, -2.5),
+            (15.013274122871834, 0.0),
+            (60.013274122871834, -1.5),
+            (61.013274122871834, 13.5),
+            (62.513274122871834, 1.0),
+        ):
+            min_dist = min(math.hypot(y - ref_y, z - ref_z) for y, z in all_z_yz)
+            self.assertLess(min_dist, 1e-9)
+
+        # Previous Step / Next Step in reverse order ("B02", "B01"):
+        # From COMPLETED (+90, -90), Previous Step unfolds the 2nd step (B01 -> 0) while keeping 1st step (B02 = -90)
+        sess_z.previous_step()
+        self.assertEqual(sess_z.fold_state.angles, {"B01": 0.0, "B02": -90.0})
+        self.assertEqual(sess_z.active_bend_id, "B01")
+        sess_z.next_step()
+        self.assertEqual(sess_z.fold_state.angles, {"B01": 90.0, "B02": -90.0})
+        self.assertEqual(sess_z.playback_status, PlaybackStatus.COMPLETED)
+
+        # Play All from COMPLETED resets angles and replays the SAME custom order ("B02", "B01")
+        sess_z.play_all()
+        self.assertEqual(sess_z.bend_order, ("B02", "B01"))
+        self.assertEqual(sess_z.active_bend_id, "B02")
+        self.assertEqual(sess_z.fold_state.angles, {"B01": 0.0, "B02": 0.0})
+
+        # Reset keeps custom order ("B02", "B01") and flattens angles
+        sess_z.reset_all_bends()
+        self.assertEqual(sess_z.bend_order, ("B02", "B01"))
+        self.assertEqual(sess_z.fold_state.angles, {"B01": 0.0, "B02": 0.0})
+
+        # --- Test D: Move Down & Restore Order ---
+        sess_z.select_bend_index(0)  # B02 at index 0
+        sess_z.move_down()
+        self.assertEqual(sess_z.bend_order, ("B01", "B02"))
+        self.assertEqual(sess_z.active_bend_index, 1)
+        self.assertEqual(sess_z.active_bend_id, "B02")
+        sess_z.move_up()
+        self.assertEqual(sess_z.bend_order, ("B02", "B01"))
+        sess_z.restore_canonical_order()
+        self.assertEqual(sess_z.bend_order, ("B01", "B02"))
+
+        # --- Test C: 135-(ok) reverse order (B02 -45 -> B01 +45) ---
+        p_up45 = bend_parameters(135.0, 1.0, 1.5, 0.4)
+        p_dn45 = bend_parameters(-135.0, 2.5, 1.5, 0.4)
+        z_135_1 = make_bend_zone("B01", ((200.0, 60.849421686221135), (0.0, 60.849421686221135)), p_up45)
+        z_135_2 = make_bend_zone("B02", ((0.0, 14.59278462478522), (200.0, 14.59278462478522)), p_dn45)
+        g_135 = PanelGraph(
+            ("P01", "P02", "P03"),
+            (
+                GraphEdge("B01", "P02", "P03", 45.0, ((200.0, 60.849421686221135, 0.0), (0.0, 60.849421686221135, 0.0)), z_135_1),
+                GraphEdge("B02", "P02", "P01", -45.0, ((0.0, 14.59278462478522, 0.0), (200.0, 14.59278462478522, 0.0)), z_135_2),
+            ),
+        )
+        verts_135 = {
+            "P01": ((0.0, 0.0), (200.0, 0.0), (200.0, 13.964466094067262), (0.0, 13.964466094067262)),
+            "P02": ((0.0, 15.22110315550318), (200.0, 15.22110315550318), (200.0, 60.22110315550318), (0.0, 60.22110315550318)),
+            "P03": ((0.0, 61.477740216939095), (200.0, 61.477740216939095), (200.0, 75.44220631100636), (0.0, 75.44220631100636)),
+        }
+        sess_135 = LoadedPartSession("135-(ok)", None, None, g_135, verts_135, "P02", FoldState(g_135, "P02"), 0)
+        sess_135.set_bend_order(("B02", "B01"))
+        sess_135.play_all()
+        for _ in range(5):
+            sess_135.advance_time(0.1)
+        self.assertEqual(sess_135.fold_state.angles, {"B01": 0.0, "B02": -45.0})
+        self.assertEqual(sess_135.active_bend_id, "B01")
+        for _ in range(5):
+            sess_135.advance_time(0.1)
+        self.assertEqual(sess_135.fold_state.angles, {"B01": 45.0, "B02": -45.0})
+        self.assertEqual(sess_135.playback_status, PlaybackStatus.COMPLETED)
+        sec_135 = sess_135.cross_section(segments=32)
+        all_135_pts = (
+            list(sec_135["fixed_polygon"])
+            + list(sec_135["moving_polygon"])
+            + list(sec_135["other_panel_polygons"][0][1])
+        )
+        s_135 = [p[0] for p in all_135_pts]
+        z_135 = [p[1] for p in all_135_pts]
+        self.assertAlmostEqual(max(s_135) - min(s_135), 68.2842712474619, places=9)
+        self.assertAlmostEqual(max(z_135) - min(z_135), 21.83452377915607, places=9)
+
+        # --- Test E: Invalid order rejected atomically ---
+        sess_z.reset_all_bends()
+        sess_z.set_bend_order(("B02", "B01"))
+        for bad_order in (
+            ("B01",),                   # incomplete / missing ID
+            ("B01", "B01"),             # duplicate ID
+            ("B01", "B02", "B03"),      # extra ID
+            ("B01", "B99"),             # unknown ID
+            "B01",                      # string instead of sequence
+        ):
+            with self.assertRaises(SequenceError):
+                sess_z.set_bend_order(bad_order)
+            self.assertEqual(sess_z.bend_order, ("B02", "B01"))
+            self.assertEqual(sess_z.fold_state.angles, {"B01": 0.0, "B02": 0.0})
+
+        # --- Test F: Reordering rejected during PLAYING, PAUSED with non-zero angle, and COMPLETED ---
+        sess_z.play_all()
+        with self.assertRaises(SequenceError):
+            sess_z.move_down()
+        with self.assertRaises(SequenceError):
+            sess_z.set_bend_order(("B01", "B02"))
+        sess_z.advance_time(0.1)
+        sess_z.pause()
+        self.assertEqual(sess_z.playback_status, PlaybackStatus.PAUSED)
+        with self.assertRaises(SequenceError):
+            sess_z.move_down()
+        with self.assertRaises(SequenceError):
+            sess_z.restore_canonical_order()
+        sess_z.fold_all_to_target()
+        self.assertEqual(sess_z.playback_status, PlaybackStatus.COMPLETED)
+        with self.assertRaises(SequenceError):
+            sess_z.set_bend_order(("B01", "B02"))
+        self.assertEqual(sess_z.bend_order, ("B02", "B01"))
+
 
 if __name__ == "__main__":
     unittest.main()

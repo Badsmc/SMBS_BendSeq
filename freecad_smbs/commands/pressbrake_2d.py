@@ -190,7 +190,36 @@ class LoadedPartSession:
 
     @property
     def ordered_bends(self):
-        return self.fold_state.ordered_bends
+        return tuple(self.controller.bend_for(bid) for bid in self.controller.order)
+
+    @property
+    def bend_order(self) -> tuple[str, ...]:
+        return self.controller.order
+
+    @property
+    def canonical_order(self) -> tuple[str, ...]:
+        return self.controller.canonical_order
+
+    def can_reorder(self) -> bool:
+        return self.controller.can_reorder()
+
+    def set_bend_order(self, order) -> None:
+        self.controller.set_bend_order(order)
+        self.active_bend_index = self.controller.active_index
+
+    def move_up(self, index: int | None = None) -> int:
+        new_idx = self.controller.move_up(index)
+        self.active_bend_index = self.controller.active_index
+        return new_idx
+
+    def move_down(self, index: int | None = None) -> int:
+        new_idx = self.controller.move_down(index)
+        self.active_bend_index = self.controller.active_index
+        return new_idx
+
+    def restore_canonical_order(self) -> None:
+        self.controller.restore_canonical_order()
+        self.active_bend_index = self.controller.active_index
 
     @property
     def active_bend(self):
@@ -530,8 +559,17 @@ class _PreviewPanel:
                     bend_nav_row.addWidget(widget)
                 root.addLayout(bend_nav_row)
 
+                order_row = QtWidgets.QHBoxLayout()
+                order_row.addWidget(QtWidgets.QLabel("Порядок:"))
+                self.move_up_btn = _button(QtWidgets, "↑ Move Up", self.move_selected_up, False)
+                self.move_down_btn = _button(QtWidgets, "↓ Move Down", self.move_selected_down, False)
+                self.restore_order_btn = _button(QtWidgets, "↺ Restore Order", self.restore_order, False)
+                for widget in (self.move_up_btn, self.move_down_btn, self.restore_order_btn):
+                    order_row.addWidget(widget)
+                root.addLayout(order_row)
+
                 self.operations = QtWidgets.QTreeWidget()
-                self.operations.setHeaderLabels(["№", "Гиб / Панели", "Целевой угол / Статус"])
+                self.operations.setHeaderLabels(["Step", "Bend", "Target", "Current", "Status"])
                 self.operations.setRootIsDecorated(False)
                 self.operations.setMaximumHeight(110)
                 self.operations.currentItemChanged.connect(self._on_operation_selected)
@@ -559,6 +597,9 @@ class _PreviewPanel:
                     self.play_btn.setText("▶ Play All")
                     self.pause_btn.setText("Ⅱ Pause")
                     self.pause_btn.setEnabled(False)
+                    self.move_up_btn.setEnabled(False)
+                    self.move_down_btn.setEnabled(False)
+                    self.restore_order_btn.setEnabled(False)
                     return
                 st = self.session.playback_status
                 self.playing = st == PlaybackStatus.PLAYING
@@ -572,6 +613,15 @@ class _PreviewPanel:
                 else:
                     self.pause_btn.setText("Ⅱ Pause")
                     self.pause_btn.setEnabled(False)
+
+                can_edit_order = self.session.can_reorder() and len(self.session.bend_order) > 1
+                idx = self.session.active_bend_index
+                total = len(self.session.bend_order)
+                self.move_up_btn.setEnabled(can_edit_order and idx > 0)
+                self.move_down_btn.setEnabled(can_edit_order and 0 <= idx < total - 1)
+                self.restore_order_btn.setEnabled(
+                    can_edit_order and self.session.bend_order != self.session.canonical_order
+                )
 
             def _set_playback_controls_enabled(self, enabled: bool):
                 for w in (
@@ -619,28 +669,55 @@ class _PreviewPanel:
                 self.draw()
                 QtCore.QTimer.singleShot(0, self.fit)
 
-            def _format_operation_row(self, idx: int, b) -> tuple[str, str, str]:
-                z = b.bend_zone
+            def _format_operation_row(self, idx: int, b) -> tuple[str, str, str, str, str]:
                 cur = self.session.fold_state.angles[b.bend_id]
                 done = self.session.controller.is_bend_completed(b.bend_id)
                 is_active = (idx - 1) == self.session.active_bend_index
                 if done:
-                    marker = "✓ DONE"
-                elif is_active and abs(cur) > 1e-6:
-                    marker = "▶ {:+.1f}°".format(cur)
+                    status_str = "DONE"
                 elif is_active:
-                    marker = "▶ ACTIVE"
-                elif abs(cur) > 1e-6:
-                    marker = "{:+.1f}°".format(cur)
+                    status_str = "ACTIVE"
                 else:
-                    marker = "0.0°"
+                    status_str = "IDLE"
                 return (
                     str(idx),
                     "{} ({} → {})".format(b.bend_id, b.fixed_panel, b.moving_panel),
-                    "{:+.1f}° / {:+.1f}° [{}] | R={:.2f}, t={:.2f}".format(
-                        cur, b.angle_deg, marker, z.inner_radius_mm, z.thickness_mm
-                    ),
+                    "{:+.1f}°".format(b.angle_deg),
+                    "{:+.1f}°".format(cur),
+                    status_str,
                 )
+
+            def _apply_reorder(self, action_fn):
+                if self.session is None:
+                    return
+                try:
+                    action_fn()
+                except SequenceError as exc:
+                    self.status.setText(str(exc))
+                    self._sync_playback_buttons()
+                    return
+                # Synchronize table and slider without triggering geometry redraw in flat state
+                self._configure_for_active_bend()
+                self.status.setText(
+                    "Порядок гибки (KINEMATICALLY SIMULATED): {}".format(
+                        " → ".join(self.session.bend_order)
+                    )
+                )
+
+            def move_selected_up(self):
+                if self.session is None:
+                    return
+                self._apply_reorder(lambda: self.session.move_up())
+
+            def move_selected_down(self):
+                if self.session is None:
+                    return
+                self._apply_reorder(lambda: self.session.move_down())
+
+            def restore_order(self):
+                if self.session is None:
+                    return
+                self._apply_reorder(lambda: self.session.restore_canonical_order())
 
             def _populate_operations(self):
                 self.operations.blockSignals(True)
