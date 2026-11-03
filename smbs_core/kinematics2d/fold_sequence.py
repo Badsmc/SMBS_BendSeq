@@ -7,6 +7,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 from math import isfinite
+from typing import Sequence
 from .panel_kinematics import FoldState, KinematicsError
 
 ANGLE_EPS = 1e-6
@@ -54,18 +55,112 @@ class BendSequenceController:
         rooted = fold_state.ordered_bends
         if not rooted:
             raise SequenceError("FoldState has no bends")
-        known = {b.bend_id for b in rooted}
-        self.order: tuple[str, ...] = (
-            tuple(order) if order is not None else tuple(b.bend_id for b in rooted)
-        )
-        if len(self.order) != len(known) or set(self.order) != known:
-            raise SequenceError("Sequence must include every bend exactly once")
-
+        self._canonical_order: tuple[str, ...] = tuple(b.bend_id for b in rooted)
         self._bends_by_id = {b.bend_id: b for b in rooted}
         self.speed_deg_per_sec: float = float(speed_deg_per_sec)
+        self.order: tuple[str, ...] = self._canonical_order
         self.active_index: int = 0
         self.status: PlaybackStatus = PlaybackStatus.IDLE
+        if order is not None:
+            self.order = self._validate_order_tuple(order)
         self._sync_status_when_stopped()
+
+    @property
+    def canonical_order(self) -> tuple[str, ...]:
+        return self._canonical_order
+
+    @property
+    def bend_order(self) -> tuple[str, ...]:
+        return self.order
+
+    def _validate_order_tuple(self, order: Sequence[str]) -> tuple[str, ...]:
+        if isinstance(order, (str, bytes)):
+            raise SequenceError("bend_order must be a sequence of bend IDs, not a string")
+        candidate = tuple(str(bid) for bid in order)
+        known = set(self._canonical_order)
+        if len(candidate) != len(self._canonical_order):
+            raise SequenceError(
+                "Некорректная длина последовательности: ожидалось {}, получено {}.".format(
+                    len(self._canonical_order), len(candidate)
+                )
+            )
+        if len(set(candidate)) != len(candidate):
+            raise SequenceError("Последовательность содержит дублирующиеся ID гибов.")
+        if set(candidate) != known:
+            unknown = sorted(set(candidate) - known)
+            missing = sorted(known - set(candidate))
+            raise SequenceError(
+                "Некорректный состав гибов (неизвестные: {}, пропущенные: {}).".format(
+                    unknown, missing
+                )
+            )
+        return candidate
+
+    def can_reorder(self) -> bool:
+        """True only when simulation is stopped and all bends are at 0 deg (after Reset)."""
+        if self.status == PlaybackStatus.PLAYING:
+            return False
+        return all(self.is_bend_flat(bid) for bid in self.order)
+
+    def _ensure_can_reorder(self) -> None:
+        if self.status == PlaybackStatus.PLAYING:
+            raise SequenceError(
+                "Нельзя менять порядок гибки во время воспроизведения. Нажмите Pause и Reset (|<)."
+            )
+        if not all(self.is_bend_flat(bid) for bid in self.order):
+            raise SequenceError(
+                "Изменение порядка гибки допускается только для плоской заготовки (все углы 0°). Нажмите Reset (|<)."
+            )
+
+    def set_bend_order(self, order: Sequence[str]) -> None:
+        """Atomically set a new bend execution order without altering PanelGraph or FoldState.
+
+        Allowed only when stopped and all bends are at 0 deg. Preserves the
+        currently selected bend ID as the active operation.
+        """
+        candidate = self._validate_order_tuple(order)
+        self._ensure_can_reorder()
+        selected_bid = self.active_bend_id
+        self.order = candidate
+        self.active_index = self.order.index(selected_bid)
+        self.status = PlaybackStatus.IDLE
+
+    def move_up(self, index: int | None = None) -> int:
+        """Move the bend at `index` (or active_index) one position up. Returns new index."""
+        self._ensure_can_reorder()
+        idx = self.active_index if index is None else int(index)
+        if not 0 <= idx < self.total_steps:
+            raise SequenceError(f"Operation index out of range: {idx}")
+        if idx == 0:
+            return idx
+        lst = list(self.order)
+        lst[idx - 1], lst[idx] = lst[idx], lst[idx - 1]
+        self.order = tuple(lst)
+        self.active_index = idx - 1
+        return self.active_index
+
+    def move_down(self, index: int | None = None) -> int:
+        """Move the bend at `index` (or active_index) one position down. Returns new index."""
+        self._ensure_can_reorder()
+        idx = self.active_index if index is None else int(index)
+        if not 0 <= idx < self.total_steps:
+            raise SequenceError(f"Operation index out of range: {idx}")
+        if idx >= self.total_steps - 1:
+            return idx
+        lst = list(self.order)
+        lst[idx], lst[idx + 1] = lst[idx + 1], lst[idx]
+        self.order = tuple(lst)
+        self.active_index = idx + 1
+        return self.active_index
+
+    def restore_canonical_order(self) -> None:
+        """Restore the canonical SheetMetal / PanelGraph bend order (requires flat state)."""
+        self.set_bend_order(self._canonical_order)
+
+    def bend_for(self, bend_id: str):
+        if bend_id not in self._bends_by_id:
+            raise SequenceError(f"Unknown bend_id: {bend_id}")
+        return self._bends_by_id[bend_id]
 
     @property
     def total_steps(self) -> int:
