@@ -1,4 +1,4 @@
-"""SMBS 2D v5 viewer: source-shape validation added to v4 playback."""
+"""SMBS 2D v5.1 viewer: source-shape validation added to v4 playback."""
 from __future__ import annotations
 import traceback
 from freecad_smbs.commands import fold_sequence_viewer as v4
@@ -27,7 +27,7 @@ def show():
     panel_build=build_panels(unfold_name=unfold.Name,outline_name=outline,
                              bends_name=bends,document=doc)
     graph=graph_from_panel_build(panel_build)
-    window.setWindowTitle("SMBS 2D v5 | Source 3D direction verification")
+    window.setWindowTitle("SMBS 2D v5.1 | Reference-face direction verification")
     bar=QtWidgets.QHBoxLayout()
     validate_button=QtWidgets.QPushButton("Validate Directions")
     apply_button=QtWidgets.QPushButton("Apply Verified")
@@ -44,11 +44,11 @@ def show():
         apply_button.setEnabled(False)
         state["result"]=None
         try:
-            window.log.appendPlainText("Validating against source 3D shape: "+source.Name)
+            window.log.appendPlainText("Validating against source 3D shape: %s.%s" %\n                                       (source.Name,data.source_face))
             QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
             try:
                 result=validate_directions(graph,window.fixed.currentText(),
-                                           panel_build,source.Shape,source.Name)
+                                           panel_build,source.Shape,source.Name,\n                                           source_face=data.source_face)
             finally:
                 QtWidgets.QApplication.restoreOverrideCursor()
             state["result"]=result
