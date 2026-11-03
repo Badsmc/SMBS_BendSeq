@@ -46,6 +46,9 @@ class UnfoldData2D:
     bends: Tuple[BendRecord2D, ...]
     thickness_mm: float
     k_factor_standard: str
+    root_centroid_xy: Tuple[float, float] = (0.0, 0.0)
+    sketch_outline: object = None
+    sketch_bend_lines_xy: Tuple[Tuple[Tuple[float, float], Tuple[float, float]], ...] = ()
 
 
 def fold_angle_from_sheetmetal(angle_deg: float) -> float:
@@ -95,11 +98,51 @@ def _calculator(unfold):
     )
 
 
+def _resolve_tip_source(source, face_name, linked):
+    """Promote stale Body_Unfold feature references to Body.Tip when unambiguous."""
+    tip = getattr(linked, "Tip", None)
+    if (
+        tip is None
+        or tip.Name == source.Name
+        or not hasattr(tip, "Shape")
+        or tip.Shape.isNull()
+        or len(tip.Shape.Faces) <= len(source.Shape.Faces)
+    ):
+        return source, face_name
+    try:
+        src_face = source.Shape.getElement(face_name)
+        n_src = src_face.normalAt(0, 0)
+        c_src = src_face.CenterOfMass
+    except Exception:
+        return source, face_name
+    candidates = []
+    for idx, f in enumerate(tip.Shape.Faces, 1):
+        if getattr(f.Surface, "TypeId", "") != "Part::GeomPlane":
+            continue
+        try:
+            n_f = f.normalAt(0, 0)
+            if n_f.dot(n_src) < 0.999999:
+                continue
+            if abs((f.CenterOfMass - c_src).dot(n_src)) > 1e-4:
+                continue
+            common_area = f.common(src_face).Area
+        except Exception:
+            continue
+        if common_area > 0.5 * min(f.Area, src_face.Area):
+            candidates.append((common_area, "Face{}".format(idx)))
+    if len(candidates) == 1:
+        return tip, candidates[0][1]
+    return source, face_name
+
+
 def read_unfold(unfold_name="Body_Unfold", document=None):
     """Return immutable canonical bend records from the referenced source shape.
 
     The reference 'Bend001.Face4' is resolved against Bend001.Shape, NEVER
-    against Body.Shape.Face4. No recompute or document modification occurs.
+    against Body.Shape.Face4. If Body_Unfold references an earlier feature inside
+    a PartDesign::Body whose Tip has additional bends, promotes cleanly to the
+    corresponding planar reference face on Body.Tip. No recompute or document
+    modification occurs.
     """
     import FreeCAD as App
     import SheetMetalNewUnfolder as SM
@@ -132,6 +175,7 @@ def read_unfold(unfold_name="Body_Unfold", document=None):
     face_index = int(face_name[4:])
     if not 1 <= face_index <= len(source.Shape.Faces):
         raise UnfoldReadError("Face index outside referenced source shape")
+    source, face_name = _resolve_tip_source(source, face_name, linked)
     try:
         bac = _calculator(unfold)
         result = SM.getUnfold(bac, source, face_name)
@@ -143,9 +187,28 @@ def read_unfold(unfold_name="Body_Unfold", document=None):
         ) from exc
     if not isinstance(result, (tuple, list)) or len(result) < 5:
         raise UnfoldReadError("Unexpected SheetMetal getUnfold result")
-    info = result[4]
+    rf, unbent, _trimmed, norm, info = result[:5]
     if not info:
         raise UnfoldReadError("No bends found for {}.{}".format(source.Name, face_name))
+    root_centroid_xy = (0.0, 0.0)
+    sketch_outline = None
+    sketch_bend_lines_xy = ()
+    try:
+        sketch_profile, fold_lines, _ = SM.SketchExtraction.extract_manually(unbent, norm)
+        tr_sketch = SM.SketchExtraction.move_to_origin(sketch_profile, rf)
+        rf_sf = rf.transformed(tr_sketch)
+        root_centroid_xy = (float(rf_sf.CenterOfMass.x), float(rf_sf.CenterOfMass.y))
+        sketch_outline = sketch_profile.transformed(tr_sketch)
+        lines_xy = []
+        for fl in fold_lines:
+            fl_sf = fl.transformed(tr_sketch)
+            for edge in fl_sf.Edges:
+                if len(edge.Vertexes) == 2:
+                    p0, p1 = edge.Vertexes[0].Point, edge.Vertexes[1].Point
+                    lines_xy.append(((float(p0.x), float(p0.y)), (float(p1.x), float(p1.y))))
+        sketch_bend_lines_xy = tuple(lines_xy)
+    except Exception:
+        pass
     thickness = _thickness(SM, source, face_name)
     standard = str(unfold.KFactorStandard)
     bends = []
@@ -190,6 +253,9 @@ def read_unfold(unfold_name="Body_Unfold", document=None):
         bends=tuple(bends),
         thickness_mm=thickness,
         k_factor_standard=standard,
+        root_centroid_xy=root_centroid_xy,
+        sketch_outline=sketch_outline,
+        sketch_bend_lines_xy=sketch_bend_lines_xy,
     )
 
 

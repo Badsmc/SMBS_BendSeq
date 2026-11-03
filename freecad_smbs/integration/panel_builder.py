@@ -141,12 +141,18 @@ def build_panels(unfold_name="Body_Unfold", outline_name=None, bends_name=None,
     bend_sketch = doc.getObject(bends_name)
     if outline is None or bend_sketch is None:
         raise PanelBuildError("Unfold sketch object missing")
-    if len(outline.Shape.Wires) != 1 or not outline.Shape.Wires[0].isClosed():
+    outline_shape = outline.Shape
+    lines = tuple(_segment(edge) for edge in bend_sketch.Shape.Edges)
+    canonical = tuple((b.start_xyz[:2], b.end_xyz[:2]) for b in data.bends)
+    if len(lines) != len(canonical) and data.sketch_outline is not None:
+        outline_shape = data.sketch_outline
+        lines = canonical
+    if len(outline_shape.Wires) != 1 or not outline_shape.Wires[0].isClosed():
         raise PanelBuildError("Expected exactly one closed outline wire")
-    if len(outline.Shape.Edges) < 3:
+    if len(outline_shape.Edges) < 3:
         raise PanelBuildError("Invalid outline")
     try:
-        sheet = Part.Face(outline.Shape.Wires[0])
+        sheet = Part.Face(outline_shape.Wires[0])
     except Exception as exc:
         raise PanelBuildError("Cannot construct planar face from outline") from exc
     if not sheet.isValid() or sheet.Area <= 0:
@@ -157,8 +163,6 @@ def build_panels(unfold_name="Body_Unfold", outline_name=None, bends_name=None,
     z = sheet.CenterOfMass.z
     if abs(z) > 1e-5:
         raise PanelBuildError("Outline plane must be z=0")
-    lines = tuple(_segment(edge) for edge in bend_sketch.Shape.Edges)
-    canonical = tuple((b.start_xyz[:2], b.end_xyz[:2]) for b in data.bends)
     axis_matches = match_bend_axes(canonical, lines)
     # Reject source/sketch frame mismatch; never silently shift canonical data.
     cutters = []
