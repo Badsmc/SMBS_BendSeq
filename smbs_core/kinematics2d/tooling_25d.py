@@ -88,6 +88,7 @@ class Transform2D:
 NOT_SPECIFIED = "NOT_SPECIFIED"
 SCHEMA_VERSION = "2.5D-tooling-1.0"
 DEFAULT_GEOMETRY_TOL_MM = 1e-3
+DEFAULT_INITIAL_PUNCH_CLEARANCE_MM = 5.0
 
 Point2D = Tuple[float, float]
 BBox2D = Tuple[float, float, float, float]  # (min_x, min_y, max_x, max_y)
@@ -2352,10 +2353,11 @@ class ToolingSetup2D:
     die: Optional[ToolProfile] = None
     visible: bool = True
     aligned: bool = False
+    aligned_bend_id: Optional[str] = None
     punch_machine_transform: Transform2D = field(default_factory=Transform2D.identity)
     die_machine_transform: Transform2D = field(default_factory=Transform2D.identity)
     alignment_anchor_sz: Point2D = (0.0, 0.0)
-    punch_clearance_mm: float = 0.0
+    punch_clearance_mm: float = DEFAULT_INITIAL_PUNCH_CLEARANCE_MM
 
     def select_punch(self, punch: Optional[ToolProfile]) -> None:
         if punch is not None:
@@ -2378,34 +2380,54 @@ class ToolingSetup2D:
     def reset_position(self) -> None:
         """Reset tooling transforms to default unaligned parking position above/below sheet."""
         self.aligned = False
+        self.aligned_bend_id = None
         self.alignment_anchor_sz = (0.0, 0.0)
         self.punch_clearance_mm = 15.0
         self.punch_machine_transform = Transform2D.translation(0.0, self.punch_clearance_mm)
         self.die_machine_transform = Transform2D.translation(0.0, -5.0)
 
-    def align_to_cross_section(self, cross_section: Optional[Dict[str, Any]] = None) -> None:
+    def align_to_cross_section(
+        self,
+        cross_section: Optional[Dict[str, Any]] = None,
+        clearance_mm: float = DEFAULT_INITIAL_PUNCH_CLEARANCE_MM,
+        bend_id: Optional[str] = None,
+    ) -> None:
         """Align PUNCH and DIE working axes and datums to the active bend in Machine `(s, z)` space.
 
-        - Places the Die V-groove center (`working_datum`) directly under the active bend neutral/bottom
-          contact zone so the sheet sits between Punch and Die.
-        - Aligns the Punch working axis (`s`) coaxially with the Die V-groove center (`s_punch == s_die`).
-        - Places the Punch working tip above the sheet top surface (at the active bend tangent/apex).
+        - Requires at least one selected tool (`punch` or `die`) with `GEOMETRY_VERIFIED` datums.
+        - Places the Die V-groove center (`working_datum`) directly under the active bend bottom
+          surface (`sheet_bottom_z`) so the die lies below the sheet.
+        - Aligns the Punch working axis (`s`) coaxially with the Die V-groove center (`s_punch == s_die == anchor_s`).
+        - Places the Punch working tip above the sheet top surface by explicit positive `clearance_mm`
+          (`z_punch_tip = sheet_top_z + clearance_mm`), so the punch does not touch the sheet in initial state.
         - Does NOT modify `PanelGraph`, `FoldState`, `BendZone`, or `BendSequenceController`.
         """
-        if self.punch is not None and self.punch.validation_status not in (
-            ValidationStatus.GEOMETRY_VERIFIED,
-        ):
+        if self.punch is None and self.die is None:
+            raise ToolingError("Не выбран ни пуансон (PUNCH), ни матрица (DIE) для выравнивания.")
+        if not math.isfinite(float(clearance_mm)) or float(clearance_mm) <= 0.0:
             raise ToolingError(
-                f"Punch '{self.punch.name}' has status {self.punch.validation_status.value}; "
-                "assign datums before aligning tooling."
+                f"Initial punch clearance_mm must be a positive number in mm, got {clearance_mm!r}"
             )
-        if self.die is not None and self.die.validation_status not in (
-            ValidationStatus.GEOMETRY_VERIFIED,
-        ):
-            raise ToolingError(
-                f"Die '{self.die.name}' has status {self.die.validation_status.value}; "
-                "assign datums before aligning tooling."
-            )
+        if self.punch is not None:
+            if (
+                self.punch.validation_status != ValidationStatus.GEOMETRY_VERIFIED
+                or self.punch.punch_datums is None
+                or self.punch.working_datum == NOT_SPECIFIED
+            ):
+                raise ToolingError(
+                    f"Punch '{self.punch.name}' lacks verified geometric datums "
+                    f"(status={self.punch.validation_status.value}); assign datums before aligning tooling."
+                )
+        if self.die is not None:
+            if (
+                self.die.validation_status != ValidationStatus.GEOMETRY_VERIFIED
+                or self.die.die_datums is None
+                or self.die.working_datum == NOT_SPECIFIED
+            ):
+                raise ToolingError(
+                    f"Die '{self.die.name}' lacks verified geometric datums "
+                    f"(status={self.die.validation_status.value}); assign datums before aligning tooling."
+                )
 
         if cross_section is not None and cross_section.get("neutral_curve"):
             nc = cross_section["neutral_curve"]
@@ -2415,20 +2437,23 @@ class ToolingSetup2D:
             zs = [float(p[1]) for p in zone_poly]
             sheet_bottom_z = min(zs)
             sheet_top_z = max(zs)
+            resolved_bend_id = bend_id or cross_section.get("bend_id")
         else:
             anchor_s = 0.0
             sheet_bottom_z = -1.0
             sheet_top_z = 1.0
+            resolved_bend_id = bend_id
 
         self.alignment_anchor_sz = (anchor_s, sheet_bottom_z)
-        self.punch_clearance_mm = 0.0
+        self.punch_clearance_mm = float(clearance_mm)
         # Die V-groove center (local (0,0)) aligned at (anchor_s, sheet_bottom_z)
         self.die_machine_transform = Transform2D.translation(anchor_s, sheet_bottom_z)
-        # Punch working tip (local (0,0)) coaxially aligned at (anchor_s, sheet_top_z + clearance)
+        # Punch working tip (local (0,0)) coaxially aligned at (anchor_s, sheet_top_z + clearance_mm)
         self.punch_machine_transform = Transform2D.translation(
             anchor_s, sheet_top_z + self.punch_clearance_mm
         )
         self.aligned = True
+        self.aligned_bend_id = str(resolved_bend_id) if resolved_bend_id else None
 
     def punch_tip_machine(self) -> Optional[Point2D]:
         if self.punch is None:
@@ -2462,6 +2487,22 @@ class ToolingSetup2D:
         holes_m = tuple(tuple(tr.apply(p) for p in h) for h in holes_local)
         return outer_m, holes_m
 
+    def punch_bounds_machine(self, arc_segments: int = 20) -> Optional[BBox2D]:
+        polys = self.punch_polygons_machine(arc_segments=arc_segments)
+        if polys is None or not polys[0]:
+            return None
+        xs = [p[0] for p in polys[0]]
+        zs = [p[1] for p in polys[0]]
+        return (min(xs), min(zs), max(xs), max(zs))
+
+    def die_bounds_machine(self, arc_segments: int = 20) -> Optional[BBox2D]:
+        polys = self.die_polygons_machine(arc_segments=arc_segments)
+        if polys is None or not polys[0]:
+            return None
+        xs = [p[0] for p in polys[0]]
+        zs = [p[1] for p in polys[0]]
+        return (min(xs), min(zs), max(xs), max(zs))
+
     def geometry_status_summary(self) -> str:
         statuses = []
         if self.punch is not None:
@@ -2483,6 +2524,108 @@ class ToolingSetup2D:
         d_name = self.die.name if self.die is not None else "—"
         g_status = self.geometry_status_summary()
         return f"Punch: {p_name} | Die: {d_name} | Geometry: {g_status} | Collision: NOT CHECKED"
+
+
+# ---------------------------------------------------------------------------
+# Explicit Scene Bounds Calculation (Sheet vs Punch vs Die vs Combined)
+# ---------------------------------------------------------------------------
+
+def _pts_bbox(pts: Sequence[Point2D]) -> Optional[BBox2D]:
+    if not pts:
+        return None
+    xs = [float(p[0]) for p in pts]
+    zs = [float(p[1]) for p in pts]
+    return (min(xs), min(zs), max(xs), max(zs))
+
+
+def _union_bboxes(boxes: Sequence[Optional[BBox2D]]) -> Optional[BBox2D]:
+    valid = [b for b in boxes if b is not None]
+    if not valid:
+        return None
+    return (
+        min(b[0] for b in valid),
+        min(b[1] for b in valid),
+        max(b[2] for b in valid),
+        max(b[3] for b in valid),
+    )
+
+
+@dataclass(frozen=True)
+class SceneBounds2D:
+    """Explicit separation of `sheet_bounds`, `punch_bounds`, `die_bounds`, and `combined_bounds`
+    in Machine `(s, z)` coordinates (mm) and View `(x_screen, y_screen)` rectangle.
+    """
+    sheet_bounds: Optional[BBox2D]
+    punch_bounds: Optional[BBox2D]
+    die_bounds: Optional[BBox2D]
+    combined_bounds: Optional[BBox2D]
+    view_rect: BBox2D  # (x_left, y_top, width, height) in Qt QGraphicsScene coordinates
+
+
+def compute_scene_bounds_2d(
+    sheet_pts: Sequence[Point2D] = (),
+    punch_pts: Sequence[Point2D] = (),
+    die_pts: Sequence[Point2D] = (),
+    focus_sheet_when_tall_tooling: bool = True,
+) -> SceneBounds2D:
+    """Compute separated `sheet_bounds`, `punch_bounds`, `die_bounds`, `combined_bounds`,
+    and the target `view_rect` without mutating any Machine coordinates.
+
+    When both sheet and tall tooling (e.g. a 120–135 mm punch) are visible, if the combined
+    vertical span exceeds 2.5x the sheet span, the view window clamps the vertical extent
+    around the sheet and tool working zone (tip + V-groove) so the sheet remains clearly
+    legible while still showing both tools in place.
+    """
+    s_box = _pts_bbox(sheet_pts)
+    p_box = _pts_bbox(punch_pts)
+    d_box = _pts_bbox(die_pts)
+    c_box = _union_bboxes((s_box, p_box, d_box))
+
+    if c_box is None:
+        return SceneBounds2D(
+            sheet_bounds=None,
+            punch_bounds=None,
+            die_bounds=None,
+            combined_bounds=None,
+            view_rect=(-120.0, -60.0, 240.0, 120.0),
+        )
+
+    target_box = c_box
+    if focus_sheet_when_tall_tooling and s_box is not None and (p_box is not None or d_box is not None):
+        sheet_w = max(s_box[2] - s_box[0], 10.0)
+        sheet_h = max(s_box[3] - s_box[1], 4.0)
+        sheet_span = max(sheet_w, sheet_h, 25.0)
+        comb_h = c_box[3] - c_box[1]
+        if comb_h > 2.0 * sheet_span:
+            # Keep full horizontal extent of sheet + working zone of tools, and clamp vertical window
+            # so at least 25 mm (or 0.65 * sheet_span) of the punch above and die below the sheet are visible
+            tool_pad_z = max(25.0, 0.65 * sheet_span)
+            min_s = min(s_box[0], c_box[0])
+            max_s = max(s_box[2], c_box[2])
+            min_z = max(c_box[1], s_box[1] - tool_pad_z)
+            max_z = min(c_box[3], s_box[3] + tool_pad_z)
+            target_box = (min_s, min_z, max_s, max_z)
+
+    # Convert Machine (s_min, z_min, s_max, z_max) to View (x = s, y = -z)
+    min_x = target_box[0]
+    max_x = target_box[2]
+    min_y = -target_box[3]
+    max_y = -target_box[1]
+    span = max(max_x - min_x, max_y - min_y, 10.0)
+    pad = 0.15 * span
+    view_rect = (
+        min_x - pad,
+        min_y - pad,
+        (max_x - min_x) + 2.0 * pad,
+        (max_y - min_y) + 2.0 * pad,
+    )
+    return SceneBounds2D(
+        sheet_bounds=s_box,
+        punch_bounds=p_box,
+        die_bounds=d_box,
+        combined_bounds=c_box,
+        view_rect=view_rect,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -2622,7 +2765,11 @@ class ToolLibrary25D:
         raise ToolingError(f"Tool '{tid}' ({tk.value}) not found in {self.library_root}")
 
     def _load_legacy_fcstd_tool(self, fcstd_path: Path, kind: ToolKind) -> ToolProfile:
-        """Load an existing `.FCStd` tool (e.g. `puancon.FCStd` / `matrica.FCStd`) via FreeCAD."""
+        """Load an existing `.FCStd` tool (e.g. `puancon.FCStd` / `matrica.FCStd`) via FreeCAD.
+
+        Critically preserves `App.ActiveDocument` and `Gui.ActiveDocument` so background
+        library scanning never clobbers the user's open SheetMetal document in FreeCAD.
+        """
         try:
             import FreeCAD as App
         except ImportError as exc:
@@ -2630,6 +2777,8 @@ class ToolLibrary25D:
                 f"FreeCAD is required to extract 2D profile from {fcstd_path.name}"
             ) from exc
 
+        prev_active_doc = getattr(App, "ActiveDocument", None)
+        prev_active_name = getattr(prev_active_doc, "Name", None)
         t0 = time.perf_counter()
         doc = App.openDocument(str(fcstd_path), True)
         try:
@@ -2656,8 +2805,10 @@ class ToolLibrary25D:
         finally:
             try:
                 App.closeDocument(doc.Name)
-            except Exception:
-                pass
+            except Exception as exc:
+                raise ToolingError(f"Failed to close temporary tool document {doc.Name}: {exc}") from exc
+            if prev_active_name is not None and prev_active_name in App.listDocuments():
+                App.setActiveDocument(prev_active_name)
 
     def list_tools(self, kind: Optional[Union[ToolKind, str]] = None) -> Tuple[ToolProfile, ...]:
         """List all saved `ToolProfile` entries in the library."""

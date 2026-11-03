@@ -23,17 +23,30 @@ from smbs_core.kinematics2d.fold_sequence import (
 from smbs_core.kinematics2d.panel_graph import PanelGraph, graph_from_panel_build
 from smbs_core.kinematics2d.panel_kinematics import FoldState, KinematicsError
 from smbs_core.kinematics2d.tooling_25d import (
+    DEFAULT_INITIAL_PUNCH_CLEARANCE_MM,
     NOT_SPECIFIED,
+    SceneBounds2D,
     ToolingError,
     ToolingSetup2D,
     ToolKind,
     ToolLibrary25D,
     ToolProfile,
     ValidationStatus,
+    compute_scene_bounds_2d,
     import_tool_from_dxf,
     import_tool_from_freecad_object,
     import_tool_from_step,
 )
+
+# Explicit QGraphicsScene Z-layer order so tooling never obscures the sheet
+Z_LAYER_AUXILIARY = 0.0
+Z_LAYER_DIE = 10.0
+Z_LAYER_PUNCH = 15.0
+Z_LAYER_SHEET_OTHER = 20.0
+Z_LAYER_SHEET_PANELS = 30.0
+Z_LAYER_SHEET_ZONE = 35.0
+Z_LAYER_SHEET_SURFACES = 40.0
+Z_LAYER_SHEET_NEUTRAL_AND_TANGENTS = 50.0
 
 _DOCK = None
 _SLIDER_SCALE = 10  # 0.1 degree slider resolution
@@ -111,11 +124,13 @@ def validate_selection_preconditions(doc, selection) -> list:
     Raises SelectionWarning if preconditions are not met before any geometry
     pipeline, unfold reading, or scene update is invoked.
     """
+    sel_list = list(selection) if selection else []
+    if doc is None and sel_list:
+        doc = getattr(sel_list[0], "Document", None)
     if doc is None:
         raise SelectionWarning(
             "Нет открытого документа FreeCAD. Откройте FCStd-модель листовой детали."
         )
-    sel_list = list(selection) if selection else []
     if not sel_list:
         raise SelectionWarning(
             "Деталь не выбрана. Выделите листовую деталь (Body / Bend / Unfold) в дереве модели и нажмите «Деталь»."
@@ -141,6 +156,9 @@ def execute_load_part(
         sel_list = validate_selection_preconditions(doc, selection)
     except SelectionWarning as warn_exc:
         return "warning", current_session, str(warn_exc)
+
+    if doc is None and sel_list:
+        doc = getattr(sel_list[0], "Document", None)
 
     _log("load_part: enter")
     builder = build_part_session if build_fn is None else build_fn
@@ -492,6 +510,7 @@ class _PreviewPanel:
                 self.session: LoadedPartSession | None = None
                 self.tool_library = ToolLibrary25D(library_root=library_root)
                 self.tooling_setup = ToolingSetup2D()
+                self.last_scene_bounds: SceneBounds2D | None = None
                 self.angle = 0.0
                 self.playing = False
                 self._last_tick_monotonic: float | None = None
@@ -680,19 +699,39 @@ class _PreviewPanel:
             def _update_tooling_status_label(self):
                 self.tooling_status.setText(self.tooling_setup.status_line())
 
+            def _sync_tooling_to_active_bend(self):
+                """Re-align static tooling to the active bend line if already aligned."""
+                if self.session is None:
+                    return
+                if self.tooling_setup.punch is None and self.tooling_setup.die is None:
+                    return
+                try:
+                    self.tooling_setup.align_to_cross_section(
+                        self.session.cross_section(segments=16),
+                        clearance_mm=DEFAULT_INITIAL_PUNCH_CLEARANCE_MM,
+                        bend_id=self.session.active_bend_id,
+                    )
+                except ToolingError as exc:
+                    _warn(f"Tooling alignment warning for bend {self.session.active_bend_id}: {exc}")
+                self._update_tooling_status_label()
+
             def select_punch(self, punch: ToolProfile | None):
                 try:
                     self.tooling_setup.select_punch(punch)
-                    if self.session is not None and (
-                        punch is None or punch.validation_status == ValidationStatus.GEOMETRY_VERIFIED
-                    ):
-                        try:
-                            self.tooling_setup.align_to_cross_section(self.session.cross_section(segments=16))
-                        except ToolingError:
-                            pass
                 except ToolingError as exc:
                     self.status.setText(str(exc))
                     return
+                if self.session is not None and (
+                    self.tooling_setup.punch is not None or self.tooling_setup.die is not None
+                ):
+                    try:
+                        self.tooling_setup.align_to_cross_section(
+                            self.session.cross_section(segments=16),
+                            clearance_mm=DEFAULT_INITIAL_PUNCH_CLEARANCE_MM,
+                            bend_id=self.session.active_bend_id,
+                        )
+                    except ToolingError as exc:
+                        self.status.setText(str(exc))
                 self._refresh_tooling_combos()
                 self._update_tooling_status_label()
                 self.draw()
@@ -701,16 +740,20 @@ class _PreviewPanel:
             def select_die(self, die: ToolProfile | None):
                 try:
                     self.tooling_setup.select_die(die)
-                    if self.session is not None and (
-                        die is None or die.validation_status == ValidationStatus.GEOMETRY_VERIFIED
-                    ):
-                        try:
-                            self.tooling_setup.align_to_cross_section(self.session.cross_section(segments=16))
-                        except ToolingError:
-                            pass
                 except ToolingError as exc:
                     self.status.setText(str(exc))
                     return
+                if self.session is not None and (
+                    self.tooling_setup.punch is not None or self.tooling_setup.die is not None
+                ):
+                    try:
+                        self.tooling_setup.align_to_cross_section(
+                            self.session.cross_section(segments=16),
+                            clearance_mm=DEFAULT_INITIAL_PUNCH_CLEARANCE_MM,
+                            bend_id=self.session.active_bend_id,
+                        )
+                    except ToolingError as exc:
+                        self.status.setText(str(exc))
                 self._refresh_tooling_combos()
                 self._update_tooling_status_label()
                 self.draw()
@@ -747,11 +790,22 @@ class _PreviewPanel:
             def align_tooling(self):
                 try:
                     sec = self.session.cross_section(segments=16) if self.session is not None else None
-                    self.tooling_setup.align_to_cross_section(sec)
+                    bend_id = self.session.active_bend_id if self.session is not None else None
+                    self.tooling_setup.align_to_cross_section(
+                        sec,
+                        clearance_mm=DEFAULT_INITIAL_PUNCH_CLEARANCE_MM,
+                        bend_id=bend_id,
+                    )
                 except ToolingError as exc:
                     self.status.setText(str(exc))
                     return
                 self._update_tooling_status_label()
+                self.status.setText(
+                    "Оснастка выровнена по линии гиба {} (зазор пуансона {:.1f} мм)".format(
+                        self.tooling_setup.aligned_bend_id or "0.0",
+                        self.tooling_setup.punch_clearance_mm,
+                    )
+                )
                 self.draw()
                 QtCore.QTimer.singleShot(0, self.fit)
 
@@ -1018,11 +1072,7 @@ class _PreviewPanel:
 
                 self._stop_timer()
                 self.session = new_session
-                if self.tooling_setup.punch is not None or self.tooling_setup.die is not None:
-                    try:
-                        self.tooling_setup.align_to_cross_section(self.session.cross_section(segments=16))
-                    except ToolingError:
-                        pass
+                self._sync_tooling_to_active_bend()
                 self._populate_operations()
                 self._configure_for_active_bend()
                 self._set_playback_controls_enabled(True)
@@ -1061,6 +1111,9 @@ class _PreviewPanel:
                     return
                 # Synchronize table and slider without triggering geometry redraw in flat state
                 self._configure_for_active_bend()
+                if self.tooling_setup.aligned:
+                    self._sync_tooling_to_active_bend()
+                    self.draw()
                 self.status.setText(
                     "Порядок гибки (KINEMATICALLY SIMULATED): {}".format(
                         " → ".join(self.session.bend_order)
@@ -1142,6 +1195,8 @@ class _PreviewPanel:
                 # Switch active bend while preserving the angles already achieved on previous bends
                 self.session.select_bend_index(idx)
                 self._configure_for_active_bend()
+                if self.tooling_setup.aligned:
+                    self._sync_tooling_to_active_bend()
                 self.draw()
                 QtCore.QTimer.singleShot(0, self.fit)
 
@@ -1203,6 +1258,8 @@ class _PreviewPanel:
                 if self.session is not None:
                     self.session.reset_all_bends()
                     self._configure_for_active_bend()
+                    if self.tooling_setup.aligned:
+                        self._sync_tooling_to_active_bend()
                     self.draw()
 
             def play_all(self):
@@ -1216,6 +1273,8 @@ class _PreviewPanel:
                     self.status.setText(str(exc))
                     return
                 self._configure_for_active_bend()
+                if self.tooling_setup.aligned:
+                    self._sync_tooling_to_active_bend()
                 self.playing = True
                 self._last_tick_monotonic = time.monotonic()
                 self._sync_playback_buttons()
@@ -1242,6 +1301,8 @@ class _PreviewPanel:
                     self.status.setText(str(exc))
                     return
                 self._configure_for_active_bend()
+                if self.tooling_setup.aligned:
+                    self._sync_tooling_to_active_bend()
                 self.playing = True
                 self._last_tick_monotonic = time.monotonic()
                 self._sync_playback_buttons()
@@ -1277,6 +1338,8 @@ class _PreviewPanel:
                     self.status.setText(str(exc))
                     return
                 self._configure_for_active_bend()
+                if self.tooling_setup.aligned:
+                    self._sync_tooling_to_active_bend()
                 self.draw()
                 QtCore.QTimer.singleShot(0, self.fit)
 
@@ -1290,6 +1353,8 @@ class _PreviewPanel:
                     self.status.setText(str(exc))
                     return
                 self._configure_for_active_bend()
+                if self.tooling_setup.aligned:
+                    self._sync_tooling_to_active_bend()
                 self.draw()
                 QtCore.QTimer.singleShot(0, self.fit)
 
@@ -1307,6 +1372,8 @@ class _PreviewPanel:
                 prev_bend_idx = self.session.active_bend_index
                 self.session.advance_time(dt)
                 self._configure_for_active_bend()
+                if self.session.active_bend_index != prev_bend_idx and self.tooling_setup.aligned:
+                    self._sync_tooling_to_active_bend()
                 self.draw()
                 if self.session.active_bend_index != prev_bend_idx:
                     QtCore.QTimer.singleShot(0, self.fit)
@@ -1349,16 +1416,22 @@ class _PreviewPanel:
                 self.playing = False
                 super().closeEvent(event)
 
-            def _draw_tooling_items(self, to_qpt, make_poly, all_pts: list) -> None:
-                """Render cached PUNCH and DIE profiles in Machine -> View coordinates."""
+            def _draw_tooling_items(
+                self,
+                to_qpt,
+                make_poly,
+                punch_pts: list,
+                die_pts: list,
+            ) -> None:
+                """Render cached PUNCH and DIE profiles in Machine -> View coordinates with explicit Z-order."""
                 if not self.tooling_setup.visible:
                     return
 
-                # 1. Die (lower tool)
+                # 1. Die (lower tool) — rendered in Z_LAYER_DIE (below sheet geometry)
                 die_polys = self.tooling_setup.die_polygons_machine(arc_segments=20)
                 if die_polys is not None:
                     die_outer, die_holes = die_polys
-                    all_pts.extend(die_outer)
+                    die_pts.extend(die_outer)
                     die_path = QtGui.QPainterPath()
                     die_path.addPolygon(make_poly(die_outer))
                     die_path.closeSubpath()
@@ -1369,21 +1442,27 @@ class _PreviewPanel:
                         die_path = die_path.subtracted(hole_path)
                     die_pen = QtGui.QPen(QtGui.QColor("#2c3e50"), 1.5)
                     die_pen.setCosmetic(True)
-                    die_brush = QtGui.QBrush(QtGui.QColor(52, 73, 94, 165))
-                    self.scene.addPath(die_path, die_pen, die_brush)
+                    die_brush = QtGui.QBrush(QtGui.QColor(52, 73, 94, 155))
+                    die_item = self.scene.addPath(die_path, die_pen, die_brush)
+                    die_item.setZValue(Z_LAYER_DIE)
+                    die_item.setData(0, "die")
 
                     vc = self.tooling_setup.die_v_center_machine()
                     if vc is not None:
                         vp = to_qpt(vc)
                         axis_pen = QtGui.QPen(QtGui.QColor("#16a085"), 1.1, QtCore.Qt.DashDotLine)
                         axis_pen.setCosmetic(True)
-                        self.scene.addLine(vp.x(), vp.y() - 12.0, vp.x(), vp.y() + 25.0, axis_pen)
+                        die_axis_item = self.scene.addLine(
+                            vp.x(), vp.y() - 12.0, vp.x(), vp.y() + 25.0, axis_pen
+                        )
+                        die_axis_item.setZValue(Z_LAYER_AUXILIARY)
+                        die_axis_item.setData(0, "die_axis")
 
-                # 2. Punch (upper tool)
+                # 2. Punch (upper tool) — rendered in Z_LAYER_PUNCH (below sheet geometry)
                 punch_polys = self.tooling_setup.punch_polygons_machine(arc_segments=20)
                 if punch_polys is not None:
                     punch_outer, punch_holes = punch_polys
-                    all_pts.extend(punch_outer)
+                    punch_pts.extend(punch_outer)
                     punch_path = QtGui.QPainterPath()
                     punch_path.addPolygon(make_poly(punch_outer))
                     punch_path.closeSubpath()
@@ -1394,15 +1473,21 @@ class _PreviewPanel:
                         punch_path = punch_path.subtracted(hole_path)
                     punch_pen = QtGui.QPen(QtGui.QColor("#922b21"), 1.5)
                     punch_pen.setCosmetic(True)
-                    punch_brush = QtGui.QBrush(QtGui.QColor(231, 76, 60, 155))
-                    self.scene.addPath(punch_path, punch_pen, punch_brush)
+                    punch_brush = QtGui.QBrush(QtGui.QColor(231, 76, 60, 145))
+                    punch_item = self.scene.addPath(punch_path, punch_pen, punch_brush)
+                    punch_item.setZValue(Z_LAYER_PUNCH)
+                    punch_item.setData(0, "punch")
 
                     ptip = self.tooling_setup.punch_tip_machine()
                     if ptip is not None:
                         tp = to_qpt(ptip)
                         p_axis_pen = QtGui.QPen(QtGui.QColor("#c0392b"), 1.1, QtCore.Qt.DashDotLine)
                         p_axis_pen.setCosmetic(True)
-                        self.scene.addLine(tp.x(), tp.y() - 25.0, tp.x(), tp.y() + 12.0, p_axis_pen)
+                        punch_axis_item = self.scene.addLine(
+                            tp.x(), tp.y() - 25.0, tp.x(), tp.y() + 12.0, p_axis_pen
+                        )
+                        punch_axis_item.setZValue(Z_LAYER_AUXILIARY)
+                        punch_axis_item.setData(0, "punch_axis")
 
             def draw(self):
                 try:
@@ -1421,53 +1506,71 @@ class _PreviewPanel:
                     )
 
                     if self.session is None and not has_visible_tools:
+                        self.last_scene_bounds = None
                         self.scene.setSceneRect(-120, -60, 240, 120)
                         text = self.scene.addSimpleText("Деталь не загружена — нажмите «Деталь»")
                         text.setBrush(QtGui.QBrush(QtGui.QColor("#6c7a89")))
+                        text.setZValue(Z_LAYER_AUXILIARY)
+                        text.setData(0, "placeholder")
                         rect = text.boundingRect()
                         text.setPos(-rect.width() / 2.0, -rect.height() / 2.0)
                         self.step.setText("Активный гиб: — | Угол: — / —")
                         return
 
-                    all_pts: list = []
+                    sheet_pts: list = []
+                    punch_pts: list = []
+                    die_pts: list = []
+
+                    # 1. Custom Punch & Die tooling (rendered in Z_LAYER_DIE / Z_LAYER_PUNCH below sheet)
+                    self._draw_tooling_items(to_qpt, make_poly, punch_pts, die_pts)
 
                     if self.session is not None:
                         sec = self.session.cross_section(segments=32)
 
-                        all_pts.extend(sec["inner_surface"])
-                        all_pts.extend(sec["outer_surface"])
+                        sheet_pts.extend(sec["inner_surface"])
+                        sheet_pts.extend(sec["outer_surface"])
                         for _, opoly in sec.get("other_panel_polygons", ()):
-                            all_pts.extend(opoly)
+                            sheet_pts.extend(opoly)
                         for _, ozpoly in sec.get("other_zone_polygons", ()):
-                            all_pts.extend(ozpoly)
+                            sheet_pts.extend(ozpoly)
 
-                        # 1. Other panels & bend zones in the same cross-section plane
+                        # 2. Other panels & bend zones in the same cross-section plane
                         other_pen = QtGui.QPen(QtGui.QColor("#1b4f72"), 1.0)
                         other_pen.setCosmetic(True)
                         other_brush = QtGui.QBrush(QtGui.QColor("#85929e"))
                         for _, opoly in sec.get("other_panel_polygons", ()):
-                            self.scene.addPolygon(make_poly(opoly), other_pen, other_brush)
+                            op_item = self.scene.addPolygon(make_poly(opoly), other_pen, other_brush)
+                            op_item.setZValue(Z_LAYER_SHEET_OTHER)
+                            op_item.setData(0, "sheet_other_panel")
 
                         zone_pen = QtGui.QPen(QtGui.QColor("#b9770e"), 1.2)
                         zone_pen.setCosmetic(True)
                         zone_brush = QtGui.QBrush(QtGui.QColor("#f8c471"))
                         for _, ozpoly in sec.get("other_zone_polygons", ()):
-                            self.scene.addPolygon(make_poly(ozpoly), zone_pen, zone_brush)
+                            oz_item = self.scene.addPolygon(make_poly(ozpoly), zone_pen, zone_brush)
+                            oz_item.setZValue(Z_LAYER_SHEET_OTHER)
+                            oz_item.setData(0, "sheet_other_zone")
 
-                        # 2. Fixed rigid panel
+                        # 3. Fixed rigid panel
                         panel_pen = QtGui.QPen(QtGui.QColor("#1b4f72"), 1.2)
                         panel_pen.setCosmetic(True)
                         fixed_brush = QtGui.QBrush(QtGui.QColor("#85929e"))
-                        self.scene.addPolygon(make_poly(sec["fixed_polygon"]), panel_pen, fixed_brush)
+                        fixed_item = self.scene.addPolygon(make_poly(sec["fixed_polygon"]), panel_pen, fixed_brush)
+                        fixed_item.setZValue(Z_LAYER_SHEET_PANELS)
+                        fixed_item.setData(0, "sheet_fixed")
 
-                        # 3. Moving rigid panel (transformed by FoldState)
+                        # 4. Moving rigid panel (transformed by FoldState)
                         moving_brush = QtGui.QBrush(QtGui.QColor("#5dade2"))
-                        self.scene.addPolygon(make_poly(sec["moving_polygon"]), panel_pen, moving_brush)
+                        moving_item = self.scene.addPolygon(make_poly(sec["moving_polygon"]), panel_pen, moving_brush)
+                        moving_item.setZValue(Z_LAYER_SHEET_PANELS)
+                        moving_item.setData(0, "sheet_moving")
 
-                        # 4. Finite-radius bend zone polygon
-                        self.scene.addPolygon(make_poly(sec["zone_polygon"]), zone_pen, zone_brush)
+                        # 5. Finite-radius bend zone polygon
+                        zone_item = self.scene.addPolygon(make_poly(sec["zone_polygon"]), zone_pen, zone_brush)
+                        zone_item.setZValue(Z_LAYER_SHEET_ZONE)
+                        zone_item.setData(0, "sheet_zone")
 
-                        # 5. Both sheet surfaces (inner concave and outer convex)
+                        # 6. Both sheet surfaces (inner concave and outer convex)
                         inner_pen = QtGui.QPen(QtGui.QColor("#0e6251"), 2.0)
                         inner_pen.setCosmetic(True)
                         for curve in (sec["inner_surface"],) + tuple(sec.get("other_inner_curves", ())):
@@ -1478,7 +1581,9 @@ class _PreviewPanel:
                             inner_path.moveTo(inner_pts[0])
                             for pt in inner_pts[1:]:
                                 inner_path.lineTo(pt)
-                            self.scene.addPath(inner_path, inner_pen)
+                            in_item = self.scene.addPath(inner_path, inner_pen)
+                            in_item.setZValue(Z_LAYER_SHEET_SURFACES)
+                            in_item.setData(0, "sheet_inner_surface")
 
                         outer_pen = QtGui.QPen(QtGui.QColor("#154360"), 2.0)
                         outer_pen.setCosmetic(True)
@@ -1490,9 +1595,11 @@ class _PreviewPanel:
                             outer_path.moveTo(outer_pts[0])
                             for pt in outer_pts[1:]:
                                 outer_path.lineTo(pt)
-                            self.scene.addPath(outer_path, outer_pen)
+                            out_item = self.scene.addPath(outer_path, outer_pen)
+                            out_item.setZValue(Z_LAYER_SHEET_SURFACES)
+                            out_item.setData(0, "sheet_outer_surface")
 
-                        # 6. Neutral layer curve (dashed) inside bend zones
+                        # 7. Neutral layer curve (dashed) inside bend zones
                         neutral_pen = QtGui.QPen(QtGui.QColor("#c0392b"), 1.4, QtCore.Qt.DashLine)
                         neutral_pen.setCosmetic(True)
                         for curve in (sec["neutral_curve"],) + tuple(sec.get("other_neutral_curves", ())):
@@ -1503,16 +1610,20 @@ class _PreviewPanel:
                             neutral_path.moveTo(n_pts[0])
                             for pt in n_pts[1:]:
                                 neutral_path.lineTo(pt)
-                            self.scene.addPath(neutral_path, neutral_pen)
+                            neu_item = self.scene.addPath(neutral_path, neutral_pen)
+                            neu_item.setZValue(Z_LAYER_SHEET_NEUTRAL_AND_TANGENTS)
+                            neu_item.setData(0, "sheet_neutral")
 
-                        # 7. Tangent boundary lines between rigid panels and bend zones
+                        # 8. Tangent boundary lines between rigid panels and bend zones
                         tan_pen = QtGui.QPen(QtGui.QColor("#7d3c98"), 1.2, QtCore.Qt.DotLine)
                         tan_pen.setCosmetic(True)
                         all_tan_pairs = list(zip(sec["tangent_points_top"], sec["tangent_points_bottom"]))
                         all_tan_pairs.extend(sec.get("other_tangent_lines", ()))
                         for t_top, t_bot in all_tan_pairs:
                             p1, p2 = to_qpt(t_top), to_qpt(t_bot)
-                            self.scene.addLine(p1.x(), p1.y(), p2.x(), p2.y(), tan_pen)
+                            tan_item = self.scene.addLine(p1.x(), p1.y(), p2.x(), p2.y(), tan_pen)
+                            tan_item.setZValue(Z_LAYER_SHEET_NEUTRAL_AND_TANGENTS)
+                            tan_item.setData(0, "sheet_tangent")
 
                         self.step.setText(
                             "{} | R_вн={:.2f} мм, t={:.2f} мм".format(
@@ -1524,23 +1635,15 @@ class _PreviewPanel:
                     else:
                         self.step.setText("Активный гиб: — | Угол: — / —")
 
-                    # 8. Custom Punch & Die tooling (rendered from cached local polygons)
-                    self._draw_tooling_items(to_qpt, make_poly, all_pts)
-
-                    # Compute bounding rect with comfortable margin
-                    if all_pts:
-                        xs = [p[0] for p in all_pts]
-                        ys = [-p[1] for p in all_pts]
-                        min_x, max_x = min(xs), max(xs)
-                        min_y, max_y = min(ys), max(ys)
-                        span = max(max_x - min_x, max_y - min_y, 10.0)
-                        pad = 0.15 * span
-                        self.scene.setSceneRect(
-                            min_x - pad,
-                            min_y - pad,
-                            (max_x - min_x) + 2 * pad,
-                            (max_y - min_y) + 2 * pad,
-                        )
+                    # Compute separated scene bounds (sheet_bounds, punch_bounds, die_bounds, combined_bounds)
+                    self.last_scene_bounds = compute_scene_bounds_2d(
+                        sheet_pts=sheet_pts,
+                        punch_pts=punch_pts,
+                        die_pts=die_pts,
+                        focus_sheet_when_tall_tooling=True,
+                    )
+                    rx, ry, rw, rh = self.last_scene_bounds.view_rect
+                    self.scene.setSceneRect(rx, ry, rw, rh)
                     self.last_draw_time_ms = (time.perf_counter() - t_draw_start) * 1000.0
                 except Exception:
                     _error(traceback.format_exc())
