@@ -10,6 +10,12 @@ from dataclasses import dataclass
 from math import hypot, isfinite
 
 from smbs_core.kinematics2d.axis_matching import match_bend_axes
+from smbs_core.kinematics2d.bend_zone import (
+    BendZone,
+    BendZoneError,
+    bend_parameters,
+    make_bend_zone,
+)
 
 
 class PanelBuildError(RuntimeError):
@@ -31,6 +37,7 @@ class PanelConnection:
     angle_deg: float
     radius_mm: float
     axis_xy: tuple
+    bend_zone: BendZone | None = None
 
 
 @dataclass(frozen=True)
@@ -40,6 +47,8 @@ class PanelBuildResult:
     axis_matches: tuple
     # Geometry retained only for FreeCAD visualization; not serializable.
     panel_faces: tuple
+    bend_zones: tuple = ()
+    bend_zone_faces: tuple = ()
 
 
 def _xy(p):
@@ -155,15 +164,68 @@ def build_panels(unfold_name="Body_Unfold", outline_name=None, bends_name=None,
     # Sample beyond the separator; enough to clear its half-width.
     sample = max(strip_width_mm * 2, 0.05)
     graph = []
+    zones = []
+    zone_cutters = []
+    zone_faces = []
     for bend, match in zip(data.bends, axis_matches):
         a, b = lines[match.sketch_index]
         left = _side_panel(faces, a, b, +1, sample, 1e-6)
         right = _side_panel(faces, a, b, -1, sample, 1e-6)
         if left == right:
             raise PanelBuildError("{} does not separate two panels".format(bend.bend_id))
+        try:
+            params = bend_parameters(
+                bend.source_angle_deg,
+                bend.radius_mm,
+                bend.thickness_mm,
+                bend.k_factor_ansi,
+            )
+            zone = make_bend_zone(bend.bend_id, (a, b), params)
+        except BendZoneError as exc:
+            raise PanelBuildError("Invalid bend zone for {}: {}".format(bend.bend_id, exc)) from exc
+        if zone.bend_allowance_mm <= strip_width_mm:
+            raise PanelBuildError(
+                "Bend allowance ({:.5f} mm) for {} does not exceed topology strip width ({:.5f} mm)".format(
+                    zone.bend_allowance_mm, bend.bend_id, strip_width_mm
+                )
+            )
+        zcutter = _strip(Part, App, a, b, zone.bend_allowance_mm, extension_mm)
+        zface = sheet.common(zcutter)
+        if zface.Area <= 1e-5:
+            raise PanelBuildError("Empty bend zone face for {}".format(bend.bend_id))
+        for prev_zone, prev_face in zip(zones, zone_faces):
+            if zface.common(prev_face).Area > 1e-5:
+                raise PanelBuildError(
+                    "Overlapping bend zones: {} and {}".format(prev_zone.bend_id, zone.bend_id)
+                )
+        zones.append(zone)
+        zone_cutters.append((left, right, zcutter))
+        zone_faces.append(zface)
         graph.append(PanelConnection(bend.bend_id, "P{:02d}".format(left + 1),
                                      "P{:02d}".format(right + 1),
-                                     bend.fold_angle_deg, bend.radius_mm, (a, b)))
+                                     bend.fold_angle_deg, bend.radius_mm, (a, b), zone))
+    rigid_faces = []
+    for i, island in enumerate(faces):
+        rigid_shape = island
+        for left_idx, right_idx, zcutter in zone_cutters:
+            if i in (left_idx, right_idx):
+                rigid_shape = rigid_shape.cut(zcutter)
+        subfaces = [f for f in rigid_shape.Faces if f.Area > 1e-5]
+        if len(subfaces) != 1 or not subfaces[0].isValid():
+            raise PanelBuildError(
+                "Bend zones consume or split rigid panel P{:02d} (got {} subfaces)".format(
+                    i + 1, len(subfaces)
+                )
+            )
+        rigid_faces.append(subfaces[0])
+    rigid_faces_t = tuple(rigid_faces)
     panels = tuple(Panel("P{:02d}".format(i + 1), float(f.Area),
-                         _xy(f.CenterOfMass)) for i, f in enumerate(faces))
-    return PanelBuildResult(panels, tuple(graph), axis_matches, faces)
+                         _xy(f.CenterOfMass)) for i, f in enumerate(rigid_faces_t))
+    return PanelBuildResult(
+        panels,
+        tuple(graph),
+        axis_matches,
+        rigid_faces_t,
+        tuple(zones),
+        tuple(zone_faces),
+    )

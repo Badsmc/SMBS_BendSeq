@@ -17,6 +17,7 @@ class GraphEdge:
     panel_b: str
     angle_deg: float
     axis_xyz: tuple
+    bend_zone: object = None
 
 @dataclass(frozen=True)
 class RootedBend:
@@ -26,6 +27,8 @@ class RootedBend:
     moving_subtree: tuple
     angle_deg: float
     axis_xyz: tuple
+    bend_zone: object = None
+    moving_left: bool = True
 
 class PanelGraph:
     def __init__(self, panel_ids, edges):
@@ -87,7 +90,9 @@ class PanelGraph:
             return (p,) + tuple(n for c in children[p] for n in subtree(c))
         return tuple(RootedBend(
             edge_for[p].bend_id, parent[p], p, subtree(p),
-            edge_for[p].angle_deg, edge_for[p].axis_xyz
+            edge_for[p].angle_deg, edge_for[p].axis_xyz,
+            edge_for[p].bend_zone,
+            p == edge_for[p].panel_a,
         ) for p in order[1:])
 
 def graph_from_panel_build(result):
@@ -95,6 +100,7 @@ def graph_from_panel_build(result):
     panels = [p.panel_id for p in result.panels]
     edges = [GraphEdge(c.bend_id, c.panel_a, c.panel_b, c.angle_deg,
                        ((c.axis_xy[0][0], c.axis_xy[0][1], 0.0),
-                        (c.axis_xy[1][0], c.axis_xy[1][1], 0.0)))
+                        (c.axis_xy[1][0], c.axis_xy[1][1], 0.0)),
+                       getattr(c, "bend_zone", None))
              for c in result.connections]
     return PanelGraph(panels, edges)

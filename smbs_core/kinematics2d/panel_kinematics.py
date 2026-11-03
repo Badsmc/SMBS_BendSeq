@@ -48,40 +48,84 @@ def hinge_transform(a, b, angle_deg):
     return RigidTransform(r, tuple(a[i] - origin_rotated[i] for i in range(3)))
 
 class FoldState:
-    """Absolute rigid transforms for each panel; initial flat state is identity."""
+    """Absolute rigid transforms for each panel; initial flat state is identity.
+
+    Transforms are recomputed deterministically from flat along the rooted tree
+    on every angle change, preventing cumulative numerical drift. When a bend
+    carries an explicit BendZone, finite-radius tangent/allowance kinematics is
+    used; otherwise falls back to the centerline hinge transform.
+    """
     def __init__(self, graph, fixed_panel):
         self.graph = graph
         self.fixed_panel = fixed_panel
-        self.bends = {b.bend_id: b for b in graph.rooted(fixed_panel)}
+        self.ordered_bends = tuple(graph.rooted(fixed_panel))
+        self.bends = {b.bend_id: b for b in self.ordered_bends}
         self.transforms = {p: RigidTransform() for p in graph.panels}
         self.angles = {bend_id: 0.0 for bend_id in self.bends}
+
+    def _local_bend_transform(self, bend, angle_deg):
+        zone = getattr(bend, "bend_zone", None)
+        if zone is not None:
+            return zone.moving_transform(angle_deg, moving_left=bend.moving_left)
+        if abs(angle_deg) < 1e-12:
+            return RigidTransform()
+        a, b = bend.axis_xyz
+        return hinge_transform(a, b, angle_deg)
+
+    def _recompute(self):
+        transforms = {self.fixed_panel: RigidTransform()}
+        for bend in self.ordered_bends:
+            angle = self.angles[bend.bend_id]
+            local = self._local_bend_transform(bend, angle)
+            transforms[bend.moving_panel] = local.then(transforms[bend.fixed_panel])
+        for p in self.graph.panels:
+            self.transforms[p] = transforms[p]
 
     def set_angle(self, bend_id, angle_deg):
         """Set one bend to an absolute angle, preserving all other hinge states.
 
-        The hinge is evaluated in the current frame of its fixed-side panel.
-        All panels downstream of the hinge rotate together, including those
-        previously bent around other hinges.
+        Recomputes transforms from flat state so repeated updates never drift.
         """
         if bend_id not in self.bends:
             raise KinematicsError("Unknown bend: " + str(bend_id))
         if not isfinite(angle_deg):
             raise KinematicsError("Nonfinite angle")
         bend = self.bends[bend_id]
-        delta = angle_deg - self.angles[bend_id]
-        if abs(delta) < 1e-12:
-            return
-        parent = self.transforms[bend.fixed_panel]
-        a, b = (parent.point(p) for p in bend.axis_xyz)
-        change = hinge_transform(a, b, delta)
-        for panel in bend.moving_subtree:
-            self.transforms[panel] = self.transforms[panel].then(change)
+        # Validate against bend zone if present before mutating state
+        self._local_bend_transform(bend, float(angle_deg))
         self.angles[bend_id] = float(angle_deg)
+        self._recompute()
 
     def set_fraction(self, bend_id, fraction):
         if not isfinite(fraction) or not 0 <= fraction <= 1:
             raise KinematicsError("Fraction must be between zero and one")
         self.set_angle(bend_id, self.bends[bend_id].angle_deg * fraction)
+
+    def zone_section(self, bend_id, segments=16):
+        """Return intermediate section profile dict for a bend with a BendZone."""
+        if bend_id not in self.bends:
+            raise KinematicsError("Unknown bend: " + str(bend_id))
+        bend = self.bends[bend_id]
+        if getattr(bend, "bend_zone", None) is None:
+            raise KinematicsError("Bend has no BendZone: " + str(bend_id))
+        return bend.bend_zone.section_profile(self.angles[bend_id], segments=segments)
+
+    def zone_surface_points(self, bend_id, surface="neutral", segments=16):
+        """Return 3D world-space polyline on the bend zone cross-section midpoint."""
+        if surface not in ("inner", "neutral", "outer"):
+            raise KinematicsError("Unsupported surface: " + str(surface))
+        prof = self.zone_section(bend_id, segments=segments)
+        bend = self.bends[bend_id]
+        zone = bend.bend_zone
+        (ax, ay), (bx, by) = zone.axis_xy
+        mx, my = 0.5 * (ax + bx), 0.5 * (ay + by)
+        side = 1.0 if bend.moving_left else -1.0
+        ux, uy = zone.left_xy[0] * side, zone.left_xy[1] * side
+        parent_tf = self.transforms[bend.fixed_panel]
+        return tuple(
+            parent_tf.point((mx + ux * s, my + uy * s, z))
+            for s, z in prof[surface]
+        )
 
     def transformed_outline(self, panel_id, xy_points):
         """Return 3D points of a flat panel polygon after current folding."""
