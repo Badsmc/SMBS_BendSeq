@@ -70,16 +70,30 @@ COMMANDS_MAP = {
 }
 
 
+_REGISTERED_COMMANDS: set[str] = set()
+_WORKBENCH_REGISTERED: bool = False
+
+
 def register_commands() -> None:
-    """Register SMBS commands in FreeCADGui command registry."""
+    """Register SMBS commands in FreeCADGui command registry without duplication."""
     if FreeCADGui is None or not hasattr(FreeCADGui, "addCommand"):
         return
 
+    existing: set[str] = set()
+    if hasattr(FreeCADGui, "listCommands"):
+        try:
+            existing = set(FreeCADGui.listCommands())
+        except Exception:
+            existing = set()
+
     for cmd_name, cmd_cls in COMMANDS_MAP.items():
+        if cmd_name in _REGISTERED_COMMANDS or cmd_name in existing:
+            _REGISTERED_COMMANDS.add(cmd_name)
+            continue
         try:
             FreeCADGui.addCommand(cmd_name, cmd_cls())
+            _REGISTERED_COMMANDS.add(cmd_name)
         except Exception:
-            # FreeCAD may re-init workbench; addCommand is idempotent; swallow for safety
             pass
 
 
@@ -90,56 +104,20 @@ class SMBSWorkbench(Workbench):  # type: ignore[misc]
     ToolTip = "PressBrakeSim 2D interface preview (development branch)"
     Icon = ""
 
-    CMD_RUN_ACTIVE = "SMBS_RunActive"
-    CMD_OPEN_RUN = "SMBS_OpenRun"
-    CMD_CALCULATE = "SMBS_Calculate"
-    CMD_SIMULATE = "SMBS_Simulate"
-    CMD_TOOLING = "SMBS_Tooling"
-    CMD_VERIFY = "SMBS_Verify"
-    CMD_INFO = "SMBS_Info"
-    CMD_DIAGNOSTICS = "SMBS_Diagnostics"
-    CMD_PREFERENCES = "SMBS_Preferences"
-    CMD_PRESSBRAKE_2D = "SMBS_PressBrake2D"
+    CMD_RUN_ACTIVE = CMD_RUN_ACTIVE
+    CMD_OPEN_RUN = CMD_OPEN_RUN
+    CMD_CALCULATE = CMD_CALCULATE
+    CMD_SIMULATE = CMD_SIMULATE
+    CMD_TOOLING = CMD_TOOLING
+    CMD_VERIFY = CMD_VERIFY
+    CMD_INFO = CMD_INFO
+    CMD_DIAGNOSTICS = CMD_DIAGNOSTICS
+    CMD_PREFERENCES = CMD_PREFERENCES
+    CMD_PRESSBRAKE_2D = CMD_PRESSBRAKE_2D
 
     def register_commands(self) -> None:
-        """Register SMBS commands in FreeCADGui command registry."""
-        try:
-            import FreeCADGui
-        except ImportError:
-            FreeCADGui = None
-
-        if FreeCADGui is None or not hasattr(FreeCADGui, "addCommand"):
-            return
-
-        from freecad_smbs.commands.calculate import CalculateCommand
-        from freecad_smbs.commands.diagnostics import DiagnosticsCommand
-        from freecad_smbs.commands.info import InfoCommand
-        from freecad_smbs.commands.open_run import OpenRunCommand
-        from freecad_smbs.commands.preferences import PreferencesCommand
-        from freecad_smbs.commands.run_active import RunActiveCommand
-        from freecad_smbs.commands.simulate import SimulateCommand
-        from freecad_smbs.commands.tooling import ToolingCommand
-        from freecad_smbs.commands.verify import VerifyCommand
-
-        commands_map = {
-            self.CMD_RUN_ACTIVE: RunActiveCommand,
-            self.CMD_OPEN_RUN: OpenRunCommand,
-            self.CMD_CALCULATE: CalculateCommand,
-            self.CMD_SIMULATE: SimulateCommand,
-            self.CMD_TOOLING: ToolingCommand,
-            self.CMD_VERIFY: VerifyCommand,
-            self.CMD_INFO: InfoCommand,
-            self.CMD_DIAGNOSTICS: DiagnosticsCommand,
-            self.CMD_PREFERENCES: PreferencesCommand,
-            self.CMD_PRESSBRAKE_2D: PressBrake2DCommand,
-        }
-
-        for cmd_name, cmd_cls in commands_map.items():
-            try:
-                FreeCADGui.addCommand(cmd_name, cmd_cls())
-            except Exception:
-                # Re-registration of existing FreeCAD command; ignore duplicate registration
-                pass
+        """Delegate to module-level idempotent command registration."""
+        register_commands()
 
     def Initialize(self) -> None:
         """Initialize workbench UI components (commands, menus, toolbars)."""
@@ -169,9 +147,11 @@ class SMBSWorkbench(Workbench):  # type: ignore[misc]
         return "Gui::PythonWorkbench"
 
 
-if FreeCADGui is not None and hasattr(FreeCADGui, "addWorkbench"):
+if FreeCADGui is not None and hasattr(FreeCADGui, "addWorkbench") and not _WORKBENCH_REGISTERED:
     try:
-        FreeCADGui.addWorkbench(SMBSWorkbench())
+        wbs = FreeCADGui.listWorkbenches() if hasattr(FreeCADGui, "listWorkbenches") else {}
+        if "SMBSWorkbench" not in wbs:
+            FreeCADGui.addWorkbench(SMBSWorkbench())
+        _WORKBENCH_REGISTERED = True
     except Exception:
-        # Workbench re-registration in FreeCAD GUI; ignore duplicate workbench error
         pass

@@ -2,6 +2,11 @@
 import math
 import unittest
 
+from freecad_smbs.commands.pressbrake_2d import (
+    LoadedPartSession,
+    resolve_selected_unfold,
+)
+from freecad_smbs.InitGui import COMMANDS_MAP, register_commands
 from smbs_core.kinematics2d.bend_zone import (
     BendParameters,
     BendZone,
@@ -10,7 +15,7 @@ from smbs_core.kinematics2d.bend_zone import (
     make_bend_zone,
 )
 from smbs_core.kinematics2d.panel_graph import GraphEdge, PanelGraph
-from smbs_core.kinematics2d.panel_kinematics import FoldState
+from smbs_core.kinematics2d.panel_kinematics import FoldState, KinematicsError
 
 
 class BendZoneMathTests(unittest.TestCase):
@@ -186,6 +191,121 @@ class BendZoneMathTests(unittest.TestCase):
         with self.assertRaises(BendZoneError):
             # DOWN bend with reference (outer) radius smaller than thickness
             bend_parameters(-90.0, 1.0, 1.5, 0.4)
+
+    def test_opposite_angle_direction_rejected_and_fold_state_is_atomic(self):
+        p_up = bend_parameters(90.0, 1.0, 1.5, 0.4)     # +90 deg
+        p_down = bend_parameters(-90.0, 2.5, 1.5, 0.4)  # -90 deg
+        z1 = make_bend_zone("B01", ((0.0, 10.0), (50.0, 10.0)), p_up)
+        z2 = make_bend_zone("B02", ((0.0, 30.0), (50.0, 30.0)), p_down)
+        g = PanelGraph(
+            ("P01", "P02", "P03"),
+            (
+                GraphEdge("B01", "P02", "P01", 90.0, ((0.0, 10.0, 0.0), (50.0, 10.0, 0.0)), z1),
+                GraphEdge("B02", "P03", "P02", -90.0, ((0.0, 30.0, 0.0), (50.0, 30.0, 0.0)), z2),
+            ),
+        )
+        state = FoldState(g, "P01")
+        state.set_angle("B01", 45.0)
+        state.set_angle("B02", -30.0)
+        angles_before = dict(state.angles)
+        transforms_before = dict(state.transforms)
+
+        # Opposite direction on +90 bend (-10 deg) must fail and leave state untouched
+        with self.assertRaises(KinematicsError):
+            state.set_angle("B01", -10.0)
+        self.assertEqual(state.angles, angles_before)
+        self.assertEqual(state.transforms, transforms_before)
+
+        # Opposite direction on -90 bend (+10 deg) must fail and leave state untouched
+        with self.assertRaises(KinematicsError):
+            state.set_angle("B02", 10.0)
+        self.assertEqual(state.angles, angles_before)
+        self.assertEqual(state.transforms, transforms_before)
+
+        # Exceeding target angle magnitude must fail and leave state untouched
+        with self.assertRaises(KinematicsError):
+            state.set_angle("B01", 95.0)
+        self.assertEqual(state.angles, angles_before)
+        self.assertEqual(state.transforms, transforms_before)
+
+    def test_cross_section_2d_for_l_plus90_minus90_and_45_deg(self):
+        # Verify L-part +90, L-part -90, and 45 deg bend cross-sections and 0 -> 45 -> 90 -> 0 cycle
+        for source_ang, target_deg, ref_r in ((90.0, 90.0, 1.0), (-90.0, -90.0, 2.5), (135.0, 45.0, 1.0)):
+            params = bend_parameters(source_ang, ref_r, 1.5, 0.4)
+            half_ba = params.bend_allowance_mm / 2.0
+            y_axis = 47.5 + half_ba
+            zone = make_bend_zone("B01", ((0.0, y_axis), (200.0, y_axis)), params)
+            # P02 on +Y side [y_axis + half_ba, y_axis + half_ba + 47.5], P01 on -Y side [0, 47.5]
+            g = PanelGraph(
+                ("P01", "P02"),
+                (GraphEdge("B01", "P02", "P01", params.fold_angle_deg, ((0.0, y_axis, 0.0), (200.0, y_axis, 0.0)), zone),),
+            )
+            verts = {
+                "P01": ((0.0, 0.0), (200.0, 0.0), (200.0, 47.5), (0.0, 47.5)),
+                "P02": ((0.0, y_axis + half_ba), (200.0, y_axis + half_ba), (200.0, y_axis + half_ba + 47.5), (0.0, y_axis + half_ba + 47.5)),
+            }
+            session = LoadedPartSession(
+                part_label="L_test",
+                unfold_data=None,
+                panel_build=None,
+                graph=g,
+                panel_vertices_xy=verts,
+                fixed_panel="P02",
+                fold_state=FoldState(g, "P02"),
+            )
+
+            # Cycle 0 -> half -> full -> 0
+            for frac in (0.0, 0.5, 1.0, 0.0):
+                ang = target_deg * frac
+                session.set_active_angle(ang)
+                sec = session.cross_section(segments=24)
+                self.assertAlmostEqual(sec["fixed_length_mm"], 47.5, places=9)
+                self.assertAlmostEqual(sec["moving_length_mm"], 47.5, places=9)
+                self.assertAlmostEqual(sec["angle_deg"], ang, places=9)
+
+                # Continuity at tangent boundaries between rigid panels and bend zone
+                top_zone = sec["inner_surface"][1:-1] if target_deg > 0 else sec["outer_surface"][1:-1]
+                bot_zone = sec["outer_surface"][1:-1] if target_deg > 0 else sec["inner_surface"][1:-1]
+                t_fixed_top, t_moving_top = sec["tangent_points_top"]
+                t_fixed_bot, t_moving_bot = sec["tangent_points_bottom"]
+                for a, b in ((t_fixed_top, top_zone[0]), (t_moving_top, top_zone[-1]),
+                             (t_fixed_bot, bot_zone[0]), (t_moving_bot, bot_zone[-1])):
+                    self.assertAlmostEqual(a[0], b[0], places=10)
+                    self.assertAlmostEqual(a[1], b[1], places=10)
+
+            # For +/-90 deg L-bracket with 47.5 mm straight legs, R_in=1.0, t=1.5 (R_out=2.5),
+            # the folded 90-deg outer bounding box must be exactly 50.0 mm x 50.0 mm.
+            if abs(target_deg) == 90.0:
+                session.set_active_angle(target_deg)
+                sec90 = session.cross_section(segments=32)
+                all_pts = sec90["inner_surface"] + sec90["outer_surface"]
+                s_vals = [p[0] for p in all_pts]
+                z_vals = [p[1] for p in all_pts]
+                self.assertAlmostEqual(max(s_vals) - min(s_vals), 50.0, places=9)
+                self.assertAlmostEqual(max(z_vals) - min(z_vals), 50.0, places=9)
+                if target_deg > 0:
+                    self.assertGreater(max(z_vals), 45.0)
+                else:
+                    self.assertLess(min(z_vals), -45.0)
+
+    def test_missing_selection_fails_with_clear_error_and_initgui_no_duplicate_registration(self):
+        class _Doc:
+            Objects = ()
+        with self.assertRaises(RuntimeError):
+            resolve_selected_unfold(None, [])
+        with self.assertRaises(RuntimeError):
+            resolve_selected_unfold(_Doc(), [])
+
+        from unittest.mock import MagicMock, patch
+        fake_gui = MagicMock()
+        fake_gui.listCommands.return_value = []
+        with patch("freecad_smbs.InitGui.FreeCADGui", fake_gui), \
+             patch("freecad_smbs.InitGui._REGISTERED_COMMANDS", set()):
+            register_commands()
+            first_count = fake_gui.addCommand.call_count
+            self.assertEqual(first_count, len(COMMANDS_MAP))
+            register_commands()
+            self.assertEqual(fake_gui.addCommand.call_count, first_count)
 
 
 if __name__ == "__main__":
