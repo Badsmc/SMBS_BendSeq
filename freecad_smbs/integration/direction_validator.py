@@ -87,39 +87,59 @@ def _registrations(root_xy,root_area,reference):
                 return _add(center,_add(_mul(u,x-x0),_add(_mul(v,y-y0),_mul(n,z))))
             yield transform
 
-def _best_assignment(costs):
-    """Exact one-to-one face assignment for <= 16 panels, deterministic DP.
+def _best_assignment(costs, root_index, reference_index):
+    """Minimum-cost injective panel/face assignment (Hungarian algorithm).
 
-    Cost matrix includes orientation and area penalties; each source planar
-    face can explain at most one rigid panel.
+    The fixed panel MUST match the actual SheetMetal reference face.
     """
     n=len(costs)
     m=len(costs[0])
-    if n>16 or m>64: raise ValueError("Reference matching too large")
-    # DP over panels with candidate source face assignments. Keep only
-    # top 5 plausible faces per panel to bound complexity.
-    options=[]
-    for row in costs:
-        options.append(tuple(sorted(range(m),key=lambda j:row[j])[:5]))
-    states={0:0.0}
+    if m<n: return float("inf")
+    matrix=[list(row) for row in costs]
     for i in range(n):
-        next_states={}
-        for mask,cost in states.items():
-            for j in options[i]:
-                bit=1<<j
-                if mask&bit: continue
-                key=mask|bit
-                val=cost+costs[i][j]
-                if val<next_states.get(key,float("inf")):
-                    next_states[key]=val
-        if not next_states: return float("inf")
-        # Keep bounded candidates, but avoid claiming certainty from pruning.
-        if len(next_states)>3000:
-            return float("inf")
-        states=next_states
-    return min(states.values())
+        for j in range(m):
+            if (i==root_index)!=(j==reference_index):
+                matrix[i][j]=1e12
+    u=[0.0]*(n+1)
+    v=[0.0]*(m+1)
+    assignment=[0]*(m+1)
+    way=[0]*(m+1)
+    for i in range(1,n+1):
+        assignment[0]=i
+        j0=0
+        minv=[float("inf")]*(m+1)
+        used=[False]*(m+1)
+        while True:
+            used[j0]=True
+            i0=assignment[j0]
+            delta=float("inf")
+            j1=0
+            for j in range(1,m+1):
+                if not used[j]:
+                    cur=matrix[i0-1][j-1]-u[i0]-v[j]
+                    if cur<minv[j]:
+                        minv[j]=cur
+                        way[j]=j0
+                    if minv[j]<delta:
+                        delta=minv[j]
+                        j1=j
+            for j in range(m+1):
+                if used[j]:
+                    u[assignment[j]]+=delta
+                    v[j]-=delta
+                else:
+                    minv[j]-=delta
+            j0=j1
+            if assignment[j0]==0: break
+        while True:
+            j1=way[j0]
+            assignment[j0]=assignment[j1]
+            j0=j1
+            if j0==0: break
+    total=-v[0]
+    return total if total<1e11 else float("inf")
 
-def _score(graph,root,panels,faces,transform,angles):
+def _score(graph,root,panels,faces,transform,angles,reference_index):
     state=FoldState(graph,root)
     for bend in graph.rooted(root):
         state.set_angle(bend.bend_id,angles[bend.bend_id])
@@ -136,7 +156,7 @@ def _score(graph,root,panels,faces,transform,angles):
             area_error=abs(sqrt(area)-sqrt(fa))
             row.append(distance**2+100*orientation**2+0.1*area_error**2)
         rows.append(row)
-    value=_best_assignment(rows)
+    value=_best_assignment(rows,list(panels).index(root),reference_index)
     return sqrt(value/len(panels)) if isfinite(value) else float("inf")
 
 def validate_directions(graph,root,panel_build,source_shape,source_name,
@@ -167,7 +187,7 @@ def validate_directions(graph,root,panel_build,source_shape,source_name,
     for reg in regs:
         for signs in product((1,-1),repeat=len(bids)):
             angles={bid:targets[bid]*s for bid,s in zip(bids,signs)}
-            score=_score(graph,root,panels,faces,reg,angles)
+            score=_score(graph,root,panels,faces,reg,angles,\n                         next(i for i,f in enumerate(faces) if f[0]==face_index))
             if isfinite(score): results.append((score,signs))
     if not results:
         raise ValueError("No valid one-to-one panel-to-face matching")
