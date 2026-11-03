@@ -187,7 +187,8 @@ def validate_directions(graph,root,panel_build,source_shape,source_name,
     for reg in regs:
         for signs in product((1,-1),repeat=len(bids)):
             angles={bid:targets[bid]*s for bid,s in zip(bids,signs)}
-            score=_score(graph,root,panels,faces,reg,angles,\n                         next(i for i,f in enumerate(faces) if f[0]==face_index))
+            score=_score(graph,root,panels,faces,reg,angles,
+                         next(i for i,f in enumerate(faces) if f[0]==face_index))
             if isfinite(score): results.append((score,signs))
     if not results:
         raise ValueError("No valid one-to-one panel-to-face matching")
