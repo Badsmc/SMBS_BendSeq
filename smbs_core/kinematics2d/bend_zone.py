@@ -30,10 +30,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from math import cos, sin, radians, degrees, hypot, isfinite
 
-from .panel_kinematics import IDENTITY, RigidTransform, hinge_transform
+from .panel_kinematics import IDENTITY, KinematicsError, RigidTransform, hinge_transform
 
 
-class BendZoneError(ValueError):
+class BendZoneError(KinematicsError):
     """Bend parameters are missing, inconsistent or outside the model."""
 
 
@@ -115,20 +115,18 @@ class BendZone:
     def _check_angle(self, angle_deg):
         if not _finite(angle_deg):
             raise BendZoneError("Non-finite angle")
+        if abs(angle_deg) > 1e-12 and (angle_deg > 0) != (self.fold_angle_deg > 0):
+            raise BendZoneError("{}: angle {} has the opposite sign of the bend "
+                                "direction {}".format(self.bend_id, angle_deg, self.fold_angle_deg))
         if abs(angle_deg) > abs(self.fold_angle_deg) + 1e-9:
-            raise BendZoneError("{}: |angle| exceeds the source bend; BA would be "
-                                "violated".format(self.bend_id))
+            raise BendZoneError("{}: |angle| {} exceeds target bend angle {}".format(
+                self.bend_id, abs(angle_deg), abs(self.fold_angle_deg)))
         return radians(abs(angle_deg))
 
-    def _up_sign(self, angle_deg=None):
-        if angle_deg is not None and angle_deg != 0:
-            return 1.0 if angle_deg > 0 else -1.0
-        return 1.0 if self.fold_angle_deg > 0 else -1.0
-
-    def section_heights(self, angle_deg=None):
+    def section_heights(self):
         """(z_center, z_neutral) of the arc center and neutral layer in SF."""
         t, k, r = self.thickness_mm, self.k_factor_ansi, self.inner_radius_mm
-        if self._up_sign(angle_deg) > 0:
+        if self.fold_angle_deg > 0:
             return r, -k * t
         return -t - r, -t + k * t
 
@@ -150,9 +148,9 @@ class BendZone:
             raise BendZoneError("segments must be >= 1")
         rn = self.neutral_radius_mm
         rest = (self.bend_allowance_mm - rn * phi) / 2
-        zc, zn = self.section_heights(angle_deg)
+        zc, zn = self.section_heights()
         s0 = -self.half_width_mm + rest
-        up = self._up_sign(angle_deg)
+        up = 1.0 if self.fold_angle_deg > 0 else -1.0
         out = {}
         for name, radius in (("neutral", rn), ("inner", self.inner_radius_mm),
                              ("outer", self.outer_radius_mm)):
@@ -179,10 +177,10 @@ class BendZone:
             return RigidTransform()
         side = 1.0 if moving_left else -1.0
         u = (self.left_xy[0] * side, self.left_xy[1] * side, 0.0)
-        up = self._up_sign(angle_deg)
+        up = 1.0 if self.fold_angle_deg > 0 else -1.0
         e = (0.0, 0.0, up)
         w = (u[1] * e[2] - u[2] * e[1], u[2] * e[0] - u[0] * e[2], u[0] * e[1] - u[1] * e[0])
-        zc, _ = self.section_heights(angle_deg)
+        zc, _ = self.section_heights()
         s0 = self.arc_start_offset(angle_deg)
         ox, oy = self.origin_xy
         c = (ox + u[0] * s0, oy + u[1] * s0, zc)
