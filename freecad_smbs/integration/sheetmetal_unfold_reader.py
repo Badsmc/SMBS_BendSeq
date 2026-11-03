@@ -6,8 +6,10 @@ Run inside FreeCAD with the SheetMetal workbench installed.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from math import isfinite
+from math import isfinite, radians
 from typing import Tuple
+
+from smbs_core.kinematics2d.bend_zone import BendZoneError, bend_parameters
 
 
 class UnfoldReadError(RuntimeError):
@@ -16,6 +18,13 @@ class UnfoldReadError(RuntimeError):
 
 @dataclass(frozen=True)
 class BendRecord2D:
+    """Canonical bend data in the SheetMetal sketch frame (flat pattern z=0).
+
+    radius_mm is SheetMetal's BendInfo.radius: the radius of the cylinder on
+    the unfold reference-face side (inner for UP/positive bends, outer for
+    DOWN/negative bends). inner_radius_mm is derived explicitly from it.
+    bend_allowance_mm is the value SheetMetal itself used for the flat pattern.
+    """
     bend_id: str
     source_angle_deg: float
     fold_angle_deg: float
@@ -23,6 +32,10 @@ class BendRecord2D:
     length_mm: float
     start_xyz: Tuple[float, float, float]
     end_xyz: Tuple[float, float, float]
+    thickness_mm: float
+    k_factor_ansi: float
+    inner_radius_mm: float
+    bend_allowance_mm: float
 
 
 @dataclass(frozen=True)
@@ -31,6 +44,8 @@ class UnfoldData2D:
     source_face: str
     unfold_object: str
     bends: Tuple[BendRecord2D, ...]
+    thickness_mm: float
+    k_factor_standard: str
 
 
 def fold_angle_from_sheetmetal(angle_deg: float) -> float:
@@ -55,9 +70,18 @@ def _point(vertex):
 def _calculator(unfold):
     import SheetMetalNewUnfolder as SM
 
+    for prop in ("KFactor", "KFactorStandard"):
+        if not hasattr(unfold, prop):
+            raise UnfoldReadError("Unfold object has no {} property; refusing to "
+                                  "assume a K-factor".format(prop))
     material = getattr(unfold, "MaterialSheet", "_manual")
     standard = str(unfold.KFactorStandard)
+    if standard not in ("ansi", "din"):
+        raise UnfoldReadError("Unknown KFactorStandard: {!r}".format(standard))
     if material in ("_manual", "_none", None):
+        k = float(unfold.KFactor)
+        if not isfinite(k) or not 0 <= k <= (2.0 if standard == "din" else 1.0):
+            raise UnfoldReadError("Invalid K-factor: {!r}".format(k))
         return SM.BendAllowanceCalculator.from_single_value(
             float(unfold.KFactor), standard
         )
@@ -109,7 +133,10 @@ def read_unfold(unfold_name="Body_Unfold", document=None):
     if not 1 <= face_index <= len(source.Shape.Faces):
         raise UnfoldReadError("Face index outside referenced source shape")
     try:
-        result = SM.getUnfold(_calculator(unfold), source, face_name)
+        bac = _calculator(unfold)
+        result = SM.getUnfold(bac, source, face_name)
+    except UnfoldReadError:
+        raise
     except Exception as exc:
         raise UnfoldReadError(
             "SheetMetal getUnfold failed for {}.{}".format(source.Name, face_name)
@@ -119,6 +146,8 @@ def read_unfold(unfold_name="Body_Unfold", document=None):
     info = result[4]
     if not info:
         raise UnfoldReadError("No bends found for {}.{}".format(source.Name, face_name))
+    thickness = _thickness(SM, source, face_name)
+    standard = str(unfold.KFactorStandard)
     bends = []
     for i, item in enumerate(info, 1):
         angle = float(item.angle)
@@ -129,6 +158,18 @@ def read_unfold(unfold_name="Body_Unfold", document=None):
             raise UnfoldReadError("Invalid bend radius or line length at index {}".format(i))
         if len(edge.Vertexes) != 2:
             raise UnfoldReadError("Bend line is not a two-endpoint edge at index {}".format(i))
+        k_ansi = float(bac.get_k_factor(radius, thickness))
+        try:
+            params = bend_parameters(angle, radius, thickness, k_ansi)
+        except BendZoneError as exc:
+            raise UnfoldReadError("B{:02d}: {}".format(i, exc)) from exc
+        # Cross-check against SheetMetal's own allowance formula.
+        direction = SM.BendDirection.UP if angle > 0 else SM.BendDirection.DOWN
+        sm_ba = float(bac.get_bend_allowance(direction, radius, thickness,
+                                             radians(abs(params.fold_angle_deg))))
+        if abs(sm_ba - params.bend_allowance_mm) > 1e-9 * max(1.0, sm_ba):
+            raise UnfoldReadError("B{:02d}: bend allowance disagrees with SheetMetal "
+                                  "({} vs {})".format(i, params.bend_allowance_mm, sm_ba))
         bends.append(BendRecord2D(
             bend_id="B{:02d}".format(i),
             source_angle_deg=angle,
@@ -137,10 +178,29 @@ def read_unfold(unfold_name="Body_Unfold", document=None):
             length_mm=length,
             start_xyz=_point(edge.Vertexes[0]),
             end_xyz=_point(edge.Vertexes[1]),
+            thickness_mm=thickness,
+            k_factor_ansi=k_ansi,
+            inner_radius_mm=params.inner_radius_mm,
+            bend_allowance_mm=params.bend_allowance_mm,
         ))
     return UnfoldData2D(
         source_object=source.Name,
         source_face=face_name,
         unfold_object=unfold.Name,
         bends=tuple(bends),
+        thickness_mm=thickness,
+        k_factor_standard=standard,
     )
+
+
+def _thickness(SM, source, face_name):
+    """Sheet thickness exactly as SheetMetal's getUnfold estimates it."""
+    shp = source.Shape.transformed(source.Placement.toMatrix().inverse())
+    try:
+        index = shp.findSubShape(shp.getElement(face_name))[1] - 1
+        value = float(SM.EstimateThickness.using_best_method(shp, index))
+    except Exception as exc:
+        raise UnfoldReadError("Cannot determine sheet thickness via SheetMetal") from exc
+    if not isfinite(value) or value <= 0:
+        raise UnfoldReadError("Invalid sheet thickness: {!r}".format(value))
+    return value
