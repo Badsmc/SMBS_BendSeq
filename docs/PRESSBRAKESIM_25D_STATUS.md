@@ -7,7 +7,8 @@ local venv (Python 3.14, no pythonocc). Level C (interactive GUI) NOT performed 
 ## Test results
 - Baseline (`e8f2ed1`): `58 collected → 57 passed, 1 failed, 7 skipped, 6 collection errors`
 - After Iteration 1 (`bd2166e`, D1 fix): `58 passed, 7 skipped, 6 collection errors`
-- After Phase 2 implementation: **`67 passed, 7 skipped, 6 collection errors, 10 subtests passed`**
+- After Phase 2 implementation (`35a105f`): `67 passed, 7 skipped, 6 collection errors, 10 subtests passed`
+- After Phase 3A implementation: **`70 passed, 7 skipped, 6 collection errors, 10 subtests passed`**
 - State of the 6 collection errors (recorded explicitly per Step 6):
   - 4 × `ModuleNotFoundError: No module named 'OCC'` in local non-conda Python venv (`tests/test_ambiguous_tree_returns_unknown.py`, `tests/test_end_to_end_pipeline.py`, `tests/test_feature_extractor_signed_angle.py`, `tests/test_honest_collision_and_verifier.py`).
   - 1 × `ImportError: dlopen(.../FreeCAD.so)` when importing compiled FreeCAD binary into system Python 3.14 (`tests/test_fold_multi_bend.py`).
@@ -20,8 +21,8 @@ local venv (Python 3.14, no pythonocc). Level C (interactive GUI) NOT performed 
 | 0 | Baseline/audit | DONE | baseline recorded | headless only | – | – |
 | 1 | Geometry contract (angle, r, t, K, inner_r, BA, axis) | IMPLEMENTED | TESTED (unit) | VERIFIED on 16/16 fixtures (headless) | – | – |
 | 2 | Panels + explicit `BendZone` + tangent boundaries | IMPLEMENTED | TESTED (unit) | VERIFIED on 16/16 fixtures (0.000000 mm error) | – | – |
-| 3 | Finite-radius 2.5D kinematics + intermediate section | IMPLEMENTED | TESTED (unit) | VERIFIED on 16/16 fixtures (3D centroid/vertex/bbox = 0.000000 mm) | – | – |
-| 4 | UI & animation | IMPLEMENTED partially (`pressbrake_2d.py`, `fold_sequence_viewer.py`) | headless import tested | v4 manual notes; Level C pending | interactive GUI run | Phase 4 UI wiring |
+| 3 | Finite-radius 2.5D kinematics + intermediate section + atomic `FoldState` | IMPLEMENTED | TESTED (unit + headless FreeCAD) | VERIFIED on 16/16 fixtures (3D centroid/vertex/bbox = 0.000000 mm) | – | – |
+| 3A / 4 | Real Geometry Viewer (`pressbrake_2d.py`): load selected SheetMetal part, render real panels, finite-radius `BendZone`, both surfaces & neutral axis in `QGraphicsScene`, slider/Play/Pause/Reset/Fit, step selection | IMPLEMENTED | TESTED (unit + headless FreeCAD session on `L-(ok)`, `135-(ok)`, `Z-(ok)`, `U-10-15-10`) | Awaiting user interactive GUI confirmation (Level C) | User manual GUI check | Confirm 9 manual GUI checks in FreeCAD |
 | 5 | Tooling/collision 2.5D | NOT IMPLEMENTED in 2.5D path (legacy OCC exists) | – | – | – | Phase 5 |
 | 6 | Sequence | NOT IMPLEMENTED in 2.5D path (legacy `Solvers/` exist) | – | – | – | Phase 6 |
 | 7 | Release | NOT STARTED | – | – | – | Phase 7 |
