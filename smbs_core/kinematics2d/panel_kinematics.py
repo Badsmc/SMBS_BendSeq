@@ -188,6 +188,13 @@ class FoldState:
             qx, qy, qz = self.transforms[panel_id].point((px, py, z_val))
             return ((qx - ox) * ux + (qy - oy) * uy, qz)
 
+        def project_panel_pt_local(panel_id, z_local, s_val, z_val):
+            ox_l, oy_l = z_local.origin_xy
+            px = ox_l + ux * s_val
+            py = oy_l + uy * s_val
+            qx, qy, qz = self.transforms[panel_id].point((px, py, z_val))
+            return ((qx - ox) * ux + (qy - oy) * uy, qz)
+
         fixed_s = [flat_s(pt) for pt in panel_vertices_xy[bend.fixed_panel]]
         moving_s = [flat_s(pt) for pt in panel_vertices_xy[bend.moving_panel]]
         s_fixed_min = min(fixed_s)
@@ -215,10 +222,11 @@ class FoldState:
         prof = self.zone_section(bend_id, segments=segments)
         parent_tf = self.transforms[bend.fixed_panel]
 
-        def transform_zone_curve(pts):
+        def transform_zone_curve(pts, z_local=zone, p_tf=parent_tf, dir_sign=1.0):
+            ox_l, oy_l = z_local.origin_xy
             out = []
             for s_val, z_val in pts:
-                qx, qy, qz = parent_tf.point((ox + ux * s_val, oy + uy * s_val, z_val))
+                qx, qy, qz = p_tf.point((ox_l + ux * dir_sign * s_val, oy_l + uy * dir_sign * s_val, z_val))
                 out.append(((qx - ox) * ux + (qy - oy) * uy, qz))
             return tuple(out)
 
@@ -230,8 +238,54 @@ class FoldState:
         bottom_zone = outer_curve if zone.fold_angle_deg > 0 else inner_curve
 
         other_polygons = []
+        other_zone_polygons = []
+        other_inner_curves = []
+        other_outer_curves = []
+        other_neutral_curves = []
+        other_tangent_lines = []
+
+        parallel_bends = []
+        for ob_id, ob in self.bends.items():
+            if ob_id == bend_id:
+                continue
+            oz = getattr(ob, "bend_zone", None)
+            if oz is None:
+                continue
+            oside = 1.0 if ob.moving_left else -1.0
+            oux, ouy = oz.left_xy[0] * oside, oz.left_xy[1] * oside
+            dot_u = ux * oux + uy * ouy
+            if abs(abs(dot_u) - 1.0) > 1e-6:
+                continue
+            dir_sign = 1.0 if dot_u > 0 else -1.0
+            parallel_bends.append((ob_id, ob, oz, oux, ouy, dir_sign))
+            oprof = self.zone_section(ob_id, segments=segments)
+            op_tf = self.transforms[ob.fixed_panel]
+            o_in = transform_zone_curve(oprof["inner"], oz, op_tf, dir_sign)
+            o_neu = transform_zone_curve(oprof["neutral"], oz, op_tf, dir_sign)
+            o_out = transform_zone_curve(oprof["outer"], oz, op_tf, dir_sign)
+            other_zone_polygons.append((ob_id, o_in + tuple(reversed(o_out))))
+            other_inner_curves.append(o_in)
+            other_outer_curves.append(o_out)
+            other_neutral_curves.append(o_neu)
+
+            ox_l, oy_l = oz.origin_xy
+            oh = oz.half_width_mm
+
+            def proj_ob_pt(pid, s_local, z_val, _ox_l=ox_l, _oy_l=oy_l, _oux=oux, _ouy=ouy):
+                px = _ox_l + _oux * s_local
+                py = _oy_l + _ouy * s_local
+                qx, qy, qz = self.transforms[pid].point((px, py, z_val))
+                return ((qx - ox) * ux + (qy - oy) * uy, qz)
+
+            other_tangent_lines.append((proj_ob_pt(ob.fixed_panel, -oh, 0.0), proj_ob_pt(ob.fixed_panel, -oh, -t)))
+            other_tangent_lines.append((proj_ob_pt(ob.moving_panel, oh, 0.0), proj_ob_pt(ob.moving_panel, oh, -t)))
+
+        coplanar_panels = set()
+        for _, ob, _, _, _, _ in parallel_bends:
+            coplanar_panels.add(ob.fixed_panel)
+            coplanar_panels.add(ob.moving_panel)
         for pid in self.graph.panels:
-            if pid in (bend.fixed_panel, bend.moving_panel) or pid not in panel_vertices_xy:
+            if pid in (bend.fixed_panel, bend.moving_panel) or pid not in coplanar_panels or pid not in panel_vertices_xy:
                 continue
             pts_s = [flat_s(pt) for pt in panel_vertices_xy[pid]]
             if not pts_s:
@@ -265,6 +319,11 @@ class FoldState:
             "fixed_polygon": (fixed_top[0], fixed_top[1], fixed_bottom[1], fixed_bottom[0]),
             "moving_polygon": (moving_top[0], moving_top[1], moving_bottom[1], moving_bottom[0]),
             "other_panel_polygons": tuple(other_polygons),
+            "other_zone_polygons": tuple(other_zone_polygons),
+            "other_inner_curves": tuple(other_inner_curves),
+            "other_outer_curves": tuple(other_outer_curves),
+            "other_neutral_curves": tuple(other_neutral_curves),
+            "other_tangent_lines": tuple(other_tangent_lines),
             "zone_polygon": inner_curve + tuple(reversed(outer_curve)),
             "inner_surface": (
                 (fixed_top[0],) + inner_curve + (moving_top[1],)

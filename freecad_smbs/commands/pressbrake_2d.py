@@ -85,11 +85,23 @@ class LoadedPartSession:
         if not 0 <= index < len(self.ordered_bends):
             raise KinematicsError("Bend index out of range: {}".format(index))
         self.active_bend_index = int(index)
-        self.fold_state.reset_all()
 
     def set_active_angle(self, signed_angle_deg: float) -> None:
-        """Atomically update active bend angle via FoldState; other bends stay at 0 deg."""
-        self.fold_state.set_single_bend_angle(self.active_bend_id, float(signed_angle_deg))
+        """Atomically update active bend angle via FoldState."""
+        self.fold_state.set_angle(self.active_bend_id, float(signed_angle_deg))
+
+    def fold_all_to_target(self) -> None:
+        """Set all bends in the rooted kinematic tree to their target fold angles."""
+        for rb in self.ordered_bends:
+            self.fold_state.set_angle(rb.bend_id, rb.angle_deg)
+
+    def reset_active_bend(self) -> None:
+        """Reset the active bend to 0 deg."""
+        self.fold_state.set_angle(self.active_bend_id, 0.0)
+
+    def reset_all_bends(self) -> None:
+        """Reset all bends to 0 deg (flat pattern)."""
+        self.fold_state.reset_all()
 
     def cross_section(self, segments: int = 24) -> dict:
         return self.fold_state.cross_section_2d(
@@ -177,9 +189,20 @@ def build_part_session(doc, selection, fixed_panel: str | None = None) -> Loaded
         )
 
     if fixed_panel is None or fixed_panel not in graph.panels:
-        fixed_panel = panel_build.connections[0].panel_a
+        rc = getattr(unfold_data, "root_centroid_xy", None)
+        if rc is not None and panel_build.panels:
+            from math import hypot
+            fixed_panel = min(
+                panel_build.panels,
+                key=lambda p: hypot(p.centroid_xy[0] - rc[0], p.centroid_xy[1] - rc[1]),
+            ).panel_id
+        else:
+            fixed_panel = panel_build.connections[0].panel_a
 
     fold_state = FoldState(graph, fixed_panel)
+    for rb in fold_state.ordered_bends:
+        fold_state.set_angle(rb.bend_id, rb.angle_deg)
+    fold_state.set_angle(fold_state.ordered_bends[0].bend_id, 0.0)
     sel_label = getattr(selection[0], "Label", getattr(selection[0], "Name", unfold_name))
     return LoadedPartSession(
         part_label=str(sel_label),
@@ -445,12 +468,12 @@ class _PreviewPanel:
                     return
                 target_mag = abs(self.session.target_angle_deg)
                 max_steps = max(1, int(round(target_mag * _SLIDER_SCALE)))
+                self.angle = self.session.current_angle_deg
+                slider_pos = int(round(abs(self.angle) * _SLIDER_SCALE))
                 self.slider.blockSignals(True)
                 self.slider.setRange(0, max_steps)
-                self.slider.setValue(0)
+                self.slider.setValue(slider_pos)
                 self.slider.blockSignals(False)
-                self.angle = 0.0
-                self.session.set_active_angle(0.0)
 
             def _on_operation_selected(self, current, _previous):
                 if self.session is None or current is None:
@@ -461,7 +484,10 @@ class _PreviewPanel:
                 self.timer.stop()
                 self.playing = False
                 self.play_btn.setText("▶")
+                # Keep previously selected bend at its target angle while resetting the newly selected bend to 0 deg
+                self.session.fold_all_to_target()
                 self.session.select_bend_index(idx)
+                self.session.set_active_angle(0.0)
                 self._configure_for_active_bend()
                 self.draw()
                 QtCore.QTimer.singleShot(0, self.fit)
@@ -613,13 +639,21 @@ class _PreviewPanel:
                     all_pts = list(sec["inner_surface"]) + list(sec["outer_surface"])
                     for _, opoly in sec.get("other_panel_polygons", ()):
                         all_pts.extend(opoly)
+                    for _, ozpoly in sec.get("other_zone_polygons", ()):
+                        all_pts.extend(ozpoly)
 
-                    # 1. Other panels held in consistent 0 deg state
-                    other_pen = QtGui.QPen(QtGui.QColor("#5b7083"), 0.4)
+                    # 1. Other panels & bend zones in the same cross-section plane
+                    other_pen = QtGui.QPen(QtGui.QColor("#1b4f72"), 1.0)
                     other_pen.setCosmetic(True)
-                    other_brush = QtGui.QBrush(QtGui.QColor(140, 160, 180, 90))
+                    other_brush = QtGui.QBrush(QtGui.QColor("#85929e"))
                     for _, opoly in sec.get("other_panel_polygons", ()):
                         self.scene.addPolygon(make_poly(opoly), other_pen, other_brush)
+
+                    zone_pen = QtGui.QPen(QtGui.QColor("#b9770e"), 1.2)
+                    zone_pen.setCosmetic(True)
+                    zone_brush = QtGui.QBrush(QtGui.QColor("#f8c471"))
+                    for _, ozpoly in sec.get("other_zone_polygons", ()):
+                        self.scene.addPolygon(make_poly(ozpoly), zone_pen, zone_brush)
 
                     # 2. Fixed rigid panel
                     panel_pen = QtGui.QPen(QtGui.QColor("#1b4f72"), 1.2)
@@ -632,44 +666,52 @@ class _PreviewPanel:
                     self.scene.addPolygon(make_poly(sec["moving_polygon"]), panel_pen, moving_brush)
 
                     # 4. Finite-radius bend zone polygon
-                    zone_pen = QtGui.QPen(QtGui.QColor("#b9770e"), 1.2)
-                    zone_pen.setCosmetic(True)
-                    zone_brush = QtGui.QBrush(QtGui.QColor("#f8c471"))
                     self.scene.addPolygon(make_poly(sec["zone_polygon"]), zone_pen, zone_brush)
 
                     # 5. Both sheet surfaces (inner concave and outer convex)
-                    inner_path = QtGui.QPainterPath()
-                    inner_pts = [to_qpt(p) for p in sec["inner_surface"]]
-                    inner_path.moveTo(inner_pts[0])
-                    for pt in inner_pts[1:]:
-                        inner_path.lineTo(pt)
                     inner_pen = QtGui.QPen(QtGui.QColor("#0e6251"), 2.0)
                     inner_pen.setCosmetic(True)
-                    self.scene.addPath(inner_path, inner_pen)
+                    for curve in (sec["inner_surface"],) + tuple(sec.get("other_inner_curves", ())):
+                        if not curve:
+                            continue
+                        inner_path = QtGui.QPainterPath()
+                        inner_pts = [to_qpt(p) for p in curve]
+                        inner_path.moveTo(inner_pts[0])
+                        for pt in inner_pts[1:]:
+                            inner_path.lineTo(pt)
+                        self.scene.addPath(inner_path, inner_pen)
 
-                    outer_path = QtGui.QPainterPath()
-                    outer_pts = [to_qpt(p) for p in sec["outer_surface"]]
-                    outer_path.moveTo(outer_pts[0])
-                    for pt in outer_pts[1:]:
-                        outer_path.lineTo(pt)
                     outer_pen = QtGui.QPen(QtGui.QColor("#154360"), 2.0)
                     outer_pen.setCosmetic(True)
-                    self.scene.addPath(outer_path, outer_pen)
+                    for curve in (sec["outer_surface"],) + tuple(sec.get("other_outer_curves", ())):
+                        if not curve:
+                            continue
+                        outer_path = QtGui.QPainterPath()
+                        outer_pts = [to_qpt(p) for p in curve]
+                        outer_path.moveTo(outer_pts[0])
+                        for pt in outer_pts[1:]:
+                            outer_path.lineTo(pt)
+                        self.scene.addPath(outer_path, outer_pen)
 
-                    # 6. Neutral layer curve (dashed) inside bend zone
-                    neutral_path = QtGui.QPainterPath()
-                    n_pts = [to_qpt(p) for p in sec["neutral_curve"]]
-                    neutral_path.moveTo(n_pts[0])
-                    for pt in n_pts[1:]:
-                        neutral_path.lineTo(pt)
+                    # 6. Neutral layer curve (dashed) inside bend zones
                     neutral_pen = QtGui.QPen(QtGui.QColor("#c0392b"), 1.4, QtCore.Qt.DashLine)
                     neutral_pen.setCosmetic(True)
-                    self.scene.addPath(neutral_path, neutral_pen)
+                    for curve in (sec["neutral_curve"],) + tuple(sec.get("other_neutral_curves", ())):
+                        if not curve:
+                            continue
+                        neutral_path = QtGui.QPainterPath()
+                        n_pts = [to_qpt(p) for p in curve]
+                        neutral_path.moveTo(n_pts[0])
+                        for pt in n_pts[1:]:
+                            neutral_path.lineTo(pt)
+                        self.scene.addPath(neutral_path, neutral_pen)
 
-                    # 7. Tangent boundary lines between rigid panels and bend zone
+                    # 7. Tangent boundary lines between rigid panels and bend zones
                     tan_pen = QtGui.QPen(QtGui.QColor("#7d3c98"), 1.2, QtCore.Qt.DotLine)
                     tan_pen.setCosmetic(True)
-                    for t_top, t_bot in zip(sec["tangent_points_top"], sec["tangent_points_bottom"]):
+                    all_tan_pairs = list(zip(sec["tangent_points_top"], sec["tangent_points_bottom"]))
+                    all_tan_pairs.extend(sec.get("other_tangent_lines", ()))
+                    for t_top, t_bot in all_tan_pairs:
                         p1, p2 = to_qpt(t_top), to_qpt(t_bot)
                         self.scene.addLine(p1.x(), p1.y(), p2.x(), p2.y(), tan_pen)
 

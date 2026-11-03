@@ -288,6 +288,88 @@ class BendZoneMathTests(unittest.TestCase):
                 else:
                     self.assertLess(min(z_vals), -45.0)
 
+    def test_multi_bend_z90_and_135_cross_sections_match_3d_reference_slices(self):
+        # 1) Z-(ok).FCStd reference geometry: P02 middle web (45 mm), P03 (+90 UP, 12.5 mm), P01 (-90 DOWN, 12.5 mm)
+        p_up90 = bend_parameters(90.0, 1.0, 1.5, 0.4)
+        p_dn90 = bend_parameters(-90.0, 2.5, 1.5, 0.4)
+        z_b01 = make_bend_zone("B01", ((200.0, 61.26991118430775), (0.0, 61.26991118430775)), p_up90)
+        z_b02 = make_bend_zone("B02", ((0.0, 13.756637061435917), (200.0, 13.756637061435917)), p_dn90)
+        g_z = PanelGraph(
+            ("P01", "P02", "P03"),
+            (
+                GraphEdge("B01", "P02", "P03", 90.0, ((200.0, 61.26991118430775, 0.0), (0.0, 61.26991118430775, 0.0)), z_b01),
+                GraphEdge("B02", "P02", "P01", -90.0, ((0.0, 13.756637061435917, 0.0), (200.0, 13.756637061435917, 0.0)), z_b02),
+            ),
+        )
+        verts_z = {
+            "P01": ((0.0, 0.0), (200.0, 0.0), (200.0, 12.5), (0.0, 12.5)),
+            "P02": ((0.0, 15.013274122871834), (200.0, 15.013274122871834), (200.0, 60.013274122871834), (0.0, 60.013274122871834)),
+            "P03": ((0.0, 62.52654824574367), (200.0, 62.52654824574367), (200.0, 75.02654824574367), (0.0, 75.02654824574367)),
+        }
+        state_z = FoldState(g_z, "P02")
+        sess_z = LoadedPartSession("Z-(ok)", None, None, g_z, verts_z, "P02", state_z, 0)
+        sess_z.fold_all_to_target()
+        sec_z = sess_z.cross_section(segments=32)
+
+        # Convert active B01 (s, z) back to SketchFrame (Y, Z): Y = 61.26991118430775 + s
+        oy_z = 61.26991118430775
+        all_z_yz = (
+            [(oy_z + p[0], p[1]) for p in sec_z["fixed_polygon"]]
+            + [(oy_z + p[0], p[1]) for p in sec_z["moving_polygon"]]
+            + [(oy_z + p[0], p[1]) for p in sec_z["other_panel_polygons"][0][1]]
+        )
+        #Exact 12 reference vertices sliced from Z-(ok).FCStd Body.Shape in SketchFrame:
+        expected_z_yz = [
+            (12.513274122871834, -15.0),
+            (12.513274122871834, -2.5),
+            (14.013274122871834, -15.0),
+            (14.013274122871834, -2.5),
+            (15.013274122871834, -1.5),
+            (15.013274122871834, 0.0),
+            (60.013274122871834, -1.5),
+            (60.013274122871834, 0.0),
+            (61.013274122871834, 1.0),
+            (61.013274122871834, 13.5),
+            (62.513274122871834, 1.0),
+            (62.513274122871834, 13.5),
+        ]
+        for ref_y, ref_z in expected_z_yz:
+            min_dist = min(math.hypot(y - ref_y, z - ref_z) for y, z in all_z_yz)
+            self.assertLess(min_dist, 1e-9, f"Z-(ok) reference vertex ({ref_y}, {ref_z}) missed by {min_dist}")
+
+        # 2) 135-(ok).FCStd reference geometry: P02 middle web (45 mm), P03 (+45 UP, 13.964466 mm), P01 (-45 DOWN, 13.964466 mm)
+        p_up45 = bend_parameters(135.0, 1.0, 1.5, 0.4)
+        p_dn45 = bend_parameters(-135.0, 2.5, 1.5, 0.4)
+        z_135_1 = make_bend_zone("B01", ((200.0, 60.849421686221135), (0.0, 60.849421686221135)), p_up45)
+        z_135_2 = make_bend_zone("B02", ((0.0, 14.59278462478522), (200.0, 14.59278462478522)), p_dn45)
+        g_135 = PanelGraph(
+            ("P01", "P02", "P03"),
+            (
+                GraphEdge("B01", "P02", "P03", 45.0, ((200.0, 60.849421686221135, 0.0), (0.0, 60.849421686221135, 0.0)), z_135_1),
+                GraphEdge("B02", "P02", "P01", -45.0, ((0.0, 14.59278462478522, 0.0), (200.0, 14.59278462478522, 0.0)), z_135_2),
+            ),
+        )
+        verts_135 = {
+            "P01": ((0.0, 0.0), (200.0, 0.0), (200.0, 13.964466094067262), (0.0, 13.964466094067262)),
+            "P02": ((0.0, 15.22110315550318), (200.0, 15.22110315550318), (200.0, 60.22110315550318), (0.0, 60.22110315550318)),
+            "P03": ((0.0, 61.477740216939095), (200.0, 61.477740216939095), (200.0, 75.44220631100636), (0.0, 75.44220631100636)),
+        }
+        state_135 = FoldState(g_135, "P02")
+        sess_135 = LoadedPartSession("135-(ok)", None, None, g_135, verts_135, "P02", state_135, 0)
+        sess_135.fold_all_to_target()
+        sec_135 = sess_135.cross_section(segments=32)
+        all_135_pts = (
+            list(sec_135["fixed_polygon"])
+            + list(sec_135["moving_polygon"])
+            + list(sec_135["other_panel_polygons"][0][1])
+        )
+        s_135 = [p[0] for p in all_135_pts]
+        z_135 = [p[1] for p in all_135_pts]
+        # Total Y span of 135-(ok).FCStd Body.Shape in SketchFrame is 59.1421356 - (-9.1421356) = 68.2842712 mm
+        # Total Z span is 10.1672619 - (-11.6672619) = 21.8345238 mm
+        self.assertAlmostEqual(max(s_135) - min(s_135), 68.2842712474619, places=9)
+        self.assertAlmostEqual(max(z_135) - min(z_135), 21.83452377915607, places=9)
+
     def test_missing_selection_fails_with_clear_error_and_initgui_no_duplicate_registration(self):
         class _Doc:
             Objects = ()
@@ -296,11 +378,12 @@ class BendZoneMathTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             resolve_selected_unfold(_Doc(), [])
 
+        import freecad_smbs.workbench_runtime as _rt
         from unittest.mock import MagicMock, patch
         fake_gui = MagicMock()
         fake_gui.listCommands.return_value = []
-        with patch("freecad_smbs.InitGui.FreeCADGui", fake_gui), \
-             patch("freecad_smbs.InitGui._REGISTERED_COMMANDS", set()):
+        with patch.object(_rt, "FreeCADGui", fake_gui), \
+             patch.object(_rt, "_REGISTERED_COMMANDS", set()):
             register_commands()
             first_count = fake_gui.addCommand.call_count
             self.assertEqual(first_count, len(COMMANDS_MAP))
