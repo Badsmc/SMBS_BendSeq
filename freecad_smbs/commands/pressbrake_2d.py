@@ -41,12 +41,105 @@ def _log(message):
         pass
 
 
+def _warn(message):
+    try:
+        import FreeCAD
+        FreeCAD.Console.PrintWarning("[PressBrake2D] " + str(message) + "\n")
+    except ImportError:
+        pass
+
+
 def _error(message):
     try:
         import FreeCAD
         FreeCAD.Console.PrintError("[PressBrake2D] " + str(message) + "\n")
     except ImportError:
         pass
+
+
+class SelectionWarning(RuntimeError):
+    """Expected user-selection or document precondition warning (no traceback)."""
+
+
+def validate_selection_preconditions(doc, selection) -> list:
+    """Validate that an active FreeCAD document and a non-empty selection exist.
+
+    Raises SelectionWarning if preconditions are not met before any geometry
+    pipeline, unfold reading, or scene update is invoked.
+    """
+    if doc is None:
+        raise SelectionWarning(
+            "Нет открытого документа FreeCAD. Откройте FCStd-модель листовой детали."
+        )
+    sel_list = list(selection) if selection else []
+    if not sel_list:
+        raise SelectionWarning(
+            "Деталь не выбрана. Выделите листовую деталь (Body / Bend / Unfold) в дереве модели и нажмите «Деталь»."
+        )
+    return sel_list
+
+
+def execute_load_part(
+    current_session: LoadedPartSession | None,
+    doc,
+    selection,
+    build_fn=None,
+) -> tuple[str, LoadedPartSession | None, str]:
+    """Execute part loading with early precondition checks and session preservation.
+
+    Returns (outcome, session_after, message) where outcome is one of:
+      - "warning": expected precondition issue (no doc / empty selection);
+        current_session is preserved untouched and build_fn is NOT called.
+      - "loaded": new LoadedPartSession built and returned.
+      - "error": unexpected error during build; current_session is preserved.
+    """
+    _log("load_part: enter")
+    try:
+        sel_list = validate_selection_preconditions(doc, selection)
+    except SelectionWarning as warn_exc:
+        msg = str(warn_exc)
+        _warn(msg)
+        _log("load_part: exit (selection warning, session preserved)")
+        return "warning", current_session, msg
+
+    builder = build_part_session if build_fn is None else build_fn
+    try:
+        new_session = builder(doc, sel_list)
+    except SelectionWarning as warn_exc:
+        msg = str(warn_exc)
+        _warn(msg)
+        _log("load_part: exit (selection warning, session preserved)")
+        return "warning", current_session, msg
+    except Exception as exc:
+        msg = "Ошибка загрузки детали: {}".format(exc)
+        _error(msg + "\n" + traceback.format_exc())
+        _log("load_part: exit (error, session preserved)")
+        return "error", current_session, msg
+
+    b = new_session.active_bend
+    z = b.bend_zone
+    msg = (
+        "Загружена деталь «{}»: панелей {}, гибов {} | t={:.2f} мм, R_вн={:.2f} мм, K={:.2f}, BA={:.3f} мм".format(
+            new_session.part_label,
+            len(new_session.graph.panels),
+            len(new_session.ordered_bends),
+            z.thickness_mm,
+            z.inner_radius_mm,
+            z.k_factor_ansi,
+            z.bend_allowance_mm,
+        )
+    )
+    _log(
+        "Loaded part '{}': {} panels, {} bends; active={} target={:+.1f} deg".format(
+            new_session.part_label,
+            len(new_session.graph.panels),
+            len(new_session.ordered_bends),
+            b.bend_id,
+            b.angle_deg,
+        )
+    )
+    _log("load_part: exit (loaded)")
+    return "loaded", new_session, msg
 
 
 @dataclass
@@ -116,24 +209,19 @@ def resolve_selected_unfold(doc, selection) -> str:
     object is selected, or no matching SheetMetal unfold object exists.
     Never modifies the FreeCAD document.
     """
-    if doc is None:
-        raise RuntimeError("Нет открытого документа FreeCAD. Откройте FCStd-модель листовой детали.")
-    if not selection:
-        raise RuntimeError(
-            "Деталь не выбрана. Выделите листовую деталь (Body / Bend / Unfold) в дереве модели и нажмите «Деталь»."
-        )
+    sel_list = validate_selection_preconditions(doc, selection)
 
     unfolds = [
         o for o in getattr(doc, "Objects", ())
         if hasattr(o, "baseObject") and o.Name.endswith("_Unfold")
     ]
     if not unfolds:
-        raise RuntimeError(
+        raise SelectionWarning(
             "В документе не найден объект развёртки SheetMetal (*_Unfold). "
             "Создайте развёртку с эскизами в верстаке SheetMetal."
         )
 
-    selected = selection[0]
+    selected = sel_list[0]
     sel_name = getattr(selected, "Name", "")
 
     # 1. Direct selection of the unfold object itself
@@ -146,7 +234,7 @@ def resolve_selected_unfold(doc, selection) -> str:
     for u in unfolds:
         try:
             linked, subs = u.baseObject
-        except Exception:
+        except (AttributeError, TypeError, ValueError):
             continue
         linked_name = getattr(linked, "Name", "")
         sub_prefix = str(subs[0]).split(".", 1)[0] if subs else ""
@@ -164,7 +252,7 @@ def resolve_selected_unfold(doc, selection) -> str:
         return matching[0]
     if len(unfolds) == 1 and hasattr(selected, "Shape"):
         return unfolds[0].Name
-    raise RuntimeError(
+    raise SelectionWarning(
         "Не удалось однозначно сопоставить выбранный объект «{}» с развёрткой SheetMetal.".format(
             getattr(selected, "Label", sel_name)
         )
@@ -255,12 +343,9 @@ class PressBrake2DCommand:
         dock.raise_()
         # If the user already selected a part before clicking the command, load it automatically
         widget = dock.widget()
-        try:
-            sel = Gui.Selection.getSelection() if hasattr(Gui, "Selection") else []
-            if sel and getattr(widget, "session", None) is None:
-                widget.load_part()
-        except Exception:
-            pass
+        sel = Gui.Selection.getSelection() if hasattr(Gui, "Selection") else []
+        if sel and getattr(widget, "session", None) is None:
+            widget.load_part()
         _log("2.5D viewer opened")
 
 
@@ -395,51 +480,28 @@ class _PreviewPanel:
 
             def load_part(self):
                 """Load the currently selected SheetMetal part in FreeCAD."""
+                import FreeCAD as App
+                import FreeCADGui as Gui
+
+                doc = getattr(App, "ActiveDocument", None)
+                selection = Gui.Selection.getSelection() if hasattr(Gui, "Selection") else []
+
+                # Early precondition check BEFORE touching timer, session, controls, or scene
+                outcome, new_session, msg = execute_load_part(self.session, doc, selection)
+                if outcome != "loaded":
+                    self.status.setText(msg)
+                    self.check_result.setText(msg)
+                    return
+
                 self.timer.stop()
                 self.playing = False
                 self.play_btn.setText("▶")
-                try:
-                    import FreeCAD as App
-                    import FreeCADGui as Gui
-                    doc = App.ActiveDocument
-                    selection = Gui.Selection.getSelection() if hasattr(Gui, "Selection") else []
-                    self.session = build_part_session(doc, selection)
-                except Exception as exc:
-                    self.session = None
-                    self._set_playback_controls_enabled(False)
-                    self.operations.clear()
-                    msg = "Ошибка загрузки детали: {}".format(exc)
-                    self.status.setText(msg)
-                    self.check_result.setText(msg)
-                    _error(msg + "\n" + traceback.format_exc())
-                    self.draw()
-                    return
-
+                self.session = new_session
                 self._populate_operations()
                 self._configure_for_active_bend()
                 self._set_playback_controls_enabled(True)
-                b = self.session.active_bend
-                z = b.bend_zone
-                self.status.setText(
-                    "Загружена деталь «{}»: панелей {}, гибов {} | t={:.2f} мм, R_вн={:.2f} мм, K={:.2f}, BA={:.3f} мм".format(
-                        self.session.part_label,
-                        len(self.session.graph.panels),
-                        len(self.session.ordered_bends),
-                        z.thickness_mm,
-                        z.inner_radius_mm,
-                        z.k_factor_ansi,
-                        z.bend_allowance_mm,
-                    )
-                )
-                _log(
-                    "Loaded part '{}': {} panels, {} bends; active={} target={:+.1f} deg".format(
-                        self.session.part_label,
-                        len(self.session.graph.panels),
-                        len(self.session.ordered_bends),
-                        b.bend_id,
-                        b.angle_deg,
-                    )
-                )
+                self.status.setText(msg)
+                self.check_result.setText(msg)
                 self.draw()
                 QtCore.QTimer.singleShot(0, self.fit)
 
