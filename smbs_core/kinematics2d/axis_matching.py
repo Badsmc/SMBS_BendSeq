@@ -54,7 +54,9 @@ def _candidate(bend, sketch, axis_tol, angle_tol, min_overlap_ratio):
     t1 = (c[0] - a[0]) * ux + (c[1] - a[1]) * uy
     t2 = (d[0] - a[0]) * ux + (d[1] - a[1]) * uy
     overlap = max(0.0, min(lb, max(t1, t2)) - max(0.0, min(t1, t2)))
-    if overlap <= 0 or overlap / min(lb, ls) < min_overlap_ratio:
+    # Ratio is measured against the canonical bend axis: a short sketch
+    # fragment lying inside a long axis must not be accepted as its match.
+    if overlap <= 0 or overlap / lb < min_overlap_ratio:
         return None
     return offset, overlap, lb, ls
 
@@ -68,7 +70,8 @@ def match_bend_axes(
 ) -> Tuple[AxisMatch, ...]:
     """Return unique one-to-one matches, or raise on missing/ambiguous geometry.
 
-    A sketch line can be shorter than its BendInfo axis. Parallel offset,
+    A sketch line can be slightly shorter than its BendInfo axis (trimming),
+    but must cover at least min_overlap_ratio of the axis length. Parallel offset,
     overlap and uniqueness are validated. Index order is not assumed.
     """
     if not bends or len(bends) != len(sketch_lines):
