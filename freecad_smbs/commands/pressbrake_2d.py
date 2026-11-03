@@ -10,10 +10,16 @@ from __future__ import annotations
 
 import logging
 import math
+import time
 import traceback
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
+from smbs_core.kinematics2d.fold_sequence import (
+    BendSequenceController,
+    PlaybackStatus,
+    SequenceError,
+)
 from smbs_core.kinematics2d.panel_graph import PanelGraph, graph_from_panel_build
 from smbs_core.kinematics2d.panel_kinematics import FoldState, KinematicsError
 
@@ -175,6 +181,12 @@ class LoadedPartSession:
     fixed_panel: str
     fold_state: FoldState
     active_bend_index: int = 0
+    controller: BendSequenceController = field(init=False)
+
+    def __post_init__(self) -> None:
+        self.controller = BendSequenceController(self.fold_state)
+        if self.active_bend_index != 0:
+            self.controller.select_operation(self.active_bend_index)
 
     @property
     def ordered_bends(self):
@@ -182,41 +194,79 @@ class LoadedPartSession:
 
     @property
     def active_bend(self):
-        return self.ordered_bends[self.active_bend_index]
+        return self.controller.active_bend
 
     @property
     def active_bend_id(self) -> str:
-        return self.active_bend.bend_id
+        return self.controller.active_bend_id
 
     @property
     def target_angle_deg(self) -> float:
-        return float(self.active_bend.angle_deg)
+        return self.controller.target_angle_deg
 
     @property
     def current_angle_deg(self) -> float:
-        return float(self.fold_state.angles[self.active_bend_id])
+        return self.controller.current_angle_deg
+
+    @property
+    def playback_status(self) -> PlaybackStatus:
+        return self.controller.status
 
     def select_bend_index(self, index: int) -> None:
         if not 0 <= index < len(self.ordered_bends):
             raise KinematicsError("Bend index out of range: {}".format(index))
-        self.active_bend_index = int(index)
+        self.controller.select_operation(int(index))
+        self.active_bend_index = self.controller.active_index
 
     def set_active_angle(self, signed_angle_deg: float) -> None:
-        """Atomically update active bend angle via FoldState."""
-        self.fold_state.set_angle(self.active_bend_id, float(signed_angle_deg))
+        """Atomically update active bend angle via controller & FoldState."""
+        self.controller.set_manual_angle(float(signed_angle_deg))
+        self.active_bend_index = self.controller.active_index
 
     def fold_all_to_target(self) -> None:
         """Set all bends in the rooted kinematic tree to their target fold angles."""
         for rb in self.ordered_bends:
             self.fold_state.set_angle(rb.bend_id, rb.angle_deg)
+        self.controller._sync_status_when_stopped()
+        self.active_bend_index = self.controller.active_index
 
     def reset_active_bend(self) -> None:
         """Reset the active bend to 0 deg."""
-        self.fold_state.set_angle(self.active_bend_id, 0.0)
+        self.controller.set_manual_angle(0.0)
+        self.active_bend_index = self.controller.active_index
 
     def reset_all_bends(self) -> None:
-        """Reset all bends to 0 deg (flat pattern)."""
-        self.fold_state.reset_all()
+        """Reset all bends to 0 deg (flat pattern) and return controller to IDLE."""
+        self.controller.reset()
+        self.active_bend_index = self.controller.active_index
+
+    def play_all(self) -> None:
+        self.controller.play_all()
+        self.active_bend_index = self.controller.active_index
+
+    def pause(self) -> None:
+        self.controller.pause()
+        self.active_bend_index = self.controller.active_index
+
+    def resume(self) -> None:
+        self.controller.resume()
+        self.active_bend_index = self.controller.active_index
+
+    def advance_time(self, dt_sec: float) -> bool:
+        changed = self.controller.advance_time(dt_sec)
+        self.active_bend_index = self.controller.active_index
+        return changed
+
+    def next_step(self) -> None:
+        self.controller.next_step()
+        self.active_bend_index = self.controller.active_index
+
+    def previous_step(self) -> None:
+        self.controller.previous_step()
+        self.active_bend_index = self.controller.active_index
+
+    def status_line(self) -> str:
+        return self.controller.status_line()
 
     def cross_section(self, segments: int = 24) -> dict:
         return self.fold_state.cross_section_2d(
@@ -401,6 +451,7 @@ class _PreviewPanel:
                 self.session: LoadedPartSession | None = None
                 self.angle = 0.0
                 self.playing = False
+                self._last_tick_monotonic: float | None = None
                 self.timer = QtCore.QTimer(self)
                 self.timer.setInterval(35)
                 self.timer.timeout.connect(self.advance)
@@ -437,12 +488,20 @@ class _PreviewPanel:
                 row = QtWidgets.QHBoxLayout()
                 self.reset_btn = _button(QtWidgets, "|<", self.reset, False)
                 self.back_btn = _button(QtWidgets, "<", lambda: self.step_angle(-5.0), False)
-                self.play_btn = _button(QtWidgets, "▶", self.toggle_play, False)
+                self.play_btn = _button(QtWidgets, "▶ Play All", self.play_all, False)
+                self.pause_btn = _button(QtWidgets, "Ⅱ Pause", self.toggle_pause_resume, False)
                 self.next_btn = _button(QtWidgets, ">", lambda: self.step_angle(5.0), False)
                 self.end_btn = _button(QtWidgets, ">|", self.to_target_angle, False)
                 self.fit_btn = _button(QtWidgets, "Fit", self.fit, False)
-                for widget in (self.reset_btn, self.back_btn, self.play_btn,
-                               self.next_btn, self.end_btn, self.fit_btn):
+                for widget in (
+                    self.reset_btn,
+                    self.back_btn,
+                    self.play_btn,
+                    self.pause_btn,
+                    self.next_btn,
+                    self.end_btn,
+                    self.fit_btn,
+                ):
                     row.addWidget(widget)
                 root.addLayout(row)
 
@@ -457,15 +516,22 @@ class _PreviewPanel:
                 root.addWidget(self.step)
 
                 bend_nav_row = QtWidgets.QHBoxLayout()
-                bend_nav_row.addWidget(QtWidgets.QLabel("Гибы детали:"))
-                self.prev_bend_btn = _button(QtWidgets, "◀ Пред. гиб", lambda: self.switch_bend(-1), False)
-                self.next_bend_btn = _button(QtWidgets, "След. гиб ▶", lambda: self.switch_bend(1), False)
-                bend_nav_row.addWidget(self.prev_bend_btn)
-                bend_nav_row.addWidget(self.next_bend_btn)
+                bend_nav_row.addWidget(QtWidgets.QLabel("Шаги:"))
+                self.prev_step_btn = _button(QtWidgets, "⏮ Previous Step", self.previous_step, False)
+                self.next_step_btn = _button(QtWidgets, "Next Step ⏭", self.next_step, False)
+                self.prev_bend_btn = _button(QtWidgets, "◀", lambda: self.switch_bend(-1), False)
+                self.next_bend_btn = _button(QtWidgets, "▶", lambda: self.switch_bend(1), False)
+                for widget in (
+                    self.prev_step_btn,
+                    self.next_step_btn,
+                    self.prev_bend_btn,
+                    self.next_bend_btn,
+                ):
+                    bend_nav_row.addWidget(widget)
                 root.addLayout(bend_nav_row)
 
                 self.operations = QtWidgets.QTreeWidget()
-                self.operations.setHeaderLabels(["№", "Гиб / Панели", "Целевой угол / Параметры"])
+                self.operations.setHeaderLabels(["№", "Гиб / Панели", "Целевой угол / Статус"])
                 self.operations.setRootIsDecorated(False)
                 self.operations.setMaximumHeight(110)
                 self.operations.currentItemChanged.connect(self._on_operation_selected)
@@ -482,6 +548,31 @@ class _PreviewPanel:
             def unavailable(self):
                 pass  # Disabled controls for Phase 5/6 features.
 
+            def _stop_timer(self):
+                self.timer.stop()
+                self.playing = False
+                self._last_tick_monotonic = None
+                self._sync_playback_buttons()
+
+            def _sync_playback_buttons(self):
+                if self.session is None:
+                    self.play_btn.setText("▶ Play All")
+                    self.pause_btn.setText("Ⅱ Pause")
+                    self.pause_btn.setEnabled(False)
+                    return
+                st = self.session.playback_status
+                self.playing = st == PlaybackStatus.PLAYING
+                self.play_btn.setText("▶ Play All")
+                if st == PlaybackStatus.PLAYING:
+                    self.pause_btn.setText("Ⅱ Pause")
+                    self.pause_btn.setEnabled(True)
+                elif st == PlaybackStatus.PAUSED:
+                    self.pause_btn.setText("▶ Resume")
+                    self.pause_btn.setEnabled(True)
+                else:
+                    self.pause_btn.setText("Ⅱ Pause")
+                    self.pause_btn.setEnabled(False)
+
             def _set_playback_controls_enabled(self, enabled: bool):
                 for w in (
                     self.reset_btn,
@@ -491,11 +582,14 @@ class _PreviewPanel:
                     self.end_btn,
                     self.fit_btn,
                     self.slider,
+                    self.prev_step_btn,
+                    self.next_step_btn,
                 ):
                     w.setEnabled(enabled)
                 has_multi = enabled and self.session is not None and len(self.session.ordered_bends) > 1
                 self.prev_bend_btn.setEnabled(has_multi)
                 self.next_bend_btn.setEnabled(has_multi)
+                self._sync_playback_buttons()
 
             def load_part(self):
                 """Load the currently selected SheetMetal part in FreeCAD."""
@@ -515,9 +609,7 @@ class _PreviewPanel:
                     self.check_result.setText(msg)
                     return
 
-                self.timer.stop()
-                self.playing = False
-                self.play_btn.setText("▶")
+                self._stop_timer()
                 self.session = new_session
                 self._populate_operations()
                 self._configure_for_active_bend()
@@ -527,24 +619,63 @@ class _PreviewPanel:
                 self.draw()
                 QtCore.QTimer.singleShot(0, self.fit)
 
+            def _format_operation_row(self, idx: int, b) -> tuple[str, str, str]:
+                z = b.bend_zone
+                cur = self.session.fold_state.angles[b.bend_id]
+                done = self.session.controller.is_bend_completed(b.bend_id)
+                is_active = (idx - 1) == self.session.active_bend_index
+                if done:
+                    marker = "✓ DONE"
+                elif is_active and abs(cur) > 1e-6:
+                    marker = "▶ {:+.1f}°".format(cur)
+                elif is_active:
+                    marker = "▶ ACTIVE"
+                elif abs(cur) > 1e-6:
+                    marker = "{:+.1f}°".format(cur)
+                else:
+                    marker = "0.0°"
+                return (
+                    str(idx),
+                    "{} ({} → {})".format(b.bend_id, b.fixed_panel, b.moving_panel),
+                    "{:+.1f}° / {:+.1f}° [{}] | R={:.2f}, t={:.2f}".format(
+                        cur, b.angle_deg, marker, z.inner_radius_mm, z.thickness_mm
+                    ),
+                )
+
             def _populate_operations(self):
                 self.operations.blockSignals(True)
                 self.operations.clear()
                 if self.session is not None:
                     for idx, b in enumerate(self.session.ordered_bends, 1):
-                        z = b.bend_zone
-                        item = QtWidgets.QTreeWidgetItem([
-                            str(idx),
-                            "{} ({} → {})".format(b.bend_id, b.fixed_panel, b.moving_panel),
-                            "0° → {:+.1f}° | R={:.2f}, t={:.2f}".format(
-                                b.angle_deg, z.inner_radius_mm, z.thickness_mm
-                            ),
-                        ])
+                        cols = self._format_operation_row(idx, b)
+                        item = QtWidgets.QTreeWidgetItem(list(cols))
                         self.operations.addTopLevelItem(item)
                     if self.operations.topLevelItemCount() > 0:
                         self.operations.setCurrentItem(
                             self.operations.topLevelItem(self.session.active_bend_index)
                         )
+                self.operations.blockSignals(False)
+
+            def _update_operations_visual_state(self):
+                if self.session is None:
+                    return
+                self.operations.blockSignals(True)
+                raw_count = self.operations.topLevelItemCount()
+                count = int(raw_count) if isinstance(raw_count, int) else 0
+                for idx, b in enumerate(self.session.ordered_bends, 1):
+                    if idx - 1 >= count:
+                        break
+                    item = self.operations.topLevelItem(idx - 1)
+                    if item is None:
+                        continue
+                    cols = self._format_operation_row(idx, b)
+                    for col_i, text in enumerate(cols):
+                        if hasattr(item, "setText"):
+                            item.setText(col_i, text)
+                if 0 <= self.session.active_bend_index < count:
+                    target_item = self.operations.topLevelItem(self.session.active_bend_index)
+                    if target_item is not None and self.operations.currentItem() is not target_item:
+                        self.operations.setCurrentItem(target_item)
                 self.operations.blockSignals(False)
 
             def _configure_for_active_bend(self):
@@ -558,6 +689,8 @@ class _PreviewPanel:
                 self.slider.setRange(0, max_steps)
                 self.slider.setValue(slider_pos)
                 self.slider.blockSignals(False)
+                self._update_operations_visual_state()
+                self._sync_playback_buttons()
 
             def _on_operation_selected(self, current, _previous):
                 if self.session is None or current is None:
@@ -565,9 +698,7 @@ class _PreviewPanel:
                 idx = self.operations.indexOfTopLevelItem(current)
                 if idx < 0 or idx == self.session.active_bend_index:
                     return
-                self.timer.stop()
-                self.playing = False
-                self.play_btn.setText("▶")
+                self._stop_timer()
                 # Switch active bend while preserving the angles already achieved on previous bends
                 self.session.select_bend_index(idx)
                 self._configure_for_active_bend()
@@ -593,9 +724,11 @@ class _PreviewPanel:
                 self.set_angle(signed_angle)
 
             def set_angle(self, signed_angle_deg: float):
-                """Set the active bend to a signed angle via FoldState."""
+                """Set the active bend to a signed angle manually (stops auto-playback if active)."""
                 if self.session is None:
                     return
+                if self.timer.isActive() or self.playing:
+                    self._stop_timer()
                 try:
                     self.session.set_active_angle(float(signed_angle_deg))
                 except Exception as exc:
@@ -607,6 +740,8 @@ class _PreviewPanel:
                     self.slider.blockSignals(True)
                     self.slider.setValue(slider_pos)
                     self.slider.blockSignals(False)
+                self._update_operations_visual_state()
+                self._sync_playback_buttons()
                 self.draw()
 
             def step_angle(self, delta_mag_deg: float):
@@ -620,49 +755,126 @@ class _PreviewPanel:
             def to_target_angle(self):
                 if self.session is None:
                     return
-                self.timer.stop()
-                self.playing = False
-                self.play_btn.setText("▶")
+                self._stop_timer()
                 self.set_angle(self.session.target_angle_deg)
 
             def reset(self):
-                self.timer.stop()
-                self.playing = False
-                self.play_btn.setText("▶")
+                self._stop_timer()
                 if self.session is not None:
                     self.session.reset_all_bends()
                     self._configure_for_active_bend()
                     self.draw()
 
-            def toggle_play(self):
+            def play_all(self):
+                """Start or restart full bend-sequence playback across all bends."""
                 if self.session is None:
                     return
-                if self.playing:
-                    self.timer.stop()
-                    self.playing = False
-                    self.play_btn.setText("▶")
-                    _log("Playback paused at {:+.1f} deg".format(self.angle))
-                else:
-                    if abs(self.angle) >= abs(self.session.target_angle_deg) - 1e-6:
-                        self.set_angle(0.0)
-                    self.playing = True
-                    self.play_btn.setText("Ⅱ")
+                try:
+                    self.session.play_all()
+                except SequenceError as exc:
+                    self._stop_timer()
+                    self.status.setText(str(exc))
+                    return
+                self._configure_for_active_bend()
+                self.playing = True
+                self._last_tick_monotonic = time.monotonic()
+                self._sync_playback_buttons()
+                if not self.timer.isActive():
                     self.timer.start()
-                    _log("Playback started at {:+.1f} deg".format(self.angle))
+                self.draw()
+                _log("Play All started at bend {}".format(self.session.active_bend_id))
+
+            def pause(self):
+                if self.session is None:
+                    return
+                self.session.pause()
+                self._stop_timer()
+                self.draw()
+                _log("Playback paused at {:+.1f} deg".format(self.angle))
+
+            def resume(self):
+                if self.session is None:
+                    return
+                try:
+                    self.session.resume()
+                except SequenceError as exc:
+                    self._stop_timer()
+                    self.status.setText(str(exc))
+                    return
+                self._configure_for_active_bend()
+                self.playing = True
+                self._last_tick_monotonic = time.monotonic()
+                self._sync_playback_buttons()
+                if not self.timer.isActive():
+                    self.timer.start()
+                self.draw()
+                _log("Playback resumed at bend {}".format(self.session.active_bend_id))
+
+            def toggle_pause_resume(self):
+                if self.session is None:
+                    return
+                if self.session.playback_status == PlaybackStatus.PLAYING:
+                    self.pause()
+                elif self.session.playback_status == PlaybackStatus.PAUSED:
+                    self.resume()
+
+            def toggle_play(self):
+                """Toggle Play All / Pause for backward compatibility."""
+                if self.session is None:
+                    return
+                if self.session.playback_status == PlaybackStatus.PLAYING:
+                    self.pause()
+                else:
+                    self.play_all()
+
+            def next_step(self):
+                if self.session is None:
+                    return
+                self._stop_timer()
+                try:
+                    self.session.next_step()
+                except SequenceError as exc:
+                    self.status.setText(str(exc))
+                    return
+                self._configure_for_active_bend()
+                self.draw()
+                QtCore.QTimer.singleShot(0, self.fit)
+
+            def previous_step(self):
+                if self.session is None:
+                    return
+                self._stop_timer()
+                try:
+                    self.session.previous_step()
+                except SequenceError as exc:
+                    self.status.setText(str(exc))
+                    return
+                self._configure_for_active_bend()
+                self.draw()
+                QtCore.QTimer.singleShot(0, self.fit)
 
             def advance(self):
-                if self.session is None:
-                    self.timer.stop()
-                    self.playing = False
+                if self.session is None or self.session.playback_status != PlaybackStatus.PLAYING:
+                    self._stop_timer()
                     return
-                target_mag = abs(self.session.target_angle_deg)
-                step = max(0.5, target_mag / 60.0)
-                self.step_angle(step)
-                if abs(self.angle) >= target_mag - 1e-6:
-                    self.timer.stop()
-                    self.playing = False
-                    self.play_btn.setText("▶")
-                    _log("Playback completed at {:+.1f} deg".format(self.angle))
+                now = time.monotonic()
+                if self._last_tick_monotonic is None:
+                    dt = 0.035
+                else:
+                    dt = max(0.005, now - self._last_tick_monotonic)
+                self._last_tick_monotonic = now
+
+                prev_bend_idx = self.session.active_bend_index
+                self.session.advance_time(dt)
+                self._configure_for_active_bend()
+                self.draw()
+                if self.session.active_bend_index != prev_bend_idx:
+                    QtCore.QTimer.singleShot(0, self.fit)
+
+                if self.session.playback_status == PlaybackStatus.COMPLETED:
+                    self._stop_timer()
+                    self.draw()
+                    _log("Sequence playback completed")
 
             def fit(self):
                 rect = self.scene.sceneRect()
@@ -813,17 +1025,9 @@ class _PreviewPanel:
                         (max_y - min_y) + 2 * pad,
                     )
 
-                    idx = self.session.active_bend_index + 1
-                    total = len(self.session.ordered_bends)
                     self.step.setText(
-                        "Гиб {}/{} ({}: {} → {}) | Текущий угол: {:+.1f}° | Целевой: {:+.1f}° | R_вн={:.2f} мм, t={:.2f} мм".format(
-                            idx,
-                            total,
-                            sec["bend_id"],
-                            sec["fixed_panel"],
-                            sec["moving_panel"],
-                            sec["angle_deg"],
-                            sec["target_angle_deg"],
+                        "{} | R_вн={:.2f} мм, t={:.2f} мм".format(
+                            self.session.status_line(),
                             sec["inner_radius_mm"],
                             sec["thickness_mm"],
                         )

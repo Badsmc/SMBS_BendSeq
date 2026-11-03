@@ -12,7 +12,8 @@ local venv (Python 3.14, no pythonocc). Level C (interactive GUI) NOT performed 
 - After Phase 3B implementation (`21c5eca`): `71 passed, 7 skipped, 6 collection errors, 10 subtests passed`
 - After Phase 3B Hotfix 1 (`914f9e0`): `72 passed, 7 skipped, 6 collection errors, 10 subtests passed`
 - After Phase 3B Hotfix 2 (`5f1cb47`): `72 passed, 7 skipped, 6 collection errors, 10 subtests passed`
-- After Phase 3B sequential bending restoration: **`73 passed, 7 skipped, 6 collection errors, 10 subtests passed`**
+- After Phase 3B sequential bending restoration (`15ff5a6`): `73 passed, 7 skipped, 6 collection errors, 10 subtests passed`
+- After Phase 4A (`BendSequenceController` + Automatic Bend Sequence Playback): **`74 passed, 7 skipped, 6 collection errors, 10 subtests passed`**
 - State of the 6 collection errors (recorded explicitly per Step 6):
   - 4 × `ModuleNotFoundError: No module named 'OCC'` in local non-conda Python venv (`tests/test_ambiguous_tree_returns_unknown.py`, `tests/test_end_to_end_pipeline.py`, `tests/test_feature_extractor_signed_angle.py`, `tests/test_honest_collision_and_verifier.py`).
   - 1 × `ImportError: dlopen(.../FreeCAD.so)` when importing compiled FreeCAD binary into system Python 3.14 (`tests/test_fold_multi_bend.py`).
@@ -26,7 +27,8 @@ local venv (Python 3.14, no pythonocc). Level C (interactive GUI) NOT performed 
 | 1 | Geometry contract (angle, r, t, K, inner_r, BA, axis) | IMPLEMENTED | TESTED (unit) | VERIFIED on 16/16 fixtures (headless) | – | – |
 | 2 | Panels + explicit `BendZone` + tangent boundaries | IMPLEMENTED | TESTED (unit) | VERIFIED on 16/16 fixtures (0.000000 mm error) | – | – |
 | 3 | Finite-radius 2.5D kinematics + intermediate section + atomic `FoldState` | IMPLEMENTED | TESTED (unit + headless FreeCAD) | VERIFIED on 16/16 fixtures (3D centroid/vertex/bbox = 0.000000 mm) | – | – |
-| 3A / 3B / 4 | Real Geometry Viewer (`pressbrake_2d.py`) + 3D Cross-Section Exactness: load selected SheetMetal part, resolve `Body.Tip` reference face on stale unfolds (`135-(ok)`), render full coplanar multi-bend section (`Z-(ok)`, `135-(ok)`, `U-*`), finite-radius `BendZone`, both surfaces & neutral axis | IMPLEMENTED | TESTED (unit + headless FreeCAD 3D-slice comparison across 11 uniaxial models = 0.000000 mm contour/bbox error) | VERIFIED headless (`0.000000 mm` vs OpenCASCADE 3D slices); awaiting user GUI re-check on `135-(ok)` and `Z-(ok)` | User manual GUI check | Confirm remaining manual GUI checks |
+| 3A / 3B | Real Geometry Viewer + 3D Cross-Section Exactness + NotificationArea deadlock fix + flat initial state | IMPLEMENTED | TESTED (unit + headless FreeCAD 3D-slice comparison = 0.000000 mm) | VERIFIED in FreeCAD GUI by user (`15ff5a6`) | – | – |
+| 4A | Automatic Bend Sequence Playback (`BendSequenceController`: `IDLE`, `PLAYING`, `PAUSED`, `COMPLETED`, `Play All`, `Pause/Resume`, `Next Step`, `Previous Step`, `Reset`, manual override compatibility) | IMPLEMENTED | TESTED (unit tests A–F in `test_bend_zone.py`) | Awaiting user interactive GUI confirmation in FreeCAD | User manual GUI check | Confirm Play All / Pause / Next / Prev / Reset on L, Z, 135 |
 | 5 | Tooling/collision 2.5D | NOT IMPLEMENTED in 2.5D path (legacy OCC exists) | – | – | – | Phase 5 |
 | 6 | Sequence | NOT IMPLEMENTED in 2.5D path (legacy `Solvers/` exist) | – | – | – | Phase 6 |
 | 7 | Release | NOT STARTED | – | – | – | Phase 7 |

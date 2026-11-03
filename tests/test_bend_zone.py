@@ -17,6 +17,11 @@ from smbs_core.kinematics2d.bend_zone import (
     bend_parameters,
     make_bend_zone,
 )
+from smbs_core.kinematics2d.fold_sequence import (
+    BendSequenceController,
+    PlaybackStatus,
+    SequenceError,
+)
 from smbs_core.kinematics2d.panel_graph import GraphEdge, PanelGraph
 from smbs_core.kinematics2d.panel_kinematics import FoldState, KinematicsError
 
@@ -702,6 +707,213 @@ class BendZoneMathTests(unittest.TestCase):
             panel.reset()
             self.assertEqual(panel.session.fold_state.angles, {"B01": 0.0, "B02": 0.0})
             self.assertEqual(panel.angle, 0.0)
+
+    def test_phase4a_sequence_controller_l_z_135_pause_resume_manual_and_gui(self):
+        # --- Test A: L +90 deg ---
+        p_up90 = bend_parameters(90.0, 1.0, 1.5, 0.4)
+        half_ba = p_up90.bend_allowance_mm / 2.0
+        y_axis = 47.5 + half_ba
+        z_l = make_bend_zone("B01", ((0.0, y_axis), (200.0, y_axis)), p_up90)
+        g_l = PanelGraph(
+            ("P01", "P02"),
+            (GraphEdge("B01", "P02", "P01", 90.0, ((0.0, y_axis, 0.0), (200.0, y_axis, 0.0)), z_l),),
+        )
+        ctrl_l = BendSequenceController(FoldState(g_l, "P02"), speed_deg_per_sec=90.0)
+        self.assertEqual(ctrl_l.status, PlaybackStatus.IDLE)
+        self.assertEqual(ctrl_l.current_angle_deg, 0.0)
+
+        ctrl_l.play_all()
+        self.assertEqual(ctrl_l.status, PlaybackStatus.PLAYING)
+        # Advance 5 ticks of 0.1 s (= 45 deg)
+        for _ in range(5):
+            ctrl_l.advance_time(0.1)
+        self.assertAlmostEqual(ctrl_l.current_angle_deg, 45.0, places=9)
+        self.assertEqual(ctrl_l.status, PlaybackStatus.PLAYING)
+        # Advance remaining 5 ticks of 0.1 s (= 90 deg -> COMPLETED)
+        for _ in range(5):
+            ctrl_l.advance_time(0.1)
+        self.assertAlmostEqual(ctrl_l.current_angle_deg, 90.0, places=9)
+        self.assertEqual(ctrl_l.status, PlaybackStatus.COMPLETED)
+        # Reset -> 0 deg, IDLE
+        ctrl_l.reset()
+        self.assertEqual(ctrl_l.status, PlaybackStatus.IDLE)
+        self.assertEqual(ctrl_l.current_angle_deg, 0.0)
+
+        # --- Test B: Z +90 / -90 deg ---
+        p_dn90 = bend_parameters(-90.0, 2.5, 1.5, 0.4)
+        z_b01 = make_bend_zone("B01", ((200.0, 61.26991118430775), (0.0, 61.26991118430775)), p_up90)
+        z_b02 = make_bend_zone("B02", ((0.0, 13.756637061435917), (200.0, 13.756637061435917)), p_dn90)
+        g_z = PanelGraph(
+            ("P01", "P02", "P03"),
+            (
+                GraphEdge("B01", "P02", "P03", 90.0, ((200.0, 61.26991118430775, 0.0), (0.0, 61.26991118430775, 0.0)), z_b01),
+                GraphEdge("B02", "P02", "P01", -90.0, ((0.0, 13.756637061435917, 0.0), (200.0, 13.756637061435917, 0.0)), z_b02),
+            ),
+        )
+        ctrl_z = BendSequenceController(FoldState(g_z, "P02"), speed_deg_per_sec=90.0)
+        self.assertEqual(ctrl_z.fold_state.angles, {"B01": 0.0, "B02": 0.0})
+        self.assertEqual(ctrl_z.status, PlaybackStatus.IDLE)
+
+        ctrl_z.play_all()
+        # 10 ticks of 0.1 s completes B01 (+90 deg) and automatically transitions to B02 (0 deg)
+        for _ in range(10):
+            ctrl_z.advance_time(0.1)
+        self.assertEqual(ctrl_z.fold_state.angles, {"B01": 90.0, "B02": 0.0})
+        self.assertEqual(ctrl_z.active_bend_id, "B02")
+        self.assertEqual(ctrl_z.status, PlaybackStatus.PLAYING)
+
+        # Next 5 ticks of 0.1 s -> B02 at -45 deg while B01 stays at +90 deg
+        for _ in range(5):
+            ctrl_z.advance_time(0.1)
+        self.assertAlmostEqual(ctrl_z.fold_state.angles["B01"], 90.0, places=9)
+        self.assertAlmostEqual(ctrl_z.fold_state.angles["B02"], -45.0, places=9)
+        self.assertEqual(ctrl_z.status_line(), "Step 2/2 | B02 | -45.0° / -90.0° | PLAYING")
+
+        # Next 5 ticks of 0.1 s -> B02 completes at -90 deg, status COMPLETED
+        for _ in range(5):
+            ctrl_z.advance_time(0.1)
+        self.assertEqual(ctrl_z.fold_state.angles, {"B01": 90.0, "B02": -90.0})
+        self.assertEqual(ctrl_z.status, PlaybackStatus.COMPLETED)
+
+        # Previous Step from COMPLETED returns (+90, 0)
+        ctrl_z.previous_step()
+        self.assertEqual(ctrl_z.fold_state.angles, {"B01": 90.0, "B02": 0.0})
+        self.assertEqual(ctrl_z.active_bend_id, "B02")
+        self.assertEqual(ctrl_z.status, PlaybackStatus.PAUSED)
+
+        # Next Step returns (+90, -90) COMPLETED
+        ctrl_z.next_step()
+        self.assertEqual(ctrl_z.fold_state.angles, {"B01": 90.0, "B02": -90.0})
+        self.assertEqual(ctrl_z.status, PlaybackStatus.COMPLETED)
+
+        # Two Previous Steps return to flat (0, 0) IDLE
+        ctrl_z.previous_step()
+        ctrl_z.previous_step()
+        self.assertEqual(ctrl_z.fold_state.angles, {"B01": 0.0, "B02": 0.0})
+        self.assertEqual(ctrl_z.status, PlaybackStatus.IDLE)
+
+        # Reset returns (0, 0) IDLE
+        ctrl_z.next_step()
+        self.assertEqual(ctrl_z.fold_state.angles, {"B01": 90.0, "B02": 0.0})
+        ctrl_z.reset()
+        self.assertEqual(ctrl_z.fold_state.angles, {"B01": 0.0, "B02": 0.0})
+        self.assertEqual(ctrl_z.status, PlaybackStatus.IDLE)
+
+        # --- Test C: 135 (+45 / -45 deg) ---
+        p_up45 = bend_parameters(135.0, 1.0, 1.5, 0.4)
+        p_dn45 = bend_parameters(-135.0, 2.5, 1.5, 0.4)
+        z_135_1 = make_bend_zone("B01", ((200.0, 60.849421686221135), (0.0, 60.849421686221135)), p_up45)
+        z_135_2 = make_bend_zone("B02", ((0.0, 14.59278462478522), (200.0, 14.59278462478522)), p_dn45)
+        g_135 = PanelGraph(
+            ("P01", "P02", "P03"),
+            (
+                GraphEdge("B01", "P02", "P03", 45.0, ((200.0, 60.849421686221135, 0.0), (0.0, 60.849421686221135, 0.0)), z_135_1),
+                GraphEdge("B02", "P02", "P01", -45.0, ((0.0, 14.59278462478522, 0.0), (200.0, 14.59278462478522, 0.0)), z_135_2),
+            ),
+        )
+        ctrl_135 = BendSequenceController(FoldState(g_135, "P02"), speed_deg_per_sec=90.0)
+        ctrl_135.play_all()
+        for _ in range(5):
+            ctrl_135.advance_time(0.1)
+        self.assertEqual(ctrl_135.fold_state.angles, {"B01": 45.0, "B02": 0.0})
+        self.assertEqual(ctrl_135.active_bend_id, "B02")
+        for _ in range(3):
+            ctrl_135.advance_time(0.1)
+        self.assertAlmostEqual(ctrl_135.fold_state.angles["B01"], 45.0, places=9)
+        self.assertAlmostEqual(ctrl_135.fold_state.angles["B02"], -27.0, places=9)
+        for _ in range(3):
+            ctrl_135.advance_time(0.1)
+        self.assertEqual(ctrl_135.fold_state.angles, {"B01": 45.0, "B02": -45.0})
+        self.assertEqual(ctrl_135.status, PlaybackStatus.COMPLETED)
+
+        # --- Test D: Pause / Resume ---
+        ctrl_z.reset()
+        ctrl_z.play_all()
+        for _ in range(4):
+            ctrl_z.advance_time(0.1)
+        self.assertAlmostEqual(ctrl_z.fold_state.angles["B01"], 36.0, places=9)
+        ctrl_z.pause()
+        self.assertEqual(ctrl_z.status, PlaybackStatus.PAUSED)
+        # Several time steps while PAUSED must NOT change angles
+        for _ in range(10):
+            changed = ctrl_z.advance_time(0.1)
+            self.assertFalse(changed)
+        self.assertAlmostEqual(ctrl_z.fold_state.angles["B01"], 36.0, places=9)
+        # Resume continues from 36.0 deg
+        ctrl_z.resume()
+        self.assertEqual(ctrl_z.status, PlaybackStatus.PLAYING)
+        ctrl_z.advance_time(0.1)
+        self.assertAlmostEqual(ctrl_z.fold_state.angles["B01"], 45.0, places=9)
+
+        # --- Test E: Manual control & out-of-order protection ---
+        ctrl_z.reset()
+        ctrl_z.select_operation(0)
+        ctrl_z.set_manual_angle(30.0)
+        ctrl_z.select_operation(1)
+        ctrl_z.set_manual_angle(-20.0)
+        # Switch back to B01 without losing B02's angle
+        ctrl_z.select_operation(0)
+        self.assertEqual(ctrl_z.fold_state.angles, {"B01": 30.0, "B02": -20.0})
+        # Attempting Play All on a non-prefix manual state (B01 incomplete at 30 deg while B02=-20 deg)
+        # must fail deterministically with SequenceError asking for Reset
+        with self.assertRaises(SequenceError):
+            ctrl_z.play_all()
+        self.assertEqual(ctrl_z.fold_state.angles, {"B01": 30.0, "B02": -20.0})
+        ctrl_z.reset()
+        self.assertEqual(ctrl_z.fold_state.angles, {"B01": 0.0, "B02": 0.0})
+
+        # --- Test F: GUI integration checks (single QTimer, Play All -> COMPLETED -> Play All restarts) ---
+        from unittest.mock import MagicMock, patch
+        import freecad_smbs.commands.pressbrake_2d as pb2d
+
+        mock_qt_core = MagicMock()
+        mock_qt_gui = MagicMock()
+        mock_qt_widgets = MagicMock()
+
+        class _DummyWidget:
+            ScrollHandDrag = 1
+            def __init__(self, *args, **kwargs):
+                pass
+            def setMinimumWidth(self, *args):
+                pass
+            def setMinimumHeight(self, *args):
+                pass
+            def setRenderHint(self, *args):
+                pass
+            def setDragMode(self, *args):
+                pass
+            def setHorizontalScrollBarPolicy(self, *args):
+                pass
+            def setVerticalScrollBarPolicy(self, *args):
+                pass
+            def setScene(self, *args):
+                pass
+
+        mock_qt_widgets.QWidget = _DummyWidget
+        mock_qt_widgets.QGraphicsView = _DummyWidget
+
+        with patch.object(pb2d, "_qt", return_value=(mock_qt_core, mock_qt_gui, mock_qt_widgets)):
+            panel = pb2d._PreviewPanel()
+            # Exactly one QTimer created on Panel initialization
+            self.assertEqual(mock_qt_core.QTimer.call_count, 1)
+            panel.draw = MagicMock()
+            panel.fit = MagicMock()
+            panel.session = LoadedPartSession("Z-(ok)", None, None, g_z, {}, "P02", FoldState(g_z, "P02"), 0)
+            panel._configure_for_active_bend()
+
+            # Start Play All
+            panel.timer.isActive.return_value = False
+            panel.play_all()
+            self.assertTrue(panel.playing)
+            self.assertEqual(panel.session.playback_status, PlaybackStatus.PLAYING)
+
+            # Manual slider intervention during PLAYING stops automatic playback first
+            panel.timer.isActive.return_value = True
+            panel.set_angle(60.0)
+            self.assertFalse(panel.playing)
+            self.assertEqual(panel.session.playback_status, PlaybackStatus.PAUSED)
+            self.assertEqual(panel.session.fold_state.angles, {"B01": 60.0, "B02": 0.0})
+            panel.timer.stop.assert_called()
 
 
 if __name__ == "__main__":
