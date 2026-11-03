@@ -39,8 +39,8 @@ flowchart LR
 | `freecad_smbs/integration/panel_builder.py` | Split flat outline by narrow separator strips for topology, then bound rigid panels by `BendZone` tangent lines; reject overlapping/consuming bend zones | FreeCAD Part (2D planar cut, once per build) |
 | `smbs_core/kinematics2d/panel_graph.py` | Panel/bend tree, rooting at fixed panel, propagation of `BendZone` and moving side (`moving_left`), ambiguity rejection | Pure Python |
 | `smbs_core/kinematics2d/panel_kinematics.py` | Drift-free, atomic absolute-angle rigid panel & finite-radius `BendZone` kinematics; 2D cross-section projection (`cross_section_2d`) | Pure Python |
-| `smbs_core/kinematics2d/fold_sequence.py`, `engine.py` | Sequence replay helpers | Pure Python |
-| `freecad_smbs/commands/pressbrake_2d.py` | Phase 3A real SheetMetal geometry viewer in `QGraphicsScene` (load selected part, finite-radius bend zone, both sheet surfaces, neutral layer, slider/Play/Pause/Reset/Fit, step switching) | FreeCAD GUI |
+| `smbs_core/kinematics2d/fold_sequence.py`, `engine.py` | Headless `BendSequenceController` (`IDLE`, `PLAYING`, `PAUSED`, `COMPLETED`, monotonic dt playback, `Play All`, `Pause/Resume`, `Next Step`, `Previous Step`, `Reset`, manual compatibility) & sequence replay helpers | Pure Python |
+| `freecad_smbs/commands/pressbrake_2d.py` | Phase 3A/3B/4A real SheetMetal geometry viewer in `QGraphicsScene` (load selected part, finite-radius bend zone, both sheet surfaces, neutral layer, `Play All`, `Pause/Resume`, `Next Step`, `Previous Step`, `Reset`, `Fit`, manual slider, operation status markers) | FreeCAD GUI |
 | `freecad_smbs/integration/direction_validator.py` | Conservative reference 3D sign validation | FreeCAD (validation only) |
 | `freecad_smbs/integration/physical_face_inventory.py` | Read-only face pairing diagnostic. **Must stay optional.** | FreeCAD |
 | `smbs_core/Geometry/feature_extractor.py`, `Core/bend_transform.py`, `Physics/*`, `Solvers/*`, `workers/*` | Legacy 3D/OCC pipeline (HandMod lineage). Reuse concepts, not the OCC dependency. | pythonocc |
