@@ -1107,6 +1107,379 @@ class BendZoneMathTests(unittest.TestCase):
             sess_z.set_bend_order(("B01", "B02"))
         self.assertEqual(sess_z.bend_order, ("B02", "B01"))
 
+    def test_phase5a_custom_punch_and_die_tooling_system(self):
+        """Phase 5A Tests A–G: DXF/STEP/FreeCAD custom tooling import, datums, positioning, library persistence, and invalid geometry rejection."""
+        import tempfile
+        from pathlib import Path
+        from smbs_core.kinematics2d.tooling_25d import (
+            ArcSegment2D,
+            Circle2D,
+            LineSegment2D,
+            NOT_SPECIFIED,
+            ToolingError,
+            ToolingSetup2D,
+            ToolKind,
+            ToolLibrary25D,
+            ValidationStatus,
+            compare_profiles_within_tolerance,
+            import_tool_from_dxf,
+            machine_to_view_point,
+            view_to_machine_point,
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_path = Path(tmpdir)
+
+            # ------------------------------------------------------------------
+            # Test A — DXF Punch with real circular tip arc and lightening hole
+            # ------------------------------------------------------------------
+            # Build a symmetric punch profile:
+            # - Tip arc centered at (100.0, 51.0), R = 1.0 mm, from 210 deg to 330 deg
+            #   -> start = (100 - cos(30), 51 - sin(30)) = (99.1339746, 50.5)
+            #   -> end   = (100 + cos(30), 51 - sin(30)) = (100.8660254, 50.5)
+            #   -> lowest point = (100.0, 50.0)
+            # - Left flank from (90.0, 70.0) to (99.1339746, 50.5)
+            # - Right flank from (100.8660254, 50.5) to (110.0, 70.0)
+            # - Left vertical body from (90.0, 150.0) to (90.0, 70.0)
+            # - Right vertical body from (110.0, 70.0) to (110.0, 150.0)
+            # - Top mounting base from (110.0, 150.0) to (90.0, 150.0)
+            # - Inner mounting hole CIRCLE at (100.0, 135.0), R = 3.0 mm
+            x_l = 100.0 - math.cos(math.radians(30.0)) * 1.0
+            x_r = 100.0 + math.cos(math.radians(30.0)) * 1.0
+            y_arc = 51.0 - math.sin(math.radians(30.0)) * 1.0
+
+            punch_dxf = tmp_path / "custom_punch_r1.dxf"
+            punch_dxf.write_text(
+                "\n".join([
+                    "0", "SECTION", "2", "HEADER",
+                    "9", "$INSUNITS", "70", "4",
+                    "0", "ENDSEC",
+                    "0", "SECTION", "2", "ENTITIES",
+                    "0", "ARC",
+                    "10", "100.0", "20", "51.0", "40", "1.0", "50", "210.0", "51", "330.0",
+                    "0", "LINE",
+                    "10", f"{x_r:.8f}", "20", f"{y_arc:.8f}", "11", "110.0", "21", "70.0",
+                    "0", "LINE",
+                    "10", "110.0", "20", "70.0", "11", "110.0", "21", "150.0",
+                    "0", "LINE",
+                    "10", "110.0", "20", "150.0", "11", "90.0", "21", "150.0",
+                    "0", "LINE",
+                    "10", "90.0", "20", "150.0", "11", "90.0", "21", "70.0",
+                    "0", "LINE",
+                    "10", "90.0", "20", "70.0", "11", f"{x_l:.8f}", "21", f"{y_arc:.8f}",
+                    "0", "CIRCLE",
+                    "10", "100.0", "20", "135.0", "40", "3.0",
+                    "0", "ENDSEC", "0", "EOF",
+                ]) + "\n",
+                encoding="utf-8",
+            )
+
+            punch = import_tool_from_dxf(punch_dxf, kind=ToolKind.PUNCH, name="P-01")
+            self.assertEqual(punch.kind, ToolKind.PUNCH)
+            self.assertEqual(punch.name, "P-01")
+            self.assertEqual(punch.units, "mm")
+            self.assertEqual(punch.validation_status, ValidationStatus.GEOMETRY_VERIFIED)
+            self.assertAlmostEqual(punch.tip_radius_mm, 1.0, places=5)
+            self.assertAlmostEqual(punch.height_mm, 100.0, places=5)
+            self.assertEqual(punch.maximum_load, NOT_SPECIFIED)
+            self.assertEqual(punch.length_mm, NOT_SPECIFIED)
+            self.assertEqual(punch.v_opening_mm, NOT_SPECIFIED)
+            self.assertEqual(punch.profile_geometry.line_count, 5)
+            self.assertEqual(punch.profile_geometry.arc_count, 2)  # 1 tip ARC + 1 hole CIRCLE
+            self.assertEqual(len(punch.profile_geometry.holes), 1)
+            self.assertIsNotNone(punch.punch_datums)
+            self.assertAlmostEqual(punch.punch_datums.working_tip[0], 100.0, places=5)
+            self.assertAlmostEqual(punch.punch_datums.working_tip[1], 50.0, places=5)
+            self.assertEqual(punch.bbox, (-10.0, 0.0, 10.0, 100.0))
+
+            # Also verify real project DXF punches if present on disk
+            real_dxf = Path("/Users/badmc/Desktop/bend_Seq/1015 88 R 0_8 IH.dxf")
+            if real_dxf.is_file():
+                real_p = import_tool_from_dxf(real_dxf, kind=ToolKind.PUNCH)
+                self.assertEqual(real_p.validation_status, ValidationStatus.GEOMETRY_VERIFIED)
+                self.assertAlmostEqual(real_p.tip_radius_mm, 0.8, places=4)
+                self.assertEqual(real_p.profile_geometry.arc_count, 4)
+
+            # ------------------------------------------------------------------
+            # Test B — DXF Die with known V-opening, shoulder radii, and depth
+            # ------------------------------------------------------------------
+            # Build a V12 90-deg die with R_shoulder = 1.5 mm, top y = 60.0, bottom y = 0.0:
+            # Left top flat: x in [0, 24.0], y = 60.0
+            # Left shoulder arc: center (24.0, 58.5), R = 1.5, from 45 deg to 90 deg
+            #   -> at 90 deg: (24.0, 60.0)
+            #   -> at 45 deg: (24.0 + 1.5*cos(45), 58.5 + 1.5*sin(45)) = (25.06066017, 59.56066017)
+            #   Tangent line at 45 deg has slope -1 (x + y = 84.62132034 -> at y = 60, x_extrap = 24.62132034)
+            # Right symmetric shoulder arc: center (36.0, 58.5), R = 1.5, from 90 deg to 135 deg
+            #   -> at 135 deg: (36.0 - 1.5*cos(45), 58.5 + 1.5*sin(45)) = (34.93933983, 59.56066017)
+            #   -> at 90 deg: (36.0, 60.0)
+            # V-bottom apex at x = 30.0: y_apex = 59.56066017 - (30.0 - 25.06066017) = 54.62132034
+            c45 = 1.5 * math.cos(math.radians(45.0))
+            s45 = 1.5 * math.sin(math.radians(45.0))
+            lx_tan = 24.0 + c45
+            rx_tan = 36.0 - c45
+            y_tan = 58.5 + s45
+            y_apex = y_tan - (30.0 - lx_tan)
+
+            die_dxf = tmp_path / "custom_die_v12.dxf"
+            die_dxf.write_text(
+                "\n".join([
+                    "0", "SECTION", "2", "HEADER",
+                    "9", "$INSUNITS", "70", "4",
+                    "0", "ENDSEC",
+                    "0", "SECTION", "2", "ENTITIES",
+                    "0", "LINE", "10", "0.0", "20", "0.0", "11", "60.0", "21", "0.0",
+                    "0", "LINE", "10", "60.0", "20", "0.0", "11", "60.0", "21", "60.0",
+                    "0", "LINE", "10", "60.0", "20", "60.0", "11", "36.0", "21", "60.0",
+                    "0", "ARC", "10", "36.0", "20", "58.5", "40", "1.5", "50", "90.0", "51", "135.0",
+                    "0", "LINE", "10", f"{rx_tan:.8f}", "20", f"{y_tan:.8f}", "11", "30.0", "21", f"{y_apex:.8f}",
+                    "0", "LINE", "10", "30.0", "20", f"{y_apex:.8f}", "11", f"{lx_tan:.8f}", "21", f"{y_tan:.8f}",
+                    "0", "ARC", "10", "24.0", "20", "58.5", "40", "1.5", "50", "45.0", "51", "90.0",
+                    "0", "LINE", "10", "24.0", "20", "60.0", "11", "0.0", "21", "60.0",
+                    "0", "LINE", "10", "0.0", "20", "60.0", "11", "0.0", "21", "0.0",
+                    "0", "ENDSEC", "0", "EOF",
+                ]) + "\n",
+                encoding="utf-8",
+            )
+
+            die = import_tool_from_dxf(die_dxf, kind=ToolKind.DIE, name="V12")
+            self.assertEqual(die.kind, ToolKind.DIE)
+            self.assertEqual(die.validation_status, ValidationStatus.GEOMETRY_VERIFIED)
+            self.assertAlmostEqual(die.shoulder_radius_mm, 1.5, places=5)
+            self.assertAlmostEqual(die.die_angle_deg, 90.0, places=4)
+            self.assertAlmostEqual(die.height_mm, 60.0, places=5)
+            expected_v_opening = (36.0 - c45 + (60.0 - y_tan)) - (24.0 + c45 - (60.0 - y_tan))
+            self.assertAlmostEqual(die.v_opening_mm, expected_v_opening, places=5)
+            self.assertAlmostEqual(die.die_datums.v_depth_mm, 60.0 - y_apex, places=5)
+            self.assertAlmostEqual(die.die_datums.v_groove_center[0], 30.0, places=5)
+            self.assertAlmostEqual(die.die_datums.v_groove_center[1], 60.0, places=5)
+
+            # ------------------------------------------------------------------
+            # Test E — Positioning PUNCH and DIE in shared Machine & View coords
+            # ------------------------------------------------------------------
+            setup = ToolingSetup2D()
+            setup.select_punch(punch)
+            setup.select_die(die)
+            self.assertEqual(
+                setup.status_line(),
+                "Punch: P-01 | Die: V12 | Geometry: VERIFIED | Collision: NOT CHECKED",
+            )
+
+            # Align to a real L/Z bend cross-section at s = 25.0 mm, z in [-1.0, +1.0]
+            mock_sec = {
+                "neutral_curve": [(24.0, 0.0), (25.0, 0.0), (26.0, 0.0)],
+                "zone_polygon": [(24.0, -1.0), (26.0, -1.0), (26.0, 1.0), (24.0, 1.0)],
+            }
+            setup.align_to_cross_section(mock_sec)
+            self.assertTrue(setup.aligned)
+            p_tip_m = setup.punch_tip_machine()
+            d_vc_m = setup.die_v_center_machine()
+            self.assertEqual(p_tip_m, (25.0, 1.0))
+            self.assertEqual(d_vc_m, (25.0, -1.0))
+            # Working axes are coaxial along s = 25.0 mm, with Punch above Die
+            self.assertAlmostEqual(p_tip_m[0], d_vc_m[0], places=9)
+            self.assertGreater(p_tip_m[1], d_vc_m[1])
+
+            # Verify explicit Machine <-> View coordinate round-trip
+            v_pt = machine_to_view_point(p_tip_m)
+            self.assertEqual(v_pt, (25.0, -1.0))
+            self.assertEqual(view_to_machine_point(v_pt), p_tip_m)
+
+            # Reset tooling position
+            setup.reset_position()
+            self.assertFalse(setup.aligned)
+            self.assertEqual(setup.punch_tip_machine(), (0.0, 15.0))
+            self.assertEqual(setup.die_v_center_machine(), (0.0, -5.0))
+
+            # ------------------------------------------------------------------
+            # Test F — Library Persistence (save, reload, exact geometry match, delete)
+            # ------------------------------------------------------------------
+            lib1 = ToolLibrary25D(library_root=tmp_path / "lib")
+            p_saved_path = lib1.save_tool(punch)
+            d_saved_path = lib1.save_tool(die)
+            self.assertTrue(p_saved_path.is_file())
+            self.assertTrue(d_saved_path.is_file())
+
+            # Re-instantiate a fresh ToolLibrary25D (simulating FreeCAD restart)
+            lib2 = ToolLibrary25D(library_root=tmp_path / "lib")
+            p_reloaded = lib2.load_tool(punch.tool_id, ToolKind.PUNCH, use_cache=False)
+            d_reloaded = lib2.load_tool(die.tool_id, ToolKind.DIE, use_cache=False)
+
+            ok_p, msg_p = compare_profiles_within_tolerance(punch, p_reloaded, tol_mm=1e-6)
+            self.assertTrue(ok_p, msg_p)
+            ok_d, msg_d = compare_profiles_within_tolerance(die, d_reloaded, tol_mm=1e-6)
+            self.assertTrue(ok_d, msg_d)
+            self.assertAlmostEqual(p_reloaded.tip_radius_mm, 1.0, places=6)
+            self.assertAlmostEqual(d_reloaded.shoulder_radius_mm, 1.5, places=6)
+
+            # Deleting without confirmation must fail closed
+            with self.assertRaises(ToolingError):
+                lib2.delete_tool(punch.tool_id, ToolKind.PUNCH, confirmed=False)
+            lib2.delete_tool(punch.tool_id, ToolKind.PUNCH, confirmed=True)
+            self.assertEqual(len(lib2.list_tools(ToolKind.PUNCH)), 0)
+            self.assertEqual(len(lib2.list_tools(ToolKind.DIE)), 1)
+
+            # ------------------------------------------------------------------
+            # Test G — Invalid Geometry (open contour, self-intersection, missing datums,
+            #          bad scale, corrupt file) without corrupting existing library
+            # ------------------------------------------------------------------
+            # G1. Open contour
+            open_dxf = tmp_path / "open_contour.dxf"
+            open_dxf.write_text(
+                "\n".join([
+                    "0", "SECTION", "2", "ENTITIES",
+                    "0", "LINE", "10", "0.0", "20", "0.0", "11", "20.0", "21", "0.0",
+                    "0", "LINE", "10", "20.0", "20", "0.0", "11", "20.0", "21", "50.0",
+                    "0", "LINE", "10", "20.0", "20", "50.0", "11", "0.0", "21", "50.0",
+                    "0", "ENDSEC", "0", "EOF",
+                ]) + "\n",
+                encoding="utf-8",
+            )
+            with self.assertRaises(ToolingError):
+                import_tool_from_dxf(open_dxf, kind=ToolKind.PUNCH)
+
+            # G2. Self-intersecting bow-tie contour
+            bowtie_dxf = tmp_path / "bowtie.dxf"
+            bowtie_dxf.write_text(
+                "\n".join([
+                    "0", "SECTION", "2", "ENTITIES",
+                    "0", "LINE", "10", "0.0", "20", "0.0", "11", "20.0", "21", "40.0",
+                    "0", "LINE", "10", "20.0", "20", "40.0", "11", "0.0", "21", "40.0",
+                    "0", "LINE", "10", "0.0", "20", "40.0", "11", "20.0", "21", "0.0",
+                    "0", "LINE", "10", "20.0", "20", "0.0", "11", "0.0", "21", "0.0",
+                    "0", "ENDSEC", "0", "EOF",
+                ]) + "\n",
+                encoding="utf-8",
+            )
+            with self.assertRaises(ToolingError):
+                import_tool_from_dxf(bowtie_dxf, kind=ToolKind.PUNCH)
+
+            # G3. Ambiguous / missing datums (plain rectangle without punch tip or die V-groove)
+            rect_dxf = tmp_path / "plain_rect.dxf"
+            rect_dxf.write_text(
+                "\n".join([
+                    "0", "SECTION", "2", "ENTITIES",
+                    "0", "LINE", "10", "0.0", "20", "0.0", "11", "20.0", "21", "0.0",
+                    "0", "LINE", "10", "20.0", "20", "0.0", "11", "20.0", "21", "50.0",
+                    "0", "LINE", "10", "20.0", "20", "50.0", "11", "0.0", "21", "50.0",
+                    "0", "LINE", "10", "0.0", "20", "50.0", "11", "0.0", "21", "0.0",
+                    "0", "ENDSEC", "0", "EOF",
+                ]) + "\n",
+                encoding="utf-8",
+            )
+            ambig_punch = import_tool_from_dxf(rect_dxf, kind=ToolKind.PUNCH)
+            self.assertEqual(ambig_punch.validation_status, ValidationStatus.NEEDS_ALIGNMENT)
+            # Aligning a tool with NEEDS_ALIGNMENT must fail closed until manual datums are assigned
+            setup_ambig = ToolingSetup2D(punch=ambig_punch)
+            with self.assertRaises(ToolingError):
+                setup_ambig.align_to_cross_section(mock_sec)
+            # Once user assigns datums explicitly, status becomes GEOMETRY_VERIFIED
+            ambig_punch.assign_punch_datums(
+                working_tip=(10.0, 0.0),
+                mounting_base=((0.0, 50.0), (20.0, 50.0)),
+            )
+            self.assertEqual(ambig_punch.validation_status, ValidationStatus.GEOMETRY_VERIFIED)
+
+            # G4. Wrong scale (10000 mm x 10000 mm profile when imported as meters)
+            bad_scale_punch = import_tool_from_dxf(punch_dxf, kind=ToolKind.PUNCH, units_override="m")
+            self.assertEqual(bad_scale_punch.validation_status, ValidationStatus.INVALID)
+            with self.assertRaises(ToolingError):
+                lib2.save_tool(bad_scale_punch)
+
+            # G5. Corrupt file
+            corrupt_dxf = tmp_path / "corrupt.dxf"
+            corrupt_dxf.write_text("NOT_A_VALID_DXF_FILE\n123\n", encoding="utf-8")
+            with self.assertRaises(ToolingError):
+                import_tool_from_dxf(corrupt_dxf, kind=ToolKind.PUNCH)
+
+            # Library still has the valid die intact
+            self.assertEqual(len(lib2.list_tools(ToolKind.DIE)), 1)
+
+            # ------------------------------------------------------------------
+            # Test C & D — STEP 3D tool & FreeCAD Document Object import (when FreeCAD is available)
+            # ------------------------------------------------------------------
+            try:
+                import FreeCAD as App
+                import Part
+                has_freecad = True
+            except ImportError:
+                has_freecad = False
+
+            if has_freecad:
+                from smbs_core.kinematics2d.tooling_25d import (
+                    import_tool_from_freecad_object,
+                    import_tool_from_step,
+                )
+
+                # Test D: Open puancon.FCStd, import from Body, verify source object & document are unmodified
+                fc_path = Path("/Users/badmc/Desktop/SMBS_BendSeq/toollibrary/punch/puancon.FCStd")
+                doc = App.openDocument(str(fc_path), True)
+                try:
+                    body = doc.getObject("Body")
+                    orig_obj_names = tuple(o.Name for o in doc.Objects)
+                    orig_placement = (
+                        tuple(body.Placement.Base),
+                        tuple(body.Placement.Rotation.Q),
+                    )
+                    orig_bbox = (
+                        body.Shape.BoundBox.XMin,
+                        body.Shape.BoundBox.YMin,
+                        body.Shape.BoundBox.ZMin,
+                        body.Shape.BoundBox.XMax,
+                        body.Shape.BoundBox.YMax,
+                        body.Shape.BoundBox.ZMax,
+                    )
+
+                    fc_punch = import_tool_from_freecad_object(
+                        body, kind=ToolKind.PUNCH, name="FC_Punch", length_axis="Z"
+                    )
+                    self.assertEqual(fc_punch.validation_status, ValidationStatus.GEOMETRY_VERIFIED)
+                    self.assertAlmostEqual(fc_punch.tip_radius_mm, 0.8, places=4)
+                    self.assertAlmostEqual(fc_punch.length_mm, 100.0, places=4)
+                    self.assertAlmostEqual(fc_punch.height_mm, 134.0, places=4)
+
+                    # Confirm source document and object were not modified
+                    self.assertEqual(tuple(o.Name for o in doc.Objects), orig_obj_names)
+                    self.assertEqual(
+                        (tuple(body.Placement.Base), tuple(body.Placement.Rotation.Q)),
+                        orig_placement,
+                    )
+                    after_bbox = (
+                        body.Shape.BoundBox.XMin,
+                        body.Shape.BoundBox.YMin,
+                        body.Shape.BoundBox.ZMin,
+                        body.Shape.BoundBox.XMax,
+                        body.Shape.BoundBox.YMax,
+                        body.Shape.BoundBox.ZMax,
+                    )
+                    self.assertEqual(after_bbox, orig_bbox)
+
+                    # Test C: Export 3D tool Shape to STEP, import via import_tool_from_step, verify exact match
+                    step_file = tmp_path / "puancon_test.step"
+                    body.Shape.exportStep(str(step_file))
+                    step_punch = import_tool_from_step(
+                        step_file, kind=ToolKind.PUNCH, name="STEP_Punch", length_axis="Z"
+                    )
+                    self.assertEqual(step_punch.validation_status, ValidationStatus.GEOMETRY_VERIFIED)
+                    ok_step, msg_step = compare_profiles_within_tolerance(fc_punch, step_punch, tol_mm=1e-3)
+                    self.assertTrue(ok_step, msg_step)
+
+                    # Multi-solid ambiguity check: compound with 2 solids without solid_index must raise ToolingError
+                    s1 = body.Shape.Solids[0].copy()
+                    s2 = body.Shape.Solids[0].copy()
+                    s2.translate(App.Vector(200.0, 0.0, 0.0))
+                    comp = Part.makeCompound([s1, s2])
+                    multi_step = tmp_path / "multi_solid.step"
+                    comp.exportStep(str(multi_step))
+                    with self.assertRaises(ToolingError):
+                        import_tool_from_step(multi_step, kind=ToolKind.PUNCH)
+                    # With explicit solid_index=0, import succeeds
+                    step_sel = import_tool_from_step(
+                        multi_step, kind=ToolKind.PUNCH, solid_index=0, length_axis="Z"
+                    )
+                    self.assertEqual(step_sel.validation_status, ValidationStatus.GEOMETRY_VERIFIED)
+                finally:
+                    App.closeDocument(doc.Name)
+
 
 if __name__ == "__main__":
     unittest.main()

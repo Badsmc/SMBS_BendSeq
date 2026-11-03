@@ -22,6 +22,18 @@ from smbs_core.kinematics2d.fold_sequence import (
 )
 from smbs_core.kinematics2d.panel_graph import PanelGraph, graph_from_panel_build
 from smbs_core.kinematics2d.panel_kinematics import FoldState, KinematicsError
+from smbs_core.kinematics2d.tooling_25d import (
+    NOT_SPECIFIED,
+    ToolingError,
+    ToolingSetup2D,
+    ToolKind,
+    ToolLibrary25D,
+    ToolProfile,
+    ValidationStatus,
+    import_tool_from_dxf,
+    import_tool_from_freecad_object,
+    import_tool_from_step,
+)
 
 _DOCK = None
 _SLIDER_SCALE = 10  # 0.1 degree slider resolution
@@ -475,9 +487,11 @@ class _PreviewPanel:
                     self.fitInView(self.scene().sceneRect(), QtCore.Qt.KeepAspectRatio)
 
         class Panel(QtWidgets.QWidget):
-            def __init__(self):
+            def __init__(self, library_root: Path | str | None = None):
                 super().__init__()
                 self.session: LoadedPartSession | None = None
+                self.tool_library = ToolLibrary25D(library_root=library_root)
+                self.tooling_setup = ToolingSetup2D()
                 self.angle = 0.0
                 self.playing = False
                 self._last_tick_monotonic: float | None = None
@@ -501,13 +515,61 @@ class _PreviewPanel:
 
                 row = QtWidgets.QHBoxLayout()
                 self.load = _button(QtWidgets, "Деталь", self.load_part, True)
-                self.tooling = _button(QtWidgets, "Оснастка", self.unavailable, False)
+                self.tooling = _button(QtWidgets, "Оснастка", self.open_tool_library_dialog, True)
                 self.calculate = _button(QtWidgets, "Расчёт", self.unavailable, False)
-                self.tooling.setToolTip("Выбор оснастки отключён на этапе Phase 3A")
+                self.tooling.setToolTip("Открыть библиотеку пользовательской оснастки (PUNCH / DIE)")
                 self.calculate.setToolTip("Автоматический поиск последовательности отключён на этапе Phase 3A")
                 for widget in (self.load, self.tooling, self.calculate):
                     row.addWidget(widget)
                 root.addLayout(row)
+
+                # Phase 5A: Tooling section (Import / Select / Align / Reset / Hide-Show / Library)
+                self.tooling_group = QtWidgets.QGroupBox("Tooling (PUNCH & DIE)")
+                t_layout = QtWidgets.QVBoxLayout(self.tooling_group)
+                t_layout.setContentsMargins(6, 6, 6, 6)
+                t_layout.setSpacing(4)
+
+                t_row1 = QtWidgets.QHBoxLayout()
+                self.import_punch_btn = _button(QtWidgets, "Import Punch", self.import_punch_dialog, True)
+                self.import_die_btn = _button(QtWidgets, "Import Die", self.import_die_dialog, True)
+                self.tool_library_btn = _button(QtWidgets, "Tool Library", self.open_tool_library_dialog, True)
+                for w in (self.import_punch_btn, self.import_die_btn, self.tool_library_btn):
+                    t_row1.addWidget(w)
+                t_layout.addLayout(t_row1)
+
+                t_row2 = QtWidgets.QHBoxLayout()
+                t_row2.addWidget(QtWidgets.QLabel("Punch:"))
+                self.select_punch_combo = QtWidgets.QComboBox()
+                self.select_punch_combo.currentIndexChanged.connect(self._on_punch_combo_changed)
+                t_row2.addWidget(self.select_punch_combo, 1)
+                self.select_punch_btn = _button(QtWidgets, "Select Punch", self.select_punch_from_combo, True)
+                t_row2.addWidget(self.select_punch_btn)
+                t_layout.addLayout(t_row2)
+
+                t_row3 = QtWidgets.QHBoxLayout()
+                t_row3.addWidget(QtWidgets.QLabel("Die:"))
+                self.select_die_combo = QtWidgets.QComboBox()
+                self.select_die_combo.currentIndexChanged.connect(self._on_die_combo_changed)
+                t_row3.addWidget(self.select_die_combo, 1)
+                self.select_die_btn = _button(QtWidgets, "Select Die", self.select_die_from_combo, True)
+                t_row3.addWidget(self.select_die_btn)
+                t_layout.addLayout(t_row3)
+
+                t_row4 = QtWidgets.QHBoxLayout()
+                self.align_tooling_btn = _button(QtWidgets, "Align Tooling", self.align_tooling, True)
+                self.reset_tooling_btn = _button(QtWidgets, "Reset Tooling Position", self.reset_tooling_position, True)
+                self.toggle_tooling_btn = _button(QtWidgets, "Hide/Show Tooling", self.toggle_tooling_visibility, True)
+                for w in (self.align_tooling_btn, self.reset_tooling_btn, self.toggle_tooling_btn):
+                    t_row4.addWidget(w)
+                t_layout.addLayout(t_row4)
+
+                self.tooling_status = QtWidgets.QLabel(self.tooling_setup.status_line())
+                self.tooling_status.setWordWrap(True)
+                self.tooling_status.setStyleSheet("font-size: 11px; color: #2c3e50;")
+                t_layout.addWidget(self.tooling_status)
+                root.addWidget(self.tooling_group)
+
+                self._refresh_tooling_combos()
 
                 self.view = Canvas()
                 self.scene = QtWidgets.QGraphicsScene(self.view)
@@ -521,7 +583,7 @@ class _PreviewPanel:
                 self.pause_btn = _button(QtWidgets, "Ⅱ Pause", self.toggle_pause_resume, False)
                 self.next_btn = _button(QtWidgets, ">", lambda: self.step_angle(5.0), False)
                 self.end_btn = _button(QtWidgets, ">|", self.to_target_angle, False)
-                self.fit_btn = _button(QtWidgets, "Fit", self.fit, False)
+                self.fit_btn = _button(QtWidgets, "Fit", self.fit, True)
                 for widget in (
                     self.reset_btn,
                     self.back_btn,
@@ -584,7 +646,300 @@ class _PreviewPanel:
                 self.draw()
 
             def unavailable(self):
-                pass  # Disabled controls for Phase 5/6 features.
+                pass  # Disabled controls for Phase 5B/6 features.
+
+            def _refresh_tooling_combos(self):
+                try:
+                    punches = self.tool_library.list_tools(ToolKind.PUNCH)
+                    dies = self.tool_library.list_tools(ToolKind.DIE)
+                except Exception as exc:
+                    _warn(f"Failed to scan tool library: {exc}")
+                    punches, dies = (), ()
+
+                cur_p = self.tooling_setup.punch.tool_id if self.tooling_setup.punch else None
+                cur_d = self.tooling_setup.die.tool_id if self.tooling_setup.die else None
+
+                self.select_punch_combo.blockSignals(True)
+                self.select_punch_combo.clear()
+                self.select_punch_combo.addItem("— Не выбран —", None)
+                for idx, p in enumerate(punches, 1):
+                    self.select_punch_combo.addItem(f"{p.name} ({p.validation_status.value})", p.tool_id)
+                    if cur_p == p.tool_id:
+                        self.select_punch_combo.setCurrentIndex(idx)
+                self.select_punch_combo.blockSignals(False)
+
+                self.select_die_combo.blockSignals(True)
+                self.select_die_combo.clear()
+                self.select_die_combo.addItem("— Не выбрана —", None)
+                for idx, d in enumerate(dies, 1):
+                    self.select_die_combo.addItem(f"{d.name} ({d.validation_status.value})", d.tool_id)
+                    if cur_d == d.tool_id:
+                        self.select_die_combo.setCurrentIndex(idx)
+                self.select_die_combo.blockSignals(False)
+
+            def _update_tooling_status_label(self):
+                self.tooling_status.setText(self.tooling_setup.status_line())
+
+            def select_punch(self, punch: ToolProfile | None):
+                try:
+                    self.tooling_setup.select_punch(punch)
+                    if self.session is not None and (
+                        punch is None or punch.validation_status == ValidationStatus.GEOMETRY_VERIFIED
+                    ):
+                        try:
+                            self.tooling_setup.align_to_cross_section(self.session.cross_section(segments=16))
+                        except ToolingError:
+                            pass
+                except ToolingError as exc:
+                    self.status.setText(str(exc))
+                    return
+                self._refresh_tooling_combos()
+                self._update_tooling_status_label()
+                self.draw()
+                QtCore.QTimer.singleShot(0, self.fit)
+
+            def select_die(self, die: ToolProfile | None):
+                try:
+                    self.tooling_setup.select_die(die)
+                    if self.session is not None and (
+                        die is None or die.validation_status == ValidationStatus.GEOMETRY_VERIFIED
+                    ):
+                        try:
+                            self.tooling_setup.align_to_cross_section(self.session.cross_section(segments=16))
+                        except ToolingError:
+                            pass
+                except ToolingError as exc:
+                    self.status.setText(str(exc))
+                    return
+                self._refresh_tooling_combos()
+                self._update_tooling_status_label()
+                self.draw()
+                QtCore.QTimer.singleShot(0, self.fit)
+
+            def _on_punch_combo_changed(self, _index: int):
+                self.select_punch_from_combo()
+
+            def _on_die_combo_changed(self, _index: int):
+                self.select_die_from_combo()
+
+            def select_punch_from_combo(self):
+                tid = self.select_punch_combo.currentData()
+                if not tid:
+                    self.select_punch(None)
+                    return
+                try:
+                    prof = self.tool_library.load_tool(str(tid), ToolKind.PUNCH)
+                    self.select_punch(prof)
+                except ToolingError as exc:
+                    self.status.setText(str(exc))
+
+            def select_die_from_combo(self):
+                tid = self.select_die_combo.currentData()
+                if not tid:
+                    self.select_die(None)
+                    return
+                try:
+                    prof = self.tool_library.load_tool(str(tid), ToolKind.DIE)
+                    self.select_die(prof)
+                except ToolingError as exc:
+                    self.status.setText(str(exc))
+
+            def align_tooling(self):
+                try:
+                    sec = self.session.cross_section(segments=16) if self.session is not None else None
+                    self.tooling_setup.align_to_cross_section(sec)
+                except ToolingError as exc:
+                    self.status.setText(str(exc))
+                    return
+                self._update_tooling_status_label()
+                self.draw()
+                QtCore.QTimer.singleShot(0, self.fit)
+
+            def reset_tooling_position(self):
+                self.tooling_setup.reset_position()
+                self._update_tooling_status_label()
+                self.draw()
+                QtCore.QTimer.singleShot(0, self.fit)
+
+            def toggle_tooling_visibility(self):
+                self.tooling_setup.visible = not self.tooling_setup.visible
+                self._update_tooling_status_label()
+                self.draw()
+                QtCore.QTimer.singleShot(0, self.fit)
+
+            def import_tool_file(
+                self,
+                file_path: str | Path,
+                kind: ToolKind,
+                name: str | None = None,
+                save_to_library: bool = True,
+                select_after_import: bool = True,
+            ) -> ToolProfile:
+                path = Path(file_path)
+                ext = path.suffix.lower()
+                if ext == ".dxf":
+                    prof = import_tool_from_dxf(path, kind=kind, name=name)
+                elif ext in (".step", ".stp"):
+                    prof = import_tool_from_step(path, kind=kind, name=name)
+                elif ext == ".fcstd":
+                    prof = self.tool_library._load_legacy_fcstd_tool(path, kind=kind)
+                    if name:
+                        prof.name = name
+                else:
+                    raise ToolingError(f"Unsupported tool file extension: {ext}")
+
+                if save_to_library:
+                    self.tool_library.save_tool(prof, overwrite=True)
+                self._refresh_tooling_combos()
+                if select_after_import:
+                    if kind == ToolKind.PUNCH:
+                        self.select_punch(prof)
+                    else:
+                        self.select_die(prof)
+                return prof
+
+            def import_punch_dialog(self):
+                self._run_import_dialog(ToolKind.PUNCH)
+
+            def import_die_dialog(self):
+                self._run_import_dialog(ToolKind.DIE)
+
+            def _run_import_dialog(self, kind: ToolKind):
+                label = "пуансона (PUNCH)" if kind == ToolKind.PUNCH else "матрицы (DIE)"
+                file_path, _ = QtWidgets.QFileDialog.getOpenFileName(
+                    self,
+                    f"Импорт профиля {label}",
+                    str(self.tool_library.library_root),
+                    "Tool Files (*.dxf *.DXF *.step *.STEP *.stp *.STP *.FCStd);;All Files (*)",
+                )
+                if not file_path:
+                    return
+                default_name = Path(file_path).stem
+                name, ok = QtWidgets.QInputDialog.getText(
+                    self,
+                    f"Имя {label}",
+                    "Введите имя инструмента для библиотеки:",
+                    text=default_name,
+                )
+                if not ok:
+                    return
+                try:
+                    prof = self.import_tool_file(
+                        file_path,
+                        kind=kind,
+                        name=name.strip() or default_name,
+                        save_to_library=True,
+                        select_after_import=True,
+                    )
+                    self.status.setText(
+                        f"Инструмент «{prof.name}» ({prof.kind.value}) импортирован и сохранён ({prof.validation_status.value})."
+                    )
+                except Exception as exc:
+                    msg = f"Ошибка импорта инструмента: {exc}"
+                    _warn(msg)
+                    self.status.setText(msg)
+
+            def open_tool_library_dialog(self):
+                dlg = QtWidgets.QDialog(self)
+                dlg.setWindowTitle("Библиотека пользовательской оснастки 2.5D (PUNCH & DIE)")
+                dlg.resize(560, 420)
+                vbox = QtWidgets.QVBoxLayout(dlg)
+
+                list_w = QtWidgets.QTreeWidget()
+                list_w.setHeaderLabels([
+                    "ID", "Name", "Kind", "Format", "Status", "Key Params"
+                ])
+                list_w.setRootIsDecorated(False)
+                vbox.addWidget(list_w, 1)
+
+                details = QtWidgets.QLabel("Выберите инструмент в списке для просмотра параметров.")
+                details.setWordWrap(True)
+                vbox.addWidget(details)
+
+                def populate():
+                    list_w.clear()
+                    for t in self.tool_library.list_tools():
+                        if t.kind == ToolKind.PUNCH:
+                            params = f"R_tip={t.tip_radius_mm}, H={t.height_mm}"
+                        else:
+                            params = f"V={t.v_opening_mm}, α={t.die_angle_deg}°, R_sh={t.shoulder_radius_mm}"
+                        item = QtWidgets.QTreeWidgetItem([
+                            t.tool_id,
+                            t.name,
+                            t.kind.value,
+                            t.source_format,
+                            t.validation_status.value,
+                            params,
+                        ])
+                        item.setData(0, QtCore.Qt.UserRole, (t.tool_id, t.kind.value))
+                        list_w.addTopLevelItem(item)
+
+                def on_sel_changed(cur, _prev):
+                    if cur is None:
+                        details.setText("Инструмент не выбран.")
+                        return
+                    tid, k_str = cur.data(0, QtCore.Qt.UserRole)
+                    try:
+                        prof = self.tool_library.load_tool(tid, k_str)
+                        details.setText(
+                            f"ID: {prof.tool_id} | Имя: {prof.name} | Тип: {prof.kind.value} | "
+                            f"Статус: {prof.validation_status.value} | Ед.: {prof.units} | "
+                            f"Длина: {prof.length_mm} | Нагрузка: {prof.maximum_load}"
+                        )
+                    except Exception as exc:
+                        details.setText(str(exc))
+
+                list_w.currentItemChanged.connect(on_sel_changed)
+                populate()
+
+                btn_row = QtWidgets.QHBoxLayout()
+                btn_imp_p = _button(QtWidgets, "Import Punch...", lambda: (self.import_punch_dialog(), populate()))
+                btn_imp_d = _button(QtWidgets, "Import Die...", lambda: (self.import_die_dialog(), populate()))
+                btn_use = QtWidgets.QPushButton("Установить в сцену")
+                btn_del = QtWidgets.QPushButton("Удалить...")
+                btn_close = QtWidgets.QPushButton("Закрыть")
+
+                def on_use():
+                    cur = list_w.currentItem()
+                    if cur is None:
+                        return
+                    tid, k_str = cur.data(0, QtCore.Qt.UserRole)
+                    prof = self.tool_library.load_tool(tid, k_str)
+                    if prof.kind == ToolKind.PUNCH:
+                        self.select_punch(prof)
+                    else:
+                        self.select_die(prof)
+
+                def on_delete():
+                    cur = list_w.currentItem()
+                    if cur is None:
+                        return
+                    tid, k_str = cur.data(0, QtCore.Qt.UserRole)
+                    ans = QtWidgets.QMessageBox.question(
+                        dlg,
+                        "Подтверждение удаления",
+                        f"Удалить инструмент «{tid}» ({k_str}) из пользовательской библиотеки?",
+                        QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
+                    )
+                    if ans == QtWidgets.QMessageBox.Yes:
+                        try:
+                            self.tool_library.delete_tool(tid, k_str, confirmed=True)
+                            if self.tooling_setup.punch and self.tooling_setup.punch.tool_id == tid:
+                                self.select_punch(None)
+                            if self.tooling_setup.die and self.tooling_setup.die.tool_id == tid:
+                                self.select_die(None)
+                            populate()
+                            self._refresh_tooling_combos()
+                        except Exception as exc:
+                            details.setText(f"Ошибка удаления: {exc}")
+
+                btn_use.clicked.connect(on_use)
+                btn_del.clicked.connect(on_delete)
+                btn_close.clicked.connect(dlg.accept)
+                for b in (btn_imp_p, btn_imp_d, btn_use, btn_del, btn_close):
+                    btn_row.addWidget(b)
+                vbox.addLayout(btn_row)
+                dlg.exec()
 
             def _stop_timer(self):
                 self.timer.stop()
@@ -630,12 +985,14 @@ class _PreviewPanel:
                     self.play_btn,
                     self.next_btn,
                     self.end_btn,
-                    self.fit_btn,
                     self.slider,
                     self.prev_step_btn,
                     self.next_step_btn,
                 ):
                     w.setEnabled(enabled)
+                self.fit_btn.setEnabled(
+                    enabled or self.tooling_setup.punch is not None or self.tooling_setup.die is not None
+                )
                 has_multi = enabled and self.session is not None and len(self.session.ordered_bends) > 1
                 self.prev_bend_btn.setEnabled(has_multi)
                 self.next_bend_btn.setEnabled(has_multi)
@@ -661,9 +1018,15 @@ class _PreviewPanel:
 
                 self._stop_timer()
                 self.session = new_session
+                if self.tooling_setup.punch is not None or self.tooling_setup.die is not None:
+                    try:
+                        self.tooling_setup.align_to_cross_section(self.session.cross_section(segments=16))
+                    except ToolingError:
+                        pass
                 self._populate_operations()
                 self._configure_for_active_bend()
                 self._set_playback_controls_enabled(True)
+                self._update_tooling_status_label()
                 self.status.setText(msg)
                 self.check_result.setText(msg)
                 self.draw()
@@ -968,9 +1331,7 @@ class _PreviewPanel:
                     "viewport_visible": self.view.viewport().width() > 0 and
                                         self.view.viewport().height() > 0,
                     "timer_consistency": self.timer.isActive() == self.playing,
-                    "unavailable_controls_disabled": not any(
-                        b.isEnabled() for b in (self.tooling, self.calculate)
-                    ),
+                    "unavailable_controls_disabled": not self.calculate.isEnabled(),
                 }
                 failures = [key for key, passed in checks.items() if not passed]
                 message = (
@@ -988,19 +1349,65 @@ class _PreviewPanel:
                 self.playing = False
                 super().closeEvent(event)
 
+            def _draw_tooling_items(self, to_qpt, make_poly, all_pts: list) -> None:
+                """Render cached PUNCH and DIE profiles in Machine -> View coordinates."""
+                if not self.tooling_setup.visible:
+                    return
+
+                # 1. Die (lower tool)
+                die_polys = self.tooling_setup.die_polygons_machine(arc_segments=20)
+                if die_polys is not None:
+                    die_outer, die_holes = die_polys
+                    all_pts.extend(die_outer)
+                    die_path = QtGui.QPainterPath()
+                    die_path.addPolygon(make_poly(die_outer))
+                    die_path.closeSubpath()
+                    for h in die_holes:
+                        hole_path = QtGui.QPainterPath()
+                        hole_path.addPolygon(make_poly(h))
+                        hole_path.closeSubpath()
+                        die_path = die_path.subtracted(hole_path)
+                    die_pen = QtGui.QPen(QtGui.QColor("#2c3e50"), 1.5)
+                    die_pen.setCosmetic(True)
+                    die_brush = QtGui.QBrush(QtGui.QColor(52, 73, 94, 165))
+                    self.scene.addPath(die_path, die_pen, die_brush)
+
+                    vc = self.tooling_setup.die_v_center_machine()
+                    if vc is not None:
+                        vp = to_qpt(vc)
+                        axis_pen = QtGui.QPen(QtGui.QColor("#16a085"), 1.1, QtCore.Qt.DashDotLine)
+                        axis_pen.setCosmetic(True)
+                        self.scene.addLine(vp.x(), vp.y() - 12.0, vp.x(), vp.y() + 25.0, axis_pen)
+
+                # 2. Punch (upper tool)
+                punch_polys = self.tooling_setup.punch_polygons_machine(arc_segments=20)
+                if punch_polys is not None:
+                    punch_outer, punch_holes = punch_polys
+                    all_pts.extend(punch_outer)
+                    punch_path = QtGui.QPainterPath()
+                    punch_path.addPolygon(make_poly(punch_outer))
+                    punch_path.closeSubpath()
+                    for h in punch_holes:
+                        hole_path = QtGui.QPainterPath()
+                        hole_path.addPolygon(make_poly(h))
+                        hole_path.closeSubpath()
+                        punch_path = punch_path.subtracted(hole_path)
+                    punch_pen = QtGui.QPen(QtGui.QColor("#922b21"), 1.5)
+                    punch_pen.setCosmetic(True)
+                    punch_brush = QtGui.QBrush(QtGui.QColor(231, 76, 60, 155))
+                    self.scene.addPath(punch_path, punch_pen, punch_brush)
+
+                    ptip = self.tooling_setup.punch_tip_machine()
+                    if ptip is not None:
+                        tp = to_qpt(ptip)
+                        p_axis_pen = QtGui.QPen(QtGui.QColor("#c0392b"), 1.1, QtCore.Qt.DashDotLine)
+                        p_axis_pen.setCosmetic(True)
+                        self.scene.addLine(tp.x(), tp.y() - 25.0, tp.x(), tp.y() + 12.0, p_axis_pen)
+
             def draw(self):
                 try:
+                    t_draw_start = time.perf_counter()
                     self.scene.clear()
-                    if self.session is None:
-                        self.scene.setSceneRect(-120, -60, 240, 120)
-                        text = self.scene.addSimpleText("Деталь не загружена — нажмите «Деталь»")
-                        text.setBrush(QtGui.QBrush(QtGui.QColor("#6c7a89")))
-                        rect = text.boundingRect()
-                        text.setPos(-rect.width() / 2.0, -rect.height() / 2.0)
-                        self.step.setText("Активный гиб: — | Угол: — / —")
-                        return
-
-                    sec = self.session.cross_section(segments=32)
 
                     # Screen mapping: x_screen = s, y_screen = -z so +Z (UP bend) points visually upward
                     def to_qpt(sz):
@@ -1009,106 +1416,132 @@ class _PreviewPanel:
                     def make_poly(pts):
                         return QtGui.QPolygonF([to_qpt(p) for p in pts])
 
-                    all_pts = list(sec["inner_surface"]) + list(sec["outer_surface"])
-                    for _, opoly in sec.get("other_panel_polygons", ()):
-                        all_pts.extend(opoly)
-                    for _, ozpoly in sec.get("other_zone_polygons", ()):
-                        all_pts.extend(ozpoly)
+                    has_visible_tools = self.tooling_setup.visible and (
+                        self.tooling_setup.punch is not None or self.tooling_setup.die is not None
+                    )
 
-                    # 1. Other panels & bend zones in the same cross-section plane
-                    other_pen = QtGui.QPen(QtGui.QColor("#1b4f72"), 1.0)
-                    other_pen.setCosmetic(True)
-                    other_brush = QtGui.QBrush(QtGui.QColor("#85929e"))
-                    for _, opoly in sec.get("other_panel_polygons", ()):
-                        self.scene.addPolygon(make_poly(opoly), other_pen, other_brush)
+                    if self.session is None and not has_visible_tools:
+                        self.scene.setSceneRect(-120, -60, 240, 120)
+                        text = self.scene.addSimpleText("Деталь не загружена — нажмите «Деталь»")
+                        text.setBrush(QtGui.QBrush(QtGui.QColor("#6c7a89")))
+                        rect = text.boundingRect()
+                        text.setPos(-rect.width() / 2.0, -rect.height() / 2.0)
+                        self.step.setText("Активный гиб: — | Угол: — / —")
+                        return
 
-                    zone_pen = QtGui.QPen(QtGui.QColor("#b9770e"), 1.2)
-                    zone_pen.setCosmetic(True)
-                    zone_brush = QtGui.QBrush(QtGui.QColor("#f8c471"))
-                    for _, ozpoly in sec.get("other_zone_polygons", ()):
-                        self.scene.addPolygon(make_poly(ozpoly), zone_pen, zone_brush)
+                    all_pts: list = []
 
-                    # 2. Fixed rigid panel
-                    panel_pen = QtGui.QPen(QtGui.QColor("#1b4f72"), 1.2)
-                    panel_pen.setCosmetic(True)
-                    fixed_brush = QtGui.QBrush(QtGui.QColor("#85929e"))
-                    self.scene.addPolygon(make_poly(sec["fixed_polygon"]), panel_pen, fixed_brush)
+                    if self.session is not None:
+                        sec = self.session.cross_section(segments=32)
 
-                    # 3. Moving rigid panel (transformed by FoldState)
-                    moving_brush = QtGui.QBrush(QtGui.QColor("#5dade2"))
-                    self.scene.addPolygon(make_poly(sec["moving_polygon"]), panel_pen, moving_brush)
+                        all_pts.extend(sec["inner_surface"])
+                        all_pts.extend(sec["outer_surface"])
+                        for _, opoly in sec.get("other_panel_polygons", ()):
+                            all_pts.extend(opoly)
+                        for _, ozpoly in sec.get("other_zone_polygons", ()):
+                            all_pts.extend(ozpoly)
 
-                    # 4. Finite-radius bend zone polygon
-                    self.scene.addPolygon(make_poly(sec["zone_polygon"]), zone_pen, zone_brush)
+                        # 1. Other panels & bend zones in the same cross-section plane
+                        other_pen = QtGui.QPen(QtGui.QColor("#1b4f72"), 1.0)
+                        other_pen.setCosmetic(True)
+                        other_brush = QtGui.QBrush(QtGui.QColor("#85929e"))
+                        for _, opoly in sec.get("other_panel_polygons", ()):
+                            self.scene.addPolygon(make_poly(opoly), other_pen, other_brush)
 
-                    # 5. Both sheet surfaces (inner concave and outer convex)
-                    inner_pen = QtGui.QPen(QtGui.QColor("#0e6251"), 2.0)
-                    inner_pen.setCosmetic(True)
-                    for curve in (sec["inner_surface"],) + tuple(sec.get("other_inner_curves", ())):
-                        if not curve:
-                            continue
-                        inner_path = QtGui.QPainterPath()
-                        inner_pts = [to_qpt(p) for p in curve]
-                        inner_path.moveTo(inner_pts[0])
-                        for pt in inner_pts[1:]:
-                            inner_path.lineTo(pt)
-                        self.scene.addPath(inner_path, inner_pen)
+                        zone_pen = QtGui.QPen(QtGui.QColor("#b9770e"), 1.2)
+                        zone_pen.setCosmetic(True)
+                        zone_brush = QtGui.QBrush(QtGui.QColor("#f8c471"))
+                        for _, ozpoly in sec.get("other_zone_polygons", ()):
+                            self.scene.addPolygon(make_poly(ozpoly), zone_pen, zone_brush)
 
-                    outer_pen = QtGui.QPen(QtGui.QColor("#154360"), 2.0)
-                    outer_pen.setCosmetic(True)
-                    for curve in (sec["outer_surface"],) + tuple(sec.get("other_outer_curves", ())):
-                        if not curve:
-                            continue
-                        outer_path = QtGui.QPainterPath()
-                        outer_pts = [to_qpt(p) for p in curve]
-                        outer_path.moveTo(outer_pts[0])
-                        for pt in outer_pts[1:]:
-                            outer_path.lineTo(pt)
-                        self.scene.addPath(outer_path, outer_pen)
+                        # 2. Fixed rigid panel
+                        panel_pen = QtGui.QPen(QtGui.QColor("#1b4f72"), 1.2)
+                        panel_pen.setCosmetic(True)
+                        fixed_brush = QtGui.QBrush(QtGui.QColor("#85929e"))
+                        self.scene.addPolygon(make_poly(sec["fixed_polygon"]), panel_pen, fixed_brush)
 
-                    # 6. Neutral layer curve (dashed) inside bend zones
-                    neutral_pen = QtGui.QPen(QtGui.QColor("#c0392b"), 1.4, QtCore.Qt.DashLine)
-                    neutral_pen.setCosmetic(True)
-                    for curve in (sec["neutral_curve"],) + tuple(sec.get("other_neutral_curves", ())):
-                        if not curve:
-                            continue
-                        neutral_path = QtGui.QPainterPath()
-                        n_pts = [to_qpt(p) for p in curve]
-                        neutral_path.moveTo(n_pts[0])
-                        for pt in n_pts[1:]:
-                            neutral_path.lineTo(pt)
-                        self.scene.addPath(neutral_path, neutral_pen)
+                        # 3. Moving rigid panel (transformed by FoldState)
+                        moving_brush = QtGui.QBrush(QtGui.QColor("#5dade2"))
+                        self.scene.addPolygon(make_poly(sec["moving_polygon"]), panel_pen, moving_brush)
 
-                    # 7. Tangent boundary lines between rigid panels and bend zones
-                    tan_pen = QtGui.QPen(QtGui.QColor("#7d3c98"), 1.2, QtCore.Qt.DotLine)
-                    tan_pen.setCosmetic(True)
-                    all_tan_pairs = list(zip(sec["tangent_points_top"], sec["tangent_points_bottom"]))
-                    all_tan_pairs.extend(sec.get("other_tangent_lines", ()))
-                    for t_top, t_bot in all_tan_pairs:
-                        p1, p2 = to_qpt(t_top), to_qpt(t_bot)
-                        self.scene.addLine(p1.x(), p1.y(), p2.x(), p2.y(), tan_pen)
+                        # 4. Finite-radius bend zone polygon
+                        self.scene.addPolygon(make_poly(sec["zone_polygon"]), zone_pen, zone_brush)
+
+                        # 5. Both sheet surfaces (inner concave and outer convex)
+                        inner_pen = QtGui.QPen(QtGui.QColor("#0e6251"), 2.0)
+                        inner_pen.setCosmetic(True)
+                        for curve in (sec["inner_surface"],) + tuple(sec.get("other_inner_curves", ())):
+                            if not curve:
+                                continue
+                            inner_path = QtGui.QPainterPath()
+                            inner_pts = [to_qpt(p) for p in curve]
+                            inner_path.moveTo(inner_pts[0])
+                            for pt in inner_pts[1:]:
+                                inner_path.lineTo(pt)
+                            self.scene.addPath(inner_path, inner_pen)
+
+                        outer_pen = QtGui.QPen(QtGui.QColor("#154360"), 2.0)
+                        outer_pen.setCosmetic(True)
+                        for curve in (sec["outer_surface"],) + tuple(sec.get("other_outer_curves", ())):
+                            if not curve:
+                                continue
+                            outer_path = QtGui.QPainterPath()
+                            outer_pts = [to_qpt(p) for p in curve]
+                            outer_path.moveTo(outer_pts[0])
+                            for pt in outer_pts[1:]:
+                                outer_path.lineTo(pt)
+                            self.scene.addPath(outer_path, outer_pen)
+
+                        # 6. Neutral layer curve (dashed) inside bend zones
+                        neutral_pen = QtGui.QPen(QtGui.QColor("#c0392b"), 1.4, QtCore.Qt.DashLine)
+                        neutral_pen.setCosmetic(True)
+                        for curve in (sec["neutral_curve"],) + tuple(sec.get("other_neutral_curves", ())):
+                            if not curve:
+                                continue
+                            neutral_path = QtGui.QPainterPath()
+                            n_pts = [to_qpt(p) for p in curve]
+                            neutral_path.moveTo(n_pts[0])
+                            for pt in n_pts[1:]:
+                                neutral_path.lineTo(pt)
+                            self.scene.addPath(neutral_path, neutral_pen)
+
+                        # 7. Tangent boundary lines between rigid panels and bend zones
+                        tan_pen = QtGui.QPen(QtGui.QColor("#7d3c98"), 1.2, QtCore.Qt.DotLine)
+                        tan_pen.setCosmetic(True)
+                        all_tan_pairs = list(zip(sec["tangent_points_top"], sec["tangent_points_bottom"]))
+                        all_tan_pairs.extend(sec.get("other_tangent_lines", ()))
+                        for t_top, t_bot in all_tan_pairs:
+                            p1, p2 = to_qpt(t_top), to_qpt(t_bot)
+                            self.scene.addLine(p1.x(), p1.y(), p2.x(), p2.y(), tan_pen)
+
+                        self.step.setText(
+                            "{} | R_вн={:.2f} мм, t={:.2f} мм".format(
+                                self.session.status_line(),
+                                sec["inner_radius_mm"],
+                                sec["thickness_mm"],
+                            )
+                        )
+                    else:
+                        self.step.setText("Активный гиб: — | Угол: — / —")
+
+                    # 8. Custom Punch & Die tooling (rendered from cached local polygons)
+                    self._draw_tooling_items(to_qpt, make_poly, all_pts)
 
                     # Compute bounding rect with comfortable margin
-                    xs = [p[0] for p in all_pts]
-                    ys = [-p[1] for p in all_pts]
-                    min_x, max_x = min(xs), max(xs)
-                    min_y, max_y = min(ys), max(ys)
-                    span = max(max_x - min_x, max_y - min_y, 10.0)
-                    pad = 0.15 * span
-                    self.scene.setSceneRect(
-                        min_x - pad,
-                        min_y - pad,
-                        (max_x - min_x) + 2 * pad,
-                        (max_y - min_y) + 2 * pad,
-                    )
-
-                    self.step.setText(
-                        "{} | R_вн={:.2f} мм, t={:.2f} мм".format(
-                            self.session.status_line(),
-                            sec["inner_radius_mm"],
-                            sec["thickness_mm"],
+                    if all_pts:
+                        xs = [p[0] for p in all_pts]
+                        ys = [-p[1] for p in all_pts]
+                        min_x, max_x = min(xs), max(xs)
+                        min_y, max_y = min(ys), max(ys)
+                        span = max(max_x - min_x, max_y - min_y, 10.0)
+                        pad = 0.15 * span
+                        self.scene.setSceneRect(
+                            min_x - pad,
+                            min_y - pad,
+                            (max_x - min_x) + 2 * pad,
+                            (max_y - min_y) + 2 * pad,
                         )
-                    )
+                    self.last_draw_time_ms = (time.perf_counter() - t_draw_start) * 1000.0
                 except Exception:
                     _error(traceback.format_exc())
                     raise
