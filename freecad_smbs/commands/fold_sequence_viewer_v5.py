@@ -44,11 +44,13 @@ def show():
         apply_button.setEnabled(False)
         state["result"]=None
         try:
-            window.log.appendPlainText("Validating against source 3D shape: %s.%s" %\n                                       (source.Name,data.source_face))
+            window.log.appendPlainText("Validating against source 3D shape: %s.%s" %
+                                       (source.Name,data.source_face))
             QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
             try:
                 result=validate_directions(graph,window.fixed.currentText(),
-                                           panel_build,source.Shape,source.Name,\n                                           source_face=data.source_face)
+                                           panel_build,source.Shape,source.Name,
+                                           source_face=data.source_face)
             finally:
                 QtWidgets.QApplication.restoreOverrideCursor()
             state["result"]=result
