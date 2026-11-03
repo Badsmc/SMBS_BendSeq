@@ -311,7 +311,32 @@ class BendZoneMathTests(unittest.TestCase):
         }
         state_z = FoldState(g_z, "P02")
         sess_z = LoadedPartSession("Z-(ok)", None, None, g_z, verts_z, "P02", state_z, 0)
-        sess_z.fold_all_to_target()
+        # Initial state must have ALL bends at 0 deg (flat sheet)
+        self.assertEqual(sess_z.fold_state.angles, {"B01": 0.0, "B02": 0.0})
+        self.assertEqual(sess_z.active_bend_id, "B01")
+        self.assertAlmostEqual(sess_z.current_angle_deg, 0.0, places=9)
+
+        # Step 1: Bend B01 smoothly 0 -> +45 -> +90 while B02 remains at 0 deg
+        sess_z.set_active_angle(45.0)
+        self.assertEqual(sess_z.fold_state.angles, {"B01": 45.0, "B02": 0.0})
+        sess_z.set_active_angle(90.0)
+        self.assertEqual(sess_z.fold_state.angles, {"B01": 90.0, "B02": 0.0})
+
+        # Step 2: Switch to B02 -> B01 must keep +90 deg and B02 must start at 0 deg
+        sess_z.select_bend_index(1)
+        self.assertEqual(sess_z.active_bend_id, "B02")
+        self.assertAlmostEqual(sess_z.current_angle_deg, 0.0, places=9)
+        self.assertEqual(sess_z.fold_state.angles, {"B01": 90.0, "B02": 0.0})
+
+        # Bend B02 smoothly 0 -> -45 -> -90 while B01 stays at +90 deg
+        sess_z.set_active_angle(-45.0)
+        self.assertEqual(sess_z.fold_state.angles, {"B01": 90.0, "B02": -45.0})
+        sess_z.set_active_angle(-90.0)
+        self.assertEqual(sess_z.fold_state.angles, {"B01": 90.0, "B02": -90.0})
+
+        # Switch back to B01 to inspect cross-section in B01 frame -> both bends remain at target
+        sess_z.select_bend_index(0)
+        self.assertEqual(sess_z.fold_state.angles, {"B01": 90.0, "B02": -90.0})
         sec_z = sess_z.cross_section(segments=32)
 
         # Convert active B01 (s, z) back to SketchFrame (Y, Z): Y = 61.26991118430775 + s
@@ -340,6 +365,10 @@ class BendZoneMathTests(unittest.TestCase):
             min_dist = min(math.hypot(y - ref_y, z - ref_z) for y, z in all_z_yz)
             self.assertLess(min_dist, 1e-9, f"Z-(ok) reference vertex ({ref_y}, {ref_z}) missed by {min_dist}")
 
+        # Reset must return all bends to 0 deg (flat pattern)
+        sess_z.reset_all_bends()
+        self.assertEqual(sess_z.fold_state.angles, {"B01": 0.0, "B02": 0.0})
+
         # 2) 135-(ok).FCStd reference geometry: P02 middle web (45 mm), P03 (+45 UP, 13.964466 mm), P01 (-45 DOWN, 13.964466 mm)
         p_up45 = bend_parameters(135.0, 1.0, 1.5, 0.4)
         p_dn45 = bend_parameters(-135.0, 2.5, 1.5, 0.4)
@@ -359,7 +388,17 @@ class BendZoneMathTests(unittest.TestCase):
         }
         state_135 = FoldState(g_135, "P02")
         sess_135 = LoadedPartSession("135-(ok)", None, None, g_135, verts_135, "P02", state_135, 0)
-        sess_135.fold_all_to_target()
+        # Initial state: all bends at 0 deg
+        self.assertEqual(sess_135.fold_state.angles, {"B01": 0.0, "B02": 0.0})
+        # Bend B01: 0 -> +45 deg, B02 stays 0 deg
+        sess_135.set_active_angle(45.0)
+        self.assertEqual(sess_135.fold_state.angles, {"B01": 45.0, "B02": 0.0})
+        # Switch to B02: B01 stays +45 deg, B02 starts at 0 deg -> bend to -45 deg
+        sess_135.select_bend_index(1)
+        self.assertAlmostEqual(sess_135.current_angle_deg, 0.0, places=9)
+        self.assertEqual(sess_135.fold_state.angles, {"B01": 45.0, "B02": 0.0})
+        sess_135.set_active_angle(-45.0)
+        self.assertEqual(sess_135.fold_state.angles, {"B01": 45.0, "B02": -45.0})
         sec_135 = sess_135.cross_section(segments=32)
         all_135_pts = (
             list(sec_135["fixed_polygon"])
@@ -372,6 +411,10 @@ class BendZoneMathTests(unittest.TestCase):
         # Total Z span is 10.1672619 - (-11.6672619) = 21.8345238 mm
         self.assertAlmostEqual(max(s_135) - min(s_135), 68.2842712474619, places=9)
         self.assertAlmostEqual(max(z_135) - min(z_135), 21.83452377915607, places=9)
+
+        # Reset returns all bends of 135-(ok) to 0 deg
+        sess_135.reset_all_bends()
+        self.assertEqual(sess_135.fold_state.angles, {"B01": 0.0, "B02": 0.0})
 
     def test_missing_selection_fails_with_clear_error_and_initgui_no_duplicate_registration(self):
         class _Doc:
@@ -574,6 +617,91 @@ class BendZoneMathTests(unittest.TestCase):
             fake_freecad.Console.PrintMessage.assert_not_called()
             fake_freecad.Console.PrintWarning.assert_not_called()
             fake_freecad.Console.PrintError.assert_not_called()
+
+    def test_panel_sequential_bending_and_reset_for_l_z_and_135(self):
+        from unittest.mock import MagicMock, patch
+        import freecad_smbs.commands.pressbrake_2d as pb2d
+
+        mock_qt_core = MagicMock()
+        mock_qt_gui = MagicMock()
+        mock_qt_widgets = MagicMock()
+
+        class _DummyWidget:
+            ScrollHandDrag = 1
+            def __init__(self, *args, **kwargs):
+                pass
+            def setMinimumWidth(self, *args):
+                pass
+            def setMinimumHeight(self, *args):
+                pass
+            def setRenderHint(self, *args):
+                pass
+            def setDragMode(self, *args):
+                pass
+            def setHorizontalScrollBarPolicy(self, *args):
+                pass
+            def setVerticalScrollBarPolicy(self, *args):
+                pass
+            def setScene(self, *args):
+                pass
+
+        mock_qt_widgets.QWidget = _DummyWidget
+        mock_qt_widgets.QGraphicsView = _DummyWidget
+
+        p_up90 = bend_parameters(90.0, 1.0, 1.5, 0.4)
+        p_dn90 = bend_parameters(-90.0, 2.5, 1.5, 0.4)
+        z_b01 = make_bend_zone("B01", ((200.0, 61.26991118430775), (0.0, 61.26991118430775)), p_up90)
+        z_b02 = make_bend_zone("B02", ((0.0, 13.756637061435917), (200.0, 13.756637061435917)), p_dn90)
+        g_z = PanelGraph(
+            ("P01", "P02", "P03"),
+            (
+                GraphEdge("B01", "P02", "P03", 90.0, ((200.0, 61.26991118430775, 0.0), (0.0, 61.26991118430775, 0.0)), z_b01),
+                GraphEdge("B02", "P02", "P01", -90.0, ((0.0, 13.756637061435917, 0.0), (200.0, 13.756637061435917, 0.0)), z_b02),
+            ),
+        )
+        verts_z = {
+            "P01": ((0.0, 0.0), (200.0, 0.0), (200.0, 12.5), (0.0, 12.5)),
+            "P02": ((0.0, 15.013274122871834), (200.0, 15.013274122871834), (200.0, 60.013274122871834), (0.0, 60.013274122871834)),
+            "P03": ((0.0, 62.52654824574367), (200.0, 62.52654824574367), (200.0, 75.02654824574367), (0.0, 75.02654824574367)),
+        }
+        sess_z = LoadedPartSession("Z-(ok)", None, None, g_z, verts_z, "P02", FoldState(g_z, "P02"), 0)
+
+        with patch.object(pb2d, "_qt", return_value=(mock_qt_core, mock_qt_gui, mock_qt_widgets)):
+            panel = pb2d._PreviewPanel()
+            panel.draw = MagicMock()
+            panel.fit = MagicMock()
+            panel.session = sess_z
+            panel._configure_for_active_bend()
+
+            # 1) On initial load, all bends are 0 deg
+            self.assertEqual(panel.session.fold_state.angles, {"B01": 0.0, "B02": 0.0})
+            self.assertEqual(panel.angle, 0.0)
+
+            # 2) Bend B01 from 0 -> +90 deg; B02 stays 0 deg
+            panel.set_angle(45.0)
+            self.assertEqual(panel.session.fold_state.angles, {"B01": 45.0, "B02": 0.0})
+            panel.to_target_angle()
+            self.assertEqual(panel.session.fold_state.angles, {"B01": 90.0, "B02": 0.0})
+
+            # 3) Select operation 2 (B02): B01 keeps +90 deg, B02 starts at 0 deg (no auto-folding!)
+            item_b02 = object()
+            panel.operations.indexOfTopLevelItem.return_value = 1
+            panel._on_operation_selected(item_b02, None)
+            self.assertEqual(panel.session.active_bend_index, 1)
+            self.assertEqual(panel.session.active_bend_id, "B02")
+            self.assertEqual(panel.angle, 0.0)
+            self.assertEqual(panel.session.fold_state.angles, {"B01": 90.0, "B02": 0.0})
+
+            # 4) Bend B02 from 0 -> -90 deg; both bends now at target
+            panel.set_angle(-45.0)
+            self.assertEqual(panel.session.fold_state.angles, {"B01": 90.0, "B02": -45.0})
+            panel.to_target_angle()
+            self.assertEqual(panel.session.fold_state.angles, {"B01": 90.0, "B02": -90.0})
+
+            # 5) Reset returns ALL bends to 0 deg
+            panel.reset()
+            self.assertEqual(panel.session.fold_state.angles, {"B01": 0.0, "B02": 0.0})
+            self.assertEqual(panel.angle, 0.0)
 
 
 if __name__ == "__main__":

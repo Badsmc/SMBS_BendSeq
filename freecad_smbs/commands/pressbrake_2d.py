@@ -310,9 +310,6 @@ def build_part_session(doc, selection, fixed_panel: str | None = None) -> Loaded
             fixed_panel = panel_build.connections[0].panel_a
 
     fold_state = FoldState(graph, fixed_panel)
-    for rb in fold_state.ordered_bends:
-        fold_state.set_angle(rb.bend_id, rb.angle_deg)
-    fold_state.set_angle(fold_state.ordered_bends[0].bend_id, 0.0)
     sel_label = getattr(selection[0], "Label", getattr(selection[0], "Name", unfold_name))
     return LoadedPartSession(
         part_label=str(sel_label),
@@ -571,10 +568,8 @@ class _PreviewPanel:
                 self.timer.stop()
                 self.playing = False
                 self.play_btn.setText("▶")
-                # Keep previously selected bend at its target angle while resetting the newly selected bend to 0 deg
-                self.session.fold_all_to_target()
+                # Switch active bend while preserving the angles already achieved on previous bends
                 self.session.select_bend_index(idx)
-                self.session.set_active_angle(0.0)
                 self._configure_for_active_bend()
                 self.draw()
                 QtCore.QTimer.singleShot(0, self.fit)
@@ -635,7 +630,9 @@ class _PreviewPanel:
                 self.playing = False
                 self.play_btn.setText("▶")
                 if self.session is not None:
-                    self.set_angle(0.0)
+                    self.session.reset_all_bends()
+                    self._configure_for_active_bend()
+                    self.draw()
 
             def toggle_play(self):
                 if self.session is None:

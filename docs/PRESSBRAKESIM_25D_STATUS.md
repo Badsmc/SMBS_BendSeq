@@ -11,7 +11,8 @@ local venv (Python 3.14, no pythonocc). Level C (interactive GUI) NOT performed 
 - After Phase 3A implementation (`ac94016`): `70 passed, 7 skipped, 6 collection errors, 10 subtests passed`
 - After Phase 3B implementation (`21c5eca`): `71 passed, 7 skipped, 6 collection errors, 10 subtests passed`
 - After Phase 3B Hotfix 1 (`914f9e0`): `72 passed, 7 skipped, 6 collection errors, 10 subtests passed`
-- After Phase 3B Hotfix 2 (FreeCAD GUI NotificationArea deadlock fix): **`72 passed, 7 skipped, 6 collection errors, 10 subtests passed`**
+- After Phase 3B Hotfix 2 (`5f1cb47`): `72 passed, 7 skipped, 6 collection errors, 10 subtests passed`
+- After Phase 3B sequential bending restoration: **`73 passed, 7 skipped, 6 collection errors, 10 subtests passed`**
 - State of the 6 collection errors (recorded explicitly per Step 6):
   - 4 × `ModuleNotFoundError: No module named 'OCC'` in local non-conda Python venv (`tests/test_ambiguous_tree_returns_unknown.py`, `tests/test_end_to_end_pipeline.py`, `tests/test_feature_extractor_signed_angle.py`, `tests/test_honest_collision_and_verifier.py`).
   - 1 × `ImportError: dlopen(.../FreeCAD.so)` when importing compiled FreeCAD binary into system Python 3.14 (`tests/test_fold_multi_bend.py`).
