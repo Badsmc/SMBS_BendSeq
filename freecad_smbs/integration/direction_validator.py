@@ -6,9 +6,10 @@ centroids, areas, and normals. Ambiguous candidates are never auto-applied.
 Rigid panels are an approximation: no radius/thickness/collision validation.
 """
 from __future__ import annotations
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from itertools import product
 from math import sqrt, isfinite
+from smbs_core.kinematics2d.panel_graph import PanelGraph
 from smbs_core.kinematics2d.panel_kinematics import FoldState
 
 @dataclass(frozen=True)
@@ -140,8 +141,17 @@ def _best_assignment(costs, root_index, reference_index):
     return total if total<1e11 else float("inf")
 
 def _score(graph,root,panels,faces,transform,angles,reference_index):
-    state=FoldState(graph,root)
-    for bend in graph.rooted(root):
+    edges=tuple(
+        replace(
+            e,
+            angle_deg=angles[e.bend_id],
+            bend_zone=(replace(e.bend_zone,fold_angle_deg=angles[e.bend_id])
+                       if e.bend_zone is not None else None),
+        )
+        for e in graph.edges
+    )
+    state=FoldState(PanelGraph(graph.panels,edges),root)
+    for bend in state.ordered_bends:
         state.set_angle(bend.bend_id,angles[bend.bend_id])
     rows=[]
     for panel_id,(xy,area) in panels.items():

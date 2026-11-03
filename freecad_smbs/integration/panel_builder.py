@@ -117,6 +117,16 @@ def build_panels(unfold_name="Body_Unfold", outline_name=None, bends_name=None,
     # sketch references. No fallback to an unrelated sketch.
     if outline_name is None or bends_name is None:
         matches = [o for o in doc.Objects if o.Name.startswith(unfold.Name + "_Sketch")]
+        if not matches:
+            unfolds_in_doc = [
+                o for o in doc.Objects
+                if o.Name.endswith("_Unfold") and hasattr(o, "baseObject")
+            ]
+            if len(unfolds_in_doc) == 1 and unfolds_in_doc[0].Name == unfold.Name:
+                matches = [
+                    o for o in doc.Objects
+                    if "_Unfold_Sketch" in o.Name and hasattr(o, "Shape")
+                ]
         if outline_name is None:
             outlines = [o for o in matches if o.Name.endswith("_Sketch")]
             if len(outlines) != 1:
