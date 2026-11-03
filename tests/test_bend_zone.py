@@ -4,7 +4,10 @@ import unittest
 
 from freecad_smbs.commands.pressbrake_2d import (
     LoadedPartSession,
+    SelectionWarning,
+    execute_load_part,
     resolve_selected_unfold,
+    validate_selection_preconditions,
 )
 from freecad_smbs.InitGui import COMMANDS_MAP, register_commands
 from smbs_core.kinematics2d.bend_zone import (
@@ -373,9 +376,13 @@ class BendZoneMathTests(unittest.TestCase):
     def test_missing_selection_fails_with_clear_error_and_initgui_no_duplicate_registration(self):
         class _Doc:
             Objects = ()
-        with self.assertRaises(RuntimeError):
+        with self.assertRaises(SelectionWarning):
+            validate_selection_preconditions(None, [])
+        with self.assertRaises(SelectionWarning):
+            validate_selection_preconditions(_Doc(), [])
+        with self.assertRaises(SelectionWarning):
             resolve_selected_unfold(None, [])
-        with self.assertRaises(RuntimeError):
+        with self.assertRaises(SelectionWarning):
             resolve_selected_unfold(_Doc(), [])
 
         import freecad_smbs.workbench_runtime as _rt
@@ -389,6 +396,84 @@ class BendZoneMathTests(unittest.TestCase):
             self.assertEqual(first_count, len(COMMANDS_MAP))
             register_commands()
             self.assertEqual(fake_gui.addCommand.call_count, first_count)
+
+    def test_empty_selection_and_missing_doc_preserve_previous_session_without_pipeline_calls(self):
+        params = bend_parameters(90.0, 1.0, 1.5, 0.4)
+        half_ba = params.bend_allowance_mm / 2.0
+        y_axis = 47.5 + half_ba
+        zone = make_bend_zone("B01", ((0.0, y_axis), (200.0, y_axis)), params)
+        g = PanelGraph(
+            ("P01", "P02"),
+            (GraphEdge("B01", "P02", "P01", params.fold_angle_deg, ((0.0, y_axis, 0.0), (200.0, y_axis, 0.0)), zone),),
+        )
+        verts = {
+            "P01": ((0.0, 0.0), (200.0, 0.0), (200.0, 47.5), (0.0, 47.5)),
+            "P02": ((0.0, y_axis + half_ba), (200.0, y_axis + half_ba), (200.0, y_axis + half_ba + 47.5), (0.0, y_axis + half_ba + 47.5)),
+        }
+        existing_session = LoadedPartSession(
+            part_label="Existing_L_Part",
+            unfold_data=None,
+            panel_build=None,
+            graph=g,
+            panel_vertices_xy=verts,
+            fixed_panel="P02",
+            fold_state=FoldState(g, "P02"),
+        )
+        existing_session.set_active_angle(45.0)
+
+        class _Doc:
+            Objects = ()
+
+        pipeline_calls = []
+
+        def _forbidden_build(doc, sel):
+            pipeline_calls.append((doc, sel))
+            raise AssertionError("build_part_session must not be called on empty selection or missing doc")
+
+        # 1) Empty selection with active document: warning returned, pipeline NOT called, session & angle preserved
+        outcome1, sess1, msg1 = execute_load_part(existing_session, _Doc(), [], build_fn=_forbidden_build)
+        self.assertEqual(outcome1, "warning")
+        self.assertIs(sess1, existing_session)
+        self.assertAlmostEqual(sess1.current_angle_deg, 45.0, places=9)
+        self.assertEqual(len(pipeline_calls), 0)
+        self.assertIn("Деталь не выбрана", msg1)
+
+        # 2) Missing document: warning returned, pipeline NOT called, session & angle preserved
+        outcome2, sess2, msg2 = execute_load_part(existing_session, None, ["dummy"], build_fn=_forbidden_build)
+        self.assertEqual(outcome2, "warning")
+        self.assertIs(sess2, existing_session)
+        self.assertAlmostEqual(sess2.current_angle_deg, 45.0, places=9)
+        self.assertEqual(len(pipeline_calls), 0)
+        self.assertIn("Нет открытого документа", msg2)
+
+        # 3) Unexpected error during build: error returned, previous session STILL preserved
+        def _failing_build(doc, sel):
+            pipeline_calls.append((doc, sel))
+            raise ValueError("Simulated corrupt geometry")
+
+        outcome3, sess3, msg3 = execute_load_part(existing_session, _Doc(), ["Body"], build_fn=_failing_build)
+        self.assertEqual(outcome3, "error")
+        self.assertIs(sess3, existing_session)
+        self.assertAlmostEqual(sess3.current_angle_deg, 45.0, places=9)
+        self.assertEqual(len(pipeline_calls), 1)
+        self.assertIn("Simulated corrupt geometry", msg3)
+
+        # 4) Subsequent valid selection after warning/error loads the new session cleanly
+        new_session = LoadedPartSession(
+            part_label="New_Loaded_Part",
+            unfold_data=None,
+            panel_build=None,
+            graph=g,
+            panel_vertices_xy=verts,
+            fixed_panel="P02",
+            fold_state=FoldState(g, "P02"),
+        )
+        outcome4, sess4, msg4 = execute_load_part(
+            existing_session, _Doc(), ["Body"], build_fn=lambda d, s: new_session
+        )
+        self.assertEqual(outcome4, "loaded")
+        self.assertIs(sess4, new_session)
+        self.assertIn("New_Loaded_Part", msg4)
 
 
 if __name__ == "__main__":
