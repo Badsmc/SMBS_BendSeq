@@ -33,11 +33,12 @@ flowchart LR
 
 | Module | Responsibility | Runtime dependency |
 |---|---|---|
-| `freecad_smbs/integration/sheetmetal_unfold_reader.py` | Read `BendInfo` (angle, radius, axis) from SheetMetal; fail closed on CSV/spreadsheet K-factor | FreeCAD + SheetMetal |
+| `freecad_smbs/integration/sheetmetal_unfold_reader.py` | Read `BendInfo` (angle, radius, axis, thickness, ANSI K-factor, inner radius, BA) from SheetMetal; fail closed on missing/invalid/CSV/spreadsheet K-factor | FreeCAD + SheetMetal |
+| `smbs_core/kinematics2d/bend_zone.py` | Explicit finite-radius `BendZone` model (inner/neutral/outer radii, BA, tangent lines, intermediate section polylines, finite-radius moving transform) | Pure Python |
 | `smbs_core/kinematics2d/axis_matching.py` | Unique geometric matching of bend axes to `_Sketch_Bends` lines | Pure Python |
-| `freecad_smbs/integration/panel_builder.py` | Split flat outline into material islands by narrow separator strips; build panel connections | FreeCAD Part (2D planar cut, once per build) |
-| `smbs_core/kinematics2d/panel_graph.py` | Panel/bend tree, rooting at fixed panel, ambiguity rejection | Pure Python |
-| `smbs_core/kinematics2d/panel_kinematics.py` | Absolute-angle rigid hinge transforms | Pure Python |
+| `freecad_smbs/integration/panel_builder.py` | Split flat outline by narrow separator strips for topology, then bound rigid panels by `BendZone` tangent lines; reject overlapping/consuming bend zones | FreeCAD Part (2D planar cut, once per build) |
+| `smbs_core/kinematics2d/panel_graph.py` | Panel/bend tree, rooting at fixed panel, propagation of `BendZone` and moving side (`moving_left`), ambiguity rejection | Pure Python |
+| `smbs_core/kinematics2d/panel_kinematics.py` | Drift-free absolute-angle rigid panel & finite-radius `BendZone` kinematics | Pure Python |
 | `smbs_core/kinematics2d/fold_sequence.py`, `engine.py` | Sequence replay helpers | Pure Python |
 | `freecad_smbs/commands/pressbrake_2d.py` | 2D task panel UI (slider, play, reset, fit, diagnostics) | FreeCAD GUI |
 | `freecad_smbs/integration/direction_validator.py` | Conservative reference 3D sign validation | FreeCAD (validation only) |
@@ -52,12 +53,14 @@ flowchart LR
 - **Source local frame:** body shape with placement removed (`getUnfold` line 1488).
 - **World frame:** document placement.
 - `BendRecord2D`: `bend_id`, `source_angle_deg` (SheetMetal signed included-complement), `fold_angle_deg`
-  = sign·(180−|angle|), `radius_mm` (reference-face cylinder radius), axis endpoints (SF).
+  = sign·(180−|angle|), `radius_mm` (reference-face cylinder radius), `length_mm`, `start_xyz`, `end_xyz`,
+  `thickness_mm`, `k_factor_ansi`, `inner_radius_mm`, `bend_allowance_mm`.
 - **Bend line semantics (confirmed from SheetMetal source `unroll_cylinder`, L1208–1232):** the bend
   line is the **centerline of the bend-allowance zone** (offset BA/2 from each tangent line).
-- **Consequence:** every PanelBuilder flat panel = planar source face + (BA − w)/2 strip per
-  adjacent bend (w = separator width 0.02 mm). Verified exactly on L and U models (Phase 2 iter. 1).
-- Missing contract items (Phase 1): thickness and K-factor not yet carried in `BendRecord2D`.
+- **Rigid panel boundaries:** `PanelBuilder` retains the 0.02 mm separator strips strictly for topology
+  identification, then cuts each topological island along the `BendZone` tangent lines (±BA/2) to produce
+  exact rigid panels and unfolded bend-zone faces. Verified across all 16 FCStd models with 0.000000 mm
+  error in 3D centroids, vertices, bounding boxes, and areas.
 
 ## 4. Phases
 
@@ -74,19 +77,13 @@ Maturity levels: `DECLARED → IMPLEMENTED → TESTED → VERIFIED → QUALIFIED
 | 6 Sequence | Manual validation, greedy, DFS backtracking, optional A* (reuse `smbs_core/Solvers`) | Every sequence replayable; failures carry reasons |
 | 7 Release | Regression, real models, perf, install, docs | Milestones v0.6…v1.0 (planned, not claims) |
 
-### Phase 2 plan (current priority)
+### Phase 2 & 3 geometry/kinematics execution status
 1. ✅ Trace flat→panel path; confirm bend-line semantics (BA centerline).
-2. ✅ Explain contour diagnostic mismatches on L and U (validation mismatch, not geometry defect).
-3. ☐ Add `thickness_mm`, `k_factor`, `bend_allowance_mm` to the bend contract (from SheetMetal calculator, no defaults).
-4. ☐ Represent bend zone explicitly: two tangent lines at ±BA/2 from the axis; rigid panel = island minus half-zone.
-5. ☐ Replace area-vs-single-face contour check with per-panel tangent-line-bounded comparison.
-6. ☐ Explain the remaining 2-1-3-4 residuals (P06–P11, ≤0.86 mm²) with a per-edge test before any change.
-
-### Phase 3 note (known modelling limitation)
-`panel_kinematics.hinge_transform` rotates about the zero-radius BA centerline. Combined with
-panels that include BA/2, this is a sharp-hinge approximation: flange positions differ from
-the real formed part by an amount depending on r, t, K. Finite-radius bend-zone kinematics is
-required for VERIFIED status.
+2. ✅ Explain contour diagnostic mismatches on L, U, and 2-1-3-4 (flat island included BA/2).
+3. ✅ Add `thickness_mm`, `k_factor_ansi`, `inner_radius_mm`, `bend_allowance_mm` to `BendRecord2D` (from SheetMetal calculator, no defaults, cross-checked against SheetMetal BA).
+4. ✅ Implement explicit `BendZone` (`smbs_core/kinematics2d/bend_zone.py`): inner/neutral/outer radii, tangent lines at ±BA/2, intermediate section polylines preserving neutral length BA, and finite-radius `moving_transform`.
+5. ✅ Bound rigid panels in `PanelBuilder` by `BendZone` tangent lines while preserving 0.02 mm separator strips for topology; reject overlapping or panel-consuming bend zones.
+6. ✅ Adapt `FoldState` to recompute deterministically from flat state (zero cumulative drift) and apply `BendZone.moving_transform` when present; verified across all 16 FCStd models (79 panels, 63 bends) with 0.000000 mm 3D deviation.
 
 ## 5. UI control activation rules
 - Build 2.5D: requires active doc with SheetMetal unfold available.

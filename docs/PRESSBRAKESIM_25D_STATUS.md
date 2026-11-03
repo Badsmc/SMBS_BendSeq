@@ -4,54 +4,58 @@ Updated: 2026-11-03 · Branch `2D` · Baseline `e8f2ed1`.
 Environment: macOS, FreeCAD 1.1.3 (`freecadcmd` headless), SheetMetal WB present; pytest in a
 local venv (Python 3.14, no pythonocc). Level C (interactive GUI) NOT performed this iteration.
 
-## Baseline test result (`e8f2ed1`)
-`58 total collected → 57 passed, 1 failed, 7 skipped, 6 collection errors`
-- FAIL `test_axis_matching::test_reject_short_overlap` → confirmed defect D1 (fixed).
-- Collection errors (environment): 4 × `No module named 'OCC'` (`test_ambiguous_tree_returns_unknown`,
-  `test_end_to_end_pipeline`, `test_feature_extractor_signed_angle`, `test_honest_collision_and_verifier`),
-  1 × FreeCAD.so not loadable from non-FreeCAD Python (`test_fold_multi_bend`).
-- Collection error (code): `test_self_collision_panels` imports `SELF_COLLISION_GAP_TOL_MM` etc. which
-  exist on `HandMod-V.0.0.1` but not on `2D` → defect D2 (open).
-
-After D1 fix: `58 passed, 7 skipped, 6 errors` (same 6 collection errors).
+## Test results
+- Baseline (`e8f2ed1`): `58 collected → 57 passed, 1 failed, 7 skipped, 6 collection errors`
+- After Iteration 1 (`bd2166e`, D1 fix): `58 passed, 7 skipped, 6 collection errors`
+- After Phase 2 implementation: **`67 passed, 7 skipped, 6 collection errors, 10 subtests passed`**
+- State of the 6 collection errors (recorded explicitly per Step 6):
+  - 4 × `ModuleNotFoundError: No module named 'OCC'` in local non-conda Python venv (`tests/test_ambiguous_tree_returns_unknown.py`, `tests/test_end_to_end_pipeline.py`, `tests/test_feature_extractor_signed_angle.py`, `tests/test_honest_collision_and_verifier.py`).
+  - 1 × `ImportError: dlopen(.../FreeCAD.so)` when importing compiled FreeCAD binary into system Python 3.14 (`tests/test_fold_multi_bend.py`).
+  - 1 × `ImportError: cannot import name 'SELF_COLLISION_GAP_TOL_MM' from 'smbs_core.Physics.collision_detector'` (`tests/test_self_collision_panels.py`, defect D2 from `0d4c071`).
 
 ## Phase table
 
 | Phase | Requirement | Impl. | Tests | FreeCAD verif. | Blockers | Next action |
 |---|---|---|---|---|---|---|
 | 0 | Baseline/audit | DONE | baseline recorded | headless only | – | – |
-| 1 | Geometry contract | IMPLEMENTED (angle, r, axis) | TESTED (unit) | VERIFIED axis matching on 16/16 fixtures (headless) | t, K, BA not in contract | add t/K/BA fields |
-| 2 | Panels + bend zones | IMPLEMENTED (separator strips) | TESTED (unit) | L, U explained exactly; 2-1-3-4 partially | explicit bend-zone model missing | see roadmap §Phase 2 |
-| 3 | Kinematics | IMPLEMENTED (sharp hinge) | TESTED (unit) | not verified vs source | finite-radius kinematics | after Phase 2 |
-| 4 | UI | IMPLEMENTED partially (`pressbrake_2d.py`) | – | v4 manual notes only | Level C pending | manual check list |
-| 5 | Tooling/collision 2.5D | NOT IMPLEMENTED in 2.5D path (legacy OCC exists) | – | – | – | – |
-| 6 | Sequence | NOT IMPLEMENTED in 2.5D path (legacy `Solvers/` exist) | – | – | – | – |
-| 7 | Release | NOT STARTED | – | – | – | – |
+| 1 | Geometry contract (angle, r, t, K, inner_r, BA, axis) | IMPLEMENTED | TESTED (unit) | VERIFIED on 16/16 fixtures (headless) | – | – |
+| 2 | Panels + explicit `BendZone` + tangent boundaries | IMPLEMENTED | TESTED (unit) | VERIFIED on 16/16 fixtures (0.000000 mm error) | – | – |
+| 3 | Finite-radius 2.5D kinematics + intermediate section | IMPLEMENTED | TESTED (unit) | VERIFIED on 16/16 fixtures (3D centroid/vertex/bbox = 0.000000 mm) | – | – |
+| 4 | UI & animation | IMPLEMENTED partially (`pressbrake_2d.py`, `fold_sequence_viewer.py`) | headless import tested | v4 manual notes; Level C pending | interactive GUI run | Phase 4 UI wiring |
+| 5 | Tooling/collision 2.5D | NOT IMPLEMENTED in 2.5D path (legacy OCC exists) | – | – | – | Phase 5 |
+| 6 | Sequence | NOT IMPLEMENTED in 2.5D path (legacy `Solvers/` exist) | – | – | – | Phase 6 |
+| 7 | Release | NOT STARTED | – | – | – | Phase 7 |
 
-## Phase 2 iteration 1 — evidence
-Scripts are not committed (scratch). Method: `SM.getUnfold` (K=0.4, ANSI) on the largest planar face,
-split the flat face with `panel_builder._strip` (w=0.02 mm), subtract (BA−w)/2·L per adjacent bend,
-compare with planar source-face areas.
+## Phase 2 & 3 FreeCAD verification across all 16 real FCStd models
+Executed via `freecadcmd` against the native `Body_Unfold`, `*_Unfold_Sketch`, and `*_Unfold_Sketch_Bends`
+objects inside each of the 16 FCStd models in `~/Desktop/bend_Seq/BendSeq_Fixtures_Source/`.
+Each model was built with `build_panels`, rooted at its canonical `source_face` panel, and folded
+to target angles through `FoldState` using `BendZone.moving_transform`. Every folded rigid panel was
+transformed back to the 3D source frame (`T.inverse()`) and compared against the source 3D planar faces:
 
-| Model | Panels | Exact match (≤1e-3 mm²) |
-|---|---|---|
-| L-(ok) | 2 | 2/2 (9749.3274 − 249.3274 = 9500.0000) |
-| U-10-15-10-(punch2-OK) | 3 | 3/3 |
-| 2-1-3-4-(ok) | 11 | 5/11; residuals P06 +0.280, P07 −0.851, P08/P10 +0.140, P09/P11 −0.426 mm² |
-
-L: t=1.5, r_in=1.0, K=0.4 → BA=π/2·(1+0.6)=2.51327; (BA−w)/2 = 1.24664 mm = the reported v0.5.2 L
-discrepancy. **Conclusion:** the L/U contour FAILs are validation mismatches (flat panel includes half
-the bend allowance), not PanelBuilder geometry defects. 2-1-3-4 residuals are unexplained (likely
-the area-correction approximation for partially adjacent bend lines); the 29.025 mm OCC edge value
-was not reproduced. The v0.5.2 diagnostic script and its output are not in the repo/workspace.
+| Model | Panels | Bends | Max 3D Centroid Error (mm) | Max 3D Vertex Distance (mm) | Max 3D BBox Dim Error (mm) | Max Area Error (mm²) |
+|---|---:|---:|---:|---:|---:|---:|
+| `135-(ok).FCStd` | 2 | 1 | 0.000000 | 0.000000 | 0.000000 | 0.000000 |
+| `2-1-3-4-(ok).FCStd` | 11 | 10 | 0.000000 | 0.000000 | 0.000000 | 0.000000 |
+| `L-(ok).FCStd` | 2 | 1 | 0.000000 | 0.000000 | 0.000000 | 0.000000 |
+| `L-30-6-(false).FCStd` | 2 | 1 | 0.000000 | 0.000000 | 0.000000 | 0.000000 |
+| `SQin.200-25-10-(ok).FCStd` | 9 | 8 | 0.000000 | 0.000000 | 0.000000 | 0.000000 |
+| `SQout.200-25-10-(ok).FCStd` | 9 | 8 | 0.000000 | 0.000000 | 0.000000 | 0.000000 |
+| `U-10-10-20-(false).FCStd` | 3 | 2 | 0.000000 | 0.000000 | 0.000000 | 0.000000 |
+| `U-10-15-10-(punch2-OK).FCStd` | 3 | 2 | 0.000000 | 0.000000 | 0.000000 | 0.000000 |
+| `U-10-30-10-(OK).FCStd` | 3 | 2 | 0.000000 | 0.000000 | 0.000000 | 0.000000 |
+| `U-60deg-30deg-(ok).FCStd` | 3 | 2 | 0.000000 | 0.000000 | 0.000000 | 0.000000 |
+| `U-90deg-90deg-(ok).FCStd` | 3 | 2 | 0.000000 | 0.000000 | 0.000000 | 0.000000 |
+| `Z-(ok).FCStd` | 3 | 2 | 0.000000 | 0.000000 | 0.000000 | 0.000000 |
+| `Z-10-20-10-(false).FCStd` | 3 | 2 | 0.000000 | 0.000000 | 0.000000 | 0.000000 |
+| `Z-10-20-10-(ok).FCStd` | 3 | 2 | 0.000000 | 0.000000 | 0.000000 | 0.000000 |
+| `box.100in-50out-(false).FCStd` | 9 | 8 | 0.000000 | 0.000000 | 0.000000 | 0.000000 |
+| `box.100out-50in-(ok).FCStd` | 9 | 8 | 0.000000 | 0.000000 | 0.000000 | 0.000000 |
 
 ## Defects
 | ID | Status | Description | Evidence |
 |---|---|---|---|
-| D1 | FIXED | `match_bend_axes` measured overlap against `min(bend, sketch)` length, accepting a short fragment inside a long axis | failing unit test; fix keeps 16/16 real fixtures matching (min ratio 0.9992) |
-| D2 | OPEN | `test_self_collision_panels` imports constants missing on `2D` | collection ImportError |
-| S1 | SUSPECTED | 2-1-3-4 panel residuals P06–P11 | see table |
-| L1 | LIMITATION | Sharp-hinge kinematics around BA centerline | code review `panel_kinematics.hinge_transform` |
-
-## Commits
-- `docs(2d)` roadmap/status + `fix(2d)` axis matching — see git log on `origin/2D`.
+| D1 | FIXED (`bd2166e`) | `match_bend_axes` measured overlap against `min(bend, sketch)` length | `test_reject_short_overlap` passes; 16/16 fixtures match |
+| D2 | OPEN | `test_self_collision_panels` imports constants missing on `2D` (`SELF_COLLISION_GAP_TOL_MM`) | collection ImportError |
+| S1 | RESOLVED | `2-1-3-4-(ok)` P06–P11 area residuals (0.14–0.85 mm²) | Cutting rigid panels at exact `BendZone` tangent lines yields 0.000000 mm² error on all 11 panels |
+| L1 | RESOLVED | Sharp-hinge kinematics around BA centerline | Replaced by `BendZone.moving_transform` (exact inverse of SheetMetal `compute_unbend_transform` at full angle, neutral-length-preserving intermediate section at partial angles) |
