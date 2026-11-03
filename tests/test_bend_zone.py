@@ -1273,15 +1273,16 @@ class BendZoneMathTests(unittest.TestCase):
             self.assertTrue(setup.aligned)
             p_tip_m = setup.punch_tip_machine()
             d_vc_m = setup.die_v_center_machine()
-            self.assertEqual(p_tip_m, (25.0, 1.0))
+            self.assertEqual(p_tip_m, (25.0, 6.0))
             self.assertEqual(d_vc_m, (25.0, -1.0))
+            self.assertAlmostEqual(setup.punch_clearance_mm, 5.0, places=9)
             # Working axes are coaxial along s = 25.0 mm, with Punch above Die
             self.assertAlmostEqual(p_tip_m[0], d_vc_m[0], places=9)
             self.assertGreater(p_tip_m[1], d_vc_m[1])
 
             # Verify explicit Machine <-> View coordinate round-trip
             v_pt = machine_to_view_point(p_tip_m)
-            self.assertEqual(v_pt, (25.0, -1.0))
+            self.assertEqual(v_pt, (25.0, -6.0))
             self.assertEqual(view_to_machine_point(v_pt), p_tip_m)
 
             # Reset tooling position
@@ -1479,6 +1480,395 @@ class BendZoneMathTests(unittest.TestCase):
                     self.assertEqual(step_sel.validation_status, ValidationStatus.GEOMETRY_VERIFIED)
                 finally:
                     App.closeDocument(doc.Name)
+
+    def test_phase5a_hotfix1_sheet_visibility_alignment_and_bending_with_tools(self) -> None:
+        """Phase 5A Hotfix 1: verify all 10 required scenarios for sheet visibility,
+        separated bounds, tall-tool Fit, positive clearance alignment, Z-layers,
+        and full compatibility with bending playback and reordering.
+        """
+        import tempfile
+        from pathlib import Path
+        from smbs_core.kinematics2d.tooling_25d import (
+            DEFAULT_INITIAL_PUNCH_CLEARANCE_MM,
+            ToolingError,
+            ToolingSetup2D,
+            ToolKind,
+            ToolLibrary25D,
+            ValidationStatus,
+            compute_scene_bounds_2d,
+            import_tool_from_dxf,
+        )
+        from freecad_smbs.commands.pressbrake_2d import (
+            LoadedPartSession,
+            Z_LAYER_AUXILIARY,
+            Z_LAYER_DIE,
+            Z_LAYER_PUNCH,
+            Z_LAYER_SHEET_NEUTRAL_AND_TANGENTS,
+            Z_LAYER_SHEET_PANELS,
+            Z_LAYER_SHEET_SURFACES,
+            Z_LAYER_SHEET_ZONE,
+        )
+
+        # Build a realistic 2-bend Z-part session (t=1.5 mm, R=1.0 mm, B01=+90 deg, B02=-90 deg)
+        p_up90 = bend_parameters(90.0, 1.0, 1.5, 0.4)
+        p_dn90 = bend_parameters(-90.0, 2.5, 1.5, 0.4)
+        z_b01 = make_bend_zone("B01", ((200.0, 61.26991118430775), (0.0, 61.26991118430775)), p_up90)
+        z_b02 = make_bend_zone("B02", ((0.0, 13.756637061435917), (200.0, 13.756637061435917)), p_dn90)
+        graph_z = PanelGraph(
+            ("P01", "P02", "P03"),
+            (
+                GraphEdge("B01", "P02", "P03", 90.0, ((200.0, 61.26991118430775, 0.0), (0.0, 61.26991118430775, 0.0)), z_b01),
+                GraphEdge("B02", "P02", "P01", -90.0, ((0.0, 13.756637061435917, 0.0), (200.0, 13.756637061435917, 0.0)), z_b02),
+            ),
+        )
+        verts_z = {
+            "P01": ((0.0, 0.0), (200.0, 0.0), (200.0, 12.5), (0.0, 12.5)),
+            "P02": ((0.0, 15.013274122871834), (200.0, 15.013274122871834), (200.0, 60.013274122871834), (0.0, 60.013274122871834)),
+            "P03": ((0.0, 62.52654824574367), (200.0, 62.52654824574367), (200.0, 75.02654824574367), (0.0, 75.02654824574367)),
+        }
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+
+            # Build a tall custom Punch (height = 140.0 mm > 120.0 mm, R_tip = 1.0 mm)
+            x_r = 100.0 + 1.0 * math.cos(math.radians(330.0))
+            x_l = 100.0 + 1.0 * math.cos(math.radians(210.0))
+            y_arc = 51.0 + 1.0 * math.sin(math.radians(330.0))
+            tall_punch_dxf = tmp_path / "tall_punch_140mm.dxf"
+            tall_punch_dxf.write_text(
+                "\n".join([
+                    "0", "SECTION", "2", "HEADER", "9", "$INSUNITS", "70", "4", "0", "ENDSEC",
+                    "0", "SECTION", "2", "ENTITIES",
+                    "0", "ARC", "10", "100.0", "20", "51.0", "40", "1.0", "50", "210.0", "51", "330.0",
+                    "0", "LINE", "10", f"{x_r:.8f}", "20", f"{y_arc:.8f}", "11", "112.0", "21", "75.0",
+                    "0", "LINE", "10", "112.0", "20", "75.0", "11", "112.0", "21", "190.0",
+                    "0", "LINE", "10", "112.0", "20", "190.0", "11", "88.0", "21", "190.0",
+                    "0", "LINE", "10", "88.0", "20", "190.0", "11", "88.0", "21", "75.0",
+                    "0", "LINE", "10", "88.0", "20", "75.0", "11", f"{x_l:.8f}", "21", f"{y_arc:.8f}",
+                    "0", "ENDSEC", "0", "EOF",
+                ]) + "\n",
+                encoding="utf-8",
+            )
+            punch = import_tool_from_dxf(tall_punch_dxf, kind=ToolKind.PUNCH, name="TallPunch140")
+            self.assertEqual(punch.validation_status, ValidationStatus.GEOMETRY_VERIFIED)
+            self.assertGreater(punch.height_mm, 120.0)
+            self.assertAlmostEqual(punch.height_mm, 140.0, places=4)
+
+            # Build a custom V12 Die (height = 60.0 mm)
+            c45 = 1.5 * math.cos(math.radians(45.0))
+            s45 = 1.5 * math.sin(math.radians(45.0))
+            lx_tan = 24.0 + c45
+            rx_tan = 36.0 - c45
+            y_tan = 58.5 + s45
+            y_apex = y_tan - (30.0 - lx_tan)
+            die_dxf = tmp_path / "die_v12_60mm.dxf"
+            die_dxf.write_text(
+                "\n".join([
+                    "0", "SECTION", "2", "HEADER", "9", "$INSUNITS", "70", "4", "0", "ENDSEC",
+                    "0", "SECTION", "2", "ENTITIES",
+                    "0", "LINE", "10", "0.0", "20", "0.0", "11", "60.0", "21", "0.0",
+                    "0", "LINE", "10", "60.0", "20", "0.0", "11", "60.0", "21", "60.0",
+                    "0", "LINE", "10", "60.0", "20", "60.0", "11", "36.0", "21", "60.0",
+                    "0", "ARC", "10", "36.0", "20", "58.5", "40", "1.5", "50", "90.0", "51", "135.0",
+                    "0", "LINE", "10", f"{rx_tan:.8f}", "20", f"{y_tan:.8f}", "11", "30.0", "21", f"{y_apex:.8f}",
+                    "0", "LINE", "10", "30.0", "20", f"{y_apex:.8f}", "11", f"{lx_tan:.8f}", "21", f"{y_tan:.8f}",
+                    "0", "ARC", "10", "24.0", "20", "58.5", "40", "1.5", "50", "45.0", "51", "90.0",
+                    "0", "LINE", "10", "24.0", "20", "60.0", "11", "0.0", "21", "60.0",
+                    "0", "LINE", "10", "0.0", "20", "60.0", "11", "0.0", "21", "0.0",
+                    "0", "ENDSEC", "0", "EOF",
+                ]) + "\n",
+                encoding="utf-8",
+            )
+            die = import_tool_from_dxf(die_dxf, kind=ToolKind.DIE, name="DieV12")
+            self.assertEqual(die.validation_status, ValidationStatus.GEOMETRY_VERIFIED)
+
+            # Check 7 & 8 (Headless geometry level): Align Tooling positive clearance & coaxial working axes
+            session = LoadedPartSession(
+                part_label="Z_Part",
+                unfold_data=None,
+                panel_build=None,
+                graph=graph_z,
+                panel_vertices_xy=verts_z,
+                fixed_panel="P02",
+                fold_state=FoldState(graph_z, "P02"),
+            )
+            setup = ToolingSetup2D()
+            # Align with no tools selected must raise ToolingError (never silent no-op)
+            with self.assertRaises(ToolingError):
+                setup.align_to_cross_section(session.cross_section(segments=16))
+
+            setup.select_punch(punch)
+            setup.select_die(die)
+            sec_b01 = session.cross_section(segments=16)
+            setup.align_to_cross_section(sec_b01, bend_id=session.active_bend_id)
+            self.assertTrue(setup.aligned)
+            self.assertEqual(setup.aligned_bend_id, "B01")
+            self.assertGreater(setup.punch_clearance_mm, 0.0)
+            self.assertAlmostEqual(setup.punch_clearance_mm, DEFAULT_INITIAL_PUNCH_CLEARANCE_MM, places=6)
+
+            # Verify working axes coincide with active bend line and punch is above sheet while die is below
+            anchor_s = sum(p[0] for p in sec_b01["neutral_curve"]) / len(sec_b01["neutral_curve"])
+            sheet_zs = [p[1] for p in sec_b01["zone_polygon"]]
+            sheet_top_z = max(sheet_zs)
+            sheet_bot_z = min(sheet_zs)
+            ptip = setup.punch_tip_machine()
+            dvc = setup.die_v_center_machine()
+            self.assertAlmostEqual(ptip[0], anchor_s, places=6)
+            self.assertAlmostEqual(dvc[0], anchor_s, places=6)
+            self.assertAlmostEqual(ptip[1], sheet_top_z + DEFAULT_INITIAL_PUNCH_CLEARANCE_MM, places=6)
+            self.assertAlmostEqual(dvc[1], sheet_bot_z, places=6)
+            self.assertGreater(ptip[1], sheet_top_z)
+            self.assertLessEqual(dvc[1], sheet_bot_z)
+
+            # Check 5 & 6 (Headless bounds level): separated sheet_bounds, punch_bounds, die_bounds, combined_bounds
+            sheet_pts = list(sec_b01["inner_surface"]) + list(sec_b01["outer_surface"])
+            punch_pts = list(setup.punch_polygons_machine()[0])
+            die_pts = list(setup.die_polygons_machine()[0])
+            bounds = compute_scene_bounds_2d(
+                sheet_pts=sheet_pts,
+                punch_pts=punch_pts,
+                die_pts=die_pts,
+                focus_sheet_when_tall_tooling=True,
+            )
+            self.assertIsNotNone(bounds.sheet_bounds)
+            self.assertIsNotNone(bounds.punch_bounds)
+            self.assertIsNotNone(bounds.die_bounds)
+            self.assertIsNotNone(bounds.combined_bounds)
+            # Combined vertical span in Machine Z is from die bottom (sheet_bot_z - 60.0) to punch top (sheet_top_z + 5.0 + 140.0)
+            self.assertAlmostEqual(bounds.combined_bounds[1], sheet_bot_z - 60.0, places=4)
+            self.assertAlmostEqual(
+                bounds.combined_bounds[3],
+                sheet_top_z + DEFAULT_INITIAL_PUNCH_CLEARANCE_MM + 140.0,
+                places=4,
+            )
+            # Focused view_rect keeps vertical height much tighter than the full tool stack so the sheet is clearly visible
+            _, _, vw, vh = bounds.view_rect
+            self.assertLess(vh, 130.0)
+            # And sheet view bounds are fully contained inside view_rect
+            rx, ry, rw, rh = bounds.view_rect
+            sheet_min_s, sheet_min_z, sheet_max_s, sheet_max_z = bounds.sheet_bounds
+            self.assertLessEqual(rx, sheet_min_s)
+            self.assertGreaterEqual(rx + rw, sheet_max_s)
+            self.assertLessEqual(ry, -sheet_max_z)
+            self.assertGreaterEqual(ry + rh, -sheet_min_z)
+
+            # Now test real Qt QGraphicsScene / Panel widget if PySide is available
+            try:
+                from freecad_smbs.commands.pressbrake_2d import _PreviewPanel, _qt
+                QtCore, QtGui, QtWidgets = _qt()
+                has_qt = True
+            except Exception:
+                has_qt = False
+
+            if has_qt:
+                app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+                panel = _PreviewPanel()
+                panel.resize(480, 640)
+                panel.show()
+
+                def role_items(role_name: str):
+                    return [it for it in panel.scene.items() if it.data(0) == role_name]
+
+                def sheet_items():
+                    return [
+                        it for it in panel.scene.items()
+                        if isinstance(it.data(0), str) and it.data(0).startswith("sheet_")
+                    ]
+
+                # --------------------------------------------------------------
+                # Check 1 (Scenario A): Sheet loaded without tools
+                # --------------------------------------------------------------
+                panel.session = LoadedPartSession(
+                    part_label="Z_Part",
+                    unfold_data=None,
+                    panel_build=None,
+                    graph=graph_z,
+                    panel_vertices_xy=verts_z,
+                    fixed_panel="P02",
+                    fold_state=FoldState(graph_z, "P02"),
+                )
+                panel._populate_operations()
+                panel._configure_for_active_bend()
+                panel._set_playback_controls_enabled(True)
+                panel.draw()
+                panel.fit()
+
+                self.assertIsNotNone(panel.session)
+                self.assertTrue( all(abs(v) < 1e-9 for v in panel.session.fold_state.angles.values()) )
+                self.assertGreaterEqual(len(sheet_items()), 6)
+                self.assertEqual(len(role_items("punch")), 0)
+                self.assertEqual(len(role_items("die")), 0)
+                self.assertIsNotNone(panel.last_scene_bounds)
+                self.assertIsNotNone(panel.last_scene_bounds.sheet_bounds)
+                self.assertIsNone(panel.last_scene_bounds.punch_bounds)
+                self.assertIsNone(panel.last_scene_bounds.die_bounds)
+
+                # --------------------------------------------------------------
+                # Check 2 (Scenario B): Sheet + Punch only
+                # --------------------------------------------------------------
+                panel.select_punch(punch)
+                self.assertGreaterEqual(len(sheet_items()), 6)
+                self.assertEqual(len(role_items("punch")), 1)
+                self.assertEqual(len(role_items("die")), 0)
+                self.assertIsNotNone(panel.last_scene_bounds.sheet_bounds)
+                self.assertIsNotNone(panel.last_scene_bounds.punch_bounds)
+                self.assertIsNone(panel.last_scene_bounds.die_bounds)
+
+                # --------------------------------------------------------------
+                # Check 3 (Scenario C): Sheet + Die only
+                # --------------------------------------------------------------
+                panel.select_punch(None)
+                panel.select_die(die)
+                self.assertGreaterEqual(len(sheet_items()), 6)
+                self.assertEqual(len(role_items("punch")), 0)
+                self.assertEqual(len(role_items("die")), 1)
+                self.assertIsNotNone(panel.last_scene_bounds.sheet_bounds)
+                self.assertIsNone(panel.last_scene_bounds.punch_bounds)
+                self.assertIsNotNone(panel.last_scene_bounds.die_bounds)
+
+                # --------------------------------------------------------------
+                # Check 4 (Scenario D): Sheet + Punch + Die + QGraphicsScene Z-Layers
+                # --------------------------------------------------------------
+                panel.select_punch(punch)
+                self.assertGreaterEqual(len(sheet_items()), 6)
+                self.assertEqual(len(role_items("punch")), 1)
+                self.assertEqual(len(role_items("die")), 1)
+                p_item = role_items("punch")[0]
+                d_item = role_items("die")[0]
+                self.assertEqual(d_item.zValue(), Z_LAYER_DIE)
+                self.assertEqual(p_item.zValue(), Z_LAYER_PUNCH)
+                for s_item in sheet_items():
+                    self.assertGreater(
+                        s_item.zValue(),
+                        p_item.zValue(),
+                        f"Sheet item {s_item.data(0)} must have higher zValue than punch",
+                    )
+                    self.assertGreater(
+                        s_item.zValue(),
+                        d_item.zValue(),
+                        f"Sheet item {s_item.data(0)} must have higher zValue than die",
+                    )
+                self.assertEqual(role_items("sheet_fixed")[0].zValue(), Z_LAYER_SHEET_PANELS)
+                self.assertEqual(role_items("sheet_moving")[0].zValue(), Z_LAYER_SHEET_PANELS)
+                self.assertEqual(role_items("sheet_zone")[0].zValue(), Z_LAYER_SHEET_ZONE)
+                self.assertEqual(role_items("sheet_inner_surface")[0].zValue(), Z_LAYER_SHEET_SURFACES)
+                self.assertEqual(role_items("sheet_neutral")[0].zValue(), Z_LAYER_SHEET_NEUTRAL_AND_TANGENTS)
+
+                # --------------------------------------------------------------
+                # Check 5 & 6: Visible coordinates, sceneRect, and Fit with tall punch (>120 mm)
+                # --------------------------------------------------------------
+                panel.fit()
+                srect = panel.scene.sceneRect()
+                self.assertFalse(srect.isEmpty())
+                # Sheet fixed & moving polygons must lie completely inside sceneRect
+                for s_item in role_items("sheet_fixed") + role_items("sheet_moving") + role_items("sheet_zone"):
+                    ib = s_item.sceneBoundingRect()
+                    self.assertFalse(ib.isEmpty())
+                    self.assertTrue(srect.intersects(ib))
+                # With 140 mm tall punch, sceneRect height stays focused (< 130 mm) so sheet is not a 1px speck
+                self.assertLess(srect.height(), 130.0)
+
+                # --------------------------------------------------------------
+                # Check 7 & 8: Align Tooling positive clearance & working axis coincidence in UI
+                # --------------------------------------------------------------
+                panel.align_tooling()
+                self.assertTrue(panel.tooling_setup.aligned)
+                self.assertAlmostEqual(
+                    panel.tooling_setup.punch_clearance_mm,
+                    DEFAULT_INITIAL_PUNCH_CLEARANCE_MM,
+                    places=6,
+                )
+                self.assertAlmostEqual(
+                    panel.tooling_setup.punch_tip_machine()[0],
+                    panel.tooling_setup.die_v_center_machine()[0],
+                    places=6,
+                )
+
+                # --------------------------------------------------------------
+                # Check 9: Play All with simultaneously displayed tools
+                # --------------------------------------------------------------
+                panel.play_all()
+                self.assertTrue(panel.playing)
+                for _ in range(80):
+                    if not panel.playing:
+                        break
+                    panel.session.advance_time(0.05)
+                    panel._configure_for_active_bend()
+                    panel._sync_tooling_to_active_bend()
+                    panel.draw()
+                    # Sheet and tools must both remain in scene at every animation step
+                    self.assertGreaterEqual(len(sheet_items()), 6)
+                    self.assertEqual(len(role_items("punch")), 1)
+                    self.assertEqual(len(role_items("die")), 1)
+                    if panel.session.playback_status.value == "COMPLETED":
+                        panel._stop_timer()
+                        break
+
+                self.assertAlmostEqual(panel.session.fold_state.angles["B01"], 90.0, places=5)
+                self.assertAlmostEqual(panel.session.fold_state.angles["B02"], -90.0, places=5)
+                # Tooling has re-aligned to B02 when active bend switched to B02
+                self.assertEqual(panel.tooling_setup.aligned_bend_id, "B02")
+
+                # --------------------------------------------------------------
+                # Check 10 (Scenarios E & F + Reset + Manual Bend Order with tools):
+                # --------------------------------------------------------------
+                # Reset (`|<`) returns sheet to 0 deg flat while keeping tools & sheet visible
+                panel.reset()
+                self.assertAlmostEqual(panel.session.fold_state.angles["B01"], 0.0, places=6)
+                self.assertAlmostEqual(panel.session.fold_state.angles["B02"], 0.0, places=6)
+                self.assertGreaterEqual(len(sheet_items()), 6)
+                self.assertEqual(len(role_items("punch")), 1)
+                self.assertEqual(len(role_items("die")), 1)
+
+                # Scenario E: Hide Tooling -> tools hidden, sheet remains visible
+                panel.toggle_tooling_visibility()
+                self.assertFalse(panel.tooling_setup.visible)
+                self.assertGreaterEqual(len(sheet_items()), 6)
+                self.assertEqual(len(role_items("punch")), 0)
+                self.assertEqual(len(role_items("die")), 0)
+
+                # Scenario F: Show Tooling -> tools and sheet both visible
+                panel.toggle_tooling_visibility()
+                self.assertTrue(panel.tooling_setup.visible)
+                self.assertGreaterEqual(len(sheet_items()), 6)
+                self.assertEqual(len(role_items("punch")), 1)
+                self.assertEqual(len(role_items("die")), 1)
+
+                # Manual Bend Order (`Move Down` / `Restore Order`) with tools attached
+                panel.move_selected_down()
+                self.assertEqual(panel.session.bend_order, ("B02", "B01"))
+                self.assertGreaterEqual(len(sheet_items()), 6)
+                self.assertEqual(len(role_items("punch")), 1)
+                self.assertEqual(len(role_items("die")), 1)
+
+                panel.restore_order()
+                self.assertEqual(panel.session.bend_order, ("B01", "B02"))
+                self.assertGreaterEqual(len(sheet_items()), 6)
+
+                panel.close()
+
+            # Check ActiveDocument preservation when ToolLibrary25D scans legacy .FCStd tools
+            try:
+                import FreeCAD as App
+                has_fc_app = True
+            except ImportError:
+                has_fc_app = False
+
+            if has_fc_app:
+                l_path = Path("/Users/badmc/Desktop/bend_Seq/L-(ok).FCStd")
+                if l_path.is_file():
+                    user_doc = App.openDocument(str(l_path))
+                    try:
+                        App.setActiveDocument(user_doc.Name)
+                        self.assertEqual(App.ActiveDocument.Name, user_doc.Name)
+                        # Scanning the legacy FCStd tool library must NEVER clobber App.ActiveDocument!
+                        lib_fc = ToolLibrary25D()
+                        tools_fc = lib_fc.list_tools()
+                        self.assertGreaterEqual(len(tools_fc), 2)
+                        self.assertIsNotNone(App.ActiveDocument)
+                        self.assertEqual(App.ActiveDocument.Name, user_doc.Name)
+                    finally:
+                        App.closeDocument(user_doc.Name)
 
 
 if __name__ == "__main__":
