@@ -430,21 +430,56 @@ class BendZoneMathTests(unittest.TestCase):
             pipeline_calls.append((doc, sel))
             raise AssertionError("build_part_session must not be called on empty selection or missing doc")
 
-        # 1) Empty selection with active document: warning returned, pipeline NOT called, session & angle preserved
-        outcome1, sess1, msg1 = execute_load_part(existing_session, _Doc(), [], build_fn=_forbidden_build)
-        self.assertEqual(outcome1, "warning")
-        self.assertIs(sess1, existing_session)
-        self.assertAlmostEqual(sess1.current_angle_deg, 45.0, places=9)
-        self.assertEqual(len(pipeline_calls), 0)
-        self.assertIn("Деталь не выбрана", msg1)
+        # 1) Empty selection with active document: warning returned, pipeline NOT called,
+        # FreeCAD.Console NOT called, session & angle preserved
+        from unittest.mock import MagicMock, patch
+        import sys
+        import freecad_smbs.commands.pressbrake_2d as pb2d
 
-        # 2) Missing document: warning returned, pipeline NOT called, session & angle preserved
-        outcome2, sess2, msg2 = execute_load_part(existing_session, None, ["dummy"], build_fn=_forbidden_build)
-        self.assertEqual(outcome2, "warning")
-        self.assertIs(sess2, existing_session)
-        self.assertAlmostEqual(sess2.current_angle_deg, 45.0, places=9)
-        self.assertEqual(len(pipeline_calls), 0)
-        self.assertIn("Нет открытого документа", msg2)
+        fake_freecad = MagicMock()
+        fake_gui = MagicMock()
+        fake_gui.Selection.getSelection.return_value = []
+        fake_freecad.ActiveDocument = _Doc()
+
+        with patch.dict(sys.modules, {"FreeCAD": fake_freecad, "FreeCADGui": fake_gui}), \
+             patch.object(pb2d, "_log") as mock_log, \
+             patch.object(pb2d, "_warn") as mock_warn, \
+             patch.object(pb2d, "_error") as mock_err:
+            outcome1, sess1, msg1 = execute_load_part(existing_session, _Doc(), [], build_fn=_forbidden_build)
+            self.assertEqual(outcome1, "warning")
+            self.assertIs(sess1, existing_session)
+            self.assertAlmostEqual(sess1.current_angle_deg, 45.0, places=9)
+            self.assertEqual(len(pipeline_calls), 0)
+            self.assertIn("Деталь не выбрана", msg1)
+            mock_log.assert_not_called()
+            mock_warn.assert_not_called()
+            mock_err.assert_not_called()
+            fake_freecad.Console.PrintMessage.assert_not_called()
+            fake_freecad.Console.PrintWarning.assert_not_called()
+            fake_freecad.Console.PrintError.assert_not_called()
+
+            # 2) Missing document: warning returned, pipeline NOT called, FreeCAD.Console NOT called
+            outcome2, sess2, msg2 = execute_load_part(existing_session, None, ["dummy"], build_fn=_forbidden_build)
+            self.assertEqual(outcome2, "warning")
+            self.assertIs(sess2, existing_session)
+            self.assertAlmostEqual(sess2.current_angle_deg, 45.0, places=9)
+            self.assertEqual(len(pipeline_calls), 0)
+            self.assertIn("Нет открытого документа", msg2)
+            mock_log.assert_not_called()
+            mock_warn.assert_not_called()
+            mock_err.assert_not_called()
+            fake_freecad.Console.PrintMessage.assert_not_called()
+            fake_freecad.Console.PrintWarning.assert_not_called()
+            fake_freecad.Console.PrintError.assert_not_called()
+
+        # Verify that even when _log / _warn / _error are called, they NEVER invoke FreeCAD.Console
+        with patch.dict(sys.modules, {"FreeCAD": fake_freecad, "FreeCADGui": fake_gui}):
+            pb2d._log("diagnostic test")
+            pb2d._warn("warning test")
+            pb2d._error("error test")
+            fake_freecad.Console.PrintMessage.assert_not_called()
+            fake_freecad.Console.PrintWarning.assert_not_called()
+            fake_freecad.Console.PrintError.assert_not_called()
 
         # 3) Unexpected error during build: error returned, previous session STILL preserved
         def _failing_build(doc, sel):
@@ -474,6 +509,71 @@ class BendZoneMathTests(unittest.TestCase):
         self.assertEqual(outcome4, "loaded")
         self.assertIs(sess4, new_session)
         self.assertIn("New_Loaded_Part", msg4)
+
+        # 5) Verify Panel.load_part() does NOT touch timer, scene, draw, fit, or operations on warning
+        mock_qt_core = MagicMock()
+        mock_qt_gui = MagicMock()
+        mock_qt_widgets = MagicMock()
+
+        class _DummyWidget:
+            ScrollHandDrag = 1
+            def __init__(self, *args, **kwargs):
+                pass
+            def setMinimumWidth(self, *args):
+                pass
+            def setMinimumHeight(self, *args):
+                pass
+            def setRenderHint(self, *args):
+                pass
+            def setDragMode(self, *args):
+                pass
+            def setHorizontalScrollBarPolicy(self, *args):
+                pass
+            def setVerticalScrollBarPolicy(self, *args):
+                pass
+            def setScene(self, *args):
+                pass
+
+        mock_qt_widgets.QWidget = _DummyWidget
+        mock_qt_widgets.QGraphicsView = _DummyWidget
+
+        with patch.object(pb2d, "_qt", return_value=(mock_qt_core, mock_qt_gui, mock_qt_widgets)), \
+             patch.dict(sys.modules, {"FreeCAD": fake_freecad, "FreeCADGui": fake_gui}):
+            panel = pb2d._PreviewPanel()
+            panel.session = existing_session
+            panel.angle = 45.0
+            panel.playing = True
+            panel.timer = MagicMock()
+            panel.scene = MagicMock()
+            panel.operations = MagicMock()
+            panel.draw = MagicMock()
+            panel.fit = MagicMock()
+            panel._populate_operations = MagicMock()
+            panel._configure_for_active_bend = MagicMock()
+            panel._set_playback_controls_enabled = MagicMock()
+            panel.status = MagicMock()
+            panel.check_result = MagicMock()
+
+            # Simulate 5 consecutive clicks on "Деталь" with empty selection
+            for _ in range(5):
+                panel.load_part()
+
+            self.assertIs(panel.session, existing_session)
+            self.assertEqual(panel.angle, 45.0)
+            self.assertTrue(panel.playing)
+            panel.timer.stop.assert_not_called()
+            panel.scene.clear.assert_not_called()
+            panel.operations.clear.assert_not_called()
+            panel.draw.assert_not_called()
+            panel.fit.assert_not_called()
+            panel._populate_operations.assert_not_called()
+            panel._configure_for_active_bend.assert_not_called()
+            panel._set_playback_controls_enabled.assert_not_called()
+            panel.check_result.setText.assert_not_called()
+            self.assertEqual(panel.status.setText.call_count, 5)
+            fake_freecad.Console.PrintMessage.assert_not_called()
+            fake_freecad.Console.PrintWarning.assert_not_called()
+            fake_freecad.Console.PrintError.assert_not_called()
 
 
 if __name__ == "__main__":

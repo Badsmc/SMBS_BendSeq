@@ -8,15 +8,41 @@ Uses the existing 2.5D pipeline without introducing a second geometry engine:
 """
 from __future__ import annotations
 
+import logging
 import math
 import traceback
 from dataclasses import dataclass
+from pathlib import Path
 
 from smbs_core.kinematics2d.panel_graph import PanelGraph, graph_from_panel_build
 from smbs_core.kinematics2d.panel_kinematics import FoldState, KinematicsError
 
 _DOCK = None
 _SLIDER_SCALE = 10  # 0.1 degree slider resolution
+_LOGGER: logging.Logger | None = None
+_LOG_FILE_PATH = Path.home() / "Library" / "Application Support" / "FreeCAD" / "v1-1" / "pressbrake_2d.log"
+
+
+def _get_file_logger() -> logging.Logger:
+    """Return a non-blocking file logger decoupled from FreeCAD.Console and Qt NotificationArea."""
+    global _LOGGER
+    if _LOGGER is not None:
+        return _LOGGER
+    logger = logging.getLogger("smbs.pressbrake_2d")
+    logger.setLevel(logging.INFO)
+    logger.propagate = False
+    if not logger.handlers:
+        try:
+            _LOG_FILE_PATH.parent.mkdir(parents=True, exist_ok=True)
+            handler = logging.FileHandler(str(_LOG_FILE_PATH), encoding="utf-8")
+            handler.setFormatter(
+                logging.Formatter("%(asctime)s [%(levelname)s] %(message)s")
+            )
+            logger.addHandler(handler)
+        except OSError:
+            logger.addHandler(logging.NullHandler())
+    _LOGGER = logger
+    return logger
 
 
 def _qt():
@@ -34,26 +60,26 @@ def _qt():
 
 
 def _log(message):
+    """Write diagnostic message to file log without invoking FreeCAD.Console / NotificationArea."""
     try:
-        import FreeCAD
-        FreeCAD.Console.PrintMessage("[PressBrake2D] " + str(message) + "\n")
-    except ImportError:
+        _get_file_logger().info("%s", message)
+    except Exception:
         pass
 
 
 def _warn(message):
+    """Write warning to file log without invoking FreeCAD.Console.PrintWarning (avoids NotificationArea deadlock)."""
     try:
-        import FreeCAD
-        FreeCAD.Console.PrintWarning("[PressBrake2D] " + str(message) + "\n")
-    except ImportError:
+        _get_file_logger().warning("%s", message)
+    except Exception:
         pass
 
 
 def _error(message):
+    """Write unexpected error to file log without triggering FreeCAD NotificationArea popup deadlock."""
     try:
-        import FreeCAD
-        FreeCAD.Console.PrintError("[PressBrake2D] " + str(message) + "\n")
-    except ImportError:
+        _get_file_logger().error("%s", message)
+    except Exception:
         pass
 
 
@@ -93,21 +119,17 @@ def execute_load_part(
       - "loaded": new LoadedPartSession built and returned.
       - "error": unexpected error during build; current_session is preserved.
     """
-    _log("load_part: enter")
     try:
         sel_list = validate_selection_preconditions(doc, selection)
     except SelectionWarning as warn_exc:
-        msg = str(warn_exc)
-        _warn(msg)
-        _log("load_part: exit (selection warning, session preserved)")
-        return "warning", current_session, msg
+        return "warning", current_session, str(warn_exc)
 
+    _log("load_part: enter")
     builder = build_part_session if build_fn is None else build_fn
     try:
         new_session = builder(doc, sel_list)
     except SelectionWarning as warn_exc:
         msg = str(warn_exc)
-        _warn(msg)
         _log("load_part: exit (selection warning, session preserved)")
         return "warning", current_session, msg
     except Exception as exc:
@@ -488,6 +510,9 @@ class _PreviewPanel:
 
                 # Early precondition check BEFORE touching timer, session, controls, or scene
                 outcome, new_session, msg = execute_load_part(self.session, doc, selection)
+                if outcome == "warning":
+                    self.status.setText(msg)
+                    return
                 if outcome != "loaded":
                     self.status.setText(msg)
                     self.check_result.setText(msg)
