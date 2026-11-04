@@ -333,10 +333,15 @@ class PressCycleController:
                 or not self.tooling.aligned or self.tooling.die is None):
             return
         try:
-            from .workpiece_pose_2d import machine_pose_for_cycle
+            from .workpiece_pose_2d import (
+                machine_pose_for_cycle, upper_zone_at_machine_axis
+            )
             pose = machine_pose_for_cycle(sec, self, self.tooling)
             heights = [z for _s, z in pose.points(sec["zone_polygon"])]
-            self.sheet_top_z_mm = max(heights)
+            axis = self.tooling.die_v_center_machine()
+            if axis is None:
+                return
+            self.sheet_top_z_mm = upper_zone_at_machine_axis(sec, pose, axis[0])
             self.sheet_bottom_z_mm = min(heights)
             self.contact_z_mm = self.sheet_top_z_mm
             self.upper_z_mm = self.contact_z_mm + float(self.config.initial_clearance_mm)
