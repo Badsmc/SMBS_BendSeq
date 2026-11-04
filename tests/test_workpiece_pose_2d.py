@@ -288,7 +288,7 @@ class WorkpiecePoseTests(unittest.TestCase):
                 sec["zone_polygon"] = ((-1., 0.), (1., 0.), (1., -2.), (-1., -2.))
                 pose = machine_pose_for_cycle(sec, Cycle(), Tooling())
                 expected_rotation = (
-                    180.0 + abs(angle) / 2.0 if angle < 0 else -angle / 2.0
+                    -180.0 + abs(angle) / 2.0 if angle < 0 else -angle / 2.0
                 )
                 self.assertAlmostEqual(pose.rotation_deg, expected_rotation, places=7)
                 fixed = pose.points((sec["fixed_polygon"][1], sec["fixed_polygon"][0]))
