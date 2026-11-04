@@ -301,24 +301,119 @@ def machine_pose_for_cycle(
     )
 
 
-def animated_machine_pose_for_cycle(section, cycle, tooling):
-    """Compute active bend pose plus optional between-bend handling motion.
+def remap_section_to_reference(section, from_zone, reference_zone):
+    """Convert an entire active cross-section to a persistent sheet axis.
 
-    The workpiece is translated, lifted and turned as a single rigid object;
-    FoldState angles and the tooling coordinate system remain untouched.
+    The bend-axis directions must be parallel. A 2D cross-section of bends
+    about different axes is not an honest representation: reject it.
+    This is only a coordinate basis conversion; no sheet shape or angle moves.
+    """
+    def axis(zone):
+        v = zone.left_xy
+        mul = 1.0 if getattr(zone, "moving_left", False) else -1.0
+        # moving_left is on BendRecord, not BendZone: the caller passes
+        # prepared (zone, side) pairs when necessary.
+        return (float(v[0]) * mul, float(v[1]) * mul)
+
+    if isinstance(from_zone, tuple):
+        src, src_side = from_zone
+    else:
+        src, src_side = from_zone, 1.0
+    if isinstance(reference_zone, tuple):
+        ref, ref_side = reference_zone
+    else:
+        ref, ref_side = reference_zone, 1.0
+
+    us = (src.left_xy[0] * src_side, src.left_xy[1] * src_side)
+    ur = (ref.left_xy[0] * ref_side, ref.left_xy[1] * ref_side)
+    n1, n2 = hypot(*us), hypot(*ur)
+    if min(n1, n2) < 1e-9:
+        raise WorkpiecePoseError("Invalid bend section axis")
+    us, ur = (us[0]/n1,us[1]/n1),(ur[0]/n2,ur[1]/n2)
+    sign = us[0]*ur[0]+us[1]*ur[1]
+    if abs(sign) < 0.999:
+        raise WorkpiecePoseError("NONPARALLEL_BEND_AXES: no shared 2.5D projection")
+    offset = ((src.origin_xy[0]-ref.origin_xy[0])*ur[0]
+              +(src.origin_xy[1]-ref.origin_xy[1])*ur[1])
+    def map_point(pt):
+        return (sign*float(pt[0])+offset, float(pt[1]))
+    result = dict(section)
+    for key in _SINGLE_POLYGONS:
+        if key in section:
+            result[key] = tuple(map_point(p) for p in section[key])
+    for key in _NAMED_POLYGONS:
+        if key in section:
+            result[key] = tuple(
+                (ident, tuple(map_point(p) for p in points))
+                for ident, points in section[key]
+            )
+    for key in _CURVE_GROUPS:
+        if key in section:
+            result[key] = tuple(
+                tuple(map_point(p) for p in points) for points in section[key]
+            )
+    for key in _LINE_GROUPS:
+        if key in section:
+            result[key] = tuple((map_point(a),map_point(b)) for a,b in section[key])
+    return result
+
+
+def _origin_translation(pose):
+    """Affine origin offset for the rigid WorkpiecePose2D rotation."""
+    a = radians(pose.rotation_deg)
+    px,pz = pose.pivot
+    return (
+        px + pose.shift[0] - cos(a)*px + sin(a)*pz,
+        pz + pose.shift[1] - sin(a)*px - cos(a)*pz,
+    )
+
+
+def interpolate_rigid_placement(start, end, fraction, clearance_mm=0.0):
+    """Rigid continuous transition between two machine-space sheet poses.
+
+    Both endpoints are exact; no frame reset or interpolated sheet geometry.
+    During transit the same complete FoldState shape is rotated/translated.
+    """
+    t = max(0.0,min(1.0,float(fraction)))
+    if not isfinite(t) or clearance_mm < 0 or not isfinite(clearance_mm):
+        raise WorkpiecePoseError("Invalid transfer interpolation")
+    if t <= 0.0:
+        return start
+    if t >= 1.0:
+        return end
+    ease=lambda x: x*x*(3.0-2.0*x)
+    f=ease(t)
+    a0 = float(start.rotation_deg)
+    diff = (float(end.rotation_deg)-a0+180.0)%360.0-180.0
+    # For exact opposite orientation explicitly retain the positive flip.
+    if abs(abs(diff)-180.0)<1e-7:
+        diff = 180.0
+    angle = a0 + diff*f
+    x0,z0=_origin_translation(start)
+    x1,z1=_origin_translation(end)
+    # Smooth vertical clearance rises/falls to zero at both endpoints.
+    lift = clearance_mm * sin(3.141592653589793*t)**2
+    return WorkpiecePose2D(
+        rotation_deg=angle,
+        shift=(x0+(x1-x0)*f, z0+(z1-z0)*f+lift),
+        mode="RIGID_CONTINUOUS_WORKPIECE_TRANSFER",
+    )
+
+
+def animated_machine_pose_for_cycle(section, cycle, tooling, next_section=None):
+    """Active machine pose or continuous sheet transfer to next bend placement.
+
+    The next_section MUST already be expressed in the same fixed sheet frame.
     """
     pose = machine_pose_for_cycle(section, cycle, tooling)
     phase = getattr(getattr(cycle, "phase", None), "value", getattr(cycle, "phase", None))
     if phase != "TRANSFER":
         return pose
-    feed_s, lift_z, extra_deg = cycle.transfer_motion
-    if not all(isfinite(v) for v in (feed_s, lift_z, extra_deg)):
-        raise WorkpiecePoseError("Nonfinite simulated workpiece handling motion")
-    return replace(
-        pose,
-        rotation_deg=pose.rotation_deg + extra_deg,
-        shift=(pose.shift[0] + feed_s, pose.shift[1] + lift_z),
-        mode=pose.mode + "_ANIMATED_HANDLING_PREVIEW",
+    if next_section is None:
+        raise WorkpiecePoseError("TRANSFER_TARGET_MISSING: next bend pose not supplied")
+    end_pose = machine_pose_for_cycle(next_section, cycle, tooling)
+    return interpolate_rigid_placement(
+        pose, end_pose, cycle.transfer_progress, cycle.transfer_lift_mm
     )
 
 
