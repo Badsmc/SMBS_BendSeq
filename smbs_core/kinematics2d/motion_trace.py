@@ -14,6 +14,15 @@ from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 
+# The installed FreeCAD add-on declares __version__ independently of the
+# s m b s core distribution metadata. It is the project version reported by
+# the GUI. Never read Git metadata, as add-ons can be installed without .git.
+try:
+    from freecad_smbs import __version__ as _PROJECT_VERSION
+except ImportError:
+    _PROJECT_VERSION = None
+
+
 
 def _rounded(value):
     if isinstance(value, float):
@@ -127,8 +136,12 @@ def make_frame_record(*, session, press_cycle, execution_mode, section, pose,
 class MotionTraceRecorder:
     """Buffered JSONL trace with deterministic event/jump summary."""
 
-    def __init__(self, directory, *, jump_mm=2.0, max_frames=200000):
+    def __init__(self, directory, *, jump_mm=2.0, max_frames=200000,
+                 project_version=None, build_id=None, project_channel="2D"):
         self.directory = Path(directory).expanduser()
+        self.project_version = str(project_version or _PROJECT_VERSION or "UNKNOWN")
+        self.project_channel = str(project_channel)
+        self.build_id = str(build_id or "UNKNOWN")
         self.jump_mm = float(jump_mm)
         if not math.isfinite(self.jump_mm) or self.jump_mm <= 0:
             raise ValueError("jump_mm must be positive and finite")
@@ -157,7 +170,10 @@ class MotionTraceRecorder:
         self.events.clear()
         self.warnings.clear()
         self._previous = None
-        self.event("TRACE_STARTED",path=str(self.path))
+        self.event("TRACE_STARTED", path=str(self.path),
+                   project_version=self.project_version,
+                   project_channel=self.project_channel,
+                   build_id=self.build_id)
         self.flush()
         return self.path
 
@@ -264,6 +280,9 @@ class MotionTraceRecorder:
         self._file = None
         summary = {
             "schema":"pressbrake-motion-trace-v1",
+            "project_version":self.project_version,
+            "project_channel":self.project_channel,
+            "build_id":self.build_id,
             "trace_jsonl":str(self.path),
             "frames":self.frames,
             "counts":dict(self.events),
