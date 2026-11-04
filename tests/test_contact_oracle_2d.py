@@ -10,6 +10,7 @@ from smbs_core.kinematics2d.contact_oracle_2d import (
     ContactStatus,
     check_machine_section,
     classify_polygon_contact,
+    check_sheet_tooling_preview,
 )
 
 
@@ -94,6 +95,33 @@ class ContactOracle2DTests(unittest.TestCase):
         self.assertTrue(any(x.tool=="DIE" and x.sheet_component=="P02" and
                             x.status==ContactStatus.INTERFERENCE
                             for x in report.findings))
+
+    def test_real_machine_section_adapter_checks_all_sheet_panels(self):
+        class Tooling:
+            aligned=True
+            def punch_polygons_machine(self,arc_segments=24):
+                return rect(-2,4,2,6),()
+            def die_polygons_machine(self,arc_segments=24):
+                return rect(-2,-2,2,0),()
+        section={
+            "fixed_polygon":rect(-2,1,0,2),
+            "moving_polygon":rect(0,1,2,2),
+            "zone_polygon":rect(-0.5,0,0.5,1),
+            "other_panel_polygons":(("P03",rect(-2,5,-1,6)),),
+            "other_zone_polygons":(),
+        }
+        report=check_sheet_tooling_preview(section,Tooling())
+        self.assertEqual(report.status,ContactStatus.INTERFERENCE)
+        self.assertTrue(any(x.sheet_component=="P03" and x.tool=="PUNCH"
+                            and x.status==ContactStatus.INTERFERENCE
+                            for x in report.findings))
+
+    def test_unaligned_tooling_is_never_declared_clear(self):
+        class Tooling:
+            aligned=False
+        section={"fixed_polygon":rect(0,0,1,1)}
+        report=check_sheet_tooling_preview(section,Tooling())
+        self.assertEqual(report.status,ContactStatus.UNVERIFIED)
 
     def test_missing_tool_is_unverified_not_pass(self):
         report=check_machine_section(
