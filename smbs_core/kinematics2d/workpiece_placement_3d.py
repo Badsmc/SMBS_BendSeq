@@ -147,6 +147,7 @@ class WorkpiecePlacement3D:
         active_bend_id: str,
         desired_midpoint_xm: float = 0.0,
         support_plane_zm: float = 0.0,
+        align_bisector: bool = False,
     ) -> PlacementTransform3D:
         """Compute rigid 3D placement mapping Part Space -> Machine Space for `active_bend_id`.
 
@@ -154,6 +155,8 @@ class WorkpiecePlacement3D:
         - Active bend line aligns with Machine X_m axis `(1.0, 0.0, 0.0)`.
         - Midpoint of active bend line is placed at `X_m = desired_midpoint_xm`.
         - Active bend line rests at `Y_m = 0.0, Z_m = support_plane_zm`.
+        - When `align_bisector=True`, the bend angle bisector aligns with Machine +Z_m
+          for symmetric flange rotation during V-die air-bending.
         - Proper right-handed rigid transform: det(R) = +1.0.
         """
         p0_world, p1_world, u_axis = WorkpiecePlacement3D.get_world_bend_axis(fold_state, active_bend_id)
@@ -164,16 +167,33 @@ class WorkpiecePlacement3D:
         )
 
         bend = fold_state.bends[active_bend_id]
-        p_tf = fold_state.transforms[bend.fixed_panel]
+        p_fixed = fold_state.transforms[bend.fixed_panel]
+        p_moving = fold_state.transforms[bend.moving_panel]
 
-        # In unfolded/flat state panel normal is Z = (0, 0, 1). Rotate normal through fixed_panel transform
-        fixed_norm_world = _mat_vec(
-            p_tf.rotation,  # type: ignore[arg-type]
-            (0.0, 0.0, 1.0),
-        )
+        # In unfolded/flat state panel normal is Z = (0, 0, 1)
+        fixed_norm_world = _mat_vec(p_fixed.rotation, (0.0, 0.0, 1.0))
+        moving_norm_world = _mat_vec(p_moving.rotation, (0.0, 0.0, 1.0))
 
-        # Cross-section transverse direction: v_cross = n_world x u_axis
-        v_cross = _vec_cross(fixed_norm_world, u_axis)
+        if align_bisector:
+            # Bisector between adjacent fixed and moving panels.
+            # When bend angle is non-zero, aligning the bisector with Machine Z_m
+            # produces symmetric upward rise for both flanges in the V-die.
+            sign = 1.0 if getattr(bend.bend_zone, "fold_angle_deg", 90.0) >= 0.0 else -1.0
+            sum_norm = (
+                sign * (fixed_norm_world[0] + moving_norm_world[0]),
+                sign * (fixed_norm_world[1] + moving_norm_world[1]),
+                sign * (fixed_norm_world[2] + moving_norm_world[2]),
+            )
+            norm_len = _vec_norm(sum_norm)
+            if norm_len < 1e-6:
+                n_ref = fixed_norm_world
+            else:
+                n_ref = (sum_norm[0] / norm_len, sum_norm[1] / norm_len, sum_norm[2] / norm_len)
+        else:
+            n_ref = fixed_norm_world
+
+        # Cross-section transverse direction: v_cross = n_ref x u_axis
+        v_cross = _vec_cross(n_ref, u_axis)
         if _vec_norm(v_cross) < 1e-6:
             # Fallback if axis is parallel to normal (should not occur in SheetMetal)
             temp = (0.0, 1.0, 0.0) if abs(u_axis[1]) < 0.9 else (1.0, 0.0, 0.0)

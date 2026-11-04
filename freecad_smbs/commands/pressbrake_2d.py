@@ -695,6 +695,7 @@ class _PreviewPanel:
                 pc_layout.addLayout(pc_row2)
                 root.addWidget(self.press_cycle_group)
 
+                self._auto_select_default_tooling()
                 self._refresh_tooling_combos()
 
                 self.view = Canvas()
@@ -1232,6 +1233,34 @@ class _PreviewPanel:
 
             def unavailable(self):
                 pass  # Disabled controls for Phase 5B/6 features.
+
+            def _auto_select_default_tooling(self):
+                """Auto-select verified default tooling (puancon / matrica) if none selected."""
+                if self.tooling_setup.punch is not None and self.tooling_setup.die is not None:
+                    return
+                try:
+                    tools = self.tool_library.list_tools()
+                    for t in tools:
+                        if t.validation_status != ValidationStatus.INVALID:
+                            if self.tooling_setup.punch is None and t.kind == ToolKind.PUNCH:
+                                if "puancon" in t.tool_id.lower() or "punch" in t.tool_id.lower():
+                                    self.tooling_setup.select_punch(t)
+                            if self.tooling_setup.die is None and t.kind == ToolKind.DIE:
+                                if "matrica" in t.tool_id.lower() or "die" in t.tool_id.lower():
+                                    self.tooling_setup.select_die(t)
+                    if self.tooling_setup.punch is None:
+                        for t in tools:
+                            if t.kind == ToolKind.PUNCH and t.validation_status != ValidationStatus.INVALID:
+                                self.tooling_setup.select_punch(t)
+                                break
+                    if self.tooling_setup.die is None:
+                        for t in tools:
+                            if t.kind == ToolKind.DIE and t.validation_status != ValidationStatus.INVALID:
+                                self.tooling_setup.select_die(t)
+                                break
+                    self._update_tooling_status_label()
+                except Exception as exc:
+                    _warn(f"Failed to auto-select tooling: {exc}")
 
             def _refresh_tooling_combos(self):
                 try:
