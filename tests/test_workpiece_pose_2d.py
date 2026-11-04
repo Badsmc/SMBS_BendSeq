@@ -79,12 +79,16 @@ class WorkpiecePoseTests(unittest.TestCase):
                     section, WorkpiecePose2D(rotation_deg=73.0)
                 )
                 actual_pose = symmetric_v_pose(rotated)
+                expected_origin = initial_pose.apply(section["neutral_curve"][1])
+                observed_origin = actual_pose.apply(rotated["neutral_curve"][1])
                 for key in ("fixed_polygon", "moving_polygon"):
                     expected = initial_pose.points(section[key])
                     observed = actual_pose.points(rotated[key])
                     for a_pt, b_pt in zip(expected, observed):
-                        self.assertAlmostEqual(a_pt[0], b_pt[0], places=7)
-                        self.assertAlmostEqual(a_pt[1], b_pt[1], places=7)
+                        self.assertAlmostEqual(a_pt[0]-expected_origin[0],
+                                               b_pt[0]-observed_origin[0], places=7)
+                        self.assertAlmostEqual(a_pt[1]-expected_origin[1],
+                                               b_pt[1]-observed_origin[1], places=7)
 
     def test_machine_pose_follows_ram_only_during_bending(self):
         class Cycle:
