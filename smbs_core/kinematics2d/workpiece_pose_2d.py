@@ -396,14 +396,20 @@ def _origin_translation(pose):
     )
 
 def interpolate_rigid_placement(start, end, fraction, clearance_mm=0.0):
-    """Rigid continuous transition between two machine-space sheet poses.
+    """Continuous view transition between two machine-space sheet poses.
 
-    Both endpoints are exact; no frame reset or interpolated sheet geometry.
-    During transit the same complete FoldState shape is rotated/translated.
+    Both endpoints are exact. If the face changes, the middle frames are a
+    projected 3D roll (not a true rigid transform in the 2D viewing plane).
+    Do not send these intermediate 2D shapes to a collision validator.
     """
-    t = max(0.0,min(1.0,float(fraction)))
-    if not isfinite(t) or clearance_mm < 0 or not isfinite(clearance_mm):
+    try:
+        raw_fraction = float(fraction)
+        clearance = float(clearance_mm)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise WorkpiecePoseError("Invalid transfer interpolation") from exc
+    if not isfinite(raw_fraction) or not isfinite(clearance) or clearance < 0.0:
         raise WorkpiecePoseError("Invalid transfer interpolation")
+    t = max(0.0, min(1.0, raw_fraction))
     if t <= 0.0:
         return start
     if t >= 1.0:
