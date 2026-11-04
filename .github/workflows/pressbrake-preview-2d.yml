@@ -4,6 +4,8 @@ on:
     branches: ['2D']
     paths:
       - 'smbs_core/kinematics2d/workpiece_pose_2d.py'
+      - 'smbs_core/kinematics2d/contact_oracle_2d.py'
+      - 'tests/test_contact_oracle_2d.py'
       - 'smbs_core/kinematics2d/press_cycle.py'
       - 'freecad_smbs/commands/pressbrake_2d.py'
       - 'smbs_core/kinematics2d/preview_mesh_3d.py'
@@ -26,6 +28,7 @@ jobs:
       - name: Validate source compilation
         run: |
           python -m py_compile smbs_core/kinematics2d/workpiece_pose_2d.py
+          python -m py_compile smbs_core/kinematics2d/contact_oracle_2d.py
           python -m py_compile smbs_core/kinematics2d/press_cycle.py
           python -m py_compile smbs_core/kinematics2d/preview_mesh_3d.py
           python -m py_compile freecad_smbs/commands/pressbrake_2d.py
@@ -33,5 +36,7 @@ jobs:
         run: PYTHONPATH=. python -m unittest discover -s tests -p 'test_workpiece_pose_2d.py' -v
       - name: Inter-bend transport state machine
         run: PYTHONPATH=. python -m unittest discover -s tests -p 'test_workpiece_transfer.py' -v
+      - name: Phase 5C 2D contact oracle
+        run: PYTHONPATH=. python -m unittest discover -s tests -p 'test_contact_oracle_2d.py' -v
       - name: Full-sheet 3D preview
         run: PYTHONPATH=. python -m unittest discover -s tests -p 'test_preview_mesh_3d.py' -v
