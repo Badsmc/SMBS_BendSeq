@@ -68,6 +68,24 @@ class WorkpiecePoseTests(unittest.TestCase):
                     self.assertGreater(fixed_far[0], fixed_near[0])
                     self.assertLess(moving_far[0], moving_near[0])
 
+    def test_folded_neighboring_panels_do_not_require_horizontal_start(self):
+        # Reproduce the screenshot's second-operation condition: existing
+        # FoldState transforms have already rotated the two active flange rays.
+        for angle in (45.0, 90.0, -45.0, -90.0):
+            with self.subTest(angle=angle):
+                section = _section(angle)
+                initial_pose = symmetric_v_pose(section)
+                rotated = transform_sheet_section(
+                    section, WorkpiecePose2D(rotation_deg=73.0)
+                )
+                actual_pose = symmetric_v_pose(rotated)
+                for key in ("fixed_polygon", "moving_polygon"):
+                    expected = initial_pose.points(section[key])
+                    observed = actual_pose.points(rotated[key])
+                    for a_pt, b_pt in zip(expected, observed):
+                        self.assertAlmostEqual(a_pt[0], b_pt[0], places=7)
+                        self.assertAlmostEqual(a_pt[1], b_pt[1], places=7)
+
     def test_machine_pose_follows_ram_only_during_bending(self):
         class Cycle:
             contact_z_mm = 0.0
