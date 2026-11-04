@@ -277,8 +277,7 @@ class WorkpiecePoseTests(unittest.TestCase):
                 sec = _section(angle)
                 sec["zone_polygon"] = ((-1., 0.), (1., 0.), (1., -2.), (-1., -2.))
                 pose = machine_pose_for_cycle(sec, Cycle(), Tooling())
-                self.assertAlmostEqual(pose.rotation_deg, -angle / 2.0
-                                       if angle >= 0 else abs(angle) / 2.0, places=7)
+                self.assertAlmostEqual(pose.rotation_deg, -abs(angle) / 2.0, places=7)
                 fixed = pose.points((sec["fixed_polygon"][1], sec["fixed_polygon"][0]))
                 moving = pose.points((sec["moving_polygon"][0], sec["moving_polygon"][1]))
                 rise_l = math.atan2(fixed[1][1]-fixed[0][1],
