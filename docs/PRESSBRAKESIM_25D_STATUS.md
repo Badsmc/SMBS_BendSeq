@@ -23,6 +23,47 @@ local venv (Python 3.14, no pythonocc). Level C (interactive GUI) NOT performed 
   - 1 × `ImportError: dlopen(.../FreeCAD.so)` when importing compiled FreeCAD binary into system Python 3.14 (`tests/test_fold_multi_bend.py`).
   - 1 × `ImportError: cannot import name 'SELF_COLLISION_GAP_TOL_MM' from 'smbs_core.Physics.collision_detector'` (`tests/test_self_collision_panels.py`, defect D2 from `0d4c071`).
 
+## Phase 5B debug: full motion recording (JSONL + event summary)
+
+A read-only motion tracer is now available in the **Настройки** tab of the
+PressBrakeSim workspace:
+
+1. Load the part and tooling, choose `Full Cycle`.
+2. Enable **Записывать все движения в JSONL (отладка)**.
+3. Click **Play All**. The trace begins automatically and captures every
+   rendered frame in the same 2.5D machine-space geometry actually shown in
+   the viewer (no second physics/kinematics computation).
+4. Reproduce the issue on L/Z/U or the 10-bend part. Pause/resume normally.
+5. When playback completes, a `.summary.json` is written automatically;
+   alternatively click **Завершить трассу и отчёт**, Reset, reload the part or
+   close the workspace. The trace remains accessible on disk.
+
+**Files:** under the existing logging directory,
+`~/Library/Application Support/FreeCAD/v1-1/pressbrake_traces/` on the
+current macOS FreeCAD setup. Each run gets a unique timestamped
+`pressbrake_YYYYMMDDTHHMMSS_microsecondsZ.jsonl` and adjacent
+`.summary.json`. The settings tab displays the exact path.
+
+The trace captures a machine-coordinate position and full panel/bend-zone
+polygons for each rendered frame, real recorded ram and tool datum coordinates,
+all signed FoldState bend angles, canonical and user bend orders, cycle phase,
+progress, actual WorkpiecePose fields (translation/rotation/roll), pose warnings,
+time delta and scene rectangle. It logs `BEND_SWITCH`, `PHASE_CHANGE`,
+`SCENE_RECT_CHANGED`, `POSE_UNSUPPORTED`, `POSITION_JUMP`, and user
+pause/resume/reset events. `POSITION_JUMP` compares matching sheet landmark
+positions between consecutive actual rendering frames; default >2 mm
+(also >0.05 mm at an active-bend change), to flag suspicious discontinuities,
+not to assert that all fast movement is impossible.
+
+The recorder is opt-in and adds **no timer**, changes no FoldState, FreeCAD
+document, tooling geometry or playback control. Logging exceptions should
+be reported in settings and should not block the simulator. It is a debug
+facility, not an inference of physical validity or a collision detector.
+The original `pressbrake_2d.log` is retained alongside separate motion traces.
+
+**Acceptance:** source + headless unit tests added and CI workflow extended,
+but **real FreeCAD GUI and CI PASS remain unconfirmed**. Phase 5B remains open.
+
 ## Phase 5B stabilization checkpoint — immutable reference and continuous projected roll
 
 **User authorization:** proceed with Phase 5B stabilization; the user has **not approved** the prior Phase 5B releases.
