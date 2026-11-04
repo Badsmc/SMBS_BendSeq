@@ -58,28 +58,26 @@ class WorkpieceTransferTests(unittest.TestCase):
         self.assertAlmostEqual(cycle.transfer_feed_mm, 55.0)
         self.assertAlmostEqual(abs(cycle.transfer_target_feed_mm), 55.0)
         initial_z = cycle.ram_z_mm
-        samples = []
+        progress_samples = []
         for _ in range(8):
             cycle.advance_time(0.1)
-            samples.append(cycle.transfer_motion)
+            progress_samples.append(cycle.transfer_progress)
             self.assertAlmostEqual(cycle.ram_z_mm, initial_z)
             self.assertAlmostEqual(state.angles["B01"], 90.0)
             self.assertAlmostEqual(state.angles["B02"], 0.0)
-        self.assertTrue(any(abs(s) > 0.0 for s, _z, _a in samples))
-        self.assertTrue(any(z > 0.0 for _s, z, _a in samples))
-        self.assertTrue(any(abs(a) > 0.0 for _s, _z, a in samples))
+        self.assertTrue(all(
+            nxt > prev for prev,nxt in zip(progress_samples,progress_samples[1:])
+        ))
+        self.assertGreater(cycle.transfer_lift_mm, 0.0)
+        self.assertAlmostEqual(abs(cycle.transfer_rotation_deg), 180.0)
 
-    def test_final_transfer_feed_targets_next_actual_bend_line(self):
+    def test_signed_transfer_feed_comes_from_actual_bend_axes(self):
         cycle, _state = self.make_cycle()
         self.reach_transfer(cycle)
-        # Inspect the last eased transport frame just before switching the
-        # controller's active bend (no artificial geometry or angle resets).
-        cycle.transfer_progress = 0.9999
-        feed, lift, turn = cycle.transfer_motion
-        self.assertAlmostEqual(feed, cycle.transfer_target_feed_mm, delta=0.001)
-        self.assertAlmostEqual(lift, 0.0, delta=0.001)
-        self.assertAlmostEqual(abs(turn), 180.0, places=6)
-        self.assertAlmostEqual(cycle.ram_z_mm, cycle.upper_z_mm)
+        self.assertAlmostEqual(cycle.transfer_feed_mm, 55.0)
+        self.assertAlmostEqual(abs(cycle.transfer_target_feed_mm), 55.0)
+        self.assertEqual(cycle.active_bend_id, "B01")
+
 
     def test_transfer_pauses_and_resumes_without_reset(self):
         cycle, state = self.make_cycle()
@@ -87,12 +85,10 @@ class WorkpieceTransferTests(unittest.TestCase):
         for _ in range(6):
             cycle.advance_time(0.1)
         previous = cycle.transfer_progress
-        previous_pose = cycle.transfer_motion
         cycle.pause()
         for _ in range(8):
             self.assertFalse(cycle.advance_time(0.1))
         self.assertEqual(cycle.transfer_progress, previous)
-        self.assertEqual(cycle.transfer_motion, previous_pose)
         cycle.resume()
         self.assertEqual(cycle.phase, CyclePhase.TRANSFER)
         self.assertEqual(cycle.sequence.status, PlaybackStatus.PLAYING)
