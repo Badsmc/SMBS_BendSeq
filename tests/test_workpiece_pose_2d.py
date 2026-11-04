@@ -62,11 +62,11 @@ class WorkpiecePoseTests(unittest.TestCase):
                     math.dist(fixed_far, fixed_near),
                     places=8,
                 )
-                self.assertFalse(pose.mirror_z)
+                self.assertEqual(pose.mirror_z, angle < 0)
                 if angle < 0:
-                    self.assertIn("RIGID_180_DEG", pose.mode)
-                    self.assertGreater(fixed_far[0], fixed_near[0])
-                    self.assertLess(moving_far[0], moving_near[0])
+                    self.assertIn("180_DEG_SHEET_ROLL", pose.mode)
+                else:
+                    self.assertIn("RIGID_UPWARD_V_PRESENTATION", pose.mode)
 
     def test_folded_neighboring_panels_do_not_require_horizontal_start(self):
         # Reproduce the screenshot's second-operation condition: existing
@@ -89,6 +89,21 @@ class WorkpiecePoseTests(unittest.TestCase):
                                                b_pt[0]-observed_origin[0], places=7)
                         self.assertAlmostEqual(a_pt[1]-expected_origin[1],
                                                b_pt[1]-observed_origin[1], places=7)
+
+    def test_orient_upward_v_after_arbitrary_previous_bend_rotation(self):
+        for angle in (45.0, 90.0, -45.0, -90.0):
+            with self.subTest(angle=angle):
+                section = _section(angle)
+                transformed = transform_sheet_section(
+                    section, WorkpiecePose2D(rotation_deg=73.0, shift=(20.0, 6.0))
+                )
+                pose = symmetric_v_pose(transformed)
+                fixed = pose.points(transformed["fixed_polygon"][:2])
+                moving = pose.points(transformed["moving_polygon"][:2])
+                # Both outer flange endpoints must point upward in MACHINE view
+                self.assertGreaterEqual(fixed[0][1] - fixed[1][1], -1e-7)
+                self.assertGreaterEqual(moving[1][1] - moving[0][1], -1e-7)
+                self.assertEqual(pose.mirror_z, angle < 0)
 
     def test_machine_pose_follows_ram_only_during_bending(self):
         class Cycle:
@@ -309,10 +324,8 @@ class WorkpiecePoseTests(unittest.TestCase):
                 sec = _section(angle)
                 sec["zone_polygon"] = ((-1., 0.), (1., 0.), (1., -2.), (-1., -2.))
                 pose = machine_pose_for_cycle(sec, Cycle(), Tooling())
-                expected_rotation = (
-                    -180.0 + abs(angle) / 2.0 if angle < 0 else -angle / 2.0
-                )
-                self.assertAlmostEqual(pose.rotation_deg, expected_rotation, places=7)
+                self.assertAlmostEqual(pose.rotation_deg, -abs(angle) / 2.0, places=7)
+                self.assertEqual(pose.mirror_z, angle < 0)
                 fixed = pose.points((sec["fixed_polygon"][1], sec["fixed_polygon"][0]))
                 moving = pose.points((sec["moving_polygon"][0], sec["moving_polygon"][1]))
                 rises = [
