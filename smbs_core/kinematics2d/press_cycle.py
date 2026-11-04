@@ -157,6 +157,7 @@ class PressCycleController:
         tooling_setup: ToolingSetup2D,
         config: Optional[CycleConfig] = None,
         cross_section_provider: Optional[Callable[[], Optional[Dict[str, Any]]]] = None,
+        follow_sheet_contact_preview: bool = False,
     ) -> None:
         if not isinstance(sequence_controller, BendSequenceController):
             raise PressCycleError("sequence_controller must be a BendSequenceController instance")
@@ -168,6 +169,10 @@ class PressCycleController:
         self.config: CycleConfig = config or CycleConfig()
         self.execution_mode: CycleExecutionMode = CycleExecutionMode.FULL_CYCLE
         self._cross_section_provider = cross_section_provider
+        # Opt-in GUI-only geometric contact preview; existing headless
+        # programmable-stroke controller tests retain their previous contract.
+        self.follow_sheet_contact_preview = bool(follow_sheet_contact_preview)
+        self.contact_tracking_status = "PROGRAMMED_PREVIEW_STROKE"
 
         self.phase: CyclePhase = CyclePhase.IDLE
         self.contact_kind: ContactBoundaryKind = ContactBoundaryKind.ASSUMED_CONTACT
@@ -341,6 +346,37 @@ class PressCycleController:
             # The renderer explicitly flags unsupported V-die contact.
             pass
 
+    def _set_punch_from_current_bend_surface(self, fallback_z_mm: float) -> None:
+        """Place the punch tip at the active zone upper surface in preview.
+
+        Uses the actual machine-space sheet support and bend-axis cross-section.
+        This is *only* geometric preview alignment, not collision/force physics.
+        """
+        if not (self.follow_sheet_contact_preview and self.tooling.aligned
+                and self.tooling.punch is not None and self.tooling.die is not None):
+            self.contact_tracking_status = "PROGRAMMED_PREVIEW_STROKE"
+            self._set_punch_z(fallback_z_mm)
+            return
+        try:
+            from .workpiece_pose_2d import (
+                machine_pose_for_cycle, upper_zone_at_machine_axis
+            )
+            sec = self._current_cross_section()
+            if sec is None:
+                raise PressCycleError("Missing active bend section")
+            pose = machine_pose_for_cycle(sec, self, self.tooling)
+            axis = self.tooling.die_v_center_machine()
+            if axis is None:
+                raise PressCycleError("Missing die V center")
+            top_z = upper_zone_at_machine_axis(sec, pose, axis[0])
+            if not math.isfinite(top_z):
+                raise PressCycleError("Nonfinite tracked punch coordinate")
+            self.contact_tracking_status = "GEOMETRIC_ZONE_TIP_PREVIEW"
+            self._set_punch_z(top_z)
+        except (ValueError, TypeError, AttributeError) as exc:
+            self.contact_tracking_status = "ASSUMED_STROKE: {}".format(exc)
+            self._set_punch_z(fallback_z_mm)
+
     def _park_punch_at_upper_position(self) -> None:
         self.ram_z_mm = self.upper_z_mm
         self.ram_stroke_mm = 0.0
@@ -468,7 +504,9 @@ class PressCycleController:
         if cur_mag > ANGLE_EPS and target_mag > ANGLE_EPS and cur_mag < target_mag - ANGLE_EPS:
             frac = min(1.0, max(0.0, cur_mag / target_mag))
             self.phase = CyclePhase.BENDING
-            self._set_punch_z(self.contact_z_mm - frac * self.config.preview_stroke_mm)
+            self._set_punch_from_current_bend_surface(
+                self.contact_z_mm - frac * self.config.preview_stroke_mm
+            )
         else:
             self.phase = CyclePhase.APPROACH
             self._set_punch_z(self.upper_z_mm)
@@ -558,7 +596,8 @@ class PressCycleController:
             if target_mag <= ANGLE_EPS or next_mag >= target_mag - ANGLE_EPS:
                 # Exact target angle reached -> transition to BOTTOM
                 self.sequence.fold_state.set_angle(bid, target)
-                self._set_punch_z(self.bottom_z_mm)
+                self._set_punch_from_current_bend_surface(self.bottom_z_mm)
+                self.bottom_z_mm = self.ram_z_mm
                 self.dwell_remaining_s = float(self.config.bottom_dwell_s)
                 self.phase = CyclePhase.BOTTOM
                 return True
@@ -632,4 +671,5 @@ class PressCycleController:
                 self.contact_kind.value,
                 self.orientation_status.value,
             )
+            + " | " + self.contact_tracking_status
         )
