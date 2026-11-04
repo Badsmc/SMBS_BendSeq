@@ -455,6 +455,25 @@ class WorkpiecePoseTests(unittest.TestCase):
         self.assertEqual(projected["target_angle_deg"],0.0)
         self.assertEqual(section["fixed_polygon"][0],(-50.0,0.0))
 
+    def test_nonparallel_axes_fail_explicitly_not_by_identity_fallback(self):
+        # A two-dimensional machine section cannot remap a 90-degree bend
+        # axis into the fixed section of a different perpendicular bend.
+        class Zone:
+            def __init__(self, origin, axis):
+                self.origin_xy = origin
+                self.left_xy = axis
+        source = Zone((70.0, 5.0), (0.0, 1.0))
+        reference = Zone((10.0, 5.0), (1.0, 0.0))
+        section = _section(90.0)
+        unchanged = repr(section)
+        with self.assertRaisesRegex(
+            WorkpiecePoseError, "NONPARALLEL_BEND_AXES"
+        ):
+            remap_section_to_reference(
+                section, (source, 1.0), (reference, 1.0)
+            )
+        self.assertEqual(repr(section), unchanged)
+
     def test_invalid_flange_rejected(self):
         sec = _section(20)
         sec["fixed_polygon"] = ((0, 0), (0, 0), (0, -1), (0, -1))
