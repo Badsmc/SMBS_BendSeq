@@ -59,6 +59,7 @@ class CyclePhase(str, Enum):
     BOTTOM = "BOTTOM"
     RETRACT = "RETRACT"
     STEP_COMPLETE = "STEP_COMPLETE"
+    TRANSFER = "TRANSFER"  # visual machine repositioning, no new bend angles
     COMPLETED = "COMPLETED"
 
 
@@ -158,6 +159,7 @@ class PressCycleController:
         config: Optional[CycleConfig] = None,
         cross_section_provider: Optional[Callable[[], Optional[Dict[str, Any]]]] = None,
         follow_sheet_contact_preview: bool = False,
+        animate_workpiece_transfer: bool = False,
     ) -> None:
         if not isinstance(sequence_controller, BendSequenceController):
             raise PressCycleError("sequence_controller must be a BendSequenceController instance")
@@ -172,6 +174,14 @@ class PressCycleController:
         # Opt-in GUI-only geometric contact preview; existing headless
         # programmable-stroke controller tests retain their previous contract.
         self.follow_sheet_contact_preview = bool(follow_sheet_contact_preview)
+        # Repositioning is opt-in and purely kinematic. One existing controller
+        # and playback timer own every movement; no separate GUI animation.
+        self.animate_workpiece_transfer = bool(animate_workpiece_transfer)
+        self.transfer_progress = 0.0
+        self.transfer_duration_s = 1.8
+        self.transfer_feed_mm = 0.0
+        self.transfer_lift_mm = 0.0
+        self.transfer_rotation_deg = 0.0
         self.contact_tracking_status = "PROGRAMMED_PREVIEW_STROKE"
 
         self.phase: CyclePhase = CyclePhase.IDLE
@@ -404,6 +414,7 @@ class PressCycleController:
         self.sequence.reset()
         self.phase = CyclePhase.IDLE
         self.dwell_remaining_s = 0.0
+        self.transfer_progress = 0.0
         self._sync_bounds_and_orientation_for_active_bend(reposition_tools=True)
 
     def select_operation(self, index: int) -> None:
@@ -484,6 +495,7 @@ class PressCycleController:
                 CyclePhase.BOTTOM,
                 CyclePhase.RETRACT,
                 CyclePhase.STEP_COMPLETE,
+                CyclePhase.TRANSFER,
             )
             and not was_completed
         )
@@ -530,6 +542,58 @@ class PressCycleController:
             self.phase = CyclePhase.BENDING
             return
         self.play_all()
+
+    def _begin_workpiece_transfer(self) -> None:
+        """Prepare visible retract/turn/feed motion without changing bend state."""
+        self.transfer_progress = 0.0
+        active = self.sequence.active_bend
+        next_id = self.sequence.order[self.sequence.active_index + 1]
+        nxt = self.sequence.bend_for(next_id)
+        zone = active.bend_zone
+        next_zone = nxt.bend_zone
+        if zone is None or next_zone is None:
+            raise PressCycleError("Cannot transfer workpiece without both bend axes")
+        a = zone.axis_xy
+        b = next_zone.axis_xy
+        ac = ((a[0][0]+a[1][0])/2.0, (a[0][1]+a[1][1])/2.0)
+        bc = ((b[0][0]+b[1][0])/2.0, (b[0][1]+b[1][1])/2.0)
+        ux, uy = zone.left_xy
+        self.transfer_feed_mm = abs((bc[0]-ac[0])*ux + (bc[1]-ac[1])*uy)
+        if not math.isfinite(self.transfer_feed_mm):
+            raise PressCycleError("Invalid next-bend feed distance")
+        self.transfer_lift_mm = max(
+            10.0,
+            float(self.config.initial_clearance_mm) +
+            2.0 * float(zone.thickness_mm),
+        )
+        old_negative = self.target_angle_deg < 0
+        new_negative = nxt.angle_deg < 0
+        self.transfer_rotation_deg = 180.0 if old_negative != new_negative else 0.0
+        self.phase = CyclePhase.TRANSFER
+
+    @property
+    def transfer_motion(self) -> tuple[float, float, float]:
+        """(machine feed s, lift z, orientation angle) for the active transition.
+
+        This is a staged KINEMATIC_PREVIEW displacement, NOT validated handling
+        of a real part. All panel angles are held while transferring.
+        """
+        if self.phase != CyclePhase.TRANSFER:
+            return (0.0, 0.0, 0.0)
+        p = max(0.0, min(1.0, float(self.transfer_progress)))
+        def ease(t):
+            t = max(0.0, min(1.0, t))
+            return t*t*(3.0-2.0*t)
+        if p < 0.3:
+            t = ease(p/0.3)
+            return (-self.transfer_feed_mm*t, self.transfer_lift_mm*t, 0.0)
+        if p < 0.7:
+            t = ease((p-0.3)/0.4)
+            return (-self.transfer_feed_mm, self.transfer_lift_mm,
+                    self.transfer_rotation_deg*t)
+        t = ease((p-0.7)/0.3)
+        return (-self.transfer_feed_mm*(1.0-t), self.transfer_lift_mm*(1.0-t),
+                self.transfer_rotation_deg)
 
     def advance_time(self, dt_sec: float) -> bool:
         """Advance the press brake working cycle by `dt_sec` seconds.
@@ -644,12 +708,26 @@ class PressCycleController:
         # ------------------------------------------------------------------
         if self.phase == CyclePhase.STEP_COMPLETE:
             if self.sequence.active_index + 1 < self.sequence.total_steps:
+                if self.animate_workpiece_transfer:
+                    self._begin_workpiece_transfer()
+                    return True
                 self.sequence.active_index += 1
                 self._sync_bounds_and_orientation_for_active_bend(reposition_tools=True)
                 self.phase = CyclePhase.APPROACH
                 return True
             self.phase = CyclePhase.COMPLETED
             self.sequence.status = PlaybackStatus.COMPLETED
+            return True
+
+        if self.phase == CyclePhase.TRANSFER:
+            self.transfer_progress = min(
+                1.0, self.transfer_progress + effective_dt/self.transfer_duration_s
+            )
+            if self.transfer_progress >= 1.0:
+                self.sequence.active_index += 1
+                self.transfer_progress = 0.0
+                self._sync_bounds_and_orientation_for_active_bend(reposition_tools=True)
+                self.phase = CyclePhase.APPROACH
             return True
 
         return False
