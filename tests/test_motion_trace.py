@@ -57,6 +57,39 @@ class FakeCycle:
 
 
 class MotionTraceTests(unittest.TestCase):
+    def test_project_version_and_exact_build_in_both_reports(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            trace = MotionTraceRecorder(
+                tmp, project_version="0.1.0",
+                project_channel="2D", build_id="abc1234def5678"
+            )
+            path = trace.start()
+            events = [json.loads(line) for line in
+                      path.read_text(encoding="utf-8").splitlines()]
+            self.assertEqual(events[0]["event"], "TRACE_STARTED")
+            self.assertEqual(events[0]["project_version"], "0.1.0")
+            self.assertEqual(events[0]["project_channel"], "2D")
+            self.assertEqual(events[0]["build_id"], "abc1234def5678")
+            summary = json.loads(trace.stop("USER_STOP").read_text(
+                encoding="utf-8"
+            ))
+            self.assertEqual(summary["project_version"], "0.1.0")
+            self.assertEqual(summary["project_channel"], "2D")
+            self.assertEqual(summary["build_id"], "abc1234def5678")
+
+    def test_default_uses_official_addon_version(self):
+        from freecad_smbs import __version__
+        with tempfile.TemporaryDirectory() as tmp:
+            trace = MotionTraceRecorder(tmp)
+            self.assertEqual(trace.project_version, __version__)
+            path = trace.start()
+            self.assertEqual(
+                json.loads(path.read_text(encoding="utf-8").splitlines()[0])[
+                    "project_version"
+                ], __version__
+            )
+            trace.stop()
+
     def test_folder_and_jsonl_created_at_start_without_playback(self):
         with tempfile.TemporaryDirectory() as root:
             target = Path(root) / "new" / "nested" / "pressbrake_traces"
