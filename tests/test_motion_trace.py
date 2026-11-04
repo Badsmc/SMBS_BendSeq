@@ -120,6 +120,7 @@ class MotionTraceTests(unittest.TestCase):
             self.assertEqual(data["frames"],3)
             self.assertEqual(data["counts"]["POSITION_JUMP"],1)
             self.assertEqual(data["counts"]["BEND_SWITCH"],1)
+            self.assertEqual(data["counts"]["BEND_SWITCH_DISCONTINUITY"],1)
             self.assertEqual(data["counts"]["PHASE_CHANGE"],1)
             rows=[json.loads(row) for row in path.read_text(
                 encoding="utf-8").splitlines()]
@@ -127,6 +128,22 @@ class MotionTraceTests(unittest.TestCase):
             self.assertTrue(any(
                 r.get("event")=="POSITION_JUMP" for r in rows
             ))
+
+    def test_fast_motion_not_mislabeled_as_bend_switch(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            trace=MotionTraceRecorder(tmp,jump_mm=2.0)
+            trace.start()
+            session=FakeSession()
+            for shift in (0.0, 12.0):
+                trace.record(make_frame_record(
+                    session=session,press_cycle=FakeCycle(),
+                    execution_mode=SimpleNamespace(value="FULL_CYCLE"),
+                    section=section(shift),pose=WorkpiecePose2D(),
+                    dt_s=0.025,
+                ))
+            report=json.loads(trace.stop().read_text(encoding="utf-8"))
+            self.assertEqual(report["counts"]["POSITION_JUMP"],1)
+            self.assertNotIn("BEND_SWITCH_DISCONTINUITY",report["counts"])
 
     def test_no_jump_for_small_continuous_motion(self):
         with tempfile.TemporaryDirectory() as tmp:
