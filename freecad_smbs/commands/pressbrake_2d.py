@@ -456,38 +456,51 @@ class PressBrake2DCommand:
         return True
 
     def Activated(self):
+        """Open a dedicated FreeCAD document-area workspace, never a side dock."""
         import FreeCADGui as Gui
         global _DOCK
         QtCore, QtGui, QtWidgets = _qt()
         main = Gui.getMainWindow()
-        dock = main.findChild(QtWidgets.QDockWidget, "SMBS_PressBrake2D_Dock")
-        if dock is None or dock.widget() is None:
-            if dock is not None:
-                dock.deleteLater()
-            dock = QtWidgets.QDockWidget("PressBrakeSim — 2.5D Viewer", main)
-            dock.setObjectName("SMBS_PressBrake2D_Dock")
-            dock.setAllowedAreas(
-                QtCore.Qt.LeftDockWidgetArea | QtCore.Qt.RightDockWidgetArea |
-                QtCore.Qt.BottomDockWidgetArea
-            )
-            dock.setMinimumWidth(380)
-            try:
-                panel_widget = _PreviewPanel()
-                dock.setWidget(panel_widget)
-                main.addDockWidget(QtCore.Qt.RightDockWidgetArea, dock)
-            except Exception:
-                _error(traceback.format_exc())
-                dock.deleteLater()
-                raise
-        _DOCK = dock
-        dock.show()
-        dock.raise_()
-        # If the user already selected a part before clicking the command, load it automatically
-        widget = dock.widget()
+        mdi = main.findChild(QtWidgets.QMdiArea)
+        if mdi is None:
+            raise RuntimeError("FreeCAD MDI area was not found; source document left unchanged.")
+
+        name = "SMBS_PressBrake2D_Workspace"
+        existing = next(
+            (win for win in mdi.subWindowList() if win.objectName() == name), None
+        )
+        if existing is not None and existing.widget() is not None:
+            mdi.setActiveSubWindow(existing)
+            existing.show()
+            existing.raise_()
+            return
+
+        # Retire only this addon's old dock. Never alter FreeCAD's document views.
+        old_dock = main.findChild(QtWidgets.QDockWidget, "SMBS_PressBrake2D_Dock")
+        if old_dock is not None:
+            old_widget = old_dock.widget()
+            if old_widget is not None and hasattr(old_widget, "_stop_timer"):
+                old_widget._stop_timer()
+            old_dock.hide()
+            old_dock.setWidget(None)
+            old_dock.deleteLater()
+        _DOCK = None
+
+        widget = _PreviewPanel()
+        window = QtWidgets.QMdiSubWindow()
+        window.setObjectName(name)
+        window.setWindowTitle("PressBrakeSim 2.5D — рабочее пространство")
+        window.setAttribute(QtCore.Qt.WA_DeleteOnClose, True)
+        window.setWidget(widget)
+        mdi.addSubWindow(window)
+        window.resize(1000, 720)
+        window.showMaximized()
+        mdi.setActiveSubWindow(window)
+
         sel = Gui.Selection.getSelection() if hasattr(Gui, "Selection") else []
-        if sel and getattr(widget, "session", None) is None:
+        if sel:
             widget.load_part()
-        _log("2.5D viewer opened")
+        _log("2.5D workspace opened in FreeCAD MDI area")
 
 
 def _button(widgets, label, callback, enabled=True):
@@ -714,7 +727,139 @@ class _PreviewPanel:
                 self.check_result.setWordWrap(True)
                 root.addWidget(self.check_result)
 
+                self._install_workspace_layout(root, QtCore, QtWidgets)
                 self.draw()
+
+            def _install_workspace_layout(self, root, QtCore, QtWidgets):
+                """Rearrange existing controls without rebuilding the simulation engine.
+
+                Preserve all initialized widgets, signals, scene and the single QTimer.
+                """
+                # The existing constructor builds these items in a known order.
+                entries = [root.takeAt(0) for _ in range(root.count())]
+                if len(entries) != 14:
+                    raise RuntimeError(
+                        "Unexpected PressBrakeSim layout: {} items".format(len(entries))
+                    )
+
+                def insert(layout, item, stretch=0):
+                    widget = item.widget()
+                    if widget is not None:
+                        layout.addWidget(widget, stretch)
+                    elif item.layout() is not None:
+                        layout.addLayout(item.layout(), stretch)
+
+                # Header: title, source selection, and working status.
+                for item in entries[:3]:
+                    insert(root, item)
+
+                splitter = QtWidgets.QSplitter(QtCore.Qt.Horizontal, self)
+                views = QtWidgets.QTabWidget(splitter)
+                views.setObjectName("SMBS_ViewerTabs")
+                views.addTab(self.view, "2.5D · Гибка")
+                self._preview_3d = QtWidgets.QGraphicsView()
+                self._preview_3d.setObjectName("SMBS_3D_ReadOnly")
+                self._preview_3d_scene = QtWidgets.QGraphicsScene(self._preview_3d)
+                self._preview_3d.setScene(self._preview_3d_scene)
+                views.addTab(self._preview_3d, "3D · Просмотр")
+                views.currentChanged.connect(self._on_view_changed)
+
+                controls = QtWidgets.QTabWidget(splitter)
+                controls.setObjectName("SMBS_ControlTabs")
+                simulation = QtWidgets.QWidget()
+                sim_layout = QtWidgets.QVBoxLayout(simulation)
+                sim_layout.setSpacing(8)
+                insert(sim_layout, entries[6])  # playback buttons
+                insert(sim_layout, entries[7])  # angle slider
+                insert(sim_layout, entries[8])  # active operation
+                insert(sim_layout, entries[9])  # next/previous step
+                insert(sim_layout, entries[10])  # move order
+                self.operations.setMaximumHeight(16777215)
+                insert(sim_layout, entries[11], 1)  # operation table
+                controls.addTab(simulation, "Симуляция")
+
+                tooling = QtWidgets.QWidget()
+                tool_layout = QtWidgets.QVBoxLayout(tooling)
+                insert(tool_layout, entries[3])  # tooling group
+                tool_layout.addStretch(1)
+                controls.addTab(tooling, "Оснастка")
+
+                settings = QtWidgets.QWidget()
+                settings_layout = QtWidgets.QVBoxLayout(settings)
+                insert(settings_layout, entries[4])  # press cycle options
+                insert(settings_layout, entries[12])  # diagnostics button
+                insert(settings_layout, entries[13])  # diagnostics output
+                settings_layout.addStretch(1)
+                controls.addTab(settings, "Настройки")
+
+                splitter.addWidget(views)
+                splitter.addWidget(controls)
+                splitter.setStretchFactor(0, 4)
+                splitter.setStretchFactor(1, 2)
+                splitter.setSizes([720, 370])
+                root.addWidget(splitter, 1)
+                self._viewer_tabs = views
+                self._control_tabs = controls
+
+            def _on_view_changed(self, index):
+                if index == 1:
+                    self._update_3d_preview()
+
+            def _update_3d_preview(self):
+                """Read-only isometric projection of the source model's actual 3D edges.
+
+                This viewer never modifies the original FreeCAD document/Shape.
+                It is a reference preview, not a second 3D bending simulator.
+                """
+                scene = self._preview_3d_scene
+                scene.clear()
+                import FreeCADGui as Gui
+                sel = Gui.Selection.getSelection() if hasattr(Gui, "Selection") else []
+                source = sel[0] if sel else None
+                shape = getattr(source, "Shape", None)
+                if shape is None or shape.isNull():
+                    txt = scene.addSimpleText("Выберите исходную 3D-деталь в FreeCAD")
+                    txt.setPos(-130, -10)
+                    return
+                from math import cos, sin, radians
+                az = radians(35.0)
+                el = radians(25.0)
+                ca, sa, ce, se = cos(az), sin(az), cos(el), sin(el)
+                bb = shape.BoundBox
+                cx = (bb.XMin + bb.XMax) / 2
+                cy = (bb.YMin + bb.YMax) / 2
+                cz = (bb.ZMin + bb.ZMax) / 2
+
+                def project(p):
+                    x, y, z = p.x - cx, p.y - cy, p.z - cz
+                    u = ca * x - sa * y
+                    depth = sa * x + ca * y
+                    v = ce * z - se * depth
+                    return QtCore.QPointF(u, -v)
+
+                pen = QtWidgets.QApplication.palette().color(
+                    QtWidgets.QPalette.WindowText
+                )
+                from PySide6 import QtGui as QGui6
+                edge_pen = QGui6.QPen(pen, 0.7)
+                edge_pen.setCosmetic(True)
+                for edge in shape.Edges:
+                    try:
+                        pts = edge.discretize(Deflection=0.5)
+                    except Exception:
+                        continue
+                    if len(pts) < 2:
+                        continue
+                    path = QGui6.QPainterPath(project(pts[0]))
+                    for point in pts[1:]:
+                        path.lineTo(project(point))
+                    scene.addPath(path, edge_pen)
+                bounds = scene.itemsBoundingRect()
+                if not bounds.isEmpty():
+                    scene.setSceneRect(bounds.adjusted(-10, -10, 10, 10))
+                    self._preview_3d.fitInView(
+                        scene.sceneRect(), QtCore.Qt.KeepAspectRatio
+                    )
 
             def unavailable(self):
                 pass  # Disabled controls for Phase 5B/6 features.
