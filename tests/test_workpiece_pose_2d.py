@@ -11,6 +11,7 @@ from smbs_core.kinematics2d.workpiece_pose_2d import (
     machine_pose_for_cycle,
     transform_sheet_section,
     upper_zone_at_machine_axis,
+    animated_machine_pose_for_cycle,
 )
 
 
@@ -312,6 +313,29 @@ class WorkpiecePoseTests(unittest.TestCase):
         self.assertAlmostEqual(max(p[1] for p in pose.points(zone)), 1.0)
         with self.assertRaisesRegex(WorkpiecePoseError, "does not cross"):
             upper_zone_at_machine_axis(sec, pose, 1000.0)
+
+    def test_animated_transfer_moves_all_flange_geometry_rigidly(self):
+        class Cycle:
+            contact_z_mm = 0.0
+            bottom_z_mm = -4.0
+            ram_z_mm = 5.0
+            phase = "TRANSFER"
+            transfer_motion = (-23.0, 15.0, 90.0)
+        class Tooling:
+            aligned = False
+        sec = _section(90.0)
+        sec["zone_polygon"] = ((-1., 0.), (1., 0.), (1., -2.), (-1., -2.))
+        ordinary = machine_pose_for_cycle(sec, Cycle(), Tooling())
+        moved = animated_machine_pose_for_cycle(sec, Cycle(), Tooling())
+        self.assertAlmostEqual(moved.rotation_deg, ordinary.rotation_deg + 90)
+        self.assertAlmostEqual(moved.shift[0], ordinary.shift[0] - 23.0)
+        self.assertAlmostEqual(moved.shift[1], ordinary.shift[1] + 15.0)
+        self.assertIn("ANIMATED_HANDLING_PREVIEW", moved.mode)
+        self.assertAlmostEqual(
+            math.dist(*moved.points(sec["fixed_polygon"][:2])),
+            math.dist(*ordinary.points(sec["fixed_polygon"][:2])),
+            places=8,
+        )
 
     def test_invalid_flange_rejected(self):
         sec = _section(20)
