@@ -32,6 +32,9 @@ from smbs_core.kinematics2d.press_cycle import (
     PressCycleError,
     WorkpieceOrientationStatus,
 )
+from smbs_core.kinematics2d.preview_mesh_3d import (
+    build_sheet_preview_faces, PreviewMeshError,
+)
 from smbs_core.kinematics2d.workpiece_pose_2d import (
     WorkpiecePose2D, WorkpiecePoseError, machine_pose_for_cycle,
     transform_sheet_section,
@@ -812,57 +815,120 @@ class _PreviewPanel:
                     self._update_3d_preview()
 
             def _update_3d_preview(self):
-                """Read-only isometric projection of the source model's actual 3D edges.
+                """Live whole-workpiece isometric 3D projection, read-only.
 
-                This viewer never modifies the original FreeCAD document/Shape.
-                It is a reference preview, not a second 3D bending simulator.
+                Consumes the same FoldState angles and machine pose as 2.5D.
+                No Part.Shape changes, duplicate bend simulation or OCC booleans.
                 """
                 scene = self._preview_3d_scene
                 scene.clear()
-                shape = self._source_shape
-                if shape is None or shape.isNull():
-                    txt = scene.addSimpleText("Выберите исходную 3D-деталь в FreeCAD")
-                    txt.setPos(-130, -10)
+                if self.session is None:
+                    scene.addSimpleText("Загрузите листовую деталь в PressBrakeSim")
                     return
-                from math import cos, sin, radians
-                az = radians(35.0)
-                el = radians(25.0)
-                ca, sa, ce, se = cos(az), sin(az), cos(el), sin(el)
-                bb = shape.BoundBox
-                cx = (bb.XMin + bb.XMax) / 2
-                cy = (bb.YMin + bb.YMax) / 2
-                cz = (bb.ZMin + bb.ZMax) / 2
+                try:
+                    raw_section = self.session.cross_section(segments=16)
+                    pose = WorkpiecePose2D()
+                    if self.execution_mode == CycleExecutionMode.FULL_CYCLE:
+                        pc = self._ensure_press_cycle_controller()
+                        if pc is not None:
+                            pose = machine_pose_for_cycle(raw_section, pc, self.tooling_setup)
+                    faces = build_sheet_preview_faces(
+                        self.session.fold_state,
+                        self.session.panel_vertices_xy,
+                        self.session.active_bend_id,
+                        pose,
+                        segments=12,
+                    )
+                except (PreviewMeshError, WorkpiecePoseError, KinematicsError) as exc:
+                    _warn("3D whole-sheet preview unavailable: {}".format(exc))
+                    scene.addSimpleText("3D: {}".format(str(exc)))
+                    return
 
+                # Camera: machine s (horizontal), depth (bend axis), z (vertical).
+                # This is a projected 3D surface viewer, not an OCC solid viewport.
                 def project(p):
-                    x, y, z = p.x - cx, p.y - cy, p.z - cz
-                    u = ca * x - sa * y
-                    depth = sa * x + ca * y
-                    v = ce * z - se * depth
-                    return QtCore.QPointF(u, -v)
+                    s, depth, z = p
+                    return QtCore.QPointF(
+                        0.87 * s + 0.48 * depth,
+                        -0.83 * z + 0.36 * depth - 0.10 * s,
+                    )
 
-                edge_pen = QtGui.QPen(QtGui.QColor("#536b7f"), 0.7)
-                edge_pen.setCosmetic(True)
-                edge_budget = 10000
-                for edge in shape.Edges:
-                    if edge_budget <= 0:
-                        break
-                    try:
-                        pts = edge.discretize(Deflection=0.8)
-                    except Exception:
+                palette = {
+                    "panel_top": ("#8bb9d4", "#37647e"),
+                    "panel_bottom": ("#718b9c", "#37647e"),
+                    "panel_edge": ("#587b90", "#37536a"),
+                    "zone_inner": ("#eac77b", "#9a7134"),
+                    "zone_outer": ("#e0b967", "#9a7134"),
+                    "zone_end": ("#bd9c65", "#9a7134"),
+                }
+                # Stable approximate painter ordering: view-depth, then height.
+                ordering = sorted(
+                    faces,
+                    key=lambda face: (
+                        sum(pt[1] for pt in face.vertices)/len(face.vertices),
+                        sum(pt[2] for pt in face.vertices)/len(face.vertices),
+                    ),
+                )
+                for face in ordering:
+                    poly = QtGui.QPolygonF([project(pt) for pt in face.vertices])
+                    if len(poly) < 3:
                         continue
-                    if len(pts) < 2:
-                        continue
-                    pts = pts[:edge_budget]
-                    if len(pts) < 2:
-                        break
-                    edge_budget -= len(pts)
-                    path = QtGui.QPainterPath(project(pts[0]))
-                    for point in pts[1:]:
-                        path.lineTo(project(point))
-                    scene.addPath(path, edge_pen)
-                bounds = scene.itemsBoundingRect()
-                if not bounds.isEmpty():
-                    scene.setSceneRect(bounds.adjusted(-10, -10, 10, 10))
+                    fill_hex, edge_hex = palette.get(face.kind, ("#91a5b3", "#4c6474"))
+                    pen = QtGui.QPen(QtGui.QColor(edge_hex), 0.65)
+                    pen.setCosmetic(True)
+                    brush = QtGui.QBrush(QtGui.QColor(fill_hex))
+                    item = scene.addPolygon(poly, pen, brush)
+                    item.setToolTip("{}: {}".format(face.kind, face.identifier))
+
+                # Working tool sections in the SAME 3D machine coordinates.
+                # Crop their distant mounting sections only in this view so
+                # the complete sheet remains visible. Source tools unchanged.
+                if self.tooling_setup.visible:
+                    ref_bend = self.session.fold_state.bends[self.session.active_bend_id]
+                    axis_a, axis_b = ref_bend.bend_zone.axis_xy
+                    tool_depth = math.hypot(axis_b[0]-axis_a[0], axis_b[1]-axis_a[1])
+                    d0, d1 = 0.0, max(1.0, tool_depth)
+                    all_sheet_z = [v[2] for f in faces for v in f.vertices]
+                    z_lo = min(all_sheet_z) - 25.0
+                    z_hi = max(all_sheet_z) + 25.0
+                    for kind, polygons, color in (
+                        ("Die", self.tooling_setup.die_polygons_machine(16), "#3c546a"),
+                        ("Punch", self.tooling_setup.punch_polygons_machine(16), "#b34e48"),
+                    ):
+                        if polygons is None:
+                            continue
+                        outer, _holes = polygons
+                        if not outer:
+                            continue
+                        pen = QtGui.QPen(QtGui.QColor(color), 1.4)
+                        pen.setCosmetic(True)
+                        for depth in (d0, d1):
+                            for a, b in zip(outer, outer[1:] + outer[:1]):
+                                if not (z_lo <= a[1] <= z_hi and z_lo <= b[1] <= z_hi):
+                                    continue
+                                pa = project((a[0], depth, a[1]))
+                                pb = project((b[0], depth, b[1]))
+                                scene.addLine(pa.x(), pa.y(), pb.x(), pb.y(), pen)
+
+                label = scene.addSimpleText(
+                    "3D FULL PART | {} | {} | KINEMATIC_PREVIEW | Collision: NOT CHECKED".format(
+                        self.session.active_bend_id,
+                        self.execution_mode.value,
+                    )
+                )
+                label.setBrush(QtGui.QBrush(QtGui.QColor("#536b7f")))
+                sheet_points = [project(v) for f in faces for v in f.vertices]
+                min_x = min(p.x() for p in sheet_points)
+                min_y = min(p.y() for p in sheet_points)
+                max_x = max(p.x() for p in sheet_points)
+                max_y = max(p.y() for p in sheet_points)
+                label.setPos(min_x, min_y - 25)
+                pad = max(10.0, 0.08 * max(max_x-min_x, max_y-min_y))
+                scene.setSceneRect(
+                    min_x-pad, min_y-pad-25,
+                    max_x-min_x+2*pad, max_y-min_y+2*pad+25,
+                )
+                if not scene.sceneRect().isEmpty():
                     self._preview_3d.fitInView(
                         scene.sceneRect(), QtCore.Qt.KeepAspectRatio
                     )
@@ -2107,6 +2173,8 @@ class _PreviewPanel:
                     )
                     rx, ry, rw, rh = self.last_scene_bounds.view_rect
                     self.scene.setSceneRect(rx, ry, rw, rh)
+                    if hasattr(self, "_viewer_tabs") and self._viewer_tabs.currentIndex() == 1:
+                        self._update_3d_preview()
                     self.last_draw_time_ms = (time.perf_counter() - t_draw_start) * 1000.0
                 except Exception:
                     _error(traceback.format_exc())
