@@ -822,7 +822,9 @@ class _PreviewPanel:
                 self.trace_status.setWordWrap(True)
                 settings_layout.addWidget(self.trace_status)
                 self.trace_stop_button = QtWidgets.QPushButton("Завершить трассу и отчёт")
-                self.trace_stop_button.clicked.connect(self._finish_motion_trace)
+                self.trace_stop_button.clicked.connect(
+                    lambda _checked=False: self._finish_motion_trace("USER_STOP")
+                )
                 settings_layout.addWidget(self.trace_stop_button)
                 settings_layout.addStretch(1)
                 controls.addTab(settings, "Настройки")
