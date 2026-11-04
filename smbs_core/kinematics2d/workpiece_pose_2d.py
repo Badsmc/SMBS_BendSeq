@@ -80,19 +80,30 @@ def symmetric_v_pose(section: Mapping[str, Any]) -> WorkpiecePose2D:
     except (KeyError, IndexError, TypeError, ValueError, OverflowError) as exc:
         raise WorkpiecePoseError("Invalid cross-section for symmetric preview") from exc
 
-    mirror = target < -1e-9
-    if mirror:
-        fv, mv = (fv[0], -fv[1]), (mv[0], -mv[1])
-    if fv[0] >= -1e-7 or mv[0] < -1e-7:
+    flip = target < -1e-9
+    # A press-brake workpiece is turned about its BEND AXIS to present a
+    # negative bend to the same upper punch/lower die. That is a rigid 180°
+    # rotation in the (s,z) section, NOT mirror_z (a geometric reflection
+    # which used to leave negative bends looking upside down).
+    if flip:
+        fv = (-fv[0], -fv[1])
+        mv = (-mv[0], -mv[1])
+        # After the rigid turn, the moving flange points to the LEFT,
+        # while the fixed flange points to the RIGHT.
+        left_v, right_v = mv, fv
+    else:
+        left_v, right_v = fv, mv
+    if left_v[0] >= -1e-7 or right_v[0] <= 1e-7:
         raise WorkpiecePoseError("Unsupported flange orientation in current 2.5D section")
-    left_rise = atan2(fv[1], -fv[0])
-    right_rise = atan2(mv[1], mv[0])
-    rotation = (left_rise - right_rise) / 2.0
+    left_rise = atan2(left_v[1], -left_v[0])
+    right_rise = atan2(right_v[1], right_v[0])
+    correction = (left_rise - right_rise) / 2.0
+    rotation = (180.0 if flip else 0.0) + degrees(correction)
     return WorkpiecePose2D(
         pivot=pivot,
-        rotation_deg=degrees(rotation),
-        mirror_z=mirror,
-        mode="ASSUMED_FLIP_SYMMETRIC_V_PREVIEW" if mirror else "SYMMETRIC_V_PREVIEW",
+        rotation_deg=rotation,
+        mirror_z=False,
+        mode="ASSUMED_RIGID_180_DEG_WORKPIECE_TURN" if flip else "SYMMETRIC_V_PREVIEW",
     )
 
 
