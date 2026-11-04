@@ -78,6 +78,16 @@ but **real FreeCAD GUI and CI PASS remain unconfirmed**. Phase 5B remains open.
 
 **Phase 5B remains OPEN / NOT APPROVED.**
 
+## Motion-trace JSONL recording hotfix (user reported missing folder/files)
+
+- User reported that JSON/JSONL recording created neither output directory nor file.
+- Identified UX cause: prior GUI did not explicitly start recording upon selecting its checkbox; recorder only started via `Play All` with the option already selected. Path was hidden in a short status label. The summary `*.summary.json` is created only on `stop()`, while per-frame data is a `*.jsonl` file.
+- Added explicit Start/Stop actions, immediate start when checkbox enabled after a part is loaded, output-folder chooser and Open-folder button. Errors are visible both in main status and trace status; the absolute saved path is shown.
+- `MotionTraceRecorder.start()` flushes the initial JSONL event immediately, so file appears with content as soon as recording begins. Stop writes the summary JSON. These changes are strictly diagnostics; FoldState, tool library and bend sequence remain unchanged.
+- Default on the user's macOS setup remains `~/Library/Application Support/FreeCAD/v1-1/pressbrake_traces`; user can choose another writable directory from GUI.
+- Added independent headless tests for immediate folder/JSONL creation, summary creation on stop, and optional FreeCAD GUI test for manual recording.
+- **This is code committed, not yet validated on the user's actual FreeCAD GUI.** GitHub CI status not confirmed. No claim of corrected behavior until user verifies files.
+
 ## Phase 5C — cross-section collision oracle (pilot, NOT accepted)
 
 Phase 5B stays **OPEN / NOT APPROVED**. The user explicitly withheld acceptance of its contact placement, negative-bend representation and transfer. Phase 5C implementation is isolated; it must not be used to certify the outstanding 5B machine pose.
