@@ -57,6 +57,28 @@ class FakeCycle:
 
 
 class MotionTraceTests(unittest.TestCase):
+    def test_folder_and_jsonl_created_at_start_without_playback(self):
+        with tempfile.TemporaryDirectory() as root:
+            target = Path(root) / "new" / "nested" / "pressbrake_traces"
+            trace = MotionTraceRecorder(target)
+            self.assertFalse(target.exists())
+            output = trace.start()
+            self.assertTrue(target.is_dir())
+            self.assertTrue(output.exists())
+            # The initial TRACE_STARTED event must be on disk immediately.
+            rows = [json.loads(line) for line in output.read_text(
+                encoding="utf-8"
+            ).splitlines()]
+            self.assertEqual(rows[0]["event"], "TRACE_STARTED")
+            trace.event("MANUAL_RECORDING")
+            trace.flush()
+            self.assertIn("MANUAL_RECORDING", output.read_text(encoding="utf-8"))
+            report = trace.stop("USER_STOP")
+            self.assertTrue(report.exists())
+            summary = json.loads(report.read_text(encoding="utf-8"))
+            self.assertEqual(summary["finished_reason"], "USER_STOP")
+            self.assertEqual(summary["trace_jsonl"], str(output))
+
     def test_serializes_all_real_positions(self):
         row = make_frame_record(
             session=FakeSession(),press_cycle=FakeCycle(),
