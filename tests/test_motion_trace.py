@@ -124,8 +124,8 @@ class MotionTraceTests(unittest.TestCase):
     def test_rejects_invalid_trace_configuration(self):
         with self.assertRaises(ValueError):
             MotionTraceRecorder("unused",jump_mm=float("nan"))
-        with self.assertRaises(RuntimeError):
-            MotionTraceRecorder("unused").record({"kind":"FRAME"})
+        # Disabled tracing is a safe no-op and cannot affect animation.
+        self.assertIsNone(MotionTraceRecorder("unused").record({"kind":"FRAME"}))
 
 
 if __name__ == "__main__":
