@@ -23,6 +23,28 @@ local venv (Python 3.14, no pythonocc). Level C (interactive GUI) NOT performed 
   - 1 × `ImportError: dlopen(.../FreeCAD.so)` when importing compiled FreeCAD binary into system Python 3.14 (`tests/test_fold_multi_bend.py`).
   - 1 × `ImportError: cannot import name 'SELF_COLLISION_GAP_TOL_MM' from 'smbs_core.Physics.collision_detector'` (`tests/test_self_collision_panels.py`, defect D2 from `0d4c071`).
 
+## Phase 5B Hotfix 6 — screenshot-driven correction: fixed part frame + rigid transfer
+
+**Observed in user's 2.5D FreeCAD screenshots (2026-11-04):**
+- Long sheet/flange appears horizontal and an isolated short upstand appears near the punch, even when full-cycle animation is active.
+- The active bend/punch may visibly miss one another.
+- This is not accepted as valid V-bending.
+
+**Identified code problems:**
+1. `symmetric_v_pose` rejected previously folded panel directions unless they were already left/right horizontal. For the next bend of a Z-part, FoldState vectors are generally not aligned that way.
+2. The GUI rebuilt the whole 2.5D view in the currently active bend's local `s` frame. That frame's origin and direction change between B01 and B02; the visible sheet therefore jumped or appeared to become horizontal.
+3. The old `transfer_motion` and new rigid interpolation represented two different trajectories. Keeping both would lead to contradictory UI status.
+
+**Changes:**
+- Compute symmetric up-bend placement from current actual outward flange vectors, without imposing a horizontal starting orientation; unsupported handedness explicitly fails rather than silently inverting a tool.
+- Keep the full 2.5D sheet in the **first operation's fixed cross-section reference** throughout a sequence. Convert later bend sections into that reference using the documented axis directions and original bend origins. Reject nonparallel axes, which cannot share an honest single 2.5D plane.
+- Draw all FoldState panels, zones, inner/outer surfaces, and completed operations from that fixed section and apply a single workpiece-to-machine pose.
+- In TRANSFER, interpolate rigid poses between actual previous and next bend placements, with identical start/end endpoint mappings. Every panel follows the same transformation; no fabricated change in bend angles.
+- Eliminate the superseded staged `transfer_motion` rendering/diagnostic path. The controller retains only transition progress, duration, nominal feed between original bend axes and clearance, which are used by the unified rigid-pose renderer.
+- Keep punch and die static during sheet transport, and preserve read-only fixed-isometric full-part 3D animation.
+
+**Limits and acceptance:** This is a geometry *kinematic preview*, not a verified contact/collision solver or a real physical manipulator trajectory. The current design deliberately fails closed for nonparallel bends. New source/tests were committed and workflow configured, but runtime test results and the real FreeCAD GUI display are still **UNVERIFIED**. Do not mark Hotfix 6 accepted without checking the screenshot case and true B01/B02 transitions.
+
 ## Phase 5B Hotfix 5 — continuous 2.5D sheet transfer between bends
 
 User issue: negative-bend workpiece repositioning still appeared instantaneous; after each operation the sheet jumped back to a level pose. Requested smoother playback with visible lifting, flipping and feeding the workpiece to the next bend line.
