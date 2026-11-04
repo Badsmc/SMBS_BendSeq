@@ -766,7 +766,6 @@ class _PreviewPanel:
                 views.setObjectName("SMBS_ViewerTabs")
                 views.addTab(self.view, "2.5D · Гибка")
                 self._preview_3d = QtWidgets.QGraphicsView()
-                self._source_shape = None
                 self._preview_3d.setObjectName("SMBS_3D_ReadOnly")
                 self._preview_3d_scene = QtWidgets.QGraphicsScene(self._preview_3d)
                 self._preview_3d.setScene(self._preview_3d_scene)
@@ -1514,18 +1513,8 @@ class _PreviewPanel:
                     return
 
                 self._stop_timer()
-                # Read-only independent snapshot for the 3D reference tab.
-                # Never change the source document or its placements.
-                source_object = selection[0] if selection else None
-                source_shape = getattr(source_object, "Shape", None)
-                if source_shape is not None and not source_shape.isNull():
-                    try:
-                        self._source_shape = source_shape.copy()
-                    except Exception as exc:
-                        self._source_shape = None
-                        _warn("3D preview snapshot failed: {}".format(exc))
-                else:
-                    self._source_shape = None
+                # 3D surface preview uses this session's FoldState directly;
+                # never read or mutate the original source document again.
                 self.session = new_session
                 self._ensure_press_cycle_controller()
                 self._sync_tooling_to_active_bend()
