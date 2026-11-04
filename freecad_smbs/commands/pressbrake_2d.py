@@ -1885,6 +1885,11 @@ class _PreviewPanel:
                     _log("Sequence playback completed")
 
             def fit(self):
+                if hasattr(self, "_viewer_tabs") and self._viewer_tabs.currentIndex() == 1:
+                    rect = self._preview_3d_scene.sceneRect()
+                    if not rect.isEmpty():
+                        self._preview_3d.fitInView(rect, QtCore.Qt.KeepAspectRatio)
+                    return
                 rect = self.scene.sceneRect()
                 if not rect.isEmpty():
                     self.view.fitInView(rect, QtCore.Qt.KeepAspectRatio)
