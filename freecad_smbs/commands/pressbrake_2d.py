@@ -33,7 +33,8 @@ from smbs_core.kinematics2d.press_cycle import (
     WorkpieceOrientationStatus,
 )
 from smbs_core.kinematics2d.workpiece_pose_2d import (
-    WorkpiecePose2D, WorkpiecePoseError, symmetric_v_pose,
+    WorkpiecePose2D, WorkpiecePoseError, machine_pose_for_cycle,
+    transform_sheet_section,
 )
 from smbs_core.kinematics2d.tooling_25d import (
     DEFAULT_INITIAL_PUNCH_CLEARANCE_MM,
@@ -1964,28 +1965,30 @@ class _PreviewPanel:
                     if self.session is not None:
                         sec = self.session.cross_section(segments=32)
 
-                        # Entire sheet uses one rigid machine-space preview placement.
-                        # The original FoldState cross-section remains unchanged.
+                        # All FoldState geometry is transformed as ONE rigid workpiece.
+                        # Source cross-section is left untouched (BEND_ONLY regression).
                         pose = WorkpiecePose2D()
                         pose_warning = ""
                         if self.execution_mode == CycleExecutionMode.FULL_CYCLE:
+                            pc_for_pose = self._ensure_press_cycle_controller()
                             try:
-                                pose = symmetric_v_pose(sec)
+                                if pc_for_pose is None:
+                                    raise WorkpiecePoseError("Press cycle is not initialized")
+                                pose = machine_pose_for_cycle(sec, pc_for_pose, self.tooling_setup)
+                                sec = transform_sheet_section(sec, pose)
                             except WorkpiecePoseError as exc:
                                 pose_warning = " | WORKPIECE_POSE_UNSUPPORTED: " + str(exc)
 
-                        def to_sheet_qpt(pt):
-                            return to_qpt(pose.apply(pt))
-
-                        def make_sheet_poly(pts):
-                            return QtGui.QPolygonF([to_sheet_qpt(pt) for pt in pts])
-
-                        sheet_pts.extend(pose.points(sec["inner_surface"]))
-                        sheet_pts.extend(pose.points(sec["outer_surface"]))
+                        # sec is now in Machine Coordinates; do not apply the
+                        # same transform a second time in any renderer path.
+                        to_sheet_qpt = to_qpt
+                        make_sheet_poly = make_poly
+                        sheet_pts.extend(sec["inner_surface"])
+                        sheet_pts.extend(sec["outer_surface"])
                         for _, opoly in sec.get("other_panel_polygons", ()):
-                            sheet_pts.extend(pose.points(opoly))
+                            sheet_pts.extend(opoly)
                         for _, ozpoly in sec.get("other_zone_polygons", ()):
-                            sheet_pts.extend(pose.points(ozpoly))
+                            sheet_pts.extend(ozpoly)
 
                         # 2. Other panels & bend zones in the same cross-section plane
                         other_pen = QtGui.QPen(QtGui.QColor("#1b4f72"), 1.0)
