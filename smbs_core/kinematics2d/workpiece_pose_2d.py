@@ -111,9 +111,9 @@ def _lower_sheet_at_s(section, pose, s_coordinate):
         if section.get(key):
             points = section[key]
             curves.append(tuple(points) + (points[0],))
-    for key in ("other_panel_polygons", "other_zone_polygons"):
-        for _name, points in section.get(key, ()):
-            curves.append(tuple(points) + (points[0],))
+    # The V shoulders support the two panels adjacent to the ACTIVE bend.
+    # Other already-folded Z flanges are not alternative 'support sheets':
+    # including them picked an unrelated lower surface and created floating.
     heights = []
     for curve in curves:
         pts = pose.points(curve)
