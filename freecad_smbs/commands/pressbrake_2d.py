@@ -1883,15 +1883,6 @@ class _PreviewPanel:
                 self.draw()
                 QtCore.QTimer.singleShot(0, self.fit)
 
-            def switch_bend(self, delta: int):
-                if self.session is None or not self.session.ordered_bends:
-                    return
-                count = len(self.session.ordered_bends)
-                new_idx = (self.session.active_bend_index + delta) % count
-                item = self.operations.topLevelItem(new_idx)
-                if item is not None:
-                    self.operations.setCurrentItem(item)
-
             def _on_slider_changed(self, slider_val: int):
                 if self.session is None:
                     return
@@ -1928,20 +1919,6 @@ class _PreviewPanel:
                 self._sync_playback_buttons()
                 self._update_tooling_status_label()
                 self.draw()
-
-            def step_angle(self, delta_mag_deg: float):
-                if self.session is None:
-                    return
-                target = self.session.target_angle_deg
-                sign = 1.0 if target >= 0 else -1.0
-                new_mag = min(abs(target), max(0.0, abs(self.angle) + float(delta_mag_deg)))
-                self.set_angle(0.0 if new_mag < 1e-9 else sign * new_mag)
-
-            def to_target_angle(self):
-                if self.session is None:
-                    return
-                self._stop_timer()
-                self.set_angle(self.session.target_angle_deg)
 
             def reset(self):
                 self._machine_pose_fault = None
