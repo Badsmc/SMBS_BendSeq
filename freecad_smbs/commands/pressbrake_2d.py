@@ -32,7 +32,10 @@ from smbs_core.kinematics2d.press_cycle import (
     PressCycleError,
     WorkpieceOrientationStatus,
 )
-from smbs_core.kinematics2d.workpiece_pose_2d import (\n    WorkpiecePose2D, WorkpiecePoseError, symmetric_v_pose,\n)\nfrom smbs_core.kinematics2d.tooling_25d import (
+from smbs_core.kinematics2d.workpiece_pose_2d import (
+    WorkpiecePose2D, WorkpiecePoseError, symmetric_v_pose,
+)
+from smbs_core.kinematics2d.tooling_25d import (
     DEFAULT_INITIAL_PUNCH_CLEARANCE_MM,
     NOT_SPECIFIED,
     SceneBounds2D,
