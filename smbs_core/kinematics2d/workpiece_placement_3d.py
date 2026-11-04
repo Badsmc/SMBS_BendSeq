@@ -178,11 +178,10 @@ class WorkpiecePlacement3D:
             # Bisector between adjacent fixed and moving panels.
             # When bend angle is non-zero, aligning the bisector with Machine Z_m
             # produces symmetric upward rise for both flanges in the V-die.
-            sign = 1.0 if getattr(bend.bend_zone, "fold_angle_deg", 90.0) >= 0.0 else -1.0
             sum_norm = (
-                sign * (fixed_norm_world[0] + moving_norm_world[0]),
-                sign * (fixed_norm_world[1] + moving_norm_world[1]),
-                sign * (fixed_norm_world[2] + moving_norm_world[2]),
+                fixed_norm_world[0] + moving_norm_world[0],
+                fixed_norm_world[1] + moving_norm_world[1],
+                fixed_norm_world[2] + moving_norm_world[2],
             )
             norm_len = _vec_norm(sum_norm)
             if norm_len < 1e-6:
