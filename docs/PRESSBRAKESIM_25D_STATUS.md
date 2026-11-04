@@ -23,6 +23,18 @@ local venv (Python 3.14, no pythonocc). Level C (interactive GUI) NOT performed 
   - 1 × `ImportError: dlopen(.../FreeCAD.so)` when importing compiled FreeCAD binary into system Python 3.14 (`tests/test_fold_multi_bend.py`).
   - 1 × `ImportError: cannot import name 'SELF_COLLISION_GAP_TOL_MM' from 'smbs_core.Physics.collision_detector'` (`tests/test_self_collision_panels.py`, defect D2 from `0d4c071`).
 
+## Phase 5B contact-placement Hotfix 2 — reported GUI failures
+
+User manual acceptance for `eed7944`: die shoulder support **FAIL**, symmetric bending **FAIL**, whole sheet 3D **PASS**, 3D animation **PASS**, source-model immutability **PENDING**.
+
+Targeted changes (no 3D-renderer modification):
+- V support now checks **both** verified machine-space V-shoulder datums against the actual lower outline of the two panels adjacent to the active bend. Other Z flanges are excluded from support contact; they need separate collision handling.
+- A single vertical offset is not incorrectly reported as dual support if shoulder heights differ. A bounded rigid placement correction (maximum 6°) attempts to seat both shoulders without changing any FoldState angle; excessive imbalance and insufficient flange spans yield explicit `DIE_SUPPORT_...` diagnostic.
+- On an unsupported contact geometry, both 2.5D and whole-sheet 3D remain in `SYMMETRIC_V_PREVIEW`, with GUI warning `DIE_CONTACT_UNVERIFIED`. Previously the 2.5D view silently returned to identity pose (one flange stationary), while 3D could show an error.
+- Existing working 3D geometry, animation, GUI workspace, imports, bend sequence, punch and die profiles remain untouched.
+- Regression tests updated for dual shoulder seating, missing shoulder, rigid preservation of relative bend angle.
+- **Commit is not yet verified in interactive FreeCAD GUI. Do not mark this as resolved until physical GUI tests pass.** Source file unchanged does not establish user model immutability; pending user verification remains open.
+
 ## Phase 5B follow-up — die support + whole-sheet 3D preview
 
 - User GUI feedback: prior symmetric motion worked, but the sheet floated above the die and the 3D tab showed only a static source-model reference.
