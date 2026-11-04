@@ -1005,6 +1005,27 @@ class _PreviewPanel:
                         project_channel="2D",
                         build_id=source_digest,
                     )
+                    # Requirement 10: Log versions and SHAs of kinematic modules
+                    import smbs_core.kinematics2d.press_cycle as _mod_pc
+                    import smbs_core.kinematics2d.workpiece_placement_3d as _mod_wp3d
+                    import smbs_core.kinematics2d.workpiece_transfer_3d as _mod_wt3d
+                    import smbs_core.kinematics2d.machine_section_3d as _mod_ms3d
+
+                    def _module_digest(mod):
+                        try:
+                            return hashlib.sha256(Path(mod.__file__).resolve().read_bytes()).hexdigest()
+                        except Exception as e:
+                            return f"ERROR: {e}"
+
+                    trace.event(
+                        "KINEMATICS_MODULES_INFO",
+                        press_cycle_sha=_module_digest(_mod_pc),
+                        workpiece_placement_3d_sha=_module_digest(_mod_wp3d),
+                        workpiece_transfer_3d_sha=_module_digest(_mod_wt3d),
+                        machine_section_3d_sha=_module_digest(_mod_ms3d),
+                        collision_validated=False,
+                        support_validated=False,
+                    )
                     # Make the directory and its first valid JSONL record
                     # visible immediately, not only after buffered frames.
                     trace.flush()

@@ -1,0 +1,122 @@
+"""Regression tests for Phase D: B01 -> B02 nonparallel axes and full 8-bend simulation in FreeCAD."""
+import os
+import sys
+import unittest
+
+sys.path.insert(0, "/Applications/FreeCAD.app/Contents/Resources/lib")
+try:
+    import FreeCAD
+    from PySide6 import QtWidgets, QtCore
+    HAS_FREECAD_QT = True
+except (ImportError, ModuleNotFoundError):
+    HAS_FREECAD_QT = False
+
+from freecad_smbs.commands.pressbrake_2d import _PreviewPanel, build_part_session
+from smbs_core.kinematics2d.press_cycle import CycleExecutionMode, CyclePhase
+from smbs_core.kinematics2d.fold_sequence import PlaybackStatus
+
+MODEL_PATH = "/Users/badmc/Desktop/\u041d\u043e\u0432\u0430\u044f \u043f\u0430\u043f\u043a\u0430/box.100out-50in-(ok) 2.FCStd"
+
+
+class TestFullCyclePhaseDRegression(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        if not HAS_FREECAD_QT:
+            raise unittest.SkipTest("FreeCAD / PySide6 environment not available")
+        if not os.path.exists(MODEL_PATH):
+            raise unittest.SkipTest(f"Model file not found: {MODEL_PATH}")
+        cls.app = QtWidgets.QApplication.instance() or QtWidgets.QApplication(sys.argv)
+
+    def setUp(self):
+        self.doc = FreeCAD.openDocument(MODEL_PATH)
+        obj = next(o for o in self.doc.Objects if o.Name == "Body_Unfold")
+        self.session = build_part_session(self.doc, [obj])
+        self.panel = _PreviewPanel()
+        self.panel.session = self.session
+        self.panel.execution_mode = CycleExecutionMode.FULL_CYCLE
+
+    def tearDown(self):
+        self.panel._stop_timer()
+        self.panel.close()
+        self.panel.deleteLater()
+        FreeCAD.closeDocument(self.doc.Name)
+
+    def test_b01_to_b02_nonparallel_transfer_no_halt(self):
+        """B01 and B02 have non-parallel axes in 3D (Z-plane rotation 90 deg).
+
+        Full cycle must transfer seamlessly using 3D cutting plane section without
+        triggering KINEMATIC_POSE_HALT or NONPARALLEL_BEND_AXES.
+        """
+        self.panel.play_all()
+        self.assertEqual(self.panel.session.playback_status, PlaybackStatus.PLAYING)
+
+        pc = self.panel._ensure_press_cycle_controller()
+        reached_b02 = False
+
+        for step in range(800):
+            self.panel.advance()
+            self.assertIsNone(
+                self.panel._machine_pose_fault,
+                f"Unexpected fault at step {step}: {self.panel._machine_pose_fault}"
+            )
+            if self.panel.session.active_bend_id == "B02":
+                reached_b02 = True
+                break
+
+        self.assertTrue(reached_b02, "Simulation did not reach B02 within 800 ticks")
+        self.assertEqual(self.panel.session.active_bend_id, "B02")
+
+    def test_full_sequence_b01_to_b08_completion(self):
+        """Full playback of all 8 bends (B01-B08) runs through all phases to COMPLETED."""
+        self.panel.play_all()
+        pc = self.panel._ensure_press_cycle_controller()
+
+        seen_bends = set()
+        seen_phases = set()
+
+        for step in range(4000):
+            self.panel.advance()
+            seen_bends.add(self.panel.session.active_bend_id)
+            seen_phases.add(pc.phase.value)
+            self.assertIsNone(
+                self.panel._machine_pose_fault,
+                f"Unexpected fault at step {step}: {self.panel._machine_pose_fault}"
+            )
+            if pc.phase == CyclePhase.COMPLETED:
+                break
+
+        self.assertEqual(pc.phase, CyclePhase.COMPLETED)
+        expected_bends = {"B01", "B02", "B03", "B04", "B05", "B06", "B07", "B08"}
+        self.assertEqual(seen_bends, expected_bends)
+        self.assertIn("TRANSFER", seen_phases)
+
+    def test_gui_controls_play_pause_resume_reset(self):
+        """Play All -> Pause -> Resume -> Reset lifecycle preserves state and resets properly."""
+        # 1. Play All
+        self.panel.play_all()
+        self.assertEqual(self.panel.session.playback_status, PlaybackStatus.PLAYING)
+        for _ in range(40):
+            self.panel.advance()
+        self.assertIsNone(self.panel._machine_pose_fault)
+
+        # 2. Pause
+        self.panel.pause()
+        self.assertEqual(self.panel.session.playback_status, PlaybackStatus.PAUSED)
+
+        # 3. Resume
+        self.panel.resume()
+        self.assertEqual(self.panel.session.playback_status, PlaybackStatus.PLAYING)
+        for _ in range(40):
+            self.panel.advance()
+        self.assertIsNone(self.panel._machine_pose_fault)
+
+        # 4. Reset
+        self.panel.reset()
+        self.assertEqual(self.panel.session.active_bend_index, 0)
+        self.assertEqual(self.panel.session.active_bend_id, "B01")
+        self.assertIsNone(self.panel._machine_pose_fault)
+
+
+if __name__ == "__main__":
+    unittest.main()
+
