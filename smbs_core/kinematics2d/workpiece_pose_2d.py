@@ -140,6 +140,27 @@ def _lower_sheet_at_s(section, pose, s_coordinate):
     return min(heights) if heights else None
 
 
+def upper_zone_at_machine_axis(section, pose, machine_s):
+    """Sample upper bend-zone boundary at punch s axis, not zone global max."""
+    zone = section.get("zone_polygon")
+    if not zone:
+        raise WorkpiecePoseError("Cannot track punch: missing bend zone")
+    pts = pose.points(tuple(zone) + (zone[0],))
+    heights = []
+    for a, b in zip(pts, pts[1:]):
+        dx = b[0] - a[0]
+        if abs(dx) < 1e-10:
+            if abs(a[0] - machine_s) <= 1e-6:
+                heights.extend((a[1], b[1]))
+        else:
+            frac = (machine_s - a[0]) / dx
+            if -1e-8 <= frac <= 1.0 + 1e-8:
+                heights.append(a[1] + frac * (b[1] - a[1]))
+    if not heights:
+        raise WorkpiecePoseError("Punch axis does not cross the current bend zone")
+    return max(heights)
+
+
 def _die_shoulders_machine(tooling):
     """Return actual left/right V-shoulder points in machine coordinates."""
     die = getattr(tooling, "die", None)
