@@ -1925,8 +1925,10 @@ class _PreviewPanel:
                 self._last_valid_machine_section = None
                 self._last_valid_machine_pose = None
                 self._last_valid_machine_bend = None
+                # Reset is preparation for a new playback, not an explicit
+                # request to stop recording. Keep the JSONL stream open so
+                # the following Play All and its FRAME events are captured.
                 self._trace_event("RESET")
-                self._finish_motion_trace("RESET")
                 self._stop_timer()
                 self._locked_25d_scene_rect = None
                 if self.session is not None:
