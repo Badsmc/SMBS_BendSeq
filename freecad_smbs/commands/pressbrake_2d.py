@@ -2176,38 +2176,86 @@ class _PreviewPanel:
                 QtCore.QTimer.singleShot(0, self.fit)
 
             def advance(self):
-                if self.session is None or self.session.playback_status != PlaybackStatus.PLAYING:
+                """One Qt tick drives exactly one sequencer/cycle advance."""
+                if self.session is None:
                     self._stop_timer()
                     return
+                if self.session.playback_status != PlaybackStatus.PLAYING:
+                    self._stop_timer()
+                    self.status.setText(
+                        "AUTO PLAY остановлен: {}".format(
+                            self.session.playback_status.value
+                        )
+                    )
+                    return
                 now = time.monotonic()
-                if self._last_tick_monotonic is None:
-                    dt = 0.035
-                else:
-                    dt = max(0.005, now - self._last_tick_monotonic)
+                dt = (
+                    0.035 if self._last_tick_monotonic is None
+                    else max(0.005, now - self._last_tick_monotonic)
+                )
                 self._last_tick_monotonic = now
                 self._trace_frame_dt = dt
 
-                prev_bend_idx = self.session.active_bend_index
-                pc = self._ensure_press_cycle_controller()
-                if pc is not None and self.execution_mode == CycleExecutionMode.FULL_CYCLE:
-                    pc.advance_time(dt)
-                    self.session.active_bend_index = self.session.controller.active_index
-                else:
-                    self.session.advance_time(dt)
-                    if self.session.active_bend_index != prev_bend_idx and self.tooling_setup.aligned:
-                        self._sync_tooling_to_active_bend()
-                self._configure_for_active_bend()
-                self._update_tooling_status_label()
-                self.draw()
-                if (self.execution_mode != CycleExecutionMode.FULL_CYCLE
-                        and self.session.active_bend_index != prev_bend_idx):
-                    QtCore.QTimer.singleShot(0, self.fit)
-
-                if self.session.playback_status == PlaybackStatus.COMPLETED:
-                    self._stop_timer()
+                try:
+                    previous_bend = self.session.active_bend_index
+                    pc = self._ensure_press_cycle_controller()
+                    if (pc is not None and
+                            self.execution_mode == CycleExecutionMode.FULL_CYCLE):
+                        pc.advance_time(dt)
+                        self.session.active_bend_index = (
+                            self.session.controller.active_index
+                        )
+                    else:
+                        # Bend Only is genuine TIMER-driven automatic playback,
+                        # even if machine pose is unsupported for nonparallel bends.
+                        self.session.advance_time(dt)
+                        if (self.session.active_bend_index != previous_bend
+                                and self.tooling_setup.aligned):
+                            self._sync_tooling_to_active_bend()
+                    self._configure_for_active_bend()
+                    self._update_tooling_status_label()
                     self.draw()
-                    self._finish_motion_trace("PLAYBACK_COMPLETED")
-                    _log("Sequence playback completed")
+                    if self._machine_pose_fault:
+                        # draw() already paused, finalized the JSONL trace and
+                        # displayed the exact geometric blocker.
+                        return
+                    if (self.execution_mode != CycleExecutionMode.FULL_CYCLE
+                            and self.session.active_bend_index != previous_bend):
+                        QtCore.QTimer.singleShot(0, self.fit)
+                    if self.session.playback_status == PlaybackStatus.COMPLETED:
+                        self._stop_timer()
+                        self.draw()
+                        self._finish_motion_trace("PLAYBACK_COMPLETED")
+                        self.status.setText(
+                            "AUTO PLAY завершён: {} | {} гибов".format(
+                                self.execution_mode.value,
+                                len(self.session.bend_order),
+                            )
+                        )
+                        _log("Sequence playback completed")
+                    else:
+                        phase = (
+                            pc.phase.value
+                            if pc is not None and
+                            self.execution_mode == CycleExecutionMode.FULL_CYCLE
+                            else "BEND_ONLY"
+                        )
+                        self.status.setText(
+                            "AUTO PLAY: {} | {} | гиб {} | угол {:+.1f}° | {} мс".format(
+                                self.execution_mode.value,
+                                phase,
+                                self.session.active_bend_id,
+                                self.session.current_angle_deg,
+                                self.timer.interval(),
+                            )
+                        )
+                except Exception as exc:
+                    reason = "AUTO PLAY ERROR: {}".format(exc)
+                    _error(reason + "\n" + traceback.format_exc())
+                    self._stop_timer()
+                    self._trace_event("AUTOPLAY_ERROR", reason=reason)
+                    self._finish_motion_trace("AUTOPLAY_ERROR")
+                    self.status.setText(reason)
 
             def fit(self):
                 if self.playing and self.execution_mode == CycleExecutionMode.FULL_CYCLE:
