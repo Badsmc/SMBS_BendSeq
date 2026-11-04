@@ -103,6 +103,23 @@ class WorkpieceTransferTests(unittest.TestCase):
         self.assertAlmostEqual(state.angles["B01"], 90.0)
         self.assertAlmostEqual(state.angles["B02"], 0.0)
 
+    def test_bend_only_autoplay_completes_opposite_signed_bends(self):
+        """Auto mode remains available when Full Cycle placement is unsupported."""
+        from smbs_core.kinematics2d.press_cycle import CycleExecutionMode
+        cycle, state = self.make_cycle(enabled=True)
+        cycle.set_execution_mode(CycleExecutionMode.BEND_ONLY)
+        cycle.play_all()
+        self.assertEqual(cycle.sequence.status, PlaybackStatus.PLAYING)
+        self.assertEqual(cycle.phase, CyclePhase.BENDING)
+        for _ in range(150):
+            if cycle.sequence.status == PlaybackStatus.COMPLETED:
+                break
+            cycle.advance_time(0.025)
+        self.assertEqual(cycle.sequence.status, PlaybackStatus.COMPLETED)
+        self.assertAlmostEqual(state.angles["B01"], 90.0)
+        self.assertAlmostEqual(state.angles["B02"], -90.0)
+        self.assertEqual(cycle.phase, CyclePhase.COMPLETED)
+
     def test_transfer_is_opt_in_for_legacy_headless_cycle(self):
         cycle, state = self.make_cycle(enabled=False)
         cycle.play_all()
