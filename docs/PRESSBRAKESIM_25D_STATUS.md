@@ -23,6 +23,22 @@ local venv (Python 3.14, no pythonocc). Level C (interactive GUI) NOT performed 
   - 1 × `ImportError: dlopen(.../FreeCAD.so)` when importing compiled FreeCAD binary into system Python 3.14 (`tests/test_fold_multi_bend.py`).
   - 1 × `ImportError: cannot import name 'SELF_COLLISION_GAP_TOL_MM' from 'smbs_core.Physics.collision_detector'` (`tests/test_self_collision_panels.py`, defect D2 from `0d4c071`).
 
+## Phase 5B Hotfix 3 — 2.5D playback mode, symmetry, and real shoulder support
+
+User GUI feedback for Hotfix 2: `PASS` shoulder positioning, `FAIL` symmetric 2.5D machine cycle, Z-detail and original-model integrity `PENDING`.
+
+**Root cause in the interface:** `_PreviewPanel` still initialized `execution_mode = BEND_ONLY`, and its mode combo defaulted to Bend Only. Clicking Play All used `LoadedPartSession.advance_time`, bypassing the ram controller and whole-workpiece machine pose. The prior 3D scene could animate through FoldState independently, making the 2D viewer appear to use the old fixed-flange logic.
+
+Targeted changes:
+- Workspace GUI initializes Full Cycle and its mode combo consistently. Bend Only remains explicitly selectable, unchanged in its existing calculation path.
+- V-die support places the **exact symmetric** workpiece with one vertical translation to actual shoulder geometry. An extra +/-6-degree global correction that sacrificed visible symmetry was removed.
+- When only one shoulder can be reached, label `PARTIAL_SHOULDER_SUPPORTED_PREVIEW` and seat that shoulder rather than falling back to a floating identity pose or claiming verified two-point support. No physically valid two-shoulder contact is invented.
+- `PressCycleController` rebases the approach/contact/return ram coordinate at the start of a Full Cycle to the actual **die-seated bend zone**, keeping Punch and the sheet aligned in Machine Z. The die remains stationary.
+- Existing 3D whole-part animation, source model, DXF/STEP import and geometry contracts are unchanged.
+- Added GUI default-mode regression, rigid symmetric-angle and shoulder-support tests.
+
+Known limitation: this is `KINEMATIC_PREVIEW`, not a punch/sheet/die contact mechanics or collision solver. A configurable stroke is not guaranteed to be physically feasible. Source-model integrity and the real FreeCAD GUI still require user acceptance before closing Phase 5B.
+
 ## Phase 5B contact-placement Hotfix 2 — reported GUI failures
 
 User manual acceptance for `eed7944`: die shoulder support **FAIL**, symmetric bending **FAIL**, whole sheet 3D **PASS**, 3D animation **PASS**, source-model immutability **PENDING**.
