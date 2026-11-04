@@ -12,6 +12,8 @@ from smbs_core.kinematics2d.workpiece_pose_2d import (
     transform_sheet_section,
     upper_zone_at_machine_axis,
     animated_machine_pose_for_cycle,
+    remap_section_to_reference,
+    interpolate_rigid_placement,
 )
 
 
@@ -320,22 +322,60 @@ class WorkpiecePoseTests(unittest.TestCase):
             bottom_z_mm = -4.0
             ram_z_mm = 5.0
             phase = "TRANSFER"
-            transfer_motion = (-23.0, 15.0, 90.0)
+            transfer_progress = 0.5
+            transfer_lift_mm = 12.0
         class Tooling:
             aligned = False
-        sec = _section(90.0)
-        sec["zone_polygon"] = ((-1., 0.), (1., 0.), (1., -2.), (-1., -2.))
-        ordinary = machine_pose_for_cycle(sec, Cycle(), Tooling())
-        moved = animated_machine_pose_for_cycle(sec, Cycle(), Tooling())
-        self.assertAlmostEqual(moved.rotation_deg, ordinary.rotation_deg + 90)
-        self.assertAlmostEqual(moved.shift[0], ordinary.shift[0] - 23.0)
-        self.assertAlmostEqual(moved.shift[1], ordinary.shift[1] + 15.0)
-        self.assertIn("ANIMATED_HANDLING_PREVIEW", moved.mode)
+        src = _section(90.0)
+        dst = _section(-90.0)
+        for section in (src, dst):
+            section["zone_polygon"] = ((-1.,0.),(1.,0.),(1.,-2.),(-1.,-2.))
+        start = machine_pose_for_cycle(src, Cycle(), Tooling())
+        end = machine_pose_for_cycle(dst, Cycle(), Tooling())
+        mid = animated_machine_pose_for_cycle(src, Cycle(), Tooling(), dst)
+        self.assertIn("RIGID_CONTINUOUS", mid.mode)
+        self.assertGreater(mid.apply((0.,0.))[1], min(
+            start.apply((0.,0.))[1],end.apply((0.,0.))[1]
+        ))
         self.assertAlmostEqual(
-            math.dist(*moved.points(sec["fixed_polygon"][:2])),
-            math.dist(*ordinary.points(sec["fixed_polygon"][:2])),
+            math.dist(*mid.points(src["fixed_polygon"][:2])),
+            math.dist(*start.points(src["fixed_polygon"][:2])),
             places=8,
         )
+        self.assertEqual(
+            interpolate_rigid_placement(start,end,0.0),start
+        )
+        self.assertEqual(
+            interpolate_rigid_placement(start,end,1.0),end
+        )
+        with self.assertRaisesRegex(WorkpiecePoseError, "TRANSFER_TARGET_MISSING"):
+            animated_machine_pose_for_cycle(src, Cycle(), Tooling())
+
+    def test_reference_section_mapping_reproduces_shared_world_axis(self):
+        class Zone:
+            def __init__(self, x):
+                self.origin_xy=(x, 0.0)
+                self.left_xy=(1.0, 0.0)
+
+        ref=Zone(10.0)
+        active=Zone(70.0)
+        section=_section(0.0)
+        # s_active=5 mm => x_world=75 => s_ref=65 mm.
+        projected=remap_section_to_reference(
+            section, (active,1.0),(ref,1.0)
+        )
+        self.assertAlmostEqual(
+            projected["fixed_polygon"][0][0],
+            section["fixed_polygon"][0][0]+60.0,
+        )
+        # Reversed projection axis corresponds to the SAME physical point.
+        reverse=remap_section_to_reference(
+            section,(active,-1.0),(ref,1.0)
+        )
+        self.assertAlmostEqual(reverse["fixed_polygon"][0][0],
+                               -section["fixed_polygon"][0][0]+60.0)
+        self.assertEqual(projected["target_angle_deg"],0.0)
+        self.assertEqual(section["fixed_polygon"][0],(-50.0,0.0))
 
     def test_invalid_flange_rejected(self):
         sec = _section(20)
