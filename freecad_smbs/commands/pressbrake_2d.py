@@ -723,7 +723,6 @@ class _PreviewPanel:
                     self.reset_btn,
                     self.back_btn,
                     self.play_btn,
-                    self.auto_geometry_btn,
                     self.pause_btn,
                     self.next_btn,
                     self.end_btn,
@@ -828,6 +827,9 @@ class _PreviewPanel:
                 sim_layout = QtWidgets.QVBoxLayout(simulation)
                 sim_layout.setSpacing(8)
                 insert(sim_layout, entries[6])  # playback buttons
+                # A distinct full-width action avoids crowding seven narrow
+                # press-control buttons in a 370 px sidebar.
+                sim_layout.addWidget(self.auto_geometry_btn)
                 insert(sim_layout, entries[7])  # angle slider
                 insert(sim_layout, entries[8])  # active operation
                 insert(sim_layout, entries[9])  # next/previous step
