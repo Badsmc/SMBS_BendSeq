@@ -2072,8 +2072,12 @@ class _PreviewPanel:
                             # an accepted machine bend. Show a scene warning,
                             # including when the right-hand task controls
                             # are hidden or the status text is clipped.
+                            # Report the actual unsupported geometry reason,
+                            # especially NONPARALLEL_BEND_AXES versus sheet-roll
+                            # contact limitations. Do not hide the cause.
+                            explanation = pose_warning.strip(" |")[:140]
                             warning_item = self.scene.addSimpleText(
-                                "2.5D: НЕТ ПРОВЕРЕННОГО ПОЛОЖЕНИЯ ДЕТАЛИ"
+                                "2.5D: ПОЛОЖЕНИЕ НЕ ПОДТВЕРЖДЕНО | " + explanation
                             )
                             warning_item.setBrush(
                                 QtGui.QBrush(QtGui.QColor("#e74c3c"))
