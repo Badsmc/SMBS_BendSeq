@@ -10,6 +10,7 @@ from smbs_core.kinematics2d.workpiece_pose_2d import (
     symmetric_v_pose,
     machine_pose_for_cycle,
     transform_sheet_section,
+    upper_zone_at_machine_axis,
 )
 
 
@@ -296,6 +297,21 @@ class WorkpiecePoseTests(unittest.TestCase):
                 self.assertAlmostEqual(rises[0], rises[1], places=7)
                 self.assertGreaterEqual(rises[0], -1e-7)
 
+
+    def test_punch_contact_samples_bend_axis_not_maximum_zone(self):
+        zone = (
+            (-12.0, 4.0), (0.0, 0.0), (12.0, 4.0),
+            (12.0, -2.0), (0.0, -2.0), (-12.0, -2.0),
+        )
+        sec = {"zone_polygon": zone}
+        pose = WorkpiecePose2D(shift=(25.0, -3.0))
+        z = upper_zone_at_machine_axis(sec, pose, 25.0)
+        self.assertAlmostEqual(z, -3.0)
+        # Earlier max(zone.z) = 4 would have parked the punch 4 mm
+        # above the actual material directly beneath the punch tip.
+        self.assertAlmostEqual(max(p[1] for p in pose.points(zone)), 1.0)
+        with self.assertRaisesRegex(WorkpiecePoseError, "does not cross"):
+            upper_zone_at_machine_axis(sec, pose, 1000.0)
 
     def test_invalid_flange_rejected(self):
         sec = _section(20)
