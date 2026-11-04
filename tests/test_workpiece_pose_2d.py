@@ -386,6 +386,49 @@ class WorkpiecePoseTests(unittest.TestCase):
         with self.assertRaisesRegex(WorkpiecePoseError, "TRANSFER_TARGET_MISSING"):
             animated_machine_pose_for_cycle(src, Cycle(), Tooling())
 
+    def test_workpiece_face_roll_has_no_discrete_jump(self):
+        start = WorkpiecePose2D(
+            pivot=(8.0, -3.0), rotation_deg=-15.0,
+            shift=(12.0, 4.0), mirror_z=False,
+        )
+        end = WorkpiecePose2D(
+            pivot=(-12.0, 2.0), rotation_deg=-150.0,
+            shift=(80.0, -7.0), mirror_z=True,
+        )
+        points = ((8.0, -3.0), (40.0, 1.5), (-22.0, -5.0))
+        self.assertEqual(interpolate_rigid_placement(start,end,0.0),start)
+        self.assertEqual(interpolate_rigid_placement(start,end,1.0),end)
+        prev = tuple(start.apply(p) for p in points)
+        for i in range(1,1001):
+            t = i/1000.0
+            pose = interpolate_rigid_placement(start,end,t,10.0)
+            current = tuple(pose.apply(p) for p in points)
+            for old,new in zip(prev,current):
+                self.assertLess(math.dist(old,new),2.0)
+            prev = current
+        for p in points:
+            self.assertAlmostEqual(prev[0][0],end.apply(points[0])[0],places=7)
+            break
+        self.assertEqual(prev,tuple(end.apply(p) for p in points))
+
+    def test_canonical_frame_does_not_depend_on_manual_order(self):
+        class Zone:
+            def __init__(self, s):
+                self.origin_xy=(s,0.0)
+                self.left_xy=(1.0,0.0)
+        canonical = Zone(0.0)
+        b01=Zone(20.0)
+        b02=Zone(75.0)
+        src = _section(45.0)
+        before=remap_section_to_reference(src,(b01,1.0),(canonical,1.0))
+        after=remap_section_to_reference(src,(b01,1.0),(canonical,1.0))
+        self.assertEqual(before,after)
+        self.assertEqual(
+            remap_section_to_reference(src,(b02,1.0),(canonical,1.0))
+            ["fixed_polygon"][0][0],
+            src["fixed_polygon"][0][0]+75.0,
+        )
+
     def test_reference_section_mapping_reproduces_shared_world_axis(self):
         class Zone:
             def __init__(self, x):
