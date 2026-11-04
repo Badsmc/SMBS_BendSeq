@@ -35,6 +35,50 @@ class WorkspaceGuiTests(unittest.TestCase):
             panel.close()
             panel.deleteLater()
 
+    def test_reset_preserves_open_jsonl_until_playback(self):
+        """Reset before Play All must not terminate diagnostics prematurely."""
+        try:
+            import FreeCAD  # noqa: F401
+            from freecad_smbs.commands.pressbrake_2d import _PreviewPanel, _qt
+            from smbs_core.kinematics2d.motion_trace import MotionTraceRecorder
+            _QtCore, _QtGui, QtWidgets = _qt()
+        except (ImportError, ModuleNotFoundError) as exc:
+            self.skipTest("FreeCAD runtime unavailable: {}".format(exc))
+        if QtWidgets.QApplication.instance() is None:
+            self.skipTest("Qt GUI application is not running")
+        import tempfile
+        import json
+        from types import SimpleNamespace
+        panel = _PreviewPanel()
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                trace = MotionTraceRecorder(tmp)
+                path = trace.start()
+                panel.motion_trace = trace
+                controller = SimpleNamespace(active_index=0)
+                panel.session = SimpleNamespace(
+                    controller=controller,active_bend_index=0
+                )
+                fake_cycle = SimpleNamespace(reset=lambda: None)
+                panel._ensure_press_cycle_controller = lambda: fake_cycle
+                panel._stop_timer = lambda: None
+                panel._configure_for_active_bend = lambda: None
+                panel._update_tooling_status_label = lambda: None
+                panel.draw = lambda: None
+                panel.reset()
+                self.assertTrue(trace.is_open)
+                trace.event("PLAY_ALL")
+                trace.flush()
+                events=[json.loads(row).get("event") for row in
+                        path.read_text(encoding="utf-8").splitlines()]
+                self.assertIn("RESET",events)
+                self.assertIn("PLAY_ALL",events)
+                trace.stop("USER_STOP")
+        finally:
+            panel.timer.stop()
+            panel.close()
+            panel.deleteLater()
+
     def test_manual_record_button_creates_jsonl_and_summary(self):
         import tempfile
         from pathlib import Path
