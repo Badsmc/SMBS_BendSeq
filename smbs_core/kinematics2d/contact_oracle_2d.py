@@ -147,6 +147,27 @@ def _edge_samples(ring):
         yield ((a[0]+b[0])/2.0,(a[1]+b[1])/2.0)
 
 
+def _interior_edge_samples(ring, tol):
+    """Interior witness near each simple-polygon edge (in either winding)."""
+    twice_area = sum(
+        a[0]*b[1]-b[0]*a[1] for a,b in _segments(ring)
+    )
+    direction = 1.0 if twice_area > 0 else -1.0
+    for a,b in _segments(ring):
+        dx,dy=b[0]-a[0],b[1]-a[1]
+        length=hypot(dx,dy)
+        if length <= tol:
+            continue
+        midpoint=((a[0]+b[0])/2.0,(a[1]+b[1])/2.0)
+        for fraction in (0.1,0.35):
+            step=max(4.0*tol,length*fraction)
+            candidate=(midpoint[0]-direction*dy/length*step,
+                       midpoint[1]+direction*dx/length*step)
+            if _point_ring(candidate,ring,tol)==1:
+                yield candidate
+                break
+
+
 def classify_polygon_contact(
     sheet: Sequence[Point],
     tool_outer: Sequence[Point],
@@ -179,6 +200,16 @@ def classify_polygon_contact(
                     return ContactStatus.INTERFERENCE,"proper_material_boundary_crossing"
                 if _segments_near(pa,pb,qa,qb,tol):
                     touching = True
+
+    # Interior witness samples also catch coincident polygons/overlapping
+    # collinear boundaries: those have positive overlap even when no edges
+    # cross strictly and all boundary vertices lie exactly on each other.
+    for p in _interior_edge_samples(a,tol):
+        if _in_material(p,b,holes,tol)==1:
+            return ContactStatus.INTERFERENCE,"sheet_in_tool_material"
+    for p in _interior_edge_samples(b,tol):
+        if _point_ring(p,a,tol)==1 and _in_material(p,b,holes,tol)==1:
+            return ContactStatus.INTERFERENCE,"tool_in_sheet_material"
 
     # A polygon can be completely enclosed without any crossed boundaries.
     # Sample actual outlines and edge interiors; all rings are tested in
