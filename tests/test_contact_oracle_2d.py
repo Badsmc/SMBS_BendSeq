@@ -43,6 +43,18 @@ class ContactOracle2DTests(unittest.TestCase):
         )
         self.assertEqual(status,ContactStatus.INTERFERENCE)
 
+    def test_exactly_coincident_polygons_are_interference_not_touch(self):
+        status,_ = classify_polygon_contact(
+            rect(-2,-2,2,2),rect(-2,-2,2,2)
+        )
+        self.assertEqual(status,ContactStatus.INTERFERENCE)
+
+    def test_shared_edge_on_opposite_sides_is_touch(self):
+        status,_ = classify_polygon_contact(
+            rect(-2,0,2,2),rect(-2,-2,2,0)
+        )
+        self.assertEqual(status,ContactStatus.TOUCH)
+
     def test_tool_inside_sheet_is_interference(self):
         status,_=classify_polygon_contact(
             rect(-4,-4,4,4),rect(-1,-1,1,1)
