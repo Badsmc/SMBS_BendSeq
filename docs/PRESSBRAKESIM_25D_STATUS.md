@@ -1,3 +1,22 @@
+## C1/C2 — Headless 3D coordinate validation and continuous transfer (2026-11-04)
+
+New files:
+
+- `smbs_core/kinematics2d/workpiece_placement_validation_3d.py`
+  - `validate_rigid_3d`: finite 3x3, orthogonal, positive determinant.
+  - `validate_workpiece_placement`: active bend lies on machine X axis at prescribed machine midpoint; fixed reference-panel sheet normal points to machine +Z; every panel has finite flat-pattern vertices transformed exactly once by FoldState and placement.
+  - Returns `PlacementReport3D` with explicit `collision_validated=False`, `support_validated=False`; it is NOT a physical tooling-contact validator.
+- `smbs_core/kinematics2d/workpiece_transfer_3d.py`
+  - `build_transfer_3d`, `build_bend_transfer`, `Transfer3D.pose_at(t)`: time-parametrized rigid translation + quaternion SLERP between actual machine poses, including perpendicular axes.
+  - Strict starting/ending pose continuity; no per-frame teleports. FoldState is neither duplicated nor mutated.
+  - Time is bounded by **frame-origin translation** speed and angular speed; material point speed can be greater because rotational radius matters.
+  - `build_bend_transfer` fails before previous bend reaches target. Machine collision clearance, feasible grasp, robot path and sheet solids remain UNVERIFIED.
+- `tests/test_workpiece_transfer_3d.py`: test proper placements, normal and axis checks, invalid transforms, missing panel data, transition endpoints, sampled rigid motion of same material points, preservation of bend state and rate limits.
+
+**Integration gate**: Do not replace `remap_section_to_reference` or disable `KINEMATIC_POSE_HALT` until a genuine 3D sheet section, model-to-tooling coordinate binding, contact and collision validators are available. The current C1/C2 output is a headless geometry-only API. It is NOT a completed Full Cycle, not certified collision-free, and not yet verified on the real 8-bend FCStd model.
+
+**Test status**: regression tests were added; no successful FreeCAD runtime execution or CI result has been observed in this session, so status is IMPLEMENTED, awaiting TESTED/VERIFIED.
+
 # PressBrakeSim 2.5D — Status (evidence only)
 
 Updated: 2026-11-03 · Branch `2D` · Baseline `e8f2ed1`.
