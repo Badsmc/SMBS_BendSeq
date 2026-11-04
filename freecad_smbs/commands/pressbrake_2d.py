@@ -747,7 +747,11 @@ class _PreviewPanel:
                     if widget is not None:
                         layout.addWidget(widget, stretch)
                     elif item.layout() is not None:
-                        layout.addLayout(item.layout(), stretch)
+                        nested = item.layout()
+                        # QLayout taken out of the original root still has an
+                        # QObject parent in some Qt/PySide versions.
+                        nested.setParent(None)
+                        layout.addLayout(nested, stretch)
 
                 # Header: title, source selection, and working status.
                 for item in entries[:3]:
