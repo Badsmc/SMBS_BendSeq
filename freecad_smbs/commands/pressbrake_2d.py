@@ -36,7 +36,7 @@ from smbs_core.kinematics2d.preview_mesh_3d import (
     build_sheet_preview_faces, PreviewMeshError,
 )
 from smbs_core.kinematics2d.workpiece_pose_2d import (
-    WorkpiecePose2D, WorkpiecePoseError, machine_pose_for_cycle,
+    WorkpiecePose2D, WorkpiecePoseError, animated_machine_pose_for_cycle,
     symmetric_v_pose, transform_sheet_section,
 )
 from smbs_core.kinematics2d.tooling_25d import (
@@ -549,7 +549,7 @@ class _PreviewPanel:
                 self.playing = False
                 self._last_tick_monotonic: float | None = None
                 self.timer = QtCore.QTimer(self)
-                self.timer.setInterval(35)
+                self.timer.setInterval(25)  # 40 Hz Qt playback; one timer only
                 self.timer.timeout.connect(self.advance)
                 self.setMinimumWidth(360)
 
@@ -996,6 +996,7 @@ class _PreviewPanel:
                             self.session.cross_section(segments=16) if self.session is not None else None
                         ),
                         follow_sheet_contact_preview=True,
+                        animate_workpiece_transfer=True,
                     )
                     self.press_cycle.set_execution_mode(self.execution_mode)
                 return self.press_cycle
@@ -1857,7 +1858,9 @@ class _PreviewPanel:
                 self._configure_for_active_bend()
                 self._update_tooling_status_label()
                 self.draw()
-                if self.session.active_bend_index != prev_bend_idx:
+                if (self.session.active_bend_index != prev_bend_idx
+                        and not (pc is not None and pc.animate_workpiece_transfer
+                                 and self.execution_mode == CycleExecutionMode.FULL_CYCLE)):
                     QtCore.QTimer.singleShot(0, self.fit)
 
                 if self.session.playback_status == PlaybackStatus.COMPLETED:
@@ -2023,7 +2026,7 @@ class _PreviewPanel:
                             try:
                                 if pc_for_pose is None:
                                     raise WorkpiecePoseError("Press cycle is not initialized")
-                                pose = machine_pose_for_cycle(sec, pc_for_pose, self.tooling_setup)
+                                pose = animated_machine_pose_for_cycle(sec, pc_for_pose, self.tooling_setup)
                                 sec = transform_sheet_section(sec, pose)
                             except WorkpiecePoseError as exc:
                                 # Contact support may be impossible for short
