@@ -700,33 +700,21 @@ class _PreviewPanel:
                 root.addWidget(self.view, 1)
 
                 row = QtWidgets.QHBoxLayout()
-                self.reset_btn = _button(QtWidgets, "|<", self.reset, False)
-                self.back_btn = _button(QtWidgets, "<", lambda: self.step_angle(-5.0), False)
+                # Stable operator controls: Reset, Play All, Pause/Resume, Fit.
+                # Angle adjustment is via the slider; bend navigation uses
+                # explicit Previous/Next Step and the operation table.
+                self.reset_btn = _button(QtWidgets, "↺ Reset", self.reset, False)
                 self.play_btn = _button(QtWidgets, "▶ Play All", self.play_all, False)
                 self.play_btn.setToolTip(
-                    "Full Cycle: анимирует станок до первого неподдерживаемого "
-                    "положения. Bend Only: автоматическая гибка всей детали."
+                    "Запуск автоматической симуляции в выбранном режиме: "
+                    "Bend Only или Full Cycle."
                 )
-                self.auto_geometry_btn = _button(
-                    QtWidgets, "▶ Авто гибка (без пресса)",
-                    self.play_geometry_only, False
+                self.pause_btn = _button(
+                    QtWidgets, "Ⅱ Pause", self.toggle_pause_resume, False
                 )
-                self.auto_geometry_btn.setToolTip(
-                    "Непрерывно проиграть все гибы в 2.5D и 3D через FoldState, "
-                    "без неподтверждённого позиционирования на матрице."
-                )
-                self.pause_btn = _button(QtWidgets, "Ⅱ Pause", self.toggle_pause_resume, False)
-                self.next_btn = _button(QtWidgets, ">", lambda: self.step_angle(5.0), False)
-                self.end_btn = _button(QtWidgets, ">|", self.to_target_angle, False)
                 self.fit_btn = _button(QtWidgets, "Fit", self.fit, True)
                 for widget in (
-                    self.reset_btn,
-                    self.back_btn,
-                    self.play_btn,
-                    self.pause_btn,
-                    self.next_btn,
-                    self.end_btn,
-                    self.fit_btn,
+                    self.reset_btn, self.play_btn, self.pause_btn, self.fit_btn
                 ):
                     row.addWidget(widget)
                 root.addLayout(row)
@@ -745,13 +733,9 @@ class _PreviewPanel:
                 bend_nav_row.addWidget(QtWidgets.QLabel("Шаги:"))
                 self.prev_step_btn = _button(QtWidgets, "⏮ Previous Step", self.previous_step, False)
                 self.next_step_btn = _button(QtWidgets, "Next Step ⏭", self.next_step, False)
-                self.prev_bend_btn = _button(QtWidgets, "◀", lambda: self.switch_bend(-1), False)
-                self.next_bend_btn = _button(QtWidgets, "▶", lambda: self.switch_bend(1), False)
                 for widget in (
                     self.prev_step_btn,
                     self.next_step_btn,
-                    self.prev_bend_btn,
-                    self.next_bend_btn,
                 ):
                     bend_nav_row.addWidget(widget)
                 root.addLayout(bend_nav_row)
@@ -826,10 +810,10 @@ class _PreviewPanel:
                 simulation = QtWidgets.QWidget()
                 sim_layout = QtWidgets.QVBoxLayout(simulation)
                 sim_layout.setSpacing(8)
-                insert(sim_layout, entries[6])  # playback buttons
-                # A distinct full-width action avoids crowding seven narrow
-                # press-control buttons in a 370 px sidebar.
-                sim_layout.addWidget(self.auto_geometry_btn)
+                # Mode selection belongs beside playback, not in diagnostic
+                # settings. One Play All operates whichever mode is selected.
+                insert(sim_layout, entries[4])  # mode / speed / cycle config
+                insert(sim_layout, entries[6])  # Reset / Play All / Pause / Fit
                 insert(sim_layout, entries[7])  # angle slider
                 insert(sim_layout, entries[8])  # active operation
                 insert(sim_layout, entries[9])  # next/previous step
@@ -846,7 +830,6 @@ class _PreviewPanel:
 
                 settings = QtWidgets.QWidget()
                 settings_layout = QtWidgets.QVBoxLayout(settings)
-                insert(settings_layout, entries[4])  # press cycle options
                 insert(settings_layout, entries[12])  # diagnostics button
                 insert(settings_layout, entries[13])  # diagnostics output
 
@@ -1723,11 +1706,7 @@ class _PreviewPanel:
             def _set_playback_controls_enabled(self, enabled: bool):
                 for w in (
                     self.reset_btn,
-                    self.back_btn,
                     self.play_btn,
-                    self.auto_geometry_btn,
-                    self.next_btn,
-                    self.end_btn,
                     self.slider,
                     self.prev_step_btn,
                     self.next_step_btn,
@@ -1736,9 +1715,6 @@ class _PreviewPanel:
                 self.fit_btn.setEnabled(
                     enabled or self.tooling_setup.punch is not None or self.tooling_setup.die is not None
                 )
-                has_multi = enabled and self.session is not None and len(self.session.ordered_bends) > 1
-                self.prev_bend_btn.setEnabled(has_multi)
-                self.next_bend_btn.setEnabled(has_multi)
                 self._sync_playback_buttons()
 
             def load_part(self):
@@ -1987,26 +1963,6 @@ class _PreviewPanel:
                     self._update_tooling_status_label()
                     self.draw()
 
-            def play_geometry_only(self):
-                """Automatic FoldState animation, explicitly without press validation.
-
-                Unlike the guarded Full Cycle, this preview can continue
-                through nonparallel bends because it never claims an aligned
-                2.5D tool/workpiece pose. No manual stepping is required.
-                """
-                if self.session is None:
-                    self.status.setText("Сначала загрузите деталь.")
-                    return
-                self._stop_timer()
-                self._locked_25d_scene_rect = None
-                self.set_cycle_mode(CycleExecutionMode.BEND_ONLY)
-                self.reset()
-                self.status.setText(
-                    "АВТОГИБКА ГЕОМЕТРИИ: без пуансона, матрицы "
-                    "и проверки столкновений. Play All выполняется таймером."
-                )
-                self.play_all()
-
             def play_all(self):
                 """Start or restart full bend-sequence playback across all bends."""
                 if self.session is None:
@@ -2015,7 +1971,7 @@ class _PreviewPanel:
                         self.execution_mode == CycleExecutionMode.FULL_CYCLE):
                     self.status.setText(
                         "Full Cycle остановлен из-за геометрии: {}. "
-                        "Нажмите «Авто гибка (без пресса)» для автоматической "
+                        "Переключитесь на Bend Only для автоматической "
                         "анимации всех гибов или Reset для повторной проверки.".format(
                             self._machine_pose_fault
                         )
@@ -2091,7 +2047,7 @@ class _PreviewPanel:
                 ):
                     self.status.setText(
                         "Невозможно продолжить этот Full Cycle: {}. "
-                        "Выберите другую операцию, Reset либо Bend Only.".format(
+                        "Выберите Bend Only в настройках режима или Reset.".format(
                             self._machine_pose_fault
                         )
                     )
@@ -2402,7 +2358,7 @@ class _PreviewPanel:
                 self.status.setText(
                     "Симуляция остановлена: {}. Отображён последний корректный "
                     "кадр. Для продолжения автоматической анимации без "
-                    "станка нажмите «Авто гибка (без пресса)».".format(reason)
+                    "станка выберите Bend Only и нажмите Play All.".format(reason)
                 )
 
             def draw(self):
