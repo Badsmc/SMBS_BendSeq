@@ -845,6 +845,13 @@ class _PreviewPanel:
                     lambda _checked=False: self._open_trace_directory()
                 )
                 settings_layout.addWidget(self.trace_open_button)
+                self.trace_choose_button = QtWidgets.QPushButton(
+                    "Выбрать папку для JSONL/JSON"
+                )
+                self.trace_choose_button.clicked.connect(
+                    lambda _checked=False: self._choose_trace_directory()
+                )
+                settings_layout.addWidget(self.trace_choose_button)
                 settings_layout.addStretch(1)
                 controls.addTab(settings, "Настройки")
 
@@ -868,6 +875,32 @@ class _PreviewPanel:
                         )
                 else:
                     self._finish_motion_trace("RECORDING_DISABLED")
+
+            def _choose_trace_directory(self):
+                if self.motion_trace is not None and self.motion_trace.is_open:
+                    self.trace_status.setText(
+                        "Сначала завершите текущую запись перед сменой папки."
+                    )
+                    return
+                chosen = QtWidgets.QFileDialog.getExistingDirectory(
+                    self, "Выберите каталог для записи JSONL и JSON",
+                    str(self._trace_directory.parent)
+                )
+                if not chosen:
+                    return
+                try:
+                    target = Path(chosen).expanduser().resolve()
+                    target.mkdir(parents=True, exist_ok=True)
+                    self._trace_directory = target
+                    self.trace_status.setText(
+                        "Каталог записи: {}. Нажмите «Начать запись JSONL».".format(
+                            self._trace_directory
+                        )
+                    )
+                except OSError as exc:
+                    self.trace_status.setText(
+                        "Ошибка доступа к каталогу {}: {}".format(chosen, exc)
+                    )
 
             def _open_trace_directory(self):
                 try:
