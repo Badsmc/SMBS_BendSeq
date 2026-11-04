@@ -78,6 +78,22 @@ but **real FreeCAD GUI and CI PASS remain unconfirmed**. Phase 5B remains open.
 
 **Phase 5B remains OPEN / NOT APPROVED.**
 
+## Phase 5B Hotfix 9 — recover user-requested AUTO PLAY separately from unsafe Full Cycle
+
+User feedback after Hotfix 8: automatic playback no longer usable; all frames were reportedly advanced manually.
+
+Latest real `pressbrake_20261104T143731_520624Z.jsonl` contains 64 frames at nominal 31ms tick cadence with `playback_status=PLAYING`, and `KINEMATIC_POSE_HALT` at next-bend preparation after B01 (`NONPARALLEL_BEND_AXES`). A trace frame with PLAYING status does not independently verify which UI controls the user operated. The decisive blocker is that full-cycle machine-pose simulation deliberately halts at unsupported nonparallel axes. That safety guard MUST remain and must not be silently bypassed.
+
+Changes:
+- Expose **two clearly differentiated automatic playback paths**:
+  - `Play All (станок)`: Full Cycle, includes punch and die, halts safely on unsupported machine pose.
+  - `Авто гибка (без пресса)`: explicit dedicated button in Simulation tab. Switches to Bend Only, resets to flat, invokes existing `BendSequenceController.play_all()` and single Qt timer to animate ALL signed bend angles without 2.5D machine-pose verification. This mode intentionally does not certify punch/die contact or collisions.
+- `advance()` now surfaces AUTO PLAY state (mode, phase, active bend, angle and timer interval) on every Qt tick. Unexpected callback errors stop timer, log stack trace, finalize JSONL and display explicit `AUTOPLAY_ERROR`.
+- A latched `MACHINE_PRESENTATION_UNSUPPORTED` fault prevents false Full Cycle Resume/Play until Reset or intentional mode change. The error text suggests the alternative automatic geometry playback.
+- Added a FreeCAD GUI-only Qt-event-loop regression that clicks the new button and checks that multiple frame advances happen automatically, plus a pure-Python regression for BEND_ONLY completion of +90/-90. Both tests remain unverified in a live FreeCAD GUI.
+- Neither `FoldState` nor the existing 3D sheet-only isometric preview has been replaced. No second animation timer or mirror solver was added.
+- **Phase 5B remains OPEN**: true uninterrupted Full Cycle for nonparallel 8-bend parts requires 3D workpiece/machine placement, not a 2D fallback.
+
 ## Phase 5B Hotfix 8 — forensic motion trace safety correction (2026-11-04)
 
 Two user-supplied real FreeCAD motion traces:
