@@ -78,6 +78,15 @@ but **real FreeCAD GUI and CI PASS remain unconfirmed**. Phase 5B remains open.
 
 **Phase 5B remains OPEN / NOT APPROVED.**
 
+## Diagnostic report versioning (2026-11-04)
+
+- The existing `freecad_smbs.__version__ = "0.1.0"` is authoritative for the installed add-on's project version; `pyproject.toml` independently specifies `smbs_core 0.1.0`. This change does **not** invent a new release number.
+- Every JSONL `TRACE_STARTED` event and final `*.summary.json` now expose three identical identifiers: `project_version` (currently `0.1.0`), `project_channel` (`2D`), and `build_id` (full SHA-256 of the actually executed `freecad_smbs/commands/pressbrake_2d.py` source).
+- The `RUNTIME_MODULE` JSONL event retains the full local module path, source SHA-256, Python version and new version identifiers. Version and abbreviated build ID are also displayed in the GUI recording status.
+- **Version number is not a Git commit hash**. During branch development its semantic version can remain unchanged across numerous patches; the full `build_id` allows precise comparison of those patches. `project_channel` labels the intended branch, not an independently verified Git HEAD.
+- Existing trace schema remains `pressbrake-motion-trace-v1`; old JSON reports without these fields are still supported by downstream readers.
+- Regression tests check that JSONL and summary carry the same exact version/channel/build metadata. Physical FreeCAD verification remains pending.
+
 ## Phase 5B Hotfix 9 — recover user-requested AUTO PLAY separately from unsafe Full Cycle
 
 User feedback after Hotfix 8: automatic playback no longer usable; all frames were reportedly advanced manually.
