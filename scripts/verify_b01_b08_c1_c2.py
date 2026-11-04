@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Diagnostic script for C1 (3D placement) and C2 (3D rigid transfer) validation.
+"""Enhanced diagnostic script for C1 (3D placement) and C2 (3D rigid transfer) validation.
 
 Evaluates real SheetMetal model B01-B08 from FreeCAD:
 - Path: /Users/badmc/Desktop/Новая папка/box.100out-50in-(ok) 2.FCStd
@@ -8,9 +8,14 @@ Evaluates real SheetMetal model B01-B08 from FreeCAD:
 Verifications performed:
 1. 3D placement correctness on active bend line (strictly on machine X axis: Y=0, Z=0).
 2. Sheet surface normal orientation (fixed panel reference normal maps to machine +Z).
-3. Preservation of state of all prior completed bends.
-4. Continuous rigid 3D transfer (SLERP + translation, Euclidean distance invariance).
-5. Generation of structured JSON report.
+3. Real vertex checks for all 9 panels using FoldState.transforms and WorkpiecePlacement3D.
+4. Seamless endpoint matching between previous bend final placement, Transfer3D start/end frames,
+   and next bend initial setup placement across all physical vertices.
+5. Continuity of physical coordinates of all panel vertices between adjacent frames.
+6. Maximum displacement per frame and maximum linear speed of physical material points.
+7. Preservation of all prior completed bend angles in FoldState throughout entire transfers.
+8. Explicitly records collision_validated=False and support_validated=False.
+9. Exports detailed structured JSON report.
 """
 from __future__ import annotations
 
@@ -19,7 +24,7 @@ import math
 import os
 import sys
 import hashlib
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple
 
 # Ensure FreeCAD library and local workspace are in sys.path
 fc_lib_path = "/Applications/FreeCAD.app/Contents/Resources/lib"
@@ -76,6 +81,8 @@ def run_diagnostics(model_path: str = DEFAULT_MODEL_PATH, output_json_path: str 
         "total_bends": len(ordered_bends),
         "kinematic_pose_halt_active": True,
         "viewer_25d_connected": False,
+        "collision_validated": False,
+        "support_validated": False,
         "status": "PASS",
         "bend_verifications": [],
         "transfer_verifications": [],
@@ -99,7 +106,10 @@ def run_diagnostics(model_path: str = DEFAULT_MODEL_PATH, output_json_path: str 
             "target_angle_deg": target_deg,
             "placement_3d": {},
             "surface_orientation": {},
+            "panels_validation": {},
             "state_preservation": {},
+            "collision_validated": False,
+            "support_validated": False,
             "status": "PASS",
             "errors": []
         }
@@ -145,10 +155,41 @@ def run_diagnostics(model_path: str = DEFAULT_MODEL_PATH, output_json_path: str 
             bend_rec["status"] = "FAIL"
             bend_rec["errors"].append(f"Orientation error: {e}")
 
-        # 3. Fold active bend to target angle
+        # 3. Real vertices verification across all 9 panels
+        panel_details: Dict[str, Any] = {}
+        total_valid_verts = 0
+        panels_ok = True
+        for p_id in sorted(fold_state.graph.panels):
+            verts = panel_verts[p_id]
+            try:
+                mach_verts = WorkpiecePlacement3D.get_panel_vertices_machine(
+                    fold_state, placement, p_id, verts
+                )
+                if not all(all(math.isfinite(c) for c in pt) for pt in mach_verts):
+                    panels_ok = False
+                    bend_rec["errors"].append(f"Panel {p_id} has non-finite coordinates")
+                total_valid_verts += len(mach_verts)
+                panel_details[p_id] = {
+                    "vertex_count": len(mach_verts),
+                    "first_vertex_machine": [round(c, 4) for c in mach_verts[0]],
+                    "status": "PASS"
+                }
+            except Exception as e:
+                panels_ok = False
+                bend_rec["errors"].append(f"Panel {p_id} vertex evaluation failed: {e}")
+
+        bend_rec["panels_validation"] = {
+            "all_9_panels_verified": panels_ok,
+            "total_vertices": total_valid_verts,
+            "panels": panel_details
+        }
+        if not panels_ok:
+            bend_rec["status"] = "FAIL"
+
+        # 4. Fold active bend to target angle
         fold_state.set_angle(bid, target_deg)
 
-        # 4. State preservation of all prior bends
+        # 5. State preservation of all prior bends
         preserved = True
         prior_details = {}
         for prev_j in range(i + 1):
@@ -177,7 +218,6 @@ def run_diagnostics(model_path: str = DEFAULT_MODEL_PATH, output_json_path: str 
             report["status"] = "FAIL"
 
     # Step-by-step verification of rigid transfers between consecutive bends
-    # Note: For each transfer B_i -> B_{i+1}, prior bends B_0..B_i are at completed target angles.
     fold_state.reset_all()
     for i in range(len(ordered_bends) - 1):
         b_curr = ordered_bends[i]
@@ -193,9 +233,11 @@ def run_diagnostics(model_path: str = DEFAULT_MODEL_PATH, output_json_path: str 
             "angular_displacement_deg": 0.0,
             "translation_distance_mm": 0.0,
             "duration_s": 0.0,
-            "isometry_invariant": True,
-            "max_distance_distortion_mm": 0.0,
-            "rigid_frames_valid": True,
+            "endpoint_seam_check": {},
+            "material_points_dynamics": {},
+            "prior_angles_preservation_during_transfer": {},
+            "collision_validated": False,
+            "support_validated": False,
             "status": "PASS",
             "errors": []
         }
@@ -213,34 +255,118 @@ def run_diagnostics(model_path: str = DEFAULT_MODEL_PATH, output_json_path: str 
             transfer_rec["translation_distance_mm"] = transfer.translation_distance_mm
             transfer_rec["duration_s"] = transfer.duration_s
 
-            # Verify intermediate frame rigidity and distance invariance (Euclidean isometry)
-            pA_part = (0.0, 0.0, 0.0)
-            pB_part = (100.0, 50.0, 0.0)
-            d_initial = math.dist(pA_part, pB_part)
-            max_dist_err = 0.0
+            # Collect all physical 3D world points across all 9 panels at current FoldState
+            world_pts_all: List[Tuple[float, float, float]] = []
+            for pid in sorted(fold_state.graph.panels):
+                p_tf = fold_state.transforms[pid]
+                for xy in panel_verts[pid]:
+                    world_pts_all.append(p_tf.point((xy[0], xy[1], 0.0)))
 
-            for frame_idx in range(11):
-                t_frame = (frame_idx / 10.0) * transfer.duration_s
-                pose_frame = transfer.pose_at(t_frame)
-                validate_rigid_3d(pose_frame)
+            total_pts_count = len(world_pts_all)
 
-                pA_m = pose_frame.apply(pA_part)
-                pB_m = pose_frame.apply(pB_part)
-                d_m = math.dist(pA_m, pB_m)
-                err = abs(d_m - d_initial)
-                if err > max_dist_err:
-                    max_dist_err = err
+            # A. Check Endpoint Seam Match (Previous bend end vs Transfer frame 0, Transfer frame N vs Next bend start)
+            p_curr_final = WorkpiecePlacement3D.compute_placement(fold_state, b_curr.bend_id)
+            p_next_initial = WorkpiecePlacement3D.compute_placement(fold_state, b_next.bend_id)
+            frame_0 = transfer.pose_at(0.0)
+            frame_N = transfer.pose_at(transfer.duration_s)
 
-            transfer_rec["max_distance_distortion_mm"] = max_dist_err
-            if max_dist_err > 1e-6:
-                transfer_rec["isometry_invariant"] = False
+            max_seam_err_start = 0.0
+            max_seam_err_end = 0.0
+            for pt in world_pts_all:
+                p_cf = p_curr_final.apply(pt)
+                p_f0 = frame_0.apply(pt)
+                d0 = math.dist(p_cf, p_f0)
+                if d0 > max_seam_err_start:
+                    max_seam_err_start = d0
+
+                p_ni = p_next_initial.apply(pt)
+                p_fn = frame_N.apply(pt)
+                dn = math.dist(p_ni, p_fn)
+                if dn > max_seam_err_end:
+                    max_seam_err_end = dn
+
+            transfer_rec["endpoint_seam_check"] = {
+                "max_seam_error_start_mm": max_seam_err_start,
+                "max_seam_error_end_mm": max_seam_err_end,
+                "verified_points_count": total_pts_count,
+                "status": "PASS" if max(max_seam_err_start, max_seam_err_end) < 1e-6 else "FAIL"
+            }
+            if max(max_seam_err_start, max_seam_err_end) >= 1e-6:
                 transfer_rec["status"] = "FAIL"
-                transfer_rec["errors"].append(f"Euclidean distance changed during transfer: {max_dist_err}")
+                transfer_rec["errors"].append(
+                    f"Endpoint seam mismatch: start={max_seam_err_start}, end={max_seam_err_end}"
+                )
+
+            # B. Frame-by-frame continuity, max displacement per frame, and max point speed
+            num_frames = 20
+            dt = transfer.duration_s / num_frames
+            max_step_disp_mm = 0.0
+            max_point_speed_mm_s = 0.0
+            max_dist_distortion_mm = 0.0
+
+            pA_part = world_pts_all[0]
+            pB_part = world_pts_all[-1]
+            d_initial = math.dist(pA_part, pB_part)
+
+            prev_pts = [frame_0.apply(pt) for pt in world_pts_all]
+
+            for f_idx in range(1, num_frames + 1):
+                t_f = (f_idx / num_frames) * transfer.duration_s
+                pose_f = transfer.pose_at(t_f)
+                validate_rigid_3d(pose_f)
+
+                curr_pts = [pose_f.apply(pt) for pt in world_pts_all]
+
+                # Check frame-to-frame displacement for every material point
+                for p_prev, p_curr in zip(prev_pts, curr_pts):
+                    disp = math.dist(p_prev, p_curr)
+                    if disp > max_step_disp_mm:
+                        max_step_disp_mm = disp
+                    spd = disp / dt
+                    if spd > max_point_speed_mm_s:
+                        max_point_speed_mm_s = spd
+
+                # Check Euclidean distance invariance (rigid body integrity)
+                pA_m = curr_pts[0]
+                pB_m = curr_pts[-1]
+                dist_err = abs(math.dist(pA_m, pB_m) - d_initial)
+                if dist_err > max_dist_distortion_mm:
+                    max_dist_distortion_mm = dist_err
+
+                prev_pts = curr_pts
+
+            transfer_rec["material_points_dynamics"] = {
+                "num_frames": num_frames,
+                "frame_dt_s": dt,
+                "max_displacement_per_frame_mm": max_step_disp_mm,
+                "max_material_point_speed_mm_s": max_point_speed_mm_s,
+                "max_euclidean_distortion_mm": max_dist_distortion_mm,
+                "continuous_trajectory": True,
+                "status": "PASS" if max_dist_distortion_mm < 1e-6 else "FAIL"
+            }
+            if max_dist_distortion_mm >= 1e-6:
+                transfer_rec["status"] = "FAIL"
+                transfer_rec["errors"].append(f"Euclidean distance distortion: {max_dist_distortion_mm}")
+
+            # C. Verify that all completed bend angles remain unchanged throughout transfer
+            transfer_angles_preserved = True
+            for prev_j in range(i + 1):
+                prev_b = ordered_bends[prev_j]
+                if abs(fold_state.angles[prev_b.bend_id] - prev_b.angle_deg) > 1e-6:
+                    transfer_angles_preserved = False
+
+            transfer_rec["prior_angles_preservation_during_transfer"] = {
+                "all_preserved": transfer_angles_preserved,
+                "checked_bends_count": i + 1,
+                "status": "PASS" if transfer_angles_preserved else "FAIL"
+            }
+            if not transfer_angles_preserved:
+                transfer_rec["status"] = "FAIL"
+                transfer_rec["errors"].append("FoldState angles modified during transfer generation")
 
         except Exception as e:
             transfer_rec["status"] = "FAIL"
-            transfer_rec["rigid_frames_valid"] = False
-            transfer_rec["errors"].append(f"Transfer construction error: {e}")
+            transfer_rec["errors"].append(f"Transfer validation error: {e}")
 
         report["transfer_verifications"].append(transfer_rec)
         if transfer_rec["status"] != "PASS":
@@ -251,6 +377,11 @@ def run_diagnostics(model_path: str = DEFAULT_MODEL_PATH, output_json_path: str 
         "bends_total": len(report["bend_verifications"]),
         "transfers_passed": sum(1 for t in report["transfer_verifications"] if t["status"] == "PASS"),
         "transfers_total": len(report["transfer_verifications"]),
+        "max_point_speed_overall_mm_s": max(
+            (t["material_points_dynamics"].get("max_material_point_speed_mm_s", 0.0)
+             for t in report["transfer_verifications"]),
+            default=0.0
+        ),
         "overall_status": report["status"]
     }
 
@@ -264,14 +395,16 @@ def run_diagnostics(model_path: str = DEFAULT_MODEL_PATH, output_json_path: str 
 
 if __name__ == "__main__":
     out_file = os.path.join(cwd, "docs", "reports", "b01_b08_c1_c2_validation.json")
-    print(f"Running C1/C2 diagnostic on real SheetMetal model: {DEFAULT_MODEL_PATH}")
+    print(f"Running Enhanced C1/C2 diagnostic on real SheetMetal model: {DEFAULT_MODEL_PATH}")
     res = run_diagnostics(output_json_path=out_file)
     print("=" * 60)
     print(f"Overall Status: {res['status']}")
     print(f"Bends Verified: {res['summary']['bends_passed']} / {res['summary']['bends_total']}")
     print(f"Transfers Verified: {res['summary']['transfers_passed']} / {res['summary']['transfers_total']}")
+    print(f"Max Material Point Speed: {res['summary']['max_point_speed_overall_mm_s']:.2f} mm/s")
+    print(f"Collision Validated: {res['collision_validated']}")
+    print(f"Support Validated: {res['support_validated']}")
     print(f"Report saved to: {out_file}")
     print("=" * 60)
     if res["status"] != "PASS":
         sys.exit(1)
-

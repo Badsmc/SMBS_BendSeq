@@ -9,6 +9,8 @@
   "total_bends": 8,
   "kinematic_pose_halt_active": true,
   "viewer_25d_connected": false,
+  "collision_validated": false,
+  "support_validated": false,
   "status": "PASS",
   "bend_verifications": [
     {
@@ -43,6 +45,93 @@
         "deviation_from_plus_z": 0.0,
         "status": "PASS"
       },
+      "panels_validation": {
+        "all_9_panels_verified": true,
+        "total_vertices": 52,
+        "panels": {
+          "P01": {
+            "vertex_count": 8,
+            "first_vertex_machine": [
+              25.0133,
+              1.2566,
+              0.0
+            ],
+            "status": "PASS"
+          },
+          "P02": {
+            "vertex_count": 4,
+            "first_vertex_machine": [
+              47.5265,
+              0.4566,
+              0.0
+            ],
+            "status": "PASS"
+          },
+          "P03": {
+            "vertex_count": 4,
+            "first_vertex_machine": [
+              -22.5,
+              96.2566,
+              0.0
+            ],
+            "status": "PASS"
+          },
+          "P04": {
+            "vertex_count": 8,
+            "first_vertex_machine": [
+              -23.3,
+              118.7699,
+              0.0
+            ],
+            "status": "PASS"
+          },
+          "P05": {
+            "vertex_count": 4,
+            "first_vertex_machine": [
+              23.3,
+              128.7832,
+              0.0
+            ],
+            "status": "PASS"
+          },
+          "P06": {
+            "vertex_count": 8,
+            "first_vertex_machine": [
+              -25.0133,
+              96.2566,
+              0.0
+            ],
+            "status": "PASS"
+          },
+          "P07": {
+            "vertex_count": 4,
+            "first_vertex_machine": [
+              -47.5265,
+              97.0566,
+              0.0
+            ],
+            "status": "PASS"
+          },
+          "P08": {
+            "vertex_count": 8,
+            "first_vertex_machine": [
+              -22.5,
+              -1.2566,
+              0.0
+            ],
+            "status": "PASS"
+          },
+          "P09": {
+            "vertex_count": 4,
+            "first_vertex_machine": [
+              -23.3,
+              -23.7699,
+              0.0
+            ],
+            "status": "PASS"
+          }
+        }
+      },
       "state_preservation": {
         "all_preserved": true,
         "checked_bends_count": 1,
@@ -54,6 +143,8 @@
           }
         }
       },
+      "collision_validated": false,
+      "support_validated": false,
       "status": "PASS",
       "errors": []
     },
@@ -89,6 +180,93 @@
         "deviation_from_plus_z": 0.0,
         "status": "PASS"
       },
+      "panels_validation": {
+        "all_9_panels_verified": true,
+        "total_vertices": 52,
+        "panels": {
+          "P01": {
+            "vertex_count": 8,
+            "first_vertex_machine": [
+              47.5,
+              48.7699,
+              0.0
+            ],
+            "status": "PASS"
+          },
+          "P02": {
+            "vertex_count": 4,
+            "first_vertex_machine": [
+              48.3,
+              71.2832,
+              0.0
+            ],
+            "status": "PASS"
+          },
+          "P03": {
+            "vertex_count": 4,
+            "first_vertex_machine": [
+              -47.5,
+              1.2566,
+              0.0
+            ],
+            "status": "PASS"
+          },
+          "P04": {
+            "vertex_count": 8,
+            "first_vertex_machine": [
+              -70.0133,
+              0.4566,
+              0.0
+            ],
+            "status": "PASS"
+          },
+          "P05": {
+            "vertex_count": 4,
+            "first_vertex_machine": [
+              -80.0265,
+              47.0566,
+              0.0
+            ],
+            "status": "PASS"
+          },
+          "P06": {
+            "vertex_count": 8,
+            "first_vertex_machine": [
+              -47.5,
+              -1.2566,
+              0.0
+            ],
+            "status": "PASS"
+          },
+          "P07": {
+            "vertex_count": 4,
+            "first_vertex_machine": [
+              -48.3,
+              -23.7699,
+              0.0
+            ],
+            "status": "PASS"
+          },
+          "P08": {
+            "vertex_count": 8,
+            "first_vertex_machine": [
+              48.5,
+              1.2566,
+              1.0
+            ],
+            "status": "PASS"
+          },
+          "P09": {
+            "vertex_count": 4,
+            "first_vertex_machine": [
+              48.5,
+              0.4566,
+              23.5133
+            ],
+            "status": "PASS"
+          }
+        }
+      },
       "state_preservation": {
         "all_preserved": true,
         "checked_bends_count": 2,
@@ -105,6 +283,8 @@
           }
         }
       },
+      "collision_validated": false,
+      "support_validated": false,
       "status": "PASS",
       "errors": []
     },
@@ -140,6 +320,93 @@
         "deviation_from_plus_z": 0.0,
         "status": "PASS"
       },
+      "panels_validation": {
+        "all_9_panels_verified": true,
+        "total_vertices": 52,
+        "panels": {
+          "P01": {
+            "vertex_count": 8,
+            "first_vertex_machine": [
+              -25.0133,
+              96.2566,
+              0.0
+            ],
+            "status": "PASS"
+          },
+          "P02": {
+            "vertex_count": 4,
+            "first_vertex_machine": [
+              -47.5265,
+              97.0566,
+              0.0
+            ],
+            "status": "PASS"
+          },
+          "P03": {
+            "vertex_count": 4,
+            "first_vertex_machine": [
+              22.5,
+              1.2566,
+              0.0
+            ],
+            "status": "PASS"
+          },
+          "P04": {
+            "vertex_count": 8,
+            "first_vertex_machine": [
+              23.3,
+              -21.2566,
+              0.0
+            ],
+            "status": "PASS"
+          },
+          "P05": {
+            "vertex_count": 4,
+            "first_vertex_machine": [
+              -23.3,
+              -31.2699,
+              0.0
+            ],
+            "status": "PASS"
+          },
+          "P06": {
+            "vertex_count": 8,
+            "first_vertex_machine": [
+              23.5,
+              1.2566,
+              1.0
+            ],
+            "status": "PASS"
+          },
+          "P07": {
+            "vertex_count": 4,
+            "first_vertex_machine": [
+              23.5,
+              0.4566,
+              23.5133
+            ],
+            "status": "PASS"
+          },
+          "P08": {
+            "vertex_count": 8,
+            "first_vertex_machine": [
+              22.5,
+              97.2566,
+              1.0
+            ],
+            "status": "PASS"
+          },
+          "P09": {
+            "vertex_count": 4,
+            "first_vertex_machine": [
+              23.3,
+              97.2566,
+              23.5133
+            ],
+            "status": "PASS"
+          }
+        }
+      },
       "state_preservation": {
         "all_preserved": true,
         "checked_bends_count": 3,
@@ -161,6 +428,8 @@
           }
         }
       },
+      "collision_validated": false,
+      "support_validated": false,
       "status": "PASS",
       "errors": []
     },
@@ -196,6 +465,93 @@
         "deviation_from_plus_z": 0.0,
         "status": "PASS"
       },
+      "panels_validation": {
+        "all_9_panels_verified": true,
+        "total_vertices": 52,
+        "panels": {
+          "P01": {
+            "vertex_count": 8,
+            "first_vertex_machine": [
+              -47.5,
+              -1.2566,
+              0.0
+            ],
+            "status": "PASS"
+          },
+          "P02": {
+            "vertex_count": 4,
+            "first_vertex_machine": [
+              -48.3,
+              -23.7699,
+              0.0
+            ],
+            "status": "PASS"
+          },
+          "P03": {
+            "vertex_count": 4,
+            "first_vertex_machine": [
+              47.5,
+              46.2566,
+              0.0
+            ],
+            "status": "PASS"
+          },
+          "P04": {
+            "vertex_count": 8,
+            "first_vertex_machine": [
+              48.5,
+              47.0566,
+              21.0
+            ],
+            "status": "PASS"
+          },
+          "P05": {
+            "vertex_count": 4,
+            "first_vertex_machine": [
+              48.5,
+              0.4566,
+              31.0133
+            ],
+            "status": "PASS"
+          },
+          "P06": {
+            "vertex_count": 8,
+            "first_vertex_machine": [
+              47.5,
+              47.2566,
+              1.0
+            ],
+            "status": "PASS"
+          },
+          "P07": {
+            "vertex_count": 4,
+            "first_vertex_machine": [
+              48.3,
+              47.2566,
+              23.5133
+            ],
+            "status": "PASS"
+          },
+          "P08": {
+            "vertex_count": 8,
+            "first_vertex_machine": [
+              -48.5,
+              46.2566,
+              1.0
+            ],
+            "status": "PASS"
+          },
+          "P09": {
+            "vertex_count": 4,
+            "first_vertex_machine": [
+              -48.5,
+              47.0566,
+              23.5133
+            ],
+            "status": "PASS"
+          }
+        }
+      },
       "state_preservation": {
         "all_preserved": true,
         "checked_bends_count": 4,
@@ -222,6 +578,8 @@
           }
         }
       },
+      "collision_validated": false,
+      "support_validated": false,
       "status": "PASS",
       "errors": []
     },
@@ -257,6 +615,93 @@
         "deviation_from_plus_z": 0.0,
         "status": "PASS"
       },
+      "panels_validation": {
+        "all_9_panels_verified": true,
+        "total_vertices": 52,
+        "panels": {
+          "P01": {
+            "vertex_count": 8,
+            "first_vertex_machine": [
+              23.5,
+              21.2566,
+              1.0
+            ],
+            "status": "PASS"
+          },
+          "P02": {
+            "vertex_count": 4,
+            "first_vertex_machine": [
+              23.5,
+              -1.2566,
+              0.2
+            ],
+            "status": "PASS"
+          },
+          "P03": {
+            "vertex_count": 4,
+            "first_vertex_machine": [
+              -22.5,
+              22.2566,
+              96.0
+            ],
+            "status": "PASS"
+          },
+          "P04": {
+            "vertex_count": 8,
+            "first_vertex_machine": [
+              -23.3,
+              1.2566,
+              97.0
+            ],
+            "status": "PASS"
+          },
+          "P05": {
+            "vertex_count": 4,
+            "first_vertex_machine": [
+              23.3,
+              -8.7566,
+              97.0
+            ],
+            "status": "PASS"
+          },
+          "P06": {
+            "vertex_count": 8,
+            "first_vertex_machine": [
+              -23.5,
+              21.2566,
+              96.0
+            ],
+            "status": "PASS"
+          },
+          "P07": {
+            "vertex_count": 4,
+            "first_vertex_machine": [
+              -23.5,
+              -1.2566,
+              96.8
+            ],
+            "status": "PASS"
+          },
+          "P08": {
+            "vertex_count": 8,
+            "first_vertex_machine": [
+              -22.5,
+              21.2566,
+              0.0
+            ],
+            "status": "PASS"
+          },
+          "P09": {
+            "vertex_count": 4,
+            "first_vertex_machine": [
+              -23.3,
+              -1.2566,
+              0.0
+            ],
+            "status": "PASS"
+          }
+        }
+      },
       "state_preservation": {
         "all_preserved": true,
         "checked_bends_count": 5,
@@ -288,6 +733,8 @@
           }
         }
       },
+      "collision_validated": false,
+      "support_validated": false,
       "status": "PASS",
       "errors": []
     },
@@ -322,6 +769,93 @@
         ],
         "deviation_from_plus_z": 0.0,
         "status": "PASS"
+      },
+      "panels_validation": {
+        "all_9_panels_verified": true,
+        "total_vertices": 52,
+        "panels": {
+          "P01": {
+            "vertex_count": 8,
+            "first_vertex_machine": [
+              47.5,
+              21.2566,
+              47.0
+            ],
+            "status": "PASS"
+          },
+          "P02": {
+            "vertex_count": 4,
+            "first_vertex_machine": [
+              48.3,
+              -1.2566,
+              47.0
+            ],
+            "status": "PASS"
+          },
+          "P03": {
+            "vertex_count": 4,
+            "first_vertex_machine": [
+              -47.5,
+              22.2566,
+              1.0
+            ],
+            "status": "PASS"
+          },
+          "P04": {
+            "vertex_count": 8,
+            "first_vertex_machine": [
+              -48.5,
+              1.2566,
+              0.2
+            ],
+            "status": "PASS"
+          },
+          "P05": {
+            "vertex_count": 4,
+            "first_vertex_machine": [
+              -48.5,
+              -8.7566,
+              46.8
+            ],
+            "status": "PASS"
+          },
+          "P06": {
+            "vertex_count": 8,
+            "first_vertex_machine": [
+              -47.5,
+              21.2566,
+              0.0
+            ],
+            "status": "PASS"
+          },
+          "P07": {
+            "vertex_count": 4,
+            "first_vertex_machine": [
+              -48.3,
+              -1.2566,
+              -0.0
+            ],
+            "status": "PASS"
+          },
+          "P08": {
+            "vertex_count": 8,
+            "first_vertex_machine": [
+              48.5,
+              21.2566,
+              1.0
+            ],
+            "status": "PASS"
+          },
+          "P09": {
+            "vertex_count": 4,
+            "first_vertex_machine": [
+              47.5,
+              0.2566,
+              0.2
+            ],
+            "status": "PASS"
+          }
+        }
       },
       "state_preservation": {
         "all_preserved": true,
@@ -359,6 +893,8 @@
           }
         }
       },
+      "collision_validated": false,
+      "support_validated": false,
       "status": "PASS",
       "errors": []
     },
@@ -393,6 +929,93 @@
         ],
         "deviation_from_plus_z": 8.756529004445416e-32,
         "status": "PASS"
+      },
+      "panels_validation": {
+        "all_9_panels_verified": true,
+        "total_vertices": 52,
+        "panels": {
+          "P01": {
+            "vertex_count": 8,
+            "first_vertex_machine": [
+              -23.5,
+              21.2566,
+              96.0
+            ],
+            "status": "PASS"
+          },
+          "P02": {
+            "vertex_count": 4,
+            "first_vertex_machine": [
+              -23.5,
+              -1.2566,
+              96.8
+            ],
+            "status": "PASS"
+          },
+          "P03": {
+            "vertex_count": 4,
+            "first_vertex_machine": [
+              22.5,
+              22.2566,
+              1.0
+            ],
+            "status": "PASS"
+          },
+          "P04": {
+            "vertex_count": 8,
+            "first_vertex_machine": [
+              23.3,
+              1.2566,
+              0.0
+            ],
+            "status": "PASS"
+          },
+          "P05": {
+            "vertex_count": 4,
+            "first_vertex_machine": [
+              -23.3,
+              -8.7566,
+              0.0
+            ],
+            "status": "PASS"
+          },
+          "P06": {
+            "vertex_count": 8,
+            "first_vertex_machine": [
+              23.5,
+              21.2566,
+              1.0
+            ],
+            "status": "PASS"
+          },
+          "P07": {
+            "vertex_count": 4,
+            "first_vertex_machine": [
+              26.0,
+              -1.2434,
+              0.2
+            ],
+            "status": "PASS"
+          },
+          "P08": {
+            "vertex_count": 8,
+            "first_vertex_machine": [
+              22.5,
+              21.2566,
+              97.0
+            ],
+            "status": "PASS"
+          },
+          "P09": {
+            "vertex_count": 4,
+            "first_vertex_machine": [
+              23.3,
+              0.2566,
+              96.0
+            ],
+            "status": "PASS"
+          }
+        }
       },
       "state_preservation": {
         "all_preserved": true,
@@ -435,6 +1058,8 @@
           }
         }
       },
+      "collision_validated": false,
+      "support_validated": false,
       "status": "PASS",
       "errors": []
     },
@@ -469,6 +1094,93 @@
         ],
         "deviation_from_plus_z": 0.0,
         "status": "PASS"
+      },
+      "panels_validation": {
+        "all_9_panels_verified": true,
+        "total_vertices": 52,
+        "panels": {
+          "P01": {
+            "vertex_count": 8,
+            "first_vertex_machine": [
+              -47.5,
+              21.2566,
+              0.0
+            ],
+            "status": "PASS"
+          },
+          "P02": {
+            "vertex_count": 4,
+            "first_vertex_machine": [
+              -48.3,
+              -1.2566,
+              0.0
+            ],
+            "status": "PASS"
+          },
+          "P03": {
+            "vertex_count": 4,
+            "first_vertex_machine": [
+              47.5,
+              22.2566,
+              46.0
+            ],
+            "status": "PASS"
+          },
+          "P04": {
+            "vertex_count": 8,
+            "first_vertex_machine": [
+              48.5,
+              1.2566,
+              46.8
+            ],
+            "status": "PASS"
+          },
+          "P05": {
+            "vertex_count": 4,
+            "first_vertex_machine": [
+              40.0,
+              0.2566,
+              0.2
+            ],
+            "status": "PASS"
+          },
+          "P06": {
+            "vertex_count": 8,
+            "first_vertex_machine": [
+              47.5,
+              21.2566,
+              47.0
+            ],
+            "status": "PASS"
+          },
+          "P07": {
+            "vertex_count": 4,
+            "first_vertex_machine": [
+              48.3,
+              -1.2434,
+              49.5
+            ],
+            "status": "PASS"
+          },
+          "P08": {
+            "vertex_count": 8,
+            "first_vertex_machine": [
+              -48.5,
+              21.2566,
+              46.0
+            ],
+            "status": "PASS"
+          },
+          "P09": {
+            "vertex_count": 4,
+            "first_vertex_machine": [
+              -47.5,
+              0.2566,
+              46.8
+            ],
+            "status": "PASS"
+          }
+        }
       },
       "state_preservation": {
         "all_preserved": true,
@@ -516,6 +1228,8 @@
           }
         }
       },
+      "collision_validated": false,
+      "support_validated": false,
       "status": "PASS",
       "errors": []
     }
@@ -528,9 +1242,28 @@
       "angular_displacement_deg": 90.0,
       "translation_distance_mm": 161.99380758693636,
       "duration_s": 1.0,
-      "isometry_invariant": true,
-      "max_distance_distortion_mm": 2.842170943040401e-14,
-      "rigid_frames_valid": true,
+      "endpoint_seam_check": {
+        "max_seam_error_start_mm": 0.0,
+        "max_seam_error_end_mm": 0.0,
+        "verified_points_count": 52,
+        "status": "PASS"
+      },
+      "material_points_dynamics": {
+        "num_frames": 20,
+        "frame_dt_s": 0.05,
+        "max_displacement_per_frame_mm": 11.646088600890161,
+        "max_material_point_speed_mm_s": 232.92177201780322,
+        "max_euclidean_distortion_mm": 2.1316282072803006e-14,
+        "continuous_trajectory": true,
+        "status": "PASS"
+      },
+      "prior_angles_preservation_during_transfer": {
+        "all_preserved": true,
+        "checked_bends_count": 1,
+        "status": "PASS"
+      },
+      "collision_validated": false,
+      "support_validated": false,
       "status": "PASS",
       "errors": []
     },
@@ -541,9 +1274,28 @@
       "angular_displacement_deg": 90.00000000000001,
       "translation_distance_mm": 135.05309649148734,
       "duration_s": 1.0000000000000002,
-      "isometry_invariant": true,
-      "max_distance_distortion_mm": 2.842170943040401e-14,
-      "rigid_frames_valid": true,
+      "endpoint_seam_check": {
+        "max_seam_error_start_mm": 0.0,
+        "max_seam_error_end_mm": 0.0,
+        "verified_points_count": 52,
+        "status": "PASS"
+      },
+      "material_points_dynamics": {
+        "num_frames": 20,
+        "frame_dt_s": 0.05000000000000001,
+        "max_displacement_per_frame_mm": 10.708922495302707,
+        "max_material_point_speed_mm_s": 214.17844990605408,
+        "max_euclidean_distortion_mm": 2.842170943040401e-14,
+        "continuous_trajectory": true,
+        "status": "PASS"
+      },
+      "prior_angles_preservation_during_transfer": {
+        "all_preserved": true,
+        "checked_bends_count": 2,
+        "status": "PASS"
+      },
+      "collision_validated": false,
+      "support_validated": false,
       "status": "PASS",
       "errors": []
     },
@@ -554,9 +1306,28 @@
       "angular_displacement_deg": 89.99999999999999,
       "translation_distance_mm": 112.85691847363466,
       "duration_s": 0.9999999999999999,
-      "isometry_invariant": true,
-      "max_distance_distortion_mm": 5.684341886080802e-14,
-      "rigid_frames_valid": true,
+      "endpoint_seam_check": {
+        "max_seam_error_start_mm": 0.0,
+        "max_seam_error_end_mm": 0.0,
+        "verified_points_count": 52,
+        "status": "PASS"
+      },
+      "material_points_dynamics": {
+        "num_frames": 20,
+        "frame_dt_s": 0.049999999999999996,
+        "max_displacement_per_frame_mm": 10.681830798976355,
+        "max_material_point_speed_mm_s": 213.6366159795271,
+        "max_euclidean_distortion_mm": 3.552713678800501e-14,
+        "continuous_trajectory": true,
+        "status": "PASS"
+      },
+      "prior_angles_preservation_during_transfer": {
+        "all_preserved": true,
+        "checked_bends_count": 3,
+        "status": "PASS"
+      },
+      "collision_validated": false,
+      "support_validated": false,
       "status": "PASS",
       "errors": []
     },
@@ -567,9 +1338,28 @@
       "angular_displacement_deg": 120.00000000000001,
       "translation_distance_mm": 194.8169990849948,
       "duration_s": 1.3333333333333335,
-      "isometry_invariant": true,
-      "max_distance_distortion_mm": 5.684341886080802e-14,
-      "rigid_frames_valid": true,
+      "endpoint_seam_check": {
+        "max_seam_error_start_mm": 0.0,
+        "max_seam_error_end_mm": 0.0,
+        "verified_points_count": 52,
+        "status": "PASS"
+      },
+      "material_points_dynamics": {
+        "num_frames": 20,
+        "frame_dt_s": 0.06666666666666668,
+        "max_displacement_per_frame_mm": 14.282025845726121,
+        "max_material_point_speed_mm_s": 214.23038768589177,
+        "max_euclidean_distortion_mm": 3.552713678800501e-14,
+        "continuous_trajectory": true,
+        "status": "PASS"
+      },
+      "prior_angles_preservation_during_transfer": {
+        "all_preserved": true,
+        "checked_bends_count": 4,
+        "status": "PASS"
+      },
+      "collision_validated": false,
+      "support_validated": false,
       "status": "PASS",
       "errors": []
     },
@@ -580,9 +1370,28 @@
       "angular_displacement_deg": 90.0,
       "translation_distance_mm": 161.99380758693636,
       "duration_s": 1.0,
-      "isometry_invariant": true,
-      "max_distance_distortion_mm": 1.4210854715202004e-14,
-      "rigid_frames_valid": true,
+      "endpoint_seam_check": {
+        "max_seam_error_start_mm": 0.0,
+        "max_seam_error_end_mm": 0.0,
+        "verified_points_count": 52,
+        "status": "PASS"
+      },
+      "material_points_dynamics": {
+        "num_frames": 20,
+        "frame_dt_s": 0.05,
+        "max_displacement_per_frame_mm": 10.124641733882758,
+        "max_material_point_speed_mm_s": 202.49283467765514,
+        "max_euclidean_distortion_mm": 1.4210854715202004e-14,
+        "continuous_trajectory": true,
+        "status": "PASS"
+      },
+      "prior_angles_preservation_during_transfer": {
+        "all_preserved": true,
+        "checked_bends_count": 5,
+        "status": "PASS"
+      },
+      "collision_validated": false,
+      "support_validated": false,
       "status": "PASS",
       "errors": []
     },
@@ -593,9 +1402,28 @@
       "angular_displacement_deg": 90.0,
       "translation_distance_mm": 135.05309649148734,
       "duration_s": 1.0,
-      "isometry_invariant": true,
-      "max_distance_distortion_mm": 4.263256414560601e-14,
-      "rigid_frames_valid": true,
+      "endpoint_seam_check": {
+        "max_seam_error_start_mm": 0.0,
+        "max_seam_error_end_mm": 0.0,
+        "verified_points_count": 52,
+        "status": "PASS"
+      },
+      "material_points_dynamics": {
+        "num_frames": 20,
+        "frame_dt_s": 0.05,
+        "max_displacement_per_frame_mm": 11.037744431815069,
+        "max_material_point_speed_mm_s": 220.75488863630136,
+        "max_euclidean_distortion_mm": 2.842170943040401e-14,
+        "continuous_trajectory": true,
+        "status": "PASS"
+      },
+      "prior_angles_preservation_during_transfer": {
+        "all_preserved": true,
+        "checked_bends_count": 6,
+        "status": "PASS"
+      },
+      "collision_validated": false,
+      "support_validated": false,
       "status": "PASS",
       "errors": []
     },
@@ -606,9 +1434,28 @@
       "angular_displacement_deg": 90.0,
       "translation_distance_mm": 112.85691847363468,
       "duration_s": 1.0,
-      "isometry_invariant": true,
-      "max_distance_distortion_mm": 5.684341886080802e-14,
-      "rigid_frames_valid": true,
+      "endpoint_seam_check": {
+        "max_seam_error_start_mm": 0.0,
+        "max_seam_error_end_mm": 0.0,
+        "verified_points_count": 52,
+        "status": "PASS"
+      },
+      "material_points_dynamics": {
+        "num_frames": 20,
+        "frame_dt_s": 0.05,
+        "max_displacement_per_frame_mm": 9.39582110489266,
+        "max_material_point_speed_mm_s": 187.91642209785317,
+        "max_euclidean_distortion_mm": 2.1316282072803006e-14,
+        "continuous_trajectory": true,
+        "status": "PASS"
+      },
+      "prior_angles_preservation_during_transfer": {
+        "all_preserved": true,
+        "checked_bends_count": 7,
+        "status": "PASS"
+      },
+      "collision_validated": false,
+      "support_validated": false,
       "status": "PASS",
       "errors": []
     }
@@ -618,6 +1465,7 @@
     "bends_total": 8,
     "transfers_passed": 7,
     "transfers_total": 7,
+    "max_point_speed_overall_mm_s": 232.92177201780322,
     "overall_status": "PASS"
   }
 }
