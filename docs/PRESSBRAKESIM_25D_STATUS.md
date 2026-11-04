@@ -23,6 +23,22 @@ local venv (Python 3.14, no pythonocc). Level C (interactive GUI) NOT performed 
   - 1 × `ImportError: dlopen(.../FreeCAD.so)` when importing compiled FreeCAD binary into system Python 3.14 (`tests/test_fold_multi_bend.py`).
   - 1 × `ImportError: cannot import name 'SELF_COLLISION_GAP_TOL_MM' from 'smbs_core.Physics.collision_detector'` (`tests/test_self_collision_panels.py`, defect D2 from `0d4c071`).
 
+## Phase 5B symmetric workpiece hotfix — implementation pending GUI acceptance
+
+- Added `smbs_core/kinematics2d/workpiece_pose_2d.py`: a headless, rigid `WorkpiecePose2D` with `machine_pose_for_cycle` and `transform_sheet_section`.
+- `FULL_CYCLE` now applies one machine transform to all sheet panels, finite-radius zones, inner/outer surfaces, neutral curves and tangents; `BEND_ONLY` continues to render the original `FoldState` section unchanged.
+- Supported preview symmetry uses current neighboring flange vectors and an explicit assumed flip on negative bends; the installed V-groove datum is the horizontal machine anchor.
+- During APPROACH and CONTACT the sheet stays stationary. During BENDING its active zone follows the programmed *preview* ram stroke; during RETRACT it holds the completed pose.
+- The configured punch stroke is **not** derived from physical tooling contact. Exact punch/die interference checks and automatic feasible stroke remain unimplemented (future Phase 5C). No claim of physically valid machine bending.
+- Added pure-Python regression tests `tests/test_workpiece_pose_2d.py` for symmetric flange elevation, +/- bends, inverse round trips, motion phases, full cross-section propagation, and Bend Only identity.
+- **This hotfix has not yet been run in the user's interactive FreeCAD GUI.** Remote CI has no reported statuses for these commits; do not mark Phase 5B verified or closed.
+
+To run headless tests:
+```sh
+PYTHONPATH=. python -m unittest tests.test_workpiece_pose_2d -v
+PYTHONPATH=. python -m pytest -q tests/test_workpiece_pose_2d.py tests/test_bend_zone.py
+```
+
 ## Phase table
 
 | Phase | Requirement | Impl. | Tests | FreeCAD verif. | Blockers | Next action |
