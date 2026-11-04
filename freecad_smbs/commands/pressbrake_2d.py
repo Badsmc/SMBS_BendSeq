@@ -37,7 +37,7 @@ from smbs_core.kinematics2d.preview_mesh_3d import (
 )
 from smbs_core.kinematics2d.workpiece_pose_2d import (
     WorkpiecePose2D, WorkpiecePoseError, machine_pose_for_cycle,
-    transform_sheet_section,
+    symmetric_v_pose, transform_sheet_section,
 )
 from smbs_core.kinematics2d.tooling_25d import (
     DEFAULT_INITIAL_PUNCH_CLEARANCE_MM,
@@ -838,7 +838,13 @@ class _PreviewPanel:
                     if self.execution_mode == CycleExecutionMode.FULL_CYCLE:
                         pc = self._ensure_press_cycle_controller()
                         if pc is not None:
-                            pose = machine_pose_for_cycle(raw_section, pc, self.tooling_setup)
+                            try:
+                                pose = machine_pose_for_cycle(raw_section, pc, self.tooling_setup)
+                            except WorkpiecePoseError as exc:
+                                # Keep 3D and 2.5D equally symmetric if physical
+                                # shoulder support cannot be established.
+                                _warn("3D: die support not verified: {}".format(exc))
+                                pose = symmetric_v_pose(raw_section)
                     faces = build_sheet_preview_faces(
                         self.session.fold_state,
                         self.session.panel_vertices_xy,
@@ -2053,7 +2059,15 @@ class _PreviewPanel:
                                 pose = machine_pose_for_cycle(sec, pc_for_pose, self.tooling_setup)
                                 sec = transform_sheet_section(sec, pose)
                             except WorkpiecePoseError as exc:
-                                pose_warning = " | WORKPIECE_POSE_UNSUPPORTED: " + str(exc)
+                                # Contact support may be impossible for short
+                                # flanges or ambiguous datums. Do not silently
+                                # revert to identity (the original one-flange bug).
+                                pose_warning = " | DIE_CONTACT_UNVERIFIED: " + str(exc)
+                                try:
+                                    pose = symmetric_v_pose(sec)
+                                    sec = transform_sheet_section(sec, pose)
+                                except WorkpiecePoseError as orient_exc:
+                                    pose_warning += " | SYMMETRY_UNAVAILABLE: " + str(orient_exc)
 
                         # sec is now in Machine Coordinates; do not apply the
                         # same transform a second time in any renderer path.
