@@ -703,6 +703,18 @@ class _PreviewPanel:
                 self.reset_btn = _button(QtWidgets, "|<", self.reset, False)
                 self.back_btn = _button(QtWidgets, "<", lambda: self.step_angle(-5.0), False)
                 self.play_btn = _button(QtWidgets, "▶ Play All", self.play_all, False)
+                self.play_btn.setToolTip(
+                    "Full Cycle: анимирует станок до первого неподдерживаемого "
+                    "положения. Bend Only: автоматическая гибка всей детали."
+                )
+                self.auto_geometry_btn = _button(
+                    QtWidgets, "▶ Авто гибка (без пресса)",
+                    self.play_geometry_only, False
+                )
+                self.auto_geometry_btn.setToolTip(
+                    "Непрерывно проиграть все гибы в 2.5D и 3D через FoldState, "
+                    "без неподтверждённого позиционирования на матрице."
+                )
                 self.pause_btn = _button(QtWidgets, "Ⅱ Pause", self.toggle_pause_resume, False)
                 self.next_btn = _button(QtWidgets, ">", lambda: self.step_angle(5.0), False)
                 self.end_btn = _button(QtWidgets, ">|", self.to_target_angle, False)
@@ -711,6 +723,7 @@ class _PreviewPanel:
                     self.reset_btn,
                     self.back_btn,
                     self.play_btn,
+                    self.auto_geometry_btn,
                     self.pause_btn,
                     self.next_btn,
                     self.end_btn,
@@ -1682,7 +1695,10 @@ class _PreviewPanel:
                     return
                 st = self.session.playback_status
                 self.playing = st == PlaybackStatus.PLAYING
-                self.play_btn.setText("▶ Play All")
+                self.play_btn.setText(
+                    "▶ Play All (станок)" if self.execution_mode == CycleExecutionMode.FULL_CYCLE
+                    else "▶ Play All (геометрия)"
+                )
                 if st == PlaybackStatus.PLAYING:
                     self.pause_btn.setText("Ⅱ Pause")
                     self.pause_btn.setEnabled(True)
@@ -1707,6 +1723,7 @@ class _PreviewPanel:
                     self.reset_btn,
                     self.back_btn,
                     self.play_btn,
+                    self.auto_geometry_btn,
                     self.next_btn,
                     self.end_btn,
                     self.slider,
@@ -1968,11 +1985,40 @@ class _PreviewPanel:
                     self._update_tooling_status_label()
                     self.draw()
 
+            def play_geometry_only(self):
+                """Automatic FoldState animation, explicitly without press validation.
+
+                Unlike the guarded Full Cycle, this preview can continue
+                through nonparallel bends because it never claims an aligned
+                2.5D tool/workpiece pose. No manual stepping is required.
+                """
+                if self.session is None:
+                    self.status.setText("Сначала загрузите деталь.")
+                    return
+                self._stop_timer()
+                self._locked_25d_scene_rect = None
+                self.set_cycle_mode(CycleExecutionMode.BEND_ONLY)
+                self.reset()
+                self.status.setText(
+                    "АВТОГИБКА ГЕОМЕТРИИ: без пуансона, матрицы "
+                    "и проверки столкновений. Play All выполняется таймером."
+                )
+                self.play_all()
+
             def play_all(self):
                 """Start or restart full bend-sequence playback across all bends."""
                 if self.session is None:
                     return
-                self._machine_pose_fault = None
+                if (self._machine_pose_fault and
+                        self.execution_mode == CycleExecutionMode.FULL_CYCLE):
+                    self.status.setText(
+                        "Full Cycle остановлен из-за геометрии: {}. "
+                        "Нажмите «Авто гибка (без пресса)» для автоматической "
+                        "анимации всех гибов или Reset для повторной проверки.".format(
+                            self._machine_pose_fault
+                        )
+                    )
+                    return
                 self._last_valid_machine_section = None
                 self._last_valid_machine_pose = None
                 self._last_valid_machine_bend = None
@@ -2002,6 +2048,23 @@ class _PreviewPanel:
                 if not self.timer.isActive():
                     self.timer.start()
                 self.draw()
+                if self.session.playback_status == PlaybackStatus.PLAYING:
+                    if not self.timer.isActive():
+                        self.timer.start()
+                    self.status.setText(
+                        "AUTO PLAY: {} | гиб {} | таймер {} мс".format(
+                            self.execution_mode.value,
+                            self.session.active_bend_id,
+                            self.timer.interval()
+                        )
+                    )
+                else:
+                    self.status.setText(
+                        "AUTO PLAY не запущен: статус {} | {}".format(
+                            self.session.playback_status.value,
+                            self._machine_pose_fault or "проверьте состояние последовательности"
+                        )
+                    )
                 _log("Play All started at bend {}".format(self.session.active_bend_id))
 
             def pause(self):
@@ -2288,7 +2351,8 @@ class _PreviewPanel:
                 self._finish_motion_trace("KINEMATIC_POSE_HALT")
                 self.status.setText(
                     "Симуляция остановлена: {}. Отображён последний корректный "
-                    "кадр. Проверка 2.5D невозможна для этого гиба.".format(reason)
+                    "кадр. Для продолжения автоматической анимации без "
+                    "станка нажмите «Авто гибка (без пресса)».".format(reason)
                 )
 
             def draw(self):
