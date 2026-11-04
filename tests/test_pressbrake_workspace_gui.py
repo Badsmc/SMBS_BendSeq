@@ -67,6 +67,76 @@ class WorkspaceGuiTests(unittest.TestCase):
             panel.close()
             panel.deleteLater()
 
+    def test_geometry_auto_button_drives_timer_without_manual_steps(self):
+        """Real Qt event loop advances Bend Only automatically in FreeCAD."""
+        try:
+            import FreeCAD  # noqa: F401
+            from freecad_smbs.commands.pressbrake_2d import _PreviewPanel, _qt
+            from smbs_core.kinematics2d.fold_sequence import PlaybackStatus
+            from smbs_core.kinematics2d.press_cycle import CycleExecutionMode
+            QtCore, _QtGui, QtWidgets = _qt()
+        except (ImportError, ModuleNotFoundError) as exc:
+            self.skipTest("FreeCAD runtime unavailable: {}".format(exc))
+        if QtWidgets.QApplication.instance() is None:
+            self.skipTest("Qt GUI application is not running")
+        panel = _PreviewPanel()
+        try:
+            from types import SimpleNamespace
+            class FakeSession:
+                def __init__(self):
+                    self.playback_status = PlaybackStatus.IDLE
+                    self.active_bend_id = "B01"
+                    self.active_bend_index = 0
+                    self.current_angle_deg = 0.0
+                    self.bend_order = ("B01",)
+                    self.canonical_order = self.bend_order
+                    self.controller = SimpleNamespace(active_index=0)
+                    self.frames = 0
+
+                def play_all(self):
+                    self.playback_status = PlaybackStatus.PLAYING
+
+                def advance_time(self, dt):
+                    self.frames += 1
+                    self.current_angle_deg += dt * 90.0
+                    if self.frames >= 4:
+                        self.playback_status = PlaybackStatus.COMPLETED
+
+                def can_reorder(self):
+                    return False
+
+            stub = FakeSession()
+            panel.session = stub
+            panel.draw = lambda: None
+            panel._configure_for_active_bend = lambda: None
+            panel._update_tooling_status_label = lambda: None
+            panel._update_press_cycle_labels = lambda: None
+            panel._start_motion_trace = lambda: None
+            panel._finish_motion_trace = lambda reason: None
+            panel._ensure_press_cycle_controller = lambda: None
+            panel.reset = lambda: None
+
+            self.assertFalse(panel.auto_geometry_btn.isEnabled())
+            panel.auto_geometry_btn.setEnabled(True)
+            panel.auto_geometry_btn.click()
+            self.assertEqual(panel.execution_mode, CycleExecutionMode.BEND_ONLY)
+            self.assertTrue(panel.timer.isActive())
+            self.assertEqual(stub.playback_status, PlaybackStatus.PLAYING)
+            loop = QtCore.QEventLoop()
+            QtCore.QTimer.singleShot(400, loop.quit)
+            if hasattr(loop, "exec"):
+                loop.exec()
+            else:
+                loop.exec_()
+            self.assertGreaterEqual(stub.frames, 4)
+            self.assertEqual(stub.playback_status, PlaybackStatus.COMPLETED)
+            self.assertFalse(panel.timer.isActive())
+            self.assertEqual(len(panel.findChildren(QtCore.QTimer)), 1)
+        finally:
+            panel.timer.stop()
+            panel.close()
+            panel.deleteLater()
+
     def test_separate_workspace_layout_and_single_timer(self):
         try:
             import FreeCAD  # noqa: F401
