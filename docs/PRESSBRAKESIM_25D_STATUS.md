@@ -23,6 +23,25 @@ local venv (Python 3.14, no pythonocc). Level C (interactive GUI) NOT performed 
   - 1 × `ImportError: dlopen(.../FreeCAD.so)` when importing compiled FreeCAD binary into system Python 3.14 (`tests/test_fold_multi_bend.py`).
   - 1 × `ImportError: cannot import name 'SELF_COLLISION_GAP_TOL_MM' from 'smbs_core.Physics.collision_detector'` (`tests/test_self_collision_panels.py`, defect D2 from `0d4c071`).
 
+## Phase 5C — cross-section collision oracle (pilot, NOT accepted)
+
+Phase 5B stays **OPEN / NOT APPROVED**. The user explicitly withheld acceptance of its contact placement, negative-bend representation and transfer. Phase 5C implementation is isolated; it must not be used to certify the outstanding 5B machine pose.
+
+**What was added (headless only):**
+- `smbs_core/kinematics2d/contact_oracle_2d.py`: conservative sheet/punch/die *2D polygon-section* classifier, statuses `CLEAR`, `TOUCH`, `INTERFERENCE`, `UNVERIFIED`, a per-component/tool `ContactFinding` and aggregate `ContactReport`.
+- Bounds are used only for fast obvious separation, followed by polygon boundary segment crossings and interior witnesses. Punch/die cutout rings (holes) represent empty space.
+- Both positive-area penetration and coincident overlapping solid interiors are classified as `INTERFERENCE`, while boundary-only touch is not penetration.
+- Missing tools/alignment or degenerate geometry are `UNVERIFIED`, not a simulated PASS.
+- Read-only adapter `check_sheet_tooling_preview(section, tooling)` accepts an **already machine-positioned** FoldState cross-section and existing tool-profile polygons. It scans fixed/moving/other panels and all bend zones. It does not mutate the source FreeCAD object, the angles, or imported tool profiles.
+- Tests `tests/test_contact_oracle_2d.py` cover disjoint, touch, partial/full penetration, coincident polygons, tool cavities, missing geometry and read-only adapter. Included in GitHub Actions `pressbrake-preview-2d.yml`.
+- **Not enabled as automatic stop, PASS/FAIL safety certificate or 3D collision check in GUI**. Must first verify the new oracle independently and then integrate with valid Phase 5B machine poses, without hiding errors.
+
+**Limitations and stop-criteria:**
+- This is a polyline-discretized 2D slice, not OCC 3D volumetric collision. Contact tolerance depends on sampling; profiles with complex nonmanifold boundaries, crossing contours and variable cross-sections require additional validation.
+- `CLEAR` means only that this tested section did not report interference under the current sampling/geometry; it does not mean that the part can be manufactured.
+- Exact physically meaningful punch/blank contact, 3D tooling collisions, travel of sheet outside the tested cross-section, stroke reachability, machine frame, backgauge, clamps, and dynamic interference along the full transition remain outstanding.
+- Real FreeCAD GUI checks and successful CI test run **not yet confirmed**. Phase 5C status: **IMPLEMENTED (pilot), UNVERIFIED**, not closed.
+
 ## Phase 5B Hotfix 7 — unsupported 2.5D placement on selected bends
 
 User feedback: some operations display the scene warning `2.5D: НЕТ ПРОВЕРЕННОГО ПОЛОЖЕНИЯ ДЕТАЛИ`.
