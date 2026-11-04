@@ -547,6 +547,12 @@ class _PreviewPanel:
                 self.press_cycle: PressCycleController | None = None
                 self.last_scene_bounds: SceneBounds2D | None = None
                 self._locked_25d_scene_rect = None
+                # Last valid machine-space image. Never fall back to a flat
+                # IDENTITY pose when a later bend cannot be represented.
+                self._last_valid_machine_section = None
+                self._last_valid_machine_pose = None
+                self._last_valid_machine_bend = None
+                self._machine_pose_fault = None
                 self.motion_trace = None
                 self._trace_frame_dt = None
                 self._trace_directory = _LOG_FILE_PATH.parent / "pressbrake_traces"
@@ -1716,6 +1722,10 @@ class _PreviewPanel:
                 # never read or mutate the original source document again.
                 self._fixed_3d_view_rect = None
                 self._locked_25d_scene_rect = None
+                self._last_valid_machine_section = None
+                self._last_valid_machine_pose = None
+                self._last_valid_machine_bend = None
+                self._machine_pose_fault = None
                 self._last_3d_frame_at = -1.0
                 self.session = new_session
                 self._ensure_press_cycle_controller()
@@ -1913,6 +1923,10 @@ class _PreviewPanel:
                 self.set_angle(self.session.target_angle_deg)
 
             def reset(self):
+                self._machine_pose_fault = None
+                self._last_valid_machine_section = None
+                self._last_valid_machine_pose = None
+                self._last_valid_machine_bend = None
                 self._trace_event("RESET")
                 self._finish_motion_trace("RESET")
                 self._stop_timer()
@@ -1932,6 +1946,10 @@ class _PreviewPanel:
                 """Start or restart full bend-sequence playback across all bends."""
                 if self.session is None:
                     return
+                self._machine_pose_fault = None
+                self._last_valid_machine_section = None
+                self._last_valid_machine_pose = None
+                self._last_valid_machine_bend = None
                 try:
                     pc = self._ensure_press_cycle_controller()
                     if pc is not None and self.execution_mode == CycleExecutionMode.FULL_CYCLE:
@@ -2205,6 +2223,32 @@ class _PreviewPanel:
                         punch_axis_item.setZValue(Z_LAYER_AUXILIARY)
                         punch_axis_item.setData(0, "punch_axis")
 
+            def _halt_unsupported_machine_pose(self, reason):
+                """Stop unsafe 2.5D preview; retain last known machine picture.
+
+                The FoldState is never rolled back: the display is explicitly
+                the LAST VERIFIED FRAME, not a claim that current bend is valid.
+                """
+                reason = str(reason)
+                if self._machine_pose_fault == reason:
+                    return
+                self._machine_pose_fault = reason
+                self._trace_event(
+                    "KINEMATIC_POSE_HALT",
+                    bend=str(self.session.active_bend_id) if self.session else "",
+                    reason=reason,
+                )
+                _warn("2.5D machine pose HALT: {}".format(reason))
+                if self.press_cycle is not None:
+                    self.press_cycle.pause()
+                elif self.session is not None:
+                    self.session.pause()
+                self._stop_timer()
+                self.status.setText(
+                    "Симуляция остановлена: {}. Отображён последний корректный "
+                    "кадр. Проверка 2.5D невозможна для этого гиба.".format(reason)
+                )
+
             def draw(self):
                 try:
                     t_draw_start = time.perf_counter()
@@ -2259,7 +2303,12 @@ class _PreviewPanel:
 
                         pose = WorkpiecePose2D()
                         pose_warning = ""
-                        if self.execution_mode == CycleExecutionMode.FULL_CYCLE:
+                        if self._machine_pose_fault is not None:
+                            pose_warning = self._machine_pose_fault
+                            if self._last_valid_machine_section is not None:
+                                sec = self._last_valid_machine_section
+                                pose = self._last_valid_machine_pose
+                        elif self.execution_mode == CycleExecutionMode.FULL_CYCLE:
                             pc_for_pose = self._ensure_press_cycle_controller()
                             try:
                                 if pc_for_pose is None:
@@ -2289,11 +2338,22 @@ class _PreviewPanel:
                                     active_sec, pc_for_pose, self.tooling_setup, next_sec
                                 )
                                 sec = transform_sheet_section(sec, pose)
+                                self._last_valid_machine_section = sec
+                                self._last_valid_machine_pose = pose
+                                self._last_valid_machine_bend = (
+                                    self.session.active_bend_id
+                                )
                             except WorkpiecePoseError as exc:
-                                pose_warning = " | MACHINE_PRESENTATION_UNSUPPORTED: " + str(exc)
-                                # Preserve the stable reference and original
-                                # geometry rather than silently changing to
-                                # another bend's unrelated local viewpoint.
+                                pose_warning = (
+                                    "MACHINE_PRESENTATION_UNSUPPORTED: " + str(exc)
+                                )
+                                self._halt_unsupported_machine_pose(pose_warning)
+                                if self._last_valid_machine_section is not None:
+                                    sec = self._last_valid_machine_section
+                                    pose = self._last_valid_machine_pose
+                                # If there is no valid frame at all, keep the
+                                # static reference visible with a loud warning
+                                # and playback stopped; never advance it.
 
                         if pose_warning:
                             # Unsupported 2.5D placement must never look like
@@ -2305,7 +2365,7 @@ class _PreviewPanel:
                             # contact limitations. Do not hide the cause.
                             explanation = pose_warning.strip(" |")[:140]
                             warning_item = self.scene.addSimpleText(
-                                "2.5D: ПОЛОЖЕНИЕ НЕ ПОДТВЕРЖДЕНО | " + explanation
+                                "СТОП 2.5D: ПОЗА НЕ ПРОВЕРЕНА | " + explanation
                             )
                             warning_item.setBrush(
                                 QtGui.QBrush(QtGui.QColor("#e74c3c"))
@@ -2427,7 +2487,10 @@ class _PreviewPanel:
                             status_str = self.session.status_line()
                         self.step.setText(
                             "{} | R_вн={:.2f} мм, t={:.2f} мм".format(
-                                status_str + (" | " + pose.mode if self.execution_mode == CycleExecutionMode.FULL_CYCLE else "") + pose_warning,
+                                status_str + (" | LAST_VALID_FRAME at " +
+                                    str(self._last_valid_machine_bend)
+                                    if pose_warning else " | " + pose.mode)
+                                    + (" | " + pose_warning if pose_warning else ""),
                                 sec["inner_radius_mm"],
                                 sec["thickness_mm"],
                             )
