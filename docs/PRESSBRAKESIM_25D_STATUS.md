@@ -23,6 +23,17 @@ local venv (Python 3.14, no pythonocc). Level C (interactive GUI) NOT performed 
   - 1 × `ImportError: dlopen(.../FreeCAD.so)` when importing compiled FreeCAD binary into system Python 3.14 (`tests/test_fold_multi_bend.py`).
   - 1 × `ImportError: cannot import name 'SELF_COLLISION_GAP_TOL_MM' from 'smbs_core.Physics.collision_detector'` (`tests/test_self_collision_panels.py`, defect D2 from `0d4c071`).
 
+## Phase 5B follow-up — die support + whole-sheet 3D preview
+
+- User GUI feedback: prior symmetric motion worked, but the sheet floated above the die and the 3D tab showed only a static source-model reference.
+- Changed `machine_pose_for_cycle` to derive an idealized support-height offset from verified die shoulder datums and actual folded-sheet lower surface intersections. At least one shoulder supports the sheet without forced penetration of either shoulder by the sampled exterior. If shoulder support cannot be established, explicitly marks `RAM_ONLY_SUPPORT_ASSUMED`.
+- Important limit: support placement does NOT solve the actual ram stroke vs contact path, punch interference, springback, material forces, or 3D collisions. The existing `preview_stroke_mm` may be incompatible with geometric support; this is still `KINEMATIC_PREVIEW` and not physically validated.
+- Added `preview_mesh_3d.py`: builds all panel top/bottom/side faces and all finite-radius BendZone surface strips in full-part 3D machine coordinates using authoritative `FoldState.transforms`, with one common WorkpiecePose.
+- The 3D tab now updates during playback from the same timer and angles as the 2.5D tab; tools use projected working-profile outlines. This is an isometric **surface** visualization, not an OCC BRep solid 3D machining verifier, and camera rotation is not yet implemented.
+- Removed unused static FreeCAD Shape snapshot to avoid duplicating or altering the source model; live 3D representation uses a headless mesh in the viewer only.
+- Added pure-Python regression tests for V shoulder support and whole-sheet 3D motion plus dedicated GitHub Actions source/geometry checks.
+- **Not yet verified in an interactive FreeCAD GUI. Do not close Phase 5B before user confirms proper die support and animated whole-part 3D preview.**
+
 ## Phase 5B symmetric workpiece hotfix — implementation pending GUI acceptance
 
 - Added `smbs_core/kinematics2d/workpiece_pose_2d.py`: a headless, rigid `WorkpiecePose2D` with `machine_pose_for_cycle` and `transform_sheet_section`.
