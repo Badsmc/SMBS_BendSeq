@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import logging
 import math
+import os
+import sys
 import time
 import traceback
 from dataclasses import dataclass, field
@@ -69,7 +71,27 @@ Z_LAYER_SHEET_NEUTRAL_AND_TANGENTS = 50.0
 _DOCK = None
 _SLIDER_SCALE = 10  # 0.1 degree slider resolution
 _LOGGER: logging.Logger | None = None
-_LOG_FILE_PATH = Path.home() / "Library" / "Application Support" / "FreeCAD" / "v1-1" / "pressbrake_2d.log"
+def _pressbrake_user_data_directory():
+    """Platform-specific writable diagnostics home, not the plugin checkout.
+
+    FreeCAD installations may be under Program Files, a read-only AppImage,
+    or a macOS .app bundle. Traces must never depend on repository permissions.
+    """
+    if sys.platform == "darwin":
+        base = Path.home() / "Library" / "Application Support"
+    elif os.name == "nt":
+        base = Path(
+            os.environ.get("APPDATA")
+            or os.environ.get("LOCALAPPDATA")
+            or str(Path.home() / "AppData" / "Roaming")
+        )
+    else:
+        base = Path(os.environ.get("XDG_DATA_HOME") or
+                    str(Path.home() / ".local" / "share"))
+    return base / "FreeCAD" / "v1-1"
+
+
+_LOG_FILE_PATH = _pressbrake_user_data_directory() / "pressbrake_2d.log"
 
 
 def _get_file_logger() -> logging.Logger:
@@ -1222,6 +1244,7 @@ class _PreviewPanel:
                 if self.timer.isActive() or self.playing:
                     self._stop_timer()
                 self.execution_mode = resolved
+                self._machine_pose_fault = None
                 if self.press_cycle is not None:
                     self.press_cycle.set_execution_mode(resolved)
                 idx = 1 if resolved == CycleExecutionMode.FULL_CYCLE else 0
@@ -1851,6 +1874,7 @@ class _PreviewPanel:
                 if idx < 0 or idx == self.session.active_bend_index:
                     return
                 self._stop_timer()
+                self._machine_pose_fault = None
                 # Switch active bend while preserving the angles already achieved on previous bends
                 pc = self._ensure_press_cycle_controller()
                 if pc is not None:
@@ -1885,6 +1909,7 @@ class _PreviewPanel:
                 """Set the active bend to a signed angle manually (stops auto-playback if active)."""
                 if self.session is None:
                     return
+                self._machine_pose_fault = None
                 if self.timer.isActive() or self.playing:
                     self._stop_timer()
                 try:
@@ -1995,6 +2020,16 @@ class _PreviewPanel:
             def resume(self):
                 if self.session is None:
                     return
+                if self._machine_pose_fault and (
+                    self.execution_mode == CycleExecutionMode.FULL_CYCLE
+                ):
+                    self.status.setText(
+                        "Невозможно продолжить этот Full Cycle: {}. "
+                        "Выберите другую операцию, Reset либо Bend Only.".format(
+                            self._machine_pose_fault
+                        )
+                    )
+                    return
                 self._trace_event("USER_RESUME")
                 try:
                     pc = self._ensure_press_cycle_controller()
@@ -2040,6 +2075,7 @@ class _PreviewPanel:
                 if self.session is None:
                     return
                 self._stop_timer()
+                self._machine_pose_fault = None
                 try:
                     pc = self._ensure_press_cycle_controller()
                     if pc is not None:
@@ -2059,6 +2095,7 @@ class _PreviewPanel:
                 if self.session is None:
                     return
                 self._stop_timer()
+                self._machine_pose_fault = None
                 try:
                     pc = self._ensure_press_cycle_controller()
                     if pc is not None:
