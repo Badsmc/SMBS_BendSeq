@@ -123,7 +123,7 @@ def symmetric_v_pose(section: Mapping[str, Any]) -> WorkpiecePose2D:
         pivot=pivot,
         rotation_deg=rotation,
         mirror_z=False,
-        mode=("ASSUMED_RIGID_WORKPIECE_TURN" if flip else "SYMMETRIC_V_PREVIEW"),
+        mode=("ASSUMED_RIGID_180_DEG_WORKPIECE_TURN" if flip else "SYMMETRIC_V_PREVIEW"),
     )
 
 
@@ -308,13 +308,6 @@ def remap_section_to_reference(section, from_zone, reference_zone):
     about different axes is not an honest representation: reject it.
     This is only a coordinate basis conversion; no sheet shape or angle moves.
     """
-    def axis(zone):
-        v = zone.left_xy
-        mul = 1.0 if getattr(zone, "moving_left", False) else -1.0
-        # moving_left is on BendRecord, not BendZone: the caller passes
-        # prepared (zone, side) pairs when necessary.
-        return (float(v[0]) * mul, float(v[1]) * mul)
-
     if isinstance(from_zone, tuple):
         src, src_side = from_zone
     else:
