@@ -78,6 +78,24 @@ but **real FreeCAD GUI and CI PASS remain unconfirmed**. Phase 5B remains open.
 
 **Phase 5B remains OPEN / NOT APPROVED.**
 
+## Phase 5B Hotfix 8 — forensic motion trace safety correction (2026-11-04)
+
+Two user-supplied real FreeCAD motion traces:
+- `pressbrake_20261104T140039_280181Z.jsonl`: **864 frames**, **8 bends B01–B08**, 132 POSITION_JUMP flags, 6 POSE_UNSUPPORTED events, 7 BEND_SWITCH events.
+- `pressbrake_20261104T140224_018166Z.jsonl`: **114 frames**, 33 POSITION_JUMP flags, 1 POSE_UNSUPPORTED event.
+- 657/864 full-trace frames had `pose.mode=IDENTITY`; 630 frames specifically reported `NONPARALLEL_BEND_AXES` (including alternating operation groups). At B05/B07 `DIE_SUPPORT_MISSING` appeared around BOTTOM. This was a **dangerous visual fallback**: simulation kept playing an unpositioned sheet and showed jumps of 100+ mm.
+
+Corrective changes (limited and fail-safe):
+1. The GUI stores the last successfully transformed, machine-positioned sheet section and its WorkpiecePose. A future `WorkpiecePoseError` pauses the existing PressCycleController, stops the GUI timer and renders the **last valid frame** with an explicit STOP/unsupported warning; it no longer renders the active part in the `IDENTITY` pose and pretends that bending continued.
+2. The fault persists across paused redraws. Resume refuses a known-invalid Full Cycle. Reset, Play All, and intentional manual selection clear the latch so the user can retry or inspect another operation.
+3. A distinct `KINEMATIC_POSE_HALT` event is recorded in JSONL; diagnostic `POSITION_JUMP` now carries `classification=FAST_FRAME_MOTION|BEND_SWITCH` and a separate `BEND_SWITCH_DISCONTINUITY` event is recorded when physically corresponding landmarks differ by more than 0.05 mm across an operation switch.
+4. On Windows, log and trace files now use `%APPDATA%/FreeCAD/v1-1/` (or the available platform fallback) rather than a synthetic `C:\\Users\\...\\Library\\Application Support\\...` path. macOS continues using `~/Library/Application Support/FreeCAD/v1-1/`, Linux uses `$XDG_DATA_HOME/FreeCAD/v1-1/` or `~/.local/share/FreeCAD/v1-1/`.
+5. Added headless regression for truly perpendicular axes and an optional FreeCAD GUI regression for freeze/stop. Extended motion-trace regression to distinguish rapid continuous movement from bend-switch discontinuity.
+
+**Critical limitation:** this is a *stability and truthfulness* hotfix, NOT a full fix for eight bends with nonparallel bend axes. A single fixed 2D cross-section cannot faithfully represent all nonparallel bends of a spatial sheet. Those require a true 3D workpiece placement/projection with explicit press-frame coordinates and physical handling between poses. This code stops unsupported motion rather than fabricating it. `DIE_SUPPORT_MISSING` likewise blocks claims of physically verified contact. Do not mark Phase 5B accepted. Phase 5C oracle remains isolated and pilot/unverified.
+
+**Validation required:** Run CI on branch `2D` and manually reproduce B01→B02 of the 8-bend sample. Expected: visible stop with reason `NONPARALLEL_BEND_AXES`, retained last valid machine frame, no `IDENTITY` jumps after the fault, model unchanged. Real FreeCAD GUI verification still pending.
+
 ## Motion-trace JSONL recording hotfix (user reported missing folder/files)
 
 - User reported that JSON/JSONL recording created neither output directory nor file.
