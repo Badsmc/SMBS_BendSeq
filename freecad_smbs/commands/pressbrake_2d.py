@@ -541,7 +541,8 @@ class _PreviewPanel:
                 self.tool_library = ToolLibrary25D(library_root=library_root)
                 self.tooling_setup = ToolingSetup2D()
                 self.cycle_config = CycleConfig()
-                self.execution_mode = CycleExecutionMode.BEND_ONLY
+                # Machine cycle is the primary simulation; legacy Bend Only remains selectable.
+                self.execution_mode = CycleExecutionMode.FULL_CYCLE
                 self.press_cycle: PressCycleController | None = None
                 self.last_scene_bounds: SceneBounds2D | None = None
                 self.angle = 0.0
@@ -632,6 +633,7 @@ class _PreviewPanel:
                 self.cycle_mode_combo = QtWidgets.QComboBox()
                 self.cycle_mode_combo.addItem("Bend Only", CycleExecutionMode.BEND_ONLY.value)
                 self.cycle_mode_combo.addItem("Full Cycle", CycleExecutionMode.FULL_CYCLE.value)
+                self.cycle_mode_combo.setCurrentIndex(1)
                 self.cycle_mode_combo.currentIndexChanged.connect(self._on_cycle_mode_combo_changed)
                 pc_row1.addWidget(self.cycle_mode_combo, 1)
 
