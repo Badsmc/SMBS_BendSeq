@@ -96,17 +96,66 @@ def symmetric_v_pose(section: Mapping[str, Any]) -> WorkpiecePose2D:
     )
 
 
+def _lower_sheet_at_s(section, pose, s_coordinate):
+    """Lowest sheet-surface height at the selected shoulder coordinate.
+
+    This samples the actual finite-radius surface curves and all visible
+    rigid-panel outlines after the *same* global workpiece pose. If several
+    surfaces share s, choose the lowest exterior point. No bbox datums.
+    """
+    curves = []
+    for key in ("inner_surface", "outer_surface"):
+        if section.get(key):
+            curves.append(section[key])
+    for key in ("fixed_polygon", "moving_polygon", "zone_polygon"):
+        if section.get(key):
+            points = section[key]
+            curves.append(tuple(points) + (points[0],))
+    for key in ("other_panel_polygons", "other_zone_polygons"):
+        for _name, points in section.get(key, ()):
+            curves.append(tuple(points) + (points[0],))
+    heights = []
+    for curve in curves:
+        pts = pose.points(curve)
+        for a, b in zip(pts, pts[1:]):
+            left, right = a[0], b[0]
+            if abs(left - right) < 1e-10:
+                if abs(left - s_coordinate) < 1e-6:
+                    heights.extend((a[1], b[1]))
+                continue
+            t = (s_coordinate - left) / (right - left)
+            if -1e-8 <= t <= 1.0 + 1e-8:
+                heights.append(a[1] + t * (b[1] - a[1]))
+    return min(heights) if heights else None
+
+
+def _die_shoulders_machine(tooling):
+    """Return actual left/right V-shoulder points in machine coordinates."""
+    die = getattr(tooling, "die", None)
+    if die is None or getattr(die, "die_datums", None) is None:
+        return ()
+    datums = die.die_datums
+    to_local = die.source_to_local_transform()
+    machine_tf = tooling.die_machine_transform
+    return tuple(
+        machine_tf.apply(to_local.apply(point))
+        for point in (datums.left_shoulder, datums.right_shoulder)
+    )
+
+
 def machine_pose_for_cycle(
     section: Mapping[str, Any],
     cycle: Any,
     tooling: Any,
 ) -> WorkpiecePose2D:
-    """Place a sheet in press coordinates using the existing ram state.
+    """Place the whole sheet relative to the actual V shoulders.
 
-    The sheet holds still throughout APPROACH/CONTACT, follows the selected
-    *preview* punch stroke in BENDING/BOTTOM, then stays in its bent position
-    while the punch retracts. An explicit 2.5D zone-envelope assumption is
-    used instead of an unverified real contact solution.
+    During a symmetric V preview the sheet is lowered to the available die
+    shoulders, removing the visual 'floating' gap. This chooses a single
+    non-penetrating vertical support translation using two shoulder datums,
+    but it is NOT a mechanics/contact solver: punch stroke and springback
+    remain unvalidated. If shoulder support is unavailable, retain the
+    earlier zone-to-ram preview placement.
     """
     pose = symmetric_v_pose(section)
     try:
@@ -119,36 +168,47 @@ def machine_pose_for_cycle(
     except (AttributeError, ValueError, TypeError) as exc:
         raise WorkpiecePoseError("Press cycle has no valid ram state") from exc
 
+    zone = section.get("zone_polygon")
+    if not zone:
+        raise WorkpiecePoseError("Missing finite-radius bend zone")
+
+    machine_s = pose.pivot[0]
+    if getattr(tooling, "aligned", False):
+        center = tooling.die_v_center_machine()
+        if center is not None:
+            machine_s = float(center[0])
+        else:
+            machine_s = float(tooling.alignment_anchor_sz[0])
+    if not isfinite(machine_s):
+        raise WorkpiecePoseError("Invalid machine alignment datum")
+    pose = replace(pose, shift=(machine_s - pose.pivot[0], 0.0))
+
+    shoulders = _die_shoulders_machine(tooling) if getattr(tooling, "aligned", False) else ()
+    offsets = []
+    for shoulder_s, shoulder_z in shoulders:
+        lower_z = _lower_sheet_at_s(section, pose, shoulder_s)
+        if lower_z is not None and isfinite(lower_z):
+            offsets.append(shoulder_z - lower_z)
+
+    if offsets:
+        # Max offset places the sheet no lower than either contact shoulder.
+        # At least one shoulder supports the sheet; asymmetry is not concealed.
+        support_shift_z = max(offsets)
+        return replace(
+            pose, shift=(pose.shift[0], support_shift_z),
+            mode=pose.mode + "_DIE_SUPPORTED_PREVIEW",
+        )
+
     if phase == "BENDING":
         desired_top = min(contact_z, ram_z)
     elif phase in ("BOTTOM", "RETRACT", "STEP_COMPLETE", "COMPLETED"):
         desired_top = bottom_z
     else:
         desired_top = contact_z
-
-    # The active zone is the only contact-height reference; never use
-    # far-flange max Z, which rises during symmetric bending.
-    zone = section.get("zone_polygon")
-    if not zone:
-        raise WorkpiecePoseError("Missing finite-radius bend zone")
-    zone_points = pose.points(zone)
-    reference_z = max(z for _s, z in zone_points)
-    if not isfinite(reference_z):
-        raise WorkpiecePoseError("Nonfinite zone envelope")
-
-    machine_s = pose.pivot[0]
-    if getattr(tooling, "aligned", False):
-        # Align to the actual installed V-groove, not a profile bounding box.
-        die_center = tooling.die_v_center_machine()
-        if die_center is not None:
-            machine_s = float(die_center[0])
-        else:
-            machine_s = float(tooling.alignment_anchor_sz[0])
-    if not isfinite(machine_s):
-        raise WorkpiecePoseError("Invalid machine alignment datum")
+    zone_top = max(z for _s, z in pose.points(zone))
     return replace(
-        pose,
-        shift=(machine_s - pose.pivot[0], desired_top - reference_z),
+        pose, shift=(pose.shift[0], desired_top - zone_top),
+        mode=pose.mode + "_RAM_ONLY_SUPPORT_ASSUMED",
     )
 
 
