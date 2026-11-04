@@ -769,6 +769,7 @@ class _PreviewPanel:
                 views.addTab(self.view, "2.5D · Гибка")
                 self._preview_3d = QtWidgets.QGraphicsView()
                 self._last_3d_frame_at = -1.0
+                self._fixed_3d_view_rect = None
                 self._preview_3d.setObjectName("SMBS_3D_ReadOnly")
                 self._preview_3d_scene = QtWidgets.QGraphicsScene(self._preview_3d)
                 self._preview_3d.setScene(self._preview_3d_scene)
@@ -841,7 +842,7 @@ class _PreviewPanel:
                     faces = build_sheet_preview_faces(
                         self.session.fold_state,
                         self.session.panel_vertices_xy,
-                        self.session.active_bend_id,
+                        self.session.controller.canonical_order[0],
                         pose,
                         segments=12,
                     )
@@ -900,14 +901,22 @@ class _PreviewPanel:
                 max_y = max(p.y() for p in sheet_points)
                 label.setPos(min_x, min_y - 25)
                 pad = max(10.0, 0.08 * max(max_x-min_x, max_y-min_y))
-                scene.setSceneRect(
-                    min_x-pad, min_y-pad-25,
-                    max_x-min_x+2*pad, max_y-min_y+2*pad+25,
-                )
-                if not scene.sceneRect().isEmpty():
-                    self._preview_3d.fitInView(
-                        scene.sceneRect(), QtCore.Qt.KeepAspectRatio
+                if self._fixed_3d_view_rect is None:
+                    # Stable viewing frame across positive/negative operations:
+                    # the sheet deforms, but the isometric camera does not pan.
+                    width = max_x - min_x
+                    height = max_y - min_y
+                    extra = max(25.0, 0.65 * max(width, height))
+                    self._fixed_3d_view_rect = QtCore.QRectF(
+                        min_x - extra, min_y - extra - 25,
+                        width + 2 * extra, height + 2 * extra + 25,
                     )
+                    scene.setSceneRect(self._fixed_3d_view_rect)
+                    self._preview_3d.fitInView(
+                        self._fixed_3d_view_rect, QtCore.Qt.KeepAspectRatio
+                    )
+                else:
+                    scene.setSceneRect(self._fixed_3d_view_rect)
 
             def unavailable(self):
                 pass  # Disabled controls for Phase 5B/6 features.
@@ -1493,6 +1502,8 @@ class _PreviewPanel:
                 self._stop_timer()
                 # 3D surface preview uses this session's FoldState directly;
                 # never read or mutate the original source document again.
+                self._fixed_3d_view_rect = None
+                self._last_3d_frame_at = -1.0
                 self.session = new_session
                 self._ensure_press_cycle_controller()
                 self._sync_tooling_to_active_bend()
