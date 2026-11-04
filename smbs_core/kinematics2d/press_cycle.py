@@ -613,13 +613,24 @@ class PressCycleController:
         # Construct authoritative 3D spatial transfer trajectory via Transfer3D
         self.transfer_fault = None
         try:
-            self.transfer_3d = build_bend_transfer(
+            start_pose = self.current_workpiece_placement_3d()
+            support_z = (
+                self.coupled_kinematics.support_plane_zm(0.0)
+                if self.coupled_kinematics is not None
+                else 0.0
+            )
+            end_pose = WorkpiecePlacement3D.compute_placement(
                 self.sequence.fold_state,
-                active.bend_id,
                 nxt.bend_id,
+                support_plane_zm=support_z,
+                align_bisector=False,
+            )
+            from smbs_core.kinematics2d.workpiece_transfer_3d import build_transfer_3d
+            self.transfer_3d = build_transfer_3d(
+                start_pose,
+                end_pose,
                 max_linear_mm_s=GEOMETRIC_PREVIEW_TRANSFER_MAX_LINEAR_MM_S,
                 max_angular_deg_s=GEOMETRIC_PREVIEW_TRANSFER_MAX_ANGULAR_DEG_S,
-                support_plane_zm=0.0,
             )
             self.transfer_duration_s = max(0.05, float(self.transfer_3d.duration_s))
             self.phase = CyclePhase.TRANSFER
@@ -817,7 +828,7 @@ class PressCycleController:
                 cur_angle = abs(self.current_angle_deg)
                 support_z = self.coupled_kinematics.support_plane_zm(cur_angle)
                 align_bisector = True
-            elif self.phase in (CyclePhase.BOTTOM, CyclePhase.RETRACT):
+            elif self.phase in (CyclePhase.BOTTOM, CyclePhase.RETRACT, CyclePhase.STEP_COMPLETE):
                 target_angle = abs(self.target_angle_deg)
                 support_z = self.coupled_kinematics.support_plane_zm(target_angle)
                 align_bisector = True
