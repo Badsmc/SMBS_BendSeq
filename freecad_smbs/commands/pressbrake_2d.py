@@ -1704,6 +1704,7 @@ class _PreviewPanel:
 
             def reset(self):
                 self._stop_timer()
+                self._locked_25d_scene_rect = None
                 if self.session is not None:
                     pc = self._ensure_press_cycle_controller()
                     if pc is not None:
@@ -2229,7 +2230,8 @@ class _PreviewPanel:
                     # Never chase scene bounds while an animation is running.
                     # Re-fitting each active bend made the entire part appear
                     # to jump even when its world-space points were continuous.
-                    if self.playing and self._locked_25d_scene_rect is not None:
+                    if self._locked_25d_scene_rect is not None:
+                        # Preserve bounds on the last frame after the timer stops.
                         self.scene.setSceneRect(self._locked_25d_scene_rect)
                     else:
                         self.scene.setSceneRect(rx, ry, rw, rh)
