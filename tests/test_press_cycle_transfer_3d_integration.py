@@ -25,9 +25,10 @@ if cwd not in sys.path:
     sys.path.insert(0, cwd)
 
 import FreeCAD
+from unittest.mock import patch
 from freecad_smbs.commands.pressbrake_2d import build_part_session
 from smbs_core.kinematics2d.fold_sequence import PlaybackStatus
-from smbs_core.kinematics2d.press_cycle import CyclePhase, PressCycleController
+from smbs_core.kinematics2d.press_cycle import CyclePhase, PressCycleController, PressCycleError
 from smbs_core.kinematics2d.tooling_25d import ToolingSetup2D
 from smbs_core.kinematics2d.workpiece_placement_3d import WorkpiecePlacement3D
 from smbs_core.kinematics2d.workpiece_placement_validation_3d import validate_rigid_3d
@@ -198,6 +199,46 @@ class TestWorkpieceTransfer3DIntegration(unittest.TestCase):
         for b in fold_state.bends:
             self.assertAlmostEqual(fold_state.angles[b], 0.0)
 
+    def test_transfer_3d_failure_causes_deterministic_halt_without_silent_recovery(self):
+        cycle = self.cycle
+        fold_state = self.fold_state
+
+        cycle.play_all()
+        # Advance until STEP_COMPLETE right before TRANSFER
+        while cycle.phase != CyclePhase.STEP_COMPLETE:
+            cycle.advance_time(0.05)
+
+        self.assertEqual(cycle.phase, CyclePhase.STEP_COMPLETE)
+        self.assertAlmostEqual(fold_state.angles["B01"], 90.0)
+        self.assertAlmostEqual(fold_state.angles["B02"], 0.0)
+
+        # Force build_bend_transfer to fail
+        with patch("smbs_core.kinematics2d.press_cycle.build_bend_transfer", side_effect=ValueError("Simulated 3D transfer failure")):
+            with self.assertRaises(PressCycleError) as ctx:
+                cycle.advance_time(0.05)
+
+            self.assertIn("TRANSFER_TRAJECTORY_FAILED", str(ctx.exception))
+            self.assertIn("Simulated 3D transfer failure", str(ctx.exception))
+
+        # Check:
+        # 1. Playback status is PAUSED, not continuing
+        self.assertEqual(cycle.status, PlaybackStatus.PAUSED)
+        # 2. Fault is recorded explicitly
+        self.assertIsNotNone(cycle.transfer_fault)
+        self.assertIn("TRANSFER_TRAJECTORY_FAILED", cycle.transfer_fault)
+        # 3. transfer_3d is None
+        self.assertIsNone(cycle.transfer_3d)
+        # 4. FoldState angles remain strictly unchanged
+        self.assertAlmostEqual(fold_state.angles["B01"], 90.0)
+        self.assertAlmostEqual(fold_state.angles["B02"], 0.0)
+        # 5. Subsequent advance_time returns False and does not advance
+        changed = cycle.advance_time(0.05)
+        self.assertFalse(changed)
+        # 6. Attempting to query workpiece placement raises PressCycleError rather than returning dummy pose
+        with self.assertRaises(PressCycleError):
+            cycle.current_workpiece_placement_3d()
+
 
 if __name__ == "__main__":
     unittest.main()
+

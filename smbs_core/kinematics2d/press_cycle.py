@@ -91,6 +91,11 @@ MAX_PREVIEW_STROKE_MM = 150.0
 MIN_BOTTOM_DWELL_S = 0.0
 MAX_BOTTOM_DWELL_S = 30.0
 
+# Kinematic limits for geometric transfer preview (spatial interpolation only;
+# NOT certified machine axes speed or collision-safe trajectory limits).
+GEOMETRIC_PREVIEW_TRANSFER_MAX_LINEAR_MM_S = 250.0
+GEOMETRIC_PREVIEW_TRANSFER_MAX_ANGULAR_DEG_S = 90.0
+
 
 @dataclass(frozen=True)
 class CycleConfig:
@@ -186,6 +191,7 @@ class PressCycleController:
         self.transfer_lift_mm = 0.0
         self.transfer_rotation_deg = 0.0
         self.transfer_3d: Optional[Transfer3D] = None
+        self.transfer_fault: Optional[str] = None
         self.contact_tracking_status = "PROGRAMMED_PREVIEW_STROKE"
 
         self.phase: CyclePhase = CyclePhase.IDLE
@@ -420,6 +426,7 @@ class PressCycleController:
         self.dwell_remaining_s = 0.0
         self.transfer_progress = 0.0
         self.transfer_3d = None
+        self.transfer_fault = None
         self._sync_bounds_and_orientation_for_active_bend(reposition_tools=True)
 
     def select_operation(self, index: int) -> None:
@@ -435,6 +442,7 @@ class PressCycleController:
         self.dwell_remaining_s = 0.0
         self.transfer_progress = 0.0
         self.transfer_3d = None
+        self.transfer_fault = None
         self._sync_bounds_and_orientation_for_active_bend(reposition_tools=True)
 
     def set_manual_angle(self, signed_angle_deg: float) -> None:
@@ -601,21 +609,28 @@ class PressCycleController:
             self.transfer_rotation_deg = 0.0
 
         # Construct authoritative 3D spatial transfer trajectory via Transfer3D
+        self.transfer_fault = None
+        self.phase = CyclePhase.TRANSFER
         try:
             self.transfer_3d = build_bend_transfer(
                 self.sequence.fold_state,
                 active.bend_id,
                 nxt.bend_id,
-                max_linear_mm_s=250.0,
-                max_angular_deg_s=90.0,
+                max_linear_mm_s=GEOMETRIC_PREVIEW_TRANSFER_MAX_LINEAR_MM_S,
+                max_angular_deg_s=GEOMETRIC_PREVIEW_TRANSFER_MAX_ANGULAR_DEG_S,
                 support_plane_zm=0.0,
             )
             self.transfer_duration_s = max(0.05, float(self.transfer_3d.duration_s))
-        except Exception:
+        except Exception as exc:
+            # Failsafe halt on transfer trajectory construction failure:
+            # NEVER continue or fake a transfer duration. Retain exact FoldState angles
+            # and freeze controller playback with explicit fault reason.
             self.transfer_3d = None
-            self.transfer_duration_s = 1.8
-
-        self.phase = CyclePhase.TRANSFER
+            self.transfer_fault = (
+                f"TRANSFER_TRAJECTORY_FAILED: {active.bend_id}->{nxt.bend_id}: {exc}"
+            )
+            self.pause()
+            raise PressCycleError(self.transfer_fault) from exc
 
     def advance_time(self, dt_sec: float) -> bool:
         """Advance the press brake working cycle by `dt_sec` seconds.
@@ -744,6 +759,9 @@ class PressCycleController:
             return True
 
         if self.phase == CyclePhase.TRANSFER:
+            if self.transfer_fault is not None:
+                self.pause()
+                return False
             self.transfer_progress = min(
                 1.0, self.transfer_progress + effective_dt/self.transfer_duration_s
             )
@@ -776,9 +794,12 @@ class PressCycleController:
         All panels receive this exact spatial isometry; det(R) == +1.0.
         """
         fold_state = self.sequence.fold_state
-        if self.phase == CyclePhase.TRANSFER and self.transfer_3d is not None:
+        if self.phase == CyclePhase.TRANSFER:
+            if self.transfer_fault is not None:
+                raise PressCycleError(self.transfer_fault)
             elapsed_s = self.transfer_progress * self.transfer_duration_s
-            return self.transfer_3d.pose_at(elapsed_s)
+            if self.transfer_3d is not None:
+                return self.transfer_3d.pose_at(elapsed_s)
         return WorkpiecePlacement3D.compute_placement(
             fold_state,
             self.active_bend_id,
