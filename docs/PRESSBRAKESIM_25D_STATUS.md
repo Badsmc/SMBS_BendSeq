@@ -23,6 +23,16 @@ local venv (Python 3.14, no pythonocc). Level C (interactive GUI) NOT performed 
   - 1 × `ImportError: dlopen(.../FreeCAD.so)` when importing compiled FreeCAD binary into system Python 3.14 (`tests/test_fold_multi_bend.py`).
   - 1 × `ImportError: cannot import name 'SELF_COLLISION_GAP_TOL_MM' from 'smbs_core.Physics.collision_detector'` (`tests/test_self_collision_panels.py`, defect D2 from `0d4c071`).
 
+## Phase 5B Hotfix 7 — unsupported 2.5D placement on selected bends
+
+User feedback: some operations display the scene warning `2.5D: НЕТ ПРОВЕРЕННОГО ПОЛОЖЕНИЯ ДЕТАЛИ`.
+
+Code review confirmed an overly restrictive orientation model: `symmetric_v_pose` accepted only one fixed/moving flange handedness with no roll. Actual Z-part bend sections after previous operations can require the workpiece to be turned face-up. Instead of requiring the source panel vectors to match one preset orientation, the solver now tries fixed-on-left/right and a possible *assumed physical sheet roll* (180° about its longitudinal axis, appearing as `mirror_z` in a 2D section). Each candidate must preserve the true included angle and point both adjacent flanges upward. It chooses the lowest-error geometry-valid candidate, favoring a roll for negative bends on ties.
+
+The drawing now includes the **specific underlying warning reason** (e.g. `NONPARALLEL_BEND_AXES`, `BEND_PRESENTATION_UNSUPPORTED`, die support error) rather than a generic message. Nonparallel bends are still unsupported by the current single-plane 2.5D representation; this is a genuine limitation and must not be hidden.
+
+Regression tests were updated for +45/+90/-45/-90 and upstream panel rotations. User GUI acceptance and CI results are not yet confirmed. Transferring from unrolled to rolled poses may require an explicit 3D roll/handling animation rather than the existing planar pose interpolation; do not claim physical continuity or collision freedom.
+
 ## Phase 5B Hotfix 6 — screenshot-driven correction: fixed part frame + rigid transfer
 
 **Observed in user's 2.5D FreeCAD screenshots (2026-11-04):**
