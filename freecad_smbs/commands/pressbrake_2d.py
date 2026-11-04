@@ -916,6 +916,14 @@ class _PreviewPanel:
                                 pa = project((a[0], depth, a[1]))
                                 pb = project((b[0], depth, b[1]))
                                 scene.addLine(pa.x(), pa.y(), pb.x(), pb.y(), pen)
+                        # Connect a small sample of visible profile vertices
+                        # along the bend axis for a readable 3D tool outline.
+                        stride = max(1, len(outer) // 16)
+                        for vertex in outer[::stride]:
+                            if z_lo <= vertex[1] <= z_hi:
+                                a = project((vertex[0], d0, vertex[1]))
+                                b = project((vertex[0], d1, vertex[1]))
+                                scene.addLine(a.x(), a.y(), b.x(), b.y(), pen)
 
                 label = scene.addSimpleText(
                     "3D FULL PART | {} | {} | KINEMATIC_PREVIEW | Collision: NOT CHECKED".format(
