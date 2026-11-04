@@ -80,30 +80,50 @@ def symmetric_v_pose(section: Mapping[str, Any]) -> WorkpiecePose2D:
     except (KeyError, IndexError, TypeError, ValueError, OverflowError) as exc:
         raise WorkpiecePoseError("Invalid cross-section for symmetric preview") from exc
 
+    # Calculate the MACHINE presentation from the actual FoldState vectors.
+    # Previously this rejected any pair that was not already left/right
+    # horizontal; after B01 on a Z part those directions are no longer flat.
+    def heading(v):
+        return atan2(v[1], v[0])
+
+    def angle_distance(a, b):
+        return atan2(sin(a - b), cos(a - b))
+
+    def unit(v):
+        length = hypot(*v)
+        return (v[0] / length, v[1] / length)
+
+    fu = unit(fv)
+    mu = unit(mv)
+    included = max(-1.0, min(1.0, fu[0] * mu[0] + fu[1] * mu[1]))
+    # Magnitude of the true opening between adjacent panel rays:
+    # 180 deg at flat, 90 deg after a 90 deg bend.
+    from math import acos, pi
+    opening = acos(included)
+    rise = (pi - opening) / 2.0
     flip = target < -1e-9
-    # A press-brake workpiece is turned about its BEND AXIS to present a
-    # negative bend to the same upper punch/lower die. That is a rigid 180°
-    # rotation in the (s,z) section, NOT mirror_z (a geometric reflection
-    # which used to leave negative bends looking upside down).
-    if flip:
-        fv = (-fv[0], -fv[1])
-        mv = (-mv[0], -mv[1])
-        # After the rigid turn, the moving flange points to the LEFT,
-        # while the fixed flange points to the RIGHT.
-        left_v, right_v = mv, fv
-    else:
-        left_v, right_v = fv, mv
-    if left_v[0] >= -1e-7 or right_v[0] <= 1e-7:
-        raise WorkpiecePoseError("Unsupported flange orientation in current 2.5D section")
-    left_rise = atan2(left_v[1], -left_v[0])
-    right_rise = atan2(right_v[1], right_v[0])
-    correction = (left_rise - right_rise) / 2.0
-    rotation = (180.0 if flip else 0.0) + degrees(correction)
+    desired_fixed = rise if flip else pi - rise
+    desired_moving = pi - rise if flip else rise
+    f_heading, m_heading = heading(fu), heading(mu)
+    correction = angle_distance(desired_fixed, f_heading)
+    actual_moving = m_heading + correction
+    mismatch = abs(angle_distance(actual_moving, desired_moving))
+    # A rigid turn preserves the actual sheet angle. If the two panel rays
+    # cannot be put upward at the same time, flag the geometry rather than
+    # silently drawing an upside-down press operation.
+    if mismatch > 0.035:
+        raise WorkpiecePoseError(
+            "BEND_PRESENTATION_UNSUPPORTED: active flanges cannot both face upward "
+            "without changing their included angle (mismatch {:.1f} deg)".format(
+                degrees(mismatch)
+            )
+        )
+    rotation = degrees(correction)
     return WorkpiecePose2D(
         pivot=pivot,
         rotation_deg=rotation,
         mirror_z=False,
-        mode="ASSUMED_RIGID_180_DEG_WORKPIECE_TURN" if flip else "SYMMETRIC_V_PREVIEW",
+        mode=("ASSUMED_RIGID_WORKPIECE_TURN" if flip else "SYMMETRIC_V_PREVIEW"),
     )
 
 
