@@ -137,6 +137,52 @@ class WorkpiecePoseTests(unittest.TestCase):
                     "inner_surface", "outer_surface", "neutral_curve"):
             self.assertEqual(result[key], sec[key])
 
+    def test_die_shoulder_support_prevents_floating(self):
+        class Identity:
+            def apply(self, p):
+                return tuple(p)
+
+        class Die:
+            die_datums = type("Datums", (), {
+                "left_shoulder": (-16.0, -2.0),
+                "right_shoulder": (16.0, -2.0),
+            })()
+            def source_to_local_transform(self):
+                return Identity()
+
+        class Tooling:
+            aligned = True
+            die = Die()
+            die_machine_transform = Identity()
+            alignment_anchor_sz = (0.0, -2.0)
+            def die_v_center_machine(self):
+                return (0.0, -2.0)
+
+        class Cycle:
+            contact_z_mm = 0.0
+            bottom_z_mm = -4.0
+            ram_z_mm = 5.0
+            phase = "APPROACH"
+
+        from smbs_core.kinematics2d.workpiece_pose_2d import _lower_sheet_at_s
+        tooling = Tooling()
+        cycle = Cycle()
+        for angle in (0.0, 30.0, 60.0, 90.0):
+            with self.subTest(angle=angle):
+                sec = _section(angle)
+                sec["zone_polygon"] = (
+                    (-1., 0.), (1., 0.), (1., -2.), (-1., -2.),
+                )
+                pose = machine_pose_for_cycle(sec, cycle, tooling)
+                self.assertIn("DIE_SUPPORTED_PREVIEW", pose.mode)
+                left = _lower_sheet_at_s(sec, pose, -16.0)
+                right = _lower_sheet_at_s(sec, pose, 16.0)
+                self.assertIsNotNone(left)
+                self.assertIsNotNone(right)
+                self.assertGreaterEqual(left + 1e-7, -2.0)
+                self.assertGreaterEqual(right + 1e-7, -2.0)
+                self.assertAlmostEqual(min(left, right), -2.0, places=6)
+
     def test_invalid_flange_rejected(self):
         sec = _section(20)
         sec["fixed_polygon"] = ((0, 0), (0, 0), (0, -1), (0, -1))
