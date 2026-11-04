@@ -214,16 +214,30 @@ class MotionTraceRecorder:
                     current["max_landmark_speed_mm_s"] = movement[0]/dt
                 # At a bend switch the exact full-sheet frame is required
                 # to be continuous. The threshold is intentionally strict.
-                if (movement[0] > self.jump_mm
-                    or current.get("active_bend_id") != prev.get("active_bend_id")
-                    and movement[0] > 0.05):
+                bend_changed = (
+                    current.get("active_bend_id") != prev.get("active_bend_id")
+                )
+                if movement[0] > self.jump_mm or (
+                    bend_changed and movement[0] > 0.05
+                ):
+                    # Movement above 2 mm/frame is not necessarily a true
+                    # discontinuity: high-speed continuous motion can trigger
+                    # this diagnostic. The bend-switch comparison is stricter.
                     self.event("POSITION_JUMP",
                                from_bend=prev.get("active_bend_id"),
                                to_bend=current.get("active_bend_id"),
                                step_mm=round(movement[0],6),
                                landmark=movement[1],
                                previous_phase=prev.get("cycle_phase"),
-                               phase=current.get("cycle_phase"))
+                               phase=current.get("cycle_phase"),
+                               classification=("BEND_SWITCH" if bend_changed
+                                               else "FAST_FRAME_MOTION"))
+                if bend_changed and movement[0] > 0.05:
+                    self.event("BEND_SWITCH_DISCONTINUITY",
+                               from_bend=prev.get("active_bend_id"),
+                               to_bend=current.get("active_bend_id"),
+                               step_mm=round(movement[0],6),
+                               landmark=movement[1])
             old_rect, new_rect = prev.get("scene_rect"), current.get("scene_rect")
             if old_rect and new_rect:
                 change = max(abs(a-b) for a,b in zip(old_rect,new_rect))
