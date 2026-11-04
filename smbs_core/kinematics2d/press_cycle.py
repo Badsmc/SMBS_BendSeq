@@ -180,6 +180,7 @@ class PressCycleController:
         self.transfer_progress = 0.0
         self.transfer_duration_s = 1.8
         self.transfer_feed_mm = 0.0
+        self.transfer_target_feed_mm = 0.0
         self.transfer_lift_mm = 0.0
         self.transfer_rotation_deg = 0.0
         self.contact_tracking_status = "PROGRAMMED_PREVIEW_STROKE"
@@ -558,8 +559,13 @@ class PressCycleController:
         ac = ((a[0][0]+a[1][0])/2.0, (a[0][1]+a[1][1])/2.0)
         bc = ((b[0][0]+b[1][0])/2.0, (b[0][1]+b[1][1])/2.0)
         ux, uy = zone.left_xy
-        self.transfer_feed_mm = abs((bc[0]-ac[0])*ux + (bc[1]-ac[1])*uy)
-        if not math.isfinite(self.transfer_feed_mm):
+        # Signed feed to bring the next actual bend axis under the same punch:
+        # not a decorative retract-and-return with zero final displacement.
+        self.transfer_target_feed_mm = -(
+            (bc[0]-ac[0])*ux + (bc[1]-ac[1])*uy
+        )
+        self.transfer_feed_mm = abs(self.transfer_target_feed_mm)
+        if not math.isfinite(self.transfer_target_feed_mm):
             raise PressCycleError("Invalid next-bend feed distance")
         # In handling preview, lift sufficiently to make the entire formed
         # profile visibly clear the V-die before turning it. This is not a
@@ -602,16 +608,21 @@ class PressCycleController:
         def ease(t):
             t = max(0.0, min(1.0, t))
             return t*t*(3.0-2.0*t)
+        # First pull clear of the V groove, then turn while lifted, finally
+        # feed to the NEXT bend axis. Signed feed is derived from real axes.
+        pull = -max(15.0, min(45.0, self.transfer_feed_mm*0.35))
         if p < 0.3:
             t = ease(p/0.3)
-            return (-self.transfer_feed_mm*t, self.transfer_lift_mm*t, 0.0)
+            return (pull*t, self.transfer_lift_mm*t, 0.0)
         if p < 0.7:
             t = ease((p-0.3)/0.4)
-            return (-self.transfer_feed_mm, self.transfer_lift_mm,
-                    self.transfer_rotation_deg*t)
+            return (pull, self.transfer_lift_mm, self.transfer_rotation_deg*t)
         t = ease((p-0.7)/0.3)
-        return (-self.transfer_feed_mm*(1.0-t), self.transfer_lift_mm*(1.0-t),
-                self.transfer_rotation_deg)
+        return (
+            pull + (self.transfer_target_feed_mm-pull)*t,
+            self.transfer_lift_mm*(1.0-t),
+            self.transfer_rotation_deg,
+        )
 
     def advance_time(self, dt_sec: float) -> bool:
         """Advance the press brake working cycle by `dt_sec` seconds.
