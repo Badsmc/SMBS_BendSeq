@@ -56,6 +56,7 @@ class WorkpieceTransferTests(unittest.TestCase):
         self.assertEqual(cycle.sequence.status, PlaybackStatus.PLAYING)
         self.assertAlmostEqual(cycle.ram_z_mm, cycle.upper_z_mm)
         self.assertAlmostEqual(cycle.transfer_feed_mm, 55.0)
+        self.assertAlmostEqual(abs(cycle.transfer_target_feed_mm), 55.0)
         initial_z = cycle.ram_z_mm
         samples = []
         for _ in range(8):
@@ -67,6 +68,18 @@ class WorkpieceTransferTests(unittest.TestCase):
         self.assertTrue(any(abs(s) > 0.0 for s, _z, _a in samples))
         self.assertTrue(any(z > 0.0 for _s, z, _a in samples))
         self.assertTrue(any(abs(a) > 0.0 for _s, _z, a in samples))
+
+    def test_final_transfer_feed_targets_next_actual_bend_line(self):
+        cycle, _state = self.make_cycle()
+        self.reach_transfer(cycle)
+        # Inspect the last eased transport frame just before switching the
+        # controller's active bend (no artificial geometry or angle resets).
+        cycle.transfer_progress = 0.9999
+        feed, lift, turn = cycle.transfer_motion
+        self.assertAlmostEqual(feed, cycle.transfer_target_feed_mm, delta=0.001)
+        self.assertAlmostEqual(lift, 0.0, delta=0.001)
+        self.assertAlmostEqual(abs(turn), 180.0, places=6)
+        self.assertAlmostEqual(cycle.ram_z_mm, cycle.upper_z_mm)
 
     def test_transfer_pauses_and_resumes_without_reset(self):
         cycle, state = self.make_cycle()
