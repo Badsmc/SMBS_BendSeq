@@ -837,13 +837,20 @@ class _PreviewPanel:
 
                 edge_pen = QtGui.QPen(QtGui.QColor("#536b7f"), 0.7)
                 edge_pen.setCosmetic(True)
+                edge_budget = 10000
                 for edge in shape.Edges:
+                    if edge_budget <= 0:
+                        break
                     try:
-                        pts = edge.discretize(Deflection=0.5)
+                        pts = edge.discretize(Deflection=0.8)
                     except Exception:
                         continue
                     if len(pts) < 2:
                         continue
+                    pts = pts[:edge_budget]
+                    if len(pts) < 2:
+                        break
+                    edge_budget -= len(pts)
                     path = QtGui.QPainterPath(project(pts[0]))
                     for point in pts[1:]:
                         path.lineTo(project(point))
