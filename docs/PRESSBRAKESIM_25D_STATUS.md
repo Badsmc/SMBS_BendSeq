@@ -23,6 +23,17 @@ local venv (Python 3.14, no pythonocc). Level C (interactive GUI) NOT performed 
   - 1 × `ImportError: dlopen(.../FreeCAD.so)` when importing compiled FreeCAD binary into system Python 3.14 (`tests/test_fold_multi_bend.py`).
   - 1 × `ImportError: cannot import name 'SELF_COLLISION_GAP_TOL_MM' from 'smbs_core.Physics.collision_detector'` (`tests/test_self_collision_panels.py`, defect D2 from `0d4c071`).
 
+## Phase 5B Hotfix 4 — user validation and targeted corrections
+
+Manual result on `e498655`: Full Cycle PASS, symmetric flanges PASS, die support PASS, punch fully reaches sheet FAIL, 3D changes/bend-switch stability FAIL.
+
+Corrections:
+- **2.5D negative bend** uses a rigid 180° workpiece turn about the press bend axis. Previous `mirror_z` was a non-rigid reflection that made negative bending appear upside-down (die above, punch below). All supported bends now present both flanges upward toward the upper punch in machine view. The original FoldState signed angles stay unchanged.
+- **2.5D punch contact preview** optionally follows the machine-space upper material surface at the *centerline of the selected punch*, not max height anywhere in BendZone and not an assumed 4mm stroke. This tracking is enabled in the FreeCAD GUI only; previous pure headless fixed-stroke contract remains the default. The controller records `GEOMETRIC_ZONE_TIP_PREVIEW` or a documented assumed-stroke fallback. Do not interpret tracking as force/contact/collision validation.
+- **3D viewer** now draws only the complete FoldState part geometry; no die/punch at all, no machine-space reorientation/flip. The isometric frame is anchored to the first canonical bend rather than the active bend, and the fit camera does not recenter at each animation frame. Source document is not changed by rendering.
+- Added new regression coverage for rigid 180-degree negative bends, upward flange elevation and punch-axis zone sampling.
+- In-person FreeCAD GUI and new CI check results have not yet been confirmed; Phase 5B remains open.
+
 ## Phase 5B Hotfix 3 — 2.5D playback mode, symmetry, and real shoulder support
 
 User GUI feedback for Hotfix 2: `PASS` shoulder positioning, `FAIL` symmetric 2.5D machine cycle, Z-detail and original-model integrity `PENDING`.
