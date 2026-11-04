@@ -23,6 +23,21 @@ local venv (Python 3.14, no pythonocc). Level C (interactive GUI) NOT performed 
   - 1 × `ImportError: dlopen(.../FreeCAD.so)` when importing compiled FreeCAD binary into system Python 3.14 (`tests/test_fold_multi_bend.py`).
   - 1 × `ImportError: cannot import name 'SELF_COLLISION_GAP_TOL_MM' from 'smbs_core.Physics.collision_detector'` (`tests/test_self_collision_panels.py`, defect D2 from `0d4c071`).
 
+## Phase 5B Hotfix 5 — continuous 2.5D sheet transfer between bends
+
+User issue: negative-bend workpiece repositioning still appeared instantaneous; after each operation the sheet jumped back to a level pose. Requested smoother playback with visible lifting, flipping and feeding the workpiece to the next bend line.
+
+Implementation on branch `2D`:
+- Add opt-in `CyclePhase.TRANSFER` to the **existing** headless `PressCycleController`. Activated only for the FreeCAD 2.5D Full Cycle GUI; original headless tests and Bend Only retain their no-transfer behavior.
+- After the punch completes RETRACT, the existing Qt timer drives a 1.8-second easing curve: (1) lift/retract workpiece clear of die, (2) rotate 180° when the next bend sign differs, (3) feed the sheet by the **signed distance** between actual adjacent bend axes, toward the next working location. No FoldState angle is modified during this transfer.
+- The die remains in its machine position when switching B01 to B02; the punch is retracted and re-based to the new active bend surface.
+- The GUI uses one 25 ms Qt timer (~40 Hz target). The existing 2.5D view draws the complete active section through a common rigid `WorkpiecePose2D`; real bend geometry and `FoldState` are preserved. `Pause/Resume` freezes/resumes the transfer fraction.
+- Punch position now follows the geometric active-zone top at **every** BENDING tick in optional GUI mode (previously only at BOTTOM, creating a visual jump).
+- The 3D preview is intentionally unchanged: fixed isometric camera, the entire deforming part without punch/die or machine reorientation.
+- Added regression tests for transfer progression, rigid sheet motion, pause/resume, signed feed, reset, and disabled legacy mode. Extended the dedicated GitHub Actions workflow to run these.
+- **Limitations:** The transfer animation is a staged `KINEMATIC_PREVIEW`, not a verified industrial manipulator trajectory. Actual machine backgauge clearance, flange support, flipping around the bend axis in 3D, tool and frame collisions are not verified. At the instant the next bend becomes active, its own local cross-section is used; further persistent-global-frame work may be needed if a discontinuity remains visible. Do not claim a physically continuous, collision-free movement until real FreeCAD testing.
+- GUI acceptance and CI success remain **unconfirmed**; Phase 5B is still open.
+
 ## Phase 5B Hotfix 4 — user validation and targeted corrections
 
 Manual result on `e498655`: Full Cycle PASS, symmetric flanges PASS, die support PASS, punch fully reaches sheet FAIL, 3D changes/bend-switch stability FAIL.
