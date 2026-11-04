@@ -318,6 +318,29 @@ class PressCycleController:
             else:
                 self.tooling.set_punch_ram_z(self.ram_z_mm, stroke_mm=0.0)
 
+        if reposition_tools:
+            self._rebase_contact_to_die_supported_sheet(sec)
+
+    def _rebase_contact_to_die_supported_sheet(self, sec) -> None:
+        """Reference ram travel to sheet actually positioned on V shoulders."""
+        if (self.execution_mode != CycleExecutionMode.FULL_CYCLE
+                or not sec or not sec.get("zone_polygon")
+                or not self.tooling.aligned or self.tooling.die is None):
+            return
+        try:
+            from .workpiece_pose_2d import machine_pose_for_cycle
+            pose = machine_pose_for_cycle(sec, self, self.tooling)
+            heights = [z for _s, z in pose.points(sec["zone_polygon"])]
+            self.sheet_top_z_mm = max(heights)
+            self.sheet_bottom_z_mm = min(heights)
+            self.contact_z_mm = self.sheet_top_z_mm
+            self.upper_z_mm = self.contact_z_mm + float(self.config.initial_clearance_mm)
+            self.bottom_z_mm = self.contact_z_mm - float(self.config.preview_stroke_mm)
+            self._set_punch_z(self.upper_z_mm)
+        except (ValueError, AttributeError, TypeError):
+            # The renderer explicitly flags unsupported V-die contact.
+            pass
+
     def _park_punch_at_upper_position(self) -> None:
         self.ram_z_mm = self.upper_z_mm
         self.ram_stroke_mm = 0.0
