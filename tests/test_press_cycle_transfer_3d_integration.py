@@ -238,6 +238,11 @@ class TestWorkpieceTransfer3DIntegration(unittest.TestCase):
         with self.assertRaises(PressCycleError):
             cycle.current_workpiece_placement_3d()
 
+        # 7. Calling resume() while transfer_fault is set must not resume playback
+        cycle.resume()
+        self.assertEqual(cycle.status, PlaybackStatus.PAUSED)
+        self.assertFalse(cycle.advance_time(0.05))
+
 
 if __name__ == "__main__":
     unittest.main()

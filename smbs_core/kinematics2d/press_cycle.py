@@ -552,6 +552,9 @@ class PressCycleController:
         """Resume automatic playback from the exact paused phase, ram position, angle, and dwell."""
         if self.sequence.status != PlaybackStatus.PAUSED:
             return
+        if self.transfer_fault is not None:
+            # Cannot resume after an unrecovered transfer fault without reset
+            return
         if self.execution_mode == CycleExecutionMode.BEND_ONLY:
             self.sequence.resume()
             self.phase = CyclePhase.BENDING
@@ -610,7 +613,6 @@ class PressCycleController:
 
         # Construct authoritative 3D spatial transfer trajectory via Transfer3D
         self.transfer_fault = None
-        self.phase = CyclePhase.TRANSFER
         try:
             self.transfer_3d = build_bend_transfer(
                 self.sequence.fold_state,
@@ -621,6 +623,7 @@ class PressCycleController:
                 support_plane_zm=0.0,
             )
             self.transfer_duration_s = max(0.05, float(self.transfer_3d.duration_s))
+            self.phase = CyclePhase.TRANSFER
         except Exception as exc:
             # Failsafe halt on transfer trajectory construction failure:
             # NEVER continue or fake a transfer duration. Retain exact FoldState angles
@@ -793,10 +796,10 @@ class PressCycleController:
               rigid 3D placement for active_bend_id: WorkpiecePlacement3D.compute_placement(...).
         All panels receive this exact spatial isometry; det(R) == +1.0.
         """
+        if self.transfer_fault is not None:
+            raise PressCycleError(self.transfer_fault)
         fold_state = self.sequence.fold_state
         if self.phase == CyclePhase.TRANSFER:
-            if self.transfer_fault is not None:
-                raise PressCycleError(self.transfer_fault)
             elapsed_s = self.transfer_progress * self.transfer_duration_s
             if self.transfer_3d is not None:
                 return self.transfer_3d.pose_at(elapsed_s)
