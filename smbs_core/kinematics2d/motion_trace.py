@@ -91,6 +91,9 @@ def make_frame_record(*, session, press_cycle, execution_mode, section, pose,
         ram_z_mm=getattr(press_cycle, "ram_z_mm", None),
         ram_stroke_mm=getattr(press_cycle, "ram_stroke_mm", None),
         punch_origin_machine=tf_origin(punch),
+        punch_tip_machine=(
+            tooling.punch_tip_machine() if tooling is not None else None
+        ),
         die_origin_machine=tf_origin(die),
         die_v_center=(tooling.die_v_center_machine()
                       if tooling is not None else None),
@@ -106,6 +109,15 @@ def make_frame_record(*, session, press_cycle, execution_mode, section, pose,
         ),
         pose_warning=str(pose_warning),
         sheet_bbox=bbox,
+        # Complete geometric state of every visible panel/bend zone for
+        # reproducible, pixel-independent inspection of each animation tick.
+        sheet_components={
+            key: list(section.get(key, ()))
+            for key in ("fixed_polygon","moving_polygon","zone_polygon",
+                        "inner_surface","outer_surface","neutral_curve")
+        },
+        other_panels=list(section.get("other_panel_polygons", ())),
+        other_zones=list(section.get("other_zone_polygons", ())),
         landmarks=landmarks,
         scene_rect=rect,
     )
