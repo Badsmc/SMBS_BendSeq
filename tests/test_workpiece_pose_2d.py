@@ -42,21 +42,27 @@ class WorkpiecePoseTests(unittest.TestCase):
                 section = _section(angle)
                 pose = symmetric_v_pose(section)
                 fixed, moving = section["fixed_polygon"], section["moving_polygon"]
-                far_left, near_left = pose.apply(fixed[0]), pose.apply(fixed[1])
-                near_right, far_right = pose.apply(moving[0]), pose.apply(moving[1])
-                left_elevation = math.atan2(
-                    far_left[1] - near_left[1], near_left[0] - far_left[0]
-                )
-                right_elevation = math.atan2(
-                    far_right[1] - near_right[1], far_right[0] - near_right[0]
-                )
-                self.assertAlmostEqual(left_elevation, right_elevation, places=8)
-                self.assertAlmostEqual(left_elevation, math.radians(abs(angle)) / 2, places=8)
+                fixed_near, fixed_far = pose.apply(fixed[1]), pose.apply(fixed[0])
+                moving_near, moving_far = pose.apply(moving[0]), pose.apply(moving[1])
+                # A negative bend is presented by a rigid 180° workpiece
+                # turn: fixed/moving swap LEFT/RIGHT sides in machine space.
+                rays = ((fixed_near, fixed_far), (moving_near, moving_far))
+                rises = []
+                for near, far in rays:
+                    self.assertGreater(far[1]-near[1], -1e-7)
+                    rises.append(math.atan2(far[1]-near[1], abs(far[0]-near[0])))
+                self.assertAlmostEqual(rises[0], rises[1], places=8)
+                self.assertAlmostEqual(rises[0], math.radians(abs(angle)) / 2, places=8)
                 self.assertAlmostEqual(
                     math.dist(fixed[0], fixed[1]),
-                    math.dist(far_left, near_left),
+                    math.dist(fixed_far, fixed_near),
                     places=8,
                 )
+                self.assertFalse(pose.mirror_z)
+                if angle < 0:
+                    self.assertIn("RIGID_180_DEG", pose.mode)
+                    self.assertGreater(fixed_far[0], fixed_near[0])
+                    self.assertLess(moving_far[0], moving_near[0])
 
     def test_machine_pose_follows_ram_only_during_bending(self):
         class Cycle:
@@ -277,14 +283,19 @@ class WorkpiecePoseTests(unittest.TestCase):
                 sec = _section(angle)
                 sec["zone_polygon"] = ((-1., 0.), (1., 0.), (1., -2.), (-1., -2.))
                 pose = machine_pose_for_cycle(sec, Cycle(), Tooling())
-                self.assertAlmostEqual(pose.rotation_deg, -abs(angle) / 2.0, places=7)
+                expected_rotation = (
+                    180.0 + abs(angle) / 2.0 if angle < 0 else -angle / 2.0
+                )
+                self.assertAlmostEqual(pose.rotation_deg, expected_rotation, places=7)
                 fixed = pose.points((sec["fixed_polygon"][1], sec["fixed_polygon"][0]))
                 moving = pose.points((sec["moving_polygon"][0], sec["moving_polygon"][1]))
-                rise_l = math.atan2(fixed[1][1]-fixed[0][1],
-                                    fixed[0][0]-fixed[1][0])
-                rise_r = math.atan2(moving[1][1]-moving[0][1],
-                                    moving[1][0]-moving[0][0])
-                self.assertAlmostEqual(rise_l, rise_r, places=7)
+                rises = [
+                    math.atan2(far[1]-near[1], abs(far[0]-near[0]))
+                    for near, far in (fixed, moving)
+                ]
+                self.assertAlmostEqual(rises[0], rises[1], places=7)
+                self.assertGreaterEqual(rises[0], -1e-7)
+
 
     def test_invalid_flange_rejected(self):
         sec = _section(20)
