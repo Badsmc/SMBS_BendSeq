@@ -766,6 +766,7 @@ class _PreviewPanel:
                 views.setObjectName("SMBS_ViewerTabs")
                 views.addTab(self.view, "2.5D · Гибка")
                 self._preview_3d = QtWidgets.QGraphicsView()
+                self._last_3d_frame_at = -1.0
                 self._preview_3d.setObjectName("SMBS_3D_ReadOnly")
                 self._preview_3d_scene = QtWidgets.QGraphicsScene(self._preview_3d)
                 self._preview_3d.setScene(self._preview_3d_scene)
@@ -811,14 +812,21 @@ class _PreviewPanel:
 
             def _on_view_changed(self, index):
                 if index == 1:
-                    self._update_3d_preview()
+                    self._update_3d_preview(force=True)
 
-            def _update_3d_preview(self):
+            def _update_3d_preview(self, force=False):
                 """Live whole-workpiece isometric 3D projection, read-only.
 
                 Consumes the same FoldState angles and machine pose as 2.5D.
                 No Part.Shape changes, duplicate bend simulation or OCC booleans.
                 """
+                # Keep the existing single playback timer; cap redraw cost
+                # of a complex whole-part mesh to about 12 frames/second.
+                now = time.perf_counter()
+                if not force and self._last_3d_frame_at >= 0.0:
+                    if now - self._last_3d_frame_at < 1.0 / 12.0:
+                        return
+                self._last_3d_frame_at = now
                 scene = self._preview_3d_scene
                 scene.clear()
                 if self.session is None:
