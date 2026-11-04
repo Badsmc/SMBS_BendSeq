@@ -158,7 +158,13 @@ class MotionTraceRecorder:
         self.warnings.clear()
         self._previous = None
         self.event("TRACE_STARTED",path=str(self.path))
+        self.flush()
         return self.path
+
+    def flush(self):
+        """Persist buffered JSONL frames immediately when requested by GUI."""
+        if self._file is not None:
+            self._file.flush()
 
     def _write(self, row):
         if not self.is_open:
