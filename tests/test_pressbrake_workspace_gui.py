@@ -67,7 +67,7 @@ class WorkspaceGuiTests(unittest.TestCase):
             panel.close()
             panel.deleteLater()
 
-    def test_geometry_auto_button_drives_timer_without_manual_steps(self):
+    def test_mode_selection_and_play_all_drive_timer_without_manual_steps(self):
         """Real Qt event loop advances Bend Only automatically in FreeCAD."""
         try:
             import FreeCAD  # noqa: F401
@@ -114,12 +114,15 @@ class WorkspaceGuiTests(unittest.TestCase):
             panel._start_motion_trace = lambda: None
             panel._finish_motion_trace = lambda reason: None
             panel._ensure_press_cycle_controller = lambda: None
-            panel.reset = lambda: None
-
-            self.assertFalse(panel.auto_geometry_btn.isEnabled())
-            panel.auto_geometry_btn.setEnabled(True)
-            panel.auto_geometry_btn.click()
+            self.assertFalse(hasattr(panel, "auto_geometry_btn"))
+            panel.set_cycle_mode(CycleExecutionMode.BEND_ONLY)
             self.assertEqual(panel.execution_mode, CycleExecutionMode.BEND_ONLY)
+            self.assertEqual(
+                panel.cycle_mode_combo.currentData(),
+                CycleExecutionMode.BEND_ONLY.value
+            )
+            panel.play_btn.setEnabled(True)
+            panel.play_btn.click()
             self.assertTrue(panel.timer.isActive())
             self.assertEqual(stub.playback_status, PlaybackStatus.PLAYING)
             loop = QtCore.QEventLoop()
