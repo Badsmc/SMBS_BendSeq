@@ -783,4 +783,11 @@ class PressCycleController:
                 self.orientation_status.value,
             )
             + " | " + self.contact_tracking_status
+            + (
+                " | HANDLING feed={:+.1f}mm lift={:+.1f}mm turn={:+.1f}deg ({:.0f}%)".format(
+                    *self.transfer_motion,
+                    100.0 * self.transfer_progress,
+                )
+                if self.phase == CyclePhase.TRANSFER else ""
+            )
         )
