@@ -808,24 +808,43 @@ class _PreviewPanel:
                 insert(settings_layout, entries[13])  # diagnostics output
 
                 self.trace_checkbox = QtWidgets.QCheckBox(
-                    "Записывать все движения в JSONL (отладка)"
+                    "Автоматически записывать движения при Play All (JSONL)"
                 )
                 self.trace_checkbox.setChecked(False)
                 self.trace_checkbox.setToolTip(
-                    "Записывает каждый кадр, положение пуансона, листа, углы и скачки. "
-                    "Не меняет модель и не проверяет столкновения."
+                    "Создаёт папку при начале записи. После остановки сохраняет "
+                    "кадры в *.jsonl и сводный отчёт в *.summary.json."
                 )
                 settings_layout.addWidget(self.trace_checkbox)
+                self.trace_checkbox.toggled.connect(self._on_trace_checkbox_toggled)
+
                 self.trace_status = QtWidgets.QLabel(
-                    "Трасса отключена. Файлы сохраняются в pressbrake_traces."
+                    "Запись отключена. Каталог: {}".format(self._trace_directory)
                 )
                 self.trace_status.setWordWrap(True)
+                self.trace_status.setTextInteractionFlags(
+                    QtCore.Qt.TextSelectableByMouse
+                )
                 settings_layout.addWidget(self.trace_status)
-                self.trace_stop_button = QtWidgets.QPushButton("Завершить трассу и отчёт")
+
+                trace_buttons = QtWidgets.QHBoxLayout()
+                self.trace_start_button = QtWidgets.QPushButton("Начать запись JSONL")
+                self.trace_start_button.clicked.connect(
+                    lambda _checked=False: self._start_motion_trace(manual=True)
+                )
+                trace_buttons.addWidget(self.trace_start_button)
+                self.trace_stop_button = QtWidgets.QPushButton("Завершить и создать JSON")
                 self.trace_stop_button.clicked.connect(
                     lambda _checked=False: self._finish_motion_trace("USER_STOP")
                 )
-                settings_layout.addWidget(self.trace_stop_button)
+                trace_buttons.addWidget(self.trace_stop_button)
+                settings_layout.addLayout(trace_buttons)
+
+                self.trace_open_button = QtWidgets.QPushButton("Открыть папку записей")
+                self.trace_open_button.clicked.connect(
+                    lambda _checked=False: self._open_trace_directory()
+                )
+                settings_layout.addWidget(self.trace_open_button)
                 settings_layout.addStretch(1)
                 controls.addTab(settings, "Настройки")
 
@@ -838,39 +857,108 @@ class _PreviewPanel:
                 self._viewer_tabs = views
                 self._control_tabs = controls
 
-            def _start_motion_trace(self):
-                if not self.trace_checkbox.isChecked() or self.session is None:
+            def _on_trace_checkbox_toggled(self, enabled):
+                if enabled:
+                    if self.session is not None:
+                        self._start_motion_trace(manual=True)
+                    else:
+                        self.trace_status.setText(
+                            "Сначала загрузите деталь. Запись начнётся при Play All. "
+                            "Каталог: {}".format(self._trace_directory)
+                        )
+                else:
+                    self._finish_motion_trace("RECORDING_DISABLED")
+
+            def _open_trace_directory(self):
+                try:
+                    self._trace_directory.mkdir(parents=True, exist_ok=True)
+                    target = QtCore.QUrl.fromLocalFile(
+                        str(self._trace_directory.resolve())
+                    )
+                    if not QtGui.QDesktopServices.openUrl(target):
+                        raise OSError("System file manager refused to open the folder")
+                except Exception as exc:
+                    message = "Не удалось открыть каталог записи {}: {}".format(
+                        self._trace_directory, exc
+                    )
+                    self.trace_status.setText(message)
+                    _warn(message)
+
+            def _start_motion_trace(self, manual=False):
+                if self.session is None:
+                    if manual:
+                        self.trace_status.setText(
+                            "Запись невозможна: сначала загрузите деталь."
+                        )
+                    return
+                if not manual and not self.trace_checkbox.isChecked():
                     return
                 if self.motion_trace is not None and self.motion_trace.is_open:
+                    self.trace_status.setText(
+                        "Запись продолжается: {}".format(self.motion_trace.path)
+                    )
                     return
                 try:
-                    self.motion_trace = MotionTraceRecorder(self._trace_directory)
-                    filename = self.motion_trace.start()
-                    self.trace_status.setText("Запись: {}".format(filename))
-                    self.motion_trace.event(
-                        "PLAY_ALL",
+                    self._trace_directory.mkdir(parents=True, exist_ok=True)
+                    trace = MotionTraceRecorder(self._trace_directory)
+                    filename = trace.start()
+                    self.motion_trace = trace
+                    if manual and not self.trace_checkbox.isChecked():
+                        self.trace_checkbox.blockSignals(True)
+                        self.trace_checkbox.setChecked(True)
+                        self.trace_checkbox.blockSignals(False)
+                    trace.event(
+                        "RECORDING_STARTED",
                         active_bend=str(self.session.active_bend_id),
                         order=list(self.session.bend_order),
                         part_label=str(self.session.part_label),
                         mode=self.execution_mode.value,
                     )
+                    # Make the directory and its first valid JSONL record
+                    # visible immediately, not only after buffered frames.
+                    trace.flush()
+                    self.trace_status.setText(
+                        "Запись ведётся: {}\nФайл: {}".format(
+                            self._trace_directory.resolve(), filename
+                        )
+                    )
                     _log("Motion trace START: {}".format(filename))
                 except Exception as exc:
-                    _warn("Motion trace failed to start: {}".format(exc))
-                    self.trace_status.setText("Ошибка записи: {}".format(exc))
+                    message = "Не удалось создать JSONL в {}: {}".format(
+                        self._trace_directory, exc
+                    )
+                    _warn(message)
+                    self.trace_status.setText(message)
+                    self.status.setText(message)
                     self.motion_trace = None
 
             def _finish_motion_trace(self, reason="MANUAL_STOP"):
                 trace = self.motion_trace
                 if trace is None or not trace.is_open:
+                    self.trace_status.setText(
+                        "Нет активной записи. Каталог: {}".format(
+                            self._trace_directory.resolve()
+                        )
+                    )
                     return
                 try:
                     summary = trace.stop(str(reason))
-                    self.trace_status.setText("Готово: {}".format(summary))
+                    self.trace_status.setText(
+                        "Запись завершена.\nJSONL: {}\nJSON: {}".format(
+                            trace.path, summary
+                        )
+                    )
                     _log("Motion trace SUMMARY: {}".format(summary))
+                    if reason in ("USER_STOP", "PLAYBACK_COMPLETED", "RESET",
+                                  "WORKSPACE_CLOSED", "RECORDING_DISABLED"):
+                        self.trace_checkbox.blockSignals(True)
+                        self.trace_checkbox.setChecked(False)
+                        self.trace_checkbox.blockSignals(False)
                 except Exception as exc:
-                    _warn("Motion trace failed to finish: {}".format(exc))
-                    self.trace_status.setText("Ошибка отчёта: {}".format(exc))
+                    message = "Не удалось создать отчёт JSON: {}".format(exc)
+                    _warn(message)
+                    self.trace_status.setText(message)
+                    self.status.setText(message)
 
             def _trace_event(self, name, **fields):
                 if self.motion_trace is not None and self.motion_trace.is_open:
