@@ -160,6 +160,19 @@ class WorkspaceGuiTests(unittest.TestCase):
             self.assertIsNotNone(controls)
             self.assertEqual(tabs.count(), 2)
             self.assertEqual(controls.count(), 3)
+            # The Simulation tab owns mode selection and one Play All.
+            # Duplicate angle arrows, bend arrows and alternate Auto button
+            # are forbidden by docs/PRESSBRAKESIM_UI_CONTROLS.md.
+            self.assertIs(panel.cycle_mode_combo.parentWidget() is not None, True)
+            self.assertFalse(hasattr(panel, "auto_geometry_btn"))
+            self.assertFalse(hasattr(panel, "back_btn"))
+            self.assertFalse(hasattr(panel, "next_btn"))
+            self.assertFalse(hasattr(panel, "end_btn"))
+            self.assertFalse(hasattr(panel, "prev_bend_btn"))
+            self.assertFalse(hasattr(panel, "next_bend_btn"))
+            self.assertEqual(panel.play_btn.text(), "▶ Play All")
+            self.assertTrue(panel.prev_step_btn is not None)
+            self.assertTrue(panel.next_step_btn is not None)
             self.assertEqual(
                 [controls.tabText(i) for i in range(controls.count())],
                 ["Симуляция", "Оснастка", "Настройки"],
