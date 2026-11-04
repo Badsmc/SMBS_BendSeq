@@ -835,18 +835,9 @@ class _PreviewPanel:
                     scene.addSimpleText("Загрузите листовую деталь в PressBrakeSim")
                     return
                 try:
-                    raw_section = self.session.cross_section(segments=16)
+                    # Fixed isometric assembly view: only FoldState bends.
+                    # No machine-space pose, negative-bend flip or tooling.
                     pose = WorkpiecePose2D()
-                    if self.execution_mode == CycleExecutionMode.FULL_CYCLE:
-                        pc = self._ensure_press_cycle_controller()
-                        if pc is not None:
-                            try:
-                                pose = machine_pose_for_cycle(raw_section, pc, self.tooling_setup)
-                            except WorkpiecePoseError as exc:
-                                # Keep 3D and 2.5D equally symmetric if physical
-                                # shoulder support cannot be established.
-                                _warn("3D: die support not verified: {}".format(exc))
-                                pose = symmetric_v_pose(raw_section)
                     faces = build_sheet_preview_faces(
                         self.session.fold_state,
                         self.session.panel_vertices_xy,
@@ -895,46 +886,8 @@ class _PreviewPanel:
                     item = scene.addPolygon(poly, pen, brush)
                     item.setToolTip("{}: {}".format(face.kind, face.identifier))
 
-                # Working tool sections in the SAME 3D machine coordinates.
-                # Crop their distant mounting sections only in this view so
-                # the complete sheet remains visible. Source tools unchanged.
-                if self.tooling_setup.visible:
-                    ref_bend = self.session.fold_state.bends[self.session.active_bend_id]
-                    axis_a, axis_b = ref_bend.bend_zone.axis_xy
-                    tool_depth = math.hypot(axis_b[0]-axis_a[0], axis_b[1]-axis_a[1])
-                    d0, d1 = 0.0, max(1.0, tool_depth)
-                    all_sheet_z = [v[2] for f in faces for v in f.vertices]
-                    z_lo = min(all_sheet_z) - 25.0
-                    z_hi = max(all_sheet_z) + 25.0
-                    for kind, polygons, color in (
-                        ("Die", self.tooling_setup.die_polygons_machine(16), "#3c546a"),
-                        ("Punch", self.tooling_setup.punch_polygons_machine(16), "#b34e48"),
-                    ):
-                        if polygons is None:
-                            continue
-                        outer, _holes = polygons
-                        if not outer:
-                            continue
-                        pen = QtGui.QPen(QtGui.QColor(color), 1.4)
-                        pen.setCosmetic(True)
-                        for depth in (d0, d1):
-                            for a, b in zip(outer, outer[1:] + outer[:1]):
-                                if not (z_lo <= a[1] <= z_hi and z_lo <= b[1] <= z_hi):
-                                    continue
-                                pa = project((a[0], depth, a[1]))
-                                pb = project((b[0], depth, b[1]))
-                                scene.addLine(pa.x(), pa.y(), pb.x(), pb.y(), pen)
-                        # Connect a small sample of visible profile vertices
-                        # along the bend axis for a readable 3D tool outline.
-                        stride = max(1, len(outer) // 16)
-                        for vertex in outer[::stride]:
-                            if z_lo <= vertex[1] <= z_hi:
-                                a = project((vertex[0], d0, vertex[1]))
-                                b = project((vertex[0], d1, vertex[1]))
-                                scene.addLine(a.x(), a.y(), b.x(), b.y(), pen)
-
                 label = scene.addSimpleText(
-                    "3D FULL PART | {} | {} | KINEMATIC_PREVIEW | Collision: NOT CHECKED".format(
+                    "3D FULL PART | {} | FIXED ISOMETRIC | {} | KINEMATIC_PREVIEW".format(
                         self.session.active_bend_id,
                         self.execution_mode.value,
                     )
