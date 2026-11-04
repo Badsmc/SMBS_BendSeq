@@ -27,6 +27,18 @@ class WorkspaceGuiTests(unittest.TestCase):
                 [controls.tabText(i) for i in range(controls.count())],
                 ["Симуляция", "Оснастка", "Настройки"],
             )
+            from smbs_core.kinematics2d.press_cycle import CycleExecutionMode
+            self.assertEqual(panel.execution_mode, CycleExecutionMode.FULL_CYCLE)
+            self.assertEqual(
+                panel.cycle_mode_combo.currentData(),
+                CycleExecutionMode.FULL_CYCLE.value,
+            )
+            # Switching to Bend Only is still explicit and must not remove
+            # the model's only timer or create an independent angle writer.
+            panel.set_cycle_mode(CycleExecutionMode.BEND_ONLY)
+            self.assertEqual(panel.execution_mode, CycleExecutionMode.BEND_ONLY)
+            panel.set_cycle_mode(CycleExecutionMode.FULL_CYCLE)
+            self.assertEqual(panel.execution_mode, CycleExecutionMode.FULL_CYCLE)
             self.assertEqual(len(panel.findChildren(QtCore.QTimer)), 1)
             self.assertIs(tabs.widget(0), panel.view)
             self.assertIs(tabs.widget(1), panel._preview_3d)
