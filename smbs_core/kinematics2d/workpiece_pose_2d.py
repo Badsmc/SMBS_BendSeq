@@ -143,19 +143,93 @@ def _die_shoulders_machine(tooling):
     )
 
 
+def _two_shoulder_support(section, pose, shoulders):
+    """Solve vertical placement and a small whole-sheet tilt from both supports.
+
+    A single translation cannot satisfy two unequal contact heights. The tilt
+    is a machine-space placement correction, NOT a change to FoldState angles.
+    Never claim support if a shoulder lies outside the actual sheet profile.
+    """
+    if len(shoulders) != 2:
+        raise WorkpiecePoseError("DIE_SUPPORT_UNAVAILABLE: two V shoulders required")
+    (ls, lz), (rs, rz) = sorted(shoulders, key=lambda item: item[0])
+    if not all(isfinite(v) for v in (ls, lz, rs, rz)) or rs - ls <= 1e-6:
+        raise WorkpiecePoseError("DIE_SUPPORT_INVALID: coincident or nonfinite shoulders")
+
+    def levels(rotation_deg):
+        trial = replace(pose, rotation_deg=rotation_deg)
+        left = _lower_sheet_at_s(section, trial, ls)
+        right = _lower_sheet_at_s(section, trial, rs)
+        if left is None or right is None:
+            return None
+        return (left - lz, right - rz)
+
+    base = levels(pose.rotation_deg)
+    if base is None:
+        raise WorkpiecePoseError("DIE_SUPPORT_MISSING: sheet does not span both V shoulders")
+
+    # At equal support heights a pure vertical translation is sufficient.
+    delta = base[0] - base[1]
+    rotation = pose.rotation_deg
+    if abs(delta) > 0.05:
+        # A limited correction of machine placement, not of the bend angle.
+        # Never rotate a nominally symmetric bend far away from its bisector.
+        limit = 6.0
+        lo, hi = rotation - limit, rotation + limit
+        low, high = levels(lo), levels(hi)
+        if low is None or high is None:
+            raise WorkpiecePoseError("DIE_SUPPORT_MISSING: shoulder contact lost during positioning")
+        f_lo = low[0] - low[1]
+        f_hi = high[0] - high[1]
+        if f_lo * f_hi > 0.0:
+            raise WorkpiecePoseError(
+                "DIE_SUPPORT_IMBALANCE: both shoulders cannot be seated within 6 deg"
+            )
+        for _ in range(32):
+            mid = (lo + hi) / 2.0
+            values = levels(mid)
+            if values is None:
+                raise WorkpiecePoseError("DIE_SUPPORT_MISSING: shoulder contact lost")
+            f_mid = values[0] - values[1]
+            if abs(f_mid) < 1e-7:
+                lo = hi = mid
+                break
+            if f_lo * f_mid <= 0.0:
+                hi, f_hi = mid, f_mid
+            else:
+                lo, f_lo = mid, f_mid
+        rotation = (lo + hi) / 2.0
+
+    adjusted = replace(pose, rotation_deg=rotation)
+    pair = levels(rotation)
+    if pair is None:
+        raise WorkpiecePoseError("DIE_SUPPORT_MISSING: unsupported final position")
+    # A valid support offset cannot be based on just one shoulder.
+    if abs(pair[0] - pair[1]) > 0.05:
+        raise WorkpiecePoseError("DIE_SUPPORT_IMBALANCE: unresolved shoulder separation")
+    shift_z = -0.5 * (pair[0] + pair[1])
+    result = replace(
+        adjusted,
+        shift=(adjusted.shift[0], shift_z),
+        mode=adjusted.mode + "_TWO_SHOULDER_SUPPORTED_PREVIEW",
+    )
+    return result
+
+
 def machine_pose_for_cycle(
     section: Mapping[str, Any],
     cycle: Any,
     tooling: Any,
 ) -> WorkpiecePose2D:
-    """Place the whole sheet relative to the actual V shoulders.
+    """Place folded sheet on both die shoulders in FULL_CYCLE preview.
 
-    During a symmetric V preview the sheet is lowered to the available die
-    shoulders, removing the visual 'floating' gap. This chooses a single
-    non-penetrating vertical support translation using two shoulder datums,
-    but it is NOT a mechanics/contact solver: punch stroke and springback
-    remain unvalidated. If shoulder support is unavailable, retain the
-    earlier zone-to-ram preview placement.
+    The relative flange angle comes exclusively from FoldState. We try two
+    actual working shoulders, using one rigid placement shared by every sheet
+    surface. If that fit is impossible we expose a precise diagnostic instead
+    of silently claiming that the sheet is supported.
+
+    Kinematic support does NOT establish punch contact, force or collision
+    freedom and does NOT compute a physically feasible ram trajectory.
     """
     pose = symmetric_v_pose(section)
     try:
@@ -184,21 +258,11 @@ def machine_pose_for_cycle(
     pose = replace(pose, shift=(machine_s - pose.pivot[0], 0.0))
 
     shoulders = _die_shoulders_machine(tooling) if getattr(tooling, "aligned", False) else ()
-    offsets = []
-    for shoulder_s, shoulder_z in shoulders:
-        lower_z = _lower_sheet_at_s(section, pose, shoulder_s)
-        if lower_z is not None and isfinite(lower_z):
-            offsets.append(shoulder_z - lower_z)
+    if shoulders:
+        return _two_shoulder_support(section, pose, shoulders)
 
-    if offsets:
-        # Max offset places the sheet no lower than either contact shoulder.
-        # At least one shoulder supports the sheet; asymmetry is not concealed.
-        support_shift_z = max(offsets)
-        return replace(
-            pose, shift=(pose.shift[0], support_shift_z),
-            mode=pose.mode + "_DIE_SUPPORTED_PREVIEW",
-        )
-
+    # No verified shoulders: preserve prior ram-only preview but explicitly
+    # label missing real support. Never describe this as DIE_SUPPORTED.
     if phase == "BENDING":
         desired_top = min(contact_z, ram_z)
     elif phase in ("BOTTOM", "RETRACT", "STEP_COMPLETE", "COMPLETED"):
@@ -208,7 +272,7 @@ def machine_pose_for_cycle(
     zone_top = max(z for _s, z in pose.points(zone))
     return replace(
         pose, shift=(pose.shift[0], desired_top - zone_top),
-        mode=pose.mode + "_RAM_ONLY_SUPPORT_ASSUMED",
+        mode=pose.mode + "_DIE_SUPPORT_UNKNOWN_RAM_ONLY",
     )
 
 
