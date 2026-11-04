@@ -986,6 +986,7 @@ class _PreviewPanel:
                         cross_section_provider=lambda: (
                             self.session.cross_section(segments=16) if self.session is not None else None
                         ),
+                        follow_sheet_contact_preview=True,
                     )
                     self.press_cycle.set_execution_mode(self.execution_mode)
                 return self.press_cycle
