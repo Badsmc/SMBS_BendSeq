@@ -1011,7 +1011,8 @@ class _PreviewPanel:
                     )
                     _log("Motion trace SUMMARY: {}".format(summary))
                     if reason in ("USER_STOP", "PLAYBACK_COMPLETED", "RESET",
-                                  "WORKSPACE_CLOSED", "RECORDING_DISABLED"):
+                                  "WORKSPACE_CLOSED", "RECORDING_DISABLED",
+                                  "KINEMATIC_POSE_HALT"):
                         self.trace_checkbox.blockSignals(True)
                         self.trace_checkbox.setChecked(False)
                         self.trace_checkbox.blockSignals(False)
@@ -2281,6 +2282,10 @@ class _PreviewPanel:
                 elif self.session is not None:
                     self.session.pause()
                 self._stop_timer()
+                # A diagnostic halt is terminal for this recording. Persist
+                # both JSONL and the summary immediately; do not leave a
+                # buffered trace open waiting for a separate user action.
+                self._finish_motion_trace("KINEMATIC_POSE_HALT")
                 self.status.setText(
                     "Симуляция остановлена: {}. Отображён последний корректный "
                     "кадр. Проверка 2.5D невозможна для этого гиба.".format(reason)
