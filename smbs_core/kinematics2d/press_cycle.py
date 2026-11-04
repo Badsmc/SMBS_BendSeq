@@ -502,7 +502,7 @@ class PressCycleController:
 
         if was_paused_mid_cycle:
             # Validate sequential prefix (or allow RETRACT/BOTTOM/STEP_COMPLETE where active bend just reached target)
-            if self.phase in (CyclePhase.BOTTOM, CyclePhase.RETRACT, CyclePhase.STEP_COMPLETE):
+            if self.phase in (CyclePhase.BOTTOM, CyclePhase.RETRACT, CyclePhase.STEP_COMPLETE, CyclePhase.TRANSFER):
                 self.sequence.status = PlaybackStatus.PLAYING
                 return
             self.sequence.play_all()
@@ -568,7 +568,10 @@ class PressCycleController:
         )
         old_negative = self.target_angle_deg < 0
         new_negative = nxt.angle_deg < 0
-        self.transfer_rotation_deg = 180.0 if old_negative != new_negative else 0.0
+        if old_negative != new_negative:
+            self.transfer_rotation_deg = -180.0 if old_negative else 180.0
+        else:
+            self.transfer_rotation_deg = 0.0
         self.phase = CyclePhase.TRANSFER
 
     @property
@@ -726,7 +729,15 @@ class PressCycleController:
             if self.transfer_progress >= 1.0:
                 self.sequence.active_index += 1
                 self.transfer_progress = 0.0
-                self._sync_bounds_and_orientation_for_active_bend(reposition_tools=True)
+                # Machine tooling remains stationary. The sheet is transported
+                # to the next bend; repositioning the die itself would reverse
+                # the intended feed animation.
+                self._sync_bounds_and_orientation_for_active_bend(reposition_tools=False)
+                sec = self._current_cross_section()
+                self._rebase_contact_to_die_supported_sheet(sec)
+                self._park_punch_at_upper_position()
+                if self.tooling.aligned:
+                    self.tooling.aligned_bend_id = self.active_bend_id
                 self.phase = CyclePhase.APPROACH
             return True
 
