@@ -32,7 +32,7 @@ from smbs_core.kinematics2d.press_cycle import (
     PressCycleError,
     WorkpieceOrientationStatus,
 )
-from smbs_core.kinematics2d.tooling_25d import (
+from smbs_core.kinematics2d.workpiece_pose_2d import (\n    WorkpiecePose2D, WorkpiecePoseError, symmetric_v_pose,\n)\nfrom smbs_core.kinematics2d.tooling_25d import (
     DEFAULT_INITIAL_PUNCH_CLEARANCE_MM,
     NOT_SPECIFIED,
     SceneBounds2D,
@@ -1797,19 +1797,35 @@ class _PreviewPanel:
                     if self.session is not None:
                         sec = self.session.cross_section(segments=32)
 
-                        sheet_pts.extend(sec["inner_surface"])
-                        sheet_pts.extend(sec["outer_surface"])
+                        # Entire sheet uses one rigid machine-space preview placement.
+                        # The original FoldState cross-section remains unchanged.
+                        pose = WorkpiecePose2D()
+                        pose_warning = ""
+                        if self.execution_mode == CycleExecutionMode.FULL_CYCLE:
+                            try:
+                                pose = symmetric_v_pose(sec)
+                            except WorkpiecePoseError as exc:
+                                pose_warning = " | WORKPIECE_POSE_UNSUPPORTED: " + str(exc)
+
+                        def to_sheet_qpt(pt):
+                            return to_qpt(pose.apply(pt))
+
+                        def make_sheet_poly(pts):
+                            return QtGui.QPolygonF([to_sheet_qpt(pt) for pt in pts])
+
+                        sheet_pts.extend(pose.points(sec["inner_surface"]))
+                        sheet_pts.extend(pose.points(sec["outer_surface"]))
                         for _, opoly in sec.get("other_panel_polygons", ()):
-                            sheet_pts.extend(opoly)
+                            sheet_pts.extend(pose.points(opoly))
                         for _, ozpoly in sec.get("other_zone_polygons", ()):
-                            sheet_pts.extend(ozpoly)
+                            sheet_pts.extend(pose.points(ozpoly))
 
                         # 2. Other panels & bend zones in the same cross-section plane
                         other_pen = QtGui.QPen(QtGui.QColor("#1b4f72"), 1.0)
                         other_pen.setCosmetic(True)
                         other_brush = QtGui.QBrush(QtGui.QColor("#85929e"))
                         for _, opoly in sec.get("other_panel_polygons", ()):
-                            op_item = self.scene.addPolygon(make_poly(opoly), other_pen, other_brush)
+                            op_item = self.scene.addPolygon(make_sheet_poly(opoly), other_pen, other_brush)
                             op_item.setZValue(Z_LAYER_SHEET_OTHER)
                             op_item.setData(0, "sheet_other_panel")
 
@@ -1817,7 +1833,7 @@ class _PreviewPanel:
                         zone_pen.setCosmetic(True)
                         zone_brush = QtGui.QBrush(QtGui.QColor("#f8c471"))
                         for _, ozpoly in sec.get("other_zone_polygons", ()):
-                            oz_item = self.scene.addPolygon(make_poly(ozpoly), zone_pen, zone_brush)
+                            oz_item = self.scene.addPolygon(make_sheet_poly(ozpoly), zone_pen, zone_brush)
                             oz_item.setZValue(Z_LAYER_SHEET_OTHER)
                             oz_item.setData(0, "sheet_other_zone")
 
@@ -1825,18 +1841,18 @@ class _PreviewPanel:
                         panel_pen = QtGui.QPen(QtGui.QColor("#1b4f72"), 1.2)
                         panel_pen.setCosmetic(True)
                         fixed_brush = QtGui.QBrush(QtGui.QColor("#85929e"))
-                        fixed_item = self.scene.addPolygon(make_poly(sec["fixed_polygon"]), panel_pen, fixed_brush)
+                        fixed_item = self.scene.addPolygon(make_sheet_poly(sec["fixed_polygon"]), panel_pen, fixed_brush)
                         fixed_item.setZValue(Z_LAYER_SHEET_PANELS)
                         fixed_item.setData(0, "sheet_fixed")
 
                         # 4. Moving rigid panel (transformed by FoldState)
                         moving_brush = QtGui.QBrush(QtGui.QColor("#5dade2"))
-                        moving_item = self.scene.addPolygon(make_poly(sec["moving_polygon"]), panel_pen, moving_brush)
+                        moving_item = self.scene.addPolygon(make_sheet_poly(sec["moving_polygon"]), panel_pen, moving_brush)
                         moving_item.setZValue(Z_LAYER_SHEET_PANELS)
                         moving_item.setData(0, "sheet_moving")
 
                         # 5. Finite-radius bend zone polygon
-                        zone_item = self.scene.addPolygon(make_poly(sec["zone_polygon"]), zone_pen, zone_brush)
+                        zone_item = self.scene.addPolygon(make_sheet_poly(sec["zone_polygon"]), zone_pen, zone_brush)
                         zone_item.setZValue(Z_LAYER_SHEET_ZONE)
                         zone_item.setData(0, "sheet_zone")
 
@@ -1847,7 +1863,7 @@ class _PreviewPanel:
                             if not curve:
                                 continue
                             inner_path = QtGui.QPainterPath()
-                            inner_pts = [to_qpt(p) for p in curve]
+                            inner_pts = [to_sheet_qpt(p) for p in curve]
                             inner_path.moveTo(inner_pts[0])
                             for pt in inner_pts[1:]:
                                 inner_path.lineTo(pt)
@@ -1861,7 +1877,7 @@ class _PreviewPanel:
                             if not curve:
                                 continue
                             outer_path = QtGui.QPainterPath()
-                            outer_pts = [to_qpt(p) for p in curve]
+                            outer_pts = [to_sheet_qpt(p) for p in curve]
                             outer_path.moveTo(outer_pts[0])
                             for pt in outer_pts[1:]:
                                 outer_path.lineTo(pt)
@@ -1876,7 +1892,7 @@ class _PreviewPanel:
                             if not curve:
                                 continue
                             neutral_path = QtGui.QPainterPath()
-                            n_pts = [to_qpt(p) for p in curve]
+                            n_pts = [to_sheet_qpt(p) for p in curve]
                             neutral_path.moveTo(n_pts[0])
                             for pt in n_pts[1:]:
                                 neutral_path.lineTo(pt)
@@ -1890,7 +1906,7 @@ class _PreviewPanel:
                         all_tan_pairs = list(zip(sec["tangent_points_top"], sec["tangent_points_bottom"]))
                         all_tan_pairs.extend(sec.get("other_tangent_lines", ()))
                         for t_top, t_bot in all_tan_pairs:
-                            p1, p2 = to_qpt(t_top), to_qpt(t_bot)
+                            p1, p2 = to_sheet_qpt(t_top), to_sheet_qpt(t_bot)
                             tan_item = self.scene.addLine(p1.x(), p1.y(), p2.x(), p2.y(), tan_pen)
                             tan_item.setZValue(Z_LAYER_SHEET_NEUTRAL_AND_TANGENTS)
                             tan_item.setData(0, "sheet_tangent")
@@ -1902,7 +1918,7 @@ class _PreviewPanel:
                             status_str = self.session.status_line()
                         self.step.setText(
                             "{} | R_вн={:.2f} мм, t={:.2f} мм".format(
-                                status_str,
+                                status_str + (" | " + pose.mode if self.execution_mode == CycleExecutionMode.FULL_CYCLE else "") + pose_warning,
                                 sec["inner_radius_mm"],
                                 sec["thickness_mm"],
                             )
