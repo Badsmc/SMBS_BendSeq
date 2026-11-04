@@ -677,7 +677,9 @@ class PressCycleController:
             # Interpolate angle and punch stroke synchronously
             self.sequence.fold_state.set_angle(bid, sign * next_mag)
             frac = min(1.0, max(0.0, next_mag / target_mag))
-            self._set_punch_z(self.contact_z_mm - frac * self.config.preview_stroke_mm)
+            self._set_punch_from_current_bend_surface(
+                self.contact_z_mm - frac * self.config.preview_stroke_mm
+            )
             return True
 
         # ------------------------------------------------------------------
