@@ -37,7 +37,7 @@ from smbs_core.kinematics2d.preview_mesh_3d import (
 )
 from smbs_core.kinematics2d.workpiece_pose_2d import (
     WorkpiecePose2D, WorkpiecePoseError, animated_machine_pose_for_cycle,
-    symmetric_v_pose, transform_sheet_section,
+    remap_section_to_reference, symmetric_v_pose, transform_sheet_section,
 )
 from smbs_core.kinematics2d.tooling_25d import (
     DEFAULT_INITIAL_PUNCH_CLEARANCE_MM,
@@ -2015,10 +2015,20 @@ class _PreviewPanel:
                     self._draw_tooling_items(to_qpt, make_poly, punch_pts, die_pts)
 
                     if self.session is not None:
-                        sec = self.session.cross_section(segments=32)
+                        # One fixed 2.5D cross-section for the ENTIRE sequence.
+                        # Rebuilding it against the active line on each bend
+                        # changed the sheet's coordinate basis and made an
+                        # already-bent flange appear flat after B01 -> B02.
+                        fs = self.session.fold_state
+                        verts = self.session.panel_vertices_xy
+                        reference_id = self.session.bend_order[0]
+                        ref_bend = fs.bends[reference_id]
+                        ref_frame = (
+                            ref_bend.bend_zone,
+                            1.0 if ref_bend.moving_left else -1.0,
+                        )
+                        sec = fs.cross_section_2d(reference_id, verts, segments=32)
 
-                        # All FoldState geometry is transformed as ONE rigid workpiece.
-                        # Source cross-section is left untouched (BEND_ONLY regression).
                         pose = WorkpiecePose2D()
                         pose_warning = ""
                         if self.execution_mode == CycleExecutionMode.FULL_CYCLE:
@@ -2026,18 +2036,36 @@ class _PreviewPanel:
                             try:
                                 if pc_for_pose is None:
                                     raise WorkpiecePoseError("Press cycle is not initialized")
-                                pose = animated_machine_pose_for_cycle(sec, pc_for_pose, self.tooling_setup)
+
+                                def bend_section_in_reference(bid):
+                                    record = fs.bends[bid]
+                                    raw = fs.cross_section_2d(bid, verts, segments=32)
+                                    return remap_section_to_reference(
+                                        raw,
+                                        (record.bend_zone, 1.0 if record.moving_left else -1.0),
+                                        ref_frame,
+                                    )
+
+                                active_sec = bend_section_in_reference(
+                                    self.session.active_bend_id
+                                )
+                                next_sec = None
+                                if pc_for_pose.phase == CyclePhase.TRANSFER:
+                                    next_index = self.session.controller.active_index + 1
+                                    if next_index >= len(self.session.bend_order):
+                                        raise WorkpiecePoseError("Missing next operation for TRANSFER")
+                                    next_sec = bend_section_in_reference(
+                                        self.session.bend_order[next_index]
+                                    )
+                                pose = animated_machine_pose_for_cycle(
+                                    active_sec, pc_for_pose, self.tooling_setup, next_sec
+                                )
                                 sec = transform_sheet_section(sec, pose)
                             except WorkpiecePoseError as exc:
-                                # Contact support may be impossible for short
-                                # flanges or ambiguous datums. Do not silently
-                                # revert to identity (the original one-flange bug).
-                                pose_warning = " | DIE_CONTACT_UNVERIFIED: " + str(exc)
-                                try:
-                                    pose = symmetric_v_pose(sec)
-                                    sec = transform_sheet_section(sec, pose)
-                                except WorkpiecePoseError as orient_exc:
-                                    pose_warning += " | SYMMETRY_UNAVAILABLE: " + str(orient_exc)
+                                pose_warning = " | MACHINE_PRESENTATION_UNSUPPORTED: " + str(exc)
+                                # Preserve the stable reference and original
+                                # geometry rather than silently changing to
+                                # another bend's unrelated local viewpoint.
 
                         # sec is now in Machine Coordinates; do not apply the
                         # same transform a second time in any renderer path.
