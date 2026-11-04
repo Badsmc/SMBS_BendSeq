@@ -32,6 +32,7 @@ from smbs_core.kinematics2d.press_cycle import (
     PressCycleError,
     WorkpieceOrientationStatus,
 )
+from smbs_core.kinematics2d.motion_trace import MotionTraceRecorder, make_frame_record
 from smbs_core.kinematics2d.preview_mesh_3d import (
     build_sheet_preview_faces, PreviewMeshError,
 )
@@ -546,6 +547,9 @@ class _PreviewPanel:
                 self.press_cycle: PressCycleController | None = None
                 self.last_scene_bounds: SceneBounds2D | None = None
                 self._locked_25d_scene_rect = None
+                self.motion_trace = None
+                self._trace_frame_dt = None
+                self._trace_directory = _LOG_FILE_PATH.parent / "pressbrake_traces"
                 self.angle = 0.0
                 self.playing = False
                 self._last_tick_monotonic: float | None = None
@@ -802,6 +806,24 @@ class _PreviewPanel:
                 insert(settings_layout, entries[4])  # press cycle options
                 insert(settings_layout, entries[12])  # diagnostics button
                 insert(settings_layout, entries[13])  # diagnostics output
+
+                self.trace_checkbox = QtWidgets.QCheckBox(
+                    "Записывать все движения в JSONL (отладка)"
+                )
+                self.trace_checkbox.setChecked(False)
+                self.trace_checkbox.setToolTip(
+                    "Записывает каждый кадр, положение пуансона, листа, углы и скачки. "
+                    "Не меняет модель и не проверяет столкновения."
+                )
+                settings_layout.addWidget(self.trace_checkbox)
+                self.trace_status = QtWidgets.QLabel(
+                    "Трасса отключена. Файлы сохраняются в pressbrake_traces."
+                )
+                self.trace_status.setWordWrap(True)
+                settings_layout.addWidget(self.trace_status)
+                self.trace_stop_button = QtWidgets.QPushButton("Завершить трассу и отчёт")
+                self.trace_stop_button.clicked.connect(self._finish_motion_trace)
+                settings_layout.addWidget(self.trace_stop_button)
                 settings_layout.addStretch(1)
                 controls.addTab(settings, "Настройки")
 
@@ -813,6 +835,70 @@ class _PreviewPanel:
                 root.addWidget(splitter, 1)
                 self._viewer_tabs = views
                 self._control_tabs = controls
+
+            def _start_motion_trace(self):
+                if not self.trace_checkbox.isChecked() or self.session is None:
+                    return
+                if self.motion_trace is not None and self.motion_trace.is_open:
+                    return
+                try:
+                    self.motion_trace = MotionTraceRecorder(self._trace_directory)
+                    filename = self.motion_trace.start()
+                    self.trace_status.setText("Запись: {}".format(filename))
+                    self.motion_trace.event(
+                        "PLAY_ALL",
+                        active_bend=str(self.session.active_bend_id),
+                        order=list(self.session.bend_order),
+                        part_label=str(self.session.part_label),
+                        mode=self.execution_mode.value,
+                    )
+                    _log("Motion trace START: {}".format(filename))
+                except Exception as exc:
+                    _warn("Motion trace failed to start: {}".format(exc))
+                    self.trace_status.setText("Ошибка записи: {}".format(exc))
+                    self.motion_trace = None
+
+            def _finish_motion_trace(self, reason="MANUAL_STOP"):
+                trace = self.motion_trace
+                if trace is None or not trace.is_open:
+                    return
+                try:
+                    summary = trace.stop(str(reason))
+                    self.trace_status.setText("Готово: {}".format(summary))
+                    _log("Motion trace SUMMARY: {}".format(summary))
+                except Exception as exc:
+                    _warn("Motion trace failed to finish: {}".format(exc))
+                    self.trace_status.setText("Ошибка отчёта: {}".format(exc))
+
+            def _trace_event(self, name, **fields):
+                if self.motion_trace is not None and self.motion_trace.is_open:
+                    try:
+                        self.motion_trace.event(name, **fields)
+                    except Exception as exc:
+                        _warn("Motion trace event failed: {}".format(exc))
+
+            def _trace_drawn_frame(self, sec, pose, warning, pc):
+                trace = self.motion_trace
+                if trace is None or not trace.is_open or self.session is None:
+                    return
+                try:
+                    frame = make_frame_record(
+                        session=self.session,
+                        press_cycle=pc,
+                        execution_mode=self.execution_mode,
+                        section=sec,
+                        pose=pose,
+                        pose_warning=warning,
+                        tooling=self.tooling_setup,
+                        scene_rect=self.scene.sceneRect(),
+                        dt_s=self._trace_frame_dt,
+                    )
+                    trace.record(frame)
+                    self._trace_frame_dt = None
+                except Exception as exc:
+                    _warn("Motion trace frame failed: {}".format(exc))
+                    self.trace_status.setText("Ошибка трассы: {}".format(exc))
+                    self._finish_motion_trace("TRACE_FRAME_ERROR")
 
             def _on_view_changed(self, index):
                 if index == 1:
@@ -1501,6 +1587,7 @@ class _PreviewPanel:
                     self.check_result.setText(msg)
                     return
 
+                self._finish_motion_trace("NEW_PART_LOADED")
                 self._stop_timer()
                 # 3D surface preview uses this session's FoldState directly;
                 # never read or mutate the original source document again.
@@ -1703,6 +1790,8 @@ class _PreviewPanel:
                 self.set_angle(self.session.target_angle_deg)
 
             def reset(self):
+                self._trace_event("RESET")
+                self._finish_motion_trace("RESET")
                 self._stop_timer()
                 self._locked_25d_scene_rect = None
                 if self.session is not None:
@@ -1736,6 +1825,7 @@ class _PreviewPanel:
                     return
                 self._configure_for_active_bend()
                 self._update_tooling_status_label()
+                self._start_motion_trace()
                 self._locked_25d_scene_rect = QtCore.QRectF(self.scene.sceneRect())
                 # Lock one spatial view for the full playback, including
                 # TRANSFER and active-bend changes.
@@ -1750,6 +1840,7 @@ class _PreviewPanel:
             def pause(self):
                 if self.session is None:
                     return
+                self._trace_event("USER_PAUSE")
                 pc = self._ensure_press_cycle_controller()
                 if pc is not None and self.execution_mode == CycleExecutionMode.FULL_CYCLE:
                     pc.pause()
@@ -1763,6 +1854,7 @@ class _PreviewPanel:
             def resume(self):
                 if self.session is None:
                     return
+                self._trace_event("USER_RESUME")
                 try:
                     pc = self._ensure_press_cycle_controller()
                     if pc is not None and self.execution_mode == CycleExecutionMode.FULL_CYCLE:
@@ -1851,6 +1943,7 @@ class _PreviewPanel:
                 else:
                     dt = max(0.005, now - self._last_tick_monotonic)
                 self._last_tick_monotonic = now
+                self._trace_frame_dt = dt
 
                 prev_bend_idx = self.session.active_bend_index
                 pc = self._ensure_press_cycle_controller()
@@ -1871,6 +1964,7 @@ class _PreviewPanel:
                 if self.session.playback_status == PlaybackStatus.COMPLETED:
                     self._stop_timer()
                     self.draw()
+                    self._finish_motion_trace("PLAYBACK_COMPLETED")
                     _log("Sequence playback completed")
 
             def fit(self):
@@ -1910,6 +2004,7 @@ class _PreviewPanel:
                 return checks
 
             def closeEvent(self, event):
+                self._finish_motion_trace("WORKSPACE_CLOSED")
                 self.timer.stop()
                 self.playing = False
                 super().closeEvent(event)
@@ -2235,6 +2330,11 @@ class _PreviewPanel:
                         self.scene.setSceneRect(self._locked_25d_scene_rect)
                     else:
                         self.scene.setSceneRect(rx, ry, rw, rh)
+                    if self.session is not None:
+                        self._trace_drawn_frame(
+                            sec, pose, pose_warning,
+                            self.press_cycle,
+                        )
                     if hasattr(self, "_viewer_tabs") and self._viewer_tabs.currentIndex() == 1:
                         self._update_3d_preview()
                     self.last_draw_time_ms = (time.perf_counter() - t_draw_start) * 1000.0
