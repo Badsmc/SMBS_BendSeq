@@ -23,6 +23,20 @@ local venv (Python 3.14, no pythonocc). Level C (interactive GUI) NOT performed 
   - 1 × `ImportError: dlopen(.../FreeCAD.so)` when importing compiled FreeCAD binary into system Python 3.14 (`tests/test_fold_multi_bend.py`).
   - 1 × `ImportError: cannot import name 'SELF_COLLISION_GAP_TOL_MM' from 'smbs_core.Physics.collision_detector'` (`tests/test_self_collision_panels.py`, defect D2 from `0d4c071`).
 
+## Phase 5B stabilization checkpoint — immutable reference and continuous projected roll
+
+**User authorization:** proceed with Phase 5B stabilization; the user has **not approved** the prior Phase 5B releases.
+
+- GUI now constructs the complete 2.5D sheet using the **canonical graph bend** as a stable datum derived from the flat part. It no longer depends on editable `bend_order[0]`. This is a fixed datum in the original flat-model coordinates, **not yet** a generalized global frame for nonparallel bending axes.
+- The 2.5D scene rectangle is frozen for the complete playback, including the final draw after `_stop_timer()`, and is released on Reset/reload. Automatic `fitInView` is disabled during Full Cycle PLAYING.
+- WorkpiecePose2D now supports `roll_projection` in the *intermediate visualization only*. When adjacent machine placements differ by a sheet face reversal (`mirror_z`), TRANSFER smoothly projects the 3D roll through an edge-on state rather than applying an instantaneous binary reflection at its last frame.
+- Pose interpolation endpoints remain exact `start` at t=0 and `end` at t=1, including pivot, orientation, translation and face choice. Each frame uses a common FoldState geometry; panel angles are never modified during transfer.
+- The intermediate projected roll is **NOT a physical 2D cross-section** and **MUST NOT** be supplied to the Phase 5C collision oracle; actual 3D sheet rotation and clearance require 3D validation. Previously accepted 3D sheet-only fixed-isometric viewer is unchanged.
+- Added regression tests for continuity of sample points across a changing sheet-face presentation and invariance of the canonical datum.
+- Limitations: The fixed reference is derived from a canonical original bend line rather than a full global 3D part frame. Nonparallel bend axes still explicitly fail closed in the 2.5D view. Exact manipulator paths, contact mechanics, and safe punch/die clearance are unverified. GUI FreeCAD user acceptance and CI results are still outstanding.
+
+**Phase 5B remains OPEN / NOT APPROVED.**
+
 ## Phase 5C — cross-section collision oracle (pilot, NOT accepted)
 
 Phase 5B stays **OPEN / NOT APPROVED**. The user explicitly withheld acceptance of its contact placement, negative-bend representation and transfer. Phase 5C implementation is isolated; it must not be used to certify the outstanding 5B machine pose.
