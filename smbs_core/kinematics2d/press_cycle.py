@@ -561,8 +561,23 @@ class PressCycleController:
         self.transfer_feed_mm = abs((bc[0]-ac[0])*ux + (bc[1]-ac[1])*uy)
         if not math.isfinite(self.transfer_feed_mm):
             raise PressCycleError("Invalid next-bend feed distance")
+        # In handling preview, lift sufficiently to make the entire formed
+        # profile visibly clear the V-die before turning it. This is not a
+        # certified collision-safe transfer with the punch or machine frame.
+        section = self._current_cross_section()
+        outlines = []
+        if section:
+            outlines.extend(section.get("inner_surface", ()))
+            outlines.extend(section.get("outer_surface", ()))
+            for _id, poly in section.get("other_panel_polygons", ()):
+                outlines.extend(poly)
+        height = (
+            max(p[1] for p in outlines) - min(p[1] for p in outlines)
+            if outlines else 0.0
+        )
         self.transfer_lift_mm = max(
             10.0,
+            height + float(self.config.initial_clearance_mm),
             float(self.config.initial_clearance_mm) +
             2.0 * float(zone.thickness_mm),
         )
