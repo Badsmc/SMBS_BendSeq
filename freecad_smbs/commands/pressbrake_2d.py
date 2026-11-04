@@ -2415,6 +2415,32 @@ class _PreviewPanel:
                                 )
                             warning_item.setZValue(Z_LAYER_AUXILIARY)
 
+                        if (pose_warning and
+                                self._last_valid_machine_section is None):
+                            # A source FoldState section is NOT a valid machine
+                            # pose. If none was ever computed, suppress the
+                            # workpiece entirely instead of drawing IDENTITY
+                            # at a misleading punch/die location.
+                            self.step.setText(
+                                "СТОП: невозможно расположить заготовку в 2.5D | "
+                                + pose_warning
+                            )
+                            self._update_press_cycle_labels()
+                            self.last_scene_bounds = compute_scene_bounds_2d(
+                                sheet_pts=[],
+                                punch_pts=punch_pts,
+                                die_pts=die_pts,
+                                focus_sheet_when_tall_tooling=True,
+                            )
+                            rx, ry, rw, rh = self.last_scene_bounds.view_rect
+                            if self._locked_25d_scene_rect is not None:
+                                self.scene.setSceneRect(
+                                    self._locked_25d_scene_rect
+                                )
+                            else:
+                                self.scene.setSceneRect(rx, ry, rw, rh)
+                            return
+
                         # sec is now in Machine Coordinates; do not apply the
                         # same transform a second time in any renderer path.
                         to_sheet_qpt = to_qpt
