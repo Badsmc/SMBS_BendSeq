@@ -758,6 +758,7 @@ class _PreviewPanel:
                 views.setObjectName("SMBS_ViewerTabs")
                 views.addTab(self.view, "2.5D · Гибка")
                 self._preview_3d = QtWidgets.QGraphicsView()
+                self._source_shape = None
                 self._preview_3d.setObjectName("SMBS_3D_ReadOnly")
                 self._preview_3d_scene = QtWidgets.QGraphicsScene(self._preview_3d)
                 self._preview_3d.setScene(self._preview_3d_scene)
@@ -813,10 +814,7 @@ class _PreviewPanel:
                 """
                 scene = self._preview_3d_scene
                 scene.clear()
-                import FreeCADGui as Gui
-                sel = Gui.Selection.getSelection() if hasattr(Gui, "Selection") else []
-                source = sel[0] if sel else None
-                shape = getattr(source, "Shape", None)
+                shape = self._source_shape
                 if shape is None or shape.isNull():
                     txt = scene.addSimpleText("Выберите исходную 3D-деталь в FreeCAD")
                     txt.setPos(-130, -10)
@@ -837,11 +835,7 @@ class _PreviewPanel:
                     v = ce * z - se * depth
                     return QtCore.QPointF(u, -v)
 
-                pen = QtWidgets.QApplication.palette().color(
-                    QtWidgets.QPalette.WindowText
-                )
-                from PySide6 import QtGui as QGui6
-                edge_pen = QGui6.QPen(pen, 0.7)
+                edge_pen = QtGui.QPen(QtGui.QColor("#536b7f"), 0.7)
                 edge_pen.setCosmetic(True)
                 for edge in shape.Edges:
                     try:
@@ -850,7 +844,7 @@ class _PreviewPanel:
                         continue
                     if len(pts) < 2:
                         continue
-                    path = QGui6.QPainterPath(project(pts[0]))
+                    path = QtGui.QPainterPath(project(pts[0]))
                     for point in pts[1:]:
                         path.lineTo(project(point))
                     scene.addPath(path, edge_pen)
@@ -1442,6 +1436,18 @@ class _PreviewPanel:
                     return
 
                 self._stop_timer()
+                # Read-only independent snapshot for the 3D reference tab.
+                # Never change the source document or its placements.
+                source_object = selection[0] if selection else None
+                source_shape = getattr(source_object, "Shape", None)
+                if source_shape is not None and not source_shape.isNull():
+                    try:
+                        self._source_shape = source_shape.copy()
+                    except Exception as exc:
+                        self._source_shape = None
+                        _warn("3D preview snapshot failed: {}".format(exc))
+                else:
+                    self._source_shape = None
                 self.session = new_session
                 self._ensure_press_cycle_controller()
                 self._sync_tooling_to_active_bend()
@@ -1452,6 +1458,8 @@ class _PreviewPanel:
                 self.status.setText(msg)
                 self.check_result.setText(msg)
                 self.draw()
+                if self._viewer_tabs.currentIndex() == 1:
+                    self._update_3d_preview()
                 QtCore.QTimer.singleShot(0, self.fit)
 
             def _format_operation_row(self, idx: int, b) -> tuple[str, str, str, str, str]:
