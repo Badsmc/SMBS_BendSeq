@@ -3,6 +3,38 @@ import unittest
 
 
 class WorkspaceGuiTests(unittest.TestCase):
+    def test_manual_record_button_creates_jsonl_and_summary(self):
+        import tempfile
+        from pathlib import Path
+        try:
+            import FreeCAD  # noqa: F401
+            from freecad_smbs.commands.pressbrake_2d import _PreviewPanel, _qt
+            QtCore, QtGui, QtWidgets = _qt()
+        except (ImportError, ModuleNotFoundError) as exc:
+            self.skipTest("FreeCAD runtime unavailable: {}".format(exc))
+        if QtWidgets.QApplication.instance() is None:
+            self.skipTest("Qt GUI application is not running")
+        panel = _PreviewPanel()
+        try:
+            from types import SimpleNamespace
+            panel.session = SimpleNamespace(
+                active_bend_id="B01",
+                bend_order=("B01",),
+                part_label="Recording regression",
+            )
+            with tempfile.TemporaryDirectory() as tmp:
+                panel._trace_directory = Path(tmp) / "new_json_folder"
+                panel._start_motion_trace(manual=True)
+                self.assertIsNotNone(panel.motion_trace)
+                self.assertTrue(panel.motion_trace.is_open)
+                self.assertTrue(panel.motion_trace.path.is_file())
+                self.assertGreater(panel.motion_trace.path.stat().st_size, 0)
+                panel._finish_motion_trace("USER_STOP")
+                self.assertTrue(panel.motion_trace.summary_path.is_file())
+        finally:
+            panel.close()
+            panel.deleteLater()
+
     def test_separate_workspace_layout_and_single_timer(self):
         try:
             import FreeCAD  # noqa: F401
