@@ -2357,7 +2357,11 @@ class ToolingSetup2D:
     punch_machine_transform: Transform2D = field(default_factory=Transform2D.identity)
     die_machine_transform: Transform2D = field(default_factory=Transform2D.identity)
     alignment_anchor_sz: Point2D = (0.0, 0.0)
+    sheet_top_z_mm: float = 1.0
+    sheet_bottom_z_mm: float = -1.0
     punch_clearance_mm: float = DEFAULT_INITIAL_PUNCH_CLEARANCE_MM
+    ram_z_mm: float = 16.0
+    ram_stroke_mm: float = 0.0
 
     def select_punch(self, punch: Optional[ToolProfile]) -> None:
         if punch is not None:
@@ -2382,7 +2386,11 @@ class ToolingSetup2D:
         self.aligned = False
         self.aligned_bend_id = None
         self.alignment_anchor_sz = (0.0, 0.0)
+        self.sheet_top_z_mm = 1.0
+        self.sheet_bottom_z_mm = -1.0
         self.punch_clearance_mm = 15.0
+        self.ram_z_mm = self.punch_clearance_mm
+        self.ram_stroke_mm = 0.0
         self.punch_machine_transform = Transform2D.translation(0.0, self.punch_clearance_mm)
         self.die_machine_transform = Transform2D.translation(0.0, -5.0)
 
@@ -2445,15 +2453,30 @@ class ToolingSetup2D:
             resolved_bend_id = bend_id
 
         self.alignment_anchor_sz = (anchor_s, sheet_bottom_z)
+        self.sheet_top_z_mm = sheet_top_z
+        self.sheet_bottom_z_mm = sheet_bottom_z
         self.punch_clearance_mm = float(clearance_mm)
+        self.ram_z_mm = sheet_top_z + self.punch_clearance_mm
+        self.ram_stroke_mm = 0.0
         # Die V-groove center (local (0,0)) aligned at (anchor_s, sheet_bottom_z)
         self.die_machine_transform = Transform2D.translation(anchor_s, sheet_bottom_z)
         # Punch working tip (local (0,0)) coaxially aligned at (anchor_s, sheet_top_z + clearance_mm)
-        self.punch_machine_transform = Transform2D.translation(
-            anchor_s, sheet_top_z + self.punch_clearance_mm
-        )
+        self.punch_machine_transform = Transform2D.translation(anchor_s, self.ram_z_mm)
         self.aligned = True
         self.aligned_bend_id = str(resolved_bend_id) if resolved_bend_id else None
+
+    def set_punch_ram_z(self, ram_z_mm: float, stroke_mm: float = 0.0) -> None:
+        """Move ONLY the punch vertically along its coaxial Machine `s` axis.
+
+        Never moves the die (`die_machine_transform` remains invariant) and never
+        mutates the source `ToolProfile` geometry.
+        """
+        if not math.isfinite(float(ram_z_mm)):
+            raise ToolingError(f"ram_z_mm must be finite, got {ram_z_mm!r}")
+        anchor_s = self.alignment_anchor_sz[0] if self.aligned else self.punch_machine_transform.tx
+        self.ram_z_mm = float(ram_z_mm)
+        self.ram_stroke_mm = float(stroke_mm)
+        self.punch_machine_transform = Transform2D.translation(anchor_s, self.ram_z_mm)
 
     def punch_tip_machine(self) -> Optional[Point2D]:
         if self.punch is None:
