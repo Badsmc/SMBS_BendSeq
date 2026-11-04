@@ -545,6 +545,7 @@ class _PreviewPanel:
                 self.execution_mode = CycleExecutionMode.FULL_CYCLE
                 self.press_cycle: PressCycleController | None = None
                 self.last_scene_bounds: SceneBounds2D | None = None
+                self._locked_25d_scene_rect = None
                 self.angle = 0.0
                 self.playing = False
                 self._last_tick_monotonic: float | None = None
@@ -1504,6 +1505,7 @@ class _PreviewPanel:
                 # 3D surface preview uses this session's FoldState directly;
                 # never read or mutate the original source document again.
                 self._fixed_3d_view_rect = None
+                self._locked_25d_scene_rect = None
                 self._last_3d_frame_at = -1.0
                 self.session = new_session
                 self._ensure_press_cycle_controller()
@@ -1733,6 +1735,9 @@ class _PreviewPanel:
                     return
                 self._configure_for_active_bend()
                 self._update_tooling_status_label()
+                self._locked_25d_scene_rect = QtCore.QRectF(self.scene.sceneRect())
+                # Lock one spatial view for the full playback, including
+                # TRANSFER and active-bend changes.
                 self.playing = True
                 self._last_tick_monotonic = time.monotonic()
                 self._sync_playback_buttons()
@@ -1858,9 +1863,8 @@ class _PreviewPanel:
                 self._configure_for_active_bend()
                 self._update_tooling_status_label()
                 self.draw()
-                if (self.session.active_bend_index != prev_bend_idx
-                        and not (pc is not None and pc.animate_workpiece_transfer
-                                 and self.execution_mode == CycleExecutionMode.FULL_CYCLE)):
+                if (self.execution_mode != CycleExecutionMode.FULL_CYCLE
+                        and self.session.active_bend_index != prev_bend_idx):
                     QtCore.QTimer.singleShot(0, self.fit)
 
                 if self.session.playback_status == PlaybackStatus.COMPLETED:
@@ -1869,6 +1873,9 @@ class _PreviewPanel:
                     _log("Sequence playback completed")
 
             def fit(self):
+                if self.playing and self.execution_mode == CycleExecutionMode.FULL_CYCLE:
+                    # User may pause first; no camera jumps during playback.
+                    return
                 if hasattr(self, "_viewer_tabs") and self._viewer_tabs.currentIndex() == 1:
                     rect = self._preview_3d_scene.sceneRect()
                     if not rect.isEmpty():
@@ -2021,7 +2028,9 @@ class _PreviewPanel:
                         # already-bent flange appear flat after B01 -> B02.
                         fs = self.session.fold_state
                         verts = self.session.panel_vertices_xy
-                        reference_id = self.session.bend_order[0]
+                        # Canonical order is derived from the original FoldState graph,
+                        # not the user's editable machining sequence.
+                        reference_id = self.session.canonical_order[0]
                         ref_bend = fs.bends[reference_id]
                         ref_frame = (
                             ref_bend.bend_zone,
@@ -2217,7 +2226,13 @@ class _PreviewPanel:
                         focus_sheet_when_tall_tooling=True,
                     )
                     rx, ry, rw, rh = self.last_scene_bounds.view_rect
-                    self.scene.setSceneRect(rx, ry, rw, rh)
+                    # Never chase scene bounds while an animation is running.
+                    # Re-fitting each active bend made the entire part appear
+                    # to jump even when its world-space points were continuous.
+                    if self.playing and self._locked_25d_scene_rect is not None:
+                        self.scene.setSceneRect(self._locked_25d_scene_rect)
+                    else:
+                        self.scene.setSceneRect(rx, ry, rw, rh)
                     if hasattr(self, "_viewer_tabs") and self._viewer_tabs.currentIndex() == 1:
                         self._update_3d_preview()
                     self.last_draw_time_ms = (time.perf_counter() - t_draw_start) * 1000.0
