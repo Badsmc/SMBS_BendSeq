@@ -83,6 +83,24 @@ def make_frame_record(*, session, press_cycle, execution_mode, section, pose,
             return transform.apply((0.0, 0.0)) if transform is not None else None
         except (AttributeError, TypeError, ValueError):
             return None
+
+    coupled = {}
+    if hasattr(press_cycle, "coupled_telemetry") and callable(getattr(press_cycle, "coupled_telemetry")):
+        try:
+            coupled = press_cycle.coupled_telemetry() or {}
+        except Exception:
+            coupled = {}
+
+    punch_stroke = coupled.get("punch_stroke_mm", getattr(press_cycle, "ram_stroke_mm", None))
+    bend_angle = coupled.get("bend_angle_deg", angles.get(str(session.active_bend_id)))
+    contact_pts = coupled.get("contact_points")
+    bend_zone_pos = coupled.get("bend_zone_position")
+    punch_clearance = coupled.get("punch_clearance_mm")
+    validation_status = coupled.get("validation_status", "UNVERIFIED: no coupled kinematics")
+    tooling_status = coupled.get("tooling_status", "NOT_SPECIFIED")
+    collision_validated = coupled.get("collision_validated", False)
+    support_validated = coupled.get("support_validated", False)
+
     record = dict(
         kind="FRAME",
         unix_s=float(time.time() if timestamp_s is None else timestamp_s),
@@ -99,6 +117,15 @@ def make_frame_record(*, session, press_cycle, execution_mode, section, pose,
         transfer_duration_s=float(getattr(press_cycle,"transfer_duration_s",0.0)),
         ram_z_mm=getattr(press_cycle, "ram_z_mm", None),
         ram_stroke_mm=getattr(press_cycle, "ram_stroke_mm", None),
+        punch_stroke_mm=punch_stroke,
+        bend_angle_deg=bend_angle,
+        contact_points=contact_pts,
+        bend_zone_position=bend_zone_pos,
+        punch_clearance_mm=punch_clearance,
+        validation_status=str(validation_status),
+        tooling_status=str(tooling_status),
+        collision_validated=bool(collision_validated),
+        support_validated=bool(support_validated),
         punch_origin_machine=tf_origin(punch),
         punch_tip_machine=(
             tooling.punch_tip_machine() if tooling is not None else None

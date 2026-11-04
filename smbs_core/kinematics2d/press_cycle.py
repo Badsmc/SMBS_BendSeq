@@ -28,6 +28,7 @@ from typing import Any, Callable, Dict, Optional
 from .fold_sequence import ANGLE_EPS, BendSequenceController, PlaybackStatus, SequenceError
 from .workpiece_placement_3d import PlacementTransform3D, WorkpiecePlacement3D
 from .workpiece_transfer_3d import Transfer3D, build_bend_transfer
+from .coupled_kinematics_2d import CoupledAirBendingKinematics
 from .tooling_25d import (
     DEFAULT_INITIAL_PUNCH_CLEARANCE_MM,
     NOT_SPECIFIED,
@@ -193,6 +194,7 @@ class PressCycleController:
         self.transfer_3d: Optional[Transfer3D] = None
         self.transfer_fault: Optional[str] = None
         self.contact_tracking_status = "PROGRAMMED_PREVIEW_STROKE"
+        self.coupled_kinematics: Optional[CoupledAirBendingKinematics] = None
 
         self.phase: CyclePhase = CyclePhase.IDLE
         self.contact_kind: ContactBoundaryKind = ContactBoundaryKind.ASSUMED_CONTACT
@@ -313,19 +315,19 @@ class PressCycleController:
         self.contact_kind = self._evaluate_contact_kind(sec)
         self.orientation_status = self._evaluate_orientation_status()
 
-        if sec is not None and (sec.get("zone_polygon") or sec.get("neutral_curve")):
-            zp = sec.get("zone_polygon") or sec["neutral_curve"]
-            zs = [float(p[1]) for p in zp]
-            self.sheet_bottom_z_mm = min(zs)
-            self.sheet_top_z_mm = max(zs)
-        else:
-            t_mm = getattr(self.sequence.active_bend.bend_zone, "thickness_mm", 1.5)
-            self.sheet_top_z_mm = 0.0
-            self.sheet_bottom_z_mm = -float(t_mm)
+        # D4-P1: Couple active operation to physical air-bending kinematics
+        self.coupled_kinematics = CoupledAirBendingKinematics.from_tooling_and_fold_state(
+            self.tooling, self.sequence.fold_state, self.active_bend_id
+        )
 
+        self.sheet_bottom_z_mm = self.coupled_kinematics.die_top_z_mm
+        self.sheet_top_z_mm = self.coupled_kinematics.contact_z_mm
         self.contact_z_mm = self.sheet_top_z_mm
         self.upper_z_mm = self.contact_z_mm + float(self.config.initial_clearance_mm)
-        self.bottom_z_mm = self.contact_z_mm - float(self.config.preview_stroke_mm)
+        target_mag = abs(self.target_angle_deg)
+        max_stroke = self.coupled_kinematics.stroke_for_angle(target_mag)
+        self.bottom_z_mm = self.contact_z_mm - max_stroke
+        self.contact_tracking_status = f"COUPLED_AIR_BENDING ({self.coupled_kinematics.tooling_status})"
 
         if reposition_tools:
             self.ram_z_mm = self.upper_z_mm
@@ -342,9 +344,6 @@ class PressCycleController:
                     self.tooling.set_punch_ram_z(self.ram_z_mm, stroke_mm=0.0)
             else:
                 self.tooling.set_punch_ram_z(self.ram_z_mm, stroke_mm=0.0)
-
-        if reposition_tools:
-            self._rebase_contact_to_die_supported_sheet(sec)
 
     def _rebase_contact_to_die_supported_sheet(self, sec) -> None:
         """Reference ram travel to sheet actually positioned on V shoulders."""
@@ -705,18 +704,25 @@ class PressCycleController:
             if target_mag <= ANGLE_EPS or next_mag >= target_mag - ANGLE_EPS:
                 # Exact target angle reached -> transition to BOTTOM
                 self.sequence.fold_state.set_angle(bid, target)
-                self._set_punch_from_current_bend_surface(self.bottom_z_mm)
+                stroke = (
+                    self.coupled_kinematics.stroke_for_angle(target_mag)
+                    if self.coupled_kinematics is not None
+                    else self.config.preview_stroke_mm
+                )
+                self._set_punch_z(self.contact_z_mm - stroke)
                 self.bottom_z_mm = self.ram_z_mm
                 self.dwell_remaining_s = float(self.config.bottom_dwell_s)
                 self.phase = CyclePhase.BOTTOM
                 return True
 
-            # Interpolate angle and punch stroke synchronously
+            # Advance angle and punch stroke coupled
             self.sequence.fold_state.set_angle(bid, sign * next_mag)
-            frac = min(1.0, max(0.0, next_mag / target_mag))
-            self._set_punch_from_current_bend_surface(
-                self.contact_z_mm - frac * self.config.preview_stroke_mm
+            stroke = (
+                self.coupled_kinematics.stroke_for_angle(next_mag)
+                if self.coupled_kinematics is not None
+                else (next_mag / max(1e-6, target_mag)) * self.config.preview_stroke_mm
             )
+            self._set_punch_z(self.contact_z_mm - stroke)
             return True
 
         # ------------------------------------------------------------------
@@ -803,11 +809,69 @@ class PressCycleController:
             elapsed_s = self.transfer_progress * self.transfer_duration_s
             if self.transfer_3d is not None:
                 return self.transfer_3d.pose_at(elapsed_s)
+
+        # Coupled penetration during BENDING, BOTTOM, RETRACT
+        align_bisector = False
+        if self.coupled_kinematics is not None and self.execution_mode == CycleExecutionMode.FULL_CYCLE:
+            if self.phase == CyclePhase.BENDING:
+                cur_angle = abs(self.current_angle_deg)
+                support_z = self.coupled_kinematics.support_plane_zm(cur_angle)
+                align_bisector = True
+            elif self.phase in (CyclePhase.BOTTOM, CyclePhase.RETRACT):
+                target_angle = abs(self.target_angle_deg)
+                support_z = self.coupled_kinematics.support_plane_zm(target_angle)
+                align_bisector = True
+            else:
+                support_z = self.coupled_kinematics.support_plane_zm(0.0)
+        else:
+            support_z = 0.0
+
         return WorkpiecePlacement3D.compute_placement(
             fold_state,
             self.active_bend_id,
-            support_plane_zm=0.0,
+            support_plane_zm=support_z,
+            align_bisector=align_bisector,
         )
+
+    def coupled_telemetry(self) -> Dict[str, Any]:
+        """Return coupled kinematics status and coordinates for JSONL tracing."""
+        cur_ang = self.current_angle_deg
+        if self.coupled_kinematics is not None:
+            ck = self.coupled_kinematics
+            h = self.ram_stroke_mm
+            contacts = ck.die_shoulder_contacts(cur_ang)
+            zone_pos = ck.bend_zone_position(cur_ang)
+            clearance = ck.punch_clearance(cur_ang, self.ram_z_mm)
+            is_valid, val_status, _ = ck.validate_geometric_constraints(cur_ang, self.ram_z_mm)
+            return {
+                "punch_stroke_mm": round(h, 4),
+                "bend_angle_deg": round(cur_ang, 4),
+                "contact_points": {
+                    "punch": [0.0, round(self.ram_z_mm, 4)],
+                    "die_left": [round(contacts[0][0], 4), round(contacts[0][1], 4)],
+                    "die_right": [round(contacts[1][0], 4), round(contacts[1][1], 4)],
+                },
+                "bend_zone_position": {
+                    "inner_apex": [round(zone_pos["inner_apex"][0], 4), round(zone_pos["inner_apex"][1], 4)],
+                    "outer_apex": [round(zone_pos["outer_apex"][0], 4), round(zone_pos["outer_apex"][1], 4)],
+                },
+                "punch_clearance_mm": round(clearance, 4),
+                "validation_status": val_status,
+                "tooling_status": ck.tooling_status,
+                "collision_validated": False,
+                "support_validated": False,
+            }
+        return {
+            "punch_stroke_mm": round(self.ram_stroke_mm, 4),
+            "bend_angle_deg": round(cur_ang, 4),
+            "contact_points": None,
+            "bend_zone_position": None,
+            "punch_clearance_mm": None,
+            "validation_status": "UNVERIFIED: no coupled kinematics",
+            "tooling_status": "NOT_SPECIFIED",
+            "collision_validated": False,
+            "support_validated": False,
+        }
 
     def status_line(self) -> str:
         """Return explicit, non-misleading status line for GUI display."""
