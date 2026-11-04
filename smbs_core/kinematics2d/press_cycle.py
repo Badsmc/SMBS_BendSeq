@@ -26,6 +26,8 @@ import math
 from typing import Any, Callable, Dict, Optional
 
 from .fold_sequence import ANGLE_EPS, BendSequenceController, PlaybackStatus, SequenceError
+from .workpiece_placement_3d import PlacementTransform3D, WorkpiecePlacement3D
+from .workpiece_transfer_3d import Transfer3D, build_bend_transfer
 from .tooling_25d import (
     DEFAULT_INITIAL_PUNCH_CLEARANCE_MM,
     NOT_SPECIFIED,
@@ -183,6 +185,7 @@ class PressCycleController:
         self.transfer_target_feed_mm = 0.0
         self.transfer_lift_mm = 0.0
         self.transfer_rotation_deg = 0.0
+        self.transfer_3d: Optional[Transfer3D] = None
         self.contact_tracking_status = "PROGRAMMED_PREVIEW_STROKE"
 
         self.phase: CyclePhase = CyclePhase.IDLE
@@ -416,6 +419,7 @@ class PressCycleController:
         self.phase = CyclePhase.IDLE
         self.dwell_remaining_s = 0.0
         self.transfer_progress = 0.0
+        self.transfer_3d = None
         self._sync_bounds_and_orientation_for_active_bend(reposition_tools=True)
 
     def select_operation(self, index: int) -> None:
@@ -429,6 +433,8 @@ class PressCycleController:
             else CyclePhase.IDLE
         )
         self.dwell_remaining_s = 0.0
+        self.transfer_progress = 0.0
+        self.transfer_3d = None
         self._sync_bounds_and_orientation_for_active_bend(reposition_tools=True)
 
     def set_manual_angle(self, signed_angle_deg: float) -> None:
@@ -593,6 +599,22 @@ class PressCycleController:
             self.transfer_rotation_deg = -180.0 if old_negative else 180.0
         else:
             self.transfer_rotation_deg = 0.0
+
+        # Construct authoritative 3D spatial transfer trajectory via Transfer3D
+        try:
+            self.transfer_3d = build_bend_transfer(
+                self.sequence.fold_state,
+                active.bend_id,
+                nxt.bend_id,
+                max_linear_mm_s=250.0,
+                max_angular_deg_s=90.0,
+                support_plane_zm=0.0,
+            )
+            self.transfer_duration_s = max(0.05, float(self.transfer_3d.duration_s))
+        except Exception:
+            self.transfer_3d = None
+            self.transfer_duration_s = 1.8
+
         self.phase = CyclePhase.TRANSFER
 
     def advance_time(self, dt_sec: float) -> bool:
@@ -728,6 +750,7 @@ class PressCycleController:
             if self.transfer_progress >= 1.0:
                 self.sequence.active_index += 1
                 self.transfer_progress = 0.0
+                self.transfer_3d = None
                 # Machine tooling remains stationary. The sheet is transported
                 # to the next bend; repositioning the die itself would reverse
                 # the intended feed animation.
@@ -741,6 +764,26 @@ class PressCycleController:
             return True
 
         return False
+
+    def current_workpiece_placement_3d(self) -> PlacementTransform3D:
+        """Authoritative rigid 3D workpiece placement in Machine Coordinates.
+
+        Returns:
+            - If phase == TRANSFER and transfer_3d is active:
+              interpolated rigid 3D pose at elapsed transfer time: Transfer3D.pose_at(t).
+            - Otherwise:
+              rigid 3D placement for active_bend_id: WorkpiecePlacement3D.compute_placement(...).
+        All panels receive this exact spatial isometry; det(R) == +1.0.
+        """
+        fold_state = self.sequence.fold_state
+        if self.phase == CyclePhase.TRANSFER and self.transfer_3d is not None:
+            elapsed_s = self.transfer_progress * self.transfer_duration_s
+            return self.transfer_3d.pose_at(elapsed_s)
+        return WorkpiecePlacement3D.compute_placement(
+            fold_state,
+            self.active_bend_id,
+            support_plane_zm=0.0,
+        )
 
     def status_line(self) -> str:
         """Return explicit, non-misleading status line for GUI display."""
