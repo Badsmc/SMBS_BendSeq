@@ -67,11 +67,16 @@ class WorkspaceGuiTests(unittest.TestCase):
                 panel.draw = lambda: None
                 panel.reset()
                 self.assertTrue(trace.is_open)
+                # Even an explicit stray RESET finalization request must not
+                # close a diagnostic recording in the current UI contract.
+                panel._finish_motion_trace("RESET")
+                self.assertTrue(trace.is_open)
                 trace.event("PLAY_ALL")
                 trace.flush()
                 events=[json.loads(row).get("event") for row in
                         path.read_text(encoding="utf-8").splitlines()]
                 self.assertIn("RESET",events)
+                self.assertIn("RESET_TRACE_RETAINED",events)
                 self.assertIn("PLAY_ALL",events)
                 trace.stop("USER_STOP")
         finally:
