@@ -1,0 +1,623 @@
+{
+  "project_version": "0.1.0",
+  "build_id": "288edff87a83d60661a17da6dcfc09307810088107ffe3ae9acd823b7354b74e",
+  "model_file": "/Users/badmc/Desktop/Новая папка/box.100out-50in-(ok) 2.FCStd",
+  "object_name": "Body_Unfold",
+  "object_label": "Тело_Unfold",
+  "fixed_panel": "P03",
+  "total_panels": 9,
+  "total_bends": 8,
+  "kinematic_pose_halt_active": true,
+  "viewer_25d_connected": false,
+  "status": "PASS",
+  "bend_verifications": [
+    {
+      "bend_id": "B01",
+      "step_index": 1,
+      "fixed_panel": "P03",
+      "moving_panel": "P08",
+      "target_angle_deg": 90.00000000000003,
+      "placement_3d": {
+        "max_axis_error_mm": 0.0,
+        "midpoint_error_mm": 0.0,
+        "panel_count": 9,
+        "vertex_count": 52,
+        "p0_machine": [
+          -22.5,
+          0.0,
+          0.0
+        ],
+        "p1_machine": [
+          22.5,
+          0.0,
+          0.0
+        ],
+        "status": "PASS"
+      },
+      "surface_orientation": {
+        "machine_normal": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "deviation_from_plus_z": 0.0,
+        "status": "PASS"
+      },
+      "state_preservation": {
+        "all_preserved": true,
+        "checked_bends_count": 1,
+        "bends": {
+          "B01": {
+            "expected_deg": 90.00000000000003,
+            "actual_deg": 90.00000000000003,
+            "error_deg": 0.0
+          }
+        }
+      },
+      "status": "PASS",
+      "errors": []
+    },
+    {
+      "bend_id": "B02",
+      "step_index": 2,
+      "fixed_panel": "P03",
+      "moving_panel": "P06",
+      "target_angle_deg": 90.00000000000003,
+      "placement_3d": {
+        "max_axis_error_mm": 0.0,
+        "midpoint_error_mm": 0.0,
+        "panel_count": 9,
+        "vertex_count": 52,
+        "p0_machine": [
+          -47.5,
+          0.0,
+          0.0
+        ],
+        "p1_machine": [
+          47.5,
+          0.0,
+          0.0
+        ],
+        "status": "PASS"
+      },
+      "surface_orientation": {
+        "machine_normal": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "deviation_from_plus_z": 0.0,
+        "status": "PASS"
+      },
+      "state_preservation": {
+        "all_preserved": true,
+        "checked_bends_count": 2,
+        "bends": {
+          "B01": {
+            "expected_deg": 90.00000000000003,
+            "actual_deg": 90.00000000000003,
+            "error_deg": 0.0
+          },
+          "B02": {
+            "expected_deg": 90.00000000000003,
+            "actual_deg": 90.00000000000003,
+            "error_deg": 0.0
+          }
+        }
+      },
+      "status": "PASS",
+      "errors": []
+    },
+    {
+      "bend_id": "B03",
+      "step_index": 3,
+      "fixed_panel": "P03",
+      "moving_panel": "P04",
+      "target_angle_deg": 90.00000000000003,
+      "placement_3d": {
+        "max_axis_error_mm": 0.0,
+        "midpoint_error_mm": 3.552713678800501e-15,
+        "panel_count": 9,
+        "vertex_count": 52,
+        "p0_machine": [
+          -22.5,
+          0.0,
+          0.0
+        ],
+        "p1_machine": [
+          22.5,
+          0.0,
+          0.0
+        ],
+        "status": "PASS"
+      },
+      "surface_orientation": {
+        "machine_normal": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "deviation_from_plus_z": 0.0,
+        "status": "PASS"
+      },
+      "state_preservation": {
+        "all_preserved": true,
+        "checked_bends_count": 3,
+        "bends": {
+          "B01": {
+            "expected_deg": 90.00000000000003,
+            "actual_deg": 90.00000000000003,
+            "error_deg": 0.0
+          },
+          "B02": {
+            "expected_deg": 90.00000000000003,
+            "actual_deg": 90.00000000000003,
+            "error_deg": 0.0
+          },
+          "B03": {
+            "expected_deg": 90.00000000000003,
+            "actual_deg": 90.00000000000003,
+            "error_deg": 0.0
+          }
+        }
+      },
+      "status": "PASS",
+      "errors": []
+    },
+    {
+      "bend_id": "B04",
+      "step_index": 4,
+      "fixed_panel": "P03",
+      "moving_panel": "P01",
+      "target_angle_deg": 90.00000000000003,
+      "placement_3d": {
+        "max_axis_error_mm": 0.0,
+        "midpoint_error_mm": 0.0,
+        "panel_count": 9,
+        "vertex_count": 52,
+        "p0_machine": [
+          -47.5,
+          0.0,
+          0.0
+        ],
+        "p1_machine": [
+          47.5,
+          0.0,
+          0.0
+        ],
+        "status": "PASS"
+      },
+      "surface_orientation": {
+        "machine_normal": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "deviation_from_plus_z": 0.0,
+        "status": "PASS"
+      },
+      "state_preservation": {
+        "all_preserved": true,
+        "checked_bends_count": 4,
+        "bends": {
+          "B01": {
+            "expected_deg": 90.00000000000003,
+            "actual_deg": 90.00000000000003,
+            "error_deg": 0.0
+          },
+          "B02": {
+            "expected_deg": 90.00000000000003,
+            "actual_deg": 90.00000000000003,
+            "error_deg": 0.0
+          },
+          "B03": {
+            "expected_deg": 90.00000000000003,
+            "actual_deg": 90.00000000000003,
+            "error_deg": 0.0
+          },
+          "B04": {
+            "expected_deg": 90.00000000000003,
+            "actual_deg": 90.00000000000003,
+            "error_deg": 0.0
+          }
+        }
+      },
+      "status": "PASS",
+      "errors": []
+    },
+    {
+      "bend_id": "B05",
+      "step_index": 5,
+      "fixed_panel": "P08",
+      "moving_panel": "P09",
+      "target_angle_deg": 90.00000000000003,
+      "placement_3d": {
+        "max_axis_error_mm": 0.0,
+        "midpoint_error_mm": 1.7763568394002505e-15,
+        "panel_count": 9,
+        "vertex_count": 52,
+        "p0_machine": [
+          -23.3,
+          0.0,
+          0.0
+        ],
+        "p1_machine": [
+          23.3,
+          0.0,
+          0.0
+        ],
+        "status": "PASS"
+      },
+      "surface_orientation": {
+        "machine_normal": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "deviation_from_plus_z": 0.0,
+        "status": "PASS"
+      },
+      "state_preservation": {
+        "all_preserved": true,
+        "checked_bends_count": 5,
+        "bends": {
+          "B01": {
+            "expected_deg": 90.00000000000003,
+            "actual_deg": 90.00000000000003,
+            "error_deg": 0.0
+          },
+          "B02": {
+            "expected_deg": 90.00000000000003,
+            "actual_deg": 90.00000000000003,
+            "error_deg": 0.0
+          },
+          "B03": {
+            "expected_deg": 90.00000000000003,
+            "actual_deg": 90.00000000000003,
+            "error_deg": 0.0
+          },
+          "B04": {
+            "expected_deg": 90.00000000000003,
+            "actual_deg": 90.00000000000003,
+            "error_deg": 0.0
+          },
+          "B05": {
+            "expected_deg": 90.00000000000003,
+            "actual_deg": 90.00000000000003,
+            "error_deg": 0.0
+          }
+        }
+      },
+      "status": "PASS",
+      "errors": []
+    },
+    {
+      "bend_id": "B06",
+      "step_index": 6,
+      "fixed_panel": "P06",
+      "moving_panel": "P07",
+      "target_angle_deg": -90.00000000000003,
+      "placement_3d": {
+        "max_axis_error_mm": 0.0,
+        "midpoint_error_mm": 0.0,
+        "panel_count": 9,
+        "vertex_count": 52,
+        "p0_machine": [
+          -48.3,
+          0.0,
+          0.0
+        ],
+        "p1_machine": [
+          48.3,
+          0.0,
+          0.0
+        ],
+        "status": "PASS"
+      },
+      "surface_orientation": {
+        "machine_normal": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "deviation_from_plus_z": 0.0,
+        "status": "PASS"
+      },
+      "state_preservation": {
+        "all_preserved": true,
+        "checked_bends_count": 6,
+        "bends": {
+          "B01": {
+            "expected_deg": 90.00000000000003,
+            "actual_deg": 90.00000000000003,
+            "error_deg": 0.0
+          },
+          "B02": {
+            "expected_deg": 90.00000000000003,
+            "actual_deg": 90.00000000000003,
+            "error_deg": 0.0
+          },
+          "B03": {
+            "expected_deg": 90.00000000000003,
+            "actual_deg": 90.00000000000003,
+            "error_deg": 0.0
+          },
+          "B04": {
+            "expected_deg": 90.00000000000003,
+            "actual_deg": 90.00000000000003,
+            "error_deg": 0.0
+          },
+          "B05": {
+            "expected_deg": 90.00000000000003,
+            "actual_deg": 90.00000000000003,
+            "error_deg": 0.0
+          },
+          "B06": {
+            "expected_deg": -90.00000000000003,
+            "actual_deg": -90.00000000000003,
+            "error_deg": 0.0
+          }
+        }
+      },
+      "status": "PASS",
+      "errors": []
+    },
+    {
+      "bend_id": "B07",
+      "step_index": 7,
+      "fixed_panel": "P04",
+      "moving_panel": "P05",
+      "target_angle_deg": 90.00000000000003,
+      "placement_3d": {
+        "max_axis_error_mm": 0.0,
+        "midpoint_error_mm": 5.329070518200751e-15,
+        "panel_count": 9,
+        "vertex_count": 52,
+        "p0_machine": [
+          -23.3,
+          0.0,
+          0.0
+        ],
+        "p1_machine": [
+          23.3,
+          0.0,
+          0.0
+        ],
+        "status": "PASS"
+      },
+      "surface_orientation": {
+        "machine_normal": [
+          -0.0,
+          0.0,
+          1.0
+        ],
+        "deviation_from_plus_z": 8.756529004445416e-32,
+        "status": "PASS"
+      },
+      "state_preservation": {
+        "all_preserved": true,
+        "checked_bends_count": 7,
+        "bends": {
+          "B01": {
+            "expected_deg": 90.00000000000003,
+            "actual_deg": 90.00000000000003,
+            "error_deg": 0.0
+          },
+          "B02": {
+            "expected_deg": 90.00000000000003,
+            "actual_deg": 90.00000000000003,
+            "error_deg": 0.0
+          },
+          "B03": {
+            "expected_deg": 90.00000000000003,
+            "actual_deg": 90.00000000000003,
+            "error_deg": 0.0
+          },
+          "B04": {
+            "expected_deg": 90.00000000000003,
+            "actual_deg": 90.00000000000003,
+            "error_deg": 0.0
+          },
+          "B05": {
+            "expected_deg": 90.00000000000003,
+            "actual_deg": 90.00000000000003,
+            "error_deg": 0.0
+          },
+          "B06": {
+            "expected_deg": -90.00000000000003,
+            "actual_deg": -90.00000000000003,
+            "error_deg": 0.0
+          },
+          "B07": {
+            "expected_deg": 90.00000000000003,
+            "actual_deg": 90.00000000000003,
+            "error_deg": 0.0
+          }
+        }
+      },
+      "status": "PASS",
+      "errors": []
+    },
+    {
+      "bend_id": "B08",
+      "step_index": 8,
+      "fixed_panel": "P01",
+      "moving_panel": "P02",
+      "target_angle_deg": -90.00000000000003,
+      "placement_3d": {
+        "max_axis_error_mm": 0.0,
+        "midpoint_error_mm": 7.105427357601002e-15,
+        "panel_count": 9,
+        "vertex_count": 52,
+        "p0_machine": [
+          -48.3,
+          0.0,
+          0.0
+        ],
+        "p1_machine": [
+          48.3,
+          0.0,
+          0.0
+        ],
+        "status": "PASS"
+      },
+      "surface_orientation": {
+        "machine_normal": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "deviation_from_plus_z": 0.0,
+        "status": "PASS"
+      },
+      "state_preservation": {
+        "all_preserved": true,
+        "checked_bends_count": 8,
+        "bends": {
+          "B01": {
+            "expected_deg": 90.00000000000003,
+            "actual_deg": 90.00000000000003,
+            "error_deg": 0.0
+          },
+          "B02": {
+            "expected_deg": 90.00000000000003,
+            "actual_deg": 90.00000000000003,
+            "error_deg": 0.0
+          },
+          "B03": {
+            "expected_deg": 90.00000000000003,
+            "actual_deg": 90.00000000000003,
+            "error_deg": 0.0
+          },
+          "B04": {
+            "expected_deg": 90.00000000000003,
+            "actual_deg": 90.00000000000003,
+            "error_deg": 0.0
+          },
+          "B05": {
+            "expected_deg": 90.00000000000003,
+            "actual_deg": 90.00000000000003,
+            "error_deg": 0.0
+          },
+          "B06": {
+            "expected_deg": -90.00000000000003,
+            "actual_deg": -90.00000000000003,
+            "error_deg": 0.0
+          },
+          "B07": {
+            "expected_deg": 90.00000000000003,
+            "actual_deg": 90.00000000000003,
+            "error_deg": 0.0
+          },
+          "B08": {
+            "expected_deg": -90.00000000000003,
+            "actual_deg": -90.00000000000003,
+            "error_deg": 0.0
+          }
+        }
+      },
+      "status": "PASS",
+      "errors": []
+    }
+  ],
+  "transfer_verifications": [
+    {
+      "from_bend": "B01",
+      "to_bend": "B02",
+      "step_index": 1,
+      "angular_displacement_deg": 90.0,
+      "translation_distance_mm": 161.99380758693636,
+      "duration_s": 1.0,
+      "isometry_invariant": true,
+      "max_distance_distortion_mm": 2.842170943040401e-14,
+      "rigid_frames_valid": true,
+      "status": "PASS",
+      "errors": []
+    },
+    {
+      "from_bend": "B02",
+      "to_bend": "B03",
+      "step_index": 2,
+      "angular_displacement_deg": 90.00000000000001,
+      "translation_distance_mm": 135.05309649148734,
+      "duration_s": 1.0000000000000002,
+      "isometry_invariant": true,
+      "max_distance_distortion_mm": 2.842170943040401e-14,
+      "rigid_frames_valid": true,
+      "status": "PASS",
+      "errors": []
+    },
+    {
+      "from_bend": "B03",
+      "to_bend": "B04",
+      "step_index": 3,
+      "angular_displacement_deg": 89.99999999999999,
+      "translation_distance_mm": 112.85691847363466,
+      "duration_s": 0.9999999999999999,
+      "isometry_invariant": true,
+      "max_distance_distortion_mm": 5.684341886080802e-14,
+      "rigid_frames_valid": true,
+      "status": "PASS",
+      "errors": []
+    },
+    {
+      "from_bend": "B04",
+      "to_bend": "B05",
+      "step_index": 4,
+      "angular_displacement_deg": 120.00000000000001,
+      "translation_distance_mm": 194.8169990849948,
+      "duration_s": 1.3333333333333335,
+      "isometry_invariant": true,
+      "max_distance_distortion_mm": 5.684341886080802e-14,
+      "rigid_frames_valid": true,
+      "status": "PASS",
+      "errors": []
+    },
+    {
+      "from_bend": "B05",
+      "to_bend": "B06",
+      "step_index": 5,
+      "angular_displacement_deg": 90.0,
+      "translation_distance_mm": 161.99380758693636,
+      "duration_s": 1.0,
+      "isometry_invariant": true,
+      "max_distance_distortion_mm": 1.4210854715202004e-14,
+      "rigid_frames_valid": true,
+      "status": "PASS",
+      "errors": []
+    },
+    {
+      "from_bend": "B06",
+      "to_bend": "B07",
+      "step_index": 6,
+      "angular_displacement_deg": 90.0,
+      "translation_distance_mm": 135.05309649148734,
+      "duration_s": 1.0,
+      "isometry_invariant": true,
+      "max_distance_distortion_mm": 4.263256414560601e-14,
+      "rigid_frames_valid": true,
+      "status": "PASS",
+      "errors": []
+    },
+    {
+      "from_bend": "B07",
+      "to_bend": "B08",
+      "step_index": 7,
+      "angular_displacement_deg": 90.0,
+      "translation_distance_mm": 112.85691847363468,
+      "duration_s": 1.0,
+      "isometry_invariant": true,
+      "max_distance_distortion_mm": 5.684341886080802e-14,
+      "rigid_frames_valid": true,
+      "status": "PASS",
+      "errors": []
+    }
+  ],
+  "summary": {
+    "bends_passed": 8,
+    "bends_total": 8,
+    "transfers_passed": 7,
+    "transfers_total": 7,
+    "overall_status": "PASS"
+  }
+}
