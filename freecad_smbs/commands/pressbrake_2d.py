@@ -960,7 +960,23 @@ class _PreviewPanel:
                     return
                 try:
                     self._trace_directory.mkdir(parents=True, exist_ok=True)
-                    trace = MotionTraceRecorder(self._trace_directory)
+                    # The human project version is the one published by
+                    # the FreeCAD add-on. The fingerprint identifies this
+                    # *exact* GUI source even without a .git directory.
+                    from freecad_smbs import __version__ as project_version
+                    module_path = Path(__file__).resolve()
+                    try:
+                        source_digest = hashlib.sha256(
+                            module_path.read_bytes()
+                        ).hexdigest()
+                    except OSError as exc:
+                        source_digest = "READ_ERROR: {}".format(exc)
+                    trace = MotionTraceRecorder(
+                        self._trace_directory,
+                        project_version=project_version,
+                        project_channel="2D",
+                        build_id=source_digest,
+                    )
                     filename = trace.start()
                     self.motion_trace = trace
                     if manual and not self.trace_checkbox.isChecked():
@@ -977,25 +993,23 @@ class _PreviewPanel:
                     # Runtime evidence: distinguishes actual executed Python
                     # module from a checkout path, without guessing from the
                     # FreeCAD menu or the user-selected git branch.
-                    module_path = Path(__file__).resolve()
-                    try:
-                        source_digest = hashlib.sha256(
-                            module_path.read_bytes()
-                        ).hexdigest()
-                    except OSError as exc:
-                        source_digest = "READ_ERROR: {}".format(exc)
                     trace.event(
                         "RUNTIME_MODULE",
                         module_path=str(module_path),
                         sha256=source_digest,
                         python_version=sys.version.split()[0],
                         mode=self.execution_mode.value,
+                        project_version=project_version,
+                        project_channel="2D",
+                        build_id=source_digest,
                     )
                     # Make the directory and its first valid JSONL record
                     # visible immediately, not only after buffered frames.
                     trace.flush()
                     self.trace_status.setText(
-                        "Запись ведётся: {}\nФайл: {}".format(
+                        "Версия: {} (2D) | сборка: {}\n"
+                        "Запись: {}\nФайл: {}".format(
+                            project_version, source_digest[:12],
                             self._trace_directory.resolve(), filename
                         )
                     )
@@ -1039,8 +1053,10 @@ class _PreviewPanel:
                     )
                     summary = trace.stop(str(reason))
                     self.trace_status.setText(
+                        "Версия: {} ({}), сборка: {}\n"
                         "Запись завершена.\nJSONL: {}\nJSON: {}".format(
-                            trace.path, summary
+                            trace.project_version, trace.project_channel,
+                            trace.build_id[:12], trace.path, summary
                         )
                     )
                     _log("Motion trace SUMMARY: {}".format(summary))
