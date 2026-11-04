@@ -2067,6 +2067,25 @@ class _PreviewPanel:
                                 # geometry rather than silently changing to
                                 # another bend's unrelated local viewpoint.
 
+                        if pose_warning:
+                            # Unsupported 2.5D placement must never look like
+                            # an accepted machine bend. Show a scene warning,
+                            # including when the right-hand task controls
+                            # are hidden or the status text is clipped.
+                            warning_item = self.scene.addSimpleText(
+                                "2.5D: НЕТ ПРОВЕРЕННОГО ПОЛОЖЕНИЯ ДЕТАЛИ"
+                            )
+                            warning_item.setBrush(
+                                QtGui.QBrush(QtGui.QColor("#e74c3c"))
+                            )
+                            marker = self.tooling_setup.die_v_center_machine()
+                            if marker is not None:
+                                warning_item.setPos(
+                                    float(marker[0]) - 55.0,
+                                    -float(marker[1]) - 40.0,
+                                )
+                            warning_item.setZValue(Z_LAYER_AUXILIARY)
+
                         # sec is now in Machine Coordinates; do not apply the
                         # same transform a second time in any renderer path.
                         to_sheet_qpt = to_qpt
