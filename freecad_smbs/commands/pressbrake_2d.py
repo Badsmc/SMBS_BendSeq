@@ -39,6 +39,8 @@ from smbs_core.kinematics2d.motion_trace import MotionTraceRecorder, make_frame_
 from smbs_core.kinematics2d.preview_mesh_3d import (
     build_sheet_preview_faces, PreviewMeshError,
 )
+from smbs_core.kinematics2d.machine_section_3d import compute_machine_cutting_plane_section
+from smbs_core.kinematics2d.workpiece_placement_3d import PlacementTransform3D, WorkpiecePlacement3D
 from smbs_core.kinematics2d.workpiece_pose_2d import (
     WorkpiecePose2D, WorkpiecePoseError, animated_machine_pose_for_cycle,
     remap_section_to_reference, symmetric_v_pose, transform_sheet_section,
@@ -2428,21 +2430,15 @@ class _PreviewPanel:
                     self._draw_tooling_items(to_qpt, make_poly, punch_pts, die_pts)
 
                     if self.session is not None:
-                        # One fixed 2.5D cross-section for the ENTIRE sequence.
-                        # Rebuilding it against the active line on each bend
-                        # changed the sheet's coordinate basis and made an
-                        # already-bent flange appear flat after B01 -> B02.
+                        # 2.5D cross-section derived from authoritative FoldState
                         fs = self.session.fold_state
                         verts = self.session.panel_vertices_xy
-                        # Canonical order is derived from the original FoldState graph,
-                        # not the user's editable machining sequence.
                         reference_id = self.session.canonical_order[0]
                         ref_bend = fs.bends[reference_id]
                         ref_frame = (
                             ref_bend.bend_zone,
                             1.0 if ref_bend.moving_left else -1.0,
                         )
-                        sec = fs.cross_section_2d(reference_id, verts, segments=32)
 
                         pose = WorkpiecePose2D()
                         pose_warning = ""
@@ -2451,52 +2447,47 @@ class _PreviewPanel:
                             if self._last_valid_machine_section is not None:
                                 sec = self._last_valid_machine_section
                                 pose = self._last_valid_machine_pose
+                            else:
+                                sec = fs.cross_section_2d(reference_id, verts, segments=32)
                         elif self.execution_mode == CycleExecutionMode.FULL_CYCLE:
                             pc_for_pose = self._ensure_press_cycle_controller()
                             try:
                                 if pc_for_pose is None:
                                     raise WorkpiecePoseError("Press cycle is not initialized")
 
-                                def bend_section_in_reference(bid):
-                                    record = fs.bends[bid]
-                                    raw = fs.cross_section_2d(bid, verts, segments=32)
-                                    return remap_section_to_reference(
-                                        raw,
-                                        (record.bend_zone, 1.0 if record.moving_left else -1.0),
-                                        ref_frame,
-                                    )
+                                # D3: True physical cutting-plane section at X_m = 0 in Machine Space
+                                current_placement = pc_for_pose.current_workpiece_placement_3d()
+                                sec = compute_machine_cutting_plane_section(
+                                    fs,
+                                    verts,
+                                    current_placement,
+                                    active_bend_id=self.session.active_bend_id,
+                                    segments=32,
+                                )
 
-                                active_sec = bend_section_in_reference(
-                                    self.session.active_bend_id
+                                # Log diagnostic event for machine section
+                                self._trace_event(
+                                    "MACHINE_SECTION_3D",
+                                    active_bend=self.session.active_bend_id,
+                                    phase=pc_for_pose.phase.value,
+                                    cutting_panels=[p[0] for p in sec.get("other_panel_polygons", [])],
+                                    translation=list(current_placement.translation),
                                 )
-                                next_sec = None
-                                if pc_for_pose.phase == CyclePhase.TRANSFER:
-                                    next_index = self.session.controller.active_index + 1
-                                    if next_index >= len(self.session.bend_order):
-                                        raise WorkpiecePoseError("Missing next operation for TRANSFER")
-                                    next_sec = bend_section_in_reference(
-                                        self.session.bend_order[next_index]
-                                    )
-                                pose = animated_machine_pose_for_cycle(
-                                    active_sec, pc_for_pose, self.tooling_setup, next_sec
-                                )
-                                sec = transform_sheet_section(sec, pose)
+
                                 self._last_valid_machine_section = sec
                                 self._last_valid_machine_pose = pose
-                                self._last_valid_machine_bend = (
-                                    self.session.active_bend_id
-                                )
-                            except WorkpiecePoseError as exc:
-                                pose_warning = (
-                                    "MACHINE_PRESENTATION_UNSUPPORTED: " + str(exc)
-                                )
+                                self._last_valid_machine_bend = self.session.active_bend_id
+                            except (WorkpiecePoseError, PressCycleError) as exc:
+                                pose_warning = "MACHINE_PRESENTATION_UNSUPPORTED: " + str(exc)
                                 self._halt_unsupported_machine_pose(pose_warning)
                                 if self._last_valid_machine_section is not None:
                                     sec = self._last_valid_machine_section
                                     pose = self._last_valid_machine_pose
-                                # If there is no valid frame at all, keep the
-                                # static reference visible with a loud warning
-                                # and playback stopped; never advance it.
+                                else:
+                                    sec = fs.cross_section_2d(reference_id, verts, segments=32)
+                        else:
+                            # BEND_ONLY mode: use local active bend section
+                            sec = fs.cross_section_2d(self.session.active_bend_id, verts, segments=32)
 
                         if pose_warning:
                             # Unsupported 2.5D placement must never look like
