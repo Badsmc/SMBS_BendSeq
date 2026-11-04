@@ -65,6 +65,20 @@ def validate_workpiece_placement(
     axis_error = max(axis_error, *(abs(b[k]-machine_axis_midpoint[k]) for k in (1,2)))
     if midpoint_error > tolerance_mm or axis_error > tolerance_mm:
         raise PlacementValidationError("Bend axis does not match machine X axis")
+    # The placement solver's roll convention puts the reference surface of
+    # the fixed panel towards +Z_m. This catches silent face flips while
+    # leaving punch/die support explicitly unverified.
+    bend = state.bends[bend_id]
+    fixed_rotation = state.transforms[bend.fixed_panel].rotation
+    part_normal = tuple(fixed_rotation[i][2] for i in range(3))
+    machine_normal = tuple(
+        sum(pose.rotation[i][j] * part_normal[j] for j in range(3))
+        for i in range(3)
+    )
+    if math.dist(machine_normal, (0.0, 0.0, 1.0)) > tolerance_mm:
+        raise PlacementValidationError(
+            "Reference surface normal does not map to +Z_m"
+        )
     if not panel_vertices_xy:
         raise PlacementValidationError("Missing panel vertex data")
     total = 0
