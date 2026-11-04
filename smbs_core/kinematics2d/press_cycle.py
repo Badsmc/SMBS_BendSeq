@@ -595,35 +595,6 @@ class PressCycleController:
             self.transfer_rotation_deg = 0.0
         self.phase = CyclePhase.TRANSFER
 
-    @property
-    def transfer_motion(self) -> tuple[float, float, float]:
-        """(machine feed s, lift z, orientation angle) for the active transition.
-
-        This is a staged KINEMATIC_PREVIEW displacement, NOT validated handling
-        of a real part. All panel angles are held while transferring.
-        """
-        if self.phase != CyclePhase.TRANSFER:
-            return (0.0, 0.0, 0.0)
-        p = max(0.0, min(1.0, float(self.transfer_progress)))
-        def ease(t):
-            t = max(0.0, min(1.0, t))
-            return t*t*(3.0-2.0*t)
-        # First pull clear of the V groove, then turn while lifted, finally
-        # feed to the NEXT bend axis. Signed feed is derived from real axes.
-        pull = -max(15.0, min(45.0, self.transfer_feed_mm*0.35))
-        if p < 0.3:
-            t = ease(p/0.3)
-            return (pull*t, self.transfer_lift_mm*t, 0.0)
-        if p < 0.7:
-            t = ease((p-0.3)/0.4)
-            return (pull, self.transfer_lift_mm, self.transfer_rotation_deg*t)
-        t = ease((p-0.7)/0.3)
-        return (
-            pull + (self.transfer_target_feed_mm-pull)*t,
-            self.transfer_lift_mm*(1.0-t),
-            self.transfer_rotation_deg,
-        )
-
     def advance_time(self, dt_sec: float) -> bool:
         """Advance the press brake working cycle by `dt_sec` seconds.
 
@@ -795,9 +766,10 @@ class PressCycleController:
             )
             + " | " + self.contact_tracking_status
             + (
-                " | HANDLING feed={:+.1f}mm lift={:+.1f}mm turn={:+.1f}deg ({:.0f}%)".format(
-                    *self.transfer_motion,
+                " | HANDLING {:.0f}% | next-bend nominal feed {:+.1f} mm | "
+                "visualized via continuous workpiece pose".format(
                     100.0 * self.transfer_progress,
+                    self.transfer_target_feed_mm,
                 )
                 if self.phase == CyclePhase.TRANSFER else ""
             )
