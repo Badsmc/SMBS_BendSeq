@@ -24,13 +24,20 @@ class WorkpiecePose2D:
     pivot: tuple[float, float] = (0.0, 0.0)
     rotation_deg: float = 0.0
     mirror_z: bool = False
+    # Intermediate projection of a 3D workpiece roll: z' = cos(roll)*z.
+    # The final pose uses mirror_z; never treat this projection as physical
+    # 2D thickness or collision-ready geometry.
+    roll_projection: float | None = None
     shift: tuple[float, float] = (0.0, 0.0)
     mode: str = "IDENTITY"
 
     def apply(self, point):
         s, z = float(point[0]) - self.pivot[0], float(point[1]) - self.pivot[1]
-        if self.mirror_z:
-            z = -z
+        scale = (float(self.roll_projection) if self.roll_projection is not None
+                 else (-1.0 if self.mirror_z else 1.0))
+        if not isfinite(scale) or abs(scale) > 1.0 + 1e-8:
+            raise WorkpiecePoseError("Invalid workpiece roll projection")
+        z *= scale
         a = radians(self.rotation_deg)
         return (
             self.pivot[0] + self.shift[0] + cos(a) * s - sin(a) * z,
@@ -42,9 +49,11 @@ class WorkpiecePose2D:
         z = float(point[1]) - self.pivot[1] - self.shift[1]
         a = radians(self.rotation_deg)
         ls, lz = cos(a) * s + sin(a) * z, -sin(a) * s + cos(a) * z
-        if self.mirror_z:
-            lz = -lz
-        return (self.pivot[0] + ls, self.pivot[1] + lz)
+        scale = (float(self.roll_projection) if self.roll_projection is not None
+                 else (-1.0 if self.mirror_z else 1.0))
+        if not isfinite(scale) or abs(scale) <= 1e-10:
+            raise WorkpiecePoseError("Roll projection is not invertible at edge-on view")
+        return (self.pivot[0] + ls, self.pivot[1] + lz / scale)
 
     def points(self, points):
         return tuple(self.apply(point) for point in points)
@@ -376,14 +385,15 @@ def remap_section_to_reference(section, from_zone, reference_zone):
 
 
 def _origin_translation(pose):
-    """Affine origin offset for the rigid WorkpiecePose2D rotation."""
+    """True affine origin offset, including workpiece face reversal."""
     a = radians(pose.rotation_deg)
     px,pz = pose.pivot
+    scale = (float(pose.roll_projection) if pose.roll_projection is not None
+             else (-1.0 if pose.mirror_z else 1.0))
     return (
-        px + pose.shift[0] - cos(a)*px + sin(a)*pz,
-        pz + pose.shift[1] - sin(a)*px - cos(a)*pz,
+        px + pose.shift[0] - cos(a)*px + sin(a)*scale*pz,
+        pz + pose.shift[1] - sin(a)*px - cos(a)*scale*pz,
     )
-
 
 def interpolate_rigid_placement(start, end, fraction, clearance_mm=0.0):
     """Rigid continuous transition between two machine-space sheet poses.
@@ -406,14 +416,28 @@ def interpolate_rigid_placement(start, end, fraction, clearance_mm=0.0):
     if abs(abs(diff)-180.0)<1e-7:
         diff = 180.0
     angle = a0 + diff*f
+    start_face = -1.0 if start.mirror_z else 1.0
+    end_face = -1.0 if end.mirror_z else 1.0
+    # The 2.5D projection of a real roll contracts in cross-section as the
+    # part turns edge-on. This prevents the discrete mirror flag from causing
+    # a frame jump at the end of the transfer. Geometry in this transitional
+    # state is NOT valid input to contact or collision computations.
+    if start_face != end_face:
+        roll_scale = start_face * cos(3.141592653589793*f)
+    else:
+        roll_scale = start_face
     x0,z0=_origin_translation(start)
     x1,z1=_origin_translation(end)
     # Smooth vertical clearance rises/falls to zero at both endpoints.
     lift = clearance_mm * sin(3.141592653589793*t)**2
     return WorkpiecePose2D(
         rotation_deg=angle,
+        roll_projection=roll_scale,
         shift=(x0+(x1-x0)*f, z0+(z1-z0)*f+lift),
-        mode="RIGID_CONTINUOUS_WORKPIECE_TRANSFER",
+        mode=(
+            "PROJECTED_3D_ROLL_NOT_CONTACT_VALIDATED"
+            if start_face != end_face else "RIGID_CONTINUOUS_WORKPIECE_TRANSFER"
+        ),
     )
 
 
