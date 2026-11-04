@@ -8,6 +8,7 @@ Uses the existing 2.5D pipeline without introducing a second geometry engine:
 """
 from __future__ import annotations
 
+import hashlib
 import logging
 import math
 import os
@@ -973,6 +974,23 @@ class _PreviewPanel:
                         part_label=str(self.session.part_label),
                         mode=self.execution_mode.value,
                     )
+                    # Runtime evidence: distinguishes actual executed Python
+                    # module from a checkout path, without guessing from the
+                    # FreeCAD menu or the user-selected git branch.
+                    module_path = Path(__file__).resolve()
+                    try:
+                        source_digest = hashlib.sha256(
+                            module_path.read_bytes()
+                        ).hexdigest()
+                    except OSError as exc:
+                        source_digest = "READ_ERROR: {}".format(exc)
+                    trace.event(
+                        "RUNTIME_MODULE",
+                        module_path=str(module_path),
+                        sha256=source_digest,
+                        python_version=sys.version.split()[0],
+                        mode=self.execution_mode.value,
+                    )
                     # Make the directory and its first valid JSONL record
                     # visible immediately, not only after buffered frames.
                     trace.flush()
@@ -992,6 +1010,15 @@ class _PreviewPanel:
                     self.motion_trace = None
 
             def _finish_motion_trace(self, reason="MANUAL_STOP"):
+                # Reset is a state change, not a request to discard logs.
+                # Enforce the recording contract at the finalization boundary,
+                # even if another controller/GUI path requests reason=RESET.
+                if str(reason) == "RESET":
+                    self._trace_event(
+                        "RESET_TRACE_RETAINED",
+                        caller="".join(traceback.format_stack(limit=5)[-3:-1]),
+                    )
+                    return
                 trace = self.motion_trace
                 if trace is None or not trace.is_open:
                     self.trace_status.setText(
@@ -1001,6 +1028,15 @@ class _PreviewPanel:
                     )
                     return
                 try:
+                    # Record exactly which code path requested finalization.
+                    # Essential when Qt signal wiring re-enters an old callback.
+                    trace.event(
+                        "RECORDING_STOP_REQUEST",
+                        reason=str(reason),
+                        caller="".join(
+                            traceback.format_stack(limit=5)[-3:-1]
+                        ),
+                    )
                     summary = trace.stop(str(reason))
                     self.trace_status.setText(
                         "Запись завершена.\nJSONL: {}\nJSON: {}".format(
@@ -1008,7 +1044,7 @@ class _PreviewPanel:
                         )
                     )
                     _log("Motion trace SUMMARY: {}".format(summary))
-                    if reason in ("USER_STOP", "PLAYBACK_COMPLETED", "RESET",
+                    if reason in ("USER_STOP", "PLAYBACK_COMPLETED",
                                   "WORKSPACE_CLOSED", "RECORDING_DISABLED",
                                   "KINEMATIC_POSE_HALT"):
                         self.trace_checkbox.blockSignals(True)
