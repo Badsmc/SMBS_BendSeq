@@ -174,7 +174,7 @@ class WorkpiecePoseTests(unittest.TestCase):
                     (-1., 0.), (1., 0.), (1., -2.), (-1., -2.),
                 )
                 pose = machine_pose_for_cycle(sec, cycle, tooling)
-                self.assertIn("DIE_SUPPORTED_PREVIEW", pose.mode)
+                self.assertIn("TWO_SHOULDER_SUPPORTED_PREVIEW", pose.mode)
                 left = _lower_sheet_at_s(sec, pose, -16.0)
                 right = _lower_sheet_at_s(sec, pose, 16.0)
                 self.assertIsNotNone(left)
@@ -182,6 +182,72 @@ class WorkpiecePoseTests(unittest.TestCase):
                 self.assertGreaterEqual(left + 1e-7, -2.0)
                 self.assertGreaterEqual(right + 1e-7, -2.0)
                 self.assertAlmostEqual(min(left, right), -2.0, places=6)
+
+    def test_one_missing_shoulder_reports_error(self):
+        class Identity:
+            def apply(self, p):
+                return tuple(p)
+        class Die:
+            die_datums = type("Datums", (), {
+                "left_shoulder": (-250.0, -2.0),
+                "right_shoulder": (16.0, -2.0),
+            })()
+            def source_to_local_transform(self):
+                return Identity()
+        class Tooling:
+            aligned = True
+            die = Die()
+            die_machine_transform = Identity()
+            alignment_anchor_sz = (0.0, -2.0)
+            def die_v_center_machine(self):
+                return (0.0, -2.0)
+        class Cycle:
+            contact_z_mm = 0.0
+            bottom_z_mm = -4.0
+            ram_z_mm = 5.0
+            phase = "APPROACH"
+        section = _section(45.0)
+        section["zone_polygon"] = ((-1., 0.), (1., 0.), (1., -2.), (-1., -2.))
+        with self.assertRaisesRegex(WorkpiecePoseError, "DIE_SUPPORT_MISSING"):
+            machine_pose_for_cycle(section, Cycle(), Tooling())
+
+    def test_two_supports_retain_relative_flange_angle(self):
+        class Identity:
+            def apply(self, p):
+                return tuple(p)
+        class Die:
+            die_datums = type("Datums", (), {
+                "left_shoulder": (-16.0, -2.0),
+                "right_shoulder": (16.0, -2.0),
+            })()
+            def source_to_local_transform(self):
+                return Identity()
+        class Tooling:
+            aligned = True
+            die = Die()
+            die_machine_transform = Identity()
+            alignment_anchor_sz = (0.0, -2.0)
+            def die_v_center_machine(self):
+                return (0.0, -2.0)
+        class Cycle:
+            contact_z_mm = 0.0
+            bottom_z_mm = -4.0
+            ram_z_mm = -2.0
+            phase = "BENDING"
+
+        sec = _section(45.0)
+        sec["zone_polygon"] = ((-1., 0.), (1., 0.), (1., -2.), (-1., -2.))
+        source = repr(sec)
+        pose = machine_pose_for_cycle(sec, Cycle(), Tooling())
+        self.assertIn("TWO_SHOULDER_SUPPORTED_PREVIEW", pose.mode)
+        left = pose.points((sec["fixed_polygon"][1], sec["fixed_polygon"][0]))
+        right = pose.points((sec["moving_polygon"][0], sec["moving_polygon"][1]))
+        left_ray = (left[1][0]-left[0][0], left[1][1]-left[0][1])
+        right_ray = (right[1][0]-right[0][0], right[1][1]-right[0][1])
+        dot = left_ray[0]*right_ray[0]+left_ray[1]*right_ray[1]
+        angle = math.degrees(math.acos(dot/(math.hypot(*left_ray)*math.hypot(*right_ray))))
+        self.assertAlmostEqual(angle, 180.0 - 45.0, places=6)
+        self.assertEqual(repr(sec), source)
 
     def test_invalid_flange_rejected(self):
         sec = _section(20)
