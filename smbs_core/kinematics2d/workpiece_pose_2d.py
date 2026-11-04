@@ -80,50 +80,74 @@ def symmetric_v_pose(section: Mapping[str, Any]) -> WorkpiecePose2D:
     except (KeyError, IndexError, TypeError, ValueError, OverflowError) as exc:
         raise WorkpiecePoseError("Invalid cross-section for symmetric preview") from exc
 
-    # Calculate the MACHINE presentation from the actual FoldState vectors.
-    # Previously this rejected any pair that was not already left/right
-    # horizontal; after B01 on a Z part those directions are no longer flat.
-    def heading(v):
-        return atan2(v[1], v[0])
-
-    def angle_distance(a, b):
-        return atan2(sin(a - b), cos(a - b))
-
-    def unit(v):
-        length = hypot(*v)
-        return (v[0] / length, v[1] / length)
-
-    fu = unit(fv)
-    mu = unit(mv)
-    included = max(-1.0, min(1.0, fu[0] * mu[0] + fu[1] * mu[1]))
-    # Magnitude of the true opening between adjacent panel rays:
-    # 180 deg at flat, 90 deg after a 90 deg bend.
+    # Solve the actual 2D presentation, not a predefined bend sign or an
+    # assumption that both adjacent panels were initially horizontal.
+    # A 180-degree ROLL of the *physical sheet* about its longitudinal axis
+    # appears as mirror_z in this cross-sectional view. Unlike an arbitrary
+    # 2D geometric reflection, it represents a physical change of which face
+    # of the sheet points toward the upper punch; the source FoldState is
+    # never mirrored or modified.
     from math import acos, pi
-    opening = acos(included)
+
+    def wrap_rad(a):
+        return atan2(sin(a), cos(a))
+
+    def angle_between(a, b):
+        return abs(wrap_rad(a - b))
+
+    def ray_angle(vec, rolled):
+        return atan2(-vec[1] if rolled else vec[1], vec[0])
+
+    norm_f, norm_m = hypot(*fv), hypot(*mv)
+    fu = (fv[0] / norm_f, fv[1] / norm_f)
+    mu = (mv[0] / norm_m, mv[1] / norm_m)
+    opening = acos(max(-1.0, min(1.0, fu[0] * mu[0] + fu[1] * mu[1])))
     rise = (pi - opening) / 2.0
-    flip = target < -1e-9
-    desired_fixed = rise if flip else pi - rise
-    desired_moving = pi - rise if flip else rise
-    f_heading, m_heading = heading(fu), heading(mu)
-    correction = angle_distance(desired_fixed, f_heading)
-    actual_moving = m_heading + correction
-    mismatch = abs(angle_distance(actual_moving, desired_moving))
-    # A rigid turn preserves the actual sheet angle. If the two panel rays
-    # cannot be put upward at the same time, flag the geometry rather than
-    # silently drawing an upside-down press operation.
+    if not all(isfinite(v) for v in (rise, opening)):
+        raise WorkpiecePoseError("Invalid active bend opening")
+
+    # Candidate rigid machine presentations:
+    # (a) fixed flange on left / moving on right
+    # (b) fixed on right / moving on left
+    # each with/without physical workpiece roll. The current bend must keep
+    # its actual included angle. A mirror is ONLY an assumed 180° roll,
+    # not an edit to the actual sheet material or its bend sign.
+    cases = []
+    for rolled in (False, True):
+        source_fixed = ray_angle(fu, rolled)
+        source_moving = ray_angle(mu, rolled)
+        for swap_sides in (False, True):
+            wanted_fixed = rise if swap_sides else pi - rise
+            wanted_moving = pi - rise if swap_sides else rise
+            rotate = wrap_rad(wanted_fixed - source_fixed)
+            mismatch = angle_between(
+                source_moving + rotate, wanted_moving
+            )
+            cases.append((mismatch, rolled, swap_sides, degrees(rotate)))
+
+    # Prefer a roll for a negative bend only when multiple solutions are
+    # geometrically equivalent; otherwise geometry decides, not the sign.
+    preferred_roll = target < -1e-9
+    cases.sort(key=lambda c: (
+        round(c[0], 10),
+        c[1] != preferred_roll,
+        abs(c[3]),
+    ))
+    mismatch, rolled, swapped, rotation = cases[0]
     if mismatch > 0.035:
         raise WorkpiecePoseError(
-            "BEND_PRESENTATION_UNSUPPORTED: active flanges cannot both face upward "
-            "without changing their included angle (mismatch {:.1f} deg)".format(
-                degrees(mismatch)
-            )
+            "BEND_PRESENTATION_UNSUPPORTED: current flange rays cannot "
+            "form the required upward V without geometric distortion "
+            "(residual {:.1f} deg)".format(degrees(mismatch))
         )
-    rotation = degrees(correction)
     return WorkpiecePose2D(
         pivot=pivot,
         rotation_deg=rotation,
-        mirror_z=False,
-        mode=("ASSUMED_RIGID_180_DEG_WORKPIECE_TURN" if flip else "SYMMETRIC_V_PREVIEW"),
+        mirror_z=rolled,
+        mode=(
+            "ASSUMED_180_DEG_SHEET_ROLL_UPWARD_V"
+            if rolled else "RIGID_UPWARD_V_PRESENTATION"
+        ) + ("_SWAPPED_FLANGES" if swapped else ""),
     )
 
 
