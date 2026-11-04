@@ -241,3 +241,36 @@ def check_machine_section(
         ContactStatus.UNVERIFIED,
     )
     return ContactReport(worst,tuple(findings),float(tolerance_mm))
+
+
+def check_sheet_tooling_preview(section, tooling, tolerance_mm: float = 0.02) -> ContactReport:
+    """Read-only adapter of current machine-space FoldState section and tooling.
+
+    The section MUST already have a valid machine placement from Phase 5B.
+    Calling this with an unplaced sheet would produce meaningless results.
+    The oracle never changes FreeCAD documents, FoldState angles or ToolProfiles.
+    """
+    if section is None or not getattr(tooling,"aligned",False):
+        return ContactReport(
+            ContactStatus.UNVERIFIED,
+            (ContactFinding("MACHINE","*",ContactStatus.UNVERIFIED,
+                            "sheet_machine_pose_or_tool_alignment_missing"),),
+            float(tolerance_mm),
+        )
+    polygons = []
+    for key,label in (
+        ("fixed_polygon","active_fixed"),
+        ("moving_polygon","active_moving"),
+        ("zone_polygon","active_bend_zone"),
+    ):
+        if section.get(key):
+            polygons.append((label,section[key]))
+    for key in ("other_panel_polygons","other_zone_polygons"):
+        for name,poly in section.get(key,()):
+            polygons.append((str(name),poly))
+    return check_machine_section(
+        polygons,
+        tooling.punch_polygons_machine(arc_segments=24),
+        tooling.die_polygons_machine(arc_segments=24),
+        tolerance_mm,
+    )
