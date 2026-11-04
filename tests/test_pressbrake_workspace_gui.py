@@ -3,6 +3,38 @@ import unittest
 
 
 class WorkspaceGuiTests(unittest.TestCase):
+    def test_invalid_machine_pose_freezes_without_identity_reset(self):
+        try:
+            import FreeCAD  # noqa: F401
+            from freecad_smbs.commands.pressbrake_2d import _PreviewPanel, _qt
+            _QtCore, _QtGui, QtWidgets = _qt()
+        except (ImportError, ModuleNotFoundError) as exc:
+            self.skipTest("FreeCAD runtime unavailable: {}".format(exc))
+        if QtWidgets.QApplication.instance() is None:
+            self.skipTest("Qt GUI application is not running")
+        panel = _PreviewPanel()
+        try:
+            # Explicitly preserve previously drawn coordinates and workpiece
+            # pose. No bend is silently changed and no identity is fabricated.
+            from smbs_core.kinematics2d.workpiece_pose_2d import WorkpiecePose2D
+            saved_section = {
+                "fixed_polygon": ((-10., 3.), (-1., 3.), (-1., 1.), (-10., 1.))
+            }
+            saved_pose = WorkpiecePose2D(rotation_deg=-30.0)
+            panel._last_valid_machine_section = saved_section
+            panel._last_valid_machine_pose = saved_pose
+            panel._last_valid_machine_bend = "B01"
+            panel._halt_unsupported_machine_pose(
+                "NONPARALLEL_BEND_AXES: no shared 2.5D projection"
+            )
+            self.assertFalse(panel.timer.isActive())
+            self.assertEqual(panel._last_valid_machine_section, saved_section)
+            self.assertEqual(panel._last_valid_machine_pose, saved_pose)
+            self.assertIn("NONPARALLEL_BEND_AXES", panel.status.text())
+        finally:
+            panel.close()
+            panel.deleteLater()
+
     def test_manual_record_button_creates_jsonl_and_summary(self):
         import tempfile
         from pathlib import Path
