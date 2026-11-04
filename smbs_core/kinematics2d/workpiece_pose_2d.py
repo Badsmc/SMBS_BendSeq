@@ -281,6 +281,27 @@ def machine_pose_for_cycle(
     )
 
 
+def animated_machine_pose_for_cycle(section, cycle, tooling):
+    """Compute active bend pose plus optional between-bend handling motion.
+
+    The workpiece is translated, lifted and turned as a single rigid object;
+    FoldState angles and the tooling coordinate system remain untouched.
+    """
+    pose = machine_pose_for_cycle(section, cycle, tooling)
+    phase = getattr(getattr(cycle, "phase", None), "value", getattr(cycle, "phase", None))
+    if phase != "TRANSFER":
+        return pose
+    feed_s, lift_z, extra_deg = cycle.transfer_motion
+    if not all(isfinite(v) for v in (feed_s, lift_z, extra_deg)):
+        raise WorkpiecePoseError("Nonfinite simulated workpiece handling motion")
+    return replace(
+        pose,
+        rotation_deg=pose.rotation_deg + extra_deg,
+        shift=(pose.shift[0] + feed_s, pose.shift[1] + lift_z),
+        mode=pose.mode + "_ANIMATED_HANDLING_PREVIEW",
+    )
+
+
 # All geometric keys from FoldState.cross_section_2d() are projected through
 # the SAME transform. Nongeometric metadata stays in its source contract.
 _SINGLE_POLYGONS = (
