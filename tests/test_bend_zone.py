@@ -1870,6 +1870,549 @@ class BendZoneMathTests(unittest.TestCase):
                     finally:
                         App.closeDocument(user_doc.Name)
 
+    def test_phase5b_press_brake_working_cycle_and_ram_motion(self) -> None:
+        """Phase 5B Tests A–K: Press Brake Working Cycle & Ram Motion (APPROACH -> CONTACT ->
+        BENDING -> BOTTOM -> RETRACT -> STEP_COMPLETE -> COMPLETED), single timer, Pause/Resume,
+        Reset, Bend Only compatibility, tooling immutability, and explicit KINEMATIC_PREVIEW status.
+        """
+        import tempfile
+        from pathlib import Path
+        from smbs_core.kinematics2d.press_cycle import (
+            ContactBoundaryKind,
+            CycleConfig,
+            CycleExecutionMode,
+            CyclePhase,
+            CycleSimulationMode,
+            PressCycleController,
+            PressCycleError,
+            WorkpieceOrientationStatus,
+        )
+        from smbs_core.kinematics2d.tooling_25d import (
+            ToolingSetup2D,
+            ToolKind,
+            ToolLibrary25D,
+            ValidationStatus,
+            compare_profiles_within_tolerance,
+            import_tool_from_dxf,
+        )
+        from freecad_smbs.commands.pressbrake_2d import LoadedPartSession
+
+        # ------------------------------------------------------------------
+        # Build L (+90), Z (+90 / -90), and 135 (+45 / -45) part graphs
+        # ------------------------------------------------------------------
+        p_up90 = bend_parameters(90.0, 1.0, 1.5, 0.4)
+        p_dn90 = bend_parameters(-90.0, 2.5, 1.5, 0.4)
+        p_up45 = bend_parameters(135.0, 1.0, 1.5, 0.4)
+        p_dn45 = bend_parameters(-135.0, 2.5, 1.5, 0.4)
+
+        # 1) L +90 deg
+        half_ba_l = p_up90.bend_allowance_mm / 2.0
+        y_axis_l = 47.5 + half_ba_l
+        z_l = make_bend_zone("B01", ((0.0, y_axis_l), (200.0, y_axis_l)), p_up90)
+        graph_l = PanelGraph(
+            ("P01", "P02"),
+            (GraphEdge("B01", "P02", "P01", 90.0, ((0.0, y_axis_l, 0.0), (200.0, y_axis_l, 0.0)), z_l),),
+        )
+        verts_l = {
+            "P01": ((0.0, 0.0), (200.0, 0.0), (200.0, 47.5), (0.0, 47.5)),
+            "P02": (
+                (0.0, y_axis_l + half_ba_l),
+                (200.0, y_axis_l + half_ba_l),
+                (200.0, y_axis_l + half_ba_l + 47.5),
+                (0.0, y_axis_l + half_ba_l + 47.5),
+            ),
+        }
+
+        # 2) Z +90 / -90 deg
+        z_b01 = make_bend_zone("B01", ((200.0, 61.26991118430775), (0.0, 61.26991118430775)), p_up90)
+        z_b02 = make_bend_zone("B02", ((0.0, 13.756637061435917), (200.0, 13.756637061435917)), p_dn90)
+        graph_z = PanelGraph(
+            ("P01", "P02", "P03"),
+            (
+                GraphEdge("B01", "P02", "P03", 90.0, ((200.0, 61.26991118430775, 0.0), (0.0, 61.26991118430775, 0.0)), z_b01),
+                GraphEdge("B02", "P02", "P01", -90.0, ((0.0, 13.756637061435917, 0.0), (200.0, 13.756637061435917, 0.0)), z_b02),
+            ),
+        )
+        verts_z = {
+            "P01": ((0.0, 0.0), (200.0, 0.0), (200.0, 12.5), (0.0, 12.5)),
+            "P02": ((0.0, 15.013274122871834), (200.0, 15.013274122871834), (200.0, 60.013274122871834), (0.0, 60.013274122871834)),
+            "P03": ((0.0, 62.52654824574367), (200.0, 62.52654824574367), (200.0, 75.02654824574367), (0.0, 75.02654824574367)),
+        }
+
+        # 3) 135 (+45 / -45 deg)
+        z_135_1 = make_bend_zone("B01", ((200.0, 60.849421686221135), (0.0, 60.849421686221135)), p_up45)
+        z_135_2 = make_bend_zone("B02", ((0.0, 14.59278462478522), (200.0, 14.59278462478522)), p_dn45)
+        graph_135 = PanelGraph(
+            ("P01", "P02", "P03"),
+            (
+                GraphEdge("B01", "P02", "P03", 45.0, ((200.0, 60.849421686221135, 0.0), (0.0, 60.849421686221135, 0.0)), z_135_1),
+                GraphEdge("B02", "P02", "P01", -45.0, ((0.0, 14.59278462478522, 0.0), (200.0, 14.59278462478522, 0.0)), z_135_2),
+            ),
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+
+            # Build custom verified Punch and Die
+            x_r = 100.0 + 1.0 * math.cos(math.radians(330.0))
+            x_l = 100.0 + 1.0 * math.cos(math.radians(210.0))
+            y_arc = 51.0 + 1.0 * math.sin(math.radians(330.0))
+            punch_dxf = tmp_path / "punch_5b.dxf"
+            punch_dxf.write_text(
+                "\n".join([
+                    "0", "SECTION", "2", "HEADER", "9", "$INSUNITS", "70", "4", "0", "ENDSEC",
+                    "0", "SECTION", "2", "ENTITIES",
+                    "0", "ARC", "10", "100.0", "20", "51.0", "40", "1.0", "50", "210.0", "51", "330.0",
+                    "0", "LINE", "10", f"{x_r:.8f}", "20", f"{y_arc:.8f}", "11", "110.0", "21", "70.0",
+                    "0", "LINE", "10", "110.0", "20", "70.0", "11", "110.0", "21", "150.0",
+                    "0", "LINE", "10", "110.0", "20", "150.0", "11", "90.0", "21", "150.0",
+                    "0", "LINE", "10", "90.0", "20", "150.0", "11", "90.0", "21", "70.0",
+                    "0", "LINE", "10", "90.0", "20", "70.0", "11", f"{x_l:.8f}", "21", f"{y_arc:.8f}",
+                    "0", "ENDSEC", "0", "EOF",
+                ]) + "\n",
+                encoding="utf-8",
+            )
+            punch = import_tool_from_dxf(punch_dxf, kind=ToolKind.PUNCH, name="P5B")
+            punch_snapshot = import_tool_from_dxf(punch_dxf, kind=ToolKind.PUNCH, name="P5B")
+
+            c45 = 1.5 * math.cos(math.radians(45.0))
+            s45 = 1.5 * math.sin(math.radians(45.0))
+            lx_tan = 24.0 + c45
+            rx_tan = 36.0 - c45
+            y_tan = 58.5 + s45
+            y_apex = y_tan - (30.0 - lx_tan)
+            die_dxf = tmp_path / "die_5b.dxf"
+            die_dxf.write_text(
+                "\n".join([
+                    "0", "SECTION", "2", "HEADER", "9", "$INSUNITS", "70", "4", "0", "ENDSEC",
+                    "0", "SECTION", "2", "ENTITIES",
+                    "0", "LINE", "10", "0.0", "20", "0.0", "11", "60.0", "21", "0.0",
+                    "0", "LINE", "10", "60.0", "20", "0.0", "11", "60.0", "21", "60.0",
+                    "0", "LINE", "10", "60.0", "20", "60.0", "11", "36.0", "21", "60.0",
+                    "0", "ARC", "10", "36.0", "20", "58.5", "40", "1.5", "50", "90.0", "51", "135.0",
+                    "0", "LINE", "10", f"{rx_tan:.8f}", "20", f"{y_tan:.8f}", "11", "30.0", "21", f"{y_apex:.8f}",
+                    "0", "LINE", "10", "30.0", "20", f"{y_apex:.8f}", "11", f"{lx_tan:.8f}", "21", f"{y_tan:.8f}",
+                    "0", "ARC", "10", "24.0", "20", "58.5", "40", "1.5", "50", "45.0", "51", "90.0",
+                    "0", "LINE", "10", "24.0", "20", "60.0", "11", "0.0", "21", "60.0",
+                    "0", "LINE", "10", "0.0", "20", "60.0", "11", "0.0", "21", "0.0",
+                    "0", "ENDSEC", "0", "EOF",
+                ]) + "\n",
+                encoding="utf-8",
+            )
+            die = import_tool_from_dxf(die_dxf, kind=ToolKind.DIE, name="D5B")
+            die_snapshot = import_tool_from_dxf(die_dxf, kind=ToolKind.DIE, name="D5B")
+
+            cfg = CycleConfig(
+                approach_speed_mm_s=25.0,
+                retract_speed_mm_s=25.0,
+                bend_rate_deg_s=90.0,
+                initial_clearance_mm=5.0,
+                preview_stroke_mm=4.0,
+                bottom_dwell_s=0.10,
+            )
+
+            # ------------------------------------------------------------------
+            # Test K — No False Physics Claims & CycleConfig Validation
+            # ------------------------------------------------------------------
+            self.assertEqual(cfg.simulation_mode, CycleSimulationMode.KINEMATIC_PREVIEW)
+            with self.assertRaises(PressCycleError):
+                CycleConfig(approach_speed_mm_s=0.0)
+            with self.assertRaises(PressCycleError):
+                CycleConfig(initial_clearance_mm=-1.0)
+            with self.assertRaises(PressCycleError):
+                CycleConfig(preview_stroke_mm=0.0)
+            with self.assertRaises(PressCycleError):
+                CycleConfig(simulation_mode="PHYSICALLY_VALIDATED")  # type: ignore[arg-type]
+
+            # Without verified tools -> contact_kind must be ASSUMED_CONTACT
+            sess_l = LoadedPartSession("L", None, None, graph_l, verts_l, "P02", FoldState(graph_l, "P02"))
+            setup_empty = ToolingSetup2D()
+            pc_empty = PressCycleController(
+                sess_l.controller,
+                setup_empty,
+                config=cfg,
+                cross_section_provider=lambda: sess_l.cross_section(segments=16),
+            )
+            self.assertEqual(pc_empty.contact_kind, ContactBoundaryKind.ASSUMED_CONTACT)
+            self.assertIn("KINEMATIC_PREVIEW", pc_empty.status_line())
+            self.assertIn("ASSUMED_CONTACT", pc_empty.status_line())
+            self.assertNotIn("PHYSICALLY_VALIDATED", pc_empty.status_line())
+
+            # ------------------------------------------------------------------
+            # Test A — L +90 deg Full Cycle (APPROACH -> CONTACT -> BENDING -> BOTTOM -> RETRACT -> COMPLETED)
+            # ------------------------------------------------------------------
+            setup_l = ToolingSetup2D()
+            setup_l.select_punch(punch)
+            setup_l.select_die(die)
+            pc_l = PressCycleController(
+                sess_l.controller,
+                setup_l,
+                config=cfg,
+                cross_section_provider=lambda: sess_l.cross_section(segments=16),
+            )
+            self.assertEqual(pc_l.contact_kind, ContactBoundaryKind.GEOMETRIC_CONTACT)
+            self.assertEqual(pc_l.orientation_status, WorkpieceOrientationStatus.STANDARD_UP_BEND)
+            die_initial_vc = setup_l.die_v_center_machine()
+            punch_initial_s = setup_l.punch_tip_machine()[0]
+            self.assertAlmostEqual(punch_initial_s, die_initial_vc[0], places=9)
+
+            pc_l.play_all()
+            self.assertEqual(pc_l.phase, CyclePhase.APPROACH)
+            self.assertAlmostEqual(pc_l.ram_z_mm, pc_l.upper_z_mm, places=9)
+            self.assertAlmostEqual(pc_l.current_angle_deg, 0.0, places=9)
+
+            # Step 1 of APPROACH (0.1 s -> 2.5 mm down): angle MUST remain 0.0 deg!
+            pc_l.advance_time(0.1)
+            self.assertEqual(pc_l.phase, CyclePhase.APPROACH)
+            self.assertAlmostEqual(pc_l.ram_z_mm, pc_l.upper_z_mm - 2.5, places=9)
+            self.assertAlmostEqual(pc_l.current_angle_deg, 0.0, places=9)
+            self.assertEqual(setup_l.die_v_center_machine(), die_initial_vc)
+            self.assertAlmostEqual(setup_l.punch_tip_machine()[0], punch_initial_s, places=9)
+
+            # Step 2 of APPROACH (0.1 s -> reaches contact_z_mm): transitions to CONTACT, angle still 0.0 deg
+            pc_l.advance_time(0.1)
+            self.assertEqual(pc_l.phase, CyclePhase.CONTACT)
+            self.assertAlmostEqual(pc_l.ram_z_mm, pc_l.contact_z_mm, places=9)
+            self.assertAlmostEqual(pc_l.current_angle_deg, 0.0, places=9)
+
+            # Step 3: CONTACT -> BENDING
+            pc_l.advance_time(0.05)
+            self.assertEqual(pc_l.phase, CyclePhase.BENDING)
+            self.assertAlmostEqual(pc_l.current_angle_deg, 0.0, places=9)
+
+            # BENDING: 5 ticks of 0.1 s (= 45 deg, half stroke = 2.0 mm below contact_z_mm)
+            for _ in range(5):
+                pc_l.advance_time(0.1)
+            self.assertEqual(pc_l.phase, CyclePhase.BENDING)
+            self.assertAlmostEqual(pc_l.current_angle_deg, 45.0, places=6)
+            self.assertAlmostEqual(pc_l.ram_z_mm, pc_l.contact_z_mm - 2.0, places=6)
+            self.assertAlmostEqual(pc_l.ram_stroke_mm, 2.0, places=6)
+            self.assertEqual(setup_l.die_v_center_machine(), die_initial_vc)
+
+            # Remaining 5 ticks of 0.1 s -> reaches +90.0 deg and bottom_z_mm -> BOTTOM
+            for _ in range(5):
+                pc_l.advance_time(0.1)
+            self.assertEqual(pc_l.phase, CyclePhase.BOTTOM)
+            self.assertAlmostEqual(pc_l.current_angle_deg, 90.0, places=6)
+            self.assertAlmostEqual(pc_l.ram_z_mm, pc_l.bottom_z_mm, places=6)
+            self.assertAlmostEqual(pc_l.ram_stroke_mm, 4.0, places=6)
+
+            # BOTTOM dwell (0.10 s) -> transitions to RETRACT
+            pc_l.advance_time(0.10)
+            self.assertEqual(pc_l.phase, CyclePhase.RETRACT)
+            self.assertAlmostEqual(pc_l.current_angle_deg, 90.0, places=6)
+
+            # RETRACT: punch moves upward (+Z) from bottom_z_mm (-4.0) to upper_z_mm (+5.0) = 9.0 mm
+            # During RETRACT, sheet angle MUST stay at +90.0 deg!
+            pc_l.advance_time(0.1)
+            self.assertEqual(pc_l.phase, CyclePhase.RETRACT)
+            self.assertGreater(pc_l.ram_z_mm, pc_l.bottom_z_mm)
+            self.assertAlmostEqual(pc_l.current_angle_deg, 90.0, places=6)
+            while pc_l.phase == CyclePhase.RETRACT:
+                pc_l.advance_time(0.1)
+                self.assertAlmostEqual(pc_l.current_angle_deg, 90.0, places=6)
+
+            self.assertEqual(pc_l.phase, CyclePhase.STEP_COMPLETE)
+            self.assertAlmostEqual(pc_l.ram_z_mm, pc_l.upper_z_mm, places=6)
+            # Final tick from STEP_COMPLETE on last bend -> COMPLETED
+            pc_l.advance_time(0.05)
+            self.assertEqual(pc_l.phase, CyclePhase.COMPLETED)
+            self.assertEqual(pc_l.status, PlaybackStatus.COMPLETED)
+            self.assertAlmostEqual(pc_l.current_angle_deg, 90.0, places=6)
+            self.assertEqual(setup_l.die_v_center_machine(), die_initial_vc)
+
+            # ------------------------------------------------------------------
+            # Test B — Z +90 / -90 deg Two Sequential Cycles & Orientation Status
+            # ------------------------------------------------------------------
+            sess_z = LoadedPartSession("Z", None, None, graph_z, verts_z, "P02", FoldState(graph_z, "P02"))
+            setup_z = ToolingSetup2D()
+            setup_z.select_punch(punch)
+            setup_z.select_die(die)
+            pc_z = PressCycleController(
+                sess_z.controller,
+                setup_z,
+                config=cfg,
+                cross_section_provider=lambda: sess_z.cross_section(segments=16),
+            )
+            pc_z.play_all()
+            seen_phases_b01 = [pc_z.phase]
+            b01_anchor_s = setup_z.alignment_anchor_sz[0]
+            while pc_z.active_bend_id == "B01":
+                pc_z.advance_time(0.1)
+                if pc_z.active_bend_id == "B01" and pc_z.phase != seen_phases_b01[-1]:
+                    seen_phases_b01.append(pc_z.phase)
+                # While B01 is executing (including RETRACT), tooling must stay aligned to B01
+                if pc_z.active_bend_id == "B01":
+                    self.assertEqual(setup_z.aligned_bend_id, "B01")
+                    self.assertAlmostEqual(setup_z.alignment_anchor_sz[0], b01_anchor_s, places=6)
+                    self.assertAlmostEqual(sess_z.fold_state.angles["B02"], 0.0, places=9)
+
+            self.assertEqual(
+                seen_phases_b01,
+                [
+                    CyclePhase.APPROACH,
+                    CyclePhase.CONTACT,
+                    CyclePhase.BENDING,
+                    CyclePhase.BOTTOM,
+                    CyclePhase.RETRACT,
+                    CyclePhase.STEP_COMPLETE,
+                ],
+            )
+            # Now transitioned to B02 (-90 deg) AFTER B01 RETRACT completed!
+            self.assertEqual(pc_z.active_bend_id, "B02")
+            self.assertEqual(pc_z.phase, CyclePhase.APPROACH)
+            self.assertEqual(setup_z.aligned_bend_id, "B02")
+            self.assertAlmostEqual(sess_z.fold_state.angles["B01"], 90.0, places=6)
+            self.assertAlmostEqual(sess_z.fold_state.angles["B02"], 0.0, places=6)
+            # Opposite-sign bend B02 (-90 deg) explicitly reports ASSUMED_WORKPIECE_FLIP_FOR_OPPOSITE_BEND
+            self.assertEqual(
+                pc_z.orientation_status,
+                WorkpieceOrientationStatus.ASSUMED_WORKPIECE_FLIP_FOR_OPPOSITE_BEND,
+            )
+            self.assertIn("ASSUMED_WORKPIECE_FLIP_FOR_OPPOSITE_BEND", pc_z.status_line())
+
+            # Complete B02 cycle; verify punch STILL moves downward (-Z) during BENDING despite negative angle
+            seen_phases_b02 = [pc_z.phase]
+            while pc_z.status != PlaybackStatus.COMPLETED:
+                prev_z = pc_z.ram_z_mm
+                prev_phase = pc_z.phase
+                pc_z.advance_time(0.1)
+                if pc_z.phase != seen_phases_b02[-1]:
+                    seen_phases_b02.append(pc_z.phase)
+                if prev_phase == CyclePhase.BENDING and pc_z.phase in (CyclePhase.BENDING, CyclePhase.BOTTOM):
+                    self.assertLessEqual(pc_z.ram_z_mm, prev_z)
+
+            self.assertEqual(
+                seen_phases_b02,
+                [
+                    CyclePhase.APPROACH,
+                    CyclePhase.CONTACT,
+                    CyclePhase.BENDING,
+                    CyclePhase.BOTTOM,
+                    CyclePhase.RETRACT,
+                    CyclePhase.STEP_COMPLETE,
+                    CyclePhase.COMPLETED,
+                ],
+            )
+            self.assertAlmostEqual(sess_z.fold_state.angles["B01"], 90.0, places=6)
+            self.assertAlmostEqual(sess_z.fold_state.angles["B02"], -90.0, places=6)
+
+            # ------------------------------------------------------------------
+            # Test C — Z in Reverse Order (B02 -> B01) Preserves User Order
+            # ------------------------------------------------------------------
+            pc_z.reset()
+            sess_z.set_bend_order(("B02", "B01"))
+            self.assertEqual(sess_z.bend_order, ("B02", "B01"))
+            pc_z.play_all()
+            self.assertEqual(pc_z.active_bend_id, "B02")
+            while pc_z.active_bend_id == "B02":
+                pc_z.advance_time(0.1)
+            # B02 (-90 deg) finished first, B01 still 0 deg
+            self.assertAlmostEqual(sess_z.fold_state.angles["B02"], -90.0, places=6)
+            self.assertAlmostEqual(sess_z.fold_state.angles["B01"], 0.0, places=6)
+            self.assertEqual(pc_z.active_bend_id, "B01")
+            while pc_z.status != PlaybackStatus.COMPLETED:
+                pc_z.advance_time(0.1)
+            self.assertAlmostEqual(sess_z.fold_state.angles["B02"], -90.0, places=6)
+            self.assertAlmostEqual(sess_z.fold_state.angles["B01"], 90.0, places=6)
+            # Reset preserves custom order ("B02", "B01")
+            pc_z.reset()
+            self.assertEqual(sess_z.bend_order, ("B02", "B01"))
+            self.assertEqual(pc_z.active_bend_id, "B02")
+            sess_z.restore_canonical_order()
+
+            # ------------------------------------------------------------------
+            # Test D — 135 deg Part (+45 / -45 deg)
+            # ------------------------------------------------------------------
+            sess_135 = LoadedPartSession(
+                "135", None, None, graph_135, verts_z, "P02", FoldState(graph_135, "P02")
+            )
+            pc_135 = PressCycleController(
+                sess_135.controller,
+                setup_z,
+                config=cfg,
+                cross_section_provider=lambda: sess_135.cross_section(segments=16),
+            )
+            pc_135.play_all()
+            while pc_135.status != PlaybackStatus.COMPLETED:
+                pc_135.advance_time(0.1)
+            self.assertAlmostEqual(sess_135.fold_state.angles["B01"], 45.0, places=6)
+            self.assertAlmostEqual(sess_135.fold_state.angles["B02"], -45.0, places=6)
+            self.assertEqual(pc_135.phase, CyclePhase.COMPLETED)
+
+            # ------------------------------------------------------------------
+            # Test E — Pause / Resume in EVERY Stage (APPROACH, BENDING, BOTTOM, RETRACT)
+            # ------------------------------------------------------------------
+            for target_phase in (
+                CyclePhase.APPROACH,
+                CyclePhase.BENDING,
+                CyclePhase.BOTTOM,
+                CyclePhase.RETRACT,
+            ):
+                pc_l.reset()
+                pc_l.play_all()
+                while pc_l.phase != target_phase:
+                    pc_l.advance_time(0.05)
+                # Step once inside target_phase if possible
+                if target_phase in (CyclePhase.APPROACH, CyclePhase.BENDING, CyclePhase.RETRACT):
+                    pc_l.advance_time(0.04)
+                self.assertEqual(pc_l.phase, target_phase)
+
+                pc_l.pause()
+                self.assertEqual(pc_l.status, PlaybackStatus.PAUSED)
+                saved_z = pc_l.ram_z_mm
+                saved_ang = pc_l.current_angle_deg
+                saved_phase = pc_l.phase
+                saved_dwell = pc_l.dwell_remaining_s
+
+                # Advancing time while PAUSED must NOT change anything
+                for _ in range(5):
+                    self.assertFalse(pc_l.advance_time(0.1))
+                self.assertEqual(pc_l.ram_z_mm, saved_z)
+                self.assertEqual(pc_l.current_angle_deg, saved_ang)
+                self.assertEqual(pc_l.phase, saved_phase)
+                self.assertEqual(pc_l.dwell_remaining_s, saved_dwell)
+
+                # Resume continues smoothly to COMPLETED
+                pc_l.resume()
+                self.assertEqual(pc_l.status, PlaybackStatus.PLAYING)
+                self.assertEqual(pc_l.phase, saved_phase)
+                while pc_l.status != PlaybackStatus.COMPLETED:
+                    pc_l.advance_time(0.05)
+                self.assertAlmostEqual(pc_l.current_angle_deg, 90.0, places=6)
+                self.assertEqual(pc_l.phase, CyclePhase.COMPLETED)
+
+            # ------------------------------------------------------------------
+            # Test F — Reset from APPROACH, BENDING, and RETRACT
+            # ------------------------------------------------------------------
+            for reset_from_phase in (CyclePhase.APPROACH, CyclePhase.BENDING, CyclePhase.RETRACT):
+                pc_z.reset()
+                pc_z.play_all()
+                while pc_z.phase != reset_from_phase:
+                    pc_z.advance_time(0.05)
+                pc_z.advance_time(0.04)
+                pc_z.reset()
+                self.assertEqual(pc_z.phase, CyclePhase.IDLE)
+                self.assertEqual(pc_z.status, PlaybackStatus.IDLE)
+                self.assertEqual(pc_z.active_index, 0)
+                self.assertAlmostEqual(sess_z.fold_state.angles["B01"], 0.0, places=9)
+                self.assertAlmostEqual(sess_z.fold_state.angles["B02"], 0.0, places=9)
+                self.assertAlmostEqual(pc_z.ram_z_mm, pc_z.upper_z_mm, places=9)
+                self.assertAlmostEqual(pc_z.ram_stroke_mm, 0.0, places=9)
+
+            # Also verify Next Step / Previous Step leave punch at upper retracted position
+            pc_z.next_step()
+            self.assertAlmostEqual(sess_z.fold_state.angles["B01"], 90.0, places=6)
+            self.assertAlmostEqual(sess_z.fold_state.angles["B02"], 0.0, places=6)
+            self.assertAlmostEqual(pc_z.ram_z_mm, pc_z.upper_z_mm, places=6)
+            pc_z.previous_step()
+            self.assertAlmostEqual(sess_z.fold_state.angles["B01"], 0.0, places=6)
+            self.assertAlmostEqual(pc_z.ram_z_mm, pc_z.upper_z_mm, places=6)
+
+            # Manual angle control parks punch at upper preview position without starting cycle
+            pc_z.set_manual_angle(35.0)
+            self.assertEqual(pc_z.phase, CyclePhase.IDLE)
+            self.assertNotEqual(pc_z.status, PlaybackStatus.PLAYING)
+            self.assertAlmostEqual(sess_z.fold_state.angles["B01"], 35.0, places=6)
+            self.assertAlmostEqual(pc_z.ram_z_mm, pc_z.upper_z_mm, places=6)
+            pc_z.reset()
+
+            # ------------------------------------------------------------------
+            # Test H — Bend Only Compatibility
+            # ------------------------------------------------------------------
+            pc_z.set_execution_mode(CycleExecutionMode.BEND_ONLY)
+            self.assertEqual(pc_z.execution_mode, CycleExecutionMode.BEND_ONLY)
+            pc_z.play_all()
+            while pc_z.status != PlaybackStatus.COMPLETED:
+                pc_z.advance_time(0.1)
+            self.assertAlmostEqual(sess_z.fold_state.angles["B01"], 90.0, places=6)
+            self.assertAlmostEqual(sess_z.fold_state.angles["B02"], -90.0, places=6)
+            pc_z.set_execution_mode(CycleExecutionMode.FULL_CYCLE)
+            pc_z.reset()
+
+            # ------------------------------------------------------------------
+            # Test I — Tooling Library Immutability Across Full Cycle
+            # ------------------------------------------------------------------
+            ok_p, msg_p = compare_profiles_within_tolerance(punch, punch_snapshot, tol_mm=1e-9)
+            self.assertTrue(ok_p, msg_p)
+            ok_d, msg_d = compare_profiles_within_tolerance(die, die_snapshot, tol_mm=1e-9)
+            self.assertTrue(ok_d, msg_d)
+
+            # ------------------------------------------------------------------
+            # Test G & J — Single QTimer & GUI Scene Visibility Across Full Cycle
+            # ------------------------------------------------------------------
+            try:
+                from freecad_smbs.commands.pressbrake_2d import _PreviewPanel, _qt
+                QtCore, QtGui, QtWidgets = _qt()
+                has_qt = True
+            except Exception:
+                has_qt = False
+
+            if has_qt:
+                app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+                panel = _PreviewPanel()
+                panel.resize(480, 680)
+                panel.show()
+
+                # Test G: Verify Panel has ONLY ONE QTimer child
+                timers = panel.findChildren(QtCore.QTimer)
+                self.assertEqual(len(timers), 1, f"Expected exactly 1 QTimer in Panel, found {len(timers)}")
+                self.assertIs(timers[0], panel.timer)
+
+                panel.session = LoadedPartSession(
+                    "Z_GUI", None, None, graph_z, verts_z, "P02", FoldState(graph_z, "P02")
+                )
+                panel._ensure_press_cycle_controller()
+                panel._populate_operations()
+                panel._configure_for_active_bend()
+                panel._set_playback_controls_enabled(True)
+                panel.select_punch(punch)
+                panel.select_die(die)
+                panel.set_cycle_mode(CycleExecutionMode.FULL_CYCLE)
+                panel.set_cycle_config(cfg)
+
+                def role_items(role_name: str):
+                    return [it for it in panel.scene.items() if it.data(0) == role_name]
+
+                def sheet_items():
+                    return [
+                        it for it in panel.scene.items()
+                        if isinstance(it.data(0), str) and it.data(0).startswith("sheet_")
+                    ]
+
+                panel.play_all()
+                self.assertTrue(panel.playing)
+                observed_gui_phases = set()
+                for _ in range(150):
+                    if not panel.playing:
+                        break
+                    panel.press_cycle.advance_time(0.05)
+                    panel.session.active_bend_index = panel.session.controller.active_index
+                    panel._configure_for_active_bend()
+                    panel._update_tooling_status_label()
+                    panel.draw()
+                    observed_gui_phases.add(panel.press_cycle.phase)
+
+                    # Test J: Sheet, Punch, and Die must remain visible in QGraphicsScene at every step
+                    self.assertGreaterEqual(len(sheet_items()), 6)
+                    self.assertEqual(len(role_items("punch")), 1)
+                    self.assertEqual(len(role_items("die")), 1)
+                    self.assertIn("KINEMATIC_PREVIEW", panel.step.text())
+
+                    if panel.session.playback_status == PlaybackStatus.COMPLETED:
+                        panel._stop_timer()
+                        break
+
+                self.assertEqual(panel.session.playback_status, PlaybackStatus.COMPLETED)
+                self.assertIn(CyclePhase.APPROACH, observed_gui_phases)
+                self.assertIn(CyclePhase.BENDING, observed_gui_phases)
+                self.assertIn(CyclePhase.RETRACT, observed_gui_phases)
+                self.assertIn(CyclePhase.COMPLETED, observed_gui_phases)
+                self.assertAlmostEqual(panel.session.fold_state.angles["B01"], 90.0, places=5)
+                self.assertAlmostEqual(panel.session.fold_state.angles["B02"], -90.0, places=5)
+
+                panel.close()
+
 
 if __name__ == "__main__":
     unittest.main()

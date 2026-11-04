@@ -22,6 +22,16 @@ from smbs_core.kinematics2d.fold_sequence import (
 )
 from smbs_core.kinematics2d.panel_graph import PanelGraph, graph_from_panel_build
 from smbs_core.kinematics2d.panel_kinematics import FoldState, KinematicsError
+from smbs_core.kinematics2d.press_cycle import (
+    ContactBoundaryKind,
+    CycleConfig,
+    CycleExecutionMode,
+    CyclePhase,
+    CycleSimulationMode,
+    PressCycleController,
+    PressCycleError,
+    WorkpieceOrientationStatus,
+)
 from smbs_core.kinematics2d.tooling_25d import (
     DEFAULT_INITIAL_PUNCH_CLEARANCE_MM,
     NOT_SPECIFIED,
@@ -510,6 +520,9 @@ class _PreviewPanel:
                 self.session: LoadedPartSession | None = None
                 self.tool_library = ToolLibrary25D(library_root=library_root)
                 self.tooling_setup = ToolingSetup2D()
+                self.cycle_config = CycleConfig()
+                self.execution_mode = CycleExecutionMode.BEND_ONLY
+                self.press_cycle: PressCycleController | None = None
                 self.last_scene_bounds: SceneBounds2D | None = None
                 self.angle = 0.0
                 self.playing = False
@@ -587,6 +600,42 @@ class _PreviewPanel:
                 self.tooling_status.setStyleSheet("font-size: 11px; color: #2c3e50;")
                 t_layout.addWidget(self.tooling_status)
                 root.addWidget(self.tooling_group)
+
+                # Phase 5B: Press Cycle section (Bend Only / Full Cycle, Ram Position, Cycle Phase, Speed & Config)
+                self.press_cycle_group = QtWidgets.QGroupBox("Press Cycle (Phase 5B — KINEMATIC_PREVIEW)")
+                pc_layout = QtWidgets.QVBoxLayout(self.press_cycle_group)
+                pc_layout.setContentsMargins(6, 6, 6, 6)
+                pc_layout.setSpacing(4)
+
+                pc_row1 = QtWidgets.QHBoxLayout()
+                pc_row1.addWidget(QtWidgets.QLabel("Mode:"))
+                self.cycle_mode_combo = QtWidgets.QComboBox()
+                self.cycle_mode_combo.addItem("Bend Only", CycleExecutionMode.BEND_ONLY.value)
+                self.cycle_mode_combo.addItem("Full Cycle", CycleExecutionMode.FULL_CYCLE.value)
+                self.cycle_mode_combo.currentIndexChanged.connect(self._on_cycle_mode_combo_changed)
+                pc_row1.addWidget(self.cycle_mode_combo, 1)
+
+                pc_row1.addWidget(QtWidgets.QLabel("Speed (°/s):"))
+                self.cycle_speed_spin = QtWidgets.QDoubleSpinBox()
+                self.cycle_speed_spin.setRange(1.0, 720.0)
+                self.cycle_speed_spin.setValue(self.cycle_config.bend_rate_deg_s)
+                self.cycle_speed_spin.setSingleStep(15.0)
+                self.cycle_speed_spin.valueChanged.connect(self._on_cycle_speed_changed)
+                pc_row1.addWidget(self.cycle_speed_spin)
+
+                self.cycle_config_btn = _button(QtWidgets, "Cycle Config...", self.open_cycle_config_dialog, True)
+                pc_row1.addWidget(self.cycle_config_btn)
+                pc_layout.addLayout(pc_row1)
+
+                pc_row2 = QtWidgets.QHBoxLayout()
+                self.cycle_phase_label = QtWidgets.QLabel("Cycle Phase: IDLE (KINEMATIC_PREVIEW)")
+                self.ram_position_label = QtWidgets.QLabel(
+                    "Ram Position: {:+.2f} mm (Stroke: 0.00 mm)".format(self.tooling_setup.ram_z_mm)
+                )
+                pc_row2.addWidget(self.cycle_phase_label, 1)
+                pc_row2.addWidget(self.ram_position_label, 1)
+                pc_layout.addLayout(pc_row2)
+                root.addWidget(self.press_cycle_group)
 
                 self._refresh_tooling_combos()
 
@@ -698,21 +747,189 @@ class _PreviewPanel:
 
             def _update_tooling_status_label(self):
                 self.tooling_status.setText(self.tooling_setup.status_line())
+                self._update_press_cycle_labels()
+
+            def _update_press_cycle_labels(self):
+                if self.press_cycle is not None:
+                    self.cycle_phase_label.setText(
+                        "Cycle Phase: {} ({} | {})".format(
+                            self.press_cycle.phase.value,
+                            self.press_cycle.simulation_mode.value,
+                            self.press_cycle.contact_kind.value,
+                        )
+                    )
+                    self.ram_position_label.setText(
+                        "Ram Position: {:+.2f} mm (Stroke: {:.2f} mm)".format(
+                            self.press_cycle.ram_z_mm,
+                            self.press_cycle.ram_stroke_mm,
+                        )
+                    )
+                else:
+                    self.cycle_phase_label.setText(
+                        "Cycle Phase: IDLE ({})".format(self.cycle_config.simulation_mode.value)
+                    )
+                    self.ram_position_label.setText(
+                        "Ram Position: {:+.2f} mm (Stroke: {:.2f} mm)".format(
+                            self.tooling_setup.ram_z_mm,
+                            self.tooling_setup.ram_stroke_mm,
+                        )
+                    )
+
+            def _ensure_press_cycle_controller(self) -> PressCycleController | None:
+                if self.session is None:
+                    self.press_cycle = None
+                    return None
+                if (
+                    self.press_cycle is None
+                    or self.press_cycle.sequence is not self.session.controller
+                ):
+                    self.press_cycle = PressCycleController(
+                        sequence_controller=self.session.controller,
+                        tooling_setup=self.tooling_setup,
+                        config=self.cycle_config,
+                        cross_section_provider=lambda: (
+                            self.session.cross_section(segments=16) if self.session is not None else None
+                        ),
+                    )
+                    self.press_cycle.set_execution_mode(self.execution_mode)
+                return self.press_cycle
+
+            def set_cycle_mode(self, mode: CycleExecutionMode | str) -> None:
+                resolved = CycleExecutionMode(mode) if isinstance(mode, str) else mode
+                if self.timer.isActive() or self.playing:
+                    self._stop_timer()
+                self.execution_mode = resolved
+                if self.press_cycle is not None:
+                    self.press_cycle.set_execution_mode(resolved)
+                idx = 1 if resolved == CycleExecutionMode.FULL_CYCLE else 0
+                if self.cycle_mode_combo.currentIndex() != idx:
+                    self.cycle_mode_combo.blockSignals(True)
+                    self.cycle_mode_combo.setCurrentIndex(idx)
+                    self.cycle_mode_combo.blockSignals(False)
+                self._update_press_cycle_labels()
+                self.draw()
+
+            def _on_cycle_mode_combo_changed(self, _index: int):
+                data = self.cycle_mode_combo.currentData()
+                if data in (CycleExecutionMode.BEND_ONLY.value, CycleExecutionMode.FULL_CYCLE.value):
+                    self.set_cycle_mode(CycleExecutionMode(data))
+
+            def set_cycle_config(self, config: CycleConfig) -> None:
+                self.cycle_config = config
+                if self.session is not None:
+                    self.session.controller.speed_deg_per_sec = float(config.bend_rate_deg_s)
+                if self.press_cycle is not None:
+                    self.press_cycle.set_config(config)
+                self._update_press_cycle_labels()
+                self.draw()
+
+            def _on_cycle_speed_changed(self, val: float):
+                try:
+                    fval = float(val)
+                except (TypeError, ValueError):
+                    return
+                if not math.isfinite(fval) or fval <= 0.0:
+                    return
+                new_cfg = CycleConfig(
+                    approach_speed_mm_s=self.cycle_config.approach_speed_mm_s,
+                    retract_speed_mm_s=self.cycle_config.retract_speed_mm_s,
+                    bend_rate_deg_s=fval,
+                    bend_duration_s=self.cycle_config.bend_duration_s,
+                    initial_clearance_mm=self.cycle_config.initial_clearance_mm,
+                    preview_stroke_mm=self.cycle_config.preview_stroke_mm,
+                    bottom_dwell_s=self.cycle_config.bottom_dwell_s,
+                )
+                self.set_cycle_config(new_cfg)
+
+            def open_cycle_config_dialog(self):
+                dlg = QtWidgets.QDialog(self)
+                dlg.setWindowTitle("Параметры кинематического цикла пресса (KINEMATIC_PREVIEW)")
+                vbox = QtWidgets.QVBoxLayout(dlg)
+
+                note = QtWidgets.QLabel(
+                    "Режим KINEMATIC_PREVIEW: параметры задают кинематику перемещения пуансона "
+                    "и скорость изменения угла без расчёта контактной механики, усилия и упругого возврата."
+                )
+                note.setWordWrap(True)
+                vbox.addWidget(note)
+
+                form = QtWidgets.QFormLayout()
+                sp_app = QtWidgets.QDoubleSpinBox()
+                sp_app.setRange(0.5, 500.0)
+                sp_app.setValue(self.cycle_config.approach_speed_mm_s)
+                form.addRow("Approach speed (mm/s):", sp_app)
+
+                sp_ret = QtWidgets.QDoubleSpinBox()
+                sp_ret.setRange(0.5, 500.0)
+                sp_ret.setValue(self.cycle_config.retract_speed_mm_s)
+                form.addRow("Retract speed (mm/s):", sp_ret)
+
+                sp_rate = QtWidgets.QDoubleSpinBox()
+                sp_rate.setRange(1.0, 720.0)
+                sp_rate.setValue(self.cycle_config.bend_rate_deg_s)
+                form.addRow("Bend rate (deg/s):", sp_rate)
+
+                sp_clr = QtWidgets.QDoubleSpinBox()
+                sp_clr.setRange(0.5, 200.0)
+                sp_clr.setValue(self.cycle_config.initial_clearance_mm)
+                form.addRow("Initial clearance (mm):", sp_clr)
+
+                sp_strk = QtWidgets.QDoubleSpinBox()
+                sp_strk.setRange(0.5, 150.0)
+                sp_strk.setValue(self.cycle_config.preview_stroke_mm)
+                form.addRow("Preview stroke (mm):", sp_strk)
+
+                sp_dwell = QtWidgets.QDoubleSpinBox()
+                sp_dwell.setRange(0.0, 30.0)
+                sp_dwell.setSingleStep(0.05)
+                sp_dwell.setValue(self.cycle_config.bottom_dwell_s)
+                form.addRow("Bottom dwell (s):", sp_dwell)
+                vbox.addLayout(form)
+
+                btn_row = QtWidgets.QHBoxLayout()
+                btn_ok = QtWidgets.QPushButton("Применить")
+                btn_cancel = QtWidgets.QPushButton("Отмена")
+                btn_row.addWidget(btn_ok)
+                btn_row.addWidget(btn_cancel)
+                vbox.addLayout(btn_row)
+
+                def on_apply():
+                    try:
+                        cfg = CycleConfig(
+                            approach_speed_mm_s=float(sp_app.value()),
+                            retract_speed_mm_s=float(sp_ret.value()),
+                            bend_rate_deg_s=float(sp_rate.value()),
+                            initial_clearance_mm=float(sp_clr.value()),
+                            preview_stroke_mm=float(sp_strk.value()),
+                            bottom_dwell_s=float(sp_dwell.value()),
+                        )
+                        self.cycle_speed_spin.blockSignals(True)
+                        self.cycle_speed_spin.setValue(cfg.bend_rate_deg_s)
+                        self.cycle_speed_spin.blockSignals(False)
+                        self.set_cycle_config(cfg)
+                        dlg.accept()
+                    except PressCycleError as exc:
+                        self.status.setText(str(exc))
+
+                btn_ok.clicked.connect(on_apply)
+                btn_cancel.clicked.connect(dlg.reject)
+                dlg.exec()
 
             def _sync_tooling_to_active_bend(self):
                 """Re-align static tooling to the active bend line if already aligned."""
                 if self.session is None:
                     return
-                if self.tooling_setup.punch is None and self.tooling_setup.die is None:
-                    return
-                try:
-                    self.tooling_setup.align_to_cross_section(
-                        self.session.cross_section(segments=16),
-                        clearance_mm=DEFAULT_INITIAL_PUNCH_CLEARANCE_MM,
-                        bend_id=self.session.active_bend_id,
-                    )
-                except ToolingError as exc:
-                    _warn(f"Tooling alignment warning for bend {self.session.active_bend_id}: {exc}")
+                if self.press_cycle is not None:
+                    self.press_cycle.on_tooling_changed()
+                elif self.tooling_setup.punch is not None or self.tooling_setup.die is not None:
+                    try:
+                        self.tooling_setup.align_to_cross_section(
+                            self.session.cross_section(segments=16),
+                            clearance_mm=self.cycle_config.initial_clearance_mm,
+                            bend_id=self.session.active_bend_id,
+                        )
+                    except ToolingError as exc:
+                        _warn(f"Tooling alignment warning for bend {self.session.active_bend_id}: {exc}")
                 self._update_tooling_status_label()
 
             def select_punch(self, punch: ToolProfile | None):
@@ -727,11 +944,13 @@ class _PreviewPanel:
                     try:
                         self.tooling_setup.align_to_cross_section(
                             self.session.cross_section(segments=16),
-                            clearance_mm=DEFAULT_INITIAL_PUNCH_CLEARANCE_MM,
+                            clearance_mm=self.cycle_config.initial_clearance_mm,
                             bend_id=self.session.active_bend_id,
                         )
                     except ToolingError as exc:
                         self.status.setText(str(exc))
+                if self.press_cycle is not None:
+                    self.press_cycle.on_tooling_changed()
                 self._refresh_tooling_combos()
                 self._update_tooling_status_label()
                 self.draw()
@@ -749,11 +968,13 @@ class _PreviewPanel:
                     try:
                         self.tooling_setup.align_to_cross_section(
                             self.session.cross_section(segments=16),
-                            clearance_mm=DEFAULT_INITIAL_PUNCH_CLEARANCE_MM,
+                            clearance_mm=self.cycle_config.initial_clearance_mm,
                             bend_id=self.session.active_bend_id,
                         )
                     except ToolingError as exc:
                         self.status.setText(str(exc))
+                if self.press_cycle is not None:
+                    self.press_cycle.on_tooling_changed()
                 self._refresh_tooling_combos()
                 self._update_tooling_status_label()
                 self.draw()
@@ -793,12 +1014,14 @@ class _PreviewPanel:
                     bend_id = self.session.active_bend_id if self.session is not None else None
                     self.tooling_setup.align_to_cross_section(
                         sec,
-                        clearance_mm=DEFAULT_INITIAL_PUNCH_CLEARANCE_MM,
+                        clearance_mm=self.cycle_config.initial_clearance_mm,
                         bend_id=bend_id,
                     )
                 except ToolingError as exc:
                     self.status.setText(str(exc))
                     return
+                if self.press_cycle is not None:
+                    self.press_cycle.on_tooling_changed()
                 self._update_tooling_status_label()
                 self.status.setText(
                     "Оснастка выровнена по линии гиба {} (зазор пуансона {:.1f} мм)".format(
@@ -1072,6 +1295,7 @@ class _PreviewPanel:
 
                 self._stop_timer()
                 self.session = new_session
+                self._ensure_press_cycle_controller()
                 self._sync_tooling_to_active_bend()
                 self._populate_operations()
                 self._configure_for_active_bend()
@@ -1193,10 +1417,14 @@ class _PreviewPanel:
                     return
                 self._stop_timer()
                 # Switch active bend while preserving the angles already achieved on previous bends
-                self.session.select_bend_index(idx)
+                pc = self._ensure_press_cycle_controller()
+                if pc is not None:
+                    pc.select_operation(idx)
+                    self.session.active_bend_index = self.session.controller.active_index
+                else:
+                    self.session.select_bend_index(idx)
                 self._configure_for_active_bend()
-                if self.tooling_setup.aligned:
-                    self._sync_tooling_to_active_bend()
+                self._update_tooling_status_label()
                 self.draw()
                 QtCore.QTimer.singleShot(0, self.fit)
 
@@ -1225,7 +1453,12 @@ class _PreviewPanel:
                 if self.timer.isActive() or self.playing:
                     self._stop_timer()
                 try:
-                    self.session.set_active_angle(float(signed_angle_deg))
+                    pc = self._ensure_press_cycle_controller()
+                    if pc is not None:
+                        pc.set_manual_angle(float(signed_angle_deg))
+                        self.session.active_bend_index = self.session.controller.active_index
+                    else:
+                        self.session.set_active_angle(float(signed_angle_deg))
                 except Exception as exc:
                     _error("Отклонено недопустимое изменение угла: {}".format(exc))
                     raise
@@ -1237,6 +1470,7 @@ class _PreviewPanel:
                     self.slider.blockSignals(False)
                 self._update_operations_visual_state()
                 self._sync_playback_buttons()
+                self._update_tooling_status_label()
                 self.draw()
 
             def step_angle(self, delta_mag_deg: float):
@@ -1256,10 +1490,14 @@ class _PreviewPanel:
             def reset(self):
                 self._stop_timer()
                 if self.session is not None:
-                    self.session.reset_all_bends()
+                    pc = self._ensure_press_cycle_controller()
+                    if pc is not None:
+                        pc.reset()
+                        self.session.active_bend_index = self.session.controller.active_index
+                    else:
+                        self.session.reset_all_bends()
                     self._configure_for_active_bend()
-                    if self.tooling_setup.aligned:
-                        self._sync_tooling_to_active_bend()
+                    self._update_tooling_status_label()
                     self.draw()
 
             def play_all(self):
@@ -1267,14 +1505,21 @@ class _PreviewPanel:
                 if self.session is None:
                     return
                 try:
-                    self.session.play_all()
+                    pc = self._ensure_press_cycle_controller()
+                    if pc is not None and self.execution_mode == CycleExecutionMode.FULL_CYCLE:
+                        pc.play_all()
+                        self.session.active_bend_index = self.session.controller.active_index
+                    else:
+                        self.session.play_all()
+                        if pc is not None:
+                            pc.phase = CyclePhase.BENDING
+                            pc.on_tooling_changed()
                 except SequenceError as exc:
                     self._stop_timer()
                     self.status.setText(str(exc))
                     return
                 self._configure_for_active_bend()
-                if self.tooling_setup.aligned:
-                    self._sync_tooling_to_active_bend()
+                self._update_tooling_status_label()
                 self.playing = True
                 self._last_tick_monotonic = time.monotonic()
                 self._sync_playback_buttons()
@@ -1286,8 +1531,13 @@ class _PreviewPanel:
             def pause(self):
                 if self.session is None:
                     return
-                self.session.pause()
+                pc = self._ensure_press_cycle_controller()
+                if pc is not None and self.execution_mode == CycleExecutionMode.FULL_CYCLE:
+                    pc.pause()
+                else:
+                    self.session.pause()
                 self._stop_timer()
+                self._update_tooling_status_label()
                 self.draw()
                 _log("Playback paused at {:+.1f} deg".format(self.angle))
 
@@ -1295,14 +1545,20 @@ class _PreviewPanel:
                 if self.session is None:
                     return
                 try:
-                    self.session.resume()
+                    pc = self._ensure_press_cycle_controller()
+                    if pc is not None and self.execution_mode == CycleExecutionMode.FULL_CYCLE:
+                        pc.resume()
+                        self.session.active_bend_index = self.session.controller.active_index
+                    else:
+                        self.session.resume()
+                        if pc is not None:
+                            pc.phase = CyclePhase.BENDING
                 except SequenceError as exc:
                     self._stop_timer()
                     self.status.setText(str(exc))
                     return
                 self._configure_for_active_bend()
-                if self.tooling_setup.aligned:
-                    self._sync_tooling_to_active_bend()
+                self._update_tooling_status_label()
                 self.playing = True
                 self._last_tick_monotonic = time.monotonic()
                 self._sync_playback_buttons()
@@ -1333,13 +1589,17 @@ class _PreviewPanel:
                     return
                 self._stop_timer()
                 try:
-                    self.session.next_step()
+                    pc = self._ensure_press_cycle_controller()
+                    if pc is not None:
+                        pc.next_step()
+                        self.session.active_bend_index = self.session.controller.active_index
+                    else:
+                        self.session.next_step()
                 except SequenceError as exc:
                     self.status.setText(str(exc))
                     return
                 self._configure_for_active_bend()
-                if self.tooling_setup.aligned:
-                    self._sync_tooling_to_active_bend()
+                self._update_tooling_status_label()
                 self.draw()
                 QtCore.QTimer.singleShot(0, self.fit)
 
@@ -1348,13 +1608,17 @@ class _PreviewPanel:
                     return
                 self._stop_timer()
                 try:
-                    self.session.previous_step()
+                    pc = self._ensure_press_cycle_controller()
+                    if pc is not None:
+                        pc.previous_step()
+                        self.session.active_bend_index = self.session.controller.active_index
+                    else:
+                        self.session.previous_step()
                 except SequenceError as exc:
                     self.status.setText(str(exc))
                     return
                 self._configure_for_active_bend()
-                if self.tooling_setup.aligned:
-                    self._sync_tooling_to_active_bend()
+                self._update_tooling_status_label()
                 self.draw()
                 QtCore.QTimer.singleShot(0, self.fit)
 
@@ -1370,10 +1634,16 @@ class _PreviewPanel:
                 self._last_tick_monotonic = now
 
                 prev_bend_idx = self.session.active_bend_index
-                self.session.advance_time(dt)
+                pc = self._ensure_press_cycle_controller()
+                if pc is not None and self.execution_mode == CycleExecutionMode.FULL_CYCLE:
+                    pc.advance_time(dt)
+                    self.session.active_bend_index = self.session.controller.active_index
+                else:
+                    self.session.advance_time(dt)
+                    if self.session.active_bend_index != prev_bend_idx and self.tooling_setup.aligned:
+                        self._sync_tooling_to_active_bend()
                 self._configure_for_active_bend()
-                if self.session.active_bend_index != prev_bend_idx and self.tooling_setup.aligned:
-                    self._sync_tooling_to_active_bend()
+                self._update_tooling_status_label()
                 self.draw()
                 if self.session.active_bend_index != prev_bend_idx:
                     QtCore.QTimer.singleShot(0, self.fit)
@@ -1625,15 +1895,22 @@ class _PreviewPanel:
                             tan_item.setZValue(Z_LAYER_SHEET_NEUTRAL_AND_TANGENTS)
                             tan_item.setData(0, "sheet_tangent")
 
+                        pc = self._ensure_press_cycle_controller()
+                        if pc is not None and self.execution_mode == CycleExecutionMode.FULL_CYCLE:
+                            status_str = pc.status_line()
+                        else:
+                            status_str = self.session.status_line()
                         self.step.setText(
                             "{} | R_вн={:.2f} мм, t={:.2f} мм".format(
-                                self.session.status_line(),
+                                status_str,
                                 sec["inner_radius_mm"],
                                 sec["thickness_mm"],
                             )
                         )
+                        self._update_press_cycle_labels()
                     else:
                         self.step.setText("Активный гиб: — | Угол: — / —")
+                        self._update_press_cycle_labels()
 
                     # Compute separated scene bounds (sheet_bounds, punch_bounds, die_bounds, combined_bounds)
                     self.last_scene_bounds = compute_scene_bounds_2d(
