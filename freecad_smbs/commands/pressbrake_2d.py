@@ -986,12 +986,24 @@ class _PreviewPanel:
                         self.trace_checkbox.blockSignals(True)
                         self.trace_checkbox.setChecked(True)
                         self.trace_checkbox.blockSignals(False)
+                    bend_graph_data = None
+                    if getattr(self.session, "fold_state", None) is not None:
+                        fs = self.session.fold_state
+                        bend_graph_data = {
+                            bid: {
+                                "fixed_panel": getattr(bend, "fixed_panel", None),
+                                "moving_panel": getattr(bend, "moving_panel", None),
+                                "angle_deg": getattr(bend, "angle_deg", None),
+                            }
+                            for bid, bend in getattr(fs, "bends", {}).items()
+                        }
                     trace.event(
                         "RECORDING_STARTED",
                         active_bend=str(self.session.active_bend_id),
                         order=list(self.session.bend_order),
                         part_label=str(self.session.part_label),
                         mode=self.execution_mode.value,
+                        bends_topology=bend_graph_data,
                     )
                     # Runtime evidence: distinguishes actual executed Python
                     # module from a checkout path, without guessing from the
