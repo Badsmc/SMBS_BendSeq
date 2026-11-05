@@ -644,6 +644,7 @@ class PressCycleController:
             )
             self.pause()
             raise PressCycleError(self.transfer_fault) from exc
+            raise PressCycleError(self.transfer_fault) from exc
 
     def advance_time(self, dt_sec: float) -> bool:
         """Advance the press brake working cycle by `dt_sec` seconds.

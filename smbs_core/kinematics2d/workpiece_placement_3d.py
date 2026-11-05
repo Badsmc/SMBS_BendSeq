@@ -170,26 +170,41 @@ class WorkpiecePlacement3D:
         p_fixed = fold_state.transforms[bend.fixed_panel]
         p_moving = fold_state.transforms[bend.moving_panel]
 
-        # In unfolded/flat state panel normal is Z = (0, 0, 1)
+        # In unfolded/flat state panel normal is Z = (0, 0, 1).
+        # On a press brake, the punch always contacts from above (+Z_m) into the inner bend zone,
+        # and the V-die supports the sheet from below (-Z_m).
+        # For positive bends (fold_angle > 0), the inner concave surface faces +Z in local panel space;
+        # for negative bends (fold_angle < 0), the inner concave surface faces -Z in local panel space.
+        # We determine the punch-contact side direction (outer apex -> inner apex) in Part Space:
+        up = 1.0
+        if getattr(bend, "bend_zone", None) is not None and getattr(bend.bend_zone, "fold_angle_deg", None) is not None:
+            up = 1.0 if bend.bend_zone.fold_angle_deg >= 0 else -1.0
+        elif getattr(bend, "angle_deg", None) is not None:
+            up = 1.0 if bend.angle_deg >= 0 else -1.0
+
         fixed_norm_world = _mat_vec(p_fixed.rotation, (0.0, 0.0, 1.0))
         moving_norm_world = _mat_vec(p_moving.rotation, (0.0, 0.0, 1.0))
+
+        # punch_contact_norm points in the direction of the punch stroke (from die toward punch):
+        fixed_contact_norm = (up * fixed_norm_world[0], up * fixed_norm_world[1], up * fixed_norm_world[2])
+        moving_contact_norm = (up * moving_norm_world[0], up * moving_norm_world[1], up * moving_norm_world[2])
 
         if align_bisector:
             # Bisector between adjacent fixed and moving panels.
             # When bend angle is non-zero, aligning the bisector with Machine Z_m
             # produces symmetric upward rise for both flanges in the V-die.
             sum_norm = (
-                fixed_norm_world[0] + moving_norm_world[0],
-                fixed_norm_world[1] + moving_norm_world[1],
-                fixed_norm_world[2] + moving_norm_world[2],
+                fixed_contact_norm[0] + moving_contact_norm[0],
+                fixed_contact_norm[1] + moving_contact_norm[1],
+                fixed_contact_norm[2] + moving_contact_norm[2],
             )
             norm_len = _vec_norm(sum_norm)
             if norm_len < 1e-6:
-                n_ref = fixed_norm_world
+                n_ref = fixed_contact_norm
             else:
                 n_ref = (sum_norm[0] / norm_len, sum_norm[1] / norm_len, sum_norm[2] / norm_len)
         else:
-            n_ref = fixed_norm_world
+            n_ref = fixed_contact_norm
 
         # Cross-section transverse direction: v_cross = n_ref x u_axis
         v_cross = _vec_cross(n_ref, u_axis)

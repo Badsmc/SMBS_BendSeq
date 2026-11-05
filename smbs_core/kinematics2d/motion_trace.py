@@ -191,6 +191,14 @@ def make_frame_record(*, session, press_cycle, execution_mode, section, pose,
         playback_status=status,
         mode=getattr(execution_mode, "value", str(execution_mode)),
         cycle_phase=phase,
+        adjacent_panels=(
+            [
+                getattr(getattr(getattr(session, "fold_state", None), "bends", {}).get(str(session.active_bend_id)), "fixed_panel", None),
+                getattr(getattr(getattr(session, "fold_state", None), "bends", {}).get(str(session.active_bend_id)), "moving_panel", None),
+            ]
+            if getattr(session, "fold_state", None) is not None
+            else None
+        ),
         transfer_progress=float(getattr(press_cycle,"transfer_progress",0.0)),
         transfer_duration_s=float(getattr(press_cycle,"transfer_duration_s",0.0)),
         ram_z_mm=getattr(press_cycle, "ram_z_mm", None),

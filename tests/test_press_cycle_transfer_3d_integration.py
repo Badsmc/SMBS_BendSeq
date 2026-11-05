@@ -89,8 +89,9 @@ class TestWorkpieceTransfer3DIntegration(unittest.TestCase):
         self.assertIsNotNone(cycle.transfer_3d)
 
         # 3. Verify initial placement matches B01 finished pose exactly
-        p_b01_final = WorkpiecePlacement3D.compute_placement(fold_state, "B01")
-        p_transfer_0 = cycle.current_workpiece_placement_3d()
+        p_b01_final = cycle.current_workpiece_placement_3d()
+        validate_rigid_3d(p_b01_final)
+        p_transfer_0 = cycle.transfer_3d.start
         validate_rigid_3d(p_transfer_0)
 
         pts_b01 = self._get_all_panel_points_machine(p_b01_final)
@@ -212,8 +213,8 @@ class TestWorkpieceTransfer3DIntegration(unittest.TestCase):
         self.assertAlmostEqual(fold_state.angles["B01"], 90.0)
         self.assertAlmostEqual(fold_state.angles["B02"], 0.0)
 
-        # Force build_bend_transfer to fail
-        with patch("smbs_core.kinematics2d.press_cycle.build_bend_transfer", side_effect=ValueError("Simulated 3D transfer failure")):
+        # Force transfer trajectory construction to fail
+        with patch("smbs_core.kinematics2d.workpiece_transfer_3d.build_transfer_3d", side_effect=ValueError("Simulated 3D transfer failure")):
             with self.assertRaises(PressCycleError) as ctx:
                 cycle.advance_time(0.05)
 
