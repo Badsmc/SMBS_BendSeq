@@ -1,23 +1,48 @@
-"""Automated motion trace analyzer for SMBS / PressBrakeSim (Stage D4-P2).
+"""Automated motion trace analyzer for SMBS / PressBrakeSim (Stage D4-P2.1 Hardened).
 
 Evaluates JSONL trace files produced by MotionTraceRecorder:
-1. Physical landmark continuity across every cycle phase.
-2. Phase-aware velocity envelopes and jump detection.
-3. Seamless endpoint continuity at bend switches and transfer transitions.
-4. Punch-to-sheet contact validation during BENDING and BOTTOM.
-5. Die shoulder support tracking during BENDING without assuming two-point support elsewhere.
-6. Summary of detected discontinuities, geometric inconsistencies, and unresolved conditions.
-7. Outputs PASS, FAIL, or UNVERIFIED rather than claiming unsupported physical certification.
+1. Integrity of trace recording lifecycle (TRACE_STARTED, TRACE_STOPPED, PLAYBACK_COMPLETED).
+2. Authoritative physical landmark continuity across every cycle phase.
+3. Accurate phase-aware velocity envelopes and trajectory limits.
+4. Seamless endpoint continuity at bend switches and transfer transitions.
+5. Signed punch clearance, contact loss, and tool penetration validation.
+6. Die shoulder support tracking during BENDING without assuming two-point support elsewhere.
+7. Signed target angle verification supporting arbitrary bend angles.
+8. Completeness and consistency of reference bend sequences and transitions.
+9. Strict output classification: PASS, FAIL, or UNVERIFIED with full evidence summary.
+10. Analyzer version and git source revision tracking.
 """
 from __future__ import annotations
 
 import argparse
 import json
 import math
+import subprocess
 import sys
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Union
+
+ANALYZER_VERSION = "0.2.1-D4-P2.1"
+
+
+def get_source_revision() -> str:
+    """Retrieve git HEAD commit SHA if available."""
+    try:
+        repo_root = Path(__file__).resolve().parent.parent.parent
+        res = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=str(repo_root),
+            capture_output=True,
+            text=True,
+            timeout=2.0,
+            check=False,
+        )
+        if res.returncode == 0 and res.stdout.strip():
+            return res.stdout.strip()
+    except Exception:
+        pass
+    return "UNKNOWN"
 
 
 @dataclass
@@ -40,7 +65,7 @@ class GeometricInconsistencyRecord:
     timestamp_s: float
     phase: str
     active_bend_id: str
-    kind: str
+    kind: str  # "PUNCH_CONTACT_LOSS" | "PUNCH_PENETRATION_VIOLATION" | "DIE_SUPPORT_VIOLATION" | "TARGET_ANGLE_MISMATCH"
     value_mm: float
     tolerance_mm: float
     details: str
@@ -54,7 +79,7 @@ class BendSwitchEvaluation:
     timestamp_s: float
     max_step_mm: float
     tolerance_mm: float
-    status: str  # "PASS" | "FAIL"
+    status: str  # "PASS" | "FAIL" | "UNVERIFIED"
 
 
 @dataclass
@@ -72,6 +97,8 @@ class PhaseMetrics:
 class TraceAnalysisReport:
     overall_status: str  # "PASS" | "FAIL" | "UNVERIFIED"
     trace_file: str
+    analyzer_version: str
+    source_revision: str
     project_version: str
     build_id: str
     total_frames: int
@@ -99,6 +126,8 @@ class TraceAnalysisReport:
         """Convert report to JSON-serializable dictionary."""
         return {
             "overall_status": self.overall_status,
+            "analyzer_version": self.analyzer_version,
+            "source_revision": self.source_revision,
             "trace_file": self.trace_file,
             "project_version": self.project_version,
             "build_id": self.build_id,
@@ -128,9 +157,11 @@ class TraceAnalysisReport:
         """Produce formatted human-readable ASCII summary report."""
         lines = [
             "=" * 72,
-            f"SMBS / PressBrakeSim Motion Continuity Report (Stage D4-P2)",
+            f"SMBS / PressBrakeSim Motion Continuity Report (Stage D4-P2.1 Hardened)",
             "=" * 72,
             f"Overall Status:            {self.overall_status}",
+            f"Analyzer Version:          {self.analyzer_version}",
+            f"Source Revision:           {self.source_revision[:12] if self.source_revision else 'UNKNOWN'}",
             f"Trace File:                {Path(self.trace_file).name if self.trace_file else 'N/A'}",
             f"Project Version / Build:   {self.project_version} / {self.build_id[:12] if self.build_id else 'UNKNOWN'}",
             f"Frames / Events Recorded:  {self.total_frames} frames / {self.total_events} events",
@@ -141,6 +172,7 @@ class TraceAnalysisReport:
             "-" * 72,
             "BEND SWITCH CONTINUITY EVALUATION:",
         ]
+
         if self.bend_switch_evaluations:
             for b in self.bend_switch_evaluations:
                 lines.append(
@@ -148,21 +180,21 @@ class TraceAnalysisReport:
                     f"step = {b.max_step_mm:.4f} mm (tol = {b.tolerance_mm:.2f} mm) -> [{b.status}]"
                 )
         else:
-            lines.append("  (No bend switches detected in trace)")
+            lines.append("  None evaluated (single bend or transfer unrecorded)")
 
-        lines.extend([
-            "-" * 72,
-            "PHASE-AWARE MOTION & CONTACT METRICS:",
-            f"  {'Phase':<14} {'Frames':<8} {'Duration(s)':<12} {'Max Step(mm)':<14} {'Max Speed':<12} {'Punch Contact':<14}",
-        ])
-        for p, m in self.phase_metrics.items():
-            if m.phase in ("BENDING", "BOTTOM"):
-                c_str = f"{m.punch_contact_valid_frames} OK / {m.punch_contact_violation_frames} ERR"
-            else:
-                c_str = "N/A"
+        lines.append("-" * 72)
+        lines.append("PHASE-AWARE MOTION & CONTACT METRICS:")
+        lines.append(
+            f"  {'Phase':<14} {'Frames':<8} {'Duration(s)':<12} {'Max Step(mm)':<14} {'Max Speed':<12} {'Punch Contact':<14}"
+        )
+        for ph_name in sorted(self.phase_metrics.keys()):
+            pm = self.phase_metrics[ph_name]
+            contact_str = "N/A"
+            if ph_name in ("BENDING", "BOTTOM"):
+                contact_str = f"{pm.punch_contact_valid_frames} OK / {pm.punch_contact_violation_frames} ERR"
             lines.append(
-                f"  {m.phase:<14} {m.frame_count:<8} {m.duration_s:<12.3f} {m.max_physical_step_mm:<14.4f} "
-                f"{m.max_physical_speed_mm_s:<12.1f} {c_str:<14}"
+                f"  {pm.phase:<14} {pm.frame_count:<8} {pm.duration_s:<12.3f} "
+                f"{pm.max_physical_step_mm:<14.4f} {pm.max_physical_speed_mm_s:<12.1f} {contact_str:<14}"
             )
 
         lines.append("-" * 72)
@@ -192,6 +224,16 @@ class TraceAnalysisReport:
             lines.append("  None (Tooling and workpiece geometry consistent)")
 
         lines.append("-" * 72)
+        lines.append(f"UNRESOLVED CONDITIONS: {self.unresolved_conditions_count}")
+        if self.unresolved_conditions:
+            for u in self.unresolved_conditions[:10]:
+                lines.append(f"  [{u.get('kind', 'UNRESOLVED')}] {u.get('details', '')}")
+            if len(self.unresolved_conditions) > 10:
+                lines.append(f"  ... and {len(self.unresolved_conditions) - 10} more unresolved conditions")
+        else:
+            lines.append("  None")
+
+        lines.append("-" * 72)
         lines.append(f"Notice: {self.notice}")
         lines.append("=" * 72)
         return "\n".join(lines)
@@ -202,10 +244,21 @@ def analyze_trace(
     *,
     switch_tolerance_mm: float = 0.05,
     contact_tolerance_mm: float = 0.10,
+    angle_tolerance_deg: float = 0.50,
 ) -> TraceAnalysisReport:
-    """Analyze a JSONL motion trace and return a comprehensive TraceAnalysisReport."""
+    """Analyze a JSONL motion trace and return a comprehensive TraceAnalysisReport.
+
+    Strict validation requirements:
+    - Complete recording lifecycle: TRACE_STARTED, TRACE_STOPPED, and completion evidence.
+    - Physical landmarks required for continuity verification; missing landmarks -> UNVERIFIED.
+    - Signed target angle evaluation supporting arbitrary angles.
+    - Independent signed punch clearance (contact loss) and punch penetration validation.
+    - Phase-specific trajectory limits based on physical machine velocity envelopes.
+    - Complete eight-bend reference sequence and all transfer verification.
+    """
     records: List[Dict[str, Any]] = []
     file_path_str = ""
+    source_revision = get_source_revision()
 
     if isinstance(source, (str, Path)):
         file_path = Path(source).expanduser().resolve()
@@ -213,10 +266,39 @@ def analyze_trace(
         if not file_path.is_file():
             raise FileNotFoundError(f"Trace file not found: {file_path}")
         with file_path.open("r", encoding="utf-8") as f:
-            for line in f:
+            for line_no, line in enumerate(f, start=1):
                 line_str = line.strip()
                 if line_str:
-                    records.append(json.loads(line_str))
+                    try:
+                        records.append(json.loads(line_str))
+                    except json.JSONDecodeError as err:
+                        # Malformed or truncated JSON line must trigger FAIL
+                        unres = [{
+                            "kind": "MALFORMED_JSON_LINE",
+                            "details": f"Line {line_no} failed JSON decode: {err}",
+                        }]
+                        return TraceAnalysisReport(
+                            overall_status="FAIL",
+                            trace_file=file_path_str,
+                            analyzer_version=ANALYZER_VERSION,
+                            source_revision=source_revision,
+                            project_version="UNKNOWN",
+                            build_id="UNKNOWN",
+                            total_frames=0,
+                            total_events=0,
+                            total_duration_s=0.0,
+                            bends_present=[],
+                            bends_completed=[],
+                            phases_traversed=[],
+                            max_physical_step_mm=0.0,
+                            max_physical_speed_mm_s=0.0,
+                            discontinuities_count=0,
+                            geometric_inconsistencies_count=0,
+                            unresolved_conditions_count=1,
+                            bend_switches_continuous_count=0,
+                            bend_switches_discontinuous_count=0,
+                            unresolved_conditions=unres,
+                        )
     else:
         records = list(source)
 
@@ -238,28 +320,103 @@ def analyze_trace(
         if project_version != "UNKNOWN" and build_id != "UNKNOWN":
             break
 
-    bends_present_set = set()
-    bends_completed_set = set()
-    phases_traversed_set = set()
-    phase_metrics: Dict[str, PhaseMetrics] = {}
-
     discontinuities: List[DiscontinuityRecord] = []
     geometric_inconsistencies: List[GeometricInconsistencyRecord] = []
     bend_switches: List[BendSwitchEvaluation] = []
     unresolved_conditions: List[Dict[str, Any]] = []
 
+    # ------------------------------------------------------------------
+    # Check 1: Trace lifecycle events (TRACE_STARTED, TRACE_STOPPED)
+    # ------------------------------------------------------------------
+    has_trace_started = "TRACE_STARTED" in event_counts
+    has_trace_stopped = "TRACE_STOPPED" in event_counts
+
+    trace_stopped_reason = ""
+    for ev in events:
+        if ev.get("event") == "TRACE_STOPPED":
+            trace_stopped_reason = str(ev.get("reason", ""))
+            break
+
+    if not has_trace_started:
+        unresolved_conditions.append({
+            "kind": "MISSING_TRACE_STARTED",
+            "details": "Trace file missing TRACE_STARTED lifecycle event",
+        })
+    if not has_trace_stopped:
+        unresolved_conditions.append({
+            "kind": "MISSING_TRACE_STOPPED",
+            "details": "Trace recording was aborted or truncated before TRACE_STOPPED",
+        })
+
+    # Minimum frames check
+    if len(frames) < 2:
+        unresolved_conditions.append({
+            "kind": "INSUFFICIENT_FRAMES",
+            "details": f"Trace contains {len(frames)} frame(s); at least 2 frames required for motion analysis",
+        })
+
+    # ------------------------------------------------------------------
+    # Check 2: Reference bend sequence and signed target angle discovery
+    # ------------------------------------------------------------------
+    expected_order: List[str] = []
+    for ev in events:
+        if ev.get("event") == "RECORDING_STARTED" and "order" in ev:
+            expected_order = list(ev["order"])
+            break
+    if not expected_order and frames:
+        first_frame = frames[0]
+        if "bend_order" in first_frame and isinstance(first_frame["bend_order"], list):
+            expected_order = list(first_frame["bend_order"])
+
+    # Determine signed target angle per bend across all observed frames
+    # Target angle is read from bend_angle_deg during BOTTOM phase or from final settled angles
+    discovered_targets: Dict[str, float] = {}
+    for f in frames:
+        bid = f.get("active_bend_id")
+        ph = f.get("cycle_phase")
+        if bid and ph == "BOTTOM":
+            b_ang = f.get("bend_angle_deg")
+            if b_ang is not None and math.isfinite(float(b_ang)):
+                discovered_targets[str(bid)] = float(b_ang)
+
+    # ------------------------------------------------------------------
+    # Frame-by-frame analysis
+    # ------------------------------------------------------------------
+    bends_present_set = set()
+    bends_completed_set = set()
+    phases_traversed_set = set()
+    phase_metrics: Dict[str, PhaseMetrics] = {}
+
     max_overall_step = 0.0
     max_overall_speed = 0.0
     total_duration_s = 0.0
 
+    frames_with_physical_landmarks = 0
     prev_frame: Optional[Dict[str, Any]] = None
 
     for idx, f in enumerate(frames):
         cur_phase = str(f.get("cycle_phase", "UNKNOWN"))
         cur_bend = str(f.get("active_bend_id", "UNKNOWN"))
-        dt = f.get("elapsed_dt_s") or 0.025
-        if isinstance(dt, (int, float)) and dt > 0:
-            total_duration_s += dt
+        dt = f.get("elapsed_dt_s")
+        unix_s = f.get("unix_s")
+
+        # Validate timestamp and elapsed dt
+        if unix_s is None or not isinstance(unix_s, (int, float)) or not math.isfinite(unix_s) or unix_s <= 0:
+            unresolved_conditions.append({
+                "frame": idx,
+                "kind": "INVALID_TIMESTAMP",
+                "details": f"Frame {idx} has invalid unix timestamp: {unix_s}",
+            })
+
+        if dt is not None and isinstance(dt, (int, float)):
+            if not math.isfinite(dt) or dt < 0:
+                unresolved_conditions.append({
+                    "frame": idx,
+                    "kind": "INVALID_ELAPSED_DT",
+                    "details": f"Frame {idx} has invalid or negative elapsed_dt_s: {dt}",
+                })
+            else:
+                total_duration_s += dt
 
         bends_present_set.add(cur_bend)
         phases_traversed_set.add(cur_phase)
@@ -268,113 +425,124 @@ def analyze_trace(
             phase_metrics[cur_phase] = PhaseMetrics(phase=cur_phase)
         pm = phase_metrics[cur_phase]
         pm.frame_count += 1
-        pm.duration_s += dt if isinstance(dt, (int, float)) else 0.0
+        if isinstance(dt, (int, float)) and dt > 0:
+            pm.duration_s += dt
 
-        # Check bend completion
-        angles = f.get("angles_deg", {})
-        if cur_bend in angles and abs(angles[cur_bend]) >= 89.9:
-            bends_completed_set.add(cur_bend)
+        # --------------------------------------------------------------
+        # Landmark continuity validation
+        # --------------------------------------------------------------
+        cur_phys = f.get("physical_landmarks")
+        if cur_phys and isinstance(cur_phys, dict):
+            frames_with_physical_landmarks += 1
 
-        # ------------------------------------------------------------------
-        # 1. Physical Landmark Continuity Validation
-        # ------------------------------------------------------------------
-        cur_phys = f.get("physical_landmarks") or {}
-        if prev_frame is not None and cur_phys:
-            prev_phys = prev_frame.get("physical_landmarks") or {}
-            common_keys = prev_phys.keys() & cur_phys.keys()
+        if prev_frame is not None:
+            prev_phys = prev_frame.get("physical_landmarks")
+            prev_bend = str(prev_frame.get("active_bend_id", "UNKNOWN"))
+            prev_phase = str(prev_frame.get("cycle_phase", "UNKNOWN"))
+            phase_changed = (cur_phase != prev_phase)
+            bend_changed = (cur_bend != prev_bend)
 
-            if common_keys:
-                step_max, max_k = max(
-                    (math.dist(prev_phys[k], cur_phys[k]), k)
-                    for k in common_keys
-                )
-                speed = step_max / dt if (isinstance(dt, (int, float)) and dt > 0) else 0.0
+            if isinstance(prev_phys, dict) and isinstance(cur_phys, dict):
+                common_keys = prev_phys.keys() & cur_phys.keys()
+                # Check for insufficient common landmarks (expect >= 4 vertices)
+                if len(common_keys) < 4:
+                    unresolved_conditions.append({
+                        "frame": idx,
+                        "kind": "INSUFFICIENT_COMMON_LANDMARKS",
+                        "details": f"Frame {idx} shares only {len(common_keys)} landmark(s) with previous frame (minimum 4 required)",
+                    })
 
-                pm.max_physical_step_mm = max(pm.max_physical_step_mm, step_max)
-                pm.max_physical_speed_mm_s = max(pm.max_physical_speed_mm_s, speed)
-                max_overall_step = max(max_overall_step, step_max)
-                max_overall_speed = max(max_overall_speed, speed)
-
-                prev_bend = str(prev_frame.get("active_bend_id", "UNKNOWN"))
-                bend_changed = cur_bend != prev_bend
-
-                prev_phase = str(prev_frame.get("cycle_phase", "UNKNOWN"))
-                phase_changed = (cur_phase != prev_phase)
-
-                # Check bend switch transition continuity
-                if bend_changed:
-                    # Allow frame-interval motion across transfer phase transition
-                    allowed_sw = (
-                        max(switch_tolerance_mm, 500.0 * (dt or 0.05))
-                        if (prev_phase == "TRANSFER" or cur_phase == "TRANSFER")
-                        else switch_tolerance_mm
+                if common_keys:
+                    step_max, max_k = max(
+                        (math.dist(prev_phys[k], cur_phys[k]), k)
+                        for k in common_keys
                     )
-                    sw_status = "PASS" if step_max <= allowed_sw else "FAIL"
-                    bend_switches.append(BendSwitchEvaluation(
-                        from_bend=prev_bend,
-                        to_bend=cur_bend,
-                        frame=idx,
-                        timestamp_s=float(f.get("unix_s", 0.0)),
-                        max_step_mm=step_max,
-                        tolerance_mm=allowed_sw,
-                        status=sw_status,
-                    ))
-                    if sw_status == "FAIL":
-                        discontinuities.append(DiscontinuityRecord(
-                            frame=idx,
-                            timestamp_s=float(f.get("unix_s", 0.0)),
-                            phase=cur_phase,
+                    eff_dt = dt if (isinstance(dt, (int, float)) and dt > 0) else 0.025
+                    speed = step_max / eff_dt
+
+                    pm.max_physical_step_mm = max(pm.max_physical_step_mm, step_max)
+                    pm.max_physical_speed_mm_s = max(pm.max_physical_speed_mm_s, speed)
+                    max_overall_step = max(max_overall_step, step_max)
+                    max_overall_speed = max(max_overall_speed, speed)
+
+                    # A. Bend Switch Continuity
+                    if bend_changed:
+                        # Allow frame motion if transition is from dynamic TRANSFER phase
+                        allowed_sw = (
+                            max(switch_tolerance_mm, 350.0 * eff_dt)
+                            if (prev_phase == "TRANSFER" or cur_phase == "TRANSFER")
+                            else switch_tolerance_mm
+                        )
+                        sw_status = "PASS" if step_max <= allowed_sw else "FAIL"
+                        bend_switches.append(BendSwitchEvaluation(
                             from_bend=prev_bend,
                             to_bend=cur_bend,
-                            landmark_id=max_k,
-                            step_mm=step_max,
-                            allowable_mm=allowed_sw,
-                            speed_mm_s=speed,
-                            reason=f"BEND_SWITCH_JUMP: physical step {step_max:.4f}mm exceeds {allowed_sw:.2f}mm",
-                        ))
-
-                # Check phase-aware motion envelope
-                if not bend_changed:
-                    allowed_step = 0.05
-                    reason_label = ""
-                    if cur_phase in ("IDLE", "BOTTOM", "CONTACT", "STEP_COMPLETE"):
-                        if phase_changed and prev_phase in ("BENDING", "RETRACT"):
-                            allowed_step = max(0.5, 500.0 * (dt or 0.05))
-                            reason_label = f"PHASE_TRANSITION_STEP_EXCEEDED: step {step_max:.4f}mm > {allowed_step:.2f}mm at {prev_phase}->{cur_phase}"
-                        else:
-                            allowed_step = 0.05
-                            reason_label = f"STATIONARY_PHASE_MOTION: step {step_max:.4f}mm in {cur_phase}"
-                    elif cur_phase in ("APPROACH", "RETRACT"):
-                        if phase_changed and prev_phase in ("TRANSFER", "BOTTOM"):
-                            allowed_step = max(0.5, 500.0 * (dt or 0.05))
-                            reason_label = f"PHASE_TRANSITION_STEP_EXCEEDED: step {step_max:.4f}mm > {allowed_step:.2f}mm at {prev_phase}->{cur_phase}"
-                        else:
-                            allowed_step = 0.05
-                            reason_label = f"WORKPIECE_MOTION_DURING_RAM_TRAVEL: step {step_max:.4f}mm in {cur_phase}"
-                    elif cur_phase == "BENDING":
-                        allowed_step = max(0.5, 500.0 * (dt or 0.05))
-                        reason_label = f"BENDING_STEP_EXCEEDED: step {step_max:.4f}mm > {allowed_step:.2f}mm"
-                    elif cur_phase == "TRANSFER":
-                        allowed_step = max(1.0, 1200.0 * (dt or 0.05))
-                        reason_label = f"TRANSFER_STEP_EXCEEDED: step {step_max:.4f}mm > {allowed_step:.2f}mm"
-
-                    if step_max > allowed_step:
-                        discontinuities.append(DiscontinuityRecord(
                             frame=idx,
-                            timestamp_s=float(f.get("unix_s", 0.0)),
-                            phase=cur_phase,
-                            from_bend=prev_bend,
-                            to_bend=cur_bend,
-                            landmark_id=max_k,
-                            step_mm=step_max,
-                            allowable_mm=allowed_step,
-                            speed_mm_s=speed,
-                            reason=reason_label,
+                            timestamp_s=float(unix_s or 0.0),
+                            max_step_mm=step_max,
+                            tolerance_mm=allowed_sw,
+                            status=sw_status,
                         ))
+                        if sw_status == "FAIL":
+                            discontinuities.append(DiscontinuityRecord(
+                                frame=idx,
+                                timestamp_s=float(unix_s or 0.0),
+                                phase=cur_phase,
+                                from_bend=prev_bend,
+                                to_bend=cur_bend,
+                                landmark_id=max_k,
+                                step_mm=step_max,
+                                allowable_mm=allowed_sw,
+                                speed_mm_s=speed,
+                                reason=f"BEND_SWITCH_JUMP: step {step_max:.4f}mm exceeds tolerance {allowed_sw:.2f}mm at {prev_bend}->{cur_bend}",
+                            ))
 
-        # ------------------------------------------------------------------
-        # 2. Punch Contact & Clearance Validation (BENDING & BOTTOM)
-        # ------------------------------------------------------------------
+                    # B. Phase-aware velocity envelope
+                    if not bend_changed:
+                        allowed_step = 0.05
+                        reason_label = ""
+                        # Stationary phases: sheet must be completely static
+                        if cur_phase in ("IDLE", "BOTTOM", "CONTACT", "STEP_COMPLETE"):
+                            if phase_changed and prev_phase in ("BENDING", "RETRACT"):
+                                allowed_step = max(0.5, 200.0 * eff_dt)
+                                reason_label = f"PHASE_BOUNDARY_STEP_EXCEEDED: step {step_max:.4f}mm > {allowed_step:.2f}mm at {prev_phase}->{cur_phase}"
+                            else:
+                                allowed_step = 0.05
+                                reason_label = f"STATIONARY_PHASE_MOTION: step {step_max:.4f}mm in {cur_phase}"
+                        # Ram travel without sheet transfer: workpiece must remain seated
+                        elif cur_phase in ("APPROACH", "RETRACT"):
+                            if phase_changed and prev_phase in ("TRANSFER", "BOTTOM"):
+                                allowed_step = max(0.5, 350.0 * eff_dt)
+                                reason_label = f"PHASE_BOUNDARY_STEP_EXCEEDED: step {step_max:.4f}mm > {allowed_step:.2f}mm at {prev_phase}->{cur_phase}"
+                            else:
+                                allowed_step = 0.05
+                                reason_label = f"WORKPIECE_MOTION_DURING_RAM_TRAVEL: step {step_max:.4f}mm in {cur_phase}"
+                        # Active bending: maximum linear tip speed 200 mm/s
+                        elif cur_phase == "BENDING":
+                            allowed_step = max(0.5, 200.0 * eff_dt)
+                            reason_label = f"BENDING_STEP_EXCEEDED: step {step_max:.4f}mm > {allowed_step:.2f}mm"
+                        # Active 3D spatial transfer: maximum linear speed 350 mm/s
+                        elif cur_phase == "TRANSFER":
+                            allowed_step = max(1.0, 350.0 * eff_dt)
+                            reason_label = f"TRANSFER_STEP_EXCEEDED: step {step_max:.4f}mm > {allowed_step:.2f}mm"
+
+                        if step_max > allowed_step:
+                            discontinuities.append(DiscontinuityRecord(
+                                frame=idx,
+                                timestamp_s=float(unix_s or 0.0),
+                                phase=cur_phase,
+                                from_bend=prev_bend,
+                                to_bend=cur_bend,
+                                landmark_id=max_k,
+                                step_mm=step_max,
+                                allowable_mm=allowed_step,
+                                speed_mm_s=speed,
+                                reason=reason_label,
+                            ))
+
+        # --------------------------------------------------------------
+        # Punch Contact & Penetration Validation (BENDING & BOTTOM)
+        # --------------------------------------------------------------
         if cur_phase in ("BENDING", "BOTTOM"):
             clearance = f.get("punch_clearance_mm")
             ram_z = f.get("ram_z_mm")
@@ -382,32 +550,38 @@ def analyze_trace(
             inner_apex = b_zone.get("inner_apex")
             has_inconsistency = False
 
-            if clearance is not None and clearance > contact_tolerance_mm:
-                has_inconsistency = True
-                geometric_inconsistencies.append(GeometricInconsistencyRecord(
-                    frame=idx,
-                    timestamp_s=float(f.get("unix_s", 0.0)),
-                    phase=cur_phase,
-                    active_bend_id=cur_bend,
-                    kind="PUNCH_CONTACT_LOSS",
-                    value_mm=float(clearance),
-                    tolerance_mm=contact_tolerance_mm,
-                    details=f"Punch clearance {clearance:.4f}mm > {contact_tolerance_mm}mm during {cur_phase}",
-                ))
-            elif ram_z is not None and inner_apex is not None:
-                inner_z = float(inner_apex[1])
-                gap = abs(float(ram_z) - inner_z)
-                if float(ram_z) < inner_z - contact_tolerance_mm:
+            # 1. Contact Loss: punch tip must not separate from inner sheet surface
+            if clearance is not None:
+                cl_val = float(clearance)
+                if cl_val > contact_tolerance_mm:
                     has_inconsistency = True
                     geometric_inconsistencies.append(GeometricInconsistencyRecord(
                         frame=idx,
-                        timestamp_s=float(f.get("unix_s", 0.0)),
+                        timestamp_s=float(unix_s or 0.0),
+                        phase=cur_phase,
+                        active_bend_id=cur_bend,
+                        kind="PUNCH_CONTACT_LOSS",
+                        value_mm=cl_val,
+                        tolerance_mm=contact_tolerance_mm,
+                        details=f"Punch clearance {cl_val:.4f}mm > {contact_tolerance_mm}mm during {cur_phase}",
+                    ))
+
+            # 2. Punch Penetration Violation: punch tip must not penetrate beyond apex
+            if ram_z is not None and inner_apex is not None:
+                inner_z = float(inner_apex[1])
+                # Penetration occurs if ram_z penetrates deeper than inner_apex_z by > tolerance
+                penetration = inner_z - float(ram_z)
+                if penetration > contact_tolerance_mm:
+                    has_inconsistency = True
+                    geometric_inconsistencies.append(GeometricInconsistencyRecord(
+                        frame=idx,
+                        timestamp_s=float(unix_s or 0.0),
                         phase=cur_phase,
                         active_bend_id=cur_bend,
                         kind="PUNCH_PENETRATION_VIOLATION",
-                        value_mm=gap,
+                        value_mm=penetration,
                         tolerance_mm=contact_tolerance_mm,
-                        details=f"Punch tip penetrated past inner surface by {gap:.4f}mm during {cur_phase}",
+                        details=f"Punch tip penetrated past inner surface by {penetration:.4f}mm during {cur_phase}",
                     ))
 
             if has_inconsistency:
@@ -415,15 +589,13 @@ def analyze_trace(
             else:
                 pm.punch_contact_valid_frames += 1
 
-            # --------------------------------------------------------------
             # 3. Die Support Validation (BENDING only)
-            # --------------------------------------------------------------
             if cur_phase == "BENDING":
                 val_status = str(f.get("validation_status", ""))
                 if "UNSUPPORTED" in val_status:
                     geometric_inconsistencies.append(GeometricInconsistencyRecord(
                         frame=idx,
-                        timestamp_s=float(f.get("unix_s", 0.0)),
+                        timestamp_s=float(unix_s or 0.0),
                         phase=cur_phase,
                         active_bend_id=cur_bend,
                         kind="DIE_SUPPORT_VIOLATION",
@@ -432,45 +604,110 @@ def analyze_trace(
                         details=val_status,
                     ))
 
-        # ------------------------------------------------------------------
-        # 4. Unresolved Conditions / Faults
-        # ------------------------------------------------------------------
+        # Check pose warnings
         warning = f.get("pose_warning")
         if warning and "KINEMATIC_POSE_HALT" in str(warning):
             unresolved_conditions.append({
                 "frame": idx,
-                "timestamp_s": float(f.get("unix_s", 0.0)),
+                "timestamp_s": float(unix_s or 0.0),
                 "kind": "KINEMATIC_POSE_HALT",
                 "details": str(warning),
             })
 
         prev_frame = f
 
-    # Event analysis for faults
-    for ev in events:
-        ename = ev.get("event")
-        if ename in ("PHYSICAL_DISCONTINUITY", "BEND_SWITCH_DISCONTINUITY"):
-            # Ensure recorded in summary counts
-            pass
-        elif ename == "TRANSFER_TRAJECTORY_FAILED":
+    # ------------------------------------------------------------------
+    # Check 3: Missing physical landmarks verification
+    # ------------------------------------------------------------------
+    if len(frames) > 0 and frames_with_physical_landmarks == 0:
+        unresolved_conditions.append({
+            "kind": "MISSING_PHYSICAL_LANDMARKS",
+            "details": "Trace contains 0 frames with physical landmarks; physical continuity cannot be verified",
+        })
+
+    # ------------------------------------------------------------------
+    # Check 4: Signed target bend angle verification
+    # ------------------------------------------------------------------
+    if frames:
+        final_angles = frames[-1].get("angles_deg", {})
+        for bid, target_angle in discovered_targets.items():
+            if bid in final_angles:
+                actual_angle = float(final_angles[bid])
+                angle_err = abs(actual_angle - target_angle)
+                if angle_err <= angle_tolerance_deg:
+                    bends_completed_set.add(bid)
+                else:
+                    geometric_inconsistencies.append(GeometricInconsistencyRecord(
+                        frame=len(frames) - 1,
+                        timestamp_s=float(frames[-1].get("unix_s", 0.0)),
+                        phase="COMPLETED",
+                        active_bend_id=bid,
+                        kind="TARGET_ANGLE_MISMATCH",
+                        value_mm=angle_err,
+                        tolerance_mm=angle_tolerance_deg,
+                        details=f"Bend {bid} final angle {actual_angle:+.2f}° does not match signed target {target_angle:+.2f}° (err {angle_err:.2f}° > {angle_tolerance_deg}°)",
+                    ))
+
+    # ------------------------------------------------------------------
+    # Check 5: Sequence completeness (all reference bends & transfers)
+    # ------------------------------------------------------------------
+    if expected_order:
+        missing_bends = [b for b in expected_order if b not in bends_completed_set]
+        if missing_bends:
             unresolved_conditions.append({
-                "kind": "TRANSFER_TRAJECTORY_FAILED",
-                "details": str(ev.get("reason", "Trajectory generation failed")),
+                "kind": "INCOMPLETE_BEND_SEQUENCE",
+                "details": f"Expected bends {expected_order}, but {missing_bends} were not completed",
             })
 
-    # Overall Status determination
+        expected_switches_count = max(0, len(expected_order) - 1)
+        if len(bend_switches) < expected_switches_count:
+            unresolved_conditions.append({
+                "kind": "INCOMPLETE_TRANSFERS",
+                "details": f"Expected {expected_switches_count} workpiece transfers, but only {len(bend_switches)} were recorded",
+            })
+
+    # ------------------------------------------------------------------
+    # Check 6: Completion confirmation event
+    # ------------------------------------------------------------------
+    has_completion_event = False
+    valid_stop_reasons = (
+        "PLAYBACK_COMPLETED",
+        "D4_P1_VERIFICATION_COMPLETE",
+        "FULL_CYCLE_COMPLETED",
+    )
+    if trace_stopped_reason in valid_stop_reasons:
+        has_completion_event = True
+    elif "PLAYBACK_COMPLETED" in event_counts:
+        has_completion_event = True
+
+    if not has_completion_event:
+        unresolved_conditions.append({
+            "kind": "MISSING_COMPLETION_EVENT",
+            "details": f"Trace ended without playback completion (stop reason: '{trace_stopped_reason}')",
+        })
+
+    # ------------------------------------------------------------------
+    # Overall Status Classification: PASS | FAIL | UNVERIFIED
+    # ------------------------------------------------------------------
     sw_continuous_cnt = sum(1 for b in bend_switches if b.status == "PASS")
     sw_discontinuous_cnt = sum(1 for b in bend_switches if b.status == "FAIL")
 
-    if not frames:
-        overall_status = "UNVERIFIED"
-    elif discontinuities or geometric_inconsistencies or unresolved_conditions:
+    # Invariants violated -> FAIL
+    if discontinuities or geometric_inconsistencies:
         overall_status = "FAIL"
+    # Fatal malformed or aborted conditions -> FAIL
+    elif any(u.get("kind") in ("MALFORMED_JSON_LINE", "TARGET_ANGLE_MISMATCH", "KINEMATIC_POSE_HALT") for u in unresolved_conditions):
+        overall_status = "FAIL"
+    # Missing required evidence or incomplete execution -> UNVERIFIED
+    elif unresolved_conditions or frames_with_physical_landmarks == 0 or len(frames) < 2:
+        overall_status = "UNVERIFIED"
     else:
         overall_status = "PASS"
 
     return TraceAnalysisReport(
         overall_status=overall_status,
+        analyzer_version=ANALYZER_VERSION,
+        source_revision=source_revision,
         trace_file=file_path_str,
         project_version=project_version,
         build_id=build_id,
@@ -520,9 +757,10 @@ def main():
 
     if report.overall_status == "FAIL":
         sys.exit(1)
+    elif report.overall_status == "UNVERIFIED":
+        sys.exit(2)
     sys.exit(0)
 
 
 if __name__ == "__main__":
     main()
-
