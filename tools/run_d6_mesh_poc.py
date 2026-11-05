@@ -68,17 +68,33 @@ def brep_trial(sheet, tool, repeats=10, epsilon_mm3=1e-5):
         return {"error": str(exc)}
 
 
-def run_case(name, sheet, tool, expected, benchmark_iterations=100):
+def run_case(name, sheet, tool, expected, benchmark_iterations=100,
+             expected_volume_mm3=None, relative_volume_tolerance=0.01):
     start = perf_counter()
     sm = mesh_from_shape(sheet)
     tm = mesh_from_shape(tool)
     mesh_build_ms = round((perf_counter() - start) * 1000.0, 5)
     result = classify_mesh_pair(sm, tm)
+    measured = result.overlap_volume_mm3
+    volume_error = (
+        abs(measured - expected_volume_mm3) / expected_volume_mm3
+        if expected_volume_mm3 is not None and expected_volume_mm3 > 0
+        and measured is not None
+        else None
+    )
+    volume_accepted = (
+        True if expected_volume_mm3 is None
+        else volume_error is not None and volume_error <= relative_volume_tolerance
+    )
     return {
         "case": name,
         "expected": expected,
+        "expected_overlap_volume_mm3": expected_volume_mm3,
+        "relative_overlap_volume_error": volume_error,
+        "max_relative_overlap_error_allowed": relative_volume_tolerance,
+        "volume_accuracy_pass": volume_accepted,
         "observed": result.to_dict(),
-        "matches_expected": result.status.value == expected,
+        "matches_expected": (result.status.value == expected and volume_accepted),
         "sheet": shape_stats(sheet),
         "tool": shape_stats(tool),
         "mesh_build_ms": mesh_build_ms,
@@ -131,9 +147,9 @@ def main():
         "real_cad_case": None,
     }
     for case in (
-        ("separated_boxes", sheet, separate, MeshContact.CLEAR.value, 1000),
-        ("overlapping_boxes", sheet, penetration, MeshContact.PENETRATION.value, 100),
-        ("touching_boxes", sheet, touching, MeshContact.UNVERIFIED.value, 100),
+        ("separated_boxes", sheet, separate, MeshContact.CLEAR.value, 1000, None),
+        ("overlapping_boxes", sheet, penetration, MeshContact.PENETRATION.value, 100, 200.0),
+        ("touching_boxes", sheet, touching, MeshContact.UNVERIFIED.value, 100, None),
     ):
         try:
             result = run_case(*case)
@@ -141,11 +157,16 @@ def main():
             result = {"case": case[0], "expected": case[3],
                       "matches_expected": False, "error": str(exc)}
         report["cases"].append(result)
-        print("SMBS MESH PoC:", result["case"], result.get("observed", result.get("error")))
+        print("SMBS MESH PoC:", result["case"], result.get("observed", result.get("error")),
+              "ACCURACY:", "PASS" if result.get("matches_expected") else "FAIL",
+              "REL_VOLUME_ERR:", result.get("relative_overlap_volume_error"))
 
     report["known_fixture_acceptance"] = (
         "PASS" if all(c.get("matches_expected") for c in report["cases"]) else "FAIL"
     )
+    if report["known_fixture_acceptance"] != "PASS":
+        print("SMBS MESH PoC WARNING: baseline mesh Boolean is not yet trustworthy.")
+        print("Do not enable Mesh Boolean as the production SMBS collision backend.")
 
     document = App.ActiveDocument
     sheet_name = os.environ.get("SMBS_MESH_POC_SHEET")
