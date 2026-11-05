@@ -69,6 +69,7 @@ class LoadedTool:
     tip_radius_mm: float
     included_angle_deg: float
     v_opening_mm: float = 0.0
+    effective_v_opening_mm: float = 0.0
     shoulder_radius_mm: float = 0.0
     v_depth_mm: float = 0.0
     height_mm: float = 0.0
@@ -282,6 +283,24 @@ def load_native_die(
                 offset_xm=0.0,
             ),)
 
+        # Authoritative shoulder fillet center detection from machine solid:
+        # The true kinematic die opening V_effective is 2 * y_shoulder_fillet_center
+        # which governs the exact tangent contact with the sheet workpiece.
+        effective_v = float(profile.v_opening_mm)
+        try:
+            shoulder_centers = []
+            sh_r = float(profile.shoulder_radius_mm)
+            for f in machine_shape.Faces:
+                surf = getattr(f, "Surface", None)
+                if surf is not None and hasattr(surf, "Radius") and abs(surf.Radius - sh_r) < 1e-3:
+                    if abs(f.BoundBox.ZMax - 0.0) < 1e-3:
+                        shoulder_centers.append(surf.Center)
+            if shoulder_centers:
+                y_offs = [abs(c.y) for c in shoulder_centers]
+                effective_v = float(2.0 * (sum(y_offs) / len(y_offs)))
+        except Exception:
+            pass
+
         return LoadedTool(
             tool_id=p.stem,
             kind="DIE",
@@ -291,6 +310,7 @@ def load_native_die(
             tip_radius_mm=0.0,
             included_angle_deg=float(profile.die_angle_deg),
             v_opening_mm=float(profile.v_opening_mm),
+            effective_v_opening_mm=effective_v,
             shoulder_radius_mm=float(profile.shoulder_radius_mm),
             v_depth_mm=float(datums.v_depth_mm),
             height_mm=float(profile.height_mm),
