@@ -27,7 +27,7 @@ import FreeCAD as App
 import Part
 
 from smbs_core.kinematics2d.mesh_collision_poc import bbox_gap_mm
-from smbs_core.kinematics2d.freecad_native_collision import classify_solids
+from smbs_core.kinematics2d.freecad_native_collision import classify_solids, prepare_solid, classify_prepared
 
 
 def measure(label, func, repeats=500):
@@ -54,7 +54,13 @@ def main():
     a = Part.makeBox(10, 10, 10, App.Vector(0, 0, 0))
     b = Part.makeBox(10, 10, 10, App.Vector(40, 0, 0))
     c = Part.makeBox(10, 10, 10, App.Vector(8, 0, 0))
+    prepared_a = prepare_solid(a)
+    prepared_b = prepare_solid(b)
+    prepared_c = prepare_solid(c)
     tasks = [
+        ("prepare_solid_disjoint_shape", lambda: prepare_solid(b)),
+        ("prepared_aabb_only_disjoint", lambda: classify_prepared(prepared_a, prepared_b)),
+        ("prepared_common_overlap", lambda: classify_prepared(prepared_a, prepared_c)),
         ("aabb_only_disjoint", lambda: bbox_gap_mm(a.BoundBox, b.BoundBox)),
         ("shape_validity_only", lambda: (
             a.isNull(), b.isNull(), a.isValid(), b.isValid(),
@@ -69,7 +75,7 @@ def main():
         "schema": "smbs-part-overhead-v1",
         "created_utc": datetime.now(timezone.utc).isoformat(),
         "freecad": ".".join(map(str, App.Version()[:3])),
-        "scope": "Microbenchmark static valid cubes; source shapes never change",
+        "scope": "Microbenchmark immutable prepared snapshots vs per-call validation",
         "benchmarks": [],
     }
     for name, fn in tasks:
