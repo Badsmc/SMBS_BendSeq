@@ -1,49 +1,180 @@
-"""D6.3 reject closed but non-volume-preserving reconstructed sheets."""
+"""D6.3 volume and CAD model consistency validation tests."""
 import math
 import unittest
 
 from smbs_core.kinematics2d.native_volume_gate import (
     volume_consistency,
     ideal_constant_thickness_bend_drift_mm3,
+    polygonal_bend_discretization_error_mm3,
+    predict_cad_consistent_volume_mm3,
+    cad_volume_consistency,
 )
 
 
 class NativeVolumeGateTests(unittest.TestCase):
     def test_flat_constant_volume_passes(self):
-        result=volume_consistency([29253.982,29253.982,29253.982])
+        result = volume_consistency([29253.982, 29253.982, 29253.982])
         self.assertTrue(result["pass"])
-        self.assertEqual(result["maximum_relative_drift_percent"],0)
+        self.assertEqual(result["maximum_relative_drift_percent"], 0)
 
     def test_actual_freecad_20261105_report_fails(self):
         # Values from actual FreeCAD 1.1.3 JSON, not synthetic geometry.
-        values=[29253.98223686155,29271.65240185775,
-                29289.314804830967,29306.96168405041,
-                29324.585278369843]
-        result=volume_consistency(values)
+        values = [29253.98223686155, 29271.65240185775,
+                  29289.314804830967, 29306.96168405041,
+                  29324.585278369843]
+        result = volume_consistency(values)
         self.assertFalse(result["pass"])
-        self.assertAlmostEqual(result["maximum_absolute_drift_mm3"],70.60304150829324)
-        self.assertAlmostEqual(result["maximum_relative_drift_percent"],0.2413450617992436)
+        self.assertAlmostEqual(result["maximum_absolute_drift_mm3"], 70.60304150829324)
+        self.assertAlmostEqual(result["maximum_relative_drift_percent"], 0.2413450617992436)
 
     def test_bend_zone_drift_explained_by_k_factor(self):
-        predicted=ideal_constant_thickness_bend_drift_mm3(
-            thickness_mm=1.5,k_factor=0.4,
-            bend_length_mm=200,angle_deg=90
+        predicted = ideal_constant_thickness_bend_drift_mm3(
+            thickness_mm=1.5, k_factor=0.4,
+            bend_length_mm=200, angle_deg=90
         )
-        self.assertAlmostEqual(predicted,70.68583470577033,places=6)
+        self.assertAlmostEqual(predicted, 70.68583470577033, places=6)
 
     def test_k_half_concentric_sector_zero_drift(self):
-        v=ideal_constant_thickness_bend_drift_mm3(
-            thickness_mm=1.5,k_factor=0.5,bend_length_mm=200,angle_deg=90
+        v = ideal_constant_thickness_bend_drift_mm3(
+            thickness_mm=1.5, k_factor=0.5, bend_length_mm=200, angle_deg=90
         )
-        self.assertEqual(v,0.0)
+        self.assertEqual(v, 0.0)
 
     def test_rejects_nan_and_negative_tolerances(self):
-        for volumes in ([], [1.,float("nan")], [1.,0.], [1.,-1.]):
+        for volumes in ([], [1., float("nan")], [1., 0.], [1., -1.]):
             with self.assertRaises(ValueError):
                 volume_consistency(volumes)
         with self.assertRaises(ValueError):
-            volume_consistency([1.],relative_tolerance=-1)
+            volume_consistency([1.], relative_tolerance=-1)
+
+    # --- New D6.3.1 CAD Volume Consistency Tests ---
+
+    def test_polygonal_discretization_error_zero_at_flat(self):
+        eps = polygonal_bend_discretization_error_mm3(
+            inner_radius_mm=1.0, outer_radius_mm=2.5,
+            angle_deg=0.0, bend_length_mm=200.0, segments=64
+        )
+        self.assertEqual(eps, 0.0)
+
+    def test_polygonal_discretization_error_positive_at_angle(self):
+        eps64 = polygonal_bend_discretization_error_mm3(
+            inner_radius_mm=1.0, outer_radius_mm=2.5,
+            angle_deg=90.0, bend_length_mm=200.0, segments=64
+        )
+        eps128 = polygonal_bend_discretization_error_mm3(
+            inner_radius_mm=1.0, outer_radius_mm=2.5,
+            angle_deg=90.0, bend_length_mm=200.0, segments=128
+        )
+        self.assertAlmostEqual(eps64, 0.082793, places=5)
+        self.assertAlmostEqual(eps128, 0.020699, places=5)
+        self.assertGreater(eps64, eps128)
+
+    def test_cad_volume_consistency_real_freecad_values_pass(self):
+        # Actual recorded values from L-(ok).FCStd in FreeCAD 1.1.3
+        actual_volumes = [
+            29253.98223686155,
+            29271.65240185775,
+            29289.314804830967,
+            29306.96168405041,
+            29324.585278369843,
+        ]
+        angles = [0.0, 22.5, 45.0, 67.5, 90.0]
+        res = cad_volume_consistency(
+            actual_volumes,
+            angles_deg=angles,
+            thickness_mm=1.5,
+            k_factor=0.4,
+            bend_length_mm=200.0,
+            inner_radius_mm=1.0,
+            segments=64,
+        )
+        self.assertTrue(res["pass"])
+        self.assertEqual(res["status"], "PASS")
+        # Residual between actual OCC volume and predicted polygon volume is < 1e-6 mm^3
+        self.assertLess(res["maximum_absolute_residual_mm3"], 1e-4)
+
+    def test_cad_volume_consistency_fails_on_incorrect_volume(self):
+        corrupted_volumes = [
+            29253.98223686155,
+            29271.65240185775,
+            29289.314804830967,
+            29306.96168405041,
+            29400.0,  # Corrupted volume
+        ]
+        angles = [0.0, 22.5, 45.0, 67.5, 90.0]
+        res = cad_volume_consistency(
+            corrupted_volumes,
+            angles_deg=angles,
+            thickness_mm=1.5,
+            k_factor=0.4,
+            bend_length_mm=200.0,
+            inner_radius_mm=1.0,
+            segments=64,
+        )
+        self.assertFalse(res["pass"])
+        self.assertEqual(res["status"], "FAIL")
+        self.assertGreater(res["maximum_absolute_residual_mm3"], 70.0)
+
+    def test_cad_volume_consistency_down_bend_negative_angles(self):
+        # DOWN bend with negative angle
+        angles = [0.0, -22.5, -45.0, -67.5, -90.0]
+        baseline = 10000.0
+        volumes = [
+            predict_cad_consistent_volume_mm3(
+                baseline_flat_volume_mm3=baseline,
+                thickness_mm=2.0,
+                k_factor=0.35,
+                bend_length_mm=150.0,
+                angle_deg=a,
+                inner_radius_mm=2.0,
+                segments=64,
+            )
+            for a in angles
+        ]
+        res = cad_volume_consistency(
+            volumes,
+            angles_deg=angles,
+            thickness_mm=2.0,
+            k_factor=0.35,
+            bend_length_mm=150.0,
+            inner_radius_mm=2.0,
+            segments=64,
+        )
+        self.assertTrue(res["pass"])
+        self.assertLess(res["maximum_absolute_residual_mm3"], 1e-8)
+
+    def test_synthetic_k_factors(self):
+        for k in (0.3, 0.4, 0.5):
+            for t in (1.0, 1.5, 3.0):
+                for r in (0.5, 1.0, 2.5):
+                    for L in (50.0, 200.0):
+                        v_pred = predict_cad_consistent_volume_mm3(
+                            baseline_flat_volume_mm3=10000.0,
+                            thickness_mm=t,
+                            k_factor=k,
+                            bend_length_mm=L,
+                            angle_deg=90.0,
+                            inner_radius_mm=r,
+                            segments=64,
+                        )
+                        self.assertTrue(math.isfinite(v_pred))
+                        self.assertGreater(v_pred, 0.0)
+
+    def test_input_validation_cad_volume_consistency(self):
+        # Mismatched lengths
+        with self.assertRaises(ValueError):
+            cad_volume_consistency([100.0, 105.0], angles_deg=[0.0],
+                                   thickness_mm=1.0, k_factor=0.4, bend_length_mm=100.0)
+        # Invalid thickness / length
+        with self.assertRaises(ValueError):
+            cad_volume_consistency([100.0], angles_deg=[0.0],
+                                   thickness_mm=-1.0, k_factor=0.4, bend_length_mm=100.0)
+        # Missing inner_radius_mm when segments provided
+        with self.assertRaises(ValueError):
+            cad_volume_consistency([100.0], angles_deg=[0.0],
+                                   thickness_mm=1.0, k_factor=0.4, bend_length_mm=100.0,
+                                   segments=64)
 
 
-if __name__=="__main__":
+if __name__ == "__main__":
     unittest.main()
