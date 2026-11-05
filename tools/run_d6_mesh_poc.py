@@ -20,6 +20,7 @@ import platform
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+from smbs_core.report_paths import report_file
 from time import perf_counter
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -202,9 +203,10 @@ def main():
                        "the preview FoldState panel faces are not CAD solids."
         }
 
-    output = Path(os.environ.get("SMBS_MESH_POC_OUTPUT") or
-                  (Path.home() / "pressbrake_traces" /
-                   ("mesh_poc_" + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + ".json")))
+    output = report_file(
+        "mesh_poc_" + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + ".json",
+        legacy_override_env="SMBS_MESH_POC_OUTPUT",
+    )
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
     print("SMBS MESH PoC report:", str(output))
