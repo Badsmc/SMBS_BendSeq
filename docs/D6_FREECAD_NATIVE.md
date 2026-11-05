@@ -72,6 +72,37 @@ Report: `%USERPROFILE%\\pressbrake_traces\\part_benchmark_<timestamp>.json`.
 
 This is a **static geometric qualification**, not a validated sheet-metal bend sequence, real tool/die assembly, or continuous collision detector.
 
+## Native Part benchmark — user-supplied real FreeCAD 1.1.3 (2026-11-05)
+
+Report: `part_benchmark_20261105T110210Z.json`. All 1500 static checks passed (six fixtures, zero unexpected outcomes).
+
+| Fixture | Iterations | Median ms | Result |
+|---|---:|---:|---|
+| Well separated | 1000 | 1.2130 | 1000 CLEAR |
+| Coplanar 200 mm³ overlap | 100 | 4.91835 | 100 COLLISION; 199.99999999999994 mm³ |
+| Staggered 162 mm³ overlap | 100 | 4.3214 | 100 COLLISION; 162 mm³ |
+| Face touch | 100 | 5.14375 | 100 UNVERIFIED |
+| 0.01 mm clearance | 100 | 4.0395 | 100 UNVERIFIED |
+| 0.10 mm clearance | 100 | 1.22485 | 100 CLEAR |
+
+**Decision:** the built-in FreeCAD Part backend passes *static cube* regression, while Mesh Boolean does not. This is not evidence for B01–B08, continuous trajectories, tool contact policy, or production safety. Production adapter stays disconnected pending state/pose integration and real imported geometry tests.
+
+The AABB-separated path takes ~1.2 ms despite not calling `Part.common`. A *hypothesis* is that repeated `Shape.isValid()`/solid checks dominate. To measure that, a separate script `tools/run_d6_native_overhead.py` profiles the unchanged static boxes through: bounding boxes only, validation only, existing full classifier for separate and overlapping boxes, raw `Part.common`, raw `Part.distToShape`.
+
+Run after updating `d6-freecad-native`:
+
+```python
+import runpy
+from pathlib import Path
+import smbs_core
+p = Path(smbs_core.__file__).resolve().parent.parent / "tools" / "run_d6_native_overhead.py"
+runpy.run_path(str(p), run_name="__main__")
+```
+
+Report: `%USERPROFILE%\\pressbrake_traces\\part_overhead_<timestamp>.json`.
+
+No optimization is applied yet: if caching validation is later introduced, it MUST invalidate on shape change or FoldState pose update, and never reuse stale clearance results.
+
 ## Decision gates
 
 - If `reuse` fails but `copies` succeeds consistently, isolate mutable Mesh state and update the adapter to use independent copies only; repeat on real imported punch and die.
