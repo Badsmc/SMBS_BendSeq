@@ -1,12 +1,14 @@
 name: PressBrakeSim 2D preview regression
 on:
   push:
-    branches: ['2D']
+    branches: ['2D', 'd5-collision-validation']
     paths:
       - 'smbs_core/kinematics2d/workpiece_pose_2d.py'
       - 'smbs_core/kinematics2d/motion_trace.py'
       - 'tests/test_motion_trace.py'
       - 'smbs_core/kinematics2d/contact_oracle_2d.py'
+      - 'smbs_core/kinematics2d/d5_contact_validation.py'
+      - 'tests/test_d5_contact_validation.py'
       - 'tests/test_contact_oracle_2d.py'
       - 'smbs_core/kinematics2d/press_cycle.py'
       - 'freecad_smbs/commands/pressbrake_2d.py'
@@ -32,6 +34,7 @@ jobs:
           python -m py_compile smbs_core/kinematics2d/workpiece_pose_2d.py
           python -m py_compile smbs_core/kinematics2d/motion_trace.py
           python -m py_compile smbs_core/kinematics2d/contact_oracle_2d.py
+          python -m py_compile smbs_core/kinematics2d/d5_contact_validation.py
           python -m py_compile smbs_core/kinematics2d/press_cycle.py
           python -m py_compile smbs_core/kinematics2d/preview_mesh_3d.py
           python -m py_compile freecad_smbs/commands/pressbrake_2d.py
@@ -43,5 +46,7 @@ jobs:
         run: PYTHONPATH=. python -m unittest discover -s tests -p 'test_motion_trace.py' -v
       - name: Phase 5C 2D contact oracle
         run: PYTHONPATH=. python -m unittest discover -s tests -p 'test_contact_oracle_2d.py' -v
+      - name: D5.1 punch and die section collision preview
+        run: PYTHONPATH=. python -m unittest discover -s tests -p 'test_d5_contact_validation.py' -v
       - name: Full-sheet 3D preview
         run: PYTHONPATH=. python -m unittest discover -s tests -p 'test_preview_mesh_3d.py' -v
