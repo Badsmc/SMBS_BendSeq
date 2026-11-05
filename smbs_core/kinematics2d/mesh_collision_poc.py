@@ -62,6 +62,28 @@ def bbox_gap_mm(a: Any, b: Any) -> float | None:
         return None
 
 
+def bbox_overlap_volume_mm3(a: Any, b: Any) -> float | None:
+    """Strict upper bound on the volume common to two bounded solids.
+
+    A valid Boolean intersection cannot exceed the intersection of the
+    world-space axis-aligned bounds. This guards against nonsensical
+    triangulated Boolean output (observed 260 mm3 for 200 mm3 box overlap).
+    """
+    try:
+        lengths = []
+        for low, high in (("XMin", "XMax"), ("YMin", "YMax"), ("ZMin", "ZMax")):
+            a0, a1 = float(getattr(a, low)), float(getattr(a, high))
+            b0, b1 = float(getattr(b, low)), float(getattr(b, high))
+            if not all(isfinite(v) for v in (a0, a1, b0, b1)):
+                return None
+            if a1 < a0 or b1 < b0:
+                return None
+            lengths.append(max(0.0, min(a1, b1) - max(a0, b0)))
+        return lengths[0] * lengths[1] * lengths[2]
+    except (AttributeError, ValueError, TypeError, OverflowError):
+        return None
+
+
 def mesh_from_shape(shape: Any, *, linear_deflection_mm: float = 0.1,
                     angular_deflection_rad: float = 0.25) -> Any:
     """One-time tessellation of an existing CAD solid in the FreeCAD process."""
@@ -120,6 +142,16 @@ def classify_mesh_pair(sheet: Any, tool: Any,
         volume = float(overlap.Volume)
         if not isfinite(volume) or volume < 0:
             return report(MeshContact.UNVERIFIED, "invalid_overlap_volume")
+        bound_volume = bbox_overlap_volume_mm3(sheet.BoundBox, tool.BoundBox)
+        if bound_volume is None:
+            return report(MeshContact.UNVERIFIED, "invalid_overlap_bounds", volume)
+        # True solid intersection is a subset of both AABBs. A result outside
+        # their overlap volume is provably inconsistent, even with a coarse
+        # triangle mesh. Do not approve a false positive as trusted geometry.
+        numerical_slack = max(1e-5, 1e-6 * bound_volume)
+        if volume > bound_volume + numerical_slack:
+            return report(MeshContact.UNVERIFIED,
+                          "impossible_boolean_volume_exceeds_bbox_intersection", volume)
         if volume > min_volume_mm3:
             return report(MeshContact.PENETRATION, "positive_mesh_boolean_volume", volume)
         return report(MeshContact.UNVERIFIED, "touch_or_overlap_below_resolution", volume)
