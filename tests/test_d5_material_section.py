@@ -98,6 +98,28 @@ class MaterialSideRegression(unittest.TestCase):
             self.assertEqual(len(set(polygon)), 4)
             self.assertGreater(max(z for s, z in polygon)-min(z for s, z in polygon), 1.49)
 
+    def test_inactive_opposite_sign_zone_shares_material_side(self):
+        fold = Fold(1)
+        zone2 = SimpleNamespace(
+            thickness_mm=1.5,
+            inner_radius_mm=0.8,
+            fold_angle_deg=-90.0,
+            axis_xy=((-1.0, 5.0), (1.0, 5.0)),
+            left_xy=(0.0, 1.0),
+        )
+        fold.bends["B02"] = SimpleNamespace(
+            bend_zone=zone2, fixed_panel="P1", moving_panel="P2",
+            moving_left=True, angle_deg=-90.0,
+        )
+        original_zone_section = fold.zone_section
+        fold.zone_section = lambda bid, segments: original_zone_section(bid, segments)
+        sec = compute_machine_cutting_plane_section(
+            fold, self.VERTS, Placement(), active_bend_id="B01",
+        )
+        zone = dict(sec["other_zone_polygons"])["B02"]
+        self.assertAlmostEqual(min(z for x, z in zone), -1.5)
+        self.assertAlmostEqual(max(z for x, z in zone), 0.0)
+
     def test_repeated_adjacent_vertices_are_removed(self):
         points = ((0, 0), (0, 0), (1, 0), (1, 1),
                   (0, 1), (0, 0), (0, 0))
