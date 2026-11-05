@@ -14,6 +14,7 @@ from __future__ import annotations
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
+from smbs_core.report_paths import report_file
 from time import perf_counter
 import json
 import math
@@ -152,10 +153,10 @@ def main():
         and all(v["pass"] for v in case.get("variants", {}).values())
         for case in report["results"]
     )
-    output = Path(os.environ.get("SMBS_NATIVE_DIAG_OUTPUT") or (
-        Path.home() / "pressbrake_traces"
-        / ("native_d6_" + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + ".json")
-    ))
+    output = report_file(
+        "native_d6_" + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + ".json",
+        legacy_override_env="SMBS_NATIVE_DIAG_OUTPUT",
+    )
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")
     print("SMBS native diagnostic:", "PASS" if report["mesh_qualified"] else "FAIL")
