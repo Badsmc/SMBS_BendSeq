@@ -62,6 +62,15 @@ To choose a custom report destination:
 os.environ["SMBS_MESH_POC_OUTPUT"] = r"C:\Users\User\Desktop\mesh_poc_report.json"
 ```
 
+## Real FreeCAD 1.1 test finding (2026-11-05)
+
+The first local run showed:
+- Separate 10 mm boxes: `CLEAR`; first single-call duration 39.535 ms (potential cold-start overhead; use benchmark medians rather than this value).
+- 2 mm overlapping 10 x 10 x 10 mm boxes: `PENETRATION`, but Mesh Boolean reported **260 mm3**, whereas exact overlap is **200 mm3** (+30% error).
+- Face touching: `UNVERIFIED`, no positive volume, as designed.
+
+This means merely reporting `PENETRATION` is **not sufficient** to qualify Mesh Boolean: its numerical result violated an elementary geometric upper bound. D6 PoC now rejects such impossible volumes as `UNVERIFIED`. The fixture benchmark explicitly fails acceptance when its overlap-volume relative error exceeds 1%. The reference test remains experimental; do not switch the production collision engine until the cause is understood and 3D geometry validated.
+
 ## Classification contract
 
 - `CLEAR`: **only** world-space AABBs have a gap strictly greater than configurable clearance.
