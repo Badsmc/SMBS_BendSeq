@@ -34,6 +34,7 @@ class Fold:
             inner_radius_mm=0.8,
             fold_angle_deg=90.0 * sign,
             axis_xy=((-1.0, 0.0), (1.0, 0.0)),
+            left_xy=(0.0, 1.0),
         )
         self.bends = {"B01": SimpleNamespace(
             bend_zone=zone,
