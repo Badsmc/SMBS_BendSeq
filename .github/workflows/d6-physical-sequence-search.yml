@@ -1,0 +1,23 @@
+name: D6 physical sequence search (contract)
+on:
+  push:
+    branches: [d6-physical-sequence-search]
+    paths:
+      - 'smbs_core/kinematics2d/sequence_search.py'
+      - 'tests/test_sequence_search_d6.py'
+      - '.github/workflows/d6-physical-sequence-search.yml'
+  workflow_dispatch:
+
+jobs:
+  search-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Compile search and tests
+        run: python -m py_compile smbs_core/kinematics2d/sequence_search.py tests/test_sequence_search_d6.py
+      - name: DFS sequence contract regression
+        run: PYTHONPATH=. python -m unittest discover -s tests -p 'test_sequence_search_d6.py' -v
