@@ -2,6 +2,33 @@
 
 Branch `d6-native-3d`, forked from `d6-freecad-native`. No new dependencies or duplicated bend-angle/K-factor math.
 
+## Real FreeCAD test result: 2026-11-05
+
+The user ran `d63_single_bend_20261105T134731Z.json` in **FreeCAD 1.1.3** on a real positive 90° B01, with 200 mm bend line, 1.5 mm thickness, 1.0 mm inner radius, K=0.4. At all 0/25/50/75/100% bend fractions the constructed two-panel+zone union was a **valid, closed, single OCC solid**; therefore the geometric join implementation is promising.
+
+**However the full-sheet volume is NOT conserved**:
+
+| Angle | Full-sheet volume (mm³) |
+|---|---:|
+| 0° | 29253.982237 |
+| 22.5° | 29271.652402 |
+| 45° | 29289.314805 |
+| 67.5° | 29306.961684 |
+| 90° | 29324.585278 |
+
+Final drift is **+70.603042 mm³ (+0.241345%)**. This report's earlier `PASS_SINGLE_BEND_GEOMETRY` verdict meant only successful closed-solid construction and **was not a trustworthy deformation acceptance verdict**. The corresponding bend-zone volume changed from 753.982237 to 824.585278 mm³.
+
+The discrepancy is compatible with the present constant-thickness *concentric inner/outer arc* model paired with a SheetMetal flat allowance `BA=(r+K*t)*phi`. Under these simplifying assumptions its predicted change is `L*t²*(0.5-K)*phi`, or **+70.686 mm³**, close to the measured +70.603 mm³ (the remaining difference is polygonal sampling). This is a **model inconsistency**, not evidence of a bad OCC Boolean. Do not silently set K to 0.5: K=0.4 is authoritative input from SheetMetal and may represent nonuniform plastic strain/thickness change in real bending. A physically justified deformation law or an explicit geometric approximation contract is required.
+
+### Implemented follow-up
+
+- `smbs_core/kinematics2d/native_volume_gate.py`: stand-alone volume consistency check with an *explicit initial engineering acceptance threshold* of max(0.1 mm³, 0.05% of starting full-sheet volume). This threshold is provisional and not based on material-specific experimental data.
+- `tools/run_d63_single_bend.py` now emits `zone_volume_consistency`, `full_sheet_volume_consistency`, `expected_ideal_sector_drift_mm3`, and `closed_connected_sheet_samples`.
+- When the full OCC shape remains closed but full-sheet volume exceeds tolerance, the top-level result is **`UNVERIFIED_VOLUME_DRIFT`** instead of `PASS_SINGLE_BEND_GEOMETRY`. No motion or physical collision certification is issued.
+- `tests/test_d63_volume_gate.py` contains actual user-measured FreeCAD values as regression fixtures.
+
+**Next task:** rerun this corrected diagnostic on the same FCStd to verify `UNVERIFIED_VOLUME_DRIFT` and the detailed geometry evidence. Then choose a physically consistent deformation/volume conservation model using a real CAD comparison, and only after that proceed with complete-machine collision tests.
+
 ## Work completed
 
 - `smbs_core/kinematics2d/native_bend_solid_3d.py`: constructs a genuinely closed FreeCAD `Part.Shape` solid by extruding the existing positive/negative `BendZone.section_profile` along its real SheetMetal bend axis. It uses the current `FoldState` angle and its fixed panel's actual transform. Duplicate flat/intermediate polygon points are filtered; invalid geometry fails closed.
