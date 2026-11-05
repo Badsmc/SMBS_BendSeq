@@ -5,6 +5,7 @@ on:
     paths:
       - 'smbs_core/kinematics2d/freecad_native_collision.py'
       - 'tools/run_d6_freecad_native.py'
+      - 'tools/run_d6_part_benchmark.py'
       - 'tests/test_freecad_native_collision.py'
       - '.github/workflows/d6-freecad-native.yml'
   workflow_dispatch:
@@ -19,6 +20,6 @@ jobs:
           python-version: '3.11'
       - name: Compile FreeCAD native diagnostics
         run: |
-          python -m py_compile smbs_core/kinematics2d/freecad_native_collision.py tools/run_d6_freecad_native.py tests/test_freecad_native_collision.py
+          python -m py_compile smbs_core/kinematics2d/freecad_native_collision.py tools/run_d6_freecad_native.py tools/run_d6_part_benchmark.py tests/test_freecad_native_collision.py
       - name: Test pure-Python backend contracts
         run: PYTHONPATH=. python -m unittest discover -s tests -p 'test_freecad_native_collision.py' -v
