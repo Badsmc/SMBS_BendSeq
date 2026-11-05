@@ -127,7 +127,7 @@ def check_d51_machine_section(
             outer, holes = shape
             if not outer:
                 raise ContactGeometryError("empty_tool_polygon")
-        except (AttributeError, TypeError, ValueError, ContactGeometryError) as exc:
+        except (AttributeError, TypeError, ValueError, RuntimeError, ContactGeometryError) as exc:
             findings.append(D51Finding(tool_name, "*", D51Status.UNVERIFIED,
                                        "tool_profile_unavailable: " + str(exc)))
             continue
