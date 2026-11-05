@@ -1,25 +1,19 @@
-"""native_collision_3d.py - Native FreeCAD Part / Open CASCADE 3D Collision Detector.
+"""native_collision_3d.py - Native FreeCAD Part / Open CASCADE 3D Collision Detector & Physical Qualification.
 
-Architecture & Physical Collision Contract:
-- Uses native FreeCAD Part.Shape (Open CASCADE BREP) directly.
-- Strict physical separation of surface contact vs volumetric penetration.
-- NO blanket volume exceptions: arbitrary volume tolerances or "forming bypasses"
-  that treat positive volumetric intersections as harmless contact are strictly forbidden.
-- Clear classification statuses:
-  * CLEAR: Clearance > near_tolerance_mm (e.g. > 0.5 mm). No collision.
-  * NEAR_CONTACT: 0.0 < Clearance <= near_tolerance_mm. Approaching contact.
-  * TOUCHING: Clearance <= contact_distance_tolerance_mm (e.g. 1e-4 mm) AND
-              common overlap volume <= volume_tolerance_mm3 (e.g. 1e-4 mm³ OCC facet boundary noise).
-  * PENETRATION: Common overlap volume > volume_tolerance_mm3. Physical clash / interference.
-  * INVALID_GEOMETRY: Non-solid, open, null, or zero-volume input.
-  * MISSING_EVIDENCE: Tool, workpiece, or required placement evidence is missing (fails closed).
-  * INSUFFICIENT_TOOL_LENGTH: Active bend line extends beyond physical tooling coverage.
-
-Contact Policy:
-- A pose is only verified safe if there is NO volumetric penetration.
-- If forming geometry and punch placement are physically inconsistent, the pose is
-  classified as PENETRATION (unsafe), requiring correction of kinematics/placement,
-  never arbitrary tolerance relaxation.
+Architecture Contract:
+1. Native Part Collision Engine (Geometric):
+   - Pure geometry check answering:
+     * Is there clearance? (CLEAR)
+     * Is there near contact? (NEAR_CONTACT)
+     * Is there true surface contact? (TOUCHING, dist <= 1e-4 mm, overlap <= 1e-4 mm³)
+     * Is there positive-volume penetration? (PENETRATION, overlap > 1e-4 mm³)
+     * Is the geometry valid? (INVALID_GEOMETRY)
+2. Physical Machine Setup Qualification:
+   - Evaluates whether the physical setup qualifies for sequence feasibility:
+     * Authoritative tool and workpiece placement evidence
+     * Tool length and assembly coverage along the full bend line
+     * Kinematic clearance across machine cycle
+     * Rejects unauthorized penetration or insufficient tool length
 """
 from __future__ import annotations
 
@@ -56,6 +50,16 @@ class ToolCollisionReport:
     punch_result: PairClearanceResult
     die_result: PairClearanceResult
     is_safe: bool
+    diagnostics: List[str]
+    elapsed_ms: float
+
+
+@dataclass(frozen=True)
+class PhysicalQualificationReport:
+    is_qualified: bool
+    qualification_status: str
+    tool_coverage_status: str
+    pose_collision_status: str
     diagnostics: List[str]
     elapsed_ms: float
 
@@ -216,21 +220,8 @@ def validate_workpiece_tooling_pose(
     *,
     near_tolerance_mm: float = 0.5,
     volume_tolerance_mm3: float = 1e-4,
-    coverage_result: Optional[Any] = None,
 ) -> ToolCollisionReport:
-    """Validate 3D collision status of a machine-placed workpiece against punch and die.
-
-    Parameters:
-    - workpiece_machine_shape: Full 3D solid of the sheet in Machine Space.
-    - punch_machine_shape: 3D solid of the punch in Machine Space.
-    - die_machine_shape: 3D solid of the die in Machine Space.
-    - coverage_result: Optional ToolCoverageResult verifying tool length sufficiency.
-
-    Contract:
-    - Never permits volumetric penetration.
-    - Fails closed if any required input or evidence is missing.
-    - Fails closed if tool coverage is insufficient.
-    """
+    """Validate 3D geometric collision status of a machine-placed workpiece against punch and die."""
     t0 = time.perf_counter()
     diags: List[str] = []
 
@@ -245,12 +236,6 @@ def validate_workpiece_tooling_pose(
         dt = (time.perf_counter() - t0) * 1000.0
         dummy = PairClearanceResult(CollisionClass.MISSING_EVIDENCE, "missing_evidence", 0.0, 0.0, None, 0.0)
         return ToolCollisionReport(CollisionClass.MISSING_EVIDENCE, dummy, dummy, False, diags, dt)
-
-    if coverage_result is not None and not coverage_result.is_covered:
-        diags.append(f"INSUFFICIENT_TOOL_LENGTH: {coverage_result.reason}")
-        dt = (time.perf_counter() - t0) * 1000.0
-        dummy = PairClearanceResult(CollisionClass.INSUFFICIENT_TOOL_LENGTH, "coverage_failed", 0.0, 0.0, None, 0.0)
-        return ToolCollisionReport(CollisionClass.INSUFFICIENT_TOOL_LENGTH, dummy, dummy, False, diags, dt)
 
     # Check Punch
     punch_res = check_pair_clearance(
@@ -268,8 +253,6 @@ def validate_workpiece_tooling_pose(
         volume_tolerance_mm3=volume_tolerance_mm3,
     )
 
-    # Evaluate Overall Status
-    # Any PENETRATION is strictly unsafe.
     overall_status = CollisionClass.CLEAR
     is_safe = True
 
@@ -297,6 +280,45 @@ def validate_workpiece_tooling_pose(
         punch_result=punch_res,
         die_result=die_res,
         is_safe=is_safe,
+        diagnostics=diags,
+        elapsed_ms=dt,
+    )
+
+
+def qualify_machine_setup(
+    collision_report: ToolCollisionReport,
+    punch_coverage: Any,
+    die_coverage: Any,
+) -> PhysicalQualificationReport:
+    """Qualify physical feasibility of the machine tooling setup for an operation.
+
+    Separates pure geometric collision detection from full physical qualification.
+    """
+    t0 = time.perf_counter()
+    diags = list(collision_report.diagnostics)
+    is_qualified = True
+    qual_status = "QUALIFIED"
+
+    if punch_coverage is None or not getattr(punch_coverage, "is_covered", False):
+        is_qualified = False
+        qual_status = "INSUFFICIENT_PUNCH_COVERAGE"
+        diags.append(f"PUNCH_COVERAGE_FAILED: {getattr(punch_coverage, 'reason', 'missing_coverage')}")
+
+    if die_coverage is None or not getattr(die_coverage, "is_covered", False):
+        is_qualified = False
+        qual_status = "INSUFFICIENT_DIE_COVERAGE"
+        diags.append(f"DIE_COVERAGE_FAILED: {getattr(die_coverage, 'reason', 'missing_coverage')}")
+
+    if not collision_report.is_safe:
+        is_qualified = False
+        qual_status = f"COLLISION_{collision_report.status.value}"
+
+    dt = (time.perf_counter() - t0) * 1000.0
+    return PhysicalQualificationReport(
+        is_qualified=is_qualified,
+        qualification_status=qual_status,
+        tool_coverage_status="COVERED" if (getattr(punch_coverage, "is_covered", False) and getattr(die_coverage, "is_covered", False)) else "INSUFFICIENT",
+        pose_collision_status=collision_report.status.value,
         diagnostics=diags,
         elapsed_ms=dt,
     )
