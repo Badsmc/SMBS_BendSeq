@@ -1,0 +1,36 @@
+name: D6 integrated physical sequence candidate search
+on:
+  push:
+    branches: ['d6-integrated-physical-planner']
+    paths:
+      - 'smbs_core/kinematics2d/sequence_search.py'
+      - 'smbs_core/kinematics2d/sequence_planning.py'
+      - 'smbs_core/kinematics2d/physical_step_oracle_25d.py'
+      - 'freecad_smbs/commands/pressbrake_2d.py'
+      - 'tests/test_sequence_search_d6.py'
+      - 'tests/test_physical_step_oracle_d6.py'
+      - '.github/workflows/d6-integrated-physical-planner.yml'
+  workflow_dispatch:
+jobs:
+  candidate-search:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Compile core and GUI
+        run: |
+          python -m py_compile smbs_core/kinematics2d/sequence_search.py
+          python -m py_compile smbs_core/kinematics2d/sequence_planning.py
+          python -m py_compile smbs_core/kinematics2d/physical_step_oracle_25d.py
+          python -m py_compile freecad_smbs/commands/pressbrake_2d.py
+      - name: Deterministic DFS contract
+        run: PYTHONPATH=. python -m unittest discover -s tests -p 'test_sequence_search_d6.py' -v
+      - name: Real state / geometry / tooling adapter
+        run: PYTHONPATH=. python -m unittest discover -s tests -p 'test_physical_step_oracle_d6.py' -v
+      - name: D5 punch-die oracle
+        run: PYTHONPATH=. python -m unittest discover -s tests -p 'test_d5_contact_validation.py' -v
+      - name: D5 material source geometry
+        run: PYTHONPATH=. python -m unittest discover -s tests -p 'test_d5_material_section.py' -v
