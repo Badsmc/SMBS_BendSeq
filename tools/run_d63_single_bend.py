@@ -24,14 +24,16 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0,str(ROOT))
 
 from smbs_core.report_paths import report_file
-from smbs_core.kinematics2d.native_bend_solid_3d import build_bend_zone_solid
+from smbs_core.kinematics2d.native_bend_solid_3d import (
+    build_bend_zone_solid, build_single_bend_sheet_solid, NativeBendSolidError,
+)
 
 
 def main():
     report = {
         "schema": "smbs-d63-single-bend-v1",
         "created_utc": datetime.now(timezone.utc).isoformat(),
-        "scope": "ONE_REAL_SHEETMETAL_BEND_ZONE_NOT_COMPLETE_SHEET_OR_COLLISION_CERTIFICATION",
+        "scope": "ONE_REAL_SHEETMETAL_BEND_ZONE_AND_OPTIONAL_TWO_PANEL_SHEET_NOT_COLLISION_CERTIFICATION",
         "cases": [],
         "result": "NOT_RUN",
     }
@@ -86,6 +88,28 @@ def main():
                 "entire_sheet": False,
                 "machine_collision_certified": False,
             }
+            if len(state.ordered_bends)==1:
+                try:
+                    sheet = build_single_bend_sheet_solid(
+                        state,session.panel_build,bid
+                    )
+                    row["full_single_bend_sheet"]={
+                        "status":"PASS",
+                        "volume_mm3":sheet.volume_mm3,
+                        "solids":len(sheet.shape.Solids),
+                        "is_valid":bool(sheet.shape.isValid()),
+                        "physical_certified":False,
+                    }
+                except Exception as exc:
+                    row["full_single_bend_sheet"]={
+                        "status":"FAIL",
+                        "reason":str(exc),
+                    }
+            else:
+                row["full_single_bend_sheet"]={
+                    "status":"NOT_RUN",
+                    "reason":"Requires exactly one bend and two panels",
+                }
             row["pass"] = (
                 row["valid"] and row["closed"] and row["solid_count"]==1
                 and row["volume_mm3"]>0 and flat_valid
@@ -93,7 +117,13 @@ def main():
             report["cases"].append(row)
             print("SMBS D6.3:",bid, fraction, "PASS" if row["pass"] else "FAIL",
                   "Volume:",round(result.volume_mm3,6),"mm3")
-        report["result"]="PASS_ZONE_ONLY" if all(x["pass"] for x in report["cases"]) else "FAIL"
+        if not all(x["pass"] for x in report["cases"]):
+            report["result"]="FAIL"
+        elif all(x["full_single_bend_sheet"]["status"]=="PASS" for x in report["cases"]):
+            report["result"]="PASS_SINGLE_BEND_GEOMETRY"
+        else:
+            report["result"]="PASS_ZONE_ONLY"
+        report["full_sheet_geometry_complete"] = report["result"]=="PASS_SINGLE_BEND_GEOMETRY"
         # Ensure the original document shape/GUI was never modified.
         report["source_fold_state_isolated"] = source_angle_snapshot == {
             bid:0.0 for bid in source_angle_snapshot
