@@ -9,7 +9,8 @@ from smbs_core.kinematics2d.bend_zone import (
 from smbs_core.kinematics2d.panel_graph import PanelGraph, GraphEdge
 from smbs_core.kinematics2d.panel_kinematics import FoldState
 from smbs_core.kinematics2d.native_bend_solid_3d import (
-    NativeBendSolidError, build_bend_zone_solid, zone_outline,
+    NativeBendSolidError, build_bend_zone_solid,
+    build_single_bend_sheet_solid, zone_outline,
 )
 
 
@@ -64,6 +65,18 @@ class ZoneOutlineTests(unittest.TestCase):
         z=fixture()
         with self.assertRaises(NativeBendSolidError):
             build_bend_zone_solid(z,"NOT_A_BEND")
+
+    def test_complete_sheet_requires_actual_panel_faces(self):
+        state=fixture()
+        with self.assertRaises(NativeBendSolidError):
+            build_single_bend_sheet_solid(state,None,"B01")
+
+    def test_complete_sheet_requires_exact_one_bend(self):
+        # No silent fallback to a subset of a multi-bend sheet.
+        state=fixture()
+        state.graph.panels=("P01","P02","P03")
+        with self.assertRaises(NativeBendSolidError):
+            build_single_bend_sheet_solid(state,None,"B01")
 
     def test_live_freecad_part_if_available(self):
         try:
