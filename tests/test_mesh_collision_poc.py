@@ -54,6 +54,15 @@ class MeshPoCTests(unittest.TestCase):
         self.assertEqual(got.status, MeshContact.PENETRATION)
         self.assertEqual(got.overlap_volume_mm3, 200.0)
 
+    def test_impossible_boolean_volume_must_not_pass(self):
+        # 10x10x10 boxes with exactly 2 mm overlap: upper bound 200 mm3.
+        other = FakeMesh(box(8,0,0,18,10,10))
+        self.first._result = FakeMesh(box(8,0,0,10,10,10), facets=12, volume=260.0)
+        got = classify_mesh_pair(self.first, other)
+        self.assertEqual(got.status, MeshContact.UNVERIFIED)
+        self.assertIn("impossible_boolean_volume", got.reason)
+        self.assertEqual(got.overlap_volume_mm3, 260.0)
+
     def test_no_volume_with_overlapping_boxes_unverified(self):
         second = FakeMesh(box(8,0,0,18,10,10),
                           result=FakeMesh(box(8,0,0,10,10,10), facets=12, volume=0.0))
