@@ -8,6 +8,7 @@ Uses the existing 2.5D pipeline without introducing a second geometry engine:
 """
 from __future__ import annotations
 
+import concurrent.futures
 import hashlib
 import logging
 import math
@@ -36,6 +37,8 @@ from smbs_core.kinematics2d.press_cycle import (
     WorkpieceOrientationStatus,
 )
 from smbs_core.kinematics2d.motion_trace import MotionTraceRecorder, make_frame_record
+from smbs_core.kinematics2d.sequence_planning import calculate_sequence_candidates
+from smbs_core.kinematics2d.sequence_search import SearchStatus
 from smbs_core.kinematics2d.preview_mesh_3d import (
     build_sheet_preview_faces, PreviewMeshError,
 )
@@ -587,6 +590,15 @@ class _PreviewPanel:
                 self.timer = QtCore.QTimer(self)
                 self.timer.setInterval(25)  # 40 Hz Qt playback; one timer only
                 self.timer.timeout.connect(self.advance)
+                self._sequence_executor = concurrent.futures.ThreadPoolExecutor(
+                    max_workers=1, thread_name_prefix="smbs_d6_planner"
+                )
+                self._sequence_future = None
+                self._sequence_session_id = None
+                self._sequence_tool_ids = None
+                self._sequence_timer = QtCore.QTimer(self)
+                self._sequence_timer.setInterval(120)
+                self._sequence_timer.timeout.connect(self._poll_sequence_calculation)
                 self.setMinimumWidth(360)
 
                 root = QtWidgets.QVBoxLayout(self)
@@ -605,9 +617,9 @@ class _PreviewPanel:
                 row = QtWidgets.QHBoxLayout()
                 self.load = _button(QtWidgets, "Деталь", self.load_part, True)
                 self.tooling = _button(QtWidgets, "Оснастка", self.open_tool_library_dialog, True)
-                self.calculate = _button(QtWidgets, "Расчёт", self.unavailable, False)
+                self.calculate = _button(QtWidgets, "Расчёт", self.calculate_sequence, False)
                 self.tooling.setToolTip("Открыть библиотеку пользовательской оснастки (PUNCH / DIE)")
-                self.calculate.setToolTip("Автоматический поиск последовательности отключён на этапе Phase 3A")
+                self.calculate.setToolTip("D6: поиск предварительного порядка с проверкой 2.5D-контактов. Полная 3D-допустимость НЕ подтверждается.")
                 for widget in (self.load, self.tooling, self.calculate):
                     row.addWidget(widget)
                 root.addLayout(row)
@@ -1243,6 +1255,121 @@ class _PreviewPanel:
                 else:
                     scene.setSceneRect(self._fixed_3d_view_rect)
 
+            def calculate_sequence(self):
+                """Run D6 candidate search off the GUI thread, without FreeCAD calls in worker."""
+                if self.session is None:
+                    self.status.setText("D6: сначала загрузите деталь.")
+                    return
+                if self._sequence_future is not None:
+                    return
+                if not self.session.can_reorder() or self.timer.isActive():
+                    self.status.setText("D6: для расчёта остановите симуляцию и нажмите Reset.")
+                    return
+                if self.tooling_setup.punch is None or self.tooling_setup.die is None:
+                    self.status.setText("D6: выберите пуансон и матрицу.")
+                    return
+
+                # Snapshot geometry in the Qt/FreeCAD thread. The worker uses
+                # only pure Python kinematics and immutable imported profiles.
+                state = FoldState(self.session.graph, self.session.fixed_panel)
+                vertices = {
+                    pid: tuple(tuple(p) for p in pts)
+                    for pid, pts in self.session.panel_vertices_xy.items()
+                }
+                tools = ToolingSetup2D(
+                    punch=self.tooling_setup.punch, die=self.tooling_setup.die,
+                )
+                self._sequence_session_id = id(self.session)
+                self._sequence_tool_ids = (
+                    id(self.tooling_setup.punch), id(self.tooling_setup.die),
+                )
+                self.calculate.setEnabled(False)
+                self.status.setText("D6: проверка вариантов гибки (2.5D; без подтверждения 3D)...")
+                self._sequence_future = self._sequence_executor.submit(
+                    calculate_sequence_candidates, state, vertices, tools,
+                    max_states=500, max_checks=2000,
+                )
+                self._sequence_timer.start()
+
+            def _poll_sequence_calculation(self):
+                future = self._sequence_future
+                if future is None or not future.done():
+                    return
+                self._sequence_timer.stop()
+                self._sequence_future = None
+                self._sync_playback_buttons()
+                try:
+                    run = future.result()
+                except Exception as exc:
+                    self.status.setText("D6: ошибка расчёта: {}".format(exc))
+                    _error("D6 search: " + traceback.format_exc())
+                    return
+
+                if (self.session is None
+                        or id(self.session) != self._sequence_session_id
+                        or (id(self.tooling_setup.punch), id(self.tooling_setup.die))
+                        != self._sequence_tool_ids):
+                    self.status.setText("D6: деталь или оснастка изменились; результат сброшен.")
+                    return
+                result = run.result
+                if result.success:
+                    # Only complete proof may be installed automatically.
+                    try:
+                        self.session.set_bend_order(result.sequence)
+                        if self.press_cycle is not None:
+                            self.press_cycle.reset()
+                        self._populate_operations()
+                        self._configure_for_active_bend()
+                        self.draw()
+                        self.status.setText("D6 VERIFIED: " + " → ".join(result.sequence))
+                    except Exception as exc:
+                        self.status.setText("D6: не удалось применить порядок: " + str(exc))
+                    return
+
+                if result.candidate_sequence:
+                    order = result.candidate_sequence
+                    message = (
+                        "Найден предварительный порядок: " + " → ".join(order)
+                        + "\\n\\nПроверены только доступные 2D-сечения и профили инструментов."
+                        + "\\n3D-коллизии, упоры, само-пересечения и перенос детали НЕ подтверждены."
+                        + "\\n\\nПрименить как ДЕМОНСТРАЦИОННЫЙ порядок (не для производства)?"
+                    )
+                    answer = QtWidgets.QMessageBox.question(
+                        self, "D6 — НЕПРОВЕРЕННЫЙ КАНДИДАТ", message,
+                        QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
+                    )
+                    if answer == QtWidgets.QMessageBox.Yes:
+                        try:
+                            self.session.set_bend_order(order)
+                            if self.press_cycle is not None:
+                                self.press_cycle.reset()
+                            self.session.active_bend_index = self.session.controller.active_index
+                            self._populate_operations()
+                            self._configure_for_active_bend()
+                            self.draw()
+                            self.status.setText(
+                                "D6: демонстрационный порядок (НЕ ПРОВЕРЕН ФИЗИЧЕСКИ): "
+                                + " → ".join(order)
+                            )
+                        except Exception as exc:
+                            self.status.setText("D6: порядок не применён: " + str(exc))
+                    else:
+                        self.status.setText(
+                            "D6: предварительный кандидат отклонён; текущий порядок сохранён."
+                        )
+                    return
+
+                blockers = "; ".join(
+                    "{}: {}".format(b, reason) for b, reason in result.rejected[:3]
+                )
+                self.status.setText(
+                    "D6: {} | проверено шагов {} | состояний {}. {}".format(
+                        result.status.value, result.checked_steps,
+                        result.explored_states,
+                        blockers or "; ".join(result.diagnostics),
+                    )
+                )
+
             def unavailable(self):
                 pass  # Disabled controls for Phase 5B/6 features.
 
@@ -1793,6 +1920,7 @@ class _PreviewPanel:
                     self.move_up_btn.setEnabled(False)
                     self.move_down_btn.setEnabled(False)
                     self.restore_order_btn.setEnabled(False)
+                    self.calculate.setEnabled(False)
                     return
                 st = self.session.playback_status
                 self.playing = st == PlaybackStatus.PLAYING
@@ -1817,6 +1945,9 @@ class _PreviewPanel:
                 self.move_down_btn.setEnabled(can_edit_order and 0 <= idx < total - 1)
                 self.restore_order_btn.setEnabled(
                     can_edit_order and self.session.bend_order != self.session.canonical_order
+                )
+                self.calculate.setEnabled(
+                    self.session.can_reorder() and self._sequence_future is None
                 )
 
             def _set_playback_controls_enabled(self, enabled: bool):
@@ -2347,6 +2478,8 @@ class _PreviewPanel:
                 return checks
 
             def closeEvent(self, event):
+                self._sequence_timer.stop()
+                self._sequence_executor.shutdown(wait=False, cancel_futures=True)
                 self._finish_motion_trace("WORKSPACE_CLOSED")
                 self.timer.stop()
                 self.playing = False
