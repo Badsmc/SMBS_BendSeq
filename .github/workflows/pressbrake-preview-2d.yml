@@ -50,3 +50,21 @@ jobs:
         run: PYTHONPATH=. python -m unittest discover -s tests -p 'test_d5_contact_validation.py' -v
       - name: Full-sheet 3D preview
         run: PYTHONPATH=. python -m unittest discover -s tests -p 'test_preview_mesh_3d.py' -v
+
+  d5-1-contact-regression:
+    name: D5.1 read-only collision classification
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify D5.1 source compiles
+        run: python -m py_compile smbs_core/kinematics2d/d5_contact_validation.py smbs_core/kinematics2d/motion_trace.py tests/test_d5_contact_validation.py
+      - name: Run D5.1 regression
+        run: PYTHONPATH=. python -m unittest discover -s tests -p 'test_d5_contact_validation.py' -v
+      - name: Run existing Phase 5C contact oracle regression
+        run: PYTHONPATH=. python -m unittest discover -s tests -p 'test_contact_oracle_2d.py' -v
+      - name: Run motion trace regression
+        run: PYTHONPATH=. python -m unittest discover -s tests -p 'test_motion_trace.py' -v
