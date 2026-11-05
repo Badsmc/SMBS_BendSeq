@@ -6,6 +6,7 @@ on:
       - 'smbs_core/kinematics2d/operation_cost.py'
       - 'smbs_core/kinematics2d/weighted_sequence_search.py'
       - 'tests/test_operation_weights_d7.py'
+      - 'tools/run_d7_weights_demo.py'
       - '.github/workflows/d7-operation-weights.yml'
   workflow_dispatch:
 jobs:
@@ -18,8 +19,10 @@ jobs:
         with:
           python-version: '3.11'
       - name: Compile
-        run: python -m py_compile smbs_core/kinematics2d/operation_cost.py smbs_core/kinematics2d/weighted_sequence_search.py tests/test_operation_weights_d7.py
+        run: python -m py_compile smbs_core/kinematics2d/operation_cost.py smbs_core/kinematics2d/weighted_sequence_search.py tests/test_operation_weights_d7.py tools/run_d7_weights_demo.py
       - name: D7 operational cost and safety tests
         run: PYTHONPATH=. python -m unittest discover -s tests -p 'test_operation_weights_d7.py' -v
       - name: Existing D6 physical sequence contracts
         run: PYTHONPATH=. python -m unittest discover -s tests -p 'test_sequence_search_d6.py' -v
+      - name: D7 synthetic demonstration report
+        run: PYTHONPATH=. SMBS_REPORTS_DIR=/tmp/smbs-d7-reports python tools/run_d7_weights_demo.py
