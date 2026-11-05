@@ -71,6 +71,18 @@ The first local run showed:
 
 This means merely reporting `PENETRATION` is **not sufficient** to qualify Mesh Boolean: its numerical result violated an elementary geometric upper bound. D6 PoC now rejects such impossible volumes as `UNVERIFIED`. The fixture benchmark explicitly fails acceptance when its overlap-volume relative error exceeds 1%. The reference test remains experimental; do not switch the production collision engine until the cause is understood and 3D geometry validated.
 
+## Second actual FreeCAD report (2026-11-05, FreeCAD 1.1.3)
+
+Report `mesh_poc_20261105T094500Z.json`:
+
+- Known fixtures show `known_fixture_acceptance: PASS` from a *one-shot* check.
+- 100 repeated same-pose overlapping-box checks: **62 PENETRATION / 38 UNVERIFIED**. Even if the first result is 200 mm3, the Boolean is not repeatable enough for production.
+- 1000 separated-box checks: 1000 CLEAR, median 0.167 ms, p95 34.3371 ms; this is the bounding-box fast path, not the mesh Boolean.
+- 100 repeated touching-box checks: 100 UNVERIFIED, median 0.7921 ms.
+- Overlapping-box median 1.0853 ms vs B-Rep reference 3.5045 ms. Speed alone is not enough; inconsistent decisions fail acceptance.
+
+The PoC now records per-reason distribution, overlap-volume histogram and checks **every** repetition. Re-run after updating the branch. Do **not** switch SMBS to FreeCAD's built-in Mesh Boolean before establishing why identical inputs have inconsistent outputs. Possible sources include mutable API behavior and boolean robustness; these are hypotheses, not verified causes.
+
 ## Classification contract
 
 - `CLEAR`: **only** world-space AABBs have a gap strictly greater than configurable clearance.
