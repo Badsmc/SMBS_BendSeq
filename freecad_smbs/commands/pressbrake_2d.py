@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import concurrent.futures
 import hashlib
+import json
 import logging
 import math
 import os
@@ -1312,6 +1313,47 @@ class _PreviewPanel:
                     self.status.setText("D6: деталь или оснастка изменились; результат сброшен.")
                     return
                 result = run.result
+                # Save a reproducible, bounded search diagnostic in the same
+                # writable user directory as Motion Trace (not addon checkout).
+                try:
+                    report_path = self._trace_directory / "pressbrake_sequence_d6.json"
+                    report_path.parent.mkdir(parents=True, exist_ok=True)
+                    payload = {
+                        "schema": "smbs-d6-search-preview-v1",
+                        "part_label": self.session.part_label,
+                        "punch_id": getattr(self.tooling_setup.punch, "tool_id", "UNKNOWN"),
+                        "die_id": getattr(self.tooling_setup.die, "tool_id", "UNKNOWN"),
+                        "status": result.status.value,
+                        "sequence": list(result.sequence),
+                        "candidate_sequence": list(result.candidate_sequence),
+                        "explored_states": result.explored_states,
+                        "checked_steps": result.checked_steps,
+                        "diagnostics": list(result.diagnostics),
+                        "rejections": [
+                            {"bend_id": b, "reason": reason}
+                            for b, reason in result.rejected[:1000]
+                        ],
+                        "candidate_checks": [
+                            {
+                                "bend_id": x.bend_id,
+                                "previous_bend_id": x.previous_bend_id,
+                                "status": x.status.value,
+                                "reason": x.reason,
+                                "sampled_phases": list(x.sampled_phases),
+                                "checked_interactions": x.checked_interactions,
+                            }
+                            for x in run.candidate_checks[:1000]
+                        ],
+                        "physical_certified": bool(result.success),
+                        "mode": run.validation_mode,
+                    }
+                    report_path.write_text(
+                        json.dumps(payload, indent=2, ensure_ascii=False),
+                        encoding="utf-8",
+                    )
+                    self.check_result.setText("D6: отчёт сохранён: " + str(report_path))
+                except OSError as exc:
+                    self.check_result.setText("D6: не удалось сохранить отчёт: " + str(exc))
                 if result.success:
                     # Only complete proof may be installed automatically.
                     try:
@@ -1330,9 +1372,9 @@ class _PreviewPanel:
                     order = result.candidate_sequence
                     message = (
                         "Найден предварительный порядок: " + " → ".join(order)
-                        + "\\n\\nПроверены только доступные 2D-сечения и профили инструментов."
-                        + "\\n3D-коллизии, упоры, само-пересечения и перенос детали НЕ подтверждены."
-                        + "\\n\\nПрименить как ДЕМОНСТРАЦИОННЫЙ порядок (не для производства)?"
+                        + "\n\nПроверены только доступные 2D-сечения и профили инструментов."
+                        + "\n3D-коллизии, упоры, само-пересечения и перенос детали НЕ подтверждены."
+                        + "\n\nПрименить как ДЕМОНСТРАЦИОННЫЙ порядок (не для производства)?"
                     )
                     answer = QtWidgets.QMessageBox.question(
                         self, "D6 — НЕПРОВЕРЕННЫЙ КАНДИДАТ", message,
