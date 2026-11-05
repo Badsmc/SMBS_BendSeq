@@ -85,6 +85,27 @@ def _compact_closed_section_polygon(points, tolerance_mm: float = 1e-7):
             compact.append(pt)
     if len(compact) > 1 and math.dist(compact[0], compact[-1]) <= tolerance_mm:
         compact.pop()
+
+    # At zero bend, the sampled arc becomes a straight segment. Remove
+    # intermediate collinear vertices *only* when they lie between their
+    # neighbours; retain genuine curved samples at nonzero angles.
+    changed = True
+    while changed and len(compact) > 3:
+        changed = False
+        for i in range(len(compact)):
+            prev = compact[(i - 1) % len(compact)]
+            cur = compact[i]
+            nxt = compact[(i + 1) % len(compact)]
+            dx, dy = nxt[0] - prev[0], nxt[1] - prev[1]
+            length = math.hypot(dx, dy)
+            if length <= tolerance_mm:
+                continue
+            perp_mm = abs((cur[0] - prev[0]) * dy - (cur[1] - prev[1]) * dx) / length
+            projection = ((cur[0] - prev[0]) * dx + (cur[1] - prev[1]) * dy) / (length * length)
+            if perp_mm <= tolerance_mm and 0.0 <= projection <= 1.0:
+                compact.pop(i)
+                changed = True
+                break
     return tuple(compact)
 
 
