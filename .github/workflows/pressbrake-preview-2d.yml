@@ -9,6 +9,8 @@ on:
       - 'smbs_core/kinematics2d/contact_oracle_2d.py'
       - 'smbs_core/kinematics2d/d5_contact_validation.py'
       - 'tests/test_d5_contact_validation.py'
+      - 'tests/test_d5_material_section.py'
+      - 'smbs_core/kinematics2d/machine_section_3d.py'
       - 'tests/test_contact_oracle_2d.py'
       - 'smbs_core/kinematics2d/press_cycle.py'
       - 'freecad_smbs/commands/pressbrake_2d.py'
@@ -35,6 +37,7 @@ jobs:
           python -m py_compile smbs_core/kinematics2d/motion_trace.py
           python -m py_compile smbs_core/kinematics2d/contact_oracle_2d.py
           python -m py_compile smbs_core/kinematics2d/d5_contact_validation.py
+          python -m py_compile smbs_core/kinematics2d/machine_section_3d.py
           python -m py_compile smbs_core/kinematics2d/press_cycle.py
           python -m py_compile smbs_core/kinematics2d/preview_mesh_3d.py
           python -m py_compile freecad_smbs/commands/pressbrake_2d.py
@@ -64,6 +67,8 @@ jobs:
         run: python -m py_compile smbs_core/kinematics2d/d5_contact_validation.py smbs_core/kinematics2d/motion_trace.py tests/test_d5_contact_validation.py
       - name: Run D5.1 regression
         run: PYTHONPATH=. python -m unittest discover -s tests -p 'test_d5_contact_validation.py' -v
+      - name: Check signed sheet material side and compacted bend zones
+        run: PYTHONPATH=. python -m unittest discover -s tests -p 'test_d5_material_section.py' -v
       - name: Run existing Phase 5C contact oracle regression
         run: PYTHONPATH=. python -m unittest discover -s tests -p 'test_contact_oracle_2d.py' -v
       - name: Run motion trace regression
