@@ -1,0 +1,23 @@
+name: D6 FreeCAD Mesh PoC static contracts
+on:
+  push:
+    branches: ['d6-mesh-poc']
+    paths:
+      - 'smbs_core/kinematics2d/mesh_collision_poc.py'
+      - 'tools/run_d6_mesh_poc.py'
+      - 'tests/test_mesh_collision_poc.py'
+      - '.github/workflows/d6-mesh-poc.yml'
+  workflow_dispatch:
+jobs:
+  pure-python:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Compile experimental backend and FreeCAD entrypoint
+        run: python -m py_compile smbs_core/kinematics2d/mesh_collision_poc.py tools/run_d6_mesh_poc.py tests/test_mesh_collision_poc.py
+      - name: Test fail-closed mesh classifier
+        run: PYTHONPATH=. python -m unittest discover -s tests -p 'test_mesh_collision_poc.py' -v
