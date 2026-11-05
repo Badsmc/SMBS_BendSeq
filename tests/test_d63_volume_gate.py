@@ -8,6 +8,7 @@ from smbs_core.kinematics2d.native_volume_gate import (
     polygonal_bend_discretization_error_mm3,
     predict_cad_consistent_volume_mm3,
     cad_volume_consistency,
+    multi_bend_cad_volume_consistency,
 )
 
 
@@ -47,7 +48,7 @@ class NativeVolumeGateTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             volume_consistency([1.], relative_tolerance=-1)
 
-    # --- New D6.3.1 CAD Volume Consistency Tests ---
+    # --- D6.3.1 CAD Volume Consistency Tests ---
 
     def test_polygonal_discretization_error_zero_at_flat(self):
         eps = polygonal_bend_discretization_error_mm3(
@@ -70,7 +71,6 @@ class NativeVolumeGateTests(unittest.TestCase):
         self.assertGreater(eps64, eps128)
 
     def test_cad_volume_consistency_real_freecad_values_pass(self):
-        # Actual recorded values from L-(ok).FCStd in FreeCAD 1.1.3
         actual_volumes = [
             29253.98223686155,
             29271.65240185775,
@@ -90,7 +90,6 @@ class NativeVolumeGateTests(unittest.TestCase):
         )
         self.assertTrue(res["pass"])
         self.assertEqual(res["status"], "PASS")
-        # Residual between actual OCC volume and predicted polygon volume is < 1e-6 mm^3
         self.assertLess(res["maximum_absolute_residual_mm3"], 1e-4)
 
     def test_cad_volume_consistency_fails_on_incorrect_volume(self):
@@ -99,7 +98,7 @@ class NativeVolumeGateTests(unittest.TestCase):
             29271.65240185775,
             29289.314804830967,
             29306.96168405041,
-            29400.0,  # Corrupted volume
+            29400.0,
         ]
         angles = [0.0, 22.5, 45.0, 67.5, 90.0]
         res = cad_volume_consistency(
@@ -116,7 +115,6 @@ class NativeVolumeGateTests(unittest.TestCase):
         self.assertGreater(res["maximum_absolute_residual_mm3"], 70.0)
 
     def test_cad_volume_consistency_down_bend_negative_angles(self):
-        # DOWN bend with negative angle
         angles = [0.0, -22.5, -45.0, -67.5, -90.0]
         baseline = 10000.0
         volumes = [
@@ -161,19 +159,77 @@ class NativeVolumeGateTests(unittest.TestCase):
                         self.assertGreater(v_pred, 0.0)
 
     def test_input_validation_cad_volume_consistency(self):
-        # Mismatched lengths
         with self.assertRaises(ValueError):
             cad_volume_consistency([100.0, 105.0], angles_deg=[0.0],
                                    thickness_mm=1.0, k_factor=0.4, bend_length_mm=100.0)
-        # Invalid thickness / length
         with self.assertRaises(ValueError):
             cad_volume_consistency([100.0], angles_deg=[0.0],
                                    thickness_mm=-1.0, k_factor=0.4, bend_length_mm=100.0)
-        # Missing inner_radius_mm when segments provided
         with self.assertRaises(ValueError):
             cad_volume_consistency([100.0], angles_deg=[0.0],
                                    thickness_mm=1.0, k_factor=0.4, bend_length_mm=100.0,
                                    segments=64)
+
+    # --- D6.3.2 Multi-Bend CAD Volume Consistency Tests ---
+
+    def test_multi_bend_cad_volume_consistency_z_fixture(self):
+        # Actual recorded values from Z-(ok).FCStd in FreeCAD 1.1.3
+        actual_volumes = [
+            22507.9644737231,   # flat
+            22543.29699863483,  # B01=45, B02=0
+            22578.567515231393, # B01=90, B02=0
+            22613.900040143126, # B01=90, B02=-45
+            22649.170556739704, # B01=90, B02=-90
+        ]
+        states = [
+            {"B01": 0.0, "B02": 0.0},
+            {"B01": 45.0, "B02": 0.0},
+            {"B01": 90.0, "B02": 0.0},
+            {"B01": 90.0, "B02": -45.0},
+            {"B01": 90.0, "B02": -90.0},
+        ]
+        bends_params = {
+            "B01": {"thickness_mm": 1.5, "k_factor": 0.4, "bend_length_mm": 200.0, "inner_radius_mm": 1.0},
+            "B02": {"thickness_mm": 1.5, "k_factor": 0.4, "bend_length_mm": 200.0, "inner_radius_mm": 1.0},
+        }
+        res = multi_bend_cad_volume_consistency(
+            actual_volumes,
+            state_angles_list=states,
+            bends_params=bends_params,
+            segments=64,
+        )
+        self.assertTrue(res["pass"])
+        self.assertEqual(res["status"], "PASS")
+        self.assertLess(res["maximum_absolute_residual_mm3"], 1e-4)
+
+    def test_multi_bend_cad_volume_consistency_fails_on_corrupt(self):
+        actual_volumes = [
+            22507.9644737231,
+            22543.29699863483,
+            22578.567515231393,
+            22613.900040143126,
+            22700.0,  # Corrupted
+        ]
+        states = [
+            {"B01": 0.0, "B02": 0.0},
+            {"B01": 45.0, "B02": 0.0},
+            {"B01": 90.0, "B02": 0.0},
+            {"B01": 90.0, "B02": -45.0},
+            {"B01": 90.0, "B02": -90.0},
+        ]
+        bends_params = {
+            "B01": {"thickness_mm": 1.5, "k_factor": 0.4, "bend_length_mm": 200.0, "inner_radius_mm": 1.0},
+            "B02": {"thickness_mm": 1.5, "k_factor": 0.4, "bend_length_mm": 200.0, "inner_radius_mm": 1.0},
+        }
+        res = multi_bend_cad_volume_consistency(
+            actual_volumes,
+            state_angles_list=states,
+            bends_params=bends_params,
+            segments=64,
+        )
+        self.assertFalse(res["pass"])
+        self.assertEqual(res["status"], "FAIL")
+        self.assertGreater(res["maximum_absolute_residual_mm3"], 50.0)
 
 
 if __name__ == "__main__":

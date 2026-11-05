@@ -3,7 +3,7 @@
 Distinguishes between:
 1. Physical material-volume conservation (which expects constant volume across angles).
 2. CAD-consistent geometry validation (which accounts for the authoritative SheetMetal
-   K-factor convention where V(theta) = V_flat + (0.5 - K) * t^2 * |theta| * L,
+   K-factor convention where V(theta) = V_flat + sum((0.5 - K_i) * t_i^2 * |theta_i| * L_i),
    compensated for polygonal arc chord discretization).
 """
 from __future__ import annotations
@@ -109,23 +109,7 @@ def predict_cad_consistent_volume_mm3(*, baseline_flat_volume_mm3, thickness_mm,
 def cad_volume_consistency(sampled_volumes_mm3, *, angles_deg, thickness_mm, k_factor,
                            bend_length_mm, inner_radius_mm=None, segments=None,
                            relative_tolerance=0.0005, absolute_tolerance_mm3=0.1):
-    """Validate reconstructed volumes against the authoritative CAD-consistent model.
-
-    Model: V_expected(theta) = V_flat + (0.5 - K) * t^2 * |theta| * L - eps_disc(n).
-    Compares each sampled OCC volume with its predicted value.
-
-    Returns diagnostic dictionary containing:
-        - pass: bool
-        - reference_model: str
-        - baseline_flat_volume_mm3: float
-        - sampled_volume_mm3: list[float]
-        - predicted_volume_mm3: list[float]
-        - residuals_mm3: list[float]
-        - maximum_absolute_residual_mm3: float
-        - maximum_relative_residual_percent: float
-        - absolute_tolerance_mm3: float
-        - relative_tolerance_fraction: float
-    """
+    """Validate single-bend reconstructed volumes against the CAD-consistent model."""
     volumes = tuple(sampled_volumes_mm3)
     angles = tuple(angles_deg)
     if len(volumes) != len(angles) or len(volumes) == 0:
@@ -166,6 +150,78 @@ def cad_volume_consistency(sampled_volumes_mm3, *, angles_deg, thickness_mm, k_f
         "pass": all_pass,
         "status": "PASS" if all_pass else "FAIL",
         "reference_model": "SHEETMETAL_CONSTANT_THICKNESS_CONCENTRIC_BEND",
+        "baseline_flat_volume_mm3": baseline_flat,
+        "sampled_volume_mm3": list(volumes),
+        "predicted_volume_mm3": predicted,
+        "residuals_mm3": residuals,
+        "maximum_absolute_residual_mm3": max_abs_res,
+        "maximum_relative_residual_percent": max_rel_pct,
+        "tolerances_mm3": tolerances,
+        "relative_tolerance_fraction": relative_tolerance,
+        "absolute_tolerance_mm3": absolute_tolerance_mm3,
+    }
+
+
+def multi_bend_cad_volume_consistency(sampled_volumes_mm3, *, state_angles_list,
+                                      bends_params, segments=None,
+                                      relative_tolerance=0.0005, absolute_tolerance_mm3=0.1):
+    """Validate multi-bend reconstructed volumes across intermediate states.
+
+    state_angles_list: list of dict[bend_id, angle_deg] for each sampled state.
+    bends_params: dict[bend_id, dict] with keys:
+        - thickness_mm
+        - k_factor
+        - bend_length_mm
+        - inner_radius_mm
+    """
+    volumes = tuple(sampled_volumes_mm3)
+    states = tuple(state_angles_list)
+    if len(volumes) != len(states) or len(volumes) == 0:
+        raise ValueError("volumes and state_angles_list must be equal non-empty length")
+    if not all(isfinite(v) and v > 0 for v in volumes):
+        raise ValueError("all sampled volumes must be positive and finite")
+
+    baseline_flat = volumes[0]
+    predicted = []
+    residuals = []
+    tolerances = []
+
+    for vol, angles_map in zip(volumes, states):
+        v_pred = baseline_flat
+        for bid, ang in angles_map.items():
+            bp = bends_params[bid]
+            t = bp["thickness_mm"]
+            k = bp["k_factor"]
+            L = bp["bend_length_mm"]
+            r_in = bp.get("inner_radius_mm")
+            drift = ideal_constant_thickness_bend_drift_mm3(
+                thickness_mm=t, k_factor=k, bend_length_mm=L, angle_deg=ang
+            )
+            disc = 0.0
+            if segments is not None and r_in is not None:
+                disc = polygonal_bend_discretization_error_mm3(
+                    inner_radius_mm=r_in,
+                    outer_radius_mm=r_in + t,
+                    angle_deg=ang,
+                    bend_length_mm=L,
+                    segments=segments,
+                )
+            v_pred += (drift - disc)
+
+        predicted.append(v_pred)
+        res = vol - v_pred
+        residuals.append(res)
+        tol = max(absolute_tolerance_mm3, v_pred * relative_tolerance)
+        tolerances.append(tol)
+
+    max_abs_res = max(abs(r) for r in residuals)
+    max_rel_pct = 100.0 * max(abs(r) / p for r, p in zip(residuals, predicted))
+    all_pass = all(abs(r) <= tol for r, tol in zip(residuals, tolerances))
+
+    return {
+        "pass": all_pass,
+        "status": "PASS" if all_pass else "FAIL",
+        "reference_model": "SHEETMETAL_MULTI_BEND_SUM_CONCENTRIC_MODEL",
         "baseline_flat_volume_mm3": baseline_flat,
         "sampled_volume_mm3": list(volumes),
         "predicted_volume_mm3": predicted,

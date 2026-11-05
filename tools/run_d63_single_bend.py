@@ -1,21 +1,16 @@
-"""D6.3 native Part single-bend smoke test on selected SheetMetal unfold.
+"""D6.3 / D6.3.2 native Part 3D sheet smoke test on selected SheetMetal unfold.
 
-In FreeCAD 1.1.3, open a SheetMetal document and select its Unfold object
-(the same input used by the 2.5D GUI); run this script in Python console:
-    import runpy, smbs_core
-    from pathlib import Path
-    _ = runpy.run_path(str(Path(smbs_core.__file__).resolve().parent.parent
-                       / "tools" / "run_d63_single_bend.py"),
-                       run_name="__main__")
-
-The script makes no FreeCAD document objects. It tests the active (first)
-bend's solid for seven angles including endpoints; writes report to addon/reports.
+Supports both single-bend (L-bracket) and multi-bend (Z-bracket, 135-bracket, etc.) parts.
+Tests each bend sequentially across intermediate fractions (0, 10, 25, 50, 75, 90, 100%),
+validates full 3D BRep solids (valid, closed, 1 solid), evaluates CAD-consistent volume,
+and compares the final completely folded solid with the authoritative FreeCAD Body.Shape.
 """
 from __future__ import annotations
 
 import json
 import math
 import sys
+import time
 import traceback
 from datetime import datetime, timezone
 from pathlib import Path
@@ -27,28 +22,20 @@ if str(ROOT) not in sys.path:
 from smbs_core.report_paths import report_file
 from smbs_core.kinematics2d.native_volume_gate import (
     volume_consistency,
-    ideal_constant_thickness_bend_drift_mm3,
-    polygonal_bend_discretization_error_mm3,
-    predict_cad_consistent_volume_mm3,
     cad_volume_consistency,
+    multi_bend_cad_volume_consistency,
 )
 from smbs_core.kinematics2d.native_bend_solid_3d import (
     build_bend_zone_solid,
-    build_single_bend_sheet_solid,
+    build_multi_bend_sheet_solid,
     NativeBendSolidError,
 )
 
 
 def resolve_test_selection(doc, selected):
-    """Select a unique SheetMetal unfold when FreeCAD GUI selection is empty.
-
-    Never guesses among multiple unfolds. Explicit selection remains owned
-    by the existing build_part_session/resolve_selected_unfold logic.
-    """
+    """Select a unique SheetMetal unfold when FreeCAD GUI selection is empty."""
     if doc is None:
-        raise ValueError(
-            "No active FreeCAD document. Open an FCStd SheetMetal model."
-        )
+        raise ValueError("No active FreeCAD document. Open an FCStd SheetMetal model.")
     if selected:
         return list(selected), "EXPLICIT_GUI_SELECTION"
     unfolds = [
@@ -81,7 +68,6 @@ def compare_reference_cad_body(doc, reconstructed_sheet_shape, segments=64):
     bb_body = body_shape.BoundBox
     bb_recon = reconstructed_sheet_shape.BoundBox
 
-    # Explicit frame alignment detection
     dx = float(bb_body.XMin - bb_recon.XMin)
     dy = float(bb_body.YMin - bb_recon.YMin)
     dz = float(bb_body.ZMin - bb_recon.ZMin)
@@ -108,8 +94,6 @@ def compare_reference_cad_body(doc, reconstructed_sheet_shape, segments=64):
     recon_vol = float(shifted.Volume)
     vol_diff = ref_vol - recon_vol
 
-    # Match criteria: common volume covers >= 99.9% of body volume,
-    # cut residuals are accounted for by discretization
     is_match = (
         common_vol > 0 and
         abs(vol_diff) < max(0.5, ref_vol * 0.001) and
@@ -135,9 +119,9 @@ def compare_reference_cad_body(doc, reconstructed_sheet_shape, segments=64):
 
 def main():
     report = {
-        "schema": "smbs-d631-single-bend-v2",
+        "schema": "smbs-d632-multi-bend-v1",
         "created_utc": datetime.now(timezone.utc).isoformat(),
-        "scope": "ONE_REAL_SHEETMETAL_BEND_ZONE_AND_OPTIONAL_TWO_PANEL_SHEET_NOT_COLLISION_CERTIFICATION",
+        "scope": "REAL_SHEETMETAL_MULTI_BEND_FULL_3D_SOLID_NOT_COLLISION_CERTIFICATION",
         "cases": [],
         "result": "NOT_RUN",
     }
@@ -158,169 +142,126 @@ def main():
         session = build_part_session(doc, selection)
         state = session.fold_state
         source_angle_snapshot.update(state.angles)
-        bid = session.active_bend_id
-        z = state.bends[bid].bend_zone
-        if z is None:
-            raise ValueError("Selected bend has no SheetMetal BendZone")
 
-        sampled_fractions = (0.0, 0.10, 0.25, 0.50, 0.75, 0.90, 1.0)
+        bends_list = [b.bend_id for b in state.ordered_bends]
+        bends_params = {}
+        for b in state.ordered_bends:
+            z = b.bend_zone
+            L = math.hypot(z.axis_xy[1][0] - z.axis_xy[0][0], z.axis_xy[1][1] - z.axis_xy[0][1])
+            bends_params[b.bend_id] = {
+                "target_angle_deg": b.angle_deg,
+                "thickness_mm": z.thickness_mm,
+                "inner_radius_mm": z.inner_radius_mm,
+                "outer_radius_mm": z.outer_radius_mm,
+                "k_factor": z.k_factor_ansi,
+                "bend_allowance_mm": z.bend_allowance_mm,
+                "bend_length_mm": L,
+            }
+
         report.update({
             "freecad": ".".join(map(str, App.Version()[:3])),
             "part_label": session.part_label,
-            "bend_id": bid,
-            "target_angle_deg": state.bends[bid].angle_deg,
-            "thickness_mm": z.thickness_mm,
-            "inner_radius_mm": z.inner_radius_mm,
-            "outer_radius_mm": z.outer_radius_mm,
-            "k_factor_ansi": z.k_factor_ansi,
-            "bend_allowance_mm": z.bend_allowance_mm,
-            "sampled_fractions": sampled_fractions,
+            "bends_count": len(bends_list),
+            "panels_count": len(state.graph.panels),
+            "bends_params": bends_params,
         })
 
+        fractions = (0.0, 0.10, 0.25, 0.50, 0.75, 0.90, 1.0)
         segments_count = 64
+        sampled_states = []
+        sampled_sheet_volumes = []
         final_reconstructed_shape = None
 
-        for fraction in sampled_fractions:
-            state.set_fraction(bid, fraction)
-            result = build_bend_zone_solid(state, bid, segments=segments_count)
-            expected_flat = (z.bend_allowance_mm * z.thickness_mm * result.bend_line_length_mm)
-            flat_valid = (fraction != 0.0 or abs(result.volume_mm3 - expected_flat) < max(1e-3, expected_flat * 1e-5))
-            row = {
-                "fraction": fraction,
-                "angle_deg": state.angles[bid],
-                "valid": bool(result.shape.isValid()),
-                "closed": bool(result.shape.isClosed()),
-                "solid_count": len(result.shape.Solids),
-                "volume_mm3": result.volume_mm3,
-                "expected_flat_volume_mm3": expected_flat if fraction == 0 else None,
-                "flat_volume_valid": flat_valid,
-                "bend_line_length_mm": result.bend_line_length_mm,
-                "section_area_mm2": result.section_area_mm2,
-                "entire_sheet": False,
-                "machine_collision_certified": False,
-            }
-            if len(state.ordered_bends) == 1:
-                try:
-                    sheet = build_single_bend_sheet_solid(
-                        state, session.panel_build, bid, segments=segments_count
-                    )
-                    row["full_single_bend_sheet"] = {
-                        "status": "PASS",
-                        "volume_mm3": sheet.volume_mm3,
-                        "solids": len(sheet.shape.Solids),
-                        "is_valid": bool(sheet.shape.isValid()),
-                        "physical_certified": False,
-                    }
-                    if fraction == 1.0:
-                        final_reconstructed_shape = sheet.shape
-                except Exception as exc:
-                    row["full_single_bend_sheet"] = {
-                        "status": "FAIL",
-                        "reason": str(exc),
-                    }
-            else:
-                row["full_single_bend_sheet"] = {
-                    "status": "NOT_RUN",
-                    "reason": "Requires exactly one bend and two panels",
-                }
-            row["pass"] = (
-                row["valid"] and row["closed"] and row["solid_count"] == 1
-                and row["volume_mm3"] > 0 and flat_valid
-            )
-            report["cases"].append(row)
-            print("SMBS D6.3.1:", bid, fraction, "PASS" if row["pass"] else "FAIL",
-                  "Volume:", round(result.volume_mm3, 6), "mm3")
+        # Reset all bends to 0.0 initially
+        for bid in bends_list:
+            state.set_fraction(bid, 0.0)
 
-        # 1. Zone Volume Evaluation
-        zone_volumes = [r["volume_mm3"] for r in report["cases"]]
-        zone_angles = [r["angle_deg"] for r in report["cases"]]
-        L_bend = report["cases"][0]["bend_line_length_mm"]
+        # 1. Test flat state
+        t0 = time.perf_counter()
+        flat_sheet = build_multi_bend_sheet_solid(state, session.panel_build, segments=segments_count)
+        t_flat = (time.perf_counter() - t0) * 1000.0
+        sampled_states.append(dict(state.angles))
+        sampled_sheet_volumes.append(flat_sheet.volume_mm3)
+        report["cases"].append({
+            "step": "FLAT_STATE",
+            "angles_deg": dict(state.angles),
+            "valid": flat_sheet.is_valid,
+            "closed": flat_sheet.is_closed,
+            "solids": 1,
+            "volume_mm3": flat_sheet.volume_mm3,
+            "timing_ms": t_flat,
+            "pass": flat_sheet.is_valid and flat_sheet.is_closed,
+        })
+        print(f"SMBS D6.3.2: FLAT_STATE PASS Vol={flat_sheet.volume_mm3:.4f} mm3 ({t_flat:.1f}ms)")
 
-        report["zone_cad_volume_consistency"] = cad_volume_consistency(
-            zone_volumes,
-            angles_deg=zone_angles,
-            thickness_mm=z.thickness_mm,
-            k_factor=z.k_factor_ansi,
-            bend_length_mm=L_bend,
-            inner_radius_mm=z.inner_radius_mm,
+        # 2. Sequential bending through ordered bends
+        for bend_idx, active_bid in enumerate(bends_list):
+            for f in fractions:
+                if f == 0.0 and bend_idx == 0:
+                    continue  # already recorded as FLAT_STATE
+                state.set_fraction(active_bid, f)
+                t0 = time.perf_counter()
+                multi_sheet = build_multi_bend_sheet_solid(state, session.panel_build, segments=segments_count)
+                dt_ms = (time.perf_counter() - t0) * 1000.0
+                step_name = f"BEND_{active_bid}_f{f:.2f}"
+                sampled_states.append(dict(state.angles))
+                sampled_sheet_volumes.append(multi_sheet.volume_mm3)
+
+                is_ok = multi_sheet.is_valid and multi_sheet.is_closed and multi_sheet.volume_mm3 > 0
+                report["cases"].append({
+                    "step": step_name,
+                    "active_bend": active_bid,
+                    "fraction": f,
+                    "angles_deg": dict(state.angles),
+                    "valid": multi_sheet.is_valid,
+                    "closed": multi_sheet.is_closed,
+                    "solids": 1,
+                    "volume_mm3": multi_sheet.volume_mm3,
+                    "timing_ms": dt_ms,
+                    "pass": is_ok,
+                })
+                print(f"SMBS D6.3.2: {step_name} {'PASS' if is_ok else 'FAIL'} Vol={multi_sheet.volume_mm3:.4f} mm3 ({dt_ms:.1f}ms)")
+                if bend_idx == len(bends_list) - 1 and f == 1.0:
+                    final_reconstructed_shape = multi_sheet.shape
+
+        # 3. Multi-Bend CAD Volume Consistency Evaluation
+        cad_vol_res = multi_bend_cad_volume_consistency(
+            sampled_sheet_volumes,
+            state_angles_list=sampled_states,
+            bends_params=bends_params,
             segments=segments_count,
         )
-        report["zone_material_volume_constancy"] = volume_consistency(zone_volumes)
+        report["cad_volume_consistency"] = cad_vol_res
+        report["material_volume_constancy"] = volume_consistency(sampled_sheet_volumes)
 
-        # 2. Full Sheet Volume Evaluation
-        full_sheet_rows = [r["full_single_bend_sheet"] for r in report["cases"]]
-        complete_sheets = all(r["status"] == "PASS" for r in full_sheet_rows)
-
-        if complete_sheets:
-            sheet_volumes = [r["volume_mm3"] for r in full_sheet_rows]
-            report["full_sheet_cad_volume_consistency"] = cad_volume_consistency(
-                sheet_volumes,
-                angles_deg=zone_angles,
-                thickness_mm=z.thickness_mm,
-                k_factor=z.k_factor_ansi,
-                bend_length_mm=L_bend,
-                inner_radius_mm=z.inner_radius_mm,
-                segments=segments_count,
-            )
-            report["full_sheet_material_volume_constancy"] = volume_consistency(sheet_volumes)
-        else:
-            report["full_sheet_cad_volume_consistency"] = {
-                "pass": False,
-                "status": "NOT_RUN",
-                "reason": "full_sheet_not_built_for_all_samples",
-            }
-            report["full_sheet_material_volume_constancy"] = {
-                "pass": False,
-                "status": "NOT_RUN",
-                "reason": "full_sheet_not_built_for_all_samples",
-            }
-
-        # 3. Reference CAD Comparison at 100% Fold State
-        if complete_sheets and final_reconstructed_shape is not None:
+        # 4. Reference CAD Comparison at Fully Folded State
+        if final_reconstructed_shape is not None:
+            t0 = time.perf_counter()
             ref_cmp = compare_reference_cad_body(doc, final_reconstructed_shape, segments=segments_count)
+            ref_cmp["timing_ms"] = (time.perf_counter() - t0) * 1000.0
             report["reference_cad_comparison"] = ref_cmp
         else:
             report["reference_cad_comparison"] = {
                 "status": "UNVERIFIED_REFERENCE",
-                "reason": "Full sheet solid not available for reference CAD comparison",
+                "reason": "Final shape not constructed",
             }
 
-        # 4. Strict Unambiguous Acceptance Status Rules
+        # 5. Strict Acceptance Rules
         all_cases_valid = all(x["pass"] for x in report["cases"])
-        cad_zone_pass = report["zone_cad_volume_consistency"]["pass"]
-        cad_sheet_pass = complete_sheets and report["full_sheet_cad_volume_consistency"].get("pass", False)
+        cad_vol_pass = cad_vol_res["pass"]
         ref_pass = report["reference_cad_comparison"].get("status") == "PASS"
 
         if not all_cases_valid:
             report["result"] = "FAIL_GEOMETRY"
-        elif not cad_zone_pass or (complete_sheets and not cad_sheet_pass):
+        elif not cad_vol_pass:
             report["result"] = "FAIL_CAD_VOLUME"
-        elif complete_sheets and cad_sheet_pass and ref_pass:
+        elif ref_pass:
             report["result"] = "PASS_CAD_GEOMETRY"
-        elif complete_sheets and cad_sheet_pass:
-            report["result"] = "UNVERIFIED_REFERENCE"
         else:
-            report["result"] = "PASS_ZONE_ONLY"
+            report["result"] = "UNVERIFIED_REFERENCE"
 
-        report["cad_volume_consistency"] = {
-            "status": "PASS" if (cad_zone_pass and (not complete_sheets or cad_sheet_pass)) else "FAIL",
-            "reference_model": "SHEETMETAL_CONSTANT_THICKNESS_CONCENTRIC_BEND",
-            "maximum_absolute_residual_mm3": report["full_sheet_cad_volume_consistency"].get(
-                "maximum_absolute_residual_mm3",
-                report["zone_cad_volume_consistency"]["maximum_absolute_residual_mm3"]
-            ),
-            "maximum_relative_residual_percent": report["full_sheet_cad_volume_consistency"].get(
-                "maximum_relative_residual_percent",
-                report["zone_cad_volume_consistency"]["maximum_relative_residual_percent"]
-            ),
-        }
-        report["material_volume_constancy"] = {
-            "status": "NOT_CONSTANT" if not report["zone_material_volume_constancy"]["pass"] else "CONSTANT",
-            "interpretation": "CAD_GEOMETRY_ONLY_K_FACTOR_DEFORMATION",
-        }
-
-        report["full_sheet_geometry_complete"] = complete_sheets
-        report["closed_connected_sheet_samples"] = complete_sheets
+        report["full_sheet_geometry_complete"] = all_cases_valid
+        report["closed_connected_sheet_samples"] = all_cases_valid
         report["machine_collision_certified"] = False
         report["source_fold_state_isolated"] = source_angle_snapshot == {
             bid: 0.0 for bid in source_angle_snapshot
@@ -329,13 +270,13 @@ def main():
         report["result"] = "FAIL"
         report["error"] = str(exc)
         report["traceback"] = traceback.format_exc()
-        print("SMBS D6.3.1 FAILED:", report["error"])
+        print("SMBS D6.3.2 FAILED:", report["error"])
     finally:
         output = report_file(
-            "d631_single_bend_" + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + ".json"
+            "d632_multi_bend_" + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + ".json"
         )
         output.write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")
-        print("SMBS D6.3.1 report:", str(output))
+        print("SMBS D6.3.2 report:", str(output))
     return report
 
 

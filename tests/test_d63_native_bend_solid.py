@@ -1,6 +1,7 @@
-"""D6.3 native one-zone geometry contract tests (pure math + optional FreeCAD)."""
+"""D6.3 / D6.3.2 native geometry contract tests (pure math + optional FreeCAD)."""
 import math
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from smbs_core.kinematics2d.bend_zone import (
@@ -10,11 +11,13 @@ from smbs_core.kinematics2d.panel_graph import PanelGraph, GraphEdge
 from smbs_core.kinematics2d.panel_kinematics import FoldState
 from smbs_core.kinematics2d.native_bend_solid_3d import (
     NativeBendSolidError, build_bend_zone_solid,
-    build_single_bend_sheet_solid, zone_outline,
+    build_single_bend_sheet_solid, build_multi_bend_sheet_solid,
+    zone_outline,
 )
 from smbs_core.kinematics2d.native_volume_gate import (
     predict_cad_consistent_volume_mm3,
     cad_volume_consistency,
+    multi_bend_cad_volume_consistency,
 )
 
 
@@ -27,6 +30,20 @@ def fixture(source_angle=90.0, k_factor=0.4, thickness=1.5, length=100.0):
                   ((0., 0., 0.), (length, 0., 0.)), z),
     ))
     return FoldState(graph, "P01")
+
+
+def multi_fixture_z():
+    """Two-bend Z-bracket topology with 3 panels: P01 - B02 - P02 - B01 - P03."""
+    thickness = 1.5
+    p1 = bend_parameters(90.0, 1.0, thickness, 0.4)
+    z1 = make_bend_zone("B01", ((100., 50.), (0., 50.)), p1)
+    p2 = bend_parameters(-90.0, 2.5, thickness, 0.4)
+    z2 = make_bend_zone("B02", ((0., 10.), (100., 10.)), p2)
+    graph = PanelGraph(("P01", "P02", "P03"), (
+        GraphEdge("B01", "P02", "P03", p1.fold_angle_deg, ((100., 50., 0.), (0., 50., 0.)), z1),
+        GraphEdge("B02", "P02", "P01", p2.fold_angle_deg, ((0., 10., 0.), (100., 10., 0.)), z2),
+    ))
+    return FoldState(graph, "P02")
 
 
 def planar_area(points):
@@ -74,15 +91,26 @@ class ZoneOutlineTests(unittest.TestCase):
         with self.assertRaises(NativeBendSolidError):
             build_single_bend_sheet_solid(state, None, "B01")
 
-    def test_complete_sheet_requires_exact_one_bend(self):
-        # No silent fallback to a subset of a multi-bend sheet.
-        state = fixture()
-        state.graph.panels = ("P01", "P02", "P03")
+    def test_single_bend_sheet_rejects_multi_bend(self):
+        # build_single_bend_sheet_solid strictly requires 1 bend and 2 panels
+        state = multi_fixture_z()
         with self.assertRaises(NativeBendSolidError):
             build_single_bend_sheet_solid(state, None, "B01")
 
+    def test_multi_bend_sheet_fails_on_missing_or_mismatched_panels(self):
+        state = multi_fixture_z()
+        with self.assertRaises(NativeBendSolidError):
+            build_multi_bend_sheet_solid(state, None)
+
+        # Mismatched panel count
+        bad_pb = SimpleNamespace(
+            panels=[SimpleNamespace(panel_id="P01")],
+            panel_faces=[None],
+        )
+        with self.assertRaises(NativeBendSolidError):
+            build_multi_bend_sheet_solid(state, bad_pb)
+
     def test_synthetic_cad_volume_across_k_factors_and_signs(self):
-        # Pure math verification across K=0.3, 0.4, 0.5, and angles
         for source in (90.0, -90.0, 45.0, -45.0):
             for k in (0.3, 0.4, 0.5):
                 state = fixture(source, k_factor=k, thickness=2.0, length=150.0)
@@ -132,7 +160,6 @@ class ZoneOutlineTests(unittest.TestCase):
                 sampled_volumes.append(result.volume_mm3)
                 sampled_angles.append(state.angles["B01"])
 
-            # Verify that every live FreeCAD Part zone solid strictly passes cad_volume_consistency
             gate = cad_volume_consistency(
                 sampled_volumes,
                 angles_deg=sampled_angles,
