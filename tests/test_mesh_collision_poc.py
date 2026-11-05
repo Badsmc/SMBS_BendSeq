@@ -6,7 +6,8 @@ FreeCAD runtime regression is in tools/run_d6_mesh_poc.py.
 import unittest
 from types import SimpleNamespace
 from smbs_core.kinematics2d.mesh_collision_poc import (
-    MeshContact, bbox_gap_mm, classify_mesh_pair, benchmark_mesh_pair,
+    MeshContact, MeshContactResult, assess_repeated_checks,
+    bbox_gap_mm, classify_mesh_pair, benchmark_mesh_pair,
 )
 
 
@@ -104,6 +105,38 @@ class MeshPoCTests(unittest.TestCase):
         self.assertEqual(result["statuses"]["CLEAR"], 5)
         self.assertEqual(result["iterations"], 5)
         self.assertIn("Not CCD", result["note"])
+
+    def test_inconsistent_repeats_fail_even_if_first_passes(self):
+        samples = [
+            MeshContactResult(MeshContact.PENETRATION, "positive_mesh_boolean_volume", 200.0, 1.0, 12, 12),
+            MeshContactResult(MeshContact.UNVERIFIED, "impossible_boolean_volume", 260.0, 1.0, 12, 12),
+            MeshContactResult(MeshContact.PENETRATION, "positive_mesh_boolean_volume", 200.0, 1.0, 12, 12),
+        ]
+        result = assess_repeated_checks(
+            samples, expected=MeshContact.PENETRATION, expected_volume_mm3=200.0
+        )
+        self.assertFalse(result["pass"])
+        self.assertEqual(result["failed_iterations"], 1)
+
+    def test_wrong_volume_repeat_fails_qualification(self):
+        samples = [
+            MeshContactResult(MeshContact.PENETRATION, "positive_mesh_boolean_volume", 200.0, 1.0, 12, 12),
+            MeshContactResult(MeshContact.PENETRATION, "positive_mesh_boolean_volume", 206.0, 1.0, 12, 12),
+        ]
+        report = assess_repeated_checks(
+            samples, expected=MeshContact.PENETRATION,
+            expected_volume_mm3=200.0, relative_volume_tolerance=0.01
+        )
+        self.assertFalse(report["pass"])
+        self.assertEqual(report["failed_iterations"], 1)
+
+    def test_benchmark_records_reasons_and_all_pass(self):
+        other = FakeMesh(box(20,0,0,30,10,10))
+        data = benchmark_mesh_pair(
+            self.first, other, iterations=3, expected_status=MeshContact.CLEAR
+        )
+        self.assertTrue(data["repeatability_acceptance"]["pass"])
+        self.assertEqual(data["reasons"]["separated_3d_bounding_boxes"], 3)
 
     def test_invalid_benchmark_budget(self):
         with self.assertRaises(ValueError):
