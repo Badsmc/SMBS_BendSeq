@@ -75,6 +75,13 @@ def run_case(name, sheet, tool, expected, benchmark_iterations=100,
     tm = mesh_from_shape(tool)
     mesh_build_ms = round((perf_counter() - start) * 1000.0, 5)
     result = classify_mesh_pair(sm, tm)
+    repeated = benchmark_mesh_pair(
+        sm, tm, iterations=benchmark_iterations,
+        expected_status=MeshContact(expected),
+        expected_volume_mm3=expected_volume_mm3,
+        relative_volume_tolerance=relative_volume_tolerance,
+    )
+    repeated_pass = repeated["repeatability_acceptance"]["pass"]
     measured = result.overlap_volume_mm3
     volume_error = (
         abs(measured - expected_volume_mm3) / expected_volume_mm3
@@ -94,13 +101,13 @@ def run_case(name, sheet, tool, expected, benchmark_iterations=100,
         "max_relative_overlap_error_allowed": relative_volume_tolerance,
         "volume_accuracy_pass": volume_accepted,
         "observed": result.to_dict(),
-        "matches_expected": (result.status.value == expected and volume_accepted),
+        "matches_expected": (
+            result.status.value == expected and volume_accepted and repeated_pass
+        ),
         "sheet": shape_stats(sheet),
         "tool": shape_stats(tool),
         "mesh_build_ms": mesh_build_ms,
-        "mesh_benchmark": benchmark_mesh_pair(
-            sm, tm, iterations=benchmark_iterations,
-        ),
+        "mesh_benchmark": repeated,
         "brep_reference": brep_trial(sheet, tool, repeats=min(10, benchmark_iterations)),
     }
 
@@ -159,7 +166,9 @@ def main():
         report["cases"].append(result)
         print("SMBS MESH PoC:", result["case"], result.get("observed", result.get("error")),
               "ACCURACY:", "PASS" if result.get("matches_expected") else "FAIL",
-              "REL_VOLUME_ERR:", result.get("relative_overlap_volume_error"))
+              "REL_VOLUME_ERR:", result.get("relative_overlap_volume_error"),
+              "REPEATS:", result.get("mesh_benchmark", {}).get("statuses"),
+              "REASONS:", result.get("mesh_benchmark", {}).get("reasons"))
 
     report["known_fixture_acceptance"] = (
         "PASS" if all(c.get("matches_expected") for c in report["cases"]) else "FAIL"
