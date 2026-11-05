@@ -2,6 +2,7 @@
 
 Usage inside FreeCAD Python console:
     from pathlib import Path
+from smbs_core.report_paths import report_file
     import smbs_core, runpy
     root = Path(smbs_core.__file__).resolve().parent.parent
     runpy.run_path(str(root / "tools" / "run_d6_part_benchmark.py"), run_name="__main__")
@@ -102,10 +103,10 @@ def main():
         "PASS_STATIC_FIXTURES" if all(x.get("pass") for x in report["fixtures"])
         else "FAIL_STATIC_FIXTURES"
     )
-    output = Path(os.environ.get("SMBS_PART_BENCH_OUTPUT") or (
-        Path.home() / "pressbrake_traces" /
-        ("part_benchmark_" + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + ".json")
-    ))
+    output = report_file(
+        "part_benchmark_" + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + ".json",
+        legacy_override_env="SMBS_PART_BENCH_OUTPUT",
+    )
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")
     print("SMBS native Part:", report["acceptance"], "report:", str(output))
