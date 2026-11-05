@@ -116,6 +116,31 @@ def compute_machine_cutting_plane_section(
         "cutting_plane_xm": 0.0,
     }
 
+    # Material-side convention (D5.1).
+    #
+    # The panel surface at local z=0 is the OUTER sheet face for the
+    # positive/up-bend setup. The existing 0 -> -t extrusion double-counted
+    # thickness below the die support datum (observed B01: -1.5 .. -3.0
+    # when the actual support is at -1.5). In that setup the sheet occupies
+    # local z=0 .. +t. For the negative/down-bend setup, the working side
+    # reverses and the original 0 .. -t convention is correct.
+    #
+    # This selection is based on the active SheetMetal bend orientation.
+    # The result is a 2D cutting-plane preview, not a certified 3D solid.
+    active_bend_for_material = (
+        fold_state.bends.get(active_bend_id) if active_bend_id else None
+    )
+    material_offset = 0.0
+    if active_bend_for_material is not None:
+        zone = active_bend_for_material.bend_zone
+        source_angle = (
+            float(zone.fold_angle_deg)
+            if zone is not None and getattr(zone, "fold_angle_deg", None) is not None
+            else float(active_bend_for_material.angle_deg)
+        )
+        if source_angle >= 0.0:
+            material_offset = float(thickness_mm)
+
     # 1. Panels intersecting X_m = 0
     cut_panel_polygons: List[Tuple[str, Tuple[Tuple[float, float], ...]]] = []
 
@@ -125,8 +150,14 @@ def compute_machine_cutting_plane_section(
             continue
         p_tf = fold_state.transforms[panel_id]
 
-        pts_top_mach = [placement.apply(p_tf.point((x, y, 0.0))) for x, y in verts_local]
-        pts_bot_mach = [placement.apply(p_tf.point((x, y, -thickness_mm))) for x, y in verts_local]
+        pts_top_mach = [
+            placement.apply(p_tf.point((x, y, material_offset)))
+            for x, y in verts_local
+        ]
+        pts_bot_mach = [
+            placement.apply(p_tf.point((x, y, material_offset - thickness_mm)))
+            for x, y in verts_local
+        ]
 
         xs_top = [p[0] for p in pts_top_mach]
         if min(xs_top) > 1e-4 or max(xs_top) < -1e-4:
@@ -179,7 +210,17 @@ def compute_machine_cutting_plane_section(
         def map_profile_to_sz(prof_pts: Sequence[Tuple[float, float]]) -> Tuple[Tuple[float, float], ...]:
             out = []
             for s_val, z_val in prof_pts:
-                p_local = (ax_mid_2d[0] + ux * s_val, ax_mid_2d[1] + uy * s_val, z_val)
+                # Bend-zone material must use the same source-side offset
+                # as the panel faces for the active section.
+                zone_offset = (
+                    material_offset if bend_id == active_bend_id else
+                    (float(zone.thickness_mm) if float(getattr(zone, "fold_angle_deg", bend.angle_deg)) >= 0 else 0.0)
+                )
+                p_local = (
+                    ax_mid_2d[0] + ux * s_val,
+                    ax_mid_2d[1] + uy * s_val,
+                    z_val + zone_offset,
+                )
                 p_m = placement.apply(p_parent_tf.point(p_local))
                 out.append((-p_m[1], p_m[2]))
             return tuple(out)
