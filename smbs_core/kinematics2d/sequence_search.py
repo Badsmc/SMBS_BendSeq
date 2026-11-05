@@ -62,6 +62,7 @@ class SequenceSearchResult:
     rejected: tuple[tuple[str, str], ...]
     diagnostics: tuple[str, ...]
     evidence_level: str = "PHYSICAL_SEQUENCE_NOT_APPROVED_UNLESS_VERIFIED"
+    candidate_sequence: tuple[str, ...] = ()
 
     @property
     def success(self) -> bool:
@@ -83,6 +84,7 @@ def plan_forward(
     *,
     max_states: int = 5000,
     max_checks: int = 100000,
+    allow_partial_preview: bool = False,
 ) -> SequenceSearchResult:
     """Search verified step sequences using DFS, memoization and backtracking.
 
@@ -93,6 +95,8 @@ def plan_forward(
 
     A NO_FEASIBLE_SEQUENCE result is only legitimate when *every* candidate
     branch is conclusively COLLISION, not when evidence is missing.
+    allow_partial_preview explores 2D-cleared but not fully certified steps;
+    it returns a candidate_sequence with UNVERIFIED status, never success.
     """
     if not isinstance(source_state, FoldState):
         raise TypeError("source_state must be kinematics2d.FoldState")
@@ -121,10 +125,10 @@ def plan_forward(
     cached: dict[tuple[frozenset[str], str | None, str], StepEvidence] = {}
 
     def search(completed: frozenset[str], previous: str | None,
-               path: tuple[str, ...]) -> tuple[str, ...] | None:
+               path: tuple[str, ...], partial: bool) -> tuple[tuple[str, ...], bool] | None:
         nonlocal explored, checked, budget_hit, any_unknown
         if len(completed) == len(order):
-            return path
+            return path, partial
         if explored >= max_states:
             budget_hit = True
             return None
@@ -157,14 +161,20 @@ def plan_forward(
             if evidence.status is Feasibility.COLLISION:
                 rejected.append((bid, evidence.reason))
                 continue
-            if not evidence.is_certified():
+            certified = evidence.is_certified()
+            if not certified:
                 any_unknown = True
                 reason = (evidence.reason if evidence.status is Feasibility.UNVERIFIED
                           else "missing_scopes:" +
                           ",".join(sorted(REQUIRED_SCOPES - evidence.verified_scopes)))
-                rejected.append((bid, reason))
-                continue
-            result = search(completed | {bid}, bid, path + (bid,))
+                if not (allow_partial_preview and evidence.status is Feasibility.CLEAR
+                        and bool(evidence.verified_scopes)):
+                    rejected.append((bid, reason))
+                    continue
+                # Diagnostic-only route; never declare production success.
+                diagnostics.append(bid + ": " + reason)
+            result = search(completed | {bid}, bid, path + (bid,),
+                            partial or not certified)
             if result is not None:
                 return result
             if budget_hit:
@@ -180,10 +190,11 @@ def plan_forward(
             ("source_state_not_flat_reset_required",),
         )
 
-    found = search(frozenset(), None, ())
+    found = search(frozenset(), None, (), False)
     if found is not None:
-        status = SearchStatus.VERIFIED
-        diagnostics.append("Each step reported complete physical-scope evidence.")
+        status = SearchStatus.UNVERIFIED if found[1] else SearchStatus.VERIFIED
+        diagnostics.append("Candidate requires unverified physical scopes." if found[1]
+                           else "Each step reported complete physical-scope evidence.")
     elif budget_hit:
         status = SearchStatus.BUDGET_EXHAUSTED
         diagnostics.append("Search budget reached; feasibility not determined.")
@@ -194,8 +205,9 @@ def plan_forward(
         status = SearchStatus.NO_FEASIBLE_SEQUENCE
         diagnostics.append("Every explored candidate was conclusively rejected.")
     return SequenceSearchResult(
-        status, found or (), explored, checked, tuple(rejected),
-        tuple(diagnostics),
+        status, (found[0] if found is not None and not found[1] else ()),
+        explored, checked, tuple(rejected), tuple(diagnostics),
+        candidate_sequence=(found[0] if found is not None and found[1] else ()),
     )
 
 
