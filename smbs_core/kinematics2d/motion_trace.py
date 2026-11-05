@@ -179,6 +179,26 @@ def make_frame_record(*, session, press_cycle, execution_mode, section, pose,
     collision_validated = coupled.get("collision_validated", False)
     support_validated = coupled.get("support_validated", False)
 
+    # D5.1 read-only cross-section verification. This is a 2D preview, never
+    # full 3D collision certification, and must not mutate the active cycle.
+    from .d5_contact_validation import check_d51_machine_section
+    try:
+        d51 = check_d51_machine_section(
+            section, tooling, bend_id=str(session.active_bend_id),
+            phase=str(phase),
+        ).as_trace()
+    except (ValueError, TypeError, AttributeError, KeyError) as exc:
+        d51 = {
+            "status": "UNVERIFIED",
+            "bend_id": str(session.active_bend_id),
+            "phase": str(phase),
+            "mode": "2D_SECTION_PREVIEW_NOT_3D_CERTIFIED",
+            "collision_validated_3d": False,
+            "findings": [{"tool": "MACHINE", "component": "*",
+                          "status": "UNVERIFIED",
+                          "reason": "d51_evaluation_failed: " + str(exc)}],
+        }
+
     record = dict(
         kind="FRAME",
         unix_s=float(time.time() if timestamp_s is None else timestamp_s),
@@ -211,6 +231,7 @@ def make_frame_record(*, session, press_cycle, execution_mode, section, pose,
         validation_status=str(validation_status),
         tooling_status=str(tooling_status),
         collision_validated=bool(collision_validated),
+        d51_section_collision=d51,
         support_validated=bool(support_validated),
         punch_origin_machine=tf_origin(punch),
         punch_tip_machine=(
