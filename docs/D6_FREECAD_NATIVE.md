@@ -44,6 +44,34 @@ Output: `%USERPROFILE%\\pressbrake_traces\\native_d6_<timestamp>.json`.
 
 The first 640 static Mesh Boolean calls include the most expensive diagnostic variant (retessellation); timings may vary. Avoid running this during active FreeCAD animation.
 
+## Findings from FreeCAD 1.1.3 diagnostic: native_d6_20261105T102337Z.json
+
+Mesh Boolean is **NOT QUALIFIED**. The user-supplied report establishes:
+
+- 200 mm3 coplanar overlap: all four Mesh Boolean modes (reused, copied, reverse operand order, retessellated) failed complete-repeatability qualification; many nonempty intersections are NOT closed solids.
+- 162 mm3 staggered overlap: 38/40 correct under reuse; 32/40 copied; 30/40 reversed; 34/40 retessellated.
+- Both separated and touching cases yielded 40/40 results in all Mesh modes, but a zero-volume Mesh intersection does NOT distinguish physical contact from clearance.
+- Native `Part.common` returned correct 200 and 162 mm3 and 0 mm3 for separated and touching fixtures for all 10 control repetitions. `Part.distToShape` returned zero on both penetrating and touching fixtures; a separate distance/contact policy is mandatory.
+
+**Decision:** do not adopt FreeCAD `Mesh.intersect` for physical collision certification. Prefer `Part` with conservative AABB filtering and state/pose caching. The claim that `Mesh.intersect` produces valid volumetric intersection bodies is not supported by the results.
+
+### Next native Part benchmark
+
+`tools/run_d6_part_benchmark.py` tests 1000 separated-box checks plus 100 each of positive-volume overlaps (including coplanar), exact face touch, 0.01 mm gap and 0.1 mm gap, using `smbs_core.kinematics2d.freecad_native_collision.classify_solids`. The test uses FreeCAD Part only, no external packages.
+
+Run in the FreeCAD console after updating this branch:
+
+```python
+from pathlib import Path
+import smbs_core, runpy
+p = Path(smbs_core.__file__).resolve().parent.parent / "tools" / "run_d6_part_benchmark.py"
+runpy.run_path(str(p), run_name="__main__")
+```
+
+Report: `%USERPROFILE%\\pressbrake_traces\\part_benchmark_<timestamp>.json`.
+
+This is a **static geometric qualification**, not a validated sheet-metal bend sequence, real tool/die assembly, or continuous collision detector.
+
 ## Decision gates
 
 - If `reuse` fails but `copies` succeeds consistently, isolate mutable Mesh state and update the adapter to use independent copies only; repeat on real imported punch and die.
