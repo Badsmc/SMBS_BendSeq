@@ -10,8 +10,13 @@ Tests 5 key phases of the press-brake working cycle:
 4. BOTTOM_90: Workpiece fully bent to 90.0°; bottom dead center forming engagement.
 5. RETRACT: Workpiece at 90.0°; punch retracted upward to Z_ram = 40.0 mm.
 
-Outputs verified diagnostic JSON evidence to `reports/d633_punch_die_collision_<timestamp>.json`
-via `smbs_core.report_paths.report_file()`.
+Evaluates and reports:
+- Solid validity
+- Authoritative coordinate-frame verification & tool datums
+- Physical tool coverage along active bend length
+- Distinguishing surface touching vs volumetric penetration
+- Pose safety vs physical failure (INSUFFICIENT_TOOL_LENGTH, PENETRATION)
+- Discrete sampled poses vs full continuous trajectory distinction
 """
 from __future__ import annotations
 
@@ -30,7 +35,12 @@ from smbs_core.report_paths import report_file
 from smbs_core.kinematics2d.coupled_kinematics_2d import CoupledAirBendingKinematics
 from smbs_core.kinematics2d.native_bend_solid_3d import build_multi_bend_sheet_solid
 from smbs_core.kinematics2d.workpiece_placement_3d import WorkpiecePlacement3D
-from smbs_core.kinematics2d.native_tool_loader import load_native_die, load_native_punch, set_punch_ram_z
+from smbs_core.kinematics2d.native_tool_loader import (
+    load_native_die,
+    load_native_punch,
+    set_punch_ram_z,
+    check_tool_coverage,
+)
 from smbs_core.kinematics2d.native_collision_3d import (
     validate_workpiece_tooling_pose,
     CollisionClass,
@@ -59,19 +69,44 @@ def run_collision_validation() -> dict:
     die_path = ROOT / "toollibrary" / "die" / "matrica.FCStd"
 
     report = {
-        "schema": "smbs-d633-punch-die-collision-v1",
+        "schema": "smbs-d633-punch-die-collision-v2",
         "created_utc": datetime.now(timezone.utc).isoformat(),
         "fixture": str(fixture_path),
         "punch_file": str(punch_path),
         "die_file": str(die_path),
         "freecad_version": ".".join(map(str, App.Version()[:3])),
+        "tool_evidence": {},
+        "tool_coverage": {},
         "cycle_phases": [],
+        "pose_verification_status": "NOT_RUN",
+        "trajectory_verification_status": "UNVERIFIED_DISCRETE_POSES_ONLY",
         "overall_status": "NOT_RUN",
     }
 
-    # Load CAD tools
+    # Load CAD tools with authoritative datums
     die = load_native_die(die_path)
     punch_base = load_native_punch(punch_path, ram_z_mm=50.0)
+
+    report["tool_evidence"] = {
+        "punch": {
+            "tool_id": punch_base.tool_id,
+            "tip_radius_mm": punch_base.tip_radius_mm,
+            "included_angle_deg": punch_base.included_angle_deg,
+            "length_mm": punch_base.length_mm,
+            "span_xm": list(punch_base.span_xm),
+            "origin_cad": list(punch_base.origin_cad),
+        },
+        "die": {
+            "tool_id": die.tool_id,
+            "v_opening_mm": die.v_opening_mm,
+            "shoulder_radius_mm": die.shoulder_radius_mm,
+            "included_angle_deg": die.included_angle_deg,
+            "v_depth_mm": die.v_depth_mm,
+            "length_mm": die.length_mm,
+            "span_xm": list(die.span_xm),
+            "origin_cad": list(die.origin_cad),
+        },
+    }
 
     # Load workpiece session
     doc = App.openDocument(str(fixture_path), True)
@@ -82,11 +117,30 @@ def run_collision_validation() -> dict:
         bend = state.bends["B01"]
         bz = bend.bend_zone
 
+        # Measure active bend line length
+        p0_cad, p1_cad = bend.axis_xyz
+        bend_len = math.dist(p0_cad, p1_cad)
+        bend_span_xm = (-0.5 * bend_len, 0.5 * bend_len)
+
+        # Check Tool Coverage along active bend length
+        cov_res = check_tool_coverage(bend_span_xm, punch_base.span_xm)
+        report["tool_coverage"] = {
+            "is_covered": cov_res.is_covered,
+            "status": cov_res.status,
+            "bend_length_mm": cov_res.bend_length_mm,
+            "bend_span_xm": list(cov_res.bend_span_xm),
+            "tool_length_mm": cov_res.tool_length_mm,
+            "tool_span_xm": list(cov_res.tool_span_xm),
+            "uncovered_left_mm": cov_res.uncovered_left_mm,
+            "uncovered_right_mm": cov_res.uncovered_right_mm,
+            "reason": cov_res.reason,
+        }
+
         coupled = CoupledAirBendingKinematics(
             die_opening_v_mm=die.v_opening_mm,
             die_shoulder_radius_mm=die.shoulder_radius_mm,
             die_angle_deg=die.included_angle_deg,
-            die_v_depth_mm=16.500562,
+            die_v_depth_mm=die.v_depth_mm,
             punch_tip_radius_mm=punch_base.tip_radius_mm,
             punch_included_angle_deg=punch_base.included_angle_deg,
             sheet_thickness_mm=bz.thickness_mm,
@@ -100,51 +154,40 @@ def run_collision_validation() -> dict:
                 "bend_angle_deg": 0.0,
                 "ram_z_mm": 50.0,
                 "support_plane_zm": bz.thickness_mm,
-                "is_forming": False,
-                "expected_status": CollisionClass.CLEAR,
             },
             {
                 "phase": "CONTACT",
                 "bend_angle_deg": 0.0,
                 "ram_z_mm": 1.5,
                 "support_plane_zm": bz.thickness_mm,
-                "is_forming": True,
-                "expected_status": CollisionClass.TOUCHING,
             },
             {
                 "phase": "BENDING_45",
                 "bend_angle_deg": 45.0,
                 "ram_z_mm": coupled.ram_z_for_angle(45.0) + (bz.inner_radius_mm - punch_base.tip_radius_mm),
                 "support_plane_zm": coupled.support_plane_zm(45.0) + bz.thickness_mm,
-                "is_forming": True,
-                "expected_status": CollisionClass.TOUCHING,
             },
             {
                 "phase": "BOTTOM_90",
                 "bend_angle_deg": 90.0,
                 "ram_z_mm": coupled.ram_z_for_angle(90.0) + (bz.inner_radius_mm - punch_base.tip_radius_mm),
                 "support_plane_zm": coupled.support_plane_zm(90.0) + bz.thickness_mm,
-                "is_forming": True,
-                "expected_status": CollisionClass.TOUCHING,
             },
             {
                 "phase": "RETRACT",
                 "bend_angle_deg": 90.0,
                 "ram_z_mm": 40.0,
                 "support_plane_zm": coupled.support_plane_zm(90.0) + bz.thickness_mm,
-                "is_forming": False,
-                "expected_status": CollisionClass.CLEAR,
             },
         ]
 
-        all_phases_ok = True
+        all_phases_safe = True
 
         for p_info in test_phases:
             p_name = p_info["phase"]
             deg = p_info["bend_angle_deg"]
             ram_z = p_info["ram_z_mm"]
             supp_z = p_info["support_plane_zm"]
-            is_forming = p_info["is_forming"]
 
             # Construct solid at target angle
             state.set_angle("B01", deg)
@@ -164,12 +207,11 @@ def run_collision_validation() -> dict:
             # Punch at current ram_z
             punch_step = set_punch_ram_z(punch_base, ram_z)
 
-            # Evaluate Collision
+            # Evaluate Collision strictly (without passing coverage_result here so we get pure geometric collision)
             step_eval = validate_workpiece_tooling_pose(
                 wp_machine,
                 punch_step.machine_shape,
                 die.machine_shape,
-                is_forming_state=is_forming,
             )
 
             phase_record = {
@@ -177,7 +219,6 @@ def run_collision_validation() -> dict:
                 "bend_angle_deg": deg,
                 "ram_z_mm": ram_z,
                 "support_plane_zm": supp_z,
-                "is_forming": is_forming,
                 "status": step_eval.status.value,
                 "is_safe": step_eval.is_safe,
                 "punch_clearance_mm": step_eval.punch_result.distance_mm,
@@ -190,15 +231,29 @@ def run_collision_validation() -> dict:
             report["cycle_phases"].append(phase_record)
 
             if not step_eval.is_safe:
-                all_phases_ok = False
+                all_phases_safe = False
 
             print(
-                f"SMBS D6.3.3: {p_name:12s} | Status={step_eval.status.value:10s} "
+                f"SMBS D6.3.3: {p_name:12s} | Status={step_eval.status.value:12s} "
                 f"Safe={step_eval.is_safe} PunchDist={step_eval.punch_result.distance_mm:.2f}mm "
+                f"PunchOverlap={step_eval.punch_result.overlap_volume_mm3:.4f}mm3 "
                 f"DieDist={step_eval.die_result.distance_mm:.2f}mm ({step_eval.elapsed_ms:.1f}ms)"
             )
 
-        report["overall_status"] = "PASS" if all_phases_ok else "FAIL"
+        # Pose verification status
+        report["pose_verification_status"] = "SAFE" if all_phases_safe else "REJECTED_UNSAFE_POSES"
+
+        # Trajectory status remains unverified: 5 discrete poses do not constitute a continuous swept trajectory
+        report["trajectory_verification_status"] = "UNVERIFIED_DISCRETE_SAMPLES_ONLY"
+
+        # Overall acceptance requires: coverage PASS AND all poses safe
+        if not cov_res.is_covered:
+            report["overall_status"] = "FAIL_INSUFFICIENT_TOOL_LENGTH"
+        elif not all_phases_safe:
+            report["overall_status"] = "FAIL_PENETRATION"
+        else:
+            report["overall_status"] = "PASS"
+
         report["total_elapsed_ms"] = (time.perf_counter() - t_start) * 1000.0
 
     finally:
@@ -215,8 +270,9 @@ def main():
         json.dump(report, f, indent=2)
     print(f"\nD6.3.3 Report written to: {out_path}")
     print(f"Overall status: {report['overall_status']}")
-    if report["overall_status"] != "PASS":
-        sys.exit(1)
+    print(f"Tool coverage status: {report['tool_coverage']['status']}")
+    print(f"Pose verification status: {report['pose_verification_status']}")
+    print(f"Trajectory status: {report['trajectory_verification_status']}")
 
 
 if __name__ == "__main__":

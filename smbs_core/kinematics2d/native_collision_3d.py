@@ -1,21 +1,25 @@
 """native_collision_3d.py - Native FreeCAD Part / Open CASCADE 3D Collision Detector.
 
-Architecture & Contract:
+Architecture & Physical Collision Contract:
 - Uses native FreeCAD Part.Shape (Open CASCADE BREP) directly.
-- No external geometry engines (PythonOCC, FCL, Trimesh are excluded).
-- Evaluates clearances and common intersection volumes against machine-placed solids.
+- Strict physical separation of surface contact vs volumetric penetration.
+- NO blanket volume exceptions: arbitrary volume tolerances or "forming bypasses"
+  that treat positive volumetric intersections as harmless contact are strictly forbidden.
 - Clear classification statuses:
   * CLEAR: Clearance > near_tolerance_mm (e.g. > 0.5 mm). No collision.
   * NEAR_CONTACT: 0.0 < Clearance <= near_tolerance_mm. Approaching contact.
-  * TOUCHING: Clearance <= 1e-4 mm AND common overlap volume <= volume_tolerance_mm3 (e.g. <= 1e-3 mm³).
-              Permitted surface contact (e.g. punch tip touching inner arc, die shoulder support).
-  * PENETRATION: Common overlap volume > volume_tolerance_mm3. Physical interference / clash.
+  * TOUCHING: Clearance <= contact_distance_tolerance_mm (e.g. 1e-4 mm) AND
+              common overlap volume <= volume_tolerance_mm3 (e.g. 1e-4 mm³ OCC facet boundary noise).
+  * PENETRATION: Common overlap volume > volume_tolerance_mm3. Physical clash / interference.
   * INVALID_GEOMETRY: Non-solid, open, null, or zero-volume input.
-  * MISSING_EVIDENCE: Tool, workpiece, or required placement evidence is missing.
+  * MISSING_EVIDENCE: Tool, workpiece, or required placement evidence is missing (fails closed).
+  * INSUFFICIENT_TOOL_LENGTH: Active bend line extends beyond physical tooling coverage.
 
-Explicit contact zones:
-- Distinguishes intentional tool engagement during forming (active bend line / inner arc and die shoulders)
-  from unauthorized collisions (unbent flanges striking the punch shank, die base, or machine frame).
+Contact Policy:
+- A pose is only verified safe if there is NO volumetric penetration.
+- If forming geometry and punch placement are physically inconsistent, the pose is
+  classified as PENETRATION (unsafe), requiring correction of kinematics/placement,
+  never arbitrary tolerance relaxation.
 """
 from __future__ import annotations
 
@@ -33,6 +37,7 @@ class CollisionClass(str, Enum):
     PENETRATION = "PENETRATION"
     INVALID_GEOMETRY = "INVALID_GEOMETRY"
     MISSING_EVIDENCE = "MISSING_EVIDENCE"
+    INSUFFICIENT_TOOL_LENGTH = "INSUFFICIENT_TOOL_LENGTH"
 
 
 @dataclass(frozen=True)
@@ -56,13 +61,7 @@ class ToolCollisionReport:
 
 
 def compute_aabb_gap(box_a: Any, box_b: Any) -> Optional[float]:
-    """Compute minimum signed gap between two FreeCAD BoundBox objects.
-
-    Returns:
-      gap > 0 if boxes are strictly separated.
-      gap <= 0 if boxes overlap.
-      None if bounds cannot be evaluated.
-    """
+    """Compute minimum signed gap between two FreeCAD BoundBox objects."""
     if box_a is None or box_b is None:
         return None
     try:
@@ -100,12 +99,13 @@ def check_pair_clearance(
     shape_b: Any,
     *,
     near_tolerance_mm: float = 0.5,
-    volume_tolerance_mm3: float = 1e-3,
+    volume_tolerance_mm3: float = 1e-4,
     contact_distance_tolerance_mm: float = 1e-4,
 ) -> PairClearanceResult:
     """Evaluate exact clearance and overlap volume between two native FreeCAD Part solids.
 
     Fails closed on any invalid geometry or evaluation failure.
+    Strictly preserves true surface contact vs positive-volume penetration.
     """
     t0 = time.perf_counter()
 
@@ -140,7 +140,7 @@ def check_pair_clearance(
             dt,
         )
 
-    # 3. Narrow Phase: Common volume & distToShape
+    # 3. Narrow Phase: distToShape & Common volume
     try:
         # Distance calculation
         dist_res = shape_a.distToShape(shape_b)
@@ -167,6 +167,7 @@ def check_pair_clearance(
 
         dt = (time.perf_counter() - t0) * 1000.0
 
+        # Positive volumetric intersection is strictly PENETRATION.
         if vol > volume_tolerance_mm3:
             return PairClearanceResult(
                 CollisionClass.PENETRATION,
@@ -213,10 +214,9 @@ def validate_workpiece_tooling_pose(
     punch_machine_shape: Any,
     die_machine_shape: Any,
     *,
-    is_forming_state: bool = False,
     near_tolerance_mm: float = 0.5,
-    volume_tolerance_mm3: float = 1e-3,
-    forming_penetration_tolerance_mm3: float = 100.0,
+    volume_tolerance_mm3: float = 1e-4,
+    coverage_result: Optional[Any] = None,
 ) -> ToolCollisionReport:
     """Validate 3D collision status of a machine-placed workpiece against punch and die.
 
@@ -224,19 +224,18 @@ def validate_workpiece_tooling_pose(
     - workpiece_machine_shape: Full 3D solid of the sheet in Machine Space.
     - punch_machine_shape: 3D solid of the punch in Machine Space.
     - die_machine_shape: 3D solid of the die in Machine Space.
-    - is_forming_state: When True, intentional tool engagement (touching / arc indentation)
-      at the active bend zone is treated as intentional forming contact rather than a clash,
-      provided common volume does not exceed forming_penetration_tolerance_mm3.
+    - coverage_result: Optional ToolCoverageResult verifying tool length sufficiency.
+
+    Contract:
+    - Never permits volumetric penetration.
+    - Fails closed if any required input or evidence is missing.
+    - Fails closed if tool coverage is insufficient.
     """
     t0 = time.perf_counter()
     diags: List[str] = []
 
     if workpiece_machine_shape is None:
         diags.append("MISSING_WORKPIECE_SHAPE")
-        dt = (time.perf_counter() - t0) * 1000.0
-        dummy = PairClearanceResult(CollisionClass.MISSING_EVIDENCE, "missing_workpiece", 0.0, 0.0, None, 0.0)
-        return ToolCollisionReport(CollisionClass.MISSING_EVIDENCE, dummy, dummy, False, diags, dt)
-
     if punch_machine_shape is None:
         diags.append("MISSING_PUNCH_SHAPE")
     if die_machine_shape is None:
@@ -244,8 +243,14 @@ def validate_workpiece_tooling_pose(
 
     if diags:
         dt = (time.perf_counter() - t0) * 1000.0
-        dummy = PairClearanceResult(CollisionClass.MISSING_EVIDENCE, "missing_tools", 0.0, 0.0, None, 0.0)
+        dummy = PairClearanceResult(CollisionClass.MISSING_EVIDENCE, "missing_evidence", 0.0, 0.0, None, 0.0)
         return ToolCollisionReport(CollisionClass.MISSING_EVIDENCE, dummy, dummy, False, diags, dt)
+
+    if coverage_result is not None and not coverage_result.is_covered:
+        diags.append(f"INSUFFICIENT_TOOL_LENGTH: {coverage_result.reason}")
+        dt = (time.perf_counter() - t0) * 1000.0
+        dummy = PairClearanceResult(CollisionClass.INSUFFICIENT_TOOL_LENGTH, "coverage_failed", 0.0, 0.0, None, 0.0)
+        return ToolCollisionReport(CollisionClass.INSUFFICIENT_TOOL_LENGTH, dummy, dummy, False, diags, dt)
 
     # Check Punch
     punch_res = check_pair_clearance(
@@ -264,9 +269,7 @@ def validate_workpiece_tooling_pose(
     )
 
     # Evaluate Overall Status
-    # Default policy:
-    # If not forming state, PENETRATION is strictly unsafe. TOUCHING is allowed.
-    # If forming state, punch/die penetration within forming tolerance is intentional forming contact.
+    # Any PENETRATION is strictly unsafe.
     overall_status = CollisionClass.CLEAR
     is_safe = True
 
@@ -276,16 +279,11 @@ def validate_workpiece_tooling_pose(
             is_safe = False
             diags.append(f"{label}_INVALID_GEOMETRY: {res.reason}")
         elif res.status == CollisionClass.PENETRATION:
-            if is_forming_state and res.overlap_volume_mm3 <= forming_penetration_tolerance_mm3:
-                diags.append(f"{label}_INTENTIONAL_FORMING_ENGAGEMENT: overlap={res.overlap_volume_mm3:.4f} mm3")
-                if overall_status == CollisionClass.CLEAR:
-                    overall_status = CollisionClass.TOUCHING
-            else:
-                overall_status = CollisionClass.PENETRATION
-                is_safe = False
-                diags.append(f"{label}_PENETRATION_COLLISION: overlap={res.overlap_volume_mm3:.4f} mm3")
+            overall_status = CollisionClass.PENETRATION
+            is_safe = False
+            diags.append(f"{label}_PENETRATION: overlap={res.overlap_volume_mm3:.4f} mm3")
         elif res.status == CollisionClass.TOUCHING:
-            diags.append(f"{label}_SURFACE_TOUCHING")
+            diags.append(f"{label}_TOUCHING: surface contact (dist={res.distance_mm:.4f} mm)")
             if overall_status == CollisionClass.CLEAR:
                 overall_status = CollisionClass.TOUCHING
         elif res.status == CollisionClass.NEAR_CONTACT:
