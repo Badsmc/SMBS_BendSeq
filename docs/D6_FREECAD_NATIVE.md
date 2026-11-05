@@ -103,6 +103,36 @@ Report: `%USERPROFILE%\\pressbrake_traces\\part_overhead_<timestamp>.json`.
 
 No optimization is applied yet: if caching validation is later introduced, it MUST invalidate on shape change or FoldState pose update, and never reuse stale clearance results.
 
+## Per-call overhead measured in FreeCAD 1.1.3
+
+User report: `part_overhead_20261105T112019Z.json` (500 runs each):
+
+| Operation | Median ms |
+| --- | ---: |
+| AABB only | 0.04310 |
+| Shape null/valid/closed/volume tests | 1.22945 |
+| Existing complete classifier, separated | 1.27695 |
+| Existing complete classifier, intersecting | 5.11105 |
+| Part.common only (intersecting) | 3.64880 |
+| Part.distToShape only (separated) | 1.93790 |
+
+**Finding:** repeated geometric validation is a significant avoidable cost on already validated, unchanged shapes. AABB alone is roughly 29.6 times faster than the current full separated classifier in this microbenchmark. This does **not** imply a whole-solver speedup by that factor because close-pair Boolean work and search state overhead remain.
+
+### Experimental prepared-state path
+
+`prepare_solid(shape)` creates and validates a copied solid, snapshots bounding-box numbers, and returns a `PreparedSolid`. `classify_prepared(a,b)` does AABB-first screening and FreeCAD Part Boolean/distance only when required, without repeating validity tests each call.
+
+**Critical contract:** The prepared `Part.Shape` is treated as read-only and exists solely for a specific geometric pose/state. Any bend, placement, tool change, or shape mutation requires preparing a fresh state. Never use an identity-based global cache of a mutable FreeCAD object. Invalid geometries must not reach `classify_prepared` without preparation. Both methods fail closed on invalid inputs or errors.
+
+This is currently a **separate experimental API**. The existing `classify_solids`, sequence search, FreeCAD UI and press-cycle animation are not changed.
+
+A renewed `tools/run_d6_native_overhead.py` includes three extra cases:
+- creating a validated prepared solid;
+- repeated prepared disjoint checks;
+- repeated prepared overlapping checks.
+
+Use the documented runner and upload the new `part_overhead_*.json` file. This comparison will establish whether the expected saving materializes inside FreeCAD 1.1.3.
+
 ## Decision gates
 
 - If `reuse` fails but `copies` succeeds consistently, isolate mutable Mesh state and update the adapter to use independent copies only; repeat on real imported punch and die.
