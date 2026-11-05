@@ -128,3 +128,86 @@ def build_bend_zone_solid(state: FoldState, bend_id: str, *,
         bend_id, float(state.angles[bend_id]), solid,
         float(solid.Volume), length, area, len(outline),
     )
+
+
+@dataclass(frozen=True)
+class NativeSingleBendSheet:
+    """Validated joined OCC solid for a two-panel, one-bend sheet only."""
+    bend_id: str
+    angle_deg: float
+    shape: object
+    volume_mm3: float
+    components: int
+    physical_certified: bool = False
+
+
+def _apply_rigid_transform(shape, transform, App):
+    """Apply existing FoldState panel transform to an isolated Part.Shape."""
+    mat = App.Matrix()
+    for i in range(3):
+        for j in range(3):
+            setattr(mat, "A{}{}".format(i+1,j+1), float(transform.rotation[i][j]))
+        setattr(mat, "A{}4".format(i+1), float(transform.translation[i]))
+    independent = shape.copy()
+    transformed = independent.transformShape(mat, True)
+    # FreeCAD's transformShape API returns a Shape in supported versions.
+    if transformed is None:
+        raise NativeBendSolidError("FreeCAD_transformShape_did_not_return_shape")
+    if not transformed.isValid() or transformed.isNull():
+        raise NativeBendSolidError("invalid_transformed_panel")
+    return transformed
+
+
+def build_single_bend_sheet_solid(state: FoldState, panel_build, bend_id: str, *,
+                                  segments=64) -> NativeSingleBendSheet:
+    """Attempt full-sheet solid from authoritative two-panel SheetMetal faces.
+
+    Exactly ONE bend and TWO rigid faces are required. Other geometries fail
+    closed; there is NO implicit dropping of neighboring bends or panel faces.
+    Rigid panel faces are those returned by the existing PanelBuilder, cut
+    at the finite-width BendZone boundaries, not a second 2D decomposition.
+
+    Geometric union must be one valid connected closed OCC solid. A non-fused
+    compound, a gap or a self-intersection fails rather than being accepted.
+    Physical tool contact and intermediate full-cycle motion are not tested.
+    """
+    if not isinstance(state, FoldState) or bend_id not in state.bends:
+        raise NativeBendSolidError("missing_state")
+    if len(state.ordered_bends) != 1 or len(state.graph.panels) != 2:
+        raise NativeBendSolidError("only_single_bend_two_panel_parts_supported")
+    panels = getattr(panel_build, "panels", None)
+    faces = getattr(panel_build, "panel_faces", None)
+    if (panels is None or faces is None or len(panels) != 2 or len(faces) != 2
+            or {p.panel_id for p in panels} != set(state.graph.panels)):
+        raise NativeBendSolidError("panel_build_mismatch")
+    zone_result = build_bend_zone_solid(state, bend_id, segments=segments)
+    t = float(state.bends[bend_id].bend_zone.thickness_mm)
+    try:
+        import FreeCAD as App
+        import Part
+        solids = []
+        for panel, face in zip(panels, faces):
+            if face.isNull() or not face.isValid() or face.Area <= 0:
+                raise NativeBendSolidError("invalid_rigid_panel_face")
+            panel_solid = face.extrude(App.Vector(0,0,-t))
+            if panel_solid.isNull() or not panel_solid.isValid() or len(panel_solid.Solids)!=1:
+                raise NativeBendSolidError("invalid_rigid_panel_solid")
+            solids.append(_apply_rigid_transform(
+                panel_solid, state.transforms[panel.panel_id], App
+            ))
+        joined=solids[0].fuse(zone_result.shape).fuse(solids[1])
+        if (joined.isNull() or not joined.isValid() or not joined.isClosed()
+                or len(joined.Solids)!=1 or not isfinite(float(joined.Volume))
+                or float(joined.Volume)<=0):
+            raise NativeBendSolidError("zone_and_panels_not_one_valid_closed_solid")
+        expected=sum(x.Volume for x in solids)+zone_result.volume_mm3
+        if abs(float(joined.Volume)-expected)>max(1e-3,expected*1e-5):
+            raise NativeBendSolidError("panel_zone_overlap_or_missing_material")
+    except NativeBendSolidError:
+        raise
+    except Exception as exc:
+        raise NativeBendSolidError("occ_sheet_assembly_failed:"+str(exc)) from exc
+    return NativeSingleBendSheet(
+        bend_id,float(state.angles[bend_id]),joined,float(joined.Volume),
+        len(solids)+1,
+    )
