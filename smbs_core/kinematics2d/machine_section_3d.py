@@ -71,6 +71,23 @@ def slice_polygon_3d_at_x(
     return intersections
 
 
+def _compact_closed_section_polygon(points, tolerance_mm: float = 1e-7):
+    """Remove duplicated consecutive vertices without inventing new geometry.
+
+    Coincident samples arise when the bend angle is zero; the zone arc
+    parameterization collapses to a straight line. Do not remove the actual
+    thickness face or silently repair self-intersections.
+    """
+    compact = []
+    for point in points:
+        pt = (float(point[0]), float(point[1]))
+        if not compact or math.dist(pt, compact[-1]) > tolerance_mm:
+            compact.append(pt)
+    if len(compact) > 1 and math.dist(compact[0], compact[-1]) <= tolerance_mm:
+        compact.pop()
+    return tuple(compact)
+
+
 def compute_machine_cutting_plane_section(
     fold_state: FoldState,
     panel_vertices_xy: Dict[str, Sequence[Tuple[float, float]]],
@@ -230,7 +247,7 @@ def compute_machine_cutting_plane_section(
         neutral_sz = map_profile_to_sz(zone_sec["neutral"])
 
         # Closed zone polygon: inner -> reversed(outer)
-        zone_poly_sz = inner_sz + tuple(reversed(outer_sz))
+        zone_poly_sz = _compact_closed_section_polygon(inner_sz + tuple(reversed(outer_sz)))
 
         if active_bend and bend_id == active_bend_id:
             section["zone_polygon"] = zone_poly_sz
