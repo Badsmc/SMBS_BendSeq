@@ -1,0 +1,27 @@
+name: D6 FCL PoC contracts
+on:
+  push:
+    branches: [d6-fcl-poc]
+    paths:
+      - 'smbs_core/kinematics2d/fcl_collision_poc.py'
+      - 'tools/run_d6_fcl_poc.py'
+      - 'tests/test_fcl_collision_poc.py'
+      - '.github/workflows/d6-fcl-poc.yml'
+  workflow_dispatch:
+jobs:
+  fcl-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Compile
+        run: python -m py_compile smbs_core/kinematics2d/fcl_collision_poc.py tools/run_d6_fcl_poc.py tests/test_fcl_collision_poc.py
+      - name: Always-available contract tests
+        run: PYTHONPATH=. python -m unittest discover -s tests -p 'test_fcl_collision_poc.py' -v
+      - name: Install FCL Python wheels on CI for real primitive geometry test
+        run: python -m pip install numpy python-fcl
+      - name: Real FCL primitive geometry regression
+        run: PYTHONPATH=. python -m unittest discover -s tests -p 'test_fcl_collision_poc.py' -v
