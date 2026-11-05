@@ -91,7 +91,9 @@ class TestMachineCuttingPlaneSection(unittest.TestCase):
             self.assertEqual(len(sec["moving_polygon"]), 4, f"Bend {bid} moving_polygon missing")
 
             # 2. Verify active bend zone has inner, outer, and closed zone polygon
-            self.assertGreater(len(sec["zone_polygon"]), 10, f"Bend {bid} zone_polygon missing")
+            # Zero-angle zone profiles collapse to a four-corner finite-thickness
+            # rectangle after duplicate and collinear point compaction.
+            self.assertGreaterEqual(len(sec["zone_polygon"]), 4, f"Bend {bid} zone_polygon missing")
             self.assertEqual(len(sec["inner_surface"]), len(sec["outer_surface"]))
 
             # 3. Verify only panels actually crossing X_m = 0 are in other_panel_polygons
