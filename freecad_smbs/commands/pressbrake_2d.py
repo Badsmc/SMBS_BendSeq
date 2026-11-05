@@ -723,8 +723,8 @@ class _PreviewPanel:
                 self.reset_btn = _button(QtWidgets, "↺ Reset", self.reset, False)
                 self.play_btn = _button(QtWidgets, "▶ Play All", self.play_all, False)
                 self.play_btn.setToolTip(
-                    "Запуск автоматической симуляции в выбранном режиме: "
-                    "Bend Only или Full Cycle."
+                    "Демонстрационное воспроизведение выбранного порядка. "
+                    "НЕ означает физически проверенную последовательность."
                 )
                 self.pause_btn = _button(
                     QtWidgets, "Ⅱ Pause", self.toggle_pause_resume, False
@@ -1966,9 +1966,10 @@ class _PreviewPanel:
                     return
                 st = self.session.playback_status
                 self.playing = st == PlaybackStatus.PLAYING
+                # Demonstration playback is NOT a manufacturing plan.
                 self.play_btn.setText(
-                    "▶ Play All (станок)" if self.execution_mode == CycleExecutionMode.FULL_CYCLE
-                    else "▶ Play All (геометрия)"
+                    "▶ Demo Full Cycle" if self.execution_mode == CycleExecutionMode.FULL_CYCLE
+                    else "▶ Demo Bend Only"
                 )
                 if st == PlaybackStatus.PLAYING:
                     self.pause_btn.setText("Ⅱ Pause")
