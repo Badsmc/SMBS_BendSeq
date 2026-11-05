@@ -46,7 +46,14 @@ os.environ["SMBS_MESH_POC_TOOL"] = "Punch"
 runpy.run_path(r"C:\Users\User\Documents\SMBS_BendSeq\tools\run_d6_mesh_poc.py")
 ```
 
-Replace `Body` and `Punch` with **the actual object names** from your FreeCAD document. Existing FCStd part, punch and die often live in separate documents: the current runner only compares objects from the *active* document. Importing or assembling separate documents is deliberately left to a subsequent step, rather than silently changing coordinate frames.
+Replace `Body` and `Punch` with **the actual object names** from your FreeCAD document. If the solid objects are open in **different FreeCAD documents**, you may use the exact `DocumentName:ObjectName` form, e.g.:
+
+```python
+os.environ["SMBS_MESH_POC_SHEET"] = "PartModel:Body"
+os.environ["SMBS_MESH_POC_TOOL"] = "PunchModel:Punch"
+```
+
+These are placeholders, not automatically detected names. The runner reads the source shapes without moving, merging, or editing either document. Because separate tool files are not necessarily in the same machine coordinate frame, report the result strictly as a geometry/throughput experiment, **not** evidence of valid press setup.
 
 This **does not yet construct meshes from `kinematics2d.FoldState`** or run the eight bend cycles. It evaluates real static CAD objects when available, but their initial global placement may not correspond to press machine coordinates. Do not interpret that result as machine feasibility.
 
