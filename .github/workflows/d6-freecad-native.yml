@@ -1,0 +1,24 @@
+name: D6 FreeCAD native collision contracts
+on:
+  push:
+    branches: [d6-freecad-native]
+    paths:
+      - 'smbs_core/kinematics2d/freecad_native_collision.py'
+      - 'tools/run_d6_freecad_native.py'
+      - 'tests/test_freecad_native_collision.py'
+      - '.github/workflows/d6-freecad-native.yml'
+  workflow_dispatch:
+jobs:
+  native-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Compile FreeCAD native diagnostics
+        run: |
+          python -m py_compile smbs_core/kinematics2d/freecad_native_collision.py tools/run_d6_freecad_native.py tests/test_freecad_native_collision.py
+      - name: Test pure-Python backend contracts
+        run: PYTHONPATH=. python -m unittest discover -s tests -p 'test_freecad_native_collision.py' -v
