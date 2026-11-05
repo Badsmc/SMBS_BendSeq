@@ -8,6 +8,7 @@ Exact boundary-only contacts and unreliable booleans remain UNVERIFIED.
 """
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass
 from enum import Enum
 from math import isfinite
@@ -159,9 +160,55 @@ def classify_mesh_pair(sheet: Any, tool: Any,
         return report(MeshContact.UNVERIFIED, "mesh_backend_exception:" + str(exc))
 
 
+def assess_repeated_checks(checks: list[MeshContactResult], *,
+                           expected: MeshContact,
+                           expected_volume_mm3: float | None = None,
+                           relative_volume_tolerance: float = 0.01) -> dict:
+    """Pass known fixtures only when EVERY result is repeatable and accurate.
+
+    A status-only one-shot PASS is not a reliable mesh backend qualification.
+    For known positive-volume intersection all repeated positive volumes
+    must match the geometric reference within tolerance.
+    """
+    if not checks or not isinstance(expected, MeshContact):
+        raise ValueError("Non-empty checks and expected MeshContact required")
+    if not isfinite(relative_volume_tolerance) or relative_volume_tolerance < 0:
+        raise ValueError("Invalid volume tolerance")
+    if expected_volume_mm3 is not None and (
+        not isfinite(expected_volume_mm3) or expected_volume_mm3 <= 0
+    ):
+        raise ValueError("Expected positive overlap volume required")
+    errors = []
+    failed = 0
+    for check in checks:
+        if check.status is not expected:
+            failed += 1
+            continue
+        if expected_volume_mm3 is not None:
+            vol = check.overlap_volume_mm3
+            if vol is None or not isfinite(vol):
+                failed += 1
+                continue
+            deviation = abs(vol - expected_volume_mm3) / expected_volume_mm3
+            errors.append(deviation)
+            if deviation > relative_volume_tolerance:
+                failed += 1
+    return {
+        "pass": failed == 0,
+        "failed_iterations": failed,
+        "total_iterations": len(checks),
+        "max_relative_volume_error": max(errors) if errors else None,
+        "expected_status": expected.value,
+        "expected_volume_mm3": expected_volume_mm3,
+    }
+
+
 def benchmark_mesh_pair(sheet: Any, tool: Any, *, iterations: int = 1000,
                         strict_clearance_mm: float = 0.02,
-                        min_volume_mm3: float = 1e-5) -> dict:
+                        min_volume_mm3: float = 1e-5,
+                        expected_status: MeshContact | None = None,
+                        expected_volume_mm3: float | None = None,
+                        relative_volume_tolerance: float = 0.01) -> dict:
     """Repeat static-pose checks; reports all statuses, never labels it CCD."""
     if not isinstance(iterations, int) or not 1 <= iterations <= 100_000:
         raise ValueError("iterations must be between 1 and 100000")
@@ -176,6 +223,19 @@ def benchmark_mesh_pair(sheet: Any, tool: Any, *, iterations: int = 1000,
     timings = sorted(c.elapsed_ms for c in checks)
     statuses = {status.value: sum(c.status == status for c in checks)
                 for status in MeshContact}
+    reasons = dict(sorted(Counter(c.reason for c in checks).items()))
+    observed_volumes = [
+        round(c.overlap_volume_mm3, 5)
+        for c in checks if c.overlap_volume_mm3 is not None
+    ]
+    volume_histogram = dict(sorted(Counter(observed_volumes).items()))
+    qualification = (
+        assess_repeated_checks(
+            checks, expected=expected_status,
+            expected_volume_mm3=expected_volume_mm3,
+            relative_volume_tolerance=relative_volume_tolerance,
+        ) if expected_status is not None else None
+    )
     return {
         "iterations": iterations,
         "total_seconds": round(elapsed, 6),
@@ -183,6 +243,13 @@ def benchmark_mesh_pair(sheet: Any, tool: Any, *, iterations: int = 1000,
         "median_check_ms": round(timings[len(timings)//2], 5),
         "p95_check_ms": round(timings[min(len(timings)-1, int(iterations * 0.95))], 5),
         "statuses": statuses,
+        "repeatability_acceptance": qualification,
+        "reasons": reasons,
+        "overlap_volumes_mm3_histogram": {
+            str(volume): count for volume, count in volume_histogram.items()
+        },
+        "observed_min_volume_mm3": min(observed_volumes) if observed_volumes else None,
+        "observed_max_volume_mm3": max(observed_volumes) if observed_volumes else None,
         "first_check": checks[0].to_dict(),
         "note": "Static 3D positions only. Not CCD, not proof of a bend sequence.",
     }
