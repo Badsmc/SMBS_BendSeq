@@ -49,6 +49,7 @@ class MeshPoCTests(unittest.TestCase):
     def test_positive_intersection_volume(self):
         second = FakeMesh(box(8,0,0,18,10,10),
                           result=FakeMesh(box(8,0,0,10,10,10), facets=12, volume=200.0))
+        self.first._result = second._result  # FreeCAD API invokes sheet.intersect(tool)
         got = classify_mesh_pair(self.first, second)
         self.assertEqual(got.status, MeshContact.PENETRATION)
         self.assertEqual(got.overlap_volume_mm3, 200.0)
