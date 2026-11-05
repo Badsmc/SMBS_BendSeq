@@ -164,17 +164,6 @@ def check_pair_clearance(
     box_b = getattr(shape_b, "BoundBox", None)
     aabb_gap = compute_aabb_gap(box_a, box_b)
 
-    if aabb_gap is not None and aabb_gap > near_tolerance_mm:
-        dt = (time.perf_counter() - t0) * 1000.0
-        return PairClearanceResult(
-            CollisionClass.CLEAR,
-            "aabb_separated",
-            aabb_gap,
-            0.0,
-            aabb_gap,
-            dt,
-        )
-
     # 3. Narrow Phase: distToShape & Common volume
     try:
         dist_res = shape_a.distToShape(shape_b)
@@ -248,6 +237,7 @@ def validate_workpiece_tooling_pose(
     *,
     near_tolerance_mm: float = 0.5,
     volume_tolerance_mm3: float = 1e-4,
+    contact_distance_tolerance_mm: float = 1e-4,
 ) -> ToolCollisionReport:
     """Validate 3D geometric collision status of a machine-placed workpiece against punch and die."""
     t0 = time.perf_counter()
@@ -270,6 +260,7 @@ def validate_workpiece_tooling_pose(
         punch_machine_shape,
         near_tolerance_mm=near_tolerance_mm,
         volume_tolerance_mm3=volume_tolerance_mm3,
+        contact_distance_tolerance_mm=contact_distance_tolerance_mm,
     )
 
     die_res = check_pair_clearance(
@@ -277,6 +268,7 @@ def validate_workpiece_tooling_pose(
         die_machine_shape,
         near_tolerance_mm=near_tolerance_mm,
         volume_tolerance_mm3=volume_tolerance_mm3,
+        contact_distance_tolerance_mm=contact_distance_tolerance_mm,
     )
 
     overall_status = CollisionClass.CLEAR
