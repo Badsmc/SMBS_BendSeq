@@ -32,14 +32,15 @@ except ImportError:
 import Part
 
 from smbs_core.kinematics2d.native_tool_loader import load_native_die, load_native_punch, set_punch_ram_z, check_tool_coverage
-from smbs_core.kinematics2d.native_collision_3d import validate_workpiece_tooling_pose, qualify_operation_sampled_poses, PhaseQualificationReport
+from smbs_core.kinematics2d.native_collision_3d import validate_workpiece_tooling_pose, qualify_operation_sampled_poses, PhaseQualificationReport, CollisionClass
 from smbs_core.kinematics2d.native_bend_solid_3d import build_multi_bend_sheet_solid
 from smbs_core.kinematics2d.workpiece_placement_3d import WorkpiecePlacement3D
 from smbs_core.kinematics2d.coupled_kinematics_2d import CoupledAirBendingKinematics
+from smbs_core.kinematics2d.motion_trajectory_3d import AdaptiveTrajectoryValidator3D, AdaptiveSamplingConfig, TrajectoryEvidenceStatus
 from freecad_smbs.commands.pressbrake_2d import build_part_session
 
 print("=" * 70)
-print("SMBS BendSeq D6.3.3 FreeCAD Interactive 3D Collision Diagnostic")
+print("SMBS BendSeq D6.3.3 / D6.3.4 FreeCAD Interactive 3D Motion Diagnostic")
 print("=" * 70)
 
 DIAG_DOC_NAME = "D633_Collision_Diagnostic"
@@ -205,8 +206,43 @@ def show_phase(phase_name: str = "CONTACT"):
 
 # Initial display: CONTACT phase
 show_phase("CONTACT")
+
+
+def inspect_trajectory(fixture_name: str = "L-(ok).FCStd", bend_id: str = "B01"):
+    """D6.3.4 Adaptive motion trajectory inspection."""
+    print(f"\n[D6.3.4] Running adaptive trajectory validation on {fixture_name} ({bend_id})...")
+    f_path = resolve_fixture_path(fixture_name)
+    s_doc = App.openDocument(str(f_path), True)
+    try:
+        u_obj = [o for o in s_doc.Objects if getattr(o, "Name", "").endswith("_Unfold")][0]
+        sess = build_part_session(s_doc, [u_obj])
+        st = sess.fold_state
+        cfg = AdaptiveSamplingConfig(
+            max_bend_angle_step_deg=10.0,
+            max_ram_displacement_step_mm=5.0,
+            min_clearance_margin_mm=0.5,
+            clearance_change_threshold_mm=2.0,
+            max_recursion_depth=6,
+            max_evaluated_states_per_phase=32,
+            arc_segments=128,
+        )
+        validator = AdaptiveTrajectoryValidator3D(st, sess.panel_build, punch_base, die, cfg)
+        res = validator.validate_bend_trajectory(bend_id, {})
+        print(f"Trajectory Evidence Status: {res.evidence_status.value}")
+        print(f"Qualified: {res.is_qualified}")
+        print(f"Total Evaluated States: {res.total_states_evaluated}, Subdivisions: {res.total_subdivisions}")
+        for pr in res.phase_results:
+            print(f" - Phase {pr.phase_name:10s}: Status={pr.evidence_status.value:28s} States={len(pr.states):2d} Safe={pr.is_safe}")
+        return res
+    finally:
+        App.closeDocument(s_doc.Name)
+
+
 print("\n" + "=" * 70)
 print("Visualizer loaded! Call show_phase('PHASE_NAME') in console to inspect any phase:")
 for p in PHASES:
     print(f" - show_phase('{p}')")
+print("Or inspect full D6.3.4 motion trajectory:")
+print(" - inspect_trajectory('L-(ok).FCStd', 'B01')")
+print(" - inspect_trajectory('Z-(ok).FCStd', 'B02')")
 print("=" * 70)
