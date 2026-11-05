@@ -6,7 +6,7 @@ Usage, from the FreeCAD Python console:
 
 Optional environment variables:
     SMBS_MESH_POC_SHEET: name of existing solid object in active document
-    SMBS_MESH_POC_TOOL: name of existing solid tool object
+    SMBS_MESH_POC_TOOL: existing solid tool name (optionally DocumentName:ObjectName)
     SMBS_MESH_POC_OUTPUT: destination JSON file
 
 Never changes any FreeCAD document. Uses created in-memory Part boxes as
@@ -90,11 +90,21 @@ def run_case(name, sheet, tool, expected, benchmark_iterations=100):
 
 
 def get_existing_solid(document, name):
-    if not document or not name:
-        return None
-    obj = document.getObject(name)
+    """Resolve ObjectName in active document or DocumentName:ObjectName."""
+    if not name:
+        raise ValueError("Missing FreeCAD object name")
+    if ":" in name:
+        doc_name, obj_name = name.split(":", 1)
+        document = App.getDocument(doc_name)
+        if document is None:
+            raise ValueError("Document is not open: " + doc_name)
+    else:
+        obj_name = name
+    if document is None:
+        raise ValueError("No active document for object: " + name)
+    obj = document.getObject(obj_name)
     if obj is None:
-        raise ValueError("Missing active document object: " + name)
+        raise ValueError("Missing FreeCAD object: " + name)
     shape = getattr(obj, "Shape", None)
     if shape is None or shape.isNull() or not shape.isValid() or not shape.isClosed() or shape.Volume <= 0:
         raise ValueError("Object is not a valid closed positive-volume CAD solid: " + name)
