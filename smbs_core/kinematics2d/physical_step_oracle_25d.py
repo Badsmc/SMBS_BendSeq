@@ -95,6 +95,14 @@ class PreviewStepOracle25D:
                                         and previous_bend_id not in state.bends):
             return self._finish(bend_id, previous_bend_id,
                                 Feasibility.UNVERIFIED, "unknown_bend_id", (), 0)
+        bend = state.bends[bend_id]
+        zone = getattr(bend, "bend_zone", None)
+        if (zone is None or not isinstance(getattr(zone, "thickness_mm", None), (int, float))
+                or not isfinite(zone.thickness_mm) or zone.thickness_mm <= 0
+                or not isinstance(getattr(zone, "inner_radius_mm", None), (int, float))
+                or not isfinite(zone.inner_radius_mm) or zone.inner_radius_mm < 0):
+            return self._finish(bend_id, previous_bend_id,
+                                Feasibility.UNVERIFIED, "missing_real_bend_zone_geometry", (), 0)
         if not self.panel_vertices_xy or any(
             p not in self.panel_vertices_xy or len(self.panel_vertices_xy[p]) < 3
             for p in state.graph.panels
