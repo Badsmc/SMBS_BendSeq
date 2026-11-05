@@ -24,6 +24,9 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0,str(ROOT))
 
 from smbs_core.report_paths import report_file
+from smbs_core.kinematics2d.native_volume_gate import (
+    volume_consistency, ideal_constant_thickness_bend_drift_mm3,
+)
 from smbs_core.kinematics2d.native_bend_solid_3d import (
     build_bend_zone_solid, build_single_bend_sheet_solid, NativeBendSolidError,
 )
@@ -146,13 +149,44 @@ def main():
             report["cases"].append(row)
             print("SMBS D6.3:",bid, fraction, "PASS" if row["pass"] else "FAIL",
                   "Volume:",round(result.volume_mm3,6),"mm3")
-        if not all(x["pass"] for x in report["cases"]):
-            report["result"]="FAIL"
-        elif all(x["full_single_bend_sheet"]["status"]=="PASS" for x in report["cases"]):
-            report["result"]="PASS_SINGLE_BEND_GEOMETRY"
+        zone_volumes = [r["volume_mm3"] for r in report["cases"]]
+        report["zone_volume_consistency"] = volume_consistency(zone_volumes)
+        report["expected_ideal_sector_drift_mm3"] = [
+            ideal_constant_thickness_bend_drift_mm3(
+                thickness_mm=z.thickness_mm,
+                k_factor=z.k_factor_ansi,
+                bend_length_mm=report["cases"][i]["bend_line_length_mm"],
+                angle_deg=row["angle_deg"],
+            )
+            for i, row in enumerate(report["cases"])
+        ]
+        full_sheet_rows = [r["full_single_bend_sheet"] for r in report["cases"]]
+        complete_sheets = all(r["status"] == "PASS" for r in full_sheet_rows)
+        if complete_sheets:
+            report["full_sheet_volume_consistency"] = volume_consistency(
+                [r["volume_mm3"] for r in full_sheet_rows]
+            )
         else:
-            report["result"]="PASS_ZONE_ONLY"
-        report["full_sheet_geometry_complete"] = report["result"]=="PASS_SINGLE_BEND_GEOMETRY"
+            report["full_sheet_volume_consistency"] = {
+                "pass": False,
+                "reason": "full_sheet_not_built_for_all_samples",
+            }
+        # Geometry validity (closed BRep) and physical-volume consistency
+        # are distinct requirements. Never report a qualified sheet if its
+        # reconstructed volume changes beyond the explicit tolerance.
+        if not all(x["pass"] for x in report["cases"]):
+            report["result"] = "FAIL"
+        elif complete_sheets and report["full_sheet_volume_consistency"]["pass"]:
+            report["result"] = "PASS_SINGLE_BEND_GEOMETRY"
+        elif complete_sheets:
+            report["result"] = "UNVERIFIED_VOLUME_DRIFT"
+        else:
+            report["result"] = "PASS_ZONE_ONLY"
+        report["full_sheet_geometry_complete"] = bool(
+            complete_sheets and report["full_sheet_volume_consistency"]["pass"]
+        )
+        report["closed_connected_sheet_samples"] = complete_sheets
+        report["machine_collision_certified"] = False
         # Ensure the original document shape/GUI was never modified.
         report["source_fold_state_isolated"] = source_angle_snapshot == {
             bid:0.0 for bid in source_angle_snapshot
