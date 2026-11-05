@@ -82,8 +82,10 @@ finally:
 punch_base = load_native_punch(punch_file, ram_z_mm=50.0, section_offsets_xm=[-50.0, 50.0])
 die = load_native_die(die_file, section_offsets_xm=[-50.0, 50.0])
 
+effective_v = getattr(die, "effective_v_opening_mm", die.v_opening_mm) or die.v_opening_mm
+
 coupled = CoupledAirBendingKinematics(
-    die_opening_v_mm=die.v_opening_mm,
+    die_opening_v_mm=effective_v,
     die_shoulder_radius_mm=die.shoulder_radius_mm,
     die_angle_deg=die.included_angle_deg,
     die_v_depth_mm=die.v_depth_mm,
@@ -94,13 +96,25 @@ coupled = CoupledAirBendingKinematics(
     die_top_z_mm=0.0,
 )
 
-# 4. Phase definitions
+# 4. Phase definitions (kinematically consistent & coaxial contact)
 PHASES = {
-    "APPROACH": {"angle": 0.0, "ram_z": 50.0, "supp_z": bz.thickness_mm},
-    "CONTACT": {"angle": 0.0, "ram_z": 1.5, "supp_z": bz.thickness_mm},
-    "BENDING_45": {"angle": 45.0, "ram_z": coupled.ram_z_for_angle(45.0) + (bz.inner_radius_mm - punch_base.tip_radius_mm) + 0.1, "supp_z": coupled.support_plane_zm(45.0) + bz.thickness_mm},
-    "BOTTOM_90": {"angle": 90.0, "ram_z": coupled.ram_z_for_angle(90.0) + (bz.inner_radius_mm - punch_base.tip_radius_mm) + 0.1, "supp_z": coupled.support_plane_zm(90.0) + bz.thickness_mm},
-    "RETRACT": {"angle": 90.0, "ram_z": 40.0, "supp_z": coupled.support_plane_zm(90.0) + bz.thickness_mm},
+    "APPROACH": {"angle": 0.0, "ram_z": 50.0, "supp_z": bz.outer_radius_mm},
+    "CONTACT": {"angle": 0.0, "ram_z": coupled.contact_z_mm, "supp_z": bz.outer_radius_mm},
+    "BENDING_45": {
+        "angle": 45.0,
+        "ram_z": coupled.ram_z_for_angle(45.0),
+        "supp_z": -coupled.stroke_for_angle(45.0) + bz.outer_radius_mm,
+    },
+    "BOTTOM_90": {
+        "angle": 90.0,
+        "ram_z": coupled.ram_z_for_angle(90.0),
+        "supp_z": -coupled.stroke_for_angle(90.0) + bz.outer_radius_mm,
+    },
+    "RETRACT": {
+        "angle": 90.0,
+        "ram_z": 40.0,
+        "supp_z": -coupled.stroke_for_angle(90.0) + bz.outer_radius_mm,
+    },
 }
 
 # 5. Create persistent diagnostic visual features in diagnostic document
@@ -135,8 +149,14 @@ def show_phase(phase_name: str = "CONTACT"):
 
     # Reconstruct workpiece solid
     state.set_angle("B01", deg)
-    solid = build_multi_bend_sheet_solid(state, session.panel_build, segments=32)
-    tf = WorkpiecePlacement3D.compute_placement(state, "B01", support_plane_zm=supp_z, align_bisector=True)
+    solid = build_multi_bend_sheet_solid(state, session.panel_build, segments=128)
+    tf = WorkpiecePlacement3D.compute_placement(
+        state,
+        "B01",
+        support_plane_zm=supp_z,
+        align_bisector=True,
+        align_bend_arc_center=True,
+    )
     mat_wp = App.Matrix(
         tf.rotation[0][0], tf.rotation[0][1], tf.rotation[0][2], tf.translation[0],
         tf.rotation[1][0], tf.rotation[1][1], tf.rotation[1][2], tf.translation[1],
