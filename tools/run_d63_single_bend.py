@@ -72,12 +72,15 @@ def main():
     }
     try:
         import FreeCAD as App
-        import FreeCADGui as Gui
+        try:
+            import FreeCADGui as Gui
+            selected = Gui.Selection.getSelection() if hasattr(Gui, "Selection") else []
+        except Exception:
+            selected = []
         from freecad_smbs.commands.pressbrake_2d import build_part_session
 
-        doc=App.ActiveDocument
-        selected=Gui.Selection.getSelection()
-        selection, selection_mode = resolve_test_selection(doc,selected)
+        doc = App.ActiveDocument
+        selection, selection_mode = resolve_test_selection(doc, selected)
         report["selection_mode"] = selection_mode
         report["source_unfold_name"] = selection[0].Name
         source_angle_snapshot = {}
