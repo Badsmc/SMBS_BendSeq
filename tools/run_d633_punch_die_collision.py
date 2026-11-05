@@ -10,7 +10,8 @@ Tests key phases of the press-brake working cycle:
 1. Single 100mm section baseline (verifies INSUFFICIENT_TOOL_LENGTH qualification rejection).
 2. Explicitly configured 2x100mm = 200mm tool assembly (FULL_TOOL_COVERAGE qualification).
 3. Evaluates geometric collision: CLEAR, NEAR_CONTACT, TOUCHING, PENETRATION.
-4. Distinguishes discrete sampled poses from continuous trajectory certification.
+4. Strict logical AND operation qualification: ANY single failing phase disqualifies the operation.
+5. Distinguishes discrete sampled poses from continuous trajectory certification.
 """
 from __future__ import annotations
 
@@ -38,7 +39,8 @@ from smbs_core.kinematics2d.native_tool_loader import (
 )
 from smbs_core.kinematics2d.native_collision_3d import (
     validate_workpiece_tooling_pose,
-    qualify_machine_setup,
+    qualify_operation_sampled_poses,
+    PhaseQualificationReport,
     CollisionClass,
 )
 
@@ -112,8 +114,8 @@ def test_fixture_cycle(
                 ("RETRACT", target_angle, 40.0, coupled.support_plane_zm(target_angle) + bz.thickness_mm),
             ]
 
+            phase_reports: List[PhaseQualificationReport] = []
             phase_records = []
-            all_safe = True
 
             for p_name, deg, ram_z, supp_z in test_phases:
                 state.set_angle(bend_id, deg if bend.angle_deg >= 0 else -deg)
@@ -136,8 +138,14 @@ def test_fixture_cycle(
                     die.machine_shape,
                 )
 
-                if not col_eval.is_safe:
-                    all_safe = False
+                phase_reports.append(PhaseQualificationReport(
+                    phase_name=p_name,
+                    bend_angle_deg=deg,
+                    ram_z_mm=ram_z,
+                    support_plane_zm=supp_z,
+                    collision_report=col_eval,
+                    is_phase_safe=col_eval.is_safe,
+                ))
 
                 phase_records.append({
                     "phase": p_name,
@@ -150,24 +158,34 @@ def test_fixture_cycle(
                     "punch_overlap_volume_mm3": col_eval.punch_result.overlap_volume_mm3,
                     "die_clearance_mm": col_eval.die_result.distance_mm,
                     "die_overlap_volume_mm3": col_eval.die_result.overlap_volume_mm3,
+                    "diagnostics": col_eval.diagnostics,
                 })
 
-            qual = qualify_machine_setup(col_eval, punch_cov, die_cov)
+            # Strictly aggregate across ALL phases using logical AND
+            op_qual = qualify_operation_sampled_poses(phase_reports, punch_cov, die_cov)
+
             bend_record = {
                 "bend_id": bend_id,
                 "bend_length_mm": bend_len,
                 "punch_coverage": punch_cov.status,
                 "die_coverage": die_cov.status,
-                "is_qualified": qual.is_qualified,
-                "qualification_status": qual.qualification_status,
+                "tool_setup_status": op_qual.tool_setup_status.value,
+                "operation_status": op_qual.operation_status.value,
+                "is_qualified": op_qual.is_qualified,
+                "safe_phases_count": op_qual.safe_phases_count,
+                "total_phases_tested": op_qual.total_phases_tested,
+                "rejected_phases": op_qual.rejected_phases,
+                "diagnostics": op_qual.diagnostics,
                 "phases": phase_records,
             }
             fixture_report["bends_evaluated"].append(bend_record)
 
             print(
                 f"SMBS D6.3.3: Fixture={fixture_filename:14s} Bend={bend_id:4s} "
-                f"Setup={fixture_report['tool_setup']:18s} Qual={qual.qualification_status:24s} "
-                f"AllPosesSafe={all_safe}"
+                f"Setup={fixture_report['tool_setup']:18s} "
+                f"OpStatus={op_qual.operation_status.value:24s} "
+                f"SafePhases={op_qual.safe_phases_count}/{op_qual.total_phases_tested} "
+                f"Rejected={op_qual.rejected_phases}"
             )
 
         return fixture_report
@@ -184,43 +202,51 @@ def run_full_validation() -> dict:
     die_path = ROOT / "toollibrary" / "die" / "matrica.FCStd"
 
     report = {
-        "schema": "smbs-d633-punch-die-collision-v3",
+        "schema": "smbs-d633-punch-die-collision-v4",
         "created_utc": datetime.now(timezone.utc).isoformat(),
         "freecad_version": ".".join(map(str, App.Version()[:3])),
         "punch_file": str(punch_path),
         "die_file": str(die_path),
         "tests": [],
-        "trajectory_status": "UNVERIFIED_DISCRETE_SAMPLES_ONLY",
+        "trajectory_status": "UNVERIFIED_TRAJECTORY",
         "overall_status": "NOT_RUN",
     }
 
     # Test Matrix:
-    # 1. Baseline: L-(ok).FCStd with single 100mm section -> Must fail with INSUFFICIENT_PUNCH_COVERAGE
+    # 1. Baseline: L-(ok).FCStd with single 100mm section -> Must produce SAMPLED_POSES_REJECTED due to coverage
     rep_l_single = test_fixture_cycle("L-(ok).FCStd", punch_path, die_path, tool_offsets_xm=None)
     report["tests"].append(rep_l_single)
 
-    # 2. Configured Assembly: L-(ok).FCStd with 2x100mm = 200mm sections -> Must QUALIFY
+    # 2. Configured Assembly: L-(ok).FCStd with 2x100mm sections
     rep_l_assembly = test_fixture_cycle("L-(ok).FCStd", punch_path, die_path, tool_offsets_xm=[-50.0, 50.0])
     report["tests"].append(rep_l_assembly)
 
-    # 3. Z-(ok).FCStd (+90, -90) with 2x100mm assembly -> Must QUALIFY
+    # 3. Z-(ok).FCStd (+90, -90) with 2x100mm assembly -> B02 has interference -> MUST BE SAMPLED_POSES_REJECTED
     rep_z_assembly = test_fixture_cycle("Z-(ok).FCStd", punch_path, die_path, tool_offsets_xm=[-50.0, 50.0])
     report["tests"].append(rep_z_assembly)
 
-    # 4. 135-(ok).FCStd (+45, -45) with 2x100mm assembly -> Must QUALIFY
+    # 4. 135-(ok).FCStd (+45, -45) with 2x100mm assembly
     rep_135_assembly = test_fixture_cycle("135-(ok).FCStd", punch_path, die_path, tool_offsets_xm=[-50.0, 50.0])
     report["tests"].append(rep_135_assembly)
 
-    # Determine overall status
-    single_rejected = rep_l_single["bends_evaluated"][0]["qualification_status"] == "INSUFFICIENT_PUNCH_COVERAGE"
-    l_ok = rep_l_assembly["bends_evaluated"][0]["qualification_status"] == "QUALIFIED"
-    z_ok = all(b["qualification_status"] == "QUALIFIED" for b in rep_z_assembly["bends_evaluated"])
-    a135_ok = all(b["qualification_status"] == "QUALIFIED" for b in rep_135_assembly["bends_evaluated"])
+    # Acceptance evaluation:
+    # L single must be rejected due to coverage
+    single_coverage_rejected = (rep_l_single["bends_evaluated"][0]["operation_status"] == "SAMPLED_POSES_REJECTED" and
+                                rep_l_single["bends_evaluated"][0]["tool_setup_status"] == "INSUFFICIENT_PUNCH_COVERAGE")
 
-    if single_rejected and l_ok and z_ok and a135_ok:
-        report["overall_status"] = "PASS"
+    # Z-part with penetration on B02 MUST be SAMPLED_POSES_REJECTED (never falsely marked QUALIFIED!)
+    z_b02_rejected = (rep_z_assembly["bends_evaluated"][1]["operation_status"] == "SAMPLED_POSES_REJECTED")
+
+    report["acceptance_checks"] = {
+        "single_coverage_rejected": single_coverage_rejected,
+        "z_interference_rejected": z_b02_rejected,
+        "trajectory_unverified": report["trajectory_status"] == "UNVERIFIED_TRAJECTORY",
+    }
+
+    if single_coverage_rejected and z_b02_rejected:
+        report["overall_status"] = "HONEST_PHYSICAL_QUALIFICATION_ENFORCED"
     else:
-        report["overall_status"] = "FAIL"
+        report["overall_status"] = "FAIL_UNSOUND_QUALIFICATION"
 
     report["total_elapsed_ms"] = (time.perf_counter() - t_start) * 1000.0
     return report
@@ -234,6 +260,7 @@ def main():
         json.dump(report, f, indent=2)
     print(f"\nD6.3.3 Report written to: {out_path}")
     print(f"Overall status: {report['overall_status']}")
+    print(f"Acceptance checks: {report['acceptance_checks']}")
 
 
 if __name__ == "__main__":

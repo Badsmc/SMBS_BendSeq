@@ -10,7 +10,10 @@ Tests:
 7. Insufficient tool coverage fails closed (INSUFFICIENT_TOOL_LENGTH).
 8. Assembly continuity: gap detection between tool sections.
 9. Native CAD tooling loading & machine placement with datums.
-10. Separation of geometric collision from physical qualification.
+10. Strict logical AND operation qualification:
+    - 5-phase test with BENDING/BOTTOM penetration -> SAMPLED_POSES_REJECTED even when RETRACT is CLEAR.
+    - Systematic test of each single failing phase -> SAMPLED_POSES_REJECTED.
+    - All phases safe -> SAMPLED_POSES_QUALIFIED.
 """
 import math
 import unittest
@@ -18,11 +21,17 @@ from types import SimpleNamespace
 
 from smbs_core.kinematics2d.native_collision_3d import (
     CollisionClass,
+    SetupQualificationStatus,
+    OperationQualificationStatus,
     compute_aabb_gap,
     check_solid_validity,
     check_pair_clearance,
     validate_workpiece_tooling_pose,
-    qualify_machine_setup,
+    qualify_tool_setup,
+    qualify_operation_sampled_poses,
+    PhaseQualificationReport,
+    ToolCollisionReport,
+    PairClearanceResult,
 )
 from smbs_core.kinematics2d.native_tool_loader import (
     load_native_die,
@@ -41,6 +50,11 @@ except ImportError:
     App = None
     Part = None
     HAS_FREECAD = False
+
+
+def _make_dummy_collision(status: CollisionClass, is_safe: bool) -> ToolCollisionReport:
+    p = PairClearanceResult(status, "test", 0.0 if not is_safe else 10.0, 10.0 if not is_safe else 0.0, None, 0.1)
+    return ToolCollisionReport(status, p, p, is_safe, [f"test_{status.value}"], 0.2)
 
 
 class TestD633NativeCollision(unittest.TestCase):
@@ -185,25 +199,67 @@ class TestD633NativeCollision(unittest.TestCase):
         self.assertFalse(res.is_safe)
         self.assertIn("MISSING_WORKPIECE_SHAPE", res.diagnostics)
 
-    @unittest.skipUnless(HAS_FREECAD, "FreeCAD required for physical qualification")
-    def test_qualify_machine_setup(self):
-        box_wp = Part.makeBox(10, 10, 10, App.Vector(0, 0, 0))
-        box_p = Part.makeBox(10, 10, 10, App.Vector(0, 0, 50))
-        box_d = Part.makeBox(10, 10, 10, App.Vector(0, 0, -20))
-
-        col_rep = validate_workpiece_tooling_pose(box_wp, box_p, box_d)
+    def test_qualify_operation_sampled_poses_strict_and(self):
         cov_ok = ToolCoverageResult(True, "FULL_TOOL_COVERAGE", 10.0, (0, 10), 10.0, (0, 10), 0, 0, 0, 0, "OK")
         cov_bad = ToolCoverageResult(False, "INSUFFICIENT_TOOL_LENGTH", 20.0, (0, 20), 10.0, (0, 10), 0, 10, 0, 0, "Short")
 
-        # Qualified setup
-        q_ok = qualify_machine_setup(col_rep, cov_ok, cov_ok)
-        self.assertTrue(q_ok.is_qualified)
-        self.assertEqual(q_ok.qualification_status, "QUALIFIED")
+        col_clear = _make_dummy_collision(CollisionClass.CLEAR, True)
+        col_touch = _make_dummy_collision(CollisionClass.TOUCHING, True)
+        col_penetrate = _make_dummy_collision(CollisionClass.PENETRATION, False)
 
-        # Disqualified setup (coverage insufficient)
-        q_bad = qualify_machine_setup(col_rep, cov_bad, cov_ok)
-        self.assertFalse(q_bad.is_qualified)
-        self.assertEqual(q_bad.qualification_status, "INSUFFICIENT_PUNCH_COVERAGE")
+        # 1. 5-phase test: APPROACH: CLEAR, CONTACT: TOUCHING, BENDING: PENETRATION, BOTTOM: PENETRATION, RETRACT: CLEAR
+        # Expected: SAMPLED_POSES_REJECTED (RETRACT clear does NOT hide penetration!)
+        phases_with_penetration = [
+            PhaseQualificationReport("APPROACH", 0.0, 50.0, 1.5, col_clear, True),
+            PhaseQualificationReport("CONTACT", 0.0, 1.5, 1.5, col_touch, True),
+            PhaseQualificationReport("BENDING", 45.0, -4.5, -4.7, col_penetrate, False),
+            PhaseQualificationReport("BOTTOM", 90.0, -12.4, -12.6, col_penetrate, False),
+            PhaseQualificationReport("RETRACT", 90.0, 40.0, -12.6, col_clear, True),
+        ]
+        rep1 = qualify_operation_sampled_poses(phases_with_penetration, cov_ok, cov_ok)
+        self.assertFalse(rep1.is_qualified)
+        self.assertEqual(rep1.operation_status, OperationQualificationStatus.SAMPLED_POSES_REJECTED)
+        self.assertEqual(rep1.safe_phases_count, 3)
+        self.assertEqual(rep1.rejected_phases, ["BENDING", "BOTTOM"])
+        self.assertEqual(rep1.trajectory_status, "UNVERIFIED_TRAJECTORY")
+
+        # 2. Systematic test: each single phase failing individually MUST reject operation
+        for fail_idx, fail_name in enumerate(["APPROACH", "CONTACT", "BENDING", "BOTTOM", "RETRACT"]):
+            phases = []
+            for idx, name in enumerate(["APPROACH", "CONTACT", "BENDING", "BOTTOM", "RETRACT"]):
+                if idx == fail_idx:
+                    phases.append(PhaseQualificationReport(name, 0.0, 0.0, 0.0, col_penetrate, False))
+                else:
+                    phases.append(PhaseQualificationReport(name, 0.0, 0.0, 0.0, col_clear, True))
+            rep_fail = qualify_operation_sampled_poses(phases, cov_ok, cov_ok)
+            self.assertFalse(rep_fail.is_qualified, f"Failed for single failure in {fail_name}")
+            self.assertEqual(rep_fail.operation_status, OperationQualificationStatus.SAMPLED_POSES_REJECTED)
+            self.assertEqual(rep_fail.rejected_phases, [fail_name])
+
+        # 3. All phases safe + coverage OK -> SAMPLED_POSES_QUALIFIED
+        phases_all_safe = [
+            PhaseQualificationReport("APPROACH", 0.0, 50.0, 1.5, col_clear, True),
+            PhaseQualificationReport("CONTACT", 0.0, 1.5, 1.5, col_touch, True),
+            PhaseQualificationReport("BENDING", 45.0, -4.5, -4.7, col_touch, True),
+            PhaseQualificationReport("BOTTOM", 90.0, -12.4, -12.6, col_touch, True),
+            PhaseQualificationReport("RETRACT", 90.0, 40.0, -12.6, col_clear, True),
+        ]
+        rep_ok = qualify_operation_sampled_poses(phases_all_safe, cov_ok, cov_ok)
+        self.assertTrue(rep_ok.is_qualified)
+        self.assertEqual(rep_ok.operation_status, OperationQualificationStatus.SAMPLED_POSES_QUALIFIED)
+        self.assertEqual(rep_ok.safe_phases_count, 5)
+        self.assertEqual(rep_ok.rejected_phases, [])
+
+        # 4. Coverage failure disqualifies operation even if all poses are safe
+        rep_cov_fail = qualify_operation_sampled_poses(phases_all_safe, cov_bad, cov_ok)
+        self.assertFalse(rep_cov_fail.is_qualified)
+        self.assertEqual(rep_cov_fail.operation_status, OperationQualificationStatus.SAMPLED_POSES_REJECTED)
+        self.assertEqual(rep_cov_fail.tool_setup_status, SetupQualificationStatus.INSUFFICIENT_PUNCH_COVERAGE)
+
+        # 5. Missing phase evidence
+        rep_no_phases = qualify_operation_sampled_poses([], cov_ok, cov_ok)
+        self.assertFalse(rep_no_phases.is_qualified)
+        self.assertEqual(rep_no_phases.operation_status, OperationQualificationStatus.MISSING_PHASE_EVIDENCE)
 
 
 if __name__ == "__main__":

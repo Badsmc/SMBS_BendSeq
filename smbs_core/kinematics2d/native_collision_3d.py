@@ -8,12 +8,15 @@ Architecture Contract:
      * Is there true surface contact? (TOUCHING, dist <= 1e-4 mm, overlap <= 1e-4 mm³)
      * Is there positive-volume penetration? (PENETRATION, overlap > 1e-4 mm³)
      * Is the geometry valid? (INVALID_GEOMETRY)
-2. Physical Machine Setup Qualification:
-   - Evaluates whether the physical setup qualifies for sequence feasibility:
-     * Authoritative tool and workpiece placement evidence
-     * Tool length and assembly coverage along the full bend line
-     * Kinematic clearance across machine cycle
-     * Rejects unauthorized penetration or insufficient tool length
+2. Tool Setup Qualification:
+   - Evaluates whether the physical tooling setup meets requirements:
+     * TOOL_SETUP_QUALIFIED: Full coverage, no assembly gaps.
+     * INSUFFICIENT_PUNCH_COVERAGE / INSUFFICIENT_DIE_COVERAGE / TOOL_ASSEMBLY_GAP.
+3. Operation Sampled-Poses Qualification:
+   - Aggregates all sampled kinematic cycle phases using strict logical AND:
+     * SAMPLED_POSES_QUALIFIED: Every tested phase is safe (CLEAR, NEAR_CONTACT, TOUCHING) AND tool setup is qualified.
+     * SAMPLED_POSES_REJECTED: One or more phases has PENETRATION or tool setup is disqualified.
+     * UNVERIFIED_TRAJECTORY: Discrete sampled poses verified, continuous swept trajectory remains unverified.
 """
 from __future__ import annotations
 
@@ -32,6 +35,20 @@ class CollisionClass(str, Enum):
     INVALID_GEOMETRY = "INVALID_GEOMETRY"
     MISSING_EVIDENCE = "MISSING_EVIDENCE"
     INSUFFICIENT_TOOL_LENGTH = "INSUFFICIENT_TOOL_LENGTH"
+
+
+class SetupQualificationStatus(str, Enum):
+    TOOL_SETUP_QUALIFIED = "TOOL_SETUP_QUALIFIED"
+    INSUFFICIENT_PUNCH_COVERAGE = "INSUFFICIENT_PUNCH_COVERAGE"
+    INSUFFICIENT_DIE_COVERAGE = "INSUFFICIENT_DIE_COVERAGE"
+    TOOL_ASSEMBLY_GAP = "TOOL_ASSEMBLY_GAP"
+    MISSING_TOOLING_EVIDENCE = "MISSING_TOOLING_EVIDENCE"
+
+
+class OperationQualificationStatus(str, Enum):
+    SAMPLED_POSES_QUALIFIED = "SAMPLED_POSES_QUALIFIED"
+    SAMPLED_POSES_REJECTED = "SAMPLED_POSES_REJECTED"
+    MISSING_PHASE_EVIDENCE = "MISSING_PHASE_EVIDENCE"
 
 
 @dataclass(frozen=True)
@@ -55,11 +72,25 @@ class ToolCollisionReport:
 
 
 @dataclass(frozen=True)
-class PhysicalQualificationReport:
+class PhaseQualificationReport:
+    phase_name: str
+    bend_angle_deg: float
+    ram_z_mm: float
+    support_plane_zm: float
+    collision_report: ToolCollisionReport
+    is_phase_safe: bool
+
+
+@dataclass(frozen=True)
+class OperationQualificationReport:
     is_qualified: bool
-    qualification_status: str
-    tool_coverage_status: str
-    pose_collision_status: str
+    operation_status: OperationQualificationStatus
+    tool_setup_status: SetupQualificationStatus
+    trajectory_status: str  # Always "UNVERIFIED_TRAJECTORY" for discrete pose testing
+    total_phases_tested: int
+    safe_phases_count: int
+    rejected_phases: List[str]
+    phase_reports: List[PhaseQualificationReport]
     diagnostics: List[str]
     elapsed_ms: float
 
@@ -146,7 +177,6 @@ def check_pair_clearance(
 
     # 3. Narrow Phase: distToShape & Common volume
     try:
-        # Distance calculation
         dist_res = shape_a.distToShape(shape_b)
         dist = float(dist_res[0]) if dist_res and len(dist_res) > 0 else 0.0
         if not math.isfinite(dist) or dist < 0.0:
@@ -163,7 +193,6 @@ def check_pair_clearance(
                 dt,
             )
 
-        # Common boolean intersection volume
         common_shape = shape_a.common(shape_b)
         vol = float(getattr(common_shape, "Volume", 0.0))
         if not math.isfinite(vol) or vol < 0.0:
@@ -171,7 +200,6 @@ def check_pair_clearance(
 
         dt = (time.perf_counter() - t0) * 1000.0
 
-        # Positive volumetric intersection is strictly PENETRATION.
         if vol > volume_tolerance_mm3:
             return PairClearanceResult(
                 CollisionClass.PENETRATION,
@@ -237,7 +265,6 @@ def validate_workpiece_tooling_pose(
         dummy = PairClearanceResult(CollisionClass.MISSING_EVIDENCE, "missing_evidence", 0.0, 0.0, None, 0.0)
         return ToolCollisionReport(CollisionClass.MISSING_EVIDENCE, dummy, dummy, False, diags, dt)
 
-    # Check Punch
     punch_res = check_pair_clearance(
         workpiece_machine_shape,
         punch_machine_shape,
@@ -245,7 +272,6 @@ def validate_workpiece_tooling_pose(
         volume_tolerance_mm3=volume_tolerance_mm3,
     )
 
-    # Check Die
     die_res = check_pair_clearance(
         workpiece_machine_shape,
         die_machine_shape,
@@ -285,40 +311,106 @@ def validate_workpiece_tooling_pose(
     )
 
 
-def qualify_machine_setup(
-    collision_report: ToolCollisionReport,
+def qualify_tool_setup(
     punch_coverage: Any,
     die_coverage: Any,
-) -> PhysicalQualificationReport:
-    """Qualify physical feasibility of the machine tooling setup for an operation.
+) -> Tuple[bool, SetupQualificationStatus, List[str]]:
+    """Qualify physical tooling coverage and assembly continuity."""
+    diags: List[str] = []
+    if punch_coverage is None:
+        diags.append("MISSING_PUNCH_COVERAGE_EVIDENCE")
+        return False, SetupQualificationStatus.MISSING_TOOLING_EVIDENCE, diags
 
-    Separates pure geometric collision detection from full physical qualification.
+    if die_coverage is None:
+        diags.append("MISSING_DIE_COVERAGE_EVIDENCE")
+        return False, SetupQualificationStatus.MISSING_TOOLING_EVIDENCE, diags
+
+    if getattr(punch_coverage, "status", "") == "TOOL_ASSEMBLY_GAP":
+        diags.append(f"PUNCH_GAP: {punch_coverage.reason}")
+        return False, SetupQualificationStatus.TOOL_ASSEMBLY_GAP, diags
+
+    if getattr(die_coverage, "status", "") == "TOOL_ASSEMBLY_GAP":
+        diags.append(f"DIE_GAP: {die_coverage.reason}")
+        return False, SetupQualificationStatus.TOOL_ASSEMBLY_GAP, diags
+
+    if not getattr(punch_coverage, "is_covered", False):
+        diags.append(f"PUNCH_COVERAGE_INSUFFICIENT: {punch_coverage.reason}")
+        return False, SetupQualificationStatus.INSUFFICIENT_PUNCH_COVERAGE, diags
+
+    if not getattr(die_coverage, "is_covered", False):
+        diags.append(f"DIE_COVERAGE_INSUFFICIENT: {die_coverage.reason}")
+        return False, SetupQualificationStatus.INSUFFICIENT_DIE_COVERAGE, diags
+
+    diags.append("Tooling setup verified: full punch and die coverage without gaps.")
+    return True, SetupQualificationStatus.TOOL_SETUP_QUALIFIED, diags
+
+
+def qualify_operation_sampled_poses(
+    phase_reports: Sequence[PhaseQualificationReport],
+    punch_coverage: Any,
+    die_coverage: Any,
+) -> OperationQualificationReport:
+    """Aggregate physical qualification for an entire sampled bend operation.
+
+    Strict logical AND contract:
+    - Every sampled phase must be safe (CLEAR, NEAR_CONTACT, TOUCHING).
+    - If ANY phase has PENETRATION or INVALID_GEOMETRY, operation is SAMPLED_POSES_REJECTED.
+    - If tooling coverage fails, operation is SAMPLED_POSES_REJECTED.
+    - If no phases are evaluated, operation is MISSING_PHASE_EVIDENCE.
+    - Preserves UNVERIFIED_TRAJECTORY distinction.
     """
     t0 = time.perf_counter()
-    diags = list(collision_report.diagnostics)
-    is_qualified = True
-    qual_status = "QUALIFIED"
+    tool_ok, tool_status, diags = qualify_tool_setup(punch_coverage, die_coverage)
 
-    if punch_coverage is None or not getattr(punch_coverage, "is_covered", False):
-        is_qualified = False
-        qual_status = "INSUFFICIENT_PUNCH_COVERAGE"
-        diags.append(f"PUNCH_COVERAGE_FAILED: {getattr(punch_coverage, 'reason', 'missing_coverage')}")
+    if not phase_reports:
+        dt = (time.perf_counter() - t0) * 1000.0
+        diags.append("No cycle phases were provided for evaluation.")
+        return OperationQualificationReport(
+            is_qualified=False,
+            operation_status=OperationQualificationStatus.MISSING_PHASE_EVIDENCE,
+            tool_setup_status=tool_status,
+            trajectory_status="UNVERIFIED_TRAJECTORY",
+            total_phases_tested=0,
+            safe_phases_count=0,
+            rejected_phases=[],
+            phase_reports=[],
+            diagnostics=diags,
+            elapsed_ms=dt,
+        )
 
-    if die_coverage is None or not getattr(die_coverage, "is_covered", False):
-        is_qualified = False
-        qual_status = "INSUFFICIENT_DIE_COVERAGE"
-        diags.append(f"DIE_COVERAGE_FAILED: {getattr(die_coverage, 'reason', 'missing_coverage')}")
+    safe_count = 0
+    rejected_phases: List[str] = []
 
-    if not collision_report.is_safe:
-        is_qualified = False
-        qual_status = f"COLLISION_{collision_report.status.value}"
+    for pr in phase_reports:
+        if pr.is_phase_safe:
+            safe_count += 1
+        else:
+            rejected_phases.append(pr.phase_name)
+            diags.append(f"Phase {pr.phase_name} REJECTED: {pr.collision_report.status.value}")
+
+    all_phases_safe = (safe_count == len(phase_reports))
+    is_qualified = tool_ok and all_phases_safe
+
+    if is_qualified:
+        op_status = OperationQualificationStatus.SAMPLED_POSES_QUALIFIED
+        diags.append(f"All {safe_count}/{len(phase_reports)} sampled poses qualified.")
+    else:
+        op_status = OperationQualificationStatus.SAMPLED_POSES_REJECTED
+        if not tool_ok:
+            diags.append(f"Operation rejected due to tool setup: {tool_status.value}")
+        if rejected_phases:
+            diags.append(f"Operation rejected due to collision in phases: {', '.join(rejected_phases)}")
 
     dt = (time.perf_counter() - t0) * 1000.0
-    return PhysicalQualificationReport(
+    return OperationQualificationReport(
         is_qualified=is_qualified,
-        qualification_status=qual_status,
-        tool_coverage_status="COVERED" if (getattr(punch_coverage, "is_covered", False) and getattr(die_coverage, "is_covered", False)) else "INSUFFICIENT",
-        pose_collision_status=collision_report.status.value,
+        operation_status=op_status,
+        tool_setup_status=tool_status,
+        trajectory_status="UNVERIFIED_TRAJECTORY",
+        total_phases_tested=len(phase_reports),
+        safe_phases_count=safe_count,
+        rejected_phases=rejected_phases,
+        phase_reports=list(phase_reports),
         diagnostics=diags,
         elapsed_ms=dt,
     )
