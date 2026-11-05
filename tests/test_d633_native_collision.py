@@ -3,12 +3,14 @@
 Tests:
 1. Synthetic Part solids: CLEAR (separated), NEAR_CONTACT, TOUCHING (shared face), PENETRATION.
 2. Exact touching is distinguishable from penetration.
-3. 0.01 mm and 0.1 mm clearances are CLEAR, not penetration.
+3. 0.01 mm and 0.1 mm clearances are CLEAR / NEAR_CONTACT, not penetration.
 4. Positive volume overlaps (e.g. 0.78 mm³, 59.85 mm³) are strictly PENETRATION and unsafe.
 5. Geometry validation: None, null shape, open shape, zero volume fails closed.
 6. Missing placement evidence fails closed (MISSING_EVIDENCE).
 7. Insufficient tool coverage fails closed (INSUFFICIENT_TOOL_LENGTH).
-8. Native CAD tooling loading & machine placement with datums.
+8. Assembly continuity: gap detection between tool sections.
+9. Native CAD tooling loading & machine placement with datums.
+10. Separation of geometric collision from physical qualification.
 """
 import math
 import unittest
@@ -20,6 +22,7 @@ from smbs_core.kinematics2d.native_collision_3d import (
     check_solid_validity,
     check_pair_clearance,
     validate_workpiece_tooling_pose,
+    qualify_machine_setup,
 )
 from smbs_core.kinematics2d.native_tool_loader import (
     load_native_die,
@@ -27,6 +30,7 @@ from smbs_core.kinematics2d.native_tool_loader import (
     set_punch_ram_z,
     check_tool_coverage,
     ToolCoverageResult,
+    ToolSectionConfig,
 )
 
 try:
@@ -101,7 +105,6 @@ class TestD633NativeCollision(unittest.TestCase):
         self.assertEqual(r_010.overlap_volume_mm3, 0.0)
 
         # Small positive overlap (e.g. 0.78 mm³) MUST be PENETRATION and unsafe
-        # 10 x 10 x dx = 0.78 mm³ -> dx = 0.0078 mm
         box_overlap_small = Part.makeBox(10, 10, 10, App.Vector(10.0 - 0.0078, 0, 0))
         r_small = check_pair_clearance(box1, box_overlap_small)
         self.assertEqual(r_small.status, CollisionClass.PENETRATION)
@@ -141,7 +144,7 @@ class TestD633NativeCollision(unittest.TestCase):
         self.assertAlmostEqual(bb_retract.ZMin, 100.0, places=1)
         self.assertAlmostEqual(bb_retract.ZMax, 234.0, places=1)
 
-    def test_tool_coverage_check(self):
+    def test_tool_coverage_and_assembly_gaps(self):
         # 100 mm tool covers 80 mm bend
         cov_ok = check_tool_coverage((-40.0, 40.0), (-50.0, 50.0))
         self.assertTrue(cov_ok.is_covered)
@@ -154,6 +157,26 @@ class TestD633NativeCollision(unittest.TestCase):
         self.assertEqual(cov_fail.uncovered_left_mm, 50.0)
         self.assertEqual(cov_fail.uncovered_right_mm, 50.0)
 
+        # Multi-section coverage without gaps (2 x 100mm = 200mm)
+        secs = (
+            ToolSectionConfig("p1", "punch", 100.0, (-100.0, 0.0), -50.0),
+            ToolSectionConfig("p2", "punch", 100.0, (0.0, 100.0), 50.0),
+        )
+        cov_multi = check_tool_coverage((-100.0, 100.0), (-100.0, 100.0), sections=secs)
+        self.assertTrue(cov_multi.is_covered)
+        self.assertEqual(cov_multi.status, "FULL_TOOL_COVERAGE")
+
+        # Multi-section with gap
+        secs_gap = (
+            ToolSectionConfig("p1", "punch", 90.0, (-100.0, -10.0), -55.0),
+            ToolSectionConfig("p2", "punch", 90.0, (10.0, 100.0), 55.0),
+        )
+        cov_gap = check_tool_coverage((-100.0, 100.0), (-100.0, 100.0), sections=secs_gap)
+        self.assertFalse(cov_gap.is_covered)
+        self.assertEqual(cov_gap.status, "TOOL_ASSEMBLY_GAP")
+        self.assertEqual(cov_gap.gap_count, 1)
+        self.assertAlmostEqual(cov_gap.max_gap_mm, 20.0)
+
     @unittest.skipUnless(HAS_FREECAD, "FreeCAD required for pose validation")
     def test_validate_workpiece_tooling_pose_missing_evidence(self):
         box = Part.makeBox(10, 10, 10)
@@ -162,14 +185,25 @@ class TestD633NativeCollision(unittest.TestCase):
         self.assertFalse(res.is_safe)
         self.assertIn("MISSING_WORKPIECE_SHAPE", res.diagnostics)
 
-    @unittest.skipUnless(HAS_FREECAD, "FreeCAD required for pose validation")
-    def test_validate_workpiece_tooling_pose_insufficient_coverage(self):
-        box = Part.makeBox(10, 10, 10)
-        cov_fail = check_tool_coverage((-100.0, 100.0), (-50.0, 50.0))
-        res = validate_workpiece_tooling_pose(box, box, box, coverage_result=cov_fail)
-        self.assertEqual(res.status, CollisionClass.INSUFFICIENT_TOOL_LENGTH)
-        self.assertFalse(res.is_safe)
-        self.assertIn("INSUFFICIENT_TOOL_LENGTH", res.diagnostics[0])
+    @unittest.skipUnless(HAS_FREECAD, "FreeCAD required for physical qualification")
+    def test_qualify_machine_setup(self):
+        box_wp = Part.makeBox(10, 10, 10, App.Vector(0, 0, 0))
+        box_p = Part.makeBox(10, 10, 10, App.Vector(0, 0, 50))
+        box_d = Part.makeBox(10, 10, 10, App.Vector(0, 0, -20))
+
+        col_rep = validate_workpiece_tooling_pose(box_wp, box_p, box_d)
+        cov_ok = ToolCoverageResult(True, "FULL_TOOL_COVERAGE", 10.0, (0, 10), 10.0, (0, 10), 0, 0, 0, 0, "OK")
+        cov_bad = ToolCoverageResult(False, "INSUFFICIENT_TOOL_LENGTH", 20.0, (0, 20), 10.0, (0, 10), 0, 10, 0, 0, "Short")
+
+        # Qualified setup
+        q_ok = qualify_machine_setup(col_rep, cov_ok, cov_ok)
+        self.assertTrue(q_ok.is_qualified)
+        self.assertEqual(q_ok.qualification_status, "QUALIFIED")
+
+        # Disqualified setup (coverage insufficient)
+        q_bad = qualify_machine_setup(col_rep, cov_bad, cov_ok)
+        self.assertFalse(q_bad.is_qualified)
+        self.assertEqual(q_bad.qualification_status, "INSUFFICIENT_PUNCH_COVERAGE")
 
 
 if __name__ == "__main__":
