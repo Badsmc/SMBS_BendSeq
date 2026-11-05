@@ -159,6 +159,12 @@ def plan_forward(
                 cached[cache_key] = evidence
 
             if evidence.status is Feasibility.COLLISION:
+                # A sampled 2D interference is a useful branch blocker, but
+                # it does not prove that *all physical setups* are impossible.
+                # In particular, cross-section and tooling coordinate errors
+                # must never produce a definitive NO_FEASIBLE_SEQUENCE.
+                if not evidence.verified_scopes:
+                    any_unknown = True
                 rejected.append((bid, evidence.reason))
                 continue
             certified = evidence.is_certified()
