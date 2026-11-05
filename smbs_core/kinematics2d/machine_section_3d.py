@@ -250,10 +250,12 @@ def compute_machine_cutting_plane_section(
             for s_val, z_val in prof_pts:
                 # Bend-zone material must use the same source-side offset
                 # as the panel faces for the active section.
-                zone_offset = (
-                    material_offset if bend_id == active_bend_id else
-                    (float(zone.thickness_mm) if float(getattr(zone, "fold_angle_deg", bend.angle_deg)) >= 0 else 0.0)
-                )
+                # All zones in this section share the source sheet material
+                # side. An inactive negative bend does NOT reverse the sheet
+                # thickness while still flat (B01 approach: B05/B07 wrongly
+                # appeared below the die support plane). Signed bending is
+                # handled by FoldState transforms, not per-zone extrusion.
+                zone_offset = material_offset
                 p_local = (
                     ax_mid_2d[0] + ux * s_val,
                     ax_mid_2d[1] + uy * s_val,
