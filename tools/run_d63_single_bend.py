@@ -29,6 +29,36 @@ from smbs_core.kinematics2d.native_bend_solid_3d import (
 )
 
 
+def resolve_test_selection(doc, selected):
+    """Select a unique SheetMetal unfold when FreeCAD GUI selection is empty.
+
+    Never guesses among multiple unfolds. Explicit selection remains owned
+    by the existing build_part_session/resolve_selected_unfold logic.
+    """
+    if doc is None:
+        raise ValueError(
+            "No active FreeCAD document. Open an FCStd SheetMetal model."
+        )
+    if selected:
+        return list(selected), "EXPLICIT_GUI_SELECTION"
+    unfolds = [
+        item for item in getattr(doc, "Objects", ())
+        if getattr(item, "Name", "").endswith("_Unfold")
+        and hasattr(item, "baseObject")
+    ]
+    if len(unfolds) == 1:
+        return [unfolds[0]], "AUTO_UNIQUE_SHEETMETAL_UNFOLD"
+    if not unfolds:
+        raise ValueError(
+            "No SheetMetal *_Unfold object in the active document. "
+            "Create the unfold with bend and outline sketches."
+        )
+    raise ValueError(
+        "Multiple SheetMetal unfolds: {}. Select one in the tree and rerun."
+        .format(", ".join(sorted(x.Name for x in unfolds)))
+    )
+
+
 def main():
     report = {
         "schema": "smbs-d63-single-bend-v1",
@@ -43,11 +73,10 @@ def main():
         from freecad_smbs.commands.pressbrake_2d import build_part_session
 
         doc=App.ActiveDocument
-        selection=Gui.Selection.getSelection()
-        if doc is None or not selection:
-            raise ValueError(
-                "Open real FCStd model, select its Body_Unfold object, and rerun"
-            )
+        selected=Gui.Selection.getSelection()
+        selection, selection_mode = resolve_test_selection(doc,selected)
+        report["selection_mode"] = selection_mode
+        report["source_unfold_name"] = selection[0].Name
         source_angle_snapshot = {}
         session=build_part_session(doc,selection)
         state=session.fold_state
