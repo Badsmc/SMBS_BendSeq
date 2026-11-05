@@ -64,8 +64,14 @@ class SequenceSearchTests(unittest.TestCase):
 
     def test_all_conclusive_collisions(self):
         result = plan_forward(fixture(), lambda *_: StepEvidence(
-            Feasibility.COLLISION, "actual_test_collision"))
+            Feasibility.COLLISION, "actual_test_collision", REQUIRED_SCOPES))
         self.assertEqual(result.status, SearchStatus.NO_FEASIBLE_SEQUENCE)
+
+    def test_2d_only_collision_cannot_disprove_all_orders(self):
+        result = plan_forward(fixture(), lambda *_: StepEvidence(
+            Feasibility.COLLISION, "suspected_2d_collision"))
+        self.assertEqual(result.status, SearchStatus.UNVERIFIED)
+        self.assertFalse(result.success)
 
     def test_budget_exhaustion_not_no_solution(self):
         result = plan_forward(fixture(), clear_all, max_states=1)
