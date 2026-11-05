@@ -37,6 +37,7 @@ from smbs_core.kinematics2d.press_cycle import (
     PressCycleError,
     WorkpieceOrientationStatus,
 )
+from smbs_core.report_paths import reports_dir
 from smbs_core.kinematics2d.motion_trace import MotionTraceRecorder, make_frame_record
 from smbs_core.kinematics2d.sequence_planning import calculate_sequence_candidates
 from smbs_core.kinematics2d.sequence_search import SearchStatus
@@ -78,27 +79,7 @@ Z_LAYER_SHEET_NEUTRAL_AND_TANGENTS = 50.0
 _DOCK = None
 _SLIDER_SCALE = 10  # 0.1 degree slider resolution
 _LOGGER: logging.Logger | None = None
-def _pressbrake_user_data_directory():
-    """Platform-specific writable diagnostics home, not the plugin checkout.
-
-    FreeCAD installations may be under Program Files, a read-only AppImage,
-    or a macOS .app bundle. Traces must never depend on repository permissions.
-    """
-    if sys.platform == "darwin":
-        base = Path.home() / "Library" / "Application Support"
-    elif os.name == "nt":
-        base = Path(
-            os.environ.get("APPDATA")
-            or os.environ.get("LOCALAPPDATA")
-            or str(Path.home() / "AppData" / "Roaming")
-        )
-    else:
-        base = Path(os.environ.get("XDG_DATA_HOME") or
-                    str(Path.home() / ".local" / "share"))
-    return base / "FreeCAD" / "v1-1"
-
-
-_LOG_FILE_PATH = _pressbrake_user_data_directory() / "pressbrake_2d.log"
+_LOG_FILE_PATH = reports_dir() / "pressbrake_2d.log"
 
 
 def _get_file_logger() -> logging.Logger:
@@ -584,7 +565,7 @@ class _PreviewPanel:
                 self._machine_pose_fault = None
                 self.motion_trace = None
                 self._trace_frame_dt = None
-                self._trace_directory = _LOG_FILE_PATH.parent / "pressbrake_traces"
+                self._trace_directory = reports_dir()
                 self.angle = 0.0
                 self.playing = False
                 self._last_tick_monotonic: float | None = None
@@ -1313,8 +1294,8 @@ class _PreviewPanel:
                     self.status.setText("D6: деталь или оснастка изменились; результат сброшен.")
                     return
                 result = run.result
-                # Save a reproducible, bounded search diagnostic in the same
-                # writable user directory as Motion Trace (not addon checkout).
+                # Store sequence reports with motion traces and diagnostic logs
+                # in the installed addon's reports/ directory by default.
                 try:
                     report_path = self._trace_directory / "pressbrake_sequence_d6.json"
                     report_path.parent.mkdir(parents=True, exist_ok=True)
