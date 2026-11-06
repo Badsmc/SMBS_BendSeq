@@ -114,12 +114,20 @@ def run(*, diagnostic_only=False):
               "punch_tip=", panel.tooling_setup.punch_tip_machine(),
               "alignment_anchor=", panel.tooling_setup.alignment_anchor_sz,
               "ram=", panel.press_cycle.ram_z_mm)
-        panel.physical_check_btn.click()
+        if not diagnostic_only:
+            # Full GUI acceptance also exercises the real Qt control.
+            panel.physical_check_btn.click()
         result = check_current_25d_pose(
             session, panel.press_cycle, panel.tooling_setup,
             native_3d=True,
         )
-        print("PHYSICAL_GUI_RESULT: " + panel.physical_check_result.text())
+        if diagnostic_only:
+            print("PHYSICAL_POSE_DIAGNOSTIC: {} | 2D={} | 3D={} | {}".format(
+                result.status.value, result.section_status,
+                result.native_status, result.reason,
+            ))
+        else:
+            print("PHYSICAL_GUI_RESULT: " + panel.physical_check_result.text())
         print("PHYSICAL_NATIVE_STATUS: {} | {} | {}".format(
             result.status.value, result.native_status, result.reason,
         ))
