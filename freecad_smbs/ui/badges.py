@@ -44,3 +44,10 @@ def get_badge_rgba(badge: str) -> Tuple[float, float, float, float]:
 def get_badge_hex(badge: str) -> str:
     """Return Hex color code for the given badge name (defaults to gray)."""
     return BADGE_COLORS_HEX.get(badge, "#757575")
+
+
+def format_machine_frame_badge(machine_frame_present: bool) -> Tuple[str, Tuple[float, float, float]]:
+    """Display availability, never imply full machine-collision qualification."""
+    if machine_frame_present:
+        return ("MACHINE FRAME: FILE FOUND (NOT QUALIFIED)", (0.35, 0.45, 0.55))
+    return ("MACHINE FRAME: MISSING / NOT QUALIFIED", (0.7, 0.5, 0.1))
