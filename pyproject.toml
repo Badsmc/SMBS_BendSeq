@@ -1,24 +1,18 @@
 [build-system]
-requires = ["setuptools>=61.0"]
+requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "smbs_core"
+name = "pressbrakesim-25d"
 version = "0.1.0"
-description = "Headless sheet-metal bending sequence calculation engine"
+description = "FreeCAD SheetMetal PressBrakeSim 2.5D preview and tooling workbench"
 readme = "README.md"
 requires-python = ">=3.11"
-dependencies = [
-    "pythonocc-core",
-    "pydantic>=2.0"
-]
-
-[project.scripts]
-smbs-cli = "smbs_core.cli:main"
+dependencies = []
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["smbs_core*"]
+include = ["smbs_core*", "freecad_smbs*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
