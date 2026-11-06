@@ -30,12 +30,15 @@ Preserved:
 - Real tooling assets and tooling catalog, including FreeCAD metadata
   reader and configuration / clamp validation.
 - `demo/`, `fixtures/freecad/load_fcstd.py`, motion trace analysis,
-  workbench installation helper and 2.5D regression tests.
+  direct-install FreeCAD entry points and 2.5D regression tests.
 - The 2.5D UI contract, master specification and explicit release gates.
 
 ## Key structural corrections
 
 - The actual FreeCAD runtime no longer imports unexposed legacy commands.
+- The old dual-name workbench installer was removed, preventing duplicate
+  `SMBS` / `freecad_smbs` installations; the single direct-checkout
+  installation is covered by `test_direct_install_25d.py`.
 - Tooling library command loads the retained tooling catalog directly,
   without the removed `smbs_bridge`.
 - Machine frame badge no longer imports old 3D animation viewer.
