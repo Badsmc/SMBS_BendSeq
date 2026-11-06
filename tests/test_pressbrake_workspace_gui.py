@@ -310,5 +310,62 @@ class WorkspaceGuiTests(unittest.TestCase):
             panel.deleteLater()
 
 
+    def test_physical_check_button_reports_evidence_and_invalidates_on_pose_change(self):
+        """Real Qt button uses read-only service, then marks result stale after move."""
+        try:
+            import FreeCAD  # noqa: F401
+            from freecad_smbs.commands.pressbrake_2d import _PreviewPanel, _qt
+            from smbs_core.kinematics2d.fold_sequence import PlaybackStatus
+            from smbs_core.kinematics2d.physical_validation_25d import (
+                CurrentPosePhysicalReport, PhysicalEvidence,
+            )
+            _QtCore, _QtGui, QtWidgets = _qt()
+        except (ImportError, ModuleNotFoundError) as exc:
+            self.skipTest("FreeCAD runtime unavailable: {}".format(exc))
+        if QtWidgets.QApplication.instance() is None:
+            self.skipTest("Qt GUI application is not running")
+
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        panel = _PreviewPanel()
+        try:
+            fs = SimpleNamespace(angles={"B01": 0.0})
+            session = SimpleNamespace(
+                fold_state=fs, active_bend_id="B01",
+                playback_status=PlaybackStatus.PAUSED,
+            )
+            pc = SimpleNamespace(phase=SimpleNamespace(value="CONTACT"),
+                                 ram_z_mm=1.5, transfer_progress=0.)
+            panel.session = session
+            panel.press_cycle = pc
+            panel._ensure_press_cycle_controller = lambda: pc
+            panel._update_press_cycle_labels = lambda: None
+            report = CurrentPosePhysicalReport(
+                PhysicalEvidence.SECTION_CLEAR_3D_UNVERIFIED,
+                "CLEAR", "MISSING_SOURCE_FCSTD",
+                "native_3d_requires_verified_selected_punch_and_die_FCStd",
+                ("2D_SECTION",),
+            )
+            events = []
+            panel._trace_event = lambda event, **kw: events.append((event,kw))
+            with patch(
+                "smbs_core.kinematics2d.physical_validation_25d.check_current_25d_pose",
+                return_value=report,
+            ) as validate:
+                panel.physical_check_btn.click()
+                validate.assert_called_once()
+            self.assertIn("SECTION_CLEAR_3D_UNVERIFIED",
+                          panel.physical_check_result.text())
+            self.assertEqual(events[0][0], "PHYSICAL_POSE_CHECK")
+            self.assertFalse(events[0][1]["fully_qualified"])
+            fs.angles["B01"] = 12.5
+            panel._update_tooling_status_label()
+            self.assertIn("УСТАРЕЛО", panel.physical_check_result.text())
+        finally:
+            panel.timer.stop()
+            panel.close()
+            panel.deleteLater()
+
+
 if __name__ == "__main__":
     unittest.main()
