@@ -95,15 +95,17 @@ class PhysicalIntegrationTests(unittest.TestCase):
                 diagnostics=["controlled_test"],
             )
         fake_app = SimpleNamespace(ActiveDocument=None, getDocument=lambda n: None)
-        with patch.dict(sys.modules, {"FreeCAD": fake_app}), \\
-             patch(MOD + "._source_path", side_effect=[
-                 Path("puancon.FCStd"), Path("matrica.FCStd"),
-             ]), \\
-             patch("smbs_core.kinematics2d.native_tool_loader.load_native_punch",
-                   return_value=object()), \\
-             patch("smbs_core.kinematics2d.native_tool_loader.load_native_die",
-                   return_value=object()), \\
-             patch("smbs_core.kinematics2d.motion_trajectory_3d.AdaptiveTrajectoryValidator3D") as validator:
+        with (
+            patch.dict(sys.modules, {"FreeCAD": fake_app}),
+            patch(MOD + "._source_path", side_effect=[
+                Path("puancon.FCStd"), Path("matrica.FCStd"),
+            ]),
+            patch("smbs_core.kinematics2d.native_tool_loader.load_native_punch",
+                  return_value=object()),
+            patch("smbs_core.kinematics2d.native_tool_loader.load_native_die",
+                  return_value=object()),
+            patch("smbs_core.kinematics2d.motion_trajectory_3d.AdaptiveTrajectoryValidator3D") as validator,
+        ):
             validator.return_value.validate_bend_trajectory.side_effect = result
             return check_active_25d_bend_trajectory(self.session, self.tooling)
 
