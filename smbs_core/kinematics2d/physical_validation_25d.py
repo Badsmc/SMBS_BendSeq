@@ -87,22 +87,31 @@ def check_current_25d_pose(session, press_cycle, tooling, *, native_3d: bool = T
         return _unverified("machine_section_unavailable:" + str(exc))
 
     sec = sec_report.status.value
-    if sec_report.status is ContactStatus.INTERFERENCE:
-        detail = next(
-            (f"{f.tool}/{f.sheet_component}:{f.reason}"
-             for f in sec_report.findings if f.status is ContactStatus.INTERFERENCE),
-            "section_penetration",
-        )
-        return CurrentPosePhysicalReport(
-            PhysicalEvidence.COLLISION, sec, "NOT_CHECKED",
-            "2d_section_interference:" + detail, ("2D_SECTION",),
-        )
-    if sec_report.status is ContactStatus.UNVERIFIED:
-        return CurrentPosePhysicalReport(
-            PhysicalEvidence.UNVERIFIED, sec, "NOT_CHECKED",
-            "2d_section_ambiguous_or_missing_geometry", ("2D_SECTION",),
-        )
+    section_collision = sec_report.status is ContactStatus.INTERFERENCE
+    section_ambiguous = sec_report.status is ContactStatus.UNVERIFIED
+    section_reason = next(
+        (f"{f.tool}/{f.sheet_component}:{f.reason}"
+         for f in sec_report.findings
+         if f.status in (ContactStatus.INTERFERENCE, ContactStatus.UNVERIFIED)),
+        "section_clear_or_touch",
+    )
+    # A 2D cutting plane and a 3D solid check provide INDEPENDENT
+    # evidence. Never skip requested native 3D validation merely because
+    # the section reports interference. A disagreement is UNVERIFIED,
+    # not a spurious claim that either model proves the full cycle.
     if not native_3d:
+        if section_collision:
+            return CurrentPosePhysicalReport(
+                PhysicalEvidence.COLLISION, sec, "NOT_REQUESTED",
+                "2d_section_interference:" + section_reason,
+                ("2D_SECTION",),
+            )
+        if section_ambiguous:
+            return CurrentPosePhysicalReport(
+                PhysicalEvidence.UNVERIFIED, sec, "NOT_REQUESTED",
+                "2d_section_unverified:" + section_reason,
+                ("2D_SECTION",),
+            )
         return CurrentPosePhysicalReport(
             PhysicalEvidence.SECTION_CLEAR_3D_UNVERIFIED,
             sec, "NOT_REQUESTED", "3d_not_requested", ("2D_SECTION",),
@@ -111,9 +120,17 @@ def check_current_25d_pose(session, press_cycle, tooling, *, native_3d: bool = T
     punch_path = _source_path(getattr(tooling, "punch", None))
     die_path = _source_path(getattr(tooling, "die", None))
     if punch_path is None or die_path is None:
+        if section_collision:
+            return CurrentPosePhysicalReport(
+                PhysicalEvidence.COLLISION, sec, "MISSING_SOURCE_FCSTD",
+                "2d_section_interference:" + section_reason
+                + "; native_3d_requires_verified_selected_punch_and_die_FCStd",
+                ("2D_SECTION",),
+            )
         return CurrentPosePhysicalReport(
-            PhysicalEvidence.SECTION_CLEAR_3D_UNVERIFIED, sec,
-            "MISSING_SOURCE_FCSTD",
+            PhysicalEvidence.UNVERIFIED if section_ambiguous
+            else PhysicalEvidence.SECTION_CLEAR_3D_UNVERIFIED,
+            sec, "MISSING_SOURCE_FCSTD",
             "native_3d_requires_verified_selected_punch_and_die_FCStd",
             ("2D_SECTION",),
         )
@@ -174,8 +191,11 @@ def check_current_25d_pose(session, press_cycle, tooling, *, native_3d: bool = T
                     pass
     except Exception as exc:
         return CurrentPosePhysicalReport(
-            PhysicalEvidence.UNVERIFIED, sec, "EVALUATION_FAILED",
-            "native_3d_unavailable:" + str(exc),
+            PhysicalEvidence.COLLISION if section_collision
+            else PhysicalEvidence.UNVERIFIED,
+            sec, "EVALUATION_FAILED",
+            ("2d_section_interference:" + section_reason + "; " if section_collision
+             else "") + "native_3d_unavailable:" + str(exc),
             ("2D_SECTION",),
         )
 
@@ -191,6 +211,15 @@ def check_current_25d_pose(session, press_cycle, tooling, *, native_3d: bool = T
         return CurrentPosePhysicalReport(
             PhysicalEvidence.UNVERIFIED, sec, result.status.value,
             "native_3d_invalid_or_incomplete:" + "; ".join(result.diagnostics),
+            ("2D_SECTION", "3D_PUNCH_DIE_CURRENT_POSE", "3D_TOOL_LENGTH"),
+        )
+    if section_collision or section_ambiguous:
+        return CurrentPosePhysicalReport(
+            PhysicalEvidence.UNVERIFIED, sec, result.status.value,
+            "2d_3d_evidence_disagreement_or_ambiguity:"
+            + section_reason
+            + "; native_3d_reports_nonpenetration; check machine coordinate"
+            + "_alignment_and_cut_plane_before_acceptance",
             ("2D_SECTION", "3D_PUNCH_DIE_CURRENT_POSE", "3D_TOOL_LENGTH"),
         )
     return CurrentPosePhysicalReport(
