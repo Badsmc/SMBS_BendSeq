@@ -22,6 +22,16 @@ def _checkout_root() -> Path:
         candidate = Path(entry).resolve()
         if (candidate / "freecad_smbs" / "InitGui.py").is_file():
             return candidate
+    # Some FreeCAD installations register Mod objects without adding the
+    # individual checkout to sys.path before executing InitGui.py.
+    try:
+        import FreeCAD as App
+        for mod in getattr(App, "__ModCache__", ()):
+            candidate = Path(mod.path).resolve()
+            if (candidate / "freecad_smbs" / "InitGui.py").is_file():
+                return candidate
+    except (ImportError, AttributeError, TypeError, OSError):
+        pass
     raise ImportError(
         "PressBrakeSim checkout not found in sys.path; install the entire "
         "2D checkout under the active FreeCAD Mod directory."
