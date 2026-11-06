@@ -17,6 +17,7 @@ on:
       - 'tools/run_d634_adaptive_motion_collision.py'
       - 'tools/freecad_gui_d633_diagnostic.py'
       - 'tests/test_d634_adaptive_motion_collision.py'
+      - 'tools/run_d634_gui_context_regression.py'
       - '.github/workflows/d63-native-3d.yml'
   workflow_dispatch:
 jobs:
@@ -31,7 +32,7 @@ jobs:
       - name: Compile geometry, collision detector and runners
         run: python -m py_compile smbs_core/kinematics2d/native_bend_solid_3d.py smbs_core/kinematics2d/native_tool_loader.py smbs_core/kinematics2d/native_collision_3d.py tools/run_d63_single_bend.py tools/run_d633_punch_die_collision.py tests/test_d63_native_bend_solid.py tests/test_d63_selection.py tests/test_d633_native_collision.py smbs_core/kinematics2d/native_volume_gate.py tests/test_d63_volume_gate.py
       - name: Compile D6.3.4 trajectory, GUI and native FreeCAD integration tests
-        run: python -m py_compile smbs_core/kinematics2d/motion_trajectory_3d.py tools/run_d634_adaptive_motion_collision.py tools/freecad_gui_d633_diagnostic.py tests/test_d634_adaptive_motion_collision.py
+        run: python -m py_compile smbs_core/kinematics2d/motion_trajectory_3d.py tools/run_d634_adaptive_motion_collision.py tools/freecad_gui_d633_diagnostic.py tests/test_d634_adaptive_motion_collision.py tools/run_d634_gui_context_regression.py
       # D6.3.4 native FreeCAD geometry integration tests must run inside
       # a real FreeCAD runtime; Ubuntu CI does not claim those results.
       - name: D6.3 pure math and isolated contracts (FreeCAD optional)
