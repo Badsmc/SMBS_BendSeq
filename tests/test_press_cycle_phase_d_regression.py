@@ -1,9 +1,11 @@
 """Regression tests for Phase D: B01 -> B02 nonparallel axes and full 8-bend simulation in FreeCAD."""
-import os
-import sys
 import unittest
 
-sys.path.insert(0, "/Applications/FreeCAD.app/Contents/Resources/lib")
+from smbs_core.demo_paths import demo_part_path
+from freecad_smbs.commands.pressbrake_2d import _PreviewPanel, build_part_session
+from smbs_core.kinematics2d.press_cycle import CycleExecutionMode, CyclePhase
+from smbs_core.kinematics2d.fold_sequence import PlaybackStatus
+
 try:
     import FreeCAD
     from PySide6 import QtWidgets, QtCore
@@ -11,24 +13,19 @@ try:
 except (ImportError, ModuleNotFoundError):
     HAS_FREECAD_QT = False
 
-from freecad_smbs.commands.pressbrake_2d import _PreviewPanel, build_part_session
-from smbs_core.kinematics2d.press_cycle import CycleExecutionMode, CyclePhase
-from smbs_core.kinematics2d.fold_sequence import PlaybackStatus
-
-MODEL_PATH = "/Users/badmc/Desktop/\u041d\u043e\u0432\u0430\u044f \u043f\u0430\u043f\u043a\u0430/box.100out-50in-(ok) 2.FCStd"
-
+MODEL_PATH = demo_part_path("box.100out-50in-(ok).FCStd", required=False)
 
 class TestFullCyclePhaseDRegression(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         if not HAS_FREECAD_QT:
             raise unittest.SkipTest("FreeCAD / PySide6 environment not available")
-        if not os.path.exists(MODEL_PATH):
+        if not MODEL_PATH.is_file():
             raise unittest.SkipTest(f"Model file not found: {MODEL_PATH}")
         cls.app = QtWidgets.QApplication.instance() or QtWidgets.QApplication(sys.argv)
 
     def setUp(self):
-        self.doc = FreeCAD.openDocument(MODEL_PATH)
+        self.doc = FreeCAD.openDocument(str(MODEL_PATH))
         obj = next(o for o in self.doc.Objects if o.Name == "Body_Unfold")
         self.session = build_part_session(self.doc, [obj])
         self.panel = _PreviewPanel()
