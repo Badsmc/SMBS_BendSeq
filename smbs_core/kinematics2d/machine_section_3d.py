@@ -177,19 +177,28 @@ def compute_machine_cutting_plane_section(
         ux, uy = zone.left_xy[0] * zone_side, zone.left_xy[1] * zone_side
 
         def map_profile_to_sz(prof_pts: Sequence[Tuple[float, float]]) -> Tuple[Tuple[float, float], ...]:
-            out = []
+            out: List[Tuple[float, float]] = []
             for s_val, z_val in prof_pts:
                 p_local = (ax_mid_2d[0] + ux * s_val, ax_mid_2d[1] + uy * s_val, z_val)
                 p_m = placement.apply(p_parent_tf.point(p_local))
-                out.append((-p_m[1], p_m[2]))
+                pt = (-p_m[1], p_m[2])
+                if not out or math.dist(out[-1], pt) > 1e-5:
+                    out.append(pt)
             return tuple(out)
 
         inner_sz = map_profile_to_sz(zone_sec["inner"])
         outer_sz = map_profile_to_sz(zone_sec["outer"])
         neutral_sz = map_profile_to_sz(zone_sec["neutral"])
 
-        # Closed zone polygon: inner -> reversed(outer)
-        zone_poly_sz = inner_sz + tuple(reversed(outer_sz))
+        # Closed zone polygon: inner -> reversed(outer) with deduplication of degenerate segments
+        raw_poly = list(inner_sz) + list(reversed(outer_sz))
+        dedup_poly: List[Tuple[float, float]] = []
+        for p in raw_poly:
+            if not dedup_poly or math.dist(dedup_poly[-1], p) > 1e-5:
+                dedup_poly.append(p)
+        if len(dedup_poly) > 1 and math.dist(dedup_poly[0], dedup_poly[-1]) <= 1e-5:
+            dedup_poly.pop()
+        zone_poly_sz = tuple(dedup_poly)
 
         if active_bend and bend_id == active_bend_id:
             section["zone_polygon"] = zone_poly_sz
