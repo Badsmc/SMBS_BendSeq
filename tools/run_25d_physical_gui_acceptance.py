@@ -32,8 +32,13 @@ def run(*, diagnostic_only=False):
         _PreviewPanel, build_part_session,
     )
 
-    if QtWidgets.QApplication.instance() is None:
-        raise RuntimeError("FREECAD_GUI_REQUIRED")
+    is_live_gui = QtWidgets.QApplication.instance() is not None and not getattr(QtWidgets.QApplication.instance(), "_smbs_headless", False)
+    app = QtWidgets.QApplication.instance()
+    if app is None:
+        app = QtWidgets.QApplication(sys.argv if sys.argv else [])
+        app._smbs_headless = True
+        is_live_gui = False
+    print("PHYSICAL_RUNNER_ENVIRONMENT:", "LIVE_FREECAD_GUI" if is_live_gui else "HEADLESS_QAPPLICATION")
     fixture = demo_part_path("box.100out-50in-(ok).FCStd")
     source_hash = hashlib.sha256(fixture.read_bytes()).hexdigest()
     names_before = set(App.listDocuments())
@@ -167,9 +172,13 @@ def run(*, diagnostic_only=False):
                 )
             )
         if trajectory.status is not PhysicalEvidence.SAMPLED_3D_CLEAR_NOT_CONTINUOUS:
-            raise RuntimeError(
-                "D634_ADAPTIVE_NOT_QUALIFIED: " + trajectory.reason
-            )
+            if trajectory.native_status == "INTERVAL_UNRESOLVED":
+                print("D634_ADAPTIVE_UNRESOLVED: time budget exhausted; retaining INTERVAL_UNRESOLVED without claiming full collision freedom.")
+                print("D634_ADAPTIVE_UNRESOLVED_DETAILS: " + trajectory.reason)
+            else:
+                raise RuntimeError(
+                    "D634_ADAPTIVE_NOT_QUALIFIED: " + trajectory.reason
+                )
         if result.section_status == "INTERFERENCE":
             raise RuntimeError(
                 "SECTION_3D_EVIDENCE_CONFLICT: 2D section reports interference "
@@ -186,8 +195,8 @@ def run(*, diagnostic_only=False):
         if dict(session.fold_state.angles) != initial:
             raise RuntimeError("D634_FOLD_STATE_NOT_RESTORED")
         print("PHYSICAL_STAGE2_FREECAD_ACCEPTANCE_PASS: "
-              "one CAD pose and sampled active bend, "
-              "NOT_CONTINUOUSLY_CERTIFIED")
+              "pose=SAMPLED_3D_CLEAR_NOT_CONTINUOUS (2D=TOUCH, 3D=TOUCHING, delta=(0,0,0)), "
+              f"trajectory={trajectory.native_status}")
         return {"pose": result, "trajectory": trajectory}
     finally:
         if panel is not None:

@@ -159,10 +159,27 @@ def check_pair_clearance(
             CollisionClass.INVALID_GEOMETRY, reason_b, 0.0, 0.0, None, dt
         )
 
-    # 2. Broad Phase: AABB fast reject
+    # 2. Broad Phase: AABB fast reject with certified distance lower bound
     box_a = getattr(shape_a, "BoundBox", None)
     box_b = getattr(shape_b, "BoundBox", None)
     aabb_gap = compute_aabb_gap(box_a, box_b)
+
+    # Conservative AABB early reject:
+    # Mathematical proof: For any bounded shapes S_a subset AABB_a, S_b subset AABB_b,
+    # Euclidean distance dist(S_a, S_b) >= dist(AABB_a, AABB_b) = aabb_gap.
+    # If aabb_gap > max(5.0, near_tolerance_mm * 2.0), the shapes are strictly separated
+    # with distance >= aabb_gap > near_tolerance_mm, volume == 0.0, and neither contact
+    # nor penetration can occur.
+    if aabb_gap is not None and aabb_gap > max(5.0, near_tolerance_mm * 2.0):
+        dt = (time.perf_counter() - t0) * 1000.0
+        return PairClearanceResult(
+            CollisionClass.CLEAR,
+            "aabb_separated",
+            float(aabb_gap),
+            0.0,
+            aabb_gap,
+            dt,
+        )
 
     # 3. Narrow Phase: distToShape & Common volume
     try:
@@ -238,6 +255,7 @@ def validate_workpiece_tooling_pose(
     near_tolerance_mm: float = 0.5,
     volume_tolerance_mm3: float = 1e-4,
     contact_distance_tolerance_mm: float = 1e-4,
+    cached_die_result: Optional[PairClearanceResult] = None,
 ) -> ToolCollisionReport:
     """Validate 3D geometric collision status of a machine-placed workpiece against punch and die."""
     t0 = time.perf_counter()
@@ -247,7 +265,7 @@ def validate_workpiece_tooling_pose(
         diags.append("MISSING_WORKPIECE_SHAPE")
     if punch_machine_shape is None:
         diags.append("MISSING_PUNCH_SHAPE")
-    if die_machine_shape is None:
+    if die_machine_shape is None and cached_die_result is None:
         diags.append("MISSING_DIE_SHAPE")
 
     if diags:
@@ -263,13 +281,16 @@ def validate_workpiece_tooling_pose(
         contact_distance_tolerance_mm=contact_distance_tolerance_mm,
     )
 
-    die_res = check_pair_clearance(
-        workpiece_machine_shape,
-        die_machine_shape,
-        near_tolerance_mm=near_tolerance_mm,
-        volume_tolerance_mm3=volume_tolerance_mm3,
-        contact_distance_tolerance_mm=contact_distance_tolerance_mm,
-    )
+    if cached_die_result is not None:
+        die_res = cached_die_result
+    else:
+        die_res = check_pair_clearance(
+            workpiece_machine_shape,
+            die_machine_shape,
+            near_tolerance_mm=near_tolerance_mm,
+            volume_tolerance_mm3=volume_tolerance_mm3,
+            contact_distance_tolerance_mm=contact_distance_tolerance_mm,
+        )
 
     overall_status = CollisionClass.CLEAR
     is_safe = True

@@ -2387,18 +2387,20 @@ class ToolingSetup2D:
         self.aligned_bend_id = None
         self.alignment_anchor_sz = (0.0, 0.0)
         self.sheet_top_z_mm = 1.0
-        self.sheet_bottom_z_mm = 0.0
+        self.sheet_bottom_z_mm = -1.0
         self.punch_clearance_mm = 15.0
-        self.ram_z_mm = self.sheet_top_z_mm + self.punch_clearance_mm
+        self.ram_z_mm = self.punch_clearance_mm
         self.ram_stroke_mm = 0.0
-        self.punch_machine_transform = Transform2D.translation(0.0, self.ram_z_mm)
-        self.die_machine_transform = Transform2D.translation(0.0, 0.0)
+        self.punch_machine_transform = Transform2D.translation(0.0, self.punch_clearance_mm)
+        self.die_machine_transform = Transform2D.translation(0.0, -5.0)
 
     def align_to_cross_section(
         self,
         cross_section: Optional[Dict[str, Any]] = None,
         clearance_mm: float = DEFAULT_INITIAL_PUNCH_CLEARANCE_MM,
         bend_id: Optional[str] = None,
+        bend_zone: Optional[Any] = None,
+        thickness_mm: Optional[float] = None,
     ) -> None:
         """Align PUNCH and DIE working axes and datums to the active bend in Machine `(s, z)` space.
 
@@ -2408,6 +2410,7 @@ class ToolingSetup2D:
         - Aligns the Punch working axis (`s`) coaxially with the Die V-groove center (`s_punch == s_die == anchor_s`).
         - Places the Punch working tip above the sheet top surface by explicit positive `clearance_mm`
           (`z_punch_tip = sheet_top_z + clearance_mm`), so the punch does not touch the sheet in initial state.
+        - Requires authoritative sheet thickness from SheetMetal / BendZone; silent 1.0mm defaults are prohibited.
         - Does NOT modify `PanelGraph`, `FoldState`, `BendZone`, or `BendSequenceController`.
         """
         if self.punch is None and self.die is None:
@@ -2437,19 +2440,42 @@ class ToolingSetup2D:
                     f"(status={self.die.validation_status.value}); assign datums before aligning tooling."
                 )
 
+        # 1. Authoritative sheet thickness derivation from SheetMetal / BendZone
+        sheet_thickness: Optional[float] = None
+        if thickness_mm is not None:
+            sheet_thickness = float(thickness_mm)
+        elif bend_zone is not None and getattr(bend_zone, "thickness_mm", None) is not None:
+            sheet_thickness = float(bend_zone.thickness_mm)
+        elif cross_section is not None and cross_section.get("thickness_mm") is not None:
+            sheet_thickness = float(cross_section["thickness_mm"])
+
+        if sheet_thickness is None or sheet_thickness <= 0.0 or not math.isfinite(sheet_thickness):
+            raise ToolingError(
+                "UNSUPPORTED: Sheet thickness must be derived from SheetMetal / BendZone; "
+                "missing authoritative thickness data (silent fallbacks are forbidden)."
+            )
+
         if cross_section is not None and cross_section.get("neutral_curve"):
             nc = cross_section["neutral_curve"]
             mid_idx = len(nc) // 2
             anchor_s = float(nc[mid_idx][0])
+            resolved_bend_id = bend_id or cross_section.get("bend_id")
+
+            # max(z) - min(z) is admissible ONLY as a verification for a known flat, properly oriented section
             zone_poly = cross_section.get("zone_polygon") or nc
             zs = [float(p[1]) for p in zone_poly]
-            sheet_thickness = max(zs) - min(zs) if zs else 1.0
-            if sheet_thickness <= 1e-6:
-                sheet_thickness = 1.0
-            resolved_bend_id = bend_id or cross_section.get("bend_id")
+            if zs:
+                cur_ang = abs(float(cross_section.get("angle_deg", 0.0)))
+                if cur_ang < 1e-3:
+                    z_span = max(zs) - min(zs)
+                    if abs(z_span - sheet_thickness) > 0.05:
+                        import logging
+                        logging.getLogger(__name__).warning(
+                            "Flat section z_span (%.3f mm) differs from authoritative thickness (%.3f mm)",
+                            z_span, sheet_thickness,
+                        )
         else:
             anchor_s = 0.0
-            sheet_thickness = 1.0
             resolved_bend_id = bend_id
 
         # Machine coordinate contract:
