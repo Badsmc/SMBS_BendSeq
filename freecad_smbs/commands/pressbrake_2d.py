@@ -2085,7 +2085,15 @@ class _PreviewPanel:
                         if pc is not None:
                             pc.phase = CyclePhase.BENDING
                             pc.on_tooling_changed()
-                except SequenceError as exc:
+                except (SequenceError, PressCycleError) as exc:
+                    # Fail closed: never start an automatic timer after an
+                    # invalid sequence or transfer/machine state.
+                    if self.execution_mode == CycleExecutionMode.FULL_CYCLE:
+                        self._machine_pose_fault = str(exc)
+                    if self.press_cycle is not None:
+                        self.press_cycle.pause()
+                    else:
+                        self.session.pause()
                     self._stop_timer()
                     self.status.setText(str(exc))
                     return
@@ -2157,7 +2165,15 @@ class _PreviewPanel:
                         self.session.resume()
                         if pc is not None:
                             pc.phase = CyclePhase.BENDING
-                except SequenceError as exc:
+                except (SequenceError, PressCycleError) as exc:
+                    # Fail closed: never start an automatic timer after an
+                    # invalid sequence or transfer/machine state.
+                    if self.execution_mode == CycleExecutionMode.FULL_CYCLE:
+                        self._machine_pose_fault = str(exc)
+                    if self.press_cycle is not None:
+                        self.press_cycle.pause()
+                    else:
+                        self.session.pause()
                     self._stop_timer()
                     self.status.setText(str(exc))
                     return
