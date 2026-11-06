@@ -19,6 +19,8 @@ on:
       - 'tests/test_d634_adaptive_motion_collision.py'
       - 'tools/run_d634_gui_context_regression.py'
       - 'tools/install_demo_models.py'
+      - 'Init.py'
+      - 'InitGui.py'
       - 'smbs_core/demo_paths.py'
       - 'tests/test_demo_paths.py'
       - 'demo/**'
@@ -42,7 +44,7 @@ jobs:
       - name: Validate portable demo FCStd resolver
         run: PYTHONPATH=. python -m unittest tests.test_demo_paths -v
       - name: Compile portable FCStd archive installer
-        run: python -m py_compile tools/install_demo_models.py
+        run: python -m py_compile tools/install_demo_models.py Init.py InitGui.py
       - name: D6.3 pure math and isolated contracts (FreeCAD optional)
         run: PYTHONPATH=. python -m unittest discover -s tests -p 'test_d63_native_bend_solid.py' -v
       - name: D6.3.3 native collision and coverage contracts
