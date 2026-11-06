@@ -27,7 +27,9 @@ demo/parts/
   2-1-3-4-(ok).FCStd
 ```
 
-**Binary fixture status:** these original source models were provided as attachments and are not yet committed to GitHub branch `2D`. This text does not claim they are in the repository. They must be committed as binary Git files from the original archive to make a checkout self-contained.
+**Binary fixture status (working branch `feature/25d-physical-validation`):** 16 `.FCStd` models from `AutoMod-V0.0.1/SMBendTests` have been committed directly to `demo/parts/` with their exact source Git blobs. Their 22 associated JSON files and legacy `run_batch.py` are retained under `demo/SMBendTests/`; original file identities and Git blob hashes are documented in `demo/SMBendTests/IMPORT_INDEX.json`.
+
+The 17-entry `demo/MANIFEST.json` describes a **different archive revision** (different file sizes and SHA-256 values). In particular, its `U-60deg-30deg-(ok)-variant2.FCStd` was **not present** in the source branch. The 17-file archive installer therefore remains a **separate optional workflow** and should not be used to overwrite or verify these 16 imported assets. The labels `(ok)`/`(false)` have not been independently validated.
 
 ## Layout and cross-platform support
 
@@ -39,6 +41,6 @@ Tool CAD assets remain in `toollibrary/` under their original paths; they are no
 
 ## Installing original binary demo models
 
-Unzip `SMBS_demo_FCStd_17_files.zip` into the **repository root**. It contains `demo/parts/` and `demo/MANIFEST.json`. Check that 17 FCStd files were extracted and commit them on branch `2D`.
+For the historical 17-file revision, `tools/install_demo_models.py` expects `SMBS_demo_FCStd_17_files.zip` with file hashes matching `demo/MANIFEST.json`. This is **not the same revision** as the source branch copied above. Never silently substitute or overwrite either set with the other.
 
 For Windows FreeCAD installations using a folder such as `%APPDATA%/FreeCAD/v1-1/Mod/SMBS_BendSeq-2D`, the repository-relative resolver works without changing any source paths.
