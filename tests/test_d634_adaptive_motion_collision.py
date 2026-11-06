@@ -39,6 +39,8 @@ from smbs_core.kinematics2d.motion_trajectory_3d import (
     TrajectoryPhaseResult,
     check_motion_continuity,
     compute_rotation_distance_deg,
+    FoldStateRestorationError,
+    restore_fold_state_snapshot,
 )
 from smbs_core.kinematics2d.native_collision_3d import (
     CollisionClass,
@@ -420,6 +422,65 @@ class TestD634AdaptiveMotionRegression(unittest.TestCase):
             self.assertEqual(res1.total_states_evaluated, res2.total_states_evaluated)
             self.assertEqual(res1.total_solid_reconstructions, res2.total_solid_reconstructions)
             self.assertEqual(res1.total_collision_queries, res2.total_collision_queries)
+        finally:
+            App.closeDocument(doc.Name)
+
+
+    def test_11_restoration_helper_preserves_complete_snapshot(self):
+        """Restoration must preserve angles AND panel transforms, without silent failure."""
+        from types import SimpleNamespace
+        from smbs_core.kinematics2d.panel_kinematics import RigidTransform
+
+        saved_angles = {"B01": 45.0, "B02": 0.0}
+        saved_transforms = {"panel_a": RigidTransform()}
+        state = SimpleNamespace(angles={"B01": 0.0, "B02": -45.0}, transforms={})
+        restore_fold_state_snapshot(state, saved_angles, saved_transforms)
+        self.assertEqual(state.angles, saved_angles)
+        self.assertEqual(state.transforms, saved_transforms)
+        self.assertIsNot(state.angles, saved_angles)
+        self.assertIsNot(state.transforms, saved_transforms)
+
+    def test_12_restoration_failure_is_explicit(self):
+        """An object that rejects restoring transforms must raise fail-closed."""
+        class BrokenFoldState:
+            def __init__(self):
+                object.__setattr__(self, "angles", {"B01": 90.0})
+                object.__setattr__(self, "transforms", {})
+
+            def __setattr__(self, key, value):
+                if key == "transforms":
+                    raise RuntimeError("Simulated corrupt transform storage")
+                object.__setattr__(self, key, value)
+
+        state = BrokenFoldState()
+        with self.assertRaisesRegex(FoldStateRestorationError, "FOLD_STATE_RESTORATION_FAILED"):
+            restore_fold_state_snapshot(state, {"B01": 0.0}, {"panel_a": object()})
+
+    def test_13_candidate_uses_explicit_flat_initial_state(self):
+        """B01 must start flat despite incoming FoldState containing folded B02."""
+        from freecad_smbs.commands.pressbrake_2d import build_part_session
+        from smbs_core.kinematics2d.native_tool_loader import load_native_die, load_native_punch
+
+        doc = App.openDocument(str(find_fixture_path("Z-(ok).FCStd")), True)
+        try:
+            unfold = [o for o in doc.Objects if getattr(o, "Name", "").endswith("_Unfold")][0]
+            session = build_part_session(doc, [unfold])
+            state = session.fold_state
+            state.set_angle("B02", float(state.bends["B02"].angle_deg))
+            original_angles = dict(state.angles)
+            original_transforms = dict(state.transforms)
+            punch = load_native_punch(ROOT / "toollibrary" / "punch" / "puancon.FCStd",
+                                      ram_z_mm=50.0, section_offsets_xm=[-50.0, 50.0])
+            die = load_native_die(ROOT / "toollibrary" / "die" / "matrica.FCStd",
+                                  section_offsets_xm=[-50.0, 50.0])
+            cfg = AdaptiveSamplingConfig(max_evaluated_states_per_phase=8, arc_segments=32)
+            validator = AdaptiveTrajectoryValidator3D(state, session.panel_build, punch, die, cfg)
+            result = validator.validate_bend_trajectory("B01", {})
+            for phase in result.phase_results:
+                for sample in phase.states:
+                    self.assertEqual(sample.completed_angles, {})
+            self.assertEqual(state.angles, original_angles)
+            self.assertEqual(state.transforms, original_transforms)
         finally:
             App.closeDocument(doc.Name)
 
