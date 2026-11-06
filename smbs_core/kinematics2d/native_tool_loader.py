@@ -231,6 +231,9 @@ def load_native_die(
     origin_cad = (datums.v_groove_center[0], datums.top_datum_plane_y)
     sec_len = float(profile.length_mm) if profile.length_mm else 100.0
 
+    # Preserve any pre-existing user-opened CAD tool documents.
+    existing_documents = set(App.listDocuments())
+    previous_document = getattr(getattr(App, "ActiveDocument", None), "Name", None)
     doc = App.openDocument(str(p), True)
     try:
         pad = doc.getObject("Pad") or doc.getObject("Body")
@@ -320,7 +323,10 @@ def load_native_die(
             sections=sections,
         )
     finally:
-        App.closeDocument(doc.Name)
+        if doc.Name not in existing_documents:
+            App.closeDocument(doc.Name)
+        if previous_document is not None and App.getDocument(previous_document) is not None:
+            App.setActiveDocument(previous_document)
 
 
 def load_native_punch(
@@ -350,6 +356,9 @@ def load_native_punch(
     origin_cad = (datums.working_tip[0], datums.working_tip[1])
     sec_len = float(profile.length_mm) if profile.length_mm else 100.0
 
+    # Preserve any pre-existing user-opened CAD tool documents.
+    existing_documents = set(App.listDocuments())
+    previous_document = getattr(getattr(App, "ActiveDocument", None), "Name", None)
     doc = App.openDocument(str(p), True)
     try:
         pad = doc.getObject("Pad") or doc.getObject("Body")
@@ -420,7 +429,10 @@ def load_native_punch(
             sections=sections,
         )
     finally:
-        App.closeDocument(doc.Name)
+        if doc.Name not in existing_documents:
+            App.closeDocument(doc.Name)
+        if previous_document is not None and App.getDocument(previous_document) is not None:
+            App.setActiveDocument(previous_document)
 
 
 def set_punch_ram_z(punch: LoadedTool, ram_z_mm: float) -> LoadedTool:
