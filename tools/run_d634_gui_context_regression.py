@@ -14,7 +14,7 @@ import runpy
 import time
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[1] if "__file__" in globals() else Path("/Users/badmc/Desktop/SMBS_BendSeq")
 from smbs_core.report_paths import report_file
 
 def sha256_file(path: Path) -> str:
