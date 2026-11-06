@@ -315,12 +315,32 @@ def check_active_25d_bend_trajectory(session, tooling, *, config=None):
             raise RuntimeError("D634_FOLDSTATE_RESTORATION_FAILED")
 
     native = report.evidence_status.value
+    # The aggregate diagnostics often start with a successful tooling setup
+    # note, which conceals the actual reason a phase is unresolved.
+    # Surface phase-level evidence (including exact unresolved intervals),
+    # not just the first few aggregate messages.
+    phase_details = []
+    for phase in report.phase_results:
+        status = getattr(phase.evidence_status, "value", str(phase.evidence_status))
+        pieces = ["{}={}".format(phase.phase_name, status)]
+        if phase.unresolved_intervals:
+            pieces.append("unresolved={}".format(len(phase.unresolved_intervals)))
+            pieces.append("first_interval={}".format(phase.unresolved_intervals[0]))
+        if phase.discontinuities:
+            pieces.append("discontinuity={}".format(phase.discontinuities[0]))
+        if phase.diagnostics:
+            pieces.append("reason={}".format(phase.diagnostics[0]))
+        pieces.append("samples={}".format(len(phase.states)))
+        pieces.append("punch_overlap_mm3={:.6f}".format(phase.max_punch_overlap_volume_mm3))
+        pieces.append("die_overlap_mm3={:.6f}".format(phase.max_die_overlap_volume_mm3))
+        phase_details.append(",".join(pieces))
+    phase_evidence = "; ".join(phase_details)
     if report.evidence_status is TrajectoryEvidenceStatus.DISCRETE_SAMPLES_REJECTED:
         return CurrentPosePhysicalReport(
             PhysicalEvidence.COLLISION if report.first_collision_state is not None
             else PhysicalEvidence.UNVERIFIED,
             "NOT_APPLICABLE", native,
-            "native_d634_rejected:" + ";".join(report.diagnostics[:3]),
+            "native_d634_rejected:" + phase_evidence,
             ("3D_PUNCH_DIE_SAMPLED_BEND", "3D_TOOL_LENGTH"),
         )
     if (report.evidence_status is TrajectoryEvidenceStatus.SAMPLED_INTERVAL_CONVERGED
@@ -335,6 +355,6 @@ def check_active_25d_bend_trajectory(session, tooling, *, config=None):
         )
     return CurrentPosePhysicalReport(
         PhysicalEvidence.UNVERIFIED, "NOT_APPLICABLE", native,
-        "d634_incomplete:" + ";".join(report.diagnostics[:3]),
+        "d634_incomplete:" + phase_evidence,
         ("3D_PUNCH_DIE_SAMPLED_BEND",),
     )
