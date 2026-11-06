@@ -208,69 +208,121 @@ def show_phase(phase_name: str = "CONTACT"):
 show_phase("CONTACT")
 
 
-# Global container for trajectory states so user can step through samples interactively
-ACTIVE_TRAJECTORY_STATES = []
+# The active sample viewer owns its fixture geometry. The static L fixture 'state'
+# and 'session' above remain dedicated to show_phase() only.
+ACTIVE_TRAJECTORY_CONTEXT = None
+
+
+def _reconstruct_trajectory_sample(context, sample):
+    """Build the chosen fixture's physical sample without contaminating FoldState."""
+    selected_state = context["state"]
+    if sample.active_bend_id not in selected_state.bends:
+        raise ValueError(
+            f"{context['fixture']}: unknown active bend {sample.active_bend_id}"
+        )
+    unknown = set(sample.completed_angles) - set(selected_state.bends)
+    if unknown:
+        raise ValueError(f"{context['fixture']}: unknown completed bends {sorted(unknown)}")
+
+    # Explicitly initialize ALL bends: uncompleted bends stay flat, completed
+    # bends retain their actual signed angles, and the active bend takes its sample.
+    sample_angles = {bend_id: 0.0 for bend_id in selected_state.bends}
+    sample_angles.update(sample.completed_angles)
+    sample_angles[sample.active_bend_id] = sample.signed_angle_deg
+
+    saved_angles = dict(selected_state.angles)
+    saved_transforms = dict(selected_state.transforms)
+    try:
+        for bend_id in selected_state.bends:
+            selected_state.set_angle(bend_id, sample_angles[bend_id])
+        if selected_state.angles != sample_angles:
+            raise RuntimeError("Sample angles were not applied correctly")
+        solid = build_multi_bend_sheet_solid(
+            selected_state, context["panel_build"], segments=context["arc_segments"]
+        )
+        tf = sample.workpiece_placement  # Authoritative recorded machine placement
+        mat_wp = App.Matrix(
+            tf.rotation[0][0], tf.rotation[0][1], tf.rotation[0][2], tf.translation[0],
+            tf.rotation[1][0], tf.rotation[1][1], tf.rotation[1][2], tf.translation[1],
+            tf.rotation[2][0], tf.rotation[2][1], tf.rotation[2][2], tf.translation[2],
+            0.0, 0.0, 0.0, 1.0,
+        )
+        wp_machine = solid.shape.copy()
+        wp_machine.transformShape(mat_wp)
+        return wp_machine
+    finally:
+        # GUI display is read-only with respect to the selected FoldState.
+        selected_state.angles = saved_angles
+        selected_state.transforms = saved_transforms
+        if selected_state.angles != saved_angles or selected_state.transforms != saved_transforms:
+            raise RuntimeError(f"{context['fixture']}: failed to restore viewer FoldState")
 
 
 def show_sample(sample_index: int):
-    """Display a specific physical sample from the active inspected trajectory."""
-    global ACTIVE_TRAJECTORY_STATES
-    if not ACTIVE_TRAJECTORY_STATES:
-        print("No active trajectory loaded. Call inspect_trajectory('L-(ok).FCStd', 'B01') first.")
+    """Display the real selected fixture's workpiece, tooling and saved collision result."""
+    context = ACTIVE_TRAJECTORY_CONTEXT
+    if context is None:
+        print("No active trajectory. Call inspect_trajectory(fixture, bend_id) first.")
         return
-    if not (0 <= sample_index < len(ACTIVE_TRAJECTORY_STATES)):
-        print(f"Sample index {sample_index} out of range [0, {len(ACTIVE_TRAJECTORY_STATES) - 1}].")
+    samples = context["samples"]
+    if not (0 <= sample_index < len(samples)):
+        print(f"Sample index {sample_index} out of range [0, {len(samples)-1}].")
         return
 
-    st = ACTIVE_TRAJECTORY_STATES[sample_index]
-    # Position punch
-    punch_step = set_punch_ram_z(punch_base, st.ram_z_mm)
-    p_feat.Shape = punch_step.machine_shape
-
-    # Reconstruct workpiece solid
-    state.set_angle(st.active_bend_id, st.signed_angle_deg)
-    solid = build_multi_bend_sheet_solid(state, session.panel_build, segments=128)
-    tf = st.workpiece_placement
-    mat_wp = App.Matrix(
-        tf.rotation[0][0], tf.rotation[0][1], tf.rotation[0][2], tf.translation[0],
-        tf.rotation[1][0], tf.rotation[1][1], tf.rotation[1][2], tf.translation[1],
-        tf.rotation[2][0], tf.rotation[2][1], tf.rotation[2][2], tf.translation[2],
-        0.0, 0.0, 0.0, 1.0,
+    sample = samples[sample_index]
+    # Perform all potentially failing geometry operations BEFORE changing GUI shapes.
+    workpiece = _reconstruct_trajectory_sample(context, sample)
+    punch_step = set_punch_ram_z(context["punch"], sample.ram_z_mm)
+    die_shape = context["die"].machine_shape
+    collision = validate_workpiece_tooling_pose(
+        workpiece, punch_step.machine_shape, die_shape
     )
-    wp_machine = solid.shape.copy()
-    wp_machine.transformShape(mat_wp)
-    wp_feat.Shape = wp_machine
+    recorded = sample.collision_report
+    if recorded is None or collision.status != recorded.status or collision.is_safe != recorded.is_safe:
+        raise RuntimeError(
+            f"{context['fixture']} {sample.active_bend_id} sample {sample_index}: "
+            f"reconstructed collision differs from validated sample"
+        )
 
-    if HAS_GUI and hasattr(wp_feat, "ViewObject") and wp_feat.ViewObject is not None:
-        if st.is_safe:
-            wp_feat.ViewObject.ShapeColor = (0.2, 0.7, 0.3)
-            clash_feat.Shape = Part.Shape()
-        else:
-            wp_feat.ViewObject.ShapeColor = (0.85, 0.2, 0.2)
-            clash_solid = wp_machine.common(punch_step.machine_shape)
-            if die.machine_shape:
-                die_clash = wp_machine.common(die.machine_shape)
-                if die_clash.Volume > 0:
-                    clash_solid = clash_solid.fuse(die_clash) if clash_solid.Volume > 0 else die_clash
-            clash_feat.Shape = clash_solid
+    # Collision geometry is computed before any visual mutation.
+    clash_shape = Part.Shape()
+    if not collision.is_safe:
+        clash_shape = workpiece.common(punch_step.machine_shape)
+        die_clash = workpiece.common(die_shape)
+        if die_clash.Volume > 0:
+            clash_shape = clash_shape.fuse(die_clash) if clash_shape.Volume > 0 else die_clash
 
+    p_feat.Shape = punch_step.machine_shape
+    d_feat.Shape = die_shape
+    wp_feat.Shape = workpiece
+    clash_feat.Shape = clash_shape
+    if HAS_GUI and getattr(wp_feat, "ViewObject", None) is not None:
+        wp_feat.ViewObject.ShapeColor = (0.2, 0.7, 0.3) if collision.is_safe else (0.85, 0.2, 0.2)
     diag_doc.recompute()
-    print(f"\n[D6.3.4 Sample #{sample_index}/{len(ACTIVE_TRAJECTORY_STATES)-1}] Phase={st.phase} u={st.path_u:.4f} Angle={st.signed_angle_deg:.2f}deg Ram_Z={st.ram_z_mm:.2f}mm Safe={st.is_safe}")
-    if st.collision_report:
-        print(f" - Punch dist: {st.collision_report.punch_result.distance_mm:.4f} mm, Overlap: {st.collision_report.punch_result.overlap_volume_mm3:.6f} mm3")
-        print(f" - Die dist:   {st.collision_report.die_result.distance_mm:.4f} mm, Overlap: {st.collision_report.die_result.overlap_volume_mm3:.6f} mm3")
+    print(
+        f"[D6.3.4 {context['fixture']} {sample.active_bend_id}] "
+        f"Sample {sample_index}/{len(samples)-1} phase={sample.phase} "
+        f"angle={sample.signed_angle_deg:.2f} deg ram={sample.ram_z_mm:.2f} mm "
+        f"safe={collision.is_safe} punch_overlap={collision.punch_result.overlap_volume_mm3:.6f} mm3 "
+        f"die_overlap={collision.die_result.overlap_volume_mm3:.6f} mm3"
+    )
 
 
 def inspect_trajectory(fixture_name: str = "L-(ok).FCStd", bend_id: str = "B01"):
-    """D6.3.4 Adaptive motion trajectory inspection and interactive sample navigation."""
-    global ACTIVE_TRAJECTORY_STATES
-    print(f"\n[D6.3.4] Running adaptive trajectory validation on {fixture_name} ({bend_id})...")
-    f_path = resolve_fixture_path(fixture_name)
-    s_doc = App.openDocument(str(f_path), True)
+    """Validate and atomically activate a fixture-specific native 3D sample viewer."""
+    global ACTIVE_TRAJECTORY_CONTEXT
+    print(f"[D6.3.4] Evaluating {fixture_name} {bend_id} in native FreeCAD...")
+    source_path = resolve_fixture_path(fixture_name)
+    source_doc = App.openDocument(str(source_path), True)
     try:
-        u_obj = [o for o in s_doc.Objects if getattr(o, "Name", "").endswith("_Unfold")][0]
-        sess = build_part_session(s_doc, [u_obj])
-        st = sess.fold_state
+        unfold_objects = [o for o in source_doc.Objects if getattr(o, "Name", "").endswith("_Unfold")]
+        if not unfold_objects:
+            raise ValueError(f"{fixture_name}: no SheetMetal _Unfold object")
+        selected_session = build_part_session(source_doc, [unfold_objects[0]])
+        selected_state = selected_session.fold_state
+        if bend_id not in selected_state.bends:
+            raise ValueError(f"{fixture_name}: bend {bend_id} not found")
+
         cfg = AdaptiveSamplingConfig(
             max_bend_angle_step_deg=10.0,
             max_ram_displacement_step_mm=5.0,
@@ -280,26 +332,45 @@ def inspect_trajectory(fixture_name: str = "L-(ok).FCStd", bend_id: str = "B01")
             max_evaluated_states_per_phase=32,
             arc_segments=128,
         )
-        validator = AdaptiveTrajectoryValidator3D(st, sess.panel_build, punch_base, die, cfg)
-        res = validator.validate_bend_trajectory(bend_id, {})
-        print(f"Trajectory Evidence Status: {res.evidence_status.value}")
-        print(f"Continuous Certification:  {res.continuous_certification_status.value}")
-        print(f"Qualified: {res.is_qualified}")
-        print(f"Total Evaluated States: {res.total_states_evaluated}, Subdivisions: {res.total_subdivisions}")
+        # The requested B02 is evaluated with B01 already completed, not flat.
+        prior_angles = {}
+        for previous_bend in selected_state.ordered_bends:
+            if previous_bend.bend_id == bend_id:
+                break
+            prior_angles[previous_bend.bend_id] = float(previous_bend.angle_deg)
+        validator = AdaptiveTrajectoryValidator3D(
+            selected_state, selected_session.panel_build, punch_base, die, cfg
+        )
+        result = validator.validate_bend_trajectory(bend_id, prior_angles)
+        samples = [sample for phase in result.phase_results for sample in phase.states]
+        if not samples:
+            raise RuntimeError(f"{fixture_name} {bend_id}: no physical samples")
 
-        all_states = []
-        for pr in res.phase_results:
-            print(f" - Phase {pr.phase_name:10s}: Status={pr.evidence_status.value:28s} States={len(pr.states):2d} Safe={pr.is_safe}")
-            all_states.extend(pr.states)
-
-        ACTIVE_TRAJECTORY_STATES = all_states
-        print(f"\nLoaded {len(ACTIVE_TRAJECTORY_STATES)} motion samples into viewer.")
-        print("Navigate samples interactively with: show_sample(index)")
-        if ACTIVE_TRAJECTORY_STATES:
-            show_sample(0)
-        return res
+        candidate_context = {
+            "fixture": fixture_name,
+            "bend_id": bend_id,
+            "state": selected_state,
+            "panel_build": selected_session.panel_build,
+            "samples": samples,
+            "arc_segments": cfg.arc_segments,
+            "punch": punch_base,
+            "die": die,
+        }
+        # Verify the new context before replacing the old one.
+        _reconstruct_trajectory_sample(candidate_context, samples[0])
     finally:
-        App.closeDocument(s_doc.Name)
+        App.closeDocument(source_doc.Name)
+
+    ACTIVE_TRAJECTORY_CONTEXT = candidate_context
+    print(
+        f"Trajectory: {result.evidence_status.value}; "
+        f"continuous: {result.continuous_certification_status.value}; "
+        f"samples: {len(samples)}; qualified sampled poses: {result.is_qualified}"
+    )
+    show_sample(0)
+    print(f"Navigate with show_sample(0..{len(samples)-1}).")
+    # Do not return the huge BendTrajectoryResult to the interactive console.
+    return None
 
 
 print("\n" + "=" * 70)
