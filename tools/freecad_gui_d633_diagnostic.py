@@ -18,7 +18,13 @@ Instructions for user:
 import sys
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parents[1] if "__file__" in locals() else Path("/Users/badmc/Desktop/SMBS_BendSeq")
+if "__file__" in globals():
+    REPO_ROOT = Path(__file__).resolve().parents[1]
+else:
+    # exec(open(...).read()) in FreeCAD Console has no __file__.
+    # Resolve via the installed package, not a developer-specific macOS path.
+    import smbs_core
+    REPO_ROOT = Path(smbs_core.__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
