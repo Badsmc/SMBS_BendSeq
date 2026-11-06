@@ -16,6 +16,8 @@ on:
       - 'tests/test_preview_mesh_3d.py'
       - 'demo/**'
       - 'tools/install_demo_models.py'
+      - 'Init.py'
+      - 'InitGui.py'
       - 'smbs_core/demo_paths.py'
       - 'smbs_core/geometry_backend/freecad_bootstrap.py'
       - 'freecad_smbs/resources/tooling_paths.py'
@@ -51,7 +53,7 @@ jobs:
       - name: Cross-platform demo fixture path contracts
         run: PYTHONPATH=. python -m unittest tests.test_demo_paths -v
       - name: Compile portable FCStd archive installer
-        run: python -m py_compile tools/install_demo_models.py
+        run: python -m py_compile tools/install_demo_models.py Init.py InitGui.py
       - name: Workpiece support and symmetry
         run: PYTHONPATH=. python -m unittest discover -s tests -p 'test_workpiece_pose_2d.py' -v
       - name: Inter-bend transport state machine
