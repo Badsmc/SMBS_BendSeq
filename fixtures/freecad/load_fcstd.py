@@ -26,11 +26,16 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-sys.path.append("/Applications/FreeCAD.app/Contents/Resources/lib")
-_sm_user_dir = str(Path.home() / "Library/Application Support/FreeCAD/v1-1/Mod/sheetmetal")
-if _sm_user_dir not in sys.path:
-    sys.path.append(_sm_user_dir)
+# Use repository-relative fixture paths and centralized cross-platform FreeCAD setup.
+# Running this script from FreeCAD's Python Console also works without a CWD assumption.
+REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
+from smbs_core.demo_paths import DEMO_PARTS_DIR
+from smbs_core.geometry_backend.freecad_bootstrap import ensure_freecad_paths
+
+ensure_freecad_paths()
 import FreeCAD
 import Part
 import SheetMetalNewUnfolder
@@ -504,7 +509,15 @@ def extract_fixture(spec: Dict[str, Any], src_dir: Path, out_base_dir: Path) -> 
 
 def main():
     repo_root = Path(__file__).resolve().parent.parent.parent
-    src_dir = Path.home() / "Desktop" / "BendSeq_Fixtures_Source"
+    src_dir = DEMO_PARTS_DIR
+    missing = [spec["src_name"] for spec in FIXTURE_SPECS
+               if not (src_dir / spec["src_name"]).is_file()]
+    if missing:
+        raise FileNotFoundError(
+            "Missing original FreeCAD fixtures in {}: {}. "
+            "Copy the files to demo/parts before generating fixtures."
+            .format(src_dir, ", ".join(missing))
+        )
     out_base_dir = repo_root / "fixtures" / "freecad"
     out_base_dir.mkdir(parents=True, exist_ok=True)
 
