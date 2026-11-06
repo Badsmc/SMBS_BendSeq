@@ -656,6 +656,23 @@ class _PreviewPanel:
                 self.tooling_status.setWordWrap(True)
                 self.tooling_status.setStyleSheet("font-size: 11px; color: #2c3e50;")
                 t_layout.addWidget(self.tooling_status)
+                # Explicit, on-demand physical check: no expensive BRep
+                # booleans in the 25–40 Hz drawing/timer path.
+                self.physical_check_btn = _button(
+                    QtWidgets, "Проверить текущую позу: 2D + 3D",
+                    self.check_current_physical_pose, True,
+                )
+                self.physical_check_btn.setToolTip(
+                    "Проверка текущего кадра по 2D-сечению и, если имеются "
+                    "реальные FCStd пуансона и матрицы, по нативной 3D-геометрии. "
+                    "Не сертифицирует весь цикл или станок."
+                )
+                t_layout.addWidget(self.physical_check_btn)
+                self.physical_check_result = QtWidgets.QLabel(
+                    "Проверка коллизий не выполнена."
+                )
+                self.physical_check_result.setWordWrap(True)
+                t_layout.addWidget(self.physical_check_result)
                 root.addWidget(self.tooling_group)
 
                 # Phase 5B: Press Cycle section (Bend Only / Full Cycle, Ram Position, Cycle Phase, Speed & Config)
@@ -1302,6 +1319,49 @@ class _PreviewPanel:
                     if cur_d == d.tool_id:
                         self.select_die_combo.setCurrentIndex(idx)
                 self.select_die_combo.blockSignals(False)
+
+            def check_current_physical_pose(self):
+                """Read-only current-pose check; never modifies FoldState or GUI animation."""
+                if self.session is None:
+                    self.physical_check_result.setText("UNVERIFIED: деталь не загружена")
+                    return
+                if self.timer.isActive() or self.session.playback_status == PlaybackStatus.PLAYING:
+                    self.physical_check_result.setText(
+                        "UNVERIFIED: сначала Pause; проверяется только неподвижный кадр."
+                    )
+                    return
+                self.physical_check_btn.setEnabled(False)
+                try:
+                    from smbs_core.kinematics2d.physical_validation_25d import (
+                        check_current_25d_pose,
+                    )
+                    pc = self._ensure_press_cycle_controller()
+                    report = check_current_25d_pose(
+                        self.session, pc, self.tooling_setup, native_3d=True,
+                    )
+                    detail = "{} | 2D={} | 3D={} | {} | scope={}".format(
+                        report.status.value, report.section_status,
+                        report.native_status, report.reason,
+                        ",".join(report.checked_scope),
+                    )
+                    self.physical_check_result.setText(detail)
+                    self._trace_event(
+                        "PHYSICAL_POSE_CHECK",
+                        status=report.status.value,
+                        section_status=report.section_status,
+                        native_status=report.native_status,
+                        reason=report.reason,
+                        checked_scope=list(report.checked_scope),
+                        fully_qualified=report.is_fully_qualified,
+                    )
+                    _log("Physical pose check: " + detail)
+                except Exception as exc:
+                    self.physical_check_result.setText(
+                        "UNVERIFIED: ошибка физической проверки: {}".format(exc)
+                    )
+                    _error("Physical pose check exception: " + traceback.format_exc())
+                finally:
+                    self.physical_check_btn.setEnabled(True)
 
             def _update_tooling_status_label(self):
                 self.tooling_status.setText(self.tooling_setup.status_line())
