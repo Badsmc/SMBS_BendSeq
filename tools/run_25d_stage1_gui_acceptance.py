@@ -9,6 +9,7 @@ This is deliberately NOT a headless test. Any skip or failure means NO PASS.
 """
 from __future__ import annotations
 
+import hashlib
 import sys
 import unittest
 from pathlib import Path
@@ -29,6 +30,8 @@ def run():
     if not model.is_file():
         raise FileNotFoundError(f"Required original 8-bend fixture missing: {model}")
 
+    fixture_sha_before = hashlib.sha256(model.read_bytes()).hexdigest()
+
     from tests.test_press_cycle_phase_d_regression import TestFullCyclePhaseDRegression
     from tests.test_pressbrake_workspace_gui import WorkspaceGuiTests
 
@@ -42,6 +45,12 @@ def run():
         suite.addTest(WorkspaceGuiTests(name))
 
     result = unittest.TextTestRunner(stream=sys.stdout, verbosity=2).run(suite)
+    fixture_sha_after = hashlib.sha256(model.read_bytes()).hexdigest()
+    if fixture_sha_after != fixture_sha_before:
+        raise RuntimeError(
+            "STAGE1_SOURCE_CHANGED: original FCStd changed during GUI test; "
+            "do not mark acceptance PASS"
+        )
     if result.skipped or not result.wasSuccessful():
         raise RuntimeError(
             "STAGE1_GUI_ACCEPTANCE_FAILED: ran={} failures={} errors={} skipped={}. "
