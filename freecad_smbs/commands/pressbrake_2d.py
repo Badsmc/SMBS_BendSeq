@@ -2303,12 +2303,29 @@ class _PreviewPanel:
                             )
                         )
                 except Exception as exc:
+                    # A failed controller step must not leave a logically PLAYING
+                    # FoldState after stopping the Qt timer. The last valid
+                    # angles remain observable; resuming Full Cycle requires
+                    # an explicit reset or mode change, never silent replay.
                     reason = "AUTO PLAY ERROR: {}".format(exc)
                     _error(reason + "\n" + traceback.format_exc())
+                    if self.execution_mode == CycleExecutionMode.FULL_CYCLE:
+                        self._machine_pose_fault = reason
+                    try:
+                        if self.press_cycle is not None:
+                            self.press_cycle.pause()
+                        else:
+                            self.session.pause()
+                    except Exception:
+                        _error("Failed to pause controller after automatic playback error")
                     self._stop_timer()
                     self._trace_event("AUTOPLAY_ERROR", reason=reason)
                     self._finish_motion_trace("AUTOPLAY_ERROR")
-                    self.status.setText(reason)
+                    self._sync_playback_buttons()
+                    self.status.setText(
+                        reason + " | Состояние зафиксировано; "
+                        "Reset или смена режима для повторного запуска."
+                    )
 
             def fit(self):
                 if self.playing and self.execution_mode == CycleExecutionMode.FULL_CYCLE:
