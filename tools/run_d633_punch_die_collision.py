@@ -28,6 +28,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from smbs_core.report_paths import report_file
+from smbs_core.demo_paths import find_demo_part
 from smbs_core.kinematics2d.coupled_kinematics_2d import CoupledAirBendingKinematics
 from smbs_core.kinematics2d.native_bend_solid_3d import build_multi_bend_sheet_solid
 from smbs_core.kinematics2d.workpiece_placement_3d import WorkpiecePlacement3D
@@ -46,16 +47,8 @@ from smbs_core.kinematics2d.native_collision_3d import (
 
 
 def find_fixture_path(filename: str) -> Path:
-    candidates = [
-        ROOT / "BendSeq_Fixtures_Source" / filename,
-        Path("/Users/badmc/Desktop/bend_Seq/BendSeq_Fixtures_Source") / filename,
-        Path("/Users/badmc/Desktop/bend_Seq/SMBS/SMBendTests") / filename,
-    ]
-    for c in candidates:
-        if c.is_file():
-            return c
-    raise FileNotFoundError(f"Could not find fixture {filename}")
-
+    """Load the canonical repository demo fixture without OS-specific paths."""
+    return find_demo_part(filename)
 
 def test_fixture_cycle(
     fixture_filename: str,
