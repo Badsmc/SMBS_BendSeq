@@ -21,7 +21,7 @@ jobs:
         run: |
           PYTHONPATH=. python -m unittest \
             tests.test_demo_paths \
-            tests.test_install_workbench -v
+            tests.test_direct_install_25d -v
       - name: Run active 2.5D geometry, fold state and motion regression
         run: |
           PYTHONPATH=. python -m unittest \
