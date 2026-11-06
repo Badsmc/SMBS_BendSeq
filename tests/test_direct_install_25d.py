@@ -6,6 +6,36 @@ from pathlib import Path
 
 
 class DirectInstallTests(unittest.TestCase):
+    def test_freecad_exec_entrypoints_without_dunder_file(self):
+        """FreeCAD executes Init.py and InitGui.py via exec(code)."""
+        root = Path(__file__).resolve().parents[1]
+        for name in ("Init.py", "InitGui.py"):
+            with self.subTest(entrypoint=name):
+                scope = {"__name__": "__freecad_mod_loader__"}
+                code = compile((root / name).read_text(encoding="utf-8"),
+                               str(root / name), "exec")
+                exec(code, scope)
+                self.assertEqual(scope["_REPO_ROOT"], root)
+
+    def test_freecad_modcache_lookup_without_search_path(self):
+        """FreeCAD may load workbench from Mod registry before sys.path entry."""
+        import sys
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        root = Path(__file__).resolve().parents[1]
+        for name in ("Init.py", "InitGui.py"):
+            with self.subTest(entrypoint=name):
+                source = (root / name).read_text(encoding="utf-8")
+                prelude = source.split("_REPO_ROOT = _checkout_root()", 1)[0]
+                scope = {"__name__": "__freecad_mod_loader__"}
+                app = SimpleNamespace(__ModCache__=[SimpleNamespace(path=root)])
+                with (
+                    patch.dict(sys.modules, {"FreeCAD": app}),
+                    patch.object(sys, "path", ["/nonexistent/empty"]),
+                ):
+                    exec(compile(prelude, str(root / name), "exec"), scope)
+                    self.assertEqual(scope["_checkout_root"](), root)
+
     def test_root_entrypoints_are_available_for_freecad_mod(self):
         root = Path(__file__).resolve().parents[1]
         for name in ("Init.py", "InitGui.py", "freecad_smbs/InitGui.py",
