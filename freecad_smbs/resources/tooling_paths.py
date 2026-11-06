@@ -43,9 +43,15 @@ MISSING_TOOLS: List[str] = [
 
 
 def is_tool_available(name: str) -> bool:
-    """Return True if the specified tooling file exists in toollibrary/."""
+    """Check canonical assets and known case variants on case-sensitive platforms."""
+    if name == "backgauge":
+        return resolve_backgauge_fcstd(TOOL_LIBRARY_ROOT) is not None
+    if name == "clamps":
+        return resolve_clamp_fcstd(TOOL_LIBRARY_ROOT) is not None
+    if name == "machine_frame":
+        return resolve_machine_frame_fcstd(TOOL_LIBRARY_ROOT) is not None
     path = ALL_TOOLING_PATHS.get(name)
-    return path is not None and path.exists()
+    return path is not None and path.is_file()
 
 
 def get_tool_path_or_missing(name: str) -> Path:
@@ -157,3 +163,10 @@ def resolve_machine_frame_fcstd(library_root: Path) -> Optional[Path]:
             if found:
                 return found
     return None
+
+
+# Refresh the legacy read-only missing list after all variant-aware resolvers
+# have been defined; avoid false "missing" labels on Linux case-sensitive FS.
+MISSING_TOOLS = [
+    name for name in ALL_TOOLING_PATHS if not is_tool_available(name)
+]
