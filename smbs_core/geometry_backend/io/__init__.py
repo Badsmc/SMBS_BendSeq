@@ -1,4 +1,5 @@
-from smbs_core.geometry_backend.io.step_reader import StepReader, StepReadError
-from smbs_core.geometry_backend.io.tooling_loader import ToolingLoader
+"""2.5D tooling catalog package.
 
-__all__ = ["StepReader", "StepReadError", "ToolingLoader"]
+Import optional tooling modules explicitly. Do not import old backend workers,
+pythonocc or STEP parsers at package import time.
+"""
