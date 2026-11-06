@@ -425,6 +425,42 @@ class TestD634AdaptiveMotionRegression(unittest.TestCase):
         finally:
             App.closeDocument(doc.Name)
 
+    def test_11_multi_fixture_gui_context_switching_no_unknown_bend_error(self):
+        """Case 11: Multi-fixture GUI context switching reproducing the exact user sequence."""
+        import tools.freecad_gui_d633_diagnostic as gui_diag
+
+        # 1. L-(ok).FCStd B01
+        res_l = gui_diag.inspect_trajectory("L-(ok).FCStd", "B01")
+        self.assertIsNotNone(res_l)
+        self.assertEqual(gui_diag.ACTIVE_CONTEXT.fixture_name, "L-(ok).FCStd")
+        self.assertEqual(gui_diag.ACTIVE_CONTEXT.active_bend_id, "B01")
+        gui_diag.show_sample(25)
+
+        # 2. Z-(ok).FCStd B02 -> must not raise "KinematicsError: Unknown bend: B02"
+        res_z = gui_diag.inspect_trajectory("Z-(ok).FCStd", "B02")
+        self.assertIsNotNone(res_z)
+        self.assertEqual(gui_diag.ACTIVE_CONTEXT.fixture_name, "Z-(ok).FCStd")
+        self.assertEqual(gui_diag.ACTIVE_CONTEXT.active_bend_id, "B02")
+        self.assertAlmostEqual(gui_diag.ACTIVE_CONTEXT.prior_completed_angles.get("B01"), 90.0, places=4)
+        gui_diag.show_sample(0)
+        gui_diag.show_sample(25)
+        gui_diag.show_sample(50)
+
+        # 3. 135-(ok).FCStd B02 -> must load cleanly with completed B01
+        res_135 = gui_diag.inspect_trajectory("135-(ok).FCStd", "B02")
+        self.assertIsNotNone(res_135)
+        self.assertEqual(gui_diag.ACTIVE_CONTEXT.fixture_name, "135-(ok).FCStd")
+        self.assertEqual(gui_diag.ACTIVE_CONTEXT.active_bend_id, "B02")
+        self.assertAlmostEqual(gui_diag.ACTIVE_CONTEXT.prior_completed_angles.get("B01"), 45.0, places=4)
+        gui_diag.show_sample(25)
+
+        # 4. Switch back to L-(ok).FCStd B01
+        res_l_back = gui_diag.inspect_trajectory("L-(ok).FCStd", "B01")
+        self.assertIsNotNone(res_l_back)
+        self.assertEqual(gui_diag.ACTIVE_CONTEXT.fixture_name, "L-(ok).FCStd")
+        self.assertEqual(gui_diag.ACTIVE_CONTEXT.active_bend_id, "B01")
+        gui_diag.show_sample(25)
+
 
     def test_11_restoration_helper_preserves_complete_snapshot(self):
         """Restoration must preserve angles AND panel transforms, without silent failure."""
