@@ -38,6 +38,7 @@ from smbs_core.kinematics2d.workpiece_placement_3d import WorkpiecePlacement3D
 from smbs_core.kinematics2d.coupled_kinematics_2d import CoupledAirBendingKinematics
 from smbs_core.kinematics2d.motion_trajectory_3d import AdaptiveTrajectoryValidator3D, AdaptiveSamplingConfig, TrajectoryEvidenceStatus
 from freecad_smbs.commands.pressbrake_2d import build_part_session
+from smbs_core.demo_paths import find_demo_part
 
 print("=" * 70)
 print("SMBS BendSeq D6.3.3 / D6.3.4 FreeCAD Interactive 3D Motion Diagnostic")
@@ -47,16 +48,8 @@ DIAG_DOC_NAME = "D633_Collision_Diagnostic"
 
 
 def resolve_fixture_path(filename: str = "L-(ok).FCStd") -> Path:
-    candidates = [
-        REPO_ROOT / "BendSeq_Fixtures_Source" / filename,
-        Path("/Users/badmc/Desktop/bend_Seq/BendSeq_Fixtures_Source") / filename,
-        Path("/Users/badmc/Desktop/bend_Seq/SMBS/SMBendTests") / filename,
-    ]
-    for c in candidates:
-        if c.is_file():
-            return c
-    raise FileNotFoundError(f"Fixture {filename} not found in known fixture paths.")
-
+    """Resolve demo sheet-metal fixtures relative to the installed repository."""
+    return find_demo_part(filename)
 
 fixture_path = resolve_fixture_path("L-(ok).FCStd")
 punch_file = REPO_ROOT / "toollibrary" / "punch" / "puancon.FCStd"
