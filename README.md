@@ -66,9 +66,9 @@ On macOS or Linux, place the same checkout under the FreeCAD user Mod directory.
 Paths inside the project are always resolved from module files, not from
 Windows-style paths, the user's Desktop or current working directory.
 
-For an alternative installation using the bundled installer, see
-`scripts/install_workbench.py`. Direct checkout installation is simpler
-because it keeps every module, tooling model and demo file under one root.
+Direct checkout installation is the **only supported install route** for
+the cleaned `2D` branch: it keeps the Workbench, geometry, models and
+demo files under one root and avoids duplicate FreeCAD registrations.
 
 ## Original demo CAD models
 
