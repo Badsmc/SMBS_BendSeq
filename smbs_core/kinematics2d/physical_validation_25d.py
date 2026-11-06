@@ -51,7 +51,12 @@ def _source_path(profile) -> Path | None:
     if not isinstance(value, str) or not value.strip():
         return None
     p = Path(value).expanduser()
-    return p if p.is_file() and p.suffix.lower() == ".fcstd" else None
+    # Native loader resolves CAD datums again by FCStd stem. Refuse a
+    # different profile identity instead of checking the wrong tool.
+    if (p.is_file() and p.suffix.lower() == ".fcstd"
+            and p.stem == getattr(profile, "tool_id", None)):
+        return p
+    return None
 
 
 def check_current_25d_pose(session, press_cycle, tooling, *, native_3d: bool = True):
@@ -163,8 +168,9 @@ def check_current_25d_pose(session, press_cycle, tooling, *, native_3d: bool = T
                 App.setActiveDocument(old_active)
                 try:
                     import FreeCADGui as Gui
-                    Gui.activeDocument = Gui.getDocument(old_active)
-                except (AttributeError, RuntimeError):
+                    if hasattr(Gui, "getDocument"):
+                        Gui.getDocument(old_active)
+                except (AttributeError, RuntimeError, TypeError):
                     pass
     except Exception as exc:
         return CurrentPosePhysicalReport(
