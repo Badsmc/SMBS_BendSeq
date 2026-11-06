@@ -135,7 +135,7 @@ class ToolingPanel:
                     self._machine_frame_fcstd = resolve_machine_frame_fcstd(self.library_path) if self.library_path else None
                     machine_frame_exists = self._machine_frame_fcstd is not None
 
-                    from smbs_core.viewer.fc_animation import format_machine_frame_badge
+                    from freecad_smbs.ui.badges import format_machine_frame_badge
 
                     txt, rgb = format_machine_frame_badge(machine_frame_exists)
 
