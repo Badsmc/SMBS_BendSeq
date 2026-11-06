@@ -367,5 +367,56 @@ class WorkspaceGuiTests(unittest.TestCase):
             panel.deleteLater()
 
 
+    def test_d634_full_bend_gui_button_shows_bounded_evidence(self):
+        """Real Qt command delegates to the D6 adapter, without a new timer."""
+        try:
+            import FreeCAD  # noqa: F401
+            from freecad_smbs.commands.pressbrake_2d import _PreviewPanel, _qt
+            from smbs_core.kinematics2d.fold_sequence import PlaybackStatus
+            from smbs_core.kinematics2d.physical_validation_25d import (
+                CurrentPosePhysicalReport, PhysicalEvidence,
+            )
+            _QtCore, _QtGui, QtWidgets = _qt()
+        except (ImportError, ModuleNotFoundError) as exc:
+            self.skipTest("FreeCAD runtime unavailable: {}".format(exc))
+        if QtWidgets.QApplication.instance() is None:
+            self.skipTest("Qt GUI application is not running")
+
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        panel = _PreviewPanel()
+        try:
+            panel.session = SimpleNamespace(
+                fold_state=SimpleNamespace(angles={"B01": 0.}),
+                active_bend_id="B01", playback_status=PlaybackStatus.PAUSED,
+            )
+            panel.press_cycle = SimpleNamespace(
+                phase=SimpleNamespace(value="CONTACT"),
+                ram_z_mm=1.5, transfer_progress=0.,
+            )
+            result = CurrentPosePhysicalReport(
+                PhysicalEvidence.SAMPLED_3D_CLEAR_NOT_CONTINUOUS,
+                "NOT_APPLICABLE", "SAMPLED_INTERVAL_CONVERGED",
+                "d634_samples=27; continuous=NOT_CONTINUOUSLY_CERTIFIED",
+                ("3D_PUNCH_DIE_SAMPLED_BEND",),
+            )
+            logs = []
+            panel._trace_event = lambda event, **kw: logs.append((event, kw))
+            with patch(
+                "smbs_core.kinematics2d.physical_validation_25d.check_active_25d_bend_trajectory",
+                return_value=result,
+            ) as check:
+                panel.full_physical_check_btn.click()
+                check.assert_called_once()
+            self.assertIn("NOT_CONTINUOUSLY_CERTIFIED", panel.physical_check_result.text())
+            self.assertEqual(logs[0][0], "D634_BEND_TRAJECTORY_CHECK")
+            self.assertFalse(logs[0][1]["fully_qualified"])
+            self.assertEqual(len(panel.findChildren(_QtCore.QTimer)), 1)
+        finally:
+            panel.timer.stop()
+            panel.close()
+            panel.deleteLater()
+
+
 if __name__ == "__main__":
     unittest.main()
