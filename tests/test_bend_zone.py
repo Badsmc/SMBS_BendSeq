@@ -570,6 +570,10 @@ class BendZoneMathTests(unittest.TestCase):
             ScrollHandDrag = 1
             def __init__(self, *args, **kwargs):
                 pass
+            def __getattr__(self, name):
+                # Headless fake only: Qt6 widget API grows with workspace
+                # layout; individual UI behaviors are tested separately.
+                return MagicMock(name=name)
             def setMinimumWidth(self, *args):
                 pass
             def setMinimumHeight(self, *args):
@@ -641,6 +645,10 @@ class BendZoneMathTests(unittest.TestCase):
             ScrollHandDrag = 1
             def __init__(self, *args, **kwargs):
                 pass
+            def __getattr__(self, name):
+                # Headless fake only: Qt6 widget API grows with workspace
+                # layout; individual UI behaviors are tested separately.
+                return MagicMock(name=name)
             def setMinimumWidth(self, *args):
                 pass
             def setMinimumHeight(self, *args):
@@ -883,6 +891,10 @@ class BendZoneMathTests(unittest.TestCase):
             ScrollHandDrag = 1
             def __init__(self, *args, **kwargs):
                 pass
+            def __getattr__(self, name):
+                # Headless fake only: Qt6 widget API grows with workspace
+                # layout; individual UI behaviors are tested separately.
+                return MagicMock(name=name)
             def setMinimumWidth(self, *args):
                 pass
             def setMinimumHeight(self, *args):
