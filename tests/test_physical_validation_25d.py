@@ -217,7 +217,8 @@ class PhysicalIntegrationTests(unittest.TestCase):
         ))
         self.assertEqual(report.status, PhysicalEvidence.COLLISION)
         self.assertIn("DIE/P01", report.reason)
-        self.assertEqual(report.native_status, "NOT_CHECKED")
+        self.assertEqual(report.native_status, "MISSING_SOURCE_FCSTD")
+        self.assertIn("native_3d_requires", report.reason)
         self.assertEqual(self.angles, {"B01": 45.0})
 
     def test_ambiguous_2d_contact_is_unverified(self):
