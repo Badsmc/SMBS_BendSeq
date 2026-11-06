@@ -20,7 +20,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 
-def run():
+def run(*, diagnostic_only=False):
     import FreeCAD as App
     from PySide6 import QtWidgets
     from smbs_core.demo_paths import demo_part_path
@@ -83,6 +83,31 @@ def run():
             }
         print("PHYSICAL_FRAME_DIAGNOSTIC local:", zone_summary(local_section))
         print("PHYSICAL_FRAME_DIAGNOSTIC machine:", zone_summary(machine_section))
+        # Compare the coordinate contracts used by the GUI and D6.3.4.
+        # This must remain read-only: no 1.5mm compensating transform is
+        # applied until verified against the actual die shoulder geometry.
+        from smbs_core.kinematics2d.workpiece_placement_3d import WorkpiecePlacement3D
+        bend_id = session.active_bend_id
+        bend = session.fold_state.bends[bend_id]
+        axis_start, axis_end, _ = WorkpiecePlacement3D.get_world_bend_axis(
+            session.fold_state, bend_id,
+        )
+        print("PHYSICAL_FRAME_DIAGNOSTIC axis_world:",
+              axis_start, axis_end)
+        print("PHYSICAL_FRAME_DIAGNOSTIC gui_placement:",
+              "translation=", placement.translation,
+              "rotation=", placement.rotation)
+        d6_initial = WorkpiecePlacement3D.compute_placement(
+            session.fold_state, bend_id,
+            support_plane_zm=bend.bend_zone.outer_radius_mm,
+            align_bisector=True, align_bend_arc_center=True,
+        )
+        print("PHYSICAL_FRAME_DIAGNOSTIC d634_initial_placement:",
+              "translation=", d6_initial.translation,
+              "rotation=", d6_initial.rotation)
+        print("PHYSICAL_FRAME_DIAGNOSTIC frame_delta_xyz:",
+              tuple(round(a-b, 6) for a, b in
+                    zip(d6_initial.translation, placement.translation)))
         print("PHYSICAL_FRAME_DIAGNOSTIC tools:",
               "aligned=", panel.tooling_setup.aligned,
               "die_v=", panel.tooling_setup.die_v_center_machine(),
@@ -108,6 +133,12 @@ def run():
         print("PHYSICAL_SECTION_EVIDENCE: {} | {} | {}".format(
             result.section_status, result.native_status, result.reason,
         ))
+        if diagnostic_only:
+            # Diagnostic-only mode deliberately does NOT print a PASS marker
+            # and does NOT run the costly adaptive 120s trajectory. A real
+            # native penetration remains a collision requiring correction.
+            print("PHYSICAL_FRAME_DIAGNOSTIC_ONLY: no trajectory qualification")
+            return {"pose": result, "trajectory": None}
         trajectory = check_active_25d_bend_trajectory(
             session, panel.tooling_setup,
         )
