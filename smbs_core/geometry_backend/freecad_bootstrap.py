@@ -59,8 +59,37 @@ def get_sheetmetal_mod_candidates() -> List[str]:
     if env_mod:
         candidates.append(env_mod)
 
-    # 2. Standard user addon locations
+    # If running in FreeCAD GUI, use its authoritative configuration path.
+    # This covers portable installations, snap, Flatpak and custom layouts.
+    freecad_runtime = sys.modules.get("FreeCAD")
+    if freecad_runtime is not None and hasattr(freecad_runtime, "getUserAppDataDir"):
+        try:
+            runtime_root = Path(freecad_runtime.getUserAppDataDir())
+            for name in ("sheetmetal", "SheetMetal"):
+                candidates.append(str(runtime_root / "Mod" / name))
+        except (OSError, RuntimeError, TypeError, ValueError):
+            pass
+
+    # 2. Standard user addon locations. FreeCAD 1.1 keeps user addons
+    # in versioned Mod/ directories on Windows, macOS and Linux.
     home = Path.home()
+    appdata = os.environ.get("APPDATA")
+    localappdata = os.environ.get("LOCALAPPDATA")
+    xdg_data = Path(os.environ.get("XDG_DATA_HOME") or home / ".local" / "share")
+    version_dirs = ("v1-1", "v1-0", "")
+    for base in (
+        *(Path(p) / "FreeCAD" for p in (appdata, localappdata) if p),
+        home / "Library" / "Application Support" / "FreeCAD",
+        xdg_data / "FreeCAD",
+        home / ".FreeCAD",
+        home / "snap" / "freecad" / "common",
+        home / ".var" / "app" / "org.freecad.FreeCAD" / "data" / "FreeCAD",
+    ):
+        for version in version_dirs:
+            candidates.extend(
+                str(base / version / "Mod" / name)
+                for name in ("sheetmetal", "SheetMetal")
+            )
     candidates.extend([
         # macOS FreeCAD 1.1 / 1.0
         str(home / "Library/Application Support/FreeCAD/v1-1/Mod/sheetmetal"),
