@@ -273,6 +273,7 @@ class AdaptiveTrajectoryValidator3D:
         self.total_subdivisions: int = 0
         self.total_solid_reconstructions: int = 0
         self.total_collision_queries: int = 0
+        self._solid_cache: Dict[Tuple[Tuple[str, float], ...], Any] = {}
 
     def create_state_snapshot(
         self,
@@ -303,15 +304,20 @@ class AdaptiveTrajectoryValidator3D:
         )
         self.placement_calc_time_ms += (time.perf_counter() - t_p0) * 1000.0
 
-        # Build native 3D multi-bend sheet solid
+        # Build native 3D multi-bend sheet solid (cached by Part Space fold angles)
+        angles_key = tuple(sorted((b_id, round(float(a), 4)) for b_id, a in self.fold_state.angles.items()))
         t_s0 = time.perf_counter()
-        solid = build_multi_bend_sheet_solid(
-            self.fold_state,
-            self.panel_build,
-            segments=self.config.arc_segments,
-        )
+        if angles_key in self._solid_cache:
+            solid = self._solid_cache[angles_key]
+        else:
+            solid = build_multi_bend_sheet_solid(
+                self.fold_state,
+                self.panel_build,
+                segments=self.config.arc_segments,
+            )
+            self._solid_cache[angles_key] = solid
+            self.total_solid_reconstructions += 1
         self.solid_reconstruction_time_ms += (time.perf_counter() - t_s0) * 1000.0
-        self.total_solid_reconstructions += 1
 
         mat_wp = App.Matrix(
             tf.rotation[0][0], tf.rotation[0][1], tf.rotation[0][2], tf.translation[0],

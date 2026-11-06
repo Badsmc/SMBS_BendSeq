@@ -2358,7 +2358,7 @@ class ToolingSetup2D:
     die_machine_transform: Transform2D = field(default_factory=Transform2D.identity)
     alignment_anchor_sz: Point2D = (0.0, 0.0)
     sheet_top_z_mm: float = 1.0
-    sheet_bottom_z_mm: float = -1.0
+    sheet_bottom_z_mm: float = 0.0
     punch_clearance_mm: float = DEFAULT_INITIAL_PUNCH_CLEARANCE_MM
     ram_z_mm: float = 16.0
     ram_stroke_mm: float = 0.0
@@ -2387,12 +2387,12 @@ class ToolingSetup2D:
         self.aligned_bend_id = None
         self.alignment_anchor_sz = (0.0, 0.0)
         self.sheet_top_z_mm = 1.0
-        self.sheet_bottom_z_mm = -1.0
+        self.sheet_bottom_z_mm = 0.0
         self.punch_clearance_mm = 15.0
-        self.ram_z_mm = self.punch_clearance_mm
+        self.ram_z_mm = self.sheet_top_z_mm + self.punch_clearance_mm
         self.ram_stroke_mm = 0.0
-        self.punch_machine_transform = Transform2D.translation(0.0, self.punch_clearance_mm)
-        self.die_machine_transform = Transform2D.translation(0.0, -5.0)
+        self.punch_machine_transform = Transform2D.translation(0.0, self.ram_z_mm)
+        self.die_machine_transform = Transform2D.translation(0.0, 0.0)
 
     def align_to_cross_section(
         self,
@@ -2443,14 +2443,21 @@ class ToolingSetup2D:
             anchor_s = float(nc[mid_idx][0])
             zone_poly = cross_section.get("zone_polygon") or nc
             zs = [float(p[1]) for p in zone_poly]
-            sheet_bottom_z = min(zs)
-            sheet_top_z = max(zs)
+            sheet_thickness = max(zs) - min(zs) if zs else 1.0
+            if sheet_thickness <= 1e-6:
+                sheet_thickness = 1.0
             resolved_bend_id = bend_id or cross_section.get("bend_id")
         else:
             anchor_s = 0.0
-            sheet_bottom_z = -1.0
-            sheet_top_z = 1.0
+            sheet_thickness = 1.0
             resolved_bend_id = bend_id
+
+        # Machine coordinate contract:
+        # Die top shoulder plane is at Z_m = 0.0.
+        # Flat sheet outer/bottom surface rests on die shoulders at Z_m = 0.0.
+        # Sheet inner/top surface is at Z_m = sheet_thickness.
+        sheet_bottom_z = 0.0
+        sheet_top_z = sheet_thickness
 
         self.alignment_anchor_sz = (anchor_s, sheet_bottom_z)
         self.sheet_top_z_mm = sheet_top_z
@@ -2458,7 +2465,7 @@ class ToolingSetup2D:
         self.punch_clearance_mm = float(clearance_mm)
         self.ram_z_mm = sheet_top_z + self.punch_clearance_mm
         self.ram_stroke_mm = 0.0
-        # Die V-groove center (local (0,0)) aligned at (anchor_s, sheet_bottom_z)
+        # Die V-groove center (local (0,0)) aligned at (anchor_s, sheet_bottom_z) where sheet_bottom_z = 0.0
         self.die_machine_transform = Transform2D.translation(anchor_s, sheet_bottom_z)
         # Punch working tip (local (0,0)) coaxially aligned at (anchor_s, sheet_top_z + clearance_mm)
         self.punch_machine_transform = Transform2D.translation(anchor_s, self.ram_z_mm)

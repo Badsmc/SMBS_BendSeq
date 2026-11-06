@@ -614,16 +614,24 @@ class PressCycleController:
         self.transfer_fault = None
         try:
             start_pose = self.current_workpiece_placement_3d()
-            support_z = (
-                self.coupled_kinematics.support_plane_zm(0.0)
+            next_bz = (
+                self.sequence.fold_state.bends[nxt.bend_id].bend_zone
+                if nxt.bend_id in self.sequence.fold_state.bends
+                else None
+            )
+            next_outer_r = (
+                next_bz.outer_radius_mm
+                if next_bz is not None
+                else (self.coupled_kinematics.sheet_inner_radius_mm + self.coupled_kinematics.sheet_thickness_mm)
                 if self.coupled_kinematics is not None
-                else 0.0
+                else 2.5
             )
             end_pose = WorkpiecePlacement3D.compute_placement(
                 self.sequence.fold_state,
                 nxt.bend_id,
-                support_plane_zm=support_z,
-                align_bisector=False,
+                support_plane_zm=next_outer_r,
+                align_bisector=True,
+                align_bend_arc_center=True,
             )
             from smbs_core.kinematics2d.workpiece_transfer_3d import build_transfer_3d
             self.transfer_3d = build_transfer_3d(
@@ -823,17 +831,34 @@ class PressCycleController:
 
         # Coupled penetration during BENDING, BOTTOM, RETRACT
         align_bisector = False
+        align_arc_center = False
         if self.coupled_kinematics is not None and self.execution_mode == CycleExecutionMode.FULL_CYCLE:
+            bz = None
+            if self.active_bend_id in fold_state.bends:
+                bz = fold_state.bends[self.active_bend_id].bend_zone
+            outer_r = (
+                bz.outer_radius_mm
+                if bz is not None
+                else (self.coupled_kinematics.sheet_inner_radius_mm + self.coupled_kinematics.sheet_thickness_mm)
+            )
+
             if self.phase == CyclePhase.BENDING:
                 cur_angle = abs(self.current_angle_deg)
-                support_z = self.coupled_kinematics.support_plane_zm(cur_angle)
+                stroke = self.coupled_kinematics.stroke_for_angle(cur_angle)
+                support_z = outer_r - stroke
                 align_bisector = True
+                align_arc_center = True
             elif self.phase in (CyclePhase.BOTTOM, CyclePhase.RETRACT, CyclePhase.STEP_COMPLETE):
                 target_angle = abs(self.target_angle_deg)
-                support_z = self.coupled_kinematics.support_plane_zm(target_angle)
+                stroke = self.coupled_kinematics.stroke_for_angle(target_angle)
+                support_z = outer_r - stroke
                 align_bisector = True
+                align_arc_center = True
             else:
-                support_z = self.coupled_kinematics.support_plane_zm(0.0)
+                # IDLE, APPROACH, CONTACT: sheet outer surface rests flat on die shoulders (Z_m = 0)
+                support_z = outer_r
+                align_bisector = True
+                align_arc_center = True
         else:
             support_z = 0.0
 
@@ -842,6 +867,7 @@ class PressCycleController:
             self.active_bend_id,
             support_plane_zm=support_z,
             align_bisector=align_bisector,
+            align_bend_arc_center=align_arc_center,
         )
 
     def coupled_telemetry(self) -> Dict[str, Any]:
