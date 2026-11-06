@@ -56,6 +56,39 @@ def run():
         if not panel.tooling_setup.aligned:
             raise RuntimeError("TOOLING_NOT_ALIGNED:" + panel.status.text())
         initial = dict(session.fold_state.angles)
+
+        # Diagnose a possible local-sheet vs machine-frame mismatch without
+        # moving any tool, changing a FoldState or suppressing a real clash.
+        from smbs_core.kinematics2d.machine_section_3d import (
+            compute_machine_cutting_plane_section,
+        )
+        local_section = session.cross_section(segments=32)
+        placement = panel.press_cycle.current_workpiece_placement_3d()
+        machine_section = compute_machine_cutting_plane_section(
+            session.fold_state, session.panel_vertices_xy, placement,
+            active_bend_id=session.active_bend_id, segments=32,
+        )
+        def zone_summary(section):
+            zone = section.get("zone_polygon") or ()
+            neutral = section.get("neutral_curve") or ()
+            return {
+                "zone_bounds": (
+                    (min(x for x, z in zone), min(z for x, z in zone),
+                     max(x for x, z in zone), max(z for x, z in zone))
+                    if zone else None
+                ),
+                "neutral_mid": (tuple(neutral[len(neutral)//2])
+                                if neutral else None),
+                "fixed_count": len(section.get("fixed_polygon") or ()),
+            }
+        print("PHYSICAL_FRAME_DIAGNOSTIC local:", zone_summary(local_section))
+        print("PHYSICAL_FRAME_DIAGNOSTIC machine:", zone_summary(machine_section))
+        print("PHYSICAL_FRAME_DIAGNOSTIC tools:",
+              "aligned=", panel.tooling_setup.aligned,
+              "die_v=", panel.tooling_setup.die_v_center_machine(),
+              "punch_tip=", panel.tooling_setup.punch_tip_machine(),
+              "alignment_anchor=", panel.tooling_setup.alignment_anchor_sz,
+              "ram=", panel.press_cycle.ram_z_mm)
         panel.physical_check_btn.click()
         result = check_current_25d_pose(
             session, panel.press_cycle, panel.tooling_setup,
