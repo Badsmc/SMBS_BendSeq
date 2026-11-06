@@ -304,6 +304,21 @@ def load_native_die(
         except Exception:
             pass
 
+        def _to_float(val: Any, default: Any = 0.0) -> float:
+            try:
+                if val not in (None, "", "NOT_SPECIFIED"):
+                    return float(val)
+            except (ValueError, TypeError):
+                pass
+            try:
+                if default not in (None, "", "NOT_SPECIFIED"):
+                    return float(default)
+            except (ValueError, TypeError):
+                pass
+            return 0.0
+
+        sh_radius = _to_float(profile.shoulder_radius_mm, getattr(datums, "shoulder_radius_mm", 0.0))
+
         return LoadedTool(
             tool_id=p.stem,
             kind="DIE",
@@ -314,7 +329,7 @@ def load_native_die(
             included_angle_deg=float(profile.die_angle_deg),
             v_opening_mm=float(profile.v_opening_mm),
             effective_v_opening_mm=effective_v,
-            shoulder_radius_mm=float(profile.shoulder_radius_mm),
+            shoulder_radius_mm=sh_radius,
             v_depth_mm=float(datums.v_depth_mm),
             height_mm=float(profile.height_mm),
             length_mm=total_len,
@@ -411,13 +426,28 @@ def load_native_punch(
                 offset_xm=0.0,
             ),)
 
+        def _to_float(val: Any, default: Any = 0.0) -> float:
+            try:
+                if val not in (None, "", "NOT_SPECIFIED"):
+                    return float(val)
+            except (ValueError, TypeError):
+                pass
+            try:
+                if default not in (None, "", "NOT_SPECIFIED"):
+                    return float(default)
+            except (ValueError, TypeError):
+                pass
+            return 0.0
+
+        tip_r = _to_float(profile.tip_radius_mm, getattr(datums, "tip_radius_mm", 0.0))
+
         return LoadedTool(
             tool_id=p.stem,
             kind="PUNCH",
             file_path=str(p),
             cad_shape=cad_shape,
             machine_shape=machine_shape,
-            tip_radius_mm=float(profile.tip_radius_mm),
+            tip_radius_mm=tip_r,
             included_angle_deg=float(datums.included_angle_deg),
             v_opening_mm=0.0,
             shoulder_radius_mm=0.0,

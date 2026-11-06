@@ -27,6 +27,12 @@ from enum import Enum
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 
+try:
+    import Part
+except ImportError:
+    Part = None
+
+
 class CollisionClass(str, Enum):
     CLEAR = "CLEAR"
     NEAR_CONTACT = "NEAR_CONTACT"
@@ -130,6 +136,74 @@ def check_solid_validity(shape: Any, name: str = "shape") -> Tuple[bool, str]:
         return False, f"{name}_check_exception:{exc}"
 
 
+def _compute_exact_distance_with_pruning(
+    shape_a: Any,
+    shape_b: Any,
+    box_a: Any = None,
+    box_b: Any = None,
+) -> float:
+    """Compute exact Euclidean distance between two native FreeCAD Part solids with conservative face pruning.
+
+    Mathematical Proof of Exactness:
+    For any face f of shape S_many, the Euclidean distance dist(f, S_other) is bounded below by
+    the distance between their axis-aligned bounding boxes:
+        dist(f, S_other) >= compute_aabb_gap(f.BoundBox, S_other.BoundBox).
+    Let g_min = min_{f in S_many.Faces} compute_aabb_gap(f.BoundBox, S_other.BoundBox).
+    For any chosen margin >= 5.0 mm (e.g. margin = max(5.0, g_min + 5.0)),
+    any excluded face f_ex satisfies:
+        dist(f_ex, S_other) >= compute_aabb_gap(f_ex.BoundBox, S_other.BoundBox) > margin.
+    If the compound of candidate faces C = Compound({f | gap(f, S_other) <= margin}) yields:
+        d = dist(C, S_other) <= margin,
+    then no excluded face can possibly have a distance smaller than d (since dist(f_ex) > margin >= d).
+    Therefore, d is mathematically guaranteed to be the exact global minimum distance between
+    shape_a and shape_b.
+    If d > margin or any exception occurs, it falls back to full OCC shape_a.distToShape(shape_b),
+    preserving 100% exact OCC truth in all circumstances.
+    """
+    try:
+        faces_a = getattr(shape_a, "Faces", ())
+        faces_b = getattr(shape_b, "Faces", ())
+        len_a = len(faces_a) if faces_a else 0
+        len_b = len(faces_b) if faces_b else 0
+
+        # Choose the shape with more faces to prune, provided it has > 12 faces
+        if len_a >= len_b and len_a > 12 and box_b is not None and Part is not None:
+            s_many, s_other, b_other, faces_many = shape_a, shape_b, box_b, faces_a
+        elif len_b > len_a and len_b > 12 and box_a is not None and Part is not None:
+            s_many, s_other, b_other, faces_many = shape_b, shape_a, box_a, faces_b
+        else:
+            res = shape_a.distToShape(shape_b)
+            d = float(res[0]) if res and len(res) > 0 else 0.0
+            return d if math.isfinite(d) and d >= 0.0 else 0.0
+
+        face_gaps = []
+        min_g = 1e9
+        for f in faces_many:
+            fb = getattr(f, "BoundBox", None)
+            g = compute_aabb_gap(fb, b_other)
+            if g is None:
+                g = 0.0
+            face_gaps.append((f, g))
+            if g < min_g:
+                min_g = g
+
+        margin = max(5.0, min_g + 5.0)
+        cand_faces = [f for f, g in face_gaps if g <= margin]
+
+        if cand_faces and len(cand_faces) < len(faces_many):
+            comp = Part.Compound(cand_faces)
+            res = comp.distToShape(s_other)
+            d = float(res[0]) if res and len(res) > 0 else 0.0
+            if math.isfinite(d) and d >= 0.0 and d <= margin:
+                return d
+    except Exception:
+        pass
+
+    res = shape_a.distToShape(shape_b)
+    d = float(res[0]) if res and len(res) > 0 else 0.0
+    return d if math.isfinite(d) and d >= 0.0 else 0.0
+
+
 def check_pair_clearance(
     shape_a: Any,
     shape_b: Any,
@@ -185,10 +259,7 @@ def check_pair_clearance(
 
     # 3. Narrow Phase: distToShape & Common volume
     try:
-        dist_res = shape_a.distToShape(shape_b)
-        dist = float(dist_res[0]) if dist_res and len(dist_res) > 0 else 0.0
-        if not math.isfinite(dist) or dist < 0.0:
-            dist = 0.0
+        dist = _compute_exact_distance_with_pruning(shape_a, shape_b, box_a, box_b)
 
         if dist > near_tolerance_mm:
             dt = (time.perf_counter() - t0) * 1000.0

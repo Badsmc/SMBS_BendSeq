@@ -321,6 +321,116 @@ class TestD634SolidCache(unittest.TestCase):
             places=6,
         )
 
+    def test_distinct_shapes_identical_bbox_area_vertex_count_cache_separation(self):
+        """Verify two different shapes with identical BBox, area, and vertex count have distinct signatures and cache keys."""
+        import Part
+        from types import SimpleNamespace
+        from smbs_core.kinematics2d.motion_trajectory_3d import _panel_build_geometry_signature
+
+        # Shape A: (0,0), (10,0), (10,4), (4,4), (4,10), (0,10) -> BBox [0,10]x[0,10], area 64, 6 vertices
+        pts_a = [
+            App.Vector(0, 0, 0), App.Vector(10, 0, 0), App.Vector(10, 4, 0),
+            App.Vector(4, 4, 0), App.Vector(4, 10, 0), App.Vector(0, 10, 0),
+            App.Vector(0, 0, 0),
+        ]
+        wire_a = Part.makePolygon(pts_a)
+        face_a = Part.Face(wire_a)
+
+        # Shape B: (0,0), (10,0), (10,10), (6,10), (6,4), (0,4) -> BBox [0,10]x[0,10], area 64, 6 vertices
+        pts_b = [
+            App.Vector(0, 0, 0), App.Vector(10, 0, 0), App.Vector(10, 10, 0),
+            App.Vector(6, 10, 0), App.Vector(6, 4, 0), App.Vector(0, 4, 0),
+            App.Vector(0, 0, 0),
+        ]
+        wire_b = Part.makePolygon(pts_b)
+        face_b = Part.Face(wire_b)
+
+        # Confirm mathematical identity of BBox, vertex count, and area
+        self.assertEqual(len(face_a.Vertexes), len(face_b.Vertexes))
+        self.assertAlmostEqual(face_a.Area, face_b.Area, places=5)
+        self.assertAlmostEqual(face_a.BoundBox.XMin, face_b.BoundBox.XMin, places=5)
+        self.assertAlmostEqual(face_a.BoundBox.XMax, face_b.BoundBox.XMax, places=5)
+        self.assertAlmostEqual(face_a.BoundBox.YMin, face_b.BoundBox.YMin, places=5)
+        self.assertAlmostEqual(face_a.BoundBox.YMax, face_b.BoundBox.YMax, places=5)
+
+        pb_a = SimpleNamespace(panels=[SimpleNamespace(panel_id="P1")], panel_faces=[face_a])
+        pb_b = SimpleNamespace(panels=[SimpleNamespace(panel_id="P1")], panel_faces=[face_b])
+
+        sig_a = _panel_build_geometry_signature(pb_a)
+        sig_b = _panel_build_geometry_signature(pb_b)
+
+        self.assertNotEqual(
+            sig_a, sig_b,
+            "Two topologically distinct shapes sharing identical BBox, area, and vertex count must NOT share geometry signatures!",
+        )
+
+    def test_panel_build_internal_mutation_and_generation_token_invalidation(self):
+        """Verify modifying geometry inside an existing panel_build or updating generation_token causes cache miss."""
+        from dataclasses import replace
+
+        # Baseline snapshot
+        st1 = self.validator.create_state_snapshot(
+            active_bend_id="B01",
+            phase="BENDING",
+            path_u=0.5,
+            signed_angle=45.0,
+            ram_z=20.0,
+            support_z=1.0,
+            prior_angles={},
+        )
+        self.assertEqual(self.validator.total_solid_reconstructions, 1)
+
+        # Snapshot with identical parameters and identical token -> must hit solid cache
+        st2 = self.validator.create_state_snapshot(
+            active_bend_id="B01",
+            phase="BENDING",
+            path_u=0.5,
+            signed_angle=45.0,
+            ram_z=25.0,
+            support_z=1.0,
+            prior_angles={},
+        )
+        self.assertTrue(st2.solid_cache_hit)
+        self.assertEqual(self.validator.total_solid_reconstructions, 1)
+
+        # 1. Update generation_token on panel_build
+        new_pb = replace(self.session.panel_build, generation_token=2)
+        self.validator.panel_build = new_pb
+        st3 = self.validator.create_state_snapshot(
+            active_bend_id="B01",
+            phase="BENDING",
+            path_u=0.5,
+            signed_angle=45.0,
+            ram_z=25.0,
+            support_z=1.0,
+            prior_angles={},
+        )
+        self.assertFalse(st3.solid_cache_hit)
+        self.assertEqual(self.validator.total_solid_reconstructions, 2)
+
+        # 2. Mutate face geometry inside panel_build (modifying face vertex coordinates)
+        import Part
+        old_face = new_pb.panel_faces[0]
+        pts_mod = [App.Vector(v.X + 5.0, v.Y, v.Z) for v in old_face.Vertexes]
+        pts_mod.append(pts_mod[0])
+        mod_face = Part.Face(Part.makePolygon(pts_mod))
+        mod_faces = list(new_pb.panel_faces)
+        mod_faces[0] = mod_face
+        pb_mutated = replace(new_pb, panel_faces=tuple(mod_faces))
+        self.validator.panel_build = pb_mutated
+
+        st4 = self.validator.create_state_snapshot(
+            active_bend_id="B01",
+            phase="BENDING",
+            path_u=0.5,
+            signed_angle=45.0,
+            ram_z=25.0,
+            support_z=1.0,
+            prior_angles={},
+        )
+        self.assertFalse(st4.solid_cache_hit)
+        self.assertEqual(self.validator.total_solid_reconstructions, 3)
+
 
 if __name__ == "__main__":
     unittest.main()

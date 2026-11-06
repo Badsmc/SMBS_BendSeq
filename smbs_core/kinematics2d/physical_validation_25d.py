@@ -343,6 +343,8 @@ def check_active_25d_bend_trajectory(session, tooling, *, config=None):
         d_eval_s = getattr(phase, "total_die_eval_ms", 0.0) / 1000.0
         pieces.append("punch_eval_s={:.2f}".format(p_eval_s))
         pieces.append("die_eval_s={:.2f}".format(d_eval_s))
+        pieces.append("die_hits={}".format(getattr(phase, "die_cache_hits", 0)))
+        pieces.append("die_misses={}".format(getattr(phase, "die_cache_misses", 0)))
         pieces.append("punch_overlap_mm3={:.6f}".format(phase.max_punch_overlap_volume_mm3))
         pieces.append("die_overlap_mm3={:.6f}".format(phase.max_die_overlap_volume_mm3))
         phase_details.append(",".join(pieces))

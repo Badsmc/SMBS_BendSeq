@@ -49,6 +49,7 @@ class PanelBuildResult:
     panel_faces: tuple
     bend_zones: tuple = ()
     bend_zone_faces: tuple = ()
+    generation_token: int = 0
 
 
 def _xy(p):

@@ -247,10 +247,16 @@ def build_multi_bend_sheet_solid(state: FoldState, panel_build, *,
             zone_solids.append(zone_res.shape)
             zone_volumes += zone_res.volume_mm3
 
-        # Join all panel and zone solids together
-        joined = panel_solids[0]
-        for s in panel_solids[1:] + zone_solids:
-            joined = joined.fuse(s)
+        # Join all panel and zone solids together via OCC multiFuse
+        all_solids = panel_solids + zone_solids
+        if len(all_solids) == 1:
+            joined = all_solids[0]
+        elif hasattr(all_solids[0], "multiFuse"):
+            joined = all_solids[0].multiFuse(all_solids[1:])
+        else:
+            joined = all_solids[0]
+            for s in all_solids[1:]:
+                joined = joined.fuse(s)
 
         if (joined.isNull() or not joined.isValid() or not joined.isClosed()
                 or len(joined.Solids) != 1 or not isfinite(float(joined.Volume))
