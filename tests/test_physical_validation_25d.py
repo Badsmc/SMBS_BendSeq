@@ -105,6 +105,54 @@ class PhysicalIntegrationTests(unittest.TestCase):
         self.assertFalse(result.is_fully_qualified)
         self.assertEqual(self.angles, {"B01": 45.0})
 
+    def test_positive_native_penetration_reports_exact_tool_volumes(self):
+        """Native positive-volume collisions identify the offending tool."""
+        import sys
+        from unittest.mock import MagicMock
+        from smbs_core.kinematics2d.native_collision_3d import CollisionClass
+
+        shape = MagicMock()
+        shape.copy.return_value = shape
+        punch = SimpleNamespace(span_xm=(-100., 100.), sections=(), machine_shape=shape)
+        die = SimpleNamespace(span_xm=(-100., 100.), sections=(), machine_shape=shape)
+        coverage = SimpleNamespace(is_covered=True, reason="covered")
+        pair_p = SimpleNamespace(overlap_volume_mm3=0.0)
+        pair_d = SimpleNamespace(overlap_volume_mm3=3.375)
+        collision = SimpleNamespace(
+            status=CollisionClass.PENETRATION,
+            punch_result=pair_p, die_result=pair_d,
+            is_safe=False, diagnostics=["DIE_PENETRATION"],
+        )
+        app = SimpleNamespace(Matrix=lambda *a: object(), ActiveDocument=None,
+                              getDocument=lambda name: None)
+        with (
+            patch.dict(sys.modules, {"FreeCAD": app}),
+            patch(MOD + "._source_path",
+                  side_effect=[Path("puancon.FCStd"), Path("matrica.FCStd")]),
+            patch(MOD + ".compute_machine_cutting_plane_section",
+                  return_value=self.section),
+            patch(MOD + ".check_sheet_tooling_preview", return_value=self.contact),
+            patch("smbs_core.kinematics2d.native_bend_solid_3d.build_multi_bend_sheet_solid",
+                  return_value=SimpleNamespace(shape=shape)),
+            patch("smbs_core.kinematics2d.native_tool_loader.load_native_punch",
+                  return_value=punch),
+            patch("smbs_core.kinematics2d.native_tool_loader.load_native_die",
+                  return_value=die),
+            patch("smbs_core.kinematics2d.native_tool_loader.set_punch_ram_z",
+                  return_value=punch),
+            patch("smbs_core.kinematics2d.native_tool_loader.check_tool_coverage",
+                  return_value=coverage),
+            patch("smbs_core.kinematics2d.native_collision_3d.validate_workpiece_tooling_pose",
+                  return_value=collision),
+        ):
+            result = check_current_25d_pose(
+                self.session, self.cycle, self.tooling, native_3d=True,
+            )
+        self.assertEqual(result.status, PhysicalEvidence.COLLISION)
+        self.assertIn("punch=0.000000000mm3", result.reason)
+        self.assertIn("die=3.375000000mm3", result.reason)
+        self.assertFalse(result.is_fully_qualified)
+
     def test_native_source_must_match_selected_verified_profile(self):
         from smbs_core.kinematics2d.tooling_25d import ValidationStatus
         with tempfile.TemporaryDirectory() as tmp:
