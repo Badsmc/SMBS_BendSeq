@@ -64,8 +64,8 @@ class TestD634SolidCache(unittest.TestCase):
         self.panel._ensure_press_cycle_controller()
         self.panel.align_tooling()
 
-        punch_path = "/Users/badmc/Desktop/SMBS_BendSeq/toollibrary/punch/puancon.FCStd"
-        die_path = "/Users/badmc/Desktop/SMBS_BendSeq/toollibrary/die/matrica.FCStd"
+        punch_path = str(ROOT / "toollibrary" / "punch" / "puancon.FCStd")
+        die_path = str(ROOT / "toollibrary" / "die" / "matrica.FCStd")
         self.punch = load_native_punch(punch_path, ram_z_mm=50.0)
         self.die = load_native_die(die_path)
         self.config = AdaptiveSamplingConfig(arc_segments=128)
@@ -210,6 +210,116 @@ class TestD634SolidCache(unittest.TestCase):
             prior_angles={},
         )
         self.assertEqual(self.validator.total_solid_reconstructions, 2)
+
+    def test_die_clearance_cache_hit_and_invalidation(self):
+        """Verify die clearance cache hits, miss on placement change, miss on tooling change, and uncached equality."""
+        import Part
+        from smbs_core.kinematics2d.native_tool_loader import LoadedTool
+
+        # Step 1: Initial snapshot -> cache miss, 1 entry in cache
+        st1 = self.validator.create_state_snapshot(
+            active_bend_id="B01",
+            phase="BENDING",
+            path_u=0.5,
+            signed_angle=45.0,
+            ram_z=20.0,
+            support_z=1.0,
+            prior_angles={},
+        )
+        self.assertEqual(len(self.validator._die_clearance_cache), 1)
+        initial_cache_entry = next(iter(self.validator._die_clearance_cache.values()))
+
+        # Step 2: Identical bend & workpiece pose relative to die, but different ram_z
+        # -> Must hit cache for die clearance!
+        st2 = self.validator.create_state_snapshot(
+            active_bend_id="B01",
+            phase="BENDING",
+            path_u=0.6,
+            signed_angle=45.0,
+            ram_z=30.0,
+            support_z=1.0,
+            prior_angles={},
+        )
+        self.assertEqual(len(self.validator._die_clearance_cache), 1)
+        self.assertIs(st2.collision_report.die_result, initial_cache_entry)
+
+        # Step 3: Change support_z (die placement relative to workpiece changes)
+        # -> Cache miss: new key generated, entry count becomes 2
+        st3 = self.validator.create_state_snapshot(
+            active_bend_id="B01",
+            phase="BENDING",
+            path_u=0.7,
+            signed_angle=45.0,
+            ram_z=30.0,
+            support_z=2.5,
+            prior_angles={},
+        )
+        self.assertEqual(len(self.validator._die_clearance_cache), 2)
+
+        # Step 4: Change tolerance in config -> cache miss/invalidation
+        cfg_new = AdaptiveSamplingConfig(arc_segments=128, near_tolerance_mm=1.5)
+        self.validator.set_config(cfg_new)
+        self.assertEqual(len(self.validator._die_clearance_cache), 0)
+
+        # Step 5: Change die to synthetic tooling -> cache miss/invalidation
+        alt_shape = Part.makeBox(120, 60, 60, App.Vector(-60, -30, -60))
+        synthetic_die = LoadedTool(
+            tool_id="SYNTHETIC_TEST_TOOLING_DIE_V24",
+            kind="DIE",
+            file_path="synthetic://test_die_v24",
+            cad_shape=alt_shape,
+            machine_shape=alt_shape,
+            tip_radius_mm=0.0,
+            included_angle_deg=88.0,
+            v_opening_mm=24.0,
+            shoulder_radius_mm=2.0,
+            v_depth_mm=14.0,
+            height_mm=60.0,
+            length_mm=120.0,
+            span_xm=(-60.0, 60.0),
+            origin_cad=(0.0, 0.0),
+        )
+        self.validator.set_die(synthetic_die)
+        self.assertEqual(len(self.validator._die_clearance_cache), 0)
+
+        st_synth = self.validator.create_state_snapshot(
+            active_bend_id="B01",
+            phase="BENDING",
+            path_u=0.5,
+            signed_angle=45.0,
+            ram_z=20.0,
+            support_z=1.0,
+            prior_angles={},
+        )
+        self.assertEqual(len(self.validator._die_clearance_cache), 1)
+
+        # Verify numerical results match an uncached independent validator
+        independent_validator = AdaptiveTrajectoryValidator3D(
+            self.session.fold_state,
+            self.session.panel_build,
+            self.punch,
+            synthetic_die,
+            config=cfg_new,
+        )
+        st_indep = independent_validator.create_state_snapshot(
+            active_bend_id="B01",
+            phase="BENDING",
+            path_u=0.5,
+            signed_angle=45.0,
+            ram_z=20.0,
+            support_z=1.0,
+            prior_angles={},
+        )
+        self.assertAlmostEqual(
+            st_synth.collision_report.die_result.distance_mm,
+            st_indep.collision_report.die_result.distance_mm,
+            places=5,
+        )
+        self.assertAlmostEqual(
+            st_synth.collision_report.die_result.overlap_volume_mm3,
+            st_indep.collision_report.die_result.overlap_volume_mm3,
+            places=6,
+        )
 
 
 if __name__ == "__main__":

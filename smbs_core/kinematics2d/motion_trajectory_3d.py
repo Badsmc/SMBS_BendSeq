@@ -107,6 +107,8 @@ class MotionState3D:
     is_safe: bool = True
     discontinuity_detected: bool = False
     discontinuity_reason: str = ""
+    punch_eval_ms: float = 0.0
+    die_eval_ms: float = 0.0
 
 
 @dataclass
@@ -148,6 +150,8 @@ class TrajectoryPhaseResult:
     max_die_overlap_volume_mm3: float
     elapsed_ms: float
     diagnostics: List[str]
+    total_punch_eval_ms: float = 0.0
+    total_die_eval_ms: float = 0.0
 
 
 @dataclass
@@ -245,6 +249,43 @@ def check_motion_continuity(
     return True, "CONTINUOUS"
 
 
+def _panel_build_geometry_signature(panel_build: Any) -> Tuple[Any, ...]:
+    """Deterministic hashable signature of panel geometry in panel_build."""
+    if panel_build is None:
+        return ()
+    panels = getattr(panel_build, "panels", None)
+    faces = getattr(panel_build, "panel_faces", None)
+    if not panels or not faces:
+        return (id(panel_build),)
+    sig = []
+    for p, f in zip(panels, faces):
+        p_id = getattr(p, "panel_id", str(p))
+        v_count = len(getattr(f, "Vertexes", [])) if hasattr(f, "Vertexes") else 0
+        area = round(float(getattr(f, "Area", 0.0)), 6)
+        bbox = getattr(f, "BoundBox", None)
+        bbox_tuple = (
+            round(bbox.XMin, 4), round(bbox.YMin, 4), round(bbox.ZMin, 4),
+            round(bbox.XMax, 4), round(bbox.YMax, 4), round(bbox.ZMax, 4),
+        ) if bbox is not None else ()
+        sig.append((p_id, v_count, area, bbox_tuple))
+    return tuple(sig)
+
+
+def _die_geometry_signature(die: LoadedTool) -> Tuple[Any, ...]:
+    """Deterministic hashable signature of die tool geometry and placement."""
+    if die is None:
+        return ()
+    die_id = getattr(die, "tool_id", getattr(die, "name", ""))
+    v_open = float(getattr(die, "v_opening_mm", 0.0))
+    radius = float(getattr(die, "shoulder_radius_mm", 0.0))
+    bb = getattr(getattr(die, "machine_shape", None), "BoundBox", None)
+    bb_tuple = (
+        round(bb.XMin, 6), round(bb.YMin, 6), round(bb.ZMin, 6),
+        round(bb.XMax, 6), round(bb.YMax, 6), round(bb.ZMax, 6),
+    ) if bb is not None else ()
+    return (die_id, v_open, radius, bb_tuple)
+
+
 class AdaptiveTrajectoryValidator3D:
     """Adaptive 3D motion collision validator for press brake cycles."""
 
@@ -273,13 +314,33 @@ class AdaptiveTrajectoryValidator3D:
         self.total_subdivisions: int = 0
         self.total_solid_reconstructions: int = 0
         self.total_collision_queries: int = 0
-        self._solid_cache: Dict[Tuple[int, int, Tuple[Tuple[str, float], ...]], Any] = {}
-        self._die_clearance_cache: Dict[Tuple[int, str, float, Tuple[Tuple[str, float], ...]], Any] = {}
+        self._solid_cache: Dict[Tuple[Any, ...], Any] = {}
+        self._die_clearance_cache: Dict[Tuple[Any, ...], Any] = {}
 
-    def clear_solid_cache(self) -> None:
+    def clear_caches(self) -> None:
         """Clear Part Space solid cache and die clearance cache."""
         self._solid_cache.clear()
         self._die_clearance_cache.clear()
+
+    def clear_solid_cache(self) -> None:
+        """Clear caches (backwards compatibility alias)."""
+        self.clear_caches()
+
+    def set_die(self, die: LoadedTool) -> None:
+        """Update die and invalidate caches."""
+        self.die = die
+        self.effective_v = getattr(die, "effective_v_opening_mm", die.v_opening_mm) or die.v_opening_mm
+        self.clear_caches()
+
+    def set_punch(self, punch: LoadedTool) -> None:
+        """Update punch and invalidate caches."""
+        self.punch_base = punch
+        self.clear_caches()
+
+    def set_config(self, config: AdaptiveSamplingConfig) -> None:
+        """Update sampling config and invalidate caches."""
+        self.config = config
+        self.clear_caches()
 
     def create_state_snapshot(
         self,
@@ -310,9 +371,10 @@ class AdaptiveTrajectoryValidator3D:
         )
         self.placement_calc_time_ms += (time.perf_counter() - t_p0) * 1000.0
 
-        # Build native 3D multi-bend sheet solid (cached by Part Space fold angles with exact floats)
+        # Build native 3D multi-bend sheet solid (cached by Part Space fold angles with exact floats and geometry signature)
         angles_tuple = tuple(sorted((b_id, float(a)) for b_id, a in self.fold_state.angles.items()))
-        solid_cache_key = (self.config.arc_segments, id(self.panel_build), angles_tuple)
+        wp_geom_sig = _panel_build_geometry_signature(self.panel_build)
+        solid_cache_key = (self.config.arc_segments, wp_geom_sig, angles_tuple)
         t_s0 = time.perf_counter()
         if solid_cache_key in self._solid_cache:
             solid = self._solid_cache[solid_cache_key]
@@ -339,7 +401,23 @@ class AdaptiveTrajectoryValidator3D:
 
         # Die clearance caching: when sheet workpiece pose relative to the static die is identical,
         # reuse cached clearance result to avoid expensive redundant boolean queries.
-        die_cache_key = (self.config.arc_segments, active_bend_id, round(float(support_z), 6), angles_tuple)
+        # Cache key strictly incorporates die identity & geometry, placement, tolerances, exact support_z (no rounding),
+        # active bend id, and workpiece geometry signature.
+        die_geom_sig = _die_geometry_signature(self.die)
+        tolerances_sig = (
+            float(self.config.near_tolerance_mm),
+            float(self.config.volume_tolerance_mm3),
+            float(self.config.contact_distance_tolerance_mm),
+        )
+        die_cache_key = (
+            self.config.arc_segments,
+            active_bend_id,
+            float(support_z),
+            angles_tuple,
+            die_geom_sig,
+            wp_geom_sig,
+            tolerances_sig,
+        )
         cached_die_res = self._die_clearance_cache.get(die_cache_key)
 
         # Oracle evaluation
@@ -358,6 +436,9 @@ class AdaptiveTrajectoryValidator3D:
         self.total_collision_queries += 1
         self.total_states_evaluated += 1
 
+        p_eval_ms = col_res.punch_result.elapsed_ms if col_res and col_res.punch_result else 0.0
+        d_eval_ms = col_res.die_result.elapsed_ms if col_res and col_res.die_result else 0.0
+
         state = MotionState3D(
             phase=phase,
             active_bend_id=active_bend_id,
@@ -369,6 +450,8 @@ class AdaptiveTrajectoryValidator3D:
             completed_angles=dict(prior_angles),
             collision_report=col_res,
             is_safe=col_res.is_safe,
+            punch_eval_ms=p_eval_ms,
+            die_eval_ms=d_eval_ms,
         )
         return state
 
@@ -451,30 +534,46 @@ class AdaptiveTrajectoryValidator3D:
         # when the gap and contact class were unchanged. Rapid gap changes,
         # contact transitions, excessive motion and actual penetration still
         # force subdivision. No continuous collision certification is implied.
-        # 5. Clearance changes rapidly near contact
-        p_clear_diff = max(
-            abs(s_left.collision_report.punch_result.distance_mm - s_mid.collision_report.punch_result.distance_mm),
-            abs(s_mid.collision_report.punch_result.distance_mm - s_right.collision_report.punch_result.distance_mm),
-        )
-        d_clear_diff = max(
-            abs(s_left.collision_report.die_result.distance_mm - s_mid.collision_report.die_result.distance_mm),
-            abs(s_mid.collision_report.die_result.distance_mm - s_right.collision_report.die_result.distance_mm),
-        )
-        min_p_dist = min(
-            s_left.collision_report.punch_result.distance_mm,
-            s_mid.collision_report.punch_result.distance_mm,
-            s_right.collision_report.punch_result.distance_mm,
-        )
-        min_d_dist = min(
-            s_left.collision_report.die_result.distance_mm,
-            s_mid.collision_report.die_result.distance_mm,
-            s_right.collision_report.die_result.distance_mm,
-        )
+        # 5. Clearance changes rapidly near contact:
+        # Note: aabb_gap is only a lower bound on distance (is_lower_bound=True).
+        # We must not compute clearance differences using lower bounds.
+        p_res_l = s_left.collision_report.punch_result
+        p_res_m = s_mid.collision_report.punch_result
+        p_res_r = s_right.collision_report.punch_result
+        d_res_l = s_left.collision_report.die_result
+        d_res_m = s_mid.collision_report.die_result
+        d_res_r = s_right.collision_report.die_result
+
         rapid_clearance_change = False
-        if p_clear_diff > self.config.clearance_change_threshold_mm and min_p_dist < self.config.min_clearance_margin_mm * 2.0:
-            rapid_clearance_change = True
-        if d_clear_diff > self.config.clearance_change_threshold_mm and min_d_dist < self.config.min_clearance_margin_mm * 2.0:
-            rapid_clearance_change = True
+        p_is_lb = (
+            getattr(p_res_l, "is_lower_bound", False)
+            or getattr(p_res_m, "is_lower_bound", False)
+            or getattr(p_res_r, "is_lower_bound", False)
+        )
+        if not p_is_lb:
+            p_clear_diff = max(
+                abs(p_res_l.distance_mm - p_res_m.distance_mm),
+                abs(p_res_m.distance_mm - p_res_r.distance_mm),
+            )
+            min_p_dist = min(p_res_l.distance_mm, p_res_m.distance_mm, p_res_r.distance_mm)
+            if p_clear_diff > self.config.clearance_change_threshold_mm and min_p_dist < self.config.min_clearance_margin_mm * 2.0:
+                rapid_clearance_change = True
+
+        d_is_lb = (
+            getattr(d_res_l, "is_lower_bound", False)
+            or getattr(d_res_m, "is_lower_bound", False)
+            or getattr(d_res_r, "is_lower_bound", False)
+        )
+        if not d_is_lb:
+            d_clear_diff = max(
+                abs(d_res_l.distance_mm - d_res_m.distance_mm),
+                abs(d_res_m.distance_mm - d_res_r.distance_mm),
+            )
+            min_d_dist = min(d_res_l.distance_mm, d_res_m.distance_mm, d_res_r.distance_mm)
+            if d_clear_diff > self.config.clearance_change_threshold_mm and min_d_dist < self.config.min_clearance_margin_mm * 2.0:
+                rapid_clearance_change = True
+
+        min_p_dist = min(p_res_l.distance_mm, p_res_m.distance_mm, p_res_r.distance_mm)
 
         # 6. Contact status transition near contact
         status_change = (
@@ -616,6 +715,11 @@ class AdaptiveTrajectoryValidator3D:
             is_safe = True
 
         elapsed_ms = (time.perf_counter() - t_start) * 1000.0
+        total_punch_eval_ms = sum(s.punch_eval_ms for s in dedup_states)
+        total_die_eval_ms = sum(s.die_eval_ms for s in dedup_states)
+        diags.append(
+            f"TIMINGS: phase={elapsed_ms:.1f}ms, punch_eval={total_punch_eval_ms:.1f}ms, die_eval={total_die_eval_ms:.1f}ms"
+        )
 
         return TrajectoryPhaseResult(
             phase_name=phase_name,
@@ -636,6 +740,8 @@ class AdaptiveTrajectoryValidator3D:
             max_die_overlap_volume_mm3=max_d_over,
             elapsed_ms=elapsed_ms,
             diagnostics=diags,
+            total_punch_eval_ms=total_punch_eval_ms,
+            total_die_eval_ms=total_die_eval_ms,
         )
 
     def validate_bend_trajectory(

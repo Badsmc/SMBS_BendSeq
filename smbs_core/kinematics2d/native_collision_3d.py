@@ -59,6 +59,7 @@ class PairClearanceResult:
     overlap_volume_mm3: float
     aabb_gap_mm: Optional[float]
     elapsed_ms: float
+    is_lower_bound: bool = False
 
 
 @dataclass(frozen=True)
@@ -179,6 +180,7 @@ def check_pair_clearance(
             0.0,
             aabb_gap,
             dt,
+            is_lower_bound=True,
         )
 
     # 3. Narrow Phase: distToShape & Common volume

@@ -32,13 +32,25 @@ def run(*, diagnostic_only=False):
         _PreviewPanel, build_part_session,
     )
 
-    is_live_gui = QtWidgets.QApplication.instance() is not None and not getattr(QtWidgets.QApplication.instance(), "_smbs_headless", False)
+    is_live_gui = False
+    try:
+        import FreeCADGui as Gui
+        is_live_gui = bool(
+            getattr(App, "GuiUp", False)
+            and Gui.getMainWindow() is not None
+            and Gui.getMainWindow().isVisible()
+        )
+    except Exception:
+        is_live_gui = False
+
     app = QtWidgets.QApplication.instance()
     if app is None:
         app = QtWidgets.QApplication(sys.argv if sys.argv else [])
         app._smbs_headless = True
-        is_live_gui = False
-    print("PHYSICAL_RUNNER_ENVIRONMENT:", "LIVE_FREECAD_GUI" if is_live_gui else "HEADLESS_QAPPLICATION")
+    print(
+        "PHYSICAL_RUNNER_ENVIRONMENT:",
+        "LIVE_FREECAD_GUI" if is_live_gui else "HEADLESS_OFFSCREEN (no FreeCADGui main window)",
+    )
     fixture = demo_part_path("box.100out-50in-(ok).FCStd")
     source_hash = hashlib.sha256(fixture.read_bytes()).hexdigest()
     names_before = set(App.listDocuments())
@@ -150,7 +162,7 @@ def run(*, diagnostic_only=False):
             # Diagnostic-only mode deliberately does NOT print a PASS marker
             # and does NOT run the costly adaptive 120s trajectory. A real
             # native penetration remains a collision requiring correction.
-            print("PHYSICAL_FRAME_DIAGNOSTIC_ONLY: no trajectory qualification")
+            print("PHYSICAL_FRAME_DIAGNOSTIC_ONLY: diagnostic result only; no acceptance pass")
             return {"pose": result, "trajectory": None}
         trajectory = check_active_25d_bend_trajectory(
             session, panel.tooling_setup,
@@ -172,13 +184,13 @@ def run(*, diagnostic_only=False):
                 )
             )
         if trajectory.status is not PhysicalEvidence.SAMPLED_3D_CLEAR_NOT_CONTINUOUS:
-            if trajectory.native_status == "INTERVAL_UNRESOLVED":
-                print("D634_ADAPTIVE_UNRESOLVED: time budget exhausted; retaining INTERVAL_UNRESOLVED without claiming full collision freedom.")
-                print("D634_ADAPTIVE_UNRESOLVED_DETAILS: " + trajectory.reason)
-            else:
-                raise RuntimeError(
-                    "D634_ADAPTIVE_NOT_QUALIFIED: " + trajectory.reason
-                )
+            print(
+                f"PHYSICAL_STAGE2_RESULT: INCOMPLETE/UNRESOLVED | native={trajectory.native_status}"
+            )
+            print("D634_ADAPTIVE_UNRESOLVED_DETAILS: " + trajectory.reason)
+            raise RuntimeError(
+                f"PHYSICAL_ACCEPTANCE_FAILED_INCOMPLETE_TRAJECTORY: {trajectory.native_status} | {trajectory.reason}"
+            )
         if result.section_status == "INTERFERENCE":
             raise RuntimeError(
                 "SECTION_3D_EVIDENCE_CONFLICT: 2D section reports interference "
@@ -194,9 +206,17 @@ def run(*, diagnostic_only=False):
             )
         if dict(session.fold_state.angles) != initial:
             raise RuntimeError("D634_FOLD_STATE_NOT_RESTORED")
-        print("PHYSICAL_STAGE2_FREECAD_ACCEPTANCE_PASS: "
-              "pose=SAMPLED_3D_CLEAR_NOT_CONTINUOUS (2D=TOUCH, 3D=TOUCHING, delta=(0,0,0)), "
-              f"trajectory={trajectory.native_status}")
+
+        pass_marker = (
+            "PHYSICAL_STAGE2_FREECAD_GUI_ACCEPTANCE_PASS"
+            if is_live_gui
+            else "PHYSICAL_STAGE2_HEADLESS_CERTIFIED_PASS (NOT_GUI_VERIFIED)"
+        )
+        print(
+            f"{pass_marker}: "
+            f"pose={result.status.value} (2D={result.section_status}, 3D={result.native_status}, delta=(0,0,0)), "
+            f"trajectory={trajectory.native_status}"
+        )
         return {"pose": result, "trajectory": trajectory}
     finally:
         if panel is not None:

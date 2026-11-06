@@ -1435,7 +1435,8 @@ class BendZoneMathTests(unittest.TestCase):
                 )
 
                 # Test D: Open puancon.FCStd, import from Body, verify source object & document are unmodified
-                fc_path = Path("/Users/badmc/Desktop/SMBS_BendSeq/toollibrary/punch/puancon.FCStd")
+                repo_root = Path(__file__).resolve().parents[1]
+                fc_path = repo_root / "toollibrary" / "punch" / "puancon.FCStd"
                 doc = App.openDocument(str(fc_path), True)
                 try:
                     body = doc.getObject("Body")
@@ -1700,6 +1701,8 @@ class BendZoneMathTests(unittest.TestCase):
                 # --------------------------------------------------------------
                 # Check 1 (Scenario A): Sheet loaded without tools
                 # --------------------------------------------------------------
+                panel.select_punch(None)
+                panel.select_die(None)
                 panel.session = LoadedPartSession(
                     part_label="Z_Part",
                     unfold_data=None,
