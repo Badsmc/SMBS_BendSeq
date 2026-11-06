@@ -169,6 +169,25 @@ class BendTrajectoryResult:
     diagnostics: List[str]
 
 
+class FoldStateRestorationError(RuntimeError):
+    """The shared FoldState could not be restored; further reuse is unsafe."""
+
+
+def restore_fold_state_snapshot(fold_state: Any, angles: Dict[str, float], transforms: Dict[str, Any]) -> None:
+    """Restore immutable transform snapshots; fail closed if assignment or verification fails.
+
+    RigidTransform is a frozen dataclass. Dictionaries are copied so later pose
+    evaluations cannot mutate the snapshot mappings.
+    """
+    try:
+        fold_state.angles = dict(angles)
+        fold_state.transforms = dict(transforms)
+        if fold_state.angles != angles or fold_state.transforms != transforms:
+            raise ValueError("restored FoldState differs from saved snapshot")
+    except Exception as exc:
+        raise FoldStateRestorationError("FOLD_STATE_RESTORATION_FAILED: shared state cannot be reused") from exc
+
+
 def compute_rotation_distance_deg(r1: Matrix3x3, r2: Matrix3x3) -> float:
     """Geodesic distance in SO(3) between two 3x3 orthonormal rotation matrices."""
     # tr(R1^T * R2) = sum_{i,j} r1[i][j] * r2[i][j]
@@ -616,9 +635,10 @@ class AdaptiveTrajectoryValidator3D:
         # Deterministic FoldState snapshot: preserve original state
         saved_angles = dict(self.fold_state.angles)
         saved_transforms = dict(self.fold_state.transforms)
-        fold_state_restored = False
-
         try:
+            # Each candidate begins with an explicit flat state. Prior completed
+            # angles and the active angle are then applied by create_state_snapshot().
+            self.fold_state.reset_all()
             bend = self.fold_state.bends[active_bend_id]
             bz = bend.bend_zone
             p0_cad, p1_cad = bend.axis_xyz
@@ -768,14 +788,9 @@ class AdaptiveTrajectoryValidator3D:
             )
 
         finally:
-            # Atomic state restoration: re-apply saved angles and transforms
-            try:
-                for b_id, a_val in saved_angles.items():
-                    self.fold_state.set_angle(b_id, a_val)
-                self.fold_state.transforms = dict(saved_transforms)
-                fold_state_restored = True
-            except Exception:
-                pass
+            # Never swallow restoration errors or return a qualified result
+            # with corrupted shared kinematic state.
+            restore_fold_state_snapshot(self.fold_state, saved_angles, saved_transforms)
 
     def validate_transfer_phase(
         self,
