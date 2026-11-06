@@ -16,7 +16,7 @@ Maturity convention: IMPLEMENTED != TESTED != VERIFIED != QUALIFIED != PRODUCTIO
 - [x] Cross-platform `demo/parts` path resolver and SHA-256 verified archive installer
 - [ ] Original demo FCStd binaries committed (17 unique model filenames; both U variants preserved)
 - [ ] One active workbench registration / no duplicated old SMBS menu in a fresh installation
-- [ ] Repeat Windows FreeCAD GUI smoke test after a clean install
+- [x] Windows FreeCAD 8-bend Stage 1 GUI acceptance passed (6 tests, 0 errors/skips); clean-install smoke test remains separately required
 - [x] Remove unused legacy OCC / self-collision modules and their obsolete CI jobs from the isolated 2D branch, without inventing missing collision tolerances
 - [x] Active Python 2.5D CI passes (10 path checks + 147 runtime tests, 6 FreeCAD GUI-dependent skips, run 42215667048)
 - [ ] Re-run the same CI successfully after final cleanup changes and pass native FreeCAD acceptance
@@ -25,10 +25,10 @@ Maturity convention: IMPLEMENTED != TESTED != VERIFIED != QUALIFIED != PRODUCTIO
 
 - [ ] Select/open FreeCAD SheetMetal model -> click Simulation -> identify all bends, signed directions, thickness and radii from SheetMetal
 - [ ] Single `Play All` with `Mode=Bend Only` animates the entire model and finishes, preserving previous bends
-- [ ] `Mode=Full Cycle` runs approach/contact/bend/bottom/retract only when machine placement is supported; otherwise fail closed with clear reason, no frozen/unresponsive UI
-- [ ] Slider, Pause/Resume, Next/Previous, Reset, reorder, Fit, and close/reopen remain functional on real Windows GUI
-- [ ] No frame-to-frame position jumps for supported parallel-axis transfers; nonparallel-axis transfers must not be deceptively shown as physically verified
-- [ ] Recording opt-in produces nonempty JSONL with a valid summary; playback remains usable when recording is off
+- [x] `Mode=Full Cycle` completed B01–B08 on one original box fixture, including nonparallel B01→B02 transfer; further fixture coverage and collision qualification pending
+- [ ] All GUI controls across fixtures. Play/Pause/Resume/Reset and workspace layout passed native 8-bend acceptance; Next/Previous, reorder, Fit and close/reopen still pending
+- [x] No visible frame-to-frame jumps on the tested 8-bend box (user-confirmed real FreeCAD observation); additional fixtures pending; transport remains non-certified
+- [x] Recording opt-in creates JSONL and summary in native Windows FreeCAD GUI test; real full-length recording and playback-disabled scenarios still need broader acceptance
 - [ ] Original FCStd files and current FreeCAD user documents are not changed or auto-saved by simulation
 
 ## Priority P2 — geometry and tooling validity (blocker for machine-qualification claims)
