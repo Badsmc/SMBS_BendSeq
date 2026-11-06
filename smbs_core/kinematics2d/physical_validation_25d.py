@@ -87,6 +87,28 @@ def check_current_25d_pose(session, press_cycle, tooling, *, native_3d: bool = T
         return _unverified("machine_section_unavailable:" + str(exc))
 
     sec = sec_report.status.value
+    # For a parked/initial pose, sheet material should not be placed below
+    # the selected die support datum. This is a placement diagnostic, NOT a
+    # general penetration test during active forming into the V groove.
+    support_frame_detail = ""
+    phase_name = str(getattr(press_cycle.phase, "value", press_cycle.phase))
+    if phase_name in ("IDLE", "APPROACH"):
+        try:
+            zone = section.get("zone_polygon") or ()
+            die_center = tooling.die_v_center_machine()
+            if zone and die_center is not None:
+                sheet_bottom = min(float(z) for _, z in zone)
+                datum_z = float(die_center[1])
+                if sheet_bottom < datum_z - 0.1:
+                    support_frame_detail = (
+                        "; INITIAL_SUPPORT_FRAME_OFFSET:"
+                        "sheet_bottom_z={:.4f};die_datum_z={:.4f};"
+                        "below_datum_mm={:.4f}"
+                    ).format(sheet_bottom, datum_z, datum_z - sheet_bottom)
+        except (TypeError, ValueError, AttributeError):
+            # Preserve the actual geometric collision result; never hide
+            # it behind a failed diagnostic annotation.
+            support_frame_detail = "; initial_support_frame_unavailable"
     section_collision = sec_report.status is ContactStatus.INTERFERENCE
     section_ambiguous = sec_report.status is ContactStatus.UNVERIFIED
     section_reason = next(
@@ -202,7 +224,7 @@ def check_current_25d_pose(session, press_cycle, tooling, *, native_3d: bool = T
     if result.status is CollisionClass.PENETRATION:
         return CurrentPosePhysicalReport(
             PhysicalEvidence.COLLISION, sec, result.status.value,
-            "native_3d_positive_volume_interference",
+            "native_3d_positive_volume_interference" + support_frame_detail,
             ("2D_SECTION", "3D_PUNCH_DIE_CURRENT_POSE", "3D_TOOL_LENGTH"),
         )
     if not result.is_safe or result.status not in (
