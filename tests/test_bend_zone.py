@@ -699,7 +699,7 @@ class BendZoneMathTests(unittest.TestCase):
             # 2) Bend B01 from 0 -> +90 deg; B02 stays 0 deg
             panel.set_angle(45.0)
             self.assertEqual(panel.session.fold_state.angles, {"B01": 45.0, "B02": 0.0})
-            panel.to_target_angle()
+            panel.set_angle(panel.session.target_angle_deg)
             self.assertEqual(panel.session.fold_state.angles, {"B01": 90.0, "B02": 0.0})
 
             # 3) Select operation 2 (B02): B01 keeps +90 deg, B02 starts at 0 deg (no auto-folding!)
@@ -714,7 +714,7 @@ class BendZoneMathTests(unittest.TestCase):
             # 4) Bend B02 from 0 -> -90 deg; both bends now at target
             panel.set_angle(-45.0)
             self.assertEqual(panel.session.fold_state.angles, {"B01": 90.0, "B02": -45.0})
-            panel.to_target_angle()
+            panel.set_angle(panel.session.target_angle_deg)
             self.assertEqual(panel.session.fold_state.angles, {"B01": 90.0, "B02": -90.0})
 
             # 5) Reset returns ALL bends to 0 deg
