@@ -148,6 +148,7 @@ class PhysicalIntegrationTests(unittest.TestCase):
                 continuous_certification_status=TrajectoryEvidenceStatus.NOT_CONTINUOUSLY_CERTIFIED,
                 first_collision_state=object() if colliding else None,
                 diagnostics=["controlled_test"],
+                phase_results=[],
             )
         fake_app = SimpleNamespace(ActiveDocument=None, getDocument=lambda n: None)
         with (
