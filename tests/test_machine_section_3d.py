@@ -11,36 +11,33 @@ Verifies that:
 from __future__ import annotations
 
 import math
-import os
-import sys
 import unittest
 
-fc_lib_path = "/Applications/FreeCAD.app/Contents/Resources/lib"
-if os.path.exists(fc_lib_path) and fc_lib_path not in sys.path:
-    sys.path.insert(0, fc_lib_path)
-
-cwd = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-if cwd not in sys.path:
-    sys.path.insert(0, cwd)
-
-import FreeCAD
+from smbs_core.demo_paths import demo_part_path
 from freecad_smbs.commands.pressbrake_2d import build_part_session
 from smbs_core.kinematics2d.machine_section_3d import (
-    compute_machine_cutting_plane_section,
-    slice_polygon_3d_at_x,
+    compute_machine_cutting_plane_section, slice_polygon_3d_at_x,
 )
 from smbs_core.kinematics2d.workpiece_placement_3d import WorkpiecePlacement3D
 from smbs_core.kinematics2d.workpiece_transfer_3d import build_bend_transfer
 
+try:
+    import FreeCAD
+    HAS_FREECAD = True
+except ImportError:
+    FreeCAD = None
+    HAS_FREECAD = False
 
-MODEL_PATH = "/Users/badmc/Desktop/\u041d\u043e\u0432\u0430\u044f \u043f\u0430\u043f\u043a\u0430/box.100out-50in-(ok) 2.FCStd"
+MODEL_PATH = demo_part_path("box.100out-50in-(ok).FCStd", required=False)
 
 
 class TestMachineCuttingPlaneSection(unittest.TestCase):
     def setUp(self):
-        if not os.path.exists(MODEL_PATH):
+        if not HAS_FREECAD:
+            self.skipTest("FreeCAD runtime is required")
+        if not MODEL_PATH.is_file():
             self.skipTest(f"Model file not found: {MODEL_PATH}")
-        self.doc = FreeCAD.openDocument(MODEL_PATH)
+        self.doc = FreeCAD.openDocument(str(MODEL_PATH), True)
         obj = next(o for o in self.doc.Objects if o.Name == "Body_Unfold")
         self.session = build_part_session(self.doc, [obj])
         self.fold_state = self.session.fold_state
