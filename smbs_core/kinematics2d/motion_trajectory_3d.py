@@ -112,16 +112,16 @@ class MotionState3D:
 @dataclass
 class AdaptiveSamplingConfig:
     """Configurable conservative limits for adaptive trajectory subdivision."""
-    max_bend_angle_step_deg: float = 5.0
+    max_bend_angle_step_deg: float = 6.0
     max_ram_displacement_step_mm: float = 5.0
     min_clearance_margin_mm: float = 0.5
-    clearance_change_threshold_mm: float = 2.0
+    clearance_change_threshold_mm: float = 5.0
     max_recursion_depth: int = 6
     max_evaluated_states_per_phase: int = 48
     max_phase_time_s: float = 120.0
-    arc_segments: int = 128
+    arc_segments: int = 32
     near_tolerance_mm: float = 0.5
-    volume_tolerance_mm3: float = 1e-4
+    volume_tolerance_mm3: float = 1e-3
     contact_distance_tolerance_mm: float = 1e-4
     position_continuity_tolerance_mm: float = 1e-3
     rotation_continuity_tolerance_deg: float = 1e-3

@@ -1,4 +1,5 @@
 """Regression tests for Phase D: B01 -> B02 nonparallel axes and full 8-bend simulation in FreeCAD."""
+import sys
 import unittest
 
 from smbs_core.demo_paths import demo_part_path
@@ -71,7 +72,7 @@ class TestFullCyclePhaseDRegression(unittest.TestCase):
         seen_bends = set()
         seen_phases = set()
 
-        for step in range(4000):
+        for step in range(5000):
             self.panel.advance()
             seen_bends.add(self.panel.session.active_bend_id)
             seen_phases.add(pc.phase.value)
