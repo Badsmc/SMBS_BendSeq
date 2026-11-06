@@ -122,9 +122,10 @@ def run(*, diagnostic_only=False):
         print("PHYSICAL_FRAME_DIAGNOSTIC d634_initial_placement:",
               "translation=", d6_initial.translation,
               "rotation=", d6_initial.rotation)
-        print("PHYSICAL_FRAME_DIAGNOSTIC frame_delta_xyz:",
-              tuple(round(a-b, 6) for a, b in
-                    zip(d6_initial.translation, placement.translation)))
+        measured_delta_xyz = tuple(round(a - b, 6) for a, b in zip(d6_initial.translation, placement.translation))
+        print("PHYSICAL_FRAME_DIAGNOSTIC frame_delta_xyz:", measured_delta_xyz)
+        if any(abs(d) > 1e-4 for d in measured_delta_xyz):
+            raise RuntimeError(f"COORDINATE_CONTRACT_VIOLATION: measured delta_xyz={measured_delta_xyz} exceeds tolerance 1e-4")
         print("PHYSICAL_FRAME_DIAGNOSTIC tools:",
               "aligned=", panel.tooling_setup.aligned,
               "die_v=", panel.tooling_setup.die_v_center_machine(),
@@ -210,11 +211,11 @@ def run(*, diagnostic_only=False):
         pass_marker = (
             "PHYSICAL_STAGE2_FREECAD_GUI_ACCEPTANCE_PASS"
             if is_live_gui
-            else "PHYSICAL_STAGE2_HEADLESS_CERTIFIED_PASS (NOT_GUI_VERIFIED)"
+            else "PHYSICAL_STAGE2_HEADLESS_SAMPLED_PASS (NOT_GUI_VERIFIED)"
         )
         print(
             f"{pass_marker}: "
-            f"pose={result.status.value} (2D={result.section_status}, 3D={result.native_status}, delta=(0,0,0)), "
+            f"pose={result.status.value} (2D={result.section_status}, 3D={result.native_status}, delta={measured_delta_xyz}), "
             f"trajectory={trajectory.native_status}"
         )
         return {"pose": result, "trajectory": trajectory}

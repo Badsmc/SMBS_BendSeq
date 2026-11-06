@@ -107,6 +107,11 @@ class MotionState3D:
     is_safe: bool = True
     discontinuity_detected: bool = False
     discontinuity_reason: str = ""
+    punch_actual_eval_ms: float = 0.0
+    die_actual_eval_ms: float = 0.0
+    cache_lookup_ms: float = 0.0
+    die_cache_hit: bool = False
+    solid_cache_hit: bool = False
     punch_eval_ms: float = 0.0
     die_eval_ms: float = 0.0
 
@@ -152,6 +157,12 @@ class TrajectoryPhaseResult:
     diagnostics: List[str]
     total_punch_eval_ms: float = 0.0
     total_die_eval_ms: float = 0.0
+    total_cache_lookup_ms: float = 0.0
+    solid_cache_hits: int = 0
+    solid_cache_misses: int = 0
+    die_cache_hits: int = 0
+    die_cache_misses: int = 0
+    phase_solid_reconstruction_ms: float = 0.0
 
 
 @dataclass
@@ -250,24 +261,31 @@ def check_motion_continuity(
 
 
 def _panel_build_geometry_signature(panel_build: Any) -> Tuple[Any, ...]:
-    """Deterministic hashable signature of panel geometry in panel_build."""
+    """Deterministic hashable signature of panel geometry in panel_build.
+    
+    Includes generation tokens, geom versions, face vertex coordinates,
+    center of mass, and surface area. Distinguishes shapes even when bounding box,
+    vertex count, and surface area are identical.
+    """
     if panel_build is None:
         return ()
+    gen_token = getattr(panel_build, "generation_token", getattr(panel_build, "geom_version", None))
     panels = getattr(panel_build, "panels", None)
     faces = getattr(panel_build, "panel_faces", None)
     if not panels or not faces:
-        return (id(panel_build),)
-    sig = []
+        return (gen_token, id(panel_build))
+    sig = [gen_token]
     for p, f in zip(panels, faces):
         p_id = getattr(p, "panel_id", str(p))
-        v_count = len(getattr(f, "Vertexes", [])) if hasattr(f, "Vertexes") else 0
+        v_coords = []
+        if hasattr(f, "Vertexes"):
+            for v in f.Vertexes:
+                v_coords.append((round(float(v.X), 5), round(float(v.Y), 5), round(float(v.Z), 5)))
+        v_coords_tuple = tuple(sorted(v_coords))
+        com = getattr(f, "CenterOfMass", None)
+        com_tuple = (round(float(com.x), 5), round(float(com.y), 5), round(float(com.z), 5)) if com is not None else ()
         area = round(float(getattr(f, "Area", 0.0)), 6)
-        bbox = getattr(f, "BoundBox", None)
-        bbox_tuple = (
-            round(bbox.XMin, 4), round(bbox.YMin, 4), round(bbox.ZMin, 4),
-            round(bbox.XMax, 4), round(bbox.YMax, 4), round(bbox.ZMax, 4),
-        ) if bbox is not None else ()
-        sig.append((p_id, v_count, area, bbox_tuple))
+        sig.append((p_id, len(v_coords), area, com_tuple, v_coords_tuple))
     return tuple(sig)
 
 
@@ -276,14 +294,17 @@ def _die_geometry_signature(die: LoadedTool) -> Tuple[Any, ...]:
     if die is None:
         return ()
     die_id = getattr(die, "tool_id", getattr(die, "name", ""))
+    gen_token = getattr(die, "generation_token", getattr(die, "geom_version", None))
     v_open = float(getattr(die, "v_opening_mm", 0.0))
+    eff_v = float(getattr(die, "effective_v_opening_mm", v_open))
     radius = float(getattr(die, "shoulder_radius_mm", 0.0))
-    bb = getattr(getattr(die, "machine_shape", None), "BoundBox", None)
-    bb_tuple = (
-        round(bb.XMin, 6), round(bb.YMin, 6), round(bb.ZMin, 6),
-        round(bb.XMax, 6), round(bb.YMax, 6), round(bb.ZMax, 6),
-    ) if bb is not None else ()
-    return (die_id, v_open, radius, bb_tuple)
+    height = float(getattr(die, "height_mm", 0.0))
+    length = float(getattr(die, "length_mm", 0.0))
+    m_shape = getattr(die, "machine_shape", None)
+    vol = round(float(m_shape.Volume), 5) if m_shape is not None and hasattr(m_shape, "Volume") else 0.0
+    com = getattr(m_shape, "CenterOfMass", None) if m_shape is not None else None
+    com_tuple = (round(float(com.x), 5), round(float(com.y), 5), round(float(com.z), 5)) if com is not None else ()
+    return (die_id, gen_token, v_open, eff_v, radius, height, length, vol, com_tuple)
 
 
 class AdaptiveTrajectoryValidator3D:
@@ -314,6 +335,11 @@ class AdaptiveTrajectoryValidator3D:
         self.total_subdivisions: int = 0
         self.total_solid_reconstructions: int = 0
         self.total_collision_queries: int = 0
+        self.solid_cache_hits: int = 0
+        self.solid_cache_misses: int = 0
+        self.die_cache_hits: int = 0
+        self.die_cache_misses: int = 0
+        self.total_cache_lookup_ms: float = 0.0
         self._solid_cache: Dict[Tuple[Any, ...], Any] = {}
         self._die_clearance_cache: Dict[Tuple[Any, ...], Any] = {}
 
@@ -373,20 +399,29 @@ class AdaptiveTrajectoryValidator3D:
 
         # Build native 3D multi-bend sheet solid (cached by Part Space fold angles with exact floats and geometry signature)
         angles_tuple = tuple(sorted((b_id, float(a)) for b_id, a in self.fold_state.angles.items()))
+        t_solid_lookup0 = time.perf_counter()
         wp_geom_sig = _panel_build_geometry_signature(self.panel_build)
         solid_cache_key = (self.config.arc_segments, wp_geom_sig, angles_tuple)
-        t_s0 = time.perf_counter()
-        if solid_cache_key in self._solid_cache:
+        in_solid_cache = solid_cache_key in self._solid_cache
+        t_solid_lookup1 = time.perf_counter()
+        solid_lookup_ms = (t_solid_lookup1 - t_solid_lookup0) * 1000.0
+
+        solid_cache_hit = False
+        if in_solid_cache:
             solid = self._solid_cache[solid_cache_key]
+            solid_cache_hit = True
+            self.solid_cache_hits += 1
         else:
+            t_s0 = time.perf_counter()
             solid = build_multi_bend_sheet_solid(
                 self.fold_state,
                 self.panel_build,
                 segments=self.config.arc_segments,
             )
+            self.solid_reconstruction_time_ms += (time.perf_counter() - t_s0) * 1000.0
             self._solid_cache[solid_cache_key] = solid
             self.total_solid_reconstructions += 1
-        self.solid_reconstruction_time_ms += (time.perf_counter() - t_s0) * 1000.0
+            self.solid_cache_misses += 1
 
         mat_wp = App.Matrix(
             tf.rotation[0][0], tf.rotation[0][1], tf.rotation[0][2], tf.translation[0],
@@ -403,6 +438,7 @@ class AdaptiveTrajectoryValidator3D:
         # reuse cached clearance result to avoid expensive redundant boolean queries.
         # Cache key strictly incorporates die identity & geometry, placement, tolerances, exact support_z (no rounding),
         # active bend id, and workpiece geometry signature.
+        t_die_lookup0 = time.perf_counter()
         die_geom_sig = _die_geometry_signature(self.die)
         tolerances_sig = (
             float(self.config.near_tolerance_mm),
@@ -419,6 +455,17 @@ class AdaptiveTrajectoryValidator3D:
             tolerances_sig,
         )
         cached_die_res = self._die_clearance_cache.get(die_cache_key)
+        t_die_lookup1 = time.perf_counter()
+        die_lookup_ms = (t_die_lookup1 - t_die_lookup0) * 1000.0
+
+        cache_lookup_ms = solid_lookup_ms + die_lookup_ms
+        self.total_cache_lookup_ms += cache_lookup_ms
+
+        die_cache_hit = cached_die_res is not None
+        if die_cache_hit:
+            self.die_cache_hits += 1
+        else:
+            self.die_cache_misses += 1
 
         # Oracle evaluation
         col_res = validate_workpiece_tooling_pose(
@@ -436,8 +483,9 @@ class AdaptiveTrajectoryValidator3D:
         self.total_collision_queries += 1
         self.total_states_evaluated += 1
 
-        p_eval_ms = col_res.punch_result.elapsed_ms if col_res and col_res.punch_result else 0.0
-        d_eval_ms = col_res.die_result.elapsed_ms if col_res and col_res.die_result else 0.0
+        p_actual_eval_ms = col_res.punch_result.elapsed_ms if col_res and col_res.punch_result else 0.0
+        # If cache hit, actual die evaluation time for THIS state snapshot is 0.0 ms
+        d_actual_eval_ms = 0.0 if die_cache_hit else (col_res.die_result.elapsed_ms if col_res and col_res.die_result else 0.0)
 
         state = MotionState3D(
             phase=phase,
@@ -450,8 +498,13 @@ class AdaptiveTrajectoryValidator3D:
             completed_angles=dict(prior_angles),
             collision_report=col_res,
             is_safe=col_res.is_safe,
-            punch_eval_ms=p_eval_ms,
-            die_eval_ms=d_eval_ms,
+            punch_actual_eval_ms=p_actual_eval_ms,
+            die_actual_eval_ms=d_actual_eval_ms,
+            cache_lookup_ms=cache_lookup_ms,
+            die_cache_hit=die_cache_hit,
+            solid_cache_hit=solid_cache_hit,
+            punch_eval_ms=p_actual_eval_ms,
+            die_eval_ms=d_actual_eval_ms,
         )
         return state
 
@@ -627,6 +680,11 @@ class AdaptiveTrajectoryValidator3D:
         initial_eval_count = self.total_states_evaluated
         initial_recon_count = self.total_solid_reconstructions
         initial_collision_count = self.total_collision_queries
+        initial_solid_hits = self.solid_cache_hits
+        initial_solid_misses = self.solid_cache_misses
+        initial_die_hits = self.die_cache_hits
+        initial_die_misses = self.die_cache_misses
+        initial_solid_recon_time = self.solid_reconstruction_time_ms
 
         def sample_state(u: float) -> MotionState3D:
             # Round u to 6 decimals for deterministic cache keys
@@ -676,6 +734,11 @@ class AdaptiveTrajectoryValidator3D:
         phase_subdivisions = self.total_subdivisions - initial_subdivisions
         phase_recons = self.total_solid_reconstructions - initial_recon_count
         phase_colls = self.total_collision_queries - initial_collision_count
+        phase_solid_hits = self.solid_cache_hits - initial_solid_hits
+        phase_solid_misses = self.solid_cache_misses - initial_solid_misses
+        phase_die_hits = self.die_cache_hits - initial_die_hits
+        phase_die_misses = self.die_cache_misses - initial_die_misses
+        phase_solid_recon_ms = self.solid_reconstruction_time_ms - initial_solid_recon_time
 
         # Compute clearance / overlap extrema
         min_p_clear = min(s.collision_report.punch_result.distance_mm for s in dedup_states)
@@ -715,10 +778,14 @@ class AdaptiveTrajectoryValidator3D:
             is_safe = True
 
         elapsed_ms = (time.perf_counter() - t_start) * 1000.0
-        total_punch_eval_ms = sum(s.punch_eval_ms for s in dedup_states)
-        total_die_eval_ms = sum(s.die_eval_ms for s in dedup_states)
+        total_punch_eval_ms = sum(s.punch_actual_eval_ms for s in dedup_states)
+        total_die_eval_ms = sum(s.die_actual_eval_ms for s in dedup_states)
+        total_cache_lookup_ms = sum(s.cache_lookup_ms for s in dedup_states)
         diags.append(
-            f"TIMINGS: phase={elapsed_ms:.1f}ms, punch_eval={total_punch_eval_ms:.1f}ms, die_eval={total_die_eval_ms:.1f}ms"
+            f"TIMINGS: phase={elapsed_ms:.1f}ms, actual_punch={total_punch_eval_ms:.1f}ms, "
+            f"actual_die={total_die_eval_ms:.1f}ms, solid_build={phase_solid_recon_ms:.1f}ms, "
+            f"cache_lookups={total_cache_lookup_ms:.1f}ms, hits=(solid={phase_solid_hits}, die={phase_die_hits}), "
+            f"misses=(solid={phase_solid_misses}, die={phase_die_misses})"
         )
 
         return TrajectoryPhaseResult(
@@ -742,6 +809,12 @@ class AdaptiveTrajectoryValidator3D:
             diagnostics=diags,
             total_punch_eval_ms=total_punch_eval_ms,
             total_die_eval_ms=total_die_eval_ms,
+            total_cache_lookup_ms=total_cache_lookup_ms,
+            solid_cache_hits=phase_solid_hits,
+            solid_cache_misses=phase_solid_misses,
+            die_cache_hits=phase_die_hits,
+            die_cache_misses=phase_die_misses,
+            phase_solid_reconstruction_ms=phase_solid_recon_ms,
         )
 
     def validate_bend_trajectory(
@@ -1052,4 +1125,11 @@ def dataclass_replace_discontinuity(state: MotionState3D, reason: str) -> Motion
         is_safe=False,
         discontinuity_detected=True,
         discontinuity_reason=reason,
+        punch_actual_eval_ms=state.punch_actual_eval_ms,
+        die_actual_eval_ms=state.die_actual_eval_ms,
+        cache_lookup_ms=state.cache_lookup_ms,
+        die_cache_hit=state.die_cache_hit,
+        solid_cache_hit=state.solid_cache_hit,
+        punch_eval_ms=state.punch_eval_ms,
+        die_eval_ms=state.die_eval_ms,
     )
