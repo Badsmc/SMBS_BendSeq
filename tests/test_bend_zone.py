@@ -433,7 +433,7 @@ class BendZoneMathTests(unittest.TestCase):
         with self.assertRaises(SelectionWarning):
             resolve_selected_unfold(_Doc(), [])
 
-        import freecad_smbs.workbench_runtime as _rt
+        import freecad_smbs.InitGui as _rt
         from unittest.mock import MagicMock, patch
         fake_gui = MagicMock()
         fake_gui.listCommands.return_value = []
@@ -562,6 +562,9 @@ class BendZoneMathTests(unittest.TestCase):
         mock_qt_core = MagicMock()
         mock_qt_gui = MagicMock()
         mock_qt_widgets = MagicMock()
+        # The current workspace redistributes exactly 14 constructor items
+        # into tabs; the headless Qt fake must model the actual layout shape.
+        mock_qt_widgets.QVBoxLayout.return_value.count.return_value = 14
 
         class _DummyWidget:
             ScrollHandDrag = 1
@@ -630,6 +633,9 @@ class BendZoneMathTests(unittest.TestCase):
         mock_qt_core = MagicMock()
         mock_qt_gui = MagicMock()
         mock_qt_widgets = MagicMock()
+        # The current workspace redistributes exactly 14 constructor items
+        # into tabs; the headless Qt fake must model the actual layout shape.
+        mock_qt_widgets.QVBoxLayout.return_value.count.return_value = 14
 
         class _DummyWidget:
             ScrollHandDrag = 1
@@ -869,6 +875,9 @@ class BendZoneMathTests(unittest.TestCase):
         mock_qt_core = MagicMock()
         mock_qt_gui = MagicMock()
         mock_qt_widgets = MagicMock()
+        # The current workspace redistributes exactly 14 constructor items
+        # into tabs; the headless Qt fake must model the actual layout shape.
+        mock_qt_widgets.QVBoxLayout.return_value.count.return_value = 14
 
         class _DummyWidget:
             ScrollHandDrag = 1
@@ -2085,8 +2094,14 @@ class BendZoneMathTests(unittest.TestCase):
                 pc_l.advance_time(0.1)
             self.assertEqual(pc_l.phase, CyclePhase.BENDING)
             self.assertAlmostEqual(pc_l.current_angle_deg, 45.0, places=6)
-            self.assertAlmostEqual(pc_l.ram_z_mm, pc_l.contact_z_mm - 2.0, places=6)
-            self.assertAlmostEqual(pc_l.ram_stroke_mm, 2.0, places=6)
+            # Coupled air-bending ram travel is angle-dependent, not a
+            # linearly interpolated 4 mm preview stroke.
+            self.assertGreater(pc_l.ram_stroke_mm, 0.0)
+            self.assertLess(pc_l.ram_stroke_mm, pc_l.config.preview_stroke_mm)
+            self.assertAlmostEqual(
+                pc_l.ram_z_mm, pc_l.contact_z_mm - pc_l.ram_stroke_mm,
+                places=6,
+            )
             self.assertEqual(setup_l.die_v_center_machine(), die_initial_vc)
 
             # Remaining 5 ticks of 0.1 s -> reaches +90.0 deg and bottom_z_mm -> BOTTOM
@@ -2095,7 +2110,10 @@ class BendZoneMathTests(unittest.TestCase):
             self.assertEqual(pc_l.phase, CyclePhase.BOTTOM)
             self.assertAlmostEqual(pc_l.current_angle_deg, 90.0, places=6)
             self.assertAlmostEqual(pc_l.ram_z_mm, pc_l.bottom_z_mm, places=6)
-            self.assertAlmostEqual(pc_l.ram_stroke_mm, 4.0, places=6)
+            self.assertAlmostEqual(
+                pc_l.ram_stroke_mm, pc_l.contact_z_mm - pc_l.bottom_z_mm,
+                places=6,
+            )
 
             # BOTTOM dwell (0.10 s) -> transitions to RETRACT
             pc_l.advance_time(0.10)
