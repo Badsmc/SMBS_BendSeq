@@ -14,6 +14,12 @@ on:
       - 'tests/test_workpiece_pose_2d.py'
       - 'tests/test_workpiece_transfer.py'
       - 'tests/test_preview_mesh_3d.py'
+      - 'demo/**'
+      - 'smbs_core/demo_paths.py'
+      - 'smbs_core/geometry_backend/freecad_bootstrap.py'
+      - 'freecad_smbs/resources/tooling_paths.py'
+      - 'fixtures/freecad/load_fcstd.py'
+      - 'tests/test_demo_paths.py'
       - '.github/workflows/pressbrake-preview-2d.yml'
   workflow_dispatch:
 
@@ -35,6 +41,14 @@ jobs:
           python -m py_compile smbs_core/kinematics2d/press_cycle.py
           python -m py_compile smbs_core/kinematics2d/preview_mesh_3d.py
           python -m py_compile freecad_smbs/commands/pressbrake_2d.py
+      - name: Check cross-platform FreeCAD demo and tooling source compilation
+        run: |
+          python -m py_compile smbs_core/demo_paths.py
+          python -m py_compile smbs_core/geometry_backend/freecad_bootstrap.py
+          python -m py_compile freecad_smbs/resources/tooling_paths.py
+          python -m py_compile fixtures/freecad/load_fcstd.py
+      - name: Cross-platform demo fixture path contracts
+        run: PYTHONPATH=. python -m unittest tests.test_demo_paths -v
       - name: Workpiece support and symmetry
         run: PYTHONPATH=. python -m unittest discover -s tests -p 'test_workpiece_pose_2d.py' -v
       - name: Inter-bend transport state machine
