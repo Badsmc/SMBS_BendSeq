@@ -64,8 +64,3 @@ jobs:
           print("2D workbench scope verified")
           PY
 
-  native-freecad-required:
-    runs-on: ubuntu-latest
-    if: false
-    steps:
-      - run: echo "Native FreeCAD GUI validation must be performed separately on an installed FreeCAD runtime."
