@@ -19,6 +19,8 @@ jobs:
           python -m py_compile smbs_core/kinematics2d/native_collision_3d.py
           python -m py_compile smbs_core/kinematics2d/native_bend_solid_3d.py
           python -m py_compile smbs_core/kinematics2d/native_tool_loader.py
+          python -m py_compile smbs_core/kinematics2d/motion_trajectory_3d.py
+          python -m py_compile tools/run_25d_physical_gui_acceptance.py
           python -m py_compile freecad_smbs/commands/pressbrake_2d.py
       - name: New selective physical validation tests
         run: PYTHONPATH=. python -m unittest tests.test_physical_validation_25d -v
@@ -28,3 +30,5 @@ jobs:
         run: PYTHONPATH=. python -m unittest tests.test_contact_oracle_2d -v
       - name: Existing 2.5D press cycle and GUI imports
         run: PYTHONPATH=. python -m unittest tests.test_workpiece_transfer tests.test_direct_install_25d -v
+      - name: All retained 2.5D and native D6 tests
+        run: PYTHONPATH=. python -m unittest discover -s tests -p 'test_*.py' -v
