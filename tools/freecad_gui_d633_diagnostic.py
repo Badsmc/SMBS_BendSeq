@@ -208,8 +208,62 @@ def show_phase(phase_name: str = "CONTACT"):
 show_phase("CONTACT")
 
 
+# Global container for trajectory states so user can step through samples interactively
+ACTIVE_TRAJECTORY_STATES = []
+
+
+def show_sample(sample_index: int):
+    """Display a specific physical sample from the active inspected trajectory."""
+    global ACTIVE_TRAJECTORY_STATES
+    if not ACTIVE_TRAJECTORY_STATES:
+        print("No active trajectory loaded. Call inspect_trajectory('L-(ok).FCStd', 'B01') first.")
+        return
+    if not (0 <= sample_index < len(ACTIVE_TRAJECTORY_STATES)):
+        print(f"Sample index {sample_index} out of range [0, {len(ACTIVE_TRAJECTORY_STATES) - 1}].")
+        return
+
+    st = ACTIVE_TRAJECTORY_STATES[sample_index]
+    # Position punch
+    punch_step = set_punch_ram_z(punch_base, st.ram_z_mm)
+    p_feat.Shape = punch_step.machine_shape
+
+    # Reconstruct workpiece solid
+    state.set_angle(st.active_bend_id, st.signed_angle_deg)
+    solid = build_multi_bend_sheet_solid(state, session.panel_build, segments=128)
+    tf = st.workpiece_placement
+    mat_wp = App.Matrix(
+        tf.rotation[0][0], tf.rotation[0][1], tf.rotation[0][2], tf.translation[0],
+        tf.rotation[1][0], tf.rotation[1][1], tf.rotation[1][2], tf.translation[1],
+        tf.rotation[2][0], tf.rotation[2][1], tf.rotation[2][2], tf.translation[2],
+        0.0, 0.0, 0.0, 1.0,
+    )
+    wp_machine = solid.shape.copy()
+    wp_machine.transformShape(mat_wp)
+    wp_feat.Shape = wp_machine
+
+    if HAS_GUI and hasattr(wp_feat, "ViewObject") and wp_feat.ViewObject is not None:
+        if st.is_safe:
+            wp_feat.ViewObject.ShapeColor = (0.2, 0.7, 0.3)
+            clash_feat.Shape = Part.Shape()
+        else:
+            wp_feat.ViewObject.ShapeColor = (0.85, 0.2, 0.2)
+            clash_solid = wp_machine.common(punch_step.machine_shape)
+            if die.machine_shape:
+                die_clash = wp_machine.common(die.machine_shape)
+                if die_clash.Volume > 0:
+                    clash_solid = clash_solid.fuse(die_clash) if clash_solid.Volume > 0 else die_clash
+            clash_feat.Shape = clash_solid
+
+    diag_doc.recompute()
+    print(f"\n[D6.3.4 Sample #{sample_index}/{len(ACTIVE_TRAJECTORY_STATES)-1}] Phase={st.phase} u={st.path_u:.4f} Angle={st.signed_angle_deg:.2f}deg Ram_Z={st.ram_z_mm:.2f}mm Safe={st.is_safe}")
+    if st.collision_report:
+        print(f" - Punch dist: {st.collision_report.punch_result.distance_mm:.4f} mm, Overlap: {st.collision_report.punch_result.overlap_volume_mm3:.6f} mm3")
+        print(f" - Die dist:   {st.collision_report.die_result.distance_mm:.4f} mm, Overlap: {st.collision_report.die_result.overlap_volume_mm3:.6f} mm3")
+
+
 def inspect_trajectory(fixture_name: str = "L-(ok).FCStd", bend_id: str = "B01"):
-    """D6.3.4 Adaptive motion trajectory inspection."""
+    """D6.3.4 Adaptive motion trajectory inspection and interactive sample navigation."""
+    global ACTIVE_TRAJECTORY_STATES
     print(f"\n[D6.3.4] Running adaptive trajectory validation on {fixture_name} ({bend_id})...")
     f_path = resolve_fixture_path(fixture_name)
     s_doc = App.openDocument(str(f_path), True)
@@ -229,10 +283,20 @@ def inspect_trajectory(fixture_name: str = "L-(ok).FCStd", bend_id: str = "B01")
         validator = AdaptiveTrajectoryValidator3D(st, sess.panel_build, punch_base, die, cfg)
         res = validator.validate_bend_trajectory(bend_id, {})
         print(f"Trajectory Evidence Status: {res.evidence_status.value}")
+        print(f"Continuous Certification:  {res.continuous_certification_status.value}")
         print(f"Qualified: {res.is_qualified}")
         print(f"Total Evaluated States: {res.total_states_evaluated}, Subdivisions: {res.total_subdivisions}")
+
+        all_states = []
         for pr in res.phase_results:
             print(f" - Phase {pr.phase_name:10s}: Status={pr.evidence_status.value:28s} States={len(pr.states):2d} Safe={pr.is_safe}")
+            all_states.extend(pr.states)
+
+        ACTIVE_TRAJECTORY_STATES = all_states
+        print(f"\nLoaded {len(ACTIVE_TRAJECTORY_STATES)} motion samples into viewer.")
+        print("Navigate samples interactively with: show_sample(index)")
+        if ACTIVE_TRAJECTORY_STATES:
+            show_sample(0)
         return res
     finally:
         App.closeDocument(s_doc.Name)
@@ -245,4 +309,6 @@ for p in PHASES:
 print("Or inspect full D6.3.4 motion trajectory:")
 print(" - inspect_trajectory('L-(ok).FCStd', 'B01')")
 print(" - inspect_trajectory('Z-(ok).FCStd', 'B02')")
+print("Navigate samples with:")
+print(" - show_sample(0) ... show_sample(n)")
 print("=" * 70)

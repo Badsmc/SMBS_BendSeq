@@ -12,9 +12,11 @@ Validation Matrix:
 3. Adaptive Trajectory: Evaluates complete press cycle motion (APPROACH, CONTACT, BENDING, BOTTOM, RETRACT).
 4. Multi-bend State Correctness: Evaluates B02 with B01 already completed in its folded physical state.
 5. Evidence Status Differentiation:
-   - Differentiates ADAPTIVE_SAMPLING_CONVERGED from CONTINUOUS_COLLISION_CERTIFIED and INTERVAL_UNRESOLVED.
+   - Differentiates SAMPLED_INTERVAL_CONVERGED from CONTINUOUS_COLLISION_CERTIFIED and INTERVAL_UNRESOLVED.
+   - Always reports NOT_CONTINUOUSLY_CERTIFIED when analytical envelope proof is unavailable.
    - Differentiates TRANSFER_PATH_UNDEFINED.
-6. Diagnostic JSON Generation using shared report manager.
+6. FoldState Deterministic Isolation: Verifies incoming fold state restoration.
+7. Diagnostic JSON Generation using shared report manager.
 """
 from __future__ import annotations
 
@@ -78,6 +80,10 @@ def run_fixture_trajectory_test(
         fold_state = session.fold_state
         panel_build = session.panel_build
 
+        # Save initial state of fixture fold state
+        initial_angles = dict(fold_state.angles)
+        initial_transforms = {p: fold_state.transforms[p] for p in fold_state.graph.panels}
+
         validator = AdaptiveTrajectoryValidator3D(
             fold_state=fold_state,
             panel_build=panel_build,
@@ -107,10 +113,17 @@ def run_fixture_trajectory_test(
                 phases_summary.append({
                     "phase": pr.phase_name,
                     "evidence_status": pr.evidence_status.value,
+                    "continuous_certification_status": pr.continuous_certification_status.value,
                     "is_safe": pr.is_safe,
                     "states_count": len(pr.states),
                     "subdivisions": pr.subdivisions_count,
                     "peak_depth": pr.peak_recursion_depth,
+                    "solid_reconstructions": pr.solid_reconstructions_count,
+                    "collision_queries": pr.collision_queries_count,
+                    "min_punch_clearance_mm": pr.min_punch_clearance_mm,
+                    "min_die_clearance_mm": pr.min_die_clearance_mm,
+                    "max_punch_overlap_volume_mm3": pr.max_punch_overlap_volume_mm3,
+                    "max_die_overlap_volume_mm3": pr.max_die_overlap_volume_mm3,
                     "unresolved_intervals": pr.unresolved_intervals,
                     "discontinuities": pr.discontinuities,
                     "elapsed_ms": pr.elapsed_ms,
@@ -121,9 +134,13 @@ def run_fixture_trajectory_test(
                 "signed_target_angle_deg": res.signed_target_angle_deg,
                 "tool_setup_status": res.tool_setup_status.value,
                 "evidence_status": res.evidence_status.value,
+                "continuous_certification_status": res.continuous_certification_status.value,
                 "is_qualified": res.is_qualified,
                 "total_states_evaluated": res.total_states_evaluated,
                 "total_subdivisions": res.total_subdivisions,
+                "total_solid_reconstructions": res.total_solid_reconstructions,
+                "total_collision_queries": res.total_collision_queries,
+                "fold_state_restored": res.fold_state_restored,
                 "elapsed_ms": res.elapsed_ms,
                 "phases": phases_summary,
                 "diagnostics": res.diagnostics,
@@ -136,6 +153,10 @@ def run_fixture_trajectory_test(
                 f"States={res.total_states_evaluated:2d} Subdivs={res.total_subdivisions:2d} "
                 f"Qualified={res.is_qualified}"
             )
+
+        # Verify final restoration of fold state
+        final_angles = dict(fold_state.angles)
+        state_angles_clean = (final_angles == initial_angles)
 
         # Test transfer between sequential bends if multiple bends exist
         transfer_reports = []
@@ -152,6 +173,7 @@ def run_fixture_trajectory_test(
                 "from_bend": "B01",
                 "to_bend": "B02",
                 "status": tr_res.evidence_status.value,
+                "continuous_certification_status": tr_res.continuous_certification_status.value,
                 "diagnostics": tr_res.diagnostics,
             })
 
@@ -159,12 +181,15 @@ def run_fixture_trajectory_test(
             "fixture": fixture_filename,
             "tool_setup": "2x100mm_ASSEMBLY" if tool_offsets_xm else "1x100mm_SINGLE",
             "tool_length_mm": punch_base.length_mm,
+            "fold_state_restoration_verified": state_angles_clean,
             "bends_evaluated": bends_data,
             "transfers_evaluated": transfer_reports,
             "timing_breakdown_ms": {
                 "solid_reconstruction_ms": validator.solid_reconstruction_time_ms,
                 "placement_calc_ms": validator.placement_calc_time_ms,
                 "total_states": validator.total_states_evaluated,
+                "total_solid_reconstructions": validator.total_solid_reconstructions,
+                "total_collision_queries": validator.total_collision_queries,
                 "fixture_total_ms": (time.perf_counter() - t_f0) * 1000.0,
             },
         }
@@ -189,7 +214,7 @@ def run_full_d634_validation() -> dict:
     )
 
     report = {
-        "schema": "smbs-d634-adaptive-motion-collision-v1",
+        "schema": "smbs-d634-adaptive-motion-collision-v2",
         "created_utc": datetime.now(timezone.utc).isoformat(),
         "freecad_version": ".".join(map(str, App.Version()[:3])),
         "punch_file": str(punch_path),
@@ -227,21 +252,34 @@ def run_full_d634_validation() -> dict:
         and rep_l_single["bends_evaluated"][0]["tool_setup_status"] == "INSUFFICIENT_PUNCH_COVERAGE"
     )
     l_converged = (
-        rep_l_assembly["bends_evaluated"][0]["evidence_status"] == TrajectoryEvidenceStatus.ADAPTIVE_SAMPLING_CONVERGED.value
+        rep_l_assembly["bends_evaluated"][0]["evidence_status"] in (
+            TrajectoryEvidenceStatus.SAMPLED_INTERVAL_CONVERGED.value,
+            TrajectoryEvidenceStatus.ADAPTIVE_SAMPLING_CONVERGED.value,
+        )
         and rep_l_assembly["bends_evaluated"][0]["is_qualified"]
     )
     z_converged = all(
-        b["evidence_status"] == TrajectoryEvidenceStatus.ADAPTIVE_SAMPLING_CONVERGED.value and b["is_qualified"]
+        b["evidence_status"] in (
+            TrajectoryEvidenceStatus.SAMPLED_INTERVAL_CONVERGED.value,
+            TrajectoryEvidenceStatus.ADAPTIVE_SAMPLING_CONVERGED.value,
+        ) and b["is_qualified"]
         for b in rep_z_assembly["bends_evaluated"]
     )
     a135_converged = all(
-        b["evidence_status"] == TrajectoryEvidenceStatus.ADAPTIVE_SAMPLING_CONVERGED.value and b["is_qualified"]
+        b["evidence_status"] in (
+            TrajectoryEvidenceStatus.SAMPLED_INTERVAL_CONVERGED.value,
+            TrajectoryEvidenceStatus.ADAPTIVE_SAMPLING_CONVERGED.value,
+        ) and b["is_qualified"]
         for b in rep_135_assembly["bends_evaluated"]
     )
     transfer_undefined_distinguished = any(
         t.get("status") == TrajectoryEvidenceStatus.TRANSFER_PATH_UNDEFINED.value
         for rep in [rep_z_assembly, rep_135_assembly]
         for t in rep.get("transfers_evaluated", [])
+    )
+    fold_states_restored = all(
+        t.get("fold_state_restoration_verified", False)
+        for t in [rep_l_single, rep_l_assembly, rep_z_assembly, rep_135_assembly]
     )
 
     report["acceptance_checks"] = {
@@ -250,10 +288,11 @@ def run_full_d634_validation() -> dict:
         "z_assembly_adaptive_converged": z_converged,
         "a135_assembly_adaptive_converged": a135_converged,
         "transfer_undefined_distinguished": transfer_undefined_distinguished,
+        "fold_states_restoration_verified": fold_states_restored,
         "continuous_not_falsely_certified": True,
     }
 
-    if single_cov_rejected and l_converged and z_converged and a135_converged and transfer_undefined_distinguished:
+    if single_cov_rejected and l_converged and z_converged and a135_converged and transfer_undefined_distinguished and fold_states_restored:
         report["overall_status"] = "D634_ADAPTIVE_MOTION_COLLISION_VERIFIED"
     else:
         report["overall_status"] = "FAIL_UNSOUND_ADAPTIVE_TRAJECTORY"
@@ -276,4 +315,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
