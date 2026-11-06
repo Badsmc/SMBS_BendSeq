@@ -1,7 +1,9 @@
 """Read-only physical check contract: no false 3D qualification and no GUI dependencies."""
 from __future__ import annotations
 
+import tempfile
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -9,7 +11,7 @@ from smbs_core.kinematics2d.contact_oracle_2d import (
     ContactReport, ContactFinding, ContactStatus,
 )
 from smbs_core.kinematics2d.physical_validation_25d import (
-    PhysicalEvidence, check_current_25d_pose,
+    PhysicalEvidence, _source_path, check_current_25d_pose,
 )
 
 MOD = "smbs_core.kinematics2d.physical_validation_25d"
@@ -46,6 +48,21 @@ class PhysicalIntegrationTests(unittest.TestCase):
         with patch(MOD + ".compute_machine_cutting_plane_section", return_value=self.section), \
              patch(MOD + ".check_sheet_tooling_preview", return_value=contact or self.contact):
             return check_current_25d_pose(self.session, self.cycle, self.tooling, native_3d=native_3d)
+
+    def test_native_source_must_match_selected_verified_profile(self):
+        from smbs_core.kinematics2d.tooling_25d import ValidationStatus
+        with tempfile.TemporaryDirectory() as tmp:
+            fp = Path(tmp) / "punch123.FCStd"
+            fp.write_bytes(b"fixture for path contract")
+            obj = SimpleNamespace(
+                validation_status=ValidationStatus.GEOMETRY_VERIFIED,
+                source_file=str(fp), tool_id="other_tool",
+            )
+            self.assertIsNone(_source_path(obj))
+            obj.tool_id = "punch123"
+            self.assertEqual(_source_path(obj), fp)
+            obj.validation_status = ValidationStatus.IMPORTED
+            self.assertIsNone(_source_path(obj))
 
     def test_missing_part_and_alignment_fail_closed(self):
         self.assertEqual(check_current_25d_pose(None, self.cycle, self.tooling).status,
