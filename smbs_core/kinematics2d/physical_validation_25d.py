@@ -339,6 +339,10 @@ def check_active_25d_bend_trajectory(session, tooling, *, config=None):
         pieces.append("solid_rebuilds={}".format(phase.solid_reconstructions_count))
         pieces.append("3d_collision_queries={}".format(phase.collision_queries_count))
         pieces.append("elapsed_s={:.2f}".format(phase.elapsed_ms / 1000.0))
+        p_eval_s = getattr(phase, "total_punch_eval_ms", 0.0) / 1000.0
+        d_eval_s = getattr(phase, "total_die_eval_ms", 0.0) / 1000.0
+        pieces.append("punch_eval_s={:.2f}".format(p_eval_s))
+        pieces.append("die_eval_s={:.2f}".format(d_eval_s))
         pieces.append("punch_overlap_mm3={:.6f}".format(phase.max_punch_overlap_volume_mm3))
         pieces.append("die_overlap_mm3={:.6f}".format(phase.max_die_overlap_volume_mm3))
         phase_details.append(",".join(pieces))

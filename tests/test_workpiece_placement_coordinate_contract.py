@@ -154,7 +154,8 @@ class TestWorkpiecePlacementCoordinateContract(unittest.TestCase):
 
         # Die shoulder contact check: sheet bottom surface rests on die shoulders at Z_m = 0.0
         # Sheet material must not penetrate the die (Volume <= 1e-4 mm^3)
-        die = load_native_die("/Users/badmc/Desktop/SMBS_BendSeq/toollibrary/die/matrica.FCStd")
+        die_path = str(ROOT / "toollibrary" / "die" / "matrica.FCStd")
+        die = load_native_die(die_path)
         die_common = wp_machine.common(die.machine_shape)
         die_vol = float(getattr(die_common, "Volume", 0.0))
         self.assertLessEqual(
@@ -164,7 +165,8 @@ class TestWorkpiecePlacementCoordinateContract(unittest.TestCase):
 
         # Punch contact at ram_z = sheet_top_z_mm
         thickness = self.panel.tooling_setup.sheet_top_z_mm
-        punch = load_native_punch("/Users/badmc/Desktop/SMBS_BendSeq/toollibrary/punch/puancon.FCStd", ram_z_mm=thickness)
+        punch_path = str(ROOT / "toollibrary" / "punch" / "puancon.FCStd")
+        punch = load_native_punch(punch_path, ram_z_mm=thickness)
         punch_common = wp_machine.common(punch.machine_shape)
         punch_vol = float(getattr(punch_common, "Volume", 0.0))
         self.assertLessEqual(

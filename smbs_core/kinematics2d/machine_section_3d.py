@@ -17,6 +17,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 from .fold_sequence import ANGLE_EPS
 from .panel_kinematics import FoldState
 from .workpiece_placement_3d import PlacementTransform3D, WorkpiecePlacement3D
+from .workpiece_pose_2d import WorkpiecePoseError
 
 
 def slice_polygon_3d_at_x(

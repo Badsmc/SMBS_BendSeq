@@ -11,6 +11,7 @@ from smbs_core.kinematics2d.contact_oracle_2d import (
     ContactReport, ContactFinding, ContactStatus,
 )
 from smbs_core.kinematics2d.physical_validation_25d import (
+    CurrentPosePhysicalReport,
     PhysicalEvidence, _source_path, check_current_25d_pose,
     check_active_25d_bend_trajectory,
 )
@@ -290,6 +291,135 @@ class PhysicalIntegrationTests(unittest.TestCase):
         self.assertEqual(report.status, PhysicalEvidence.SECTION_CLEAR_3D_UNVERIFIED)
         self.assertEqual(report.native_status, "MISSING_SOURCE_FCSTD")
         self.assertNotIn("3D_PUNCH_DIE_CURRENT_POSE", report.checked_scope)
+
+    def test_acceptance_runner_unresolved_trajectory_fails_closed(self):
+        """Verify tools/run_25d_physical_gui_acceptance.py raises on INTERVAL_UNRESOLVED and never reports ACCEPTANCE_PASS."""
+        from io import StringIO
+        from unittest.mock import patch
+        import tools.run_25d_physical_gui_acceptance as runner
+
+        fake_pose = CurrentPosePhysicalReport(
+            PhysicalEvidence.SAMPLED_3D_CLEAR_NOT_CONTINUOUS,
+            "TOUCH", "TOUCHING", "ok", ("scope",)
+        )
+        fake_unresolved_traj = CurrentPosePhysicalReport(
+            PhysicalEvidence.UNVERIFIED,
+            "NOT_APPLICABLE", "INTERVAL_UNRESOLVED", "budget_exhausted", ("3D_PUNCH_DIE_SAMPLED_BEND",)
+        )
+
+        with patch("smbs_core.kinematics2d.physical_validation_25d.check_current_25d_pose", return_value=fake_pose), \
+             patch("smbs_core.kinematics2d.physical_validation_25d.check_active_25d_bend_trajectory", return_value=fake_unresolved_traj), \
+             patch("smbs_core.kinematics2d.machine_section_3d.compute_machine_cutting_plane_section", return_value={}), \
+             patch("smbs_core.kinematics2d.workpiece_placement_3d.WorkpiecePlacement3D.get_world_bend_axis", return_value=((0.,0.,0.), (100.,0.,0.), (1.,0.,0.))), \
+             patch("smbs_core.kinematics2d.workpiece_placement_3d.WorkpiecePlacement3D.compute_placement", return_value=SimpleNamespace(rotation=((1,0,0),(0,1,0),(0,0,1)), translation=(0,0,0))), \
+             patch("smbs_core.demo_paths.demo_part_path", return_value=Path(__file__)), \
+             patch("FreeCAD.listDocuments", return_value=[]), \
+             patch("FreeCAD.openDocument") as mock_open, \
+             patch("FreeCAD.closeDocument"), \
+             patch("freecad_smbs.commands.pressbrake_2d.build_part_session") as mock_bps, \
+             patch("freecad_smbs.commands.pressbrake_2d._PreviewPanel") as mock_panel_cls, \
+             patch("sys.stdout", new_callable=StringIO) as fake_out:
+
+            mock_doc = mock_open.return_value
+            mock_obj = SimpleNamespace(Name="test_Unfold")
+            mock_doc.Objects = [mock_obj]
+            mock_session = mock_bps.return_value
+            mock_session.fold_state.angles = {"B01": 0.0}
+            mock_session.fold_state.bends = {
+                "B01": SimpleNamespace(
+                    bend_zone=SimpleNamespace(thickness_mm=1.0, inner_radius_mm=2.5, outer_radius_mm=3.5),
+                    fixed_panel="P01",
+                )
+            }
+            mock_session.cross_section = lambda segments=32: {}
+            mock_session.panel_vertices_xy = {}
+            mock_session.active_bend_id = "B01"
+            panel_inst = mock_panel_cls.return_value
+            panel_inst.tooling_setup = SimpleNamespace(
+                aligned=True,
+                reset_position=lambda: None,
+                die_v_center_machine=lambda: (0.0, 0.0),
+                punch_tip_machine=lambda: (0.0, 1.0),
+                alignment_anchor_sz=(0.0, 0.0),
+            )
+            panel_inst.physical_check_btn = SimpleNamespace(click=lambda: None)
+            panel_inst.press_cycle = SimpleNamespace(
+                ram_z_mm=1.0,
+                current_workpiece_placement_3d=lambda: SimpleNamespace(rotation=((1,0,0),(0,1,0),(0,0,1)), translation=(0,0,0)),
+                step_simulation=lambda: None,
+            )
+            panel_inst._stop_timer = lambda: None
+            panel_inst.close = lambda: None
+            panel_inst.deleteLater = lambda: None
+
+            with self.assertRaisesRegex(RuntimeError, "PHYSICAL_ACCEPTANCE_FAILED_INCOMPLETE_TRAJECTORY"):
+                runner.run(diagnostic_only=False)
+
+            out_text = fake_out.getvalue()
+            self.assertIn("PHYSICAL_STAGE2_RESULT: INCOMPLETE/UNRESOLVED", out_text)
+            self.assertNotIn("ACCEPTANCE_PASS", out_text)
+
+    def test_acceptance_runner_diagnostic_mode_never_reports_acceptance_pass(self):
+        """Verify diagnostic_only=True returns result without exception, but never reports ACCEPTANCE_PASS."""
+        from io import StringIO
+        from unittest.mock import patch
+        import tools.run_25d_physical_gui_acceptance as runner
+
+        fake_pose = CurrentPosePhysicalReport(
+            PhysicalEvidence.SAMPLED_3D_CLEAR_NOT_CONTINUOUS,
+            "TOUCH", "TOUCHING", "ok", ("scope",)
+        )
+
+        with patch("smbs_core.kinematics2d.physical_validation_25d.check_current_25d_pose", return_value=fake_pose), \
+             patch("smbs_core.kinematics2d.machine_section_3d.compute_machine_cutting_plane_section", return_value={}), \
+             patch("smbs_core.kinematics2d.workpiece_placement_3d.WorkpiecePlacement3D.get_world_bend_axis", return_value=((0.,0.,0.), (100.,0.,0.), (1.,0.,0.))), \
+             patch("smbs_core.kinematics2d.workpiece_placement_3d.WorkpiecePlacement3D.compute_placement", return_value=SimpleNamespace(rotation=((1,0,0),(0,1,0),(0,0,1)), translation=(0,0,0))), \
+             patch("smbs_core.demo_paths.demo_part_path", return_value=Path(__file__)), \
+             patch("FreeCAD.listDocuments", return_value=[]), \
+             patch("FreeCAD.openDocument") as mock_open, \
+             patch("FreeCAD.closeDocument"), \
+             patch("freecad_smbs.commands.pressbrake_2d.build_part_session") as mock_bps, \
+             patch("freecad_smbs.commands.pressbrake_2d._PreviewPanel") as mock_panel_cls, \
+             patch("sys.stdout", new_callable=StringIO) as fake_out:
+
+            mock_doc = mock_open.return_value
+            mock_obj = SimpleNamespace(Name="test_Unfold")
+            mock_doc.Objects = [mock_obj]
+            mock_session = mock_bps.return_value
+            mock_session.fold_state.angles = {"B01": 0.0}
+            mock_session.fold_state.bends = {
+                "B01": SimpleNamespace(
+                    bend_zone=SimpleNamespace(thickness_mm=1.0, inner_radius_mm=2.5, outer_radius_mm=3.5),
+                    fixed_panel="P01",
+                )
+            }
+            mock_session.cross_section = lambda segments=32: {}
+            mock_session.panel_vertices_xy = {}
+            mock_session.active_bend_id = "B01"
+            panel_inst = mock_panel_cls.return_value
+            panel_inst.tooling_setup = SimpleNamespace(
+                aligned=True,
+                reset_position=lambda: None,
+                die_v_center_machine=lambda: (0.0, 0.0),
+                punch_tip_machine=lambda: (0.0, 1.0),
+                alignment_anchor_sz=(0.0, 0.0),
+            )
+            panel_inst.physical_check_btn = SimpleNamespace(click=lambda: None)
+            panel_inst.press_cycle = SimpleNamespace(
+                ram_z_mm=1.0,
+                current_workpiece_placement_3d=lambda: SimpleNamespace(rotation=((1,0,0),(0,1,0),(0,0,1)), translation=(0,0,0)),
+                step_simulation=lambda: None,
+            )
+            panel_inst._stop_timer = lambda: None
+            panel_inst.close = lambda: None
+            panel_inst.deleteLater = lambda: None
+
+            res = runner.run(diagnostic_only=True)
+            out_text = fake_out.getvalue()
+            self.assertIn("PHYSICAL_FRAME_DIAGNOSTIC_ONLY", out_text)
+            self.assertNotIn("ACCEPTANCE_PASS", out_text)
+            self.assertIs(res["pose"], fake_pose)
+            self.assertIsNone(res["trajectory"])
 
 
 if __name__ == "__main__":
