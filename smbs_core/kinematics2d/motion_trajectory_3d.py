@@ -423,14 +423,12 @@ class AdaptiveTrajectoryValidator3D:
         )
         large_ram_step = ram_delta > self.config.max_ram_displacement_step_mm
 
-        # 4. Small clearance in free motion
-        small_clearance = False
-        for s in (s_left, s_mid, s_right):
-            for res in (s.collision_report.punch_result, s.collision_report.die_result):
-                if res.status == CollisionClass.NEAR_CONTACT and res.distance_mm < self.config.min_clearance_margin_mm:
-                    small_clearance = True
-                    break
-
+        # Stable, non-penetrating near-contact is a valid SAMPLED state, not
+        # on its own a reason to subdivide forever. Earlier D6 recursively
+        # refined every interval touching the die, reaching budget/depth even
+        # when the gap and contact class were unchanged. Rapid gap changes,
+        # contact transitions, excessive motion and actual penetration still
+        # force subdivision. No continuous collision certification is implied.
         # 5. Clearance changes rapidly near contact
         p_clear_diff = max(
             abs(s_left.collision_report.punch_result.distance_mm - s_mid.collision_report.punch_result.distance_mm),
@@ -466,7 +464,6 @@ class AdaptiveTrajectoryValidator3D:
             clash_detected
             or large_angle_step
             or large_ram_step
-            or small_clearance
             or rapid_clearance_change
             or status_change
         )
