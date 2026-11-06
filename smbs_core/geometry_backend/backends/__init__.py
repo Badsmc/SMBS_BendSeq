@@ -1,4 +1,5 @@
-from .mock_backend import MockBackend
-from .pythonocc_backend import PythonOCCBackend
+"""Optional FreeCAD FCStd metadata readers for 2.5D tooling.
 
-__all__ = ["MockBackend", "PythonOCCBackend"]
+Native FreeCAD is loaded only from the caller's requested reader. The deprecated
+PythonOCC geometry backend is not a prerequisite for PressBrakeSim 2.5D.
+"""
