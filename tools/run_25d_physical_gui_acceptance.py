@@ -69,19 +69,11 @@ def run():
             raise RuntimeError("FOLD_STATE_MUTATED_BY_COLLISION_CHECK")
         if result.is_fully_qualified:
             raise RuntimeError("INVALID_UNBOUNDED_QUALIFICATION")
-        # A real collision is a valid *diagnostic result*, not a successful
-        # production cycle; both collision and sampled clear have evidence.
-        if result.status in (
-            PhysicalEvidence.UNVERIFIED,
-            PhysicalEvidence.SECTION_CLEAR_3D_UNVERIFIED,
-        ):
-            raise RuntimeError(
-                "NATIVE_3D_NOT_YET_QUALIFIED_FOR_FIXTURE: " + result.reason
-            )
-        if "3D_PUNCH_DIE_CURRENT_POSE" not in result.checked_scope:
-            raise RuntimeError("NO_NATIVE_3D_EVIDENCE")
-        print("PHYSICAL_GUI_SAMPLE_CHECK_DONE: {} (single pose only)".format(
-            result.status.value
+        # A section collision is a valid finding but not proof of a native
+        # 3D collision. Always run the independent D6.3.4 check so the
+        # evidence mismatch can be diagnosed without masking either result.
+        print("PHYSICAL_SECTION_EVIDENCE: {} | {} | {}".format(
+            result.section_status, result.native_status, result.reason,
         ))
         trajectory = check_active_25d_bend_trajectory(
             session, panel.tooling_setup,
@@ -90,12 +82,35 @@ def run():
             trajectory.status.value, trajectory.native_status,
             trajectory.reason,
         ))
+        if "3D_PUNCH_DIE_SAMPLED_BEND" not in trajectory.checked_scope:
+            raise RuntimeError(
+                "D634_NATIVE_EVIDENCE_MISSING: {} | {} | {}".format(
+                    trajectory.status.value, trajectory.native_status, trajectory.reason,
+                )
+            )
+        if trajectory.status is PhysicalEvidence.COLLISION:
+            raise RuntimeError(
+                "D634_COLLISION_DETECTED: {} | {}".format(
+                    trajectory.native_status, trajectory.reason,
+                )
+            )
         if trajectory.status is not PhysicalEvidence.SAMPLED_3D_CLEAR_NOT_CONTINUOUS:
             raise RuntimeError(
                 "D634_ADAPTIVE_NOT_QUALIFIED: " + trajectory.reason
             )
-        if "3D_PUNCH_DIE_SAMPLED_BEND" not in trajectory.checked_scope:
-            raise RuntimeError("D634_NO_SAMPLED_BEND_EVIDENCE")
+        if result.section_status == "INTERFERENCE":
+            raise RuntimeError(
+                "SECTION_3D_EVIDENCE_CONFLICT: 2D section reports interference "
+                "but D6 sampled 3D bend reports no penetration. Check "
+                "machine-space die alignment and panel slicing. "
+                "No physical acceptance granted."
+            )
+        if result.status is not PhysicalEvidence.SAMPLED_3D_CLEAR_NOT_CONTINUOUS:
+            raise RuntimeError(
+                "POSE_NATIVE_EVIDENCE_UNRESOLVED: {} | {} | {}".format(
+                    result.status.value, result.native_status, result.reason,
+                )
+            )
         if dict(session.fold_state.angles) != initial:
             raise RuntimeError("D634_FOLD_STATE_NOT_RESTORED")
         print("PHYSICAL_STAGE2_FREECAD_ACCEPTANCE_PASS: "
