@@ -199,3 +199,91 @@ def check_current_25d_pose(session, press_cycle, tooling, *, native_3d: bool = T
         "discrete_pose_only; no_swept_transfer_backgauge_clamps_frame_or_support_certificate",
         ("2D_SECTION", "3D_PUNCH_DIE_CURRENT_POSE", "3D_TOOL_LENGTH"),
     )
+
+
+def check_active_25d_bend_trajectory(session, tooling, *, config=None):
+    """Run the existing D6.3.4 adaptive 3D oracle for ONE active bend.
+
+    Invoked only by explicit request, never from the animation timer.
+    The D6 validator restores FoldState in its own finally block. This
+    service still checks the incoming state afterward and refuses a result
+    if a mutation escaped. The result is bounded SAMPLED evidence only.
+    """
+    if session is None or getattr(session, "fold_state", None) is None:
+        return _unverified("part_not_loaded")
+    if not getattr(tooling, "aligned", False):
+        return _unverified("tooling_not_aligned")
+    punch_file = _source_path(getattr(tooling, "punch", None))
+    die_file = _source_path(getattr(tooling, "die", None))
+    if punch_file is None or die_file is None:
+        return _unverified("real_verified_selected_punch_and_die_fcstd_required")
+
+    state = session.fold_state
+    original_angles = dict(state.angles)
+    original_transforms = dict(state.transforms)
+    active_id = session.active_bend_id
+    order = tuple(session.bend_order)
+    if active_id not in order:
+        return _unverified("active_bend_not_in_order")
+    index = order.index(active_id)
+    prior = {}
+    for bid in order[:index]:
+        target = float(state.bends[bid].angle_deg)
+        if abs(float(original_angles.get(bid, 0.0)) - target) > 1e-6:
+            return _unverified("prior_bend_not_completed:" + bid)
+        prior[bid] = target
+    if any(abs(float(original_angles.get(bid, 0.0))) > 1e-6
+           for bid in order[index + 1:]):
+        return _unverified("later_bend_already_modified")
+
+    report = None
+    try:
+        import FreeCAD as App
+        from .native_tool_loader import load_native_die, load_native_punch
+        from .motion_trajectory_3d import (
+            AdaptiveTrajectoryValidator3D, TrajectoryEvidenceStatus,
+        )
+        prev = getattr(getattr(App, "ActiveDocument", None), "Name", None)
+        try:
+            punch = load_native_punch(punch_file, ram_z_mm=50.0)
+            die = load_native_die(die_file)
+            validator = AdaptiveTrajectoryValidator3D(
+                state, session.panel_build, punch, die, config=config,
+            )
+            report = validator.validate_bend_trajectory(active_id, prior)
+        finally:
+            if prev and App.getDocument(prev) is not None:
+                App.setActiveDocument(prev)
+    except Exception as exc:
+        return _unverified("d634_validation_failed:" + str(exc))
+    finally:
+        if state.angles != original_angles or state.transforms != original_transforms:
+            # Never attempt an unverified automatic repair here. FoldState
+            # restoration failure is a real blocker; a qualified status is
+            # forbidden and the caller must reset before any further play.
+            raise RuntimeError("D634_FOLDSTATE_RESTORATION_FAILED")
+
+    native = report.evidence_status.value
+    if report.evidence_status is TrajectoryEvidenceStatus.DISCRETE_SAMPLES_REJECTED:
+        return CurrentPosePhysicalReport(
+            PhysicalEvidence.COLLISION if report.first_collision_state is not None
+            else PhysicalEvidence.UNVERIFIED,
+            "NOT_APPLICABLE", native,
+            "native_d634_rejected:" + ";".join(report.diagnostics[:3]),
+            ("3D_PUNCH_DIE_SAMPLED_BEND", "3D_TOOL_LENGTH"),
+        )
+    if (report.evidence_status is TrajectoryEvidenceStatus.SAMPLED_INTERVAL_CONVERGED
+            and report.is_qualified and report.fold_state_restored):
+        return CurrentPosePhysicalReport(
+            PhysicalEvidence.SAMPLED_3D_CLEAR_NOT_CONTINUOUS,
+            "NOT_APPLICABLE", native,
+            "d634_samples=" + str(report.total_states_evaluated)
+            + "; continuous=" + report.continuous_certification_status.value
+            + "; transfer_backgauge_clamps_frame_unverified",
+            ("3D_PUNCH_DIE_SAMPLED_BEND", "3D_TOOL_LENGTH"),
+        )
+    return CurrentPosePhysicalReport(
+        PhysicalEvidence.UNVERIFIED, "NOT_APPLICABLE", native,
+        "d634_incomplete:" + ";".join(report.diagnostics[:3]),
+        ("3D_PUNCH_DIE_SAMPLED_BEND",),
+    )
