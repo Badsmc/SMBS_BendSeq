@@ -249,5 +249,66 @@ class WorkspaceGuiTests(unittest.TestCase):
             panel.deleteLater()
 
 
+    def test_full_cycle_tick_failure_pauses_controller_and_latches_reason(self):
+        """A failed machine tick cannot leave the headless controller PLAYING."""
+        try:
+            import FreeCAD  # noqa: F401
+            from freecad_smbs.commands.pressbrake_2d import _PreviewPanel, _qt
+            from smbs_core.kinematics2d.fold_sequence import PlaybackStatus
+            from smbs_core.kinematics2d.press_cycle import CycleExecutionMode
+            _QtCore, _QtGui, QtWidgets = _qt()
+        except (ImportError, ModuleNotFoundError) as exc:
+            self.skipTest("FreeCAD runtime unavailable: {}".format(exc))
+        if QtWidgets.QApplication.instance() is None:
+            self.skipTest("Qt GUI application is not running")
+
+        class FailedCycle:
+            def __init__(self, session):
+                self.session = session
+                self.paused = False
+            def advance_time(self, dt):
+                raise RuntimeError("TRANSFER_TRAJECTORY_FAILED: fixture B01->B02")
+            def pause(self):
+                self.paused = True
+                self.session.playback_status = PlaybackStatus.PAUSED
+
+        from types import SimpleNamespace
+        panel = _PreviewPanel()
+        try:
+            session = SimpleNamespace(
+                playback_status=PlaybackStatus.PLAYING,
+                active_bend_index=0, active_bend_id="B01",
+                current_angle_deg=90.0, bend_order=("B01", "B02"),
+                canonical_order=("B01", "B02"),
+                can_reorder=lambda: False,
+            )
+            pc = FailedCycle(session)
+            panel.session = session
+            panel.press_cycle = pc
+            panel.execution_mode = CycleExecutionMode.FULL_CYCLE
+            panel._ensure_press_cycle_controller = lambda: pc
+            panel._configure_for_active_bend = lambda: None
+            panel._update_tooling_status_label = lambda: None
+            panel.draw = lambda: None
+            recorded = []
+            panel._trace_event = lambda event, **kw: recorded.append(event)
+            panel._finish_motion_trace = lambda reason: recorded.append(reason)
+            panel.timer.start()
+            panel.advance()
+            self.assertTrue(pc.paused)
+            self.assertEqual(session.playback_status, PlaybackStatus.PAUSED)
+            self.assertFalse(panel.timer.isActive())
+            self.assertIn("TRANSFER_TRAJECTORY_FAILED", panel._machine_pose_fault)
+            self.assertIn("AUTOPLAY_ERROR", recorded)
+            self.assertIn("AUTO PLAY ERROR", panel.status.text())
+            # Replay is blocked until an explicit user reset/mode change.
+            panel.play_all()
+            self.assertFalse(panel.timer.isActive())
+        finally:
+            panel.timer.stop()
+            panel.close()
+            panel.deleteLater()
+
+
 if __name__ == "__main__":
     unittest.main()
