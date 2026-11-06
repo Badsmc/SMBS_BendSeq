@@ -224,7 +224,12 @@ def check_current_25d_pose(session, press_cycle, tooling, *, native_3d: bool = T
     if result.status is CollisionClass.PENETRATION:
         return CurrentPosePhysicalReport(
             PhysicalEvidence.COLLISION, sec, result.status.value,
-            "native_3d_positive_volume_interference" + support_frame_detail,
+            "native_3d_positive_volume_interference:"
+            "punch={:.9f}mm3;die={:.9f}mm3;details={}".format(
+                result.punch_result.overlap_volume_mm3,
+                result.die_result.overlap_volume_mm3,
+                ";".join(result.diagnostics),
+            ) + support_frame_detail,
             ("2D_SECTION", "3D_PUNCH_DIE_CURRENT_POSE", "3D_TOOL_LENGTH"),
         )
     if not result.is_safe or result.status not in (
@@ -331,6 +336,9 @@ def check_active_25d_bend_trajectory(session, tooling, *, config=None):
         if phase.diagnostics:
             pieces.append("reason={}".format(phase.diagnostics[0]))
         pieces.append("samples={}".format(len(phase.states)))
+        pieces.append("solid_rebuilds={}".format(phase.solid_reconstructions_count))
+        pieces.append("3d_collision_queries={}".format(phase.collision_queries_count))
+        pieces.append("elapsed_s={:.2f}".format(phase.elapsed_ms / 1000.0))
         pieces.append("punch_overlap_mm3={:.6f}".format(phase.max_punch_overlap_volume_mm3))
         pieces.append("die_overlap_mm3={:.6f}".format(phase.max_die_overlap_volume_mm3))
         phase_details.append(",".join(pieces))
