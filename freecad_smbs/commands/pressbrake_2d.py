@@ -669,6 +669,16 @@ class _PreviewPanel:
                     "Не сертифицирует весь цикл или станок."
                 )
                 t_layout.addWidget(self.physical_check_btn)
+                self.full_physical_check_btn = _button(
+                    QtWidgets, "Проверить весь гиб: D6.3.4",
+                    self.check_active_bend_physical_trajectory, True,
+                )
+                self.full_physical_check_btn.setToolTip(
+                    "Ресурсоёмкая проверка выборки 3D-состояний текущего гиба. "
+                    "Во время выполнения анимация должна быть остановлена. "
+                    "Непрерывное движение и прочие компоненты станка не сертифицированы."
+                )
+                t_layout.addWidget(self.full_physical_check_btn)
                 self.physical_check_result = QtWidgets.QLabel(
                     "Проверка коллизий не выполнена."
                 )
@@ -1383,6 +1393,61 @@ class _PreviewPanel:
                     )
                     _error("Physical pose check exception: " + traceback.format_exc())
                 finally:
+                    self.physical_check_btn.setEnabled(True)
+
+            def check_active_bend_physical_trajectory(self):
+                """D6.3.4 adaptive evaluation on demand; no timer-side OCC calls."""
+                if self.session is None:
+                    self.physical_check_result.setText(
+                        "UNVERIFIED: деталь не загружена"
+                    )
+                    return
+                if self.timer.isActive() or self.session.playback_status == PlaybackStatus.PLAYING:
+                    self.physical_check_result.setText(
+                        "UNVERIFIED: Pause перед проверкой всей траектории."
+                    )
+                    return
+                self.full_physical_check_btn.setEnabled(False)
+                self.physical_check_btn.setEnabled(False)
+                self.physical_check_result.setText(
+                    "Проверяется нативная 3D-траектория D6.3.4; "
+                    "состояние FreeCAD будет сохранено."
+                )
+                QtWidgets.QApplication.processEvents()
+                try:
+                    from smbs_core.kinematics2d.physical_validation_25d import (
+                        check_active_25d_bend_trajectory,
+                    )
+                    report = check_active_25d_bend_trajectory(
+                        self.session, self.tooling_setup,
+                    )
+                    detail = "D6.3.4 {} | {} | {}".format(
+                        report.status.value, report.native_status, report.reason,
+                    )
+                    self.physical_check_result.setText(detail)
+                    self._physical_check_signature = self._physical_pose_signature()
+                    self._trace_event(
+                        "D634_BEND_TRAJECTORY_CHECK",
+                        status=report.status.value,
+                        native_status=report.native_status,
+                        reason=report.reason,
+                        checked_scope=list(report.checked_scope),
+                        fully_qualified=report.is_fully_qualified,
+                    )
+                    _log("D6.3.4 trajectory: " + detail)
+                except Exception as exc:
+                    # A failed FoldState restoration is a hard stop, not a
+                    # warning the user can click through while still playing.
+                    self._machine_pose_fault = (
+                        "D634_VALIDATION_HALTED: " + str(exc)
+                    )
+                    self._stop_timer()
+                    self.physical_check_result.setText(
+                        "UNVERIFIED: " + self._machine_pose_fault
+                    )
+                    _error(traceback.format_exc())
+                finally:
+                    self.full_physical_check_btn.setEnabled(True)
                     self.physical_check_btn.setEnabled(True)
 
             def _update_tooling_status_label(self):
