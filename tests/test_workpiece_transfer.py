@@ -132,6 +132,37 @@ class WorkpieceTransferTests(unittest.TestCase):
         self.assertNotIn(CyclePhase.TRANSFER, phases)
         self.assertEqual(cycle.active_bend_id, "B02")
 
+    def test_failed_transfer_build_halts_without_advancing_fold_state(self):
+        """A missing spatial transfer cannot become a silently accepted B02."""
+        from unittest.mock import patch
+        from smbs_core.kinematics2d.press_cycle import PressCycleError
+
+        cycle, state = self.make_cycle(enabled=True)
+        cycle.play_all()
+        for _ in range(150):
+            if cycle.phase == CyclePhase.STEP_COMPLETE:
+                break
+            cycle.advance_time(0.1)
+        self.assertEqual(cycle.phase, CyclePhase.STEP_COMPLETE)
+        before = (dict(state.angles), dict(state.transforms))
+
+        with patch(
+            "smbs_core.kinematics2d.press_cycle.WorkpiecePlacement3D.compute_placement",
+            side_effect=ValueError("invalid transfer target pose"),
+        ):
+            with self.assertRaisesRegex(PressCycleError, "TRANSFER_TRAJECTORY_FAILED"):
+                cycle.advance_time(0.1)
+
+        self.assertEqual(cycle.sequence.status, PlaybackStatus.PAUSED)
+        self.assertEqual(cycle.active_bend_id, "B01")
+        self.assertEqual(cycle.sequence.active_index, 0)
+        self.assertEqual(before, (state.angles, state.transforms))
+        self.assertIsNone(cycle.transfer_3d)
+        self.assertIn("invalid transfer target pose", cycle.transfer_fault)
+        self.assertFalse(cycle.advance_time(0.1))
+        cycle.resume()
+        self.assertEqual(cycle.sequence.status, PlaybackStatus.PAUSED)
+
     def test_reset_clears_intermediate_transfer(self):
         cycle, state = self.make_cycle()
         self.reach_transfer(cycle)
