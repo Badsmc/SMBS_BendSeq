@@ -25,7 +25,8 @@ def run():
     from PySide6 import QtWidgets
     from smbs_core.demo_paths import demo_part_path
     from smbs_core.kinematics2d.physical_validation_25d import (
-        check_current_25d_pose, PhysicalEvidence,
+        check_current_25d_pose, check_active_25d_bend_trajectory,
+        PhysicalEvidence,
     )
     from freecad_smbs.commands.pressbrake_2d import (
         _PreviewPanel, build_part_session,
@@ -82,7 +83,25 @@ def run():
         print("PHYSICAL_GUI_SAMPLE_CHECK_DONE: {} (single pose only)".format(
             result.status.value
         ))
-        return result
+        trajectory = check_active_25d_bend_trajectory(
+            session, panel.tooling_setup,
+        )
+        print("D634_ADAPTIVE_RESULT: {} | {} | {}".format(
+            trajectory.status.value, trajectory.native_status,
+            trajectory.reason,
+        ))
+        if trajectory.status is not PhysicalEvidence.SAMPLED_3D_CLEAR_NOT_CONTINUOUS:
+            raise RuntimeError(
+                "D634_ADAPTIVE_NOT_QUALIFIED: " + trajectory.reason
+            )
+        if "3D_PUNCH_DIE_SAMPLED_BEND" not in trajectory.checked_scope:
+            raise RuntimeError("D634_NO_SAMPLED_BEND_EVIDENCE")
+        if dict(session.fold_state.angles) != initial:
+            raise RuntimeError("D634_FOLD_STATE_NOT_RESTORED")
+        print("PHYSICAL_STAGE2_FREECAD_ACCEPTANCE_PASS: "
+              "one CAD pose and sampled active bend, "
+              "NOT_CONTINUOUSLY_CERTIFIED")
+        return {"pose": result, "trajectory": trajectory}
     finally:
         if panel is not None:
             panel.timer.stop()
