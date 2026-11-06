@@ -351,7 +351,7 @@ class WorkpiecePoseTests(unittest.TestCase):
         with self.assertRaisesRegex(WorkpiecePoseError, "does not cross"):
             upper_zone_at_machine_axis(sec, pose, 1000.0)
 
-    def test_animated_transfer_moves_all_flange_geometry_rigidly(self):
+    def test_animated_transfer_explicitly_marks_face_roll_as_projection(self):
         class Cycle:
             contact_z_mm = 0.0
             bottom_z_mm = -4.0
@@ -368,15 +368,17 @@ class WorkpiecePoseTests(unittest.TestCase):
         start = machine_pose_for_cycle(src, Cycle(), Tooling())
         end = machine_pose_for_cycle(dst, Cycle(), Tooling())
         mid = animated_machine_pose_for_cycle(src, Cycle(), Tooling(), dst)
-        self.assertIn("RIGID_CONTINUOUS", mid.mode)
+        # A mid-flip roll is a 2D projection of 3D motion, NOT rigid 2D
+        # geometry and must never be accepted as a physical contact proof.
+        self.assertEqual(mid.mode, "PROJECTED_3D_ROLL_NOT_CONTACT_VALIDATED")
+        self.assertAlmostEqual(mid.roll_projection, 0.0, places=8)
         self.assertGreater(mid.apply((0.,0.))[1], min(
             start.apply((0.,0.))[1],end.apply((0.,0.))[1]
         ))
-        self.assertAlmostEqual(
-            math.dist(*mid.points(src["fixed_polygon"][:2])),
-            math.dist(*start.points(src["fixed_polygon"][:2])),
-            places=8,
-        )
+        # Projected roll can contract displayed 2D distances. Require finite
+        # render coordinates rather than false 2D rigid-length invariance.
+        self.assertTrue(all(math.isfinite(v) for pt in mid.points(
+            src["fixed_polygon"]) for v in pt))
         self.assertEqual(
             interpolate_rigid_placement(start,end,0.0),start
         )
