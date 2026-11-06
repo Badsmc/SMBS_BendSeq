@@ -35,6 +35,7 @@ if str(ROOT) not in sys.path:
 import FreeCAD as App
 
 from smbs_core.report_paths import report_file
+from smbs_core.demo_paths import find_demo_part
 from smbs_core.kinematics2d.native_tool_loader import (
     load_native_die,
     load_native_punch,
@@ -50,16 +51,8 @@ from freecad_smbs.commands.pressbrake_2d import build_part_session
 
 
 def find_fixture_path(filename: str) -> Path:
-    candidates = [
-        ROOT / "BendSeq_Fixtures_Source" / filename,
-        Path("/Users/badmc/Desktop/bend_Seq/BendSeq_Fixtures_Source") / filename,
-        Path("/Users/badmc/Desktop/bend_Seq/SMBS/SMBendTests") / filename,
-    ]
-    for c in candidates:
-        if c.is_file():
-            return c
-    raise FileNotFoundError(f"Could not find fixture {filename}")
-
+    """Load the canonical repository demo fixture without OS-specific paths."""
+    return find_demo_part(filename)
 
 def run_fixture_trajectory_test(
     fixture_filename: str,
