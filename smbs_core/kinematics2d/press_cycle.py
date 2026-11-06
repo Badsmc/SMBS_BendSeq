@@ -619,13 +619,14 @@ class PressCycleController:
                 if nxt.bend_id in self.sequence.fold_state.bends
                 else None
             )
-            next_outer_r = (
-                next_bz.outer_radius_mm
-                if next_bz is not None
-                else (self.coupled_kinematics.sheet_inner_radius_mm + self.coupled_kinematics.sheet_thickness_mm)
-                if self.coupled_kinematics is not None
-                else 2.5
-            )
+            if next_bz is not None:
+                next_outer_r = next_bz.outer_radius_mm
+            elif self.coupled_kinematics is not None and getattr(self.coupled_kinematics, "sheet_inner_radius_mm", None) is not None:
+                next_outer_r = self.coupled_kinematics.sheet_inner_radius_mm + self.coupled_kinematics.sheet_thickness_mm
+            else:
+                raise PressCycleError(
+                    f"UNSUPPORTED: Missing authoritative BendZone geometry for next bend '{nxt.bend_id}'"
+                )
             end_pose = WorkpiecePlacement3D.compute_placement(
                 self.sequence.fold_state,
                 nxt.bend_id,
@@ -836,11 +837,14 @@ class PressCycleController:
             bz = None
             if self.active_bend_id in fold_state.bends:
                 bz = fold_state.bends[self.active_bend_id].bend_zone
-            outer_r = (
-                bz.outer_radius_mm
-                if bz is not None
-                else (self.coupled_kinematics.sheet_inner_radius_mm + self.coupled_kinematics.sheet_thickness_mm)
-            )
+            if bz is not None:
+                outer_r = bz.outer_radius_mm
+            elif getattr(self.coupled_kinematics, "sheet_inner_radius_mm", None) is not None and getattr(self.coupled_kinematics, "sheet_thickness_mm", None) is not None:
+                outer_r = self.coupled_kinematics.sheet_inner_radius_mm + self.coupled_kinematics.sheet_thickness_mm
+            else:
+                raise PressCycleError(
+                    f"UNSUPPORTED: Missing authoritative BendZone geometry for active bend '{self.active_bend_id}'"
+                )
 
             if self.phase == CyclePhase.BENDING:
                 cur_angle = abs(self.current_angle_deg)

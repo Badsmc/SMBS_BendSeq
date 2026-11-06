@@ -27,9 +27,9 @@ demo/parts/
   2-1-3-4-(ok).FCStd
 ```
 
-**Binary fixture status (working branch `feature/25d-physical-validation`):** 16 `.FCStd` models from `AutoMod-V0.0.1/SMBendTests` have been committed directly to `demo/parts/` with their exact source Git blobs. Their 22 associated JSON files and legacy `run_batch.py` are retained under `demo/SMBendTests/`; original file identities and Git blob hashes are documented in `demo/SMBendTests/IMPORT_INDEX.json`.
+**Binary fixture status (working branch `feature/25d-physical-validation`):** 16 `.FCStd` models are active in `demo/parts/`. 15 are from `AutoMod-V0.0.1/SMBendTests`, and `box.100out-50in-(ok).FCStd` was replaced from `BendSeq_Fixtures_Source/box.100out-50in-(ok).FCStd` (size: 86,662 bytes, SHA-256: `6510d62cdf6427cfac18d936243c39f8aafa4e31718248124105642ad9e52db3`, 18 objects) to supply a functional SheetMetal `Body_Unfold` object required by native Part session builders.
 
-The 17-entry `demo/MANIFEST.json` describes a **different archive revision** (different file sizes and SHA-256 values). In particular, its `U-60deg-30deg-(ok)-variant2.FCStd` was **not present** in the source branch. The 17-file archive installer therefore remains a **separate optional workflow** and should not be used to overwrite or verify these 16 imported assets. The labels `(ok)`/`(false)` have not been independently validated.
+The active 16 models and their authoritative sizes and SHA-256 checksums are documented in `demo/MANIFEST.json` (schema v2). The separate historical 17-model archive (`SMBS_demo_FCStd_17_files.zip`) remains a separate optional workflow and is **not declared restored**.
 
 ## Layout and cross-platform support
 

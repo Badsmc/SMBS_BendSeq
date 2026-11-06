@@ -1,91 +1,89 @@
 {
-  "schema": "smbs-demo-parts-v1",
-  "note": "Hashes of original user-provided FreeCAD files; not proof of geometry validity. Binary assets must be committed separately.",
+  "schema": "smbs-demo-parts-v2",
+  "note": "Authoritative manifest for the 16 active demo fixtures present in demo/parts. The historical 17-model archive from SMBS_demo_FCStd_17_files.zip remains separate and is NOT declared restored. box.100out-50in-(ok).FCStd was replaced from BendSeq_Fixtures_Source to supply a functional SheetMetal Body_Unfold object.",
+  "active_fixture_count": 16,
   "files": [
     {
       "name": "135-(ok).FCStd",
-      "size_bytes": 35930,
-      "sha256": "85382ab7ecec9e11108ed21ba861ae56c548f163cdd2d74cbc7a7fc3324ffb79"
+      "size_bytes": 25285,
+      "sha256": "29e0642b5d6e1ca7b4ee69b1f7130c45b0bbe546c1e1dfe023edb8e8e1ce5a52"
     },
     {
       "name": "2-1-3-4-(ok).FCStd",
-      "size_bytes": 166478,
-      "sha256": "102725a8b8a24a4912699c538d1d892efb45e335846351f86e9c6e070faeb96a"
+      "size_bytes": 134528,
+      "sha256": "618133a9c629045fa37c91656455db909236160965f14dd659bf2439bffadfb9"
     },
     {
       "name": "L-(ok).FCStd",
-      "size_bytes": 28316,
-      "sha256": "9313bf82c2b493242860977fb04048bfa9d609ec01f9cc86a4f16c380e875190"
+      "size_bytes": 18978,
+      "sha256": "dd43ee2a80dfc902e9199b8eb2df1b6eef97b06f10c1e7541eaf1d97965a496a"
     },
     {
       "name": "L-30-6-(false).FCStd",
-      "size_bytes": 29236,
-      "sha256": "a909ef954b7b4fef99b2e786f30e24e589cbe907cb1fa565ece4302298d2c08d"
+      "size_bytes": 20571,
+      "sha256": "eab7213d9df5d37292167a9ff19ca6b7e792b5a005a53fdec9a348412d92433c"
     },
     {
       "name": "SQin.200-25-10-(ok).FCStd",
-      "size_bytes": 70810,
-      "sha256": "2b88fe4dab971f28727b8863e65c265cc00161b13f737b9de9dd97d6e8ec02ad"
+      "size_bytes": 49163,
+      "sha256": "8473f7cb6342857f6f8437a4782e6c4df6d65ba4ac5068ac6bffd6a903f44e47"
     },
     {
       "name": "SQout.200-25-10-(ok).FCStd",
-      "size_bytes": 73443,
-      "sha256": "385dd4f6c73fad9fd837e009c5b4ee0725eeb921064b1736d2001ae26ac9a24b"
+      "size_bytes": 47466,
+      "sha256": "7180f581ea1d371a6157d0f08370dfb8c457872d7d1077cab4231e4f43990de6"
     },
     {
       "name": "U-10-10-20-(false).FCStd",
-      "size_bytes": 37010,
-      "sha256": "2d5868a24267cb32ebd5b06ab8c69b859ee8e0a4fe3b102e6a42a094cfade001"
+      "size_bytes": 25640,
+      "sha256": "7a566bb0f5dc84678431d4bcf4529dbac38254dfde077de753011b089e36faec"
     },
     {
       "name": "U-10-15-10-(punch2-OK).FCStd",
-      "size_bytes": 33666,
-      "sha256": "7795708eb7fe7a488549fbdaa40a77c0c0aa8a3bb3347d03dfad67f82fb32551"
+      "size_bytes": 22805,
+      "sha256": "b1144f2105dab2642b2bdccb64e7e814ae9989ab1b088050b7f795a07d4373db"
     },
     {
       "name": "U-10-30-10-(OK).FCStd",
-      "size_bytes": 33067,
-      "sha256": "c103d92486c58c9731cc61bac83e452a38e1c2b8861d910a9a5f0995fedf8b7f"
-    },
-    {
-      "name": "U-60deg-30deg-(ok)-variant2.FCStd",
-      "size_bytes": 40222,
-      "sha256": "5085b38ac139f816a13cc5db7bd63d8e7277c522c2417bc7b6091cffc8db28b8"
+      "size_bytes": 22924,
+      "sha256": "95ed1bab816b360c00a93247005243dee70c2e8f97c00d5296e1070b168baee3"
     },
     {
       "name": "U-60deg-30deg-(ok).FCStd",
-      "size_bytes": 40290,
-      "sha256": "c529fbb5f0ccb8f95299022f5ef4f5ef36a9f64997af7895ee7fe18b5721b9f0"
+      "size_bytes": 27982,
+      "sha256": "0fba76621644d51fe23c30cb783d919786dc597a90bc54c266307bf1a258a21b"
     },
     {
       "name": "U-90deg-90deg-(ok).FCStd",
-      "size_bytes": 33865,
-      "sha256": "78ba1c8fa3847fea05a76d05aedee1251ecd07be016a923ad374f6201872a2f6"
+      "size_bytes": 23544,
+      "sha256": "d26659e73d9fdf0bc463dd9e7a54bad88bc569de070410fa39a107fc78888d05"
     },
     {
       "name": "Z-(ok).FCStd",
-      "size_bytes": 38178,
-      "sha256": "40a789e63084a2bf31e2bb5341950041dd6b8beb368738910a3573e026330445"
+      "size_bytes": 27563,
+      "sha256": "68a6670795749796ba260fa135d6cc56ea75c96264c03666b9b137c4c283753a"
     },
     {
       "name": "Z-10-20-10-(false).FCStd",
-      "size_bytes": 36678,
-      "sha256": "e871a17f42b7a1ad75e519376f7fb36fbed8cd9bef3c395975bf23973f6faa3c"
+      "size_bytes": 27841,
+      "sha256": "50d6e48b21efea093ed58f043737d2e08f7f6cadbe996c37148bc0ea1a6d91a3"
     },
     {
       "name": "Z-10-20-10-(ok).FCStd",
-      "size_bytes": 36783,
-      "sha256": "f7f99a7fe7c22c56b4c2aff18ae1ba4b9634e4df648abd20b3c51f738bd0ec8f"
+      "size_bytes": 27829,
+      "sha256": "d1c89e1d8c668539fceac706526dcfbd8dcfe1fc376cee09492e39274ef8da10"
     },
     {
       "name": "box.100in-50out-(false).FCStd",
-      "size_bytes": 80077,
-      "sha256": "d305df846866b472817dec6cf5bebd2417e71426aa8d576ede60ef4ec7810c8b"
+      "size_bytes": 58824,
+      "sha256": "75e357f9c6170ea633191a46378a6ce67734eea11221d4915faa1959e360d9fb"
     },
     {
       "name": "box.100out-50in-(ok).FCStd",
-      "size_bytes": 80232,
-      "sha256": "444784c84cc41acb9f87a5685c7c6a3cd00bcce574b4787272d3594ab298372e"
+      "size_bytes": 86662,
+      "sha256": "6510d62cdf6427cfac18d936243c39f8aafa4e31718248124105642ad9e52db3",
+      "source": "BendSeq_Fixtures_Source/box.100out-50in-(ok).FCStd",
+      "replacement_reason": "Replaced non-unfolded AutoMod fixture (which lacked Body_Unfold) with functional unfolded fixture from BendSeq_Fixtures_Source containing 18 objects including Body_Unfold."
     }
   ]
 }

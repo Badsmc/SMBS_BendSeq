@@ -87,13 +87,21 @@ def compute_machine_cutting_plane_section(
     Returns:
         dict compatible with 2.5D Viewer drawing pipeline (s, z coordinates).
     """
-    thickness_mm = 1.5
-    inner_radius_mm = 1.0
+    thickness_mm = None
+    inner_radius_mm = None
     if active_bend_id and active_bend_id in fold_state.bends:
         bz = fold_state.bends[active_bend_id].bend_zone
         if bz is not None:
             thickness_mm = bz.thickness_mm
             inner_radius_mm = bz.inner_radius_mm
+    if thickness_mm is None or inner_radius_mm is None:
+        for b in fold_state.bends.values():
+            if b.bend_zone is not None:
+                thickness_mm = b.bend_zone.thickness_mm
+                inner_radius_mm = b.bend_zone.inner_radius_mm
+                break
+    if thickness_mm is None or inner_radius_mm is None:
+        raise WorkpiecePoseError("UNSUPPORTED: Missing authoritative BendZone thickness and radius data.")
 
     section: Dict[str, Any] = {
         "active_bend_id": active_bend_id or "",
@@ -110,9 +118,9 @@ def compute_machine_cutting_plane_section(
         "tangent_points_top": (),
         "tangent_points_bottom": (),
         "other_tangent_lines": (),
-        "other_inner_curves": (),
-        "other_outer_curves": (),
-        "other_neutral_curves": (),
+        "other_inner_curves": [],
+        "other_outer_curves": [],
+        "other_neutral_curves": [],
         "cutting_plane_xm": 0.0,
     }
 
@@ -207,6 +215,12 @@ def compute_machine_cutting_plane_section(
             section["neutral_curve"] = neutral_sz
         else:
             section["other_zone_polygons"].append((bend_id, zone_poly_sz))
+            if inner_sz:
+                section["other_inner_curves"].append(inner_sz)
+            if outer_sz:
+                section["other_outer_curves"].append(outer_sz)
+            if neutral_sz:
+                section["other_neutral_curves"].append(neutral_sz)
 
     # 3. Classify active fixed and moving panels vs other panels
     if active_bend:
@@ -223,4 +237,7 @@ def compute_machine_cutting_plane_section(
     else:
         section["other_panel_polygons"] = cut_panel_polygons
 
+    section["other_inner_curves"] = tuple(section["other_inner_curves"])
+    section["other_outer_curves"] = tuple(section["other_outer_curves"])
+    section["other_neutral_curves"] = tuple(section["other_neutral_curves"])
     return section

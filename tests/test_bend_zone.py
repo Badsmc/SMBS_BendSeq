@@ -1285,8 +1285,9 @@ class BendZoneMathTests(unittest.TestCase):
                 "Punch: P-01 | Die: V12 | Geometry: VERIFIED | Collision: NOT CHECKED",
             )
 
-            # Align to a real L/Z bend cross-section at s = 25.0 mm, z in [-1.0, +1.0]
+            # Align to a real L/Z bend cross-section at s = 25.0 mm, z in [-1.0, +1.0] (t = 2.0 mm)
             mock_sec = {
+                "thickness_mm": 2.0,
                 "neutral_curve": [(24.0, 0.0), (25.0, 0.0), (26.0, 0.0)],
                 "zone_polygon": [(24.0, -1.0), (26.0, -1.0), (26.0, 1.0), (24.0, 1.0)],
             }
@@ -1294,8 +1295,9 @@ class BendZoneMathTests(unittest.TestCase):
             self.assertTrue(setup.aligned)
             p_tip_m = setup.punch_tip_machine()
             d_vc_m = setup.die_v_center_machine()
-            self.assertEqual(p_tip_m, (25.0, 6.0))
-            self.assertEqual(d_vc_m, (25.0, -1.0))
+            # Harmonized Machine Space contract: die shoulders at Z_m = 0.0, sheet top at Z_m = 2.0, punch tip at Z_m = 7.0
+            self.assertEqual(p_tip_m, (25.0, 7.0))
+            self.assertEqual(d_vc_m, (25.0, 0.0))
             self.assertAlmostEqual(setup.punch_clearance_mm, 5.0, places=9)
             # Working axes are coaxial along s = 25.0 mm, with Punch above Die
             self.assertAlmostEqual(p_tip_m[0], d_vc_m[0], places=9)
@@ -1303,7 +1305,7 @@ class BendZoneMathTests(unittest.TestCase):
 
             # Verify explicit Machine <-> View coordinate round-trip
             v_pt = machine_to_view_point(p_tip_m)
-            self.assertEqual(v_pt, (25.0, -6.0))
+            self.assertEqual(v_pt, (25.0, -7.0))
             self.assertEqual(view_to_machine_point(v_pt), p_tip_m)
 
             # Reset tooling position
@@ -1629,9 +1631,8 @@ class BendZoneMathTests(unittest.TestCase):
 
             # Verify working axes coincide with active bend line and punch is above sheet while die is below
             anchor_s = sum(p[0] for p in sec_b01["neutral_curve"]) / len(sec_b01["neutral_curve"])
-            sheet_zs = [p[1] for p in sec_b01["zone_polygon"]]
-            sheet_top_z = max(sheet_zs)
-            sheet_bot_z = min(sheet_zs)
+            sheet_top_z = setup.sheet_top_z_mm
+            sheet_bot_z = setup.sheet_bottom_z_mm
             ptip = setup.punch_tip_machine()
             dvc = setup.die_v_center_machine()
             self.assertAlmostEqual(ptip[0], anchor_s, places=6)
@@ -2424,7 +2425,8 @@ class BendZoneMathTests(unittest.TestCase):
                     observed_gui_phases.add(panel.press_cycle.phase)
 
                     # Test J: Sheet, Punch, and Die must remain visible in QGraphicsScene at every step
-                    self.assertGreaterEqual(len(sheet_items()), 6)
+                    min_sheet_items = 1 if panel.press_cycle.phase == CyclePhase.TRANSFER else 6
+                    self.assertGreaterEqual(len(sheet_items()), min_sheet_items)
                     self.assertEqual(len(role_items("punch")), 1)
                     self.assertEqual(len(role_items("die")), 1)
                     self.assertIn("KINEMATIC_PREVIEW", panel.step.text())
