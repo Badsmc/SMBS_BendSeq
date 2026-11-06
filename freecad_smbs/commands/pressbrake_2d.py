@@ -579,6 +579,7 @@ class _PreviewPanel:
                 self._last_valid_machine_bend = None
                 self._machine_pose_fault = None
                 self.motion_trace = None
+                self._physical_check_signature = None
                 self._trace_frame_dt = None
                 self._trace_directory = _LOG_FILE_PATH.parent / "pressbrake_traces"
                 self.angle = 0.0
@@ -1320,6 +1321,26 @@ class _PreviewPanel:
                         self.select_die_combo.setCurrentIndex(idx)
                 self.select_die_combo.blockSignals(False)
 
+            def _physical_pose_signature(self):
+                """Identity of the actual pose and selected tool set, not a GUI frame number."""
+                if self.session is None:
+                    return None
+                fs = self.session.fold_state
+                pc = self.press_cycle
+                return (
+                    id(fs),
+                    self.session.active_bend_id,
+                    tuple(sorted((str(k), float(v)) for k, v in fs.angles.items())),
+                    id(self.tooling_setup.punch),
+                    id(self.tooling_setup.die),
+                    self.tooling_setup.aligned,
+                    tuple(self.tooling_setup.punch_machine_transform.to_matrix_tuple()[0]),
+                    tuple(self.tooling_setup.die_machine_transform.to_matrix_tuple()[0]),
+                    (getattr(pc.phase, "value", pc.phase) if pc is not None else ""),
+                    (float(pc.ram_z_mm) if pc is not None else None),
+                    (float(pc.transfer_progress) if pc is not None else None),
+                )
+
             def check_current_physical_pose(self):
                 """Read-only current-pose check; never modifies FoldState or GUI animation."""
                 if self.session is None:
@@ -1345,6 +1366,7 @@ class _PreviewPanel:
                         ",".join(report.checked_scope),
                     )
                     self.physical_check_result.setText(detail)
+                    self._physical_check_signature = self._physical_pose_signature()
                     self._trace_event(
                         "PHYSICAL_POSE_CHECK",
                         status=report.status.value,
@@ -1365,6 +1387,13 @@ class _PreviewPanel:
 
             def _update_tooling_status_label(self):
                 self.tooling_status.setText(self.tooling_setup.status_line())
+                if (self._physical_check_signature is not None and
+                        self._physical_check_signature != self._physical_pose_signature()):
+                    self._physical_check_signature = None
+                    self.physical_check_result.setText(
+                        "УСТАРЕЛО: деталь, положение или оснастка изменились. "
+                        "Проверьте текущую позу повторно."
+                    )
                 self._update_press_cycle_labels()
 
             def _update_press_cycle_labels(self):
