@@ -120,3 +120,38 @@ and whether source FCStd checksum and GUI context were preserved.
 
 Do not mark Stage 2 `VERIFIED` or `PRODUCTION_READY` from a pure
 Python mock test.
+
+## Real FreeCAD regression finding — 2026-11-06, box.100out-50in-(ok)
+
+Observed in Windows FreeCAD 1.1.x during first physical acceptance:
+- Local zone bounds `Z=[-1.5, 0.0]`.
+- Displayed machine section zone bounds `Z=[-3.0, -1.5]`.
+- Selected die datum `Z=-1.5` and punch tip `Z=5.0`.
+- Native current-pose collision result `PENETRATION` and section
+  `INTERFERENCE`, specifically `DIE/active_fixed`.
+- D6.3.4 initially failed before any sampling because
+  `WorkpiecePlacement3D.compute_placement` in 2D did not accept
+  `align_bend_arc_center=True`, which D6.3.4 requires.
+
+Corrections on feature branch:
+- Ported ONLY the D6 optional arc-center placement parameter and
+  translation logic; the default 2D placement remains unchanged.
+- Added regression for the opt-in placement API / default invariant.
+- Added initial sheet vs die support-datum difference in collision
+  diagnostic text. A 1.5 mm difference is recorded in this fixture
+  but **not silently corrected** by moving solids after the fact.
+- Native sampling and current 2D/native pose checks remain independent.
+  `COLLISION` on actual positive-volume overlap continues to reject.
+  No geometry safety check is disabled.
+
+Open physical blocker: identify the correct shared machine-frame
+setup for the initial pose (local section offset, die V support datum,
+and D6 native machine zero). Only change runtime placement after
+validating it against true tool CAD, the eight-bend Full Cycle test and
+a negative collision fixture. Correcting the D6 method signature is
+not proof that existing penetration is resolved.
+
+Run `tools.run_25d_physical_gui_acceptance.run()` again after updating
+the branch and provide all `PHYSICAL_FRAME_DIAGNOSTIC`,
+`PHYSICAL_GUI_RESULT`, and `D634_ADAPTIVE_RESULT` lines.
+If collision persists, do not mark the stage completed or merge into 2D.
