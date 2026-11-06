@@ -38,6 +38,23 @@ class WorkpiecePlacement3DTests(unittest.TestCase):
             "P02": ((52.0, 50.0), (100.0, 50.0), (100.0, 150.0), (52.0, 150.0)),
         }
 
+    def test_d634_arc_center_alignment_is_opt_in_and_default_unchanged(self):
+        state = self.fold_state
+        original = WorkpiecePlacement3D.compute_placement(
+            state, "B01", support_plane_zm=0.0, align_bisector=True,
+        )
+        explicit_default = WorkpiecePlacement3D.compute_placement(
+            state, "B01", support_plane_zm=0.0, align_bisector=True,
+            align_bend_arc_center=False,
+        )
+        self.assertEqual(original, explicit_default)
+        centered = WorkpiecePlacement3D.compute_placement(
+            state, "B01", support_plane_zm=0.0, align_bisector=True,
+            align_bend_arc_center=True,
+        )
+        self.assertAlmostEqual(_mat_det(centered.rotation), 1.0, places=6)
+        self.assertNotEqual(centered.translation, original.translation)
+
     def test_placement_is_proper_rigid_isometry(self):
         """Verify placement rotation matrix is orthogonal with det(R) == +1.0."""
         for bid in ("B01", "B02"):
