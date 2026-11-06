@@ -57,7 +57,7 @@ No unresolved blocker may be labelled PRODUCTION_READY.
 For the active checklist see `PRESSBRAKESIM_25D_RELEASE_GATES.md`.
 For decisions and removed files see `2D_BRANCH_CLEANUP_AUDIT.md`.
 
-## Stage 1 (2026-11-06): Full Cycle failure-state stabilization — implemented, native GUI pending
+## Stage 1 (2026-11-06): Full Cycle failure-state stabilization — native FreeCAD acceptance PASS (8-bend fixture)
 
 Change summary on authoritative `2D` branch:
 - A failure during a Full Cycle Qt timer tick now pauses the underlying
@@ -77,10 +77,23 @@ Change summary on authoritative `2D` branch:
   runner that rejects skipped tests and verifies SHA-256 of the source FCStd
   before/after the test.
 
-**Evidence:** GitHub Actions validates pure Python behavior and compiles native
-test code. The native FreeCAD GUI acceptance suite has **not yet been executed
-in this development session**. Animation transitions, press contact, nonparallel
-bend handling and the complete eight-bend Full Cycle therefore remain open.
+**Evidence (user-run native FreeCAD on Windows, 2026-11-06):**
+`tools.run_25d_stage1_gui_acceptance.run()` finished with
+`STAGE1_GUI_ACCEPTANCE_PASS: 6 tests`, `errors=0`, `failures=0`,
+`skipped=0` in 26.982 s on original
+`demo/parts/box.100out-50in-(ok).FCStd`. Tests covered nonparallel
+B01→B02 transfer without halt, full B01–B08 cycle reaching COMPLETED,
+Play/Pause/Resume/Reset, injected Full Cycle tick error, manual JSONL+summary
+creation and single-timer workspace layout. The acceptance script also checked
+that the test fixture SHA-256 was unchanged.
+
+The user separately confirmed by visual inspection that the previously observed
+workpiece position jumps **do not occur** in this tested scenario.
+
+**Scope:** Stage 1 Full Cycle integration is VERIFIED **for the tested Windows
+FreeCAD runtime and 8-bend fixture**. This does not certify all 17 models,
+real-world machine collision safety, continuous swept-volume clearance,
+automatic manufacturing sequence search or cross-platform GUI qualification.
 
 In real FreeCAD Python Console, after checkout `2D` and installing the demo
 fixture models:
@@ -90,6 +103,5 @@ from tools.run_25d_stage1_gui_acceptance import run
 run()
 ```
 
-Any exception, skip, missing model, source hash change or failed test means
-the Stage 1 acceptance gate remains open. Record logs/screenshots and fix
-the actual cause before marking Phase 5B verified.
+Any new failure, skip, missing model or changed source hash in future
+regressions reopens the gate. Extend fixture coverage before release.
