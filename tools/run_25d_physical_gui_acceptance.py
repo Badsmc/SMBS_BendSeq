@@ -236,6 +236,7 @@ def run(
     die_id: str | None = None,
     bend_shifts: dict[str, float] | None = None,
     report_filename: str | None = None,
+    max_phase_time_s: float = 120.0,
 ):
     import FreeCAD as App
     try:
@@ -301,22 +302,22 @@ def run(
     report_saved = False
 
     shifts_map = dict(bend_shifts) if bend_shifts else {}
-    default_cfg = AdaptiveSamplingConfig()
+    sampling_cfg = AdaptiveSamplingConfig(max_phase_time_s=float(max_phase_time_s))
     validator_config_dict = {
-        "max_bend_angle_step_deg": default_cfg.max_bend_angle_step_deg,
-        "max_ram_displacement_step_mm": default_cfg.max_ram_displacement_step_mm,
-        "min_clearance_margin_mm": default_cfg.min_clearance_margin_mm,
-        "clearance_change_threshold_mm": default_cfg.clearance_change_threshold_mm,
-        "max_recursion_depth": default_cfg.max_recursion_depth,
-        "max_evaluated_states_per_phase": default_cfg.max_evaluated_states_per_phase,
-        "max_phase_time_s": default_cfg.max_phase_time_s,
-        "arc_segments": default_cfg.arc_segments,
-        "near_tolerance_mm": default_cfg.near_tolerance_mm,
-        "volume_tolerance_mm3": default_cfg.volume_tolerance_mm3,
-        "contact_distance_tolerance_mm": default_cfg.contact_distance_tolerance_mm,
-        "position_continuity_tolerance_mm": default_cfg.position_continuity_tolerance_mm,
-        "rotation_continuity_tolerance_deg": default_cfg.rotation_continuity_tolerance_deg,
-        "angle_continuity_tolerance_deg": default_cfg.angle_continuity_tolerance_deg,
+        "max_bend_angle_step_deg": sampling_cfg.max_bend_angle_step_deg,
+        "max_ram_displacement_step_mm": sampling_cfg.max_ram_displacement_step_mm,
+        "min_clearance_margin_mm": sampling_cfg.min_clearance_margin_mm,
+        "clearance_change_threshold_mm": sampling_cfg.clearance_change_threshold_mm,
+        "max_recursion_depth": sampling_cfg.max_recursion_depth,
+        "max_evaluated_states_per_phase": sampling_cfg.max_evaluated_states_per_phase,
+        "max_phase_time_s": sampling_cfg.max_phase_time_s,
+        "arc_segments": sampling_cfg.arc_segments,
+        "near_tolerance_mm": sampling_cfg.near_tolerance_mm,
+        "volume_tolerance_mm3": sampling_cfg.volume_tolerance_mm3,
+        "contact_distance_tolerance_mm": sampling_cfg.contact_distance_tolerance_mm,
+        "position_continuity_tolerance_mm": sampling_cfg.position_continuity_tolerance_mm,
+        "rotation_continuity_tolerance_deg": sampling_cfg.rotation_continuity_tolerance_deg,
+        "angle_continuity_tolerance_deg": sampling_cfg.angle_continuity_tolerance_deg,
     }
 
     try:
@@ -446,10 +447,10 @@ def run(
                 },
                 "configured_bend_shifts_mm": {b: float(shifts_map.get(b, 0.0)) for b in full_expected_order},
                 "tolerances": {
-                    "volume_tolerance_mm3": default_cfg.volume_tolerance_mm3,
-                    "arc_segments": default_cfg.arc_segments,
-                    "max_bend_angle_step_deg": default_cfg.max_bend_angle_step_deg,
-                    "clearance_change_threshold_mm": default_cfg.clearance_change_threshold_mm,
+                    "volume_tolerance_mm3": sampling_cfg.volume_tolerance_mm3,
+                    "arc_segments": sampling_cfg.arc_segments,
+                    "max_bend_angle_step_deg": sampling_cfg.max_bend_angle_step_deg,
+                    "clearance_change_threshold_mm": sampling_cfg.clearance_change_threshold_mm,
                 },
                 "validator_config": validator_config_dict,
                 "scopes": {
@@ -551,6 +552,7 @@ def run(
                 traj_result = check_active_25d_bend_trajectory(
                     session,
                     panel.tooling_setup,
+                    config=sampling_cfg,
                     desired_midpoint_xm=shift_mm,
                 )
                 raw = traj_result.raw_report
@@ -889,6 +891,7 @@ if __name__ == "__main__":
     parser.add_argument("--shifts", type=str, default=None, help="Comma-separated per-bend shifts, e.g. B01=0.0,B02=2.4")
     parser.add_argument("--bend-order", type=str, default=None, help="Comma-separated bend order")
     parser.add_argument("--report-name", type=str, default=None, help="Custom report filename in reports/")
+    parser.add_argument("--max-phase-time", type=float, default=120.0, help="Max time budget per trajectory phase in seconds (default 120.0)")
     args = parser.parse_args()
 
     order_arg = [b.strip() for b in args.bend_order.split(",") if b.strip()] if args.bend_order else None
@@ -902,4 +905,5 @@ if __name__ == "__main__":
         die_id=args.die,
         bend_shifts=shifts_arg,
         report_filename=args.report_name,
+        max_phase_time_s=args.max_phase_time,
     )

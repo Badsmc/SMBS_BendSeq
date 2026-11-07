@@ -210,6 +210,7 @@ class TestAcceptanceAggregationLogic(unittest.TestCase):
         """When B01 (0.0mm) and B02 (+2.4mm) succeed, runner continues B03..B08 with explicit 0.0mm shift."""
         pose_shifts = []
         traj_shifts = []
+        traj_configs = []
 
         def _fake_pose(session, press_cycle, tooling, *, native_3d=True, desired_midpoint_xm=0.0):
             pose_shifts.append((session.active_bend_id, float(desired_midpoint_xm)))
@@ -224,6 +225,7 @@ class TestAcceptanceAggregationLogic(unittest.TestCase):
 
         def _fake_traj(session, tooling, *, config=None, desired_midpoint_xm=0.0):
             traj_shifts.append((session.active_bend_id, float(desired_midpoint_xm)))
+            traj_configs.append(config)
             # Stop at B03 to verify B01 -> B02 -> B03 transition and shifts
             if session.active_bend_id == "B03":
                 return CurrentPosePhysicalReport(
@@ -250,9 +252,19 @@ class TestAcceptanceAggregationLogic(unittest.TestCase):
                 max_bends=3,
                 pose_only=False,
                 bend_shifts={"B01": 0.0, "B02": 2.4},
+                max_phase_time_s=300.0,
             )
             self.assertEqual(pose_shifts, [("B01", 0.0), ("B02", 2.4), ("B03", 0.0)])
             self.assertEqual(traj_shifts, [("B01", 0.0), ("B02", 2.4), ("B03", 0.0)])
+            self.assertEqual(len(traj_configs), 3)
+            for cfg in traj_configs:
+                self.assertIsNotNone(cfg)
+                self.assertEqual(cfg.max_phase_time_s, 300.0)
+                self.assertEqual(cfg.volume_tolerance_mm3, 1e-4)
+                self.assertEqual(cfg.arc_segments, 128)
+                self.assertEqual(cfg.max_bend_angle_step_deg, 5.0)
+                self.assertEqual(cfg.clearance_change_threshold_mm, 2.0)
+            self.assertEqual(rep["validator_config"]["max_phase_time_s"], 300.0)
             self.assertIn("LONGITUDINAL_SHIFT_REPOSITIONING_TRANSFER_UNVERIFIED", rep["scopes"]["unverified_scope"])
 
     def test_pose_collision_volume_recorded_without_zero_substitution(self):
