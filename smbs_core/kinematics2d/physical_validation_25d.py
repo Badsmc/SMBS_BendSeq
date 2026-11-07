@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
+from typing import Any
 
 from .contact_oracle_2d import ContactStatus, check_sheet_tooling_preview
 from .machine_section_3d import compute_machine_cutting_plane_section
@@ -29,6 +30,7 @@ class CurrentPosePhysicalReport:
     native_status: str
     reason: str
     checked_scope: tuple[str, ...]
+    raw_report: Any = None
 
     @property
     def is_fully_qualified(self) -> bool:
@@ -356,6 +358,7 @@ def check_active_25d_bend_trajectory(session, tooling, *, config=None):
             "NOT_APPLICABLE", native,
             "native_d634_rejected:" + phase_evidence,
             ("3D_PUNCH_DIE_SAMPLED_BEND", "3D_TOOL_LENGTH"),
+            raw_report=report,
         )
     if (report.evidence_status is TrajectoryEvidenceStatus.SAMPLED_INTERVAL_CONVERGED
             and report.is_qualified and report.fold_state_restored):
@@ -366,9 +369,11 @@ def check_active_25d_bend_trajectory(session, tooling, *, config=None):
             + "; continuous=" + report.continuous_certification_status.value
             + "; transfer_backgauge_clamps_frame_unverified",
             ("3D_PUNCH_DIE_SAMPLED_BEND", "3D_TOOL_LENGTH"),
+            raw_report=report,
         )
     return CurrentPosePhysicalReport(
         PhysicalEvidence.UNVERIFIED, "NOT_APPLICABLE", native,
         "d634_incomplete:" + phase_evidence,
         ("3D_PUNCH_DIE_SAMPLED_BEND",),
+        raw_report=report,
     )
