@@ -1433,16 +1433,16 @@ class _PreviewPanel:
                     tuple(sorted((str(k), float(v)) for k, v in fs.angles.items())),
                     id(self.tooling_setup.punch),
                     id(self.tooling_setup.die),
-                    self.tooling_setup.aligned,
-                    bool(self.tooling_setup.match_active_bend_length),
-                    round(float(self.tooling_setup.active_bend_length_mm), 4),
-                    bool(self.tooling_setup.allow_end_zone_collision),
-                    round(float(self.tooling_setup.end_zone_length_mm), 4),
-                    self.tooling_setup.punch_machine_transform.to_matrix_tuple(),
-                    self.tooling_setup.die_machine_transform.to_matrix_tuple(),
-                    (getattr(pc.phase, "value", pc.phase) if pc is not None else ""),
-                    (float(pc.ram_z_mm) if pc is not None else None),
-                    (float(pc.transfer_progress) if pc is not None else None),
+                    getattr(self.tooling_setup, "aligned", False),
+                    bool(getattr(self.tooling_setup, "match_active_bend_length", False)),
+                    round(float(getattr(self.tooling_setup, "active_bend_length_mm", 0.0) or 0.0), 4),
+                    bool(getattr(self.tooling_setup, "allow_end_zone_collision", False)),
+                    round(float(getattr(self.tooling_setup, "end_zone_length_mm", 0.0) or 0.0), 4),
+                    getattr(getattr(self.tooling_setup, "punch_machine_transform", None), "to_matrix_tuple", lambda: ())(),
+                    getattr(getattr(self.tooling_setup, "die_machine_transform", None), "to_matrix_tuple", lambda: ())(),
+                    (getattr(getattr(pc, "phase", None), "value", getattr(pc, "phase", "")) if pc is not None else ""),
+                    (float(getattr(pc, "ram_z_mm", 0.0) or 0.0) if pc is not None and getattr(pc, "ram_z_mm", None) is not None else None),
+                    (float(getattr(pc, "transfer_progress", 0.0) or 0.0) if pc is not None and getattr(pc, "transfer_progress", None) is not None else None),
                 )
 
             def _active_bend_length_mm(self) -> float:
@@ -1459,8 +1459,9 @@ class _PreviewPanel:
 
             def _on_virtual_tool_length_toggled(self, enabled: bool):
                 bend_len = self._active_bend_length_mm()
-                self.tooling_setup.set_match_active_bend_length(bool(enabled), bend_len)
-                if self.press_cycle is not None:
+                if hasattr(self.tooling_setup, "set_match_active_bend_length"):
+                    self.tooling_setup.set_match_active_bend_length(bool(enabled), bend_len)
+                if self.press_cycle is not None and hasattr(self.press_cycle, "set_match_active_bend_length"):
                     self.press_cycle.set_match_active_bend_length(bool(enabled))
                 self._update_tooling_status_label()
                 self.draw()
@@ -1541,14 +1542,15 @@ class _PreviewPanel:
                     )
                     self._sync_tooling_to_active_bend()
                     pc = self._ensure_press_cycle_controller()
-                    ez_len = float(self.tooling_setup.end_zone_length_mm)
-                    allow_ez = bool(self.tooling_setup.allow_end_zone_collision)
+                    ez_len = float(getattr(self.tooling_setup, "end_zone_length_mm", 0.0) or 0.0)
+                    allow_ez = bool(getattr(self.tooling_setup, "allow_end_zone_collision", False))
+                    match_len = bool(getattr(self.tooling_setup, "match_active_bend_length", False))
                     report = check_current_25d_pose(
                         self.session,
                         pc,
                         self.tooling_setup,
                         native_3d=True,
-                        match_active_bend_length=self.tooling_setup.match_active_bend_length,
+                        match_active_bend_length=match_len,
                         allow_end_zone_collision=allow_ez,
                         end_zone_length_mm=ez_len,
                         classify_end_zone_length_mm=ez_len if ez_len > 0.0 else 10.0,
@@ -1646,12 +1648,13 @@ class _PreviewPanel:
                         check_active_25d_bend_trajectory,
                     )
                     self._sync_tooling_to_active_bend()
-                    ez_len = float(self.tooling_setup.end_zone_length_mm)
-                    allow_ez = bool(self.tooling_setup.allow_end_zone_collision)
+                    ez_len = float(getattr(self.tooling_setup, "end_zone_length_mm", 0.0) or 0.0)
+                    allow_ez = bool(getattr(self.tooling_setup, "allow_end_zone_collision", False))
+                    match_len = bool(getattr(self.tooling_setup, "match_active_bend_length", False))
                     report = check_active_25d_bend_trajectory(
                         self.session,
                         self.tooling_setup,
-                        match_active_bend_length=self.tooling_setup.match_active_bend_length,
+                        match_active_bend_length=match_len,
                         allow_end_zone_collision=allow_ez,
                         end_zone_length_mm=ez_len,
                         classify_end_zone_length_mm=ez_len if ez_len > 0.0 else 10.0,
@@ -1813,49 +1816,50 @@ class _PreviewPanel:
 
             def _update_press_cycle_labels(self):
                 if self.press_cycle is not None:
+                    phase_val = getattr(getattr(self.press_cycle, "phase", None), "value", "IDLE")
+                    sim_val = getattr(getattr(self.press_cycle, "simulation_mode", None), "value", "NORMAL")
+                    contact_val = getattr(getattr(self.press_cycle, "contact_kind", None), "value", "SURFACE")
+                    ram_z = float(getattr(self.press_cycle, "ram_z_mm", 0.0) or 0.0)
+                    ram_stroke = float(getattr(self.press_cycle, "ram_stroke_mm", 0.0) or 0.0)
                     self.cycle_phase_label.setText(
-                        "Cycle Phase: {} ({} | {})".format(
-                            self.press_cycle.phase.value,
-                            self.press_cycle.simulation_mode.value,
-                            self.press_cycle.contact_kind.value,
-                        )
+                        f"Cycle Phase: {phase_val} ({sim_val} | {contact_val})"
                     )
                     self.ram_position_label.setText(
-                        "Ram Position: {:+.2f} mm (Stroke: {:.2f} mm)".format(
-                            self.press_cycle.ram_z_mm,
-                            self.press_cycle.ram_stroke_mm,
-                        )
+                        f"Ram Position: {ram_z:+.2f} mm (Stroke: {ram_stroke:.2f} mm)"
                     )
                 else:
+                    sim_val = getattr(getattr(self.cycle_config, "simulation_mode", None), "value", "NORMAL")
+                    ram_z = float(getattr(self.tooling_setup, "ram_z_mm", 0.0) or 0.0)
+                    ram_stroke = float(getattr(self.tooling_setup, "ram_stroke_mm", 0.0) or 0.0)
                     self.cycle_phase_label.setText(
-                        "Cycle Phase: IDLE ({})".format(self.cycle_config.simulation_mode.value)
+                        f"Cycle Phase: IDLE ({sim_val})"
                     )
                     self.ram_position_label.setText(
-                        "Ram Position: {:+.2f} mm (Stroke: {:.2f} mm)".format(
-                            self.tooling_setup.ram_z_mm,
-                            self.tooling_setup.ram_stroke_mm,
-                        )
+                        f"Ram Position: {ram_z:+.2f} mm (Stroke: {ram_stroke:.2f} mm)"
                     )
 
             def _ensure_press_cycle_controller(self) -> PressCycleController | None:
                 if self.session is None:
                     self.press_cycle = None
                     return None
-                if (
-                    self.press_cycle is None
-                    or self.press_cycle.sequence is not self.session.controller
-                ):
-                    self.press_cycle = PressCycleController(
-                        sequence_controller=self.session.controller,
-                        tooling_setup=self.tooling_setup,
-                        config=self.cycle_config,
-                        cross_section_provider=lambda: (
-                            self.session.cross_section(segments=16) if self.session is not None else None
-                        ),
-                        follow_sheet_contact_preview=True,
-                        animate_workpiece_transfer=True,
-                    )
-                    self.press_cycle.set_execution_mode(self.execution_mode)
+                if self.press_cycle is not None:
+                    ctrl = getattr(self.session, "controller", None)
+                    if ctrl is None or getattr(self.press_cycle, "sequence", None) is ctrl:
+                        return self.press_cycle
+                ctrl = getattr(self.session, "controller", None)
+                if ctrl is None:
+                    return self.press_cycle
+                self.press_cycle = PressCycleController(
+                    sequence_controller=ctrl,
+                    tooling_setup=self.tooling_setup,
+                    config=self.cycle_config,
+                    cross_section_provider=lambda: (
+                        self.session.cross_section(segments=16) if self.session is not None and hasattr(self.session, "cross_section") else None
+                    ),
+                    follow_sheet_contact_preview=True,
+                    animate_workpiece_transfer=True,
+                )
+                self.press_cycle.set_execution_mode(self.execution_mode)
                 return self.press_cycle
 
             def set_cycle_mode(self, mode: CycleExecutionMode | str) -> None:
@@ -1985,12 +1989,13 @@ class _PreviewPanel:
                 if self.session is None:
                     return
                 bend_len = self._active_bend_length_mm()
-                self.tooling_setup.set_match_active_bend_length(
-                    bool(self.tooling_setup.match_active_bend_length), bend_len
-                )
-                if self.press_cycle is not None:
+                if hasattr(self.tooling_setup, "set_match_active_bend_length"):
+                    self.tooling_setup.set_match_active_bend_length(
+                        bool(getattr(self.tooling_setup, "match_active_bend_length", False)), bend_len
+                    )
+                if self.press_cycle is not None and hasattr(self.press_cycle, "on_tooling_changed"):
                     self.press_cycle.on_tooling_changed()
-                elif self.tooling_setup.punch is not None or self.tooling_setup.die is not None:
+                elif (getattr(self.tooling_setup, "punch", None) is not None or getattr(self.tooling_setup, "die", None) is not None) and hasattr(self.session, "cross_section"):
                     try:
                         self.tooling_setup.align_to_cross_section(
                             self.session.cross_section(segments=16),
@@ -2305,7 +2310,8 @@ class _PreviewPanel:
                     return
                 st = self.session.playback_status
                 self.playing = st == PlaybackStatus.PLAYING
-                self.calculate.setEnabled(not self.playing and len(self.session.bend_order) > 1)
+                bend_order = getattr(self.session, "bend_order", [])
+                self.calculate.setEnabled(not self.playing and len(bend_order) > 1)
                 self.play_btn.setText(
                     "▶ Play All (станок)" if self.execution_mode == CycleExecutionMode.FULL_CYCLE
                     else "▶ Play All (геометрия)"
@@ -2320,13 +2326,16 @@ class _PreviewPanel:
                     self.pause_btn.setText("Ⅱ Pause")
                     self.pause_btn.setEnabled(False)
 
-                can_edit_order = self.session.can_reorder() and len(self.session.bend_order) > 1
-                idx = self.session.active_bend_index
-                total = len(self.session.bend_order)
+                can_reorder_fn = getattr(self.session, "can_reorder", None)
+                can_reorder_val = can_reorder_fn() if callable(can_reorder_fn) else False
+                can_edit_order = can_reorder_val and len(bend_order) > 1
+                idx = getattr(self.session, "active_bend_index", 0)
+                total = len(bend_order)
+                canonical = getattr(self.session, "canonical_order", bend_order)
                 self.move_up_btn.setEnabled(can_edit_order and idx > 0)
                 self.move_down_btn.setEnabled(can_edit_order and 0 <= idx < total - 1)
                 self.restore_order_btn.setEnabled(
-                    can_edit_order and self.session.bend_order != self.session.canonical_order
+                    can_edit_order and bend_order != canonical
                 )
 
             def _set_playback_controls_enabled(self, enabled: bool):

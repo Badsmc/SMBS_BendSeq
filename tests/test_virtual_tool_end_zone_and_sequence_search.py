@@ -533,6 +533,119 @@ class TestVirtualToolEndZoneAndSequenceSearch(unittest.TestCase):
             self.assertNotEqual(key_base, mod_key, f"Key must change when {param} changes")
             self.assertIsNone(cache.get_step(mod_key), f"Cache must miss when {param} changes")
 
+    def test_cumulative_small_central_fragments_classification(self):
+        """Cumulative small central fragments exceeding tolerance are classified as CENTRAL_ZONE."""
+        from smbs_core.kinematics2d.native_collision_3d import (
+            PunchEndZoneAnalysis,
+            classify_punch_overlap_zones,
+        )
+        # Create a compound of 3 small boxes in central zone [-10, 10]
+        # Each box volume: 0.1 * 0.1 * 0.006 = 0.00006 mm3
+        # Sum volume = 0.00018 mm3 > volume_tolerance (1e-4 mm3)
+        b1 = Part.makeBox(0.1, 0.1, 0.006, FreeCAD.Vector(-2.0, 0.0, 0.0))
+        b2 = Part.makeBox(0.1, 0.1, 0.006, FreeCAD.Vector(0.0, 0.0, 0.0))
+        b3 = Part.makeBox(0.1, 0.1, 0.006, FreeCAD.Vector(2.0, 0.0, 0.0))
+        comp = Part.makeCompound([b1, b2, b3])
+        punch_solid = Part.makeBox(100.0, 10.0, 20.0, FreeCAD.Vector(-50.0, -5.0, 0.0))
+
+        analysis = classify_punch_overlap_zones(
+            workpiece_machine_shape=comp,
+            punch_machine_shape=punch_solid,
+            end_zone_length_mm=15.0,
+            volume_tolerance_mm3=1e-4,
+        )
+        self.assertEqual(analysis.classification, PunchCollisionZoneClassification.CENTRAL_ZONE)
+        self.assertGreater(analysis.central_zone_overlap_volume_mm3, 1e-4)
+
+    def test_mixed_end_zone_and_small_central_fragments_classification(self):
+        """End-zone collision plus small central fragments exceeding tolerance is MIXED, never END_ZONE_ONLY."""
+        from smbs_core.kinematics2d.native_collision_3d import (
+            classify_punch_overlap_zones,
+        )
+        # End zone body in [-48, -40] (left end zone is [-50, -35])
+        b_end = Part.makeBox(8.0, 2.0, 2.0, FreeCAD.Vector(-48.0, 0.0, 0.0))
+        # 3 small central bodies in [-5, 5]
+        b1 = Part.makeBox(0.1, 0.1, 0.006, FreeCAD.Vector(-2.0, 0.0, 0.0))
+        b2 = Part.makeBox(0.1, 0.1, 0.006, FreeCAD.Vector(0.0, 0.0, 0.0))
+        b3 = Part.makeBox(0.1, 0.1, 0.006, FreeCAD.Vector(2.0, 0.0, 0.0))
+        comp = Part.makeCompound([b_end, b1, b2, b3])
+        punch_solid = Part.makeBox(100.0, 10.0, 20.0, FreeCAD.Vector(-50.0, -5.0, 0.0))
+
+        analysis = classify_punch_overlap_zones(
+            workpiece_machine_shape=comp,
+            punch_machine_shape=punch_solid,
+            end_zone_length_mm=15.0,
+            volume_tolerance_mm3=1e-4,
+        )
+        self.assertEqual(analysis.classification, PunchCollisionZoneClassification.MIXED_CENTRAL_AND_END_ZONE)
+        self.assertGreater(analysis.central_zone_overlap_volume_mm3, 1e-4)
+        self.assertGreater(analysis.end_zone_overlap_volume_mm3, 1.0)
+
+    def test_dead_end_cache_does_not_memoize_unverified_subsets(self):
+        """When any branch encounters UNVERIFIED (e.g. timeout), the subset must NOT be marked dead-end."""
+        from types import SimpleNamespace
+        from smbs_core.kinematics2d.sequence_search import (
+            StepEvaluationCache,
+            search_bend_sequence_25d,
+        )
+        from smbs_core.kinematics2d.physical_validation_25d import (
+            CurrentPosePhysicalReport,
+            PhysicalEvidence,
+        )
+
+        mock_session = SimpleNamespace(
+            bend_order=["B01", "B02"],
+            active_bend_index=0,
+            active_bend_id="B01",
+            fold_state=SimpleNamespace(
+                angles={"B01": 0.0, "B02": 0.0},
+                transforms={"B01": None, "B02": None},
+                bends={"B01": SimpleNamespace(angle_deg=0.0), "B02": SimpleNamespace(angle_deg=0.0)},
+                set_angle=lambda bid, ang: None,
+            ),
+            select_bend_index=lambda idx: None,
+            reset_all_bends=lambda: None,
+            set_bend_order=lambda order: None,
+        )
+        mock_cycle = SimpleNamespace()
+        mock_tooling = SimpleNamespace(
+            match_active_bend_length=False,
+            allow_end_zone_collision=False,
+            end_zone_length_mm=0.0,
+            punch=SimpleNamespace(tool_id="test_punch"),
+            die=SimpleNamespace(tool_id="test_die"),
+        )
+        cache = StepEvaluationCache()
+
+        # Mock pose checker that returns UNVERIFIED for B01
+        def unverified_pose_checker(*args, **kwargs):
+            return CurrentPosePhysicalReport(
+                status=PhysicalEvidence.UNVERIFIED,
+                section_status="CLEAR",
+                native_status="INTERVAL_UNRESOLVED",
+                reason="simulated_timeout_unverified",
+                checked_scope=("B01",),
+            )
+
+        report = search_bend_sequence_25d(
+            session=mock_session,
+            press_cycle=mock_cycle,
+            tooling=mock_tooling,
+            cache=cache,
+            pose_checker=unverified_pose_checker,
+        )
+        # Because B01 was UNVERIFIED, the root subset () must NOT be in dead ends!
+        subset_key = cache.make_subset_key(
+            completed_angles={},
+            tooling=mock_tooling,
+            match_active_bend_length=False,
+            bend_shifts={},
+            config=None,
+            allow_end_zone_collision=False,
+            end_zone_length_mm=0.0,
+        )
+        self.assertFalse(cache.is_dead_end(subset_key), "Subset with UNVERIFIED branch must NEVER be marked as dead end")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -658,9 +658,7 @@ def classify_punch_overlap_zones(
             return _unclassified(f"component_{idx}_non_finite_metrics", p_span=(p_xmin, p_xmax), ez_len=ez_len, vol=total_vol)
 
         sum_comp_vol += svol
-        # Sub-tolerance numerical contact slivers (e.g. 4e-6 mm3 along punch tip line <= volume_tolerance_mm3)
-        # are surface-touching artifacts, not positive-volume penetrations.
-        if svol <= max(1e-9, float(volume_tolerance_mm3)):
+        if svol <= 1e-9:
             continue
 
         in_left = (xmin >= p_xmin - 1e-2) and (xmax <= left_zone[1] + boundary_eps)
@@ -716,17 +714,24 @@ def classify_punch_overlap_zones(
 
     ordered_sides = tuple(s for s in ("LEFT", "CENTRAL", "RIGHT") if s in sides_set)
 
-    if has_mixed_comp or (has_end_zone_comp and has_central_comp):
+    # Classify based on cumulative volumes outside and inside allowed end-zones.
+    # A set of small central bodies whose cumulative volume exceeds volume_tolerance_mm3
+    # must never be lost or ignored.
+    has_significant_central = central_vol > volume_tolerance_mm3
+    has_significant_end_zone = end_zone_vol > volume_tolerance_mm3
+
+    if has_mixed_comp or (has_significant_central and has_significant_end_zone):
         cls_res = PunchCollisionZoneClassification.MIXED_CENTRAL_AND_END_ZONE
         reason = "overlap_spans_both_central_and_end_zones"
-    elif has_central_comp and not has_end_zone_comp:
+    elif has_significant_central:
         cls_res = PunchCollisionZoneClassification.CENTRAL_ZONE
         reason = "overlap_in_central_working_zone"
-    elif has_end_zone_comp and not has_central_comp and not has_mixed_comp:
+    elif has_significant_end_zone:
         cls_res = PunchCollisionZoneClassification.END_ZONE_ONLY
         reason = f"all_overlap_components_strictly_within_end_zones({','.join(ordered_sides)})"
     else:
-        return _unclassified("ambiguous_component_zone_classification", p_span=(p_xmin, p_xmax), ez_len=ez_len, vol=total_vol)
+        cls_res = PunchCollisionZoneClassification.NONE
+        reason = "overlap_within_volume_tolerance"
 
     return PunchEndZoneAnalysis(
         classification=cls_res,

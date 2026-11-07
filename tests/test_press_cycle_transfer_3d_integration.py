@@ -142,7 +142,11 @@ class TestWorkpieceTransfer3DIntegration(unittest.TestCase):
         self.assertIsNone(cycle.transfer_3d)
 
         # 6. Verify final position matches B02 initial setup placement exactly
-        p_b02_initial = WorkpiecePlacement3D.compute_placement(fold_state, "B02")
+        bz = fold_state.bends["B02"].bend_zone
+        outer_r = bz.outer_radius_mm if bz is not None else 0.0
+        p_b02_initial = WorkpiecePlacement3D.compute_placement(
+            fold_state, "B02", support_plane_zm=outer_r, align_bisector=True, align_bend_arc_center=True
+        )
         p_at_b02 = cycle.current_workpiece_placement_3d()
         pts_b02_setup = self._get_all_panel_points_machine(p_b02_initial)
         pts_b02_actual = self._get_all_panel_points_machine(p_at_b02)
