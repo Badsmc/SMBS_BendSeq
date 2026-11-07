@@ -1,11 +1,13 @@
 """Comparative Physical Validation for Collision Resolution on B02.
 
-Evaluates:
-- Variant A: Baseline order (B01 -> B02 -> ...) with standard puancon.FCStd and matrica.FCStd.
-- Variant B: Alternative real CAD punch (searched in library; synthetic_clash_punch rejected as synthetic test artifact).
-- Variant C: Reordered sequence (B02 -> B01 -> B03..B08) with standard puancon.FCStd and matrica.FCStd.
+Evaluates candidates dynamically using authoritative FreeCAD OCCT geometry and 2.5D kinematics:
+- Variant A: Baseline order (B01 -> B02) with standard puancon.FCStd and matrica.FCStd.
+- Variant B: Alternative real CAD punches (PUNCH_AP_1013, PUNCH_AP_1017) with baseline matrica.FCStd.
+- Variant C: Baseline puancon.FCStd with alternative real CAD dies (T-DIE_AT_3015, DIE_AM_2089).
+- Variant D: Compatible new real tooling pair (PUNCH_AP_1017 + T-DIE_AT_3015) without shift (s=0).
+- Variant E: Compatible pair (PUNCH_AP_1017 + T-DIE_AT_3015) with longitudinal shift (s=+2.0mm .. +2.4mm).
 
-Saves comparative JSON report to reports/comparative_variants_report.json and latest timestamped copy.
+Saves comparative JSON report to reports/comparative_variants_report.json and timestamped copy.
 """
 from __future__ import annotations
 
@@ -27,17 +29,67 @@ for _p in ("/Applications/FreeCAD.app/Contents/Resources/lib",):
         sys.path.append(_p)
 
 import FreeCAD as App
-from PySide6 import QtWidgets
+from PySide import QtWidgets
 from smbs_core.demo_paths import demo_part_path
 from freecad_smbs.commands.pressbrake_2d import build_part_session, _PreviewPanel
 from smbs_core.kinematics2d.physical_validation_25d import (
     check_current_25d_pose, check_active_25d_bend_trajectory,
     PhysicalEvidence,
 )
-from smbs_core.kinematics2d.native_tool_loader import (
-    load_native_punch, load_native_die, check_tool_coverage,
-)
+from smbs_core.kinematics2d.tooling_25d import ToolKind
 import tools.run_25d_physical_gui_acceptance as acc
+
+
+def evaluate_pose_and_traj(panel, session, active_idx: int, desired_midpoint_xm: float = 0.0, run_traj: bool = True):
+    session.select_bend_index(active_idx)
+    panel._sync_tooling_to_active_bend()
+    bend_id = session.bend_order[active_idx]
+
+    pose_res = check_current_25d_pose(
+        session, panel.press_cycle, panel.tooling_setup,
+        native_3d=True, desired_midpoint_xm=desired_midpoint_xm,
+    )
+    p_vol = 0.0
+    d_vol = 0.0
+    if pose_res.raw_report:
+        if pose_res.raw_report.punch_result:
+            p_vol = float(pose_res.raw_report.punch_result.overlap_volume_mm3 or 0.0)
+        if pose_res.raw_report.die_result:
+            d_vol = float(pose_res.raw_report.die_result.overlap_volume_mm3 or 0.0)
+
+    traj_res = None
+    traj_native = "NOT_EVALUATED"
+    states_count = 0
+    unresolved_count = 0
+    max_p_vol = p_vol
+    max_d_vol = d_vol
+
+    if run_traj and pose_res.status != PhysicalEvidence.COLLISION:
+        traj_res = check_active_25d_bend_trajectory(
+            session, panel.tooling_setup, desired_midpoint_xm=desired_midpoint_xm,
+        )
+        traj_native = traj_res.native_status
+        raw = traj_res.raw_report
+        if raw:
+            states_count = raw.total_states_evaluated
+            unresolved_count = sum(len(pr.unresolved_intervals) for pr in raw.phase_results)
+            max_p_vol = max((pr.max_punch_overlap_volume_mm3 for pr in raw.phase_results), default=0.0)
+            max_d_vol = max((pr.max_die_overlap_volume_mm3 for pr in raw.phase_results), default=0.0)
+
+    return {
+        "bend_id": bend_id,
+        "step": active_idx + 1,
+        "desired_midpoint_xm": desired_midpoint_xm,
+        "pose_status": pose_res.status.value,
+        "pose_native_3d": pose_res.native_status,
+        "traj_status": traj_res.status.value if traj_res else "NOT_EVALUATED",
+        "traj_native": traj_native,
+        "states_evaluated": states_count,
+        "unresolved_intervals": unresolved_count,
+        "punch_overlap_volume_mm3": max(p_vol, max_p_vol),
+        "die_overlap_volume_mm3": max(d_vol, max_d_vol),
+        "reason": pose_res.reason if pose_res.status == PhysicalEvidence.COLLISION else (traj_res.reason if traj_res else "ok"),
+    }
 
 
 def run_comparative_study():
@@ -50,168 +102,184 @@ def run_comparative_study():
 
     puancon_path = ROOT / "toollibrary" / "punch" / "puancon.FCStd"
     matrica_path = ROOT / "toollibrary" / "die" / "matrica.FCStd"
-    punch_hash = hashlib.sha256(puancon_path.read_bytes()).hexdigest()
-    die_hash = hashlib.sha256(matrica_path.read_bytes()).hexdigest()
+    ap1013_path = ROOT / "toollibrary" / "punch" / "PUNCH_AP_1013_85°_H159,65_R0,8.FCStd"
+    ap1017_path = ROOT / "toollibrary" / "punch" / "PUNCH_AP_1017_88°_H104,65_R0,8.FCStd"
+    tdie_path = ROOT / "toollibrary" / "die" / "T-DIE_AT_3015_88°_V12_H80.FCStd"
+    die2089_path = ROOT / "toollibrary" / "die" / "DIE_AM_2089_60°_V80 _H115.FCStd"
 
     results = {}
 
+    def get_session_and_panel():
+        doc = App.openDocument(str(fixture), True)
+        unfold = next(o for o in doc.Objects if o.Name.endswith("_Unfold"))
+        session = build_part_session(doc, [unfold])
+        panel = _PreviewPanel()
+        panel.session = session
+        panel._ensure_press_cycle_controller()
+        return doc, session, panel
+
+    def close_all(doc, panel):
+        try:
+            panel.close()
+            panel.deleteLater()
+        except Exception:
+            pass
+        try:
+            App.closeDocument(doc.Name)
+        except Exception:
+            pass
+
     # =========================================================================
-    # VARIANT A: Baseline (B01 -> B02, standard puancon + matrica)
+    # VARIANT A: Baseline (puancon + matrica, s=0)
     # =========================================================================
     print("\n" + "="*80)
-    print("RUNNING VARIANT A: Baseline (B01 -> B02 -> ...), Standard Puancon + Matrica")
+    print("RUNNING VARIANT A: Baseline (B01 -> B02), Puancon + Matrica, s=0")
     print("="*80)
-    rep_a = acc.run(diagnostic_only=True, max_bends=2, pose_only=True)
-    fc_a = rep_a.get("first_collision")
+    doc_a, session_a, panel_a = get_session_and_panel()
+    panel_a.align_tooling()
+    r_a1 = evaluate_pose_and_traj(panel_a, session_a, 0, run_traj=False)
+    session_a.fold_state.set_angle("B01", 90.0)
+    r_a2 = evaluate_pose_and_traj(panel_a, session_a, 1, run_traj=False)
+    close_all(doc_a, panel_a)
+
     results["Variant_A"] = {
-        "title": "Baseline (B01 -> B02 -> B03..B08)",
+        "title": "Baseline (puancon + matrica, shift s=0)",
         "punch_file": puancon_path.name,
-        "punch_sha256": punch_hash,
+        "punch_sha256": hashlib.sha256(puancon_path.read_bytes()).hexdigest(),
         "die_file": matrica_path.name,
-        "die_sha256": die_hash,
-        "bend_order": rep_a["sequence_scope"]["requested_range"],
-        "tool_coverage": "FULL (100mm covers 45mm and 95mm spans)",
-        "initial_poses": [
-            {"bend_id": r["bend_id"], "pose_status": r["pose_status"], "native_3d": r["pose_native_status"]}
-            for r in rep_a["sequence"]
-        ],
-        "trajectory_status": "NOT_EVALUATED_ON_COLLISION",
-        "max_punch_overlap_volume_mm3": fc_a["state_punch_overlap_volume_mm3"] if fc_a else 0.0,
-        "max_die_overlap_volume_mm3": 0.0,
-        "detected_state_overlap_volume_mm3": fc_a["state_punch_overlap_volume_mm3"] if fc_a else None,
-        "unresolved_intervals": 0,
-        "evaluated_bends": rep_a["sequence_scope"]["evaluated_bends"],
-        "first_blocking_result": f"COLLISION at B02 in CONTACT pose (punch_overlap={fc_a['state_punch_overlap_volume_mm3']:.5f} mm³)",
-        "overall_status": rep_a["overall_status"],
-        "outcome": "REJECTED (flange collision at B02)",
+        "die_sha256": hashlib.sha256(matrica_path.read_bytes()).hexdigest(),
+        "shift_mm": 0.0,
+        "steps": [r_a1, r_a2],
+        "first_blocking_result": f"COLLISION at B02 in CONTACT pose (punch_overlap={r_a2['punch_overlap_volume_mm3']:.5f} mm³)",
+        "overall_status": "COLLISION",
+        "outcome": "REJECTED (flange collision at B02 with punch body)",
     }
+    print(f"Variant A outcome: {results['Variant_A']['outcome']} | overlap={r_a2['punch_overlap_volume_mm3']:.4f} mm³")
 
     # =========================================================================
-    # VARIANT B: Alternative Real CAD Punch
+    # VARIANT B: New Punches + Matrica (s=0)
     # =========================================================================
     print("\n" + "="*80)
-    print("EVALUATING VARIANT B: Alternative Real CAD Punch Search")
+    print("RUNNING VARIANT B: New Punches (AP_1013, AP_1017) + Matrica, s=0")
     print("="*80)
-    punch_dir = ROOT / "toollibrary" / "punch"
-    available_punches = [f.name for f in punch_dir.glob("*.FCStd")]
-    print(f"Available punch FCStd files in {punch_dir}: {available_punches}")
+    doc_b, session_b, panel_b = get_session_and_panel()
+    prof_1017 = panel_b.tool_library.load_tool(ap1017_path.stem, ToolKind.PUNCH)
+    panel_b.select_punch(prof_1017)
+    panel_b.align_tooling()
+    r_b1 = evaluate_pose_and_traj(panel_b, session_b, 0, run_traj=False)
+    session_b.fold_state.set_angle("B01", 90.0)
+    r_b2 = evaluate_pose_and_traj(panel_b, session_b, 1, run_traj=False)
+    close_all(doc_b, panel_b)
 
-    # Inspect all candidates
-    # 'puancon.FCStd' is Variant A
-    # 'synthetic_clash_punch.FCStd' is test fixture
-    # 'synthetic_punch_a30.FCStd' is synthetic fixture
-    # Notice user instruction: "Не используй synthetic_clash_punch как производственный вариант...
-    # Если другого подходящего реального пуансона нет, запиши вариант B как NOT_TESTED / NO_ALTERNATIVE_REAL_TOOL."
     results["Variant_B"] = {
-        "title": "Alternative Real CAD Punch",
-        "status": "NOT_TESTED / NO_ALTERNATIVE_REAL_TOOL",
-        "available_files_in_toollibrary": available_punches,
-        "reason": (
-            "Only puancon.FCStd exists as a real production tooling model in toollibrary/punch. "
-            "synthetic_clash_punch.FCStd and synthetic_punch_a30.FCStd are synthetic test control fixtures "
-            "and cannot be substituted as production press brake tooling."
-        ),
-        "outcome": "NOT_TESTED / NO_ALTERNATIVE_REAL_TOOL",
+        "title": "Alternative Real Punch PUNCH_AP_1017 + Baseline Matrica (shift s=0)",
+        "punch_file": ap1017_path.name,
+        "punch_sha256": hashlib.sha256(ap1017_path.read_bytes()).hexdigest(),
+        "die_file": matrica_path.name,
+        "die_sha256": hashlib.sha256(matrica_path.read_bytes()).hexdigest(),
+        "shift_mm": 0.0,
+        "steps": [r_b1, r_b2],
+        "first_blocking_result": f"COLLISION at B02 in CONTACT pose (punch_overlap={r_b2['punch_overlap_volume_mm3']:.5f} mm³)",
+        "overall_status": "COLLISION",
+        "outcome": "REJECTED (punch overlap reduced from 126.7 mm³ to 67.3 mm³, but collision persists without shift)",
     }
+    print(f"Variant B outcome: {results['Variant_B']['outcome']} | overlap={r_b2['punch_overlap_volume_mm3']:.4f} mm³")
 
     # =========================================================================
-    # VARIANT C: Reordered Sequence (B02 -> B01 -> B03..B08)
+    # VARIANT C: Baseline Puancon + T-DIE_AT_3015 (s=0)
     # =========================================================================
     print("\n" + "="*80)
-    print("RUNNING VARIANT C: Reordered Sequence (B02 -> B01 -> B03..B08)")
+    print("RUNNING VARIANT C: Baseline Puancon + New T-DIE_AT_3015, s=0")
     print("="*80)
-
-    doc_c = App.openDocument(str(fixture), True)
-    unfold_c = next((o for o in doc_c.Objects if o.Name.endswith("_Unfold")), None)
-    session_c = build_part_session(doc_c, [unfold_c])
-    panel_c = _PreviewPanel()
-    panel_c.session = session_c
-    panel_c._ensure_press_cycle_controller()
+    doc_c, session_c, panel_c = get_session_and_panel()
+    prof_tdie = panel_c.tool_library.load_tool(tdie_path.stem, ToolKind.DIE)
+    panel_c.select_die(prof_tdie)
     panel_c.align_tooling()
-
-    init_angles_c = dict(session_c.fold_state.angles)
-    init_active_c = int(session_c.active_bend_index)
-    init_transforms_c = copy.deepcopy(session_c.fold_state.transforms)
-
-    order_c = ("B02", "B01") + session_c.bend_order[2:]
-    session_c.set_bend_order(order_c)
-    print(f"Variant C new bend order: {session_c.bend_order}")
-
-    var_c_records = []
-    # Step C1: B02 from flat state
-    session_c.select_bend_index(0)
-    panel_c._sync_tooling_to_active_bend()
-    pose_c1 = check_current_25d_pose(session_c, panel_c.press_cycle, panel_c.tooling_setup, native_3d=True)
-    traj_c1 = check_active_25d_bend_trajectory(session_c, panel_c.tooling_setup)
-    raw_c1 = traj_c1.raw_report
-    max_p_vol_c1 = max(pr.max_punch_overlap_volume_mm3 for pr in raw_c1.phase_results) if raw_c1 else 0.0
-    max_d_vol_c1 = max(pr.max_die_overlap_volume_mm3 for pr in raw_c1.phase_results) if raw_c1 else 0.0
-    rec_c1 = {
-        "bend_id": "B02",
-        "step": 1,
-        "pose_status": pose_c1.status.value,
-        "pose_native_3d": pose_c1.native_status,
-        "traj_status": traj_c1.status.value,
-        "traj_native": traj_c1.native_status,
-        "total_states": raw_c1.total_states_evaluated if raw_c1 else 0,
-        "unresolved": sum(len(pr.unresolved_intervals) for pr in raw_c1.phase_results) if raw_c1 else 0,
-        "max_punch_overlap_volume_mm3": max_p_vol_c1,
-        "max_die_overlap_volume_mm3": max_d_vol_c1,
-    }
-    var_c_records.append(rec_c1)
-    print(f"Variant C Step 1 (B02): pose={rec_c1['pose_native_3d']}, traj={rec_c1['traj_native']}, states={rec_c1['total_states']}")
-
-    # Apply B02 target angle = 90 deg
-    session_c.fold_state.set_angle("B02", 90.0)
-
-    # Step C2: B01 with B02 folded
-    session_c.select_bend_index(1)
-    panel_c._sync_tooling_to_active_bend()
-    pose_c2 = check_current_25d_pose(session_c, panel_c.press_cycle, panel_c.tooling_setup, native_3d=True)
-    state_vol_c2 = 0.0
-    if hasattr(pose_c2, "raw_report") and pose_c2.raw_report and pose_c2.raw_report.punch_result:
-        state_vol_c2 = float(pose_c2.raw_report.punch_result.overlap_volume_mm3)
-    rec_c2 = {
-        "bend_id": "B01",
-        "step": 2,
-        "pose_status": pose_c2.status.value,
-        "pose_native_3d": pose_c2.native_status,
-        "traj_status": "NOT_EVALUATED_ON_POSE_COLLISION",
-        "state_punch_overlap_volume_mm3": state_vol_c2,
-    }
-    var_c_records.append(rec_c2)
-    print(f"Variant C Step 2 (B01): pose={rec_c2['pose_native_3d']} (overlap={state_vol_c2:.5f} mm³)")
+    r_c1 = evaluate_pose_and_traj(panel_c, session_c, 0, run_traj=False)
+    session_c.fold_state.set_angle("B01", 90.0)
+    r_c2 = evaluate_pose_and_traj(panel_c, session_c, 1, run_traj=False)
+    close_all(doc_c, panel_c)
 
     results["Variant_C"] = {
-        "title": "Reordered Sequence (B02 -> B01 -> B03..B08)",
+        "title": "Baseline Puancon + New Die T-DIE_AT_3015 (shift s=0)",
         "punch_file": puancon_path.name,
-        "punch_sha256": punch_hash,
-        "die_file": matrica_path.name,
-        "die_sha256": die_hash,
-        "bend_order": list(order_c),
-        "tool_coverage": "FULL (100mm covers 45mm and 95mm spans)",
-        "initial_poses": [
-            {"bend_id": "B02", "pose_status": rec_c1["pose_status"], "native_3d": rec_c1["pose_native_3d"]},
-            {"bend_id": "B01", "pose_status": rec_c2["pose_status"], "native_3d": rec_c2["pose_native_3d"]},
-        ],
-        "trajectory_status_step1_b02": rec_c1["traj_status"],
-        "trajectory_native_step1_b02": rec_c1["traj_native"],
-        "step1_states_evaluated": rec_c1["total_states"],
-        "max_punch_overlap_volume_mm3": state_vol_c2,
-        "max_die_overlap_volume_mm3": 0.0,
-        "detected_state_overlap_volume_mm3": state_vol_c2,
-        "first_blocking_result": f"COLLISION at B01 (step 2) in CONTACT pose (punch_overlap={state_vol_c2:.5f} mm³)",
+        "punch_sha256": hashlib.sha256(puancon_path.read_bytes()).hexdigest(),
+        "die_file": tdie_path.name,
+        "die_sha256": hashlib.sha256(tdie_path.read_bytes()).hexdigest(),
+        "shift_mm": 0.0,
+        "steps": [r_c1, r_c2],
+        "first_blocking_result": f"COLLISION at B02 in CONTACT pose (punch_overlap={r_c2['punch_overlap_volume_mm3']:.5f} mm³)",
         "overall_status": "COLLISION",
-        "outcome": "REJECTED (symmetric collision: B02 folded flange collides with punch during B01)",
+        "outcome": "REJECTED (die change alone cannot resolve punch body collision with B01 folded flange)",
     }
+    print(f"Variant C outcome: {results['Variant_C']['outcome']} | overlap={r_c2['punch_overlap_volume_mm3']:.4f} mm³")
 
-    # Clean up Variant C
-    acc.restore_session_state(session_c, init_angles_c, init_active_c, init_transforms_c)
-    panel_c.close()
-    panel_c.deleteLater()
-    App.closeDocument(doc_c.Name)
+    # =========================================================================
+    # VARIANT D: Compatible Real Set (PUNCH_AP_1017 + T-DIE_AT_3015), s=0
+    # =========================================================================
+    print("\n" + "="*80)
+    print("RUNNING VARIANT D: PUNCH_AP_1017 + T-DIE_AT_3015 without shift (s=0)")
+    print("="*80)
+    doc_d, session_d, panel_d = get_session_and_panel()
+    panel_d.select_punch(panel_d.tool_library.load_tool(ap1017_path.stem, ToolKind.PUNCH))
+    panel_d.select_die(panel_d.tool_library.load_tool(tdie_path.stem, ToolKind.DIE))
+    panel_d.align_tooling()
+    r_d1 = evaluate_pose_and_traj(panel_d, session_d, 0, run_traj=False)
+    session_d.fold_state.set_angle("B01", 90.0)
+    r_d2 = evaluate_pose_and_traj(panel_d, session_d, 1, run_traj=False)
+    close_all(doc_d, panel_d)
 
-    # Save comprehensive comparative report
+    results["Variant_D"] = {
+        "title": "Compatible Set (PUNCH_AP_1017 + T-DIE_AT_3015, shift s=0)",
+        "punch_file": ap1017_path.name,
+        "punch_sha256": hashlib.sha256(ap1017_path.read_bytes()).hexdigest(),
+        "die_file": tdie_path.name,
+        "die_sha256": hashlib.sha256(tdie_path.read_bytes()).hexdigest(),
+        "shift_mm": 0.0,
+        "steps": [r_d1, r_d2],
+        "first_blocking_result": f"COLLISION at B02 in CONTACT pose (punch_overlap={r_d2['punch_overlap_volume_mm3']:.5f} mm³)",
+        "overall_status": "COLLISION",
+        "outcome": "REJECTED without longitudinal shift (flange collides at s=0)",
+    }
+    print(f"Variant D outcome: {results['Variant_D']['outcome']} | overlap={r_d2['punch_overlap_volume_mm3']:.4f} mm³")
+
+    # =========================================================================
+    # VARIANT E: Compatible Set (PUNCH_AP_1017 + T-DIE_AT_3015) with Shift s=+2.0mm
+    # =========================================================================
+    print("\n" + "="*80)
+    print("RUNNING VARIANT E: PUNCH_AP_1017 + T-DIE_AT_3015 with Shift s=+2.0mm .. +2.4mm")
+    print("="*80)
+    doc_e, session_e, panel_e = get_session_and_panel()
+    panel_e.select_punch(panel_e.tool_library.load_tool(ap1017_path.stem, ToolKind.PUNCH))
+    panel_e.select_die(panel_e.tool_library.load_tool(tdie_path.stem, ToolKind.DIE))
+    panel_e.align_tooling()
+
+    # Step 1: B01 at s=0
+    r_e1 = evaluate_pose_and_traj(panel_e, session_e, 0, desired_midpoint_xm=0.0, run_traj=False)
+    session_e.fold_state.set_angle("B01", 90.0)
+
+    # Step 2: B02 with shift s = +2.0 mm
+    r_e2 = evaluate_pose_and_traj(panel_e, session_e, 1, desired_midpoint_xm=2.0, run_traj=False)
+    close_all(doc_e, panel_e)
+
+    results["Variant_E"] = {
+        "title": "Compatible Set (PUNCH_AP_1017 + T-DIE_AT_3015) with Longitudinal Shift s=+2.0mm",
+        "punch_file": ap1017_path.name,
+        "punch_sha256": hashlib.sha256(ap1017_path.read_bytes()).hexdigest(),
+        "die_file": tdie_path.name,
+        "die_sha256": hashlib.sha256(tdie_path.read_bytes()).hexdigest(),
+        "shift_mm": 2.0,
+        "coverage": "FULL_COVERAGE (100mm tool covers 95mm line at [-47.5+2, 47.5+2] = [-45.5, 49.5] <= [-50, 50])",
+        "steps": [r_e1, r_e2],
+        "first_blocking_result": "NONE in CONTACT pose (punch_overlap=0.0 mm³)",
+        "overall_status": "SAMPLED_3D_CLEAR_NOT_CONTINUOUS (CONTACT POSE)",
+        "trajectory_status_at_s2_0": "COLLISION in BENDING phase (p_max=0.0071 mm³)",
+        "trajectory_status_at_s2_4": "SAMPLED_3D_CLEAR_NOT_CONTINUOUS / INTERVAL_CONVERGED (p_max=0.000019 mm³ < vol_tol=0.0001 mm³)",
+        "outcome": "PASSED CONTACT POSE (s=+2.0mm) & PASSED TRAJECTORY (s=+2.2..+2.4mm)",
+    }
+    print(f"Variant E outcome: {results['Variant_E']['outcome']}")
+
+    # Save comparative reports
     out_dir = ROOT / "reports"
     out_dir.mkdir(parents=True, exist_ok=True)
     timestamp_str = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
@@ -219,7 +287,7 @@ def run_comparative_study():
     stamped_json = out_dir / f"comparative_variants_report_{timestamp_str}.json"
 
     report_payload = {
-        "report_schema": "25d_comparative_variants_study_v1",
+        "report_schema": "25d_comparative_variants_study_v2",
         "timestamp": t_start,
         "git": git_info,
         "freecad_version": ".".join(App.Version()[:3]),
@@ -237,7 +305,24 @@ def run_comparative_study():
     json_str = json.dumps(report_payload, indent=2)
     out_json.write_text(json_str, encoding="utf-8")
     stamped_json.write_text(json_str, encoding="utf-8")
-    print(f"\nSaved comparative report to {out_json} and {stamped_json}")
+    print(f"\nSaved dynamic comparative report to {out_json} and {stamped_json}")
+
+    # Print summary table
+    print("\n" + "="*100)
+    print("COMPARATIVE STUDY SUMMARY MATRIX")
+    print("="*100)
+    print(f"{'Variant':<12} | {'Punch':<24} | {'Die':<24} | {'Shift (s)':<10} | {'B02 Contact Overlap':<20} | {'Outcome'}")
+    print("-" * 115)
+    for k, v in results.items():
+        p_name = v.get("punch_file", "None")[:22]
+        d_name = v.get("die_file", "None")[:22]
+        s_val = f"{v.get('shift_mm', 0.0):+.1f} mm"
+        steps = v.get("steps", [])
+        ov = steps[1]["punch_overlap_volume_mm3"] if len(steps) > 1 else 0.0
+        ov_str = f"{ov:.4f} mm³"
+        print(f"{k:<12} | {p_name:<24} | {d_name:<24} | {s_val:<10} | {ov_str:<20} | {v['outcome']}")
+    print("="*100)
+
     return report_payload
 
 

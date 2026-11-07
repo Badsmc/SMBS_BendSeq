@@ -61,7 +61,14 @@ def _source_path(profile) -> Path | None:
     return None
 
 
-def check_current_25d_pose(session, press_cycle, tooling, *, native_3d: bool = True):
+def check_current_25d_pose(
+    session,
+    press_cycle,
+    tooling,
+    *,
+    native_3d: bool = True,
+    desired_midpoint_xm: float = 0.0,
+):
     """Check the displayed FoldState at its current machine placement.
 
     No source document or FoldState is rewritten. Optional native D6 checks
@@ -80,6 +87,16 @@ def check_current_25d_pose(session, press_cycle, tooling, *, native_3d: bool = T
     # used by the 2.5D GUI. No projection from a different local bend frame.
     try:
         placement = press_cycle.current_workpiece_placement_3d()
+        if abs(desired_midpoint_xm) > 1e-6:
+            from .workpiece_placement_3d import WorkpiecePlacement3D
+            placement = WorkpiecePlacement3D.compute_placement(
+                session.fold_state,
+                session.active_bend_id,
+                support_plane_zm=placement.translation[2],
+                align_bisector=True,
+                align_bend_arc_center=True,
+                desired_midpoint_xm=desired_midpoint_xm,
+            )
         section = compute_machine_cutting_plane_section(
             session.fold_state, session.panel_vertices_xy, placement,
             active_bend_id=session.active_bend_id, segments=32,
@@ -174,7 +191,7 @@ def check_current_25d_pose(session, press_cycle, tooling, *, native_3d: bool = T
         axis = active.axis_xyz
         from math import dist
         length = dist(axis[0], axis[1])
-        span = (-length / 2.0, length / 2.0)
+        span = (-length / 2.0 + desired_midpoint_xm, length / 2.0 + desired_midpoint_xm)
         old_active = getattr(getattr(App, "ActiveDocument", None), "Name", None)
         try:
             punch = load_native_punch(punch_path, ram_z_mm=float(press_cycle.ram_z_mm))
@@ -261,7 +278,13 @@ def check_current_25d_pose(session, press_cycle, tooling, *, native_3d: bool = T
     )
 
 
-def check_active_25d_bend_trajectory(session, tooling, *, config=None):
+def check_active_25d_bend_trajectory(
+    session,
+    tooling,
+    *,
+    config=None,
+    desired_midpoint_xm: float = 0.0,
+):
     """Run the existing D6.3.4 adaptive 3D oracle for ONE active bend.
 
     Invoked only by explicit request, never from the animation timer.
@@ -308,7 +331,12 @@ def check_active_25d_bend_trajectory(session, tooling, *, config=None):
             punch = load_native_punch(punch_file, ram_z_mm=50.0)
             die = load_native_die(die_file)
             validator = AdaptiveTrajectoryValidator3D(
-                state, session.panel_build, punch, die, config=config,
+                state,
+                session.panel_build,
+                punch,
+                die,
+                config=config,
+                desired_midpoint_xm=desired_midpoint_xm,
             )
             report = validator.validate_bend_trajectory(active_id, prior)
         finally:

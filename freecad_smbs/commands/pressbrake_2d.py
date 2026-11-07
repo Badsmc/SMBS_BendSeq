@@ -543,7 +543,7 @@ def _button(widgets, label, callback, enabled=True):
 class _PreviewPanel:
     """Lazy Qt widget factory to keep headless command import possible."""
 
-    def __new__(cls):
+    def __new__(cls, library_root: Path | str | None = None):
         QtCore, QtGui, QtWidgets = _qt()
 
         class Canvas(QtWidgets.QGraphicsView):
@@ -1280,13 +1280,23 @@ class _PreviewPanel:
                     return
                 try:
                     tools = self.tool_library.list_tools()
+                    # First priority: verified baseline tools "puancon" and "matrica"
                     for t in tools:
                         if t.validation_status != ValidationStatus.INVALID:
                             if self.tooling_setup.punch is None and t.kind == ToolKind.PUNCH:
-                                if "puancon" in t.tool_id.lower() or "punch" in t.tool_id.lower():
+                                if t.tool_id.lower() == "puancon":
                                     self.tooling_setup.select_punch(t)
                             if self.tooling_setup.die is None and t.kind == ToolKind.DIE:
-                                if "matrica" in t.tool_id.lower() or "die" in t.tool_id.lower():
+                                if t.tool_id.lower() == "matrica":
+                                    self.tooling_setup.select_die(t)
+                    # Second priority: any other matching punch / die
+                    for t in tools:
+                        if t.validation_status != ValidationStatus.INVALID:
+                            if self.tooling_setup.punch is None and t.kind == ToolKind.PUNCH:
+                                if "punch" in t.tool_id.lower():
+                                    self.tooling_setup.select_punch(t)
+                            if self.tooling_setup.die is None and t.kind == ToolKind.DIE:
+                                if "die" in t.tool_id.lower():
                                     self.tooling_setup.select_die(t)
                     if self.tooling_setup.punch is None:
                         for t in tools:
@@ -2937,4 +2947,4 @@ class _PreviewPanel:
                     _error(traceback.format_exc())
                     raise
 
-        return Panel()
+        return Panel(library_root=library_root)
