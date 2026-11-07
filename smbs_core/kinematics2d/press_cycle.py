@@ -812,7 +812,7 @@ class PressCycleController:
 
         return False
 
-    def current_workpiece_placement_3d(self) -> PlacementTransform3D:
+    def current_workpiece_placement_3d(self, desired_midpoint_xm: float = 0.0) -> PlacementTransform3D:
         """Authoritative rigid 3D workpiece placement in Machine Coordinates.
 
         Returns:
@@ -869,6 +869,7 @@ class PressCycleController:
         return WorkpiecePlacement3D.compute_placement(
             fold_state,
             self.active_bend_id,
+            desired_midpoint_xm=float(desired_midpoint_xm),
             support_plane_zm=support_z,
             align_bisector=align_bisector,
             align_bend_arc_center=align_arc_center,

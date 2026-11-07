@@ -86,17 +86,22 @@ def check_current_25d_pose(
     # The cross-section is computed from the SAME authoritative machine pose
     # used by the 2.5D GUI. No projection from a different local bend frame.
     try:
-        placement = press_cycle.current_workpiece_placement_3d()
-        if abs(desired_midpoint_xm) > 1e-6:
-            from .workpiece_placement_3d import WorkpiecePlacement3D
-            placement = WorkpiecePlacement3D.compute_placement(
-                session.fold_state,
-                session.active_bend_id,
-                support_plane_zm=placement.translation[2],
-                align_bisector=True,
-                align_bend_arc_center=True,
-                desired_midpoint_xm=desired_midpoint_xm,
-            )
+        try:
+            placement = press_cycle.current_workpiece_placement_3d(desired_midpoint_xm=float(desired_midpoint_xm))
+        except TypeError:
+            placement = press_cycle.current_workpiece_placement_3d()
+            if abs(desired_midpoint_xm) > 1e-6:
+                from .workpiece_placement_3d import WorkpiecePlacement3D
+                bz = session.fold_state.bends[session.active_bend_id].bend_zone
+                supp_z = bz.outer_radius_mm if bz is not None else 0.0
+                placement = WorkpiecePlacement3D.compute_placement(
+                    session.fold_state,
+                    session.active_bend_id,
+                    support_plane_zm=supp_z,
+                    align_bisector=True,
+                    align_bend_arc_center=True,
+                    desired_midpoint_xm=float(desired_midpoint_xm),
+                )
         section = compute_machine_cutting_plane_section(
             session.fold_state, session.panel_vertices_xy, placement,
             active_bend_id=session.active_bend_id, segments=32,
@@ -269,12 +274,14 @@ def check_current_25d_pose(
             + "; native_3d_reports_nonpenetration; check machine coordinate"
             + "_alignment_and_cut_plane_before_acceptance",
             ("2D_SECTION", "3D_PUNCH_DIE_CURRENT_POSE", "3D_TOOL_LENGTH"),
+            raw_report=result,
         )
     return CurrentPosePhysicalReport(
         PhysicalEvidence.SAMPLED_3D_CLEAR_NOT_CONTINUOUS, sec,
         result.status.value,
         "discrete_pose_only; no_swept_transfer_backgauge_clamps_frame_or_support_certificate",
         ("2D_SECTION", "3D_PUNCH_DIE_CURRENT_POSE", "3D_TOOL_LENGTH"),
+        raw_report=result,
     )
 
 
