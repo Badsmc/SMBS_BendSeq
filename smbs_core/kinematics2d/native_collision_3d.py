@@ -136,6 +136,51 @@ def check_solid_validity(shape: Any, name: str = "shape") -> Tuple[bool, str]:
         return False, f"{name}_check_exception:{exc}"
 
 
+def _evaluate_common_volume(
+    shape_a: Any,
+    shape_b: Any,
+) -> float:
+    """Compute exact intersection volume between shape_a and shape_b.
+
+    Strictly differentiates between a valid empty intersection (0.0 volume)
+    and kernel failure / invalid geometry.
+    Raises ValueError with a descriptive code on missing Volume, non-finite (NaN/inf),
+    negative volume, or kernel evaluation error so the caller can fail closed with
+    INVALID_GEOMETRY rather than falsifying CLEAR or TOUCHING.
+    """
+    try:
+        common_shape = shape_a.common(shape_b)
+    except Exception as exc:
+        raise ValueError(f"KERNEL_COMMON_EVALUATION_FAILED:{exc}") from exc
+
+    if common_shape is None:
+        raise ValueError("KERNEL_COMMON_SHAPE_IS_NONE")
+
+    # In OCC, if intersection is completely empty, it may be a null shape or an empty compound
+    if hasattr(common_shape, "isNull") and common_shape.isNull():
+        # Valid empty intersection shape
+        return 0.0
+
+    if hasattr(common_shape, "isValid") and not common_shape.isValid():
+        raise ValueError("KERNEL_COMMON_SHAPE_INVALID")
+
+    if not hasattr(common_shape, "Volume"):
+        raise ValueError("KERNEL_COMMON_MISSING_VOLUME_ATTR")
+
+    try:
+        vol = float(common_shape.Volume)
+    except Exception as exc:
+        raise ValueError(f"KERNEL_COMMON_VOLUME_READ_ERROR:{exc}") from exc
+
+    if not math.isfinite(vol):
+        raise ValueError(f"KERNEL_COMMON_NON_FINITE_VOLUME:{vol}")
+
+    if vol < 0.0:
+        raise ValueError(f"KERNEL_COMMON_NEGATIVE_VOLUME:{vol}")
+
+    return vol
+
+
 def _compute_exact_distance_with_pruning(
     shape_a: Any,
     shape_b: Any,
@@ -311,10 +356,7 @@ def check_pair_clearance(
                 )
 
             # Potential enclosure: verify common volume explicitly.
-            common_shape = shape_a.common(shape_b)
-            vol = float(getattr(common_shape, "Volume", 0.0))
-            if not math.isfinite(vol) or vol < 0.0:
-                vol = 0.0
+            vol = _evaluate_common_volume(shape_a, shape_b)
             dt = (time.perf_counter() - t0) * 1000.0
             if vol > volume_tolerance_mm3:
                 return PairClearanceResult(
@@ -334,10 +376,7 @@ def check_pair_clearance(
                 dt,
             )
 
-        common_shape = shape_a.common(shape_b)
-        vol = float(getattr(common_shape, "Volume", 0.0))
-        if not math.isfinite(vol) or vol < 0.0:
-            vol = 0.0
+        vol = _evaluate_common_volume(shape_a, shape_b)
 
         dt = (time.perf_counter() - t0) * 1000.0
 
