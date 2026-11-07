@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import math
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import Enum
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
@@ -41,6 +41,82 @@ class CollisionClass(str, Enum):
     INVALID_GEOMETRY = "INVALID_GEOMETRY"
     MISSING_EVIDENCE = "MISSING_EVIDENCE"
     INSUFFICIENT_TOOL_LENGTH = "INSUFFICIENT_TOOL_LENGTH"
+
+
+class PunchCollisionZoneClassification(str, Enum):
+    NONE = "NONE"
+    END_ZONE_ONLY = "END_ZONE_ONLY"
+    CENTRAL_ZONE = "CENTRAL_ZONE"
+    MIXED_CENTRAL_AND_END_ZONE = "MIXED_CENTRAL_AND_END_ZONE"
+    UNCLASSIFIED = "UNCLASSIFIED"
+
+
+@dataclass(frozen=True)
+class PunchOverlapComponentInfo:
+    component_index: int
+    volume_mm3: float
+    bbox_xmin_mm: float
+    bbox_xmax_mm: float
+    bbox_ymin_mm: float
+    bbox_ymax_mm: float
+    bbox_zmin_mm: float
+    bbox_zmax_mm: float
+    zone: str  # "LEFT_END_ZONE", "RIGHT_END_ZONE", "CENTRAL_ZONE", "MIXED", "UNCLASSIFIED"
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "component_index": self.component_index,
+            "volume_mm3": round(float(self.volume_mm3), 6),
+            "bbox_xmin_mm": round(float(self.bbox_xmin_mm), 6),
+            "bbox_xmax_mm": round(float(self.bbox_xmax_mm), 6),
+            "bbox_ymin_mm": round(float(self.bbox_ymin_mm), 6),
+            "bbox_ymax_mm": round(float(self.bbox_ymax_mm), 6),
+            "bbox_zmin_mm": round(float(self.bbox_zmin_mm), 6),
+            "bbox_zmax_mm": round(float(self.bbox_zmax_mm), 6),
+            "zone": self.zone,
+        }
+
+
+@dataclass(frozen=True)
+class PunchEndZoneAnalysis:
+    classification: PunchCollisionZoneClassification
+    end_zone_length_mm: float
+    punch_span_xm: Tuple[float, float]
+    left_end_zone_xm: Tuple[float, float]
+    central_zone_xm: Tuple[float, float]
+    right_end_zone_xm: Tuple[float, float]
+    total_overlap_volume_mm3: float
+    end_zone_overlap_volume_mm3: float
+    central_zone_overlap_volume_mm3: float
+    affected_sides: Tuple[str, ...]
+    components: Tuple[PunchOverlapComponentInfo, ...]
+    reason: str
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "classification": self.classification.value,
+            "end_zone_length_mm": round(float(self.end_zone_length_mm), 6),
+            "punch_span_xm_mm": [round(float(self.punch_span_xm[0]), 6), round(float(self.punch_span_xm[1]), 6)],
+            "left_end_zone_xm_mm": [round(float(self.left_end_zone_xm[0]), 6), round(float(self.left_end_zone_xm[1]), 6)],
+            "central_zone_xm_mm": [round(float(self.central_zone_xm[0]), 6), round(float(self.central_zone_xm[1]), 6)],
+            "right_end_zone_xm_mm": [round(float(self.right_end_zone_xm[0]), 6), round(float(self.right_end_zone_xm[1]), 6)],
+            "total_overlap_volume_mm3": round(float(self.total_overlap_volume_mm3), 6),
+            "end_zone_overlap_volume_mm3": round(float(self.end_zone_overlap_volume_mm3), 6),
+            "central_zone_overlap_volume_mm3": round(float(self.central_zone_overlap_volume_mm3), 6),
+            "affected_sides": list(self.affected_sides),
+            "components": [c.to_dict() for c in self.components],
+            "reason": self.reason,
+        }
+
+
+@dataclass(frozen=True)
+class EndZoneCollisionPolicy:
+    allow_end_zone_collision: bool = False
+    end_zone_length_mm: float = 0.0
+
+    def signature(self) -> Tuple[bool, float]:
+        val = float(self.end_zone_length_mm) if math.isfinite(float(self.end_zone_length_mm)) else -1.0
+        return (bool(self.allow_end_zone_collision), round(val, 6))
 
 
 class SetupQualificationStatus(str, Enum):
@@ -66,6 +142,7 @@ class PairClearanceResult:
     aabb_gap_mm: Optional[float]
     elapsed_ms: float
     is_lower_bound: bool = False
+    end_zone_analysis: Optional[PunchEndZoneAnalysis] = None
 
 
 @dataclass(frozen=True)
@@ -76,6 +153,9 @@ class ToolCollisionReport:
     is_safe: bool
     diagnostics: List[str]
     elapsed_ms: float
+    is_conditional_safe: bool = False
+    conditional_status: Optional[str] = None
+    punch_end_zone_analysis: Optional[PunchEndZoneAnalysis] = None
 
 
 @dataclass(frozen=True)
@@ -421,6 +501,249 @@ def check_pair_clearance(
         )
 
 
+def classify_punch_overlap_zones(
+    workpiece_machine_shape: Any,
+    punch_machine_shape: Any,
+    end_zone_length_mm: float,
+    *,
+    volume_tolerance_mm3: float = 1e-4,
+) -> PunchEndZoneAnalysis:
+    """Classify every positive-volume intersection solid between workpiece and punch against configured end-zones.
+
+    Rules:
+    - Evaluates the full 3D bounding box `[XMin, XMax]` of every intersection solid in `workpiece.common(punch).Solids`.
+    - Never classifies by center of mass alone and never ignores small-volume central collisions.
+    - Fails closed with `UNCLASSIFIED` if `end_zone_length_mm <= 0`, non-finite, or `2 * end_zone_length_mm >= punch_length`,
+      or if intersection geometry is invalid / lacks solid components.
+    """
+    def _unclassified(reason: str, p_span: Tuple[float, float] = (0.0, 0.0), ez_len: float = 0.0, vol: float = 0.0) -> PunchEndZoneAnalysis:
+        return PunchEndZoneAnalysis(
+            classification=PunchCollisionZoneClassification.UNCLASSIFIED,
+            end_zone_length_mm=ez_len,
+            punch_span_xm=p_span,
+            left_end_zone_xm=(p_span[0], p_span[0]),
+            central_zone_xm=p_span,
+            right_end_zone_xm=(p_span[1], p_span[1]),
+            total_overlap_volume_mm3=vol,
+            end_zone_overlap_volume_mm3=0.0,
+            central_zone_overlap_volume_mm3=vol,
+            affected_sides=(),
+            components=(),
+            reason=reason,
+        )
+
+    ok_w, r_w = check_solid_validity(workpiece_machine_shape, "workpiece")
+    if not ok_w:
+        return _unclassified(f"invalid_workpiece:{r_w}")
+    ok_p, r_p = check_solid_validity(punch_machine_shape, "punch")
+    if not ok_p:
+        return _unclassified(f"invalid_punch:{r_p}")
+
+    try:
+        ez_len = float(end_zone_length_mm)
+    except (TypeError, ValueError):
+        return _unclassified(f"non_numeric_end_zone_length:{end_zone_length_mm!r}")
+
+    p_bb = getattr(punch_machine_shape, "BoundBox", None)
+    if p_bb is None:
+        return _unclassified("missing_punch_boundbox", ez_len=ez_len if math.isfinite(ez_len) else 0.0)
+
+    try:
+        p_xmin = float(p_bb.XMin)
+        p_xmax = float(p_bb.XMax)
+    except Exception as exc:
+        return _unclassified(f"punch_boundbox_read_error:{exc}", ez_len=ez_len if math.isfinite(ez_len) else 0.0)
+
+    punch_len = p_xmax - p_xmin
+    if not (math.isfinite(p_xmin) and math.isfinite(p_xmax) and punch_len > 1e-3):
+        return _unclassified(f"invalid_punch_span:[{p_xmin},{p_xmax}]", ez_len=ez_len if math.isfinite(ez_len) else 0.0)
+
+    if not math.isfinite(ez_len) or ez_len <= 0.0:
+        return _unclassified(f"end_zone_length_must_be_positive:{ez_len}", p_span=(p_xmin, p_xmax), ez_len=0.0)
+
+    if 2.0 * ez_len >= punch_len - 1e-6:
+        return _unclassified(
+            f"end_zones_cover_or_overlap_entire_punch:2*{ez_len:.3f}>={punch_len:.3f}",
+            p_span=(p_xmin, p_xmax),
+            ez_len=ez_len,
+        )
+
+    left_zone = (p_xmin, p_xmin + ez_len)
+    central_zone = (p_xmin + ez_len, p_xmax - ez_len)
+    right_zone = (p_xmax - ez_len, p_xmax)
+
+    try:
+        common_shape = workpiece_machine_shape.common(punch_machine_shape)
+    except Exception as exc:
+        return _unclassified(f"common_evaluation_failed:{exc}", p_span=(p_xmin, p_xmax), ez_len=ez_len)
+
+    if common_shape is None:
+        return _unclassified("common_shape_is_none", p_span=(p_xmin, p_xmax), ez_len=ez_len)
+
+    if hasattr(common_shape, "isNull") and common_shape.isNull():
+        return PunchEndZoneAnalysis(
+            classification=PunchCollisionZoneClassification.NONE,
+            end_zone_length_mm=ez_len,
+            punch_span_xm=(p_xmin, p_xmax),
+            left_end_zone_xm=left_zone,
+            central_zone_xm=central_zone,
+            right_end_zone_xm=right_zone,
+            total_overlap_volume_mm3=0.0,
+            end_zone_overlap_volume_mm3=0.0,
+            central_zone_overlap_volume_mm3=0.0,
+            affected_sides=(),
+            components=(),
+            reason="empty_intersection",
+        )
+
+    if hasattr(common_shape, "isValid") and not common_shape.isValid():
+        return _unclassified("common_shape_invalid", p_span=(p_xmin, p_xmax), ez_len=ez_len)
+
+    try:
+        total_vol = float(common_shape.Volume)
+    except Exception as exc:
+        return _unclassified(f"common_volume_read_error:{exc}", p_span=(p_xmin, p_xmax), ez_len=ez_len)
+
+    if not math.isfinite(total_vol) or total_vol < 0.0:
+        return _unclassified(f"common_volume_invalid:{total_vol}", p_span=(p_xmin, p_xmax), ez_len=ez_len)
+
+    if total_vol <= volume_tolerance_mm3:
+        return PunchEndZoneAnalysis(
+            classification=PunchCollisionZoneClassification.NONE,
+            end_zone_length_mm=ez_len,
+            punch_span_xm=(p_xmin, p_xmax),
+            left_end_zone_xm=left_zone,
+            central_zone_xm=central_zone,
+            right_end_zone_xm=right_zone,
+            total_overlap_volume_mm3=total_vol,
+            end_zone_overlap_volume_mm3=0.0,
+            central_zone_overlap_volume_mm3=0.0,
+            affected_sides=(),
+            components=(),
+            reason="overlap_within_volume_tolerance",
+        )
+
+    solids = list(getattr(common_shape, "Solids", ()))
+    if not solids:
+        return _unclassified("positive_volume_without_solids", p_span=(p_xmin, p_xmax), ez_len=ez_len, vol=total_vol)
+
+    comp_infos: List[PunchOverlapComponentInfo] = []
+    end_zone_vol = 0.0
+    central_vol = 0.0
+    sides_set = set()
+    has_end_zone_comp = False
+    has_central_comp = False
+    has_mixed_comp = False
+    sum_comp_vol = 0.0
+    boundary_eps = 1e-5
+
+    for idx, sol in enumerate(solids):
+        if sol is None or (hasattr(sol, "isNull") and sol.isNull()) or (hasattr(sol, "isValid") and not sol.isValid()):
+            return _unclassified(f"component_{idx}_invalid", p_span=(p_xmin, p_xmax), ez_len=ez_len, vol=total_vol)
+        try:
+            svol = float(sol.Volume)
+            sbb = sol.BoundBox
+            xmin, xmax = float(sbb.XMin), float(sbb.XMax)
+            ymin, ymax = float(sbb.YMin), float(sbb.YMax)
+            zmin, zmax = float(sbb.ZMin), float(sbb.ZMax)
+        except Exception as exc:
+            return _unclassified(f"component_{idx}_read_error:{exc}", p_span=(p_xmin, p_xmax), ez_len=ez_len, vol=total_vol)
+
+        if not (
+            math.isfinite(svol) and svol >= 0.0
+            and math.isfinite(xmin) and math.isfinite(xmax) and xmax >= xmin - 1e-7
+            and math.isfinite(ymin) and math.isfinite(ymax)
+            and math.isfinite(zmin) and math.isfinite(zmax)
+        ):
+            return _unclassified(f"component_{idx}_non_finite_metrics", p_span=(p_xmin, p_xmax), ez_len=ez_len, vol=total_vol)
+
+        sum_comp_vol += svol
+        # Sub-tolerance numerical contact slivers (e.g. 4e-6 mm3 along punch tip line <= volume_tolerance_mm3)
+        # are surface-touching artifacts, not positive-volume penetrations.
+        if svol <= max(1e-9, float(volume_tolerance_mm3)):
+            continue
+
+        in_left = (xmin >= p_xmin - 1e-2) and (xmax <= left_zone[1] + boundary_eps)
+        in_right = (xmin >= right_zone[0] - boundary_eps) and (xmax <= p_xmax + 1e-2)
+        in_central = (xmin > left_zone[1] - boundary_eps) and (xmax < right_zone[0] + boundary_eps) and (not in_left) and (not in_right)
+
+        if in_left and not in_right:
+            zone_label = "LEFT_END_ZONE"
+            end_zone_vol += svol
+            sides_set.add("LEFT")
+            has_end_zone_comp = True
+        elif in_right and not in_left:
+            zone_label = "RIGHT_END_ZONE"
+            end_zone_vol += svol
+            sides_set.add("RIGHT")
+            has_end_zone_comp = True
+        elif in_central:
+            zone_label = "CENTRAL_ZONE"
+            central_vol += svol
+            sides_set.add("CENTRAL")
+            has_central_comp = True
+        else:
+            zone_label = "MIXED"
+            central_vol += svol
+            if xmin < left_zone[1]:
+                sides_set.add("LEFT")
+            if xmax > right_zone[0]:
+                sides_set.add("RIGHT")
+            sides_set.add("CENTRAL")
+            has_mixed_comp = True
+
+        comp_infos.append(
+            PunchOverlapComponentInfo(
+                component_index=idx,
+                volume_mm3=svol,
+                bbox_xmin_mm=xmin,
+                bbox_xmax_mm=xmax,
+                bbox_ymin_mm=ymin,
+                bbox_ymax_mm=ymax,
+                bbox_zmin_mm=zmin,
+                bbox_zmax_mm=zmax,
+                zone=zone_label,
+            )
+        )
+
+    if not comp_infos or abs(sum_comp_vol - total_vol) > max(1e-3, 1e-2 * total_vol):
+        return _unclassified(
+            f"component_volume_mismatch:sum={sum_comp_vol:.6f}_vs_total={total_vol:.6f}",
+            p_span=(p_xmin, p_xmax),
+            ez_len=ez_len,
+            vol=total_vol,
+        )
+
+    ordered_sides = tuple(s for s in ("LEFT", "CENTRAL", "RIGHT") if s in sides_set)
+
+    if has_mixed_comp or (has_end_zone_comp and has_central_comp):
+        cls_res = PunchCollisionZoneClassification.MIXED_CENTRAL_AND_END_ZONE
+        reason = "overlap_spans_both_central_and_end_zones"
+    elif has_central_comp and not has_end_zone_comp:
+        cls_res = PunchCollisionZoneClassification.CENTRAL_ZONE
+        reason = "overlap_in_central_working_zone"
+    elif has_end_zone_comp and not has_central_comp and not has_mixed_comp:
+        cls_res = PunchCollisionZoneClassification.END_ZONE_ONLY
+        reason = f"all_overlap_components_strictly_within_end_zones({','.join(ordered_sides)})"
+    else:
+        return _unclassified("ambiguous_component_zone_classification", p_span=(p_xmin, p_xmax), ez_len=ez_len, vol=total_vol)
+
+    return PunchEndZoneAnalysis(
+        classification=cls_res,
+        end_zone_length_mm=ez_len,
+        punch_span_xm=(p_xmin, p_xmax),
+        left_end_zone_xm=left_zone,
+        central_zone_xm=central_zone,
+        right_end_zone_xm=right_zone,
+        total_overlap_volume_mm3=total_vol,
+        end_zone_overlap_volume_mm3=end_zone_vol,
+        central_zone_overlap_volume_mm3=central_vol,
+        affected_sides=ordered_sides,
+        components=tuple(comp_infos),
+        reason=reason,
+    )
+
+
 def validate_workpiece_tooling_pose(
     workpiece_machine_shape: Any,
     punch_machine_shape: Any,
@@ -430,6 +753,8 @@ def validate_workpiece_tooling_pose(
     volume_tolerance_mm3: float = 1e-4,
     contact_distance_tolerance_mm: float = 1e-4,
     cached_die_result: Optional[PairClearanceResult] = None,
+    end_zone_policy: Optional[EndZoneCollisionPolicy] = None,
+    classify_end_zone_length_mm: Optional[float] = None,
 ) -> ToolCollisionReport:
     """Validate 3D geometric collision status of a machine-placed workpiece against punch and die."""
     t0 = time.perf_counter()
@@ -487,6 +812,60 @@ def validate_workpiece_tooling_pose(
             if overall_status == CollisionClass.CLEAR:
                 overall_status = CollisionClass.NEAR_CONTACT
 
+    is_conditional_safe = False
+    conditional_status: Optional[str] = None
+    ez_analysis: Optional[PunchEndZoneAnalysis] = None
+
+    # Classify punch overlap zones when punch penetration occurs and either end_zone_policy or classify_end_zone_length_mm is given
+    should_classify_ez = (
+        punch_res.status == CollisionClass.PENETRATION
+        and (
+            (end_zone_policy is not None and (end_zone_policy.allow_end_zone_collision or end_zone_policy.end_zone_length_mm != 0.0))
+            or (classify_end_zone_length_mm is not None and classify_end_zone_length_mm != 0.0)
+        )
+    )
+    if should_classify_ez:
+        ez_len_to_use = (
+            end_zone_policy.end_zone_length_mm
+            if end_zone_policy is not None and (end_zone_policy.allow_end_zone_collision or end_zone_policy.end_zone_length_mm != 0.0)
+            else float(classify_end_zone_length_mm or 0.0)
+        )
+        ez_analysis = classify_punch_overlap_zones(
+            workpiece_machine_shape,
+            punch_machine_shape,
+            ez_len_to_use,
+            volume_tolerance_mm3=volume_tolerance_mm3,
+        )
+        punch_res = replace(punch_res, end_zone_analysis=ez_analysis)
+        diags.append(
+            f"PUNCH_ZONE_CLASSIFICATION: {ez_analysis.classification.value} "
+            f"(sides={list(ez_analysis.affected_sides)}, end_vol={ez_analysis.end_zone_overlap_volume_mm3:.4f}mm3, "
+            f"central_vol={ez_analysis.central_zone_overlap_volume_mm3:.4f}mm3, reason={ez_analysis.reason})"
+        )
+
+        if end_zone_policy is not None and end_zone_policy.allow_end_zone_collision:
+            if ez_analysis.classification == PunchCollisionZoneClassification.UNCLASSIFIED:
+                # Fail closed: failed zone classification when policy is active must report UNVERIFIED / INVALID_GEOMETRY
+                overall_status = CollisionClass.INVALID_GEOMETRY
+                is_safe = False
+                is_conditional_safe = False
+                conditional_status = "UNVERIFIED_END_ZONE_CLASSIFICATION"
+                diags.append(f"END_ZONE_CLASSIFICATION_FAILED: {ez_analysis.reason}")
+            elif (
+                ez_analysis.classification == PunchCollisionZoneClassification.END_ZONE_ONLY
+                and die_res.status in (CollisionClass.CLEAR, CollisionClass.NEAR_CONTACT, CollisionClass.TOUCHING)
+            ):
+                is_safe = False
+                is_conditional_safe = True
+                conditional_status = "CONDITIONAL"
+                diags.append(
+                    "PUNCH_END_ZONE_CONDITIONAL_ALLOWED: collision strictly in punch end-zone(s); "
+                    "requires relief-cut punch verification."
+                )
+            else:
+                is_conditional_safe = False
+                conditional_status = "REJECTED_CENTRAL_OR_DIE_COLLISION"
+
     dt = (time.perf_counter() - t0) * 1000.0
     return ToolCollisionReport(
         status=overall_status,
@@ -495,6 +874,9 @@ def validate_workpiece_tooling_pose(
         is_safe=is_safe,
         diagnostics=diags,
         elapsed_ms=dt,
+        is_conditional_safe=is_conditional_safe,
+        conditional_status=conditional_status,
+        punch_end_zone_analysis=ez_analysis,
     )
 
 

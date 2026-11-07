@@ -77,6 +77,125 @@ class LoadedTool:
     span_xm: Tuple[float, float] = (-50.0, 50.0)
     origin_cad: Tuple[float, float] = (0.0, 0.0)
     sections: Tuple[ToolSectionConfig, ...] = ()
+    source_length_mm: float = 100.0
+    is_virtual_length: bool = False
+    tool_length_mode: str = "LIBRARY_FIXED"
+
+
+def _build_virtual_length_cad_prism(
+    raw_cad_shape: Any,
+    virtual_length_mm: float,
+    tool_label: str = "tool",
+) -> Any:
+    """Build an in-memory CAD solid extruded along CAD Z to `virtual_length_mm` without scaling X/Y cross-section.
+
+    Strictly verifies:
+    1. `virtual_length_mm` is finite and strictly positive.
+    2. `raw_cad_shape` has planar end-cap faces normal to CAD Z at `ZMin` and `ZMax` with matching areas
+       and matching X/Y bounding boxes (confirming a uniform prism along CAD Z).
+    3. The extruded solid is valid, closed, has positive volume matching `end_face_area * virtual_length_mm`,
+       preserves the exact X/Y bounding box (cross-section height, width, tip/groove radii), and spans
+       `[0.0, virtual_length_mm]` along CAD Z.
+    Raises `ValueError("VIRTUAL_TOOL_CONSTRUCTION_FAILED: ...")` on any failure so callers fail closed
+    with `UNVERIFIED`.
+    """
+    if not HAS_FREECAD:
+        raise ValueError("VIRTUAL_TOOL_CONSTRUCTION_FAILED: FreeCAD Part module is unavailable")
+    try:
+        target_len = float(virtual_length_mm)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"VIRTUAL_TOOL_CONSTRUCTION_FAILED: non-numeric virtual_length_mm={virtual_length_mm!r}") from exc
+
+    if not math.isfinite(target_len) or target_len <= 0.0:
+        raise ValueError(
+            f"VIRTUAL_TOOL_CONSTRUCTION_FAILED: virtual_length_mm must be finite and > 0, got {target_len}"
+        )
+
+    if raw_cad_shape is None or raw_cad_shape.isNull() or not raw_cad_shape.isValid():
+        raise ValueError(f"VIRTUAL_TOOL_CONSTRUCTION_FAILED: source CAD shape for '{tool_label}' is invalid")
+
+    bb_src = raw_cad_shape.BoundBox
+    src_len = float(bb_src.ZMax - bb_src.ZMin)
+    if not math.isfinite(src_len) or src_len <= 1e-3:
+        raise ValueError(
+            f"VIRTUAL_TOOL_CONSTRUCTION_FAILED: source CAD shape for '{tool_label}' has invalid Z span {src_len}"
+        )
+
+    z_min_faces = []
+    z_max_faces = []
+    for f in getattr(raw_cad_shape, "Faces", ()):
+        fbb = f.BoundBox
+        if abs(fbb.ZMax - fbb.ZMin) <= 1e-3:
+            if abs(fbb.ZMin - bb_src.ZMin) <= 1e-2:
+                z_min_faces.append(f)
+            elif abs(fbb.ZMax - bb_src.ZMax) <= 1e-2:
+                z_max_faces.append(f)
+
+    if len(z_min_faces) != 1 or len(z_max_faces) != 1:
+        raise ValueError(
+            f"VIRTUAL_TOOL_CONSTRUCTION_FAILED: expected single planar end-cap faces at ZMin/ZMax for '{tool_label}', "
+            f"found {len(z_min_faces)} at ZMin and {len(z_max_faces)} at ZMax"
+        )
+
+    f_min = z_min_faces[0]
+    f_max = z_max_faces[0]
+    area_min = float(f_min.Area)
+    area_max = float(f_max.Area)
+    if area_min <= 1e-3 or abs(area_min - area_max) / max(area_min, 1.0) > 1e-3:
+        raise ValueError(
+            f"VIRTUAL_TOOL_CONSTRUCTION_FAILED: non-uniform cross-section along Z for '{tool_label}' "
+            f"(area_min={area_min:.4f}, area_max={area_max:.4f})"
+        )
+
+    expected_src_vol = area_min * src_len
+    actual_src_vol = float(raw_cad_shape.Volume)
+    if actual_src_vol <= 0.0 or abs(actual_src_vol - expected_src_vol) / expected_src_vol > 2e-3:
+        raise ValueError(
+            f"VIRTUAL_TOOL_CONSTRUCTION_FAILED: source solid volume ({actual_src_vol:.4f}) does not match "
+            f"prismatic extrusion volume ({expected_src_vol:.4f}) for '{tool_label}'"
+        )
+
+    # Copy end-cap face at ZMin, shift to Z=0.0 if needed, and extrude along +Z by target_len
+    cap_face = f_min.copy()
+    z_offset = -float(cap_face.BoundBox.ZMin)
+    if abs(z_offset) > 1e-7:
+        cap_face.translate(App.Vector(0.0, 0.0, z_offset))
+
+    virt_shape = cap_face.extrude(App.Vector(0.0, 0.0, target_len))
+    if virt_shape is None or virt_shape.isNull() or not virt_shape.isValid():
+        raise ValueError(
+            f"VIRTUAL_TOOL_CONSTRUCTION_FAILED: extruded virtual shape for '{tool_label}' is invalid"
+        )
+
+    bb_virt = virt_shape.BoundBox
+    virt_z_len = float(bb_virt.ZMax - bb_virt.ZMin)
+    if abs(virt_z_len - target_len) > 1e-3:
+        raise ValueError(
+            f"VIRTUAL_TOOL_CONSTRUCTION_FAILED: virtual Z span {virt_z_len:.6f} != requested {target_len:.6f}"
+        )
+
+    # Verify exact preservation of 2D cross-section bounds (X_cad, Y_cad)
+    if (
+        abs(bb_virt.XMin - bb_src.XMin) > 1e-3
+        or abs(bb_virt.XMax - bb_src.XMax) > 1e-3
+        or abs(bb_virt.YMin - bb_src.YMin) > 1e-3
+        or abs(bb_virt.YMax - bb_src.YMax) > 1e-3
+    ):
+        raise ValueError(
+            f"VIRTUAL_TOOL_CONSTRUCTION_FAILED: cross-section bounds changed for '{tool_label}' "
+            f"(src X=[{bb_src.XMin:.4f},{bb_src.XMax:.4f}] Y=[{bb_src.YMin:.4f},{bb_src.YMax:.4f}] vs "
+            f"virt X=[{bb_virt.XMin:.4f},{bb_virt.XMax:.4f}] Y=[{bb_virt.YMin:.4f},{bb_virt.YMax:.4f}])"
+        )
+
+    expected_virt_vol = area_min * target_len
+    actual_virt_vol = float(virt_shape.Volume)
+    if actual_virt_vol <= 0.0 or abs(actual_virt_vol - expected_virt_vol) / expected_virt_vol > 2e-3:
+        raise ValueError(
+            f"VIRTUAL_TOOL_CONSTRUCTION_FAILED: virtual solid volume ({actual_virt_vol:.4f}) does not match "
+            f"expected prismatic volume ({expected_virt_vol:.4f}) for '{tool_label}'"
+        )
+
+    return virt_shape
 
 
 @dataclass(frozen=True)
@@ -205,15 +324,54 @@ def _matrix_for_punch(origin_cad: Tuple[float, float], length_mm: float, ram_z_m
     )
 
 
+_NATIVE_DIE_CACHE: Dict[Tuple[Any, ...], LoadedTool] = {}
+_NATIVE_PUNCH_BASE_CACHE: Dict[Tuple[Any, ...], LoadedTool] = {}
+
+
+def clear_native_tool_cache() -> None:
+    """Clear in-memory native tool geometry cache."""
+    _NATIVE_DIE_CACHE.clear()
+    _NATIVE_PUNCH_BASE_CACHE.clear()
+
+
+def _clone_loaded_tool(tool: LoadedTool) -> LoadedTool:
+    return LoadedTool(
+        tool_id=tool.tool_id,
+        kind=tool.kind,
+        file_path=tool.file_path,
+        cad_shape=tool.cad_shape.copy() if hasattr(tool.cad_shape, "copy") else tool.cad_shape,
+        machine_shape=tool.machine_shape.copy() if hasattr(tool.machine_shape, "copy") else tool.machine_shape,
+        tip_radius_mm=tool.tip_radius_mm,
+        included_angle_deg=tool.included_angle_deg,
+        v_opening_mm=tool.v_opening_mm,
+        effective_v_opening_mm=tool.effective_v_opening_mm,
+        shoulder_radius_mm=tool.shoulder_radius_mm,
+        v_depth_mm=tool.v_depth_mm,
+        height_mm=tool.height_mm,
+        length_mm=tool.length_mm,
+        span_xm=tool.span_xm,
+        origin_cad=tool.origin_cad,
+        sections=tool.sections,
+        source_length_mm=tool.source_length_mm,
+        is_virtual_length=tool.is_virtual_length,
+        tool_length_mode=tool.tool_length_mode,
+    )
+
+
 def load_native_die(
     file_path: str | Path,
     library_root: Optional[str | Path] = None,
     section_offsets_xm: Optional[Sequence[float]] = None,
+    virtual_length_mm: Optional[float] = None,
+    tool_length_mode: Optional[str] = None,
 ) -> LoadedTool:
     """Load native FreeCAD die CAD model and transform into Machine Space (Z_top = 0.0).
 
     If section_offsets_xm is provided (e.g. [-50.0, 50.0]), assembles multiple explicitly
     configured 100mm sections along the machine X_m axis.
+    If virtual_length_mm is provided, constructs an in-memory prism extruded along X_m to
+    `virtual_length_mm` while strictly preserving the 2D cross-section and leaving the
+    source .FCStd file untouched.
     """
     p = Path(file_path).resolve()
     if not p.is_file():
@@ -221,7 +379,39 @@ def load_native_die(
     if not HAS_FREECAD:
         raise RuntimeError("FreeCAD runtime is required to load native CAD die")
 
+    is_virtual = virtual_length_mm is not None
+    resolved_mode = (
+        tool_length_mode
+        if tool_length_mode is not None
+        else ("ACTIVE_BEND_LENGTH" if is_virtual else "LIBRARY_FIXED")
+    )
+    v_len_key: Optional[float] = None
+    if is_virtual:
+        if (
+            isinstance(virtual_length_mm, bool)
+            or not isinstance(virtual_length_mm, (int, float))
+            or math.isnan(float(virtual_length_mm))
+            or math.isinf(float(virtual_length_mm))
+            or float(virtual_length_mm) <= 1e-3
+        ):
+            raise ValueError(
+                f"VIRTUAL_TOOL_CONSTRUCTION_FAILED: Invalid virtual_length_mm={virtual_length_mm!r} for {p.stem}"
+            )
+        v_len_key = round(float(virtual_length_mm), 6)
+
     lib_dir = library_root or p.parents[1]
+    cache_key = (
+        str(p),
+        int(p.stat().st_mtime_ns),
+        str(Path(lib_dir).resolve()),
+        tuple(float(x) for x in (section_offsets_xm or ())),
+        v_len_key,
+        str(resolved_mode),
+    )
+    cached_die = _NATIVE_DIE_CACHE.get(cache_key)
+    if cached_die is not None:
+        return _clone_loaded_tool(cached_die)
+
     tool_lib = ToolLibrary25D(lib_dir)
     profile = tool_lib.load_tool(p.stem, ToolKind.DIE)
     if profile.die_datums is None:
@@ -229,7 +419,7 @@ def load_native_die(
 
     datums = profile.die_datums
     origin_cad = (datums.v_groove_center[0], datums.top_datum_plane_y)
-    sec_len = float(profile.length_mm) if profile.length_mm else 100.0
+    source_sec_len = float(profile.length_mm) if profile.length_mm else 100.0
 
     # Preserve any pre-existing user-opened CAD tool documents.
     existing_documents = set(App.listDocuments())
@@ -245,7 +435,16 @@ def load_native_die(
         if pad is None or pad.Shape.isNull():
             raise ValueError(f"No valid Part.Shape solid found in {p}")
 
-        cad_shape = pad.Shape.copy()
+        raw_cad_shape = pad.Shape.copy()
+        if is_virtual:
+            cad_shape = _build_virtual_length_cad_prism(
+                raw_cad_shape, float(virtual_length_mm), tool_label=p.stem
+            )
+            sec_len = float(virtual_length_mm)
+        else:
+            cad_shape = raw_cad_shape
+            sec_len = source_sec_len
+
         base_mat = _matrix_for_die(origin_cad, sec_len)
         base_machine_shape = cad_shape.copy()
         base_machine_shape.transformShape(base_mat)
@@ -319,7 +518,7 @@ def load_native_die(
 
         sh_radius = _to_float(profile.shoulder_radius_mm, getattr(datums, "shoulder_radius_mm", 0.0))
 
-        return LoadedTool(
+        loaded_die = LoadedTool(
             tool_id=p.stem,
             kind="DIE",
             file_path=str(p),
@@ -336,7 +535,12 @@ def load_native_die(
             span_xm=span_xm,
             origin_cad=origin_cad,
             sections=sections,
+            source_length_mm=source_sec_len,
+            is_virtual_length=is_virtual,
+            tool_length_mode=resolved_mode,
         )
+        _NATIVE_DIE_CACHE[cache_key] = _clone_loaded_tool(loaded_die)
+        return loaded_die
     finally:
         if doc.Name not in existing_documents:
             App.closeDocument(doc.Name)
@@ -349,11 +553,16 @@ def load_native_punch(
     ram_z_mm: float = 0.0,
     library_root: Optional[str | Path] = None,
     section_offsets_xm: Optional[Sequence[float]] = None,
+    virtual_length_mm: Optional[float] = None,
+    tool_length_mode: Optional[str] = None,
 ) -> LoadedTool:
     """Load native FreeCAD punch CAD model and transform into Machine Space (tip at ram_z_mm).
 
     If section_offsets_xm is provided (e.g. [-50.0, 50.0]), assembles multiple explicitly
     configured 100mm sections along the machine X_m axis.
+    If virtual_length_mm is provided, constructs an in-memory prism extruded along X_m to
+    `virtual_length_mm` while strictly preserving the 2D cross-section and leaving the
+    source .FCStd file untouched.
     """
     p = Path(file_path).resolve()
     if not p.is_file():
@@ -361,7 +570,39 @@ def load_native_punch(
     if not HAS_FREECAD:
         raise RuntimeError("FreeCAD runtime is required to load native CAD punch")
 
+    is_virtual = virtual_length_mm is not None
+    resolved_mode = (
+        tool_length_mode
+        if tool_length_mode is not None
+        else ("ACTIVE_BEND_LENGTH" if is_virtual else "LIBRARY_FIXED")
+    )
+    v_len_key: Optional[float] = None
+    if is_virtual:
+        if (
+            isinstance(virtual_length_mm, bool)
+            or not isinstance(virtual_length_mm, (int, float))
+            or math.isnan(float(virtual_length_mm))
+            or math.isinf(float(virtual_length_mm))
+            or float(virtual_length_mm) <= 1e-3
+        ):
+            raise ValueError(
+                f"VIRTUAL_TOOL_CONSTRUCTION_FAILED: Invalid virtual_length_mm={virtual_length_mm!r} for {p.stem}"
+            )
+        v_len_key = round(float(virtual_length_mm), 6)
+
     lib_dir = library_root or p.parents[1]
+    cache_key = (
+        str(p),
+        int(p.stat().st_mtime_ns),
+        str(Path(lib_dir).resolve()),
+        tuple(float(x) for x in (section_offsets_xm or ())),
+        v_len_key,
+        str(resolved_mode),
+    )
+    cached_base_punch = _NATIVE_PUNCH_BASE_CACHE.get(cache_key)
+    if cached_base_punch is not None:
+        return set_punch_ram_z(_clone_loaded_tool(cached_base_punch), float(ram_z_mm))
+
     tool_lib = ToolLibrary25D(lib_dir)
     profile = tool_lib.load_tool(p.stem, ToolKind.PUNCH)
     if profile.punch_datums is None:
@@ -369,7 +610,7 @@ def load_native_punch(
 
     datums = profile.punch_datums
     origin_cad = (datums.working_tip[0], datums.working_tip[1])
-    sec_len = float(profile.length_mm) if profile.length_mm else 100.0
+    source_sec_len = float(profile.length_mm) if profile.length_mm else 100.0
 
     # Preserve any pre-existing user-opened CAD tool documents.
     existing_documents = set(App.listDocuments())
@@ -385,7 +626,16 @@ def load_native_punch(
         if pad is None or pad.Shape.isNull():
             raise ValueError(f"No valid Part.Shape solid found in {p}")
 
-        cad_shape = pad.Shape.copy()
+        raw_cad_shape = pad.Shape.copy()
+        if is_virtual:
+            cad_shape = _build_virtual_length_cad_prism(
+                raw_cad_shape, float(virtual_length_mm), tool_label=p.stem
+            )
+            sec_len = float(virtual_length_mm)
+        else:
+            cad_shape = raw_cad_shape
+            sec_len = source_sec_len
+
         base_mat = _matrix_for_punch(origin_cad, sec_len, ram_z_mm)
         base_machine_shape = cad_shape.copy()
         base_machine_shape.transformShape(base_mat)
@@ -441,7 +691,7 @@ def load_native_punch(
 
         tip_r = _to_float(profile.tip_radius_mm, getattr(datums, "tip_radius_mm", 0.0))
 
-        return LoadedTool(
+        loaded_punch = LoadedTool(
             tool_id=p.stem,
             kind="PUNCH",
             file_path=str(p),
@@ -457,7 +707,12 @@ def load_native_punch(
             span_xm=span_xm,
             origin_cad=origin_cad,
             sections=sections,
+            source_length_mm=source_sec_len,
+            is_virtual_length=is_virtual,
+            tool_length_mode=resolved_mode,
         )
+        _NATIVE_PUNCH_BASE_CACHE[cache_key] = _clone_loaded_tool(loaded_punch)
+        return loaded_punch
     finally:
         if doc.Name not in existing_documents:
             App.closeDocument(doc.Name)
@@ -470,7 +725,7 @@ def set_punch_ram_z(punch: LoadedTool, ram_z_mm: float) -> LoadedTool:
     if punch.kind != "PUNCH":
         raise ValueError("Can only set ram_z for PUNCH tool")
 
-    sec_len = punch.sections[0].length_mm if punch.sections else 100.0
+    sec_len = punch.sections[0].length_mm if punch.sections else punch.length_mm
     base_mat = _matrix_for_punch(punch.origin_cad, sec_len, ram_z_mm)
     base_machine_shape = punch.cad_shape.copy()
     base_machine_shape.transformShape(base_mat)
@@ -502,4 +757,7 @@ def set_punch_ram_z(punch: LoadedTool, ram_z_mm: float) -> LoadedTool:
         span_xm=punch.span_xm,
         origin_cad=punch.origin_cad,
         sections=punch.sections,
+        source_length_mm=getattr(punch, "source_length_mm", punch.length_mm),
+        is_virtual_length=getattr(punch, "is_virtual_length", False),
+        tool_length_mode=getattr(punch, "tool_length_mode", "LIBRARY_FIXED"),
     )

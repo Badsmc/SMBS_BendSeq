@@ -332,12 +332,18 @@ class PressCycleController:
         if reposition_tools:
             self.ram_z_mm = self.upper_z_mm
             self.ram_stroke_mm = 0.0
+            active_bz = None
+            try:
+                active_bz = self.sequence.active_bend.bend_zone
+            except Exception:
+                active_bz = None
             if self.tooling.punch is not None or self.tooling.die is not None:
                 try:
                     self.tooling.align_to_cross_section(
                         sec,
                         clearance_mm=self.config.initial_clearance_mm,
                         bend_id=self.active_bend_id,
+                        bend_zone=active_bz,
                     )
                 except ToolingError:
                     # Tooling may have NEEDS_ALIGNMENT or no datums yet; still update ram_z_mm

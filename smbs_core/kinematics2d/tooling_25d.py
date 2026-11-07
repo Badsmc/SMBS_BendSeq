@@ -2362,6 +2362,47 @@ class ToolingSetup2D:
     punch_clearance_mm: float = DEFAULT_INITIAL_PUNCH_CLEARANCE_MM
     ram_z_mm: float = 16.0
     ram_stroke_mm: float = 0.0
+    match_active_bend_length: bool = False
+    active_bend_length_mm: Optional[float] = None
+    allow_end_zone_collision: bool = False
+    end_zone_length_mm: float = 10.0
+
+    def set_match_active_bend_length(
+        self,
+        enabled: bool,
+        active_bend_length_mm: Optional[float] = None,
+    ) -> None:
+        """Enable or disable development virtual tool length mode (`tool_length == active_bend_length`)."""
+        self.match_active_bend_length = bool(enabled)
+        if active_bend_length_mm is not None:
+            val = float(active_bend_length_mm)
+            self.active_bend_length_mm = val if (math.isfinite(val) and val > 0.0) else None
+        elif not self.match_active_bend_length:
+            self.active_bend_length_mm = None
+
+    def effective_punch_length_mm(self, fallback_bend_length_mm: Optional[float] = None) -> Optional[float]:
+        """Return effective punch length (mm) in current mode (virtual bend length or library fixed)."""
+        if self.match_active_bend_length:
+            if fallback_bend_length_mm is not None and math.isfinite(float(fallback_bend_length_mm)) and float(fallback_bend_length_mm) > 0.0:
+                return float(fallback_bend_length_mm)
+            if self.active_bend_length_mm is not None and math.isfinite(float(self.active_bend_length_mm)) and float(self.active_bend_length_mm) > 0.0:
+                return float(self.active_bend_length_mm)
+            return None
+        if self.punch is not None and isinstance(self.punch.length_mm, (int, float)):
+            return float(self.punch.length_mm)
+        return None
+
+    def effective_die_length_mm(self, fallback_bend_length_mm: Optional[float] = None) -> Optional[float]:
+        """Return effective die length (mm) in current mode (virtual bend length or library fixed)."""
+        if self.match_active_bend_length:
+            if fallback_bend_length_mm is not None and math.isfinite(float(fallback_bend_length_mm)) and float(fallback_bend_length_mm) > 0.0:
+                return float(fallback_bend_length_mm)
+            if self.active_bend_length_mm is not None and math.isfinite(float(self.active_bend_length_mm)) and float(self.active_bend_length_mm) > 0.0:
+                return float(self.active_bend_length_mm)
+            return None
+        if self.die is not None and isinstance(self.die.length_mm, (int, float)):
+            return float(self.die.length_mm)
+        return None
 
     def select_punch(self, punch: Optional[ToolProfile]) -> None:
         if punch is not None:
@@ -2497,6 +2538,19 @@ class ToolingSetup2D:
         self.punch_machine_transform = Transform2D.translation(anchor_s, self.ram_z_mm)
         self.aligned = True
         self.aligned_bend_id = str(resolved_bend_id) if resolved_bend_id else None
+        if bend_zone is not None and getattr(bend_zone, "axis_xy", None) is not None:
+            ax = bend_zone.axis_xy
+            if len(ax) == 2:
+                blen = _dist(ax[0], ax[1])
+                if math.isfinite(blen) and blen > 0.0:
+                    self.active_bend_length_mm = float(blen)
+        elif cross_section is not None and cross_section.get("bend_length_mm") is not None:
+            try:
+                blen = float(cross_section["bend_length_mm"])
+                if math.isfinite(blen) and blen > 0.0:
+                    self.active_bend_length_mm = blen
+            except (TypeError, ValueError):
+                pass
 
     def set_punch_ram_z(self, ram_z_mm: float, stroke_mm: float = 0.0) -> None:
         """Move ONLY the punch vertically along its coaxial Machine `s` axis.
@@ -2579,7 +2633,11 @@ class ToolingSetup2D:
         p_name = self.punch.name if self.punch is not None else "—"
         d_name = self.die.name if self.die is not None else "—"
         g_status = self.geometry_status_summary()
-        return f"Punch: {p_name} | Die: {d_name} | Geometry: {g_status} | Collision: NOT CHECKED"
+        base = f"Punch: {p_name} | Die: {d_name} | Geometry: {g_status} | Collision: NOT CHECKED"
+        if self.match_active_bend_length:
+            len_str = f"{self.active_bend_length_mm:.1f} mm" if self.active_bend_length_mm else "ACTIVE_BEND"
+            return f"{base} | ToolLen: VIRTUAL={len_str}"
+        return base
 
 
 # ---------------------------------------------------------------------------

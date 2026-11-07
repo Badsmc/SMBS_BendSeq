@@ -157,6 +157,37 @@ def _error(message):
         pass
 
 
+def get_runtime_git_info() -> dict:
+    """Return actual module path, repository root, git branch, and git commit hash."""
+    import subprocess
+
+    mod_path = Path(__file__).resolve()
+    repo_root = mod_path.parents[2]
+    branch = "UNKNOWN"
+    commit = "UNKNOWN"
+    try:
+        branch = subprocess.check_output(
+            ["git", "-C", str(repo_root), "rev-parse", "--abbrev-ref", "HEAD"],
+            stderr=subprocess.DEVNULL,
+            text=True,
+            timeout=2.0,
+        ).strip()
+        commit = subprocess.check_output(
+            ["git", "-C", str(repo_root), "rev-parse", "--short=12", "HEAD"],
+            stderr=subprocess.DEVNULL,
+            text=True,
+            timeout=2.0,
+        ).strip()
+    except Exception:
+        pass
+    return {
+        "module_file": str(mod_path),
+        "repo_root": str(repo_root),
+        "git_branch": branch,
+        "git_commit": commit,
+    }
+
+
 class SelectionWarning(RuntimeError):
     """Expected user-selection or document precondition warning (no traceback)."""
 
@@ -582,6 +613,17 @@ class _PreviewPanel:
                 self._physical_check_signature = None
                 self._trace_frame_dt = None
                 self._trace_directory = _LOG_FILE_PATH.parent / "pressbrake_traces"
+                self.runtime_git_info = get_runtime_git_info()
+                self.last_sequence_search_report = None
+                self._conditional_bends_status: dict[str, str] = {}
+                self._highlighted_end_zone_info: dict | None = None
+                _log(
+                    "PressBrakeSim startup: module={} | branch={} | commit={}".format(
+                        self.runtime_git_info["module_file"],
+                        self.runtime_git_info["git_branch"],
+                        self.runtime_git_info["git_commit"],
+                    )
+                )
                 self.angle = 0.0
                 self.playing = False
                 self._last_tick_monotonic: float | None = None
@@ -606,9 +648,11 @@ class _PreviewPanel:
                 row = QtWidgets.QHBoxLayout()
                 self.load = _button(QtWidgets, "Деталь", self.load_part, True)
                 self.tooling = _button(QtWidgets, "Оснастка", self.open_tool_library_dialog, True)
-                self.calculate = _button(QtWidgets, "Расчёт", self.unavailable, False)
+                self.calculate = _button(QtWidgets, "Расчёт", self.calculate_sequence, False)
                 self.tooling.setToolTip("Открыть библиотеку пользовательской оснастки (PUNCH / DIE)")
-                self.calculate.setToolTip("Автоматический поиск последовательности отключён на этапе Phase 3A")
+                self.calculate.setToolTip(
+                    "Автоматический поиск допустимой последовательности гибки с физической проверкой 2.5D + 3D (D6.3.4)"
+                )
                 for widget in (self.load, self.tooling, self.calculate):
                     row.addWidget(widget)
                 root.addLayout(row)
@@ -652,6 +696,42 @@ class _PreviewPanel:
                 for w in (self.align_tooling_btn, self.reset_tooling_btn, self.toggle_tooling_btn):
                     t_row4.addWidget(w)
                 t_layout.addLayout(t_row4)
+
+                # Development virtual tool length & controlled punch end-zone policy
+                self.virtual_tool_len_checkbox = QtWidgets.QCheckBox(
+                    "Разработка: длина инструмента равна длине гиба"
+                )
+                self.virtual_tool_len_checkbox.setChecked(False)
+                self.virtual_tool_len_checkbox.setToolTip(
+                    "Виртуальная длина пуансона и матрицы автоматически приравнивается к длине активной линии гиба "
+                    "с сохранением неизменного 2D-профиля сечения (исходные FCStd не изменяются)."
+                )
+                self.virtual_tool_len_checkbox.toggled.connect(self._on_virtual_tool_length_toggled)
+                t_layout.addWidget(self.virtual_tool_len_checkbox)
+
+                ez_row = QtWidgets.QHBoxLayout()
+                ez_row.addWidget(QtWidgets.QLabel("Концевая зона пуансона (мм):"))
+                self.end_zone_len_spin = QtWidgets.QDoubleSpinBox()
+                self.end_zone_len_spin.setRange(0.0, 200.0)
+                self.end_zone_len_spin.setDecimals(1)
+                self.end_zone_len_spin.setSingleStep(1.0)
+                self.end_zone_len_spin.setValue(10.0)
+                self.end_zone_len_spin.valueChanged.connect(self._on_end_zone_length_changed)
+                ez_row.addWidget(self.end_zone_len_spin)
+                t_layout.addLayout(ez_row)
+
+                self.allow_end_zone_checkbox = QtWidgets.QCheckBox(
+                    "Условный допуск концевых зон пуансона (CONDITIONAL)"
+                )
+                self.allow_end_zone_checkbox.setChecked(False)
+                self.allow_end_zone_checkbox.setToolTip(
+                    "Разрешить условное продолжение (статус CONDITIONAL, не PASS), если пересечение детали "
+                    "с пуансоном находится строго в пределах заданных концевых зон пуансона."
+                )
+                self.allow_end_zone_checkbox.toggled.connect(self._on_allow_end_zone_toggled)
+                t_layout.addWidget(self.allow_end_zone_checkbox)
+                self.tooling_setup.end_zone_length_mm = float(self.end_zone_len_spin.value())
+                self.tooling_setup.allow_end_zone_collision = bool(self.allow_end_zone_checkbox.isChecked())
 
                 self.tooling_status = QtWidgets.QLabel(self.tooling_setup.status_line())
                 self.tooling_status.setWordWrap(True)
@@ -1354,12 +1434,93 @@ class _PreviewPanel:
                     id(self.tooling_setup.punch),
                     id(self.tooling_setup.die),
                     self.tooling_setup.aligned,
+                    bool(self.tooling_setup.match_active_bend_length),
+                    round(float(self.tooling_setup.active_bend_length_mm), 4),
+                    bool(self.tooling_setup.allow_end_zone_collision),
+                    round(float(self.tooling_setup.end_zone_length_mm), 4),
                     self.tooling_setup.punch_machine_transform.to_matrix_tuple(),
                     self.tooling_setup.die_machine_transform.to_matrix_tuple(),
                     (getattr(pc.phase, "value", pc.phase) if pc is not None else ""),
                     (float(pc.ram_z_mm) if pc is not None else None),
                     (float(pc.transfer_progress) if pc is not None else None),
                 )
+
+            def _active_bend_length_mm(self) -> float:
+                if self.session is None or getattr(self.session, "fold_state", None) is None:
+                    return 0.0
+                try:
+                    bend = self.session.fold_state.bends[self.session.active_bend_id]
+                    axis = getattr(bend, "axis_xyz", None)
+                    if axis is not None:
+                        return float(math.dist(axis[0], axis[1]))
+                except Exception:
+                    pass
+                return 0.0
+
+            def _on_virtual_tool_length_toggled(self, enabled: bool):
+                bend_len = self._active_bend_length_mm()
+                self.tooling_setup.set_match_active_bend_length(bool(enabled), bend_len)
+                if self.press_cycle is not None:
+                    self.press_cycle.set_match_active_bend_length(bool(enabled))
+                self._update_tooling_status_label()
+                self.draw()
+
+            def _on_end_zone_length_changed(self, val: float):
+                try:
+                    fval = max(0.0, float(val))
+                except (TypeError, ValueError):
+                    return
+                self.tooling_setup.end_zone_length_mm = fval
+                self._update_tooling_status_label()
+
+            def _on_allow_end_zone_toggled(self, enabled: bool):
+                self.tooling_setup.allow_end_zone_collision = bool(enabled)
+                self._update_tooling_status_label()
+
+            def _prompt_end_zone_conditional_dialog(self, bend_id: str, ez_analysis) -> bool:
+                """Show Russian confirmation dialog when an END_ZONE_ONLY punch collision is detected.
+                Returns True if operator chooses 'Продолжить с предупреждением', False if 'Отменить'.
+                """
+                side_str = str(getattr(ez_analysis, "affected_side", "UNKNOWN"))
+                vol_mm3 = float(getattr(ez_analysis, "total_overlap_volume_mm3", 0.0))
+                ez_mm = float(getattr(ez_analysis, "end_zone_length_mm", self.tooling_setup.end_zone_length_mm))
+
+                self._highlighted_end_zone_info = {
+                    "bend_id": str(bend_id),
+                    "affected_side": side_str,
+                    "overlap_volume_mm3": vol_mm3,
+                    "end_zone_length_mm": ez_mm,
+                }
+                self.draw()
+                QtWidgets.QApplication.processEvents()
+
+                custom_handler = getattr(self, "_end_zone_dialog_handler", None)
+                if callable(custom_handler):
+                    return bool(custom_handler(bend_id, ez_analysis))
+
+                msg_box = QtWidgets.QMessageBox(self)
+                msg_box.setIcon(QtWidgets.QMessageBox.Warning)
+                msg_box.setWindowTitle("Концевое пересечение с пуансоном (CONDITIONAL)")
+                msg_box.setText(
+                    "Обнаружено пересечение детали с концевой зоной пуансона.\n"
+                    "Для этой операции может потребоваться пуансон с вырезом на конце.\n"
+                    "Подходящая геометрия такого инструмента ещё не проверена.\n"
+                    "Продолжить проверку в условном режиме?"
+                )
+                msg_box.setInformativeText(
+                    "Операция/гиб: {}\n"
+                    "Сторона пуансона: {}\n"
+                    "Объём пересечения: {:.4f} мм³\n"
+                    "Концевая зона пуансона: {:.1f} мм".format(
+                        bend_id, side_str, vol_mm3, ez_mm
+                    )
+                )
+                btn_continue = msg_box.addButton(
+                    "Продолжить с предупреждением", QtWidgets.QMessageBox.AcceptRole
+                )
+                msg_box.addButton("Отменить", QtWidgets.QMessageBox.RejectRole)
+                msg_box.exec()
+                return msg_box.clickedButton() == btn_continue
 
             def check_current_physical_pose(self):
                 """Read-only current-pose check; never modifies FoldState or GUI animation."""
@@ -1372,14 +1533,66 @@ class _PreviewPanel:
                     )
                     return
                 self.physical_check_btn.setEnabled(False)
+                self._highlighted_end_zone_info = None
                 try:
                     from smbs_core.kinematics2d.physical_validation_25d import (
+                        PhysicalEvidence,
                         check_current_25d_pose,
                     )
+                    self._sync_tooling_to_active_bend()
                     pc = self._ensure_press_cycle_controller()
+                    ez_len = float(self.tooling_setup.end_zone_length_mm)
+                    allow_ez = bool(self.tooling_setup.allow_end_zone_collision)
                     report = check_current_25d_pose(
-                        self.session, pc, self.tooling_setup, native_3d=True,
+                        self.session,
+                        pc,
+                        self.tooling_setup,
+                        native_3d=True,
+                        match_active_bend_length=self.tooling_setup.match_active_bend_length,
+                        allow_end_zone_collision=allow_ez,
+                        end_zone_length_mm=ez_len,
+                        classify_end_zone_length_mm=ez_len if ez_len > 0.0 else 10.0,
                     )
+                    ez = getattr(report, "end_zone_analysis", None)
+                    if (
+                        report.status is PhysicalEvidence.COLLISION
+                        and not allow_ez
+                        and ez is not None
+                        and getattr(getattr(ez, "classification", None), "value", "") == "END_ZONE_ONLY"
+                        and report.section_status != "INTERFERENCE"
+                    ):
+                        active_id = str(self.session.active_bend_id)
+                        if self._prompt_end_zone_conditional_dialog(active_id, ez):
+                            eff_ez = ez_len if ez_len > 0.0 else 10.0
+                            report = check_current_25d_pose(
+                                self.session,
+                                pc,
+                                self.tooling_setup,
+                                native_3d=True,
+                                match_active_bend_length=self.tooling_setup.match_active_bend_length,
+                                allow_end_zone_collision=True,
+                                end_zone_length_mm=eff_ez,
+                                classify_end_zone_length_mm=eff_ez,
+                            )
+                        else:
+                            self._highlighted_end_zone_info = None
+                            self.draw()
+
+                    if report.status is PhysicalEvidence.CONDITIONAL:
+                        active_id = str(self.session.active_bend_id)
+                        self._conditional_bends_status[active_id] = (
+                            "CONDITIONAL (требуется пуансон с вырезом на конце; геометрия не проверена)"
+                        )
+                        if ez is not None:
+                            self._highlighted_end_zone_info = {
+                                "bend_id": active_id,
+                                "affected_side": str(getattr(ez, "affected_side", "UNKNOWN")),
+                                "overlap_volume_mm3": float(getattr(ez, "total_overlap_volume_mm3", 0.0)),
+                                "end_zone_length_mm": float(getattr(ez, "end_zone_length_mm", ez_len)),
+                            }
+                        self._populate_operations()
+                        self.draw()
+
                     detail = "{} | 2D={} | 3D={} | {} | scope={}".format(
                         report.status.value, report.section_status,
                         report.native_status, report.reason,
@@ -1395,6 +1608,8 @@ class _PreviewPanel:
                         reason=report.reason,
                         checked_scope=list(report.checked_scope),
                         fully_qualified=report.is_fully_qualified,
+                        is_conditional=bool(getattr(report, "is_conditional", False)),
+                        tool_length_info=getattr(report, "tool_length_info", None),
                     )
                     _log("Physical pose check: " + detail)
                 except Exception as exc:
@@ -1419,6 +1634,7 @@ class _PreviewPanel:
                     return
                 self.full_physical_check_btn.setEnabled(False)
                 self.physical_check_btn.setEnabled(False)
+                self._highlighted_end_zone_info = None
                 self.physical_check_result.setText(
                     "Проверяется нативная 3D-траектория D6.3.4; "
                     "состояние FreeCAD будет сохранено."
@@ -1426,11 +1642,57 @@ class _PreviewPanel:
                 QtWidgets.QApplication.processEvents()
                 try:
                     from smbs_core.kinematics2d.physical_validation_25d import (
+                        PhysicalEvidence,
                         check_active_25d_bend_trajectory,
                     )
+                    self._sync_tooling_to_active_bend()
+                    ez_len = float(self.tooling_setup.end_zone_length_mm)
+                    allow_ez = bool(self.tooling_setup.allow_end_zone_collision)
                     report = check_active_25d_bend_trajectory(
-                        self.session, self.tooling_setup,
+                        self.session,
+                        self.tooling_setup,
+                        match_active_bend_length=self.tooling_setup.match_active_bend_length,
+                        allow_end_zone_collision=allow_ez,
+                        end_zone_length_mm=ez_len,
+                        classify_end_zone_length_mm=ez_len if ez_len > 0.0 else 10.0,
                     )
+                    ez = getattr(report, "end_zone_analysis", None)
+                    if (
+                        report.status is PhysicalEvidence.COLLISION
+                        and not allow_ez
+                        and ez is not None
+                        and getattr(getattr(ez, "classification", None), "value", "") == "END_ZONE_ONLY"
+                    ):
+                        active_id = str(self.session.active_bend_id)
+                        if self._prompt_end_zone_conditional_dialog(active_id, ez):
+                            eff_ez = ez_len if ez_len > 0.0 else 10.0
+                            report = check_active_25d_bend_trajectory(
+                                self.session,
+                                self.tooling_setup,
+                                match_active_bend_length=self.tooling_setup.match_active_bend_length,
+                                allow_end_zone_collision=True,
+                                end_zone_length_mm=eff_ez,
+                                classify_end_zone_length_mm=eff_ez,
+                            )
+                        else:
+                            self._highlighted_end_zone_info = None
+                            self.draw()
+
+                    if report.status is PhysicalEvidence.CONDITIONAL:
+                        active_id = str(self.session.active_bend_id)
+                        self._conditional_bends_status[active_id] = (
+                            "CONDITIONAL (требуется пуансон с вырезом на конце; геометрия не проверена)"
+                        )
+                        if ez is not None:
+                            self._highlighted_end_zone_info = {
+                                "bend_id": active_id,
+                                "affected_side": str(getattr(ez, "affected_side", "UNKNOWN")),
+                                "overlap_volume_mm3": float(getattr(ez, "total_overlap_volume_mm3", 0.0)),
+                                "end_zone_length_mm": float(getattr(ez, "end_zone_length_mm", ez_len)),
+                            }
+                        self._populate_operations()
+                        self.draw()
+
                     detail = "D6.3.4 {} | {} | {}".format(
                         report.status.value, report.native_status, report.reason,
                     )
@@ -1443,6 +1705,8 @@ class _PreviewPanel:
                         reason=report.reason,
                         checked_scope=list(report.checked_scope),
                         fully_qualified=report.is_fully_qualified,
+                        is_conditional=bool(getattr(report, "is_conditional", False)),
+                        tool_length_info=getattr(report, "tool_length_info", None),
                     )
                     _log("D6.3.4 trajectory: " + detail)
                 except Exception as exc:
@@ -1459,6 +1723,82 @@ class _PreviewPanel:
                 finally:
                     self.full_physical_check_btn.setEnabled(True)
                     self.physical_check_btn.setEnabled(True)
+
+            def calculate_sequence(self):
+                """Run automatic 2.5D + D6 physical sequence search with backtracking and forward replay."""
+                if self.session is None:
+                    self.status.setText("UNVERIFIED: сначала загрузите листовую деталь.")
+                    return
+                if self.timer.isActive() or self.session.playback_status == PlaybackStatus.PLAYING:
+                    self.status.setText("Сначала остановите воспроизведение (Pause / Reset) перед расчётом последовательности.")
+                    return
+                self.calculate.setEnabled(False)
+                self.physical_check_btn.setEnabled(False)
+                self.full_physical_check_btn.setEnabled(False)
+                self._highlighted_end_zone_info = None
+                self.status.setText(
+                    "Выполняется поиск последовательности гибки с физической проверкой 2.5D + D6 (backtracking)..."
+                )
+                self.physical_check_result.setText(
+                    "Идёт поиск последовательности (строгий проход → условный при необходимости → прямой прогон с нуля)..."
+                )
+                QtWidgets.QApplication.processEvents()
+                try:
+                    from smbs_core.kinematics2d.sequence_search import (
+                        SearchStatus,
+                        search_bend_sequence_25d,
+                    )
+                    self._sync_tooling_to_active_bend()
+                    pc = self._ensure_press_cycle_controller()
+                    search_rep = search_bend_sequence_25d(
+                        self.session,
+                        pc,
+                        self.tooling_setup,
+                        match_active_bend_length=self.tooling_setup.match_active_bend_length,
+                        allow_end_zone_collision=self.tooling_setup.allow_end_zone_collision,
+                        end_zone_length_mm=self.tooling_setup.end_zone_length_mm,
+                    )
+                    self.last_sequence_search_report = search_rep
+                    self._conditional_bends_status.clear()
+                    if search_rep.status is SearchStatus.CONDITIONAL_VALIDATED:
+                        for bid in search_rep.conditional_bends:
+                            self._conditional_bends_status[str(bid)] = (
+                                "CONDITIONAL (требуется пуансон с вырезом на конце; геометрия не проверена)"
+                            )
+                    self._populate_operations()
+                    self._configure_for_active_bend()
+                    self._sync_tooling_to_active_bend()
+                    self.draw()
+                    self.status.setText(search_rep.message_ru)
+                    self.physical_check_result.setText(
+                        "Поиск последовательности: {} | {} | состояний={}, проверок={}, время={:.2f}с".format(
+                            search_rep.status.value,
+                            search_rep.overall_evidence.value,
+                            search_rep.states_visited,
+                            search_rep.step_evaluations,
+                            search_rep.elapsed_s,
+                        )
+                    )
+                    self._trace_event(
+                        "SEQUENCE_SEARCH_COMPLETED",
+                        status=search_rep.status.value,
+                        overall_evidence=search_rep.overall_evidence.value,
+                        found_sequence=list(search_rep.found_sequence) if search_rep.found_sequence else None,
+                        conditional_bends=list(search_rep.conditional_bends),
+                        states_visited=search_rep.states_visited,
+                        step_evaluations=search_rep.step_evaluations,
+                        elapsed_s=round(search_rep.elapsed_s, 3),
+                    )
+                    _log("Sequence search result: " + search_rep.message_ru)
+                except Exception as exc:
+                    msg = "UNVERIFIED: ошибка поиска последовательности: {}".format(exc)
+                    self.status.setText(msg)
+                    self.physical_check_result.setText(msg)
+                    _error("Sequence search exception: " + traceback.format_exc())
+                finally:
+                    self.full_physical_check_btn.setEnabled(True)
+                    self.physical_check_btn.setEnabled(True)
+                    self._sync_playback_buttons()
 
             def _update_tooling_status_label(self):
                 self.tooling_status.setText(self.tooling_setup.status_line())
@@ -1644,6 +1984,10 @@ class _PreviewPanel:
                 """Re-align static tooling to the active bend line if already aligned."""
                 if self.session is None:
                     return
+                bend_len = self._active_bend_length_mm()
+                self.tooling_setup.set_match_active_bend_length(
+                    bool(self.tooling_setup.match_active_bend_length), bend_len
+                )
                 if self.press_cycle is not None:
                     self.press_cycle.on_tooling_changed()
                 elif self.tooling_setup.punch is not None or self.tooling_setup.die is not None:
@@ -1957,9 +2301,11 @@ class _PreviewPanel:
                     self.move_up_btn.setEnabled(False)
                     self.move_down_btn.setEnabled(False)
                     self.restore_order_btn.setEnabled(False)
+                    self.calculate.setEnabled(False)
                     return
                 st = self.session.playback_status
                 self.playing = st == PlaybackStatus.PLAYING
+                self.calculate.setEnabled(not self.playing and len(self.session.bend_order) > 1)
                 self.play_btn.setText(
                     "▶ Play All (станок)" if self.execution_mode == CycleExecutionMode.FULL_CYCLE
                     else "▶ Play All (геометрия)"
@@ -2050,6 +2396,8 @@ class _PreviewPanel:
                     status_str = "ACTIVE"
                 else:
                     status_str = "IDLE"
+                if b.bend_id in self._conditional_bends_status:
+                    status_str += " [CONDITIONAL]"
                 return (
                     str(idx),
                     "{} ({} → {})".format(b.bend_id, b.fixed_panel, b.moving_panel),
@@ -2530,7 +2878,7 @@ class _PreviewPanel:
                     "viewport_visible": self.view.viewport().width() > 0 and
                                         self.view.viewport().height() > 0,
                     "timer_consistency": self.timer.isActive() == self.playing,
-                    "unavailable_controls_disabled": not self.calculate.isEnabled(),
+                    "unavailable_controls_disabled": (not self.calculate.isEnabled()) if not has_part else True,
                 }
                 failures = [key for key, passed in checks.items() if not passed]
                 message = (
@@ -2607,6 +2955,14 @@ class _PreviewPanel:
                     punch_pen = QtGui.QPen(QtGui.QColor("#922b21"), 1.5)
                     punch_pen.setCosmetic(True)
                     punch_brush = QtGui.QBrush(QtGui.QColor(231, 76, 60, 145))
+                    if (
+                        self._highlighted_end_zone_info is not None
+                        and self.session is not None
+                        and str(self._highlighted_end_zone_info.get("bend_id")) == str(self.session.active_bend_id)
+                    ):
+                        punch_pen = QtGui.QPen(QtGui.QColor("#f39c12"), 3.0, QtCore.Qt.DashLine)
+                        punch_pen.setCosmetic(True)
+                        punch_brush = QtGui.QBrush(QtGui.QColor(243, 156, 18, 175))
                     punch_item = self.scene.addPath(punch_path, punch_pen, punch_brush)
                     punch_item.setZValue(Z_LAYER_PUNCH)
                     punch_item.setData(0, "punch")
@@ -2621,6 +2977,23 @@ class _PreviewPanel:
                         )
                         punch_axis_item.setZValue(Z_LAYER_AUXILIARY)
                         punch_axis_item.setData(0, "punch_axis")
+                        if (
+                            self._highlighted_end_zone_info is not None
+                            and self.session is not None
+                            and str(self._highlighted_end_zone_info.get("bend_id")) == str(self.session.active_bend_id)
+                        ):
+                            hz = self._highlighted_end_zone_info
+                            badge_txt = self.scene.addSimpleText(
+                                "КОНЦЕВАЯ ЗОНА ПУАНСОНА ({}) | {:.2f} мм³ | зона {:.1f} мм [CONDITIONAL]".format(
+                                    hz.get("affected_side", "?"),
+                                    float(hz.get("overlap_volume_mm3", 0.0)),
+                                    float(hz.get("end_zone_length_mm", 0.0)),
+                                )
+                            )
+                            badge_txt.setBrush(QtGui.QBrush(QtGui.QColor("#d35400")))
+                            badge_txt.setPos(tp.x() - 60.0, tp.y() - 35.0)
+                            badge_txt.setZValue(Z_LAYER_SHEET_NEUTRAL_AND_TANGENTS + 5.0)
+                            badge_txt.setData(0, "end_zone_highlight")
 
             def _halt_unsupported_machine_pose(self, reason):
                 """Stop unsafe 2.5D preview; retain last known machine picture.
