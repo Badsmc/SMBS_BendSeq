@@ -1,15 +1,17 @@
 """Regression tests for native 3D collision detection with focus on volume enclosure,
-separated solids, touching, clashing, and cavity geometries under candidate face pruning.
+separated solids, touching, clashing, and cavity geometries under candidate face pruning,
+as well as strict error handling for boolean intersection (common) evaluations.
 """
 
 import math
 import unittest
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 import FreeCAD
 import Part
 from smbs_core.kinematics2d.native_collision_3d import (
     check_pair_clearance,
     _compute_exact_distance_with_pruning,
+    _evaluate_common_volume,
     CollisionClass,
 )
 import smbs_core.kinematics2d.native_collision_3d as nc
@@ -30,7 +32,8 @@ def create_regular_prism(n_sides: int, radius: float, height: float) -> Part.Sha
 
 class TestNativeCollisionEnclosureRegression(unittest.TestCase):
     """Verify that candidate face pruning never falsely returns CLEAR for enclosed solids,
-    and accurately validates separated, touching, clashing, and cavity configurations.
+    accurately validates separated, touching, clashing, and cavity configurations,
+    and fails closed with INVALID_GEOMETRY on any kernel or volume evaluation failure.
     """
 
     def setUp(self):
@@ -51,7 +54,6 @@ class TestNativeCollisionEnclosureRegression(unittest.TestCase):
         Pruning candidate faces yields positive boundary distance (e.g. 9.0mm > near_tolerance 0.5mm).
         Must return PENETRATION with non-zero volume matching direct OCC common() in both (A, B) and (B, A).
         """
-        # Ensure pruning branch actually triggers and returns positive boundary distance
         box_prism = self.outer_prism.BoundBox
         box_inner = self.inner_box.BoundBox
         boundary_dist = _compute_exact_distance_with_pruning(
@@ -59,7 +61,6 @@ class TestNativeCollisionEnclosureRegression(unittest.TestCase):
         )
         self.assertGreater(boundary_dist, 0.5)
 
-        # Expected direct OCC common volume:
         expected_common = self.outer_prism.common(self.inner_box)
         self.assertAlmostEqual(expected_common.Volume, 8.0, delta=1e-2)
 
@@ -82,8 +83,6 @@ class TestNativeCollisionEnclosureRegression(unittest.TestCase):
         Must return CLEAR, distance matching direct OCC distToShape.
         """
         other_prism = create_regular_prism(16, radius=40.0, height=20.0)
-        # Shift along X so there is a 10mm gap between the two prisms
-        # outer_prism X is [-40, 40]. Shift other_prism by +90 -> X is [50, 130].
         other_prism.translate(FreeCAD.Vector(90.0, 0.0, -10.0))
 
         direct_dist = self.outer_prism.distToShape(other_prism)[0]
@@ -99,7 +98,6 @@ class TestNativeCollisionEnclosureRegression(unittest.TestCase):
         Must return TOUCHING.
         """
         touching_box = Part.makeBox(20.0, 20.0, 20.0, FreeCAD.Vector(40.0, -10.0, -10.0))
-        # Distance should be 0.0 or <= 1e-4
         direct_dist = self.outer_prism.distToShape(touching_box)[0]
         self.assertAlmostEqual(direct_dist, 0.0, delta=1e-4)
 
@@ -135,17 +133,13 @@ class TestNativeCollisionEnclosureRegression(unittest.TestCase):
         hollow_solid = outer_cube.cut(hex_void)
         self.assertGreater(len(hollow_solid.Faces), 12)
 
-        # Place a small 4x4x4 box in the center of the cavity
         cavity_object = Part.makeBox(4.0, 4.0, 4.0, FreeCAD.Vector(-2.0, -2.0, -2.0))
-
-        # Check direct OCC: common volume should be exactly 0
         common_vol = hollow_solid.common(cavity_object).Volume
         self.assertAlmostEqual(common_vol, 0.0, delta=1e-4)
 
         direct_dist = hollow_solid.distToShape(cavity_object)[0]
         self.assertGreater(direct_dist, 5.0)
 
-        # Clearance check must recognize enclosure check, find vol == 0, and return CLEAR
         res = check_pair_clearance(hollow_solid, cavity_object, near_tolerance_mm=0.5, volume_tolerance_mm3=1e-4)
         self.assertEqual(res.status, CollisionClass.CLEAR)
         self.assertEqual(res.reason, "distance_separated_enclosure_checked")
@@ -156,7 +150,6 @@ class TestNativeCollisionEnclosureRegression(unittest.TestCase):
         """6. Missing, invalid or non-finite distance results must yield explicit INVALID_GEOMETRY
         and never invent exact 0.0.
         """
-        # Test pruning function directly when distToShape returns empty or non-finite:
         class MockEmptySolid:
             def __init__(self, ref):
                 self.BoundBox = ref.BoundBox
@@ -181,7 +174,6 @@ class TestNativeCollisionEnclosureRegression(unittest.TestCase):
             _compute_exact_distance_with_pruning(mock_nan, self.inner_box, mock_nan.BoundBox, self.inner_box.BoundBox)
         self.assertIn("KERNEL_NON_FINITE_DISTANCE", str(ctx_nan.exception))
 
-        # Test that check_pair_clearance handles exceptions gracefully and fails closed with INVALID_GEOMETRY:
         with patch.object(nc, "_compute_exact_distance_with_pruning", side_effect=ValueError("KERNEL_EMPTY_DISTANCE_RESULT")):
             res = check_pair_clearance(self.outer_prism, self.inner_box, near_tolerance_mm=0.5, volume_tolerance_mm3=1e-4)
             self.assertEqual(res.status, CollisionClass.INVALID_GEOMETRY)
@@ -191,6 +183,91 @@ class TestNativeCollisionEnclosureRegression(unittest.TestCase):
             res_nan = check_pair_clearance(self.outer_prism, self.inner_box, near_tolerance_mm=0.5, volume_tolerance_mm3=1e-4)
             self.assertEqual(res_nan.status, CollisionClass.INVALID_GEOMETRY)
             self.assertIn("KERNEL_NON_FINITE_DISTANCE", res_nan.reason)
+
+    def test_evaluate_common_volume_handling(self):
+        """7. _evaluate_common_volume and check_pair_clearance handling of common() results:
+        - Valid empty intersection returns 0.0 (not an error).
+        - Missing Volume attribute, NaN, +inf, -inf, or negative volume MUST raise ValueError
+          and result in INVALID_GEOMETRY, never silently becoming 0.0 or CLEAR.
+        """
+        # 7a. Direct function verification
+        # Null shape -> valid empty intersection (0.0)
+        null_shape = MagicMock()
+        null_shape.isNull.return_value = True
+        mock_a = MagicMock()
+        mock_a.common.return_value = null_shape
+        self.assertEqual(_evaluate_common_volume(mock_a, self.inner_box), 0.0)
+
+        # Invalid shape -> KERNEL_COMMON_SHAPE_INVALID
+        invalid_shape = MagicMock()
+        invalid_shape.isNull.return_value = False
+        invalid_shape.isValid.return_value = False
+        mock_a.common.return_value = invalid_shape
+        with self.assertRaises(ValueError) as ctx:
+            _evaluate_common_volume(mock_a, self.inner_box)
+        self.assertIn("KERNEL_COMMON_SHAPE_INVALID", str(ctx.exception))
+
+        # Missing Volume attribute -> KERNEL_COMMON_MISSING_VOLUME_ATTR
+        no_vol_shape = MagicMock(spec=["isNull", "isValid"])
+        no_vol_shape.isNull.return_value = False
+        no_vol_shape.isValid.return_value = True
+        mock_a.common.return_value = no_vol_shape
+        with self.assertRaises(ValueError) as ctx:
+            _evaluate_common_volume(mock_a, self.inner_box)
+        self.assertIn("KERNEL_COMMON_MISSING_VOLUME_ATTR", str(ctx.exception))
+
+        # Non-finite Volume (NaN, inf) -> KERNEL_COMMON_NON_FINITE_VOLUME
+        nan_shape = MagicMock()
+        nan_shape.isNull.return_value = False
+        nan_shape.isValid.return_value = True
+        nan_shape.Volume = float("nan")
+        mock_a.common.return_value = nan_shape
+        with self.assertRaises(ValueError) as ctx:
+            _evaluate_common_volume(mock_a, self.inner_box)
+        self.assertIn("KERNEL_COMMON_NON_FINITE_VOLUME", str(ctx.exception))
+
+        inf_shape = MagicMock()
+        inf_shape.isNull.return_value = False
+        inf_shape.isValid.return_value = True
+        inf_shape.Volume = float("inf")
+        mock_a.common.return_value = inf_shape
+        with self.assertRaises(ValueError) as ctx:
+            _evaluate_common_volume(mock_a, self.inner_box)
+        self.assertIn("KERNEL_COMMON_NON_FINITE_VOLUME", str(ctx.exception))
+
+        # Negative Volume -> KERNEL_COMMON_NEGATIVE_VOLUME
+        neg_shape = MagicMock()
+        neg_shape.isNull.return_value = False
+        neg_shape.isValid.return_value = True
+        neg_shape.Volume = -0.5
+        mock_a.common.return_value = neg_shape
+        with self.assertRaises(ValueError) as ctx:
+            _evaluate_common_volume(mock_a, self.inner_box)
+        self.assertIn("KERNEL_COMMON_NEGATIVE_VOLUME", str(ctx.exception))
+
+        # 7b. Integration in check_pair_clearance: Branch 1 (enclosed / AABB contained)
+        # When volume evaluation fails, check_pair_clearance must fail closed with INVALID_GEOMETRY
+        with patch.object(nc, "_evaluate_common_volume", side_effect=ValueError("KERNEL_COMMON_NON_FINITE_VOLUME:nan")):
+            res = check_pair_clearance(self.outer_prism, self.inner_box, near_tolerance_mm=0.5, volume_tolerance_mm3=1e-4)
+            self.assertEqual(res.status, CollisionClass.INVALID_GEOMETRY)
+            self.assertIn("KERNEL_COMMON_NON_FINITE_VOLUME", res.reason)
+
+        with patch.object(nc, "_evaluate_common_volume", side_effect=ValueError("KERNEL_COMMON_NEGATIVE_VOLUME:-0.5")):
+            res = check_pair_clearance(self.outer_prism, self.inner_box, near_tolerance_mm=0.5, volume_tolerance_mm3=1e-4)
+            self.assertEqual(res.status, CollisionClass.INVALID_GEOMETRY)
+            self.assertIn("KERNEL_COMMON_NEGATIVE_VOLUME", res.reason)
+
+        # 7c. Integration in check_pair_clearance: Branch 2 (narrow phase / dist <= near_tolerance_mm)
+        touching_box = Part.makeBox(20.0, 20.0, 20.0, FreeCAD.Vector(40.0, -10.0, -10.0))
+        with patch.object(nc, "_evaluate_common_volume", side_effect=ValueError("KERNEL_COMMON_NON_FINITE_VOLUME:inf")):
+            res_touch = check_pair_clearance(self.outer_prism, touching_box, near_tolerance_mm=0.5, volume_tolerance_mm3=1e-4)
+            self.assertEqual(res_touch.status, CollisionClass.INVALID_GEOMETRY)
+            self.assertIn("KERNEL_COMMON_NON_FINITE_VOLUME", res_touch.reason)
+
+        with patch.object(nc, "_evaluate_common_volume", side_effect=ValueError("KERNEL_COMMON_MISSING_VOLUME_ATTR")):
+            res_touch = check_pair_clearance(self.outer_prism, touching_box, near_tolerance_mm=0.5, volume_tolerance_mm3=1e-4)
+            self.assertEqual(res_touch.status, CollisionClass.INVALID_GEOMETRY)
+            self.assertIn("KERNEL_COMMON_MISSING_VOLUME_ATTR", res_touch.reason)
 
 
 if __name__ == "__main__":
