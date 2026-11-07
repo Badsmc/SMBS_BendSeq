@@ -233,6 +233,7 @@ def check_current_25d_pose(session, press_cycle, tooling, *, native_3d: bool = T
                 ";".join(result.diagnostics),
             ) + support_frame_detail,
             ("2D_SECTION", "3D_PUNCH_DIE_CURRENT_POSE", "3D_TOOL_LENGTH"),
+            raw_report=result,
         )
     if not result.is_safe or result.status not in (
         CollisionClass.CLEAR, CollisionClass.TOUCHING, CollisionClass.NEAR_CONTACT,
@@ -241,6 +242,7 @@ def check_current_25d_pose(session, press_cycle, tooling, *, native_3d: bool = T
             PhysicalEvidence.UNVERIFIED, sec, result.status.value,
             "native_3d_invalid_or_incomplete:" + "; ".join(result.diagnostics),
             ("2D_SECTION", "3D_PUNCH_DIE_CURRENT_POSE", "3D_TOOL_LENGTH"),
+            raw_report=result,
         )
     if section_collision or section_ambiguous:
         return CurrentPosePhysicalReport(

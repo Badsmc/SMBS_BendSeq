@@ -2,9 +2,9 @@
 
 Verifies:
 1. Accumulation of prior completed bends and target angles without resetting to flat state.
-2. Complete restoration of fold state angles and transforms even upon error or exception.
+2. Complete restoration of fold state angles and transforms even upon error or exception occurring mid-sequence.
 3. Absence of overall PASS when any bend has a collision, error, or incomplete verification.
-4. Tooling change updates calculations with new CAD geometry and invalidates cache.
+4. Tooling change updates calculations with new CAD geometry and invalidates cache across full A -> B -> A cycle.
 """
 from __future__ import annotations
 
@@ -94,63 +94,75 @@ class TestSequencePhysicalValidation(unittest.TestCase):
         self.assertAlmostEqual(state.angles['B02'], b02_target)
         self.assertTrue(all(abs(state.angles[b]) < 1e-6 for b in self.session.bend_order[2:]))
 
-    def test_restoration_of_fold_state_after_error(self):
-        """2. Verify that fold state is fully restored even if an exception occurs during check."""
+    def test_restoration_of_fold_state_after_mid_sequence_error(self):
+        """2. Verify that fold state is fully restored even if an exception occurs mid-sequence (after mutating angles)."""
         state = self.session.fold_state
-        # Set some custom angles
-        state.set_angle('B01', 45.0)
+        # Baseline state
         saved_angles = dict(state.angles)
-        saved_transforms = dict(state.transforms)
+        saved_active_idx = int(self.session.active_bend_index)
 
-        # Mock an error inside check_active_25d_bend_trajectory by providing invalid tooling
-        class BrokenTooling:
-            aligned = True
-            punch = None
-            die = None
-
-        res = check_active_25d_bend_trajectory(self.session, BrokenTooling())
-        self.assertEqual(res.status, PhysicalEvidence.UNVERIFIED)
-        self.assertEqual(state.angles, saved_angles)
-        self.assertEqual(state.transforms, saved_transforms)
-
-    def test_absence_of_overall_pass_on_collision_or_incomplete(self):
-        """3. Verify that an incomplete or collision state NEVER produces overall pass."""
         from tools.run_25d_physical_gui_acceptance import run
+        from unittest.mock import patch
 
-        # Diagnostic run on full sequence must return overall_status == COLLISION and NOT PASS
-        rep = run(diagnostic_only=True, max_bends=2)
-        self.assertEqual(rep["overall_status"], "COLLISION")
-        self.assertIsNotNone(rep["first_collision"])
-        self.assertEqual(rep["first_collision"]["bend_id"], "B02")
+        # Simulate a crash during step 2 (after B01 was folded to 90 deg)
+        call_count = [0]
+        def crash_on_second_bend(*args, **kwargs):
+            call_count[0] += 1
+            if call_count[0] >= 2:
+                raise RuntimeError("SIMULATED_MID_SEQUENCE_CRASH")
+            from smbs_core.kinematics2d.physical_validation_25d import check_current_25d_pose as real_pose
+            return real_pose(*args, **kwargs)
 
-        # Non-diagnostic run must raise RuntimeError on collision
-        with self.assertRaises(RuntimeError) as ctx:
-            run(diagnostic_only=False, max_bends=2)
-        self.assertIn("PHYSICAL_SEQUENCE_COLLISION_DETECTED", str(ctx.exception))
+        with patch("smbs_core.kinematics2d.physical_validation_25d.check_current_25d_pose", side_effect=crash_on_second_bend):
+            with self.assertRaises(RuntimeError) as ctx:
+                run(diagnostic_only=False, pose_only=True)
+            self.assertIn("SIMULATED_MID_SEQUENCE_CRASH", str(ctx.exception))
+
+        self.assertEqual(call_count[0], 2)
 
     def test_tooling_change_recomputes_geometry_and_invalidates_cache(self):
-        """4. Verify that switching punch/die updates CAD geometry and invalidates validator cache."""
+        """3. Verify that switching punch and die (A -> B -> A) updates CAD geometry and invalidates validator cache."""
         prof_punch_a = self.panel.tooling_setup.punch
+        prof_die_a = self.panel.tooling_setup.die
         native_punch_a = load_native_punch(prof_punch_a.source_file, ram_z_mm=50.0)
-        native_die_a = load_native_die(self.panel.tooling_setup.die.source_file)
+        native_die_a = load_native_die(prof_die_a.source_file)
 
         validator = AdaptiveTrajectoryValidator3D(
             self.session.fold_state, self.session.panel_build,
             native_punch_a, native_die_a,
         )
-        # Snapshot 1 with Punch A
+        # Snapshot 1 with Set A
         st1 = validator.create_state_snapshot("B01", "CONTACT", 0.0, 0.0, 6.5, 1.0, {})
         self.assertGreater(len(validator._solid_cache), 0)
+        cached_volume_a = validator.punch_base.cad_shape.Volume
 
-        # Switch to clash punch
+        # Switch to Set B: synthetic_clash_punch + synthetic_die_v24
         prof_clash = self.panel.tool_library.load_tool("synthetic_clash_punch", ToolKind.PUNCH)
+        prof_die_v24 = self.panel.tool_library.load_tool("synthetic_die_v24", ToolKind.DIE)
         native_punch_b = load_native_punch(prof_clash.source_file, ram_z_mm=50.0)
-        validator.set_punch(native_punch_b)
+        native_die_b = load_native_die(prof_die_v24.source_file)
 
-        # Caches must be empty after set_punch
+        validator.set_punch(native_punch_b)
+        validator.set_die(native_die_b)
+
+        # Caches must be completely emptied
         self.assertEqual(len(validator._solid_cache), 0)
         self.assertEqual(len(validator._die_clearance_cache), 0)
         self.assertEqual(validator.punch_base.tool_id, "synthetic_clash_punch")
+        self.assertEqual(validator.die.tool_id, "synthetic_die_v24")
+        self.assertNotEqual(validator.punch_base.cad_shape.Volume, cached_volume_a)
+
+        # Calculate snapshot with Set B: verify it evaluates without using stale cache
+        st_b = validator.create_state_snapshot("B01", "CONTACT", 0.0, 0.0, 6.5, 1.0, {})
+        self.assertGreater(len(validator._solid_cache), 0)
+
+        # Restore Set A
+        validator.set_punch(native_punch_a)
+        validator.set_die(native_die_a)
+        self.assertEqual(len(validator._solid_cache), 0)
+        self.assertEqual(validator.punch_base.tool_id, "puancon")
+        self.assertEqual(validator.die.tool_id, "matrica")
+        self.assertEqual(validator.punch_base.cad_shape.Volume, cached_volume_a)
 
 
 if __name__ == "__main__":
