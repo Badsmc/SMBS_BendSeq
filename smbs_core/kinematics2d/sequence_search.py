@@ -389,7 +389,10 @@ def _apply_prefix_to_session(
     """Deterministically set session order and FoldState to represent `completed_prefix`
     followed by `candidate_bend_id` as the active bend at 0.0 deg."""
     order = list(completed_prefix) + [candidate_bend_id] + list(remaining_after_candidate)
-    session.set_bend_order(order)
+    if hasattr(session, "set_bend_order"):
+        session.set_bend_order(order)
+    elif hasattr(session, "bend_order"):
+        session.bend_order = list(order)
     state = session.fold_state
     if hasattr(state, "reset_all"):
         state.reset_all()
@@ -475,7 +478,10 @@ def evaluate_candidate_bend_step(
     t0 = time.perf_counter()
     state = session.fold_state
     order = list(completed_prefix) + [candidate_bend_id] + list(remaining_after_candidate)
-    session.set_bend_order(order)
+    if hasattr(session, "set_bend_order"):
+        session.set_bend_order(order)
+    elif hasattr(session, "bend_order"):
+        session.bend_order = list(order)
     if hasattr(state, "reset_all"):
         state.reset_all()
     else:
@@ -901,7 +907,7 @@ def search_bend_sequence_25d(
             completed_prefix: Tuple[str, ...],
             remaining: Tuple[str, ...],
             path_records: List[StepEvaluationRecord],
-        ) -> Optional[Tuple[str, ...]]:
+        ) -> Tuple[Optional[Tuple[str, ...]], bool]:
             nonlocal states_visited, step_evaluations, cache_hits, dead_end_hits, backtracks_count, best_partial, stage_limit_reached, stage_limit_reason, cancelled
 
             if len(completed_prefix) > len(best_partial):
@@ -909,26 +915,26 @@ def search_bend_sequence_25d(
 
             if not remaining:
                 winning_steps_out.extend(path_records)
-                return completed_prefix
+                return completed_prefix, False
 
             if progress_callback is not None:
                 if not progress_callback(states_visited, step_evaluations, completed_prefix):
                     cancelled = True
-                    return None
+                    return None, True
 
             elapsed = time.perf_counter() - t_start
             if elapsed >= stage_time_limit_s:
                 stage_limit_reached = True
                 stage_limit_reason = f"MAX_SEARCH_TIME_REACHED:{elapsed:.2f}s>={stage_time_limit_s:.2f}s"
-                return None
+                return None, True
             if states_visited >= stage_max_states:
                 stage_limit_reached = True
                 stage_limit_reason = f"MAX_SEARCH_STATES_REACHED:{states_visited}>={stage_max_states}"
-                return None
+                return None, True
             if step_evaluations >= stage_max_checks:
                 stage_limit_reached = True
                 stage_limit_reason = f"MAX_SEARCH_CHECKS_REACHED:{step_evaluations}>={stage_max_checks}"
-                return None
+                return None, True
 
             completed_angles = {
                 bid: float(session.fold_state.bends[bid].angle_deg)
@@ -945,9 +951,10 @@ def search_bend_sequence_25d(
             )
             if eval_cache.is_dead_end(subset_key):
                 dead_end_hits += 1
-                return None
+                return None, False
 
             states_visited += 1
+            subtree_had_unverified = False
 
             # Evaluate or lookup candidates at this branch
             strict_candidates: List[Tuple[str, Tuple[str, ...], StepEvaluationRecord]] = []
@@ -955,15 +962,17 @@ def search_bend_sequence_25d(
 
             for idx, cand_id in enumerate(remaining):
                 if cancelled:
-                    return None
+                    return None, True
                 elapsed = time.perf_counter() - t_start
                 if elapsed >= stage_time_limit_s:
                     stage_limit_reached = True
                     stage_limit_reason = f"MAX_SEARCH_TIME_REACHED:{elapsed:.2f}s>={stage_time_limit_s:.2f}s"
+                    subtree_had_unverified = True
                     break
                 if step_evaluations >= stage_max_checks:
                     stage_limit_reached = True
                     stage_limit_reason = f"MAX_SEARCH_CHECKS_REACHED:{step_evaluations}>={stage_max_checks}"
+                    subtree_had_unverified = True
                     break
 
                 rem_after = remaining[:idx] + remaining[idx + 1:]
@@ -989,34 +998,37 @@ def search_bend_sequence_25d(
                 else:
                     step_evaluations += 1
 
+                if rec.effective_status is PhysicalEvidence.UNVERIFIED:
+                    subtree_had_unverified = True
+
                 if rec.effective_status is PhysicalEvidence.SAMPLED_3D_CLEAR_NOT_CONTINUOUS:
                     strict_candidates.append((cand_id, rem_after, rec))
-                    # In Stage 1 (strict search), we can immediately recurse depth-first on the first valid candidate
-                    if not stage_allow_end_zone:
-                        res = dfs(completed_prefix + (cand_id,), rem_after, path_records + [rec])
-                        if res is not None:
-                            return res
-                        backtracks_count += 1
                 elif stage_allow_end_zone and rec.effective_status is PhysicalEvidence.CONDITIONAL:
                     conditional_candidates.append((cand_id, rem_after, rec))
                 else:
                     _record_rejection(cand_id, f"prefix={list(completed_prefix)}:{rec.effective_status.value}:{rec.reason}")
 
-            if stage_allow_end_zone:
-                # Prioritize strictly clear candidates before conditional candidates
-                for cand_id, rem_after, rec in strict_candidates + conditional_candidates:
-                    if cancelled or stage_limit_reached:
-                        break
-                    res = dfs(completed_prefix + (cand_id,), rem_after, path_records + [rec])
-                    if res is not None:
-                        return res
-                    backtracks_count += 1
+            # Prioritize strictly clear candidates before conditional candidates
+            ordered_candidates = (
+                strict_candidates if not stage_allow_end_zone
+                else strict_candidates + conditional_candidates
+            )
+            for cand_id, rem_after, rec in ordered_candidates:
+                if cancelled or stage_limit_reached:
+                    subtree_had_unverified = True
+                    break
+                res, child_unverified = dfs(completed_prefix + (cand_id,), rem_after, path_records + [rec])
+                if child_unverified:
+                    subtree_had_unverified = True
+                if res is not None:
+                    return res, False
+                backtracks_count += 1
 
-            if not stage_limit_reached and not cancelled:
+            if not stage_limit_reached and not cancelled and not subtree_had_unverified:
                 eval_cache.mark_dead_end(subset_key)
-            return None
+            return None, (subtree_had_unverified or stage_limit_reached or cancelled)
 
-        found = dfs((), initial_order, [])
+        found, _ = dfs((), initial_order, [])
         return found, winning_steps_out, stage_limit_reached, stage_limit_reason
 
     found_seq: Optional[Tuple[str, ...]] = None
