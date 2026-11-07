@@ -323,6 +323,109 @@ class TestAcceptanceAggregationLogic(unittest.TestCase):
         self.assertEqual(seq[0]["pose_native_status"], "TOUCHING")
         self.assertEqual(seq[1]["pose_native_status"], "PENETRATION")
 
+    def test_early_stopping_skips_trajectory_after_blocking_pose(self):
+        """When initial contact pose fails (COLLISION or UNVERIFIED), trajectory check is NOT called by default."""
+        def _make_pose_rep(status, native_status, p_vol=None):
+            raw = None
+            if p_vol is not None:
+                raw = MagicMock()
+                raw.punch_result = MagicMock(overlap_volume_mm3=p_vol, distance_mm=0.0)
+                raw.die_result = MagicMock(overlap_volume_mm3=0.0, distance_mm=0.0)
+            return CurrentPosePhysicalReport(
+                status=status,
+                section_status="TOUCH",
+                native_status=native_status,
+                reason="test_pose",
+                checked_scope=("2D_SECTION", "3D_TOOL_LENGTH", "3D_PUNCH_DIE_CURRENT_POSE"),
+                raw_report=raw,
+            )
+
+        def _make_traj_rep():
+            raw = MagicMock()
+            raw.total_states_evaluated = 3
+            raw.phase_results = []
+            return CurrentPosePhysicalReport(
+                status=PhysicalEvidence.SAMPLED_3D_CLEAR_NOT_CONTINUOUS,
+                section_status="NOT_APPLICABLE",
+                native_status="SAMPLED_INTERVAL_CONVERGED",
+                reason="traj_clear",
+                checked_scope=("3D_PUNCH_DIE_SAMPLED_BEND",),
+                raw_report=raw,
+            )
+
+        with patch("smbs_core.kinematics2d.physical_validation_25d.check_current_25d_pose") as mock_pose, \
+             patch("smbs_core.kinematics2d.physical_validation_25d.check_active_25d_bend_trajectory") as mock_traj:
+            mock_pose.side_effect = [
+                _make_pose_rep(PhysicalEvidence.SAMPLED_3D_CLEAR_NOT_CONTINUOUS, "TOUCHING"),
+                _make_pose_rep(PhysicalEvidence.COLLISION, "PENETRATION", p_vol=67.32),
+            ]
+            mock_traj.return_value = _make_traj_rep()
+
+            rep = acc.run(diagnostic_only=True, max_bends=2, pose_only=False)
+            seq = rep["sequence"]
+            self.assertEqual(len(seq), 2)
+            self.assertEqual(seq[0]["bend_id"], "B01")
+            self.assertEqual(seq[0]["pose_status"], "SAMPLED_3D_CLEAR_NOT_CONTINUOUS")
+            self.assertEqual(seq[0]["trajectory_status"], "SAMPLED_3D_CLEAR_NOT_CONTINUOUS")
+
+            self.assertEqual(seq[1]["bend_id"], "B02")
+            self.assertEqual(seq[1]["pose_status"], "COLLISION")
+            self.assertEqual(seq[1]["trajectory_status"], "NOT_EVALUATED")
+            self.assertEqual(seq[1]["trajectory_native_status"], "NOT_EVALUATED")
+            # mock_traj was called only once (for B01), and skipped for B02
+            self.assertEqual(mock_traj.call_count, 1)
+
+    def test_force_trajectory_on_pose_failure_diagnostic_mode(self):
+        """Explicit force_trajectory_on_pose_failure=True allows trajectory calculation even after pose failure."""
+        def _make_pose_rep(status, native_status, p_vol=None):
+            raw = None
+            if p_vol is not None:
+                raw = MagicMock()
+                raw.punch_result = MagicMock(overlap_volume_mm3=p_vol, distance_mm=0.0)
+                raw.die_result = MagicMock(overlap_volume_mm3=0.0, distance_mm=0.0)
+            return CurrentPosePhysicalReport(
+                status=status,
+                section_status="TOUCH",
+                native_status=native_status,
+                reason="test_pose",
+                checked_scope=("2D_SECTION", "3D_TOOL_LENGTH", "3D_PUNCH_DIE_CURRENT_POSE"),
+                raw_report=raw,
+            )
+
+        def _make_traj_rep(status, native_status):
+            raw = MagicMock()
+            raw.total_states_evaluated = 3
+            raw.phase_results = []
+            raw.first_collision_state = None
+            return CurrentPosePhysicalReport(
+                status=status,
+                section_status="NOT_APPLICABLE",
+                native_status=native_status,
+                reason="traj_test",
+                checked_scope=("3D_PUNCH_DIE_SAMPLED_BEND",),
+                raw_report=raw,
+            )
+
+        with patch("smbs_core.kinematics2d.physical_validation_25d.check_current_25d_pose") as mock_pose, \
+             patch("smbs_core.kinematics2d.physical_validation_25d.check_active_25d_bend_trajectory") as mock_traj:
+            mock_pose.side_effect = [
+                _make_pose_rep(PhysicalEvidence.SAMPLED_3D_CLEAR_NOT_CONTINUOUS, "TOUCHING"),
+                _make_pose_rep(PhysicalEvidence.COLLISION, "PENETRATION", p_vol=67.32),
+            ]
+            mock_traj.side_effect = [
+                _make_traj_rep(PhysicalEvidence.SAMPLED_3D_CLEAR_NOT_CONTINUOUS, "SAMPLED_INTERVAL_CONVERGED"),
+                _make_traj_rep(PhysicalEvidence.COLLISION, "DISCRETE_SAMPLES_REJECTED"),
+            ]
+
+            rep = acc.run(diagnostic_only=True, max_bends=2, pose_only=False, force_trajectory_on_pose_failure=True)
+            seq = rep["sequence"]
+            self.assertEqual(len(seq), 2)
+            self.assertEqual(seq[1]["bend_id"], "B02")
+            self.assertEqual(seq[1]["pose_status"], "COLLISION")
+            self.assertEqual(seq[1]["trajectory_status"], "COLLISION")
+            # mock_traj was called for both B01 and B02
+            self.assertEqual(mock_traj.call_count, 2)
+
 
 if __name__ == "__main__":
     unittest.main()
