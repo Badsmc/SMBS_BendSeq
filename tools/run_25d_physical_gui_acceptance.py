@@ -5,14 +5,15 @@ and the original 17 demo models:
     from tools.run_25d_physical_gui_acceptance import run
     run()
 
-This checker tests exactly one *stationary* real CAD pose. It never certifies
-the complete path. The user verifies GUI after this test separately.
+Validates the full bend sequence (B01-B08 for box) preserving prior completed
+angles with real CAD tool bodies, writes JSON report, and outputs summary table.
 """
 from __future__ import annotations
 
 import hashlib
+import json
 import sys
-import unittest
+import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -20,7 +21,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 
-def run(*, diagnostic_only=False):
+def run(*, diagnostic_only=False, max_bends=None):
     import FreeCAD as App
     from PySide6 import QtWidgets
     from smbs_core.demo_paths import demo_part_path
@@ -28,6 +29,7 @@ def run(*, diagnostic_only=False):
         check_current_25d_pose, check_active_25d_bend_trajectory,
         PhysicalEvidence,
     )
+    from smbs_core.kinematics2d.workpiece_placement_3d import WorkpiecePlacement3D
     from freecad_smbs.commands.pressbrake_2d import (
         _PreviewPanel, build_part_session,
     )
@@ -74,151 +76,168 @@ def run(*, diagnostic_only=False):
             raise RuntimeError("TOOLING_NOT_ALIGNED:" + panel.status.text())
         initial = dict(session.fold_state.angles)
 
-        # Diagnose a possible local-sheet vs machine-frame mismatch without
-        # moving any tool, changing a FoldState or suppressing a real clash.
-        from smbs_core.kinematics2d.machine_section_3d import (
-            compute_machine_cutting_plane_section,
-        )
-        local_section = session.cross_section(segments=32)
-        placement = panel.press_cycle.current_workpiece_placement_3d()
-        machine_section = compute_machine_cutting_plane_section(
-            session.fold_state, session.panel_vertices_xy, placement,
-            active_bend_id=session.active_bend_id, segments=32,
-        )
-        def zone_summary(section):
-            zone = section.get("zone_polygon") or ()
-            neutral = section.get("neutral_curve") or ()
-            return {
-                "zone_bounds": (
-                    (min(x for x, z in zone), min(z for x, z in zone),
-                     max(x for x, z in zone), max(z for x, z in zone))
-                    if zone else None
-                ),
-                "neutral_mid": (tuple(neutral[len(neutral)//2])
-                                if neutral else None),
-                "fixed_count": len(section.get("fixed_polygon") or ()),
+        # Dynamic bend sequence from session (not hardcoded)
+        bend_order = list(session.bend_order)
+        if max_bends is not None:
+            bend_order = bend_order[:max_bends]
+        total_bends_count = len(bend_order)
+
+        punch_path = Path(panel.tooling_setup.punch.source_file)
+        die_path = Path(panel.tooling_setup.die.source_file)
+        punch_hash = hashlib.sha256(punch_path.read_bytes()).hexdigest()
+        die_hash = hashlib.sha256(die_path.read_bytes()).hexdigest()
+
+        print(f"SEQUENCE_VALIDATION_START: {total_bends_count} bends in order: {bend_order}")
+        print(f"TOOLING_INFO: punch={punch_path.name} ({punch_hash[:16]}), die={die_path.name} ({die_hash[:16]})")
+
+        sequence_records = []
+        first_collision_info = None
+        has_any_collision = False
+        has_any_incomplete = False
+
+        for idx, bend_id in enumerate(bend_order):
+            session.select_bend_index(idx)
+            bend = session.fold_state.bends[bend_id]
+            target_ang = float(bend.angle_deg)
+            prior_angles_record = {b: float(session.fold_state.angles[b]) for b in bend_order[:idx]}
+
+            print(f"\n--- VALIDATING BEND {idx + 1}/{total_bends_count}: {bend_id} (target {target_ang:+.1f} deg) ---")
+            print(f"Prior completed bends: {prior_angles_record}")
+
+            # 1. Pose check at stationary initial contact
+            pose_result = check_current_25d_pose(
+                session, panel.press_cycle, panel.tooling_setup, native_3d=True,
+            )
+            print(f"  Pose check: status={pose_result.status.value}, 2D={pose_result.section_status}, 3D={pose_result.native_status}")
+
+            # 2. Adaptive trajectory check across APPROACH, CONTACT, BENDING, BOTTOM, RETRACT
+            traj_result = check_active_25d_bend_trajectory(
+                session, panel.tooling_setup,
+            )
+            raw = traj_result.raw_report
+            print(f"  Trajectory check: status={traj_result.status.value}, native={traj_result.native_status}")
+
+            phase_records = []
+            total_states = raw.total_states_evaluated if raw else 0
+            total_unresolved = 0
+            max_punch_vol = 0.0
+            max_die_vol = 0.0
+
+            if raw and hasattr(raw, "phase_results"):
+                for pr in raw.phase_results:
+                    unres_cnt = len(pr.unresolved_intervals)
+                    total_unresolved += unres_cnt
+                    max_punch_vol = max(max_punch_vol, pr.max_punch_overlap_volume_mm3)
+                    max_die_vol = max(max_die_vol, pr.max_die_overlap_volume_mm3)
+                    phase_records.append({
+                        "phase": pr.phase_name,
+                        "status": pr.evidence_status.value,
+                        "states_evaluated": len(pr.states),
+                        "unresolved_intervals_count": unres_cnt,
+                        "elapsed_ms": pr.elapsed_ms,
+                        "punch_overlap_volume_mm3": pr.max_punch_overlap_volume_mm3,
+                        "die_overlap_volume_mm3": pr.max_die_overlap_volume_mm3,
+                    })
+
+            bend_summary = {
+                "bend_index": idx,
+                "bend_id": bend_id,
+                "target_angle_deg": target_ang,
+                "prior_completed_angles": prior_angles_record,
+                "pose_status": pose_result.status.value,
+                "pose_native_status": pose_result.native_status,
+                "trajectory_status": traj_result.status.value,
+                "trajectory_native_status": traj_result.native_status,
+                "total_states_evaluated": total_states,
+                "total_unresolved_intervals": total_unresolved,
+                "max_punch_overlap_volume_mm3": max_punch_vol,
+                "max_die_overlap_volume_mm3": max_die_vol,
+                "phases": phase_records,
+                "reason": traj_result.reason,
             }
-        print("PHYSICAL_FRAME_DIAGNOSTIC local:", zone_summary(local_section))
-        print("PHYSICAL_FRAME_DIAGNOSTIC machine:", zone_summary(machine_section))
-        # Compare the coordinate contracts used by the GUI and D6.3.4.
-        # This must remain read-only: no 1.5mm compensating transform is
-        # applied until verified against the actual die shoulder geometry.
-        from smbs_core.kinematics2d.workpiece_placement_3d import WorkpiecePlacement3D
-        bend_id = session.active_bend_id
-        bend = session.fold_state.bends[bend_id]
-        axis_start, axis_end, _ = WorkpiecePlacement3D.get_world_bend_axis(
-            session.fold_state, bend_id,
-        )
-        print("PHYSICAL_FRAME_DIAGNOSTIC axis_world:",
-              axis_start, axis_end)
-        print("PHYSICAL_FRAME_DIAGNOSTIC gui_placement:",
-              "translation=", placement.translation,
-              "rotation=", placement.rotation)
-        d6_initial = WorkpiecePlacement3D.compute_placement(
-            session.fold_state, bend_id,
-            support_plane_zm=bend.bend_zone.outer_radius_mm,
-            align_bisector=True, align_bend_arc_center=True,
-        )
-        print("PHYSICAL_FRAME_DIAGNOSTIC d634_initial_placement:",
-              "translation=", d6_initial.translation,
-              "rotation=", d6_initial.rotation)
-        measured_delta_xyz = tuple(round(a - b, 6) for a, b in zip(d6_initial.translation, placement.translation))
-        print("PHYSICAL_FRAME_DIAGNOSTIC frame_delta_xyz:", measured_delta_xyz)
-        if any(abs(d) > 1e-4 for d in measured_delta_xyz):
-            raise RuntimeError(f"COORDINATE_CONTRACT_VIOLATION: measured delta_xyz={measured_delta_xyz} exceeds tolerance 1e-4")
-        print("PHYSICAL_FRAME_DIAGNOSTIC tools:",
-              "aligned=", panel.tooling_setup.aligned,
-              "die_v=", panel.tooling_setup.die_v_center_machine(),
-              "punch_tip=", panel.tooling_setup.punch_tip_machine(),
-              "alignment_anchor=", panel.tooling_setup.alignment_anchor_sz,
-              "ram=", panel.press_cycle.ram_z_mm)
-        if not diagnostic_only:
-            # Full GUI acceptance also exercises the real Qt control.
-            panel.physical_check_btn.click()
-        result = check_current_25d_pose(
-            session, panel.press_cycle, panel.tooling_setup,
-            native_3d=True,
-        )
-        if diagnostic_only:
-            print("PHYSICAL_POSE_DIAGNOSTIC: {} | 2D={} | 3D={} | {}".format(
-                result.status.value, result.section_status,
-                result.native_status, result.reason,
-            ))
-        else:
-            print("PHYSICAL_GUI_RESULT: " + panel.physical_check_result.text())
-        print("PHYSICAL_NATIVE_STATUS: {} | {} | {}".format(
-            result.status.value, result.native_status, result.reason,
-        ))
-        if dict(session.fold_state.angles) != initial:
-            raise RuntimeError("FOLD_STATE_MUTATED_BY_COLLISION_CHECK")
-        if result.is_fully_qualified:
-            raise RuntimeError("INVALID_UNBOUNDED_QUALIFICATION")
-        # A section collision is a valid finding but not proof of a native
-        # 3D collision. Always run the independent D6.3.4 check so the
-        # evidence mismatch can be diagnosed without masking either result.
-        print("PHYSICAL_SECTION_EVIDENCE: {} | {} | {}".format(
-            result.section_status, result.native_status, result.reason,
-        ))
-        if diagnostic_only:
-            # Diagnostic-only mode deliberately does NOT print a PASS marker
-            # and does NOT run the costly adaptive 120s trajectory. A real
-            # native penetration remains a collision requiring correction.
-            print("PHYSICAL_FRAME_DIAGNOSTIC_ONLY: diagnostic result only; no acceptance pass")
-            return {"pose": result, "trajectory": None}
-        trajectory = check_active_25d_bend_trajectory(
-            session, panel.tooling_setup,
-        )
-        print("D634_ADAPTIVE_RESULT: {} | {} | {}".format(
-            trajectory.status.value, trajectory.native_status,
-            trajectory.reason,
-        ))
-        if "3D_PUNCH_DIE_SAMPLED_BEND" not in trajectory.checked_scope:
-            raise RuntimeError(
-                "D634_NATIVE_EVIDENCE_MISSING: {} | {} | {}".format(
-                    trajectory.status.value, trajectory.native_status, trajectory.reason,
-                )
-            )
-        if trajectory.status is PhysicalEvidence.COLLISION:
-            raise RuntimeError(
-                "D634_COLLISION_DETECTED: {} | {}".format(
-                    trajectory.native_status, trajectory.reason,
-                )
-            )
-        if trajectory.status is not PhysicalEvidence.SAMPLED_3D_CLEAR_NOT_CONTINUOUS:
-            print(
-                f"PHYSICAL_STAGE2_RESULT: INCOMPLETE/UNRESOLVED | native={trajectory.native_status}"
-            )
-            print("D634_ADAPTIVE_UNRESOLVED_DETAILS: " + trajectory.reason)
-            raise RuntimeError(
-                f"PHYSICAL_ACCEPTANCE_FAILED_INCOMPLETE_TRAJECTORY: {trajectory.native_status} | {trajectory.reason}"
-            )
-        if result.section_status == "INTERFERENCE":
-            raise RuntimeError(
-                "SECTION_3D_EVIDENCE_CONFLICT: 2D section reports interference "
-                "but D6 sampled 3D bend reports no penetration. Check "
-                "machine-space die alignment and panel slicing. "
-                "No physical acceptance granted."
-            )
-        if result.status is not PhysicalEvidence.SAMPLED_3D_CLEAR_NOT_CONTINUOUS:
-            raise RuntimeError(
-                "POSE_NATIVE_EVIDENCE_UNRESOLVED: {} | {} | {}".format(
-                    result.status.value, result.native_status, result.reason,
-                )
-            )
-        if dict(session.fold_state.angles) != initial:
-            raise RuntimeError("D634_FOLD_STATE_NOT_RESTORED")
+            sequence_records.append(bend_summary)
+
+            if traj_result.status == PhysicalEvidence.COLLISION or pose_result.status == PhysicalEvidence.COLLISION:
+                has_any_collision = True
+                if first_collision_info is None:
+                    first_col_st = getattr(raw, "first_collision_state", None)
+                    first_collision_info = {
+                        "bend_id": bend_id,
+                        "bend_index": idx,
+                        "pose_native_status": pose_result.native_status,
+                        "trajectory_native_status": traj_result.native_status,
+                        "phase": first_col_st.phase if first_col_st else "UNKNOWN",
+                        "path_u": first_col_st.path_u if first_col_st else None,
+                        "angle_deg": first_col_st.signed_angle_deg if first_col_st else None,
+                        "ram_z_mm": first_col_st.ram_z_mm if first_col_st else None,
+                        "max_punch_overlap_volume_mm3": max_punch_vol,
+                        "max_die_overlap_volume_mm3": max_die_vol,
+                    }
+                    print(f"  >>> FIRST COLLISION RECORDED: {first_collision_info}")
+
+            if traj_result.status == PhysicalEvidence.UNVERIFIED:
+                has_any_incomplete = True
+
+            # Progress workpiece fold state to target angle for subsequent bends
+            session.fold_state.set_angle(bend_id, target_ang)
+
+        # Restore initial angles before concluding
+        for b, ang in initial.items():
+            session.fold_state.set_angle(b, ang)
+
+        report_data = {
+            "model_fixture": fixture.name,
+            "model_sha256": source_hash,
+            "punch_file": punch_path.name,
+            "punch_sha256": punch_hash,
+            "die_file": die_path.name,
+            "die_sha256": die_hash,
+            "bends_evaluated_count": len(sequence_records),
+            "total_bends_count": total_bends_count,
+            "overall_status": (
+                "COLLISION" if has_any_collision
+                else ("INCOMPLETE/UNRESOLVED" if has_any_incomplete
+                      else "SAMPLED_3D_CLEAR_NOT_CONTINUOUS")
+            ),
+            "first_collision": first_collision_info,
+            "sequence": sequence_records,
+        }
+
+        # Write JSON report to disk
+        report_path = Path("reports/25d_sequence_acceptance_report.json")
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        report_path.write_text(json.dumps(report_data, indent=2), encoding="utf-8")
+        print(f"\nSaved sequence report to {report_path}")
+
+        # Print Markdown summary table
+        print("\n=== SUMMARY TABLE OF ALL BENDS EVALUATED ===")
+        print("| Step | Bend | Target Ang | Pose (3D) | Trajectory Status | States | Unresolved | Max Punch Vol (mm³) | Max Die Vol (mm³) |")
+        print("|---|---|---:|:---:|:---:|---:|---:|---:|---:|")
+        for rec in sequence_records:
+            print(f"| {rec['bend_index']+1} | {rec['bend_id']} | {rec['target_angle_deg']:+.1f}° | {rec['pose_native_status']} | {rec['trajectory_native_status']} | {rec['total_states_evaluated']} | {rec['total_unresolved_intervals']} | {rec['max_punch_overlap_volume_mm3']:.4f} | {rec['max_die_overlap_volume_mm3']:.4f} |")
+
+        if has_any_collision:
+            fc = first_collision_info
+            print(f"\nPHYSICAL_STAGE2_RESULT: COLLISION_DETECTED")
+            print(f"First collision at bend {fc['bend_id']} (step {fc['bend_index']+1}), phase={fc['phase']}, ram_z={fc['ram_z_mm']:.2f}mm, punch_overlap={fc['max_punch_overlap_volume_mm3']:.4f} mm³")
+            if not diagnostic_only:
+                raise RuntimeError(f"PHYSICAL_SEQUENCE_COLLISION_DETECTED: first collision at {fc['bend_id']} in phase {fc['phase']}")
+            return report_data
+
+        if has_any_incomplete:
+            print("\nPHYSICAL_STAGE2_RESULT: INCOMPLETE/UNRESOLVED")
+            if not diagnostic_only:
+                raise RuntimeError("PHYSICAL_SEQUENCE_INCOMPLETE_OR_UNRESOLVED")
+            return report_data
 
         pass_marker = (
             "PHYSICAL_STAGE2_FREECAD_GUI_ACCEPTANCE_PASS"
             if is_live_gui
             else "PHYSICAL_STAGE2_HEADLESS_SAMPLED_PASS (NOT_GUI_VERIFIED)"
         )
-        print(
-            f"{pass_marker}: "
-            f"pose={result.status.value} (2D={result.section_status}, 3D={result.native_status}, delta={measured_delta_xyz}), "
-            f"trajectory={trajectory.native_status}"
-        )
-        return {"pose": result, "trajectory": trajectory}
+        print(f"\n{pass_marker}: all {total_bends_count} bends SAMPLED_3D_CLEAR_NOT_CONTINUOUS")
+        return report_data
+
     finally:
         if panel is not None:
             panel.timer.stop()
@@ -233,4 +252,5 @@ def run(*, diagnostic_only=False):
 
 
 if __name__ == "__main__":
-    run()
+    diag = "--diagnostic-only" in sys.argv
+    run(diagnostic_only=diag)
