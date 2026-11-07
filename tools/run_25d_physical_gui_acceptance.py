@@ -18,6 +18,7 @@ Modes:
 """
 from __future__ import annotations
 
+import copy
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -45,7 +46,6 @@ def get_git_info() -> dict:
     return {"commit": commit, "is_dirty": is_dirty}
 
 
-
 def save_report_safely(data: dict) -> Path:
     out_dir = ROOT / "reports"
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -63,7 +63,7 @@ def save_report_safely(data: dict) -> Path:
     return latest_file
 
 
-def restore_session_state(sess, target_angles: dict, target_active_idx: int):
+def restore_session_state(sess, target_angles: dict, target_active_idx: int, target_transforms: dict | None = None):
     """Restore angles, transforms, and active bend index; verify match."""
     if sess is None:
         return
@@ -73,7 +73,7 @@ def restore_session_state(sess, target_angles: dict, target_active_idx: int):
     if hasattr(sess, "select_bend_index"):
         sess.select_bend_index(target_active_idx)
 
-    # Verification check
+    # 1. Verification of angles
     if getattr(sess, "fold_state", None) is not None:
         for b_name, expected_ang in target_angles.items():
             actual_ang = sess.fold_state.angles.get(b_name)
@@ -82,6 +82,8 @@ def restore_session_state(sess, target_angles: dict, target_active_idx: int):
                     f"FOLD_STATE_RESTORATION_FAILED: angle mismatch for bend '{b_name}' "
                     f"(expected {expected_ang}, got {actual_ang})"
                 )
+
+    # 2. Verification of active bend index
     if hasattr(sess, "active_bend_index"):
         actual_idx = sess.active_bend_index
         if actual_idx != target_active_idx:
@@ -90,7 +92,30 @@ def restore_session_state(sess, target_angles: dict, target_active_idx: int):
                 f"(expected {target_active_idx}, got {actual_idx})"
             )
 
-def run(*, diagnostic_only=False, max_bends=None, pose_only=False):
+    # 3. Verification of panel transforms
+    if target_transforms is not None and getattr(sess, "fold_state", None) is not None:
+        for pid, exp_tf in target_transforms.items():
+            act_tf = sess.fold_state.transforms.get(pid)
+            if act_tf is None:
+                raise RuntimeError(f"FOLD_STATE_RESTORATION_FAILED: transform missing for panel '{pid}'")
+            # Verify translation coordinates
+            for i in range(3):
+                if abs(act_tf.translation[i] - exp_tf.translation[i]) > 1e-5:
+                    raise RuntimeError(
+                        f"FOLD_STATE_RESTORATION_FAILED: translation mismatch for panel '{pid}' "
+                        f"(expected {exp_tf.translation}, got {act_tf.translation})"
+                    )
+            # Verify rotation matrix components
+            for r in range(3):
+                for c in range(3):
+                    if abs(act_tf.rotation[r][c] - exp_tf.rotation[r][c]) > 1e-5:
+                        raise RuntimeError(
+                            f"FOLD_STATE_RESTORATION_FAILED: rotation mismatch for panel '{pid}' "
+                            f"(expected {exp_tf.rotation}, got {act_tf.rotation})"
+                        )
+
+
+def run(*, diagnostic_only=False, max_bends=None, pose_only=False, bend_order=None):
     import FreeCAD as App
     from PySide6 import QtWidgets
     from smbs_core.demo_paths import demo_part_path
@@ -128,11 +153,11 @@ def run(*, diagnostic_only=False, max_bends=None, pose_only=False):
     session = None
     initial_angles = {}
     initial_active_idx = 0
+    initial_transforms = {}
     sequence_records = []
 
     report_data = {}
     report_saved = False
-
 
     try:
         doc = App.openDocument(str(fixture), True)
@@ -150,8 +175,13 @@ def run(*, diagnostic_only=False, max_bends=None, pose_only=False):
         if not panel.tooling_setup.aligned:
             raise RuntimeError("TOOLING_NOT_ALIGNED:" + panel.status.text())
 
+        # If custom bend order is requested, apply through official session API
+        if bend_order is not None:
+            session.set_bend_order(bend_order)
+
         initial_angles = dict(session.fold_state.angles)
         initial_active_idx = int(session.active_bend_index)
+        initial_transforms = copy.deepcopy(session.fold_state.transforms)
 
         full_expected_order = list(session.bend_order)
         total_expected_count = len(full_expected_order)
@@ -172,7 +202,6 @@ def run(*, diagnostic_only=False, max_bends=None, pose_only=False):
         print(f"REQUESTED_SCOPE: {len(requested_range)} bends {requested_range} (diagnostic_only={diagnostic_only}, pose_only={pose_only})")
         print(f"TOOLING_INFO: punch={punch_path.name} ({punch_hash[:16]}), die={die_path.name} ({die_hash[:16]})")
 
-        sequence_records = []
         first_collision_info = None
         has_any_collision = False
         has_any_unverified = False
@@ -180,8 +209,12 @@ def run(*, diagnostic_only=False, max_bends=None, pose_only=False):
         first_blocking_status = None
         stop_reason = "COMPLETED_REQUESTED_SCOPE"
 
+        # Track actually executed checks across all bends
+        executed_checks = set()
+
         for idx, bend_id in enumerate(requested_range):
             session.select_bend_index(idx)
+            panel._sync_tooling_to_active_bend()
             bend = session.fold_state.bends[bend_id]
             target_ang = float(bend.angle_deg)
             prior_angles_record = {b: float(session.fold_state.angles[b]) for b in full_expected_order[:idx]}
@@ -197,6 +230,9 @@ def run(*, diagnostic_only=False, max_bends=None, pose_only=False):
                 session, panel.press_cycle, panel.tooling_setup, native_3d=True,
             )
             print(f"  Pose check: status={pose_result.status.value}, 2D={pose_result.section_status}, 3D={pose_result.native_status}")
+            if hasattr(pose_result, "checked_scope"):
+                for sc in pose_result.checked_scope:
+                    executed_checks.add(sc)
 
             traj_result = None
             raw = None
@@ -212,6 +248,11 @@ def run(*, diagnostic_only=False, max_bends=None, pose_only=False):
                 )
                 raw = traj_result.raw_report
                 print(f"  Trajectory check: status={traj_result.status.value}, native={traj_result.native_status}")
+                if hasattr(traj_result, "checked_scope"):
+                    for sc in traj_result.checked_scope:
+                        executed_checks.add(sc)
+                else:
+                    executed_checks.add("3D_PUNCH_DIE_SAMPLED_BEND")
 
                 if raw and hasattr(raw, "phase_results"):
                     total_states = raw.total_states_evaluated
@@ -350,11 +391,8 @@ def run(*, diagnostic_only=False, max_bends=None, pose_only=False):
             else ("SAMPLED_3D_CLEAR_NOT_CONTINUOUS" if is_legitimate_pass else "INCOMPLETE/UNRESOLVED")
         )
 
-        checked_scope = ["2D_SECTION", "3D_TOOL_LENGTH"]
-        if pose_only:
-            checked_scope.append("3D_PUNCH_DIE_CURRENT_POSE")
-        else:
-            checked_scope.extend(["3D_PUNCH_DIE_CURRENT_POSE", "3D_PUNCH_DIE_SAMPLED_BEND"])
+        # Build checked_scope from actually executed checks
+        checked_scope = sorted(list(executed_checks)) if executed_checks else ["2D_SECTION"]
 
         unverified_scope = [
             "SWEPT_TRANSFER_MOTION",
@@ -406,8 +444,8 @@ def run(*, diagnostic_only=False, max_bends=None, pose_only=False):
             "sequence": sequence_records,
         }
 
-        # Step A: Restore and verify session state BEFORE saving positive report / printing PASS
-        restore_session_state(session, initial_angles, initial_active_idx)
+        # Step A: Restore and verify session state (including transforms) BEFORE saving positive report / printing PASS
+        restore_session_state(session, initial_angles, initial_active_idx, initial_transforms)
 
         # Step B: Save report safely (raises if write fails)
         saved_path = save_report_safely(report_data)
@@ -476,7 +514,7 @@ def run(*, diagnostic_only=False, max_bends=None, pose_only=False):
         # Guarantee full restoration in finally as well
         if session is not None:
             try:
-                restore_session_state(session, initial_angles, initial_active_idx)
+                restore_session_state(session, initial_angles, initial_active_idx, initial_transforms)
             except Exception as restore_err:
                 print(f"WARNING: Exception during fold state restoration in finally: {restore_err}", file=sys.stderr)
 
