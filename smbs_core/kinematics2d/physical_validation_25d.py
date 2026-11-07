@@ -19,6 +19,7 @@ from .tooling_25d import ValidationStatus
 class PhysicalEvidence(str, Enum):
     COLLISION = "COLLISION"
     UNVERIFIED = "UNVERIFIED"
+    CONDITIONAL = "CONDITIONAL"
     SECTION_CLEAR_3D_UNVERIFIED = "SECTION_CLEAR_3D_UNVERIFIED"
     SAMPLED_3D_CLEAR_NOT_CONTINUOUS = "SAMPLED_3D_CLEAR_NOT_CONTINUOUS"
 
@@ -31,6 +32,9 @@ class CurrentPosePhysicalReport:
     reason: str
     checked_scope: tuple[str, ...]
     raw_report: Any = None
+    tool_length_info: dict[str, Any] | None = None
+    end_zone_analysis: Any = None
+    is_conditional: bool = False
 
     @property
     def is_fully_qualified(self) -> bool:
@@ -39,11 +43,60 @@ class CurrentPosePhysicalReport:
         return False
 
 
-def _unverified(reason: str, section_status: str = "NOT_CHECKED") -> CurrentPosePhysicalReport:
+def _unverified(
+    reason: str,
+    section_status: str = "NOT_CHECKED",
+    native_status: str = "NOT_CHECKED",
+    tool_length_info: dict[str, Any] | None = None,
+    end_zone_analysis: Any = None,
+) -> CurrentPosePhysicalReport:
     return CurrentPosePhysicalReport(
-        PhysicalEvidence.UNVERIFIED, section_status,
-        "NOT_CHECKED", str(reason), (),
+        PhysicalEvidence.UNVERIFIED,
+        section_status,
+        native_status,
+        str(reason),
+        (),
+        tool_length_info=tool_length_info,
+        end_zone_analysis=end_zone_analysis,
+        is_conditional=False,
     )
+
+
+def _build_tool_length_info(
+    active_bend_id: str,
+    active_bend_length_mm: float,
+    effective_bend_span_xm: tuple[float, float],
+    desired_midpoint_xm: float,
+    punch,
+    die,
+) -> dict[str, Any]:
+    is_virtual = bool(getattr(punch, "is_virtual_length", False) or getattr(die, "is_virtual_length", False))
+    p_span = getattr(punch, "span_xm", (0.0, 0.0))
+    d_span = getattr(die, "span_xm", (0.0, 0.0))
+    return {
+        "active_bend_id": str(active_bend_id),
+        "active_bend_length_mm": float(active_bend_length_mm),
+        "effective_bend_span_xm": [float(effective_bend_span_xm[0]), float(effective_bend_span_xm[1])],
+        "desired_midpoint_xm": float(desired_midpoint_xm),
+        "is_virtual_tool_geometry": is_virtual,
+        "tool_length_mode": str(getattr(punch, "tool_length_mode", "SOURCE_CAD_LENGTH")),
+        "punch_tool_id": str(getattr(punch, "tool_id", "")),
+        "punch_source_file": str(getattr(punch, "source_file", "")),
+        "punch_source_length_mm": float(getattr(punch, "source_length_mm", getattr(punch, "total_length_mm", 0.0))),
+        "punch_virtual_length_mm": (
+            float(punch.virtual_length_mm) if getattr(punch, "virtual_length_mm", None) is not None else None
+        ),
+        "punch_effective_length_mm": float(getattr(punch, "total_length_mm", 0.0)),
+        "punch_span_xm": [float(p_span[0]), float(p_span[1])],
+        "die_tool_id": str(getattr(die, "tool_id", "")),
+        "die_source_file": str(getattr(die, "source_file", "")),
+        "die_source_length_mm": float(getattr(die, "source_length_mm", getattr(die, "total_length_mm", 0.0))),
+        "die_virtual_length_mm": (
+            float(die.virtual_length_mm) if getattr(die, "virtual_length_mm", None) is not None else None
+        ),
+        "die_effective_length_mm": float(getattr(die, "total_length_mm", 0.0)),
+        "die_span_xm": [float(d_span[0]), float(d_span[1])],
+    }
 
 
 def _source_path(profile) -> Path | None:
@@ -68,6 +121,11 @@ def check_current_25d_pose(
     *,
     native_3d: bool = True,
     desired_midpoint_xm: float = 0.0,
+    match_active_bend_length: bool | None = None,
+    virtual_tool_length_mm: float | None = None,
+    allow_end_zone_collision: bool | None = None,
+    end_zone_length_mm: float | None = None,
+    classify_end_zone_length_mm: float = 0.0,
 ):
     """Check the displayed FoldState at its current machine placement.
 
@@ -82,6 +140,27 @@ def check_current_25d_pose(
         return _unverified("transfer_3d_swept_collision_not_implemented")
     if not getattr(tooling, "aligned", False):
         return _unverified("tooling_not_aligned")
+
+    eff_match_len = (
+        bool(getattr(tooling, "match_active_bend_length", False))
+        if match_active_bend_length is None
+        else bool(match_active_bend_length)
+    )
+    eff_allow_end_zone = (
+        bool(getattr(tooling, "allow_end_zone_collision", False))
+        if allow_end_zone_collision is None
+        else bool(allow_end_zone_collision)
+    )
+    eff_end_zone_len = (
+        float(getattr(tooling, "end_zone_length_mm", 0.0))
+        if end_zone_length_mm is None
+        else float(end_zone_length_mm)
+    )
+    eff_classify_end_zone_len = (
+        float(classify_end_zone_length_mm)
+        if float(classify_end_zone_length_mm) > 0.0
+        else eff_end_zone_len
+    )
 
     # The cross-section is computed from the SAME authoritative machine pose
     # used by the 2.5D GUI. No projection from a different local bend frame.
@@ -181,6 +260,7 @@ def check_current_25d_pose(
             ("2D_SECTION",),
         )
 
+    tool_len_info = None
     try:
         import FreeCAD as App
         from .native_bend_solid_3d import build_multi_bend_sheet_solid
@@ -188,7 +268,7 @@ def check_current_25d_pose(
             load_native_punch, load_native_die, check_tool_coverage, set_punch_ram_z,
         )
         from .native_collision_3d import (
-            validate_workpiece_tooling_pose, CollisionClass,
+            validate_workpiece_tooling_pose, CollisionClass, EndZoneCollisionPolicy,
         )
 
         # Reject missing tool length BEFORE the expensive OCCT solid build.
@@ -197,10 +277,29 @@ def check_current_25d_pose(
         from math import dist
         length = dist(axis[0], axis[1])
         span = (-length / 2.0 + desired_midpoint_xm, length / 2.0 + desired_midpoint_xm)
+        eff_virt_len = (
+            float(virtual_tool_length_mm)
+            if virtual_tool_length_mm is not None
+            else (float(length) if eff_match_len else None)
+        )
         old_active = getattr(getattr(App, "ActiveDocument", None), "Name", None)
         try:
-            punch = load_native_punch(punch_path, ram_z_mm=float(press_cycle.ram_z_mm))
-            die = load_native_die(die_path)
+            if eff_virt_len is not None:
+                punch = load_native_punch(
+                    punch_path,
+                    ram_z_mm=float(press_cycle.ram_z_mm),
+                    virtual_length_mm=eff_virt_len,
+                )
+                die = load_native_die(
+                    die_path,
+                    virtual_length_mm=eff_virt_len,
+                )
+            else:
+                punch = load_native_punch(punch_path, ram_z_mm=float(press_cycle.ram_z_mm))
+                die = load_native_die(die_path)
+            tool_len_info = _build_tool_length_info(
+                session.active_bend_id, length, span, desired_midpoint_xm, punch, die,
+            )
             pcov = check_tool_coverage(span, punch.span_xm, punch.sections)
             dcov = check_tool_coverage(span, die.span_xm, die.sections)
             if not pcov.is_covered or not dcov.is_covered:
@@ -208,6 +307,7 @@ def check_current_25d_pose(
                     PhysicalEvidence.UNVERIFIED, sec, "INSUFFICIENT_TOOL_COVERAGE",
                     "punch:" + pcov.reason + "; die:" + dcov.reason,
                     ("2D_SECTION", "3D_TOOL_LENGTH"),
+                    tool_length_info=tool_len_info,
                 )
 
             shape = build_multi_bend_sheet_solid(
@@ -220,11 +320,28 @@ def check_current_25d_pose(
                 0.0, 0.0, 0.0, 1.0,
             )
             shape.transformShape(matrix)
-            result = validate_workpiece_tooling_pose(
-                shape,
-                set_punch_ram_z(punch, float(press_cycle.ram_z_mm)).machine_shape,
-                die.machine_shape,
+            ez_policy = (
+                EndZoneCollisionPolicy(
+                    allow_end_zone_collision=eff_allow_end_zone,
+                    end_zone_length_mm=eff_end_zone_len,
+                )
+                if (eff_allow_end_zone or eff_end_zone_len > 0.0)
+                else None
             )
+            if ez_policy is not None or eff_classify_end_zone_len > 0.0:
+                result = validate_workpiece_tooling_pose(
+                    shape,
+                    set_punch_ram_z(punch, float(press_cycle.ram_z_mm)).machine_shape,
+                    die.machine_shape,
+                    end_zone_policy=ez_policy,
+                    classify_end_zone_length_mm=eff_classify_end_zone_len,
+                )
+            else:
+                result = validate_workpiece_tooling_pose(
+                    shape,
+                    set_punch_ram_z(punch, float(press_cycle.ram_z_mm)).machine_shape,
+                    die.machine_shape,
+                )
         finally:
             # FreeCAD tool file loading must not change the user's active doc.
             if old_active is not None and App.getDocument(old_active) is not None:
@@ -236,13 +353,87 @@ def check_current_25d_pose(
                 except (AttributeError, RuntimeError, TypeError):
                     pass
     except Exception as exc:
+        exc_msg = str(exc)
+        if "VIRTUAL_TOOL_CONSTRUCTION_FAILED" in exc_msg:
+            return CurrentPosePhysicalReport(
+                PhysicalEvidence.UNVERIFIED,
+                sec,
+                "VIRTUAL_TOOL_CONSTRUCTION_FAILED",
+                exc_msg,
+                ("2D_SECTION", "3D_TOOL_LENGTH"),
+                tool_length_info=tool_len_info,
+            )
         return CurrentPosePhysicalReport(
             PhysicalEvidence.COLLISION if section_collision
             else PhysicalEvidence.UNVERIFIED,
             sec, "EVALUATION_FAILED",
             ("2d_section_interference:" + section_reason + "; " if section_collision
-             else "") + "native_3d_unavailable:" + str(exc),
+             else "") + "native_3d_unavailable:" + exc_msg,
             ("2D_SECTION",),
+            tool_length_info=tool_len_info,
+        )
+
+    ez_analysis = getattr(result, "punch_end_zone_analysis", None)
+    if (
+        ez_analysis is not None
+        and getattr(ez_analysis, "classification", None) is not None
+        and ez_analysis.classification.value == "UNCLASSIFIED"
+    ):
+        return CurrentPosePhysicalReport(
+            PhysicalEvidence.UNVERIFIED,
+            sec,
+            "END_ZONE_UNCLASSIFIED",
+            "end_zone_classification_unverified:"
+            + str(getattr(ez_analysis, "reason", ""))
+            + "; details="
+            + ";".join(result.diagnostics),
+            ("2D_SECTION", "3D_PUNCH_DIE_CURRENT_POSE", "3D_TOOL_LENGTH"),
+            raw_report=result,
+            tool_length_info=tool_len_info,
+            end_zone_analysis=ez_analysis,
+        )
+
+    if not result.is_safe and getattr(result, "is_conditional_safe", False):
+        if section_collision:
+            return CurrentPosePhysicalReport(
+                PhysicalEvidence.COLLISION,
+                sec,
+                result.status.value,
+                "2d_section_interference_blocks_conditional_end_zone:" + section_reason,
+                ("2D_SECTION", "3D_PUNCH_DIE_CURRENT_POSE", "3D_TOOL_LENGTH"),
+                raw_report=result,
+                tool_length_info=tool_len_info,
+                end_zone_analysis=ez_analysis,
+            )
+        if section_ambiguous:
+            return CurrentPosePhysicalReport(
+                PhysicalEvidence.UNVERIFIED,
+                sec,
+                result.status.value,
+                "2d_section_ambiguous_blocks_conditional_end_zone:" + section_reason,
+                ("2D_SECTION", "3D_PUNCH_DIE_CURRENT_POSE", "3D_TOOL_LENGTH"),
+                raw_report=result,
+                tool_length_info=tool_len_info,
+                end_zone_analysis=ez_analysis,
+            )
+        side_str = getattr(ez_analysis, "affected_side", "UNKNOWN")
+        ez_len_val = float(getattr(ez_analysis, "end_zone_length_mm", eff_end_zone_len))
+        return CurrentPosePhysicalReport(
+            PhysicalEvidence.CONDITIONAL,
+            sec,
+            "CONDITIONAL_END_ZONE",
+            "conditional_end_zone_punch_collision:"
+            "punch={:.9f}mm3;side={};end_zone_mm={:.2f};details={}".format(
+                result.punch_result.overlap_volume_mm3,
+                side_str,
+                ez_len_val,
+                ";".join(result.diagnostics),
+            ) + support_frame_detail,
+            ("2D_SECTION", "3D_PUNCH_DIE_CURRENT_POSE", "3D_TOOL_LENGTH"),
+            raw_report=result,
+            tool_length_info=tool_len_info,
+            end_zone_analysis=ez_analysis,
+            is_conditional=True,
         )
 
     if result.status is CollisionClass.PENETRATION:
@@ -256,6 +447,8 @@ def check_current_25d_pose(
             ) + support_frame_detail,
             ("2D_SECTION", "3D_PUNCH_DIE_CURRENT_POSE", "3D_TOOL_LENGTH"),
             raw_report=result,
+            tool_length_info=tool_len_info,
+            end_zone_analysis=ez_analysis,
         )
     if not result.is_safe or result.status not in (
         CollisionClass.CLEAR, CollisionClass.TOUCHING, CollisionClass.NEAR_CONTACT,
@@ -265,6 +458,8 @@ def check_current_25d_pose(
             "native_3d_invalid_or_incomplete:" + "; ".join(result.diagnostics),
             ("2D_SECTION", "3D_PUNCH_DIE_CURRENT_POSE", "3D_TOOL_LENGTH"),
             raw_report=result,
+            tool_length_info=tool_len_info,
+            end_zone_analysis=ez_analysis,
         )
     if section_collision or section_ambiguous:
         return CurrentPosePhysicalReport(
@@ -275,6 +470,8 @@ def check_current_25d_pose(
             + "_alignment_and_cut_plane_before_acceptance",
             ("2D_SECTION", "3D_PUNCH_DIE_CURRENT_POSE", "3D_TOOL_LENGTH"),
             raw_report=result,
+            tool_length_info=tool_len_info,
+            end_zone_analysis=ez_analysis,
         )
     return CurrentPosePhysicalReport(
         PhysicalEvidence.SAMPLED_3D_CLEAR_NOT_CONTINUOUS, sec,
@@ -282,6 +479,8 @@ def check_current_25d_pose(
         "discrete_pose_only; no_swept_transfer_backgauge_clamps_frame_or_support_certificate",
         ("2D_SECTION", "3D_PUNCH_DIE_CURRENT_POSE", "3D_TOOL_LENGTH"),
         raw_report=result,
+        tool_length_info=tool_len_info,
+        end_zone_analysis=ez_analysis,
     )
 
 
@@ -291,6 +490,11 @@ def check_active_25d_bend_trajectory(
     *,
     config=None,
     desired_midpoint_xm: float = 0.0,
+    match_active_bend_length: bool | None = None,
+    virtual_tool_length_mm: float | None = None,
+    allow_end_zone_collision: bool | None = None,
+    end_zone_length_mm: float | None = None,
+    classify_end_zone_length_mm: float = 0.0,
 ):
     """Run the existing D6.3.4 adaptive 3D oracle for ONE active bend.
 
@@ -307,6 +511,27 @@ def check_active_25d_bend_trajectory(
     die_file = _source_path(getattr(tooling, "die", None))
     if punch_file is None or die_file is None:
         return _unverified("real_verified_selected_punch_and_die_fcstd_required")
+
+    eff_match_len = (
+        bool(getattr(tooling, "match_active_bend_length", False))
+        if match_active_bend_length is None
+        else bool(match_active_bend_length)
+    )
+    eff_allow_end_zone = (
+        bool(getattr(tooling, "allow_end_zone_collision", False))
+        if allow_end_zone_collision is None
+        else bool(allow_end_zone_collision)
+    )
+    eff_end_zone_len = (
+        float(getattr(tooling, "end_zone_length_mm", 0.0))
+        if end_zone_length_mm is None
+        else float(end_zone_length_mm)
+    )
+    eff_classify_end_zone_len = (
+        float(classify_end_zone_length_mm)
+        if float(classify_end_zone_length_mm) > 0.0
+        else eff_end_zone_len
+    )
 
     state = session.fold_state
     original_angles = dict(state.angles)
@@ -327,30 +552,81 @@ def check_active_25d_bend_trajectory(
         return _unverified("later_bend_already_modified")
 
     report = None
+    tool_len_info = None
     try:
         import FreeCAD as App
+        from math import dist
         from .native_tool_loader import load_native_die, load_native_punch
+        from .native_collision_3d import EndZoneCollisionPolicy
         from .motion_trajectory_3d import (
             AdaptiveTrajectoryValidator3D, TrajectoryEvidenceStatus,
         )
+        active = state.bends[active_id]
+        axis = getattr(active, "axis_xyz", None)
+        if axis is not None:
+            length = dist(axis[0], axis[1])
+        elif eff_match_len or virtual_tool_length_mm is not None:
+            raise ValueError("VIRTUAL_TOOL_CONSTRUCTION_FAILED: active bend missing axis_xyz")
+        else:
+            length = 0.0
+        span = (-length / 2.0 + desired_midpoint_xm, length / 2.0 + desired_midpoint_xm)
+        eff_virt_len = (
+            float(virtual_tool_length_mm)
+            if virtual_tool_length_mm is not None
+            else (float(length) if eff_match_len else None)
+        )
         prev = getattr(getattr(App, "ActiveDocument", None), "Name", None)
         try:
-            punch = load_native_punch(punch_file, ram_z_mm=50.0)
-            die = load_native_die(die_file)
-            validator = AdaptiveTrajectoryValidator3D(
-                state,
-                session.panel_build,
-                punch,
-                die,
-                config=config,
-                desired_midpoint_xm=desired_midpoint_xm,
+            if eff_virt_len is not None:
+                punch = load_native_punch(punch_file, ram_z_mm=50.0, virtual_length_mm=eff_virt_len)
+                die = load_native_die(die_file, virtual_length_mm=eff_virt_len)
+            else:
+                punch = load_native_punch(punch_file, ram_z_mm=50.0)
+                die = load_native_die(die_file)
+            tool_len_info = _build_tool_length_info(
+                active_id, length, span, desired_midpoint_xm, punch, die,
             )
+            ez_policy = (
+                EndZoneCollisionPolicy(
+                    allow_end_zone_collision=eff_allow_end_zone,
+                    end_zone_length_mm=eff_end_zone_len,
+                )
+                if (eff_allow_end_zone or eff_end_zone_len > 0.0)
+                else None
+            )
+            if ez_policy is not None or eff_classify_end_zone_len > 0.0:
+                validator = AdaptiveTrajectoryValidator3D(
+                    state,
+                    session.panel_build,
+                    punch,
+                    die,
+                    config=config,
+                    desired_midpoint_xm=desired_midpoint_xm,
+                    end_zone_policy=ez_policy,
+                    classify_end_zone_length_mm=eff_classify_end_zone_len,
+                )
+            else:
+                validator = AdaptiveTrajectoryValidator3D(
+                    state,
+                    session.panel_build,
+                    punch,
+                    die,
+                    config=config,
+                    desired_midpoint_xm=desired_midpoint_xm,
+                )
             report = validator.validate_bend_trajectory(active_id, prior)
         finally:
             if prev and App.getDocument(prev) is not None:
                 App.setActiveDocument(prev)
     except Exception as exc:
-        return _unverified("d634_validation_failed:" + str(exc))
+        exc_msg = str(exc)
+        if "VIRTUAL_TOOL_CONSTRUCTION_FAILED" in exc_msg:
+            return _unverified(
+                exc_msg,
+                native_status="VIRTUAL_TOOL_CONSTRUCTION_FAILED",
+                tool_length_info=tool_len_info,
+            )
+        return _unverified("d634_validation_failed:" + exc_msg, tool_length_info=tool_len_info)
     finally:
         if state.angles != original_angles or state.transforms != original_transforms:
             # Never attempt an unverified automatic repair here. FoldState
@@ -359,8 +635,18 @@ def check_active_25d_bend_trajectory(
             raise RuntimeError("D634_FOLDSTATE_RESTORATION_FAILED")
 
     native = report.evidence_status.value
-    # The aggregate diagnostics often start with a successful tooling setup
-    # note, which conceals the actual reason a phase is unresolved.
+    # Extract representative end_zone_analysis from trajectory states if any
+    peak_ez_analysis = None
+    ez_states = getattr(report, "end_zone_collision_states", None) or []
+    if ez_states:
+        peak_st = max(
+            ez_states,
+            key=lambda st: float(getattr(getattr(st, "punch_end_zone_analysis", None), "total_overlap_volume_mm3", 0.0)),
+        )
+        peak_ez_analysis = getattr(peak_st, "punch_end_zone_analysis", None)
+    elif report.first_collision_state is not None:
+        peak_ez_analysis = getattr(report.first_collision_state, "punch_end_zone_analysis", None)
+
     # Surface phase-level evidence (including exact unresolved intervals),
     # not just the first few aggregate messages.
     phase_details = []
@@ -396,6 +682,27 @@ def check_active_25d_bend_trajectory(
             "native_d634_rejected:" + phase_evidence,
             ("3D_PUNCH_DIE_SAMPLED_BEND", "3D_TOOL_LENGTH"),
             raw_report=report,
+            tool_length_info=tool_len_info,
+            end_zone_analysis=peak_ez_analysis,
+        )
+    if (
+        report.evidence_status is TrajectoryEvidenceStatus.SAMPLED_INTERVAL_CONDITIONAL_END_ZONE
+        and getattr(report, "is_conditional", False)
+        and report.fold_state_restored
+    ):
+        return CurrentPosePhysicalReport(
+            PhysicalEvidence.CONDITIONAL,
+            "NOT_APPLICABLE",
+            native,
+            "d634_conditional_end_zone:"
+            + "samples=" + str(report.total_states_evaluated)
+            + ";max_end_zone_overlap_mm3={:.6f}".format(float(getattr(report, "max_end_zone_overlap_volume_mm3", 0.0)))
+            + ";" + phase_evidence,
+            ("3D_PUNCH_DIE_SAMPLED_BEND", "3D_TOOL_LENGTH"),
+            raw_report=report,
+            tool_length_info=tool_len_info,
+            end_zone_analysis=peak_ez_analysis,
+            is_conditional=True,
         )
     if (report.evidence_status is TrajectoryEvidenceStatus.SAMPLED_INTERVAL_CONVERGED
             and report.is_qualified and report.fold_state_restored):
@@ -407,10 +714,14 @@ def check_active_25d_bend_trajectory(
             + "; transfer_backgauge_clamps_frame_unverified",
             ("3D_PUNCH_DIE_SAMPLED_BEND", "3D_TOOL_LENGTH"),
             raw_report=report,
+            tool_length_info=tool_len_info,
+            end_zone_analysis=peak_ez_analysis,
         )
     return CurrentPosePhysicalReport(
         PhysicalEvidence.UNVERIFIED, "NOT_APPLICABLE", native,
         "d634_incomplete:" + phase_evidence,
         ("3D_PUNCH_DIE_SAMPLED_BEND",),
         raw_report=report,
+        tool_length_info=tool_len_info,
+        end_zone_analysis=peak_ez_analysis,
     )

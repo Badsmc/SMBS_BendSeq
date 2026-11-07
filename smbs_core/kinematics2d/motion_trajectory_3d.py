@@ -56,7 +56,10 @@ from smbs_core.kinematics2d.coupled_kinematics_2d import CoupledAirBendingKinema
 from smbs_core.kinematics2d.native_bend_solid_3d import build_multi_bend_sheet_solid
 from smbs_core.kinematics2d.native_collision_3d import (
     CollisionClass,
+    EndZoneCollisionPolicy,
     PairClearanceResult,
+    PunchCollisionZoneClassification,
+    PunchEndZoneAnalysis,
     ToolCollisionReport,
     validate_workpiece_tooling_pose,
     qualify_tool_setup,
@@ -82,6 +85,7 @@ class TrajectoryEvidenceStatus(str, Enum):
     DISCRETE_SAMPLES_SAFE = "DISCRETE_SAMPLES_SAFE"
     DISCRETE_SAMPLES_REJECTED = "DISCRETE_SAMPLES_REJECTED"
     SAMPLED_INTERVAL_CONVERGED = "SAMPLED_INTERVAL_CONVERGED"
+    SAMPLED_INTERVAL_CONDITIONAL_END_ZONE = "SAMPLED_INTERVAL_CONDITIONAL_END_ZONE"
     NOT_CONTINUOUSLY_CERTIFIED = "NOT_CONTINUOUSLY_CERTIFIED"
     ADAPTIVE_SAMPLING_CONVERGED = "ADAPTIVE_SAMPLING_CONVERGED"
     INTERVAL_UNRESOLVED = "INTERVAL_UNRESOLVED"
@@ -114,6 +118,9 @@ class MotionState3D:
     solid_cache_hit: bool = False
     punch_eval_ms: float = 0.0
     die_eval_ms: float = 0.0
+    is_conditional_safe: bool = False
+    conditional_status: Optional[str] = None
+    punch_end_zone_analysis: Optional[PunchEndZoneAnalysis] = None
 
 
 @dataclass
@@ -133,6 +140,8 @@ class AdaptiveSamplingConfig:
     position_continuity_tolerance_mm: float = 1e-3
     rotation_continuity_tolerance_deg: float = 1e-3
     angle_continuity_tolerance_deg: float = 1e-3
+    allow_end_zone_collision: bool = False
+    end_zone_length_mm: float = 0.0
 
 
 @dataclass
@@ -163,6 +172,8 @@ class TrajectoryPhaseResult:
     die_cache_hits: int = 0
     die_cache_misses: int = 0
     phase_solid_reconstruction_ms: float = 0.0
+    is_conditional: bool = False
+    max_end_zone_overlap_volume_mm3: float = 0.0
 
 
 @dataclass
@@ -182,6 +193,9 @@ class BendTrajectoryResult:
     fold_state_restored: bool
     elapsed_ms: float
     diagnostics: List[str]
+    is_conditional: bool = False
+    end_zone_collision_states: List[MotionState3D] = field(default_factory=list)
+    max_end_zone_overlap_volume_mm3: float = 0.0
 
 
 class FoldStateRestorationError(RuntimeError):
@@ -300,11 +314,14 @@ def _die_geometry_signature(die: LoadedTool) -> Tuple[Any, ...]:
     radius = float(getattr(die, "shoulder_radius_mm", 0.0))
     height = float(getattr(die, "height_mm", 0.0))
     length = float(getattr(die, "length_mm", 0.0))
+    is_virt = bool(getattr(die, "is_virtual_length", False))
+    src_len = float(getattr(die, "source_length_mm", length))
+    span_xm = tuple(float(x) for x in getattr(die, "span_xm", (-0.5 * length, 0.5 * length)))
     m_shape = getattr(die, "machine_shape", None)
     vol = round(float(m_shape.Volume), 5) if m_shape is not None and hasattr(m_shape, "Volume") else 0.0
     com = getattr(m_shape, "CenterOfMass", None) if m_shape is not None else None
     com_tuple = (round(float(com.x), 5), round(float(com.y), 5), round(float(com.z), 5)) if com is not None else ()
-    return (die_id, gen_token, v_open, eff_v, radius, height, length, vol, com_tuple)
+    return (die_id, gen_token, v_open, eff_v, radius, height, length, is_virt, src_len, span_xm, vol, com_tuple)
 
 
 class AdaptiveTrajectoryValidator3D:
@@ -318,6 +335,8 @@ class AdaptiveTrajectoryValidator3D:
         die: LoadedTool,
         config: Optional[AdaptiveSamplingConfig] = None,
         desired_midpoint_xm: float = 0.0,
+        end_zone_policy: Optional[EndZoneCollisionPolicy] = None,
+        classify_end_zone_length_mm: Optional[float] = None,
     ):
         self.fold_state = fold_state
         self.panel_build = panel_build
@@ -325,6 +344,19 @@ class AdaptiveTrajectoryValidator3D:
         self.die = die
         self.config = config or AdaptiveSamplingConfig()
         self.desired_midpoint_xm = float(desired_midpoint_xm)
+        self.end_zone_policy = end_zone_policy or EndZoneCollisionPolicy(
+            allow_end_zone_collision=bool(getattr(self.config, "allow_end_zone_collision", False)),
+            end_zone_length_mm=float(getattr(self.config, "end_zone_length_mm", 0.0)),
+        )
+        self.classify_end_zone_length_mm = (
+            float(classify_end_zone_length_mm)
+            if classify_end_zone_length_mm is not None
+            else (
+                self.end_zone_policy.end_zone_length_mm
+                if self.end_zone_policy.end_zone_length_mm > 0.0
+                else None
+            )
+        )
 
         self.effective_v = getattr(die, "effective_v_opening_mm", die.v_opening_mm) or die.v_opening_mm
 
@@ -368,6 +400,23 @@ class AdaptiveTrajectoryValidator3D:
     def set_config(self, config: AdaptiveSamplingConfig) -> None:
         """Update sampling config and invalidate caches."""
         self.config = config
+        self.end_zone_policy = EndZoneCollisionPolicy(
+            allow_end_zone_collision=bool(getattr(config, "allow_end_zone_collision", False)),
+            end_zone_length_mm=float(getattr(config, "end_zone_length_mm", 0.0)),
+        )
+        self.clear_caches()
+
+    def set_end_zone_policy(
+        self,
+        policy: EndZoneCollisionPolicy,
+        classify_end_zone_length_mm: Optional[float] = None,
+    ) -> None:
+        """Update end-zone collision policy and invalidate caches."""
+        self.end_zone_policy = policy
+        if classify_end_zone_length_mm is not None:
+            self.classify_end_zone_length_mm = float(classify_end_zone_length_mm)
+        elif policy.end_zone_length_mm > 0.0:
+            self.classify_end_zone_length_mm = float(policy.end_zone_length_mm)
         self.clear_caches()
 
     def create_state_snapshot(
@@ -480,6 +529,8 @@ class AdaptiveTrajectoryValidator3D:
             volume_tolerance_mm3=self.config.volume_tolerance_mm3,
             contact_distance_tolerance_mm=self.config.contact_distance_tolerance_mm,
             cached_die_result=cached_die_res,
+            end_zone_policy=self.end_zone_policy,
+            classify_end_zone_length_mm=self.classify_end_zone_length_mm,
         )
         if cached_die_res is None:
             self._die_clearance_cache[die_cache_key] = col_res.die_result
@@ -509,6 +560,9 @@ class AdaptiveTrajectoryValidator3D:
             solid_cache_hit=solid_cache_hit,
             punch_eval_ms=p_actual_eval_ms,
             die_eval_ms=d_actual_eval_ms,
+            is_conditional_safe=bool(getattr(col_res, "is_conditional_safe", False)),
+            conditional_status=str(getattr(col_res, "conditional_status", col_res.status.value)),
+            punch_end_zone_analysis=getattr(col_res, "punch_end_zone_analysis", None),
         )
         return state
 
@@ -568,8 +622,11 @@ class AdaptiveTrajectoryValidator3D:
             s_right = dataclass_replace_discontinuity(s_right, reason_r)
 
         # Check criteria for further subdivision:
-        # 1. Any collision at endpoints or midpoint
-        clash_detected = (not s_left.is_safe) or (not s_mid.is_safe) or (not s_right.is_safe)
+        # 1. Any non-conditional blocking collision at endpoints or midpoint
+        def _eff_safe(st: MotionState3D) -> bool:
+            return bool(getattr(st, "is_safe", False) or getattr(st, "is_conditional_safe", False))
+
+        clash_detected = (not _eff_safe(s_left)) or (not _eff_safe(s_mid)) or (not _eff_safe(s_right))
 
         # 2. Angular step exceeds threshold
         angle_delta = max(
@@ -633,8 +690,16 @@ class AdaptiveTrajectoryValidator3D:
         min_p_dist = min(p_res_l.distance_mm, p_res_m.distance_mm, p_res_r.distance_mm)
 
         # 6. Contact status transition near contact
+        def _status_for_subdivision(st: MotionState3D) -> Any:
+            if getattr(st, "is_conditional_safe", False):
+                return CollisionClass.TOUCHING
+            return st.collision_report.status
+
+        st_l_eff = _status_for_subdivision(s_left)
+        st_m_eff = _status_for_subdivision(s_mid)
+        st_r_eff = _status_for_subdivision(s_right)
         status_change = (
-            (s_left.collision_report.status != s_mid.collision_report.status or s_mid.collision_report.status != s_right.collision_report.status)
+            (st_l_eff != st_m_eff or st_m_eff != st_r_eff)
             and min_p_dist < self.config.min_clearance_margin_mm
         )
 
@@ -751,23 +816,36 @@ class AdaptiveTrajectoryValidator3D:
         max_d_over = max(s.collision_report.die_result.overlap_volume_mm3 for s in dedup_states)
 
         # Evaluate safety & evidence status
-        has_penetration = any(
-            not s.is_safe or s.collision_report.status == CollisionClass.PENETRATION
+        has_unclassified_end_zone = any(
+            (
+                getattr(s, "punch_end_zone_analysis", None) is not None
+                and getattr(getattr(s, "punch_end_zone_analysis", None), "classification", None) is not None
+                and s.punch_end_zone_analysis.classification.value == "UNCLASSIFIED"
+            )
+            for s in dedup_states
+        )
+        has_blocking_penetration = any(
+            (not s.is_safe and not getattr(s, "is_conditional_safe", False))
+            for s in dedup_states
+        )
+        has_conditional_end_zone = any(
+            (not s.is_safe and getattr(s, "is_conditional_safe", False))
             for s in dedup_states
         )
         has_invalid_geom = any(
             s.collision_report.status == CollisionClass.INVALID_GEOMETRY
             for s in dedup_states
-        )
+        ) or has_unclassified_end_zone
 
         for s in dedup_states:
             if s.discontinuity_detected:
                 discontinuities.append(s.discontinuity_reason)
 
+        is_conditional = False
         if has_invalid_geom:
             evidence_status = TrajectoryEvidenceStatus.INVALID_GEOMETRY
             is_safe = False
-        elif has_penetration:
+        elif has_blocking_penetration:
             evidence_status = TrajectoryEvidenceStatus.DISCRETE_SAMPLES_REJECTED
             is_safe = False
         elif discontinuities:
@@ -776,6 +854,11 @@ class AdaptiveTrajectoryValidator3D:
         elif unresolved:
             evidence_status = TrajectoryEvidenceStatus.INTERVAL_UNRESOLVED
             is_safe = False
+        elif has_conditional_end_zone:
+            # All samples are either strictly safe or conditionally safe (END_ZONE_ONLY)
+            evidence_status = TrajectoryEvidenceStatus.SAMPLED_INTERVAL_CONDITIONAL_END_ZONE
+            is_safe = False
+            is_conditional = True
         else:
             # All adaptive samples and intervals converged without collision or unresolved gaps
             evidence_status = TrajectoryEvidenceStatus.SAMPLED_INTERVAL_CONVERGED
@@ -819,6 +902,7 @@ class AdaptiveTrajectoryValidator3D:
             die_cache_hits=phase_die_hits,
             die_cache_misses=phase_die_misses,
             phase_solid_reconstruction_ms=phase_solid_recon_ms,
+            is_conditional=is_conditional,
         )
 
     def validate_bend_trajectory(
@@ -913,7 +997,10 @@ class AdaptiveTrajectoryValidator3D:
             ]
 
             phase_results: List[TrajectoryPhaseResult] = []
-            first_collision_state: Optional[MotionState3D] = None
+            first_blocking_collision_state: Optional[MotionState3D] = None
+            first_any_collision_state: Optional[MotionState3D] = None
+            end_zone_collision_states: List[MotionState3D] = []
+            max_end_zone_overlap_volume_mm3: float = 0.0
             prev_phase_last_state: Optional[MotionState3D] = None
 
             for p_name, p_gen in phases_to_run:
@@ -929,26 +1016,48 @@ class AdaptiveTrajectoryValidator3D:
                         diags.append(f"INTER_PHASE_DISCONTINUITY: {reason_cont}")
                         p_res.discontinuities.append(reason_cont)
                         p_res.is_safe = False
+                        p_res.is_conditional = False
                         p_res.evidence_status = TrajectoryEvidenceStatus.DISCRETE_SAMPLES_REJECTED
 
                 prev_phase_last_state = p_res.states[-1]
                 phase_results.append(p_res)
 
-                if first_collision_state is None:
-                    for s in p_res.states:
-                        if not s.is_safe:
-                            first_collision_state = s
-                            break
+                for s in p_res.states:
+                    if not s.is_safe:
+                        if first_any_collision_state is None:
+                            first_any_collision_state = s
+                        if not getattr(s, "is_conditional_safe", False) and first_blocking_collision_state is None:
+                            first_blocking_collision_state = s
+                        ez = getattr(s, "punch_end_zone_analysis", None)
+                        if ez is not None and getattr(ez, "classification", None) is not None:
+                            if ez.classification.value == "END_ZONE_ONLY":
+                                end_zone_collision_states.append(s)
+                                max_end_zone_overlap_volume_mm3 = max(
+                                    max_end_zone_overlap_volume_mm3,
+                                    float(getattr(ez, "total_overlap_volume_mm3", 0.0)),
+                                )
+
+            first_collision_state = first_blocking_collision_state or first_any_collision_state
 
             # Aggregate evidence status
             has_invalid = any(pr.evidence_status == TrajectoryEvidenceStatus.INVALID_GEOMETRY for pr in phase_results)
             has_rejected = any(pr.evidence_status == TrajectoryEvidenceStatus.DISCRETE_SAMPLES_REJECTED for pr in phase_results)
             has_unresolved = any(pr.evidence_status == TrajectoryEvidenceStatus.INTERVAL_UNRESOLVED for pr in phase_results)
+            has_conditional = any(pr.evidence_status == TrajectoryEvidenceStatus.SAMPLED_INTERVAL_CONDITIONAL_END_ZONE for pr in phase_results)
             all_converged = all(
                 pr.evidence_status in (TrajectoryEvidenceStatus.SAMPLED_INTERVAL_CONVERGED, TrajectoryEvidenceStatus.ADAPTIVE_SAMPLING_CONVERGED)
                 for pr in phase_results
             )
+            all_converged_or_conditional = all(
+                pr.evidence_status in (
+                    TrajectoryEvidenceStatus.SAMPLED_INTERVAL_CONVERGED,
+                    TrajectoryEvidenceStatus.ADAPTIVE_SAMPLING_CONVERGED,
+                    TrajectoryEvidenceStatus.SAMPLED_INTERVAL_CONDITIONAL_END_ZONE,
+                )
+                for pr in phase_results
+            )
 
+            is_conditional = False
             if not tool_ok:
                 evidence_status = TrajectoryEvidenceStatus.DISCRETE_SAMPLES_REJECTED
                 is_qualified = False
@@ -965,6 +1074,10 @@ class AdaptiveTrajectoryValidator3D:
             elif all_converged:
                 evidence_status = TrajectoryEvidenceStatus.SAMPLED_INTERVAL_CONVERGED
                 is_qualified = True
+            elif all_converged_or_conditional and has_conditional:
+                evidence_status = TrajectoryEvidenceStatus.SAMPLED_INTERVAL_CONDITIONAL_END_ZONE
+                is_qualified = False
+                is_conditional = True
             else:
                 evidence_status = TrajectoryEvidenceStatus.MISSING_EVIDENCE
                 is_qualified = False
@@ -991,6 +1104,9 @@ class AdaptiveTrajectoryValidator3D:
                 fold_state_restored=True,
                 elapsed_ms=elapsed_ms,
                 diagnostics=diags,
+                is_conditional=is_conditional,
+                end_zone_collision_states=end_zone_collision_states,
+                max_end_zone_overlap_volume_mm3=max_end_zone_overlap_volume_mm3,
             )
 
         finally:
@@ -1140,4 +1256,7 @@ def dataclass_replace_discontinuity(state: MotionState3D, reason: str) -> Motion
         solid_cache_hit=state.solid_cache_hit,
         punch_eval_ms=state.punch_eval_ms,
         die_eval_ms=state.die_eval_ms,
+        is_conditional_safe=False,
+        conditional_status=state.conditional_status,
+        punch_end_zone_analysis=state.punch_end_zone_analysis,
     )
