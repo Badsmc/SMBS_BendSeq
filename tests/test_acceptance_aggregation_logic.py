@@ -427,5 +427,49 @@ class TestAcceptanceAggregationLogic(unittest.TestCase):
             self.assertEqual(mock_traj.call_count, 2)
 
 
+    def test_reordered_sequence_prior_angles_and_no_stale_reuse(self):
+        """When bend order is reordered (e.g. B01->B02->B04->B03), prior completed angles strictly
+
+        reflect the actual execution sequence, and results are never re-used from previous permutations.
+        """
+        reordered = ("B01", "B02", "B04", "B03", "B05", "B06", "B07", "B08")
+        shifts = {"B01": 0.0, "B02": 2.4, "B04": -2.5, "B03": 0.0}
+
+        def _fake_pose(session, press_cycle, tooling_setup, native_3d=True, desired_midpoint_xm=0.0):
+            # Verify that when evaluating B04 (step 3), completed bends are strictly B01 and B02 (NOT B03)
+            cur_idx = session.active_bend_index
+            cur_id = session.ordered_bends[cur_idx].bend_id
+            if cur_id == "B04":
+                self.assertIn("B01", session.fold_state.angles)
+                self.assertIn("B02", session.fold_state.angles)
+                self.assertEqual(session.fold_state.angles["B01"], 90.00000000000003)
+                self.assertEqual(session.fold_state.angles["B02"], 90.00000000000003)
+                self.assertEqual(session.fold_state.angles["B03"], 0.0) # B03 must NOT be bent yet!
+                self.assertEqual(desired_midpoint_xm, -2.5)
+            elif cur_id == "B03":
+                self.assertEqual(session.fold_state.angles["B04"], 90.00000000000003)
+                self.assertEqual(desired_midpoint_xm, 0.0)
+            return CurrentPosePhysicalReport(
+                status=PhysicalEvidence.SAMPLED_3D_CLEAR_NOT_CONTINUOUS,
+                section_status="TOUCH",
+                native_status="TOUCHING",
+                reason="test_reorder",
+                checked_scope=("2D_SECTION", "3D_TOOL_LENGTH", "3D_PUNCH_DIE_CURRENT_POSE"),
+                raw_report=None,
+            )
+
+        with patch("smbs_core.kinematics2d.physical_validation_25d.check_current_25d_pose", side_effect=_fake_pose):
+            rep = acc.run(diagnostic_only=True, max_bends=4, pose_only=True, bend_order=reordered, bend_shifts=shifts)
+            seq = rep["sequence"]
+            self.assertEqual(len(seq), 4)
+            self.assertEqual(seq[0]["bend_id"], "B01")
+            self.assertEqual(seq[1]["bend_id"], "B02")
+            self.assertEqual(seq[2]["bend_id"], "B04")
+            self.assertEqual(seq[3]["bend_id"], "B03")
+            # Verify prior completed angles records in the summary
+            self.assertEqual(list(seq[2]["prior_completed_angles"].keys()), ["B01", "B02"])
+            self.assertEqual(list(seq[3]["prior_completed_angles"].keys()), ["B01", "B02", "B04"])
+
+
 if __name__ == "__main__":
     unittest.main()
