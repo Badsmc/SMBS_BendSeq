@@ -42,21 +42,34 @@ Native source modules reused from `d6-native-3d`:
 Unified thin adapter:
 `smbs_core/kinematics2d/physical_validation_25d.py`.
 
-## Evidence limits
+## Evidence limits & Verified Scope (Stage 2 Partial)
 
-- The D6 native evaluator checks workpiece vs punch and die Part solids
-  and validates available tool length (the actual selected FCStd sources
-  must exist and match tool IDs).
-- A *sampled converged* result does **not** certify continuous swept
-  clearance between sampled poses. `NOT_CONTINUOUSLY_CERTIFIED` remains.
-- Press frame, clamps, backgauge, unloading/transfer swept volume,
-  tonnage, material plasticity, springback and tool load remain
-  **UNVERIFIED**. The UI must not claim safe manufacturing.
-- A missing solid, tool file, contact datum, 3D machine placement,
-  unqualified tool or unresolved interval returns an explicit
-  `UNVERIFIED`, never automatic PASS.
-- A positive-volume punch/die penetration is a rejection. D6 samples
-  cannot be treated as a full-machine production-ready certificate.
+> [!WARNING]
+> Stage 2 remains **OPEN** and is NOT yet fully certified.
+> A passing headless or sampled run is NOT a full machine safety certificate.
+
+### 1. Verified Model and Tooling Scope
+- **Part Model**: Exclusively `demo/parts/box.100out-50in-(ok).FCStd` (8-bend box, SHA256: `6510d62cdf6427cfac18d936243c39f8aafa4e31718248124105642ad9e52db3`).
+- **Tooling Models**:
+  - Die: `toollibrary/die/matrica.FCStd` (SHA256: `a7f5e8640835fc9d7c92ca46d91384a6a04ba0be5e9a690539fd88c01f8bcb22`).
+  - Punch: `toollibrary/punch/puancon.FCStd` (SHA256: `4093cf55ca1804cf013e65d15bc19e8f6334ced63cd92a741228058ac5704cc0`).
+- **Verified Phases**:
+  - Initial contact pose validation: 2D section (`TOUCH`) and 3D native (`TOUCHING`), machine-space delta `(0.0, 0.0, 0.0)`.
+  - Motion trajectory validation: D6.3.4 adaptive sampling (APPROACH, CONTACT, BENDING, BOTTOM, RETRACT) converged (`SAMPLED_INTERVAL_CONVERGED`, 75 adaptive discrete states).
+- **Exact Collision Checks**:
+  - Native collision checks candidate face pruning with boundary distance proof.
+  - Full volume enclosure check (`_evaluate_common_volume` via OCC `common()`) prevents false positives for wholly enclosed solids.
+  - Fail-closed contract on non-finite (NaN/inf), negative or missing volume results.
+
+### 2. Unverified Items (Explicit Exclusions)
+- **Other Fixture Models**: L, Z, U, 135, and labeled-negative fixtures (`box.100in-50out-(false)`, `U-10-10-20-(false)`) have not completed Stage 2 acceptance.
+- **Machine Surroundings & Transfer Motion**:
+  - Swept volume during workpiece transfer and rotation between nonparallel bends is **UNVERIFIED**.
+  - Backgauge fingers (`Backgauge.FCStd`), machine frame uprights/throat (`machine_frame.FCStd`), hydraulic clamps (`Clamp.FCStd`), and front sheet supports remain **UNVERIFIED** (not part of the punch/die pair check).
+- **Physical Metallurgy & Mechanics**:
+  - Machine tonnage limits, springback compensation, sheet thinning, and tool deflection are **UNVERIFIED**.
+- **Continuous Swept Motion**:
+  - Trajectory verdict is `SAMPLED_3D_CLEAR_NOT_CONTINUOUS`: discrete poses certified, continuous swept volume is NOT mathematically certified.
 
 ## CI status and limits
 
