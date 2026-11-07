@@ -144,7 +144,7 @@ def _compute_exact_distance_with_pruning(
 ) -> float:
     """Compute exact Euclidean distance between two native FreeCAD Part solids with conservative face pruning.
 
-    Mathematical Proof of Exactness:
+    Mathematical Proof of Exactness for Boundary Distances:
     For any face f of shape S_many, the Euclidean distance dist(f, S_other) is bounded below by
     the distance between their axis-aligned bounding boxes:
         dist(f, S_other) >= compute_aabb_gap(f.BoundBox, S_other.BoundBox).
@@ -155,10 +155,14 @@ def _compute_exact_distance_with_pruning(
     If the compound of candidate faces C = Compound({f | gap(f, S_other) <= margin}) yields:
         d = dist(C, S_other) <= margin,
     then no excluded face can possibly have a distance smaller than d (since dist(f_ex) > margin >= d).
-    Therefore, d is mathematically guaranteed to be the exact global minimum distance between
-    shape_a and shape_b.
-    If d > margin or any exception occurs, it falls back to full OCC shape_a.distToShape(shape_b),
-    preserving 100% exact OCC truth in all circumstances.
+    Therefore, d is mathematically guaranteed to be the exact global minimum distance from
+    the boundary faces of S_many to S_other.
+    If d > margin or any exception occurs, it falls back to full OCC shape_a.distToShape(shape_b).
+
+    Note on Volume Enclosure:
+    Boundary distance alone does not rule out total volume enclosure (e.g. a small solid floating
+    wholly inside a large solid without touching its boundary). Volume enclosure is verified in
+    check_pair_clearance before returning CLEAR.
     """
     try:
         faces_a = getattr(shape_a, "Faces", ())
@@ -173,8 +177,12 @@ def _compute_exact_distance_with_pruning(
             s_many, s_other, b_other, faces_many = shape_b, shape_a, box_a, faces_b
         else:
             res = shape_a.distToShape(shape_b)
-            d = float(res[0]) if res and len(res) > 0 else 0.0
-            return d if math.isfinite(d) and d >= 0.0 else 0.0
+            if not res or len(res) == 0:
+                raise ValueError("KERNEL_EMPTY_DISTANCE_RESULT")
+            d = float(res[0])
+            if not math.isfinite(d) or d < 0.0:
+                raise ValueError(f"KERNEL_NON_FINITE_DISTANCE:{d}")
+            return d
 
         face_gaps = []
         min_g = 1e9
@@ -193,15 +201,24 @@ def _compute_exact_distance_with_pruning(
         if cand_faces and len(cand_faces) < len(faces_many):
             comp = Part.Compound(cand_faces)
             res = comp.distToShape(s_other)
-            d = float(res[0]) if res and len(res) > 0 else 0.0
-            if math.isfinite(d) and d >= 0.0 and d <= margin:
+            if not res or len(res) == 0:
+                raise ValueError("KERNEL_EMPTY_DISTANCE_RESULT")
+            d = float(res[0])
+            if not math.isfinite(d) or d < 0.0:
+                raise ValueError(f"KERNEL_NON_FINITE_DISTANCE:{d}")
+            if d <= margin:
                 return d
-    except Exception:
-        pass
+    except Exception as exc:
+        if isinstance(exc, ValueError) and "KERNEL_" in str(exc):
+            raise
 
     res = shape_a.distToShape(shape_b)
-    d = float(res[0]) if res and len(res) > 0 else 0.0
-    return d if math.isfinite(d) and d >= 0.0 else 0.0
+    if not res or len(res) == 0:
+        raise ValueError("KERNEL_EMPTY_DISTANCE_RESULT")
+    d = float(res[0])
+    if not math.isfinite(d) or d < 0.0:
+        raise ValueError(f"KERNEL_NON_FINITE_DISTANCE:{d}")
+    return d
 
 
 def check_pair_clearance(
@@ -216,6 +233,7 @@ def check_pair_clearance(
 
     Fails closed on any invalid geometry or evaluation failure.
     Strictly preserves true surface contact vs positive-volume penetration.
+    Guarantees that boundary distance measurements never miss internal volume enclosure.
     """
     t0 = time.perf_counter()
 
@@ -260,12 +278,56 @@ def check_pair_clearance(
     # 3. Narrow Phase: distToShape & Common volume
     try:
         dist = _compute_exact_distance_with_pruning(shape_a, shape_b, box_a, box_b)
-
-        if dist > near_tolerance_mm:
+        if not math.isfinite(dist) or dist < 0.0:
             dt = (time.perf_counter() - t0) * 1000.0
             return PairClearanceResult(
+                CollisionClass.INVALID_GEOMETRY,
+                f"invalid_distance_value:{dist}",
+                0.0,
+                0.0,
+                aabb_gap,
+                dt,
+            )
+
+        if dist > near_tolerance_mm:
+            # Check for potential total volume enclosure:
+            # If one AABB is entirely inside the other, positive boundary distance does not
+            # prove that one solid is not completely inside the interior of the other.
+            b_in_a = (box_a.XMin <= box_b.XMin and box_a.XMax >= box_b.XMax and
+                      box_a.YMin <= box_b.YMin and box_a.YMax >= box_b.YMax and
+                      box_a.ZMin <= box_b.ZMin and box_a.ZMax >= box_b.ZMax)
+            a_in_b = (box_b.XMin <= box_a.XMin and box_b.XMax >= box_a.XMax and
+                      box_b.YMin <= box_a.YMin and box_b.YMax >= box_a.YMax and
+                      box_b.ZMin <= box_a.ZMin and box_b.ZMax >= box_a.ZMax)
+            if not (b_in_a or a_in_b):
+                dt = (time.perf_counter() - t0) * 1000.0
+                return PairClearanceResult(
+                    CollisionClass.CLEAR,
+                    "distance_separated",
+                    dist,
+                    0.0,
+                    aabb_gap,
+                    dt,
+                )
+
+            # Potential enclosure: verify common volume explicitly.
+            common_shape = shape_a.common(shape_b)
+            vol = float(getattr(common_shape, "Volume", 0.0))
+            if not math.isfinite(vol) or vol < 0.0:
+                vol = 0.0
+            dt = (time.perf_counter() - t0) * 1000.0
+            if vol > volume_tolerance_mm3:
+                return PairClearanceResult(
+                    CollisionClass.PENETRATION,
+                    "enclosed_positive_common_volume",
+                    0.0,
+                    vol,
+                    aabb_gap,
+                    dt,
+                )
+            return PairClearanceResult(
                 CollisionClass.CLEAR,
-                "distance_separated",
+                "distance_separated_enclosure_checked",
                 dist,
                 0.0,
                 aabb_gap,
