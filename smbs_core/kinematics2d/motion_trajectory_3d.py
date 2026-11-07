@@ -317,12 +317,14 @@ class AdaptiveTrajectoryValidator3D:
         punch_base: LoadedTool,
         die: LoadedTool,
         config: Optional[AdaptiveSamplingConfig] = None,
+        desired_midpoint_xm: float = 0.0,
     ):
         self.fold_state = fold_state
         self.panel_build = panel_build
         self.punch_base = punch_base
         self.die = die
         self.config = config or AdaptiveSamplingConfig()
+        self.desired_midpoint_xm = float(desired_midpoint_xm)
 
         self.effective_v = getattr(die, "effective_v_opening_mm", die.v_opening_mm) or die.v_opening_mm
 
@@ -394,6 +396,7 @@ class AdaptiveTrajectoryValidator3D:
             support_plane_zm=support_z,
             align_bisector=True,
             align_bend_arc_center=True,
+            desired_midpoint_xm=self.desired_midpoint_xm,
         )
         self.placement_calc_time_ms += (time.perf_counter() - t_p0) * 1000.0
 
@@ -449,6 +452,7 @@ class AdaptiveTrajectoryValidator3D:
             self.config.arc_segments,
             active_bend_id,
             float(support_z),
+            float(self.desired_midpoint_xm),
             angles_tuple,
             die_geom_sig,
             wp_geom_sig,
@@ -844,8 +848,12 @@ class AdaptiveTrajectoryValidator3D:
             bend_span_xm = (-0.5 * bend_len, 0.5 * bend_len)
 
             # 1. Tool setup qualification
-            punch_cov = check_tool_coverage(bend_span_xm, self.punch_base.span_xm, self.punch_base.sections)
-            die_cov = check_tool_coverage(bend_span_xm, self.die.span_xm, self.die.sections)
+            effective_bend_span_xm = (
+                bend_span_xm[0] + self.desired_midpoint_xm,
+                bend_span_xm[1] + self.desired_midpoint_xm,
+            )
+            punch_cov = check_tool_coverage(effective_bend_span_xm, self.punch_base.span_xm, self.punch_base.sections)
+            die_cov = check_tool_coverage(effective_bend_span_xm, self.die.span_xm, self.die.sections)
             tool_ok, tool_status, tool_diags = qualify_tool_setup(punch_cov, die_cov)
             diags.extend(tool_diags)
 
