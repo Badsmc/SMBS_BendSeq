@@ -34,10 +34,11 @@ class TestAcceptanceAggregationLogic(unittest.TestCase):
     3. pose_only=True without collision does NOT produce PASS.
     4. Console output & JSON report statuses are consistent.
     5. checked_scope accurately reflects evaluated checks (no trajectory in pose_only).
-    6. State restoration failure blocks acceptance.
+    6. State restoration failure (angles, active_idx, or transforms) blocks acceptance.
     7. UNVERIFIED triggers conditional continuation for subsequent bends.
     8. Report save failure raises without being swallowed.
     9. Collision volume reporting outputs exact volume and separates state vs max.
+    10. Reordering via bend_order parameter propagates through session without mutating canonical order.
     """
 
     @classmethod
@@ -72,14 +73,14 @@ class TestAcceptanceAggregationLogic(unittest.TestCase):
                     section_status="CLEAR",
                     native_status="UNVERIFIED",
                     reason="test_unverified",
-                    checked_scope=(),
+                    checked_scope=("2D_SECTION",),
                 ),
                 CurrentPosePhysicalReport(
                     status=PhysicalEvidence.SAMPLED_3D_CLEAR_NOT_CONTINUOUS,
                     section_status="TOUCH",
                     native_status="TOUCHING",
                     reason="ok",
-                    checked_scope=(),
+                    checked_scope=("2D_SECTION", "3D_TOOL_LENGTH", "3D_PUNCH_DIE_CURRENT_POSE"),
                 ),
             ]
             rep = acc.run(diagnostic_only=True, max_bends=2, pose_only=True)
@@ -99,12 +100,12 @@ class TestAcceptanceAggregationLogic(unittest.TestCase):
                 section_status="TOUCH",
                 native_status="TOUCHING",
                 reason="pose_clear",
-                checked_scope=(),
+                checked_scope=("2D_SECTION", "3D_TOOL_LENGTH", "3D_PUNCH_DIE_CURRENT_POSE"),
             )
             rep = acc.run(diagnostic_only=True, pose_only=True)
             self.assertFalse(rep["is_legitimate_pass"])
             self.assertEqual(rep["overall_status"], "INCOMPLETE/UNRESOLVED")
-            # Scope checks
+            # Scope checks: actual executed checks do not include trajectory
             self.assertNotIn("3D_PUNCH_DIE_SAMPLED_BEND", rep["scopes"]["checked_scope"])
             self.assertIn("ALL_BEND_TRAJECTORIES (pose_only mode)", rep["scopes"]["unverified_scope"])
 
@@ -138,8 +139,8 @@ class TestAcceptanceAggregationLogic(unittest.TestCase):
         self.assertIsInstance(fc["ram_z_mm"], float)
 
     def test_restoration_failure_blocks_acceptance(self):
-        """If session fold state restoration fails, an exception must be raised."""
-        # 1. Test restore_session_state unit check directly
+        """If session fold state restoration fails (angle, active_idx, or transform), raise RuntimeError."""
+        # 1. Test restore_session_state unit check directly for angle mismatch
         mock_sess = MagicMock()
         mock_sess.fold_state.angles = {"B01": 45.0} # mismatch with target 0.0
         mock_sess.active_bend_index = 0
@@ -147,11 +148,23 @@ class TestAcceptanceAggregationLogic(unittest.TestCase):
             acc.restore_session_state(mock_sess, {"B01": 0.0}, 0)
         self.assertIn("FOLD_STATE_RESTORATION_FAILED", str(ctx1.exception))
 
-        # 2. Test during run() via patching restore_session_state
+        # 2. Test transform mismatch
+        mock_sess2 = MagicMock()
+        mock_sess2.fold_state.angles = {"B01": 0.0}
+        mock_sess2.active_bend_index = 0
+        exp_tf = MagicMock(translation=(0.0, 0.0, 0.0), rotation=((1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0)))
+        act_tf = MagicMock(translation=(10.0, 0.0, 0.0), rotation=((1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0)))
+        mock_sess2.fold_state.transforms = {"P01": act_tf}
+        with self.assertRaises(RuntimeError) as ctx2:
+            acc.restore_session_state(mock_sess2, {"B01": 0.0}, 0, target_transforms={"P01": exp_tf})
+        self.assertIn("FOLD_STATE_RESTORATION_FAILED", str(ctx2.exception))
+        self.assertIn("translation mismatch", str(ctx2.exception))
+
+        # 3. Test during run() via patching restore_session_state
         with patch("tools.run_25d_physical_gui_acceptance.restore_session_state", side_effect=RuntimeError("FOLD_STATE_RESTORATION_FAILED: simulated")):
-            with self.assertRaises(RuntimeError) as ctx2:
+            with self.assertRaises(RuntimeError) as ctx3:
                 acc.run(diagnostic_only=True, max_bends=1, pose_only=True)
-            self.assertIn("FOLD_STATE_RESTORATION_FAILED", str(ctx2.exception))
+            self.assertIn("FOLD_STATE_RESTORATION_FAILED", str(ctx3.exception))
 
     def test_report_save_failure_raises_exception(self):
         """If writing the report fails, save_report_safely must raise without silent swallowing."""
@@ -159,6 +172,18 @@ class TestAcceptanceAggregationLogic(unittest.TestCase):
             with self.assertRaises(RuntimeError) as ctx:
                 acc.run(diagnostic_only=True, max_bends=1, pose_only=True)
             self.assertIn("REPORT_SAVE_FAILED", str(ctx.exception))
+
+    def test_custom_bend_order_propagation(self):
+        """Passing custom bend_order to run() applies reordered sequence without corrupting canonical."""
+        custom_order = ("B02", "B01", "B03", "B04", "B05", "B06", "B07", "B08")
+        rep = acc.run(diagnostic_only=True, max_bends=2, pose_only=True, bend_order=custom_order)
+        self.assertEqual(rep["sequence_scope"]["full_expected_order"][:2], ["B02", "B01"])
+        seq = rep["sequence"]
+        self.assertEqual(seq[0]["bend_id"], "B02")
+        self.assertEqual(seq[1]["bend_id"], "B01")
+        # Step 1 (B02) was clear, Step 2 (B01) collided
+        self.assertEqual(seq[0]["pose_native_status"], "TOUCHING")
+        self.assertEqual(seq[1]["pose_native_status"], "PENETRATION")
 
 
 if __name__ == "__main__":
