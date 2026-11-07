@@ -45,6 +45,51 @@ def get_git_info() -> dict:
     return {"commit": commit, "is_dirty": is_dirty}
 
 
+
+def save_report_safely(data: dict) -> Path:
+    out_dir = ROOT / "reports"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    # Microsecond precision ensures unique filenames on rapid successive runs
+    timestamp_str = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S_%f")
+    latest_file = out_dir / "25d_sequence_acceptance_report.json"
+    stamped_file = out_dir / f"25d_sequence_acceptance_report_{timestamp_str}.json"
+    json_text = json.dumps(data, indent=2)
+    try:
+        stamped_file.write_text(json_text, encoding="utf-8")
+        latest_file.write_text(json_text, encoding="utf-8")
+    except Exception as write_err:
+        print(f"ERROR: Failed to save report file: {write_err}", file=sys.stderr)
+        raise RuntimeError(f"REPORT_SAVE_FAILED: {write_err}") from write_err
+    return latest_file
+
+
+def restore_session_state(sess, target_angles: dict, target_active_idx: int):
+    """Restore angles, transforms, and active bend index; verify match."""
+    if sess is None:
+        return
+    if getattr(sess, "fold_state", None) is not None:
+        for b_name, ang in target_angles.items():
+            sess.fold_state.set_angle(b_name, ang)
+    if hasattr(sess, "select_bend_index"):
+        sess.select_bend_index(target_active_idx)
+
+    # Verification check
+    if getattr(sess, "fold_state", None) is not None:
+        for b_name, expected_ang in target_angles.items():
+            actual_ang = sess.fold_state.angles.get(b_name)
+            if actual_ang is None or abs(actual_ang - expected_ang) > 1e-6:
+                raise RuntimeError(
+                    f"FOLD_STATE_RESTORATION_FAILED: angle mismatch for bend '{b_name}' "
+                    f"(expected {expected_ang}, got {actual_ang})"
+                )
+    if hasattr(sess, "active_bend_index"):
+        actual_idx = sess.active_bend_index
+        if actual_idx != target_active_idx:
+            raise RuntimeError(
+                f"FOLD_STATE_RESTORATION_FAILED: active_bend_index mismatch "
+                f"(expected {target_active_idx}, got {actual_idx})"
+            )
+
 def run(*, diagnostic_only=False, max_bends=None, pose_only=False):
     import FreeCAD as App
     from PySide6 import QtWidgets
@@ -53,7 +98,6 @@ def run(*, diagnostic_only=False, max_bends=None, pose_only=False):
         check_current_25d_pose, check_active_25d_bend_trajectory,
         PhysicalEvidence,
     )
-    from smbs_core.kinematics2d.workpiece_placement_3d import WorkpiecePlacement3D
     from freecad_smbs.commands.pressbrake_2d import (
         _PreviewPanel, build_part_session,
     )
@@ -84,23 +128,11 @@ def run(*, diagnostic_only=False, max_bends=None, pose_only=False):
     session = None
     initial_angles = {}
     initial_active_idx = 0
+    sequence_records = []
 
     report_data = {}
     report_saved = False
 
-    def save_report_safely(data: dict) -> Path:
-        out_dir = ROOT / "reports"
-        out_dir.mkdir(parents=True, exist_ok=True)
-        timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
-        latest_file = out_dir / "25d_sequence_acceptance_report.json"
-        stamped_file = out_dir / f"25d_sequence_acceptance_report_{timestamp_str}.json"
-        json_text = json.dumps(data, indent=2)
-        try:
-            latest_file.write_text(json_text, encoding="utf-8")
-            stamped_file.write_text(json_text, encoding="utf-8")
-        except Exception as write_err:
-            print(f"ERROR: Failed to save report file: {write_err}", file=sys.stderr)
-        return latest_file
 
     try:
         doc = App.openDocument(str(fixture), True)
@@ -144,6 +176,8 @@ def run(*, diagnostic_only=False, max_bends=None, pose_only=False):
         first_collision_info = None
         has_any_collision = False
         has_any_unverified = False
+        first_blocking_bend = None
+        first_blocking_status = None
         stop_reason = "COMPLETED_REQUESTED_SCOPE"
 
         for idx, bend_id in enumerate(requested_range):
@@ -152,8 +186,9 @@ def run(*, diagnostic_only=False, max_bends=None, pose_only=False):
             target_ang = float(bend.angle_deg)
             prior_angles_record = {b: float(session.fold_state.angles[b]) for b in full_expected_order[:idx]}
 
-            is_conditional = has_any_collision
-            cond_label = " [CONDITIONAL_AFTER_REJECTED_BEND]" if is_conditional else ""
+            is_conditional = (first_blocking_bend is not None)
+            cond_reason = f"preceded_by_{first_blocking_status}_at_{first_blocking_bend}" if is_conditional else None
+            cond_label = f" [CONDITIONAL: {cond_reason}]" if is_conditional else ""
             print(f"\n--- VALIDATING BEND {idx + 1}/{total_expected_count}: {bend_id} (target {target_ang:+.1f} deg){cond_label} ---")
             print(f"Prior completed bends: {prior_angles_record}")
 
@@ -211,19 +246,21 @@ def run(*, diagnostic_only=False, max_bends=None, pose_only=False):
             specific_state_info = None
             if bend_has_collision and first_collision_info is None:
                 first_col_st = getattr(raw, "first_collision_state", None)
-                first_punch_overlap = 0.0
-                first_die_overlap = 0.0
+                state_punch_overlap = None
+                state_die_overlap = None
+
                 if first_col_st and getattr(first_col_st, "collision_report", None):
                     cr = first_col_st.collision_report
-                    first_punch_overlap = float(cr.punch_result.overlap_volume_mm3) if cr.punch_result else 0.0
-                    first_die_overlap = float(cr.die_result.overlap_volume_mm3) if cr.die_result else 0.0
+                    if cr.punch_result and cr.punch_result.overlap_volume_mm3 is not None:
+                        state_punch_overlap = float(cr.punch_result.overlap_volume_mm3)
+                    if cr.die_result and cr.die_result.overlap_volume_mm3 is not None:
+                        state_die_overlap = float(cr.die_result.overlap_volume_mm3)
                 elif pose_result.status == PhysicalEvidence.COLLISION and getattr(pose_result, "raw_report", None):
                     cr = pose_result.raw_report
-                    first_punch_overlap = float(cr.punch_result.overlap_volume_mm3) if getattr(cr, "punch_result", None) else 0.0
-                    first_die_overlap = float(cr.die_result.overlap_volume_mm3) if getattr(cr, "die_result", None) else 0.0
-                elif pose_result.status == PhysicalEvidence.COLLISION:
-                    first_punch_overlap = max_punch_vol
-                    first_die_overlap = max_die_vol
+                    if getattr(cr, "punch_result", None) and cr.punch_result.overlap_volume_mm3 is not None:
+                        state_punch_overlap = float(cr.punch_result.overlap_volume_mm3)
+                    if getattr(cr, "die_result", None) and cr.die_result.overlap_volume_mm3 is not None:
+                        state_die_overlap = float(cr.die_result.overlap_volume_mm3)
 
                 specific_state_info = {
                     "bend_id": bend_id,
@@ -235,8 +272,8 @@ def run(*, diagnostic_only=False, max_bends=None, pose_only=False):
                     "path_u": float(first_col_st.path_u) if (first_col_st and first_col_st.path_u is not None) else 0.0,
                     "signed_angle_deg": float(first_col_st.signed_angle_deg) if (first_col_st and first_col_st.signed_angle_deg is not None) else 0.0,
                     "ram_z_mm": float(first_col_st.ram_z_mm) if (first_col_st and first_col_st.ram_z_mm is not None) else float(panel.press_cycle.ram_z_mm),
-                    "state_punch_overlap_volume_mm3": first_punch_overlap,
-                    "state_die_overlap_volume_mm3": first_die_overlap,
+                    "state_punch_overlap_volume_mm3": state_punch_overlap,
+                    "state_die_overlap_volume_mm3": state_die_overlap,
                     "max_punch_overlap_volume_mm3": max_punch_vol,
                     "max_die_overlap_volume_mm3": max_die_vol,
                     "note": "first_detected_collision_state_by_search_not_guaranteed_initial_impact_instant",
@@ -247,8 +284,14 @@ def run(*, diagnostic_only=False, max_bends=None, pose_only=False):
 
             if bend_has_collision:
                 has_any_collision = True
-            if bend_has_unverified:
+                if first_blocking_bend is None:
+                    first_blocking_bend = bend_id
+                    first_blocking_status = "COLLISION"
+            elif bend_has_unverified:
                 has_any_unverified = True
+                if first_blocking_bend is None:
+                    first_blocking_bend = bend_id
+                    first_blocking_status = "UNVERIFIED"
 
             bend_summary = {
                 "bend_index": idx,
@@ -256,6 +299,7 @@ def run(*, diagnostic_only=False, max_bends=None, pose_only=False):
                 "target_angle_deg": target_ang,
                 "prior_completed_angles": prior_angles_record,
                 "is_conditional_after_rejected_bend": is_conditional,
+                "conditional_reason": cond_reason,
                 "pose_status": pose_result.status.value,
                 "pose_native_status": pose_result.native_status,
                 "trajectory_status": traj_result.status.value if traj_result else "NOT_EVALUATED",
@@ -283,14 +327,17 @@ def run(*, diagnostic_only=False, max_bends=None, pose_only=False):
         skipped_bends = [b for b in full_expected_order if b not in evaluated_bends]
         is_full_sequence_evaluated = (len(evaluated_bends) == total_expected_count)
 
-        # Legitimate PASS requires:
-        # 1. Entire full sequence evaluated (no partial or skipped bends)
-        # 2. Not pose_only
-        # 3. Every bend trajectory status is SAMPLED_3D_CLEAR_NOT_CONTINUOUS
-        # 4. Every bend pose status is SAMPLED_3D_CLEAR_NOT_CONTINUOUS
-        # 5. Zero collision and zero unverified
+        # Legitimate PASS requires ALL of the following:
+        # 1. Expected order must not be empty
+        # 2. Entire full sequence evaluated (no partial or skipped bends)
+        # 3. Not pose_only
+        # 4. Zero collision across all bends
+        # 5. Zero unverified across all bends
+        # 6. Every bend trajectory status is SAMPLED_3D_CLEAR_NOT_CONTINUOUS
+        # 7. Every bend pose status is SAMPLED_3D_CLEAR_NOT_CONTINUOUS
         is_legitimate_pass = (
-            is_full_sequence_evaluated
+            total_expected_count > 0
+            and is_full_sequence_evaluated
             and not pose_only
             and not has_any_collision
             and not has_any_unverified
@@ -298,9 +345,30 @@ def run(*, diagnostic_only=False, max_bends=None, pose_only=False):
             and all(r["pose_status"] == "SAMPLED_3D_CLEAR_NOT_CONTINUOUS" for r in sequence_records)
         )
 
-        overall_status = "COLLISION" if has_any_collision else (
-            "SAMPLED_3D_CLEAR_NOT_CONTINUOUS" if is_legitimate_pass else "INCOMPLETE/UNRESOLVED"
+        overall_status = (
+            "COLLISION" if has_any_collision
+            else ("SAMPLED_3D_CLEAR_NOT_CONTINUOUS" if is_legitimate_pass else "INCOMPLETE/UNRESOLVED")
         )
+
+        checked_scope = ["2D_SECTION", "3D_TOOL_LENGTH"]
+        if pose_only:
+            checked_scope.append("3D_PUNCH_DIE_CURRENT_POSE")
+        else:
+            checked_scope.extend(["3D_PUNCH_DIE_CURRENT_POSE", "3D_PUNCH_DIE_SAMPLED_BEND"])
+
+        unverified_scope = [
+            "SWEPT_TRANSFER_MOTION",
+            "BACKGAUGE_FINGERS",
+            "HYDRAULIC_CLAMPS",
+            "MACHINE_FRAME_UPRIGHTS_AND_THROAT",
+            "SHEET_FRONT_SUPPORTS",
+            "CONTINUOUS_SWEPT_VOLUME",
+            "SPRINGBACK_AND_TONNAGE",
+        ]
+        if pose_only:
+            unverified_scope.append("ALL_BEND_TRAJECTORIES (pose_only mode)")
+        if skipped_bends:
+            unverified_scope.append(f"SKIPPED_BENDS: {skipped_bends}")
 
         report_data = {
             "report_schema": "25d_sequence_acceptance_v2",
@@ -320,16 +388,8 @@ def run(*, diagnostic_only=False, max_bends=None, pose_only=False):
                 "clearance_change_threshold_mm": 2.0,
             },
             "scopes": {
-                "checked_scope": ["3D_PUNCH_DIE_SAMPLED_BEND", "3D_TOOL_LENGTH", "2D_SECTION"],
-                "unverified_scope": [
-                    "SWEPT_TRANSFER_MOTION",
-                    "BACKGAUGE_FINGERS",
-                    "HYDRAULIC_CLAMPS",
-                    "MACHINE_FRAME_UPRIGHTS_AND_THROAT",
-                    "SHEET_FRONT_SUPPORTS",
-                    "CONTINUOUS_SWEPT_VOLUME",
-                    "SPRINGBACK_AND_TONNAGE",
-                ],
+                "checked_scope": checked_scope,
+                "unverified_scope": unverified_scope,
             },
             "sequence_scope": {
                 "full_expected_order": full_expected_order,
@@ -341,21 +401,28 @@ def run(*, diagnostic_only=False, max_bends=None, pose_only=False):
                 "stop_reason": stop_reason,
             },
             "overall_status": overall_status,
+            "is_legitimate_pass": is_legitimate_pass,
             "first_collision": first_collision_info,
             "sequence": sequence_records,
         }
 
+        # Step A: Restore and verify session state BEFORE saving positive report / printing PASS
+        restore_session_state(session, initial_angles, initial_active_idx)
+
+        # Step B: Save report safely (raises if write fails)
         saved_path = save_report_safely(report_data)
         report_saved = True
         print(f"\nSaved sequence report to {saved_path}")
 
         # Summary table
         print("\n=== SUMMARY TABLE OF EVALUATED BENDS ===")
-        print("| Step | Bend | Target Ang | Cond? | Pose (3D) | Trajectory Status | States | Unresolved | Max Punch Vol (mm³) | Max Die Vol (mm³) |")
+        print("| Step | Bend | Target Ang | Cond? | Pose (3D) | Trajectory Status | States | Unresolved | Punch Vol | Die Vol |")
         print("|---|---|---:|:---:|:---:|:---:|---:|---:|---:|---:|")
         for rec in sequence_records:
             cond_str = "YES" if rec.get("is_conditional_after_rejected_bend") else "NO"
-            print(f"| {rec['bend_index']+1} | {rec['bend_id']} | {rec['target_angle_deg']:+.1f}° | {cond_str} | {rec['pose_native_status']} | {rec['trajectory_native_status']} | {rec['total_states_evaluated']} | {rec['total_unresolved_intervals']} | {rec['max_punch_overlap_volume_mm3']:.4f} | {rec['max_die_overlap_volume_mm3']:.4f} |")
+            p_vol_str = f"{rec['max_punch_overlap_volume_mm3']:.4f}" if rec['max_punch_overlap_volume_mm3'] is not None else "N/A"
+            d_vol_str = f"{rec['max_die_overlap_volume_mm3']:.4f}" if rec['max_die_overlap_volume_mm3'] is not None else "N/A"
+            print(f"| {rec['bend_index']+1} | {rec['bend_id']} | {rec['target_angle_deg']:+.1f}° | {cond_str} | {rec['pose_native_status']} | {rec['trajectory_native_status']} | {rec['total_states_evaluated']} | {rec['total_unresolved_intervals']} | {p_vol_str} | {d_vol_str} |")
 
         if skipped_bends:
             print(f"\nUNVERIFIED / SKIPPED BENDS: {skipped_bends}")
@@ -363,17 +430,20 @@ def run(*, diagnostic_only=False, max_bends=None, pose_only=False):
         if has_any_collision:
             fc = first_collision_info
             ram_str = f"{fc['ram_z_mm']:.2f}mm" if (fc and fc.get('ram_z_mm') is not None) else "N/A"
-            vol_str = f"{fc['max_punch_overlap_volume_mm3']:.4f} mm³" if fc else "N/A"
+            vol_val = fc.get('state_punch_overlap_volume_mm3') if fc else None
+            vol_str = f"{vol_val:.4f} mm³" if (vol_val is not None) else "UNKNOWN"
+            max_vol_val = fc.get('max_punch_overlap_volume_mm3') if fc else None
+            max_vol_str = f"{max_vol_val:.4f} mm³" if (max_vol_val is not None) else "UNKNOWN"
             print(f"\nPHYSICAL_STAGE2_RESULT: COLLISION_DETECTED")
-            print(f"First detected collision: bend={fc['bend_id']} (step {fc['bend_index']+1}), phase={fc['phase']}, ram_z={ram_str}, punch_overlap={vol_str}")
+            print(f"First detected collision: bend={fc['bend_id']} (step {fc['bend_index']+1}), phase={fc['phase']}, ram_z={ram_str}, state_punch_overlap={vol_str}, max_punch_overlap={max_vol_str}")
             if not diagnostic_only:
                 raise RuntimeError(f"PHYSICAL_SEQUENCE_COLLISION_DETECTED: first collision at {fc['bend_id']} in phase {fc['phase']}")
             return report_data
 
-        if not is_full_sequence_evaluated or has_any_unverified:
+        if not is_legitimate_pass:
             print(f"\nPHYSICAL_STAGE2_RESULT: INCOMPLETE/UNRESOLVED (evaluated {len(evaluated_bends)} of {total_expected_count})")
             if not diagnostic_only:
-                raise RuntimeError(f"PHYSICAL_SEQUENCE_INCOMPLETE: only {len(evaluated_bends)} of {total_expected_count} bends evaluated")
+                raise RuntimeError(f"PHYSICAL_SEQUENCE_INCOMPLETE: only {len(evaluated_bends)} of {total_expected_count} bends evaluated or unverified issue present")
             return report_data
 
         pass_marker = (
@@ -386,7 +456,7 @@ def run(*, diagnostic_only=False, max_bends=None, pose_only=False):
 
     except Exception as exc:
         if not report_saved and session is not None:
-            # Save partial report on unexpected crash
+            # Save partial report on unexpected crash / failure
             partial_data = {
                 "report_schema": "25d_sequence_acceptance_partial_failure",
                 "timestamp": t_run_start,
@@ -396,17 +466,17 @@ def run(*, diagnostic_only=False, max_bends=None, pose_only=False):
                 "sequence": sequence_records,
                 "overall_status": "ERROR_DURING_EXECUTION",
             }
-            save_report_safely(partial_data)
+            try:
+                save_report_safely(partial_data)
+            except Exception:
+                pass
         raise
 
     finally:
-        # Guarantee full restoration of fold state angles and active operation
-        if session is not None and getattr(session, "fold_state", None) is not None:
+        # Guarantee full restoration in finally as well
+        if session is not None:
             try:
-                for b_name, ang in initial_angles.items():
-                    session.fold_state.set_angle(b_name, ang)
-                if hasattr(session, "select_bend_index"):
-                    session.select_bend_index(initial_active_idx)
+                restore_session_state(session, initial_angles, initial_active_idx)
             except Exception as restore_err:
                 print(f"WARNING: Exception during fold state restoration in finally: {restore_err}", file=sys.stderr)
 
