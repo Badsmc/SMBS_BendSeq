@@ -237,6 +237,7 @@ def run(
     bend_shifts: dict[str, float] | None = None,
     report_filename: str | None = None,
     max_phase_time_s: float = 120.0,
+    force_trajectory_on_pose_failure: bool = False,
 ):
     import FreeCAD as App
     try:
@@ -540,6 +541,14 @@ def run(
                 for sc in pose_result.checked_scope:
                     executed_checks.add(sc)
 
+            pose_is_blocking = (
+                pose_result.status in (
+                    PhysicalEvidence.COLLISION,
+                    PhysicalEvidence.UNVERIFIED,
+                    PhysicalEvidence.SECTION_CLEAR_3D_UNVERIFIED,
+                )
+            )
+
             traj_result = None
             raw = None
             total_states = 0
@@ -548,7 +557,17 @@ def run(
             traj_max_die_vol = None
             phase_records = []
 
-            if not pose_only:
+            # Early stopping: do not evaluate trajectory if stationary initial pose is blocking,
+            # unless explicitly requested via diagnostic flag force_trajectory_on_pose_failure.
+            skip_traj_due_to_pose = pose_is_blocking and not force_trajectory_on_pose_failure
+
+            if skip_traj_due_to_pose:
+                print(
+                    f"  Early stop on bend {bend_id}: pose check failed with status={pose_result.status.value} "
+                    f"({pose_result.native_status}). Skipping trajectory calculation (NOT_EVALUATED)."
+                )
+
+            if not pose_only and not skip_traj_due_to_pose:
                 traj_result = check_active_25d_bend_trajectory(
                     session,
                     panel.tooling_setup,
@@ -892,6 +911,7 @@ if __name__ == "__main__":
     parser.add_argument("--bend-order", type=str, default=None, help="Comma-separated bend order")
     parser.add_argument("--report-name", type=str, default=None, help="Custom report filename in reports/")
     parser.add_argument("--max-phase-time", type=float, default=120.0, help="Max time budget per trajectory phase in seconds (default 120.0)")
+    parser.add_argument("--force-trajectory-on-pose-failure", action="store_true", help="Explicit diagnostic mode: evaluate trajectory even if stationary initial pose failed")
     args = parser.parse_args()
 
     order_arg = [b.strip() for b in args.bend_order.split(",") if b.strip()] if args.bend_order else None
@@ -906,4 +926,5 @@ if __name__ == "__main__":
         bend_shifts=shifts_arg,
         report_filename=args.report_name,
         max_phase_time_s=args.max_phase_time,
+        force_trajectory_on_pose_failure=args.force_trajectory_on_pose_failure,
     )
