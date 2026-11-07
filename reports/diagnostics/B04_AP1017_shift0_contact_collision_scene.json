@@ -1,13 +1,14 @@
 {
   "scene_file": "B04_AP1017_shift0_contact_collision_scene.FCStd",
   "scene_path": "/Users/badmc/Desktop/SMBS_BendSeq/reports/diagnostics/B04_AP1017_shift0_contact_collision_scene.FCStd",
-  "scene_sha256": "8843f03f2979aa5811045f98217b76d0f0073336a75f16913fa867a616631a4e",
-  "timestamp": "2026-11-07T18:25:53.360022+00:00",
+  "scene_sha256": "b5af46c1edfd767a5670f737b22bf4f1a624586dbe2d96c7a44e128132c098c9",
+  "timestamp": "2026-11-07T18:37:26.660690+00:00",
   "git": {
-    "commit": "0abaa1a1f6c748b0e34275d7c394b482e9bc87ae",
+    "commit": "8e1595d2994adb9f77981e6063ad5e8488af2130",
     "is_dirty": true,
     "dirty_files": [
-      "?? tools/generate_diagnostic_scene.py"
+      " M reports/diagnostics/B04_AP1017_shift0_contact_collision_scene.FCStd",
+      " M tools/generate_diagnostic_scene.py"
     ]
   },
   "freecad_version": "1.1.3",
@@ -103,13 +104,61 @@
     "die_distance_mm": 0.0,
     "exceeds_volume_tolerance": true,
     "included_common_objects": [
-      "Common_Workpiece_Punch"
+      "Common_Punch_Component_1",
+      "Common_Punch_Component_2"
+    ],
+    "collision_components": [
+      {
+        "object_name": "Common_Punch_Component_1",
+        "target": "PUNCH",
+        "volume_mm3": 67.320545,
+        "center_of_mass_mm": [
+          -49.25,
+          2.353,
+          13.845
+        ],
+        "bounding_box_mm": {
+          "min": [
+            -50.0,
+            0.457,
+            6.643
+          ],
+          "max": [
+            -48.5,
+            6.0,
+            22.388
+          ]
+        }
+      },
+      {
+        "object_name": "Common_Punch_Component_2",
+        "target": "PUNCH",
+        "volume_mm3": 67.320545,
+        "center_of_mass_mm": [
+          49.25,
+          2.353,
+          13.845
+        ],
+        "bounding_box_mm": {
+          "min": [
+            48.5,
+            0.457,
+            6.643
+          ],
+          "max": [
+            50.0,
+            6.0,
+            22.388
+          ]
+        }
+      }
     ]
   },
   "scene_objects": [
     "Workpiece_B04_0deg",
     "Punch_PUNCH_AP_101_CONTACT",
     "Die_T-DIE_AT_301",
-    "Common_Workpiece_Punch"
+    "Common_Punch_Component_1",
+    "Common_Punch_Component_2"
   ]
 }

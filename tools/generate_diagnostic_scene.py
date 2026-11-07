@@ -1,13 +1,12 @@
 """Parametric generator for FreeCAD diagnostic scenes across bends and shifts.
 
-Supports generating diagnostic scenes for:
-- B03 candidate placement (e.g. s = +27.5 mm, clear)
-- B04 initial contact collision (e.g. s = 0.0 mm, collision)
-- Any arbitrary bend with prior angles and shift.
+Supports:
+- Distinguishing multiple connected collision solids with separate objects and colors.
+- Custom bend sequences (e.g. B01->B02->B04->B03).
+- Arbitrary per-bend prior angles and shifts.
 """
 from __future__ import annotations
 
-import argparse
 import hashlib
 import json
 import math
@@ -79,6 +78,7 @@ def generate_scene(
     path_u: float,
     out_fcstd: Path,
     out_json: Path,
+    custom_bend_order: list[str] | tuple[str, ...] | None = None,
     punch_id: str = "PUNCH_AP_1017_88°_H104,65_R0,8",
     die_id: str = "T-DIE_AT_3015_88°_V12_H80",
     segments: int = 128,
@@ -96,6 +96,9 @@ def generate_scene(
             raise RuntimeError("UNFOLD_NOT_FOUND")
 
         session = build_part_session(doc_src, [unfold])
+        if custom_bend_order:
+            session.set_bend_order(list(custom_bend_order))
+
         panel = _PreviewPanel()
         panel.session = session
         panel._ensure_press_cycle_controller()
@@ -173,13 +176,36 @@ def generate_scene(
         o_d.Shape = d_solid
         object_specs.append((d_name, 1717987071, 30))
 
+        collision_solids_meta = []
         included_common_objects = []
+
+        # Palette for multiple collision components: Red, Magenta, Yellow, Orange
+        comp_colors = [4278190335, 4278255615, 16711935, 4286578943]
+
         if p_ov_vol > vol_tol_mm3:
-            cp_name = "Common_Workpiece_Punch"
-            o_cp = diag_doc.addObject("Part::Feature", cp_name)
-            o_cp.Shape = c_punch
-            object_specs.append((cp_name, 4278190335, 0))
-            included_common_objects.append(cp_name)
+            solids = list(c_punch.Solids) if hasattr(c_punch, "Solids") and c_punch.Solids else [c_punch]
+            for s_idx, sol in enumerate(solids):
+                vol_sol = float(sol.Volume) if hasattr(sol, "Volume") else 0.0
+                if vol_sol <= vol_tol_mm3:
+                    continue
+                cm = sol.CenterOfMass
+                bb = sol.BoundBox
+                c_name = f"Common_Punch_Component_{s_idx+1}" if len(solids) > 1 else "Common_Workpiece_Punch"
+                o_c = diag_doc.addObject("Part::Feature", c_name)
+                o_c.Shape = sol
+                color_val = comp_colors[s_idx % len(comp_colors)]
+                object_specs.append((c_name, color_val, 0))
+                included_common_objects.append(c_name)
+                collision_solids_meta.append({
+                    "object_name": c_name,
+                    "target": "PUNCH",
+                    "volume_mm3": round(vol_sol, 6),
+                    "center_of_mass_mm": [round(cm.x, 3), round(cm.y, 3), round(cm.z, 3)],
+                    "bounding_box_mm": {
+                        "min": [round(bb.XMin, 3), round(bb.YMin, 3), round(bb.ZMin, 3)],
+                        "max": [round(bb.XMax, 3), round(bb.YMax, 3), round(bb.ZMax, 3)],
+                    },
+                })
 
         if d_ov_vol > vol_tol_mm3:
             cd_name = "Common_Workpiece_Die"
@@ -253,6 +279,7 @@ def generate_scene(
                 "die_distance_mm": d_dist,
                 "exceeds_volume_tolerance": bool(p_ov_vol > vol_tol_mm3 or d_ov_vol > vol_tol_mm3),
                 "included_common_objects": included_common_objects,
+                "collision_components": collision_solids_meta,
             },
             "scene_objects": [spec[0] for spec in object_specs],
         }
@@ -260,6 +287,7 @@ def generate_scene(
         print(f"Generated scene: {out_fcstd} (JSON: {out_json})")
         print(f"  Bend={bend_id}, Phase={phase_name}, s={shift_s_mm:+.2f}mm, ram_z={ram_z_mm:.4f}mm")
         print(f"  Punch overlap={p_ov_vol:.6f} mm3, Die overlap={d_ov_vol:.6f} mm3")
+        print(f"  Components: {len(collision_solids_meta)}")
         return meta
     finally:
         if diag_doc is not None:
@@ -284,21 +312,7 @@ def main():
     out_dir = ROOT / "reports" / "diagnostics"
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    # 1. B03 candidate placement scene (s = +27.5 mm, initial contact pose: CLEAR, p_vol=0.0)
-    generate_scene(
-        bend_id="B03",
-        prior_angles={"B01": 90.0, "B02": 90.0},
-        active_angle_deg=0.0,
-        shift_s_mm=27.5,
-        ram_z_mm=6.5,
-        support_z_mm=2.5,
-        phase_name="CONTACT",
-        path_u=0.0,
-        out_fcstd=out_dir / "B03_AP1017_shift27_5_contact_clear_scene.FCStd",
-        out_json=out_dir / "B03_AP1017_shift27_5_contact_clear_scene.json",
-    )
-
-    # 2. B04 blocking collision scene (s = 0.0 mm, initial contact pose: COLLISION, p_vol=134.641090 mm3)
+    # 1. Canonical B04 collision scene with 2 distinct colored components (s = 0.0 mm)
     generate_scene(
         bend_id="B04",
         prior_angles={"B01": 90.0, "B02": 90.0, "B03": 90.0},
@@ -310,6 +324,36 @@ def main():
         path_u=0.0,
         out_fcstd=out_dir / "B04_AP1017_shift0_contact_collision_scene.FCStd",
         out_json=out_dir / "B04_AP1017_shift0_contact_collision_scene.json",
+    )
+
+    # 2. Alternative sequence: B04 step 3 clear candidate (order B01->B02->B04, s = -2.5 mm, CLEAR)
+    generate_scene(
+        bend_id="B04",
+        prior_angles={"B01": 90.0, "B02": 90.0},
+        active_angle_deg=0.0,
+        shift_s_mm=-2.5,
+        ram_z_mm=6.5,
+        support_z_mm=2.5,
+        phase_name="CONTACT",
+        path_u=0.0,
+        custom_bend_order=["B01", "B02", "B04", "B03", "B05", "B06", "B07", "B08"],
+        out_fcstd=out_dir / "B04_reordered_step3_shift_m2_5_clear_scene.FCStd",
+        out_json=out_dir / "B04_reordered_step3_shift_m2_5_clear_scene.json",
+    )
+
+    # 3. Alternative sequence: B03 step 4 collision obstacle (order B01->B02->B04->B03, s = 0.0 mm, COLLISION)
+    generate_scene(
+        bend_id="B03",
+        prior_angles={"B01": 90.0, "B02": 90.0, "B04": 90.0},
+        active_angle_deg=0.0,
+        shift_s_mm=0.0,
+        ram_z_mm=6.5,
+        support_z_mm=2.5,
+        phase_name="CONTACT",
+        path_u=0.0,
+        custom_bend_order=["B01", "B02", "B04", "B03", "B05", "B06", "B07", "B08"],
+        out_fcstd=out_dir / "B03_reordered_step4_shift0_collision_scene.FCStd",
+        out_json=out_dir / "B03_reordered_step4_shift0_collision_scene.json",
     )
 
 
