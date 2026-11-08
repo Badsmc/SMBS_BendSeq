@@ -60,3 +60,13 @@ Next: parameterize machine cutting-plane station; verify same physical pose/tool
 - New synthetic unit tests: `tests/test_machine_station_planner.py` (six test methods), covering nonzero machine placement, verified tool ends, invalid alignment and bounds, overflow and JSON export.
 - No use of nominal or virtual AP1017/AT3015 spans as verified source-CAD spans is allowed. FreeCAD/OCCT integration, full CAD source-tool extraction, sampled bend-zone accuracy, transport path checks, and actual timing/collision evidence are still pending.
 - **Status:** planner and tests committed, but not yet wired into Stage B/DFS. The tests are not confirmed executed by CI and do not establish physical correctness.
+
+
+## Stage B / DFS integration (fourth increment)
+
+- `screen_candidate_stage_b(..., multi_station_enabled=False, verified_punch_span_xm=None, verified_die_span_xm=None)` can now sample machine-space stations at each existing Stage B phase using the same phase pose and temporary tooling alignment; diagnostics appear in `PreliminaryScreeningReport.station_reports` and its JSON export. Existing default callers are unchanged.
+- `search_bend_sequence_25d` and `search_bend_sequence_backward_25d` expose `experimental_multi_station_2d=False` and two independently verified source-CAD longitudinal machine spans; the forward dispatcher passes the options through to backward DFS. This is an **explicit opt-in diagnostic**, not a new rejection rule.
+- No preview classification triggers `PROVEN_BLOCKING`, even if it detects apparent overlap. Geometry/placement failures remain `UNVERIFIED_NEEDS_3D` in the station report. Stage B still hands every non-proven-blocking transition to 3D.
+- Use `experimental_multi_station_2d=True` only with machine-coordinate longitudinal spans verified from the *same selected real tool CAD and placement*, not configured virtual lengths. Without confirmed spans, the station preview is marked UNVERIFIED and must not be used for physical claims.
+- Regression tests: `tests/test_stage_b_multistation_integration.py` verifies opt-in, state restoration, synthetic apparent collision, fail-safe exception and both DFS public signatures. The tests have been committed but their execution in native FreeCAD/OCCT and CI is **not confirmed**.
+- **Performance note:** extra 2D sampling can increase elapsed time; no savings in OCCT are claimed until safe pruning or candidate ranking is established on Z-(ok) and the box, with exact baseline setups. Diagnostics alone cannot reduce calls.
