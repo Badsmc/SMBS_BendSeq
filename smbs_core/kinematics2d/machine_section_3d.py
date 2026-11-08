@@ -1,10 +1,10 @@
-"""Cutting Plane Section Adapter (Machine X_m = 0).
+"""Cutting Plane Section Adapter (Machine X_m = target_xm).
 
 Constructs the true, physical 2.5D cross-section of the sheet workpiece
-by slicing the 3D placed geometry with the machine cutting plane X_m = 0.
+by slicing placed panel geometry with the machine plane X_m = target_xm.
 
 Coordinate Convention:
-- Slicing plane: X_m = 0
+- Slicing plane: X_m = target_xm
 - Machine Space: (X_m, Y_m, Z_m)
 - Output 2D Section: s = -Y_m, z = Z_m
   (Matches existing 2.5D screen mapping: horizontal s, vertical z).
@@ -78,8 +78,10 @@ def compute_machine_cutting_plane_section(
     placement: PlacementTransform3D,
     active_bend_id: Optional[str] = None,
     segments: int = 16,
+    *,
+    target_xm: float = 0.0,
 ) -> Dict[str, Any]:
-    """Compute exact 2.5D cross-section at machine cutting plane X_m = 0.
+    """Compute a 2.5D section at machine plane X_m = target_xm.
 
     Uses FoldState as single source of truth for folded angles and panel positions.
     Projects every panel and bend zone through `placement` into Machine Space,
@@ -88,6 +90,9 @@ def compute_machine_cutting_plane_section(
     Returns:
         dict compatible with 2.5D Viewer drawing pipeline (s, z coordinates).
     """
+    if not math.isfinite(float(target_xm)):
+        raise ValueError("target_xm must be finite")
+    target_xm = float(target_xm)
     thickness_mm = None
     inner_radius_mm = None
     if active_bend_id and active_bend_id in fold_state.bends:
@@ -122,10 +127,10 @@ def compute_machine_cutting_plane_section(
         "other_inner_curves": [],
         "other_outer_curves": [],
         "other_neutral_curves": [],
-        "cutting_plane_xm": 0.0,
+        "cutting_plane_xm": target_xm,
     }
 
-    # 1. Panels intersecting X_m = 0
+    # 1. Panels intersecting X_m = target_xm
     cut_panel_polygons: List[Tuple[str, Tuple[Tuple[float, float], ...]]] = []
 
     for panel_id in sorted(fold_state.graph.panels):
@@ -138,11 +143,11 @@ def compute_machine_cutting_plane_section(
         pts_bot_mach = [placement.apply(p_tf.point((x, y, -thickness_mm))) for x, y in verts_local]
 
         xs_top = [p[0] for p in pts_top_mach]
-        if min(xs_top) > 1e-4 or max(xs_top) < -1e-4:
-            # Does not intersect X_m = 0! Do not project onto cutting plane.
+        if min(xs_top) > target_xm + 1e-4 or max(xs_top) < target_xm - 1e-4:
+            # Does not intersect the requested cutting plane! Do not project onto cutting plane.
             continue
 
-        top_cuts = slice_polygon_3d_at_x(pts_top_mach, target_x=0.0)
+        top_cuts = slice_polygon_3d_at_x(pts_top_mach, target_x=target_xm)
         bot_cuts = slice_polygon_3d_at_x(pts_bot_mach, target_x=0.0)
 
         if len(top_cuts) >= 2 and len(bot_cuts) >= 2:
@@ -160,7 +165,7 @@ def compute_machine_cutting_plane_section(
             )
             cut_panel_polygons.append((panel_id, quad_sz))
 
-    # 2. Bend zones intersecting X_m = 0
+    # 2. Bend zones intersecting X_m = target_xm
     active_bend = fold_state.bends.get(active_bend_id) if active_bend_id else None
 
     for bend_id, bend in fold_state.bends.items():
@@ -175,8 +180,8 @@ def compute_machine_cutting_plane_section(
         min_ax_x = min(p0_m[0], p1_m[0])
         max_ax_x = max(p0_m[0], p1_m[0])
 
-        if min_ax_x > 1e-4 or max_ax_x < -1e-4:
-            # Zone does not cross cutting plane X_m = 0
+        if min_ax_x > target_xm + 1e-4 or max_ax_x < target_xm - 1e-4:
+            # Zone does not cross requested cutting plane
             continue
 
         # Zone profile at cutting plane
