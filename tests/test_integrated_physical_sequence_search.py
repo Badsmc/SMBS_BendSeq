@@ -608,6 +608,152 @@ class TestIntegratedPhysicalSequenceSearch(unittest.TestCase):
             self.assertFalse(rep_cancel.optimality_proven)
             self.assertIn("Сохранён лучший проверенный план", rep_cancel.message_ru)
 
+    def test_11_early_phase_termination_on_proven_blocking_collision(self):
+        """Priority B: Trajectory validator must abort subsequent phases immediately upon a fatal collision."""
+        from smbs_core.kinematics2d.motion_trajectory_3d import (
+            AdaptiveSamplingConfig,
+            AdaptiveTrajectoryValidator3D,
+            TrajectoryEvidenceStatus,
+            TrajectoryPhaseResult,
+            MotionState3D,
+        )
+        from smbs_core.kinematics2d.native_collision_3d import (
+            CollisionClass,
+            ToolCollisionReport,
+            PairClearanceResult,
+        )
+
+        validator = AdaptiveTrajectoryValidator3D.__new__(AdaptiveTrajectoryValidator3D)
+        validator.config = AdaptiveSamplingConfig(
+            max_recursion_depth=4,
+            max_evaluated_states_per_phase=30,
+            max_phase_time_s=10.0,
+        )
+        validator.total_subdivisions = 0
+        validator.desired_midpoint_xm = 0.0
+
+        # Create mock fold state
+        fold_state = SimpleNamespace(
+            angles={"B1": 0.0},
+            transforms={"B1": (0.0, 0.0, 0.0)},
+            bends={
+                "B1": SimpleNamespace(
+                    bend_id="B1",
+                    angle_deg=90.0,
+                    axis_xyz=((0.0, 0.0, 0.0), (100.0, 0.0, 0.0)),
+                    bend_zone=SimpleNamespace(
+                        thickness_mm=1.5,
+                        inner_radius_mm=1.5,
+                        outer_radius_mm=3.0,
+                    ),
+                )
+            },
+            reset_all=lambda: None,
+        )
+        validator.fold_state = fold_state
+
+        # Mock punch and die
+        validator.punch_base = SimpleNamespace(
+            span_xm=(-50.0, 50.0),
+            sections=[],
+            tip_radius_mm=0.8,
+            included_angle_deg=88.0,
+        )
+        validator.die = SimpleNamespace(
+            span_xm=(-50.0, 50.0),
+            sections=[],
+            shoulder_radius_mm=1.0,
+            included_angle_deg=88.0,
+            v_depth_mm=10.0,
+        )
+        validator.effective_v = 12.0
+
+        # Collision report with fatal blocking punch interference
+        coll_rep = ToolCollisionReport(
+            status=CollisionClass.PENETRATION,
+            punch_result=PairClearanceResult(
+                status=CollisionClass.PENETRATION,
+                reason="punch_collision",
+                distance_mm=0.0,
+                overlap_volume_mm3=50.0,  # Fatal penetration
+                aabb_gap_mm=0.0,
+                elapsed_ms=1.0,
+            ),
+            die_result=PairClearanceResult(
+                status=CollisionClass.CLEAR,
+                reason="die_clear",
+                distance_mm=10.0,
+                overlap_volume_mm3=0.0,
+                aabb_gap_mm=10.0,
+                elapsed_ms=1.0,
+            ),
+            is_safe=False,
+            diagnostics=["punch_penetration"],
+            elapsed_ms=2.0,
+        )
+        blocking_state = MotionState3D(
+            phase="APPROACH",
+            active_bend_id="B1",
+            signed_angle_deg=0.0,
+            path_u=0.5,
+            ram_z_mm=10.0,
+            support_plane_zm=3.0,
+            workpiece_placement=SimpleNamespace(),
+            completed_angles={},
+            collision_report=coll_rep,
+            is_safe=False,
+            is_conditional_safe=False,
+        )
+
+        def _make_phase_res(phase_name, is_safe, ev_status):
+            return TrajectoryPhaseResult(
+                phase_name=phase_name,
+                active_bend_id="B1",
+                states=[blocking_state],
+                evidence_status=ev_status,
+                continuous_certification_status=ev_status,
+                is_safe=is_safe,
+                subdivisions_count=0,
+                peak_recursion_depth=1,
+                unresolved_intervals=[],
+                discontinuities=[],
+                solid_reconstructions_count=0,
+                collision_queries_count=1,
+                min_punch_clearance_mm=0.0,
+                min_die_clearance_mm=10.0,
+                max_punch_overlap_volume_mm3=50.0,
+                max_die_overlap_volume_mm3=0.0,
+                elapsed_ms=10.0,
+                diagnostics=[],
+            )
+
+        phase_calls = []
+
+        def mock_validate_phase(phase_name, active_bend_id, prior_angles, sample_gen):
+            phase_calls.append(phase_name)
+            if phase_name == "APPROACH":
+                return _make_phase_res(
+                    phase_name,
+                    is_safe=False,
+                    ev_status=TrajectoryEvidenceStatus.DISCRETE_SAMPLES_REJECTED,
+                )
+            # Subsequent phases shouldn't be reached
+            return _make_phase_res(
+                phase_name,
+                is_safe=True,
+                ev_status=TrajectoryEvidenceStatus.SAMPLED_INTERVAL_CONVERGED,
+            )
+
+        validator.validate_phase = mock_validate_phase
+
+        res = validator.validate_bend_trajectory("B1", {})
+
+        # Assert early termination: only APPROACH ran; CONTACT, BENDING, BOTTOM, RETRACT were aborted!
+        self.assertEqual(phase_calls, ["APPROACH"])
+        self.assertEqual(res.evidence_status, TrajectoryEvidenceStatus.DISCRETE_SAMPLES_REJECTED)
+        self.assertIsNotNone(res.first_collision_state)
+        self.assertIn("EARLY_TERMINATION_ON_BLOCKING_COLLISION: phase=APPROACH", res.diagnostics)
+
 
 if __name__ == "__main__":
     unittest.main()
