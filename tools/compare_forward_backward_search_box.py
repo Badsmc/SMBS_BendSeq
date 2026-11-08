@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import time
 from pathlib import Path
@@ -16,14 +17,29 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from smbs_core.kinematics2d.motion_trajectory_3d import AdaptiveSamplingConfig
-from smbs_core.kinematics2d.operation_cost import OperationWeights
+for _p in (
+    "/Users/badmc/Library/Application Support/FreeCAD/v1-1/Mod",
+    "/Applications/FreeCAD.app/Contents/Resources/lib",
+):
+    if os.path.exists(_p) and _p not in sys.path:
+        sys.path.append(_p)
+
+import FreeCAD as App
+try:
+    from PySide6 import QtWidgets
+except ImportError:
+    from PySide import QtWidgets
+
+_app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+
 from tools.benchmark_forward_backward_base import (
     build_comparison_summary,
     format_search_record,
     get_git_info,
     run_single_search_in_clean_session,
 )
+from smbs_core.kinematics2d.motion_trajectory_3d import AdaptiveSamplingConfig
+from smbs_core.kinematics2d.operation_cost import OperationWeights
 
 
 def run_box_benchmark(
