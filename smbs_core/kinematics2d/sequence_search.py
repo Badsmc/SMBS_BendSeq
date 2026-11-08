@@ -33,6 +33,7 @@ from .physical_validation_25d import (
     check_active_25d_bend_trajectory,
     check_current_25d_pose,
 )
+from .screening_risk import ScreeningRiskWeights, screening_order_key
 from .preliminary_screening import (
     PreliminaryScreeningReport,
     ScreeningDecision,
@@ -878,6 +879,8 @@ def search_bend_sequence_25d(
     allow_end_zone_collision: Optional[bool] = None,
     end_zone_length_mm: Optional[float] = None,
     experimental_multi_station_2d: bool = False,
+    experimental_2d_risk_ranking: bool = False,
+    screening_risk_weights: Optional[ScreeningRiskWeights] = None,
     verified_punch_span_xm: Optional[Tuple[float, float]] = None,
     verified_die_span_xm: Optional[Tuple[float, float]] = None,
     max_states: int = 500,
@@ -936,6 +939,8 @@ def search_bend_sequence_25d(
             pose_checker=pose_checker,
             trajectory_checker=trajectory_checker,
             experimental_multi_station_2d=experimental_multi_station_2d,
+            experimental_2d_risk_ranking=experimental_2d_risk_ranking,
+            screening_risk_weights=screening_risk_weights,
             verified_punch_span_xm=verified_punch_span_xm,
             verified_die_span_xm=verified_die_span_xm,
         )
@@ -1220,6 +1225,7 @@ def search_bend_sequence_25d(
 
             # 2) Stage B: preliminary cross sections
             stage_b_survivors: List[str] = []
+            stage_b_reports: Dict[str, PreliminaryScreeningReport] = {}
             for cand_id in stage_a_survivors:
                 stage_b_evaluated += 1
                 rep_b = screen_candidate_stage_b(
@@ -1240,6 +1246,7 @@ def search_bend_sequence_25d(
                     _record_rejection(cand_id, f"prefix={list(completed_prefix)}:STAGE_B:{rep_b.reason}")
                 else:
                     stage_b_survivors.append(cand_id)
+                    stage_b_reports[cand_id] = rep_b
 
             # 3) Sort survivors by transition cost
             prev_setup = setups_history[-1] if setups_history else None
@@ -1258,7 +1265,14 @@ def search_bend_sequence_25d(
                 edge_pen = transition_penalty(prev_setup, cand_setup, op_weights)
                 candidate_scores.append((edge_pen.total, cand_id, cand_setup))
 
-            candidate_scores.sort(key=lambda it: (it[0], it[1]))
+            candidate_scores.sort(
+                key=lambda it: (
+                    screening_order_key(it[0], stage_b_reports[it[1]], screening_risk_weights)
+                    if experimental_2d_risk_ranking and experimental_multi_station_2d
+                    else it[0],
+                    it[1],
+                )
+            )
 
             # 4) Evaluate chosen candidate in 3D and IMMEDIATELY recurse!
             for edge_cost, cand_id, cand_setup in candidate_scores:
@@ -1873,6 +1887,8 @@ def search_bend_sequence_backward_25d(
     allow_end_zone_collision: Optional[bool] = None,
     end_zone_length_mm: Optional[float] = None,
     experimental_multi_station_2d: bool = False,
+    experimental_2d_risk_ranking: bool = False,
+    screening_risk_weights: Optional[ScreeningRiskWeights] = None,
     verified_punch_span_xm: Optional[Tuple[float, float]] = None,
     verified_die_span_xm: Optional[Tuple[float, float]] = None,
     max_states: int = 500,
@@ -2170,6 +2186,7 @@ def search_bend_sequence_backward_25d(
 
             # Stage B screening
             stage_b_survivors: List[str] = []
+            stage_b_reports: Dict[str, PreliminaryScreeningReport] = {}
             for cand_id in stage_a_survivors:
                 stage_b_evaluated += 1
                 s_prime = remaining_bends - {cand_id}
@@ -2202,6 +2219,7 @@ def search_bend_sequence_backward_25d(
                     _record_rejection(cand_id, f"backward_rem={list(remaining_bends)}:STAGE_B:{rep_b.reason}")
                 else:
                     stage_b_survivors.append(cand_id)
+                    stage_b_reports[cand_id] = rep_b
 
             # Score surviving candidates by forward transition penalty to next bend in production order
             candidate_scores: List[Tuple[float, str, WorkpieceMachineSetup]] = []
@@ -2238,7 +2256,14 @@ def search_bend_sequence_backward_25d(
                     edge_cost = 0.0
                 candidate_scores.append((edge_cost, cand_id, cand_setup))
 
-            candidate_scores.sort(key=lambda it: (it[0], it[1]))
+            candidate_scores.sort(
+                key=lambda it: (
+                    screening_order_key(it[0], stage_b_reports[it[1]], screening_risk_weights)
+                    if experimental_2d_risk_ranking and experimental_multi_station_2d
+                    else it[0],
+                    it[1],
+                )
+            )
 
             # Evaluate top candidates in 3D and recurse
             for edge_cost, cand_id, cand_setup in candidate_scores:
