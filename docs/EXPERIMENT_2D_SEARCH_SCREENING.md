@@ -70,3 +70,18 @@ Next: parameterize machine cutting-plane station; verify same physical pose/tool
 - Use `experimental_multi_station_2d=True` only with machine-coordinate longitudinal spans verified from the *same selected real tool CAD and placement*, not configured virtual lengths. Without confirmed spans, the station preview is marked UNVERIFIED and must not be used for physical claims.
 - Regression tests: `tests/test_stage_b_multistation_integration.py` verifies opt-in, state restoration, synthetic apparent collision, fail-safe exception and both DFS public signatures. The tests have been committed but their execution in native FreeCAD/OCCT and CI is **not confirmed**.
 - **Performance note:** extra 2D sampling can increase elapsed time; no savings in OCCT are claimed until safe pruning or candidate ranking is established on Z-(ok) and the box, with exact baseline setups. Diagnostics alone cannot reduce calls.
+
+
+## Ranking-only 2D screening experiment (fifth increment)
+
+- New `screening_risk.py` computes **search-order-only** risk from the Stage B `station_reports` (one count per phase/station): apparent INTERFERENCE=10, UNVERIFIED=3, TOUCH=1 by default. Missing samples receive uncertainty; nonfinite/negative weights are rejected.
+- Both forward and backward DFS expose `experimental_2d_risk_ranking=False` and optional `screening_risk_weights`. Ranking is only active when **both** `experimental_2d_risk_ranking=True` and `experimental_multi_station_2d=True`. Otherwise the original technological cost order is unchanged.
+- For ranking only: `priority = technological_transition_cost + screening_risk_total`. The **original technological transition cost is retained** in the candidate tuple for objective evaluation, lower bounds, cost pruning and final reporting; no heuristic sampled collision is treated as a forbidden transition. Values are experimental and not manufacturing-qualified.
+- New `tests/test_screening_risk.py` exercises deterministic ordering, synthetic apparent overlap, uncertainty, missing reports, custom weights, error handling and per-station rather than per-polygon counts. Added branch-only GitHub Actions workflow `.github/workflows/experiment-2d-screening.yml` for compilation, tests and original contact-oracle regressions.
+- **Testing evidence:** GitHub accepted commits, but at the time of documentation no workflow run or status was available for the last checked commit. Local real FreeCAD/OCCT testing was unavailable; no pass claim is made for the new workflow.
+- **Caution:** ranking on more sampled sections can COST more time than it saves; risk weights require calibration against fixed AP1017+AT3015 Z and box cases. Without verified physical tool spans, multi-station outputs are UNVERIFIED and the heuristic can bias ordering without useful collision evidence. Keep ranking disabled in production.
+- The planner remains a source of *suggested* stations, not proof of complete geometry. False negatives from unsampled tool-end contacts, nonparallel bend-zone approximations and transfer motion still need 3D comparison.
+
+### Experimental invocation
+
+Pass `experimental_multi_station_2d=True, experimental_2d_risk_ranking=True` to `search_bend_sequence_25d(...)`, together with `verified_punch_span_xm` and `verified_die_span_xm` **only when extracted from the selected real CAD setup** in machine coordinates. The same options work with `search_direction="BACKWARD"`. Leave both flags off for baseline measurements.
