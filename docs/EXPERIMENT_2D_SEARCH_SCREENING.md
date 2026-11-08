@@ -50,3 +50,13 @@ Next: parameterize machine cutting-plane station; verify same physical pose/tool
 2. Derive or cross-check the local bend-zone section at each station for non-parallel bends; test zero and nonzero targets against known 3D sliced solids.
 3. Integrate the multi-station report into preliminary screening as risk-only diagnostics; do not prune from sampled sections.
 4. Compare with fixed AP1017/AT3015 setups on Z-(ok) and eight recorded box 3D collision cases. Record explicit counters and timings, including unknowns and missed 2D contacts.
+
+
+## Machine-frame station planning (third increment)
+
+- Added `machine_station_planner.py` using the **same FoldState panel transforms and WorkpiecePlacement3D pose** as the existing machine section evaluator. Active axis endpoints and each panel vertex are transformed into machine space before stations are selected. The machine X coordinates are absolute and tool-end stations are converted to active-midpoint-relative offsets exactly once.
+- Station positions include active bend ends, real machine-space panel vertices and, ONLY when independently provided, punch/die source-CAD end positions with small symmetric offsets. This is a geometric risk sampler, not an exhaustive interval collision proof.
+- Rejects tilted/nonaligned active axes, invalid tool spans, nonfinite vertices and excessive probe counts rather than silently discarding geometry.
+- New synthetic unit tests: `tests/test_machine_station_planner.py` (six test methods), covering nonzero machine placement, verified tool ends, invalid alignment and bounds, overflow and JSON export.
+- No use of nominal or virtual AP1017/AT3015 spans as verified source-CAD spans is allowed. FreeCAD/OCCT integration, full CAD source-tool extraction, sampled bend-zone accuracy, transport path checks, and actual timing/collision evidence are still pending.
+- **Status:** planner and tests committed, but not yet wired into Stage B/DFS. The tests are not confirmed executed by CI and do not establish physical correctness.
