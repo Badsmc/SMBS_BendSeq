@@ -403,17 +403,29 @@ def main():
     print(f"  Trajectory wall time: {t_traj_wall_s:.2f} s", flush=True)
     print(f"  Trajectory reason: {traj_rep.reason}", flush=True)
 
-    parsed_phases = parse_phase_diagnostics(traj_rep.reason)
-    raw_traj = getattr(traj_rep, "raw_report", None)
+    detailed_phases = {}
+    if raw_traj and hasattr(raw_traj, "phase_results"):
+        for pres in raw_traj.phase_results:
+            detailed_phases[pres.phase_name] = {
+                "status": getattr(pres.status, "value", str(pres.status)),
+                "elapsed_ms": pres.elapsed_ms,
+                "samples_count": len(pres.states),
+                "solid_rebuilds": pres.solid_reconstructions_count,
+                "collision_queries": pres.collision_queries_count,
+                "actual_distance_queries": pres.actual_distance_queries,
+                "actual_common_queries": pres.actual_common_queries,
+                "unresolved_intervals": [list(iv) for iv in pres.unresolved_intervals],
+                "max_overlap_volume_mm3": pres.max_overlap_volume_mm3,
+            }
 
     trajectory_summary = {
         "status": traj_rep.status.value,
-        "is_safe": traj_rep.is_safe,
+        "is_safe": traj_rep.status in (PhysicalEvidence.SAMPLED_3D_CLEAR_NOT_CONTINUOUS, PhysicalEvidence.CONDITIONAL),
         "is_conditional": traj_rep.is_conditional,
         "wall_time_s": t_traj_wall_s,
         "max_phase_time_s": max_phase_time_s,
         "reason": traj_rep.reason,
-        "phase_breakdown": parsed_phases,
+        "phase_breakdown": detailed_phases or parsed_phases,
         "actual_occt_queries": {
             "total_pair_collision_checks": getattr(raw_traj, "total_pair_collision_checks", None),
             "total_distance_queries": getattr(raw_traj, "total_distance_queries", None),
@@ -452,6 +464,7 @@ def main():
         max_states = 50
         max_checks = 100
 
+        session.fold_state.reset_all()
         t_search0 = time.perf_counter()
         search_rep = search_bend_sequence_backward_25d(
             session,
@@ -541,3 +554,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
