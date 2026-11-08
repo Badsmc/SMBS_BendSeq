@@ -95,3 +95,34 @@ Pass `experimental_multi_station_2d=True, experimental_2d_risk_ranking=True` to 
 - If there is no verified plan on both sides, time-to-first-plan savings is `null`, not zero. Negative deltas mean a regression; no speedup is asserted without measured data.
 - Added `tests/test_screening_experiment_metrics.py` and CI registration. These are schema tests, not real CAD benchmarks.
 - Outstanding: instrument native boolean operations around OCCT intersections without changing collision tolerances; run the same AP1017 + AT3015 baseline setup on Z-(ok) and on the eight fixed box cases; record per-run JSON with source model/tool hashes and 2D false-negative disagreements. A useful first-plan comparison is permitted only where the same valid plan can be physically confirmed.
+
+
+## Native 3D collision-kernel counters (seventh increment)
+
+- Added `native_kernel_metrics.py` with an explicit `count_native_kernel_calls()` context manager, independently scoped via `ContextVar`. Counter snapshots include `common_calls`, `distance_calls`, elapsed wall time of those operations, failures and operation labels.
+- Wrapped existing `shape.common(...)` sites in `native_collision_3d.py` (pair overlap and punch end-zone analysis) and `distToShape(...)` sites (direct, pruned-face, fallback) through zero-logic-change `measured_common`/`measured_distance`. Without an active counter scope the wrappers simply call the original methods and preserve behavior/return values/exceptions.
+- These counters capture **instrumented native collision operations only**, NOT all OCCT calls in FreeCAD, shape construction, tool loading, solid fusing or external backends. Do not label these numbers as exhaustive OCCT totals. They can nevertheless measure the dominant directly observed native collision operations when the same search run is wrapped with the counter context.
+- Example for an **actual local** run after creating independent, equivalent session/press-cycle/tooling environments:
+
+```python
+from smbs_core.kinematics2d.native_kernel_metrics import count_native_kernel_calls
+from smbs_core.kinematics2d.screening_experiment_metrics import from_search_report
+with count_native_kernel_calls() as counter:
+    result = search_bend_sequence_25d(
+        session, press_cycle, tooling,
+        experimental_multi_station_2d=True,
+        experimental_2d_risk_ranking=True,
+        # verified_*_span_xm only from selected physical tool CAD in machine coordinates.
+    )
+snapshot = counter.to_dict()
+measurement = from_search_report(
+    result, "2D_RISK",
+    occt_boolean_calls=snapshot["common_calls"],
+    occt_boolean_elapsed_s=snapshot["common_elapsed_s"],
+    model_id="MODEL_AND_FILE_HASH", tooling_setup_id="TOOL_CAD_AND_SETUP_HASH",
+    placement_id="POSE_AND_SHIFT_HASH", tolerance_signature="TOLERANCE_AND_POLICY_HASH",
+)
+```
+
+- In this schema `occt_boolean_calls` represents instrumented `common()` calls only; distances are independently captured via `counter.to_dict()`. Persist that complete snapshot alongside the experiment report to avoid claiming exhaustive backend coverage.
+- Added synthetic headless tests in `tests/test_native_kernel_metrics.py` and extended the branch-only CI workflow. CI outcomes and native CAD benchmark measurements remain unverified until executed.
