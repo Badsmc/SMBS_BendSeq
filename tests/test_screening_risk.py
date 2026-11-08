@@ -40,7 +40,6 @@ class ScreeningRiskTests(unittest.TestCase):
     def test_technological_cost_unchanged(self):
         a = report("INTERFERENCE")
         self.assertEqual(screening_order_key(20, a), 30.0)
-        self.assertEqual(20.0, 20.0)  # ranking is computed into a separate scalar
         self.assertEqual(screening_risk(a).to_dict()["purpose"],
                          "SEARCH_ORDER_ONLY_NOT_PRODUCTION_COST")
 
