@@ -1077,7 +1077,41 @@ def search_bend_sequence_25d(
                         replay_rep.blocking_bend_id or "REPLAY",
                         f"prefix={list(completed_prefix)}:FORWARD_REPLAY_FAILED:{replay_rep.blocking_reason}",
                     )
-                    return DFSSubtreeResult(has_solution=False)
+                    # Distinguish:
+                    # - proven physical rejection (COLLISION)
+                    # - unverified / incomplete check (UNVERIFIED)
+                    # - geometry error / invalid geometry
+                    # - limit reached or cancellation
+                    status_val = getattr(replay_rep.overall_status, "value", str(replay_rep.overall_status))
+                    reason = str(replay_rep.blocking_reason or "")
+
+                    is_physical_collision = (
+                        replay_rep.overall_status == PhysicalEvidence.COLLISION
+                        or status_val in ("COLLISION", "DISCRETE_SAMPLES_REJECTED", "PENETRATION")
+                    )
+                    is_limit = any(k in reason for k in ("MAX_TIME", "LIMIT", "BUDGET"))
+                    is_geom_error = ("INVALID_GEOMETRY" in reason or "GEOMETRY_ERROR" in reason or status_val == "INVALID_GEOMETRY")
+                    is_unverified = (
+                        replay_rep.overall_status == PhysicalEvidence.UNVERIFIED
+                        or status_val in ("UNVERIFIED", "INTERVAL_UNRESOLVED")
+                        or is_geom_error
+                        or is_limit
+                        or (not is_physical_collision)
+                    )
+
+                    if is_unverified:
+                        stage_unverified = True
+                    if is_limit:
+                        stage_limit_reached = True
+                        if not stage_limit_reason:
+                            stage_limit_reason = f"REPLAY_LIMIT:{reason}"
+
+                    return DFSSubtreeResult(
+                        has_solution=False,
+                        had_unverified=is_unverified,
+                        had_limit_reached=is_limit,
+                        had_cancelled=cancelled,
+                    )
 
             if progress_callback is not None:
                 cb_res = progress_callback(states_visited, step_evaluations, completed_prefix)
