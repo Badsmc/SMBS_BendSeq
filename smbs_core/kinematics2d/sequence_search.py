@@ -2187,6 +2187,20 @@ def search_bend_sequence_backward_25d(
             # Score surviving candidates by forward transition penalty to next bend in production order
             candidate_scores: List[Tuple[float, str, WorkpieceMachineSetup]] = []
             for cand_id in stage_b_survivors:
+                s_prime = remaining_bends - {cand_id}
+                # Deterministically set session fold state: S' folded to target angles,
+                # cand_id at 0.0 deg, bends outside S at 0.0 deg, tooling and cycle synchronized.
+                _apply_prefix_to_session(
+                    session,
+                    press_cycle,
+                    tooling,
+                    completed_prefix=tuple(sorted(s_prime)),
+                    candidate_bend_id=cand_id,
+                    remaining_after_candidate=tuple(sorted(set(all_bends) - remaining_bends)),
+                    match_active_bend_length=eff_match_len,
+                    allow_end_zone_collision=stage_allow_end_zone,
+                    end_zone_length_mm=eff_end_zone_len,
+                )
                 bend_obj = session.fold_state.bends[cand_id]
                 b_zone = getattr(bend_obj, "bend_zone", None)
                 outer_r = float(getattr(b_zone, "outer_radius_mm", 0.0) if b_zone is not None else 0.0)

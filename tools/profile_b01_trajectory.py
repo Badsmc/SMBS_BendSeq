@@ -274,7 +274,15 @@ def run_profiling(max_phase_time_s: float = 15.0) -> Dict[str, Any]:
         + profiler.stats["die_eval_time_s"]
         + profiler.stats["punch_end_zone_time_s"]
     )
-    unaccounted_time_s = max(0.0, total_time_s - accounted_time_s)
+    diff_s = total_time_s - accounted_time_s
+    # Fail if accounted independent components exceed total wall time beyond float precision tolerance (5ms)
+    if diff_s < -0.005:
+        raise ValueError(
+            f"Measurement consistency error: sum of independent timings ({accounted_time_s:.4f}s) "
+            f"exceeds total wall time ({total_time_s:.4f}s) by {-diff_s:.4f}s. "
+            f"Check for nested timer double-counting."
+        )
+    unaccounted_time_s = max(0.0, diff_s) if diff_s >= -1e-6 else 0.0
 
     result = {
         "metadata": {
@@ -288,8 +296,9 @@ def run_profiling(max_phase_time_s: float = 15.0) -> Dict[str, Any]:
             "tool_length_mm": 45.0,
             "max_phase_time_s": max_phase_time_s,
             "historical_note": (
-                "Previous time breakdown reported in commit ffdd411 is unconfirmed due to measurement "
-                "bugs in earlier profiler (duplicate patch hooks, call-order tool identification, and nested timer double-counting)."
+                "Previous time breakdowns reported in ffdd411 and dc1e05b were inaccurate due to measurement "
+                "flaws in earlier profilers: nested timer double-counting (where solid_rebuild was timed inside cache_lookup_ms), "
+                "duplicate hooks, and artificial clamping via max(0.0, ...)."
             ),
         },
         "total_wall_time_s": round(total_time_s, 4),
