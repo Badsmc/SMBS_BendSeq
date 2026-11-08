@@ -1037,6 +1037,13 @@ class AdaptiveTrajectoryValidator3D:
                                     float(getattr(ez, "total_overlap_volume_mm3", 0.0)),
                                 )
 
+                # Early exit: if a proven blocking collision is already established in this or an earlier
+                # phase, subsequent trajectory phases (e.g. expensive BENDING/RETRACT) are physically blocked
+                # and do not need to be executed.
+                if first_blocking_collision_state is not None:
+                    diags.append(f"EARLY_TERMINATION_ON_BLOCKING_COLLISION: phase={p_name}")
+                    break
+
             first_collision_state = first_blocking_collision_state or first_any_collision_state
 
             # Aggregate evidence status
