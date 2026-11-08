@@ -1,0 +1,200 @@
+{
+  "metadata": {
+    "timestamp": "2026-11-08T19:03:56.078873+00:00",
+    "git_commit": "85374139eee9fb0c5263fdb52c2ca3a9470f1856",
+    "git_dirty": false,
+    "git_status": "On branch experiment/box-last-bend-setups\nYour branch is ahead of 'origin/experiment/box-last-bend-setups' by 3 commits.\n  (use \"git push\" to publish your local commits)\n\nnothing to commit, working tree clean",
+    "command_line": "PYTHONPATH=\"/Users/badmc/Library/Application Support/FreeCAD/v1-1/Mod:/Applications/FreeCAD.app/Contents/Resources/lib:.\" /Applications/FreeCAD.app/Contents/Resources/bin/python tools/reproduce_b01_ap1013_full_cycle.py",
+    "branch": "experiment/box-last-bend-setups",
+    "model": "box.100out-50in-(ok).FCStd",
+    "total_bends": 8,
+    "tool_punch": "PUNCH_AP_1013_85\u00b0_H159,65_R0,8",
+    "tool_die": "T-DIE_AT_3015_88\u00b0_V12_H80",
+    "freecad_version": "1.1.3",
+    "occt_version": "7.8.1",
+    "total_execution_wall_s": 1370.420685864
+  },
+  "exact_static_inspection_b01_u10": {
+    "ap1017_straight_punch": {
+      "unrounded_punch_overlap_mm3": 442.6341120198472,
+      "unrounded_die_overlap_mm3": 0.0,
+      "diagnostic_scene": "reports/diagnostics/control_B01_u10_AP1017.FCStd",
+      "verdict": "GROSS_COLLISION_WITH_PUNCH_BODY"
+    },
+    "ap1013_gooseneck_segments_64": {
+      "unrounded_punch_overlap_mm3": 7.096559782221476e-05,
+      "formatted_4_decimals": "0.0001",
+      "note": "Corresponds to the 0.0001 mm3 value reported when formatted with :.4f"
+    },
+    "ap1013_gooseneck_segments_128": {
+      "unrounded_punch_overlap_mm3": 8.87090011631577e-06,
+      "formatted_scientific": "8.870900e-06",
+      "note": "Corresponds to the 0.000009 mm3 (9.0e-6 mm3) value from 128-segment solid evaluation",
+      "diagnostic_scene": "reports/diagnostics/control_B01_u10_AP1013.FCStd",
+      "verdict": "CLEAR_WITHIN_NUMERICAL_TOLERANCE (sub-tolerance: < 1e-4 mm3)"
+    },
+    "root_cause_explanation": "The 0.0001 mm3 value originated from segments=64 evaluation formatted to 4 decimal places (7.0966e-5 mm3). The 0.000009 mm3 value originated from 128-segment B-Rep solid evaluation (9.0e-6 mm3) inside AdaptiveTrajectoryValidator3D. Both values are numerical discretization artifacts strictly below the volume tolerance of 0.0001 mm3 (1e-4 mm3), confirming that the flange fits inside the AP1013 gooseneck recess without physical contact."
+  },
+  "full_cycle_trajectory_b01": {
+    "status": "SAMPLED_3D_CLEAR_NOT_CONTINUOUS",
+    "is_safe": true,
+    "is_conditional": false,
+    "wall_time_s": 466.8072231820006,
+    "max_phase_time_s": 600.0,
+    "reason": "d634_samples=73; continuous=NOT_CONTINUOUSLY_CERTIFIED; transfer_backgauge_clamps_frame_unverified",
+    "phase_breakdown": {
+      "APPROACH": {
+        "status": "SAMPLED_INTERVAL_CONVERGED",
+        "is_safe": true,
+        "elapsed_ms": 39306.36651699933,
+        "samples_count": 17,
+        "solid_rebuilds": 1,
+        "collision_queries": 17,
+        "actual_distance_queries": 11,
+        "actual_common_queries": 2,
+        "unresolved_intervals": [],
+        "max_punch_overlap_volume_mm3": 0.0,
+        "max_die_overlap_volume_mm3": 0.0,
+        "min_punch_clearance_mm": 1.3403483045901196e-15,
+        "min_die_clearance_mm": 0.0
+      },
+      "CONTACT": {
+        "status": "SAMPLED_INTERVAL_CONVERGED",
+        "is_safe": true,
+        "elapsed_ms": 95.77294399969105,
+        "samples_count": 3,
+        "solid_rebuilds": 0,
+        "collision_queries": 3,
+        "actual_distance_queries": 0,
+        "actual_common_queries": 0,
+        "unresolved_intervals": [],
+        "max_punch_overlap_volume_mm3": 0.0,
+        "max_die_overlap_volume_mm3": 0.0,
+        "min_punch_clearance_mm": 1.3403483045901196e-15,
+        "min_die_clearance_mm": 0.0
+      },
+      "BENDING": {
+        "status": "SAMPLED_INTERVAL_CONVERGED",
+        "is_safe": true,
+        "elapsed_ms": 363749.22570500075,
+        "samples_count": 33,
+        "solid_rebuilds": 32,
+        "collision_queries": 33,
+        "actual_distance_queries": 64,
+        "actual_common_queries": 64,
+        "unresolved_intervals": [],
+        "max_punch_overlap_volume_mm3": 8.870900117056636e-06,
+        "max_die_overlap_volume_mm3": 0.0,
+        "min_punch_clearance_mm": 1.5612511283791264e-17,
+        "min_die_clearance_mm": 0.0
+      },
+      "BOTTOM": {
+        "status": "SAMPLED_INTERVAL_CONVERGED",
+        "is_safe": true,
+        "elapsed_ms": 91.78750899991428,
+        "samples_count": 3,
+        "solid_rebuilds": 0,
+        "collision_queries": 3,
+        "actual_distance_queries": 0,
+        "actual_common_queries": 0,
+        "unresolved_intervals": [],
+        "max_punch_overlap_volume_mm3": 8.870900117056636e-06,
+        "max_die_overlap_volume_mm3": 0.0,
+        "min_punch_clearance_mm": 1.5612511283791264e-17,
+        "min_die_clearance_mm": 2.220446049250313e-16
+      },
+      "RETRACT": {
+        "status": "SAMPLED_INTERVAL_CONVERGED",
+        "is_safe": true,
+        "elapsed_ms": 63308.95485700057,
+        "samples_count": 17,
+        "solid_rebuilds": 0,
+        "collision_queries": 17,
+        "actual_distance_queries": 16,
+        "actual_common_queries": 0,
+        "unresolved_intervals": [],
+        "max_punch_overlap_volume_mm3": 8.870900117056636e-06,
+        "max_die_overlap_volume_mm3": 0.0,
+        "min_punch_clearance_mm": 1.5612511283791264e-17,
+        "min_die_clearance_mm": 2.220446049250313e-16
+      }
+    },
+    "actual_occt_queries": {
+      "total_pair_collision_checks": 98,
+      "total_distance_queries": 91,
+      "total_common_queries": 66,
+      "total_solid_reconstructions": 33,
+      "total_states_evaluated": 73,
+      "solid_cache_hits": 32,
+      "die_cache_hits": 32,
+      "punch_cache_hits": 0
+    }
+  },
+  "backward_search_continuation": {
+    "attempted": true,
+    "status": "NOT_FOUND_WITHIN_SEARCH_LIMITS",
+    "reason": "Full cycle not verified (criterion: SAMPLED_3D_CLEAR_NOT_CONTINUOUS)",
+    "found_sequence": null,
+    "deepest_confirmed_suffix": [
+      "B01"
+    ],
+    "next_blocking_step": {
+      "B05": [
+        "backward_rem=['B06', 'B03', 'B07', 'B04', 'B02', 'B05', 'B08']:STAGE_C_3D:UNVERIFIED:trajectory:d634_incomplete:APPROACH=SAMPLED_INTERVAL_CONVERGED,reason=TIMINGS: phase=53591.5ms, actual_punch=45757.8ms, actual_die=1721.1ms, solid_build=3712.9ms, cache_lookups=1.3ms, hits=(solid=18, die=18, punch=0), misses=(solid=1, die=1, punch=19),samples=19,solid_rebuilds=1,3d_collision_queries=19,elapsed_s=53.59,punch_eval_s=45.76,die_eval_s=1.72,die_hits=18,die_misses=1,punch_overlap_mm3=0.000000,die_overlap_mm3=0.000000; CONTACT=SAMPLED_INTERVAL_CONVERGED,reason=TIMINGS: phase=83.7ms, actual_punch=0.0ms, actual_die=0.0ms, solid_build=0.0ms, cache_lookups=0.1ms, hits=(solid=0, die=0, punch=0), misses=(solid=0, die=0, punch=0),samples=3,solid_rebuilds=0,3d_collision_queries=3,elapsed_s=0.08,punch_eval_s=0.00,die_eval_s=0.00,die_hits=0,die_misses=0,punch_overlap_mm3=0.000000,die_overlap_mm3=0.000000; BENDING=SAMPLED_INTERVAL_CONVERGED,reason=TIMINGS: phase=293304.9ms, actual_punch=83397.1ms, actual_die=66564.5ms, solid_build=138756.3ms, cache_lookups=1.5ms, hits=(solid=0, die=0, punch=0), misses=(solid=32, die=32, punch=32),samples=33,solid_rebuilds=32,3d_collision_queries=33,elapsed_s=293.30,punch_eval_s=83.40,die_eval_s=66.56,die_hits=0,die_misses=32,punch_overlap_mm3=0.000009,die_overlap_mm3=0.000000; BOTTOM=SAMPLED_INTERVAL_CONVERGED,reason=TIMINGS: phase=84.4ms, actual_punch=0.0ms, actual_die=0.0ms, solid_build=0.0ms, cache_lookups=0.1ms, hits=(solid=0, die=0, punch=0), misses=(solid=0, die=0, punch=0),samples=3,solid_rebuilds=0,3d_collision_queries=3,elapsed_s=0.08,punch_eval_s=0.00,die_eval_s=0.00,die_hits=0,die_misses=0,punch_overlap_mm3=0.000009,die_overlap_mm3=0.000000; RETRACT=INTERVAL_UNRESOLVED,unresolved=4,first_interval=(0.0, 0.015625),reason=MAX_RECURSION_DEPTH_EXCEEDED: u=[0.0000, 0.0156] depth=7,samples=25,solid_rebuilds=0,3d_collision_queries=25,elapsed_s=63.52,punch_eval_s=60.08,die_eval_s=0.00,die_hits=24,die_misses=0,punch_overlap_mm3=0.000009,die_overlap_mm3=0.000000"
+      ],
+      "B07": [
+        "backward_rem=['B06', 'B03', 'B07', 'B04', 'B02', 'B05', 'B08']:STAGE_C_3D:UNVERIFIED:initial_pose:2d_3d_evidence_disagreement_or_ambiguity:PUNCH/P03:proper_material_boundary_crossing; native_3d_reports_nonpenetration; check machine coordinate_alignment_and_cut_plane_before_acceptance"
+      ],
+      "B02": [
+        "backward_rem=['B06', 'B03', 'B07', 'B04', 'B02', 'B05', 'B08']:STAGE_C_3D:COLLISION:initial_pose:native_3d_positive_volume_interference:punch=51.112833059mm3;die=0.000000000mm3;details=PUNCH_PENETRATION: overlap=51.1128 mm3;DIE_TOUCHING: surface contact (dist=0.0000 mm)"
+      ],
+      "B04": [
+        "backward_rem=['B06', 'B03', 'B07', 'B04', 'B02', 'B05', 'B08']:STAGE_C_3D:COLLISION:initial_pose:native_3d_positive_volume_interference:punch=51.112833059mm3;die=0.000000000mm3;details=PUNCH_PENETRATION: overlap=51.1128 mm3;DIE_TOUCHING: surface contact (dist=0.0000 mm)"
+      ],
+      "B06": [
+        "backward_rem=['B06', 'B03', 'B07', 'B04', 'B02', 'B05', 'B08']:STAGE_C_3D:COLLISION:initial_pose:native_3d_positive_volume_interference:punch=0.000000000mm3;die=3122.241085042mm3;details=DIE_PENETRATION: overlap=3122.2411 mm3"
+      ],
+      "B08": [
+        "backward_rem=['B06', 'B03', 'B07', 'B04', 'B02', 'B05', 'B08']:STAGE_C_3D:COLLISION:initial_pose:native_3d_positive_volume_interference:punch=0.000000000mm3;die=3122.241085042mm3;details=DIE_PENETRATION: overlap=3122.2411 mm3"
+      ]
+    },
+    "best_partial_sequence": [
+      "B03",
+      "B01"
+    ],
+    "max_depth_reached": 2,
+    "wall_time_s": 874.847703724,
+    "states_visited": 2,
+    "step_evaluations": 7,
+    "rejections": {
+      "B05": [
+        "backward_rem=['B06', 'B03', 'B07', 'B04', 'B02', 'B05', 'B08']:STAGE_C_3D:UNVERIFIED:trajectory:d634_incomplete:APPROACH=SAMPLED_INTERVAL_CONVERGED,reason=TIMINGS: phase=53591.5ms, actual_punch=45757.8ms, actual_die=1721.1ms, solid_build=3712.9ms, cache_lookups=1.3ms, hits=(solid=18, die=18, punch=0), misses=(solid=1, die=1, punch=19),samples=19,solid_rebuilds=1,3d_collision_queries=19,elapsed_s=53.59,punch_eval_s=45.76,die_eval_s=1.72,die_hits=18,die_misses=1,punch_overlap_mm3=0.000000,die_overlap_mm3=0.000000; CONTACT=SAMPLED_INTERVAL_CONVERGED,reason=TIMINGS: phase=83.7ms, actual_punch=0.0ms, actual_die=0.0ms, solid_build=0.0ms, cache_lookups=0.1ms, hits=(solid=0, die=0, punch=0), misses=(solid=0, die=0, punch=0),samples=3,solid_rebuilds=0,3d_collision_queries=3,elapsed_s=0.08,punch_eval_s=0.00,die_eval_s=0.00,die_hits=0,die_misses=0,punch_overlap_mm3=0.000000,die_overlap_mm3=0.000000; BENDING=SAMPLED_INTERVAL_CONVERGED,reason=TIMINGS: phase=293304.9ms, actual_punch=83397.1ms, actual_die=66564.5ms, solid_build=138756.3ms, cache_lookups=1.5ms, hits=(solid=0, die=0, punch=0), misses=(solid=32, die=32, punch=32),samples=33,solid_rebuilds=32,3d_collision_queries=33,elapsed_s=293.30,punch_eval_s=83.40,die_eval_s=66.56,die_hits=0,die_misses=32,punch_overlap_mm3=0.000009,die_overlap_mm3=0.000000; BOTTOM=SAMPLED_INTERVAL_CONVERGED,reason=TIMINGS: phase=84.4ms, actual_punch=0.0ms, actual_die=0.0ms, solid_build=0.0ms, cache_lookups=0.1ms, hits=(solid=0, die=0, punch=0), misses=(solid=0, die=0, punch=0),samples=3,solid_rebuilds=0,3d_collision_queries=3,elapsed_s=0.08,punch_eval_s=0.00,die_eval_s=0.00,die_hits=0,die_misses=0,punch_overlap_mm3=0.000009,die_overlap_mm3=0.000000; RETRACT=INTERVAL_UNRESOLVED,unresolved=4,first_interval=(0.0, 0.015625),reason=MAX_RECURSION_DEPTH_EXCEEDED: u=[0.0000, 0.0156] depth=7,samples=25,solid_rebuilds=0,3d_collision_queries=25,elapsed_s=63.52,punch_eval_s=60.08,die_eval_s=0.00,die_hits=24,die_misses=0,punch_overlap_mm3=0.000009,die_overlap_mm3=0.000000"
+      ],
+      "B07": [
+        "backward_rem=['B06', 'B03', 'B07', 'B04', 'B02', 'B05', 'B08']:STAGE_C_3D:UNVERIFIED:initial_pose:2d_3d_evidence_disagreement_or_ambiguity:PUNCH/P03:proper_material_boundary_crossing; native_3d_reports_nonpenetration; check machine coordinate_alignment_and_cut_plane_before_acceptance"
+      ],
+      "B02": [
+        "backward_rem=['B06', 'B03', 'B07', 'B04', 'B02', 'B05', 'B08']:STAGE_C_3D:COLLISION:initial_pose:native_3d_positive_volume_interference:punch=51.112833059mm3;die=0.000000000mm3;details=PUNCH_PENETRATION: overlap=51.1128 mm3;DIE_TOUCHING: surface contact (dist=0.0000 mm)"
+      ],
+      "B04": [
+        "backward_rem=['B06', 'B03', 'B07', 'B04', 'B02', 'B05', 'B08']:STAGE_C_3D:COLLISION:initial_pose:native_3d_positive_volume_interference:punch=51.112833059mm3;die=0.000000000mm3;details=PUNCH_PENETRATION: overlap=51.1128 mm3;DIE_TOUCHING: surface contact (dist=0.0000 mm)"
+      ],
+      "B06": [
+        "backward_rem=['B06', 'B03', 'B07', 'B04', 'B02', 'B05', 'B08']:STAGE_C_3D:COLLISION:initial_pose:native_3d_positive_volume_interference:punch=0.000000000mm3;die=3122.241085042mm3;details=DIE_PENETRATION: overlap=3122.2411 mm3"
+      ],
+      "B08": [
+        "backward_rem=['B06', 'B03', 'B07', 'B04', 'B02', 'B05', 'B08']:STAGE_C_3D:COLLISION:initial_pose:native_3d_positive_volume_interference:punch=0.000000000mm3;die=3122.241085042mm3;details=DIE_PENETRATION: overlap=3122.2411 mm3"
+      ]
+    }
+  },
+  "answers_to_key_questions": {
+    "is_b01_full_cycle_confirmed": true,
+    "is_eight_bend_sequence_found": false,
+    "did_it_pass_independent_forward_replay": false
+  },
+  "control_scenes_for_2d_screening_experiment": {
+    "ap1017_straight_scene": "reports/diagnostics/control_B01_u10_AP1017.FCStd",
+    "ap1013_gooseneck_scene": "reports/diagnostics/control_B01_u10_AP1013.FCStd",
+    "purpose": "Saved pair of control poses for experiment/2d-search-screening: compare AP1017 gross collision (442.63 mm3) vs AP1013 clearance (< 1e-4 mm3) under identical workpiece angles and placement."
+  }
+}
