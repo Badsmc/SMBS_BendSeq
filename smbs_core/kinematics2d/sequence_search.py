@@ -877,6 +877,9 @@ def search_bend_sequence_25d(
     match_active_bend_length: Optional[bool] = None,
     allow_end_zone_collision: Optional[bool] = None,
     end_zone_length_mm: Optional[float] = None,
+    experimental_multi_station_2d: bool = False,
+    verified_punch_span_xm: Optional[Tuple[float, float]] = None,
+    verified_die_span_xm: Optional[Tuple[float, float]] = None,
     max_states: int = 500,
     max_checks: int = 1000,
     max_search_time_s: float = 600.0,
@@ -932,6 +935,9 @@ def search_bend_sequence_25d(
             progress_callback=progress_callback,
             pose_checker=pose_checker,
             trajectory_checker=trajectory_checker,
+            experimental_multi_station_2d=experimental_multi_station_2d,
+            verified_punch_span_xm=verified_punch_span_xm,
+            verified_die_span_xm=verified_die_span_xm,
         )
     t_start = time.perf_counter()
     if session is None or getattr(session, "fold_state", None) is None:
@@ -1225,6 +1231,9 @@ def search_bend_sequence_25d(
                     match_active_bend_length=eff_match_len,
                     allow_end_zone_collision=stage_allow_end_zone,
                     end_zone_length_mm=eff_end_zone_len,
+                    multi_station_enabled=experimental_multi_station_2d,
+                    verified_punch_span_xm=verified_punch_span_xm,
+                    verified_die_span_xm=verified_die_span_xm,
                 )
                 if rep_b.is_blocking:
                     stage_b_pruned += 1
@@ -1863,6 +1872,9 @@ def search_bend_sequence_backward_25d(
     match_active_bend_length: Optional[bool] = None,
     allow_end_zone_collision: Optional[bool] = None,
     end_zone_length_mm: Optional[float] = None,
+    experimental_multi_station_2d: bool = False,
+    verified_punch_span_xm: Optional[Tuple[float, float]] = None,
+    verified_die_span_xm: Optional[Tuple[float, float]] = None,
     max_states: int = 500,
     max_checks: int = 1000,
     max_search_time_s: float = 600.0,
@@ -2181,6 +2193,9 @@ def search_bend_sequence_backward_25d(
                     match_active_bend_length=eff_match_len,
                     allow_end_zone_collision=stage_allow_end_zone,
                     end_zone_length_mm=eff_end_zone_len,
+                    multi_station_enabled=experimental_multi_station_2d,
+                    verified_punch_span_xm=verified_punch_span_xm,
+                    verified_die_span_xm=verified_die_span_xm,
                 )
                 if rep_b.is_blocking:
                     stage_b_pruned += 1
