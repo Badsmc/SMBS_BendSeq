@@ -95,7 +95,7 @@ def plan_machine_stations(
     stations_relative = longitudinal_probes(
         x_axis,
         tool_end_positions_mm=(x - mid_x for x in tool_ends),
-        panel_vertices_xyz=((x - mid_x, y, z) for x, y, z in vertices),
+        panel_vertices_xyz=vertices,
         edge_offset_mm=edge_offset_mm,
         max_probes=max_stations,
     )
