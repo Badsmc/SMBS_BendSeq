@@ -34,3 +34,19 @@ Safety rule: A finite set of clear sections never implies a collision-free full 
 Headless check: `python -m unittest tests.test_axis_screening -v`. Seven geometry tests were run locally using an isolated copy of the module and passed; CI and native FreeCAD/OCCT were **not** run for these commits.
 
 Next: parameterize machine cutting-plane station; verify same physical pose/tool datum and cross sections around tool ends and flanges; add conservative stage B multi-station evaluations; record Z-(ok) allowed cases and eight box collision comparisons under baseline AP1017 + AT3015. Report JSON must include disagreements, preliminary time, complete candidates and actual OCCT call counts. No speedup or confirmed full plan is claimed yet.
+
+
+## Multi-station geometry adapter (second increment)
+
+- `machine_section_3d.compute_machine_cutting_plane_section(..., target_xm=0.0)` now accepts an explicit machine-X station. Default zero preserves existing callers and UI. Sheet panels are cut at the requested machine coordinate; bend zones still use the pre-existing local midpoint profile. That approximation is NOT a proof for non-parallel or varying-section bend zones.
+- `multi_station_screening.screen_machine_stations_2d` evaluates the existing contact oracle across requested stations using one external FoldState, placement, and tooling object. Its API accepts separately verified punch/die longitudinal spans. Without both spans, or outside either span, stations are UNVERIFIED and no extrapolated tool polygon is evaluated.
+- Return statuses are `2D_INTERFERENCE_REQUIRES_3D`, `UNVERIFIED_NEEDS_3D`, or `SAMPLED_SECTIONS_CLEAR_OR_TOUCH_3D_REQUIRED`. The implementation NEVER emits `PROVEN_BLOCKING` or certifies the full swept trajectory. No integrations into DFS, 3D validation, or caching yet.
+- `tests/test_multi_station_screening.py` adds seven unit tests using mocked section/oracle dependencies, including changed station X, source-spans missing, tool end, fail-safe exceptions, and collision classification. These are synthetic contract tests, not actual CAD physical measurements. Existing FreeCAD/OCCT integration tests remain required.
+- The experiment does not yet establish longitudinal spans from verified real AP1017/AT3015 CAD geometry. It must not pass nominal/virtual spans as verified source spans. Longitudinal offsets for tool ends in `axis_screening` are measured relative to the active bend midpoint; convert them through the SAME machine placement before passing to the multi-station adapter.
+
+### Required next steps
+
+1. Derive station selection from real aligned source-tool spans and panel vertices transformed into machine coordinates (not a guessed global XY axis).
+2. Derive or cross-check the local bend-zone section at each station for non-parallel bends; test zero and nonzero targets against known 3D sliced solids.
+3. Integrate the multi-station report into preliminary screening as risk-only diagnostics; do not prune from sampled sections.
+4. Compare with fixed AP1017/AT3015 setups on Z-(ok) and eight recorded box 3D collision cases. Record explicit counters and timings, including unknowns and missed 2D contacts.
