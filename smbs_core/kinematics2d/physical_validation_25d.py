@@ -656,6 +656,9 @@ def check_active_25d_bend_trajectory(
         if phase.unresolved_intervals:
             pieces.append("unresolved={}".format(len(phase.unresolved_intervals)))
             pieces.append("first_interval={}".format(phase.unresolved_intervals[0]))
+        if getattr(phase, "uninspected_intervals", None):
+            pieces.append("uninspected={}".format(len(phase.uninspected_intervals)))
+            pieces.append("first_uninspected={}".format(phase.uninspected_intervals[0]))
         if phase.discontinuities:
             pieces.append("discontinuity={}".format(phase.discontinuities[0]))
         if phase.diagnostics:

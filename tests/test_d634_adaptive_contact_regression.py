@@ -75,6 +75,8 @@ class AdaptiveContactRegressionTests(unittest.TestCase):
         self.assertGreater(len(states), 2)
 
     def test_penetration_remains_unresolved_not_converged(self):
+        # With early_stop disabled, penetration keeps recursing until max depth
+        self.validator.config.early_stop_on_blocking_collision = False
         _depth, states, unresolved, diagnostics = self.check_interval(
             lambda u: _state(u, CollisionClass.PENETRATION)
         )
@@ -82,6 +84,118 @@ class AdaptiveContactRegressionTests(unittest.TestCase):
         self.assertTrue(unresolved)
         self.assertTrue(any("MAX_RECURSION_DEPTH_EXCEEDED" in d
                             for d in diagnostics))
+
+    def test_early_stop_inside_adaptive_interval_on_blocking_penetration(self):
+        # Priority B / ChatGPT item 2: early stop inside adaptive phase
+        self.validator.config.early_stop_on_blocking_collision = True
+
+        def sample_fatal_penetration(u):
+            pair = SimpleNamespace(
+                status=CollisionClass.PENETRATION,
+                distance_mm=0.0,
+                overlap_volume_mm3=50.0 if u >= 0.5 else 0.0,
+            )
+            report = SimpleNamespace(
+                status=CollisionClass.PENETRATION if u >= 0.5 else CollisionClass.CLEAR,
+                punch_result=pair,
+                die_result=pair,
+            )
+            return SimpleNamespace(
+                path_u=u,
+                is_safe=(u < 0.5),
+                is_conditional_safe=False,
+                signed_angle_deg=0.0,
+                ram_z_mm=1.5,
+                phase="BENDING",
+                completed_angles={},
+                collision_report=report,
+                workpiece_placement=SimpleNamespace(
+                    translation=(0.0, 0.0, 0.0),
+                    rotation=((1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0)),
+                ),
+            )
+
+        left = sample_fatal_penetration(0.0)
+        right = sample_fatal_penetration(1.0)
+        seen = [left]
+        unresolved, diagnostics = [], []
+        uninspected = []
+
+        depth = self.validator.validate_adaptive_interval(
+            left,
+            right,
+            sample_fatal_penetration,
+            1,
+            seen,
+            unresolved,
+            diagnostics,
+            time.perf_counter(),
+            uninspected=uninspected,
+        )
+
+        # Early stop must trigger at midpoint u=0.5:
+        # seen has only [left, mid]; no deeper recursion occurs!
+        self.assertEqual(depth, 1)
+        self.assertEqual(len(seen), 2)
+        self.assertEqual(seen[1].path_u, 0.5)
+        self.assertTrue(any("UNINSPECTED_INTERVAL_AFTER_FATAL_COLLISION" in d for d in diagnostics))
+        self.assertEqual(uninspected, [(0.0, 1.0)])
+
+    def test_conditional_does_not_early_stop_checking_other_states(self):
+        # Invariant: CONDITIONAL must NOT stop checking other states
+        self.validator.config.early_stop_on_blocking_collision = True
+
+        def sample_conditional(u):
+            pair = SimpleNamespace(
+                status=CollisionClass.PENETRATION,
+                distance_mm=0.0,
+                overlap_volume_mm3=5.0,
+            )
+            ez = SimpleNamespace(
+                classification=SimpleNamespace(value="END_ZONE_ONLY"),
+                total_overlap_volume_mm3=5.0,
+            )
+            report = SimpleNamespace(
+                status=CollisionClass.PENETRATION,
+                punch_result=pair,
+                die_result=SimpleNamespace(status=CollisionClass.CLEAR, distance_mm=10.0, overlap_volume_mm3=0.0),
+            )
+            return SimpleNamespace(
+                path_u=u,
+                is_safe=False,
+                is_conditional_safe=True,  # Conditional end-zone
+                punch_end_zone_analysis=ez,
+                signed_angle_deg=0.0,
+                ram_z_mm=1.5,
+                phase="BENDING",
+                completed_angles={},
+                collision_report=report,
+                workpiece_placement=SimpleNamespace(
+                    translation=(0.0, 0.0, 0.0),
+                    rotation=((1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0)),
+                ),
+            )
+
+        left = sample_conditional(0.0)
+        right = sample_conditional(1.0)
+        seen = [left]
+        unresolved, diagnostics = [], []
+        uninspected = []
+
+        self.validator.validate_adaptive_interval(
+            left,
+            right,
+            sample_conditional,
+            1,
+            seen,
+            unresolved,
+            diagnostics,
+            time.perf_counter(),
+            uninspected=uninspected,
+        )
+        # Because it's CONDITIONAL, it does NOT trigger early fatal stop
+        self.assertFalse(any("UNINSPECTED_INTERVAL_AFTER_FATAL_COLLISION" in d for d in diagnostics))
+        self.assertEqual(uninspected, [])
 
 
 if __name__ == "__main__":

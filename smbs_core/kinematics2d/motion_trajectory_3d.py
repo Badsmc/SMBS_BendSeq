@@ -142,6 +142,7 @@ class AdaptiveSamplingConfig:
     angle_continuity_tolerance_deg: float = 1e-3
     allow_end_zone_collision: bool = False
     end_zone_length_mm: float = 0.0
+    early_stop_on_blocking_collision: bool = True
 
 
 @dataclass
@@ -174,6 +175,7 @@ class TrajectoryPhaseResult:
     phase_solid_reconstruction_ms: float = 0.0
     is_conditional: bool = False
     max_end_zone_overlap_volume_mm3: float = 0.0
+    uninspected_intervals: List[Tuple[float, float]] = field(default_factory=list)
 
 
 @dataclass
@@ -322,6 +324,49 @@ def _die_geometry_signature(die: LoadedTool) -> Tuple[Any, ...]:
     com = getattr(m_shape, "CenterOfMass", None) if m_shape is not None else None
     com_tuple = (round(float(com.x), 5), round(float(com.y), 5), round(float(com.z), 5)) if com is not None else ()
     return (die_id, gen_token, v_open, eff_v, radius, height, length, is_virt, src_len, span_xm, vol, com_tuple)
+
+
+def is_blocking_collision(st: Optional[MotionState3D]) -> bool:
+    """Return True iff state has a confirmed forbidden physical collision.
+
+    Strict invariants:
+    - Safe or conditionally safe states are NOT blocking collisions.
+    - CONDITIONAL (e.g. allowed end-zone) does NOT stop checking other states.
+    - UNVERIFIED / INVALID_GEOMETRY are NOT substituted by collision.
+    - Only confirmed PENETRATION with positive volume in central punch zone or die.
+    """
+    if st is None:
+        return False
+    if getattr(st, "is_safe", True):
+        return False
+    if getattr(st, "is_conditional_safe", False):
+        return False
+    rep = getattr(st, "collision_report", None)
+    if rep is None:
+        return False
+    rep_status = getattr(rep, "status", None)
+    if rep_status in (CollisionClass.INVALID_GEOMETRY, getattr(CollisionClass, "UNVERIFIED", None)):
+        return False
+    if rep_status == "UNVERIFIED":
+        return False
+
+    p_res = getattr(rep, "punch_result", None)
+    if p_res is not None and getattr(p_res, "status", None) == CollisionClass.PENETRATION:
+        p_vol = float(getattr(p_res, "overlap_volume_mm3", 0.0))
+        if p_vol > 0.0:
+            ez = getattr(st, "punch_end_zone_analysis", None)
+            if ez is not None and getattr(ez, "classification", None) is not None:
+                if ez.classification.value == "END_ZONE_ONLY" and getattr(st, "is_conditional_safe", False):
+                    return False
+            return True
+
+    d_res = getattr(rep, "die_result", None)
+    if d_res is not None and getattr(d_res, "status", None) == CollisionClass.PENETRATION:
+        d_vol = float(getattr(d_res, "overlap_volume_mm3", 0.0))
+        if d_vol > 0.0:
+            return True
+
+    return False
 
 
 class AdaptiveTrajectoryValidator3D:
@@ -576,6 +621,7 @@ class AdaptiveTrajectoryValidator3D:
         unresolved: List[Tuple[float, float]],
         diags: List[str],
         start_time: float,
+        uninspected: Optional[List[Tuple[float, float]]] = None,
     ) -> int:
         """Recursively subdivide interval [u_left, u_right] with midpoint evaluation."""
         # 1. Depth exhaustion
@@ -609,6 +655,16 @@ class AdaptiveTrajectoryValidator3D:
         u_mid = 0.5 * (s_left.path_u + s_right.path_u)
         s_mid = sample_fn(u_mid)
         out_states.append(s_mid)
+
+        # Early stop inside adaptive interval:
+        # After first confirmed forbidden collision in search mode, do not continue subdividing
+        # to investigate an already rejected transition.
+        if getattr(self.config, "early_stop_on_blocking_collision", True) and is_blocking_collision(s_mid):
+            uninspected_msg = f"UNINSPECTED_INTERVAL_AFTER_FATAL_COLLISION: u=[{s_left.path_u:.4f}, {s_right.path_u:.4f}], fatal_mid_u={u_mid:.4f}"
+            diags.append(uninspected_msg)
+            if uninspected is not None:
+                uninspected.append((s_left.path_u, s_right.path_u))
+            return depth
 
         # Check continuity across left and right halves
         ok_l, reason_l = check_motion_continuity(s_left, s_mid, self.config)
@@ -718,13 +774,13 @@ class AdaptiveTrajectoryValidator3D:
         peak_d = depth
         # Recurse left half [u_left, u_mid]
         d1 = self.validate_adaptive_interval(
-            s_left, s_mid, sample_fn, depth + 1, out_states, unresolved, diags, start_time
+            s_left, s_mid, sample_fn, depth + 1, out_states, unresolved, diags, start_time, uninspected=uninspected
         )
         peak_d = max(peak_d, d1)
 
         # Recurse right half [u_mid, u_right]
         d2 = self.validate_adaptive_interval(
-            s_mid, s_right, sample_fn, depth + 1, out_states, unresolved, diags, start_time
+            s_mid, s_right, sample_fn, depth + 1, out_states, unresolved, diags, start_time, uninspected=uninspected
         )
         peak_d = max(peak_d, d2)
 
@@ -742,6 +798,7 @@ class AdaptiveTrajectoryValidator3D:
         diags: List[str] = []
         unresolved: List[Tuple[float, float]] = []
         discontinuities: List[str] = []
+        uninspected_intervals: List[Tuple[float, float]] = []
 
         # Local sample cache to avoid redundant evaluations of identical path_u values
         cache: Dict[float, MotionState3D] = {}
@@ -775,30 +832,41 @@ class AdaptiveTrajectoryValidator3D:
 
         # 1. Coarse endpoint evaluation
         s0 = sample_state(0.0)
-        s1 = sample_state(1.0)
-
-        phase_states: List[MotionState3D] = [s0]
         initial_subdivisions = self.total_subdivisions
 
-        # Only subdivide if endpoints are distinct (e.g. not stationary dwell)
-        if s0.path_u < s1.path_u:
-            peak_depth = self.validate_adaptive_interval(
-                s0, s1, sample_state, depth=1, out_states=phase_states, unresolved=unresolved, diags=diags, start_time=t_start
-            )
-        else:
+        if getattr(self.config, "early_stop_on_blocking_collision", True) and is_blocking_collision(s0):
+            diags.append(f"EARLY_STOP_ON_BLOCKING_COLLISION_AT_PHASE_START: u=0.0, phase={phase_name}")
+            uninspected_intervals.append((0.0, 1.0))
+            dedup_states: List[MotionState3D] = [s0]
             peak_depth = 1
+        else:
+            s1 = sample_state(1.0)
+            phase_states: List[MotionState3D] = [s0]
 
-        phase_states.append(s1)
+            if getattr(self.config, "early_stop_on_blocking_collision", True) and is_blocking_collision(s1):
+                diags.append(f"EARLY_STOP_ON_BLOCKING_COLLISION_AT_PHASE_END: u=1.0, phase={phase_name}")
+                uninspected_intervals.append((0.0, 1.0))
+                phase_states.append(s1)
+                peak_depth = 1
+            elif s0.path_u < s1.path_u:
+                peak_depth = self.validate_adaptive_interval(
+                    s0, s1, sample_state, depth=1, out_states=phase_states, unresolved=unresolved, diags=diags, start_time=t_start,
+                    uninspected=uninspected_intervals,
+                )
+                phase_states.append(s1)
+            else:
+                peak_depth = 1
+                phase_states.append(s1)
 
-        # Deduplicate states by path_u and sort
-        seen_u = set()
-        dedup_states: List[MotionState3D] = []
-        for s in phase_states:
-            uk = round(float(s.path_u), 6)
-            if uk not in seen_u:
-                seen_u.add(uk)
-                dedup_states.append(s)
-        dedup_states.sort(key=lambda s: s.path_u)
+            # Deduplicate states by path_u and sort
+            seen_u = set()
+            dedup_states: List[MotionState3D] = []
+            for s in phase_states:
+                uk = round(float(s.path_u), 6)
+                if uk not in seen_u:
+                    seen_u.add(uk)
+                    dedup_states.append(s)
+            dedup_states.sort(key=lambda s: s.path_u)
 
         phase_subdivisions = self.total_subdivisions - initial_subdivisions
         phase_recons = self.total_solid_reconstructions - initial_recon_count
@@ -903,6 +971,7 @@ class AdaptiveTrajectoryValidator3D:
             die_cache_misses=phase_die_misses,
             phase_solid_reconstruction_ms=phase_solid_recon_ms,
             is_conditional=is_conditional,
+            uninspected_intervals=uninspected_intervals,
         )
 
     def validate_bend_trajectory(
@@ -1041,6 +1110,11 @@ class AdaptiveTrajectoryValidator3D:
                 # phase, subsequent trajectory phases (e.g. expensive BENDING/RETRACT) are physically blocked
                 # and do not need to be executed.
                 if first_blocking_collision_state is not None:
+                    curr_phase_names = [p[0] for p in phases_to_run]
+                    curr_idx = curr_phase_names.index(p_name)
+                    remaining_phase_names = curr_phase_names[curr_idx + 1:]
+                    if remaining_phase_names:
+                        diags.append(f"UNINSPECTED_REMAINING_PHASES_AFTER_FATAL_COLLISION: {remaining_phase_names}")
                     diags.append(f"EARLY_TERMINATION_ON_BLOCKING_COLLISION: phase={p_name}")
                     break
 
