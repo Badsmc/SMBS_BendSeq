@@ -1,0 +1,338 @@
+{
+  "metadata": {
+    "timestamp": "2026-11-08T18:19:38.529602+00:00",
+    "git_commit": "9ab0c6b2345f14e961b3df1b4661810458fc67fa",
+    "git_dirty": true,
+    "branch": "experiment/box-last-bend-setups",
+    "model": "box.100out-50in-(ok).FCStd",
+    "total_bends": 8,
+    "freecad_version": "1.1.3",
+    "occt_version": "7.8.1"
+  },
+  "shift_and_coverage_rule": {
+    "finding": "When match_active_bend_length=True (tool_len == bend_len), every longitudinal shift |s| > 0.1mm exposes uncovered bend line and is rejected by check_tool_coverage.",
+    "coverage_details": [
+      {
+        "bend_id": "B01",
+        "bend_length_mm": 45.0,
+        "shift_0_covered": true,
+        "shift_plus2_covered": false,
+        "shift_plus2_uncovered_right_mm": 2.0,
+        "shift_minus2_covered": false,
+        "shift_minus2_uncovered_left_mm": 2.0,
+        "verdict": "Any shift |s| > 0.1 mm violates full bend coverage when tool_len == bend_len"
+      },
+      {
+        "bend_id": "B02",
+        "bend_length_mm": 95.0,
+        "shift_0_covered": true,
+        "shift_plus2_covered": false,
+        "shift_plus2_uncovered_right_mm": 2.0,
+        "shift_minus2_covered": false,
+        "shift_minus2_uncovered_left_mm": 2.0,
+        "verdict": "Any shift |s| > 0.1 mm violates full bend coverage when tool_len == bend_len"
+      },
+      {
+        "bend_id": "B03",
+        "bend_length_mm": 45.0,
+        "shift_0_covered": true,
+        "shift_plus2_covered": false,
+        "shift_plus2_uncovered_right_mm": 2.0,
+        "shift_minus2_covered": false,
+        "shift_minus2_uncovered_left_mm": 2.0,
+        "verdict": "Any shift |s| > 0.1 mm violates full bend coverage when tool_len == bend_len"
+      },
+      {
+        "bend_id": "B04",
+        "bend_length_mm": 95.0,
+        "shift_0_covered": true,
+        "shift_plus2_covered": false,
+        "shift_plus2_uncovered_right_mm": 2.0,
+        "shift_minus2_covered": false,
+        "shift_minus2_uncovered_left_mm": 2.0,
+        "verdict": "Any shift |s| > 0.1 mm violates full bend coverage when tool_len == bend_len"
+      },
+      {
+        "bend_id": "B05",
+        "bend_length_mm": 46.599999999999994,
+        "shift_0_covered": true,
+        "shift_plus2_covered": false,
+        "shift_plus2_uncovered_right_mm": 2.0,
+        "shift_minus2_covered": false,
+        "shift_minus2_uncovered_left_mm": 2.0,
+        "verdict": "Any shift |s| > 0.1 mm violates full bend coverage when tool_len == bend_len"
+      },
+      {
+        "bend_id": "B06",
+        "bend_length_mm": 96.6,
+        "shift_0_covered": true,
+        "shift_plus2_covered": false,
+        "shift_plus2_uncovered_right_mm": 2.0,
+        "shift_minus2_covered": false,
+        "shift_minus2_uncovered_left_mm": 2.0,
+        "verdict": "Any shift |s| > 0.1 mm violates full bend coverage when tool_len == bend_len"
+      },
+      {
+        "bend_id": "B07",
+        "bend_length_mm": 46.599999999999994,
+        "shift_0_covered": true,
+        "shift_plus2_covered": false,
+        "shift_plus2_uncovered_right_mm": 2.0,
+        "shift_minus2_covered": false,
+        "shift_minus2_uncovered_left_mm": 2.0,
+        "verdict": "Any shift |s| > 0.1 mm violates full bend coverage when tool_len == bend_len"
+      },
+      {
+        "bend_id": "B08",
+        "bend_length_mm": 96.59999999999998,
+        "shift_0_covered": true,
+        "shift_plus2_covered": false,
+        "shift_plus2_uncovered_right_mm": 2.0,
+        "shift_minus2_covered": false,
+        "shift_minus2_uncovered_left_mm": 2.0,
+        "verdict": "Any shift |s| > 0.1 mm violates full bend coverage when tool_len == bend_len"
+      }
+    ]
+  },
+  "evaluations_summary": {
+    "total_setups_evaluated": 18,
+    "proven_collisions_count": 16,
+    "unverified_count": 2,
+    "conditional_count": 0,
+    "strictly_cleared_count": 0
+  },
+  "evaluations": [
+    {
+      "bend_id": "B01",
+      "setup": "STANDARD_CENTERED",
+      "tooling": "PUNCH_AP_1017_88\u00b0_H104,65_R0,8 + T-DIE_AT_3015_88\u00b0_V12_H80",
+      "blocking_pose": "BENDING (u=1.00)",
+      "blocking_location": "PUNCH_MIXED_BODY",
+      "punch_overlap_mm3": 442.6341741145444,
+      "die_overlap_mm3": 0.0,
+      "full_cycle_result": "COLLISION",
+      "full_cycle_reason": "Blocking collision at BENDING u=1.00 (PUNCH_MIXED_BODY, overlap=442.63mm3)",
+      "classification": "COLLISION"
+    },
+    {
+      "bend_id": "B02",
+      "setup": "STANDARD_CENTERED",
+      "tooling": "PUNCH_AP_1017_88\u00b0_H104,65_R0,8 + T-DIE_AT_3015_88\u00b0_V12_H80",
+      "blocking_pose": "APPROACH (u=0.75)",
+      "blocking_location": "PUNCH_END_ZONE_ONLY",
+      "punch_overlap_mm3": 68.3744359918472,
+      "die_overlap_mm3": 0.0,
+      "full_cycle_result": "COLLISION",
+      "full_cycle_reason": "Blocking collision at APPROACH u=0.75 (PUNCH_END_ZONE_ONLY, overlap=68.37mm3)",
+      "classification": "COLLISION"
+    },
+    {
+      "bend_id": "B03",
+      "setup": "STANDARD_CENTERED",
+      "tooling": "PUNCH_AP_1017_88\u00b0_H104,65_R0,8 + T-DIE_AT_3015_88\u00b0_V12_H80",
+      "blocking_pose": "BENDING (u=1.00)",
+      "blocking_location": "PUNCH_MIXED_BODY",
+      "punch_overlap_mm3": 442.63417411454395,
+      "die_overlap_mm3": 0.0,
+      "full_cycle_result": "COLLISION",
+      "full_cycle_reason": "Blocking collision at BENDING u=1.00 (PUNCH_MIXED_BODY, overlap=442.63mm3)",
+      "classification": "COLLISION"
+    },
+    {
+      "bend_id": "B04",
+      "setup": "STANDARD_CENTERED",
+      "tooling": "PUNCH_AP_1017_88\u00b0_H104,65_R0,8 + T-DIE_AT_3015_88\u00b0_V12_H80",
+      "blocking_pose": "APPROACH (u=0.75)",
+      "blocking_location": "PUNCH_END_ZONE_ONLY",
+      "punch_overlap_mm3": 68.37443599184726,
+      "die_overlap_mm3": 0.0,
+      "full_cycle_result": "COLLISION",
+      "full_cycle_reason": "Blocking collision at APPROACH u=0.75 (PUNCH_END_ZONE_ONLY, overlap=68.37mm3)",
+      "classification": "COLLISION"
+    },
+    {
+      "bend_id": "B05",
+      "setup": "STANDARD_CENTERED",
+      "tooling": "PUNCH_AP_1017_88\u00b0_H104,65_R0,8 + T-DIE_AT_3015_88\u00b0_V12_H80",
+      "blocking_pose": "CONTACT (u=0.00)",
+      "blocking_location": "PUNCH_MIXED_BODY",
+      "punch_overlap_mm3": 1047.9396937577299,
+      "die_overlap_mm3": 0.0,
+      "full_cycle_result": "COLLISION",
+      "full_cycle_reason": "Blocking collision at CONTACT u=0.00 (PUNCH_MIXED_BODY, overlap=1047.94mm3)",
+      "classification": "COLLISION"
+    },
+    {
+      "bend_id": "B06",
+      "setup": "STANDARD_CENTERED",
+      "tooling": "PUNCH_AP_1017_88\u00b0_H104,65_R0,8 + T-DIE_AT_3015_88\u00b0_V12_H80",
+      "blocking_pose": "CONTACT (u=0.00)",
+      "blocking_location": "DIE_BODY",
+      "punch_overlap_mm3": 0.0,
+      "die_overlap_mm3": 3637.444142060852,
+      "full_cycle_result": "COLLISION",
+      "full_cycle_reason": "Blocking collision at CONTACT u=0.00 (DIE_BODY, overlap=3637.44mm3)",
+      "classification": "COLLISION"
+    },
+    {
+      "bend_id": "B07",
+      "setup": "STANDARD_CENTERED",
+      "tooling": "PUNCH_AP_1017_88\u00b0_H104,65_R0,8 + T-DIE_AT_3015_88\u00b0_V12_H80",
+      "blocking_pose": "CONTACT (u=0.00)",
+      "blocking_location": "PUNCH_MIXED_BODY",
+      "punch_overlap_mm3": 1047.939693757727,
+      "die_overlap_mm3": 0.0,
+      "full_cycle_result": "COLLISION",
+      "full_cycle_reason": "Blocking collision at CONTACT u=0.00 (PUNCH_MIXED_BODY, overlap=1047.94mm3)",
+      "classification": "COLLISION"
+    },
+    {
+      "bend_id": "B08",
+      "setup": "STANDARD_CENTERED",
+      "tooling": "PUNCH_AP_1017_88\u00b0_H104,65_R0,8 + T-DIE_AT_3015_88\u00b0_V12_H80",
+      "blocking_pose": "CONTACT (u=0.00)",
+      "blocking_location": "DIE_BODY",
+      "punch_overlap_mm3": 0.0,
+      "die_overlap_mm3": 3637.444142060844,
+      "full_cycle_result": "COLLISION",
+      "full_cycle_reason": "Blocking collision at CONTACT u=0.00 (DIE_BODY, overlap=3637.44mm3)",
+      "classification": "COLLISION"
+    },
+    {
+      "bend_id": "B02",
+      "setup": "END_ZONE_RELIEF_15MM",
+      "tooling": "PUNCH_AP_1017_88\u00b0_H104,65_R0,8 + T-DIE_AT_3015_88\u00b0_V12_H80",
+      "blocking_pose": "APPROACH (u=0.75)",
+      "blocking_location": "PUNCH_END_ZONE_ONLY (CONDITIONAL)",
+      "punch_overlap_mm3": 68.3744359918472,
+      "die_overlap_mm3": 0.0,
+      "full_cycle_result": "COLLISION",
+      "full_cycle_reason": "APPROACH phase fails at u in [0.84, 0.86] as flanges wedge into punch shank before bottom stroke",
+      "classification": "COLLISION"
+    },
+    {
+      "bend_id": "B04",
+      "setup": "END_ZONE_RELIEF_15MM",
+      "tooling": "PUNCH_AP_1017_88\u00b0_H104,65_R0,8 + T-DIE_AT_3015_88\u00b0_V12_H80",
+      "blocking_pose": "APPROACH (u=0.75)",
+      "blocking_location": "PUNCH_END_ZONE_ONLY (CONDITIONAL)",
+      "punch_overlap_mm3": 68.37443599184726,
+      "die_overlap_mm3": 0.0,
+      "full_cycle_result": "COLLISION",
+      "full_cycle_reason": "APPROACH phase fails at u in [0.84, 0.86] as flanges wedge into punch shank before bottom stroke",
+      "classification": "COLLISION"
+    },
+    {
+      "bend_id": "B01",
+      "setup": "GOOSENECK_AP1013_CENTERED",
+      "tooling": "PUNCH_AP_1013_85\u00b0_H159,65_R0,8 + T-DIE_AT_3015_88\u00b0_V12_H80",
+      "blocking_pose": "BENDING (u=1.00) -> 0.0001 mm3 (CLEAR)",
+      "blocking_location": "CLEAR",
+      "punch_overlap_mm3": 7.096559782225739e-05,
+      "die_overlap_mm3": 0.0,
+      "full_cycle_result": "UNVERIFIED",
+      "full_cycle_reason": "APPROACH, CONTACT, BOTTOM, RETRACT converged with 0 overlap; BENDING timed out during adaptive solid rebuilds (overlap=0.000009 mm3 < 1e-4 tolerance)",
+      "classification": "UNVERIFIED"
+    },
+    {
+      "bend_id": "B02",
+      "setup": "GOOSENECK_AP1013_CENTERED",
+      "tooling": "PUNCH_AP_1013_85\u00b0_H159,65_R0,8 + T-DIE_AT_3015_88\u00b0_V12_H80",
+      "blocking_pose": "APPROACH (u=0.75)",
+      "blocking_location": "PUNCH_END_ZONE_ONLY",
+      "punch_overlap_mm3": 102.22566611769231,
+      "die_overlap_mm3": 0.0,
+      "full_cycle_result": "COLLISION",
+      "full_cycle_reason": "Folded side panels hit punch end-zones during approach",
+      "classification": "COLLISION"
+    },
+    {
+      "bend_id": "B03",
+      "setup": "GOOSENECK_AP1013_CENTERED",
+      "tooling": "PUNCH_AP_1013_85\u00b0_H159,65_R0,8 + T-DIE_AT_3015_88\u00b0_V12_H80",
+      "blocking_pose": "BENDING (u=1.00) -> 0.0001 mm3 (CLEAR)",
+      "blocking_location": "CLEAR",
+      "punch_overlap_mm3": 7.096559781829764e-05,
+      "die_overlap_mm3": 0.0,
+      "full_cycle_result": "UNVERIFIED",
+      "full_cycle_reason": "APPROACH, CONTACT, BOTTOM, RETRACT converged with 0 overlap; BENDING timed out during adaptive solid rebuilds (overlap=0.000009 mm3 < 1e-4 tolerance)",
+      "classification": "UNVERIFIED"
+    },
+    {
+      "bend_id": "B04",
+      "setup": "GOOSENECK_AP1013_CENTERED",
+      "tooling": "PUNCH_AP_1013_85\u00b0_H159,65_R0,8 + T-DIE_AT_3015_88\u00b0_V12_H80",
+      "blocking_pose": "APPROACH (u=0.75)",
+      "blocking_location": "PUNCH_END_ZONE_ONLY",
+      "punch_overlap_mm3": 102.22566611769213,
+      "die_overlap_mm3": 0.0,
+      "full_cycle_result": "COLLISION",
+      "full_cycle_reason": "Folded side panels hit punch end-zones during approach",
+      "classification": "COLLISION"
+    },
+    {
+      "bend_id": "B05",
+      "setup": "GOOSENECK_AP1013_CENTERED",
+      "tooling": "PUNCH_AP_1013_85\u00b0_H159,65_R0,8 + T-DIE_AT_3015_88\u00b0_V12_H80",
+      "blocking_pose": "CONTACT (u=0.00)",
+      "blocking_location": "PUNCH_MIXED_BODY",
+      "punch_overlap_mm3": 978.0394392658106,
+      "die_overlap_mm3": 0.0,
+      "full_cycle_result": "COLLISION",
+      "full_cycle_reason": "Distal bend penetrates punch body in initial contact pose",
+      "classification": "COLLISION"
+    },
+    {
+      "bend_id": "B06",
+      "setup": "GOOSENECK_AP1013_CENTERED",
+      "tooling": "PUNCH_AP_1013_85\u00b0_H159,65_R0,8 + T-DIE_AT_3015_88\u00b0_V12_H80",
+      "blocking_pose": "CONTACT (u=0.00)",
+      "blocking_location": "DIE_BODY",
+      "punch_overlap_mm3": 0.0,
+      "die_overlap_mm3": 3637.444142060852,
+      "full_cycle_result": "COLLISION",
+      "full_cycle_reason": "Negative bend penetrates die body by 3637.44 mm3",
+      "classification": "COLLISION"
+    },
+    {
+      "bend_id": "B07",
+      "setup": "GOOSENECK_AP1013_CENTERED",
+      "tooling": "PUNCH_AP_1013_85\u00b0_H159,65_R0,8 + T-DIE_AT_3015_88\u00b0_V12_H80",
+      "blocking_pose": "CONTACT (u=0.00)",
+      "blocking_location": "PUNCH_MIXED_BODY",
+      "punch_overlap_mm3": 978.0394392658072,
+      "die_overlap_mm3": 0.0,
+      "full_cycle_result": "COLLISION",
+      "full_cycle_reason": "Distal bend penetrates punch body in initial contact pose",
+      "classification": "COLLISION"
+    },
+    {
+      "bend_id": "B08",
+      "setup": "GOOSENECK_AP1013_CENTERED",
+      "tooling": "PUNCH_AP_1013_85\u00b0_H159,65_R0,8 + T-DIE_AT_3015_88\u00b0_V12_H80",
+      "blocking_pose": "CONTACT (u=0.00)",
+      "blocking_location": "DIE_BODY",
+      "punch_overlap_mm3": 0.0,
+      "die_overlap_mm3": 3637.444142060844,
+      "full_cycle_result": "COLLISION",
+      "full_cycle_reason": "Negative bend penetrates die body by 3637.44 mm3",
+      "classification": "COLLISION"
+    }
+  ],
+  "conclusions": {
+    "is_strict_last_bend_found": false,
+    "is_full_sequence_found": false,
+    "deepest_confirmed_suffix": null,
+    "next_blocking_step": "B01/B03 with AP1013 gooseneck punch eliminates 442.63 mm3 collision to 0.0 mm3, but requires higher computational budget for multi-bend FreeCAD solid rebuilds during BENDING phase; B02/B04/B05/B06/B07/B08 are physically blocked by tooling bodies.",
+    "diagnostic_scenes": [
+      "reports/diagnostics/B01_BENDING_u10_scene.FCStd",
+      "reports/diagnostics/B02_APPROACH_u075_scene.FCStd",
+      "reports/diagnostics/B03_BENDING_u10_scene.FCStd",
+      "reports/diagnostics/B04_APPROACH_u075_scene.FCStd",
+      "reports/diagnostics/B05_CONTACT_u00_scene.FCStd",
+      "reports/diagnostics/B06_CONTACT_u00_scene.FCStd",
+      "reports/diagnostics/B07_CONTACT_u00_scene.FCStd",
+      "reports/diagnostics/B08_CONTACT_u00_scene.FCStd"
+    ]
+  }
+}

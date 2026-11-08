@@ -1,0 +1,234 @@
+[
+  {
+    "bend_id": "B01",
+    "phase": "BENDING",
+    "path_u": 1.0,
+    "signed_angle_deg": 90.00000000000003,
+    "target_angle_deg": 90.00000000000003,
+    "ram_z_mm": -2.325378797541252,
+    "support_z_mm": -1.3253787975412519,
+    "shift_xm_mm": 0.0,
+    "bend_length_mm": 45.0,
+    "punch_length_mm": 45.0,
+    "die_length_mm": 45.0,
+    "punch_overlap_volume_mm3": 442.6341741145444,
+    "die_overlap_volume_mm3": 0.0,
+    "collision_location": "PUNCH_MIXED_CENTRAL_AND_END_ZONE",
+    "punch_end_zone_analysis": {
+      "classification": "MIXED_CENTRAL_AND_END_ZONE",
+      "end_zone_len_mm": 11.25,
+      "total_vol_mm3": 442.6341741145444,
+      "end_zone_vol_mm3": 0.0,
+      "central_vol_mm3": 442.63417411454776,
+      "affected_sides": [
+        "LEFT",
+        "CENTRAL",
+        "RIGHT"
+      ],
+      "punch_span": [
+        -22.5,
+        22.5
+      ]
+    },
+    "diagnostic_scene_fcstd": "reports/diagnostics/B01_BENDING_u10_scene.FCStd"
+  },
+  {
+    "bend_id": "B03",
+    "phase": "BENDING",
+    "path_u": 1.0,
+    "signed_angle_deg": 90.00000000000003,
+    "target_angle_deg": 90.00000000000003,
+    "ram_z_mm": -2.325378797541252,
+    "support_z_mm": -1.3253787975412519,
+    "shift_xm_mm": 0.0,
+    "bend_length_mm": 45.0,
+    "punch_length_mm": 45.0,
+    "die_length_mm": 45.0,
+    "punch_overlap_volume_mm3": 442.63417411454395,
+    "die_overlap_volume_mm3": 0.0,
+    "collision_location": "PUNCH_MIXED_CENTRAL_AND_END_ZONE",
+    "punch_end_zone_analysis": {
+      "classification": "MIXED_CENTRAL_AND_END_ZONE",
+      "end_zone_len_mm": 11.25,
+      "total_vol_mm3": 442.63417411454395,
+      "end_zone_vol_mm3": 0.0,
+      "central_vol_mm3": 442.6341741145437,
+      "affected_sides": [
+        "LEFT",
+        "CENTRAL",
+        "RIGHT"
+      ],
+      "punch_span": [
+        -22.5,
+        22.5
+      ]
+    },
+    "diagnostic_scene_fcstd": "reports/diagnostics/B03_BENDING_u10_scene.FCStd"
+  },
+  {
+    "bend_id": "B02",
+    "phase": "APPROACH",
+    "path_u": 0.75,
+    "signed_angle_deg": 0.0,
+    "target_angle_deg": 90.00000000000003,
+    "ram_z_mm": 13.625,
+    "support_z_mm": 2.5,
+    "shift_xm_mm": 0.0,
+    "bend_length_mm": 95.0,
+    "punch_length_mm": 95.0,
+    "die_length_mm": 95.0,
+    "punch_overlap_volume_mm3": 68.3744359918472,
+    "die_overlap_volume_mm3": 0.0,
+    "collision_location": "PUNCH_END_ZONE_ONLY",
+    "punch_end_zone_analysis": {
+      "classification": "END_ZONE_ONLY",
+      "end_zone_len_mm": 15.0,
+      "total_vol_mm3": 68.3744359918472,
+      "end_zone_vol_mm3": 68.3744359918473,
+      "central_vol_mm3": 0.0,
+      "affected_sides": [
+        "LEFT",
+        "RIGHT"
+      ],
+      "punch_span": [
+        -47.5,
+        47.5
+      ]
+    },
+    "diagnostic_scene_fcstd": "reports/diagnostics/B02_APPROACH_u075_scene.FCStd"
+  },
+  {
+    "bend_id": "B04",
+    "phase": "APPROACH",
+    "path_u": 0.75,
+    "signed_angle_deg": 0.0,
+    "target_angle_deg": 90.00000000000003,
+    "ram_z_mm": 13.625,
+    "support_z_mm": 2.5,
+    "shift_xm_mm": 0.0,
+    "bend_length_mm": 95.0,
+    "punch_length_mm": 95.0,
+    "die_length_mm": 95.0,
+    "punch_overlap_volume_mm3": 68.37443599184726,
+    "die_overlap_volume_mm3": 0.0,
+    "collision_location": "PUNCH_END_ZONE_ONLY",
+    "punch_end_zone_analysis": {
+      "classification": "END_ZONE_ONLY",
+      "end_zone_len_mm": 15.0,
+      "total_vol_mm3": 68.37443599184726,
+      "end_zone_vol_mm3": 68.37443599184706,
+      "central_vol_mm3": 0.0,
+      "affected_sides": [
+        "LEFT",
+        "RIGHT"
+      ],
+      "punch_span": [
+        -47.5,
+        47.5
+      ]
+    },
+    "diagnostic_scene_fcstd": "reports/diagnostics/B04_APPROACH_u075_scene.FCStd"
+  },
+  {
+    "bend_id": "B05",
+    "phase": "CONTACT",
+    "path_u": 0.0,
+    "signed_angle_deg": 0.0,
+    "target_angle_deg": 90.00000000000003,
+    "ram_z_mm": 1.5,
+    "support_z_mm": 2.5,
+    "shift_xm_mm": 0.0,
+    "bend_length_mm": 46.599999999999994,
+    "punch_length_mm": 46.599999999999994,
+    "die_length_mm": 46.599999999999994,
+    "punch_overlap_volume_mm3": 1047.9396937577299,
+    "die_overlap_volume_mm3": 0.0,
+    "collision_location": "PUNCH_MIXED_CENTRAL_AND_END_ZONE",
+    "punch_end_zone_analysis": {
+      "classification": "MIXED_CENTRAL_AND_END_ZONE",
+      "end_zone_len_mm": 11.649999999999999,
+      "total_vol_mm3": 1047.9396937577299,
+      "end_zone_vol_mm3": 0.0,
+      "central_vol_mm3": 1047.9396937577299,
+      "affected_sides": [
+        "LEFT",
+        "CENTRAL",
+        "RIGHT"
+      ],
+      "punch_span": [
+        -23.299999999999997,
+        23.299999999999997
+      ]
+    },
+    "diagnostic_scene_fcstd": "reports/diagnostics/B05_CONTACT_u00_scene.FCStd"
+  },
+  {
+    "bend_id": "B06",
+    "phase": "CONTACT",
+    "path_u": 0.0,
+    "signed_angle_deg": 0.0,
+    "target_angle_deg": -90.00000000000003,
+    "ram_z_mm": 1.5,
+    "support_z_mm": 2.5,
+    "shift_xm_mm": 0.0,
+    "bend_length_mm": 96.6,
+    "punch_length_mm": 96.6,
+    "die_length_mm": 96.6,
+    "punch_overlap_volume_mm3": 0.0,
+    "die_overlap_volume_mm3": 3637.444142060852,
+    "collision_location": "DIE_BODY",
+    "punch_end_zone_analysis": null,
+    "diagnostic_scene_fcstd": "reports/diagnostics/B06_CONTACT_u00_scene.FCStd"
+  },
+  {
+    "bend_id": "B07",
+    "phase": "CONTACT",
+    "path_u": 0.0,
+    "signed_angle_deg": 0.0,
+    "target_angle_deg": 90.00000000000003,
+    "ram_z_mm": 1.5,
+    "support_z_mm": 2.5,
+    "shift_xm_mm": 0.0,
+    "bend_length_mm": 46.599999999999994,
+    "punch_length_mm": 46.599999999999994,
+    "die_length_mm": 46.599999999999994,
+    "punch_overlap_volume_mm3": 1047.939693757727,
+    "die_overlap_volume_mm3": 0.0,
+    "collision_location": "PUNCH_MIXED_CENTRAL_AND_END_ZONE",
+    "punch_end_zone_analysis": {
+      "classification": "MIXED_CENTRAL_AND_END_ZONE",
+      "end_zone_len_mm": 11.649999999999999,
+      "total_vol_mm3": 1047.939693757727,
+      "end_zone_vol_mm3": 0.0,
+      "central_vol_mm3": 1047.939693757727,
+      "affected_sides": [
+        "LEFT",
+        "CENTRAL",
+        "RIGHT"
+      ],
+      "punch_span": [
+        -23.299999999999997,
+        23.299999999999997
+      ]
+    },
+    "diagnostic_scene_fcstd": "reports/diagnostics/B07_CONTACT_u00_scene.FCStd"
+  },
+  {
+    "bend_id": "B08",
+    "phase": "CONTACT",
+    "path_u": 0.0,
+    "signed_angle_deg": 0.0,
+    "target_angle_deg": -90.00000000000003,
+    "ram_z_mm": 1.5,
+    "support_z_mm": 2.5,
+    "shift_xm_mm": 0.0,
+    "bend_length_mm": 96.59999999999998,
+    "punch_length_mm": 96.59999999999998,
+    "die_length_mm": 96.59999999999998,
+    "punch_overlap_volume_mm3": 0.0,
+    "die_overlap_volume_mm3": 3637.444142060844,
+    "collision_location": "DIE_BODY",
+    "punch_end_zone_analysis": null,
+    "diagnostic_scene_fcstd": "reports/diagnostics/B08_CONTACT_u00_scene.FCStd"
+  }
+]
