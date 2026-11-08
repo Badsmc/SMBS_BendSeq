@@ -882,8 +882,13 @@ def search_bend_sequence_25d(
     progress_callback: Optional[Callable[[int, int, Tuple[str, ...]], bool]] = None,
     pose_checker: Callable[..., CurrentPosePhysicalReport] = check_current_25d_pose,
     trajectory_checker: Callable[..., CurrentPosePhysicalReport] = check_active_25d_bend_trajectory,
+    search_direction: str = "FORWARD",
 ) -> SequenceSearchReport:
     """Search for a physically valid bend sequence using DFS backtracking and memoization.
+
+    Supports both forward search (from flat sheet to final part) and backward search
+    (unfolding hypothetical last bends from final part to flat sheet, with physical forward
+    qualification of each step).
 
     Priority & Architecture rules:
     1. Fast multi-stage screening:
@@ -904,6 +909,26 @@ def search_bend_sequence_25d(
        Any found sequence is independently verified via forward replay from `0°` and loaded
        into `session`.
     """
+    if str(search_direction).upper() == "BACKWARD":
+        return search_bend_sequence_backward_25d(
+            session,
+            press_cycle,
+            tooling,
+            config=config,
+            bend_shifts=bend_shifts,
+            match_active_bend_length=match_active_bend_length,
+            allow_end_zone_collision=allow_end_zone_collision,
+            end_zone_length_mm=end_zone_length_mm,
+            max_states=max_states,
+            max_checks=max_checks,
+            max_search_time_s=max_search_time_s,
+            weights=weights,
+            optimize_cost=optimize_cost,
+            cache=cache,
+            progress_callback=progress_callback,
+            pose_checker=pose_checker,
+            trajectory_checker=trajectory_checker,
+        )
     t_start = time.perf_counter()
     if session is None or getattr(session, "fold_state", None) is None:
         return SequenceSearchReport(
@@ -1822,3 +1847,964 @@ def search_bend_sequence_25d(
                 )
             except Exception:
                 pass
+
+
+def search_bend_sequence_backward_25d(
+    session,
+    press_cycle,
+    tooling,
+    *,
+    config: Optional[AdaptiveSamplingConfig] = None,
+    bend_shifts: Optional[Dict[str, float]] = None,
+    match_active_bend_length: Optional[bool] = None,
+    allow_end_zone_collision: Optional[bool] = None,
+    end_zone_length_mm: Optional[float] = None,
+    max_states: int = 500,
+    max_checks: int = 1000,
+    max_search_time_s: float = 600.0,
+    weights: Optional[OperationWeights] = None,
+    optimize_cost: bool = False,
+    cache: Optional[StepEvaluationCache] = None,
+    progress_callback: Optional[Callable[[int, int, Tuple[str, ...]], bool]] = None,
+    pose_checker: Callable[..., CurrentPosePhysicalReport] = check_current_25d_pose,
+    trajectory_checker: Callable[..., CurrentPosePhysicalReport] = check_active_25d_bend_trajectory,
+) -> SequenceSearchReport:
+    """Backward Depth-First Search for bend sequence planning with forward physical qualification.
+
+    Backward Step Contract:
+    1. S: set of bends executed in the current backward state (at root, S is all bends of the final part).
+    2. Choose candidate b in S as the hypothesized LAST bend of the remaining set S.
+    3. Construct preceding state S' = S - {b}.
+    4. Qualify the regular forward bending operation FORWARD:
+       Bend b moves from 0 to target signed angle, while all other bends in S' are completed.
+       Bends outside S (already formed after b in forward sequence) remain at 0°.
+       No physical unbending is performed as a substitute for manufacturing.
+    5. Feasible transition recurses on S' = S - {b}.
+    6. Transition changeover penalties are calculated in forward manufacturing order.
+    7. Cost pruning is applied only with valid lower bound.
+    8. Any complete sequence is converted to forward order and independently verified via forward replay.
+    9. UNVERIFIED is never treated as proven dead end; strict plans preferred over conditional.
+    """
+    t_start = time.perf_counter()
+    if session is None or getattr(session, "fold_state", None) is None:
+        return SequenceSearchReport(
+            status=SearchStatus.UNVERIFIED,
+            overall_evidence=PhysicalEvidence.UNVERIFIED,
+            found_sequence=None,
+            initial_sequence=(),
+            best_partial_sequence=(),
+            max_depth_reached=0,
+            total_bends=0,
+            states_visited=0,
+            step_evaluations=0,
+            cache_hits=0,
+            dead_end_hits=0,
+            backtracks_count=0,
+            elapsed_s=0.0,
+            match_active_bend_length=False,
+            allow_end_zone_collision=False,
+            end_zone_length_mm=0.0,
+            message_ru="Деталь не загружена (UNVERIFIED).",
+        )
+
+    eff_match_len = (
+        bool(getattr(tooling, "match_active_bend_length", False))
+        if match_active_bend_length is None
+        else bool(match_active_bend_length)
+    )
+    eff_allow_end_zone = (
+        bool(getattr(tooling, "allow_end_zone_collision", False))
+        if allow_end_zone_collision is None
+        else bool(allow_end_zone_collision)
+    )
+    eff_end_zone_len = (
+        float(getattr(tooling, "end_zone_length_mm", 0.0))
+        if end_zone_length_mm is None
+        else float(end_zone_length_mm)
+    )
+    shifts = dict(bend_shifts or {})
+    eval_cache = cache if cache is not None else StepEvaluationCache()
+    op_weights = weights if weights is not None else OperationWeights()
+    panel_verts = getattr(session, "panel_vertices_xy", {})
+
+    initial_order = tuple(getattr(session, "bend_order", ()))
+    initial_active_index = int(getattr(session, "active_bend_index", 0))
+    initial_angles = dict(getattr(session.fold_state, "angles", {}))
+    initial_transforms = dict(getattr(session.fold_state, "transforms", {}))
+
+    all_bends: Tuple[str, ...] = tuple(session.fold_state.bends.keys())
+    total_bends = len(all_bends)
+
+    if total_bends == 0:
+        return SequenceSearchReport(
+            status=SearchStatus.STRICT_VALIDATED,
+            overall_evidence=PhysicalEvidence.SAMPLED_3D_CLEAR_NOT_CONTINUOUS,
+            found_sequence=(),
+            initial_sequence=initial_order,
+            best_partial_sequence=(),
+            max_depth_reached=0,
+            total_bends=0,
+            states_visited=1,
+            step_evaluations=0,
+            cache_hits=0,
+            dead_end_hits=0,
+            backtracks_count=0,
+            elapsed_s=0.0,
+            match_active_bend_length=eff_match_len,
+            allow_end_zone_collision=eff_allow_end_zone,
+            end_zone_length_mm=eff_end_zone_len,
+            message_ru="Деталь не содержит гибов.",
+        )
+
+    # Search tracking metrics
+    states_visited = 0
+    step_evaluations = 0
+    cache_hits = 0
+    dead_end_hits = 0
+    backtracks_count = 0
+    max_depth_reached = 0
+    best_partial: Tuple[str, ...] = ()
+    cancelled = False
+
+    stage_a_evaluated = 0
+    stage_a_pruned = 0
+    stage_b_evaluated = 0
+    stage_b_pruned = 0
+    stage_c_native_evaluated = 0
+
+    time_to_first_full_candidate_s: Optional[float] = None
+    time_to_first_verified_plan_s: Optional[float] = None
+
+    rejection_records: List[str] = []
+
+    def _record_rejection(bend_id: str, reason: str) -> None:
+        if len(rejection_records) < 50:
+            rejection_records.append(f"{bend_id}: {reason}")
+
+    best_strict_plan: Optional[Dict[str, Any]] = None
+    best_conditional_plan: Optional[Dict[str, Any]] = None
+
+    def _run_backward_dfs_stage(
+        stage_allow_end_zone: bool,
+        stage_time_limit_s: float,
+        stage_max_states: int,
+        stage_max_checks: int,
+    ) -> Tuple[Optional[Tuple[str, ...]], List[StepEvaluationRecord], bool, str, bool]:
+        nonlocal states_visited, step_evaluations, cache_hits, dead_end_hits
+        nonlocal backtracks_count, max_depth_reached, best_partial, cancelled
+        nonlocal stage_a_evaluated, stage_a_pruned, stage_b_evaluated, stage_b_pruned
+        nonlocal stage_c_native_evaluated, time_to_first_full_candidate_s, time_to_first_verified_plan_s
+        nonlocal best_strict_plan, best_conditional_plan
+
+        stage_limit_reached = False
+        stage_limit_reason = ""
+        stage_unverified = False
+
+        def dfs_backward(
+            remaining_bends: frozenset[str],
+            rev_chosen: Tuple[str, ...],
+            path_records: List[StepEvaluationRecord],
+            current_cost: float,
+            suffix_setups: List[WorkpieceMachineSetup],
+        ) -> DFSSubtreeResult:
+            nonlocal states_visited, step_evaluations, cache_hits, dead_end_hits
+            nonlocal backtracks_count, max_depth_reached, best_partial, cancelled
+            nonlocal stage_a_evaluated, stage_a_pruned, stage_b_evaluated, stage_b_pruned
+            nonlocal stage_c_native_evaluated, time_to_first_full_candidate_s, time_to_first_verified_plan_s
+            nonlocal stage_limit_reached, stage_limit_reason, stage_unverified
+            nonlocal best_strict_plan, best_conditional_plan
+
+            # Depth reached: count of bends successfully placed
+            depth = len(rev_chosen)
+            if depth > max_depth_reached:
+                max_depth_reached = depth
+                best_partial = tuple(reversed(rev_chosen))
+
+            # Base case: all bends chosen backward -> we have reached the flat blank
+            if len(remaining_bends) == 0:
+                forward_seq = tuple(reversed(rev_chosen))
+                if time_to_first_full_candidate_s is None:
+                    time_to_first_full_candidate_s = time.perf_counter() - t_start
+
+                # Independent forward replay from blank (0°) to target folded part
+                replay_rep = verify_sequence_forward_replay(
+                    session,
+                    press_cycle,
+                    tooling,
+                    forward_seq,
+                    config=config,
+                    bend_shifts=shifts,
+                    match_active_bend_length=eff_match_len,
+                    allow_end_zone_collision=stage_allow_end_zone,
+                    end_zone_length_mm=eff_end_zone_len,
+                    pose_checker=pose_checker,
+                    trajectory_checker=trajectory_checker,
+                )
+                if replay_rep.is_verified:
+                    if time_to_first_verified_plan_s is None:
+                        time_to_first_verified_plan_s = time.perf_counter() - t_start
+                    plan_pen = score_sequence(forward_seq, suffix_setups, op_weights)
+                    is_cond = replay_rep.is_conditional
+                    plan_dict = {
+                        "sequence": forward_seq,
+                        "winning_steps": list(reversed(path_records)),
+                        "setups_history": list(suffix_setups),
+                        "replay_report": replay_rep,
+                        "penalty": plan_pen,
+                        "is_conditional": is_cond,
+                    }
+                    if not is_cond:
+                        if best_strict_plan is None or plan_pen.total < best_strict_plan["penalty"].total:
+                            best_strict_plan = plan_dict
+                    else:
+                        if best_conditional_plan is None or plan_pen.total < best_conditional_plan["penalty"].total:
+                            best_conditional_plan = plan_dict
+                    return DFSSubtreeResult(has_solution=True, solution=forward_seq)
+                else:
+                    is_unverified = (replay_rep.overall_status is PhysicalEvidence.UNVERIFIED)
+                    is_limit = any("MAX_SEARCH" in d or "MAX_TIME" in d for d in replay_rep.diagnostics)
+                    if is_unverified:
+                        stage_unverified = True
+                    if is_limit:
+                        stage_limit_reached = True
+                        if not stage_limit_reason:
+                            stage_limit_reason = f"REPLAY_LIMIT:{replay_rep.blocking_reason}"
+                    return DFSSubtreeResult(
+                        has_solution=False,
+                        had_unverified=is_unverified,
+                        had_limit_reached=is_limit,
+                        had_cancelled=cancelled,
+                    )
+
+            if progress_callback is not None:
+                cb_res = progress_callback(states_visited, step_evaluations, tuple(reversed(rev_chosen)))
+                if cb_res is False:
+                    cancelled = True
+                    stage_unverified = True
+                    return DFSSubtreeResult(had_unverified=True, had_cancelled=True)
+
+            elapsed = time.perf_counter() - t_start
+            if elapsed >= stage_time_limit_s:
+                stage_limit_reached = True
+                stage_limit_reason = f"MAX_SEARCH_TIME_REACHED:{elapsed:.2f}s>={stage_time_limit_s:.2f}s"
+                stage_unverified = True
+                return DFSSubtreeResult(had_unverified=True, had_limit_reached=True)
+            if states_visited >= stage_max_states:
+                stage_limit_reached = True
+                stage_limit_reason = f"MAX_SEARCH_STATES_REACHED:{states_visited}>={stage_max_states}"
+                stage_unverified = True
+                return DFSSubtreeResult(had_unverified=True, had_limit_reached=True)
+            if step_evaluations >= stage_max_checks:
+                stage_limit_reached = True
+                stage_limit_reason = f"MAX_SEARCH_CHECKS_REACHED:{step_evaluations}>={stage_max_checks}"
+                stage_unverified = True
+                return DFSSubtreeResult(had_unverified=True, had_limit_reached=True)
+
+            # Memoized dead end check on subset of remaining bends
+            subset_angles = {bid: float(session.fold_state.bends[bid].angle_deg) for bid in remaining_bends}
+            subset_key = eval_cache.make_subset_key(
+                completed_angles=subset_angles,
+                tooling=tooling,
+                match_active_bend_length=eff_match_len,
+                bend_shifts=shifts,
+                config=config,
+                allow_end_zone_collision=stage_allow_end_zone,
+                end_zone_length_mm=eff_end_zone_len,
+            )
+            if eval_cache.is_dead_end(subset_key):
+                dead_end_hits += 1
+                return DFSSubtreeResult(has_solution=False)
+
+            states_visited += 1
+            subtree_had_unverified = False
+            found_solution_in_subtree = False
+            any_cost_pruned = False
+
+            # Candidate evaluation:
+            # For each bend b in remaining_bends:
+            # Preceding state S' = remaining_bends - {b}.
+            # In S', all bends in S' are at their target angles; b is active from 0 to target.
+            stage_a_survivors: List[str] = []
+            for cand_id in sorted(remaining_bends):
+                stage_a_evaluated += 1
+                s_prime = remaining_bends - {cand_id}
+                _apply_prefix_to_session(
+                    session,
+                    press_cycle,
+                    tooling,
+                    completed_prefix=tuple(sorted(s_prime)),
+                    candidate_bend_id=cand_id,
+                    remaining_after_candidate=tuple(sorted(set(all_bends) - remaining_bends)),
+                    match_active_bend_length=eff_match_len,
+                    allow_end_zone_collision=stage_allow_end_zone,
+                    end_zone_length_mm=eff_end_zone_len,
+                )
+                rep_a = screen_candidate_stage_a(
+                    session.fold_state,
+                    cand_id,
+                    tooling,
+                    match_active_bend_length=eff_match_len,
+                    desired_midpoint_xm=float(shifts.get(cand_id, 0.0)),
+                )
+                if rep_a.is_blocking:
+                    stage_a_pruned += 1
+                    _record_rejection(cand_id, f"backward_rem={list(remaining_bends)}:STAGE_A:{rep_a.reason}")
+                else:
+                    stage_a_survivors.append(cand_id)
+
+            # Stage B screening
+            stage_b_survivors: List[str] = []
+            for cand_id in stage_a_survivors:
+                stage_b_evaluated += 1
+                s_prime = remaining_bends - {cand_id}
+                _apply_prefix_to_session(
+                    session,
+                    press_cycle,
+                    tooling,
+                    completed_prefix=tuple(sorted(s_prime)),
+                    candidate_bend_id=cand_id,
+                    remaining_after_candidate=tuple(sorted(set(all_bends) - remaining_bends)),
+                    match_active_bend_length=eff_match_len,
+                    allow_end_zone_collision=stage_allow_end_zone,
+                    end_zone_length_mm=eff_end_zone_len,
+                )
+                rep_b = screen_candidate_stage_b(
+                    session.fold_state,
+                    cand_id,
+                    tooling,
+                    panel_verts,
+                    desired_midpoint_xm=float(shifts.get(cand_id, 0.0)),
+                    match_active_bend_length=eff_match_len,
+                    allow_end_zone_collision=stage_allow_end_zone,
+                    end_zone_length_mm=eff_end_zone_len,
+                )
+                if rep_b.is_blocking:
+                    stage_b_pruned += 1
+                    _record_rejection(cand_id, f"backward_rem={list(remaining_bends)}:STAGE_B:{rep_b.reason}")
+                else:
+                    stage_b_survivors.append(cand_id)
+
+            # Score surviving candidates by forward transition penalty to next bend in production order
+            candidate_scores: List[Tuple[float, str, WorkpieceMachineSetup]] = []
+            for cand_id in stage_b_survivors:
+                bend_obj = session.fold_state.bends[cand_id]
+                b_zone = getattr(bend_obj, "bend_zone", None)
+                outer_r = float(getattr(b_zone, "outer_radius_mm", 0.0) if b_zone is not None else 0.0)
+                cand_setup = compute_workpiece_machine_setup(
+                    session.fold_state,
+                    cand_id,
+                    desired_midpoint_xm=float(shifts.get(cand_id, 0.0)),
+                    support_plane_zm=outer_r,
+                    align_bisector=True,
+                )
+                if suffix_setups:
+                    next_setup = suffix_setups[0]
+                    edge_pen = transition_penalty(cand_setup, next_setup, op_weights)
+                    edge_cost = edge_pen.total
+                else:
+                    edge_cost = 0.0
+                candidate_scores.append((edge_cost, cand_id, cand_setup))
+
+            candidate_scores.sort(key=lambda it: (it[0], it[1]))
+
+            # Evaluate top candidates in 3D and recurse
+            for edge_cost, cand_id, cand_setup in candidate_scores:
+                if cancelled:
+                    stage_unverified = True
+                    return DFSSubtreeResult(had_unverified=True, had_cancelled=True)
+                elapsed = time.perf_counter() - t_start
+                if elapsed >= stage_time_limit_s:
+                    stage_limit_reached = True
+                    stage_limit_reason = f"MAX_SEARCH_TIME_REACHED:{elapsed:.2f}s>={stage_time_limit_s:.2f}s"
+                    subtree_had_unverified = True
+                    stage_unverified = True
+                    break
+                if step_evaluations >= stage_max_checks:
+                    stage_limit_reached = True
+                    stage_limit_reason = f"MAX_SEARCH_CHECKS_REACHED:{step_evaluations}>={stage_max_checks}"
+                    subtree_had_unverified = True
+                    stage_unverified = True
+                    break
+
+                if optimize_cost:
+                    target_plan = best_strict_plan if not stage_allow_end_zone else (best_conditional_plan or best_strict_plan)
+                    if target_plan is not None and (current_cost + edge_cost >= target_plan["penalty"].total):
+                        any_cost_pruned = True
+                        continue
+
+                stage_c_native_evaluated += 1
+                s_prime = remaining_bends - {cand_id}
+                shift_mm = float(shifts.get(cand_id, 0.0))
+
+                rec = evaluate_candidate_bend_step(
+                    session,
+                    press_cycle,
+                    tooling,
+                    completed_prefix=tuple(sorted(s_prime)),
+                    candidate_bend_id=cand_id,
+                    remaining_after_candidate=tuple(sorted(set(all_bends) - remaining_bends)),
+                    config=config,
+                    desired_midpoint_xm=shift_mm,
+                    match_active_bend_length=eff_match_len,
+                    allow_end_zone_collision=stage_allow_end_zone,
+                    end_zone_length_mm=eff_end_zone_len,
+                    cache=eval_cache,
+                    pose_checker=pose_checker,
+                    trajectory_checker=trajectory_checker,
+                )
+                if rec.from_cache:
+                    cache_hits += 1
+                else:
+                    step_evaluations += 1
+
+                if rec.effective_status is PhysicalEvidence.UNVERIFIED:
+                    subtree_had_unverified = True
+                    stage_unverified = True
+
+                is_valid = (
+                    rec.effective_status is PhysicalEvidence.SAMPLED_3D_CLEAR_NOT_CONTINUOUS
+                    or (stage_allow_end_zone and rec.effective_status is PhysicalEvidence.CONDITIONAL)
+                )
+
+                if is_valid:
+                    child_res = dfs_backward(
+                        s_prime,
+                        rev_chosen + (cand_id,),
+                        path_records + [rec],
+                        current_cost + edge_cost,
+                        [cand_setup] + suffix_setups,
+                    )
+                    if child_res.has_solution or child_res.solution is not None:
+                        found_solution_in_subtree = True
+                        if not optimize_cost:
+                            return child_res
+                    if child_res.had_cost_pruning:
+                        any_cost_pruned = True
+                    if child_res.had_unverified:
+                        subtree_had_unverified = True
+                        stage_unverified = True
+                    if child_res.had_limit_reached:
+                        stage_limit_reached = True
+                    if child_res.had_cancelled:
+                        cancelled = True
+                    backtracks_count += 1
+                else:
+                    _record_rejection(cand_id, f"backward_rem={list(remaining_bends)}:STAGE_C_3D:{rec.effective_status.value}:{rec.reason}")
+
+            is_proven_physical_dead_end = (
+                not found_solution_in_subtree
+                and not any_cost_pruned
+                and not subtree_had_unverified
+                and not stage_limit_reached
+                and not cancelled
+            )
+            if is_proven_physical_dead_end:
+                eval_cache.mark_dead_end(subset_key)
+            return DFSSubtreeResult(
+                solution=None,
+                has_solution=found_solution_in_subtree,
+                had_cost_pruning=any_cost_pruned,
+                had_unverified=subtree_had_unverified,
+                had_limit_reached=stage_limit_reached,
+                had_cancelled=cancelled,
+            )
+
+        root_res = dfs_backward(
+            remaining_bends=frozenset(all_bends),
+            rev_chosen=(),
+            path_records=[],
+            current_cost=0.0,
+            suffix_setups=[],
+        )
+        winning_steps_out = (
+            best_strict_plan["winning_steps"]
+            if best_strict_plan is not None
+            else (best_conditional_plan["winning_steps"] if best_conditional_plan is not None else [])
+        )
+        found = (
+            best_strict_plan["sequence"]
+            if best_strict_plan is not None
+            else (best_conditional_plan["sequence"] if (stage_allow_end_zone and best_conditional_plan is not None) else root_res.solution)
+        )
+        return found, winning_steps_out, stage_limit_reached, stage_limit_reason, (root_res.had_unverified or stage_unverified)
+
+    found_seq: Optional[Tuple[str, ...]] = None
+    winning_steps: List[StepEvaluationRecord] = []
+    strict_exhausted = False
+    strict_limit_reached = False
+    strict_note = ""
+    limit_reason = ""
+    used_conditional_stage = False
+
+    try:
+        # Stage 1: Strict backward search
+        stage1_time_budget = max_search_time_s * 0.6 if eff_allow_end_zone else max_search_time_s
+        stage1_states_budget = max(1, int(max_states * 0.6)) if (eff_allow_end_zone and max_states > 1) else max_states
+        stage1_checks_budget = max(1, int(max_checks * 0.6)) if (eff_allow_end_zone and max_checks > 1) else max_checks
+
+        found_seq, winning_steps, s1_limit, s1_reason, s1_unverified = _run_backward_dfs_stage(
+            stage_allow_end_zone=False,
+            stage_time_limit_s=stage1_time_budget,
+            stage_max_states=stage1_states_budget,
+            stage_max_checks=stage1_checks_budget,
+        )
+        if best_strict_plan is not None:
+            found_seq = best_strict_plan["sequence"]
+            winning_steps = best_strict_plan["winning_steps"]
+
+        s2_unverified = False
+        if found_seq is None and not cancelled:
+            if s1_limit:
+                strict_limit_reached = True
+                strict_note = f"Strict backward search reached resource limit ({s1_reason})."
+                limit_reason = s1_reason
+            elif s1_unverified:
+                strict_note = "Strict backward search encountered unverified branches (physical evidence incomplete)."
+            else:
+                strict_exhausted = True
+                strict_note = "Strict backward search exhausted all reachable branches without finding a collision-free sequence."
+
+            # Stage 2: Conditional backward search
+            if eff_allow_end_zone and eff_end_zone_len > 0.0:
+                used_conditional_stage = True
+                s2_found, s2_steps, s2_limit, s2_reason, s2_unverified = _run_backward_dfs_stage(
+                    stage_allow_end_zone=True,
+                    stage_time_limit_s=max_search_time_s,
+                    stage_max_states=max_states,
+                    stage_max_checks=max_checks,
+                )
+                if best_conditional_plan is not None:
+                    found_seq = best_conditional_plan["sequence"]
+                    winning_steps = best_conditional_plan["winning_steps"]
+                elif s2_found is not None:
+                    found_seq = s2_found
+                    winning_steps = s2_steps
+                if s2_limit:
+                    limit_reason = s2_reason
+
+        best_plan = best_strict_plan if best_strict_plan is not None else best_conditional_plan
+
+        replay_report: Optional[ForwardReplayReport] = None
+        plan_penalty: Optional[SequencePenalty] = None
+        if best_plan is not None:
+            found_seq = best_plan["sequence"]
+            winning_steps = best_plan["winning_steps"]
+            replay_report = best_plan["replay_report"]
+            plan_penalty = best_plan["penalty"]
+        elif found_seq is not None:
+            replay_report = verify_sequence_forward_replay(
+                session,
+                press_cycle,
+                tooling,
+                found_seq,
+                config=config,
+                bend_shifts=shifts,
+                match_active_bend_length=eff_match_len,
+                allow_end_zone_collision=(eff_allow_end_zone if used_conditional_stage else False),
+                end_zone_length_mm=eff_end_zone_len,
+                pose_checker=pose_checker,
+                trajectory_checker=trajectory_checker,
+            )
+            if replay_report.is_verified:
+                plan_penalty = score_sequence(found_seq, [], op_weights)
+
+        elapsed_s = time.perf_counter() - t_start
+        rejection_summary = "; ".join(rejection_records[:10]) if rejection_records else "Коллизий не зафиксировано."
+
+        if cancelled:
+            return SequenceSearchReport(
+                status=SearchStatus.CANCELLED,
+                overall_evidence=PhysicalEvidence.UNVERIFIED,
+                found_sequence=found_seq,
+                initial_sequence=initial_order,
+                best_partial_sequence=best_partial,
+                max_depth_reached=max_depth_reached,
+                total_bends=total_bends,
+                states_visited=states_visited,
+                step_evaluations=step_evaluations,
+                cache_hits=cache_hits,
+                dead_end_hits=dead_end_hits,
+                backtracks_count=backtracks_count,
+                elapsed_s=elapsed_s,
+                match_active_bend_length=eff_match_len,
+                allow_end_zone_collision=eff_allow_end_zone,
+                end_zone_length_mm=eff_end_zone_len,
+                strict_search_attempted=True,
+                strict_search_exhausted=strict_exhausted,
+                strict_search_limit_reached=strict_limit_reached,
+                strict_search_note=strict_note,
+                rejection_summary=rejection_summary,
+                message_ru="Обратный поиск последовательности отменён пользователем.",
+                plan_cost=plan_penalty.to_dict() if plan_penalty is not None else None,
+                best_strict_cost=best_strict_plan["penalty"].total if best_strict_plan is not None else None,
+                best_conditional_cost=best_conditional_plan["penalty"].total if best_conditional_plan is not None else None,
+                time_to_first_full_candidate_s=time_to_first_full_candidate_s,
+                time_to_first_verified_plan_s=time_to_first_verified_plan_s,
+                stage_a_evaluated=stage_a_evaluated,
+                stage_a_pruned=stage_a_pruned,
+                stage_b_evaluated=stage_b_evaluated,
+                stage_b_pruned=stage_b_pruned,
+                stage_c_native_evaluated=stage_c_native_evaluated,
+                optimality_proven=False,
+                operation_weights=op_weights.to_dict(),
+            )
+
+        if found_seq is not None and replay_report is not None:
+            if not replay_report.is_verified:
+                return SequenceSearchReport(
+                    status=SearchStatus.UNVERIFIED,
+                    overall_evidence=PhysicalEvidence.UNVERIFIED,
+                    found_sequence=found_seq,
+                    initial_sequence=initial_order,
+                    best_partial_sequence=best_partial,
+                    max_depth_reached=max_depth_reached,
+                    total_bends=total_bends,
+                    states_visited=states_visited,
+                    step_evaluations=step_evaluations,
+                    cache_hits=cache_hits,
+                    dead_end_hits=dead_end_hits,
+                    backtracks_count=backtracks_count,
+                    elapsed_s=elapsed_s,
+                    match_active_bend_length=eff_match_len,
+                    allow_end_zone_collision=eff_allow_end_zone,
+                    end_zone_length_mm=eff_end_zone_len,
+                    strict_search_attempted=True,
+                    strict_search_exhausted=strict_exhausted,
+                    strict_search_limit_reached=strict_limit_reached,
+                    strict_search_note=strict_note,
+                    winning_steps=winning_steps,
+                    forward_replay=replay_report,
+                    rejection_summary=rejection_summary,
+                    message_ru=(
+                        f"Найденная обратным поиском последовательность {' -> '.join(found_seq)} не прошла независимый "
+                        f"прямой прогон с нуля на шаге {replay_report.blocking_bend_id}: {replay_report.blocking_reason} (UNVERIFIED)."
+                    ),
+                    plan_cost=plan_penalty.to_dict() if plan_penalty is not None else None,
+                    best_strict_cost=best_strict_plan["penalty"].total if best_strict_plan is not None else None,
+                    best_conditional_cost=best_conditional_plan["penalty"].total if best_conditional_plan is not None else None,
+                    time_to_first_full_candidate_s=time_to_first_full_candidate_s,
+                    time_to_first_verified_plan_s=time_to_first_verified_plan_s,
+                    stage_a_evaluated=stage_a_evaluated,
+                    stage_a_pruned=stage_a_pruned,
+                    stage_b_evaluated=stage_b_evaluated,
+                    stage_b_pruned=stage_b_pruned,
+                    stage_c_native_evaluated=stage_c_native_evaluated,
+                    optimality_proven=False,
+                    operation_weights=op_weights.to_dict(),
+                )
+
+            cost_str = f" Стоимость плана: {plan_penalty.total:.2f}." if plan_penalty else ""
+
+            if replay_report.is_conditional:
+                cond_bends = list(replay_report.conditional_bends)
+                strict_prefix_ru = (
+                    f"Строгий обратный поиск не нашёл вариантов ({strict_note}). "
+                    if strict_note
+                    else ""
+                )
+                return SequenceSearchReport(
+                    status=SearchStatus.CONDITIONAL_VALIDATED,
+                    overall_evidence=PhysicalEvidence.CONDITIONAL,
+                    found_sequence=found_seq,
+                    initial_sequence=initial_order,
+                    best_partial_sequence=found_seq,
+                    max_depth_reached=total_bends,
+                    total_bends=total_bends,
+                    states_visited=states_visited,
+                    step_evaluations=step_evaluations,
+                    cache_hits=cache_hits,
+                    dead_end_hits=dead_end_hits,
+                    backtracks_count=backtracks_count,
+                    elapsed_s=elapsed_s,
+                    match_active_bend_length=eff_match_len,
+                    allow_end_zone_collision=eff_allow_end_zone,
+                    end_zone_length_mm=eff_end_zone_len,
+                    strict_search_attempted=True,
+                    strict_search_exhausted=strict_exhausted,
+                    strict_search_limit_reached=strict_limit_reached,
+                    strict_search_note=strict_note,
+                    conditional_bends=cond_bends,
+                    winning_steps=winning_steps,
+                    forward_replay=replay_report,
+                    rejection_summary=rejection_summary,
+                    search_limit_reason=limit_reason,
+                    message_ru=(
+                        f"{strict_prefix_ru}Найдена условно-допустимая последовательность (обратный поиск): "
+                        f"{' -> '.join(found_seq)}.{cost_str} Коллизии строго на торцах пуансона ({', '.join(cond_bends)}), "
+                        f"требуется пуансон с разделкой торцов (CONDITIONAL)."
+                    ),
+                    plan_cost=plan_penalty.to_dict() if plan_penalty is not None else None,
+                    best_strict_cost=best_strict_plan["penalty"].total if best_strict_plan is not None else None,
+                    best_conditional_cost=best_conditional_plan["penalty"].total if best_conditional_plan is not None else None,
+                    time_to_first_full_candidate_s=time_to_first_full_candidate_s,
+                    time_to_first_verified_plan_s=time_to_first_verified_plan_s,
+                    stage_a_evaluated=stage_a_evaluated,
+                    stage_a_pruned=stage_a_pruned,
+                    stage_b_evaluated=stage_b_evaluated,
+                    stage_b_pruned=stage_b_pruned,
+                    stage_c_native_evaluated=stage_c_native_evaluated,
+                    optimality_proven=(optimize_cost and not s1_limit and not s1_unverified and not cancelled),
+                    operation_weights=op_weights.to_dict(),
+                )
+
+            opt_proven = (optimize_cost and not s1_limit and not s1_unverified and not cancelled)
+            limit_note = (
+                f" Поиск продолжений остановлен по лимиту ({limit_reason}); глобальная оптимальность не доказана."
+                if limit_reason
+                else (" (оптимум доказан в рассмотренном пространстве)" if opt_proven else " (оптимальность не доказана)")
+            )
+            return SequenceSearchReport(
+                status=SearchStatus.STRICT_VALIDATED,
+                overall_evidence=PhysicalEvidence.SAMPLED_3D_CLEAR_NOT_CONTINUOUS,
+                found_sequence=found_seq,
+                initial_sequence=initial_order,
+                best_partial_sequence=found_seq,
+                max_depth_reached=total_bends,
+                total_bends=total_bends,
+                states_visited=states_visited,
+                step_evaluations=step_evaluations,
+                cache_hits=cache_hits,
+                dead_end_hits=dead_end_hits,
+                backtracks_count=backtracks_count,
+                elapsed_s=elapsed_s,
+                match_active_bend_length=eff_match_len,
+                allow_end_zone_collision=eff_allow_end_zone,
+                end_zone_length_mm=eff_end_zone_len,
+                strict_search_attempted=True,
+                strict_search_exhausted=False,
+                strict_search_limit_reached=strict_limit_reached,
+                strict_search_note=strict_note or "Strict collision-free sequence found by backward search and verified by forward replay.",
+                conditional_bends=[],
+                winning_steps=winning_steps,
+                forward_replay=replay_report,
+                rejection_summary=rejection_summary,
+                search_limit_reason=limit_reason,
+                message_ru=(
+                    f"Найдена обратным поиском и подтверждена прямым прогоном последовательность без коллизий: "
+                    f"{' -> '.join(found_seq)}.{cost_str}{limit_note}"
+                ),
+                plan_cost=plan_penalty.to_dict() if plan_penalty is not None else None,
+                best_strict_cost=best_strict_plan["penalty"].total if best_strict_plan is not None else None,
+                best_conditional_cost=best_conditional_plan["penalty"].total if best_conditional_plan is not None else None,
+                time_to_first_full_candidate_s=time_to_first_full_candidate_s,
+                time_to_first_verified_plan_s=time_to_first_verified_plan_s,
+                stage_a_evaluated=stage_a_evaluated,
+                stage_a_pruned=stage_a_pruned,
+                stage_b_evaluated=stage_b_evaluated,
+                stage_b_pruned=stage_b_pruned,
+                stage_c_native_evaluated=stage_c_native_evaluated,
+                optimality_proven=opt_proven,
+                operation_weights=op_weights.to_dict(),
+            )
+
+        # No sequence found
+        if limit_reason:
+            return SequenceSearchReport(
+                status=SearchStatus.NOT_FOUND_WITHIN_SEARCH_LIMITS,
+                overall_evidence=PhysicalEvidence.UNVERIFIED,
+                found_sequence=None,
+                initial_sequence=initial_order,
+                best_partial_sequence=best_partial,
+                max_depth_reached=max_depth_reached,
+                total_bends=total_bends,
+                states_visited=states_visited,
+                step_evaluations=step_evaluations,
+                cache_hits=cache_hits,
+                dead_end_hits=dead_end_hits,
+                backtracks_count=backtracks_count,
+                elapsed_s=elapsed_s,
+                match_active_bend_length=eff_match_len,
+                allow_end_zone_collision=eff_allow_end_zone,
+                end_zone_length_mm=eff_end_zone_len,
+                strict_search_attempted=True,
+                strict_search_exhausted=strict_exhausted,
+                strict_search_limit_reached=strict_limit_reached,
+                strict_search_note=strict_note,
+                rejection_summary=rejection_summary,
+                search_limit_reason=limit_reason,
+                message_ru=(
+                    f"Решение не найдено в пределах заданного обратного поиска ({limit_reason}). "
+                    f"Лучший суффикс ({len(best_partial)}/{total_bends}): "
+                    f"{' -> '.join(best_partial) if best_partial else 'нет'}."
+                ),
+                plan_cost=None,
+                best_strict_cost=None,
+                best_conditional_cost=None,
+                time_to_first_full_candidate_s=time_to_first_full_candidate_s,
+                time_to_first_verified_plan_s=time_to_first_verified_plan_s,
+                stage_a_evaluated=stage_a_evaluated,
+                stage_a_pruned=stage_a_pruned,
+                stage_b_evaluated=stage_b_evaluated,
+                stage_b_pruned=stage_b_pruned,
+                stage_c_native_evaluated=stage_c_native_evaluated,
+                optimality_proven=False,
+                operation_weights=op_weights.to_dict(),
+            )
+
+        if s1_unverified or (used_conditional_stage and s2_unverified):
+            return SequenceSearchReport(
+                status=SearchStatus.UNVERIFIED,
+                overall_evidence=PhysicalEvidence.UNVERIFIED,
+                found_sequence=None,
+                initial_sequence=initial_order,
+                best_partial_sequence=best_partial,
+                max_depth_reached=max_depth_reached,
+                total_bends=total_bends,
+                states_visited=states_visited,
+                step_evaluations=step_evaluations,
+                cache_hits=cache_hits,
+                dead_end_hits=dead_end_hits,
+                backtracks_count=backtracks_count,
+                elapsed_s=elapsed_s,
+                match_active_bend_length=eff_match_len,
+                allow_end_zone_collision=eff_allow_end_zone,
+                end_zone_length_mm=eff_end_zone_len,
+                strict_search_attempted=True,
+                strict_search_exhausted=False,
+                strict_search_limit_reached=False,
+                strict_search_note=strict_note or "Backward search encountered unverified states; complete proof of infeasibility unavailable.",
+                rejection_summary=rejection_summary,
+                search_limit_reason="",
+                message_ru=(
+                    f"Обратный поиск не смог однозначно подтвердить отсутствие решений из-за наличия непроверенных состояний (UNVERIFIED). "
+                    f"Лучший суффикс ({len(best_partial)}/{total_bends}): "
+                    f"{' -> '.join(best_partial) if best_partial else 'нет'}."
+                ),
+                plan_cost=None,
+                best_strict_cost=None,
+                best_conditional_cost=None,
+                time_to_first_full_candidate_s=time_to_first_full_candidate_s,
+                time_to_first_verified_plan_s=time_to_first_verified_plan_s,
+                stage_a_evaluated=stage_a_evaluated,
+                stage_a_pruned=stage_a_pruned,
+                stage_b_evaluated=stage_b_evaluated,
+                stage_b_pruned=stage_b_pruned,
+                stage_c_native_evaluated=stage_c_native_evaluated,
+                optimality_proven=False,
+                operation_weights=op_weights.to_dict(),
+            )
+
+        return SequenceSearchReport(
+            status=SearchStatus.NO_FEASIBLE_SEQUENCE,
+            overall_evidence=PhysicalEvidence.COLLISION,
+            found_sequence=None,
+            initial_sequence=initial_order,
+            best_partial_sequence=best_partial,
+            max_depth_reached=max_depth_reached,
+            total_bends=total_bends,
+            states_visited=states_visited,
+            step_evaluations=step_evaluations,
+            cache_hits=cache_hits,
+            dead_end_hits=dead_end_hits,
+            backtracks_count=backtracks_count,
+            elapsed_s=elapsed_s,
+            match_active_bend_length=eff_match_len,
+            allow_end_zone_collision=eff_allow_end_zone,
+            end_zone_length_mm=eff_end_zone_len,
+            strict_search_attempted=True,
+            strict_search_exhausted=True,
+            strict_search_limit_reached=False,
+            strict_search_note=strict_note,
+            rejection_summary=rejection_summary,
+            message_ru=(
+                f"Все достижимые варианты обратного поиска проверены ({states_visited} состояний, {step_evaluations} проверок); "
+                f"допустимая последовательность для выбранного инструмента не найдена. "
+                f"Лучший суффикс ({len(best_partial)}/{total_bends}): "
+                f"{' -> '.join(best_partial) if best_partial else 'нет'}."
+            ),
+            plan_cost=None,
+            best_strict_cost=None,
+            best_conditional_cost=None,
+            time_to_first_full_candidate_s=time_to_first_full_candidate_s,
+            time_to_first_verified_plan_s=time_to_first_verified_plan_s,
+            stage_a_evaluated=stage_a_evaluated,
+            stage_a_pruned=stage_a_pruned,
+            stage_b_evaluated=stage_b_evaluated,
+            stage_b_pruned=stage_b_pruned,
+            stage_c_native_evaluated=stage_c_native_evaluated,
+            optimality_proven=False,
+            operation_weights=op_weights.to_dict(),
+        )
+
+    finally:
+        # Restore session
+        if best_strict_plan is None and best_conditional_plan is None and found_seq is None:
+            try:
+                _reset_session_compat(session)
+                if hasattr(session, "set_bend_order"):
+                    session.set_bend_order(list(initial_order))
+                if hasattr(session.fold_state, "angles"):
+                    session.fold_state.angles.clear()
+                    session.fold_state.angles.update(initial_angles)
+                if hasattr(session.fold_state, "transforms"):
+                    session.fold_state.transforms.clear()
+                    session.fold_state.transforms.update(initial_transforms)
+                _select_bend_index_compat(session, initial_active_index)
+                _sync_tooling_and_cycle_for_active_bend(
+                    session,
+                    press_cycle,
+                    tooling,
+                    match_active_bend_length=eff_match_len,
+                    allow_end_zone_collision=eff_allow_end_zone,
+                    end_zone_length_mm=eff_end_zone_len,
+                )
+            except Exception:
+                pass
+        elif found_seq is not None:
+            try:
+                if hasattr(session, "set_bend_order"):
+                    session.set_bend_order(list(found_seq))
+                _select_bend_index_compat(session, 0)
+                _sync_tooling_and_cycle_for_active_bend(
+                    session,
+                    press_cycle,
+                    tooling,
+                    match_active_bend_length=eff_match_len,
+                    allow_end_zone_collision=eff_allow_end_zone,
+                    end_zone_length_mm=eff_end_zone_len,
+                )
+            except Exception:
+                pass
+
+
+class DFSBackwardPlanner25D:
+    """Backward Depth-First Search Planner with 2.5D/3D physical validation.
+
+    Provides an object-oriented interface compatible with the Solvers framework
+    (e.g. DFSBackwardPlanner).
+    """
+
+    def __init__(
+        self,
+        session,
+        press_cycle,
+        tooling,
+        *,
+        config: Optional[AdaptiveSamplingConfig] = None,
+        weights: Optional[OperationWeights] = None,
+        cache: Optional[StepEvaluationCache] = None,
+        **default_kwargs,
+    ):
+        self.session = session
+        self.press_cycle = press_cycle
+        self.tooling = tooling
+        self.config = config
+        self.weights = weights
+        self.cache = cache
+        self.default_kwargs = default_kwargs
+
+    def solve(self, **override_kwargs) -> SequenceSearchReport:
+        kw = dict(self.default_kwargs)
+        if self.config is not None:
+            kw.setdefault("config", self.config)
+        if self.weights is not None:
+            kw.setdefault("weights", self.weights)
+        if self.cache is not None:
+            kw.setdefault("cache", self.cache)
+        kw.update(override_kwargs)
+        return search_bend_sequence_backward_25d(
+            self.session,
+            self.press_cycle,
+            self.tooling,
+            **kw,
+        )
