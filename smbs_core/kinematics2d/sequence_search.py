@@ -852,6 +852,17 @@ def verify_sequence_forward_replay(
     )
 
 
+@dataclass(frozen=True)
+class DFSSubtreeResult:
+    """Structured result of a DFS subtree exploration for robust multi-level aggregation."""
+    solution: Optional[Tuple[str, ...]] = None
+    has_solution: bool = False
+    had_cost_pruning: bool = False
+    had_unverified: bool = False
+    had_limit_reached: bool = False
+    had_cancelled: bool = False
+
+
 def search_bend_sequence_25d(
     session,
     press_cycle,
@@ -993,7 +1004,7 @@ def search_bend_sequence_25d(
             path_records: List[StepEvaluationRecord],
             current_cost: float,
             setups_history: List[WorkpieceMachineSetup],
-        ) -> Tuple[Optional[Tuple[str, ...]], bool]:
+        ) -> DFSSubtreeResult:
             nonlocal states_visited, step_evaluations, cache_hits, dead_end_hits, backtracks_count, best_partial, max_depth_reached
             nonlocal stage_limit_reached, stage_limit_reason, stage_unverified, cancelled
             nonlocal stage_a_evaluated, stage_a_pruned, stage_b_evaluated, stage_b_pruned, stage_c_native_evaluated
@@ -1051,38 +1062,46 @@ def search_bend_sequence_25d(
                         if cb_res is False:
                             cancelled = True
                             stage_unverified = True
-                            return completed_prefix, True
-                    return completed_prefix, False
+                            return DFSSubtreeResult(
+                                solution=completed_prefix,
+                                has_solution=True,
+                                had_unverified=True,
+                                had_cancelled=True,
+                            )
+                    return DFSSubtreeResult(
+                        solution=completed_prefix,
+                        has_solution=True,
+                    )
                 else:
                     _record_rejection(
                         replay_rep.blocking_bend_id or "REPLAY",
                         f"prefix={list(completed_prefix)}:FORWARD_REPLAY_FAILED:{replay_rep.blocking_reason}",
                     )
-                    return None, False
+                    return DFSSubtreeResult(has_solution=False)
 
             if progress_callback is not None:
                 cb_res = progress_callback(states_visited, step_evaluations, completed_prefix)
                 if cb_res is False:
                     cancelled = True
                     stage_unverified = True
-                    return None, True
+                    return DFSSubtreeResult(had_unverified=True, had_cancelled=True)
 
             elapsed = time.perf_counter() - t_start
             if elapsed >= stage_time_limit_s:
                 stage_limit_reached = True
                 stage_limit_reason = f"MAX_SEARCH_TIME_REACHED:{elapsed:.2f}s>={stage_time_limit_s:.2f}s"
                 stage_unverified = True
-                return None, True
+                return DFSSubtreeResult(had_unverified=True, had_limit_reached=True)
             if states_visited >= stage_max_states:
                 stage_limit_reached = True
                 stage_limit_reason = f"MAX_SEARCH_STATES_REACHED:{states_visited}>={stage_max_states}"
                 stage_unverified = True
-                return None, True
+                return DFSSubtreeResult(had_unverified=True, had_limit_reached=True)
             if step_evaluations >= stage_max_checks:
                 stage_limit_reached = True
                 stage_limit_reason = f"MAX_SEARCH_CHECKS_REACHED:{step_evaluations}>={stage_max_checks}"
                 stage_unverified = True
-                return None, True
+                return DFSSubtreeResult(had_unverified=True, had_limit_reached=True)
 
             completed_angles = _apply_prefix_to_session(
                 session,
@@ -1106,7 +1125,7 @@ def search_bend_sequence_25d(
             )
             if eval_cache.is_dead_end(subset_key):
                 dead_end_hits += 1
-                return None, False
+                return DFSSubtreeResult(has_solution=False)
 
             states_visited += 1
             subtree_had_unverified = False
@@ -1173,7 +1192,7 @@ def search_bend_sequence_25d(
             for edge_cost, cand_id, cand_setup in candidate_scores:
                 if cancelled:
                     stage_unverified = True
-                    return None, True
+                    return DFSSubtreeResult(had_unverified=True, had_cancelled=True)
                 elapsed = time.perf_counter() - t_start
                 if elapsed >= stage_time_limit_s:
                     stage_limit_reached = True
@@ -1230,23 +1249,27 @@ def search_bend_sequence_25d(
                 )
 
                 if is_valid:
-                    res, child_unverified = dfs(
+                    child_res = dfs(
                         completed_prefix + (cand_id,),
                         rem_after,
                         path_records + [rec],
                         current_cost + edge_cost,
                         setups_history + [cand_setup],
                     )
-                    if child_unverified:
-                        subtree_had_unverified = True
-                        stage_unverified = True
-                    if res is not None:
+                    if child_res.has_solution or child_res.solution is not None:
                         found_solution_in_subtree = True
                         if not optimize_cost:
-                            return res, False
-                        backtracks_count += 1
-                    else:
-                        backtracks_count += 1
+                            return child_res
+                    if child_res.had_cost_pruning:
+                        any_cost_pruned = True
+                    if child_res.had_unverified:
+                        subtree_had_unverified = True
+                        stage_unverified = True
+                    if child_res.had_limit_reached:
+                        stage_limit_reached = True
+                    if child_res.had_cancelled:
+                        cancelled = True
+                    backtracks_count += 1
                 else:
                     _record_rejection(cand_id, f"prefix={list(completed_prefix)}:STAGE_C_3D:{rec.effective_status.value}:{rec.reason}")
 
@@ -1259,10 +1282,20 @@ def search_bend_sequence_25d(
             )
             if is_proven_physical_dead_end:
                 eval_cache.mark_dead_end(subset_key)
-            return None, (subtree_had_unverified or stage_limit_reached or cancelled)
+            return DFSSubtreeResult(
+                solution=None,
+                has_solution=found_solution_in_subtree,
+                had_cost_pruning=any_cost_pruned,
+                had_unverified=(subtree_had_unverified or stage_unverified),
+                had_limit_reached=stage_limit_reached,
+                had_cancelled=cancelled,
+            )
 
-        found, stage_unverified_out = dfs((), initial_order, [], 0.0, [])
-        return found, winning_steps_out, stage_limit_reached, stage_limit_reason, stage_unverified_out
+        root_res = dfs((), initial_order, [], 0.0, [])
+        found = best_strict_plan["sequence"] if best_strict_plan is not None else (
+            best_conditional_plan["sequence"] if (stage_allow_end_zone and best_conditional_plan is not None) else root_res.solution
+        )
+        return found, winning_steps_out, stage_limit_reached, stage_limit_reason, (root_res.had_unverified or stage_unverified)
 
     found_seq: Optional[Tuple[str, ...]] = None
     winning_steps: List[StepEvaluationRecord] = []
