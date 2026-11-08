@@ -1,11 +1,13 @@
 {
   "metadata": {
-    "timestamp": "2026-11-08T15:01:44Z",
-    "git_commit": "5c677eb8db94b3df4d74d8ba2d84479d677c8efc",
-    "git_dirty": true,
+    "timestamp": "2026-11-08T16:30:31Z",
+    "git_commit": "5fcb27f11bfea10667c230b7e0fd263b67bdbede",
+    "git_dirty": false,
+    "command_line": "PYTHONPATH=\"/Users/badmc/Library/Application Support/FreeCAD/v1-1/Mod:/Applications/FreeCAD.app/Contents/Resources/lib:.\" /Applications/FreeCAD.app/Contents/Resources/bin/python tools/compare_forward_backward_search_z_part.py",
     "freecad_version": "1.1.3",
     "occt_version": "7.8.1",
     "fixture": "Z-(ok).FCStd",
+    "total_bends": 2,
     "bends": [
       "B01",
       "B02"
@@ -13,23 +15,82 @@
     "tool_punch": "PUNCH_AP_1017_88°_H104,65_R0,8",
     "tool_die": "T-DIE_AT_3015_88°_V12_H80",
     "match_active_bend_length": true,
-    "max_phase_time_s": 180.0,
-    "max_search_time_s": 600.0
+    "allow_end_zone_collision": false,
+    "end_zone_length_mm": 0.0,
+    "sampling_config": {
+      "max_bend_angle_step_deg": 5.0,
+      "max_phase_time_s": 180.0,
+      "early_stop_on_blocking_collision": true,
+      "min_clearance_margin_mm": 0.5,
+      "volume_tolerance_mm3": 0.0001,
+      "contact_distance_tolerance_mm": 0.0001
+    },
+    "weights": {
+      "flip": 20.0,
+      "turn_per_90_deg": 10.0,
+      "shift_fixed": 5.0
+    },
+    "budgets": {
+      "max_search_time_s": 600.0,
+      "max_states": 20,
+      "max_checks": 50,
+      "max_phase_time_s": 180.0
+    },
+    "timing_accounting_rule": "search_time_s records DFS tree exploration before plan discovery; replay_time_s records independent forward replay from flat blank (0°); total_wall_time_s covers complete execution from clean session launch."
   },
   "forward_search": {
+    "direction": "FORWARD",
     "status": "STRICT_VALIDATED",
     "overall_evidence": "SAMPLED_3D_CLEAR_NOT_CONTINUOUS",
     "found_sequence": [
       "B01",
       "B02"
     ],
-    "elapsed_s": 428.45,
-    "time_to_first_verified_plan_s": 428.449,
-    "states_visited": 2,
-    "step_evaluations": 2,
-    "cache_hits": 0,
-    "dead_end_hits": 0,
-    "backtracks_count": 0,
+    "best_partial_sequence": [
+      "B01",
+      "B02"
+    ],
+    "max_depth_reached": 2,
+    "total_bends": 2,
+    "is_verified": true,
+    "timings": {
+      "search_time_s": 237.985,
+      "replay_time_s": 221.624,
+      "total_wall_time_s": 459.61,
+      "time_to_first_verified_plan_s": 459.609
+    },
+    "search_exploration": {
+      "states_visited": 2,
+      "step_evaluations": 2,
+      "cache_hits": 0,
+      "dead_end_hits": 0,
+      "backtracks_count": 0,
+      "stage_a_evaluated": 3,
+      "stage_a_pruned": 0,
+      "stage_b_evaluated": 3,
+      "stage_b_pruned": 0,
+      "stage_c_native_evaluated": 2
+    },
+    "occt_and_physics_counters": {
+      "total_unique_steps_evaluated": 4,
+      "pair_collision_checks": 392,
+      "actual_distance_queries": 326,
+      "actual_common_queries": 264,
+      "solid_reconstructions": 132,
+      "states_evaluated_in_trajectories": 292,
+      "pose_cache_hits": 32,
+      "punch_cache_hits": 0,
+      "die_cache_hits": 128,
+      "solid_cache_hits": 128
+    },
+    "forward_replay": {
+      "is_verified": true,
+      "overall_status": "SAMPLED_3D_CLEAR_NOT_CONTINUOUS",
+      "elapsed_s": 221.624,
+      "steps_verified": 2,
+      "blocking_bend_id": null,
+      "blocking_reason": ""
+    },
     "plan_cost": {
       "order": [
         "B01",
@@ -81,22 +142,69 @@
       "is_complete": true,
       "note": "Technological cost ranking only; does not replace or certify 3D physical feasibility."
     },
-    "is_verified": true
+    "rejection_analysis": {
+      "search_limit_reason": "",
+      "categorized_rejections": {
+        "proven_collisions": [],
+        "geometry_errors": [],
+        "incomplete_checks": [],
+        "other_rejections": []
+      }
+    }
   },
   "backward_search": {
+    "direction": "BACKWARD",
     "status": "STRICT_VALIDATED",
     "overall_evidence": "SAMPLED_3D_CLEAR_NOT_CONTINUOUS",
     "found_sequence": [
       "B02",
       "B01"
     ],
-    "elapsed_s": 501.224,
-    "time_to_first_verified_plan_s": 501.223,
-    "states_visited": 2,
-    "step_evaluations": 2,
-    "cache_hits": 0,
-    "dead_end_hits": 0,
-    "backtracks_count": 0,
+    "best_partial_sequence": [
+      "B02",
+      "B01"
+    ],
+    "max_depth_reached": 2,
+    "total_bends": 2,
+    "is_verified": true,
+    "timings": {
+      "search_time_s": 285.462,
+      "replay_time_s": 273.461,
+      "total_wall_time_s": 558.924,
+      "time_to_first_verified_plan_s": 558.923
+    },
+    "search_exploration": {
+      "states_visited": 2,
+      "step_evaluations": 2,
+      "cache_hits": 0,
+      "dead_end_hits": 0,
+      "backtracks_count": 0,
+      "stage_a_evaluated": 3,
+      "stage_a_pruned": 0,
+      "stage_b_evaluated": 3,
+      "stage_b_pruned": 0,
+      "stage_c_native_evaluated": 2
+    },
+    "occt_and_physics_counters": {
+      "total_unique_steps_evaluated": 4,
+      "pair_collision_checks": 392,
+      "actual_distance_queries": 326,
+      "actual_common_queries": 264,
+      "solid_reconstructions": 132,
+      "states_evaluated_in_trajectories": 292,
+      "pose_cache_hits": 32,
+      "punch_cache_hits": 0,
+      "die_cache_hits": 128,
+      "solid_cache_hits": 128
+    },
+    "forward_replay": {
+      "is_verified": true,
+      "overall_status": "SAMPLED_3D_CLEAR_NOT_CONTINUOUS",
+      "elapsed_s": 273.461,
+      "steps_verified": 2,
+      "blocking_bend_id": null,
+      "blocking_reason": ""
+    },
     "plan_cost": {
       "order": [
         "B02",
@@ -148,19 +256,46 @@
       "is_complete": true,
       "note": "Technological cost ranking only; does not replace or certify 3D physical feasibility."
     },
-    "is_verified": true
+    "rejection_analysis": {
+      "search_limit_reason": "",
+      "categorized_rejections": {
+        "proven_collisions": [],
+        "geometry_errors": [],
+        "incomplete_checks": [],
+        "other_rejections": []
+      }
+    }
   },
   "comparison_summary": {
-    "sequences_identical": false,
     "both_verified": true,
-    "forward_elapsed_s": 428.45,
-    "backward_elapsed_s": 501.224,
-    "forward_states": 2,
-    "backward_states": 2,
-    "forward_checks": 2,
-    "backward_checks": 2,
+    "sequences_identical": false,
+    "forward_sequence": [
+      "B01",
+      "B02"
+    ],
+    "backward_sequence": [
+      "B02",
+      "B01"
+    ],
+    "forward_search_time_s": 237.985,
+    "backward_search_time_s": 285.462,
+    "forward_replay_time_s": 221.624,
+    "backward_replay_time_s": 273.461,
+    "forward_total_time_s": 459.61,
+    "backward_total_time_s": 558.924,
+    "forward_states_visited": 2,
+    "backward_states_visited": 2,
+    "forward_step_evaluations": 2,
+    "backward_step_evaluations": 2,
+    "forward_distance_queries": 326,
+    "backward_distance_queries": 326,
+    "forward_common_queries": 264,
+    "backward_common_queries": 264,
+    "forward_solid_rebuilds": 132,
+    "backward_solid_rebuilds": 132,
     "forward_cost": 42.0,
     "backward_cost": 42.0,
-    "conclusion": "Both forward and backward search directions independently qualify physical operations using authoritative 5-phase motion trajectory checks. Backward search verifies hypothetical last bends using forward deformation from 0° with preceding bends folded, computes changeovers in forward order, and confirms complete sequences via independent forward replay from the flat blank."
+    "fewer_heavy_checks_direction": "EQUAL",
+    "conclusion": "Authoritative comparison between forward and backward search directions. Both modes run with identical budgets, cold caches, and strict collision rules."
   }
 }
