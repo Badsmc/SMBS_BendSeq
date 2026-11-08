@@ -116,6 +116,7 @@ class MotionState3D:
     cache_lookup_ms: float = 0.0
     die_cache_hit: bool = False
     solid_cache_hit: bool = False
+    punch_cache_hit: bool = False
     punch_eval_ms: float = 0.0
     die_eval_ms: float = 0.0
     is_conditional_safe: bool = False
@@ -172,6 +173,8 @@ class TrajectoryPhaseResult:
     solid_cache_misses: int = 0
     die_cache_hits: int = 0
     die_cache_misses: int = 0
+    punch_cache_hits: int = 0
+    punch_cache_misses: int = 0
     phase_solid_reconstruction_ms: float = 0.0
     is_conditional: bool = False
     max_end_zone_overlap_volume_mm3: float = 0.0
@@ -326,6 +329,26 @@ def _die_geometry_signature(die: LoadedTool) -> Tuple[Any, ...]:
     return (die_id, gen_token, v_open, eff_v, radius, height, length, is_virt, src_len, span_xm, vol, com_tuple)
 
 
+def _punch_geometry_signature(punch: LoadedTool) -> Tuple[Any, ...]:
+    """Deterministic hashable signature of punch tool geometry and length."""
+    if punch is None:
+        return ()
+    p_id = getattr(punch, "tool_id", getattr(punch, "name", ""))
+    gen_token = getattr(punch, "generation_token", getattr(punch, "geom_version", None))
+    tip_radius = float(getattr(punch, "tip_radius_mm", 0.0))
+    inc_angle = float(getattr(punch, "included_angle_deg", 0.0))
+    height = float(getattr(punch, "height_mm", 0.0))
+    length = float(getattr(punch, "length_mm", 0.0))
+    is_virt = bool(getattr(punch, "is_virtual_length", False))
+    src_len = float(getattr(punch, "source_length_mm", length))
+    span_xm = tuple(float(x) for x in getattr(punch, "span_xm", (-0.5 * length, 0.5 * length)))
+    m_shape = getattr(punch, "machine_shape", None)
+    vol = round(float(m_shape.Volume), 5) if m_shape is not None and hasattr(m_shape, "Volume") else 0.0
+    com = getattr(m_shape, "CenterOfMass", None) if m_shape is not None else None
+    com_tuple = (round(float(com.x), 5), round(float(com.y), 5), round(float(com.z), 5)) if com is not None else ()
+    return (p_id, gen_token, tip_radius, inc_angle, height, length, is_virt, src_len, span_xm, vol, com_tuple)
+
+
 def is_blocking_collision(st: Optional[MotionState3D]) -> bool:
     """Return True iff state has a confirmed forbidden physical collision.
 
@@ -447,14 +470,22 @@ class AdaptiveTrajectoryValidator3D:
         self.solid_cache_misses: int = 0
         self.die_cache_hits: int = 0
         self.die_cache_misses: int = 0
+        self.punch_cache_hits: int = 0
+        self.punch_cache_misses: int = 0
+        self.pose_cache_hits: int = 0
+        self.pose_cache_misses: int = 0
         self.total_cache_lookup_ms: float = 0.0
         self._solid_cache: Dict[Tuple[Any, ...], Any] = {}
         self._die_clearance_cache: Dict[Tuple[Any, ...], Any] = {}
+        self._punch_clearance_cache: Dict[Tuple[Any, ...], Any] = {}
+        self._pose_collision_cache: Dict[Tuple[Any, ...], Any] = {}
 
     def clear_caches(self) -> None:
-        """Clear Part Space solid cache and die clearance cache."""
+        """Clear Part Space solid cache, clearance caches, and pose collision cache."""
         self._solid_cache.clear()
         self._die_clearance_cache.clear()
+        self._punch_clearance_cache.clear()
+        self._pose_collision_cache.clear()
 
     def clear_solid_cache(self) -> None:
         """Clear caches (backwards compatibility alias)."""
@@ -523,14 +554,80 @@ class AdaptiveTrajectoryValidator3D:
         )
         self.placement_calc_time_ms += (time.perf_counter() - t_p0) * 1000.0
 
-        # Build native 3D multi-bend sheet solid (cached by Part Space fold angles with exact floats and geometry signature)
+        # Build signatures for cache keys
         angles_tuple = tuple(sorted((b_id, float(a)) for b_id, a in self.fold_state.angles.items()))
-        t_solid_lookup0 = time.perf_counter()
         wp_geom_sig = _panel_build_geometry_signature(self.panel_build)
+        die_geom_sig = _die_geometry_signature(self.die)
+        punch_geom_sig = _punch_geometry_signature(self.punch_base)
+        tolerances_sig = (
+            float(self.config.near_tolerance_mm),
+            float(self.config.volume_tolerance_mm3),
+            float(self.config.contact_distance_tolerance_mm),
+        )
+        ez_policy_sig = (
+            bool(self.end_zone_policy.allow_end_zone_collision) if self.end_zone_policy else False,
+            float(self.end_zone_policy.end_zone_length_mm) if self.end_zone_policy else 0.0,
+        )
+        cls_ez_len = float(self.classify_end_zone_length_mm) if self.classify_end_zone_length_mm is not None else 0.0
+
+        # Exact complete pose cache key
+        pose_cache_key = (
+            self.config.arc_segments,
+            active_bend_id,
+            float(ram_z),
+            float(support_z),
+            float(self.desired_midpoint_xm),
+            angles_tuple,
+            punch_geom_sig,
+            die_geom_sig,
+            wp_geom_sig,
+            tolerances_sig,
+            cls_ez_len,
+            ez_policy_sig,
+        )
+
+        t_lookup0 = time.perf_counter()
+        cached_pose_res = self._pose_collision_cache.get(pose_cache_key)
+        if cached_pose_res is not None:
+            t_lookup1 = time.perf_counter()
+            cache_lookup_ms = (t_lookup1 - t_lookup0) * 1000.0
+            self.total_cache_lookup_ms += cache_lookup_ms
+            self.pose_cache_hits += 1
+            self.die_cache_hits += 1
+            self.punch_cache_hits += 1
+            self.solid_cache_hits += 1
+            self.total_collision_queries += 1
+            self.total_states_evaluated += 1
+            col_res = cached_pose_res
+            return MotionState3D(
+                phase=phase,
+                active_bend_id=active_bend_id,
+                signed_angle_deg=signed_angle,
+                path_u=path_u,
+                ram_z_mm=ram_z,
+                support_plane_zm=support_z,
+                workpiece_placement=tf,
+                completed_angles=dict(prior_angles),
+                collision_report=col_res,
+                is_safe=col_res.is_safe,
+                punch_actual_eval_ms=0.0,
+                die_actual_eval_ms=0.0,
+                cache_lookup_ms=cache_lookup_ms,
+                die_cache_hit=True,
+                solid_cache_hit=True,
+                punch_cache_hit=True,
+                punch_eval_ms=0.0,
+                die_eval_ms=0.0,
+                is_conditional_safe=bool(getattr(col_res, "is_conditional_safe", False)),
+                conditional_status=str(getattr(col_res, "conditional_status", col_res.status.value)),
+                punch_end_zone_analysis=getattr(col_res, "punch_end_zone_analysis", None),
+            )
+
+        self.pose_cache_misses += 1
+
+        # Build native 3D multi-bend sheet solid (cached by Part Space fold angles with exact floats and geometry signature)
         solid_cache_key = (self.config.arc_segments, wp_geom_sig, angles_tuple)
         in_solid_cache = solid_cache_key in self._solid_cache
-        t_solid_lookup1 = time.perf_counter()
-        solid_lookup_ms = (t_solid_lookup1 - t_solid_lookup0) * 1000.0
 
         solid_cache_hit = False
         if in_solid_cache:
@@ -549,28 +646,7 @@ class AdaptiveTrajectoryValidator3D:
             self.total_solid_reconstructions += 1
             self.solid_cache_misses += 1
 
-        mat_wp = App.Matrix(
-            tf.rotation[0][0], tf.rotation[0][1], tf.rotation[0][2], tf.translation[0],
-            tf.rotation[1][0], tf.rotation[1][1], tf.rotation[1][2], tf.translation[1],
-            tf.rotation[2][0], tf.rotation[2][1], tf.rotation[2][2], tf.translation[2],
-            0.0, 0.0, 0.0, 1.0,
-        )
-        wp_machine = solid.shape.copy()
-        wp_machine.transformShape(mat_wp)
-
-        punch_step = set_punch_ram_z(self.punch_base, ram_z)
-
-        # Die clearance caching: when sheet workpiece pose relative to the static die is identical,
-        # reuse cached clearance result to avoid expensive redundant boolean queries.
-        # Cache key strictly incorporates die identity & geometry, placement, tolerances, exact support_z (no rounding),
-        # active bend id, and workpiece geometry signature.
-        t_die_lookup0 = time.perf_counter()
-        die_geom_sig = _die_geometry_signature(self.die)
-        tolerances_sig = (
-            float(self.config.near_tolerance_mm),
-            float(self.config.volume_tolerance_mm3),
-            float(self.config.contact_distance_tolerance_mm),
-        )
+        # Check die and punch clearance caches
         die_cache_key = (
             self.config.arc_segments,
             active_bend_id,
@@ -582,38 +658,77 @@ class AdaptiveTrajectoryValidator3D:
             tolerances_sig,
         )
         cached_die_res = self._die_clearance_cache.get(die_cache_key)
-        t_die_lookup1 = time.perf_counter()
-        die_lookup_ms = (t_die_lookup1 - t_die_lookup0) * 1000.0
-
-        cache_lookup_ms = solid_lookup_ms + die_lookup_ms
-        self.total_cache_lookup_ms += cache_lookup_ms
-
         die_cache_hit = cached_die_res is not None
         if die_cache_hit:
             self.die_cache_hits += 1
         else:
             self.die_cache_misses += 1
 
+        punch_cache_key = (
+            self.config.arc_segments,
+            active_bend_id,
+            float(ram_z),
+            float(support_z),
+            float(self.desired_midpoint_xm),
+            angles_tuple,
+            punch_geom_sig,
+            wp_geom_sig,
+            tolerances_sig,
+            cls_ez_len,
+            ez_policy_sig,
+        )
+        cached_punch_res = self._punch_clearance_cache.get(punch_cache_key)
+        punch_cache_hit = cached_punch_res is not None
+        if punch_cache_hit:
+            self.punch_cache_hits += 1
+        else:
+            self.punch_cache_misses += 1
+
+        t_lookup1 = time.perf_counter()
+        cache_lookup_ms = (t_lookup1 - t_lookup0) * 1000.0
+        self.total_cache_lookup_ms += cache_lookup_ms
+
+        # Build machine shapes only if at least one tool clearance was not cached
+        if not (die_cache_hit and punch_cache_hit):
+            mat_wp = App.Matrix(
+                tf.rotation[0][0], tf.rotation[0][1], tf.rotation[0][2], tf.translation[0],
+                tf.rotation[1][0], tf.rotation[1][1], tf.rotation[1][2], tf.translation[1],
+                tf.rotation[2][0], tf.rotation[2][1], tf.rotation[2][2], tf.translation[2],
+                0.0, 0.0, 0.0, 1.0,
+            )
+            wp_machine = solid.shape.copy()
+            wp_machine.transformShape(mat_wp)
+            punch_step = set_punch_ram_z(self.punch_base, ram_z)
+            punch_shape = punch_step.machine_shape
+            die_shape = self.die.machine_shape
+        else:
+            wp_machine = None
+            punch_shape = None
+            die_shape = None
+
         # Oracle evaluation
         col_res = validate_workpiece_tooling_pose(
             wp_machine,
-            punch_step.machine_shape,
-            self.die.machine_shape,
+            punch_shape,
+            die_shape,
             near_tolerance_mm=self.config.near_tolerance_mm,
             volume_tolerance_mm3=self.config.volume_tolerance_mm3,
             contact_distance_tolerance_mm=self.config.contact_distance_tolerance_mm,
             cached_die_result=cached_die_res,
+            cached_punch_result=cached_punch_res,
             end_zone_policy=self.end_zone_policy,
             classify_end_zone_length_mm=self.classify_end_zone_length_mm,
         )
         if cached_die_res is None:
             self._die_clearance_cache[die_cache_key] = col_res.die_result
+        if cached_punch_res is None:
+            self._punch_clearance_cache[punch_cache_key] = col_res.punch_result
+        self._pose_collision_cache[pose_cache_key] = col_res
 
         self.total_collision_queries += 1
         self.total_states_evaluated += 1
 
-        p_actual_eval_ms = col_res.punch_result.elapsed_ms if col_res and col_res.punch_result else 0.0
-        # If cache hit, actual die evaluation time for THIS state snapshot is 0.0 ms
+        p_actual_eval_ms = 0.0 if punch_cache_hit else (col_res.punch_result.elapsed_ms if col_res and col_res.punch_result else 0.0)
         d_actual_eval_ms = 0.0 if die_cache_hit else (col_res.die_result.elapsed_ms if col_res and col_res.die_result else 0.0)
 
         state = MotionState3D(
@@ -632,6 +747,7 @@ class AdaptiveTrajectoryValidator3D:
             cache_lookup_ms=cache_lookup_ms,
             die_cache_hit=die_cache_hit,
             solid_cache_hit=solid_cache_hit,
+            punch_cache_hit=punch_cache_hit,
             punch_eval_ms=p_actual_eval_ms,
             die_eval_ms=d_actual_eval_ms,
             is_conditional_safe=bool(getattr(col_res, "is_conditional_safe", False)),
@@ -858,6 +974,8 @@ class AdaptiveTrajectoryValidator3D:
         initial_solid_misses = self.solid_cache_misses
         initial_die_hits = self.die_cache_hits
         initial_die_misses = self.die_cache_misses
+        initial_punch_hits = self.punch_cache_hits
+        initial_punch_misses = self.punch_cache_misses
         initial_solid_recon_time = self.solid_reconstruction_time_ms
 
         def sample_state(u: float) -> MotionState3D:
@@ -923,6 +1041,8 @@ class AdaptiveTrajectoryValidator3D:
         phase_solid_misses = self.solid_cache_misses - initial_solid_misses
         phase_die_hits = self.die_cache_hits - initial_die_hits
         phase_die_misses = self.die_cache_misses - initial_die_misses
+        phase_punch_hits = self.punch_cache_hits - initial_punch_hits
+        phase_punch_misses = self.punch_cache_misses - initial_punch_misses
         phase_solid_recon_ms = self.solid_reconstruction_time_ms - initial_solid_recon_time
 
         # Compute clearance / overlap extrema
@@ -987,8 +1107,8 @@ class AdaptiveTrajectoryValidator3D:
         diags.append(
             f"TIMINGS: phase={elapsed_ms:.1f}ms, actual_punch={total_punch_eval_ms:.1f}ms, "
             f"actual_die={total_die_eval_ms:.1f}ms, solid_build={phase_solid_recon_ms:.1f}ms, "
-            f"cache_lookups={total_cache_lookup_ms:.1f}ms, hits=(solid={phase_solid_hits}, die={phase_die_hits}), "
-            f"misses=(solid={phase_solid_misses}, die={phase_die_misses})"
+            f"cache_lookups={total_cache_lookup_ms:.1f}ms, hits=(solid={phase_solid_hits}, die={phase_die_hits}, punch={phase_punch_hits}), "
+            f"misses=(solid={phase_solid_misses}, die={phase_die_misses}, punch={phase_punch_misses})"
         )
 
         return TrajectoryPhaseResult(
@@ -1017,6 +1137,8 @@ class AdaptiveTrajectoryValidator3D:
             solid_cache_misses=phase_solid_misses,
             die_cache_hits=phase_die_hits,
             die_cache_misses=phase_die_misses,
+            punch_cache_hits=phase_punch_hits,
+            punch_cache_misses=phase_punch_misses,
             phase_solid_reconstruction_ms=phase_solid_recon_ms,
             is_conditional=is_conditional,
             uninspected_intervals=uninspected_intervals,

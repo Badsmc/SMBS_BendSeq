@@ -758,6 +758,7 @@ def validate_workpiece_tooling_pose(
     volume_tolerance_mm3: float = 1e-4,
     contact_distance_tolerance_mm: float = 1e-4,
     cached_die_result: Optional[PairClearanceResult] = None,
+    cached_punch_result: Optional[PairClearanceResult] = None,
     end_zone_policy: Optional[EndZoneCollisionPolicy] = None,
     classify_end_zone_length_mm: Optional[float] = None,
 ) -> ToolCollisionReport:
@@ -765,9 +766,9 @@ def validate_workpiece_tooling_pose(
     t0 = time.perf_counter()
     diags: List[str] = []
 
-    if workpiece_machine_shape is None:
+    if workpiece_machine_shape is None and (cached_punch_result is None or cached_die_result is None):
         diags.append("MISSING_WORKPIECE_SHAPE")
-    if punch_machine_shape is None:
+    if punch_machine_shape is None and cached_punch_result is None:
         diags.append("MISSING_PUNCH_SHAPE")
     if die_machine_shape is None and cached_die_result is None:
         diags.append("MISSING_DIE_SHAPE")
@@ -777,13 +778,16 @@ def validate_workpiece_tooling_pose(
         dummy = PairClearanceResult(CollisionClass.MISSING_EVIDENCE, "missing_evidence", 0.0, 0.0, None, 0.0)
         return ToolCollisionReport(CollisionClass.MISSING_EVIDENCE, dummy, dummy, False, diags, dt)
 
-    punch_res = check_pair_clearance(
-        workpiece_machine_shape,
-        punch_machine_shape,
-        near_tolerance_mm=near_tolerance_mm,
-        volume_tolerance_mm3=volume_tolerance_mm3,
-        contact_distance_tolerance_mm=contact_distance_tolerance_mm,
-    )
+    if cached_punch_result is not None:
+        punch_res = cached_punch_result
+    else:
+        punch_res = check_pair_clearance(
+            workpiece_machine_shape,
+            punch_machine_shape,
+            near_tolerance_mm=near_tolerance_mm,
+            volume_tolerance_mm3=volume_tolerance_mm3,
+            contact_distance_tolerance_mm=contact_distance_tolerance_mm,
+        )
 
     if cached_die_result is not None:
         die_res = cached_die_result
