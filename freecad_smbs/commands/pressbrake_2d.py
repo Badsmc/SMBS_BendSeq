@@ -1751,6 +1751,16 @@ class _PreviewPanel:
                         SearchStatus,
                         search_bend_sequence_25d,
                     )
+                    from smbs_core.kinematics2d.operation_cost import OperationWeights
+
+                    def _search_progress(depth: int, total: int, partial_seq: Tuple[str, ...]) -> bool:
+                        seq_str = " -> ".join(partial_seq) if partial_seq else "корень"
+                        self.physical_check_result.setText(
+                            f"Поиск последовательности (глубина {depth}/{total}): {seq_str}..."
+                        )
+                        QtWidgets.QApplication.processEvents()
+                        return False
+
                     self._sync_tooling_to_active_bend()
                     pc = self._ensure_press_cycle_controller()
                     search_rep = search_bend_sequence_25d(
@@ -1760,6 +1770,8 @@ class _PreviewPanel:
                         match_active_bend_length=self.tooling_setup.match_active_bend_length,
                         allow_end_zone_collision=self.tooling_setup.allow_end_zone_collision,
                         end_zone_length_mm=self.tooling_setup.end_zone_length_mm,
+                        weights=OperationWeights(),
+                        progress_callback=_search_progress,
                     )
                     self.last_sequence_search_report = search_rep
                     self._conditional_bends_status.clear()
@@ -1773,13 +1785,20 @@ class _PreviewPanel:
                     self._sync_tooling_to_active_bend()
                     self.draw()
                     self.status.setText(search_rep.message_ru)
+                    cost_info = ""
+                    if search_rep.plan_cost:
+                        cost_val = search_rep.plan_cost.get("total", 0.0)
+                        cost_info = f" | штраф={cost_val:.1f}"
                     self.physical_check_result.setText(
-                        "Поиск последовательности: {} | {} | состояний={}, проверок={}, время={:.2f}с".format(
+                        "Поиск последовательности: {} | {} | 3D-проверок={} (отсев A={}, B={}) | глубина={}/{}{}".format(
                             search_rep.status.value,
                             search_rep.overall_evidence.value,
-                            search_rep.states_visited,
-                            search_rep.step_evaluations,
-                            search_rep.elapsed_s,
+                            search_rep.stage_c_native_evaluated,
+                            search_rep.stage_a_pruned,
+                            search_rep.stage_b_pruned,
+                            search_rep.max_depth_reached,
+                            search_rep.total_bends,
+                            cost_info,
                         )
                     )
                     self._trace_event(
@@ -1790,6 +1809,10 @@ class _PreviewPanel:
                         conditional_bends=list(search_rep.conditional_bends),
                         states_visited=search_rep.states_visited,
                         step_evaluations=search_rep.step_evaluations,
+                        stage_a_pruned=search_rep.stage_a_pruned,
+                        stage_b_pruned=search_rep.stage_b_pruned,
+                        stage_c_native_evaluated=search_rep.stage_c_native_evaluated,
+                        plan_cost=search_rep.plan_cost,
                         elapsed_s=round(search_rep.elapsed_s, 3),
                     )
                     _log("Sequence search result: " + search_rep.message_ru)

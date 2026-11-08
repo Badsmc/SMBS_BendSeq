@@ -61,7 +61,7 @@ def run_search_for_tooling(
     end_zone_len_mm: float = 15.0,
     max_states: int = 500,
     max_checks: int = 1000,
-    max_search_time_s: float = 120.0,
+    max_search_time_s: float = 600.0,
 ) -> dict:
     punch_tool = panel.tool_library.load_tool(punch_id, ToolKind.PUNCH)
     die_tool = panel.tool_library.load_tool(die_id, ToolKind.DIE)
@@ -111,6 +111,11 @@ def run_search_for_tooling(
     print(f"  Strict Note: {report.strict_search_note}")
     print(f"  Search Limit Reason: {report.search_limit_reason}")
     print(f"  States Visited: {report.states_visited}, Checks: {report.step_evaluations}, Cache Hits: {report.cache_hits}, Dead Ends: {report.dead_end_hits}, Backtracks: {report.backtracks_count}")
+    print(f"  Stage A (Fast Geom): eval={report.stage_a_evaluated}, pruned={report.stage_a_pruned}")
+    print(f"  Stage B (2D Multi-Phase): eval={report.stage_b_evaluated}, pruned={report.stage_b_pruned}")
+    print(f"  Stage C (Native 3D): eval={report.stage_c_native_evaluated}")
+    if report.plan_cost:
+        print(f"  Plan Penalty Cost: {report.plan_cost.get('total', 0.0):.2f}")
     print(f"  Conditional Bends: {report.conditional_bends}")
 
     res_dict = report.to_dict()
@@ -121,6 +126,15 @@ def run_search_for_tooling(
 
 
 def main():
+    parser = argparse.ArgumentParser(description="Automatic sequence search on box model")
+    parser.add_argument("--punch", default=None, help="Specific punch ID")
+    parser.add_argument("--die", default=None, help="Specific die ID")
+    parser.add_argument("--timeout", type=float, default=600.0, help="Max search time in seconds")
+    parser.add_argument("--max-states", type=int, default=500, help="Max DFS states")
+    parser.add_argument("--max-checks", type=int, default=1000, help="Max step evaluations")
+    parser.add_argument("--end-zone", type=float, default=15.0, help="End zone length in mm")
+    args = parser.parse_args()
+
     _QtCore, _QtGui, QtWidgets = _qt()
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication(sys.argv)
 
@@ -139,11 +153,14 @@ def main():
     reports_dir = ROOT / "reports"
     reports_dir.mkdir(parents=True, exist_ok=True)
 
-    candidates = [
-        ("PUNCH_AP_1017_88°_H104,65_R0,8", "T-DIE_AT_3015_88°_V12_H80"),
-        ("PUNCH_AP_1013_85°_H159,65_R0,8", "T-DIE_AT_3015_88°_V12_H80"),
-        ("puancon", "matrica"),
-    ]
+    if args.punch and args.die:
+        candidates = [(args.punch, args.die)]
+    else:
+        candidates = [
+            ("PUNCH_AP_1017_88°_H104,65_R0,8", "T-DIE_AT_3015_88°_V12_H80"),
+            ("PUNCH_AP_1013_85°_H159,65_R0,8", "T-DIE_AT_3015_88°_V12_H80"),
+            ("puancon", "matrica"),
+        ]
 
     all_results = []
     for punch_id, die_id in candidates:
@@ -152,10 +169,10 @@ def main():
             session=session,
             punch_id=punch_id,
             die_id=die_id,
-            end_zone_len_mm=15.0,
-            max_states=500,
-            max_checks=1000,
-            max_search_time_s=120.0,
+            end_zone_len_mm=args.end_zone,
+            max_states=args.max_states,
+            max_checks=args.max_checks,
+            max_search_time_s=args.timeout,
         )
         all_results.append(res)
 
