@@ -65,25 +65,36 @@ def get_git_info() -> Tuple[str, bool]:
         return "unknown", False
 
 
-def categorize_rejections(rejection_summary: Dict[str, List[str]]) -> Dict[str, List[str]]:
+def categorize_rejections(rejection_summary: Any) -> Dict[str, List[str]]:
     """Categorize rejection reasons into proven physical collisions, geometry errors, and incomplete/timeout checks."""
     proven_collisions: List[str] = []
     geometry_errors: List[str] = []
     incomplete_checks: List[str] = []
     other_rejections: List[str] = []
 
-    for bend_id, reasons in rejection_summary.items():
-        for r in reasons:
-            entry = f"{bend_id}: {r}"
-            r_upper = r.upper()
-            if any(k in r_upper for k in ("COLLISION", "PENETRATION", "DISCRETE_SAMPLES_REJECTED", "STAGE_A", "STAGE_B")):
-                proven_collisions.append(entry)
-            elif any(k in r_upper for k in ("INVALID_GEOMETRY", "GEOMETRY_ERROR", "FAIL")):
-                geometry_errors.append(entry)
-            elif any(k in r_upper for k in ("INTERVAL_UNRESOLVED", "MAX_TIME", "BUDGET", "UNVERIFIED", "TIMEOUT", "LIMIT")):
-                incomplete_checks.append(entry)
+    items: List[str] = []
+    if isinstance(rejection_summary, dict):
+        for bend_id, reasons in rejection_summary.items():
+            if isinstance(reasons, (list, tuple)):
+                for r in reasons:
+                    items.append(f"{bend_id}: {r}")
             else:
-                other_rejections.append(entry)
+                items.append(f"{bend_id}: {reasons}")
+    elif isinstance(rejection_summary, (list, tuple)):
+        items = [str(r) for r in rejection_summary]
+    elif isinstance(rejection_summary, str):
+        items = [s.strip() for s in rejection_summary.split(";") if s.strip()]
+
+    for entry in items:
+        r_upper = entry.upper()
+        if any(k in r_upper for k in ("COLLISION", "PENETRATION", "DISCRETE_SAMPLES_REJECTED", "STAGE_A", "STAGE_B")):
+            proven_collisions.append(entry)
+        elif any(k in r_upper for k in ("INVALID_GEOMETRY", "GEOMETRY_ERROR", "FAIL")):
+            geometry_errors.append(entry)
+        elif any(k in r_upper for k in ("INTERVAL_UNRESOLVED", "MAX_TIME", "BUDGET", "UNVERIFIED", "TIMEOUT", "LIMIT")):
+            incomplete_checks.append(entry)
+        else:
+            other_rejections.append(entry)
 
     return {
         "proven_collisions": proven_collisions,
@@ -378,3 +389,4 @@ def build_comparison_summary(
             "Both modes run with identical budgets, cold caches, and strict collision rules."
         ),
     }
+

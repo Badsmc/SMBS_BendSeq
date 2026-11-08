@@ -233,7 +233,11 @@ class SequenceSearchReport:
             "conditional_bends": list(self.conditional_bends),
             "winning_steps": [s.to_dict() for s in self.winning_steps],
             "forward_replay": self.forward_replay.to_dict() if self.forward_replay is not None else None,
-            "rejection_summary": {k: list(v) for k, v in self.rejection_summary.items()},
+            "rejection_summary": (
+                {k: list(v) for k, v in self.rejection_summary.items()}
+                if isinstance(self.rejection_summary, dict)
+                else {"summary": [str(self.rejection_summary)]}
+            ),
             "search_limit_reason": self.search_limit_reason,
             "message_ru": self.message_ru,
             "plan_cost": self.plan_cost,
@@ -2423,7 +2427,13 @@ def search_bend_sequence_backward_25d(
                 plan_penalty = score_sequence(found_seq, [], op_weights)
 
         elapsed_s = time.perf_counter() - t_start
-        rejection_summary = "; ".join(rejection_records[:10]) if rejection_records else "Коллизий не зафиксировано."
+        rejection_summary: Dict[str, List[str]] = {}
+        for rec in rejection_records:
+            if ": " in rec:
+                b_id, r_msg = rec.split(": ", 1)
+                rejection_summary.setdefault(b_id, []).append(r_msg)
+            else:
+                rejection_summary.setdefault("GENERAL", []).append(rec)
 
         if cancelled:
             return SequenceSearchReport(
