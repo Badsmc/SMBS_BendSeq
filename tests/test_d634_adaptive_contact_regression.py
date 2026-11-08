@@ -197,6 +197,202 @@ class AdaptiveContactRegressionTests(unittest.TestCase):
         self.assertFalse(any("UNINSPECTED_INTERVAL_AFTER_FATAL_COLLISION" in d for d in diagnostics))
         self.assertEqual(uninspected, [])
 
+    def test_early_stop_in_deeper_left_branch_skips_right_branch_completely(self):
+        """Endpoints and first midpoint u=0.5 are safe. Deeper collision at u=0.25 must
+
+        stop immediately and skip evaluating the right branch [0.5, 1.0] (e.g. u=0.75).
+        """
+        sampled_u: List[float] = []
+
+        def make_state(u: float, collision_type: str = "CLEAR") -> SimpleNamespace:
+            sampled_u.append(round(u, 4))
+            if collision_type == "FATAL_PENETRATION":
+                pair = SimpleNamespace(
+                    status=CollisionClass.PENETRATION,
+                    distance_mm=0.0,
+                    overlap_volume_mm3=15.0,
+                )
+                report = SimpleNamespace(
+                    status=CollisionClass.PENETRATION,
+                    punch_result=pair,
+                    die_result=SimpleNamespace(status=CollisionClass.CLEAR, distance_mm=10.0, overlap_volume_mm3=0.0),
+                )
+                return SimpleNamespace(
+                    path_u=u,
+                    is_safe=False,
+                    is_conditional_safe=False,
+                    punch_end_zone_analysis=None,
+                    signed_angle_deg=u * 45.0,
+                    ram_z_mm=u * 5.0,
+                    phase="BENDING",
+                    completed_angles={},
+                    collision_report=report,
+                    discontinuity_detected=False,
+                    discontinuity_reason="",
+                    workpiece_placement=SimpleNamespace(
+                        translation=(0.0, 0.0, 0.0),
+                        rotation=((1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0)),
+                    ),
+                )
+            elif collision_type == "CONDITIONAL":
+                pair = SimpleNamespace(
+                    status=CollisionClass.PENETRATION,
+                    distance_mm=0.0,
+                    overlap_volume_mm3=5.0,
+                )
+                ez = SimpleNamespace(
+                    classification=SimpleNamespace(value="END_ZONE_ONLY"),
+                    total_overlap_volume_mm3=5.0,
+                )
+                report = SimpleNamespace(
+                    status=CollisionClass.PENETRATION,
+                    punch_result=pair,
+                    die_result=SimpleNamespace(status=CollisionClass.CLEAR, distance_mm=10.0, overlap_volume_mm3=0.0),
+                )
+                return SimpleNamespace(
+                    path_u=u,
+                    is_safe=False,
+                    is_conditional_safe=True,
+                    punch_end_zone_analysis=ez,
+                    signed_angle_deg=u * 45.0,
+                    ram_z_mm=u * 5.0,
+                    phase="BENDING",
+                    completed_angles={},
+                    collision_report=report,
+                    discontinuity_detected=False,
+                    discontinuity_reason="",
+                    workpiece_placement=SimpleNamespace(
+                        translation=(0.0, 0.0, 0.0),
+                        rotation=((1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0)),
+                    ),
+                )
+            elif collision_type == "UNVERIFIED":
+                pair = SimpleNamespace(
+                    status=getattr(CollisionClass, "UNVERIFIED", "UNVERIFIED"),
+                    distance_mm=0.0,
+                    overlap_volume_mm3=0.0,
+                )
+                report = SimpleNamespace(
+                    status=getattr(CollisionClass, "UNVERIFIED", "UNVERIFIED"),
+                    punch_result=pair,
+                    die_result=SimpleNamespace(status=CollisionClass.CLEAR, distance_mm=10.0, overlap_volume_mm3=0.0),
+                )
+                return SimpleNamespace(
+                    path_u=u,
+                    is_safe=False,
+                    is_conditional_safe=False,
+                    punch_end_zone_analysis=None,
+                    signed_angle_deg=u * 45.0,
+                    ram_z_mm=u * 5.0,
+                    phase="BENDING",
+                    completed_angles={},
+                    collision_report=report,
+                    discontinuity_detected=False,
+                    discontinuity_reason="",
+                    workpiece_placement=SimpleNamespace(
+                        translation=(0.0, 0.0, 0.0),
+                        rotation=((1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0)),
+                    ),
+                )
+            else:
+                pair = SimpleNamespace(status=CollisionClass.CLEAR, distance_mm=10.0, overlap_volume_mm3=0.0)
+                report = SimpleNamespace(status=CollisionClass.CLEAR, punch_result=pair, die_result=pair)
+                return SimpleNamespace(
+                    path_u=u,
+                    is_safe=True,
+                    is_conditional_safe=False,
+                    punch_end_zone_analysis=None,
+                    signed_angle_deg=u * 45.0,
+                    ram_z_mm=u * 5.0,
+                    phase="BENDING",
+                    completed_angles={},
+                    collision_report=report,
+                    discontinuity_detected=False,
+                    discontinuity_reason="",
+                    workpiece_placement=SimpleNamespace(
+                        translation=(0.0, 0.0, 0.0),
+                        rotation=((1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0)),
+                    ),
+                )
+
+        # Case 1: Fatal collision at u=0.25 (left subtree)
+        sampled_u.clear()
+        def sample_case_fatal(u: float):
+            if abs(u - 0.25) < 1e-4:
+                return make_state(u, "FATAL_PENETRATION")
+            return make_state(u, "CLEAR")
+
+        left = sample_case_fatal(0.0)
+        right = sample_case_fatal(1.0)
+        seen = [left]
+        unresolved, diagnostics = [], []
+        uninspected = []
+
+        outcome = self.validator.validate_adaptive_interval(
+            left,
+            right,
+            sample_case_fatal,
+            1,
+            seen,
+            unresolved,
+            diagnostics,
+            time.perf_counter(),
+            uninspected=uninspected,
+        )
+
+        # Verify stop signal was propagated
+        self.assertTrue(getattr(outcome, "stopped_on_collision", False))
+        # Verify u=0.5 was sampled (first midpoint), u=0.25 was sampled (fatal midpoint)
+        self.assertIn(0.5, sampled_u)
+        self.assertIn(0.25, sampled_u)
+        # Verify right branch u=0.75 was NEVER sampled!
+        self.assertNotIn(0.75, sampled_u)
+        # Verify uninspected right half was recorded
+        self.assertTrue(any(u_r == 1.0 and u_l == 0.5 for (u_l, u_r) in uninspected))
+        self.assertTrue(any("UNINSPECTED_RIGHT_HALF_AFTER_LEFT_COLLISION" in d for d in diagnostics))
+
+        # Case 2: CONDITIONAL at u=0.25 -> does NOT stop early, evaluates right branch u=0.75!
+        sampled_u.clear()
+        def sample_case_cond(u: float):
+            if abs(u - 0.25) < 1e-4:
+                return make_state(u, "CONDITIONAL")
+            return make_state(u, "CLEAR")
+
+        outcome_cond = self.validator.validate_adaptive_interval(
+            sample_case_cond(0.0),
+            sample_case_cond(1.0),
+            sample_case_cond,
+            1,
+            [sample_case_cond(0.0)],
+            [],
+            [],
+            time.perf_counter(),
+            uninspected=[],
+        )
+        self.assertFalse(getattr(outcome_cond, "stopped_on_collision", False))
+        self.assertIn(0.75, sampled_u)
+
+        # Case 3: UNVERIFIED at u=0.25 -> does NOT stop early as collision, evaluates right branch u=0.75!
+        sampled_u.clear()
+        def sample_case_unver(u: float):
+            if abs(u - 0.25) < 1e-4:
+                return make_state(u, "UNVERIFIED")
+            return make_state(u, "CLEAR")
+
+        outcome_unver = self.validator.validate_adaptive_interval(
+            sample_case_unver(0.0),
+            sample_case_unver(1.0),
+            sample_case_unver,
+            1,
+            [sample_case_unver(0.0)],
+            [],
+            [],
+            time.perf_counter(),
+            uninspected=[],
+        )
+        self.assertFalse(getattr(outcome_unver, "stopped_on_collision", False))
+        self.assertIn(0.75, sampled_u)
+
 
 if __name__ == "__main__":
     unittest.main()

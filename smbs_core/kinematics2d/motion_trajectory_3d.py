@@ -332,7 +332,7 @@ def is_blocking_collision(st: Optional[MotionState3D]) -> bool:
     Strict invariants:
     - Safe or conditionally safe states are NOT blocking collisions.
     - CONDITIONAL (e.g. allowed end-zone) does NOT stop checking other states.
-    - UNVERIFIED / INVALID_GEOMETRY are NOT substituted by collision.
+    - UNKNOWN, UNVERIFIED, INVALID_GEOMETRY are NOT substituted by collision.
     - Only confirmed PENETRATION with positive volume in central punch zone or die.
     """
     if st is None:
@@ -345,28 +345,57 @@ def is_blocking_collision(st: Optional[MotionState3D]) -> bool:
     if rep is None:
         return False
     rep_status = getattr(rep, "status", None)
-    if rep_status in (CollisionClass.INVALID_GEOMETRY, getattr(CollisionClass, "UNVERIFIED", None)):
+    rep_status_val = getattr(rep_status, "value", str(rep_status))
+    if rep_status_val in ("INVALID_GEOMETRY", "UNVERIFIED", "UNKNOWN", "MISSING_EVIDENCE"):
         return False
-    if rep_status == "UNVERIFIED":
+    if rep_status in (CollisionClass.INVALID_GEOMETRY, getattr(CollisionClass, "UNVERIFIED", None)):
         return False
 
     p_res = getattr(rep, "punch_result", None)
-    if p_res is not None and getattr(p_res, "status", None) == CollisionClass.PENETRATION:
-        p_vol = float(getattr(p_res, "overlap_volume_mm3", 0.0))
-        if p_vol > 0.0:
-            ez = getattr(st, "punch_end_zone_analysis", None)
-            if ez is not None and getattr(ez, "classification", None) is not None:
-                if ez.classification.value == "END_ZONE_ONLY" and getattr(st, "is_conditional_safe", False):
-                    return False
-            return True
+    if p_res is not None:
+        p_status = getattr(p_res, "status", None)
+        p_status_val = getattr(p_status, "value", str(p_status))
+        if p_status_val == "PENETRATION" or p_status == CollisionClass.PENETRATION:
+            p_vol = float(getattr(p_res, "overlap_volume_mm3", 0.0) or 0.0)
+            if p_vol > 0.0:
+                ez = getattr(st, "punch_end_zone_analysis", None)
+                if ez is not None:
+                    ez_class = getattr(getattr(ez, "classification", None), "value", None)
+                    if ez_class == "END_ZONE_ONLY" and getattr(st, "is_conditional_safe", False):
+                        return False
+                return True
 
     d_res = getattr(rep, "die_result", None)
-    if d_res is not None and getattr(d_res, "status", None) == CollisionClass.PENETRATION:
-        d_vol = float(getattr(d_res, "overlap_volume_mm3", 0.0))
-        if d_vol > 0.0:
-            return True
+    if d_res is not None:
+        d_status = getattr(d_res, "status", None)
+        d_status_val = getattr(d_status, "value", str(d_status))
+        if d_status_val == "PENETRATION" or d_status == CollisionClass.PENETRATION:
+            d_vol = float(getattr(d_res, "overlap_volume_mm3", 0.0) or 0.0)
+            if d_vol > 0.0:
+                return True
 
     return False
+
+
+class AdaptiveIntervalOutcome(int):
+    """Subclass of int returned by validate_adaptive_interval.
+
+    Carries the peak recursion depth (as an int) along with the early stop flag
+    and the first blocking collision state encountered during recursion.
+    """
+    stopped_on_collision: bool
+    first_blocking_state: Optional[MotionState3D]
+
+    def __new__(
+        cls,
+        depth: int,
+        stopped_on_collision: bool = False,
+        first_blocking_state: Optional[MotionState3D] = None,
+    ):
+        obj = super().__new__(cls, depth)
+        obj.stopped_on_collision = bool(stopped_on_collision)
+        obj.first_blocking_state = first_blocking_state
+        return obj
 
 
 class AdaptiveTrajectoryValidator3D:
@@ -630,7 +659,7 @@ class AdaptiveTrajectoryValidator3D:
             diags.append(
                 f"MAX_RECURSION_DEPTH_EXCEEDED: u=[{s_left.path_u:.4f}, {s_right.path_u:.4f}] depth={depth}"
             )
-            return depth
+            return AdaptiveIntervalOutcome(depth, stopped_on_collision=False, first_blocking_state=None)
 
         # 2. State budget exhaustion for this phase
         if len(out_states) >= self.config.max_evaluated_states_per_phase:
@@ -638,7 +667,7 @@ class AdaptiveTrajectoryValidator3D:
             diags.append(
                 f"MAX_STATES_BUDGET_REACHED: phase_evaluated={len(out_states)} states"
             )
-            return depth
+            return AdaptiveIntervalOutcome(depth, stopped_on_collision=False, first_blocking_state=None)
 
         # 3. Time budget exhaustion
         if (time.perf_counter() - start_time) > self.config.max_phase_time_s:
@@ -646,7 +675,7 @@ class AdaptiveTrajectoryValidator3D:
             diags.append(
                 f"MAX_TIME_BUDGET_EXCEEDED: elapsed={(time.perf_counter() - start_time):.2f}s"
             )
-            return depth
+            return AdaptiveIntervalOutcome(depth, stopped_on_collision=False, first_blocking_state=None)
 
         # Mandatory midpoint evaluation:
         # A conservative interval check MUST sample the interior midpoint to detect
@@ -664,7 +693,7 @@ class AdaptiveTrajectoryValidator3D:
             diags.append(uninspected_msg)
             if uninspected is not None:
                 uninspected.append((s_left.path_u, s_right.path_u))
-            return depth
+            return AdaptiveIntervalOutcome(depth, stopped_on_collision=True, first_blocking_state=s_mid)
 
         # Check continuity across left and right halves
         ok_l, reason_l = check_motion_continuity(s_left, s_mid, self.config)
@@ -769,22 +798,41 @@ class AdaptiveTrajectoryValidator3D:
 
         if not further_subdivision:
             # Interval converged with verified midpoint
-            return depth
+            return AdaptiveIntervalOutcome(depth, stopped_on_collision=False, first_blocking_state=None)
 
         peak_d = depth
         # Recurse left half [u_left, u_mid]
-        d1 = self.validate_adaptive_interval(
+        outcome_l = self.validate_adaptive_interval(
             s_left, s_mid, sample_fn, depth + 1, out_states, unresolved, diags, start_time, uninspected=uninspected
         )
-        peak_d = max(peak_d, d1)
+        peak_d = max(peak_d, int(outcome_l))
+        if getattr(outcome_l, "stopped_on_collision", False):
+            # Left half stopped early on confirmed blocking collision.
+            # Do NOT inspect the right half [u_mid, u_right]!
+            if uninspected is not None:
+                uninspected.append((s_mid.path_u, s_right.path_u))
+            diags.append(
+                f"UNINSPECTED_RIGHT_HALF_AFTER_LEFT_COLLISION: u=[{s_mid.path_u:.4f}, {s_right.path_u:.4f}]"
+            )
+            return AdaptiveIntervalOutcome(
+                peak_d,
+                stopped_on_collision=True,
+                first_blocking_state=outcome_l.first_blocking_state,
+            )
 
         # Recurse right half [u_mid, u_right]
-        d2 = self.validate_adaptive_interval(
+        outcome_r = self.validate_adaptive_interval(
             s_mid, s_right, sample_fn, depth + 1, out_states, unresolved, diags, start_time, uninspected=uninspected
         )
-        peak_d = max(peak_d, d2)
+        peak_d = max(peak_d, int(outcome_r))
+        if getattr(outcome_r, "stopped_on_collision", False):
+            return AdaptiveIntervalOutcome(
+                peak_d,
+                stopped_on_collision=True,
+                first_blocking_state=outcome_r.first_blocking_state,
+            )
 
-        return peak_d
+        return AdaptiveIntervalOutcome(peak_d, stopped_on_collision=False, first_blocking_state=None)
 
     def validate_phase(
         self,
@@ -1125,17 +1173,25 @@ class AdaptiveTrajectoryValidator3D:
             has_rejected = any(pr.evidence_status == TrajectoryEvidenceStatus.DISCRETE_SAMPLES_REJECTED for pr in phase_results)
             has_unresolved = any(pr.evidence_status == TrajectoryEvidenceStatus.INTERVAL_UNRESOLVED for pr in phase_results)
             has_conditional = any(pr.evidence_status == TrajectoryEvidenceStatus.SAMPLED_INTERVAL_CONDITIONAL_END_ZONE for pr in phase_results)
-            all_converged = all(
-                pr.evidence_status in (TrajectoryEvidenceStatus.SAMPLED_INTERVAL_CONVERGED, TrajectoryEvidenceStatus.ADAPTIVE_SAMPLING_CONVERGED)
-                for pr in phase_results
-            )
-            all_converged_or_conditional = all(
-                pr.evidence_status in (
-                    TrajectoryEvidenceStatus.SAMPLED_INTERVAL_CONVERGED,
-                    TrajectoryEvidenceStatus.ADAPTIVE_SAMPLING_CONVERGED,
-                    TrajectoryEvidenceStatus.SAMPLED_INTERVAL_CONDITIONAL_END_ZONE,
+            all_converged = (
+                len(phase_results) == len(phases_to_run)
+                and all(
+                    pr.evidence_status in (TrajectoryEvidenceStatus.SAMPLED_INTERVAL_CONVERGED, TrajectoryEvidenceStatus.ADAPTIVE_SAMPLING_CONVERGED)
+                    and not getattr(pr, "uninspected_intervals", None)
+                    for pr in phase_results
                 )
-                for pr in phase_results
+            )
+            all_converged_or_conditional = (
+                len(phase_results) == len(phases_to_run)
+                and all(
+                    pr.evidence_status in (
+                        TrajectoryEvidenceStatus.SAMPLED_INTERVAL_CONVERGED,
+                        TrajectoryEvidenceStatus.ADAPTIVE_SAMPLING_CONVERGED,
+                        TrajectoryEvidenceStatus.SAMPLED_INTERVAL_CONDITIONAL_END_ZONE,
+                    )
+                    and not getattr(pr, "uninspected_intervals", None)
+                    for pr in phase_results
+                )
             )
 
             is_conditional = False

@@ -904,6 +904,102 @@ class TestIntegratedPhysicalSequenceSearch(unittest.TestCase):
         # Because UNVERIFIED occurred in the subtree, no dead ends must be memoized!
         self.assertEqual(len(cache2._dead_end_subsets), 0)
 
+    @patch("smbs_core.kinematics2d.sequence_search.verify_sequence_forward_replay")
+    @patch("smbs_core.kinematics2d.sequence_search.evaluate_candidate_bend_step")
+    @patch("smbs_core.kinematics2d.sequence_search.screen_candidate_stage_b")
+    @patch("smbs_core.kinematics2d.sequence_search.screen_candidate_stage_a")
+    def test_13_forward_replay_unverified_propagates_to_root_and_prevents_false_dead_end(
+        self, mock_stage_a, mock_stage_b, mock_eval_step, mock_replay
+    ):
+        """All step transitions pass, but final independent forward replay returns UNVERIFIED.
+
+        The uncertainty must propagate up to the root, preventing false dead-end caching
+        and preventing NO_FEASIBLE_SEQUENCE or proven optimality claims.
+        """
+        mock_stage_a.return_value = PreliminaryScreeningReport(stage="STAGE_A", decision=ScreeningDecision.CONTINUE_TO_3D, reason="clear")
+        mock_stage_b.return_value = PreliminaryScreeningReport(stage="STAGE_B", decision=ScreeningDecision.CONTINUE_TO_3D, reason="clear")
+
+        # All incremental step checks pass cleanly
+        mock_eval_step.return_value = StepEvaluationRecord(
+            bend_id="B",
+            step_index=0,
+            completed_prefix=(),
+            pose_status=PhysicalEvidence.SAMPLED_3D_CLEAR_NOT_CONTINUOUS,
+            trajectory_status=PhysicalEvidence.SAMPLED_3D_CLEAR_NOT_CONTINUOUS,
+            effective_status=PhysicalEvidence.SAMPLED_3D_CLEAR_NOT_CONTINUOUS,
+            reason="clear",
+        )
+
+        # Final independent replay returns UNVERIFIED (e.g. unresolved state without search limit)
+        mock_replay.return_value = ForwardReplayReport(
+            sequence=("B1", "B2", "B3"),
+            overall_status=PhysicalEvidence.UNVERIFIED,
+            is_verified=False,
+            is_conditional=False,
+            steps=[],
+            blocking_bend_id="B3",
+            blocking_reason="unresolved_trajectory_interval",
+        )
+
+        bends_3 = ["B1", "B2", "B3"]
+        session = SimpleNamespace(
+            bend_order=list(bends_3),
+            active_bend_id="B1",
+            active_bend_index=0,
+            fold_state=SimpleNamespace(
+                angles={b: 0.0 for b in bends_3},
+                transforms={},
+                bends={
+                    b: SimpleNamespace(
+                        bend_id=b,
+                        angle_deg=90.0,
+                        axis_xyz=((0.0, 0.0, 0.0), (100.0, 0.0, 0.0)),
+                        bend_zone=SimpleNamespace(thickness_mm=1.5, inner_radius_mm=1.5, outer_radius_mm=3.0),
+                    )
+                    for b in bends_3
+                },
+                set_angle=lambda bid, val: None,
+                reset_all=lambda: None,
+            ),
+            panel_build=SimpleNamespace(),
+            set_bend_order=lambda order: None,
+            select_bend_index=lambda idx: None,
+        )
+
+        tooling = SimpleNamespace(
+            punch=SimpleNamespace(tool_id="P1", source_file="p.fcstd", length_mm=100.0),
+            die=SimpleNamespace(tool_id="D1", source_file="d.fcstd", length_mm=100.0),
+            aligned=True,
+            aligned_bend_id="B1",
+            alignment_anchor_sz=0.0,
+            ram_z_mm=50.0,
+            ram_stroke_mm=0.0,
+            sheet_top_z_mm=0.0,
+            sheet_bottom_z_mm=-1.5,
+            punch_machine_transform=None,
+            die_machine_transform=None,
+            match_active_bend_length=False,
+            active_bend_length_mm=100.0,
+            allow_end_zone_collision=False,
+            end_zone_length_mm=0.0,
+        )
+
+        cache = StepEvaluationCache()
+        rep = search_bend_sequence_25d(
+            session,
+            press_cycle=None,
+            tooling=tooling,
+            optimize_cost=True,
+            cache=cache,
+        )
+
+        # Must report UNVERIFIED, NOT NO_FEASIBLE_SEQUENCE and NOT STRICT_VALIDATED
+        self.assertEqual(rep.status, SearchStatus.UNVERIFIED)
+        self.assertEqual(rep.overall_evidence, PhysicalEvidence.UNVERIFIED)
+        self.assertFalse(rep.optimality_proven)
+        # Root must NOT have cached false dead ends
+        self.assertEqual(len(cache._dead_end_subsets), 0)
+
 
 if __name__ == "__main__":
     unittest.main()
