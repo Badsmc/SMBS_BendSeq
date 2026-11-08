@@ -26,6 +26,8 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 from .contact_oracle_2d import ContactFinding, ContactReport, ContactStatus, check_sheet_tooling_preview
 from .coupled_kinematics_2d import CoupledAirBendingKinematics
 from .machine_section_3d import compute_machine_cutting_plane_section
+from .machine_station_planner import plan_machine_stations
+from .multi_station_screening import screen_machine_stations_2d
 from .panel_kinematics import FoldState
 from .tooling_25d import ToolingSetup2D
 from .workpiece_placement_3d import WorkpiecePlacement3D
@@ -44,6 +46,7 @@ class PreliminaryScreeningReport:
     reason: str
     sampled_phases: Tuple[str, ...] = ()
     findings_count: int = 0
+    station_reports: Tuple[Dict[str, Any], ...] = ()
 
     @property
     def is_blocking(self) -> bool:
@@ -56,6 +59,7 @@ class PreliminaryScreeningReport:
             "reason": self.reason,
             "sampled_phases": list(self.sampled_phases),
             "findings_count": self.findings_count,
+            "station_reports": list(self.station_reports),
         }
 
 
@@ -132,6 +136,9 @@ def screen_candidate_stage_b(
     tolerance_mm: float = 0.02,
     clearance_mm: float = 5.0,
     fractions: Tuple[float, ...] = (0.0, 0.5, 1.0),
+    multi_station_enabled: bool = False,
+    verified_punch_span_xm: Optional[Tuple[float, float]] = None,
+    verified_die_span_xm: Optional[Tuple[float, float]] = None,
 ) -> PreliminaryScreeningReport:
     """Stage B: Multi-phase 2D cross-section preview at machine cutting plane X_m = 0.
 
@@ -229,6 +236,7 @@ def screen_candidate_stage_b(
         target_deg = float(bend.angle_deg)
         sampled_phases: List[str] = []
         total_findings = 0
+        station_reports: List[Dict[str, Any]] = []
 
         # Build sequence of phase probes: (phase_name, frac_angle, ram_z, bisector)
         probes: List[Tuple[str, float, float, bool]] = [
@@ -269,6 +277,39 @@ def screen_candidate_stage_b(
                 )
                 tooling.set_punch_ram_z(float(ram_z), stroke_mm=max(0.0, coupled.contact_z_mm - ram_z))
                 sec_report = check_sheet_tooling_preview(sec, tooling, tolerance_mm=tolerance_mm)
+                # Opt-in risk-only multi-station screening under the exact same
+                # temporary phase pose and aligned tooling. Absence of verified
+                # source-CAD spans is UNVERIFIED, never a geometry-free PASS.
+                if multi_station_enabled:
+                    try:
+                        station_plan = plan_machine_stations(
+                            fold_state, panel_vertices_xy, pose, candidate_bend_id,
+                            verified_punch_span_xm=verified_punch_span_xm,
+                            verified_die_span_xm=verified_die_span_xm,
+                        )
+                        station_result = screen_machine_stations_2d(
+                            fold_state, panel_vertices_xy, pose, candidate_bend_id,
+                            tooling, station_plan.stations_xm,
+                            verified_punch_span_xm=verified_punch_span_xm,
+                            verified_die_span_xm=verified_die_span_xm,
+                            tolerance_mm=tolerance_mm,
+                        )
+                        station_reports.append({
+                            "phase": phase,
+                            "angle_deg": angle_at_probe,
+                            "plan": station_plan.to_dict(),
+                            "preview": station_result.to_dict(),
+                        })
+                    except Exception as station_exc:
+                        station_reports.append({
+                            "phase": phase,
+                            "angle_deg": angle_at_probe,
+                            "preview": {
+                                "status": "UNVERIFIED_NEEDS_3D",
+                                "reason": "station_preview_error:"
+                                          + type(station_exc).__name__ + ":" + str(station_exc),
+                            },
+                        })
                 total_findings += len(sec_report.findings)
 
                 if sec_report.status is ContactStatus.INTERFERENCE:
@@ -281,6 +322,7 @@ def screen_candidate_stage_b(
                         reason=f"2d_section_finding_requires_3d_validation:{reason_msg}",
                         sampled_phases=tuple(sampled_phases),
                         findings_count=total_findings,
+                        station_reports=tuple(station_reports),
                     )
             except Exception as exc:
                 # Never prune on section computation failure; forward to exact 3D check
@@ -290,6 +332,7 @@ def screen_candidate_stage_b(
                     reason=f"section_eval_error:{exc}",
                     sampled_phases=tuple(sampled_phases),
                     findings_count=total_findings,
+                    station_reports=tuple(station_reports),
                 )
 
         return PreliminaryScreeningReport(
@@ -298,6 +341,7 @@ def screen_candidate_stage_b(
             reason="all_sampled_2d_sections_clear",
             sampled_phases=tuple(sampled_phases),
             findings_count=total_findings,
+            station_reports=tuple(station_reports),
         )
 
     finally:
