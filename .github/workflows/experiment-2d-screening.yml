@@ -23,6 +23,8 @@ jobs:
           python -m py_compile smbs_core/kinematics2d/multi_station_screening.py
           python -m py_compile smbs_core/kinematics2d/screening_risk.py
           python -m py_compile smbs_core/kinematics2d/screening_experiment_metrics.py
+          python -m py_compile smbs_core/kinematics2d/native_kernel_metrics.py
+          python -m py_compile smbs_core/kinematics2d/native_collision_3d.py
           python -m py_compile smbs_core/kinematics2d/preliminary_screening.py
           python -m py_compile smbs_core/kinematics2d/sequence_search.py
       - name: Headless 2D screening and ranking tests
@@ -35,6 +37,7 @@ jobs:
             tests.test_multi_station_screening \
             tests.test_screening_risk \
             tests.test_screening_experiment_metrics \
+            tests.test_native_kernel_metrics \
             tests.test_stage_b_multistation_integration -v
       - name: Existing 2D contact regression tests
         env:
