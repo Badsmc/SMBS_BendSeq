@@ -1759,7 +1759,7 @@ class _PreviewPanel:
                             f"Поиск последовательности (глубина {depth}/{total}): {seq_str}..."
                         )
                         QtWidgets.QApplication.processEvents()
-                        return False
+                        return True
 
                     self._sync_tooling_to_active_bend()
                     pc = self._ensure_press_cycle_controller()
