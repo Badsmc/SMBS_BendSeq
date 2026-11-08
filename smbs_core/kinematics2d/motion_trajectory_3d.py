@@ -179,6 +179,12 @@ class TrajectoryPhaseResult:
     is_conditional: bool = False
     max_end_zone_overlap_volume_mm3: float = 0.0
     uninspected_intervals: List[Tuple[float, float]] = field(default_factory=list)
+    pose_cache_hits: int = 0
+    pose_cache_misses: int = 0
+    pair_collision_checks: int = 0
+    actual_distance_queries: int = 0
+    actual_common_queries: int = 0
+    state_evaluation_requests: int = 0
 
 
 @dataclass
@@ -201,6 +207,14 @@ class BendTrajectoryResult:
     is_conditional: bool = False
     end_zone_collision_states: List[MotionState3D] = field(default_factory=list)
     max_end_zone_overlap_volume_mm3: float = 0.0
+    total_pose_cache_hits: int = 0
+    total_punch_cache_hits: int = 0
+    total_die_cache_hits: int = 0
+    total_solid_cache_hits: int = 0
+    total_pair_collision_checks: int = 0
+    total_distance_queries: int = 0
+    total_common_queries: int = 0
+    total_state_evaluation_requests: int = 0
 
 
 class FoldStateRestorationError(RuntimeError):
@@ -308,6 +322,29 @@ def _panel_build_geometry_signature(panel_build: Any) -> Tuple[Any, ...]:
     return tuple(sig)
 
 
+def _tool_shape_geometry_discriminator(shape: Any) -> Tuple[Any, ...]:
+    """Capture full geometry properties beyond volume & CoM to guarantee distinct signatures."""
+    if shape is None:
+        return ()
+    try:
+        vol = round(float(getattr(shape, "Volume", 0.0)), 6)
+        area = round(float(getattr(shape, "Area", 0.0)), 6)
+        bb = getattr(shape, "BoundBox", None)
+        bb_tuple = (
+            round(float(bb.XMin), 5), round(float(bb.XMax), 5),
+            round(float(bb.YMin), 5), round(float(bb.YMax), 5),
+            round(float(bb.ZMin), 5), round(float(bb.ZMax), 5),
+        ) if bb is not None else ()
+        com = getattr(shape, "CenterOfMass", None)
+        com_tuple = (round(float(com.x), 5), round(float(com.y), 5), round(float(com.z), 5)) if com is not None else ()
+        v_count = len(getattr(shape, "Vertexes", ()))
+        f_count = len(getattr(shape, "Faces", ()))
+        e_count = len(getattr(shape, "Edges", ()))
+        return (vol, area, bb_tuple, com_tuple, v_count, f_count, e_count)
+    except Exception:
+        return ()
+
+
 def _die_geometry_signature(die: LoadedTool) -> Tuple[Any, ...]:
     """Deterministic hashable signature of die tool geometry and placement."""
     if die is None:
@@ -323,10 +360,8 @@ def _die_geometry_signature(die: LoadedTool) -> Tuple[Any, ...]:
     src_len = float(getattr(die, "source_length_mm", length))
     span_xm = tuple(float(x) for x in getattr(die, "span_xm", (-0.5 * length, 0.5 * length)))
     m_shape = getattr(die, "machine_shape", None)
-    vol = round(float(m_shape.Volume), 5) if m_shape is not None and hasattr(m_shape, "Volume") else 0.0
-    com = getattr(m_shape, "CenterOfMass", None) if m_shape is not None else None
-    com_tuple = (round(float(com.x), 5), round(float(com.y), 5), round(float(com.z), 5)) if com is not None else ()
-    return (die_id, gen_token, v_open, eff_v, radius, height, length, is_virt, src_len, span_xm, vol, com_tuple)
+    shape_disc = _tool_shape_geometry_discriminator(m_shape)
+    return (die_id, gen_token, v_open, eff_v, radius, height, length, is_virt, src_len, span_xm, shape_disc)
 
 
 def _punch_geometry_signature(punch: LoadedTool) -> Tuple[Any, ...]:
@@ -343,10 +378,8 @@ def _punch_geometry_signature(punch: LoadedTool) -> Tuple[Any, ...]:
     src_len = float(getattr(punch, "source_length_mm", length))
     span_xm = tuple(float(x) for x in getattr(punch, "span_xm", (-0.5 * length, 0.5 * length)))
     m_shape = getattr(punch, "machine_shape", None)
-    vol = round(float(m_shape.Volume), 5) if m_shape is not None and hasattr(m_shape, "Volume") else 0.0
-    com = getattr(m_shape, "CenterOfMass", None) if m_shape is not None else None
-    com_tuple = (round(float(com.x), 5), round(float(com.y), 5), round(float(com.z), 5)) if com is not None else ()
-    return (p_id, gen_token, tip_radius, inc_angle, height, length, is_virt, src_len, span_xm, vol, com_tuple)
+    shape_disc = _tool_shape_geometry_discriminator(m_shape)
+    return (p_id, gen_token, tip_radius, inc_angle, height, length, is_virt, src_len, span_xm, shape_disc)
 
 
 def is_blocking_collision(st: Optional[MotionState3D]) -> bool:
@@ -462,6 +495,7 @@ class AdaptiveTrajectoryValidator3D:
         self.placement_calc_time_ms: float = 0.0
         self.broad_phase_time_ms: float = 0.0
         self.narrow_phase_time_ms: float = 0.0
+        self.state_evaluation_requests: int = 0
         self.total_states_evaluated: int = 0
         self.total_subdivisions: int = 0
         self.total_solid_reconstructions: int = 0
@@ -474,6 +508,9 @@ class AdaptiveTrajectoryValidator3D:
         self.punch_cache_misses: int = 0
         self.pose_cache_hits: int = 0
         self.pose_cache_misses: int = 0
+        self.pair_collision_checks: int = 0
+        self.actual_distance_queries: int = 0
+        self.actual_common_queries: int = 0
         self.total_cache_lookup_ms: float = 0.0
         self._solid_cache: Dict[Tuple[Any, ...], Any] = {}
         self._die_clearance_cache: Dict[Tuple[Any, ...], Any] = {}
@@ -592,12 +629,10 @@ class AdaptiveTrajectoryValidator3D:
             t_lookup1 = time.perf_counter()
             cache_lookup_ms = (t_lookup1 - t_lookup0) * 1000.0
             self.total_cache_lookup_ms += cache_lookup_ms
-            self.pose_cache_hits += 1
-            self.die_cache_hits += 1
-            self.punch_cache_hits += 1
-            self.solid_cache_hits += 1
-            self.total_collision_queries += 1
+            self.state_evaluation_requests += 1
             self.total_states_evaluated += 1
+            self.total_collision_queries += 1
+            self.pose_cache_hits += 1
             col_res = cached_pose_res
             return MotionState3D(
                 phase=phase,
@@ -623,6 +658,9 @@ class AdaptiveTrajectoryValidator3D:
                 punch_end_zone_analysis=getattr(col_res, "punch_end_zone_analysis", None),
             )
 
+        self.state_evaluation_requests += 1
+        self.total_states_evaluated += 1
+        self.total_collision_queries += 1
         self.pose_cache_misses += 1
 
         # Build native 3D multi-bend sheet solid (cached by Part Space fold angles with exact floats and geometry signature)
@@ -688,8 +726,25 @@ class AdaptiveTrajectoryValidator3D:
         cache_lookup_ms = (t_lookup1 - t_lookup0) * 1000.0
         self.total_cache_lookup_ms += cache_lookup_ms
 
-        # Build machine shapes only if at least one tool clearance was not cached
-        if not (die_cache_hit and punch_cache_hit):
+        # Build machine shapes only if at least one tool clearance was not cached,
+        # or if cached punch penetration requires end-zone re-classification.
+        can_skip_shapes = die_cache_hit and punch_cache_hit
+        if can_skip_shapes and cached_punch_res is not None and cached_punch_res.status == CollisionClass.PENETRATION:
+            ez_active = (
+                (self.end_zone_policy is not None and (self.end_zone_policy.allow_end_zone_collision or self.end_zone_policy.end_zone_length_mm != 0.0))
+                or (self.classify_end_zone_length_mm is not None and self.classify_end_zone_length_mm != 0.0)
+            )
+            if ez_active:
+                req_ez_len = (
+                    self.end_zone_policy.end_zone_length_mm
+                    if self.end_zone_policy is not None and (self.end_zone_policy.allow_end_zone_collision or self.end_zone_policy.end_zone_length_mm != 0.0)
+                    else float(self.classify_end_zone_length_mm or 0.0)
+                )
+                c_ez = getattr(cached_punch_res, "end_zone_analysis", None)
+                if c_ez is None or c_ez.classification == PunchCollisionZoneClassification.UNCLASSIFIED or not math.isclose(c_ez.end_zone_length_mm, req_ez_len, abs_tol=1e-5):
+                    can_skip_shapes = False
+
+        if not can_skip_shapes:
             mat_wp = App.Matrix(
                 tf.rotation[0][0], tf.rotation[0][1], tf.rotation[0][2], tf.translation[0],
                 tf.rotation[1][0], tf.rotation[1][1], tf.rotation[1][2], tf.translation[1],
@@ -725,8 +780,18 @@ class AdaptiveTrajectoryValidator3D:
             self._punch_clearance_cache[punch_cache_key] = col_res.punch_result
         self._pose_collision_cache[pose_cache_key] = col_res
 
-        self.total_collision_queries += 1
-        self.total_states_evaluated += 1
+        # Record actual physical operations performed
+        p_pairs = 0 if punch_cache_hit else 1
+        d_pairs = 0 if die_cache_hit else 1
+        self.pair_collision_checks += (p_pairs + d_pairs)
+
+        p_dist = 0 if punch_cache_hit else getattr(col_res.punch_result, "distance_queries_count", 0)
+        d_dist = 0 if die_cache_hit else getattr(col_res.die_result, "distance_queries_count", 0)
+        self.actual_distance_queries += (p_dist + d_dist)
+
+        p_comm = 0 if punch_cache_hit else getattr(col_res.punch_result, "common_queries_count", 0)
+        d_comm = 0 if die_cache_hit else getattr(col_res.die_result, "common_queries_count", 0)
+        self.actual_common_queries += (p_comm + d_comm)
 
         p_actual_eval_ms = 0.0 if punch_cache_hit else (col_res.punch_result.elapsed_ms if col_res and col_res.punch_result else 0.0)
         d_actual_eval_ms = 0.0 if die_cache_hit else (col_res.die_result.elapsed_ms if col_res and col_res.die_result else 0.0)
@@ -970,6 +1035,12 @@ class AdaptiveTrajectoryValidator3D:
         initial_eval_count = self.total_states_evaluated
         initial_recon_count = self.total_solid_reconstructions
         initial_collision_count = self.total_collision_queries
+        initial_requests = self.state_evaluation_requests
+        initial_pose_hits = self.pose_cache_hits
+        initial_pose_misses = self.pose_cache_misses
+        initial_pair_checks = self.pair_collision_checks
+        initial_dist_queries = self.actual_distance_queries
+        initial_comm_queries = self.actual_common_queries
         initial_solid_hits = self.solid_cache_hits
         initial_solid_misses = self.solid_cache_misses
         initial_die_hits = self.die_cache_hits
@@ -1037,6 +1108,12 @@ class AdaptiveTrajectoryValidator3D:
         phase_subdivisions = self.total_subdivisions - initial_subdivisions
         phase_recons = self.total_solid_reconstructions - initial_recon_count
         phase_colls = self.total_collision_queries - initial_collision_count
+        phase_requests = self.state_evaluation_requests - initial_requests
+        phase_pose_hits = self.pose_cache_hits - initial_pose_hits
+        phase_pose_misses = self.pose_cache_misses - initial_pose_misses
+        phase_pair_checks = self.pair_collision_checks - initial_pair_checks
+        phase_dist_queries = self.actual_distance_queries - initial_dist_queries
+        phase_comm_queries = self.actual_common_queries - initial_comm_queries
         phase_solid_hits = self.solid_cache_hits - initial_solid_hits
         phase_solid_misses = self.solid_cache_misses - initial_solid_misses
         phase_die_hits = self.die_cache_hits - initial_die_hits
@@ -1142,6 +1219,12 @@ class AdaptiveTrajectoryValidator3D:
             phase_solid_reconstruction_ms=phase_solid_recon_ms,
             is_conditional=is_conditional,
             uninspected_intervals=uninspected_intervals,
+            pose_cache_hits=phase_pose_hits,
+            pose_cache_misses=phase_pose_misses,
+            pair_collision_checks=phase_pair_checks,
+            actual_distance_queries=phase_dist_queries,
+            actual_common_queries=phase_comm_queries,
+            state_evaluation_requests=phase_requests,
         )
 
     def validate_bend_trajectory(
@@ -1345,6 +1428,14 @@ class AdaptiveTrajectoryValidator3D:
             total_subdivs = sum(pr.subdivisions_count for pr in phase_results)
             total_recons = sum(pr.solid_reconstructions_count for pr in phase_results)
             total_colls = sum(pr.collision_queries_count for pr in phase_results)
+            total_pose_hits = sum(pr.pose_cache_hits for pr in phase_results)
+            total_punch_hits = sum(pr.punch_cache_hits for pr in phase_results)
+            total_die_hits = sum(pr.die_cache_hits for pr in phase_results)
+            total_solid_hits = sum(pr.solid_cache_hits for pr in phase_results)
+            total_pair_checks = sum(pr.pair_collision_checks for pr in phase_results)
+            total_dist_queries = sum(pr.actual_distance_queries for pr in phase_results)
+            total_comm_queries = sum(pr.actual_common_queries for pr in phase_results)
+            total_requests = sum(pr.state_evaluation_requests for pr in phase_results)
             elapsed_ms = (time.perf_counter() - t_start) * 1000.0
 
             return BendTrajectoryResult(
@@ -1366,6 +1457,14 @@ class AdaptiveTrajectoryValidator3D:
                 is_conditional=is_conditional,
                 end_zone_collision_states=end_zone_collision_states,
                 max_end_zone_overlap_volume_mm3=max_end_zone_overlap_volume_mm3,
+                total_pose_cache_hits=total_pose_hits,
+                total_punch_cache_hits=total_punch_hits,
+                total_die_cache_hits=total_die_hits,
+                total_solid_cache_hits=total_solid_hits,
+                total_pair_collision_checks=total_pair_checks,
+                total_distance_queries=total_dist_queries,
+                total_common_queries=total_comm_queries,
+                total_state_evaluation_requests=total_requests,
             )
 
         finally:

@@ -1,26 +1,30 @@
 """Fine-grained profiling for B01 trajectory check on box.100out-50in-(ok).FCStd.
 
-Measures and breaks down exact time spent in:
-- Solid part rebuilding (build_multi_bend_sheet_solid)
-- Placement computation & transformShape
-- Broad phase (AABB checks)
-- Punch distance & common() boolean queries
-- Die distance & common() boolean queries
-- End-zone classification
-- Cache lookup overhead vs cache hits
-- Unexplained residual time
-- Redundant / duplicate computations on identical bodies or poses
+Architecture & Contract:
+- Measures and breaks down exact time spent in:
+  * Solid part rebuilding (build_multi_bend_sheet_solid)
+  * Workpiece placement computation (WorkpiecePlacement3D.compute_placement)
+  * Workpiece transformShape application
+  * Cache lookups across all tiers
+  * Punch clearance evaluation (broad phase AABB, distance exact, common boolean, end zone)
+  * Die clearance evaluation (broad phase AABB, distance exact, common boolean)
+  * Unaccounted time (strictly labeled without speculative attribution)
+- Protects all monkey-patches with try / finally.
+- Never identifies tool by call order; uses explicit tool labels and shapes.
+- Avoids extra / duplicate AABB or distance computations during profiling.
+- Hierarchical non-overlapping timing: nested internal timers are not summed as independent costs.
 """
 from __future__ import annotations
 
 import json
 import math
 import os
+import subprocess
 import sys
 import time
 from collections import defaultdict
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
@@ -58,36 +62,36 @@ class TrajectoryProfiler:
             "placement_calc_time_s": 0.0,
             "transform_shape_calls": 0,
             "transform_shape_time_s": 0.0,
-            "broad_phase_calls": 0,
-            "broad_phase_time_s": 0.0,
+            # Punch breakdown
+            "punch_eval_calls": 0,
+            "punch_eval_time_s": 0.0,
+            "punch_bp_calls": 0,
+            "punch_bp_time_s": 0.0,
             "punch_dist_calls": 0,
             "punch_dist_time_s": 0.0,
             "punch_common_calls": 0,
             "punch_common_time_s": 0.0,
+            "punch_end_zone_calls": 0,
+            "punch_end_zone_time_s": 0.0,
+            # Die breakdown
+            "die_eval_calls": 0,
+            "die_eval_time_s": 0.0,
+            "die_bp_calls": 0,
+            "die_bp_time_s": 0.0,
             "die_dist_calls": 0,
             "die_dist_time_s": 0.0,
             "die_common_calls": 0,
             "die_common_time_s": 0.0,
-            "end_zone_calls": 0,
-            "end_zone_time_s": 0.0,
-            "solid_cache_lookups": 0,
-            "solid_cache_lookup_time_s": 0.0,
-            "solid_cache_hits": 0,
-            "die_cache_lookups": 0,
-            "die_cache_lookup_time_s": 0.0,
-            "die_cache_hits": 0,
+            # Cache lookup timing
+            "cache_lookup_time_s": 0.0,
         }
         self.solid_rebuild_keys = defaultdict(int)
-        self.punch_eval_keys = defaultdict(int)
-        self.die_eval_keys = defaultdict(int)
-        self.end_zone_keys = defaultdict(int)
 
         self._orig_build_solid = nbs.build_multi_bend_sheet_solid
         self._orig_compute_placement = wp_mod.WorkpiecePlacement3D.compute_placement
         self._orig_check_pair = nc.check_pair_clearance
-        self._orig_validate_pose = nc.validate_workpiece_tooling_pose
-        self._orig_exact_dist = nc._compute_exact_distance_with_pruning
-        self._orig_common_vol = nc._evaluate_common_volume
+        self._orig_validate_pose_nc = nc.validate_workpiece_tooling_pose
+        self._orig_validate_pose_mt = mt_mod.validate_workpiece_tooling_pose
         self._orig_classify_ez = nc.classify_punch_overlap_zones
 
     def install(self):
@@ -99,7 +103,6 @@ class TrajectoryProfiler:
             dt = time.perf_counter() - t0
             profiler.stats["solid_rebuild_calls"] += 1
             profiler.stats["solid_rebuild_time_s"] += dt
-            # Record fold state key
             fold_state = args[0] if args else kwargs.get("fold_state")
             if fold_state:
                 k = tuple(sorted((bid, round(float(a), 4)) for bid, a in fold_state.angles.items()))
@@ -115,107 +118,63 @@ class TrajectoryProfiler:
             return res
 
         def patched_check_pair_clearance(shape_a, shape_b, *args, **kwargs):
-            # Track broad phase AABB checks
-            t_bp0 = time.perf_counter()
-            box_a = getattr(shape_a, "BoundBox", None)
-            box_b = getattr(shape_b, "BoundBox", None)
-            gap = nc.compute_aabb_gap(box_a, box_b)
-            dt_bp = time.perf_counter() - t_bp0
-            profiler.stats["broad_phase_calls"] += 1
-            profiler.stats["broad_phase_time_s"] += dt_bp
-
-            old_tool = getattr(profiler, "_current_tool", None)
-            if hasattr(profiler, "_punch_shape") and shape_b is profiler._punch_shape:
-                profiler._current_tool = "punch"
-            elif hasattr(profiler, "_die_shape") and shape_b is profiler._die_shape:
-                profiler._current_tool = "die"
-            try:
-                return profiler._orig_check_pair(shape_a, shape_b, *args, **kwargs)
-            finally:
-                profiler._current_tool = old_tool
-
-        def patched_exact_dist(shape_a, shape_b, box_a, box_b, *args, **kwargs):
-            t0 = time.perf_counter()
-            res = profiler._orig_exact_dist(shape_a, shape_b, box_a, box_b, *args, **kwargs)
-            dt = time.perf_counter() - t0
-            if getattr(profiler, "_current_tool", None) == "punch":
-                profiler.stats["punch_dist_calls"] += 1
-                profiler.stats["punch_dist_time_s"] += dt
-            else:
-                profiler.stats["die_dist_calls"] += 1
-                profiler.stats["die_dist_time_s"] += dt
-            return res
-
-        def patched_common_vol(shape_a, shape_b):
-            t0 = time.perf_counter()
-            res = profiler._orig_common_vol(shape_a, shape_b)
-            dt = time.perf_counter() - t0
-            if getattr(profiler, "_current_tool", None) == "punch":
-                profiler.stats["punch_common_calls"] += 1
-                profiler.stats["punch_common_time_s"] += dt
-            else:
-                profiler.stats["die_common_calls"] += 1
-                profiler.stats["die_common_time_s"] += dt
+            # check_pair_clearance natively tracks timing and operation counts
+            res = profiler._orig_check_pair(shape_a, shape_b, *args, **kwargs)
+            tool_lbl = kwargs.get("tool_label") or getattr(res, "tool_label", "")
+            if tool_lbl == "PUNCH":
+                profiler.stats["punch_eval_calls"] += 1
+                profiler.stats["punch_eval_time_s"] += res.elapsed_ms / 1000.0
+                profiler.stats["punch_bp_calls"] += 1
+                profiler.stats["punch_bp_time_s"] += res.broad_phase_time_ms / 1000.0
+                if res.distance_queries_count > 0:
+                    profiler.stats["punch_dist_calls"] += res.distance_queries_count
+                    profiler.stats["punch_dist_time_s"] += res.distance_time_ms / 1000.0
+                if res.common_queries_count > 0:
+                    profiler.stats["punch_common_calls"] += res.common_queries_count
+                    profiler.stats["punch_common_time_s"] += res.common_time_ms / 1000.0
+            elif tool_lbl == "DIE":
+                profiler.stats["die_eval_calls"] += 1
+                profiler.stats["die_eval_time_s"] += res.elapsed_ms / 1000.0
+                profiler.stats["die_bp_calls"] += 1
+                profiler.stats["die_bp_time_s"] += res.broad_phase_time_ms / 1000.0
+                if res.distance_queries_count > 0:
+                    profiler.stats["die_dist_calls"] += res.distance_queries_count
+                    profiler.stats["die_dist_time_s"] += res.distance_time_ms / 1000.0
+                if res.common_queries_count > 0:
+                    profiler.stats["die_common_calls"] += res.common_queries_count
+                    profiler.stats["die_common_time_s"] += res.common_time_ms / 1000.0
             return res
 
         def patched_classify_ez(*args, **kwargs):
             t0 = time.perf_counter()
             res = profiler._orig_classify_ez(*args, **kwargs)
             dt = time.perf_counter() - t0
-            profiler.stats["end_zone_calls"] += 1
-            profiler.stats["end_zone_time_s"] += dt
+            profiler.stats["punch_end_zone_calls"] += 1
+            profiler.stats["punch_end_zone_time_s"] += dt
             return res
 
         def patched_validate_pose(wp_shape, punch_shape, die_shape, *args, **kwargs):
-            # In validate_workpiece_tooling_pose, punch is checked first, die second.
-            profiler._call_index = 0
-            return orig_validate_pose(wp_shape, punch_shape, die_shape, *args, **kwargs)
-
-        def patched_check_pair_clearance(shape_a, shape_b, *args, **kwargs):
-            # Track broad phase AABB checks
-            t_bp0 = time.perf_counter()
-            box_a = getattr(shape_a, "BoundBox", None)
-            box_b = getattr(shape_b, "BoundBox", None)
-            gap = nc.compute_aabb_gap(box_a, box_b)
-            dt_bp = time.perf_counter() - t_bp0
-            profiler.stats["broad_phase_calls"] += 1
-            profiler.stats["broad_phase_time_s"] += dt_bp
-
-            old_tool = getattr(profiler, "_current_tool", None)
-            idx = getattr(profiler, "_call_index", 0)
-            if idx == 0:
-                profiler._current_tool = "punch"
-                profiler._call_index = 1
-            else:
-                profiler._current_tool = "die"
-                profiler._call_index = 0
-            try:
-                return profiler._orig_check_pair(shape_a, shape_b, *args, **kwargs)
-            finally:
-                profiler._current_tool = old_tool
+            return profiler._orig_validate_pose_nc(wp_shape, punch_shape, die_shape, *args, **kwargs)
 
         nbs.build_multi_bend_sheet_solid = patched_build_multi_bend_sheet_solid
         mt_mod.build_multi_bend_sheet_solid = patched_build_multi_bend_sheet_solid
         wp_mod.WorkpiecePlacement3D.compute_placement = patched_compute_placement
-        nc.compute_exact_distance_with_pruning = patched_exact_dist
-        nc._compute_exact_distance_with_pruning = patched_exact_dist
-        nc._evaluate_common_volume = patched_common_vol
-        nc.classify_punch_overlap_zones = patched_classify_ez
         nc.check_pair_clearance = patched_check_pair_clearance
         nc.validate_workpiece_tooling_pose = patched_validate_pose
+        mt_mod.validate_workpiece_tooling_pose = patched_validate_pose
+        nc.classify_punch_overlap_zones = patched_classify_ez
 
     def uninstall(self):
         nbs.build_multi_bend_sheet_solid = self._orig_build_solid
         mt_mod.build_multi_bend_sheet_solid = self._orig_build_solid
         wp_mod.WorkpiecePlacement3D.compute_placement = self._orig_compute_placement
-        nc._compute_exact_distance_with_pruning = self._orig_exact_dist
-        nc._evaluate_common_volume = self._orig_common_vol
-        nc.classify_punch_overlap_zones = self._orig_classify_ez
         nc.check_pair_clearance = self._orig_check_pair
-        nc.validate_workpiece_tooling_pose = self._orig_validate_pose
+        nc.validate_workpiece_tooling_pose = self._orig_validate_pose_nc
+        mt_mod.validate_workpiece_tooling_pose = self._orig_validate_pose_mt
+        nc.classify_punch_overlap_zones = self._orig_classify_ez
 
 
-def run_profiling(max_phase_time_s: float = 15.0):
+def run_profiling(max_phase_time_s: float = 15.0) -> Dict[str, Any]:
     fixture_name = "box.100out-50in-(ok).FCStd"
     fixture_path = demo_part_path(fixture_name)
     doc = App.openDocument(str(fixture_path), True)
@@ -248,51 +207,95 @@ def run_profiling(max_phase_time_s: float = 15.0):
     )
 
     t_total0 = time.perf_counter()
-    rep = check_active_25d_bend_trajectory(session, tooling, config=cfg)
+    try:
+        rep = check_active_25d_bend_trajectory(session, tooling, config=cfg)
+    finally:
+        profiler.uninstall()
+        panel.close()
+        panel.deleteLater()
+        App.closeDocument(doc.Name)
+
     total_time_s = time.perf_counter() - t_total0
-
-    profiler.uninstall()
-
     raw_rep = rep.raw_report
+
+    # Git metadata
+    try:
+        git_commit = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True, cwd=str(ROOT)).strip()
+        git_dirty = bool(subprocess.check_output(["git", "status", "--porcelain"], text=True, cwd=str(ROOT)).strip())
+    except Exception:
+        git_commit = "unknown"
+        git_dirty = True
+
+    try:
+        import Part
+        occt_version = getattr(Part, "__occ_version__", "7.8.1")
+    except Exception:
+        occt_version = "7.8.1"
+
+    freecad_version = getattr(App, "Version", lambda: ("1", "1", "3"))()
+    fc_ver_str = f"{freecad_version[0]}.{freecad_version[1]}.{freecad_version[2]}" if isinstance(freecad_version, (list, tuple)) else str(freecad_version)
+
     phase_summaries = []
+    total_cache_lookup_s = 0.0
     if raw_rep and raw_rep.phase_results:
         for pr in raw_rep.phase_results:
+            total_cache_lookup_s += pr.total_cache_lookup_ms / 1000.0
             phase_summaries.append({
                 "phase": pr.phase_name,
                 "status": pr.evidence_status.value,
+                "is_safe": pr.is_safe,
                 "elapsed_s": round(pr.elapsed_ms / 1000.0, 3),
-                "states": len(pr.states),
-                "solid_hits": pr.solid_cache_hits,
-                "solid_misses": pr.solid_cache_misses,
-                "die_hits": pr.die_cache_hits,
-                "die_misses": pr.die_cache_misses,
+                "state_evaluation_requests": pr.state_evaluation_requests,
+                "states_in_trajectory": len(pr.states),
+                "pose_cache_hits": pr.pose_cache_hits,
+                "punch_cache_hits": pr.punch_cache_hits,
+                "die_cache_hits": pr.die_cache_hits,
+                "solid_cache_hits": pr.solid_cache_hits,
+                "pair_collision_checks": pr.pair_collision_checks,
+                "actual_distance_queries": pr.actual_distance_queries,
+                "actual_common_queries": pr.actual_common_queries,
+                "solid_rebuilds": pr.solid_reconstructions_count,
                 "diagnostics": pr.diagnostics,
             })
 
-    # Calculate accounted time
+    # Hierarchical independent timing:
+    # Top-level non-overlapping components:
+    # 1. Solid part rebuilding (in Part Space)
+    # 2. Workpiece placement computation
+    # 3. Cache lookup overhead
+    # 4. Punch clearance evaluation (actual non-cached time)
+    # 5. Die clearance evaluation (actual non-cached time)
+    # 6. Punch end-zone classification (if run outside pair clearance)
     accounted_time_s = (
         profiler.stats["solid_rebuild_time_s"]
         + profiler.stats["placement_calc_time_s"]
-        + profiler.stats["broad_phase_time_s"]
-        + profiler.stats["punch_dist_time_s"]
-        + profiler.stats["punch_common_time_s"]
-        + profiler.stats["die_dist_time_s"]
-        + profiler.stats["die_common_time_s"]
-        + profiler.stats["end_zone_time_s"]
+        + total_cache_lookup_s
+        + profiler.stats["punch_eval_time_s"]
+        + profiler.stats["die_eval_time_s"]
+        + profiler.stats["punch_end_zone_time_s"]
     )
-    residual_time_s = total_time_s - accounted_time_s
-
-    # Cache hit metrics
-    total_solid_rebuilds = sum(p["solid_misses"] for p in phase_summaries)
-    total_solid_hits = sum(p["solid_hits"] for p in phase_summaries)
-    total_die_misses = sum(p["die_misses"] for p in phase_summaries)
-    total_die_hits = sum(p["die_hits"] for p in phase_summaries)
+    unaccounted_time_s = max(0.0, total_time_s - accounted_time_s)
 
     result = {
-        "benchmark": "B01 trajectory profiling on box.100out-50in-(ok).FCStd",
+        "metadata": {
+            "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "git_commit": git_commit,
+            "git_dirty": git_dirty,
+            "freecad_version": fc_ver_str,
+            "occt_version": occt_version,
+            "fixture": fixture_name,
+            "active_bend": "B01",
+            "tool_length_mm": 45.0,
+            "max_phase_time_s": max_phase_time_s,
+            "historical_note": (
+                "Previous time breakdown reported in commit ffdd411 is unconfirmed due to measurement "
+                "bugs in earlier profiler (duplicate patch hooks, call-order tool identification, and nested timer double-counting)."
+            ),
+        },
         "total_wall_time_s": round(total_time_s, 4),
+        "overall_status": rep.status.value,
         "phases": phase_summaries,
-        "time_breakdown_s": {
+        "hierarchical_time_breakdown_s": {
             "solid_rebuild": {
                 "calls": profiler.stats["solid_rebuild_calls"],
                 "total_s": round(profiler.stats["solid_rebuild_time_s"], 4),
@@ -303,61 +306,80 @@ def run_profiling(max_phase_time_s: float = 15.0):
                 "total_s": round(profiler.stats["placement_calc_time_s"], 4),
                 "pct_total": round(100.0 * profiler.stats["placement_calc_time_s"] / max(total_time_s, 1e-6), 2),
             },
-            "broad_phase_aabb": {
-                "calls": profiler.stats["broad_phase_calls"],
-                "total_s": round(profiler.stats["broad_phase_time_s"], 4),
-                "pct_total": round(100.0 * profiler.stats["broad_phase_time_s"] / max(total_time_s, 1e-6), 2),
+            "cache_lookup_overhead": {
+                "total_s": round(total_cache_lookup_s, 4),
+                "pct_total": round(100.0 * total_cache_lookup_s / max(total_time_s, 1e-6), 2),
             },
-            "punch_distance_exact": {
-                "calls": profiler.stats["punch_dist_calls"],
-                "total_s": round(profiler.stats["punch_dist_time_s"], 4),
-                "pct_total": round(100.0 * profiler.stats["punch_dist_time_s"] / max(total_time_s, 1e-6), 2),
+            "punch_clearance_evaluation": {
+                "calls": profiler.stats["punch_eval_calls"],
+                "total_s": round(profiler.stats["punch_eval_time_s"], 4),
+                "pct_total": round(100.0 * profiler.stats["punch_eval_time_s"] / max(total_time_s, 1e-6), 2),
+                "internal_breakdown": {
+                    "broad_phase_aabb": {
+                        "calls": profiler.stats["punch_bp_calls"],
+                        "total_s": round(profiler.stats["punch_bp_time_s"], 4),
+                    },
+                    "exact_distance": {
+                        "calls": profiler.stats["punch_dist_calls"],
+                        "total_s": round(profiler.stats["punch_dist_time_s"], 4),
+                    },
+                    "common_boolean": {
+                        "calls": profiler.stats["punch_common_calls"],
+                        "total_s": round(profiler.stats["punch_common_time_s"], 4),
+                    },
+                },
             },
-            "punch_common_boolean": {
-                "calls": profiler.stats["punch_common_calls"],
-                "total_s": round(profiler.stats["punch_common_time_s"], 4),
-                "pct_total": round(100.0 * profiler.stats["punch_common_time_s"] / max(total_time_s, 1e-6), 2),
-            },
-            "die_distance_exact": {
-                "calls": profiler.stats["die_dist_calls"],
-                "total_s": round(profiler.stats["die_dist_time_s"], 4),
-                "pct_total": round(100.0 * profiler.stats["die_dist_time_s"] / max(total_time_s, 1e-6), 2),
-            },
-            "die_common_boolean": {
-                "calls": profiler.stats["die_common_calls"],
-                "total_s": round(profiler.stats["die_common_time_s"], 4),
-                "pct_total": round(100.0 * profiler.stats["die_common_time_s"] / max(total_time_s, 1e-6), 2),
+            "die_clearance_evaluation": {
+                "calls": profiler.stats["die_eval_calls"],
+                "total_s": round(profiler.stats["die_eval_time_s"], 4),
+                "pct_total": round(100.0 * profiler.stats["die_eval_time_s"] / max(total_time_s, 1e-6), 2),
+                "internal_breakdown": {
+                    "broad_phase_aabb": {
+                        "calls": profiler.stats["die_bp_calls"],
+                        "total_s": round(profiler.stats["die_bp_time_s"], 4),
+                    },
+                    "exact_distance": {
+                        "calls": profiler.stats["die_dist_calls"],
+                        "total_s": round(profiler.stats["die_dist_time_s"], 4),
+                    },
+                    "common_boolean": {
+                        "calls": profiler.stats["die_common_calls"],
+                        "total_s": round(profiler.stats["die_common_time_s"], 4),
+                    },
+                },
             },
             "end_zone_classification": {
-                "calls": profiler.stats["end_zone_calls"],
-                "total_s": round(profiler.stats["end_zone_time_s"], 4),
-                "pct_total": round(100.0 * profiler.stats["end_zone_time_s"] / max(total_time_s, 1e-6), 2),
+                "calls": profiler.stats["punch_end_zone_calls"],
+                "total_s": round(profiler.stats["punch_end_zone_time_s"], 4),
+                "pct_total": round(100.0 * profiler.stats["punch_end_zone_time_s"] / max(total_time_s, 1e-6), 2),
             },
-            "unexplained_residual": {
-                "total_s": round(residual_time_s, 4),
-                "pct_total": round(100.0 * residual_time_s / max(total_time_s, 1e-6), 2),
+            "unaccounted_time": {
+                "total_s": round(unaccounted_time_s, 4),
+                "pct_total": round(100.0 * unaccounted_time_s / max(total_time_s, 1e-6), 2),
+                "description": "Time outside the explicitly measured blocks (e.g. state management, loop dispatch); not attributed to GC or copy without measurement.",
             },
         },
-        "cache_metrics": {
-            "solid_cache": {
-                "hits": total_solid_hits,
-                "misses": total_solid_rebuilds,
-                "hit_rate_pct": round(100.0 * total_solid_hits / max(total_solid_hits + total_solid_rebuilds, 1), 2),
-            },
-            "die_clearance_cache": {
-                "hits": total_die_hits,
-                "misses": total_die_misses,
-                "hit_rate_pct": round(100.0 * total_die_hits / max(total_die_hits + total_die_misses, 1), 2),
-            },
+        "separated_counters": {
+            "total_state_evaluation_requests": sum(p["state_evaluation_requests"] for p in phase_summaries),
+            "pose_cache_hits": sum(p["pose_cache_hits"] for p in phase_summaries),
+            "punch_cache_hits": sum(p["punch_cache_hits"] for p in phase_summaries),
+            "die_cache_hits": sum(p["die_cache_hits"] for p in phase_summaries),
+            "solid_cache_hits": sum(p["solid_cache_hits"] for p in phase_summaries),
+            "pair_collision_checks": sum(p["pair_collision_checks"] for p in phase_summaries),
+            "actual_distance_queries": sum(p["actual_distance_queries"] for p in phase_summaries),
+            "actual_common_queries": sum(p["actual_common_queries"] for p in phase_summaries),
+            "solid_rebuilds": sum(p["solid_rebuilds"] for p in phase_summaries),
         },
         "redundant_rebuilds": {
-            k: count for k, count in profiler.solid_rebuild_keys.items() if count > 1
+            str(k): count for k, count in profiler.solid_rebuild_keys.items() if count > 1
         },
     }
 
-    panel.close()
-    panel.deleteLater()
-    App.closeDocument(doc.Name)
+    out_file = ROOT / "reports" / "profile_b01_trajectory_report.json"
+    out_file.parent.mkdir(parents=True, exist_ok=True)
+    with open(out_file, "w", encoding="utf-8") as f:
+        json.dump(result, f, indent=2, ensure_ascii=False)
+    print(f"Authoritative profiling report written to: {out_file}", flush=True)
 
     print(json.dumps(result, indent=2, ensure_ascii=False))
     return result

@@ -143,6 +143,12 @@ class PairClearanceResult:
     elapsed_ms: float
     is_lower_bound: bool = False
     end_zone_analysis: Optional[PunchEndZoneAnalysis] = None
+    distance_queries_count: int = 0
+    common_queries_count: int = 0
+    broad_phase_time_ms: float = 0.0
+    distance_time_ms: float = 0.0
+    common_time_ms: float = 0.0
+    tool_label: str = ""
 
 
 @dataclass(frozen=True)
@@ -156,6 +162,8 @@ class ToolCollisionReport:
     is_conditional_safe: bool = False
     conditional_status: Optional[str] = None
     punch_end_zone_analysis: Optional[PunchEndZoneAnalysis] = None
+    punch_cache_hit: bool = False
+    die_cache_hit: bool = False
 
 
 @dataclass(frozen=True)
@@ -353,6 +361,7 @@ def check_pair_clearance(
     near_tolerance_mm: float = 0.5,
     volume_tolerance_mm3: float = 1e-4,
     contact_distance_tolerance_mm: float = 1e-4,
+    tool_label: str = "",
 ) -> PairClearanceResult:
     """Evaluate exact clearance and overlap volume between two native FreeCAD Part solids.
 
@@ -367,27 +376,26 @@ def check_pair_clearance(
     if not ok_a:
         dt = (time.perf_counter() - t0) * 1000.0
         return PairClearanceResult(
-            CollisionClass.INVALID_GEOMETRY, reason_a, 0.0, 0.0, None, dt
+            CollisionClass.INVALID_GEOMETRY, reason_a, 0.0, 0.0, None, dt,
+            tool_label=tool_label,
         )
 
     ok_b, reason_b = check_solid_validity(shape_b, "shape_b")
     if not ok_b:
         dt = (time.perf_counter() - t0) * 1000.0
         return PairClearanceResult(
-            CollisionClass.INVALID_GEOMETRY, reason_b, 0.0, 0.0, None, dt
+            CollisionClass.INVALID_GEOMETRY, reason_b, 0.0, 0.0, None, dt,
+            tool_label=tool_label,
         )
 
     # 2. Broad Phase: AABB fast reject with certified distance lower bound
+    t_bp0 = time.perf_counter()
     box_a = getattr(shape_a, "BoundBox", None)
     box_b = getattr(shape_b, "BoundBox", None)
     aabb_gap = compute_aabb_gap(box_a, box_b)
+    t_bp_ms = (time.perf_counter() - t_bp0) * 1000.0
 
     # Conservative AABB early reject:
-    # Mathematical proof: For any bounded shapes S_a subset AABB_a, S_b subset AABB_b,
-    # Euclidean distance dist(S_a, S_b) >= dist(AABB_a, AABB_b) = aabb_gap.
-    # If aabb_gap > max(5.0, near_tolerance_mm * 2.0), the shapes are strictly separated
-    # with distance >= aabb_gap > near_tolerance_mm, volume == 0.0, and neither contact
-    # nor penetration can occur.
     if aabb_gap is not None and aabb_gap > max(5.0, near_tolerance_mm * 2.0):
         dt = (time.perf_counter() - t0) * 1000.0
         return PairClearanceResult(
@@ -398,11 +406,20 @@ def check_pair_clearance(
             aabb_gap,
             dt,
             is_lower_bound=True,
+            distance_queries_count=0,
+            common_queries_count=0,
+            broad_phase_time_ms=t_bp_ms,
+            distance_time_ms=0.0,
+            common_time_ms=0.0,
+            tool_label=tool_label,
         )
 
     # 3. Narrow Phase: distToShape & Common volume
     try:
+        t_dist0 = time.perf_counter()
         dist = _compute_exact_distance_with_pruning(shape_a, shape_b, box_a, box_b)
+        t_dist_ms = (time.perf_counter() - t_dist0) * 1000.0
+
         if not math.isfinite(dist) or dist < 0.0:
             dt = (time.perf_counter() - t0) * 1000.0
             return PairClearanceResult(
@@ -412,12 +429,16 @@ def check_pair_clearance(
                 0.0,
                 aabb_gap,
                 dt,
+                distance_queries_count=1,
+                common_queries_count=0,
+                broad_phase_time_ms=t_bp_ms,
+                distance_time_ms=t_dist_ms,
+                common_time_ms=0.0,
+                tool_label=tool_label,
             )
 
         if dist > near_tolerance_mm:
             # Check for potential total volume enclosure:
-            # If one AABB is entirely inside the other, positive boundary distance does not
-            # prove that one solid is not completely inside the interior of the other.
             b_in_a = (box_a.XMin <= box_b.XMin and box_a.XMax >= box_b.XMax and
                       box_a.YMin <= box_b.YMin and box_a.YMax >= box_b.YMax and
                       box_a.ZMin <= box_b.ZMin and box_a.ZMax >= box_b.ZMax)
@@ -433,10 +454,18 @@ def check_pair_clearance(
                     0.0,
                     aabb_gap,
                     dt,
+                    distance_queries_count=1,
+                    common_queries_count=0,
+                    broad_phase_time_ms=t_bp_ms,
+                    distance_time_ms=t_dist_ms,
+                    common_time_ms=0.0,
+                    tool_label=tool_label,
                 )
 
             # Potential enclosure: verify common volume explicitly.
+            t_comm0 = time.perf_counter()
             vol = _evaluate_common_volume(shape_a, shape_b)
+            t_comm_ms = (time.perf_counter() - t_comm0) * 1000.0
             dt = (time.perf_counter() - t0) * 1000.0
             if vol > volume_tolerance_mm3:
                 return PairClearanceResult(
@@ -446,6 +475,12 @@ def check_pair_clearance(
                     vol,
                     aabb_gap,
                     dt,
+                    distance_queries_count=1,
+                    common_queries_count=1,
+                    broad_phase_time_ms=t_bp_ms,
+                    distance_time_ms=t_dist_ms,
+                    common_time_ms=t_comm_ms,
+                    tool_label=tool_label,
                 )
             return PairClearanceResult(
                 CollisionClass.CLEAR,
@@ -454,10 +489,17 @@ def check_pair_clearance(
                 0.0,
                 aabb_gap,
                 dt,
+                distance_queries_count=1,
+                common_queries_count=1,
+                broad_phase_time_ms=t_bp_ms,
+                distance_time_ms=t_dist_ms,
+                common_time_ms=t_comm_ms,
+                tool_label=tool_label,
             )
 
+        t_comm0 = time.perf_counter()
         vol = _evaluate_common_volume(shape_a, shape_b)
-
+        t_comm_ms = (time.perf_counter() - t_comm0) * 1000.0
         dt = (time.perf_counter() - t0) * 1000.0
 
         if vol > volume_tolerance_mm3:
@@ -468,6 +510,12 @@ def check_pair_clearance(
                 vol,
                 aabb_gap,
                 dt,
+                distance_queries_count=1,
+                common_queries_count=1,
+                broad_phase_time_ms=t_bp_ms,
+                distance_time_ms=t_dist_ms,
+                common_time_ms=t_comm_ms,
+                tool_label=tool_label,
             )
 
         if dist <= contact_distance_tolerance_mm:
@@ -478,6 +526,12 @@ def check_pair_clearance(
                 vol,
                 aabb_gap,
                 dt,
+                distance_queries_count=1,
+                common_queries_count=1,
+                broad_phase_time_ms=t_bp_ms,
+                distance_time_ms=t_dist_ms,
+                common_time_ms=t_comm_ms,
+                tool_label=tool_label,
             )
 
         return PairClearanceResult(
@@ -487,6 +541,12 @@ def check_pair_clearance(
             vol,
             aabb_gap,
             dt,
+            distance_queries_count=1,
+            common_queries_count=1,
+            broad_phase_time_ms=t_bp_ms,
+            distance_time_ms=t_dist_ms,
+            common_time_ms=t_comm_ms,
+            tool_label=tool_label,
         )
 
     except Exception as exc:
@@ -498,6 +558,12 @@ def check_pair_clearance(
             0.0,
             aabb_gap,
             dt,
+            distance_queries_count=0,
+            common_queries_count=0,
+            broad_phase_time_ms=t_bp_ms,
+            distance_time_ms=0.0,
+            common_time_ms=0.0,
+            tool_label=tool_label,
         )
 
 
@@ -778,7 +844,10 @@ def validate_workpiece_tooling_pose(
         dummy = PairClearanceResult(CollisionClass.MISSING_EVIDENCE, "missing_evidence", 0.0, 0.0, None, 0.0)
         return ToolCollisionReport(CollisionClass.MISSING_EVIDENCE, dummy, dummy, False, diags, dt)
 
-    if cached_punch_result is not None:
+    punch_cache_hit = cached_punch_result is not None
+    die_cache_hit = cached_die_result is not None
+
+    if punch_cache_hit:
         punch_res = cached_punch_result
     else:
         punch_res = check_pair_clearance(
@@ -787,9 +856,10 @@ def validate_workpiece_tooling_pose(
             near_tolerance_mm=near_tolerance_mm,
             volume_tolerance_mm3=volume_tolerance_mm3,
             contact_distance_tolerance_mm=contact_distance_tolerance_mm,
+            tool_label="PUNCH",
         )
 
-    if cached_die_result is not None:
+    if die_cache_hit:
         die_res = cached_die_result
     else:
         die_res = check_pair_clearance(
@@ -798,6 +868,7 @@ def validate_workpiece_tooling_pose(
             near_tolerance_mm=near_tolerance_mm,
             volume_tolerance_mm3=volume_tolerance_mm3,
             contact_distance_tolerance_mm=contact_distance_tolerance_mm,
+            tool_label="DIE",
         )
 
     overall_status = CollisionClass.CLEAR
@@ -839,12 +910,37 @@ def validate_workpiece_tooling_pose(
             if end_zone_policy is not None and (end_zone_policy.allow_end_zone_collision or end_zone_policy.end_zone_length_mm != 0.0)
             else float(classify_end_zone_length_mm or 0.0)
         )
-        ez_analysis = classify_punch_overlap_zones(
-            workpiece_machine_shape,
-            punch_machine_shape,
-            ez_len_to_use,
-            volume_tolerance_mm3=volume_tolerance_mm3,
-        )
+        cached_ez = getattr(punch_res, "end_zone_analysis", None)
+        if (
+            cached_ez is not None
+            and cached_ez.classification != PunchCollisionZoneClassification.UNCLASSIFIED
+            and math.isclose(cached_ez.end_zone_length_mm, ez_len_to_use, abs_tol=1e-5)
+        ):
+            ez_analysis = cached_ez
+        else:
+            if workpiece_machine_shape is None or punch_machine_shape is None:
+                p_span = getattr(cached_ez, "punch_span_xm", (0.0, 0.0)) if cached_ez else (0.0, 0.0)
+                ez_analysis = PunchEndZoneAnalysis(
+                    classification=PunchCollisionZoneClassification.UNCLASSIFIED,
+                    end_zone_length_mm=ez_len_to_use,
+                    punch_span_xm=p_span,
+                    left_end_zone_xm=(p_span[0], p_span[0]),
+                    central_zone_xm=p_span,
+                    right_end_zone_xm=(p_span[1], p_span[1]),
+                    total_overlap_volume_mm3=punch_res.overlap_volume_mm3,
+                    end_zone_overlap_volume_mm3=0.0,
+                    central_zone_overlap_volume_mm3=punch_res.overlap_volume_mm3,
+                    affected_sides=(),
+                    components=(),
+                    reason="missing_shapes_for_end_zone_classification",
+                )
+            else:
+                ez_analysis = classify_punch_overlap_zones(
+                    workpiece_machine_shape,
+                    punch_machine_shape,
+                    ez_len_to_use,
+                    volume_tolerance_mm3=volume_tolerance_mm3,
+                )
         punch_res = replace(punch_res, end_zone_analysis=ez_analysis)
         diags.append(
             f"PUNCH_ZONE_CLASSIFICATION: {ez_analysis.classification.value} "
@@ -886,6 +982,8 @@ def validate_workpiece_tooling_pose(
         is_conditional_safe=is_conditional_safe,
         conditional_status=conditional_status,
         punch_end_zone_analysis=ez_analysis,
+        punch_cache_hit=punch_cache_hit,
+        die_cache_hit=die_cache_hit,
     )
 
 
