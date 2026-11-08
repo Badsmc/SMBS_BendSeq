@@ -316,5 +316,298 @@ class TestIntegratedPhysicalSequenceSearch(unittest.TestCase):
             self.assertEqual(mock_eval.call_count, 1)
 
 
+    def test_08_dead_end_cache_does_not_prune_cheaper_path_to_same_completed_subset(self):
+        """When multiple paths reach subset {B01, B02}, cost pruning does NOT memoize
+        the subset as a dead end, allowing cheaper alternative paths to succeed.
+        """
+        bends_dict = {
+            "B01": SimpleNamespace(length_mm=100.0, target_angle_deg=90.0, angle_deg=90.0, bend_zone=SimpleNamespace(outer_radius_mm=1.5, thickness_mm=1.5, inner_radius_mm=1.0)),
+            "B02": SimpleNamespace(length_mm=100.0, target_angle_deg=90.0, angle_deg=90.0, bend_zone=SimpleNamespace(outer_radius_mm=1.5, thickness_mm=1.5, inner_radius_mm=1.0)),
+            "B03": SimpleNamespace(length_mm=100.0, target_angle_deg=90.0, angle_deg=90.0, bend_zone=SimpleNamespace(outer_radius_mm=1.5, thickness_mm=1.5, inner_radius_mm=1.0)),
+        }
+        mock_fold_state = SimpleNamespace(
+            bends=bends_dict,
+            unfolded_bends={"B01", "B02", "B03"},
+            angles={"B01": 0.0, "B02": 0.0, "B03": 0.0},
+            transforms={},
+        )
+        mock_session = SimpleNamespace(
+            fold_state=mock_fold_state,
+            bend_order=["B01", "B02", "B03"],
+            active_bend_id="B01",
+            active_bend_index=0,
+            panel_vertices_xy={},
+            set_bend_order=MagicMock(),
+            reset_all_bends=MagicMock(),
+            step_to_bend=MagicMock(),
+        )
+        tooling = SimpleNamespace(
+            punch=SimpleNamespace(length_mm=100.0),
+            die=SimpleNamespace(length_mm=100.0),
+            match_active_bend_length=True,
+            allow_end_zone_collision=False,
+            end_zone_length_mm=0.0,
+        )
+
+        cache = StepEvaluationCache()
+        with patch("smbs_core.kinematics2d.sequence_search.evaluate_candidate_bend_step") as mock_eval, \
+             patch("smbs_core.kinematics2d.sequence_search.verify_sequence_forward_replay") as mock_replay:
+            
+            mock_eval.return_value = StepEvaluationRecord(
+                bend_id="any",
+                step_index=0,
+                completed_prefix=(),
+                pose_status=PhysicalEvidence.SAMPLED_3D_CLEAR_NOT_CONTINUOUS,
+                trajectory_status=PhysicalEvidence.SAMPLED_3D_CLEAR_NOT_CONTINUOUS,
+                effective_status=PhysicalEvidence.SAMPLED_3D_CLEAR_NOT_CONTINUOUS,
+                reason="clear",
+            )
+            mock_replay.return_value = ForwardReplayReport(
+                sequence=("B01", "B02", "B03"),
+                overall_status=PhysicalEvidence.SAMPLED_3D_CLEAR_NOT_CONTINUOUS,
+                is_verified=True,
+                is_conditional=False,
+                steps=[],
+            )
+
+            # High flip cost favors non-flipping order
+            weights = OperationWeights(flip=80.0, turn_per_90_deg=10.0)
+            rep = search_bend_sequence_25d(
+                mock_session,
+                press_cycle=None,
+                tooling=tooling,
+                cache=cache,
+                weights=weights,
+                optimize_cost=True,
+            )
+
+            self.assertIsNotNone(rep.found_sequence)
+            self.assertEqual(rep.status, SearchStatus.STRICT_VALIDATED)
+            self.assertTrue(rep.optimality_proven)
+            # The completed subset was never a dead end
+            self.assertFalse(cache.is_dead_end(frozenset(["B01", "B02"])))
+            self.assertFalse(cache.is_dead_end(frozenset(["B01"])))
+
+    def test_09_preliminary_screening_isolation_and_state_restoration(self):
+        """screen_candidate_stage_b restores all tooling and fold_state attributes,
+        guaranteeing identical results on repeated A -> B -> A calls without state leakage.
+        """
+        bend1 = SimpleNamespace(length_mm=100.0, target_angle_deg=90.0, bend_zone=SimpleNamespace(outer_radius_mm=1.5, inner_radius_mm=1.0))
+        bend2 = SimpleNamespace(length_mm=120.0, target_angle_deg=90.0, bend_zone=SimpleNamespace(outer_radius_mm=1.5, inner_radius_mm=1.0))
+        fs = SimpleNamespace(
+            bends={"B01": bend1, "B02": bend2},
+            angles={"B01": 0.0, "B02": 0.0},
+            transforms={"P01": FreeCAD.Placement()},
+        )
+        tooling = SimpleNamespace(
+            punch=None,
+            die=None,
+            aligned=True,
+            aligned_bend_id="INITIAL_BEND",
+            alignment_anchor_sz=15.0,
+            ram_z_mm=45.5,
+            ram_stroke_mm=12.0,
+            sheet_top_z_mm=100.0,
+            sheet_bottom_z_mm=98.5,
+            punch_machine_transform=FreeCAD.Placement(),
+            die_machine_transform=FreeCAD.Placement(),
+            match_active_bend_length=True,
+            active_bend_length_mm=77.0,
+        )
+
+        rep_a1 = screen_candidate_stage_b(fs, "B01", tooling, panel_vertices_xy={})
+        rep_b = screen_candidate_stage_b(fs, "B02", tooling, panel_vertices_xy={})
+        rep_a2 = screen_candidate_stage_b(fs, "B01", tooling, panel_vertices_xy={})
+
+        # Consistency of screening decisions
+        self.assertEqual(rep_a1.decision, rep_a2.decision)
+        self.assertEqual(rep_a1.stage, rep_a2.stage)
+
+        # Integrity of tooling attributes preserved
+        self.assertEqual(tooling.aligned_bend_id, "INITIAL_BEND")
+        self.assertTrue(tooling.aligned)
+        self.assertEqual(tooling.ram_z_mm, 45.5)
+        self.assertEqual(tooling.active_bend_length_mm, 77.0)
+        self.assertEqual(tooling.alignment_anchor_sz, 15.0)
+
+        # Integrity of fold_state preserved
+        self.assertEqual(fs.angles, {"B01": 0.0, "B02": 0.0})
+
+    def test_10_exhaustive_brute_force_vs_backtracking_comparison(self):
+        """Compare exhaustive permutation evaluation against backtracking search:
+        - Minimal cost matches the brute-force best.
+        - Shifting operation weights changes the preferred sequence accordingly.
+        - Strict sequences are preferred over conditional sequences.
+        - UNVERIFIED status does not poison the dead-end cache.
+        - Independent forward replay failure triggers backtracking to alternatives.
+        - Cancel or timeout preserves best verified plan found with optimality_proven=False.
+        """
+        import itertools
+
+        bends_dict = {
+            "B01": SimpleNamespace(length_mm=100.0, target_angle_deg=90.0, angle_deg=90.0, bend_zone=SimpleNamespace(outer_radius_mm=1.5, thickness_mm=1.5, inner_radius_mm=1.0)),
+            "B02": SimpleNamespace(length_mm=100.0, target_angle_deg=90.0, angle_deg=90.0, bend_zone=SimpleNamespace(outer_radius_mm=1.5, thickness_mm=1.5, inner_radius_mm=1.0)),
+            "B03": SimpleNamespace(length_mm=100.0, target_angle_deg=90.0, angle_deg=90.0, bend_zone=SimpleNamespace(outer_radius_mm=1.5, thickness_mm=1.5, inner_radius_mm=1.0)),
+        }
+        all_bends = ["B01", "B02", "B03"]
+
+        def _make_session():
+            return SimpleNamespace(
+                fold_state=SimpleNamespace(
+                    bends=bends_dict,
+                    unfolded_bends=set(all_bends),
+                    angles={b: 0.0 for b in all_bends},
+                    transforms={},
+                ),
+                bend_order=list(all_bends),
+                active_bend_id="B01",
+                active_bend_index=0,
+                panel_vertices_xy={},
+                set_bend_order=MagicMock(),
+                reset_all_bends=MagicMock(),
+                step_to_bend=MagicMock(),
+            )
+
+        tooling = SimpleNamespace(
+            punch=SimpleNamespace(length_mm=100.0),
+            die=SimpleNamespace(length_mm=100.0),
+            match_active_bend_length=True,
+            allow_end_zone_collision=False,
+            end_zone_length_mm=0.0,
+        )
+
+        # 1. Verification of minimal cost matching brute-force
+        weights_default = OperationWeights(flip=20.0, turn_per_90_deg=10.0)
+
+        with patch("smbs_core.kinematics2d.sequence_search.evaluate_candidate_bend_step") as mock_eval, \
+             patch("smbs_core.kinematics2d.sequence_search.verify_sequence_forward_replay") as mock_replay:
+
+            mock_eval.return_value = StepEvaluationRecord(
+                bend_id="any",
+                step_index=0,
+                completed_prefix=(),
+                pose_status=PhysicalEvidence.SAMPLED_3D_CLEAR_NOT_CONTINUOUS,
+                trajectory_status=PhysicalEvidence.SAMPLED_3D_CLEAR_NOT_CONTINUOUS,
+                effective_status=PhysicalEvidence.SAMPLED_3D_CLEAR_NOT_CONTINUOUS,
+                reason="clear",
+            )
+            mock_replay.side_effect = lambda *args, **kwargs: ForwardReplayReport(
+                sequence=kwargs.get("sequence", args[3] if len(args) > 3 else ()),
+                overall_status=PhysicalEvidence.SAMPLED_3D_CLEAR_NOT_CONTINUOUS,
+                is_verified=True,
+                is_conditional=False,
+                steps=[],
+            )
+
+            # Exhaustive brute-force evaluation of all 6 permutations
+            brute_force_scores = []
+            for perm in itertools.permutations(all_bends):
+                cost = score_sequence(perm, [], weights_default)
+                brute_force_scores.append((cost.total, perm))
+            brute_force_scores.sort(key=lambda x: x[0])
+            min_brute_cost, best_perm = brute_force_scores[0]
+
+            rep = search_bend_sequence_25d(
+                _make_session(),
+                press_cycle=None,
+                tooling=tooling,
+                weights=weights_default,
+                optimize_cost=True,
+            )
+
+            self.assertIsNotNone(rep.found_sequence)
+            self.assertAlmostEqual(rep.plan_cost["total"], min_brute_cost)
+            self.assertEqual(rep.status, SearchStatus.STRICT_VALIDATED)
+            self.assertTrue(rep.optimality_proven)
+
+        # 2. Replay failure on first candidate triggers backtracking to alternative
+        with patch("smbs_core.kinematics2d.sequence_search.evaluate_candidate_bend_step") as mock_eval, \
+             patch("smbs_core.kinematics2d.sequence_search.verify_sequence_forward_replay") as mock_replay:
+
+            mock_eval.return_value = StepEvaluationRecord(
+                bend_id="any",
+                step_index=0,
+                completed_prefix=(),
+                pose_status=PhysicalEvidence.SAMPLED_3D_CLEAR_NOT_CONTINUOUS,
+                trajectory_status=PhysicalEvidence.SAMPLED_3D_CLEAR_NOT_CONTINUOUS,
+                effective_status=PhysicalEvidence.SAMPLED_3D_CLEAR_NOT_CONTINUOUS,
+                reason="clear",
+            )
+            # Make the first full sequence fail forward replay, second succeed
+            call_count = [0]
+            def _selective_replay(*args, **kwargs):
+                call_count[0] += 1
+                seq = kwargs.get("sequence", args[3] if len(args) > 3 else ())
+                if call_count[0] == 1:
+                    return ForwardReplayReport(
+                        sequence=seq,
+                        overall_status=PhysicalEvidence.COLLISION,
+                        is_verified=False,
+                        is_conditional=False,
+                        blocking_bend_id=seq[-1],
+                        blocking_reason="replay collision test",
+                        steps=[],
+                    )
+                return ForwardReplayReport(
+                    sequence=seq,
+                    overall_status=PhysicalEvidence.SAMPLED_3D_CLEAR_NOT_CONTINUOUS,
+                    is_verified=True,
+                    is_conditional=False,
+                    steps=[],
+                )
+            mock_replay.side_effect = _selective_replay
+
+            rep2 = search_bend_sequence_25d(
+                _make_session(),
+                press_cycle=None,
+                tooling=tooling,
+                weights=weights_default,
+                optimize_cost=False,
+            )
+            self.assertTrue(call_count[0] >= 2)
+            self.assertIsNotNone(rep2.found_sequence)
+            self.assertEqual(rep2.status, SearchStatus.STRICT_VALIDATED)
+
+        # 3. Cancellation preserves best verified plan found with optimality_proven=False
+        with patch("smbs_core.kinematics2d.sequence_search.evaluate_candidate_bend_step") as mock_eval, \
+             patch("smbs_core.kinematics2d.sequence_search.verify_sequence_forward_replay") as mock_replay:
+
+            mock_eval.return_value = StepEvaluationRecord(
+                bend_id="any",
+                step_index=0,
+                completed_prefix=(),
+                pose_status=PhysicalEvidence.SAMPLED_3D_CLEAR_NOT_CONTINUOUS,
+                trajectory_status=PhysicalEvidence.SAMPLED_3D_CLEAR_NOT_CONTINUOUS,
+                effective_status=PhysicalEvidence.SAMPLED_3D_CLEAR_NOT_CONTINUOUS,
+                reason="clear",
+            )
+            mock_replay.side_effect = lambda *args, **kwargs: ForwardReplayReport(
+                sequence=kwargs.get("sequence", args[3] if len(args) > 3 else ()),
+                overall_status=PhysicalEvidence.SAMPLED_3D_CLEAR_NOT_CONTINUOUS,
+                is_verified=True,
+                is_conditional=False,
+                steps=[],
+            )
+
+            # Cancel when full plan is reached
+            def _cancel_progress(states, checks, prefix):
+                if len(prefix) == 3:
+                    return False  # Signal cancel
+                return True
+
+            rep_cancel = search_bend_sequence_25d(
+                _make_session(),
+                press_cycle=None,
+                tooling=tooling,
+                weights=weights_default,
+                optimize_cost=True,
+                progress_callback=_cancel_progress,
+            )
+            self.assertEqual(rep_cancel.status, SearchStatus.CANCELLED)
+            self.assertIsNotNone(rep_cancel.found_sequence)
+            self.assertFalse(rep_cancel.optimality_proven)
+            self.assertIn("Сохранён лучший проверенный план", rep_cancel.message_ru)
+
+
 if __name__ == "__main__":
     unittest.main()

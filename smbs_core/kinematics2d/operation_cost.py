@@ -326,7 +326,7 @@ def transition_penalty(
 
 def score_sequence(
     order: Sequence[str],
-    setups: Dict[str, WorkpieceMachineSetup],
+    setups: Union[Dict[str, WorkpieceMachineSetup], Sequence[WorkpieceMachineSetup]],
     weights: OperationWeights = OperationWeights(),
 ) -> SequencePenalty:
     """Compute total sequence penalty across ordered bend steps."""
@@ -336,23 +336,37 @@ def score_sequence(
     steps: List[StepPenalty] = []
     is_complete = True
     prev = None
-    for bid in order:
-        curr = setups.get(bid)
-        if curr is None:
-            curr = WorkpieceMachineSetup(
-                bend_id=bid,
-                rotation_deg=0.0,
-                flipped=False,
-                shift_xm_mm=0.0,
-                bend_length_mm=1.0,
-                is_complete=False,
-                note="setup_missing_for_scoring",
-            )
-        step = transition_penalty(prev, curr, weights)
-        if not step.is_complete:
-            is_complete = False
-        steps.append(step)
-        prev = curr
+
+    if isinstance(setups, (list, tuple)):
+        # Exact setup sequence corresponding to the path
+        for idx, curr in enumerate(setups):
+            bid = order[idx] if idx < len(order) else curr.bend_id
+            if curr.bend_id != bid:
+                # Fallback if indices mismatch
+                pass
+            step = transition_penalty(prev, curr, weights)
+            if not step.is_complete:
+                is_complete = False
+            steps.append(step)
+            prev = curr
+    else:
+        for bid in order:
+            curr = setups.get(bid)
+            if curr is None:
+                curr = WorkpieceMachineSetup(
+                    bend_id=bid,
+                    rotation_deg=0.0,
+                    flipped=False,
+                    shift_xm_mm=0.0,
+                    bend_length_mm=1.0,
+                    is_complete=False,
+                    note="setup_missing_for_scoring",
+                )
+            step = transition_penalty(prev, curr, weights)
+            if not step.is_complete:
+                is_complete = False
+            steps.append(step)
+            prev = curr
 
     total = sum(s.total for s in steps)
     return SequencePenalty(

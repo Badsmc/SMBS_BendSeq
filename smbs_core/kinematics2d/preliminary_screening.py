@@ -141,11 +141,13 @@ def screen_candidate_stage_b(
     - BOTTOM: full bottom position at target angle
     - RETRACT: retracted punch after completion
 
-    Collision policy:
-    - DIE interference is strictly forbidden -> PROVEN_BLOCKING.
-    - PUNCH interference in central zone is strictly forbidden -> PROVEN_BLOCKING.
-    - PUNCH interference in allowed end-zone -> CONTINUE_TO_3D for exact 3D classification.
-    - CLEAR / TOUCH / UNVERIFIED -> CONTINUE_TO_3D (never treated as 3D PASS).
+    Isolation:
+    - Completely preserves and restores original ToolingSetup2D state (alignment,
+      ram Z, virtual lengths, transforms) and FoldState (angles, transforms) in finally.
+    - Does NOT rely on tooling.aligned from prior candidate checks; explicitly aligns
+      tooling specifically for `candidate_bend_id`.
+    - Preliminary 2D section findings require 3D validation (CONTINUE_TO_3D) rather
+      than final rejection, ensuring no false blocking rejections.
     """
     if not panel_vertices_xy:
         return PreliminaryScreeningReport(
@@ -154,69 +156,91 @@ def screen_candidate_stage_b(
             reason="panel_vertices_xy_missing_for_section",
         )
 
-    bend = fold_state.bends[candidate_bend_id]
-    axis = getattr(bend, "axis_xyz", None)
-    bend_len = math.dist(axis[0], axis[1]) if axis else 0.0
-    if bend_len <= 1e-6:
-        bend_len = 1.0
+    if candidate_bend_id not in getattr(fold_state, "bends", {}):
+        return PreliminaryScreeningReport(
+            decision=ScreeningDecision.PROVEN_BLOCKING,
+            stage="STAGE_B_INPUT",
+            reason=f"unknown_bend_id:{candidate_bend_id}",
+        )
 
-    # Synchronize tooling virtual length
-    if match_active_bend_length and hasattr(tooling, "set_match_active_bend_length"):
-        tooling.set_match_active_bend_length(True, bend_len)
+    # Save original tooling state
+    orig_match_len = getattr(tooling, "match_active_bend_length", False)
+    orig_active_len = getattr(tooling, "active_bend_length_mm", 0.0)
+    orig_aligned = getattr(tooling, "aligned", False)
+    orig_aligned_bend_id = getattr(tooling, "aligned_bend_id", None)
+    orig_anchor = getattr(tooling, "alignment_anchor_sz", (0.0, 0.0))
+    orig_ram_z = getattr(tooling, "ram_z_mm", 0.0)
+    orig_ram_stroke = getattr(tooling, "ram_stroke_mm", 0.0)
+    orig_sheet_top = getattr(tooling, "sheet_top_z_mm", 0.0)
+    orig_sheet_bot = getattr(tooling, "sheet_bottom_z_mm", 0.0)
+    orig_punch_tf = getattr(tooling, "punch_machine_transform", None)
+    orig_die_tf = getattr(tooling, "die_machine_transform", None)
+
+    # Save original fold state
+    orig_angles = dict(getattr(fold_state, "angles", {}))
+    orig_transforms = dict(getattr(fold_state, "transforms", {}))
 
     try:
-        # Check initial contact section to align tooling
-        first_pose = WorkpiecePlacement3D.compute_placement(
-            fold_state,
-            candidate_bend_id,
-            desired_midpoint_xm=float(desired_midpoint_xm),
-            support_plane_zm=float(getattr(bend.bend_zone, "outer_radius_mm", 0.0) if bend.bend_zone else 0.0),
-            align_bisector=True,
-            align_bend_arc_center=True,
-        )
-        first_sec = compute_machine_cutting_plane_section(
-            fold_state,
-            panel_vertices_xy,
-            first_pose,
-            active_bend_id=candidate_bend_id,
-            segments=32,
-        )
-        if not getattr(tooling, "aligned", False):
+        bend = fold_state.bends[candidate_bend_id]
+        axis = getattr(bend, "axis_xyz", None)
+        bend_len = math.dist(axis[0], axis[1]) if axis else 0.0
+        if bend_len <= 1e-6:
+            bend_len = 1.0
+
+        # Synchronize tooling virtual length
+        if match_active_bend_length and hasattr(tooling, "set_match_active_bend_length"):
+            tooling.set_match_active_bend_length(True, bend_len)
+
+        try:
+            # Check initial contact section and explicitly align tooling for candidate_bend_id
+            first_pose = WorkpiecePlacement3D.compute_placement(
+                fold_state,
+                candidate_bend_id,
+                desired_midpoint_xm=float(desired_midpoint_xm),
+                support_plane_zm=float(getattr(bend.bend_zone, "outer_radius_mm", 0.0) if bend.bend_zone else 0.0),
+                align_bisector=True,
+                align_bend_arc_center=True,
+            )
+            first_sec = compute_machine_cutting_plane_section(
+                fold_state,
+                panel_vertices_xy,
+                first_pose,
+                active_bend_id=candidate_bend_id,
+                segments=32,
+            )
             tooling.align_to_cross_section(first_sec, clearance_mm=clearance_mm, bend_id=candidate_bend_id)
 
-        coupled = CoupledAirBendingKinematics.from_tooling_and_fold_state(
-            tooling, fold_state, candidate_bend_id
-        )
-        if coupled.tooling_status == "INVALID":
-            return PreliminaryScreeningReport(
-                decision=ScreeningDecision.PROVEN_BLOCKING,
-                stage="STAGE_B_KINEMATICS",
-                reason=f"coupled_air_bending_invalid:{candidate_bend_id}",
+            coupled = CoupledAirBendingKinematics.from_tooling_and_fold_state(
+                tooling, fold_state, candidate_bend_id
             )
-    except Exception as exc:
-        return PreliminaryScreeningReport(
-            decision=ScreeningDecision.UNVERIFIED_NEEDS_3D,
-            stage="STAGE_B_SETUP",
-            reason=f"section_alignment_exception:{exc}",
-        )
+            if coupled.tooling_status == "INVALID":
+                return PreliminaryScreeningReport(
+                    decision=ScreeningDecision.PROVEN_BLOCKING,
+                    stage="STAGE_B_KINEMATICS",
+                    reason=f"coupled_air_bending_invalid:{candidate_bend_id}",
+                )
+        except Exception as exc:
+            return PreliminaryScreeningReport(
+                decision=ScreeningDecision.UNVERIFIED_NEEDS_3D,
+                stage="STAGE_B_SETUP",
+                reason=f"section_alignment_exception:{exc}",
+            )
 
-    target_deg = float(bend.angle_deg)
-    sampled_phases: List[str] = []
-    total_findings = 0
+        target_deg = float(bend.angle_deg)
+        sampled_phases: List[str] = []
+        total_findings = 0
 
-    # Build sequence of phase probes: (phase_name, frac_angle, ram_z, bisector)
-    probes: List[Tuple[str, float, float, bool]] = [
-        ("APPROACH", 0.0, coupled.contact_z_mm + clearance_mm, False),
-    ]
-    for f in sorted(set(fractions)):
-        probes.append(("BENDING", f, coupled.ram_z_for_angle(f * target_deg), True))
-    probes.append(("BOTTOM", 1.0, coupled.ram_z_for_angle(target_deg), True))
-    probes.append(("RETRACT", 1.0, coupled.contact_z_mm + clearance_mm, True))
+        # Build sequence of phase probes: (phase_name, frac_angle, ram_z, bisector)
+        probes: List[Tuple[str, float, float, bool]] = [
+            ("APPROACH", 0.0, coupled.contact_z_mm + clearance_mm, False),
+        ]
+        for f in sorted(set(fractions)):
+            probes.append(("BENDING", f, coupled.ram_z_for_angle(f * target_deg), True))
+        probes.append(("BOTTOM", 1.0, coupled.ram_z_for_angle(target_deg), True))
+        probes.append(("RETRACT", 1.0, coupled.contact_z_mm + clearance_mm, True))
 
-    outer_r = float(getattr(bend.bend_zone, "outer_radius_mm", 0.0) if bend.bend_zone else 0.0)
-    orig_angle = float(fold_state.angles.get(candidate_bend_id, 0.0))
+        outer_r = float(getattr(bend.bend_zone, "outer_radius_mm", 0.0) if bend.bend_zone else 0.0)
 
-    try:
         # Evaluate each probe
         for phase, frac, ram_z, align_bis in probes:
             sampled_phases.append(phase)
@@ -248,50 +272,16 @@ def screen_candidate_stage_b(
                 total_findings += len(sec_report.findings)
 
                 if sec_report.status is ContactStatus.INTERFERENCE:
-                    # Inspect findings to determine if interference is die or punch
-                    die_finding = next((f for f in sec_report.findings if f.tool == "DIE" and f.status is ContactStatus.INTERFERENCE), None)
-                    if die_finding is not None:
-                        # DIE interference is strictly forbidden everywhere
-                        return PreliminaryScreeningReport(
-                            decision=ScreeningDecision.PROVEN_BLOCKING,
-                            stage="STAGE_B_SECTION",
-                            reason=f"2d_section_die_collision:{phase}:{die_finding.sheet_component}:{die_finding.reason}",
-                            sampled_phases=tuple(sampled_phases),
-                            findings_count=total_findings,
-                        )
-
-                    punch_finding = next((f for f in sec_report.findings if f.tool == "PUNCH" and f.status is ContactStatus.INTERFERENCE), None)
-                    if punch_finding is not None:
-                        if not allow_end_zone_collision:
-                            return PreliminaryScreeningReport(
-                                decision=ScreeningDecision.PROVEN_BLOCKING,
-                                stage="STAGE_B_SECTION",
-                                reason=f"2d_section_punch_collision:{phase}:{punch_finding.sheet_component}:{punch_finding.reason}",
-                                sampled_phases=tuple(sampled_phases),
-                                findings_count=total_findings,
-                            )
-                        # When end_zone_collision is allowed:
-                        # At cutting plane X_m = 0, is it strictly in the central zone?
-                        # The central zone is [-L/2 + ez, L/2 - ez].
-                        # If bend_len >= 2 * end_zone_length_mm, X_m = 0 is strictly in the central zone!
-                        if bend_len >= (2.0 * end_zone_length_mm + 1e-4):
-                            return PreliminaryScreeningReport(
-                                decision=ScreeningDecision.PROVEN_BLOCKING,
-                                stage="STAGE_B_SECTION",
-                                reason=f"2d_section_central_punch_collision:{phase}:{punch_finding.sheet_component}:{punch_finding.reason}",
-                                sampled_phases=tuple(sampled_phases),
-                                findings_count=total_findings,
-                            )
-                        # If bend_len < 2 * end_zone_length_mm, cutting plane X_m = 0 falls in the end zone.
-                        # We cannot distinguish end-zone from central in 2D section alone.
-                        # Must NOT reject; send to 3D classification!
-                        return PreliminaryScreeningReport(
-                            decision=ScreeningDecision.CONTINUE_TO_3D,
-                            stage="STAGE_B_END_ZONE_AMBIGUITY",
-                            reason=f"2d_section_punch_overlap_in_end_zone_span:{phase}",
-                            sampled_phases=tuple(sampled_phases),
-                            findings_count=total_findings,
-                        )
+                    # 2D cross-section planar findings require authoritative 3D verification
+                    finding = next((f for f in sec_report.findings if f.status is ContactStatus.INTERFERENCE), None)
+                    reason_msg = f"{phase}:{finding.sheet_component}:{finding.reason}" if finding else phase
+                    return PreliminaryScreeningReport(
+                        decision=ScreeningDecision.CONTINUE_TO_3D,
+                        stage="STAGE_B_SECTION_REQUIRES_3D",
+                        reason=f"2d_section_finding_requires_3d_validation:{reason_msg}",
+                        sampled_phases=tuple(sampled_phases),
+                        findings_count=total_findings,
+                    )
             except Exception as exc:
                 # Never prune on section computation failure; forward to exact 3D check
                 return PreliminaryScreeningReport(
@@ -301,8 +291,47 @@ def screen_candidate_stage_b(
                     sampled_phases=tuple(sampled_phases),
                     findings_count=total_findings,
                 )
+
+        return PreliminaryScreeningReport(
+            decision=ScreeningDecision.CONTINUE_TO_3D,
+            stage="STAGE_B_PREVIEW",
+            reason="all_sampled_2d_sections_clear",
+            sampled_phases=tuple(sampled_phases),
+            findings_count=total_findings,
+        )
+
     finally:
-        fold_state.set_angle(candidate_bend_id, orig_angle)
+        # Fully restore fold_state
+        if hasattr(fold_state, "angles"):
+            fold_state.angles.clear()
+            fold_state.angles.update(orig_angles)
+        if hasattr(fold_state, "transforms"):
+            fold_state.transforms.clear()
+            fold_state.transforms.update(orig_transforms)
+
+        # Fully restore tooling
+        if hasattr(tooling, "match_active_bend_length"):
+            tooling.match_active_bend_length = orig_match_len
+        if hasattr(tooling, "active_bend_length_mm"):
+            tooling.active_bend_length_mm = orig_active_len
+        if hasattr(tooling, "aligned"):
+            tooling.aligned = orig_aligned
+        if hasattr(tooling, "aligned_bend_id"):
+            tooling.aligned_bend_id = orig_aligned_bend_id
+        if hasattr(tooling, "alignment_anchor_sz"):
+            tooling.alignment_anchor_sz = orig_anchor
+        if hasattr(tooling, "ram_z_mm"):
+            tooling.ram_z_mm = orig_ram_z
+        if hasattr(tooling, "ram_stroke_mm"):
+            tooling.ram_stroke_mm = orig_ram_stroke
+        if hasattr(tooling, "sheet_top_z_mm"):
+            tooling.sheet_top_z_mm = orig_sheet_top
+        if hasattr(tooling, "sheet_bottom_z_mm"):
+            tooling.sheet_bottom_z_mm = orig_sheet_bot
+        if orig_punch_tf is not None and hasattr(tooling, "punch_machine_transform"):
+            tooling.punch_machine_transform = orig_punch_tf
+        if orig_die_tf is not None and hasattr(tooling, "die_machine_transform"):
+            tooling.die_machine_transform = orig_die_tf
 
     return PreliminaryScreeningReport(
         decision=ScreeningDecision.CONTINUE_TO_3D,
