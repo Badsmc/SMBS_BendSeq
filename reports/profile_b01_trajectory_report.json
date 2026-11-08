@@ -1,0 +1,194 @@
+{
+  "metadata": {
+    "timestamp": "2026-11-08T14:07:05Z",
+    "git_commit": "8e6bd17d15ad192e0d2ae4afd4c724392eb2d363",
+    "git_dirty": true,
+    "freecad_version": "1.1.3",
+    "occt_version": "7.8.1",
+    "fixture": "box.100out-50in-(ok).FCStd",
+    "active_bend": "B01",
+    "tool_length_mm": 45.0,
+    "max_phase_time_s": 15.0,
+    "historical_note": "Previous time breakdown reported in commit ffdd411 is unconfirmed due to measurement bugs in earlier profiler (duplicate patch hooks, call-order tool identification, and nested timer double-counting)."
+  },
+  "total_wall_time_s": 31.1088,
+  "overall_status": "UNVERIFIED",
+  "phases": [
+    {
+      "phase": "APPROACH",
+      "status": "SAMPLED_INTERVAL_CONVERGED",
+      "is_safe": true,
+      "elapsed_s": 3.426,
+      "state_evaluation_requests": 17,
+      "states_in_trajectory": 17,
+      "pose_cache_hits": 0,
+      "punch_cache_hits": 0,
+      "die_cache_hits": 16,
+      "solid_cache_hits": 16,
+      "pair_collision_checks": 18,
+      "actual_distance_queries": 3,
+      "actual_common_queries": 2,
+      "solid_rebuilds": 1,
+      "diagnostics": [
+        "TIMINGS: phase=3426.3ms, actual_punch=1813.9ms, actual_die=231.7ms, solid_build=362.1ms, cache_lookups=363.7ms, hits=(solid=16, die=16, punch=0), misses=(solid=1, die=1, punch=17)"
+      ]
+    },
+    {
+      "phase": "CONTACT",
+      "status": "SAMPLED_INTERVAL_CONVERGED",
+      "is_safe": true,
+      "elapsed_s": 0.107,
+      "state_evaluation_requests": 3,
+      "states_in_trajectory": 3,
+      "pose_cache_hits": 3,
+      "punch_cache_hits": 0,
+      "die_cache_hits": 0,
+      "solid_cache_hits": 0,
+      "pair_collision_checks": 0,
+      "actual_distance_queries": 0,
+      "actual_common_queries": 0,
+      "solid_rebuilds": 0,
+      "diagnostics": [
+        "TIMINGS: phase=106.9ms, actual_punch=0.0ms, actual_die=0.0ms, solid_build=0.0ms, cache_lookups=0.1ms, hits=(solid=0, die=0, punch=0), misses=(solid=0, die=0, punch=0)"
+      ]
+    },
+    {
+      "phase": "BENDING",
+      "status": "INTERVAL_UNRESOLVED",
+      "is_safe": false,
+      "elapsed_s": 15.22,
+      "state_evaluation_requests": 6,
+      "states_in_trajectory": 6,
+      "pose_cache_hits": 1,
+      "punch_cache_hits": 0,
+      "die_cache_hits": 0,
+      "solid_cache_hits": 0,
+      "pair_collision_checks": 10,
+      "actual_distance_queries": 10,
+      "actual_common_queries": 10,
+      "solid_rebuilds": 5,
+      "diagnostics": [
+        "MAX_TIME_BUDGET_EXCEEDED: elapsed=15.22s",
+        "MAX_TIME_BUDGET_EXCEEDED: elapsed=15.22s",
+        "MAX_TIME_BUDGET_EXCEEDED: elapsed=15.22s",
+        "MAX_TIME_BUDGET_EXCEEDED: elapsed=15.22s",
+        "MAX_TIME_BUDGET_EXCEEDED: elapsed=15.22s",
+        "TIMINGS: phase=15220.0ms, actual_punch=5501.1ms, actual_die=4307.4ms, solid_build=5080.6ms, cache_lookups=5081.0ms, hits=(solid=0, die=0, punch=0), misses=(solid=5, die=5, punch=5)"
+      ]
+    },
+    {
+      "phase": "BOTTOM",
+      "status": "SAMPLED_INTERVAL_CONVERGED",
+      "is_safe": true,
+      "elapsed_s": 0.088,
+      "state_evaluation_requests": 3,
+      "states_in_trajectory": 3,
+      "pose_cache_hits": 3,
+      "punch_cache_hits": 0,
+      "die_cache_hits": 0,
+      "solid_cache_hits": 0,
+      "pair_collision_checks": 0,
+      "actual_distance_queries": 0,
+      "actual_common_queries": 0,
+      "solid_rebuilds": 0,
+      "diagnostics": [
+        "TIMINGS: phase=88.3ms, actual_punch=0.0ms, actual_die=0.0ms, solid_build=0.0ms, cache_lookups=0.1ms, hits=(solid=0, die=0, punch=0), misses=(solid=0, die=0, punch=0)"
+      ]
+    },
+    {
+      "phase": "RETRACT",
+      "status": "SAMPLED_INTERVAL_CONVERGED",
+      "is_safe": true,
+      "elapsed_s": 11.437,
+      "state_evaluation_requests": 17,
+      "states_in_trajectory": 17,
+      "pose_cache_hits": 1,
+      "punch_cache_hits": 0,
+      "die_cache_hits": 16,
+      "solid_cache_hits": 16,
+      "pair_collision_checks": 16,
+      "actual_distance_queries": 16,
+      "actual_common_queries": 0,
+      "solid_rebuilds": 0,
+      "diagnostics": [
+        "TIMINGS: phase=11436.7ms, actual_punch=10487.7ms, actual_die=0.0ms, solid_build=0.0ms, cache_lookups=1.1ms, hits=(solid=16, die=16, punch=0), misses=(solid=0, die=0, punch=16)"
+      ]
+    }
+  ],
+  "hierarchical_time_breakdown_s": {
+    "solid_rebuild": {
+      "calls": 6,
+      "total_s": 5.4424,
+      "pct_total": 17.49
+    },
+    "placement_calc": {
+      "calls": 46,
+      "total_s": 0.0017,
+      "pct_total": 0.01
+    },
+    "cache_lookup_overhead": {
+      "total_s": 5.446,
+      "pct_total": 17.51
+    },
+    "punch_clearance_evaluation": {
+      "calls": 38,
+      "total_s": 17.8027,
+      "pct_total": 57.23,
+      "internal_breakdown": {
+        "broad_phase_aabb": {
+          "calls": 38,
+          "total_s": 0.0952
+        },
+        "exact_distance": {
+          "calls": 23,
+          "total_s": 9.77
+        },
+        "common_boolean": {
+          "calls": 6,
+          "total_s": 1.4033
+        }
+      }
+    },
+    "die_clearance_evaluation": {
+      "calls": 6,
+      "total_s": 4.5392,
+      "pct_total": 14.59,
+      "internal_breakdown": {
+        "broad_phase_aabb": {
+          "calls": 6,
+          "total_s": 0.0118
+        },
+        "exact_distance": {
+          "calls": 6,
+          "total_s": 2.515
+        },
+        "common_boolean": {
+          "calls": 6,
+          "total_s": 0.5323
+        }
+      }
+    },
+    "end_zone_classification": {
+      "calls": 0,
+      "total_s": 0.0,
+      "pct_total": 0.0
+    },
+    "unaccounted_time": {
+      "total_s": 0.0,
+      "pct_total": 0.0,
+      "description": "Time outside the explicitly measured blocks (e.g. state management, loop dispatch); not attributed to GC or copy without measurement."
+    }
+  },
+  "separated_counters": {
+    "total_state_evaluation_requests": 46,
+    "pose_cache_hits": 8,
+    "punch_cache_hits": 0,
+    "die_cache_hits": 32,
+    "solid_cache_hits": 32,
+    "pair_collision_checks": 44,
+    "actual_distance_queries": 29,
+    "actual_common_queries": 12,
+    "solid_rebuilds": 6
+  },
+  "redundant_rebuilds": {}
+}
