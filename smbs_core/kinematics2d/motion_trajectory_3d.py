@@ -625,9 +625,9 @@ class AdaptiveTrajectoryValidator3D:
 
         t_lookup0 = time.perf_counter()
         cached_pose_res = self._pose_collision_cache.get(pose_cache_key)
+        pose_lookup_ms = (time.perf_counter() - t_lookup0) * 1000.0
         if cached_pose_res is not None:
-            t_lookup1 = time.perf_counter()
-            cache_lookup_ms = (t_lookup1 - t_lookup0) * 1000.0
+            cache_lookup_ms = pose_lookup_ms
             self.total_cache_lookup_ms += cache_lookup_ms
             self.state_evaluation_requests += 1
             self.total_states_evaluated += 1
@@ -663,13 +663,16 @@ class AdaptiveTrajectoryValidator3D:
         self.total_collision_queries += 1
         self.pose_cache_misses += 1
 
-        # Build native 3D multi-bend sheet solid (cached by Part Space fold angles with exact floats and geometry signature)
+        # Check solid cache lookup (strictly timed as pure dict lookup)
         solid_cache_key = (self.config.arc_segments, wp_geom_sig, angles_tuple)
+        t_solid_lookup0 = time.perf_counter()
         in_solid_cache = solid_cache_key in self._solid_cache
+        if in_solid_cache:
+            solid = self._solid_cache[solid_cache_key]
+        solid_lookup_ms = (time.perf_counter() - t_solid_lookup0) * 1000.0
 
         solid_cache_hit = False
         if in_solid_cache:
-            solid = self._solid_cache[solid_cache_key]
             solid_cache_hit = True
             self.solid_cache_hits += 1
         else:
@@ -684,7 +687,7 @@ class AdaptiveTrajectoryValidator3D:
             self.total_solid_reconstructions += 1
             self.solid_cache_misses += 1
 
-        # Check die and punch clearance caches
+        # Check die and punch clearance caches (strictly timed as pure dict lookups)
         die_cache_key = (
             self.config.arc_segments,
             active_bend_id,
@@ -695,13 +698,6 @@ class AdaptiveTrajectoryValidator3D:
             wp_geom_sig,
             tolerances_sig,
         )
-        cached_die_res = self._die_clearance_cache.get(die_cache_key)
-        die_cache_hit = cached_die_res is not None
-        if die_cache_hit:
-            self.die_cache_hits += 1
-        else:
-            self.die_cache_misses += 1
-
         punch_cache_key = (
             self.config.arc_segments,
             active_bend_id,
@@ -715,16 +711,26 @@ class AdaptiveTrajectoryValidator3D:
             cls_ez_len,
             ez_policy_sig,
         )
+
+        t_tool_lookup0 = time.perf_counter()
+        cached_die_res = self._die_clearance_cache.get(die_cache_key)
         cached_punch_res = self._punch_clearance_cache.get(punch_cache_key)
+        tool_lookup_ms = (time.perf_counter() - t_tool_lookup0) * 1000.0
+
+        cache_lookup_ms = pose_lookup_ms + solid_lookup_ms + tool_lookup_ms
+        self.total_cache_lookup_ms += cache_lookup_ms
+
+        die_cache_hit = cached_die_res is not None
+        if die_cache_hit:
+            self.die_cache_hits += 1
+        else:
+            self.die_cache_misses += 1
+
         punch_cache_hit = cached_punch_res is not None
         if punch_cache_hit:
             self.punch_cache_hits += 1
         else:
             self.punch_cache_misses += 1
-
-        t_lookup1 = time.perf_counter()
-        cache_lookup_ms = (t_lookup1 - t_lookup0) * 1000.0
-        self.total_cache_lookup_ms += cache_lookup_ms
 
         # Build machine shapes only if at least one tool clearance was not cached,
         # or if cached punch penetration requires end-zone re-classification.

@@ -1,7 +1,7 @@
 {
   "metadata": {
-    "timestamp": "2026-11-08T14:07:05Z",
-    "git_commit": "8e6bd17d15ad192e0d2ae4afd4c724392eb2d363",
+    "timestamp": "2026-11-08T14:43:05Z",
+    "git_commit": "5c677eb8db94b3df4d74d8ba2d84479d677c8efc",
     "git_dirty": true,
     "freecad_version": "1.1.3",
     "occt_version": "7.8.1",
@@ -9,16 +9,16 @@
     "active_bend": "B01",
     "tool_length_mm": 45.0,
     "max_phase_time_s": 15.0,
-    "historical_note": "Previous time breakdown reported in commit ffdd411 is unconfirmed due to measurement bugs in earlier profiler (duplicate patch hooks, call-order tool identification, and nested timer double-counting)."
+    "historical_note": "Previous time breakdowns reported in ffdd411 and dc1e05b were inaccurate due to measurement flaws in earlier profilers: nested timer double-counting (where solid_rebuild was timed inside cache_lookup_ms), duplicate hooks, and artificial clamping via max(0.0, ...)."
   },
-  "total_wall_time_s": 31.1088,
+  "total_wall_time_s": 42.7041,
   "overall_status": "UNVERIFIED",
   "phases": [
     {
       "phase": "APPROACH",
       "status": "SAMPLED_INTERVAL_CONVERGED",
       "is_safe": true,
-      "elapsed_s": 3.426,
+      "elapsed_s": 5.298,
       "state_evaluation_requests": 17,
       "states_in_trajectory": 17,
       "pose_cache_hits": 0,
@@ -30,14 +30,14 @@
       "actual_common_queries": 2,
       "solid_rebuilds": 1,
       "diagnostics": [
-        "TIMINGS: phase=3426.3ms, actual_punch=1813.9ms, actual_die=231.7ms, solid_build=362.1ms, cache_lookups=363.7ms, hits=(solid=16, die=16, punch=0), misses=(solid=1, die=1, punch=17)"
+        "TIMINGS: phase=5298.2ms, actual_punch=2700.8ms, actual_die=322.1ms, solid_build=612.4ms, cache_lookups=1.4ms, hits=(solid=16, die=16, punch=0), misses=(solid=1, die=1, punch=17)"
       ]
     },
     {
       "phase": "CONTACT",
       "status": "SAMPLED_INTERVAL_CONVERGED",
       "is_safe": true,
-      "elapsed_s": 0.107,
+      "elapsed_s": 0.163,
       "state_evaluation_requests": 3,
       "states_in_trajectory": 3,
       "pose_cache_hits": 3,
@@ -49,38 +49,36 @@
       "actual_common_queries": 0,
       "solid_rebuilds": 0,
       "diagnostics": [
-        "TIMINGS: phase=106.9ms, actual_punch=0.0ms, actual_die=0.0ms, solid_build=0.0ms, cache_lookups=0.1ms, hits=(solid=0, die=0, punch=0), misses=(solid=0, die=0, punch=0)"
+        "TIMINGS: phase=163.5ms, actual_punch=0.0ms, actual_die=0.0ms, solid_build=0.0ms, cache_lookups=0.1ms, hits=(solid=0, die=0, punch=0), misses=(solid=0, die=0, punch=0)"
       ]
     },
     {
       "phase": "BENDING",
       "status": "INTERVAL_UNRESOLVED",
       "is_safe": false,
-      "elapsed_s": 15.22,
-      "state_evaluation_requests": 6,
-      "states_in_trajectory": 6,
+      "elapsed_s": 19.508,
+      "state_evaluation_requests": 4,
+      "states_in_trajectory": 4,
       "pose_cache_hits": 1,
       "punch_cache_hits": 0,
       "die_cache_hits": 0,
       "solid_cache_hits": 0,
-      "pair_collision_checks": 10,
-      "actual_distance_queries": 10,
-      "actual_common_queries": 10,
-      "solid_rebuilds": 5,
+      "pair_collision_checks": 6,
+      "actual_distance_queries": 6,
+      "actual_common_queries": 6,
+      "solid_rebuilds": 3,
       "diagnostics": [
-        "MAX_TIME_BUDGET_EXCEEDED: elapsed=15.22s",
-        "MAX_TIME_BUDGET_EXCEEDED: elapsed=15.22s",
-        "MAX_TIME_BUDGET_EXCEEDED: elapsed=15.22s",
-        "MAX_TIME_BUDGET_EXCEEDED: elapsed=15.22s",
-        "MAX_TIME_BUDGET_EXCEEDED: elapsed=15.22s",
-        "TIMINGS: phase=15220.0ms, actual_punch=5501.1ms, actual_die=4307.4ms, solid_build=5080.6ms, cache_lookups=5081.0ms, hits=(solid=0, die=0, punch=0), misses=(solid=5, die=5, punch=5)"
+        "MAX_TIME_BUDGET_EXCEEDED: elapsed=19.51s",
+        "MAX_TIME_BUDGET_EXCEEDED: elapsed=19.51s",
+        "MAX_TIME_BUDGET_EXCEEDED: elapsed=19.51s",
+        "TIMINGS: phase=19508.4ms, actual_punch=5582.4ms, actual_die=5343.2ms, solid_build=8198.1ms, cache_lookups=0.2ms, hits=(solid=0, die=0, punch=0), misses=(solid=3, die=3, punch=3)"
       ]
     },
     {
       "phase": "BOTTOM",
       "status": "SAMPLED_INTERVAL_CONVERGED",
       "is_safe": true,
-      "elapsed_s": 0.088,
+      "elapsed_s": 0.209,
       "state_evaluation_requests": 3,
       "states_in_trajectory": 3,
       "pose_cache_hits": 3,
@@ -92,79 +90,81 @@
       "actual_common_queries": 0,
       "solid_rebuilds": 0,
       "diagnostics": [
-        "TIMINGS: phase=88.3ms, actual_punch=0.0ms, actual_die=0.0ms, solid_build=0.0ms, cache_lookups=0.1ms, hits=(solid=0, die=0, punch=0), misses=(solid=0, die=0, punch=0)"
+        "TIMINGS: phase=208.6ms, actual_punch=0.0ms, actual_die=0.0ms, solid_build=0.0ms, cache_lookups=0.1ms, hits=(solid=0, die=0, punch=0), misses=(solid=0, die=0, punch=0)"
       ]
     },
     {
       "phase": "RETRACT",
-      "status": "SAMPLED_INTERVAL_CONVERGED",
-      "is_safe": true,
-      "elapsed_s": 11.437,
-      "state_evaluation_requests": 17,
-      "states_in_trajectory": 17,
+      "status": "INTERVAL_UNRESOLVED",
+      "is_safe": false,
+      "elapsed_s": 16.187,
+      "state_evaluation_requests": 9,
+      "states_in_trajectory": 9,
       "pose_cache_hits": 1,
       "punch_cache_hits": 0,
-      "die_cache_hits": 16,
-      "solid_cache_hits": 16,
-      "pair_collision_checks": 16,
-      "actual_distance_queries": 16,
+      "die_cache_hits": 8,
+      "solid_cache_hits": 8,
+      "pair_collision_checks": 8,
+      "actual_distance_queries": 8,
       "actual_common_queries": 0,
       "solid_rebuilds": 0,
       "diagnostics": [
-        "TIMINGS: phase=11436.7ms, actual_punch=10487.7ms, actual_die=0.0ms, solid_build=0.0ms, cache_lookups=1.1ms, hits=(solid=16, die=16, punch=0), misses=(solid=0, die=0, punch=16)"
+        "MAX_TIME_BUDGET_EXCEEDED: elapsed=16.19s",
+        "MAX_TIME_BUDGET_EXCEEDED: elapsed=16.19s",
+        "TIMINGS: phase=16187.5ms, actual_punch=14649.3ms, actual_die=0.0ms, solid_build=0.0ms, cache_lookups=1.4ms, hits=(solid=8, die=8, punch=0), misses=(solid=0, die=0, punch=8)"
       ]
     }
   ],
   "hierarchical_time_breakdown_s": {
     "solid_rebuild": {
-      "calls": 6,
-      "total_s": 5.4424,
-      "pct_total": 17.49
+      "calls": 4,
+      "total_s": 8.8098,
+      "pct_total": 20.63
     },
     "placement_calc": {
-      "calls": 46,
-      "total_s": 0.0017,
+      "calls": 36,
+      "total_s": 0.0025,
       "pct_total": 0.01
     },
     "cache_lookup_overhead": {
-      "total_s": 5.446,
-      "pct_total": 17.51
+      "total_s": 0.0033,
+      "pct_total": 0.01
     },
     "punch_clearance_evaluation": {
-      "calls": 38,
-      "total_s": 17.8027,
-      "pct_total": 57.23,
+      "calls": 28,
+      "total_s": 22.9325,
+      "pct_total": 53.7,
       "internal_breakdown": {
         "broad_phase_aabb": {
-          "calls": 38,
-          "total_s": 0.0952
+          "calls": 28,
+          "total_s": 0.085
         },
         "exact_distance": {
-          "calls": 23,
-          "total_s": 9.77
+          "calls": 13,
+          "total_s": 11.602
         },
         "common_boolean": {
-          "calls": 6,
-          "total_s": 1.4033
+          "calls": 4,
+          "total_s": 1.7183
         }
       }
     },
     "die_clearance_evaluation": {
-      "calls": 6,
-      "total_s": 4.5392,
-      "pct_total": 14.59,
+      "calls": 4,
+      "total_s": 5.6654,
+      "pct_total": 13.27,
       "internal_breakdown": {
         "broad_phase_aabb": {
-          "calls": 6,
-          "total_s": 0.0118
+          "calls": 4,
+          "total_s": 0.0233
         },
         "exact_distance": {
-          "calls": 6,
-          "total_s": 2.515
+          "calls": 4,
+          "total_s": 3.2754
         },
         "common_boolean": {
-          "calls": 6,
-          "total_s": 0.5323
+          "calls": 4,
+          "total_s": 0.8461
         }
       }
     },
@@ -174,21 +174,21 @@
       "pct_total": 0.0
     },
     "unaccounted_time": {
-      "total_s": 0.0,
-      "pct_total": 0.0,
+      "total_s": 5.2907,
+      "pct_total": 12.39,
       "description": "Time outside the explicitly measured blocks (e.g. state management, loop dispatch); not attributed to GC or copy without measurement."
     }
   },
   "separated_counters": {
-    "total_state_evaluation_requests": 46,
+    "total_state_evaluation_requests": 36,
     "pose_cache_hits": 8,
     "punch_cache_hits": 0,
-    "die_cache_hits": 32,
-    "solid_cache_hits": 32,
-    "pair_collision_checks": 44,
-    "actual_distance_queries": 29,
-    "actual_common_queries": 12,
-    "solid_rebuilds": 6
+    "die_cache_hits": 24,
+    "solid_cache_hits": 24,
+    "pair_collision_checks": 32,
+    "actual_distance_queries": 17,
+    "actual_common_queries": 8,
+    "solid_rebuilds": 4
   },
   "redundant_rebuilds": {}
 }

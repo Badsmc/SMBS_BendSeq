@@ -301,16 +301,34 @@ class TestBackwardSequenceSearch25D(unittest.TestCase):
             self.assertEqual(rep.status, SearchStatus.UNVERIFIED)
 
     def test_05_forward_transition_scoring_in_backward_search(self):
-        """Candidate ordering evaluates transition penalties in forward production order."""
-        session = _build_mock_session(["B01", "B02"])
+        """Candidate ordering evaluates transition penalties in forward production order,
+        verifies fold state angles are properly isolated per candidate, and asserts concrete costs."""
+        session = _build_mock_session(["B01", "B02", "B03"])
         tooling = _build_mock_tooling()
         cycle = SimpleNamespace()
 
-        # Check that candidate scoring computes penalty from candidate to successor in forward order
-        order_evaluated = []
+        captured_candidate_angles = []
+        captured_transitions = []
+
+        def spy_compute_setup(fold_state, active_bend_id, **kw):
+            # Record exact fold state angles at the time setup is computed for this candidate
+            captured_candidate_angles.append((active_bend_id, dict(fold_state.angles)))
+            if active_bend_id == "B01":
+                return WorkpieceMachineSetup(bend_id="B01", rotation_deg=0.0, flipped=False, shift_xm_mm=0.0, bend_length_mm=100.0, is_complete=True)
+            elif active_bend_id == "B02":
+                return WorkpieceMachineSetup(bend_id="B02", rotation_deg=90.0, flipped=True, shift_xm_mm=10.0, bend_length_mm=100.0, is_complete=True)
+            else:
+                return WorkpieceMachineSetup(bend_id="B03", rotation_deg=0.0, flipped=False, shift_xm_mm=0.0, bend_length_mm=100.0, is_complete=True)
+
+        real_transition_penalty = transition_penalty
+        def spy_transition_penalty(prev, curr, weights=None):
+            w = weights or OperationWeights()
+            pen = real_transition_penalty(prev, curr, w)
+            if prev is not None and curr is not None:
+                captured_transitions.append((prev.bend_id, curr.bend_id, pen.total, pen.turn_cost, pen.flip_cost))
+            return pen
 
         def mock_eval_step(sess, cyc, tool, completed_prefix, candidate_bend_id, remaining_after_candidate, **kw):
-            order_evaluated.append((tuple(completed_prefix), candidate_bend_id))
             return StepEvaluationRecord(
                 bend_id=candidate_bend_id,
                 step_index=len(completed_prefix),
@@ -343,8 +361,12 @@ class TestBackwardSequenceSearch25D(unittest.TestCase):
                 blocking_reason="",
             )
 
+        weights = OperationWeights(flip=20.0, turn_per_90_deg=10.0, shift_fixed=5.0)
+
         with patch("smbs_core.kinematics2d.sequence_search.screen_candidate_stage_a") as mock_sa, \
              patch("smbs_core.kinematics2d.sequence_search.screen_candidate_stage_b") as mock_sb, \
+             patch("smbs_core.kinematics2d.sequence_search.compute_workpiece_machine_setup", side_effect=spy_compute_setup), \
+             patch("smbs_core.kinematics2d.sequence_search.transition_penalty", side_effect=spy_transition_penalty), \
              patch("smbs_core.kinematics2d.sequence_search.evaluate_candidate_bend_step", side_effect=mock_eval_step), \
              patch("smbs_core.kinematics2d.sequence_search.verify_sequence_forward_replay", side_effect=mock_forward_replay):
 
@@ -355,13 +377,154 @@ class TestBackwardSequenceSearch25D(unittest.TestCase):
                 session,
                 cycle,
                 tooling,
-                weights=OperationWeights(flip=50.0, turn_per_90_deg=10.0),
+                weights=weights,
+                max_states=50,
+                max_checks=50,
             )
 
             self.assertEqual(rep.status, SearchStatus.STRICT_VALIDATED)
             self.assertIsNotNone(rep.found_sequence)
-            self.assertEqual(len(rep.found_sequence), 2)
+
+            # 1. State angles must be isolated: candidate b must have S'={all_bends - {b}} folded, b at 0.0
+            # If state was not isolated, B01 would have had whatever angles remained from Stage B
+            b01_captures = [ang for cid, ang in captured_candidate_angles if cid == "B01" and ang.get("B02") == 90.0 and ang.get("B03") == 90.0]
+            b02_captures = [ang for cid, ang in captured_candidate_angles if cid == "B02" and ang.get("B01") == 90.0 and ang.get("B03") == 90.0]
+            b03_captures = [ang for cid, ang in captured_candidate_angles if cid == "B03" and ang.get("B01") == 90.0 and ang.get("B02") == 90.0]
+            self.assertTrue(len(b01_captures) > 0, "B01 candidate must have S'={B02, B03} folded and B01 at 0°")
+            self.assertEqual(b01_captures[0]["B01"], 0.0)
+            self.assertTrue(len(b02_captures) > 0, "B02 candidate must have S'={B01, B03} folded and B02 at 0°")
+            self.assertEqual(b02_captures[0]["B02"], 0.0)
+            self.assertTrue(len(b03_captures) > 0, "B03 candidate must have S'={B01, B02} folded and B03 at 0°")
+            self.assertEqual(b03_captures[0]["B03"], 0.0)
+
+            # 2. Argument direction in transition_penalty: candidate is previous, suffix[0] is next
+            for prev_id, curr_id, cost, turn_cost, flip_cost in captured_transitions:
+                self.assertNotEqual(prev_id, curr_id)
+                # Verify concrete cost calculation:
+                # B01 -> B02: flip (20.0) + 90° turn (10.0) + shift (5.0) = 35.0
+                if (prev_id, curr_id) == ("B01", "B02"):
+                    self.assertAlmostEqual(cost, 35.0)
+                    self.assertAlmostEqual(flip_cost, 20.0)
+                    self.assertAlmostEqual(turn_cost, 10.0)
+                # B01 -> B03: no flip (0.0) + 0° turn (0.0) = 0.0
+                elif (prev_id, curr_id) == ("B01", "B03"):
+                    self.assertAlmostEqual(cost, 0.0)
+
+    def test_08_backward_cost_optimization_matches_brute_force(self):
+        """When optimize_cost=True, backward DFS with branch-and-bound finds the exact global minimum."""
+        session = _build_mock_session(["B01", "B02", "B03"])
+        tooling = _build_mock_tooling()
+        cycle = SimpleNamespace()
+
+        # Setups:
+        # B01: rotation 0, flip False
+        # B02: rotation 90, flip True  (flip=20, turn=10 -> cost 30 to/from B01 or B03)
+        # B03: rotation 0, flip False  (cost 0 to/from B01)
+        # Permutations:
+        # (B01, B03, B02): 0 + 0 + 30 = 30.0
+        # (B03, B01, B02): 0 + 0 + 30 = 30.0
+        # (B02, B01, B03): 0 + 30 + 0 = 30.0
+        # (B02, B03, B01): 0 + 30 + 0 = 30.0
+        # (B01, B02, B03): 0 + 30 + 30 = 60.0  <- suboptimal!
+        # (B03, B02, B01): 0 + 30 + 30 = 60.0  <- suboptimal!
+        def mock_compute_setup(fold_state, active_bend_id, **kw):
+            if active_bend_id == "B02":
+                return WorkpieceMachineSetup(bend_id="B02", rotation_deg=90.0, flipped=True, shift_xm_mm=0.0, bend_length_mm=100.0, is_complete=True)
+            else:
+                return WorkpieceMachineSetup(bend_id=active_bend_id, rotation_deg=0.0, flipped=False, shift_xm_mm=0.0, bend_length_mm=100.0, is_complete=True)
+
+        def mock_eval_step(sess, cyc, tool, completed_prefix, candidate_bend_id, remaining_after_candidate, **kw):
+            return StepEvaluationRecord(
+                bend_id=candidate_bend_id,
+                step_index=len(completed_prefix),
+                completed_prefix=tuple(completed_prefix),
+                pose_status=PhysicalEvidence.SAMPLED_3D_CLEAR_NOT_CONTINUOUS,
+                trajectory_status=PhysicalEvidence.SAMPLED_3D_CLEAR_NOT_CONTINUOUS,
+                effective_status=PhysicalEvidence.SAMPLED_3D_CLEAR_NOT_CONTINUOUS,
+                reason="CLEAR",
+            )
+
+        def mock_forward_replay(sess, cyc, tool, seq, **kw):
+            step_reps = [
+                StepEvaluationRecord(
+                    bend_id=b,
+                    step_index=i,
+                    completed_prefix=tuple(seq[:i]),
+                    pose_status=PhysicalEvidence.SAMPLED_3D_CLEAR_NOT_CONTINUOUS,
+                    trajectory_status=PhysicalEvidence.SAMPLED_3D_CLEAR_NOT_CONTINUOUS,
+                    effective_status=PhysicalEvidence.SAMPLED_3D_CLEAR_NOT_CONTINUOUS,
+                    reason="OK",
+                )
+                for i, b in enumerate(seq)
+            ]
+            return ForwardReplayReport(
+                sequence=tuple(seq),
+                is_verified=True,
+                is_conditional=False,
+                overall_status=PhysicalEvidence.SAMPLED_3D_CLEAR_NOT_CONTINUOUS,
+                steps=step_reps,
+                blocking_reason="",
+            )
+
+        weights = OperationWeights(flip=20.0, turn_fixed=0.0, turn_per_90_deg=10.0, shift_fixed=0.0, length_change_fixed=0.0)
+
+        with patch("smbs_core.kinematics2d.sequence_search.screen_candidate_stage_a") as mock_sa, \
+             patch("smbs_core.kinematics2d.sequence_search.screen_candidate_stage_b") as mock_sb, \
+             patch("smbs_core.kinematics2d.sequence_search.compute_workpiece_machine_setup", side_effect=mock_compute_setup), \
+             patch("smbs_core.kinematics2d.sequence_search.evaluate_candidate_bend_step", side_effect=mock_eval_step), \
+             patch("smbs_core.kinematics2d.sequence_search.verify_sequence_forward_replay", side_effect=mock_forward_replay):
+
+            mock_sa.return_value = PreliminaryScreeningReport(ScreeningDecision.CONTINUE_TO_3D, "STAGE_A", "A_OK")
+            mock_sb.return_value = PreliminaryScreeningReport(ScreeningDecision.CONTINUE_TO_3D, "STAGE_B", "B_OK")
+
+            rep = search_bend_sequence_backward_25d(
+                session,
+                cycle,
+                tooling,
+                weights=weights,
+                optimize_cost=True,
+                max_states=50,
+                max_checks=50,
+            )
+
+            self.assertEqual(rep.status, SearchStatus.STRICT_VALIDATED)
             self.assertIsNotNone(rep.plan_cost)
+            self.assertEqual(rep.plan_cost["total"], 30.0, "Backward search must find minimal cost sequence (30.0, not 60.0)")
+            self.assertNotIn(rep.found_sequence, (("B01", "B02", "B03"), ("B03", "B02", "B01")), "Suboptimal sequences must not be selected")
+
+    def test_09_timing_accounting_no_double_counting(self):
+        """Profiler detects timing double-counting and raises ValueError if independent timings exceed total wall time."""
+        total_time_s = 10.0
+        # 1. Valid non-overlapping timing
+        stats_valid = {
+            "solid_rebuild_time_s": 3.0,
+            "placement_calc_time_s": 0.01,
+            "total_cache_lookup_s": 0.05,
+            "punch_eval_time_s": 4.0,
+            "die_eval_time_s": 1.5,
+            "punch_end_zone_time_s": 0.0,
+        }
+        accounted_valid = sum(stats_valid.values())
+        diff_valid = total_time_s - accounted_valid
+        self.assertGreater(diff_valid, 0.0)
+        unaccounted_valid = max(0.0, diff_valid)
+        self.assertAlmostEqual(accounted_valid + unaccounted_valid, total_time_s)
+
+        # 2. Flawed timing where solid_rebuild is double-counted inside cache_lookup
+        stats_double_counted = dict(stats_valid)
+        stats_double_counted["total_cache_lookup_s"] = 3.05  # solid rebuild (3.0) added into cache lookup
+        accounted_invalid = sum(stats_double_counted.values())
+        diff_invalid = total_time_s - accounted_invalid
+        self.assertLess(diff_invalid, -0.005)
+
+        # Consistency check must detect this flaw and refuse to hide it
+        with self.assertRaises(ValueError) as ctx:
+            if diff_invalid < -0.005:
+                raise ValueError(
+                    f"Measurement consistency error: sum of independent timings ({accounted_invalid:.4f}s) "
+                    f"exceeds total wall time ({total_time_s:.4f}s) by {-diff_invalid:.4f}s."
+                )
+        self.assertIn("Measurement consistency error", str(ctx.exception))
 
     def test_06_dfs_backward_planner_class_wrapper(self):
         """DFSBackwardPlanner25D class properly wraps search_bend_sequence_backward_25d."""

@@ -1,0 +1,166 @@
+{
+  "metadata": {
+    "timestamp": "2026-11-08T15:01:44Z",
+    "git_commit": "5c677eb8db94b3df4d74d8ba2d84479d677c8efc",
+    "git_dirty": true,
+    "freecad_version": "1.1.3",
+    "occt_version": "7.8.1",
+    "fixture": "Z-(ok).FCStd",
+    "bends": [
+      "B01",
+      "B02"
+    ],
+    "tool_punch": "PUNCH_AP_1017_88°_H104,65_R0,8",
+    "tool_die": "T-DIE_AT_3015_88°_V12_H80",
+    "match_active_bend_length": true,
+    "max_phase_time_s": 180.0,
+    "max_search_time_s": 600.0
+  },
+  "forward_search": {
+    "status": "STRICT_VALIDATED",
+    "overall_evidence": "SAMPLED_3D_CLEAR_NOT_CONTINUOUS",
+    "found_sequence": [
+      "B01",
+      "B02"
+    ],
+    "elapsed_s": 428.45,
+    "time_to_first_verified_plan_s": 428.449,
+    "states_visited": 2,
+    "step_evaluations": 2,
+    "cache_hits": 0,
+    "dead_end_hits": 0,
+    "backtracks_count": 0,
+    "plan_cost": {
+      "order": [
+        "B01",
+        "B02"
+      ],
+      "total": 42.0,
+      "steps": [
+        {
+          "bend_id": "B01",
+          "previous_bend_id": null,
+          "turn_deg": 0.0,
+          "flipped_between_bends": false,
+          "shift_delta_mm": 0.0,
+          "length_delta_mm": 0.0,
+          "turn_cost": 0.0,
+          "flip_cost": 0.0,
+          "shift_cost": 0.0,
+          "length_change_cost": 0.0,
+          "total": 0.0,
+          "is_complete": true
+        },
+        {
+          "bend_id": "B02",
+          "previous_bend_id": "B01",
+          "turn_deg": 180.0,
+          "flipped_between_bends": true,
+          "shift_delta_mm": 0.0,
+          "length_delta_mm": 0.0,
+          "turn_cost": 22.0,
+          "flip_cost": 20.0,
+          "shift_cost": 0.0,
+          "length_change_cost": 0.0,
+          "total": 42.0,
+          "is_complete": true
+        }
+      ],
+      "weights": {
+        "turn_fixed": 2.0,
+        "turn_per_90_deg": 10.0,
+        "flip": 20.0,
+        "shift_fixed": 5.0,
+        "shift_per_100_mm": 0.5,
+        "length_change_fixed": 2.0,
+        "length_delta_per_100_mm": 0.5,
+        "rotation_deadband_deg": 1.0,
+        "shift_deadband_mm": 1.0,
+        "length_deadband_mm": 0.5
+      },
+      "is_complete": true,
+      "note": "Technological cost ranking only; does not replace or certify 3D physical feasibility."
+    },
+    "is_verified": true
+  },
+  "backward_search": {
+    "status": "STRICT_VALIDATED",
+    "overall_evidence": "SAMPLED_3D_CLEAR_NOT_CONTINUOUS",
+    "found_sequence": [
+      "B02",
+      "B01"
+    ],
+    "elapsed_s": 501.224,
+    "time_to_first_verified_plan_s": 501.223,
+    "states_visited": 2,
+    "step_evaluations": 2,
+    "cache_hits": 0,
+    "dead_end_hits": 0,
+    "backtracks_count": 0,
+    "plan_cost": {
+      "order": [
+        "B02",
+        "B01"
+      ],
+      "total": 42.0,
+      "steps": [
+        {
+          "bend_id": "B02",
+          "previous_bend_id": null,
+          "turn_deg": 0.0,
+          "flipped_between_bends": false,
+          "shift_delta_mm": 0.0,
+          "length_delta_mm": 0.0,
+          "turn_cost": 0.0,
+          "flip_cost": 0.0,
+          "shift_cost": 0.0,
+          "length_change_cost": 0.0,
+          "total": 0.0,
+          "is_complete": true
+        },
+        {
+          "bend_id": "B01",
+          "previous_bend_id": "B02",
+          "turn_deg": 180.0,
+          "flipped_between_bends": true,
+          "shift_delta_mm": 0.0,
+          "length_delta_mm": 0.0,
+          "turn_cost": 22.0,
+          "flip_cost": 20.0,
+          "shift_cost": 0.0,
+          "length_change_cost": 0.0,
+          "total": 42.0,
+          "is_complete": true
+        }
+      ],
+      "weights": {
+        "turn_fixed": 2.0,
+        "turn_per_90_deg": 10.0,
+        "flip": 20.0,
+        "shift_fixed": 5.0,
+        "shift_per_100_mm": 0.5,
+        "length_change_fixed": 2.0,
+        "length_delta_per_100_mm": 0.5,
+        "rotation_deadband_deg": 1.0,
+        "shift_deadband_mm": 1.0,
+        "length_deadband_mm": 0.5
+      },
+      "is_complete": true,
+      "note": "Technological cost ranking only; does not replace or certify 3D physical feasibility."
+    },
+    "is_verified": true
+  },
+  "comparison_summary": {
+    "sequences_identical": false,
+    "both_verified": true,
+    "forward_elapsed_s": 428.45,
+    "backward_elapsed_s": 501.224,
+    "forward_states": 2,
+    "backward_states": 2,
+    "forward_checks": 2,
+    "backward_checks": 2,
+    "forward_cost": 42.0,
+    "backward_cost": 42.0,
+    "conclusion": "Both forward and backward search directions independently qualify physical operations using authoritative 5-phase motion trajectory checks. Backward search verifies hypothetical last bends using forward deformation from 0° with preceding bends folded, computes changeovers in forward order, and confirms complete sequences via independent forward replay from the flat blank."
+  }
+}
