@@ -85,3 +85,13 @@ Next: parameterize machine cutting-plane station; verify same physical pose/tool
 ### Experimental invocation
 
 Pass `experimental_multi_station_2d=True, experimental_2d_risk_ranking=True` to `search_bend_sequence_25d(...)`, together with `verified_punch_span_xm` and `verified_die_span_xm` **only when extracted from the selected real CAD setup** in machine coordinates. The same options work with `search_direction="BACKWARD"`. Leave both flags off for baseline measurements.
+
+
+## Measurement schema: Stage C is not OCCT (sixth increment)
+
+- Added `screening_experiment_metrics.py`, a strict comparison/JSON-export schema for paired baseline vs risk-ranked runs. Read existing `SequenceSearchReport` via `from_search_report` and compare with `compare_measurements`.
+- Enforce identical `model_id`, `tooling_setup_id`, `placement_id` and `tolerance_signature`. Refuse missing or divergent identities. Record status, order, full candidate and verified-plan times, total elapsed, Stage B evaluations, Stage C validation *attempts* and expensive unique step evaluations.
+- `occt_boolean_calls` and `occt_boolean_elapsed_s` are **optional measured fields** and remain `null` unless separately instrumented in the native collision backend. One Stage C candidate can execute multiple OCCT booleans; Stage C is NOT a measurement of OCCT calls. Never infer actual saved booleans from DFS counters.
+- If there is no verified plan on both sides, time-to-first-plan savings is `null`, not zero. Negative deltas mean a regression; no speedup is asserted without measured data.
+- Added `tests/test_screening_experiment_metrics.py` and CI registration. These are schema tests, not real CAD benchmarks.
+- Outstanding: instrument native boolean operations around OCCT intersections without changing collision tolerances; run the same AP1017 + AT3015 baseline setup on Z-(ok) and on the eight fixed box cases; record per-run JSON with source model/tool hashes and 2D false-negative disagreements. A useful first-plan comparison is permitted only where the same valid plan can be physically confirmed.
