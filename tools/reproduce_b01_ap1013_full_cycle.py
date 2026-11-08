@@ -61,6 +61,7 @@ from smbs_core.kinematics2d.physical_validation_25d import (
 from smbs_core.kinematics2d.sequence_search import (
     PhysicalEvidence,
     StepEvaluationCache,
+    StepEvaluationRecord,
     search_bend_sequence_backward_25d,
 )
 
@@ -403,11 +404,13 @@ def main():
     print(f"  Trajectory wall time: {t_traj_wall_s:.2f} s", flush=True)
     print(f"  Trajectory reason: {traj_rep.reason}", flush=True)
 
+    raw_traj = getattr(traj_rep, "raw_report", None)
     detailed_phases = {}
     if raw_traj and hasattr(raw_traj, "phase_results"):
         for pres in raw_traj.phase_results:
             detailed_phases[pres.phase_name] = {
-                "status": getattr(pres.status, "value", str(pres.status)),
+                "status": getattr(pres.evidence_status, "value", str(pres.evidence_status)),
+                "is_safe": getattr(pres, "is_safe", None),
                 "elapsed_ms": pres.elapsed_ms,
                 "samples_count": len(pres.states),
                 "solid_rebuilds": pres.solid_reconstructions_count,
@@ -415,7 +418,10 @@ def main():
                 "actual_distance_queries": pres.actual_distance_queries,
                 "actual_common_queries": pres.actual_common_queries,
                 "unresolved_intervals": [list(iv) for iv in pres.unresolved_intervals],
-                "max_overlap_volume_mm3": pres.max_overlap_volume_mm3,
+                "max_punch_overlap_volume_mm3": getattr(pres, "max_punch_overlap_volume_mm3", 0.0),
+                "max_die_overlap_volume_mm3": getattr(pres, "max_die_overlap_volume_mm3", 0.0),
+                "min_punch_clearance_mm": getattr(pres, "min_punch_clearance_mm", None),
+                "min_die_clearance_mm": getattr(pres, "min_die_clearance_mm", None),
             }
 
     trajectory_summary = {
@@ -425,7 +431,7 @@ def main():
         "wall_time_s": t_traj_wall_s,
         "max_phase_time_s": max_phase_time_s,
         "reason": traj_rep.reason,
-        "phase_breakdown": detailed_phases or parsed_phases,
+        "phase_breakdown": detailed_phases,
         "actual_occt_queries": {
             "total_pair_collision_checks": getattr(raw_traj, "total_pair_collision_checks", None),
             "total_distance_queries": getattr(raw_traj, "total_distance_queries", None),
@@ -459,6 +465,42 @@ def main():
         cache = StepEvaluationCache()
         weights = OperationWeights(flip=20.0, turn_per_90_deg=10.0, shift_fixed=5.0)
 
+        # Pre-populate cache with the completed B01 step so backward DFS doesn't repeat B01's 534s check
+        b01_tool_info = getattr(traj_rep, "tool_length_info", {}) or {}
+        b01_len = float(b01_tool_info.get("active_bend_length_mm", 50.0))
+        b01_key = cache.make_step_key(
+            completed_angles=s_prime,
+            candidate_bend_id="B01",
+            tooling=tooling,
+            match_active_bend_length=True,
+            effective_punch_len_mm=b01_len,
+            effective_die_len_mm=b01_len,
+            desired_midpoint_xm=0.0,
+            config=sampling_cfg,
+            allow_end_zone_collision=False,
+            end_zone_length_mm=0.0,
+        )
+        b01_record = StepEvaluationRecord(
+            bend_id="B01",
+            step_index=len(s_prime),
+            completed_prefix=tuple(sorted(s_prime.keys())),
+            pose_status=PhysicalEvidence.SAMPLED_3D_CLEAR_NOT_CONTINUOUS,
+            trajectory_status=traj_rep.status,
+            effective_status=traj_rep.status,
+            reason=traj_rep.reason,
+            active_bend_length_mm=b01_len,
+            virtual_punch_length_mm=b01_len,
+            virtual_die_length_mm=b01_len,
+            is_virtual_tool_geometry=True,
+            desired_midpoint_xm=0.0,
+            is_conditional=traj_rep.is_conditional,
+            elapsed_ms=t_traj_wall_s * 1000.0,
+            from_cache=False,
+            tool_length_info=b01_tool_info if b01_tool_info else None,
+            trajectory_report=traj_rep,
+        )
+        cache.put_step(b01_key, b01_record)
+
         # Budget for backward DFS: 600s total search budget
         max_search_time_s = 600.0
         max_states = 50
@@ -480,6 +522,7 @@ def main():
             max_search_time_s=max_search_time_s,
             optimize_cost=False,
             cache=cache,
+            fixed_suffix=("B01",),
         )
         t_search_wall_s = time.perf_counter() - t_search0
 

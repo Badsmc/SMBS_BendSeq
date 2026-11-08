@@ -1872,6 +1872,7 @@ def search_bend_sequence_backward_25d(
     progress_callback: Optional[Callable[[int, int, Tuple[str, ...]], bool]] = None,
     pose_checker: Callable[..., CurrentPosePhysicalReport] = check_current_25d_pose,
     trajectory_checker: Callable[..., CurrentPosePhysicalReport] = check_active_25d_bend_trajectory,
+    fixed_suffix: Optional[Tuple[str, ...]] = None,
 ) -> SequenceSearchReport:
     """Backward Depth-First Search for bend sequence planning with forward physical qualification.
 
@@ -2125,11 +2126,22 @@ def search_bend_sequence_backward_25d(
             any_cost_pruned = False
 
             # Candidate evaluation:
-            # For each bend b in remaining_bends:
+            # If fixed_suffix is specified, candidate choice at depth = len(rev_chosen)
+            # is constrained to match fixed_suffix in forward order.
+            # rev_chosen[0] is the last bend executed (depth 0), so fixed_suffix[-1] must match it.
+            cands_to_eval = sorted(remaining_bends)
+            if fixed_suffix is not None and depth < len(fixed_suffix):
+                required_bend = fixed_suffix[-(depth + 1)]
+                if required_bend in remaining_bends:
+                    cands_to_eval = [required_bend]
+                else:
+                    return DFSSubtreeResult(has_solution=False)
+
+            # For each bend b in cands_to_eval:
             # Preceding state S' = remaining_bends - {b}.
             # In S', all bends in S' are at their target angles; b is active from 0 to target.
             stage_a_survivors: List[str] = []
-            for cand_id in sorted(remaining_bends):
+            for cand_id in cands_to_eval:
                 stage_a_evaluated += 1
                 s_prime = remaining_bends - {cand_id}
                 _apply_prefix_to_session(
