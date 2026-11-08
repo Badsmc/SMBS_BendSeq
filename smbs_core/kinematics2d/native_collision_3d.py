@@ -26,6 +26,8 @@ from dataclasses import dataclass, replace
 from enum import Enum
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
+from .native_kernel_metrics import measured_common, measured_distance
+
 
 try:
     import Part
@@ -237,7 +239,7 @@ def _evaluate_common_volume(
     INVALID_GEOMETRY rather than falsifying CLEAR or TOUCHING.
     """
     try:
-        common_shape = shape_a.common(shape_b)
+        common_shape = measured_common(shape_a, shape_b, label="pair_common")
     except Exception as exc:
         raise ValueError(f"KERNEL_COMMON_EVALUATION_FAILED:{exc}") from exc
 
@@ -309,7 +311,7 @@ def _compute_exact_distance_with_pruning(
         elif len_b > len_a and len_b > 12 and box_a is not None and Part is not None:
             s_many, s_other, b_other, faces_many = shape_b, shape_a, box_a, faces_b
         else:
-            res = shape_a.distToShape(shape_b)
+            res = measured_distance(shape_a, shape_b, label="full_shape_distance")
             if not res or len(res) == 0:
                 raise ValueError("KERNEL_EMPTY_DISTANCE_RESULT")
             d = float(res[0])
@@ -333,7 +335,7 @@ def _compute_exact_distance_with_pruning(
 
         if cand_faces and len(cand_faces) < len(faces_many):
             comp = Part.Compound(cand_faces)
-            res = comp.distToShape(s_other)
+            res = measured_distance(comp, s_other, label="pruned_faces_distance")
             if not res or len(res) == 0:
                 raise ValueError("KERNEL_EMPTY_DISTANCE_RESULT")
             d = float(res[0])
@@ -345,7 +347,7 @@ def _compute_exact_distance_with_pruning(
         if isinstance(exc, ValueError) and "KERNEL_" in str(exc):
             raise
 
-    res = shape_a.distToShape(shape_b)
+    res = measured_distance(shape_a, shape_b, label="full_shape_distance")
     if not res or len(res) == 0:
         raise ValueError("KERNEL_EMPTY_DISTANCE_RESULT")
     d = float(res[0])
@@ -639,7 +641,7 @@ def classify_punch_overlap_zones(
     right_zone = (p_xmax - ez_len, p_xmax)
 
     try:
-        common_shape = workpiece_machine_shape.common(punch_machine_shape)
+        common_shape = measured_common(workpiece_machine_shape, punch_machine_shape, label="punch_end_zone_common")
     except Exception as exc:
         return _unclassified(f"common_evaluation_failed:{exc}", p_span=(p_xmin, p_xmax), ez_len=ez_len)
 
