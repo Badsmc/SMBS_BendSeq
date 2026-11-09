@@ -613,3 +613,22 @@ The next required test is a local **native FreeCAD/OCCT run** verifying that the
 ## Required user deliverable: numbered TechDraw manufacturing sheet
 
 The target addon is **sequence calculation + understandable animation + printable bend instructions**, not industrial finite-element metal-forming simulation. After an accepted bend order, users must be able to create or update a TechDraw page with a flattened view annotated with actual operation numbers, signed bend angles, folded-part view and bend-operation table. The original stable bend IDs are mapped to SheetMetal's bend-line sketches (not lexicographic Bend object order). PDF/print and stale-drawing protection are mandatory. See [TECHDRAW_BEND_SEQUENCE.md](TECHDRAW_BEND_SEQUENCE.md) for exact data, UI, enablement and acceptance contracts. This functionality is **specified but not implemented**; its absence blocks final user-facing release.
+
+
+## Next core milestone (2026-11-09): 2D candidate orders in FreeCAD GUI
+
+**Scope decision:** work on the sequence solver and usable bend animation now. The TechDraw implementation remains deferred; no work on drawing/PDF in this milestone. The existing 3D collision/contact thresholds and classifications are unchanged.
+
+The FreeCAD PressBrakeSim 2.5D panel now has **`2D варианты`** under the standard Load / Tooling / `Расчёт` row. This runs the existing experimental `search_bend_sequences_2d` from the loaded SheetMetal `LoadedPartSession` and currently selected 2D profiles (10 candidate limit, bounded by 30 seconds, 5000 nodes and 10000 evaluations). Unlike `Расчёт`, it does NOT run native OCCT collision checks. For isolated planar exploration it may use virtual axial tool length; this is explicitly labeled and must never appear as verified physical equipment.
+
+Results open a modal list with ordered bend IDs, planar evidence and operation-cost data. Choosing **`Показать порядок в симуляции`** applies the candidate to the existing `BendSequenceController` so the user can inspect it using the current Play/Pause/Reset controls. The order is explicitly marked **`2D-ПРОСМОТР (НЕ ПРОВЕРЕНО В 3D)`**; choosing it invalidates any previous strict search report. No 2D result is automatically qualified, certified or sent to TechDraw as a manufacturing sequence.
+
+**Acceptance still needed on actual FreeCAD 1.1.x GUI:**
+1. Load a model with a genuine SheetMetal Unfold, select punch and die.
+2. Click `2D варианты`, inspect candidate list, warnings, status and ordering.
+3. Select a candidate and play all bends. Ensure the same IDs and signed angles are used.
+4. Check reload, reset, reorder, empty candidate set, stopped playback, no duplicate Qt widgets, and restoration of initial FoldState/tooling after search.
+5. Compare actual 2D preview to folded model for L / Z / U / box and investigate panel jumps only if observed.
+6. Run the existing `Расчёт` independently for physical qualification; never reclassify an unverified 2D preview as a safe manufacturing instruction.
+
+**Next after GUI acceptance:** use actual verified model runs to improve candidate ranking or choose the correct 2D/3D qualification budget, then test forward and backward replay and the full animation. Continue to protect physical correctness without spending this phase on sub-millimetric punch/contact modeling.
