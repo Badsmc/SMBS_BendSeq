@@ -204,16 +204,20 @@ class WorkspaceGuiTests(unittest.TestCase):
         panel = _PreviewPanel()
         try:
             tabs = panel.findChild(QtWidgets.QTabWidget, "SMBS_ViewerTabs")
-            controls = panel.findChild(QtWidgets.QTabWidget, "SMBS_ControlTabs")
+            controls = panel._control_tabs
             self.assertIsNotNone(tabs)
             self.assertIsNotNone(controls)
+            self.assertIsNone(controls.parentWidget())  # Hosted by FreeCAD Task Panel at runtime
             self.assertEqual(tabs.count(), 2)
+            self.assertIsNone(panel.findChild(QtWidgets.QSplitter))
             self.assertEqual(controls.count(), 3)
             # The Simulation tab owns mode selection and one Play All.
             # Duplicate angle arrows, bend arrows and alternate Auto button
             # are forbidden by docs/PRESSBRAKESIM_UI_CONTROLS.md.
             self.assertIs(panel.cycle_mode_combo.parentWidget() is not None, True)
             self.assertFalse(hasattr(panel, "auto_geometry_btn"))
+            self.assertFalse(hasattr(panel, "load"))  # Toolbar owns primary Part action
+            self.assertFalse(hasattr(panel, "tooling"))  # Toolbar owns primary Tooling action
             self.assertFalse(hasattr(panel, "back_btn"))
             self.assertFalse(hasattr(panel, "next_btn"))
             self.assertFalse(hasattr(panel, "end_btn"))
