@@ -75,15 +75,50 @@ class PressBrakeTaskPanel:
         controls = self.workspace._control_tabs
         controls.setParent(self.workspace)
         controls.hide()
-        self.workspace._task_panel_host = None
+        self.workspace.detach_task_panel(self)
         _TASK_PANEL = None
-        Gui.Control.closeDialog()
+        try:
+            Gui.Control.closeDialog()
+        except Exception:
+            _log("FreeCAD could not close PressBrakeSim Task Panel")
+            raise
 
     def close_from_workspace(self):
         """Close Task Panel as part of shutting down its own MDI workspace."""
         if self._closing:
             return
         self.close_panel()
+
+
+def open_task_panel(workspace):
+    """Open or restore the controls for the existing viewer.
+
+    Do not rely solely on the module-global task handle: FreeCAD may dispose a
+    dialog independently, leaving that handle stale after a close.
+    """
+    import FreeCADGui as Gui
+    global _TASK_PANEL
+
+    task = getattr(workspace, "_task_panel_host", None)
+    if task is not None and not task._closing:
+        return task
+
+    # Clear a stale handle left by a previous host before opening again.
+    _TASK_PANEL = None
+    task = PressBrakeTaskPanel(workspace)
+    try:
+        Gui.Control.showDialog(task)
+    except Exception:
+        # Keep Qt controls alive, even if FreeCAD refuses to open Task Panel.
+        controls = workspace._control_tabs
+        controls.setParent(workspace)
+        controls.hide()
+        workspace.show_task_panel_btn.show()
+        raise
+    workspace.attach_task_panel(task)
+    _TASK_PANEL = task
+    _log("Task Panel opened for existing PressBrakeSim viewer")
+    return task
 
 
 def get_workspace_widget():
@@ -139,11 +174,7 @@ class PressBrake2DCommand:
             mdi.setActiveSubWindow(existing)
             existing.show()
             existing.raise_()
-            if _TASK_PANEL is None:
-                task = PressBrakeTaskPanel(existing.widget())
-                Gui.Control.showDialog(task)
-                _TASK_PANEL = task
-                existing.widget().attach_task_panel(task)
+            open_task_panel(existing.widget())
             return
 
         # Retire only this addon's old dock, never the source document view.
@@ -167,14 +198,11 @@ class PressBrake2DCommand:
         window.showMaximized()
         mdi.setActiveSubWindow(window)
 
-        task = PressBrakeTaskPanel(widget)
         try:
-            Gui.Control.showDialog(task)
+            open_task_panel(widget)
         except Exception:
             window.close()
             raise
-        _TASK_PANEL = task
-        widget.attach_task_panel(task)
 
         if selected_unfold_name(selected_doc, selected_objects) is not None:
             widget.load_part(selection=selected_objects, document=selected_doc)
