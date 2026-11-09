@@ -485,6 +485,7 @@ class _PreviewPanel:
                 self._viewer_tabs = views
                 self._control_tabs = controls
                 self._task_panel_host = None
+                self._fallback_control_dock = None
 
                 # A viewer-local reopen action is required: FreeCAD can disable
                 # workbench toolbar commands while task dialogs are active.
@@ -2028,10 +2029,8 @@ class _PreviewPanel:
                 self._finish_motion_trace("WORKSPACE_CLOSED")
                 self.timer.stop()
                 self.playing = False
-                task = self._task_panel_host
-                self._task_panel_host = None
-                if task is not None:
-                    task.close_from_workspace()
+                from freecad_smbs.commands.pressbrake_2d import close_workspace_controls
+                close_workspace_controls(self)
                 super().closeEvent(event)
 
             def _draw_tooling_items(
