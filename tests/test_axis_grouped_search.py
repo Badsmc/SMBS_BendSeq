@@ -40,6 +40,56 @@ class AxisGroupedSearchTests(unittest.TestCase):
         self.assertEqual(result["reason"], "missing_verified_tooling")
         self.assertEqual(state.angles, original_angles)
 
+    def test_stage2_five_phases_restore_original_fold_state(self):
+        from types import SimpleNamespace as NS
+        from unittest.mock import patch
+        from smbs_core.kinematics2d.contact_oracle_2d import (
+            sample_bend_stroke_2d, ContactReport, ContactStatus
+        )
+        from smbs_core.kinematics2d.tooling_25d import ValidationStatus
+
+        class Tooling:
+            punch = NS(validation_status=ValidationStatus.GEOMETRY_VERIFIED)
+            die = NS(validation_status=ValidationStatus.GEOMETRY_VERIFIED)
+            aligned = False
+            def align_to_cross_section(self, *args, **kwargs):
+                self.aligned = True
+            def set_punch_ram_z(self, *args, **kwargs):
+                pass
+
+        kin = NS(
+            tooling_status="VERIFIED", contact_z_mm=2.0,
+            ram_z_for_angle=lambda angle: 2.0 - abs(angle) / 45.0,
+            stroke_for_angle=lambda angle: abs(angle) / 45.0,
+            support_plane_zm=lambda angle: -abs(angle) / 45.0,
+            validate_geometric_constraints=lambda angle, ram, flange_min_len_mm:
+                (True, "GEOMETRIC_COUPLING_VERIFIED", {}),
+        )
+        sec = {"zone_polygon": ((0, 0), (1, 0), (1, 1)),
+               "fixed_polygon": ((0, 0), (1, 0), (1, 1)),
+               "moving_polygon": ((0, 0), (1, 0), (1, 1))}
+        state = make_state()
+        state.set_angle("B02", -90.0)
+        before_angles = dict(state.angles)
+        before_transforms = dict(state.transforms)
+        with (
+            patch("smbs_core.kinematics2d.workpiece_placement_3d.WorkpiecePlacement3D.compute_placement", return_value=object()),
+            patch("smbs_core.kinematics2d.machine_section_3d.compute_machine_cutting_plane_section", return_value=sec),
+            patch("smbs_core.kinematics2d.coupled_kinematics_2d.CoupledAirBendingKinematics.from_tooling_and_fold_state", return_value=kin),
+            patch("smbs_core.kinematics2d.contact_oracle_2d.check_sheet_tooling_preview",
+                  return_value=ContactReport(ContactStatus.TOUCH, (), 0.02)),
+        ):
+            report = sample_bend_stroke_2d(
+                state, {"P0": ((0, 0), (1, 0), (1, 1))},
+                Tooling(), "B01", samples=4,
+            )
+        self.assertEqual(report["status"], "SAMPLED_2D_NOT_CONTINUOUSLY_VERIFIED")
+        self.assertEqual([frame["phase"] for frame in report["frames"]],
+                         ["APPROACH", "CONTACT", "BENDING", "BENDING",
+                          "BENDING", "BOTTOM", "RETRACT"])
+        self.assertEqual(state.angles, before_angles)
+        self.assertEqual(state.transforms, before_transforms)
+
     def test_stage2_stroke_sampling_limit_rejected(self):
         from smbs_core.kinematics2d.contact_oracle_2d import sample_bend_stroke_2d
         state = make_state()
