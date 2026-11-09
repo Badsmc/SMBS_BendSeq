@@ -95,6 +95,18 @@ def print_planar_summary(payload: dict) -> None:
     print("AXIS GROUPS:")
     for group in report["axis_groups"]:
         print(" ", group["group_id"], ":", ", ".join(group["bend_ids"]))
+    print("INDIVIDUAL 2D CHECKS:")
+    for record in report.get("evaluated_step_details", ()):
+        print(
+            " ", list(record["completed_prefix"]), "+", record["bend_id"],
+            "STATUS:", record["evidence"],
+            "WALL:", round(record["elapsed_s"], 3), "s",
+            "PHASES:", len(record["sampled_phases"]),
+            "TIMINGS_MS:", {
+                k: round(v, 1) for k, v in record.get("timing_ms", {}).items()
+            },
+            "REASON:", record["reason"],
+        )
     print("RANKED PLANS:", len(report["candidates"]))
     for position, candidate in enumerate(report["candidates"], 1):
         cost = round(candidate["cost"], 3) if candidate["cost_complete"] else "UNVERIFIED"
