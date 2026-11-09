@@ -22,6 +22,32 @@ def make_state():
 
 
 class AxisGroupedSearchTests(unittest.TestCase):
+    def test_stage2_stroke_requires_verified_tooling(self):
+        from types import SimpleNamespace as NS
+        from smbs_core.kinematics2d.contact_oracle_2d import sample_bend_stroke_2d
+        from smbs_core.kinematics2d.tooling_25d import ValidationStatus
+
+        state = make_state()
+        original_angles = dict(state.angles)
+        tooling = NS(
+            punch=NS(validation_status=ValidationStatus.IMPORTED),
+            die=NS(validation_status=ValidationStatus.GEOMETRY_VERIFIED),
+        )
+        result = sample_bend_stroke_2d(
+            state, {}, tooling, "B01", samples=8
+        )
+        self.assertEqual(result["status"], "UNKNOWN")
+        self.assertEqual(result["reason"], "missing_verified_tooling")
+        self.assertEqual(state.angles, original_angles)
+
+    def test_stage2_stroke_sampling_limit_rejected(self):
+        from smbs_core.kinematics2d.contact_oracle_2d import sample_bend_stroke_2d
+        state = make_state()
+        with self.assertRaisesRegex(ValueError, "samples"):
+            sample_bend_stroke_2d(state, {}, None, "B01", samples=0)
+        with self.assertRaisesRegex(ValueError, "samples"):
+            sample_bend_stroke_2d(state, {}, None, "B01", samples=True)
+
     def test_real_contact_bridge_refuses_missing_tools(self):
         from smbs_core.kinematics2d.contact_oracle_2d import make_axis_step_oracle_2d
         state = make_state()
