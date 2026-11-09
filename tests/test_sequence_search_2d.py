@@ -131,6 +131,7 @@ class PlanarSearchTests(unittest.TestCase):
         from smbs_core.kinematics2d.operation_cost import WorkpieceMachineSetup
         names = ("B01", "B02", "B03")
         self.state = DummyState(names)
+        self.session.fold_state = self.state
         self.state.bends["B03"].axis_xyz = ((0, 0, 0), (0, 100, 0))
         self.session.bend_order = names
         def setup(_state, bid, **kwargs):
