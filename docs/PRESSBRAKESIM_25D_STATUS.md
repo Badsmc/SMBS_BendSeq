@@ -131,3 +131,26 @@ print("STAGE2_COUPLING_TESTS_PASS:", r.wasSuccessful())
 ```
 
 Then run `from tools.run_25d_stage1_gui_acceptance import run; run()` using the existing original 8-bend source fixture. Any degradation reopens Stage 1 and must be diagnosed before expanding P2. Existing P2 release gates remain **unchecked** until all original-sheet geometry/tooling/negative fixtures and native integration checks are accepted.
+
+
+## Stage 2 native acceptance: geometry PASS, Stage 1 GUI regression found (2026-11-09)
+
+User tested the Stage 2 coupling contract in Windows FreeCAD 1.1 / Python 3.11.14: `tests.test_coupled_kinematics_2d` **14/14 PASS**, repeated twice. The same acceptance session ran `tools.run_25d_stage1_gui_acceptance.run()`; **5/6 passed, 1 failed**, specifically `test_b01_to_b02_nonparallel_transfer_no_halt` at step 203:
+
+```
+AUTO PLAY ERROR: Internal C++ object (PySide6.QtWidgets.QGraphicsPolygonItem) already deleted.
+STAGE1_GUI_ACCEPTANCE_FAILED: ran=6 failures=1 errors=0 skipped=0
+```
+
+The entire 8-bend Full Cycle completed in the separate `test_full_sequence_b01_to_b08_completion`, and controls, trace creation and layout tests also passed. This is an intermittent Qt graphics-lifetime failure, not a demonstrated kinematic collision. **Stage 1 acceptance reopened; do not label currently PASS until native rerun.**
+
+A narrow GUI fix in `freecad_smbs/commands/pressbrake_2d.py` now prevents reentrant `draw()` while `self.scene.clear()` and new QGraphicsScene-owned items are being created. Nested draws are dropped, not queued. A targeted native GUI regression `test_nested_draw_keeps_qgraphics_scene_items_alive` intentionally calls `draw()` again during tooling rendering and checks the draw guard plus scene validity. This fixes one plausible lifetime invalidation mechanism, **not yet proven** to be the sole root cause of the intermittent failure. No controller, FoldState or solver math is changed.
+
+After checking out the latest `2D` branch, restarting FreeCAD to reload Python modules and ensuring the original `box.100out-50in-(ok).FCStd` fixture is available, run:
+
+```python
+from tools.run_25d_stage1_gui_acceptance import run
+run()
+```
+
+The acceptance suite now has **7** tests. If the original failure recurs, collect the complete `draw()` traceback from FreeCAD Report View / addon diagnostic log and the stage1 test's fault step. Preserve failure status and investigate Qt scene ownership rather than suppressing `RuntimeError` or changing its `FAIL` semantics. The 14/14 successful Stage 2 coupling tests remain valid evidence for the headless coupling subcomponent only.
