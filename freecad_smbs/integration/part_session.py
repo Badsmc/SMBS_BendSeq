@@ -303,8 +303,8 @@ def resolve_selected_unfold(doc, selection) -> str:
 
     if len(matching) == 1:
         return matching[0]
-    if len(unfolds) == 1 and hasattr(selected, "Shape"):
-        return unfolds[0].Name
+    # Never treat an unrelated solid as a valid unfold merely because the
+    # document contains exactly one unfold. Toolbar eligibility must be specific.
     raise SelectionWarning(
         "Не удалось однозначно сопоставить выбранный объект «{}» с развёрткой SheetMetal.".format(
             getattr(selected, "Label", sel_name)
