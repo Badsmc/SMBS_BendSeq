@@ -41,6 +41,7 @@ class PlanarStep:
     sampled_phases: tuple[str, ...]
     contact_statuses: tuple[str, ...]
     setup: Optional[WorkpieceMachineSetup] = None
+    backgauge_checked: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -48,6 +49,7 @@ class PlanarStep:
             "reason": self.reason, "sampled_phases": list(self.sampled_phases),
             "contact_statuses": list(self.contact_statuses),
             "machine_setup": self.setup.to_dict() if self.setup else None,
+            "backgauge_checked": self.backgauge_checked,
         }
 
 
@@ -151,6 +153,7 @@ def search_bend_sequences_2d(
     verified_punch_span_xm: Optional[tuple[float, float]] = None,
     verified_die_span_xm: Optional[tuple[float, float]] = None,
     tolerance_mm: float = 0.02,
+    backgauge_polygon_machine: Optional[Sequence[tuple[float, float]]] = None,
 ) -> PlanarSearchReport:
     """Enumerate up to N sampled 2D sequences without ever running Stage C.
 
@@ -163,6 +166,9 @@ def search_bend_sequences_2d(
         "Sampled 2D cross sections do not certify a continuous stroke, 3D tool ends, "
         "backgauge, frame or transfer path.",
         "2D overlaps are planar-model rejection only, not proof of a 3D collision.",
+        ("Backgauge machine-space section was provided and sampled."
+         if backgauge_polygon_machine is not None
+         else "Backgauge geometry missing: no backgauge collision checks performed."),
     )
     state = getattr(session, "fold_state", None)
     panel_vertices = getattr(session, "panel_vertices_xy", None)
@@ -236,6 +242,7 @@ def search_bend_sequences_2d(
                     match_active_bend_length=match_active_bend_length,
                     tolerance_mm=tolerance_mm, fractions=fs,
                     stroke_fractions=stroke_fs,
+                    backgauge_polygon_machine=backgauge_polygon_machine,
                     multi_station_enabled=multi_station_enabled,
                     verified_punch_span_xm=verified_punch_span_xm,
                     verified_die_span_xm=verified_die_span_xm,
@@ -244,6 +251,7 @@ def search_bend_sequences_2d(
                 step = PlanarStep(
                     bend_id, evidence, stage_b.reason,
                     stage_b.sampled_phases, stage_b.contact_statuses, setup,
+                    stage_b.backgauge_checked,
                 )
         except Exception as exc:
             step = PlanarStep(
