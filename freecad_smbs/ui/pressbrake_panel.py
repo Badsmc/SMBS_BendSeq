@@ -486,11 +486,32 @@ class _PreviewPanel:
                 self._control_tabs = controls
                 self._task_panel_host = None
 
+                # A viewer-local reopen action is required: FreeCAD can disable
+                # workbench toolbar commands while task dialogs are active.
+                # The button is outside the detachable Task Panel form.
+                self.show_task_panel_btn = QtWidgets.QPushButton("Показать панель управления")
+                self.show_task_panel_btn.setObjectName("SMBS_ShowTaskPanel")
+                self.show_task_panel_btn.clicked.connect(self.open_task_panel)
+                root.addWidget(self.show_task_panel_btn)
+                self.show_task_panel_btn.hide()
+
+            def open_task_panel(self):
+                from freecad_smbs.commands.pressbrake_2d import open_task_panel
+                open_task_panel(self)
+
             def show_control_tab(self, index: int):
                 self._control_tabs.setCurrentIndex(index)
+                if self._task_panel_host is None:
+                    self.open_task_panel()
 
             def attach_task_panel(self, task):
                 self._task_panel_host = task
+                self.show_task_panel_btn.hide()
+
+            def detach_task_panel(self, task):
+                if self._task_panel_host is task:
+                    self._task_panel_host = None
+                self.show_task_panel_btn.show()
 
             def _on_trace_checkbox_toggled(self, enabled):
                 if enabled:
