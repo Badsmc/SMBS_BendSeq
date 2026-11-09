@@ -512,3 +512,38 @@ print(out)
 ```
 
 This remains insufficient to establish continuous collision-free tool movement. A continuous sweep or conservative interval validation, plus 3D geometry and machine assembly, is necessary for a physical certificate.
+
+
+## Continuous swept-area screening of rigid 2D extraction (experimental)
+
+After user acceptance of the denser sampled search (`tests.test_folded_part_cycle` 12/12 PASS; 5-mm lift with 20-mm punch clearance: 2 sampled-clear candidates per bend at 2.5-mm spacing), the next stage adds `smbs_core/kinematics2d/swept_translation_2d.py`. For each real FoldState section polygon and exact rigid-translation vector, this constructs its **whole swept polygonal region**, not a series of samples: original polygon + terminal translated polygon + quadrilateral strips along every boundary edge. Works on simple concave polygonal components, using existing `check_machine_section` and catalog tool holes; disjoint bounding-box strip prefilters can skip irrelevant patches without approving overlaps. Both legs are screened separately: vertical LIFT, then horizontal +/-s. A reported area overlap is `SWEPT_2D_INTERFERENCE`. Any TOUCH, UNVERIFIED geometry or time limit fails closed and is never reported as swept-clear.
+
+The existing sampled stage is retained; swept screening is **opt-in** via `verify_swept_paths=True`, and only completed sampled-clear candidates are evaluated. Their `candidate["sweep_screening"]` field records continuous-phase result. `path_search["sweep_screened_candidates"]` contains only candidates whose both legs were swept-clear under the current single-plane polygonal model. IMPORTANT: no stage claims continuous 3D clearance, physical tooling validity or inter-bend transfer validity. Tool/part contour tessellation is still an approximation, and press ram retract is still only sampled, not swept.
+
+FreeCAD acceptance script after checking out latest branch and restarting FreeCAD:
+
+```python
+import FreeCAD as App, unittest
+from pathlib import Path
+from tools.run_folded_part_cycle import run_folded_part_cycle, print_folded_part_cycle
+suite = unittest.TestSuite((
+    unittest.defaultTestLoader.loadTestsFromName("tests.test_folded_part_cycle"),
+    unittest.defaultTestLoader.loadTestsFromName("tests.test_swept_translation_2d"),
+))
+result = unittest.TextTestRunner(verbosity=2).run(suite)
+print("TEST SUCCESS:", result.wasSuccessful())
+doc = App.getDocument("Z_10_20_10__ok_")
+assert doc is not None
+output = Path(App.getUserAppDataDir()) / "z_path_swept.json"
+report = run_folded_part_cycle(
+    doc, sequence=("B01", "B02"),
+    search_paths=True, verify_swept_paths=True,
+    parked_clearances_mm=(20.0,), lift_heights_mm=(5.0,),
+    retract_samples=21, lift_samples=21,
+    withdrawal_samples=41, distance_mm=100.0,
+    path_search_time_s=30.0, output_path=str(output))
+print_folded_part_cycle(report)
+print("JSON:", output)
+```
+
+Interpretation: Existing sampled-clear paths may be rejected by swept-overlap screening. A surviving swept candidate is a stronger PLANAR straight-translation result, not a certified physical process. The thickness warning `flat_section_z_span=1.793 mm` versus `authoritative_thickness=1.500 mm` remains separately unresolved. Do not promote either order of bending to physically validated until full 3D and transfer checks pass. New code has not yet been executed in actual FreeCAD or GitHub CI.
