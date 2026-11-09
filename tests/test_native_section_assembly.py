@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 from smbs_core.kinematics2d.verified_tool_spans import _verified_sections
 from smbs_core.kinematics2d.tooling_25d import ToolingSetup2D
+from smbs_core.kinematics2d.sequence_search import StepEvaluationCache
 
 
 def loaded_sections(spans, offsets):
@@ -45,6 +46,24 @@ class NativeSectionAssemblyTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "incompatible"):
             setup.set_match_active_bend_length(True, 200.0)
         self.assertFalse(setup.match_active_bend_length)
+
+    def test_search_cache_keys_differ_by_assembly(self):
+        setup = ToolingSetup2D()
+        single = StepEvaluationCache.build_tool_signature(
+            setup, False, 100.0, 100.0, 0.0
+        )
+        setup.set_native_sections((-50.0, 50.0), (-50.0, 50.0))
+        assembled = StepEvaluationCache.build_tool_signature(
+            setup, False, 100.0, 100.0, 0.0
+        )
+        self.assertNotEqual(single, assembled)
+        single_dead = StepEvaluationCache.make_subset_key(
+            {}, ToolingSetup2D(), False, {}, None, False, 0.0,
+        )
+        assembled_dead = StepEvaluationCache.make_subset_key(
+            {}, setup, False, {}, None, False, 0.0,
+        )
+        self.assertNotEqual(single_dead, assembled_dead)
 
     def test_refuse_duplicate_and_single_offsets(self):
         setup = ToolingSetup2D()
