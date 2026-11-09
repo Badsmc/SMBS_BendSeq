@@ -17,22 +17,72 @@ from freecad_smbs.integration.part_session import (
 )
 from freecad_smbs.ui.pressbrake_panel import _PreviewPanel, _button
 
-_DOCK = None  # retired dock compatibility; the active UI uses an MDI window
+_TASK_PANEL = None
+
+
+class PressBrakeTaskPanel:
+    """FreeCAD Task Panel host for controls of the dedicated MDI viewer."""
+
+    def __init__(self, workspace):
+        self.workspace = workspace
+        self.form = workspace._control_tabs
+        self._closing = False
+
+    def getStandardButtons(self):
+        # Task dialog has no implicit Accept/Cancel actions; switching tabs
+        # must not accept edits or terminate playback.
+        return 0
+
+    def accept(self):
+        return self.reject()
+
+    def reject(self):
+        if not self._closing:
+            self._closing = True
+            self.workspace._task_panel_host = None
+            if not self.workspace.isHidden():
+                self.workspace.close()
+        return True
+
+    def close_from_workspace(self):
+        if self._closing:
+            return
+        self._closing = True
+        import FreeCADGui as Gui
+        global _TASK_PANEL
+        try:
+            Gui.Control.closeDialog()
+        finally:
+            _TASK_PANEL = None
+
+
+def get_workspace_widget():
+    """Find the existing 2.5D MDI viewer, without creating another instance."""
+    import FreeCADGui as Gui
+    QtCore, QtGui, QtWidgets = _qt()
+    main = Gui.getMainWindow()
+    mdi = main.findChild(QtWidgets.QMdiArea)
+    if mdi is None:
+        return None
+    for win in mdi.subWindowList():
+        if win.objectName() == "SMBS_PressBrake2D_Workspace":
+            return win.widget()
+    return None
+
 
 class PressBrake2DCommand:
     def GetResources(self):
         return {
-            "MenuText": "PressBrakeSim — 2D интерфейс",
-            "ToolTip": "Открыть 2.5D симулятор гибки листовой детали SheetMetal",
+            "MenuText": "Симуляция",
+            "ToolTip": "Открыть отдельное окно симуляции и панель задач FreeCAD",
         }
 
     def IsActive(self):
         return True
 
     def Activated(self):
-        """Open a dedicated FreeCAD document-area workspace, never a side dock."""
         import FreeCADGui as Gui
-        global _DOCK
+        global _TASK_PANEL
         QtCore, QtGui, QtWidgets = _qt()
         main = Gui.getMainWindow()
         mdi = main.findChild(QtWidgets.QMdiArea)
@@ -47,9 +97,14 @@ class PressBrake2DCommand:
             mdi.setActiveSubWindow(existing)
             existing.show()
             existing.raise_()
+            if _TASK_PANEL is None:
+                task = PressBrakeTaskPanel(existing.widget())
+                Gui.Control.showDialog(task)
+                _TASK_PANEL = task
+                existing.widget().attach_task_panel(task)
             return
 
-        # Retire only this addon's old dock. Never alter FreeCAD's document views.
+        # Retire only this addon's old dock, never the source document view.
         old_dock = main.findChild(QtWidgets.QDockWidget, "SMBS_PressBrake2D_Dock")
         if old_dock is not None:
             old_widget = old_dock.widget()
@@ -58,12 +113,11 @@ class PressBrake2DCommand:
             old_dock.hide()
             old_dock.setWidget(None)
             old_dock.deleteLater()
-        _DOCK = None
 
         widget = _PreviewPanel()
         window = QtWidgets.QMdiSubWindow()
         window.setObjectName(name)
-        window.setWindowTitle("PressBrakeSim 2.5D — рабочее пространство")
+        window.setWindowTitle("PressBrakeSim 2.5D — симуляция")
         window.setAttribute(QtCore.Qt.WA_DeleteOnClose, True)
         window.setWidget(widget)
         mdi.addSubWindow(window)
@@ -71,9 +125,66 @@ class PressBrake2DCommand:
         window.showMaximized()
         mdi.setActiveSubWindow(window)
 
+        task = PressBrakeTaskPanel(widget)
+        try:
+            Gui.Control.showDialog(task)
+        except Exception:
+            window.close()
+            raise
+        _TASK_PANEL = task
+        widget.attach_task_panel(task)
+
         sel = Gui.Selection.getSelection() if hasattr(Gui, "Selection") else []
         if sel:
             widget.load_part()
-        _log("2.5D workspace opened in FreeCAD MDI area")
+        _log("2.5D viewer opened in FreeCAD MDI; controls hosted by Task Panel")
 
 
+class LoadPartCommand:
+    def GetResources(self):
+        return {"MenuText": "Деталь", "ToolTip": "Загрузить выделенную SheetMetal деталь"}
+
+    def IsActive(self):
+        return True
+
+    def Activated(self):
+        workspace = get_workspace_widget()
+        if workspace is None:
+            PressBrake2DCommand().Activated()
+            workspace = get_workspace_widget()
+            if workspace is None:
+                raise RuntimeError("PressBrakeSim viewer did not open")
+        workspace.load_part()
+        workspace.show_control_tab(0)
+
+
+class ToolingTabCommand:
+    def GetResources(self):
+        return {"MenuText": "Оснастка", "ToolTip": "Открыть вкладку оснастки в FreeCAD Task Panel"}
+
+    def IsActive(self):
+        return True
+
+    def Activated(self):
+        workspace = get_workspace_widget()
+        if workspace is None:
+            PressBrake2DCommand().Activated()
+            workspace = get_workspace_widget()
+            if workspace is None:
+                raise RuntimeError("PressBrakeSim viewer did not open")
+        workspace.show_control_tab(1)
+
+
+class CalculateCommand:
+    def GetResources(self):
+        return {
+            "MenuText": "Расчёт",
+            "ToolTip": "Автоматический расчёт пока не прошёл приёмку — команда отключена",
+        }
+
+    def IsActive(self):
+        # Fail closed until the solver is integrated and physically validated.
+        return False
+
+    def Activated(self):
+        raise RuntimeError("Automatic bend sequence calculation is not yet validated")
