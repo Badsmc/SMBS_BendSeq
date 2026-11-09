@@ -1,0 +1,49 @@
+{
+  "schema_version": "1.0",
+  "id": "synthetic_clash_punch",
+  "kind": "punch",
+  "source": "synthetic_clash_punch.FCStd",
+  "datums": {
+    "mounting_plane": {
+      "kind": "plane",
+      "origin": [
+        0.0,
+        120.0,
+        0.0
+      ],
+      "normal": [
+        0,
+        -1,
+        0
+      ],
+      "tolerance_mm": 0.05
+    },
+    "working_axis": {
+      "kind": "axis",
+      "origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "direction": [
+        0,
+        0,
+        1
+      ],
+      "tolerance_mm": 0.02
+    },
+    "tip_point": {
+      "kind": "point",
+      "position": [
+        0.0,
+        0.0,
+        0.0
+      ]
+    }
+  },
+  "metadata": {
+    "angle_deg": 60.0,
+    "radius_mm": 1.0,
+    "height_mm": 120.0
+  }
+}

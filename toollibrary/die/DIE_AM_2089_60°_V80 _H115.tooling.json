@@ -1,0 +1,30 @@
+{
+  "schema_version": "1.0",
+  "id": "DIE_AM_2089_60°_V80 _H115",
+  "kind": "die",
+  "source": "DIE_AM_2089_60°_V80 _H115.FCStd",
+  "datums": {
+    "mounting_plane": {
+      "kind": "plane",
+      "origin": [0.685, -43.22, 0.0],
+      "normal": [0, 1, 0],
+      "tolerance_mm": 0.05
+    },
+    "working_axis": {
+      "kind": "axis",
+      "origin": [0.685, 71.781, 0.0],
+      "direction": [0, 0, 1],
+      "tolerance_mm": 0.02
+    },
+    "v_center": {
+      "kind": "axis",
+      "origin": [0.685, 71.781, 0.0],
+      "direction": [0, 0, 1]
+    }
+  },
+  "metadata": {
+    "v_width_mm": 80.0,
+    "angle_deg": 60.0,
+    "height_mm": 115.0
+  }
+}
