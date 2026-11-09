@@ -24,6 +24,9 @@ jobs:
           python -m py_compile smbs_core/kinematics2d/screening_risk.py
           python -m py_compile smbs_core/kinematics2d/screening_experiment_metrics.py
           python -m py_compile smbs_core/kinematics2d/native_kernel_metrics.py
+          python -m py_compile smbs_core/kinematics2d/verified_tool_spans.py
+          python -m py_compile smbs_core/kinematics2d/screening_execution_metrics.py
+          python -m py_compile tools/benchmark_2d_vs_baseline.py
           python -m py_compile smbs_core/kinematics2d/native_collision_3d.py
           python -m py_compile smbs_core/kinematics2d/native_bend_solid_3d.py
           python -m py_compile smbs_core/kinematics2d/native_geometry_build_metrics.py
@@ -43,6 +46,8 @@ jobs:
             tests.test_screening_risk \
             tests.test_screening_experiment_metrics \
             tests.test_native_kernel_metrics \
+            tests.test_verified_tool_spans \
+            tests.test_screening_execution_metrics \
             tests.test_panel_prism_reuse \
             tests.test_native_geometry_build_metrics \
             tests.test_stage_b_multistation_integration \
