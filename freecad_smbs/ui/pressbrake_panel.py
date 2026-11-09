@@ -357,7 +357,7 @@ class _PreviewPanel:
 
                 tooling = QtWidgets.QWidget()
                 tool_layout = QtWidgets.QVBoxLayout(tooling)
-                insert(tool_layout, entries[3])  # tooling group
+                insert(tool_layout, entries[2])  # tooling group
                 tool_layout.addStretch(1)
                 controls.addTab(tooling, "Оснастка")
 
