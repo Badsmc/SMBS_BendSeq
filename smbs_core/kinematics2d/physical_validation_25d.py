@@ -81,21 +81,27 @@ def _build_tool_length_info(
         "is_virtual_tool_geometry": is_virtual,
         "tool_length_mode": str(getattr(punch, "tool_length_mode", "SOURCE_CAD_LENGTH")),
         "punch_tool_id": str(getattr(punch, "tool_id", "")),
-        "punch_source_file": str(getattr(punch, "source_file", "")),
+        "punch_source_file": str(getattr(punch, "file_path", getattr(punch, "source_file", ""))),
         "punch_source_length_mm": float(getattr(punch, "source_length_mm", getattr(punch, "total_length_mm", 0.0))),
         "punch_virtual_length_mm": (
             float(punch.virtual_length_mm) if getattr(punch, "virtual_length_mm", None) is not None else None
         ),
-        "punch_effective_length_mm": float(getattr(punch, "total_length_mm", 0.0)),
+        "punch_effective_length_mm": float(getattr(punch, "length_mm", getattr(punch, "total_length_mm", 0.0))),
         "punch_span_xm": [float(p_span[0]), float(p_span[1])],
+        "punch_sections": [
+            [float(x) for x in sec.span_xm] for sec in getattr(punch, "sections", ())
+        ],
         "die_tool_id": str(getattr(die, "tool_id", "")),
-        "die_source_file": str(getattr(die, "source_file", "")),
+        "die_source_file": str(getattr(die, "file_path", getattr(die, "source_file", ""))),
         "die_source_length_mm": float(getattr(die, "source_length_mm", getattr(die, "total_length_mm", 0.0))),
         "die_virtual_length_mm": (
             float(die.virtual_length_mm) if getattr(die, "virtual_length_mm", None) is not None else None
         ),
-        "die_effective_length_mm": float(getattr(die, "total_length_mm", 0.0)),
+        "die_effective_length_mm": float(getattr(die, "length_mm", getattr(die, "total_length_mm", 0.0))),
         "die_span_xm": [float(d_span[0]), float(d_span[1])],
+        "die_sections": [
+            [float(x) for x in sec.span_xm] for sec in getattr(die, "sections", ())
+        ],
     }
 
 
@@ -260,6 +266,13 @@ def check_current_25d_pose(
             ("2D_SECTION",),
         )
 
+    # Configured actual section offsets are shared by the initial-pose
+    # and the independent five-phase trajectory validator.
+    punch_sections = tuple(getattr(tooling, "punch_section_offsets_xm", ()))
+    die_sections = tuple(getattr(tooling, "die_section_offsets_xm", ()))
+    if (punch_sections or die_sections) and eff_match_len:
+        return _unverified("native_sections_incompatible_with_virtual_tool_length")
+
     tool_len_info = None
     try:
         import FreeCAD as App
@@ -289,14 +302,19 @@ def check_current_25d_pose(
                     punch_path,
                     ram_z_mm=float(press_cycle.ram_z_mm),
                     virtual_length_mm=eff_virt_len,
+                    section_offsets_xm=punch_sections or None,
                 )
                 die = load_native_die(
                     die_path,
                     virtual_length_mm=eff_virt_len,
+                    section_offsets_xm=die_sections or None,
                 )
             else:
-                punch = load_native_punch(punch_path, ram_z_mm=float(press_cycle.ram_z_mm))
-                die = load_native_die(die_path)
+                punch = load_native_punch(
+                    punch_path, ram_z_mm=float(press_cycle.ram_z_mm),
+                    section_offsets_xm=punch_sections or None,
+                )
+                die = load_native_die(die_path, section_offsets_xm=die_sections or None)
             tool_len_info = _build_tool_length_info(
                 session.active_bend_id, length, span, desired_midpoint_xm, punch, die,
             )
@@ -533,6 +551,11 @@ def check_active_25d_bend_trajectory(
         else eff_end_zone_len
     )
 
+    punch_sections = tuple(getattr(tooling, "punch_section_offsets_xm", ()))
+    die_sections = tuple(getattr(tooling, "die_section_offsets_xm", ()))
+    if (punch_sections or die_sections) and eff_match_len:
+        return _unverified("native_sections_incompatible_with_virtual_tool_length")
+
     state = session.fold_state
     original_angles = dict(state.angles)
     original_transforms = dict(state.transforms)
@@ -578,11 +601,14 @@ def check_active_25d_bend_trajectory(
         prev = getattr(getattr(App, "ActiveDocument", None), "Name", None)
         try:
             if eff_virt_len is not None:
-                punch = load_native_punch(punch_file, ram_z_mm=50.0, virtual_length_mm=eff_virt_len)
-                die = load_native_die(die_file, virtual_length_mm=eff_virt_len)
+                punch = load_native_punch(punch_file, ram_z_mm=50.0, virtual_length_mm=eff_virt_len,
+                                          section_offsets_xm=punch_sections or None)
+                die = load_native_die(die_file, virtual_length_mm=eff_virt_len,
+                                      section_offsets_xm=die_sections or None)
             else:
-                punch = load_native_punch(punch_file, ram_z_mm=50.0)
-                die = load_native_die(die_file)
+                punch = load_native_punch(punch_file, ram_z_mm=50.0,
+                                          section_offsets_xm=punch_sections or None)
+                die = load_native_die(die_file, section_offsets_xm=die_sections or None)
             tool_len_info = _build_tool_length_info(
                 active_id, length, span, desired_midpoint_xm, punch, die,
             )
