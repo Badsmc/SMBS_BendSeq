@@ -58,6 +58,37 @@ class PostBendCycleTests(unittest.TestCase):
         )
         self.assertEqual(report["status"], "SAMPLED_2D_CLEAR_NOT_CERTIFIED")
 
+    def test_lift_then_withdraw_avoids_low_die_blocker(self):
+        from tools.run_folded_part_cycle import probe_lift_then_withdraw
+        # The formed sheet at z=0 cannot move horizontally through the die,
+        # but first lifting by 4 mm moves it above the die and below punch.
+        polygons = (("formed_panel", rect(-0.5, 0, 0.5, 1)),)
+        punch = (rect(-1, 20, 1, 22), ())
+        die = (rect(3, 0, 4, 1), ())
+        report = probe_lift_then_withdraw(
+            polygons, punch, die, lift_mm=4, distance_mm=8,
+            direction=1, lift_samples=9, withdrawal_samples=17,
+        )
+        self.assertEqual(report["status"], "SAMPLED_2D_CLEAR_NOT_CERTIFIED")
+        self.assertEqual(len(report["samples"]), 26)
+        self.assertTrue(all(s["status"] == "CLEAR" for s in report["samples"]))
+
+    def test_lift_path_detects_punch_ceiling(self):
+        from tools.run_folded_part_cycle import probe_lift_then_withdraw
+        polygons = (("formed_panel", rect(-0.5, 0, 0.5, 1)),)
+        punch = (rect(-1, 3, 1, 5), ())
+        die = (rect(20, -5, 21, -4), ())
+        report = probe_lift_then_withdraw(
+            polygons, punch, die, lift_mm=6, distance_mm=8,
+            direction=-1, lift_samples=13,
+        )
+        self.assertEqual(report["status"], "SAMPLED_2D_INTERFERENCE")
+        self.assertTrue(any(
+            f["tool"] == "PUNCH"
+            for s in report["samples"] if s["phase"] == "LIFT"
+            for f in s["findings"]
+        ))
+
     def test_invalid_retract_range_rejected(self):
         with self.assertRaisesRegex(ValueError, "parked ram"):
             probe_punch_retract(
