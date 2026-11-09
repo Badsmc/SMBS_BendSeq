@@ -501,7 +501,8 @@ class _PreviewPanel:
 
             def show_control_tab(self, index: int):
                 self._control_tabs.setCurrentIndex(index)
-                if self._task_panel_host is None:
+                if (self._task_panel_host is None
+                        or self._task_panel_host._hidden):
                     self.open_task_panel()
 
             def attach_task_panel(self, task):
