@@ -18,6 +18,7 @@ from freecad_smbs.integration.part_session import (
     execute_load_part,
     resolve_selected_unfold,
     build_part_session,
+    selected_unfold_name,
 )
 from freecad_smbs.ui.pressbrake_panel import _PreviewPanel, _button
 
@@ -80,6 +81,16 @@ def get_workspace_widget():
     return None
 
 
+def _selection_snapshot():
+    """Capture the selected FreeCAD objects before MDI/Task Panel gets focus."""
+    try:
+        import FreeCAD as App
+        import FreeCADGui as Gui
+        return getattr(App, "ActiveDocument", None), list(Gui.Selection.getSelection())
+    except (ImportError, AttributeError):
+        return None, []
+
+
 class PressBrake2DCommand:
     def GetResources(self):
         return {
@@ -94,6 +105,7 @@ class PressBrake2DCommand:
     def Activated(self):
         import FreeCADGui as Gui
         global _TASK_PANEL
+        selected_doc, selected_objects = _selection_snapshot()
         QtCore, QtGui, QtWidgets = _qt()
         main = Gui.getMainWindow()
         mdi = main.findChild(QtWidgets.QMdiArea)
@@ -145,9 +157,8 @@ class PressBrake2DCommand:
         _TASK_PANEL = task
         widget.attach_task_panel(task)
 
-        sel = Gui.Selection.getSelection() if hasattr(Gui, "Selection") else []
-        if sel:
-            widget.load_part()
+        if selected_unfold_name(selected_doc, selected_objects) is not None:
+            widget.load_part(selection=selected_objects, document=selected_doc)
         _log("2.5D viewer opened in FreeCAD MDI; controls hosted by Task Panel")
 
 
@@ -157,9 +168,14 @@ class LoadPartCommand:
             "MenuText": "Деталь", "ToolTip": "Загрузить выделенную SheetMetal деталь"}
 
     def IsActive(self):
-        return True
+        doc, selection = _selection_snapshot()
+        return selected_unfold_name(doc, selection) is not None
 
     def Activated(self):
+        doc, selection = _selection_snapshot()
+        if selected_unfold_name(doc, selection) is None:
+            _log("Part command rejected: select a SheetMetal Unfold")
+            return
         workspace = get_workspace_widget()
         just_opened = workspace is None
         if just_opened:
@@ -170,7 +186,7 @@ class LoadPartCommand:
         # Opening the simulation viewer already loads an existing selection;
         # do not rebuild the same session twice on one toolbar click.
         if not just_opened:
-            workspace.load_part()
+            workspace.load_part(selection=selection, document=doc)
         workspace.show_control_tab(0)
 
 
