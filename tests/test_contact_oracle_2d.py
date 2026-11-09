@@ -137,23 +137,11 @@ class ContactOracle2DTests(unittest.TestCase):
         )
         self.assertEqual(separated, ContactStatus.CLEAR)
 
-    def test_near_zero_length_polygon_edge_is_not_silently_clear(self):
-        tiny_edge_sheet = (
-            (0.0, 0.0), (1e-12, 0.0), (2.0, 0.0),
-            (2.0, 2.0), (0.0, 2.0),
-        )
-        report = check_machine_section(
-            (("BEND_ZONE", tiny_edge_sheet),),
-            (rect(1.0, 1.0, 3.0, 3.0), ()),
-            (rect(3.0, 3.0, 4.0, 4.0), ()),
-            tolerance_mm=0.02,
-        )
-        self.assertEqual(report.status, ContactStatus.UNVERIFIED)
-        self.assertTrue(any(
-            f.status is ContactStatus.UNVERIFIED
-            and "zero-length" in f.reason
-            for f in report.findings
-        ))
+    def test_zero_length_edge_orientation_is_rejected(self):
+        from smbs_core.kinematics2d.contact_oracle_2d import _proper_cross
+        with self.assertRaisesRegex(ContactGeometryError, "zero-length"):
+            _proper_cross((0.0, 0.0), (1e-12, 0.0),
+                          (0.0, -1.0), (0.0, 1.0), 0.02)
 
     def test_tool_polygon_validation_is_reused_for_many_panels(self):
         from unittest.mock import patch
