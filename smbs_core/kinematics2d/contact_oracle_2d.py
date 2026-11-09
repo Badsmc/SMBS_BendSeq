@@ -361,7 +361,7 @@ def sample_bend_stroke_2d(fold_state, panel_vertices_xy, tooling, bend_id,
         )
         start_sec = compute_machine_cutting_plane_section(
             fold_state, panel_vertices_xy, start_pose, active_bend_id=bend_id,
-            segments=32
+            segments=32, contact_tolerance_mm=tolerance_mm
         )
         if not (start_sec.get("zone_polygon")
                 and start_sec.get("fixed_polygon")
@@ -416,7 +416,8 @@ def sample_bend_stroke_2d(fold_state, panel_vertices_xy, tooling, bend_id,
                 )
             sec = compute_machine_cutting_plane_section(
                 fold_state, panel_vertices_xy, pose,
-                active_bend_id=bend_id, segments=32
+                active_bend_id=bend_id, segments=32,
+                contact_tolerance_mm=tolerance_mm
             )
             if not (sec.get("zone_polygon") and sec.get("fixed_polygon")
                     and sec.get("moving_polygon")):
