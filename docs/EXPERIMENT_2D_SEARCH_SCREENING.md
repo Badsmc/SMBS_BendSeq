@@ -372,3 +372,31 @@ print("JSON:", out)
 To compare both sequences, rerun with `sequence=("B02", "B01")`, a different `output_path`, and inspect `steps[].paths.positive_s` and `steps[].paths.negative_s`. Regression tests: `python -m unittest tests.test_folded_part_withdrawal -v` in the configured environment.
 
 **Acceptance is pending**: Real FreeCAD execution and branch CI are not proven here. The pilot may report `UNVERIFIED_2D` if positioning a post-bend section in its own bend's machine placement fails; this must be investigated, never silently treated as clearance. Physical extraction will eventually require complete 3D bodies, actual ram motion, machine obstacles, multiple transfer candidates, rotation and continuous collision sweeps.
+
+
+## Actual BOTTOM -> RETRACT -> WITHDRAWAL 2D pilot
+
+`tools/run_folded_part_cycle.py` is the next read-only FreeCAD pilot. It builds the actual completed-bend part from `FoldState`, aligns the selected catalog punch and die, and constructs the central machine-space part section at **bottom stroke** using `support_plane_zm = bend_outer_radius - CoupledAirBendingKinematics.stroke_for_angle(target_angle)` (same convention as the Stage B search). The punch moves upward from the model-derived bottom tip height to `contact_z + parked_clearance_mm` over 21 samples. The bent section remains stationary; the die remains fixed. Once the punch is parked, the script tests +/- machine-s lateral withdrawal over 100 mm at 21 samples each. For each step the JSON stores the real section's component identifiers and per-sample collisions, punch `ram_z_mm`, and reasons. Each hypothetical transfer to the next setup is explicitly `UNVERIFIED_2D`: the script does not invent a transfer trajectory, unwind/rotate the workpiece, or certify removal.
+
+**FreeCAD acceptance commands (restart after checkout):**
+
+```python
+import FreeCAD as App
+import unittest
+from pathlib import Path
+from tools.run_folded_part_cycle import run_folded_part_cycle, print_folded_part_cycle
+suite = unittest.defaultTestLoader.loadTestsFromName("tests.test_folded_part_cycle")
+test_result = unittest.TextTestRunner(verbosity=2).run(suite)
+print("TEST PASS:", test_result.wasSuccessful())
+for sequence, label in ((("B01", "B02"), "forward"), (("B02", "B01"), "reverse")):
+    output = Path(App.getUserAppDataDir()) / ("z_cycle_" + label + ".json")
+    report = run_folded_part_cycle(
+        App.ActiveDocument, sequence=sequence,
+        retract_samples=21, withdrawal_samples=21,
+        distance_mm=100.0, output_path=str(output),
+    )
+    print_folded_part_cycle(report)
+    print("JSON:", output)
+```
+
+This is sampled 2D evidence only. A detected planar `INTERFERENCE` is a useful physical blocker hypothesis requiring verification; `TOUCH` is not automatically a safe contact; `CLEAR` cannot prove a continuous 3D path. No backgauge, frame, clamps, tool-end collision, continuous sweep, springback or true operator transfer is evaluated. The new test harness has **not yet been executed** in the user's FreeCAD installation or confirmed by CI.
