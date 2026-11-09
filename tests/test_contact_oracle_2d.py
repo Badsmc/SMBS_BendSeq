@@ -108,6 +108,17 @@ class ContactOracle2DTests(unittest.TestCase):
         status, _ = classify_polygon_contact(rect(-1,-1,1,1), outer, (hole,))
         self.assertEqual(status, ContactStatus.CLEAR)
 
+    def test_fast_winding_boundary_and_hole_consistency(self):
+        # Regression for combined O(n) winding/boundary pass.
+        from smbs_core.kinematics2d.contact_oracle_2d import _point_ring
+        square = rect(-4, -3, 4, 3)
+        reversed_square = tuple(reversed(square))
+        for ring in (square, reversed_square):
+            self.assertEqual(_point_ring((0, 0), ring, 0.02), 1)
+            self.assertEqual(_point_ring((4, 2), ring, 0.02), 0)
+            self.assertEqual(_point_ring((4.01, 2), ring, 0.02), 0)
+            self.assertEqual(_point_ring((5, 0), ring, 0.02), -1)
+
     def test_report_checks_every_sheet_component_and_tool(self):
         report=check_machine_section(
             (("B01",rect(-1,2,1,3)),("P02",rect(0,-0.25,1,0.25))),
