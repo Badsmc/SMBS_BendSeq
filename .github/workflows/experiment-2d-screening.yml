@@ -18,6 +18,7 @@ jobs:
       - name: Compile new and modified modules
         run: |
           python -m py_compile smbs_core/kinematics2d/axis_screening.py
+          python -m py_compile smbs_core/kinematics2d/bend_drawing_plan.py
           python -m py_compile smbs_core/kinematics2d/machine_station_planner.py
           python -m py_compile smbs_core/kinematics2d/machine_section_3d.py
           python -m py_compile smbs_core/kinematics2d/multi_station_screening.py
@@ -42,6 +43,7 @@ jobs:
         run: |
           python -m unittest \
             tests.test_axis_screening \
+            tests.test_bend_drawing_plan \
             tests.test_machine_station_planner \
             tests.test_multi_station_screening \
             tests.test_screening_risk \
