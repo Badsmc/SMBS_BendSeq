@@ -26,16 +26,19 @@ _TASK_PANEL = None
 
 
 class PressBrakeTaskPanel:
-    """FreeCAD Task Panel with an explicit close button and persistent controls.
+    """One long-lived FreeCAD task dialog for the lifetime of an MDI viewer.
 
-    The MDI viewer owns the simulation session. Closing Task Panel only hides
-    the controls; the viewer, playback timer and source document stay open.
+    The Close button *hides* the Tasks dock instead of calling closeDialog().
+    FreeCAD destroys a closed task dialog and its Qt form, so rebuilding it
+    around the same QTabWidget is unsafe.
     """
 
     def __init__(self, workspace):
         self.workspace = workspace
         self._closing = False
-        QtCore, _QtGui, QtWidgets = _qt()
+        self._hidden = False
+        self._task_dock = None
+        _QtCore, _QtGui, QtWidgets = _qt()
 
         self.form = QtWidgets.QWidget()
         self.form.setObjectName("SMBS_TaskPanelForm")
@@ -45,9 +48,9 @@ class PressBrakeTaskPanel:
         self.close_button = QtWidgets.QPushButton("Закрыть панель")
         self.close_button.setObjectName("SMBS_CloseTaskPanel")
         self.close_button.setToolTip(
-            "Закрыть только панель управления; окно симуляции остаётся открытым"
+            "Скрыть Task Panel, оставив окно симуляции и управление в памяти"
         )
-        self.close_button.clicked.connect(self.close_panel)
+        self.close_button.clicked.connect(self.hide_panel)
         layout.addWidget(self.close_button)
 
     def getStandardButtons(self):
@@ -57,67 +60,102 @@ class PressBrakeTaskPanel:
         return self.reject()
 
     def reject(self):
-        # FreeCAD may invoke reject while closeDialog() is unwinding.
-        self.close_panel()
+        # Explicit native task cancellation is a true dialog shutdown. Do not
+        # mistake it for the custom Hide button.
+        self.close_from_workspace()
         return True
 
-    def close_panel(self):
-        """Detach controls before FreeCAD disposes its task-dialog container."""
+    def _find_task_dock(self):
+        """Locate the real Qt dock containing FreeCAD's task form."""
+        _QtCore, _QtGui, QtWidgets = _qt()
+        parent = self.form.parentWidget()
+        while parent is not None:
+            if isinstance(parent, QtWidgets.QDockWidget):
+                self._task_dock = parent
+                return parent
+            parent = parent.parentWidget()
+        return None
+
+    def hide_panel(self):
+        """Reversible hide: never destroy the Qt task form or its controls."""
+        if self._closing or self._hidden:
+            return
+        dock = self._find_task_dock()
+        if dock is None:
+            # Fail visibly rather than pretending that reopening will work.
+            message = (
+                "Не найден контейнер Tasks FreeCAD. Панель не закрыта; "
+                "проверьте журнал PressBrakeSim."
+            )
+            self.workspace.status.setText(message)
+            _log(message)
+            return
+        dock.hide()
+        self._hidden = True
+        self.workspace.show_task_panel_btn.show()
+        _log("PressBrakeSim Task dock hidden (task dialog preserved)")
+
+    def show_panel(self):
+        """Restore the same task dialog and controls, no reparenting/rebuild."""
+        if self._closing:
+            return False
+        dock = self._task_dock or self._find_task_dock()
+        if dock is None:
+            self.workspace.status.setText(
+                "Tasks dock not found; cannot restore the existing task dialog."
+            )
+            return False
+        import FreeCADGui as Gui
+        dock.show()
+        dock.raise_()
+        if hasattr(Gui.Control, "showTaskView"):
+            Gui.Control.showTaskView()
+        self._hidden = False
+        self.workspace.show_task_panel_btn.hide()
+        _log("PressBrakeSim Task dock shown (same Qt controls)")
+        return True
+
+    def close_from_workspace(self):
+        """Actual teardown only when the MDI viewer is being closed."""
         if self._closing:
             return
         self._closing = True
         global _TASK_PANEL
         import FreeCADGui as Gui
-
-        # QTabWidget is retained by the living workspace. This is essential:
-        # closeDialog can delete the form and would otherwise delete controls,
-        # leaving the viewer without its existing Play/Pause/Settings widgets.
-        controls = self.workspace._control_tabs
-        controls.setParent(self.workspace)
-        controls.hide()
-        self.workspace.detach_task_panel(self)
         _TASK_PANEL = None
+        self.workspace._task_panel_host = None
         try:
+            if self._hidden and self._task_dock is not None:
+                self._task_dock.show()
             Gui.Control.closeDialog()
-        except Exception:
-            _log("FreeCAD could not close PressBrakeSim Task Panel")
-            raise
-
-    def close_from_workspace(self):
-        """Close Task Panel as part of shutting down its own MDI workspace."""
-        if self._closing:
-            return
-        self.close_panel()
+        finally:
+            _log("PressBrakeSim Task dialog closed with MDI viewer")
 
 
 def open_task_panel(workspace):
-    """Open or restore the controls for the existing viewer.
-
-    Do not rely solely on the module-global task handle: FreeCAD may dispose a
-    dialog independently, leaving that handle stale after a close.
-    """
+    """Restore hidden controls or create the single dialog for this viewer."""
     import FreeCADGui as Gui
     global _TASK_PANEL
-
     task = getattr(workspace, "_task_panel_host", None)
     if task is not None and not task._closing:
+        if not task.show_panel():
+            raise RuntimeError("PressBrakeSim Task Panel cannot be restored")
+        _TASK_PANEL = task
         return task
 
-    # Clear a stale handle left by a previous host before opening again.
-    _TASK_PANEL = None
+    # Do not create a duplicate if FreeCAD already has another task active.
+    active = Gui.Control.activeDialog() if hasattr(Gui.Control, "activeDialog") else None
+    if active is not None:
+        raise RuntimeError(
+            "FreeCAD already has an active Task Dialog. Close that task first."
+        )
     task = PressBrakeTaskPanel(workspace)
-    try:
-        Gui.Control.showDialog(task)
-    except Exception:
-        # Keep Qt controls alive, even if FreeCAD refuses to open Task Panel.
-        controls = workspace._control_tabs
-        controls.setParent(workspace)
-        controls.hide()
-        workspace.show_task_panel_btn.show()
-        raise
+    Gui.Control.showDialog(task)
     workspace.attach_task_panel(task)
     _TASK_PANEL = task
-    _log("Task Panel opened for existing PressBrakeSim viewer")
+    # showDialog installs the form into the Qt hierarchy.
+    task._find_task_dock()
+    _log("PressBrakeSim Task dialog created")
     return task
 
 
