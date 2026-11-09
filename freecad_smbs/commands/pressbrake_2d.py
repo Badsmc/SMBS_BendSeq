@@ -615,6 +615,8 @@ class _PreviewPanel:
                 self._trace_directory = _LOG_FILE_PATH.parent / "pressbrake_traces"
                 self.runtime_git_info = get_runtime_git_info()
                 self.last_sequence_search_report = None
+                self.last_planar_search_report = None
+                self._preview_only_planar_order = None
                 self._conditional_bends_status: dict[str, str] = {}
                 self._highlighted_end_zone_info: dict | None = None
                 _log(
@@ -649,6 +651,13 @@ class _PreviewPanel:
                 self.load = _button(QtWidgets, "Деталь", self.load_part, True)
                 self.tooling = _button(QtWidgets, "Оснастка", self.open_tool_library_dialog, True)
                 self.calculate = _button(QtWidgets, "Расчёт", self.calculate_sequence, False)
+                self.planar_calculate = _button(
+                    QtWidgets, "2D варианты", self.calculate_planar_candidates, False
+                )
+                self.planar_calculate.setToolTip(
+                    "Быстрый 2D поиск вариантов для просмотра. Не подтверждает "
+                    "физическую возможность гибки и не отменяет 3D-валидацию."
+                )
                 self.tooling.setToolTip("Открыть библиотеку пользовательской оснастки (PUNCH / DIE)")
                 self.calculate.setToolTip(
                     "Автоматический поиск допустимой последовательности гибки с физической проверкой 2.5D + 3D (D6.3.4)"
@@ -656,6 +665,7 @@ class _PreviewPanel:
                 for widget in (self.load, self.tooling, self.calculate):
                     row.addWidget(widget)
                 root.addLayout(row)
+                root.addWidget(self.planar_calculate)
 
                 # Phase 5A: Tooling section (Import / Select / Align / Reset / Hide-Show / Library)
                 self.tooling_group = QtWidgets.QGroupBox("Tooling (PUNCH & DIE)")
@@ -1727,6 +1737,137 @@ class _PreviewPanel:
                     self.full_physical_check_btn.setEnabled(True)
                     self.physical_check_btn.setEnabled(True)
 
+            def calculate_planar_candidates(self):
+                """Show ranked sampled-2D candidate sequences, never mark them physically verified."""
+                if self.session is None:
+                    self.status.setText("Сначала загрузите деталь SheetMetal.")
+                    return
+                if self.timer.isActive() or self.session.playback_status == PlaybackStatus.PLAYING:
+                    self.status.setText("Остановите воспроизведение перед 2D-поиском.")
+                    return
+                self.planar_calculate.setEnabled(False)
+                self.calculate.setEnabled(False)
+                self.status.setText("Выполняется предварительный поиск последовательностей в 2D...")
+                QtWidgets.QApplication.processEvents()
+                try:
+                    from smbs_core.kinematics2d.sequence_search_2d import (
+                        search_bend_sequences_2d,
+                    )
+                    # A 2D preview with virtual axial tool length is permitted
+                    # ONLY for exploration, never treated as production safety
+                    # evidence. Native multi-sections cannot be virtually extended.
+                    has_sections = bool(
+                        getattr(self.tooling_setup, "punch_section_offsets_xm", ())
+                        or getattr(self.tooling_setup, "die_section_offsets_xm", ())
+                    )
+                    report = search_bend_sequences_2d(
+                        self.session, self.tooling_setup,
+                        max_solutions=10,
+                        max_complete_candidates=100,
+                        max_search_time_s=30.0,
+                        max_nodes=5000,
+                        max_evaluations=10000,
+                        match_active_bend_length=not has_sections,
+                    )
+                    self.last_planar_search_report = report
+                    self._trace_event(
+                        "PLANAR_2D_SEARCH_COMPLETED",
+                        status=report.status.value,
+                        evaluated_steps=report.evaluated_steps,
+                        visited_nodes=report.visited_nodes,
+                        candidate_count=len(report.candidates),
+                        limit_reason=report.limit_reason,
+                    )
+                    self._show_planar_candidates_dialog(report)
+                except Exception as exc:
+                    msg = "2D поиск не выполнен: {}".format(exc)
+                    self.status.setText(msg)
+                    _error("Planar search exception: " + traceback.format_exc())
+                finally:
+                    self._sync_playback_buttons()
+
+            def _show_planar_candidates_dialog(self, report):
+                """Choose a preview-only bend order; never present it as 3D approved."""
+                dlg = QtWidgets.QDialog(self)
+                dlg.setWindowTitle("SMBS — предварительные 2D варианты")
+                dlg.resize(700, 430)
+                layout = QtWidgets.QVBoxLayout(dlg)
+                heading = QtWidgets.QLabel(
+                    "ТОЛЬКО 2D-ПРОСМОТР. Проверка 3D-коллизий и физическая "
+                    "допустимость не подтверждены. Для производственного "
+                    "порядка требуется отдельная проверка."
+                )
+                heading.setWordWrap(True)
+                layout.addWidget(heading)
+                details = QtWidgets.QLabel(
+                    "Статус: {} | вариантов: {} | 2D проверок: {} | причина остановки: {}".format(
+                        report.status.value, len(report.candidates),
+                        report.evaluated_steps, report.limit_reason or "нет",
+                    )
+                )
+                details.setWordWrap(True)
+                layout.addWidget(details)
+                options = QtWidgets.QListWidget(dlg)
+                for index, candidate in enumerate(report.candidates):
+                    suffix = (" | стоимость {:.2f}".format(candidate.cost)
+                              if candidate.cost_complete else " | стоимость не подтверждена")
+                    options.addItem(
+                        "{}. {} | {}{}".format(
+                            index + 1, " → ".join(candidate.sequence), candidate.evidence, suffix
+                        )
+                    )
+                if report.candidates:
+                    options.setCurrentRow(0)
+                layout.addWidget(options)
+                controls = QtWidgets.QHBoxLayout()
+                use = QtWidgets.QPushButton("Показать порядок в симуляции")
+                use.setEnabled(bool(report.candidates))
+                close = QtWidgets.QPushButton("Закрыть")
+                controls.addWidget(use)
+                controls.addWidget(close)
+                layout.addLayout(controls)
+
+                def on_preview():
+                    row = options.currentRow()
+                    if row < 0 or row >= len(report.candidates):
+                        return
+                    candidate = report.candidates[row]
+                    try:
+                        self._stop_timer()
+                        self.session.reset_all_bends()
+                        self.session.set_bend_order(list(candidate.sequence))
+                        self._preview_only_planar_order = tuple(candidate.sequence)
+                        # A previous strict validation does not apply to a
+                        # newly selected, independently ranked planar order.
+                        self.last_sequence_search_report = None
+                        self._conditional_bends_status.clear()
+                        self._populate_operations()
+                        self._configure_for_active_bend()
+                        self._sync_tooling_to_active_bend()
+                        self.draw()
+                        self.status.setText(
+                            "2D-ПРОСМОТР (НЕ ПРОВЕРЕНО В 3D): "
+                            + " → ".join(candidate.sequence)
+                        )
+                        self.physical_check_result.setText(
+                            "UNVERIFIED: порядок выбран из 2D-кандидатов. "
+                            "Коллизии станка и всего хода не проверены."
+                        )
+                        self._trace_event(
+                            "PLANAR_2D_PREVIEW_ORDER_SELECTED",
+                            sequence=list(candidate.sequence),
+                            evidence=candidate.evidence,
+                            physical_status="UNVERIFIED",
+                        )
+                        dlg.accept()
+                    except Exception as exc:
+                        self.status.setText("Нельзя показать 2D порядок: " + str(exc))
+                        _error("Planar preview exception: " + traceback.format_exc())
+
+                use.clicked.connect(on_preview)
+                close.clicked.connect(dlg.reject)
+                dlg.exec()
+
             def calculate_sequence(self):
                 """Run automatic 2.5D + D6 physical sequence search with backtracking and forward replay."""
                 if self.session is None:
@@ -1774,6 +1915,7 @@ class _PreviewPanel:
                         progress_callback=_search_progress,
                     )
                     self.last_sequence_search_report = search_rep
+                    self._preview_only_planar_order = None
                     self._conditional_bends_status.clear()
                     if search_rep.status is SearchStatus.CONDITIONAL_VALIDATED:
                         for bid in search_rep.conditional_bends:
@@ -2330,11 +2472,13 @@ class _PreviewPanel:
                     self.move_down_btn.setEnabled(False)
                     self.restore_order_btn.setEnabled(False)
                     self.calculate.setEnabled(False)
+                    self.planar_calculate.setEnabled(False)
                     return
                 st = self.session.playback_status
                 self.playing = st == PlaybackStatus.PLAYING
                 bend_order = getattr(self.session, "bend_order", [])
                 self.calculate.setEnabled(not self.playing and len(bend_order) > 1)
+                self.planar_calculate.setEnabled(not self.playing and len(bend_order) > 0)
                 self.play_btn.setText(
                     "▶ Play All (станок)" if self.execution_mode == CycleExecutionMode.FULL_CYCLE
                     else "▶ Play All (геометрия)"
@@ -2405,6 +2549,9 @@ class _PreviewPanel:
                 self._machine_pose_fault = None
                 self._last_3d_frame_at = -1.0
                 self.session = new_session
+                self.last_planar_search_report = None
+                self._preview_only_planar_order = None
+                self.last_sequence_search_report = None
                 self._ensure_press_cycle_controller()
                 self._sync_tooling_to_active_bend()
                 self._populate_operations()
