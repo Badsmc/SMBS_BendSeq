@@ -138,6 +138,7 @@ def screen_candidate_stage_b(
     tolerance_mm: float = 0.02,
     clearance_mm: float = 5.0,
     fractions: Tuple[float, ...] = (0.0, 0.5, 1.0),
+    stroke_fractions: Optional[Tuple[float, ...]] = None,
     multi_station_enabled: bool = False,
     verified_punch_span_xm: Optional[Tuple[float, float]] = None,
     verified_die_span_xm: Optional[Tuple[float, float]] = None,
@@ -242,13 +243,39 @@ def screen_candidate_stage_b(
         contact_statuses: List[str] = []
 
         # Build sequence of phase probes: (phase_name, frac_angle, ram_z, bisector)
-        probes: List[Tuple[str, float, float, bool]] = [
-            ("APPROACH", 0.0, coupled.contact_z_mm + clearance_mm, False),
-        ]
+        # Backward-compatible default: one endpoint of APPROACH and RETRACT.
+        # Section-only mode may sample the whole ram travel, without calling
+        # any native 3D collision oracle. These remain DISCRETE samples.
+        if stroke_fractions is None:
+            probes: List[Tuple[str, float, float, bool]] = [
+                ("APPROACH", 0.0, coupled.contact_z_mm + clearance_mm, False),
+            ]
+        else:
+            st = tuple(sorted(set(float(f) for f in stroke_fractions)))
+            if (not st or st[0] != 0.0 or st[-1] != 1.0
+                    or any(not math.isfinite(f) or f < 0.0 or f > 1.0 for f in st)):
+                return PreliminaryScreeningReport(
+                    decision=ScreeningDecision.UNVERIFIED_NEEDS_3D,
+                    stage="STAGE_B_INVALID_SAMPLING",
+                    reason="stroke_fractions_must_include_0_and_1",
+                )
+            probes = [
+                ("APPROACH", 0.0,
+                 coupled.contact_z_mm + clearance_mm * (1.0 - f), False)
+                for f in st
+            ]
         for f in sorted(set(fractions)):
             probes.append(("BENDING", f, coupled.ram_z_for_angle(f * target_deg), True))
-        probes.append(("BOTTOM", 1.0, coupled.ram_z_for_angle(target_deg), True))
-        probes.append(("RETRACT", 1.0, coupled.contact_z_mm + clearance_mm, True))
+        bottom_ram = coupled.ram_z_for_angle(target_deg)
+        probes.append(("BOTTOM", 1.0, bottom_ram, True))
+        if stroke_fractions is None:
+            probes.append(("RETRACT", 1.0, coupled.contact_z_mm + clearance_mm, True))
+        else:
+            probes.extend(
+                ("RETRACT", 1.0,
+                 bottom_ram + f * (coupled.contact_z_mm + clearance_mm - bottom_ram), True)
+                for f in st
+            )
 
         outer_r = float(getattr(bend.bend_zone, "outer_radius_mm", 0.0) if bend.bend_zone else 0.0)
 
