@@ -19,6 +19,7 @@ Absence of 2D collision is never treated as a 3D PASS.
 from __future__ import annotations
 
 import math
+from time import perf_counter
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Dict, List, Optional, Sequence, Tuple
@@ -52,6 +53,7 @@ class PreliminaryScreeningReport:
     station_reports: Tuple[Dict[str, Any], ...] = ()
     contact_statuses: Tuple[str, ...] = ()
     backgauge_checked: bool = False
+    timing_ms: Tuple[Tuple[str, float], ...] = ()
 
     @property
     def is_blocking(self) -> bool:
@@ -67,6 +69,7 @@ class PreliminaryScreeningReport:
             "station_reports": list(self.station_reports),
             "contact_statuses": list(self.contact_statuses),
             "backgauge_checked": self.backgauge_checked,
+            "timing_ms": dict(self.timing_ms),
         }
 
 
@@ -145,6 +148,7 @@ def screen_candidate_stage_b(
     fractions: Tuple[float, ...] = (0.0, 0.5, 1.0),
     stroke_fractions: Optional[Tuple[float, ...]] = None,
     backgauge_polygon_machine: Optional[Sequence[Tuple[float, float]]] = None,
+    deadline_monotonic: Optional[float] = None,
     multi_station_enabled: bool = False,
     verified_punch_span_xm: Optional[Tuple[float, float]] = None,
     verified_die_span_xm: Optional[Tuple[float, float]] = None,
@@ -247,6 +251,10 @@ def screen_candidate_stage_b(
         total_findings = 0
         station_reports: List[Dict[str, Any]] = []
         contact_statuses: List[str] = []
+        timing_ms: Dict[str, float] = {
+            'pose_and_section': 0.0, 'tooling_and_contact': 0.0,
+            'total_probe': 0.0,
+        }
 
         # Build sequence of phase probes: (phase_name, frac_angle, ram_z, bisector)
         # Backward-compatible default: one endpoint of APPROACH and RETRACT.
@@ -287,6 +295,18 @@ def screen_candidate_stage_b(
 
         # Evaluate each probe
         for phase, frac, ram_z, align_bis in probes:
+            if deadline_monotonic is not None and perf_counter() >= deadline_monotonic:
+                return PreliminaryScreeningReport(
+                    decision=ScreeningDecision.UNVERIFIED_NEEDS_3D,
+                    stage='STAGE_B_BUDGET', reason='2d_probe_time_budget_reached',
+                    sampled_phases=tuple(sampled_phases),
+                    findings_count=total_findings,
+                    station_reports=tuple(station_reports),
+                    contact_statuses=tuple(contact_statuses),
+                    backgauge_checked=backgauge_polygon_machine is not None,
+                    timing_ms=tuple(timing_ms.items()),
+                )
+            sample_start = perf_counter()
             sampled_phases.append(phase)
             angle_at_probe = frac * target_deg
             fold_state.set_angle(candidate_bend_id, angle_at_probe)
@@ -311,8 +331,13 @@ def screen_candidate_stage_b(
                     active_bend_id=candidate_bend_id,
                     segments=32,
                 )
+                pose_end = perf_counter()
                 tooling.set_punch_ram_z(float(ram_z), stroke_mm=max(0.0, coupled.contact_z_mm - ram_z))
                 sec_report = check_sheet_tooling_preview(sec, tooling, tolerance_mm=tolerance_mm)
+                contact_end = perf_counter()
+                timing_ms['pose_and_section'] += 1000.0 * (pose_end - sample_start)
+                timing_ms['tooling_and_contact'] += 1000.0 * (contact_end - pose_end)
+                timing_ms['total_probe'] += 1000.0 * (contact_end - sample_start)
                 # Opt-in risk-only multi-station screening under the exact same
                 # temporary phase pose and aligned tooling. Absence of verified
                 # source-CAD spans is UNVERIFIED, never a geometry-free PASS.
@@ -400,6 +425,7 @@ def screen_candidate_stage_b(
                         station_reports=tuple(station_reports),
                         contact_statuses=tuple(contact_statuses),
                         backgauge_checked=backgauge_polygon_machine is not None,
+                        timing_ms=tuple(timing_ms.items()),
                     )
             except Exception as exc:
                 # Never prune on section computation failure; forward to exact 3D check
@@ -412,6 +438,7 @@ def screen_candidate_stage_b(
                     station_reports=tuple(station_reports),
                     contact_statuses=tuple(contact_statuses),
                     backgauge_checked=backgauge_polygon_machine is not None,
+                    timing_ms=tuple(timing_ms.items()),
                 )
 
         return PreliminaryScreeningReport(
@@ -425,6 +452,7 @@ def screen_candidate_stage_b(
             station_reports=tuple(station_reports),
             contact_statuses=tuple(contact_statuses),
             backgauge_checked=backgauge_polygon_machine is not None,
+            timing_ms=tuple(timing_ms.items()),
         )
 
     finally:
