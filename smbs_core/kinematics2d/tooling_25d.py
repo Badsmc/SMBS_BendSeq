@@ -2366,6 +2366,27 @@ class ToolingSetup2D:
     active_bend_length_mm: Optional[float] = None
     allow_end_zone_collision: bool = False
     end_zone_length_mm: float = 10.0
+    # Explicit physical machine-X station assembly; independent from virtual
+    # tool-length mode. Empty means a single native source-CAD section.
+    punch_section_offsets_xm: Tuple[float, ...] = ()
+    die_section_offsets_xm: Tuple[float, ...] = ()
+
+    def set_native_sections(self, punch_offsets_xm=(), die_offsets_xm=()) -> None:
+        """Select native FCStd sections; no catalog-length or virtual extrusion."""
+        def check(name, values):
+            offsets = tuple(float(v) for v in values)
+            if len(offsets) == 1:
+                raise ValueError(f"{name}: one offset is ambiguous; use no offsets or >=2")
+            if any(not math.isfinite(v) for v in offsets):
+                raise ValueError(f"{name}: non-finite section offset")
+            if len(set(round(v, 8) for v in offsets)) != len(offsets):
+                raise ValueError(f"{name}: duplicate machine-X section offset")
+            return offsets
+
+        if self.match_active_bend_length and (punch_offsets_xm or die_offsets_xm):
+            raise ValueError("physical multi-sections are incompatible with virtual tool length")
+        self.punch_section_offsets_xm = check("punch", punch_offsets_xm)
+        self.die_section_offsets_xm = check("die", die_offsets_xm)
 
     def set_match_active_bend_length(
         self,
