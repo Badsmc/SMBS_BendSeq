@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from math import isfinite, hypot
 
 from .panel_kinematics import FoldState
+from .native_geometry_build_metrics import measure_native_geometry_region
 
 
 class NativeBendSolidError(ValueError):
@@ -203,7 +204,8 @@ def _source_panel_prism(panel_id, face, thickness_mm, App, cache=None):
         raise NativeBendSolidError(f"invalid_rigid_panel_face_{panel_id}")
     prism = cache.get(panel_id) if cache is not None else None
     if prism is None:
-        prism = face.extrude(App.Vector(0, 0, -thickness_mm))
+        with measure_native_geometry_region("panel_extrude"):
+            prism = face.extrude(App.Vector(0, 0, -thickness_mm))
     if prism.isNull() or not prism.isValid() or len(prism.Solids) != 1:
         raise NativeBendSolidError(f"invalid_rigid_panel_solid_{panel_id}")
     if cache is not None:
@@ -260,34 +262,38 @@ def build_multi_bend_sheet_solid(state: FoldState, panel_build, *,
                 panel.panel_id, face, t, App, panel_prism_cache
             )
             tf = state.transforms[panel.panel_id]
-            panel_solids.append(_apply_rigid_transform(panel_solid, tf, App))
+            with measure_native_geometry_region("panel_transform"):
+                panel_solids.append(_apply_rigid_transform(panel_solid, tf, App))
 
         zone_solids = []
         zone_volumes = 0.0
         for bend in state.ordered_bends:
-            zone_res = build_bend_zone_solid(state, bend.bend_id, segments=segments)
+            with measure_native_geometry_region("bend_zone_build"):
+                zone_res = build_bend_zone_solid(state, bend.bend_id, segments=segments)
             zone_solids.append(zone_res.shape)
             zone_volumes += zone_res.volume_mm3
 
         # Join all panel and zone solids together via OCC multiFuse
         all_solids = panel_solids + zone_solids
-        if len(all_solids) == 1:
-            joined = all_solids[0]
-        elif hasattr(all_solids[0], "multiFuse"):
-            joined = all_solids[0].multiFuse(all_solids[1:])
-        else:
-            joined = all_solids[0]
-            for s in all_solids[1:]:
-                joined = joined.fuse(s)
+        with measure_native_geometry_region("sheet_union"):
+            if len(all_solids) == 1:
+                joined = all_solids[0]
+            elif hasattr(all_solids[0], "multiFuse"):
+                joined = all_solids[0].multiFuse(all_solids[1:])
+            else:
+                joined = all_solids[0]
+                for s in all_solids[1:]:
+                    joined = joined.fuse(s)
 
-        if (joined.isNull() or not joined.isValid() or not joined.isClosed()
-                or len(joined.Solids) != 1 or not isfinite(float(joined.Volume))
-                or float(joined.Volume) <= 0):
-            raise NativeBendSolidError("zones_and_panels_not_one_valid_closed_solid")
+        with measure_native_geometry_region("sheet_qualification"):
+            if (joined.isNull() or not joined.isValid() or not joined.isClosed()
+                    or len(joined.Solids) != 1 or not isfinite(float(joined.Volume))
+                    or float(joined.Volume) <= 0):
+                raise NativeBendSolidError("zones_and_panels_not_one_valid_closed_solid")
 
-        expected = sum(float(x.Volume) for x in panel_solids) + zone_volumes
-        if abs(float(joined.Volume) - expected) > max(1e-3, expected * 1e-5):
-            raise NativeBendSolidError("panel_zone_overlap_or_missing_material")
+            expected = sum(float(x.Volume) for x in panel_solids) + zone_volumes
+            if abs(float(joined.Volume) - expected) > max(1e-3, expected * 1e-5):
+                raise NativeBendSolidError("panel_zone_overlap_or_missing_material")
 
     except NativeBendSolidError:
         raise
