@@ -256,4 +256,39 @@ PYTHONPATH="/Users/badmc/Library/Application Support/FreeCAD/v1-1/Mod:/Applicati
   - Статус поиска: `UNVERIFIED` (достигнутая глубина 0/8, найдено последовательностей: `None`).
   - Отчёт сохранён в `reports/box_automatic_search_report.json`.
 
+---
+
+## 12. Автоматический обратный поиск с полным бюджетом и квалификация (коммит ad5d2e3)
+
+Запуск:
+```bash
+PYTHONPATH="/Users/badmc/Library/Application Support/FreeCAD/v1-1/Mod:/Applications/FreeCAD.app/Contents/Resources/lib:." \
+/Applications/FreeCAD.app/Contents/Resources/bin/python tools/run_independent_replay_and_auto_search.py \
+  --search-only --search-budget 3600.0 --verify-budget 3600.0 --max-states 100 --max-checks 200
+```
+
+### 12.1. Параметры эксперимента
+- **Режим**: `--search-only` (чистый обратный поиск без суффикса `fixed_suffix=None`, без подсказок, пустой кеш).
+- **Оснастка**: `PUNCH_AP_1013` + `T-DIE_AT_3015`, центральная постановка (`desired_midpoint_xm = 0.0`), длина инструментов по активному гибу, строгий режим (`allow_end_zone_collision=False`, `end_zone_length_mm=0.0`).
+- **Дискретизация**: 128 сегментов дуги, допуск по объёму $10^{-4}$ мм³, лимит времени на фазу `max_phase_time_s = 600.0` с.
+- **Бюджеты**:
+  - Бюджет поиска: **3600.0 с** (`max_states=100`, `max_checks=200`).
+  - Бюджет независимой проверки: **3600.0 с**.
+
+### 12.2. Результаты автоматического поиска
+- **Фактическое время поиска**: **3150.30 с** (~52.5 мин) в рамках выделенного лимита 3600.0 с.
+- **Состояний посещено**: 6.
+- **Проверок шагов выполнено**: 33.
+- **Откатов (backtracks)**: 5.
+- **Достигнутая глубина**: **5 из 8** гибов.
+- **Глубочайший подтверждённый суффикс**:
+  $$\mathbf{B05 \longrightarrow B04 \longrightarrow B02 \longrightarrow B03 \longrightarrow B01}$$
+- **Прошёл ли поиск дальше корня**: **ДА**. С увеличенным лимитом фазы (600 с) B01 успешно подтверждён на корневом уровне закрытой коробки, и поиск продвинулся на 5 уровней вглубь дерева.
+- **Нашёл ли все восемь гибов**: **НЕТ**. На глубине 5 (состояние с оставшимися гибами `{B06, B07, B08}`) возник статус `UNVERIFIED` на фазе RETRACT (лимит глубины рекурсии `max_recursion_depth=7` при отрыве пуансона) и на проверке начальной позы.
+- **Первый ограничитель продвижения**:
+  Статус `UNVERIFIED` в фазе RETRACT для кандидатов B05/B07 (`MAX_RECURSION_DEPTH_EXCEEDED: u=[0.0000, 0.0156] depth=7`) из-за численного деления интервала около точки отрыва пуансона при смене контактного статуса без физической коллизии.
+- **Итоговый статус поиска**: `UNVERIFIED`.
+- Полный отчёт сохранён в [`reports/box_automatic_search_qualification_report.json`](file:///Users/badmc/Desktop/SMBS_BendSeq/reports/box_automatic_search_qualification_report.json).
+
+
 
