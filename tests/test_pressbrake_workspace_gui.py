@@ -189,6 +189,43 @@ class WorkspaceGuiTests(unittest.TestCase):
             panel.close()
             panel.deleteLater()
 
+    def test_close_task_panel_retains_viewer_controls(self):
+        """Closing Task Panel must not close the MDI viewer or destroy controls."""
+        try:
+            import FreeCAD
+            import FreeCADGui
+            from freecad_smbs.commands.pressbrake_2d import (
+                _PreviewPanel, _qt, PressBrakeTaskPanel,
+            )
+            from unittest.mock import patch
+            _QtCore, _QtGui, QtWidgets = _qt()
+        except (ImportError, ModuleNotFoundError) as exc:
+            self.skipTest("FreeCAD runtime unavailable: {}".format(exc))
+        if QtWidgets.QApplication.instance() is None:
+            self.skipTest("Qt GUI application is not running")
+        panel = _PreviewPanel()
+        try:
+            task = PressBrakeTaskPanel(panel)
+            panel.attach_task_panel(task)
+            self.assertEqual(task.close_button.text(), "Закрыть панель")
+            self.assertEqual(task.close_button.objectName(), "SMBS_CloseTaskPanel")
+            self.assertIs(task.workspace, panel)
+            self.assertIsNotNone(panel._control_tabs.parentWidget())
+            with patch.object(FreeCADGui.Control, "closeDialog") as close_dialog:
+                task.close_button.click()
+                close_dialog.assert_called_once()
+            self.assertIsNone(panel._task_panel_host)
+            self.assertIs(panel._control_tabs.parentWidget(), panel)
+            self.assertEqual(panel._control_tabs.count(), 3)
+            self.assertFalse(panel.timer.isActive())
+            task.close_panel()  # Repeated close is idempotent.
+            reopened = PressBrakeTaskPanel(panel)
+            self.assertEqual(reopened.form.objectName(), "SMBS_TaskPanelForm")
+            self.assertIs(reopened.workspace, panel)
+        finally:
+            panel.close()
+            panel.deleteLater()
+
     def test_separate_workspace_layout_and_single_timer(self):
         try:
             import FreeCAD  # noqa: F401
