@@ -231,6 +231,30 @@ class LoadedPartSession:
         )
 
 
+def is_unfold_object(obj) -> bool:
+    """Detect an actual SheetMetal Unfold without relying on its display label."""
+    if obj is None:
+        return False
+    name = str(getattr(obj, "Name", ""))
+    return bool(name.endswith("_Unfold") and hasattr(obj, "baseObject"))
+
+
+def selected_unfold_name(doc, selection) -> str | None:
+    """Cheap, read-only toolbar eligibility check (never builds geometry).
+
+    The explicitly selected unfold takes priority. Associated source objects
+    are accepted only if they resolve unambiguously to a single unfold.
+    """
+    if doc is None or not selection:
+        return None
+    if any(getattr(obj, "Document", doc) is not doc for obj in selection):
+        return None
+    try:
+        return resolve_selected_unfold(doc, selection)
+    except (SelectionWarning, AttributeError, TypeError, ValueError):
+        return None
+
+
 def resolve_selected_unfold(doc, selection) -> str:
     """Resolve the SheetMetal unfold object name for the user's FreeCAD selection.
 
@@ -242,7 +266,7 @@ def resolve_selected_unfold(doc, selection) -> str:
 
     unfolds = [
         o for o in getattr(doc, "Objects", ())
-        if hasattr(o, "baseObject") and o.Name.endswith("_Unfold")
+        if is_unfold_object(o)
     ]
     if not unfolds:
         raise SelectionWarning(
