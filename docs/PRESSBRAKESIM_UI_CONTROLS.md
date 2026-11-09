@@ -1,3 +1,13 @@
+## Closing the FreeCAD Task Panel (2026-11-09)
+
+The native FreeCAD Task Panel shows **Закрыть панель** beneath its three tabs (Симуляция / Оснастка / Настройки). Pressing it closes **only the Task Panel**. The MDI simulation viewer stays open, including the loaded part, bend state, and running timer. Reopening the viewer with **Симуляция** recreates the Task Panel wrapper and reuses the exact same existing controls. The control widget is detached before `Gui.Control.closeDialog()` so FreeCAD cannot accidentally delete the playback controls when disposing its task-dialog form.
+
+Closing the MDI viewer itself also closes the associated Task Panel. The original FreeCAD model document is never closed by either action.
+
+**Required live checks:** click the close button during an idle and active simulation, confirm viewer remains open; press **Симуляция** to show the controls again; confirm the selected bend and playback state are preserved. Repeat close/reopen twice to check for duplicated panels or lost Qt widgets. The implementation has not yet been qualified by a live FreeCAD acceptance run.
+
+---
+
 ## Part button activation — SheetMetal unfold (2026-11-09)
 
 The **Деталь / Part** command is enabled only when a FreeCAD document is active and the current selection resolves to a single SheetMetal unfold (`*_Unfold` with `baseObject`). Selecting the Unfold itself, its source Bend object, or its related unfold sketch may satisfy this requirement; an ambiguous or absent selection does not. Clicking **Деталь** opens the viewer if necessary and loads the selected part.
