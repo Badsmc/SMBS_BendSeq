@@ -19,6 +19,45 @@ def rect(x0,y0,x1,y1):
 
 
 class ContactOracle2DTests(unittest.TestCase):
+    def test_flat_bend_zone_duplicate_vertices_preserve_clear(self):
+        # BendZone.section_profile at zero angle repeats its arc
+        # vertices 32 times. That is valid flat geometry, not an
+        # ill-defined zero-area sheet polygon.
+        flat_zone = (
+            (-1.0, 0.0), (-1.0, 0.0),
+            *((-1.0, 0.0) for _ in range(32)),
+            (1.0, 0.0), (1.0, -1.5),
+            *((1.0, -1.5) for _ in range(32)),
+            (-1.0, -1.5), (-1.0, 0.0),
+        )
+        status, reason = classify_polygon_contact(
+            flat_zone, rect(-3.0, 2.0, 3.0, 5.0)
+        )
+        self.assertEqual(status, ContactStatus.CLEAR)
+        self.assertEqual(reason, "separated_bounding_boxes")
+
+    def test_flat_bend_zone_duplicate_vertices_preserve_interference(self):
+        flat_zone = (
+            (-1.0, 0.0), (-1.0, 0.0), (-1.0, 0.0),
+            (1.0, 0.0), (1.0, -1.5), (1.0, -1.5),
+            (-1.0, -1.5), (-1.0, 0.0),
+        )
+        status, reason = classify_polygon_contact(
+            flat_zone, rect(-0.5, -1.0, 0.5, -0.5)
+        )
+        self.assertEqual(status, ContactStatus.INTERFERENCE)
+
+    def test_short_nonzero_edge_is_not_silently_removed(self):
+        # A physical feature shorter than tolerance must remain
+        # uncertain; deduplicating it as if it were a repeated vertex
+        # could hide a real collision.
+        short_edge = (
+            (0.0, 0.0), (0.001, 0.0), (1.0, 0.0),
+            (1.0, 1.0), (0.0, 1.0),
+        )
+        with self.assertRaisesRegex(ContactGeometryError, "Degenerate polygon edge"):
+            classify_polygon_contact(short_edge, rect(-0.5, -0.5, 0.5, 0.5))
+
     def test_separated_polygons_clear(self):
         status, reason=classify_polygon_contact(
             rect(-2,1,-1,2), rect(-2,-2,2,0)
