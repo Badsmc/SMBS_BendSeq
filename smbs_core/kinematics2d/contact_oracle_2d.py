@@ -395,11 +395,25 @@ def sample_bend_stroke_2d(fold_state, panel_vertices_xy, tooling, bend_id,
             candidate.set_punch_ram_z(
                 ram_z, stroke_mm=max(0.0, kin.contact_z_mm - ram_z)
             )
-            pose = WorkpiecePlacement3D.compute_placement(
-                fold_state, bend_id,
-                support_plane_zm=kin.support_plane_zm(angle),
-                align_bisector=(phase not in ("APPROACH", "CONTACT")),
+            # WorkpiecePlacement3D.support_plane_zm is an ABSOLUTE machine
+            # Z for the active axis, whereas kin.support_plane_zm is referenced
+            # to die_top_z_mm. The initially aligned sheet is already placed
+            # in machine coordinates at support_plane_zm=0. Passing the
+            # absolute die top here would translate the sheet by die_top_z_mm
+            # a SECOND time and create false die intersections even during
+            # APPROACH, before the punch has touched the sheet.
+            # Use only the incremental displacement from the flat setup.
+            support_delta_z = (
+                kin.support_plane_zm(angle) - kin.support_plane_zm(0.0)
             )
+            if phase in ("APPROACH", "CONTACT"):
+                pose = start_pose  # Exact pose used for initial tool alignment.
+            else:
+                pose = WorkpiecePlacement3D.compute_placement(
+                    fold_state, bend_id,
+                    support_plane_zm=support_delta_z,
+                    align_bisector=True,
+                )
             sec = compute_machine_cutting_plane_section(
                 fold_state, panel_vertices_xy, pose,
                 active_bend_id=bend_id, segments=32
@@ -422,6 +436,7 @@ def sample_bend_stroke_2d(fold_state, panel_vertices_xy, tooling, bend_id,
                 "phase": phase,
                 "angle_deg": angle,
                 "ram_z_mm": ram_z,
+                "support_delta_z_mm": support_delta_z,
                 "contact": report.status.value,
                 "kinematics": condition,
                 "status": ("INTERFERENCE" if report.status == ContactStatus.INTERFERENCE
