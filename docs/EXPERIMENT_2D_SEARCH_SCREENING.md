@@ -345,3 +345,30 @@ unittest.TextTestRunner(verbosity=2).run(
 ```
 
 The real Z-part baseline remains the existing `run_planar_search(App.ActiveDocument)` result. This phase is complete only as a diagnostic harness: a proper physical transfer/withdrawal validator still needs the real FoldState positions at every path sample and the full machine assembly.
+
+
+## Real FoldState section lateral withdrawal pilot
+
+`tools/run_folded_part_withdrawal.py` uses `build_part_session(doc, [unfold])` and the actual post-bend `FoldState` of the selected bend order. At each completed bend, it calculates `WorkpiecePlacement3D` and calls `compute_machine_cutting_plane_section` (central machine plane, 32 arc segments). The full section includes fixed/moving panels, active bend zone and all intersecting other panels/zones. The real selected SMBS library punch/die are placed at a deliberately parked `20 mm` initial clearance. Each real folded part section is swept by independent +s and -s translations, with 21 discrete samples over 100 mm. The report gives a status for each sampled pose, actual tool/component and specific failure reason. `INTERFERENCE` = sampled central-plane overlap; a `CLEAR`/ `TOUCH` path **must never certify** clearance of a real physical extraction. No FreeCAD document is modified. This deliberately tests an explicit hypothetical lateral withdrawal strategy; it does NOT infer the operator's true removal/reorientation trajectory.
+
+Run in FreeCAD after updating branch and restarting FreeCAD:
+
+```python
+import FreeCAD as App
+from pathlib import Path
+from tools.run_folded_part_withdrawal import run_folded_part_withdrawal, print_folded_part_withdrawal
+out = Path(App.getUserAppDataDir()) / "z_folded_withdrawal.json"
+probe = run_folded_part_withdrawal(
+    App.ActiveDocument,
+    sequence=("B01", "B02"),
+    distance_mm=100,
+    sample_count=21,
+    output_path=str(out),
+)
+print_folded_part_withdrawal(probe)
+print("JSON:", out)
+```
+
+To compare both sequences, rerun with `sequence=("B02", "B01")`, a different `output_path`, and inspect `steps[].paths.positive_s` and `steps[].paths.negative_s`. Regression tests: `python -m unittest tests.test_folded_part_withdrawal -v` in the configured environment.
+
+**Acceptance is pending**: Real FreeCAD execution and branch CI are not proven here. The pilot may report `UNVERIFIED_2D` if positioning a post-bend section in its own bend's machine placement fails; this must be investigated, never silently treated as clearance. Physical extraction will eventually require complete 3D bodies, actual ram motion, machine obstacles, multiple transfer candidates, rotation and continuous collision sweeps.
