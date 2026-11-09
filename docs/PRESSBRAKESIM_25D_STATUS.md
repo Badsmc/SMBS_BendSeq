@@ -189,3 +189,12 @@ The new `tests/test_axis_grouped_search.py` covers axis grouping (including anti
 **Critical limitation:** This is the deterministic *search orchestration* only. The FreeCAD `Расчёт` button remains disabled until the existing 2D tooling/contact oracle can be supplied for EACH completed-prefix + next-bend check, in machine coordinates, across setup/stroke/retract and supported section components. A callback that always returns CLEAR is NOT an acceptable physical validator. A geometric 3D projection or user-supplied fabricated `CLEAR` cannot be promoted to production search. The above code/tests have not yet been executed in FreeCAD or CI after these commits.
 
 Next action required before claiming physical automatic search: wire the existing physical 2D contact verification to the new bounded order loop (no new collision engine), add real negative fixture tests where a complete-prefix stroke fails, ensure status `UNKNOWN` for unsupported pose or missing hardware, and expose `Расчёт` only for the supported 2D use case after native acceptance.
+
+
+## P3 native axis grouping smoke test (2026-11-09)
+
+User ran `tests.test_axis_grouped_search` inside Windows FreeCAD: **6/6 PASS** (0.003 s). On original `Z-10-20-10-(ok)`, `build_part_session` plus `search_axis_grouped_order` with a deliberately UNKNOWN-only oracle returned:
+- `axis_groups=(('B01', 'B02'),)` (two parallel bend axes; signed bend directions do not split axis families);
+- `status=UNKNOWN_UNVERIFIED`, `evaluated_steps=2`, `order=()`.
+
+This proves the grouping/contract smoke test, **not** a physical solver. Existing `check_sheet_tooling_preview` is a section classifier; no direct connected step oracle currently validates the entire completed-prefix setup/stroke/retract cycle. The UI 'Расчёт' button remains disabled. Do not mark P3 automatic search verified until each oracle CLEAR is backed by real 2D evidence on the existing FoldState and tooling. Also the current bounded function finds the first feasible order, not a proven optimum; objective criteria and cost comparison remain pending.
