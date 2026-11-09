@@ -1,3 +1,16 @@
+## GUI layout contract — FreeCAD Task Panel (2026-11-09)
+
+The FreeCAD workbench toolbar and menu contain four commands in this order:
+**Симуляция**, **Деталь**, **Оснастка**, **Расчёт**. The fourth is intentionally disabled until the automatic sequence solver is qualified.
+
+**Симуляция** opens one MDI viewer window containing only source/status labels and 2.5D / read-only 3D viewer tabs. **Деталь** loads the FreeCAD selection (opening the simulation window if needed). **Оснастка** switches to the tooling tab in the FreeCAD Task Panel. The viewer does not display a duplicate command row or a right-side controls splitter.
+
+FreeCAD's native Task Panel hosts all three controls tabs: **Симуляция**, **Оснастка**, **Настройки**. One shared session, timer, Qt controls and diagnostics recorder are used; no independent simulation engine is created. Closing the MDI viewer closes its Task Panel; closing the Task Panel closes that MDI viewer (never the source document). A second press of **Симуляция** focuses the existing viewer instead of creating a duplicate.
+
+**Verification:** Python structural and Qt tests exist, but a real FreeCAD GUI acceptance run is still required before merging to `main` or releasing `smbs`.
+
+---
+
 # PressBrakeSim 2.5D — UI Controls Contract (v1.0)
 
 Status: **UI layout consolidated in branch `2D`; pending real FreeCAD acceptance.**
