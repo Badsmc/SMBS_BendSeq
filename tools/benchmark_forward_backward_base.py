@@ -34,7 +34,14 @@ except ImportError:
 
 _app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
 
-from sheetmetal.SheetMetalUnfoldCmd import SMUnfold
+# SheetMetal Workbench is normally on sys.path as a top-level FreeCAD Mod
+# directory (Windows), while some installs expose it as a package.
+try:
+    from SheetMetalUnfoldCmd import SMUnfold
+except ImportError as exc:
+    if getattr(exc, "name", None) != "SheetMetalUnfoldCmd":
+        raise
+    from sheetmetal.SheetMetalUnfoldCmd import SMUnfold
 from smbs_core.demo_paths import demo_part_path
 from freecad_smbs.commands.pressbrake_2d import build_part_session, _PreviewPanel
 from smbs_core.kinematics2d.tooling_25d import ToolKind
