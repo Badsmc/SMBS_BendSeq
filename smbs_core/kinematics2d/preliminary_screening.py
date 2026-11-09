@@ -23,7 +23,10 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-from .contact_oracle_2d import ContactFinding, ContactReport, ContactStatus, check_sheet_tooling_preview
+from .contact_oracle_2d import (
+    ContactFinding, ContactReport, ContactStatus, ContactGeometryError,
+    check_sheet_tooling_preview, classify_polygon_contact,
+)
 from .coupled_kinematics_2d import CoupledAirBendingKinematics
 from .machine_section_3d import compute_machine_cutting_plane_section
 from .machine_station_planner import plan_machine_stations
@@ -48,6 +51,7 @@ class PreliminaryScreeningReport:
     findings_count: int = 0
     station_reports: Tuple[Dict[str, Any], ...] = ()
     contact_statuses: Tuple[str, ...] = ()
+    backgauge_checked: bool = False
 
     @property
     def is_blocking(self) -> bool:
@@ -62,6 +66,7 @@ class PreliminaryScreeningReport:
             "findings_count": self.findings_count,
             "station_reports": list(self.station_reports),
             "contact_statuses": list(self.contact_statuses),
+            "backgauge_checked": self.backgauge_checked,
         }
 
 
@@ -139,6 +144,7 @@ def screen_candidate_stage_b(
     clearance_mm: float = 5.0,
     fractions: Tuple[float, ...] = (0.0, 0.5, 1.0),
     stroke_fractions: Optional[Tuple[float, ...]] = None,
+    backgauge_polygon_machine: Optional[Sequence[Tuple[float, float]]] = None,
     multi_station_enabled: bool = False,
     verified_punch_span_xm: Optional[Tuple[float, float]] = None,
     verified_die_span_xm: Optional[Tuple[float, float]] = None,
@@ -341,12 +347,50 @@ def screen_candidate_stage_b(
                             },
                         })
                 total_findings += len(sec_report.findings)
-                contact_statuses.append(sec_report.status.value)
+                section_status = sec_report.status
+                backgauge_reason = ""
+                if backgauge_polygon_machine is not None:
+                    # The backgauge polygon must be supplied in machine (s,z).
+                    # Never invent a default gauge or assume its absence is clear.
+                    section_polygons = []
+                    for key in ("fixed_polygon", "moving_polygon", "zone_polygon"):
+                        if sec.get(key):
+                            section_polygons.append((key, sec[key]))
+                    for key in ("other_panel_polygons", "other_zone_polygons"):
+                        section_polygons.extend(sec.get(key, ()))
+                    if not section_polygons:
+                        section_status = ContactStatus.UNVERIFIED
+                        backgauge_reason = "no_sheet_section_for_backgauge"
+                    else:
+                        for label, poly in section_polygons:
+                            try:
+                                gauge_status, why = classify_polygon_contact(
+                                    poly, backgauge_polygon_machine,
+                                    tolerance_mm=tolerance_mm,
+                                )
+                            except ContactGeometryError as exc:
+                                gauge_status, why = ContactStatus.UNVERIFIED, str(exc)
+                            total_findings += 1
+                            if gauge_status is ContactStatus.INTERFERENCE:
+                                section_status = gauge_status
+                                backgauge_reason = "BACKGAUGE:" + str(label) + ":" + why
+                                break
+                            if gauge_status is ContactStatus.UNVERIFIED and section_status is not ContactStatus.INTERFERENCE:
+                                section_status = ContactStatus.UNVERIFIED
+                                backgauge_reason = "BACKGAUGE:" + str(label) + ":" + why
+                            if (gauge_status is ContactStatus.TOUCH
+                                    and section_status is ContactStatus.CLEAR):
+                                section_status = ContactStatus.TOUCH
+                contact_statuses.append(section_status.value)
 
-                if sec_report.status is ContactStatus.INTERFERENCE:
+                if section_status is ContactStatus.INTERFERENCE:
                     # 2D cross-section planar findings require authoritative 3D verification
                     finding = next((f for f in sec_report.findings if f.status is ContactStatus.INTERFERENCE), None)
-                    reason_msg = f"{phase}:{finding.sheet_component}:{finding.reason}" if finding else phase
+                    reason_msg = (
+                        f"{phase}:{backgauge_reason}" if backgauge_reason
+                        else f"{phase}:{finding.sheet_component}:{finding.reason}" if finding
+                        else phase
+                    )
                     return PreliminaryScreeningReport(
                         decision=ScreeningDecision.CONTINUE_TO_3D,
                         stage="STAGE_B_SECTION_REQUIRES_3D",
@@ -355,6 +399,7 @@ def screen_candidate_stage_b(
                         findings_count=total_findings,
                         station_reports=tuple(station_reports),
                         contact_statuses=tuple(contact_statuses),
+                        backgauge_checked=backgauge_polygon_machine is not None,
                     )
             except Exception as exc:
                 # Never prune on section computation failure; forward to exact 3D check
@@ -366,6 +411,7 @@ def screen_candidate_stage_b(
                     findings_count=total_findings,
                     station_reports=tuple(station_reports),
                     contact_statuses=tuple(contact_statuses),
+                    backgauge_checked=backgauge_polygon_machine is not None,
                 )
 
         return PreliminaryScreeningReport(
@@ -378,6 +424,7 @@ def screen_candidate_stage_b(
             findings_count=total_findings,
             station_reports=tuple(station_reports),
             contact_statuses=tuple(contact_statuses),
+            backgauge_checked=backgauge_polygon_machine is not None,
         )
 
     finally:
