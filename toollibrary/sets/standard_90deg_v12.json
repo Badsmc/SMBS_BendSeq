@@ -1,0 +1,14 @@
+{
+  "schema_version": "1.0",
+  "set_id": "standard_90deg_v12",
+  "punch_id": "puancon",
+  "die_id": "matrica",
+  "clamp_positions_mm": [
+    75.0,
+    275.0
+  ],
+  "description": "Базовый цеховой набор: пуансон R1 88° + матрица V12 88°",
+  "metadata": {
+    "recommended_thickness_mm": 2.0
+  }
+}
