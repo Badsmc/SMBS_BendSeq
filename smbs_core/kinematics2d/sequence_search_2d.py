@@ -42,6 +42,8 @@ class PlanarStep:
     contact_statuses: tuple[str, ...]
     setup: Optional[WorkpieceMachineSetup] = None
     backgauge_checked: bool = False
+    elapsed_s: float = 0.0
+    timing_ms: tuple[tuple[str, float], ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -50,6 +52,8 @@ class PlanarStep:
             "contact_statuses": list(self.contact_statuses),
             "machine_setup": self.setup.to_dict() if self.setup else None,
             "backgauge_checked": self.backgauge_checked,
+            "elapsed_s": self.elapsed_s,
+            "timing_ms": dict(self.timing_ms),
         }
 
 
@@ -91,6 +95,7 @@ class PlanarSearchReport:
     evidence: str = "SAMPLED_PLANAR_SECTIONS_ONLY_NOT_3D_CERTIFIED"
     axis_groups: tuple[tuple[str, tuple[str, ...]], ...] = ()
     complete_candidates_examined: int = 0
+    evaluated_step_details: tuple[tuple[tuple[str, ...], PlanarStep], ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -107,6 +112,10 @@ class PlanarSearchReport:
             "axis_groups": [{"group_id": name, "bend_ids": list(ids)}
                             for name, ids in self.axis_groups],
             "complete_candidates_examined": self.complete_candidates_examined,
+            "evaluated_step_details": [
+                {"completed_prefix": list(prefix), **step.to_dict()}
+                for prefix, step in self.evaluated_step_details
+            ],
         }
 
 
@@ -213,6 +222,7 @@ def search_bend_sequences_2d(
     candidates: list[PlanarCandidate] = []
     complete_candidates_examined = 0
     step_cache: dict[tuple[frozenset[str], str], PlanarStep] = {}
+    step_diagnostics: list[tuple[tuple[str, ...], PlanarStep]] = []
 
     def eval_step(prefix: tuple[str, ...], bend_id: str) -> PlanarStep:
         nonlocal evaluated, rejected, unverified
@@ -220,6 +230,7 @@ def search_bend_sequences_2d(
         if key in step_cache:
             return step_cache[key]
         evaluated += 1
+        step_start = perf_counter()
         try:
             state.reset_all()
             for completed in prefix:
@@ -248,6 +259,7 @@ def search_bend_sequences_2d(
                     tolerance_mm=tolerance_mm, fractions=fs,
                     stroke_fractions=stroke_fs,
                     backgauge_polygon_machine=backgauge_polygon_machine,
+                    deadline_monotonic=start + max_search_time_s,
                     multi_station_enabled=multi_station_enabled,
                     verified_punch_span_xm=verified_punch_span_xm,
                     verified_die_span_xm=verified_die_span_xm,
@@ -257,6 +269,7 @@ def search_bend_sequences_2d(
                     bend_id, evidence, stage_b.reason,
                     stage_b.sampled_phases, stage_b.contact_statuses, setup,
                     stage_b.backgauge_checked,
+                    timing_ms=stage_b.timing_ms,
                 )
         except Exception as exc:
             step = PlanarStep(
@@ -270,7 +283,14 @@ def search_bend_sequences_2d(
             rejected += 1
         elif step.evidence == "UNVERIFIED_2D":
             unverified += 1
+        step = PlanarStep(
+            step.bend_id, step.evidence, step.reason,
+            step.sampled_phases, step.contact_statuses,
+            step.setup, step.backgauge_checked,
+            perf_counter() - step_start, step.timing_ms,
+        )
         step_cache[key] = step
+        step_diagnostics.append((tuple(prefix), step))
         return step
 
     def dfs(prefix: tuple[str, ...], steps: tuple[PlanarStep, ...]) -> None:
@@ -356,4 +376,5 @@ def search_bend_sequences_2d(
         status, tuple(candidates), evaluated, visited, perf_counter()-start,
         rejected, unverified, stopped, warnings,
         axis_groups=axis_groups, complete_candidates_examined=complete_candidates_examined,
+        evaluated_step_details=tuple(step_diagnostics),
     )
