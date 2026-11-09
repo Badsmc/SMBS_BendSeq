@@ -38,6 +38,10 @@ class PartSelectionTests(unittest.TestCase):
         sketch = object_for("Body_Unfold_Sketch_Bends", self.doc)
         self.assertEqual(selected_unfold_name(self.doc, [sketch]), "Body_Unfold")
 
+    def test_unrelated_solid_does_not_enable_part(self):
+        unrelated = object_for("Cube", self.doc, Shape=object())
+        self.assertIsNone(selected_unfold_name(self.doc, [unrelated]))
+
     def test_other_document_selection_not_accepted(self):
         other = SimpleNamespace(Objects=[])
         self.assertIsNone(selected_unfold_name(other, [self.unfold]))
