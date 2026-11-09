@@ -310,6 +310,8 @@ class StepEvaluationCache:
             round(float(effective_punch_len_mm), 5),
             round(float(effective_die_len_mm), 5),
             round(float(desired_midpoint_xm), 5),
+            tuple(float(v) for v in getattr(tooling, "punch_section_offsets_xm", ())),
+            tuple(float(v) for v in getattr(tooling, "die_section_offsets_xm", ())),
         )
 
     @staticmethod
@@ -379,6 +381,8 @@ class StepEvaluationCache:
             str(getattr(punch, "tool_id", "")),
             str(getattr(die, "tool_id", "")),
             bool(match_active_bend_length),
+            tuple(float(v) for v in getattr(tooling, "punch_section_offsets_xm", ())),
+            tuple(float(v) for v in getattr(tooling, "die_section_offsets_xm", ())),
             shifts_sig,
             cls.build_config_signature(config),
             cls.build_policy_signature(allow_end_zone_collision, end_zone_length_mm),
