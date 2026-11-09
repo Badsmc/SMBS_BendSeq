@@ -74,12 +74,14 @@ class PreparedRing2D:
     machine pose. The index never changes winding or contact rules.
     """
 
-    __slots__ = ("points", "_bins", "_min_y", "_step", "_count")
+    __slots__ = ("points", "_bins", "_min_y", "_max_y", "_tol", "_step", "_count")
 
     def __init__(self, points: Ring, tolerance_mm: float, bins: int = 64):
         self.points = points
         self._min_y = min(p[1] for p in points)
         hi_y = max(p[1] for p in points)
+        self._max_y = hi_y
+        self._tol = tolerance_mm
         self._count = max(1, min(int(bins), len(points)))
         self._step = max((hi_y - self._min_y) / self._count, 1e-9)
         buckets = [[] for _ in range(self._count)]
@@ -107,13 +109,9 @@ class PreparedRing2D:
 
     def edges_at(self, y: float):
         index = int((y - self._min_y) // self._step)
+        if y < self._min_y - self._tol or y > self._max_y + self._tol:
+            return ()
         if index < 0 or index >= self._count:
-            # Query may be within tolerance of the polygon beyond its bounds:
-            # bucket endpoints are clamped and still include such edges.
-            if y < self._min_y - self._step or y > (
-                self._min_y + self._step * self._count + self._step
-            ):
-                return ()
             index = max(0, min(self._count - 1, index))
         return self._bins[index]
 
