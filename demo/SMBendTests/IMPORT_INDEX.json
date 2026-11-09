@@ -1,0 +1,246 @@
+{
+  "schema": "smbs-demofiles-import-v1",
+  "source_branch": "AutoMod-V0.0.1",
+  "source_tree_sha": "0e91671aad6f29152a0a787720fcfa1c12b542de",
+  "source_directory": "SMBendTests",
+  "note": "Source git blob SHA-1 (includes git blob header) tracks exact bytes; filenames marked ok/false are labels only. These fixtures do not necessarily match the separate SHA-256 archive list in demo/MANIFEST.json.",
+  "copied_models": 16,
+  "copied_json": 22,
+  "copied_python_scripts": 1,
+  "entries": [
+    {
+      "source_path": "SMBendTests/135-(ok).FCStd",
+      "destination": "demo/parts/135-(ok).FCStd",
+      "git_blob_sha1": "5d4479a10b1c60ef0a0b1c436d3acaf331219ee3",
+      "size_bytes": 25285
+    },
+    {
+      "source_path": "SMBendTests/135-(ok)_bendseq.json",
+      "destination": "demo/SMBendTests/135-(ok)_bendseq.json",
+      "git_blob_sha1": "6d72718eb5919de13a19a46b7fe2cfbf0b07ea98",
+      "size_bytes": 3690
+    },
+    {
+      "source_path": "SMBendTests/2-1-3-4-(ok).FCStd",
+      "destination": "demo/parts/2-1-3-4-(ok).FCStd",
+      "git_blob_sha1": "e6ee2145a788eafca63f868443159751148f7be6",
+      "size_bytes": 134528
+    },
+    {
+      "source_path": "SMBendTests/2-1-3-4-(ok)_bendseq.json",
+      "destination": "demo/SMBendTests/2-1-3-4-(ok)_bendseq.json",
+      "git_blob_sha1": "c600aa475032b74635c989ec2ac110d6e15726b5",
+      "size_bytes": 11769
+    },
+    {
+      "source_path": "SMBendTests/L-(ok).FCStd",
+      "destination": "demo/parts/L-(ok).FCStd",
+      "git_blob_sha1": "c986d3f9e9fe9600dc5082f07dace0836e6e8ece",
+      "size_bytes": 18978
+    },
+    {
+      "source_path": "SMBendTests/L-(ok)_bendseq.json",
+      "destination": "demo/SMBendTests/L-(ok)_bendseq.json",
+      "git_blob_sha1": "cd4b10263348e28fd7262160f41cbbd9a0054797",
+      "size_bytes": 2125
+    },
+    {
+      "source_path": "SMBendTests/L-30-6-(false).FCStd",
+      "destination": "demo/parts/L-30-6-(false).FCStd",
+      "git_blob_sha1": "b75149ae57ae6bf93dacf3b82eb3276384f9e6c7",
+      "size_bytes": 20571
+    },
+    {
+      "source_path": "SMBendTests/L-30-6-(false)_bendseq.json",
+      "destination": "demo/SMBendTests/L-30-6-(false)_bendseq.json",
+      "git_blob_sha1": "fbb34145732e2ff1ea9b234c0515ce311e23a355",
+      "size_bytes": 2130
+    },
+    {
+      "source_path": "SMBendTests/SQin.200-25-10-(ok).FCStd",
+      "destination": "demo/parts/SQin.200-25-10-(ok).FCStd",
+      "git_blob_sha1": "c21fca785fd390555d1c328d30611648406db67c",
+      "size_bytes": 49163
+    },
+    {
+      "source_path": "SMBendTests/SQin.200-25-10-(ok)_bendseq.json",
+      "destination": "demo/SMBendTests/SQin.200-25-10-(ok)_bendseq.json",
+      "git_blob_sha1": "adc8c6d1cb6cc289e6a4e0ec256535a36ef6d4c0",
+      "size_bytes": 13278
+    },
+    {
+      "source_path": "SMBendTests/SQout.200-25-10-(ok).FCStd",
+      "destination": "demo/parts/SQout.200-25-10-(ok).FCStd",
+      "git_blob_sha1": "62629e555773c2546985dda9ec76093c371ce17c",
+      "size_bytes": 47466
+    },
+    {
+      "source_path": "SMBendTests/SQout.200-25-10-(ok)_bendseq.json",
+      "destination": "demo/SMBendTests/SQout.200-25-10-(ok)_bendseq.json",
+      "git_blob_sha1": "71f3e883298c9acafda0560d1f7bfb24610c337a",
+      "size_bytes": 13281
+    },
+    {
+      "source_path": "SMBendTests/U-10-10-20-(false).FCStd",
+      "destination": "demo/parts/U-10-10-20-(false).FCStd",
+      "git_blob_sha1": "e93390816a39b32c42b44380874a088461cc838b",
+      "size_bytes": 25640
+    },
+    {
+      "source_path": "SMBendTests/U-10-10-20-(false)_bendseq.json",
+      "destination": "demo/SMBendTests/U-10-10-20-(false)_bendseq.json",
+      "git_blob_sha1": "dcf092d1b456813c54359842757883c3d9c72c73",
+      "size_bytes": 4156
+    },
+    {
+      "source_path": "SMBendTests/U-10-15-10-(punch2-OK).FCStd",
+      "destination": "demo/parts/U-10-15-10-(punch2-OK).FCStd",
+      "git_blob_sha1": "eecf01e726dfa5e187e17f1ea5ebbeb79b0b0155",
+      "size_bytes": 22805
+    },
+    {
+      "source_path": "SMBendTests/U-10-15-10-(punch2-OK)_bendseq.json",
+      "destination": "demo/SMBendTests/U-10-15-10-(punch2-OK)_bendseq.json",
+      "git_blob_sha1": "5fc867f0e2548bfde6944682a7da5608ed1c141f",
+      "size_bytes": 4161
+    },
+    {
+      "source_path": "SMBendTests/U-10-30-10-(OK).FCStd",
+      "destination": "demo/parts/U-10-30-10-(OK).FCStd",
+      "git_blob_sha1": "643b8712f8ffacab11fbcb3a415f24f58cde092f",
+      "size_bytes": 22924
+    },
+    {
+      "source_path": "SMBendTests/U-10-30-10-(OK)_bendseq.json",
+      "destination": "demo/SMBendTests/U-10-30-10-(OK)_bendseq.json",
+      "git_blob_sha1": "b1064a468b2a0f54d3f048c38fca63a3e8c21308",
+      "size_bytes": 4174
+    },
+    {
+      "source_path": "SMBendTests/U-60deg-30deg-(ok).FCStd",
+      "destination": "demo/parts/U-60deg-30deg-(ok).FCStd",
+      "git_blob_sha1": "872bc6ad57de8cf1f837bb549c18bcc83d2faeb7",
+      "size_bytes": 27982
+    },
+    {
+      "source_path": "SMBendTests/U-60deg-30deg-(ok)_bendseq.json",
+      "destination": "demo/SMBendTests/U-60deg-30deg-(ok)_bendseq.json",
+      "git_blob_sha1": "a8631697c01e420ec6d6cbb38baa755a1292d01f",
+      "size_bytes": 4189
+    },
+    {
+      "source_path": "SMBendTests/U-90deg-90deg-(ok).FCStd",
+      "destination": "demo/parts/U-90deg-90deg-(ok).FCStd",
+      "git_blob_sha1": "4cd38f2d6e51edc3fc24af35134a582c23da3275",
+      "size_bytes": 23544
+    },
+    {
+      "source_path": "SMBendTests/U-90deg-90deg-(ok)_bendseq.json",
+      "destination": "demo/SMBendTests/U-90deg-90deg-(ok)_bendseq.json",
+      "git_blob_sha1": "a0d72136888b895e22963b61529fda1e643440d6",
+      "size_bytes": 4158
+    },
+    {
+      "source_path": "SMBendTests/Z-(ok).FCStd",
+      "destination": "demo/parts/Z-(ok).FCStd",
+      "git_blob_sha1": "f61a08531b55ce699a3a32be0bdc3b2afe671db4",
+      "size_bytes": 27563
+    },
+    {
+      "source_path": "SMBendTests/Z-(ok)_bendseq.json",
+      "destination": "demo/SMBendTests/Z-(ok)_bendseq.json",
+      "git_blob_sha1": "cd4b4b04c5a2b3a905468735832c4e24198dd3c9",
+      "size_bytes": 3697
+    },
+    {
+      "source_path": "SMBendTests/Z-10-20-10-(false).FCStd",
+      "destination": "demo/parts/Z-10-20-10-(false).FCStd",
+      "git_blob_sha1": "4159c52287fac644d8c29ea246e637afa1e00028",
+      "size_bytes": 27841
+    },
+    {
+      "source_path": "SMBendTests/Z-10-20-10-(false)_bendseq.json",
+      "destination": "demo/SMBendTests/Z-10-20-10-(false)_bendseq.json",
+      "git_blob_sha1": "096fa4cf0e89696ad3dc1f3cacadd6f30eba663a",
+      "size_bytes": 4159
+    },
+    {
+      "source_path": "SMBendTests/Z-10-20-10-(ok).FCStd",
+      "destination": "demo/parts/Z-10-20-10-(ok).FCStd",
+      "git_blob_sha1": "5dca576513b534c097a96b9432c320cc6a64920e",
+      "size_bytes": 27829
+    },
+    {
+      "source_path": "SMBendTests/Z-10-20-10-(ok)_bendseq.json",
+      "destination": "demo/SMBendTests/Z-10-20-10-(ok)_bendseq.json",
+      "git_blob_sha1": "0a26b407125e3abf75e592d393fba23af30168d1",
+      "size_bytes": 3705
+    },
+    {
+      "source_path": "SMBendTests/box.100in-50out-(false).FCStd",
+      "destination": "demo/parts/box.100in-50out-(false).FCStd",
+      "git_blob_sha1": "44a50cc7fdb960b526b7fa7a6521b017bfcf4230",
+      "size_bytes": 58824
+    },
+    {
+      "source_path": "SMBendTests/box.100in-50out-(false)_bendseq.json",
+      "destination": "demo/SMBendTests/box.100in-50out-(false)_bendseq.json",
+      "git_blob_sha1": "c7f1e979612d70befaa94654eb1e844d16e179e7",
+      "size_bytes": 13272
+    },
+    {
+      "source_path": "SMBendTests/box.100out-50in-(ok).FCStd",
+      "destination": "demo/parts/box.100out-50in-(ok).FCStd",
+      "git_blob_sha1": "2ce39474fe10135680046594b2636a84f644b0b4",
+      "size_bytes": 59021
+    },
+    {
+      "source_path": "SMBendTests/box.100out-50in-(ok)_bendseq.json",
+      "destination": "demo/SMBendTests/box.100out-50in-(ok)_bendseq.json",
+      "git_blob_sha1": "fb7379047bcbd856920a3816a1e80bc127955e18",
+      "size_bytes": 13262
+    },
+    {
+      "source_path": "SMBendTests/part_bendseq.json",
+      "destination": "demo/SMBendTests/part_bendseq.json",
+      "git_blob_sha1": "3115dd6bf6495628165f5a6fde570dd0adfaf1ba",
+      "size_bytes": 13853
+    },
+    {
+      "source_path": "SMBendTests/reference/COMPLEX_ref.json",
+      "destination": "demo/SMBendTests/reference/COMPLEX_ref.json",
+      "git_blob_sha1": "6aa4fd7fbb5f7bc5f9dbf5f4d0c13b8d28e2f544",
+      "size_bytes": 6692
+    },
+    {
+      "source_path": "SMBendTests/reference/C_ref.json",
+      "destination": "demo/SMBendTests/reference/C_ref.json",
+      "git_blob_sha1": "28c1572a3b3f43a4a80ecd5c345b0953e37c4869",
+      "size_bytes": 5206
+    },
+    {
+      "source_path": "SMBendTests/reference/L_ref.json",
+      "destination": "demo/SMBendTests/reference/L_ref.json",
+      "git_blob_sha1": "dfe740bd5e05b11c6900a23f172f58f8fe7b9145",
+      "size_bytes": 2055
+    },
+    {
+      "source_path": "SMBendTests/reference/U_ref.json",
+      "destination": "demo/SMBendTests/reference/U_ref.json",
+      "git_blob_sha1": "e6c59b961025253dca19169659cf89956d88c6c7",
+      "size_bytes": 3622
+    },
+    {
+      "source_path": "SMBendTests/reference/Z_ref.json",
+      "destination": "demo/SMBendTests/reference/Z_ref.json",
+      "git_blob_sha1": "e6feef4444bee0ad44c63c8fac9fb6ee428b7752",
+      "size_bytes": 3623
+    },
+    {
+      "source_path": "SMBendTests/run_batch.py",
+      "destination": "demo/SMBendTests/run_batch.py",
+      "git_blob_sha1": "7556efadc1344e6eee19941ca9c7b9b1fd21bcb2",
+      "size_bytes": 3969
+    }
+  ]
+}
