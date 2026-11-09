@@ -54,6 +54,7 @@ class PreliminaryScreeningReport:
     contact_statuses: Tuple[str, ...] = ()
     backgauge_checked: bool = False
     timing_ms: Tuple[Tuple[str, float], ...] = ()
+    diagnostic_findings: Tuple[Tuple[str, str, str, str, str], ...] = ()
 
     @property
     def is_blocking(self) -> bool:
@@ -70,6 +71,10 @@ class PreliminaryScreeningReport:
             "contact_statuses": list(self.contact_statuses),
             "backgauge_checked": self.backgauge_checked,
             "timing_ms": dict(self.timing_ms),
+            "diagnostic_findings": [
+                {"phase": p, "tool": t, "component": c, "status": s, "reason": r}
+                for p, t, c, s, r in self.diagnostic_findings
+            ],
         }
 
 
@@ -251,6 +256,7 @@ def screen_candidate_stage_b(
         total_findings = 0
         station_reports: List[Dict[str, Any]] = []
         contact_statuses: List[str] = []
+        diagnostic_findings: List[Tuple[str, str, str, str, str]] = []
         timing_ms: Dict[str, float] = {
             'pose_and_section': 0.0, 'tooling_and_contact': 0.0,
             'total_probe': 0.0,
@@ -305,6 +311,7 @@ def screen_candidate_stage_b(
                     contact_statuses=tuple(contact_statuses),
                     backgauge_checked=backgauge_polygon_machine is not None,
                     timing_ms=tuple(timing_ms.items()),
+                    diagnostic_findings=tuple(diagnostic_findings),
                 )
             sample_start = perf_counter()
             sampled_phases.append(phase)
@@ -333,7 +340,19 @@ def screen_candidate_stage_b(
                 )
                 pose_end = perf_counter()
                 tooling.set_punch_ram_z(float(ram_z), stroke_mm=max(0.0, coupled.contact_z_mm - ram_z))
-                sec_report = check_sheet_tooling_preview(sec, tooling, tolerance_mm=tolerance_mm)
+                sec_report = check_sheet_tooling_preview(
+                    sec, tooling, tolerance_mm=tolerance_mm,
+                    timing_collector=timing_ms,
+                )
+                # Retain a bounded, useful reason for the actual UNVERIFIED
+                # geometry instead of only the aggregate phase status.
+                for finding in sec_report.findings:
+                    if (finding.status is ContactStatus.UNVERIFIED
+                            and len(diagnostic_findings) < 32):
+                        diagnostic_findings.append((
+                            phase, finding.tool, finding.sheet_component,
+                            finding.status.value, finding.reason,
+                        ))
                 contact_end = perf_counter()
                 timing_ms['pose_and_section'] += 1000.0 * (pose_end - sample_start)
                 timing_ms['tooling_and_contact'] += 1000.0 * (contact_end - pose_end)
@@ -426,6 +445,7 @@ def screen_candidate_stage_b(
                         contact_statuses=tuple(contact_statuses),
                         backgauge_checked=backgauge_polygon_machine is not None,
                         timing_ms=tuple(timing_ms.items()),
+                    diagnostic_findings=tuple(diagnostic_findings),
                     )
             except Exception as exc:
                 # Never prune on section computation failure; forward to exact 3D check
@@ -439,6 +459,7 @@ def screen_candidate_stage_b(
                     contact_statuses=tuple(contact_statuses),
                     backgauge_checked=backgauge_polygon_machine is not None,
                     timing_ms=tuple(timing_ms.items()),
+                    diagnostic_findings=tuple(diagnostic_findings),
                 )
 
         return PreliminaryScreeningReport(
@@ -453,6 +474,7 @@ def screen_candidate_stage_b(
             contact_statuses=tuple(contact_statuses),
             backgauge_checked=backgauge_polygon_machine is not None,
             timing_ms=tuple(timing_ms.items()),
+                    diagnostic_findings=tuple(diagnostic_findings),
         )
 
     finally:
