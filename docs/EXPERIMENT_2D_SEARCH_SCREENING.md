@@ -482,3 +482,33 @@ print(out)
 ```
 
 This acceptance run remains pending. Re-run unit tests `tests.test_folded_part_cycle` and report failures. Do not treat the sampled search's lack of a candidate as geometric impossibility.
+
+
+## 2026-11-09 smoke results and regression fixture fix
+
+The user ran `z_path_search_smoke.json` on real FreeCAD Z-10-20-10-(ok): search took 5.1093 seconds total, B01 found 7/8 sampled-clear candidate paths (119 pose evaluations, 1.3863 s), B02 8/8 (126 pose evaluations, 1.3949 s), neither hit the deadline. Both steps' two-axis direct lateral paths still intersect the die. Shortlist candidate: +5 mm vertical lift and +20 mm punch parked clearance, either transverse direction. **These results are coarse sampled evidence only:** 9 lateral samples across 100 mm gives 12.5 mm increments, potentially skipping smaller collision windows. The 9-mm-sampling hypothesis is not the same as a fully physical certified path.
+
+Of 11 regression tests, 10 passed. The failing `test_short_circuit_on_first_lateral_collision` had a punch fixture starting at z=3, exactly touching the vertically raised workpiece at the endpoint of LIFT (z=3). Early stop on TOUCH is intentional. Fixture is corrected to position the punch in x=2.2..4 and z=2.5..6, providing a genuine **area overlap first detected during lateral sweep** rather than premature boundary TOUCH; a second regression explicitly asserts that a boundary-only TOUCH is distinct from interference and stops when instructed. New regressions require rerun in FreeCAD.
+
+For denser acceptance, start with one candidate configuration only and 41 lateral samples (2.5-mm spacing), rather than blindly expanding the entire Cartesian grid:
+
+```python
+import FreeCAD as App, unittest
+from pathlib import Path
+from tools.run_folded_part_cycle import run_folded_part_cycle, print_folded_part_cycle
+result=unittest.TextTestRunner(verbosity=2).run(
+    unittest.defaultTestLoader.loadTestsFromName("tests.test_folded_part_cycle"))
+print("TEST SUCCESS:",result.wasSuccessful())
+doc=App.getDocument("Z_10_20_10__ok_")
+assert doc is not None
+out=Path(App.getUserAppDataDir())/"z_path_search_dense.json"
+report=run_folded_part_cycle(
+    doc, sequence=("B01","B02"), search_paths=True,
+    parked_clearances_mm=(20.0,), lift_heights_mm=(5.0,),
+    retract_samples=21, lift_samples=21, withdrawal_samples=41,
+    path_search_time_s=15.0, distance_mm=100.0, output_path=str(out))
+print_folded_part_cycle(report)
+print(out)
+```
+
+This remains insufficient to establish continuous collision-free tool movement. A continuous sweep or conservative interval validation, plus 3D geometry and machine assembly, is necessary for a physical certificate.
