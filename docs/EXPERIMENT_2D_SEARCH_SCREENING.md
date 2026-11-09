@@ -309,3 +309,39 @@ The new `PreparedRing2D` builds an **interval-indexed edge scanline lookup** for
 `screen_candidate_stage_b` additionally aggregates `touch_summary`: for each phase it records which tool touched which panel/bend zone, the underlying contact classifier reason, and how many sampled poses produced it. These observations are copied into each standalone 2D DFS step report and printed by `print_planar_summary`. This allows distinguishing legitimate die support contact from spurious punch or other-panel contacts; results remain `SAMPLED_2D` only.
 
 **No claim of measured speedup or validated TOUCH diagnosis yet.** After updating the branch and restarting FreeCAD, rerun the existing full-precision Z test with 17 bending and 9 stroke fractions and compare `polygon_contact` wall times against the old 17.04-second baseline. Review `touch_summary` before treating any plan as physically workable. CI status has not been confirmed.
+
+
+## Read-only real-tool negative control harness
+
+`tools/run_tooling_negative_controls.py` loads the **same named catalog punch and die** as the experimental Z search (not generic rectangles as tool substitutes). It uses `ToolingSetup2D.punch_polygons_machine` and `die_polygons_machine` and asserts:
+
+1. A translated **copy of each actual tool outline** has `CLEAR` separation beyond the tool's bounding width.
+2. Exactly overlapping the **same actual tool outline** returns `INTERFERENCE`, including handling imported tool cavities.
+3. A 21-sample horizontal sweep of a synthetic profile-shaped obstruction has both endpoints `CLEAR` but an intermediate `INTERFERENCE`. This demonstrates why endpoint-only path checks are unsound.
+
+These are controlled geometric **negative tests**, not generated modified CAD parts. They do not certify the real `Z-10-20-10-(ok)` extraction path, clamps, backgauge, or collision-free machine movement. The tool profiles are real; synthetic test workpiece shapes are not. The script does not mutate FreeCAD documents and emits JSON. Use this console code after pulling the branch and restarting FreeCAD:
+
+```python
+import FreeCAD as App
+from pathlib import Path
+from tools.run_tooling_negative_controls import (
+    run_negative_controls, print_negative_controls
+)
+output = Path(App.getUserAppDataDir()) / "z_negative_controls.json"
+report = run_negative_controls(output_path=str(output))
+print_negative_controls(report)
+print("REPORT:", output)
+```
+
+For lightweight harness tests, execute:
+
+```python
+import unittest
+unittest.TextTestRunner(verbosity=2).run(
+    unittest.defaultTestLoader.loadTestsFromName(
+        "tests.test_tooling_negative_controls"
+    )
+)
+```
+
+The real Z-part baseline remains the existing `run_planar_search(App.ActiveDocument)` result. This phase is complete only as a diagnostic harness: a proper physical transfer/withdrawal validator still needs the real FoldState positions at every path sample and the full machine assembly.
