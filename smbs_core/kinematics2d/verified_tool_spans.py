@@ -18,6 +18,8 @@ class VerifiedToolSpans:
     die_span_xm: tuple[float, float]
     punch_source: str
     die_source: str
+    punch_sections_xm: tuple[tuple[float, float], ...] = ()
+    die_sections_xm: tuple[tuple[float, float], ...] = ()
 
     def to_dict(self) -> dict:
         return {
@@ -26,6 +28,8 @@ class VerifiedToolSpans:
             "die_span_xm": list(self.die_span_xm),
             "punch_source": self.punch_source,
             "die_source": self.die_source,
+            "punch_sections_xm": [list(x) for x in self.punch_sections_xm],
+            "die_sections_xm": [list(x) for x in self.die_sections_xm],
             "note": "X range from native transformed fixed CAD solids; not a continuous trajectory proof",
         }
 
@@ -58,6 +62,34 @@ def span_from_native_shape(tool: Any, name: str) -> tuple[float, float]:
     return a, b
 
 
+def _verified_sections(tool: Any, name: str, requested_offsets: tuple[float, ...]):
+    """Verify that each native CAD section occupies its configured machine-X range."""
+    from smbs_core.kinematics2d.native_tool_loader import check_tool_coverage
+
+    sections = tuple(getattr(tool, "sections", ()))
+    expected_count = len(requested_offsets) if requested_offsets else 1
+    if len(sections) != expected_count:
+        raise ValueError(f"{name}: expected {expected_count} native sections, got {len(sections)}")
+    spans = tuple(tuple(map(float, sec.span_xm)) for sec in sections)
+    if len(requested_offsets) > 1:
+        for sec, requested in zip(sections, requested_offsets):
+            if abs(float(sec.offset_xm) - float(requested)) > 1e-6:
+                raise ValueError(f"{name}: section placed at unexpected X")
+            if any(not isfinite(x) for x in sec.span_xm):
+                raise ValueError(f"{name}: nonfinite native section extent")
+        full = (min(x[0] for x in spans), max(x[1] for x in spans))
+        result = check_tool_coverage(full, tuple(tool.span_xm), sections, tolerance_mm=0.01)
+        if not result.is_covered:
+            raise ValueError(f"{name}: native section coverage failed: {result.reason}")
+        # A section assembly with overlapping solid volumes must not pretend
+        # two overlapping sections provide additional effective length.
+        ordered = sorted(spans)
+        for left, right in zip(ordered, ordered[1:]):
+            if right[0] < left[1] - 0.01:
+                raise ValueError(f"{name}: overlapping native tool sections")
+    return spans
+
+
 def verified_fixed_tool_spans(tooling: Any, *, ram_z_mm: float = 0.0) -> VerifiedToolSpans:
     """Load the selected verified FCStd source models in machine coordinates.
 
@@ -73,11 +105,20 @@ def verified_fixed_tool_spans(tooling: Any, *, ram_z_mm: float = 0.0) -> Verifie
     die_source = _source_path(getattr(tooling, "die", None))
     if punch_source is None or die_source is None:
         raise ValueError("Both selected tools must have GEOMETRY_VERIFIED FCStd source files")
-    punch = load_native_punch(punch_source, ram_z_mm=float(ram_z_mm))
-    die = load_native_die(die_source)
+    p_offsets = tuple(getattr(tooling, "punch_section_offsets_xm", ()))
+    d_offsets = tuple(getattr(tooling, "die_section_offsets_xm", ()))
+    if bool(getattr(tooling, "match_active_bend_length", False)) and (p_offsets or d_offsets):
+        raise ValueError("physical sections and virtual tool stretching cannot be combined")
+    punch = load_native_punch(
+        punch_source, ram_z_mm=float(ram_z_mm),
+        section_offsets_xm=p_offsets or None,
+    )
+    die = load_native_die(die_source, section_offsets_xm=d_offsets or None)
     return VerifiedToolSpans(
         punch_span_xm=span_from_native_shape(punch, "PUNCH"),
         die_span_xm=span_from_native_shape(die, "DIE"),
         punch_source=str(Path(punch_source).resolve()),
         die_source=str(Path(die_source).resolve()),
+        punch_sections_xm=_verified_sections(punch, "PUNCH", p_offsets),
+        die_sections_xm=_verified_sections(die, "DIE", d_offsets),
     )
