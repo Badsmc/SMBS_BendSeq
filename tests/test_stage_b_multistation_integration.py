@@ -176,6 +176,51 @@ class StageBIntegrationTests(unittest.TestCase):
             for p in reversed(patches):
                 p.__exit__(None, None, None)
 
+    def test_backgauge_polygon_reports_planar_interference(self):
+        fold, tool = DummyFold(), DummyTooling()
+        patches = list(self.make_patches())
+        patches[1] = patch(
+            "smbs_core.kinematics2d.preliminary_screening.compute_machine_cutting_plane_section",
+            return_value={"fixed_polygon": ((0, 0), (2, 0), (2, 2), (0, 2))},
+        )
+        for p in patches:
+            p.__enter__()
+        try:
+            result = screen_candidate_stage_b(
+                fold, "B", tool, {"P": [(0, 0), (1, 0), (1, 1)]},
+                fractions=(0, 1),
+                backgauge_polygon_machine=((1, 1), (3, 1), (3, 3), (1, 3)),
+            )
+            self.assertEqual(result.stage, "STAGE_B_SECTION_REQUIRES_3D")
+            self.assertIn("BACKGAUGE", result.reason)
+            self.assertIn("INTERFERENCE", result.contact_statuses)
+            self.assertTrue(result.backgauge_checked)
+        finally:
+            for p in reversed(patches):
+                p.__exit__(None, None, None)
+
+    def test_backgauge_polygon_clear_is_recorded(self):
+        fold, tool = DummyFold(), DummyTooling()
+        patches = list(self.make_patches())
+        patches[1] = patch(
+            "smbs_core.kinematics2d.preliminary_screening.compute_machine_cutting_plane_section",
+            return_value={"fixed_polygon": ((0, 0), (2, 0), (2, 2), (0, 2))},
+        )
+        for p in patches:
+            p.__enter__()
+        try:
+            result = screen_candidate_stage_b(
+                fold, "B", tool, {"P": [(0, 0), (1, 0), (1, 1)]},
+                fractions=(0, 1),
+                backgauge_polygon_machine=((20, 20), (22, 20), (22, 22), (20, 22)),
+            )
+            self.assertEqual(result.stage, "STAGE_B_PREVIEW")
+            self.assertTrue(result.backgauge_checked)
+            self.assertEqual(set(result.contact_statuses), {"CLEAR"})
+        finally:
+            for p in reversed(patches):
+                p.__exit__(None, None, None)
+
     def test_dfs_experiment_switch_on_both_directions(self):
         for search in (search_bend_sequence_25d, search_bend_sequence_backward_25d):
             parameters = inspect.signature(search).parameters
