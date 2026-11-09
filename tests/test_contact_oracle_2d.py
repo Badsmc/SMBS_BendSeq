@@ -143,6 +143,61 @@ class ContactOracle2DTests(unittest.TestCase):
             _proper_cross((0.0, 0.0), (1e-12, 0.0),
                           (0.0, -1.0), (0.0, 1.0), 0.02)
 
+    def test_indexed_ring_matches_reference_for_scanlines_and_tolerance(self):
+        from math import cos, sin, pi
+        from smbs_core.kinematics2d.contact_oracle_2d import (
+            PreparedRing2D, _point_ring,
+        )
+        circle = tuple(
+            (10*cos(2*pi*i/720), 10*sin(2*pi*i/720))
+            for i in range(720)
+        )
+        for points in (circle, tuple(reversed(circle))):
+            indexed = PreparedRing2D(points, 0.02)
+            for ix in range(-22, 23):
+                for iy in range(-22, 23):
+                    point = (ix*0.5 + 0.001, iy*0.5 + 0.001)
+                    self.assertEqual(
+                        _point_ring(point, indexed, 0.02),
+                        _point_ring(point, points, 0.02),
+                        (ix, iy),
+                    )
+            for point in ((0, 10.01), (0, -10.01),
+                          (10.01, 0), (-10.01, 0)):
+                self.assertEqual(
+                    _point_ring(point, indexed, 0.02),
+                    _point_ring(point, points, 0.02),
+                    point,
+                )
+
+    def test_indexed_machine_section_equals_reference_contact(self):
+        from math import cos, sin, pi
+        from smbs_core.kinematics2d.contact_oracle_2d import ContactStatus
+        ring = tuple(
+            (20*cos(2*pi*i/512), 20*sin(2*pi*i/512))
+            for i in range(512)
+        )
+        hole = tuple(
+            (4*cos(2*pi*i/512), 4*sin(2*pi*i/512))
+            for i in range(512)
+        )
+        shapes = (
+            ("inside_hole", rect(-1,-1,1,1)),
+            ("metal", rect(7,-1,8,1)),
+            ("outside", rect(25,25,27,27)),
+            ("touch", rect(19.999,-1,21,1)),
+        )
+        report = check_machine_section(
+            shapes, (ring, (hole,)), (rect(40,40,50,50), ())
+        )
+        punch_findings = {
+            f.sheet_component: f.status for f in report.findings
+            if f.tool == "PUNCH"
+        }
+        for name, shape in shapes:
+            expected, _ = classify_polygon_contact(shape, ring, (hole,))
+            self.assertEqual(punch_findings[name], expected, name)
+
     def test_tool_polygon_validation_is_reused_for_many_panels(self):
         from unittest.mock import patch
         from smbs_core.kinematics2d import contact_oracle_2d as oracle
