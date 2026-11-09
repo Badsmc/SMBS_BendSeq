@@ -47,6 +47,7 @@ class PreliminaryScreeningReport:
     sampled_phases: Tuple[str, ...] = ()
     findings_count: int = 0
     station_reports: Tuple[Dict[str, Any], ...] = ()
+    contact_statuses: Tuple[str, ...] = ()
 
     @property
     def is_blocking(self) -> bool:
@@ -60,6 +61,7 @@ class PreliminaryScreeningReport:
             "sampled_phases": list(self.sampled_phases),
             "findings_count": self.findings_count,
             "station_reports": list(self.station_reports),
+            "contact_statuses": list(self.contact_statuses),
         }
 
 
@@ -237,6 +239,7 @@ def screen_candidate_stage_b(
         sampled_phases: List[str] = []
         total_findings = 0
         station_reports: List[Dict[str, Any]] = []
+        contact_statuses: List[str] = []
 
         # Build sequence of phase probes: (phase_name, frac_angle, ram_z, bisector)
         probes: List[Tuple[str, float, float, bool]] = [
@@ -311,6 +314,7 @@ def screen_candidate_stage_b(
                             },
                         })
                 total_findings += len(sec_report.findings)
+                contact_statuses.append(sec_report.status.value)
 
                 if sec_report.status is ContactStatus.INTERFERENCE:
                     # 2D cross-section planar findings require authoritative 3D verification
@@ -323,6 +327,7 @@ def screen_candidate_stage_b(
                         sampled_phases=tuple(sampled_phases),
                         findings_count=total_findings,
                         station_reports=tuple(station_reports),
+                        contact_statuses=tuple(contact_statuses),
                     )
             except Exception as exc:
                 # Never prune on section computation failure; forward to exact 3D check
@@ -333,15 +338,18 @@ def screen_candidate_stage_b(
                     sampled_phases=tuple(sampled_phases),
                     findings_count=total_findings,
                     station_reports=tuple(station_reports),
+                    contact_statuses=tuple(contact_statuses),
                 )
 
         return PreliminaryScreeningReport(
             decision=ScreeningDecision.CONTINUE_TO_3D,
             stage="STAGE_B_PREVIEW",
-            reason="all_sampled_2d_sections_clear",
+            reason=("sampled_2d_section_unverified" if "UNVERIFIED" in contact_statuses
+                    else "all_sampled_2d_sections_clear_or_touch"),
             sampled_phases=tuple(sampled_phases),
             findings_count=total_findings,
             station_reports=tuple(station_reports),
+            contact_statuses=tuple(contact_statuses),
         )
 
     finally:
