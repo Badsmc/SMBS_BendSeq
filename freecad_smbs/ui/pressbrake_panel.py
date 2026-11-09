@@ -63,6 +63,7 @@ from freecad_smbs.ui.pressbrake_common import (
 )
 from freecad_smbs.ui.diagnostics_logging import _LOG_FILE_PATH, _log, _warn, _error
 from freecad_smbs.integration.part_session import LoadedPartSession, execute_load_part
+from freecad_smbs.ui.orbit_camera import orbit_project, clamp_pitch
 
 def _button(widgets, label, callback, enabled=True):
     btn = widgets.QPushButton(label)
@@ -78,18 +79,74 @@ class _PreviewPanel:
         QtCore, QtGui, QtWidgets = _qt()
 
         class Canvas(QtWidgets.QGraphicsView):
-            def __init__(self, parent=None):
+            """2D/3D zoomable viewer; optional 3D orbit controlled by parent Panel."""
+
+            def __init__(self, parent=None, orbit_callback=None):
                 super().__init__(parent)
                 self.setRenderHint(QtGui.QPainter.Antialiasing, True)
                 self.setDragMode(QtWidgets.QGraphicsView.ScrollHandDrag)
+                self.setTransformationAnchor(QtWidgets.QGraphicsView.AnchorUnderMouse)
+                self.setResizeAnchor(QtWidgets.QGraphicsView.AnchorViewCenter)
                 self.setMinimumHeight(240)
                 self.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
                 self.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
+                self._user_camera_modified = False
+                self._orbit_callback = orbit_callback
+                self._last_drag_pos = None
+
+            def reset_camera(self):
+                scene = self.scene()
+                if scene is None or scene.sceneRect().isEmpty():
+                    return
+                self._user_camera_modified = False
+                self.resetTransform()
+                self.fitInView(scene.sceneRect(), QtCore.Qt.KeepAspectRatio)
+
+            def wheelEvent(self, event):
+                delta = event.angleDelta().y()
+                if delta == 0:
+                    event.ignore()
+                    return
+                factor = 1.15 ** (delta / 120.0)
+                target = self.transform().m11() * factor
+                if not 0.015 <= target <= 250.0:
+                    event.accept()
+                    return
+                self.scale(factor, factor)
+                self._user_camera_modified = True
+                event.accept()
+
+            def mousePressEvent(self, event):
+                if self._orbit_callback is not None and event.button() == QtCore.Qt.LeftButton:
+                    self._last_drag_pos = event.pos()
+                    event.accept()
+                    return
+                super().mousePressEvent(event)
+
+            def mouseMoveEvent(self, event):
+                if self._last_drag_pos is not None and self._orbit_callback is not None:
+                    pos = event.pos()
+                    delta = pos - self._last_drag_pos
+                    self._last_drag_pos = pos
+                    roll = bool(event.modifiers() & QtCore.Qt.ShiftModifier)
+                    if delta.x() or delta.y():
+                        self._orbit_callback(delta.x(), delta.y(), roll)
+                    event.accept()
+                    return
+                super().mouseMoveEvent(event)
+
+            def mouseReleaseEvent(self, event):
+                if self._last_drag_pos is not None and event.button() == QtCore.Qt.LeftButton:
+                    self._last_drag_pos = None
+                    event.accept()
+                    return
+                super().mouseReleaseEvent(event)
 
             def resizeEvent(self, event):
                 super().resizeEvent(event)
-                if self.scene() is not None and not self.scene().sceneRect().isEmpty():
-                    self.fitInView(self.scene().sceneRect(), QtCore.Qt.KeepAspectRatio)
+                if not self._user_camera_modified and self.scene() is not None:
+                    if not self.scene().sceneRect().isEmpty():
+                        self.fitInView(self.scene().sceneRect(), QtCore.Qt.KeepAspectRatio)
 
         class Panel(QtWidgets.QWidget):
             def __init__(self, library_root: Path | str | None = None):
@@ -328,9 +385,16 @@ class _PreviewPanel:
                 views = QtWidgets.QTabWidget(self)
                 views.setObjectName("SMBS_ViewerTabs")
                 views.addTab(self.view, "2.5D · Гибка")
-                self._preview_3d = QtWidgets.QGraphicsView()
+                self._orbit_yaw = 35.0
+                self._orbit_pitch = 25.0
+                self._orbit_roll = 0.0
                 self._last_3d_frame_at = -1.0
                 self._fixed_3d_view_rect = None
+                self._preview_3d = Canvas(orbit_callback=self._orbit_3d)
+                self._preview_3d.setToolTip(
+                    "Колесо: масштаб | Левая кнопка + движение: вращение | "
+                    "Shift + левая кнопка: поворот вокруг оси взгляда | Fit: сброс масштаба"
+                )
                 self._preview_3d.setObjectName("SMBS_3D_ReadOnly")
                 self._preview_3d_scene = QtWidgets.QGraphicsScene(self._preview_3d)
                 self._preview_3d.setScene(self._preview_3d_scene)
@@ -673,6 +737,19 @@ class _PreviewPanel:
                 if index == 1:
                     self._update_3d_preview(force=True)
 
+            def _orbit_3d(self, dx, dy, roll=False):
+                if roll:
+                    self._orbit_roll = (self._orbit_roll + dx * 0.45) % 360.0
+                else:
+                    self._orbit_yaw = (self._orbit_yaw + dx * 0.45) % 360.0
+                    self._orbit_pitch = clamp_pitch(self._orbit_pitch + dy * 0.45)
+                self._update_3d_preview(force=True)
+
+            def reset_3d_view(self):
+                self._orbit_yaw, self._orbit_pitch, self._orbit_roll = 35.0, 25.0, 0.0
+                self._update_3d_preview(force=True)
+                self._preview_3d.reset_camera()
+
             def _update_3d_preview(self, force=False):
                 """Live whole-workpiece isometric 3D projection, read-only.
 
@@ -707,14 +784,31 @@ class _PreviewPanel:
                     scene.addSimpleText("3D: {}".format(str(exc)))
                     return
 
-                # Camera: machine s (horizontal), depth (bend axis), z (vertical).
-                # This is a projected 3D surface viewer, not an OCC solid viewport.
-                def project(p):
-                    s, depth, z = p
-                    return QtCore.QPointF(
-                        0.87 * s + 0.48 * depth,
-                        -0.83 * z + 0.36 * depth - 0.10 * s,
+                # Re-orient the camera, not the workpiece or its FoldState.
+                # Orthographic projection with centroid-based orbit target.
+                all_vertices = [v for f in faces for v in f.vertices]
+                if not all_vertices:
+                    scene.addSimpleText("3D: no visible faces")
+                    return
+                center = tuple(
+                    sum(p[axis] for p in all_vertices) / len(all_vertices)
+                    for axis in range(3)
+                )
+                radius = max(
+                    math.sqrt(sum((p[i] - center[i]) ** 2 for i in range(3)))
+                    for p in all_vertices
+                )
+                radius = max(radius, 1.0)
+
+                def camera_point(p):
+                    return orbit_project(
+                        tuple(p[i] - center[i] for i in range(3)),
+                        self._orbit_yaw, self._orbit_pitch, self._orbit_roll,
                     )
+
+                def project(p):
+                    x, y, _depth = camera_point(p)
+                    return QtCore.QPointF(x, y)
 
                 palette = {
                     "panel_top": ("#8bb9d4", "#37647e"),
@@ -724,13 +818,12 @@ class _PreviewPanel:
                     "zone_outer": ("#e0b967", "#9a7134"),
                     "zone_end": ("#bd9c65", "#9a7134"),
                 }
-                # Stable approximate painter ordering: view-depth, then height.
+                # Painter order must follow the currently rotated camera depth.
                 ordering = sorted(
                     faces,
-                    key=lambda face: (
-                        sum(pt[1] for pt in face.vertices)/len(face.vertices),
-                        sum(pt[2] for pt in face.vertices)/len(face.vertices),
-                    ),
+                    key=lambda face: sum(camera_point(pt)[2] for pt in face.vertices)
+                    / len(face.vertices),
+                    reverse=True,
                 )
                 for face in ordering:
                     poly = QtGui.QPolygonF([project(pt) for pt in face.vertices])
@@ -744,7 +837,7 @@ class _PreviewPanel:
                     item.setToolTip("{}: {}".format(face.kind, face.identifier))
 
                 label = scene.addSimpleText(
-                    "3D FULL PART | {} | FIXED ISOMETRIC | {} | KINEMATIC_PREVIEW".format(
+                    "3D FULL PART | {} | ORBIT CAMERA | {} | KINEMATIC_PREVIEW".format(
                         self.session.active_bend_id,
                         self.execution_mode.value,
                     )
@@ -757,20 +850,15 @@ class _PreviewPanel:
                 max_y = max(p.y() for p in sheet_points)
                 label.setPos(min_x, min_y - 25)
                 pad = max(10.0, 0.08 * max(max_x-min_x, max_y-min_y))
+                # Fixed viewport in camera-centered model coordinates prevents
+                # jump/auto-fit when switching bends or dragging the orbit camera.
                 if self._fixed_3d_view_rect is None:
-                    # Stable viewing frame across positive/negative operations:
-                    # the sheet deforms, but the isometric camera does not pan.
-                    width = max_x - min_x
-                    height = max_y - min_y
-                    extra = max(25.0, 0.65 * max(width, height))
+                    extent = radius * 1.8 + 25.0
                     self._fixed_3d_view_rect = QtCore.QRectF(
-                        min_x - extra, min_y - extra - 25,
-                        width + 2 * extra, height + 2 * extra + 25,
+                        -extent, -extent - 25.0, 2 * extent, 2 * extent + 25.0,
                     )
                     scene.setSceneRect(self._fixed_3d_view_rect)
-                    self._preview_3d.fitInView(
-                        self._fixed_3d_view_rect, QtCore.Qt.KeepAspectRatio
-                    )
+                    self._preview_3d.reset_camera()
                 else:
                     scene.setSceneRect(self._fixed_3d_view_rect)
 
@@ -1881,11 +1969,11 @@ class _PreviewPanel:
                 if hasattr(self, "_viewer_tabs") and self._viewer_tabs.currentIndex() == 1:
                     rect = self._preview_3d_scene.sceneRect()
                     if not rect.isEmpty():
-                        self._preview_3d.fitInView(rect, QtCore.Qt.KeepAspectRatio)
+                        self._preview_3d.reset_camera()
                     return
                 rect = self.scene.sceneRect()
                 if not rect.isEmpty():
-                    self.view.fitInView(rect, QtCore.Qt.KeepAspectRatio)
+                    self.view.reset_camera()
 
             def diagnostics(self):
                 has_part = self.session is not None
