@@ -178,3 +178,14 @@ User confirmed through a read-only FreeCAD Python Console `build_part_session` c
 - `getattr(unfold, "Base", None)` returned `None`. **Not a missing-source finding:** canonical `sheetmetal_unfold_reader.read_unfold` accesses `unfold.baseObject` and has already successfully read the actual reference via `build_part_session`. Check `unfold.baseObject` or `session.unfold_data.source_object/source_face`, not `Base`.
 
 This establishes consistency for bend count, signed fold angles and thickness/radius values from the existing session, **not independent validation against the original source BRep**. Await direct comparison against `session.unfold_data.bends` (SheetMetal BendInfo) and source face, and later model geometry reconstruction / thickness-plane discrepancy investigation, before checking off P2 geometry gates.
+
+
+## P3 axis-by-axis sequence search scaffold (2026-11-09; NOT yet an operational physical solver)
+
+User's required order: **2D only; optimize feasible bends on one axis family FIRST, then the other family**. Parallel and antiparallel axes belong to the same family. No automatic generic 3D trajectory or transfer optimizer is in scope. Implementation lives in the **existing** `smbs_core/kinematics2d/fold_sequence.py` as `search_axis_grouped_order` and `AxisGroupedSearchResult`, not a second FoldState or sequencing engine. Bounded search tries all bend permutations within one group, then the next; it can also reverse which axis family is first. Prefixes are replayed from flat state for every oracle decision; state restored on all returns/exceptions. Oracle results are strictly `CLEAR`, `BLOCKED`, or `UNKNOWN`; unknown and resource limits never qualify a candidate. The no-order result applies ONLY to axis-grouped permutations, not arbitrary interleaving.
+
+The new `tests/test_axis_grouped_search.py` covers axis grouping (including antiparallel), prefix-state replay, order choice, UNKNOWN, search budget and exception restoration.
+
+**Critical limitation:** This is the deterministic *search orchestration* only. The FreeCAD `Расчёт` button remains disabled until the existing 2D tooling/contact oracle can be supplied for EACH completed-prefix + next-bend check, in machine coordinates, across setup/stroke/retract and supported section components. A callback that always returns CLEAR is NOT an acceptable physical validator. A geometric 3D projection or user-supplied fabricated `CLEAR` cannot be promoted to production search. The above code/tests have not yet been executed in FreeCAD or CI after these commits.
+
+Next action required before claiming physical automatic search: wire the existing physical 2D contact verification to the new bounded order loop (no new collision engine), add real negative fixture tests where a complete-prefix stroke fails, ensure status `UNKNOWN` for unsupported pose or missing hardware, and expose `Расчёт` only for the supported 2D use case after native acceptance.
