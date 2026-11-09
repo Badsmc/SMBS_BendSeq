@@ -1455,13 +1455,14 @@ class _PreviewPanel:
                 )
                 self._sync_playback_buttons()
 
-            def load_part(self):
-                """Load the currently selected SheetMetal part in FreeCAD."""
+            def load_part(self, selection=None, document=None):
+                """Load a SheetMetal unfold, preserving selection across MDI focus."""
                 import FreeCAD as App
                 import FreeCADGui as Gui
 
-                doc = getattr(App, "ActiveDocument", None)
-                selection = Gui.Selection.getSelection() if hasattr(Gui, "Selection") else []
+                doc = document if document is not None else getattr(App, "ActiveDocument", None)
+                if selection is None:
+                    selection = Gui.Selection.getSelection() if hasattr(Gui, "Selection") else []
 
                 # Early precondition check BEFORE touching timer, session, controls, or scene
                 outcome, new_session, msg = execute_load_part(self.session, doc, selection)
