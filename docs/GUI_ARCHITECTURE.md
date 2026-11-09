@@ -19,9 +19,9 @@ Keep FreeCAD command registration, presentation, user interaction, diagnostics a
 
 ## Safe migration sequence
 
-1. Document current command names, menu order, Qt object names, interaction behavior and signal contracts.
-2. Extract stateless helpers first with headless unit tests; keep existing import names for callers.
-3. Extract session data/selection logic with deterministic model fixtures and session preservation tests.
+1. (Started) Document current command names, menu order, Qt object names, interaction behavior and signal contracts.
+2. (Completed for diagnostics and Qt constants) Extract stateless helpers first with headless unit tests; keep existing import names for callers.
+3. (Extracted; validation pending) Extract session data/selection logic with deterministic model fixtures and session preservation tests.
 4. Split `_PreviewPanel` into canvas, controls, and playback coordinator; keep exactly one timer and one angle controller.
 5. Remove obsolete commands only after checking dynamic imports and recorded FreeCAD GUI acceptance; do **not** delete a file solely because its command is not shown in the toolbar.
 6. Run `python -m unittest tests.test_gui_diagnostics` and the existing GUI suite in an actual FreeCAD Qt session. Explicitly verify start/restart, tool library, load part, Play/Pause/Reset, slider, 2D/3D tabs, JSONL trace creation, and no duplicate workbench.
@@ -37,4 +37,4 @@ Keep FreeCAD command registration, presentation, user interaction, diagnostics a
 
 ## Current limitation
 
-The active 2.5D panel remains a large single file. This change only isolates its file logging subsystem; panel, controller and renderer decomposition is pending and must be performed in smaller tested changes.
+The large 2.5D panel has been moved into \`freecad_smbs/ui/pressbrake_panel.py\` without splitting its internal Qt controller/rendering methods yet. Its original import path stays supported. Headless structural checks are added in \`tests/test_gui_module_boundaries.py\`. **FreeCAD GUI behavioral verification is not yet complete.** The next stage is to decompose the panel internally, keeping exactly one timer and preserving all viewer object names.
