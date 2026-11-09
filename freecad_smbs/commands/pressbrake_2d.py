@@ -132,31 +132,100 @@ class PressBrakeTaskPanel:
             _log("PressBrakeSim Task dialog closed with MDI viewer")
 
 
+def _show_fallback_controls(workspace):
+    """Use an owned Qt dock while another native FreeCAD Task Dialog is active.
+
+    This avoids closing a foreign task, and keeps simulator buttons reachable.
+    """
+    import FreeCADGui as Gui
+    QtCore, _QtGui, QtWidgets = _qt()
+    dock = getattr(workspace, "_fallback_control_dock", None)
+    if dock is not None:
+        dock.show()
+        dock.raise_()
+        workspace.show_task_panel_btn.hide()
+        return dock
+
+    main = Gui.getMainWindow()
+    dock = QtWidgets.QDockWidget("PressBrakeSim — управление", main)
+    dock.setObjectName("SMBS_FallbackControlsDock")
+    dock.setAllowedAreas(QtCore.Qt.LeftDockWidgetArea | QtCore.Qt.RightDockWidgetArea)
+    form = QtWidgets.QWidget(dock)
+    layout = QtWidgets.QVBoxLayout(form)
+    layout.setContentsMargins(4, 4, 4, 4)
+    layout.addWidget(workspace._control_tabs, 1)
+    close_btn = QtWidgets.QPushButton("Закрыть панель", form)
+    close_btn.setObjectName("SMBS_CloseFallbackPanel")
+    close_btn.clicked.connect(dock.hide)
+    layout.addWidget(close_btn)
+    dock.setWidget(form)
+    main.addDockWidget(QtCore.Qt.LeftDockWidgetArea, dock)
+    workspace._fallback_control_dock = dock
+
+    # When the fallback is hidden, preserve its controls and offer a reopen
+    # button directly in the viewer.
+    dock.visibilityChanged.connect(
+        lambda visible: workspace.show_task_panel_btn.setVisible(not visible)
+    )
+    dock.show()
+    dock.raise_()
+    workspace.show_task_panel_btn.hide()
+    _log("FreeCAD native task occupied; showing PressBrakeSim controls in dock")
+    return dock
+
+
 def open_task_panel(workspace):
-    """Restore hidden controls or create the single dialog for this viewer."""
+    """Restore our controls using native Task Panel or a non-destructive dock."""
     import FreeCADGui as Gui
     global _TASK_PANEL
+
+    fallback = getattr(workspace, "_fallback_control_dock", None)
+    if fallback is not None:
+        return _show_fallback_controls(workspace)
+
     task = getattr(workspace, "_task_panel_host", None)
     if task is not None and not task._closing:
         if not task.show_panel():
-            raise RuntimeError("PressBrakeSim Task Panel cannot be restored")
+            _log("Native Tasks dock not available; switching to owned controls dock")
+            # Do not steal controls from a live native form unless that task is
+            # closed; otherwise the same widget would be multiply owned.
+            raise RuntimeError("FreeCAD Tasks dock cannot be restored")
         _TASK_PANEL = task
         return task
 
-    # Do not create a duplicate if FreeCAD already has another task active.
     active = Gui.Control.activeDialog() if hasattr(Gui.Control, "activeDialog") else None
-    if active is not None:
-        raise RuntimeError(
-            "FreeCAD already has an active Task Dialog. Close that task first."
-        )
+    if active:
+        _log("Another FreeCAD Task Dialog is active; using an independent controls dock")
+        return _show_fallback_controls(workspace)
+
     task = PressBrakeTaskPanel(workspace)
-    Gui.Control.showDialog(task)
+    try:
+        Gui.Control.showDialog(task)
+    except Exception as exc:
+        _log("showDialog unavailable ({}); using a dedicated controls dock".format(exc))
+        # FreeCAD may have reparented the tab widget into a half-created form.
+        workspace._control_tabs.setParent(workspace)
+        return _show_fallback_controls(workspace)
     workspace.attach_task_panel(task)
     _TASK_PANEL = task
-    # showDialog installs the form into the Qt hierarchy.
     task._find_task_dock()
-    _log("PressBrakeSim Task dialog created")
+    _log("PressBrakeSim native Task dialog created")
     return task
+
+
+def close_workspace_controls(workspace):
+    """Dispose addon-owned fallback dock or close its native task dialog."""
+    dock = getattr(workspace, "_fallback_control_dock", None)
+    if dock is not None:
+        workspace._control_tabs.setParent(workspace)
+        workspace._control_tabs.hide()
+        dock.hide()
+        dock.setWidget(None)
+        dock.deleteLater()
+        workspace._fallback_control_dock = None
+    task = getattr(workspace, "_task_panel_host", None)
+    if task is not None:
+        task.close_from_workspace()
 
 
 def get_workspace_widget():
