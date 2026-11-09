@@ -247,3 +247,25 @@ Regression tests added to `tests/test_contact_oracle_2d.py` for zero-angle repea
 User reran `tests.test_contact_oracle_2d` and `tests.test_axis_grouped_search` in real Windows FreeCAD: **27/27 PASS** (0.145 seconds). On `Z-10-20-10-(ok)` with `PUNCH_AP_1017_88°_H104,65_R0,8` and `T-DIE_AT_3015_88°_V12_H80`, both B01 and B02 yielded `UNKNOWN setup_boundary_contact_unverified`, with exactly two supported findings per candidate: `DIE/active_fixed=TOUCH boundaries_within_tolerance` and `DIE/active_moving=TOUCH boundaries_within_tolerance`. No `Degenerate polygon edge` or observed `INTERFERENCE` remains at that initial setup. `UNKNOWN_UNVERIFIED` is expected; do not infer full bend feasibility.
 
 Existing `CoupledAirBendingKinematics` already provides `stroke_for_angle`, `ram_z_for_angle`, `support_plane_zm`, and `validate_geometric_constraints`; these must be reused when developing continuous 2D stroke checks, with all prior folds retained and all supported sheet components inspected. The selected tool's physical datums and ram placement must be reconciled in common machine coordinates at each stage. Do not consider finite samples alone a continuous-path collision proof, and do not promote `TOUCH` or `UNKNOWN` to success without evidence. GUI calculation remains unqualified.
+
+
+## Stage 2: phase-sampled 2D collision diagnostic (2026-11-09; acceptance pending)
+
+Added `sample_bend_stroke_2d(fold_state, panel_vertices_xy, tooling, bend_id, samples=12)` to the **existing** `smbs_core/kinematics2d/contact_oracle_2d.py` (no separate solver). Uses actual verified ToolingSetup2D, existing `CoupledAirBendingKinematics.from_tooling_and_fold_state`, machine-space pose/cutting-section adapter, and `check_sheet_tooling_preview`. Inspects discrete `APPROACH`, `CONTACT`, intermediate `BENDING`, `BOTTOM`, and `RETRACT` frames. Earlier bend angles remain applied; tooling/deformation use local copies, and the caller FoldState is restored. It stores per-frame phase, angle, ram height, geometry findings and kinematic constraint decisions.
+
+**Important**: this is diagnostic Stage 2 progress, not automatic collision certification. It checks central 2D section at finite angles only, not the swept volume between frames, noncentral sheet/tool spans, handling/transfer or machine backgauge/clamps/frame. Only physically verified tooling inputs avoid early UNKNOWN; the returned top-level status is always `SAMPLED_2D_NOT_CONTINUOUSLY_VERIFIED` rather than a qualified CLEAR. Actual setup or punch/ram geometries may require coordinate reconciliation if frame reports show contradictions. Do NOT enable the automatic sequence button from this result or mistake finite-frame checks for complete feasibility.
+
+Additional regression tests in `tests/test_axis_grouped_search.py`: 1) invalid sample count, 2) missing tool datums/verified geometry, 3) phase progression and restoration of an already folded bend. **These latest changes have not been rerun in native FreeCAD/CI.**
+
+Recommended user acceptance on original Z model with verified punch AP1017 and V12 die:
+```python
+from smbs_core.kinematics2d.contact_oracle_2d import sample_bend_stroke_2d
+for bid in ("B01","B02"):
+    report = sample_bend_stroke_2d(session.fold_state, session.panel_vertices_xy,
+                                   tooling, bid, samples=12)
+    print(bid, report["status"], report["reason"])
+    for frame in report["frames"]:
+        print(frame["phase"], round(frame["angle_deg"],2),
+              frame.get("contact"), frame.get("kinematics"),
+              frame.get("status"), frame.get("findings"))
+```
