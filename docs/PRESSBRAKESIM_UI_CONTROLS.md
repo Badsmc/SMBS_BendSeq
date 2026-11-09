@@ -1,3 +1,13 @@
+## Task Panel reopen fix (2026-11-09)
+
+Closing **Закрыть панель** now detaches the three control tabs from FreeCAD's Task dialog container while preserving their existing Qt widgets and the simulation session. The separate MDI viewer then displays a **Показать панель управления** button. Clicking that button creates a new FreeCAD Task dialog around the existing tabs, without creating a second viewer or resetting the bend state.
+
+The toolbar **Симуляция** command also calls the same `open_task_panel(workspace)` function, which uses the workspace-attached dialog state instead of trusting a potentially stale global handle. **Оснастка** can request the tab and reopen Task Panel when necessary.
+
+Repeated open/close is covered by `tests/test_pressbrake_workspace_gui.py::WorkspaceGuiTests.test_close_task_panel_retains_viewer_controls`. Full FreeCAD runtime validation remains required. After pulling the latest `gui` files, **restart FreeCAD** before testing (previous Python module imports and registered commands are cached).
+
+---
+
 ## Closing the FreeCAD Task Panel (2026-11-09)
 
 The native FreeCAD Task Panel shows **Закрыть панель** beneath its three tabs (Симуляция / Оснастка / Настройки). Pressing it closes **only the Task Panel**. The MDI simulation viewer stays open, including the loaded part, bend state, and running timer. Reopening the viewer with **Симуляция** recreates the Task Panel wrapper and reuses the exact same existing controls. The control widget is detached before `Gui.Control.closeDialog()` so FreeCAD cannot accidentally delete the playback controls when disposing its task-dialog form.
