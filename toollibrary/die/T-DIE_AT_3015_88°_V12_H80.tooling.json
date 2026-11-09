@@ -1,0 +1,30 @@
+{
+  "schema_version": "1.0",
+  "id": "T-DIE_AT_3015_88°_V12_H80",
+  "kind": "die",
+  "source": "T-DIE_AT_3015_88°_V12_H80.FCStd",
+  "datums": {
+    "mounting_plane": {
+      "kind": "plane",
+      "origin": [0.573, -48.3, 0.0],
+      "normal": [0, 1, 0],
+      "tolerance_mm": 0.05
+    },
+    "working_axis": {
+      "kind": "axis",
+      "origin": [0.573, 31.701, 0.0],
+      "direction": [0, 0, 1],
+      "tolerance_mm": 0.02
+    },
+    "v_center": {
+      "kind": "axis",
+      "origin": [0.573, 31.701, 0.0],
+      "direction": [0, 0, 1]
+    }
+  },
+  "metadata": {
+    "v_width_mm": 12.0,
+    "angle_deg": 88.0,
+    "height_mm": 80.0
+  }
+}
