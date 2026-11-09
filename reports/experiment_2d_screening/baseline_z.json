@@ -1,0 +1,222 @@
+{
+  "status": "UNVERIFIED",
+  "overall_evidence": "UNVERIFIED",
+  "is_strict_pass": false,
+  "is_conditional_pass": false,
+  "found_sequence": null,
+  "initial_sequence": [
+    "B01",
+    "B02"
+  ],
+  "best_partial_sequence": [],
+  "max_depth_reached": 0,
+  "total_bends": 2,
+  "states_visited": 1,
+  "step_evaluations": 2,
+  "cache_hits": 0,
+  "dead_end_hits": 0,
+  "backtracks_count": 0,
+  "elapsed_s": 0.36,
+  "match_active_bend_length": false,
+  "allow_end_zone_collision": false,
+  "end_zone_length_mm": 0.0,
+  "strict_search_attempted": true,
+  "strict_search_exhausted": false,
+  "strict_search_limit_reached": false,
+  "strict_search_note": "Strict search encountered unverified branches (physical evidence incomplete).",
+  "conditional_bends": [],
+  "winning_steps": [],
+  "forward_replay": null,
+  "rejection_summary": {
+    "B01": [
+      "prefix=[]:STAGE_C_3D:UNVERIFIED:initial_pose:punch:Active bend length (200.0mm, X_m [-100.0, 100.0]) exceeds tooling span (100.0mm, X_m [-50.0, 50.0]). Uncovered: left=50.0mm, right=50.0mm.; die:Active bend length (200.0mm, X_m [-100.0, 100.0]) exceeds tooling span (100.0mm, X_m [-50.0, 50.0]). Uncovered: left=50.0mm, right=50.0mm."
+    ],
+    "B02": [
+      "prefix=[]:STAGE_C_3D:UNVERIFIED:initial_pose:punch:Active bend length (200.0mm, X_m [-100.0, 100.0]) exceeds tooling span (100.0mm, X_m [-50.0, 50.0]). Uncovered: left=50.0mm, right=50.0mm.; die:Active bend length (200.0mm, X_m [-100.0, 100.0]) exceeds tooling span (100.0mm, X_m [-50.0, 50.0]). Uncovered: left=50.0mm, right=50.0mm."
+    ]
+  },
+  "search_limit_reason": "",
+  "message_ru": "Поиск не смог однозначно подтвердить отсутствие решений из-за наличия непроверенных состояний (UNVERIFIED). Лучший частичный префикс (0/2): нет.",
+  "plan_cost": null,
+  "best_strict_cost": null,
+  "best_conditional_cost": null,
+  "time_to_first_full_candidate_s": null,
+  "time_to_first_verified_plan_s": null,
+  "stage_a_evaluated": 2,
+  "stage_a_pruned": 0,
+  "stage_b_evaluated": 2,
+  "stage_b_pruned": 0,
+  "stage_c_native_evaluated": 2,
+  "optimality_proven": false,
+  "operation_weights": {
+    "turn_fixed": 2.0,
+    "turn_per_90_deg": 10.0,
+    "flip": 20.0,
+    "shift_fixed": 5.0,
+    "shift_per_100_mm": 0.5,
+    "length_change_fixed": 2.0,
+    "length_delta_per_100_mm": 0.5,
+    "rotation_deadband_deg": 1.0,
+    "shift_deadband_mm": 1.0,
+    "length_deadband_mm": 0.5
+  },
+  "cached_step_evaluations": [
+    {
+      "completed_prefix": [],
+      "candidate_bend_id": "B01",
+      "step_record": {
+        "bend_id": "B01",
+        "step_index": 0,
+        "completed_prefix": [],
+        "pose_status": "UNVERIFIED",
+        "trajectory_status": null,
+        "effective_status": "UNVERIFIED",
+        "reason": "initial_pose:punch:Active bend length (200.0mm, X_m [-100.0, 100.0]) exceeds tooling span (100.0mm, X_m [-50.0, 50.0]). Uncovered: left=50.0mm, right=50.0mm.; die:Active bend length (200.0mm, X_m [-100.0, 100.0]) exceeds tooling span (100.0mm, X_m [-50.0, 50.0]). Uncovered: left=50.0mm, right=50.0mm.",
+        "active_bend_length_mm": 200.0,
+        "virtual_punch_length_mm": null,
+        "virtual_die_length_mm": null,
+        "is_virtual_tool_geometry": false,
+        "desired_midpoint_xm": 0.0,
+        "is_conditional": false,
+        "end_zone_classification": null,
+        "end_zone_affected_side": null,
+        "end_zone_overlap_volume_mm3": 0.0,
+        "end_zone_length_mm": 0.0,
+        "punch_overlap_volume_mm3": 0.0,
+        "die_overlap_volume_mm3": 0.0,
+        "elapsed_ms": 193.88,
+        "from_cache": false,
+        "tool_length_info": {
+          "active_bend_id": "B01",
+          "active_bend_length_mm": 200.0,
+          "effective_bend_span_xm": [
+            -100.0,
+            100.0
+          ],
+          "desired_midpoint_xm": 0.0,
+          "is_virtual_tool_geometry": false,
+          "tool_length_mode": "LIBRARY_FIXED",
+          "punch_tool_id": "PUNCH_AP_1017_88°_H104,65_R0,8",
+          "punch_source_file": "",
+          "punch_source_length_mm": 100.0,
+          "punch_virtual_length_mm": null,
+          "punch_effective_length_mm": 0.0,
+          "punch_span_xm": [
+            -50.0,
+            50.0
+          ],
+          "die_tool_id": "T-DIE_AT_3015_88°_V12_H80",
+          "die_source_file": "",
+          "die_source_length_mm": 100.0,
+          "die_virtual_length_mm": null,
+          "die_effective_length_mm": 0.0,
+          "die_span_xm": [
+            -50.0,
+            50.0
+          ]
+        }
+      }
+    },
+    {
+      "completed_prefix": [],
+      "candidate_bend_id": "B02",
+      "step_record": {
+        "bend_id": "B02",
+        "step_index": 0,
+        "completed_prefix": [],
+        "pose_status": "UNVERIFIED",
+        "trajectory_status": null,
+        "effective_status": "UNVERIFIED",
+        "reason": "initial_pose:punch:Active bend length (200.0mm, X_m [-100.0, 100.0]) exceeds tooling span (100.0mm, X_m [-50.0, 50.0]). Uncovered: left=50.0mm, right=50.0mm.; die:Active bend length (200.0mm, X_m [-100.0, 100.0]) exceeds tooling span (100.0mm, X_m [-50.0, 50.0]). Uncovered: left=50.0mm, right=50.0mm.",
+        "active_bend_length_mm": 200.0,
+        "virtual_punch_length_mm": null,
+        "virtual_die_length_mm": null,
+        "is_virtual_tool_geometry": false,
+        "desired_midpoint_xm": 0.0,
+        "is_conditional": false,
+        "end_zone_classification": null,
+        "end_zone_affected_side": null,
+        "end_zone_overlap_volume_mm3": 0.0,
+        "end_zone_length_mm": 0.0,
+        "punch_overlap_volume_mm3": 0.0,
+        "die_overlap_volume_mm3": 0.0,
+        "elapsed_ms": 23.76,
+        "from_cache": false,
+        "tool_length_info": {
+          "active_bend_id": "B02",
+          "active_bend_length_mm": 200.0,
+          "effective_bend_span_xm": [
+            -100.0,
+            100.0
+          ],
+          "desired_midpoint_xm": 0.0,
+          "is_virtual_tool_geometry": false,
+          "tool_length_mode": "LIBRARY_FIXED",
+          "punch_tool_id": "PUNCH_AP_1017_88°_H104,65_R0,8",
+          "punch_source_file": "",
+          "punch_source_length_mm": 100.0,
+          "punch_virtual_length_mm": null,
+          "punch_effective_length_mm": 0.0,
+          "punch_span_xm": [
+            -50.0,
+            50.0
+          ],
+          "die_tool_id": "T-DIE_AT_3015_88°_V12_H80",
+          "die_source_file": "",
+          "die_source_length_mm": 100.0,
+          "die_virtual_length_mm": null,
+          "die_effective_length_mm": 0.0,
+          "die_span_xm": [
+            -50.0,
+            50.0
+          ]
+        }
+      }
+    }
+  ],
+  "kernel_metrics": {
+    "scope": "INSTRUMENTED_NATIVE_COLLISION_CALLS_ONLY",
+    "common_calls": 0,
+    "distance_calls": 0,
+    "total_instrumented_calls": 0,
+    "common_elapsed_s": 0.0,
+    "distance_elapsed_s": 0.0,
+    "total_elapsed_s": 0.0,
+    "failures": 0,
+    "labels": {},
+    "verified_tool_spans": {
+      "status": "SOURCE_CAD_FIXED_TOOL_MACHINE_BBOX_VERIFIED",
+      "punch_span_xm": [
+        -50.0,
+        50.0
+      ],
+      "die_span_xm": [
+        -50.0,
+        50.0
+      ],
+      "punch_source": "/Users/badmc/Library/Application Support/FreeCAD/v1-1/Mod/SMBS_BendSeq_Experiment/toollibrary/punch/PUNCH_AP_1017_88°_H104,65_R0,8.FCStd",
+      "die_source": "/Users/badmc/Library/Application Support/FreeCAD/v1-1/Mod/SMBS_BendSeq_Experiment/toollibrary/die/T-DIE_AT_3015_88°_V12_H80.FCStd",
+      "note": "X range from native transformed fixed CAD solids; not a continuous trajectory proof"
+    },
+    "physical_length_mode": "LIBRARY_FIXED",
+    "multi_station_execution": {
+      "evidence": "OBSERVED_2D_SAMPLED_EXECUTION_NOT_3D_PROOF",
+      "previews": 0,
+      "station_samples": 0,
+      "evaluated_sections": 0,
+      "unverified_stations": 0,
+      "interference_stations": 0,
+      "preview_statuses": {}
+    }
+  },
+  "screening_metrics": {
+    "evidence": "OBSERVED_2D_SAMPLED_EXECUTION_NOT_3D_PROOF",
+    "previews": 0,
+    "station_samples": 0,
+    "evaluated_sections": 0,
+    "unverified_stations": 0,
+    "interference_stations": 0,
+    "preview_statuses": {}
+  },
+  "wall_time_s": 0.36071018399889
+}

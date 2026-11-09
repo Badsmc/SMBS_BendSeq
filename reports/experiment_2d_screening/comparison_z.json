@@ -1,0 +1,144 @@
+{
+  "schema_version": 1,
+  "comparison_status": "OBSERVED_MEASUREMENTS_NOT_PHYSICAL_CERTIFICATION",
+  "baseline": {
+    "mode": "BASELINE",
+    "status": "UNVERIFIED",
+    "found_sequence": null,
+    "elapsed_s": 0.359927614001208,
+    "time_to_first_full_candidate_s": null,
+    "time_to_first_verified_plan_s": null,
+    "stage_b_evaluated": 2,
+    "stage_c_validation_attempts": 2,
+    "expensive_step_evaluations": 2,
+    "occt_boolean_calls": 0,
+    "occt_boolean_elapsed_s": 0.0,
+    "model_id": "Z-(ok).FCStd:sha256=68a6670795749796ba260fa135d6cc56ea75c96264c03666b9b137c4c283753a:unfold=Тело_Unfold",
+    "tooling_setup_id": "punch=PUNCH_AP_1017_88°_H104,65_R0,8:91c237e915ba623e5c57fc491e8d498179b3b3af0fffb4f5f2a02955eb5102be:die=T-DIE_AT_3015_88°_V12_H80:b3d3cb5ac5b4fd1d845c940133e3237f9a409647e011f26243e59dff54b33699:p_span=(-50.0, 50.0):d_span=(-50.0, 50.0)",
+    "placement_id": "dir=FORWARD:match_len=False:shift=0",
+    "tolerance_signature": "near=0.5:vol=0.0001:contact=0.0001:arc=128:phase=180.0:strict_end_zone=False"
+  },
+  "screened": {
+    "mode": "2D_RISK",
+    "status": "UNVERIFIED",
+    "found_sequence": null,
+    "elapsed_s": 1.3209291820021463,
+    "time_to_first_full_candidate_s": null,
+    "time_to_first_verified_plan_s": null,
+    "stage_b_evaluated": 2,
+    "stage_c_validation_attempts": 2,
+    "expensive_step_evaluations": 2,
+    "occt_boolean_calls": 0,
+    "occt_boolean_elapsed_s": 0.0,
+    "model_id": "Z-(ok).FCStd:sha256=68a6670795749796ba260fa135d6cc56ea75c96264c03666b9b137c4c283753a:unfold=Тело_Unfold",
+    "tooling_setup_id": "punch=PUNCH_AP_1017_88°_H104,65_R0,8:91c237e915ba623e5c57fc491e8d498179b3b3af0fffb4f5f2a02955eb5102be:die=T-DIE_AT_3015_88°_V12_H80:b3d3cb5ac5b4fd1d845c940133e3237f9a409647e011f26243e59dff54b33699:p_span=(-50.0, 50.0):d_span=(-50.0, 50.0)",
+    "placement_id": "dir=FORWARD:match_len=False:shift=0",
+    "tolerance_signature": "near=0.5:vol=0.0001:contact=0.0001:arc=128:phase=180.0:strict_end_zone=False"
+  },
+  "savings": {
+    "stage_c_validation_attempts": 0,
+    "expensive_step_evaluations": 0,
+    "occt_boolean_calls": 0,
+    "occt_boolean_elapsed_s": 0.0,
+    "total_elapsed_s": -0.9610015680009383,
+    "time_to_first_verified_plan_s": null
+  },
+  "caveat": "Stage C attempts and step evaluations are NOT actual OCCT boolean calls. Missing OCCT instrumentation or absent verified plan yields null.",
+  "screening_evidence": {
+    "status": "ACTUAL_2D_STATIONS_EVALUATED",
+    "sampled_sections": 84,
+    "unverified_stations": 132,
+    "note": "This shows execution only, not safety or causal speedup."
+  },
+  "kernel_snapshots": {
+    "baseline": {
+      "scope": "INSTRUMENTED_NATIVE_COLLISION_CALLS_ONLY",
+      "common_calls": 0,
+      "distance_calls": 0,
+      "total_instrumented_calls": 0,
+      "common_elapsed_s": 0.0,
+      "distance_elapsed_s": 0.0,
+      "total_elapsed_s": 0.0,
+      "failures": 0,
+      "labels": {},
+      "verified_tool_spans": {
+        "status": "SOURCE_CAD_FIXED_TOOL_MACHINE_BBOX_VERIFIED",
+        "punch_span_xm": [
+          -50.0,
+          50.0
+        ],
+        "die_span_xm": [
+          -50.0,
+          50.0
+        ],
+        "punch_source": "/Users/badmc/Library/Application Support/FreeCAD/v1-1/Mod/SMBS_BendSeq_Experiment/toollibrary/punch/PUNCH_AP_1017_88°_H104,65_R0,8.FCStd",
+        "die_source": "/Users/badmc/Library/Application Support/FreeCAD/v1-1/Mod/SMBS_BendSeq_Experiment/toollibrary/die/T-DIE_AT_3015_88°_V12_H80.FCStd",
+        "note": "X range from native transformed fixed CAD solids; not a continuous trajectory proof"
+      },
+      "physical_length_mode": "LIBRARY_FIXED",
+      "multi_station_execution": {
+        "evidence": "OBSERVED_2D_SAMPLED_EXECUTION_NOT_3D_PROOF",
+        "previews": 0,
+        "station_samples": 0,
+        "evaluated_sections": 0,
+        "unverified_stations": 0,
+        "interference_stations": 0,
+        "preview_statuses": {}
+      }
+    },
+    "screened": {
+      "scope": "INSTRUMENTED_NATIVE_COLLISION_CALLS_ONLY",
+      "common_calls": 0,
+      "distance_calls": 0,
+      "total_instrumented_calls": 0,
+      "common_elapsed_s": 0.0,
+      "distance_elapsed_s": 0.0,
+      "total_elapsed_s": 0.0,
+      "failures": 0,
+      "labels": {},
+      "verified_tool_spans": {
+        "status": "SOURCE_CAD_FIXED_TOOL_MACHINE_BBOX_VERIFIED",
+        "punch_span_xm": [
+          -50.0,
+          50.0
+        ],
+        "die_span_xm": [
+          -50.0,
+          50.0
+        ],
+        "punch_source": "/Users/badmc/Library/Application Support/FreeCAD/v1-1/Mod/SMBS_BendSeq_Experiment/toollibrary/punch/PUNCH_AP_1017_88°_H104,65_R0,8.FCStd",
+        "die_source": "/Users/badmc/Library/Application Support/FreeCAD/v1-1/Mod/SMBS_BendSeq_Experiment/toollibrary/die/T-DIE_AT_3015_88°_V12_H80.FCStd",
+        "note": "X range from native transformed fixed CAD solids; not a continuous trajectory proof"
+      },
+      "physical_length_mode": "LIBRARY_FIXED",
+      "multi_station_execution": {
+        "evidence": "OBSERVED_2D_SAMPLED_EXECUTION_NOT_3D_PROOF",
+        "previews": 12,
+        "station_samples": 216,
+        "evaluated_sections": 84,
+        "unverified_stations": 132,
+        "interference_stations": 0,
+        "preview_statuses": {
+          "UNVERIFIED_NEEDS_3D": 12
+        }
+      }
+    }
+  },
+  "metadata": {
+    "timestamp": "2026-11-09T17:53:43.339444+00:00",
+    "git_commit": "763c8a01466d0ba1a332c49b439c43fd92fe93cd",
+    "git_dirty": false,
+    "fixture": "Z-(ok).FCStd",
+    "direction": "FORWARD",
+    "punch": "PUNCH_AP_1017_88°_H104,65_R0,8",
+    "die": "T-DIE_AT_3015_88°_V12_H80",
+    "physical_length_mode": "LIBRARY_FIXED",
+    "budgets": {
+      "max_search_time_s": 600.0,
+      "max_phase_time_s": 180.0,
+      "max_states": 20,
+      "max_checks": 50,
+      "arc_segments": 128
+    }
+  }
+}

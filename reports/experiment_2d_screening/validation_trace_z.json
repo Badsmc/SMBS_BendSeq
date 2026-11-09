@@ -1,0 +1,300 @@
+{
+  "fixture": "Z-(ok).FCStd",
+  "timestamp": "2026-11-09T17:53:43.340349+00:00",
+  "part_dimensions": {
+    "cad_bounding_box": [
+      0.0,
+      200.0,
+      0.0,
+      50.0,
+      -13.5,
+      15.0
+    ],
+    "volume_mm3": 22649.336143134646,
+    "faces": 22,
+    "edges": 44,
+    "solids": 1,
+    "bends": {
+      "B01": {
+        "length_mm": 200.0,
+        "angle_deg": -90.0,
+        "axis": [
+          [
+            0.0,
+            13.7566,
+            0.0
+          ],
+          [
+            200.0,
+            13.7566,
+            0.0
+          ]
+        ]
+      },
+      "B02": {
+        "length_mm": 200.0,
+        "angle_deg": 90.0,
+        "axis": [
+          [
+            200.0,
+            61.2699,
+            0.0
+          ],
+          [
+            0.0,
+            61.2699,
+            0.0
+          ]
+        ]
+      }
+    }
+  },
+  "tooling_dimensions": {
+    "punch": {
+      "id": "PUNCH_AP_1017_88°_H104,65_R0,8",
+      "source": "/Users/badmc/Library/Application Support/FreeCAD/v1-1/Mod/SMBS_BendSeq_Experiment/toollibrary/punch/PUNCH_AP_1017_88°_H104,65_R0,8.FCStd",
+      "physical_length_mm": 100.0,
+      "span_xm": [
+        -50.0,
+        50.0
+      ],
+      "machine_bbox_x": [
+        -50.0,
+        50.0
+      ]
+    },
+    "die": {
+      "id": "T-DIE_AT_3015_88°_V12_H80",
+      "source": "/Users/badmc/Library/Application Support/FreeCAD/v1-1/Mod/SMBS_BendSeq_Experiment/toollibrary/die/T-DIE_AT_3015_88°_V12_H80.FCStd",
+      "physical_length_mm": 100.0,
+      "span_xm": [
+        -50.0,
+        50.0
+      ],
+      "machine_bbox_x": [
+        -50.0,
+        50.0
+      ]
+    }
+  },
+  "evaluation_traces": {
+    "baseline": [
+      {
+        "bend_id": "B01",
+        "step_index": 0,
+        "completed_prefix": [],
+        "pose_status": "UNVERIFIED",
+        "trajectory_status": null,
+        "effective_status": "UNVERIFIED",
+        "reason": "initial_pose:punch:Active bend length (200.0mm, X_m [-100.0, 100.0]) exceeds tooling span (100.0mm, X_m [-50.0, 50.0]). Uncovered: left=50.0mm, right=50.0mm.; die:Active bend length (200.0mm, X_m [-100.0, 100.0]) exceeds tooling span (100.0mm, X_m [-50.0, 50.0]). Uncovered: left=50.0mm, right=50.0mm.",
+        "active_bend_length_mm": 200.0,
+        "virtual_punch_length_mm": null,
+        "virtual_die_length_mm": null,
+        "is_virtual_tool_geometry": false,
+        "desired_midpoint_xm": 0.0,
+        "is_conditional": false,
+        "end_zone_classification": null,
+        "end_zone_affected_side": null,
+        "end_zone_overlap_volume_mm3": 0.0,
+        "end_zone_length_mm": 0.0,
+        "punch_overlap_volume_mm3": 0.0,
+        "die_overlap_volume_mm3": 0.0,
+        "elapsed_ms": 193.88,
+        "from_cache": false,
+        "tool_length_info": {
+          "active_bend_id": "B01",
+          "active_bend_length_mm": 200.0,
+          "effective_bend_span_xm": [
+            -100.0,
+            100.0
+          ],
+          "desired_midpoint_xm": 0.0,
+          "is_virtual_tool_geometry": false,
+          "tool_length_mode": "LIBRARY_FIXED",
+          "punch_tool_id": "PUNCH_AP_1017_88°_H104,65_R0,8",
+          "punch_source_file": "",
+          "punch_source_length_mm": 100.0,
+          "punch_virtual_length_mm": null,
+          "punch_effective_length_mm": 0.0,
+          "punch_span_xm": [
+            -50.0,
+            50.0
+          ],
+          "die_tool_id": "T-DIE_AT_3015_88°_V12_H80",
+          "die_source_file": "",
+          "die_source_length_mm": 100.0,
+          "die_virtual_length_mm": null,
+          "die_effective_length_mm": 0.0,
+          "die_span_xm": [
+            -50.0,
+            50.0
+          ]
+        }
+      },
+      {
+        "bend_id": "B02",
+        "step_index": 0,
+        "completed_prefix": [],
+        "pose_status": "UNVERIFIED",
+        "trajectory_status": null,
+        "effective_status": "UNVERIFIED",
+        "reason": "initial_pose:punch:Active bend length (200.0mm, X_m [-100.0, 100.0]) exceeds tooling span (100.0mm, X_m [-50.0, 50.0]). Uncovered: left=50.0mm, right=50.0mm.; die:Active bend length (200.0mm, X_m [-100.0, 100.0]) exceeds tooling span (100.0mm, X_m [-50.0, 50.0]). Uncovered: left=50.0mm, right=50.0mm.",
+        "active_bend_length_mm": 200.0,
+        "virtual_punch_length_mm": null,
+        "virtual_die_length_mm": null,
+        "is_virtual_tool_geometry": false,
+        "desired_midpoint_xm": 0.0,
+        "is_conditional": false,
+        "end_zone_classification": null,
+        "end_zone_affected_side": null,
+        "end_zone_overlap_volume_mm3": 0.0,
+        "end_zone_length_mm": 0.0,
+        "punch_overlap_volume_mm3": 0.0,
+        "die_overlap_volume_mm3": 0.0,
+        "elapsed_ms": 23.76,
+        "from_cache": false,
+        "tool_length_info": {
+          "active_bend_id": "B02",
+          "active_bend_length_mm": 200.0,
+          "effective_bend_span_xm": [
+            -100.0,
+            100.0
+          ],
+          "desired_midpoint_xm": 0.0,
+          "is_virtual_tool_geometry": false,
+          "tool_length_mode": "LIBRARY_FIXED",
+          "punch_tool_id": "PUNCH_AP_1017_88°_H104,65_R0,8",
+          "punch_source_file": "",
+          "punch_source_length_mm": 100.0,
+          "punch_virtual_length_mm": null,
+          "punch_effective_length_mm": 0.0,
+          "punch_span_xm": [
+            -50.0,
+            50.0
+          ],
+          "die_tool_id": "T-DIE_AT_3015_88°_V12_H80",
+          "die_source_file": "",
+          "die_source_length_mm": 100.0,
+          "die_virtual_length_mm": null,
+          "die_effective_length_mm": 0.0,
+          "die_span_xm": [
+            -50.0,
+            50.0
+          ]
+        }
+      }
+    ],
+    "screened": [
+      {
+        "bend_id": "B01",
+        "step_index": 0,
+        "completed_prefix": [],
+        "pose_status": "UNVERIFIED",
+        "trajectory_status": null,
+        "effective_status": "UNVERIFIED",
+        "reason": "initial_pose:punch:Active bend length (200.0mm, X_m [-100.0, 100.0]) exceeds tooling span (100.0mm, X_m [-50.0, 50.0]). Uncovered: left=50.0mm, right=50.0mm.; die:Active bend length (200.0mm, X_m [-100.0, 100.0]) exceeds tooling span (100.0mm, X_m [-50.0, 50.0]). Uncovered: left=50.0mm, right=50.0mm.",
+        "active_bend_length_mm": 200.0,
+        "virtual_punch_length_mm": null,
+        "virtual_die_length_mm": null,
+        "is_virtual_tool_geometry": false,
+        "desired_midpoint_xm": 0.0,
+        "is_conditional": false,
+        "end_zone_classification": null,
+        "end_zone_affected_side": null,
+        "end_zone_overlap_volume_mm3": 0.0,
+        "end_zone_length_mm": 0.0,
+        "punch_overlap_volume_mm3": 0.0,
+        "die_overlap_volume_mm3": 0.0,
+        "elapsed_ms": 22.4,
+        "from_cache": false,
+        "tool_length_info": {
+          "active_bend_id": "B01",
+          "active_bend_length_mm": 200.0,
+          "effective_bend_span_xm": [
+            -100.0,
+            100.0
+          ],
+          "desired_midpoint_xm": 0.0,
+          "is_virtual_tool_geometry": false,
+          "tool_length_mode": "LIBRARY_FIXED",
+          "punch_tool_id": "PUNCH_AP_1017_88°_H104,65_R0,8",
+          "punch_source_file": "",
+          "punch_source_length_mm": 100.0,
+          "punch_virtual_length_mm": null,
+          "punch_effective_length_mm": 0.0,
+          "punch_span_xm": [
+            -50.0,
+            50.0
+          ],
+          "die_tool_id": "T-DIE_AT_3015_88°_V12_H80",
+          "die_source_file": "",
+          "die_source_length_mm": 100.0,
+          "die_virtual_length_mm": null,
+          "die_effective_length_mm": 0.0,
+          "die_span_xm": [
+            -50.0,
+            50.0
+          ]
+        }
+      },
+      {
+        "bend_id": "B02",
+        "step_index": 0,
+        "completed_prefix": [],
+        "pose_status": "UNVERIFIED",
+        "trajectory_status": null,
+        "effective_status": "UNVERIFIED",
+        "reason": "initial_pose:punch:Active bend length (200.0mm, X_m [-100.0, 100.0]) exceeds tooling span (100.0mm, X_m [-50.0, 50.0]). Uncovered: left=50.0mm, right=50.0mm.; die:Active bend length (200.0mm, X_m [-100.0, 100.0]) exceeds tooling span (100.0mm, X_m [-50.0, 50.0]). Uncovered: left=50.0mm, right=50.0mm.",
+        "active_bend_length_mm": 200.0,
+        "virtual_punch_length_mm": null,
+        "virtual_die_length_mm": null,
+        "is_virtual_tool_geometry": false,
+        "desired_midpoint_xm": 0.0,
+        "is_conditional": false,
+        "end_zone_classification": null,
+        "end_zone_affected_side": null,
+        "end_zone_overlap_volume_mm3": 0.0,
+        "end_zone_length_mm": 0.0,
+        "punch_overlap_volume_mm3": 0.0,
+        "die_overlap_volume_mm3": 0.0,
+        "elapsed_ms": 21.9,
+        "from_cache": false,
+        "tool_length_info": {
+          "active_bend_id": "B02",
+          "active_bend_length_mm": 200.0,
+          "effective_bend_span_xm": [
+            -100.0,
+            100.0
+          ],
+          "desired_midpoint_xm": 0.0,
+          "is_virtual_tool_geometry": false,
+          "tool_length_mode": "LIBRARY_FIXED",
+          "punch_tool_id": "PUNCH_AP_1017_88°_H104,65_R0,8",
+          "punch_source_file": "",
+          "punch_source_length_mm": 100.0,
+          "punch_virtual_length_mm": null,
+          "punch_effective_length_mm": 0.0,
+          "punch_span_xm": [
+            -50.0,
+            50.0
+          ],
+          "die_tool_id": "T-DIE_AT_3015_88°_V12_H80",
+          "die_source_file": "",
+          "die_source_length_mm": 100.0,
+          "die_virtual_length_mm": null,
+          "die_effective_length_mm": 0.0,
+          "die_span_xm": [
+            -50.0,
+            50.0
+          ]
+        }
+      }
+    ]
+  },
+  "root_cause_diagnosis": {
+    "failure_code": "INSUFFICIENT_TOOL_COVERAGE",
+    "evidence_status": "PhysicalEvidence.UNVERIFIED",
+    "description": "Active bend length 200.0 mm exceeds fixed tooling span 100.0 mm [-50.0, 50.0] with 50.0 mm uncovered on left and right.",
+    "short_circuit": "Evaluation halts before calling validate_workpiece_tooling_pose(), resulting in 0 OCCT boolean and distance calls."
+  }
+}
