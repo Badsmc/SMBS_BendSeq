@@ -45,6 +45,7 @@ class PlanarStep:
     elapsed_s: float = 0.0
     timing_ms: tuple[tuple[str, float], ...] = ()
     diagnostic_findings: tuple[tuple[str, str, str, str, str], ...] = ()
+    touch_summary: tuple[tuple[str, str, str, str, int], ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -58,6 +59,10 @@ class PlanarStep:
             "diagnostic_findings": [
                 {"phase": p, "tool": t, "component": c, "status": st, "reason": r}
                 for p, t, c, st, r in self.diagnostic_findings
+            ],
+            "touch_summary": [
+                {"phase": p, "tool": t, "component": c, "reason": r, "count": n}
+                for p, t, c, r, n in self.touch_summary
             ],
         }
 
@@ -276,6 +281,7 @@ def search_bend_sequences_2d(
                     stage_b.backgauge_checked,
                     timing_ms=stage_b.timing_ms,
                     diagnostic_findings=stage_b.diagnostic_findings,
+                    touch_summary=stage_b.touch_summary,
                 )
         except Exception as exc:
             step = PlanarStep(
@@ -294,6 +300,7 @@ def search_bend_sequences_2d(
             step.sampled_phases, step.contact_statuses,
             step.setup, step.backgauge_checked,
             perf_counter() - step_start, step.timing_ms, step.diagnostic_findings,
+            step.touch_summary,
         )
         step_cache[key] = step
         step_diagnostics.append((tuple(prefix), step))
