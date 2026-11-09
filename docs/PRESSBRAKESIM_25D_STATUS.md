@@ -105,3 +105,29 @@ run()
 
 Any new failure, skip, missing model or changed source hash in future
 regressions reopens the gate. Extend fixture coverage before release.
+
+
+## Stage 2 — P2 geometry and tooling completeness gate (2026-11-09, pending native acceptance)
+
+First bounded correction in the existing `smbs_core/kinematics2d/coupled_kinematics_2d.py` (not in the experimental 2D search branch): `from_tooling_and_fold_state` previously marked coupling `VERIFIED` whenever punch and die datum objects existed, despite missing/nonpositive/nonfinite individual numeric values silently retaining estimated defaults. A nonexistent active bend similarly inherited sheet defaults. This was inconsistent with P2 release requirements and could promote incomplete geometry to a physical result.
+
+Now a `VERIFIED` coupling requires:
+- a real requested `FoldState` bend and its finite, positive thickness and inner radius;
+- complete finite, positive die opening, shoulder radius, die angle, and V depth, plus finite sheet-bottom plane datum;
+- complete finite, positive punch tip radius and included angle.
+
+Missing/invalid fields still have preview estimate values but **cannot** carry the `VERIFIED` status. This is a stricter evidence contract, not an assertion that supplied tool shapes are physically qualified or that a press cycle is collision-free. The changes retain the existing controller and formula, without adding independent solvers or handlers.
+
+Regressions added to `tests/test_coupled_kinematics_2d.py`: positive complete data, missing V depth, NaN punch radius and nonexistent bend. Actual FreeCAD/CI results for these new commits are pending. If the strengthened check marks existing catalog datums incomplete, investigate the exact source fields; do not re-enable `VERIFIED` by falling back to values.
+
+Native acceptance in FreeCAD on `2D`:
+
+```python
+import unittest
+r=unittest.TextTestRunner(verbosity=2).run(
+    unittest.defaultTestLoader.loadTestsFromName(
+        "tests.test_coupled_kinematics_2d"))
+print("STAGE2_COUPLING_TESTS_PASS:", r.wasSuccessful())
+```
+
+Then run `from tools.run_25d_stage1_gui_acceptance import run; run()` using the existing original 8-bend source fixture. Any degradation reopens Stage 1 and must be diagnosed before expanding P2. Existing P2 release gates remain **unchecked** until all original-sheet geometry/tooling/negative fixtures and native integration checks are accepted.
