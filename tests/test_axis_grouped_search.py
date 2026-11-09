@@ -22,6 +22,86 @@ def make_state():
 
 
 class AxisGroupedSearchTests(unittest.TestCase):
+    def test_real_contact_bridge_refuses_missing_tools(self):
+        from smbs_core.kinematics2d.contact_oracle_2d import make_axis_step_oracle_2d
+        state = make_state()
+        details = []
+        oracle = make_axis_step_oracle_2d({"P0": ((0, 0), (1, 0), (1, 1))},
+                                           None, evidence=details)
+        self.assertEqual(oracle((), "B01", state), "UNKNOWN")
+        self.assertEqual(details[-1]["reason"], "missing_punch_or_die")
+        result = search_axis_grouped_order(state, oracle)
+        self.assertEqual(result.status, "UNKNOWN_UNVERIFIED")
+        self.assertFalse(result.order)
+
+    def test_real_contact_bridge_blocks_actual_2d_interference(self):
+        from types import SimpleNamespace as NS
+        from unittest.mock import patch
+        from smbs_core.kinematics2d.contact_oracle_2d import (
+            make_axis_step_oracle_2d, ContactReport, ContactStatus
+        )
+        from smbs_core.kinematics2d.tooling_25d import ValidationStatus
+        state = make_state()
+
+        class Tooling:
+            punch = NS(validation_status=ValidationStatus.GEOMETRY_VERIFIED)
+            die = NS(validation_status=ValidationStatus.GEOMETRY_VERIFIED)
+            aligned = False
+            def align_to_cross_section(self, *args, **kwargs):
+                self.aligned = True
+
+        section = {"zone_polygon": ((0, 0), (1, 0), (1, 1)),
+                   "fixed_polygon": ((0, 0), (1, 0), (1, 1)),
+                   "moving_polygon": ((0, 0), (1, 0), (1, 1))}
+        evidence = []
+        bridge = make_axis_step_oracle_2d(
+            {"P0": ((0, 0), (1, 0), (1, 1))}, Tooling(),
+            evidence=evidence,
+        )
+        with (
+            patch("smbs_core.kinematics2d.workpiece_placement_3d.WorkpiecePlacement3D.compute_placement", return_value=object()),
+            patch("smbs_core.kinematics2d.machine_section_3d.compute_machine_cutting_plane_section", return_value=section),
+            patch("smbs_core.kinematics2d.contact_oracle_2d.check_sheet_tooling_preview",
+                  return_value=ContactReport(ContactStatus.INTERFERENCE, (), 0.02)),
+        ):
+            self.assertEqual(bridge((), "B01", state), "BLOCKED")
+        self.assertEqual(evidence[-1]["reason"],
+                         "verified_2d_setup_material_interference")
+
+    def test_real_contact_bridge_sampled_clear_is_not_manufacturing_pass(self):
+        from types import SimpleNamespace as NS
+        from unittest.mock import patch
+        from smbs_core.kinematics2d.contact_oracle_2d import (
+            make_axis_step_oracle_2d, ContactReport, ContactStatus
+        )
+        from smbs_core.kinematics2d.tooling_25d import ValidationStatus
+        state = make_state()
+
+        class Tooling:
+            punch = NS(validation_status=ValidationStatus.GEOMETRY_VERIFIED)
+            die = NS(validation_status=ValidationStatus.GEOMETRY_VERIFIED)
+            aligned = False
+            def align_to_cross_section(self, *args, **kwargs):
+                self.aligned = True
+
+        section = {"zone_polygon": ((0, 0), (1, 0), (1, 1)),
+                   "fixed_polygon": ((0, 0), (1, 0), (1, 1)),
+                   "moving_polygon": ((0, 0), (1, 0), (1, 1))}
+        evidence = []
+        bridge = make_axis_step_oracle_2d(
+            {"P0": ((0, 0), (1, 0), (1, 1))},
+            Tooling(), evidence=evidence,
+        )
+        with (
+            patch("smbs_core.kinematics2d.workpiece_placement_3d.WorkpiecePlacement3D.compute_placement", return_value=object()),
+            patch("smbs_core.kinematics2d.machine_section_3d.compute_machine_cutting_plane_section", return_value=section),
+            patch("smbs_core.kinematics2d.contact_oracle_2d.check_sheet_tooling_preview",
+                  return_value=ContactReport(ContactStatus.CLEAR, (), 0.02)),
+        ):
+            self.assertEqual(bridge((), "B01", state), "UNKNOWN")
+        self.assertEqual(evidence[-1]["reason"],
+                         "setup_clear_but_stroke_not_checked")
+
     def test_first_axis_then_second_and_replays_prefix(self):
         state = make_state()
         calls = []
