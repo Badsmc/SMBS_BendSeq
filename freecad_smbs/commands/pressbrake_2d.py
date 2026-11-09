@@ -26,45 +26,64 @@ _TASK_PANEL = None
 
 
 class PressBrakeTaskPanel:
-    """FreeCAD Task Panel host for controls of the dedicated MDI viewer."""
+    """FreeCAD Task Panel with an explicit close button and persistent controls.
+
+    The MDI viewer owns the simulation session. Closing Task Panel only hides
+    the controls; the viewer, playback timer and source document stay open.
+    """
 
     def __init__(self, workspace):
         self.workspace = workspace
-        self.form = workspace._control_tabs
         self._closing = False
+        QtCore, _QtGui, QtWidgets = _qt()
+
+        self.form = QtWidgets.QWidget()
+        self.form.setObjectName("SMBS_TaskPanelForm")
+        layout = QtWidgets.QVBoxLayout(self.form)
+        layout.setContentsMargins(4, 4, 4, 4)
+        layout.addWidget(workspace._control_tabs, 1)
+        self.close_button = QtWidgets.QPushButton("Закрыть панель")
+        self.close_button.setObjectName("SMBS_CloseTaskPanel")
+        self.close_button.setToolTip(
+            "Закрыть только панель управления; окно симуляции остаётся открытым"
+        )
+        self.close_button.clicked.connect(self.close_panel)
+        layout.addWidget(self.close_button)
 
     def getStandardButtons(self):
-        # Task dialog has no implicit Accept/Cancel actions; switching tabs
-        # must not accept edits or terminate playback.
         return 0
 
     def accept(self):
         return self.reject()
 
     def reject(self):
-        global _TASK_PANEL
-        if self._closing:
-            return True
-        self._closing = True
-        _TASK_PANEL = None
-        self.workspace._task_panel_host = None
-        # Closing the Task Panel closes its associated MDI viewer, not the
-        # document and not an arbitrary active FreeCAD subwindow.
-        viewer_window = self.workspace.window()
-        if viewer_window is not None:
-            viewer_window.close()
+        # FreeCAD may invoke reject while closeDialog() is unwinding.
+        self.close_panel()
         return True
 
-    def close_from_workspace(self):
+    def close_panel(self):
+        """Detach controls before FreeCAD disposes its task-dialog container."""
         if self._closing:
             return
         self._closing = True
-        import FreeCADGui as Gui
         global _TASK_PANEL
-        try:
-            Gui.Control.closeDialog()
-        finally:
-            _TASK_PANEL = None
+        import FreeCADGui as Gui
+
+        # QTabWidget is retained by the living workspace. This is essential:
+        # closeDialog can delete the form and would otherwise delete controls,
+        # leaving the viewer without its existing Play/Pause/Settings widgets.
+        controls = self.workspace._control_tabs
+        controls.setParent(self.workspace)
+        controls.hide()
+        self.workspace._task_panel_host = None
+        _TASK_PANEL = None
+        Gui.Control.closeDialog()
+
+    def close_from_workspace(self):
+        """Close Task Panel as part of shutting down its own MDI workspace."""
+        if self._closing:
+            return
+        self.close_panel()
 
 
 def get_workspace_widget():
