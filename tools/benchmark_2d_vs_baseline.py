@@ -58,6 +58,7 @@ from smbs_core.kinematics2d.sequence_search import (
 )
 from smbs_core.kinematics2d.native_kernel_metrics import count_native_kernel_calls
 from smbs_core.kinematics2d.verified_tool_spans import verified_fixed_tool_spans
+from smbs_core.kinematics2d.screening_execution_metrics import count_station_screenings
 from hashlib import sha256
 from smbs_core.kinematics2d.screening_experiment_metrics import (
     SearchMeasurement,
@@ -141,7 +142,7 @@ def run_benchmark_run(
         die_span = verified.die_span_xm if use_2d_screening else None
 
         t0 = time.perf_counter()
-        with count_native_kernel_calls() as kernel_counter:
+        with count_native_kernel_calls() as kernel_counter, count_station_screenings() as screening_counter:
             if direction.upper() == "FORWARD":
                 report = search_bend_sequence_25d(
                     session,
@@ -217,6 +218,7 @@ def run_benchmark_run(
         kernel_snapshot = kernel_counter.to_dict()
         kernel_snapshot["verified_tool_spans"] = verified.to_dict()
         kernel_snapshot["physical_length_mode"] = "LIBRARY_FIXED"
+        kernel_snapshot["multi_station_execution"] = screening_counter.to_dict()
         return measurement, kernel_snapshot, wall_s
     finally:
         try:
@@ -290,6 +292,13 @@ def main():
 
     # 3. Compare measurements
     comp = compare_measurements(baseline_meas, screened_meas)
+    observed = screened_kernel["multi_station_execution"]
+    comp["screening_evidence"] = {
+        "status": "ACTUAL_2D_STATIONS_EVALUATED" if observed["evaluated_sections"] > 0 else "NO_VERIFIED_2D_STATION_EVALUATION",
+        "sampled_sections": observed["evaluated_sections"],
+        "unverified_stations": observed["unverified_stations"],
+        "note": "This shows execution only, not safety or causal speedup.",
+    }
     comp["kernel_snapshots"] = {
         "baseline": baseline_kernel,
         "screened": screened_kernel,
@@ -319,6 +328,7 @@ def main():
         json.dump(comp, f, indent=2, ensure_ascii=False)
 
     print(f"\nAuthoritative comparison report written to: {out_path}", flush=True)
+    print("2D execution evidence:", comp["screening_evidence"], flush=True)
     print("Savings summary:")
     for k, v in comp["savings"].items():
         print(f"  {k}: {v}")
