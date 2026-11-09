@@ -84,6 +84,30 @@ class ContactOracle2DTests(unittest.TestCase):
         status,_=classify_polygon_contact(a,b)
         self.assertEqual(status,ContactStatus.INTERFERENCE)
 
+    def test_dense_tool_contour_far_edges_preserve_contact(self):
+        # Many distant vertices with only a small portion near the sheet.
+        # Guards the segment-AABB and witness broad-phase optimization.
+        from math import cos, sin, pi
+        ring = tuple((100.0 * cos(2*pi*i/256),
+                      100.0 * sin(2*pi*i/256)) for i in range(256))
+        inside, _ = classify_polygon_contact(
+            rect(-1.0, -1.0, 1.0, 1.0), ring
+        )
+        outside, _ = classify_polygon_contact(
+            rect(101.0, 101.0, 102.0, 102.0), ring
+        )
+        self.assertEqual(inside, ContactStatus.INTERFERENCE)
+        self.assertEqual(outside, ContactStatus.CLEAR)
+
+    def test_dense_tool_open_cavity_still_clear(self):
+        from math import cos, sin, pi
+        outer = tuple((100*cos(2*pi*i/256), 100*sin(2*pi*i/256))
+                      for i in range(256))
+        hole = tuple((10*cos(2*pi*i/256), 10*sin(2*pi*i/256))
+                     for i in range(256))
+        status, _ = classify_polygon_contact(rect(-1,-1,1,1), outer, (hole,))
+        self.assertEqual(status, ContactStatus.CLEAR)
+
     def test_report_checks_every_sheet_component_and_tool(self):
         report=check_machine_section(
             (("B01",rect(-1,2,1,3)),("P02",rect(0,-0.25,1,0.25))),
