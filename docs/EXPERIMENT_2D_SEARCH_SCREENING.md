@@ -547,3 +547,24 @@ print("JSON:", output)
 ```
 
 Interpretation: Existing sampled-clear paths may be rejected by swept-overlap screening. A surviving swept candidate is a stronger PLANAR straight-translation result, not a certified physical process. The thickness warning `flat_section_z_span=1.793 mm` versus `authoritative_thickness=1.500 mm` remains separately unresolved. Do not promote either order of bending to physically validated until full 3D and transfer checks pass. New code has not yet been executed in actual FreeCAD or GitHub CI.
+
+
+## 2026-11-09 real swept 2D validation and contact-ranking bug fix
+
+User executed the first swept test in FreeCAD: 18/19 tests passed and real Z-10-20-10-(ok) `z_path_swept.json` recorded 4/4 swept-screened paths (B01/B02, +/-s, 5-mm lift, 20-mm punch clearance), total report time 9.334 s. Each lift+withdraw swept candidate screen evaluated 75 non-disjoint polygon patches. No discovered planar intersection in the catalog polygon approximation. However, the 3D transfer and complete moving-ram swept validation are still absent.
+
+The failing `test_punch_blocks_lift_before_lateral` expected `SWEPT_2D_INTERFERENCE` but received `UNVERIFIED_SWEPT_2D_CONTACT`. Root cause: the sweep is a UNION of section polygons and edge-strips. Some earlier generated patches touch a tool boundary; later patches have genuine positive-area penetration. The screening implementation incorrectly returned at the **first TOUCH** before checking the rest of the sweep. Fix: remember first ambiguous non-CLEAR finding and continue examining the remaining patches. Return immediately on any `INTERFERENCE`, otherwise return the remembered `UNVERIFIED_SWEPT_2D_CONTACT` at the end. Neither TOUCH nor UNVERIFIED can be converted to CLEAR. Added explicit boundary-only touch regression.
+
+After updating the branch and restarting FreeCAD, run:
+
+```python
+import unittest
+suite=unittest.TestSuite((
+    unittest.defaultTestLoader.loadTestsFromName("tests.test_folded_part_cycle"),
+    unittest.defaultTestLoader.loadTestsFromName("tests.test_swept_translation_2d"),
+))
+result=unittest.TextTestRunner(verbosity=2).run(suite)
+print("TEST SUCCESS:", result.wasSuccessful())
+```
+
+The real model's previously saved JSON is evidence for the pre-fix revision. A repeat swept report on the new code is required to establish that the revised predicate returns the same physical candidates. In particular, no actual 3D press-brake sequence or production feasibility claim is warranted.
