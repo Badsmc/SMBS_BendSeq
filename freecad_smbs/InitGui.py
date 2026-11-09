@@ -1,6 +1,6 @@
 """PressBrakeSim 2.5D — single FreeCAD workbench entry point.
 
-The repository branch '2D' is the canonical active development source.
+The 'gui' branch owns interface development; 2D kinematics are maintained separately.
 Only the supported simulation and tooling commands are registered.
 Legacy SMBS solvers and panels are not imported during startup.
 """
