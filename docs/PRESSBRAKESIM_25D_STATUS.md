@@ -281,3 +281,13 @@ User native Windows FreeCAD ran `tests.test_contact_oracle_2d` and `tests.test_a
 Found concrete coordinate inconsistency in the diagnostic: the initial tooling is aligned against `compute_placement(...support_plane_zm=0)` for the flat workpiece, but each phase recalculated the placement using `kin.support_plane_zm(angle)`, which includes **absolute `die_top_z_mm`**. That shifted the sheet by die-top offset a second time (in particular at 0°), potentially creating false die interference before the ram touches the sheet.
 
 Fixed diagnostic to **reuse exact initial pose** for APPROACH and CONTACT and apply only `kin.support_plane_zm(angle)-kin.support_plane_zm(0)` as displacement for BENDING/BOTTOM/RETRACT. Added `support_delta_z_mm` frame evidence and a regression assertion with a deliberately nonzero die datum (`-7.25 mm`). This is a targeted machine-reference correction, **not evidence that the native Z-part collision anomalies are solved**. The user must rerun native Stage 2 diagnostic to verify the B01 initial die classification returns to the original `TOUCH`. Negative B02's later punch overlaps may require separate orientation/flip and physical-pose fixes; short finite bend-zone edges at intermediate angles still need a numerical tolerance strategy. Do not suppress real overlap classifications or artificially widen clearances. Stage 2 remains open.
+
+
+### Stage 2 diagnostic result priority
+
+`sample_bend_stroke_2d` now reports an evidence-based frame-level summary instead of always returning `SAMPLED_2D_NOT_CONTINUOUSLY_VERIFIED`:
+- `SAMPLED_2D_INTERFERENCE_DETECTED` if any sampled machine section has confirmed positive-area polygon overlap;
+- `SAMPLED_2D_UNVERIFIED_GEOMETRY` if at least one frame cannot be evaluated and no sampled interference was found;
+- `SAMPLED_2D_NOT_CONTINUOUSLY_VERIFIED` otherwise.
+
+It also reports `interference_frames`, `unverified_frames` and per-frame `support_delta_z_mm`. These labels **never** constitute a proof of complete physical feasibility, since intersample swept trajectories have not been established. The pure-Python regression checks now explicitly use a nonzero die datum and assert that the start machine pose is reused for APPROACH and CONTACT, while BENDING applies only incremental Z displacement; they also assert an injected sampled INTERFERENCE cannot disappear in the summary. **Native test acceptance is pending after these changes.**
