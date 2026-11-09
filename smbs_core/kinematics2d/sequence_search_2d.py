@@ -118,6 +118,7 @@ def search_bend_sequences_2d(
     max_evaluations: int = 50000,
     max_search_time_s: float = 60.0,
     fractions: Sequence[float] = tuple(i / 16 for i in range(17)),
+    stroke_fractions: Sequence[float] = tuple(i / 8 for i in range(9)),
     match_active_bend_length: bool = True,
     bend_shifts: Optional[Mapping[str, float]] = None,
     multi_station_enabled: bool = False,
@@ -154,6 +155,10 @@ def search_bend_sequences_2d(
         fs = tuple(sorted(set(float(x) for x in fractions)))
         if not fs or fs[0] != 0.0 or fs[-1] != 1.0 or any(not isfinite(x) or x < 0 or x > 1 for x in fs):
             raise ValueError("fractions must include 0 and 1 and remain within [0,1]")
+        stroke_fs = tuple(sorted(set(float(x) for x in stroke_fractions)))
+        if (not stroke_fs or stroke_fs[0] != 0.0 or stroke_fs[-1] != 1.0
+                or any(not isfinite(x) or x < 0 or x > 1 for x in stroke_fs)):
+            raise ValueError("stroke_fractions must contain [0,1] endpoints")
         shifts = dict(bend_shifts or {})
         if any(b not in state.bends or not isfinite(float(v)) for b, v in shifts.items()):
             raise ValueError("invalid bend shift")
@@ -194,6 +199,7 @@ def search_bend_sequences_2d(
                     desired_midpoint_xm=float(shifts.get(bend_id, 0.0)),
                     match_active_bend_length=match_active_bend_length,
                     tolerance_mm=tolerance_mm, fractions=fs,
+                    stroke_fractions=stroke_fs,
                     multi_station_enabled=multi_station_enabled,
                     verified_punch_span_xm=verified_punch_span_xm,
                     verified_die_span_xm=verified_die_span_xm,
