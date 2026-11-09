@@ -133,15 +133,12 @@ class _PreviewPanel:
                 self.status.setWordWrap(True)
                 root.addWidget(self.status)
 
-                row = QtWidgets.QHBoxLayout()
-                self.load = _button(QtWidgets, "Деталь", self.load_part, True)
-                self.tooling = _button(QtWidgets, "Оснастка", self.open_tool_library_dialog, True)
+                # Primary actions now belong to the FreeCAD workbench toolbar.
+                # Keep the disabled Calculate control for diagnostics/old API users,
+                # but never render a second row of duplicate actions in the workspace.
                 self.calculate = _button(QtWidgets, "Расчёт", self.unavailable, False)
-                self.tooling.setToolTip("Открыть библиотеку пользовательской оснастки (PUNCH / DIE)")
-                self.calculate.setToolTip("Автоматический поиск последовательности отключён на этапе Phase 3A")
-                for widget in (self.load, self.tooling, self.calculate):
-                    row.addWidget(widget)
-                root.addLayout(row)
+                self.calculate.setParent(self)
+                self.calculate.hide()
 
                 # Phase 5A: Tooling section (Import / Select / Align / Reset / Hide-Show / Library)
                 self.tooling_group = QtWidgets.QGroupBox("Tooling (PUNCH & DIE)")
@@ -307,7 +304,7 @@ class _PreviewPanel:
                 """
                 # The existing constructor builds these items in a known order.
                 entries = [root.takeAt(0) for _ in range(root.count())]
-                if len(entries) != 14:
+                if len(entries) != 13:
                     raise RuntimeError(
                         "Unexpected PressBrakeSim layout: {} items".format(len(entries))
                     )
@@ -323,12 +320,12 @@ class _PreviewPanel:
                         nested.setParent(None)
                         layout.addLayout(nested, stretch)
 
-                # Header: title, source selection, and working status.
-                for item in entries[:3]:
+                # The MDI workspace contains only the read-only views and status.
+                # All interactive controls are hosted separately by FreeCAD Task Panel.
+                for item in entries[:2]:
                     insert(root, item)
 
-                splitter = QtWidgets.QSplitter(QtCore.Qt.Horizontal, self)
-                views = QtWidgets.QTabWidget(splitter)
+                views = QtWidgets.QTabWidget(self)
                 views.setObjectName("SMBS_ViewerTabs")
                 views.addTab(self.view, "2.5D · Гибка")
                 self._preview_3d = QtWidgets.QGraphicsView()
@@ -340,21 +337,22 @@ class _PreviewPanel:
                 views.addTab(self._preview_3d, "3D · Просмотр")
                 views.currentChanged.connect(self._on_view_changed)
 
-                controls = QtWidgets.QTabWidget(splitter)
+                controls = QtWidgets.QTabWidget()
+                controls.setWindowTitle("PressBrakeSim — управление")
                 controls.setObjectName("SMBS_ControlTabs")
                 simulation = QtWidgets.QWidget()
                 sim_layout = QtWidgets.QVBoxLayout(simulation)
                 sim_layout.setSpacing(8)
                 # Mode selection belongs beside playback, not in diagnostic
                 # settings. One Play All operates whichever mode is selected.
-                insert(sim_layout, entries[4])  # mode / speed / cycle config
-                insert(sim_layout, entries[6])  # Reset / Play All / Pause / Fit
-                insert(sim_layout, entries[7])  # angle slider
-                insert(sim_layout, entries[8])  # active operation
-                insert(sim_layout, entries[9])  # next/previous step
-                insert(sim_layout, entries[10])  # move order
+                insert(sim_layout, entries[3])  # mode / speed / cycle config
+                insert(sim_layout, entries[5])  # Reset / Play All / Pause / Fit
+                insert(sim_layout, entries[6])  # angle slider
+                insert(sim_layout, entries[7])  # active operation
+                insert(sim_layout, entries[8])  # next/previous step
+                insert(sim_layout, entries[9])  # move order
                 self.operations.setMaximumHeight(16777215)
-                insert(sim_layout, entries[11], 1)  # operation table
+                insert(sim_layout, entries[10], 1)  # operation table
                 controls.addTab(simulation, "Симуляция")
 
                 tooling = QtWidgets.QWidget()
@@ -365,8 +363,8 @@ class _PreviewPanel:
 
                 settings = QtWidgets.QWidget()
                 settings_layout = QtWidgets.QVBoxLayout(settings)
-                insert(settings_layout, entries[12])  # diagnostics button
-                insert(settings_layout, entries[13])  # diagnostics output
+                insert(settings_layout, entries[11])  # diagnostics button
+                insert(settings_layout, entries[12])  # diagnostics output
 
                 self.trace_checkbox = QtWidgets.QCheckBox(
                     "Автоматически записывать движения при Play All (JSONL)"
@@ -416,14 +414,16 @@ class _PreviewPanel:
                 settings_layout.addStretch(1)
                 controls.addTab(settings, "Настройки")
 
-                splitter.addWidget(views)
-                splitter.addWidget(controls)
-                splitter.setStretchFactor(0, 4)
-                splitter.setStretchFactor(1, 2)
-                splitter.setSizes([720, 370])
-                root.addWidget(splitter, 1)
+                root.addWidget(views, 1)
                 self._viewer_tabs = views
                 self._control_tabs = controls
+                self._task_panel_host = None
+
+            def show_control_tab(self, index: int):
+                self._control_tabs.setCurrentIndex(index)
+
+            def attach_task_panel(self, task):
+                self._task_panel_host = task
 
             def _on_trace_checkbox_toggled(self, enabled):
                 if enabled:
@@ -1914,6 +1914,10 @@ class _PreviewPanel:
                 self._finish_motion_trace("WORKSPACE_CLOSED")
                 self.timer.stop()
                 self.playing = False
+                task = self._task_panel_host
+                self._task_panel_host = None
+                if task is not None:
+                    task.close_from_workspace()
                 super().closeEvent(event)
 
             def _draw_tooling_items(
