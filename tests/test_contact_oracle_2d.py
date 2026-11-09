@@ -119,6 +119,42 @@ class ContactOracle2DTests(unittest.TestCase):
             self.assertEqual(_point_ring((4.01, 2), ring, 0.02), 0)
             self.assertEqual(_point_ring((5, 0), ring, 0.02), -1)
 
+    def test_curved_zone_short_tessellation_edges_are_not_invalid(self):
+        # SheetMetal sampled bend profiles often contain real 5-micron
+        # segments: tolerance_mm=0.02 does not invalidate them.
+        short_edge_sheet = (
+            (0.0, 0.0), (0.005, 0.0),
+            (2.0, 0.0), (2.0, 2.0), (0.0, 2.0),
+        )
+        status, _ = classify_polygon_contact(
+            short_edge_sheet, rect(1.0, 1.0, 3.0, 3.0),
+            tolerance_mm=0.02,
+        )
+        self.assertEqual(status, ContactStatus.INTERFERENCE)
+        separated, _ = classify_polygon_contact(
+            short_edge_sheet, rect(4.0, 4.0, 5.0, 5.0),
+            tolerance_mm=0.02,
+        )
+        self.assertEqual(separated, ContactStatus.CLEAR)
+
+    def test_near_zero_length_polygon_edge_is_not_silently_clear(self):
+        tiny_edge_sheet = (
+            (0.0, 0.0), (1e-12, 0.0), (2.0, 0.0),
+            (2.0, 2.0), (0.0, 2.0),
+        )
+        report = check_machine_section(
+            (("BEND_ZONE", tiny_edge_sheet),),
+            (rect(1.0, 1.0, 3.0, 3.0), ()),
+            (rect(3.0, 3.0, 4.0, 4.0), ()),
+            tolerance_mm=0.02,
+        )
+        self.assertEqual(report.status, ContactStatus.UNVERIFIED)
+        self.assertTrue(any(
+            f.status is ContactStatus.UNVERIFIED
+            and "zero-length" in f.reason
+            for f in report.findings
+        ))
+
     def test_tool_polygon_validation_is_reused_for_many_panels(self):
         from unittest.mock import patch
         from smbs_core.kinematics2d import contact_oracle_2d as oracle
