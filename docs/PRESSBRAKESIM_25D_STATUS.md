@@ -231,3 +231,12 @@ Fixed in `contact_oracle_2d.py`: resolve `compute_machine_cutting_plane_section`
 Separate FreeCAD console error: the user's `if punch is not None:` block was followed by another `if` at an incomplete console indentation boundary, causing `SyntaxError`. Rerun selections as simple single-line statements or complete each interactive block with a blank line.
 
 The library's first verified die selection in the native session was `DIE_AM_2089_60°_V80 _H115` (80-mm V opening), which is **not** necessarily the selected 12-mm V die previously used for the Z-part. Never silently auto-select the first catalog entry as the intended real tooling. Require exact identification before interpreting geometry results. The fix and nine-test native acceptance are pending re-run.
+
+
+## 2D Z fixture collision evidence and zero-angle polygon fix (2026-11-09)
+
+Native Windows FreeCAD, original `Z-10-20-10-(ok)`, two parallel axis-family bends, verified catalog profiles `PUNCH_AP_1017_88°_H104,65_R0,8` and `T-DIE_AT_3015_88°_V12_H80`: user observed two setup probes, both `UNKNOWN`, no suggested order. The die contact classifier found `TOUCH` for `active_fixed` and `active_moving`; it reported `UNVERIFIED: Degenerate polygon edge` for the active zero-angle bend zone and inactive bend zone. Therefore this is **not** a finding of physical interference or proof of machine feasibility.
+
+Root cause localized to `BendZone.section_profile(angle_deg=0, segments=32)`: at zero angle, each of the arc samples is an identical vertex, and the polygon classifier `_proper_cross` rejected adjacent identical points. In `contact_oracle_2d._validate_ring` remove only duplicate consecutive coordinates within **1e-9 mm** (not all edges below 0.02-mm physical contact tolerance), including a repeated closing point. Keep truly short finite edges unaltered; `Degenerate polygon edge` still yields UNVERIFIED, not false CLEAR. No FoldState, geometry generation or contact tolerances changed.
+
+Regression tests added to `tests/test_contact_oracle_2d.py` for zero-angle repeated vertices under both CLEAR and INTERFERENCE cases, and a nonzero sub-tolerance feature that must still fail closed. These are awaiting native FreeCAD rerun. Run `tests.test_contact_oracle_2d` plus `tests.test_axis_grouped_search`; then repeat actual Z-catalog-tools diagnostic. Expect a change from `Degenerate polygon edge` to a concrete setup contact status/reason, but **do not expect** a qualified automatic sequence until continuous stroke verification is implemented and accepted.
