@@ -61,7 +61,9 @@ class AxisGroupedSearchTests(unittest.TestCase):
             tooling_status="VERIFIED", contact_z_mm=2.0,
             ram_z_for_angle=lambda angle: 2.0 - abs(angle) / 45.0,
             stroke_for_angle=lambda angle: abs(angle) / 45.0,
-            support_plane_zm=lambda angle: -abs(angle) / 45.0,
+            # Deliberately nonzero absolute die datum: the checker must
+            # apply only the displacement relative to the initial setup.
+            support_plane_zm=lambda angle: -7.25 - abs(angle) / 45.0,
             validate_geometric_constraints=lambda angle, ram, flange_min_len_mm:
                 (True, "GEOMETRIC_COUPLING_VERIFIED", {}),
         )
@@ -73,7 +75,7 @@ class AxisGroupedSearchTests(unittest.TestCase):
         before_angles = dict(state.angles)
         before_transforms = dict(state.transforms)
         with (
-            patch("smbs_core.kinematics2d.workpiece_placement_3d.WorkpiecePlacement3D.compute_placement", return_value=object()),
+            patch("smbs_core.kinematics2d.workpiece_placement_3d.WorkpiecePlacement3D.compute_placement", return_value=object()) as placement_mock,
             patch("smbs_core.kinematics2d.machine_section_3d.compute_machine_cutting_plane_section", return_value=sec),
             patch("smbs_core.kinematics2d.coupled_kinematics_2d.CoupledAirBendingKinematics.from_tooling_and_fold_state", return_value=kin),
             patch("smbs_core.kinematics2d.contact_oracle_2d.check_sheet_tooling_preview",
@@ -84,6 +86,19 @@ class AxisGroupedSearchTests(unittest.TestCase):
                 Tooling(), "B01", samples=4,
             )
         self.assertEqual(report["status"], "SAMPLED_2D_NOT_CONTINUOUSLY_VERIFIED")
+        # One aligned initial pose + 4 bend frames + one retract.
+        # APPROACH and CONTACT must reuse the original pose exactly.
+        self.assertEqual(placement_mock.call_count, 6)
+        self.assertEqual(
+            [round(call.kwargs["support_plane_zm"], 5)
+             for call in placement_mock.call_args_list],
+            [0.0, -0.5, -1.0, -1.5, -2.0, -2.0],
+        )
+        self.assertEqual(
+            [round(frame["support_delta_z_mm"], 5)
+             for frame in report["frames"]],
+            [0.0, 0.0, -0.5, -1.0, -1.5, -2.0, -2.0],
+        )
         self.assertEqual([frame["phase"] for frame in report["frames"]],
                          ["APPROACH", "CONTACT", "BENDING", "BENDING",
                           "BENDING", "BOTTOM", "RETRACT"])
