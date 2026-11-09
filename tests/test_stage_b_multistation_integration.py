@@ -128,6 +128,54 @@ class StageBIntegrationTests(unittest.TestCase):
             for p in reversed(patches):
                 p.__exit__(None, None, None)
 
+    def test_opt_in_stroke_sampling_covers_approach_and_retract(self):
+        fold, tool = DummyFold(), DummyTooling()
+        patches = self.make_patches()
+        entered = [p.__enter__() for p in patches]
+        try:
+            result = screen_candidate_stage_b(
+                fold, "B", tool, {"P": [(0, 0), (1, 0), (1, 1)]},
+                fractions=(0.0, 0.5, 1.0),
+                stroke_fractions=(0.0, 0.25, 0.5, 0.75, 1.0),
+            )
+            self.assertEqual(len(result.sampled_phases), 14)
+            self.assertEqual(result.sampled_phases.count("APPROACH"), 5)
+            self.assertEqual(result.sampled_phases.count("RETRACT"), 5)
+            self.assertEqual(len(result.contact_statuses), 14)
+            self.assertEqual(entered[3].call_count, 14)
+        finally:
+            for p in reversed(patches):
+                p.__exit__(None, None, None)
+
+    def test_negative_angle_uses_unsigned_ram_stroke(self):
+        fold, tool = DummyFold(), DummyTooling()
+        fold.bends["B"].angle_deg = -90.0
+        calls = []
+        coupled = SimpleNamespace(
+            tooling_status="VERIFIED", contact_z_mm=5.0,
+            ram_z_for_angle=lambda angle: calls.append(angle) or 5.0 - angle / 90,
+            stroke_for_angle=lambda angle: angle / 90,
+        )
+        patches = list(self.make_patches())
+        patches[2] = patch(
+            "smbs_core.kinematics2d.preliminary_screening.CoupledAirBendingKinematics.from_tooling_and_fold_state",
+            return_value=coupled,
+        )
+        for p in patches:
+            p.__enter__()
+        try:
+            report = screen_candidate_stage_b(
+                fold, "B", tool, {"P": [(0, 0), (1, 0), (1, 1)]},
+                fractions=(0.0, 0.5, 1.0),
+                stroke_fractions=(0.0, 1.0),
+            )
+            self.assertEqual(len(report.contact_statuses), 8)
+            self.assertTrue(all(angle >= 0.0 for angle in calls), calls)
+            self.assertIn(90.0, calls)
+        finally:
+            for p in reversed(patches):
+                p.__exit__(None, None, None)
+
     def test_dfs_experiment_switch_on_both_directions(self):
         for search in (search_bend_sequence_25d, search_bend_sequence_backward_25d):
             parameters = inspect.signature(search).parameters
