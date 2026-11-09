@@ -376,18 +376,29 @@ def sample_bend_stroke_2d(fold_state, panel_vertices_xy, tooling, bend_id,
                     "reason": "coupled_tooling_parameters_not_verified",
                     "frames": ()}
         target = float(fold_state.bends[bend_id].angle_deg)
-        for index in range(samples + 1):
-            angle = target * index / samples
+        # Endpoints for APPROACH / CONTACT / RETRACT, plus sampled BENDING
+        # and BOTTOM. These are discrete inspection frames, not a full
+        # time-continuous ram or transfer trajectory.
+        parked_z = kin.contact_z_mm + 20.0
+        inspection = [("APPROACH", 0.0, parked_z),
+                      ("CONTACT", 0.0, kin.contact_z_mm)]
+        inspection += [
+            ("BOTTOM" if index == samples else "BENDING",
+             target * index / samples,
+             kin.ram_z_for_angle(target * index / samples))
+            for index in range(1, samples + 1)
+        ]
+        inspection.append(("RETRACT", target, parked_z))
+        for phase, angle, ram_z in inspection:
             fold_state.set_angle(bend_id, angle)
             # Reuse physical stroke reference, do not realign the die per frame.
-            ram_z = kin.ram_z_for_angle(angle)
             candidate.set_punch_ram_z(
-                ram_z, stroke_mm=kin.stroke_for_angle(angle)
+                ram_z, stroke_mm=max(0.0, kin.contact_z_mm - ram_z)
             )
             pose = WorkpiecePlacement3D.compute_placement(
                 fold_state, bend_id,
                 support_plane_zm=kin.support_plane_zm(angle),
-                align_bisector=(index != 0),
+                align_bisector=(phase not in ("APPROACH", "CONTACT")),
             )
             sec = compute_machine_cutting_plane_section(
                 fold_state, panel_vertices_xy, pose,
@@ -395,7 +406,7 @@ def sample_bend_stroke_2d(fold_state, panel_vertices_xy, tooling, bend_id,
             )
             if not (sec.get("zone_polygon") and sec.get("fixed_polygon")
                     and sec.get("moving_polygon")):
-                records.append({"angle_deg": angle,
+                records.append({"phase": phase, "angle_deg": angle,
                                 "status": "UNVERIFIED",
                                 "reason": "incomplete_machine_section"})
                 continue
@@ -408,6 +419,7 @@ def sample_bend_stroke_2d(fold_state, panel_vertices_xy, tooling, bend_id,
             # Kinematic failures identify model constraints; contact predicates
             # identify overlaps *at sampled frames* only.
             frame = {
+                "phase": phase,
                 "angle_deg": angle,
                 "ram_z_mm": ram_z,
                 "contact": report.status.value,
