@@ -98,6 +98,16 @@ class SweptTranslationTests(unittest.TestCase):
         self.assertIn("negative_s", screened)
         self.assertNotIn("positive_s", screened)
 
+    def test_boundary_only_touch_remains_unverified(self):
+        part = (("sheet", rect(0, 0, 1, 1)),)
+        # The top edge of the translated part lies on the tool's bottom
+        # edge over the full sweep, with no positive-area overlap.
+        punch = (rect(3, 1, 4, 2), ())
+        die = (rect(30, -10, 31, -9), ())
+        result = screen_swept_translation(part, punch, die, dx=10)
+        self.assertEqual(result["status"], "UNVERIFIED_SWEPT_2D_CONTACT")
+        self.assertIn(result["contact_status"], ("TOUCH", "UNVERIFIED"))
+
     def test_deadline_is_unverified(self):
         from unittest.mock import patch
         part = (("sheet", rect(0,0,1,1)),)
