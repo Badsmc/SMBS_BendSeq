@@ -167,3 +167,14 @@ After the Qt QGraphicsScene nested-redraw guard and its regression test, user re
 - Stage 2 coupled geometry parameter validation separately passed 14/14 in the same Windows FreeCAD environment (previous user run).
 
 This **restores Stage 1 native acceptance for the tested fixture**. It is not evidence of general physical collision clearance or automatic sequence solving. Next required P2 gate: compare real FoldState bend count, signed angles, thickness and radii against the originating SheetMetal objects/Unfold across the original model fixture matrix. In particular reconcile the observed 1.793-mm planar-section Z-span vs authoritative 1.500-mm sheet thickness before claiming dimensional fidelity. Do not construct synthetic positive test geometry in place of original FCStd files.
+
+
+## Stage 2 native Z geometry checkpoint (2026-11-09)
+
+User confirmed through a read-only FreeCAD Python Console `build_part_session` call on `Z-10-20-10-(ok)`:
+- 2 real bends: `B01 +90.00000000000003 deg`, `B02 -90.00000000000003 deg`.
+- Both have thickness 1.5 mm, inner radius 1.0 mm, outer radius 2.5 mm, `moving_left=False`.
+- The SheetMetal Unfold reports `KFactor=0.4`.
+- `getattr(unfold, "Base", None)` returned `None`. **Not a missing-source finding:** canonical `sheetmetal_unfold_reader.read_unfold` accesses `unfold.baseObject` and has already successfully read the actual reference via `build_part_session`. Check `unfold.baseObject` or `session.unfold_data.source_object/source_face`, not `Base`.
+
+This establishes consistency for bend count, signed fold angles and thickness/radius values from the existing session, **not independent validation against the original source BRep**. Await direct comparison against `session.unfold_data.bends` (SheetMetal BendInfo) and source face, and later model geometry reconstruction / thickness-plane discrepancy investigation, before checking off P2 geometry gates.
