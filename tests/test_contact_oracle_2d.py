@@ -119,6 +119,31 @@ class ContactOracle2DTests(unittest.TestCase):
             self.assertEqual(_point_ring((4.01, 2), ring, 0.02), 0)
             self.assertEqual(_point_ring((5, 0), ring, 0.02), -1)
 
+    def test_tool_polygon_validation_is_reused_for_many_panels(self):
+        from unittest.mock import patch
+        from smbs_core.kinematics2d import contact_oracle_2d as oracle
+        polygons = tuple(("P%02d" % i, rect(-1, 1+i, 1, 2+i))
+                         for i in range(12))
+        original = oracle._validate_ring
+        with patch.object(oracle, "_validate_ring", wraps=original) as validation:
+            report = check_machine_section(
+                polygons, (rect(-3, -5, 3, -3), ()),
+                (rect(-3, -10, 3, -8), ()),
+            )
+        self.assertEqual(report.status, ContactStatus.CLEAR)
+        self.assertEqual(len(report.findings), 24)
+        # 12 sheet rings per tool plus ONE ring for each tool, not 24.
+        self.assertEqual(validation.call_count, 26)
+
+    def test_invalid_tool_geometry_remains_unverified(self):
+        report = check_machine_section(
+            (("P01", rect(-1,0,1,1)), ("P02", rect(-1,2,1,3))),
+            ((0,0), ()), (rect(-3,-5,3,-3), ()),
+        )
+        self.assertEqual(report.status, ContactStatus.UNVERIFIED)
+        self.assertEqual([f.status for f in report.findings if f.tool == "PUNCH"],
+                         [ContactStatus.UNVERIFIED, ContactStatus.UNVERIFIED])
+
     def test_report_checks_every_sheet_component_and_tool(self):
         report=check_machine_section(
             (("B01",rect(-1,2,1,3)),("P02",rect(0,-0.25,1,0.25))),
