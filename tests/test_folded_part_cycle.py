@@ -89,6 +89,61 @@ class PostBendCycleTests(unittest.TestCase):
             for f in s["findings"]
         ))
 
+    def test_path_search_chooses_sampled_clear_candidate_and_restores_tooling(self):
+        from tools.run_folded_part_cycle import search_sampled_withdrawal_paths
+        tools = FakeTooling()
+        initial = (tools.ram_z_mm, tools.ram_stroke_mm, tools.punch_machine_transform)
+        # Die is in the direct +s path at z=0; a lift of 2 mm
+        # lets this synthetic post-bend section pass over it.
+        result = search_sampled_withdrawal_paths(
+            (("formed_panel", rect(0, 0, 1, 1)),), tools,
+            bottom_ram_z_mm=0, contact_z_mm=0,
+            parked_clearances_mm=(5, 10),
+            lift_heights_mm=(2, 4),
+            distance_mm=8, retract_samples=5,
+            lift_samples=5, withdrawal_samples=9,
+        )
+        self.assertEqual(result["status"],
+                         "SAMPLED_2D_PATH_CANDIDATES_NOT_CERTIFIED")
+        self.assertGreater(result["evaluated_paths"], 0)
+        self.assertTrue(result["candidates"])
+        self.assertEqual(result["candidates"][0]["lift_mm"], 2)
+        self.assertTrue(all(
+            c["status"] == "SAMPLED_2D_CLEAR_NOT_CERTIFIED"
+            for c in result["candidates"]
+        ))
+        self.assertEqual(
+            (tools.ram_z_mm, tools.ram_stroke_mm, tools.punch_machine_transform),
+            initial,
+        )
+
+    def test_path_search_no_candidates_is_unverified_not_impossible(self):
+        from tools.run_folded_part_cycle import search_sampled_withdrawal_paths
+        class BlockingTools(FakeTooling):
+            def punch_polygons_machine(self, arc_segments=24):
+                return rect(-10, -10, 10, 30), ()
+        result = search_sampled_withdrawal_paths(
+            (("formed_panel", rect(0, 0, 1, 1)),),
+            BlockingTools(), bottom_ram_z_mm=0, contact_z_mm=0,
+            parked_clearances_mm=(5,),
+            lift_heights_mm=(2,),
+            retract_samples=5, lift_samples=5,
+            withdrawal_samples=5, distance_mm=5,
+        )
+        self.assertEqual(result["status"], "UNVERIFIED_NO_SAMPLED_PATH")
+        self.assertEqual(result["candidates"], [])
+        self.assertTrue(any(a["status"] == "RETRACT_NOT_CLEAR"
+                            for a in result["attempts"]))
+
+    def test_path_search_invalid_parameters_fail_closed(self):
+        from tools.run_folded_part_cycle import search_sampled_withdrawal_paths
+        with self.assertRaisesRegex(ValueError, "invalid path search"):
+            search_sampled_withdrawal_paths(
+                (("formed_panel", rect(0, 0, 1, 1)),),
+                FakeTooling(), bottom_ram_z_mm=0, contact_z_mm=0,
+                lift_heights_mm=(-1,),
+            )
+
     def test_invalid_retract_range_rejected(self):
         with self.assertRaisesRegex(ValueError, "parked ram"):
             probe_punch_retract(
