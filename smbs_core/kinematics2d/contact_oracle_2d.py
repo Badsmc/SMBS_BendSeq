@@ -147,7 +147,7 @@ def _edge_samples(ring):
         yield ((a[0]+b[0])/2.0,(a[1]+b[1])/2.0)
 
 
-def _interior_edge_samples(ring, tol):
+def _interior_edge_samples(ring, tol, target_bounds=None):
     """Interior witness near each simple-polygon edge (in either winding)."""
     twice_area = sum(
         a[0]*b[1]-b[0]*a[1] for a,b in _segments(ring)
@@ -163,6 +163,13 @@ def _interior_edge_samples(ring, tol):
             step=max(4.0*tol,length*fraction)
             candidate=(midpoint[0]-direction*dy/length*step,
                        midpoint[1]+direction*dx/length*step)
+            if target_bounds is not None and (
+                candidate[0] < target_bounds[0] or candidate[0] > target_bounds[2]
+                or candidate[1] < target_bounds[1] or candidate[1] > target_bounds[3]
+            ):
+                # Any witness outside the other polygon AABB cannot
+                # demonstrate overlap; avoid expensive point-in-ring.
+                continue
             if _point_ring(candidate,ring,tol)==1:
                 yield candidate
                 break
@@ -220,12 +227,7 @@ def classify_polygon_contact(
         if _in_material(p,b,holes,tol)==1:
             return ContactStatus.INTERFERENCE,"sheet_in_tool_material"
     sheet_bounds = _bbox(a)
-    for p in _interior_edge_samples(b,tol):
-        # A witness outside the sheet bounding box cannot lie in its
-        # interior. Preserve the same exact containment predicates inside.
-        if (p[0] < sheet_bounds[0] or p[0] > sheet_bounds[2]
-                or p[1] < sheet_bounds[1] or p[1] > sheet_bounds[3]):
-            continue
+    for p in _interior_edge_samples(b,tol,target_bounds=sheet_bounds):
         if _point_ring(p,a,tol)==1 and _in_material(p,b,holes,tol)==1:
             return ContactStatus.INTERFERENCE,"tool_in_sheet_material"
 
