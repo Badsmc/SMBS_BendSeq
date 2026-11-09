@@ -453,9 +453,30 @@ def sample_bend_stroke_2d(fold_state, panel_vertices_xy, tooling, bend_id,
                 frame["reason"] = "coupled_geometric_constraint: " + condition
             records.append(frame)
 
+        # Frame-level penetration must never be hidden by a top-level
+        # "sampled" result. This remains evidence about the inspected
+        # machine-section poses, not a swept-volume certification.
+        interferences = tuple(
+            frame for frame in records if frame.get("contact") == "INTERFERENCE"
+        )
+        unknown_frames = tuple(
+            frame for frame in records
+            if frame.get("status") == "UNVERIFIED"
+        )
+        if interferences:
+            summary = "SAMPLED_2D_INTERFERENCE_DETECTED"
+            reason = "overlap_at_sampled_2d_machine_section"
+        elif unknown_frames:
+            summary = "SAMPLED_2D_UNVERIFIED_GEOMETRY"
+            reason = "sampled_frames_contain_unverified_geometry"
+        else:
+            summary = "SAMPLED_2D_NOT_CONTINUOUSLY_VERIFIED"
+            reason = "finite_frames_do_not_prove_full_machine_stroke"
         return {
-            "status": "SAMPLED_2D_NOT_CONTINUOUSLY_VERIFIED",
-            "reason": "finite_frames_do_not_prove_full_machine_stroke",
+            "status": summary,
+            "reason": reason,
+            "interference_frames": len(interferences),
+            "unverified_frames": len(unknown_frames),
             "frames": tuple(records),
         }
     except (ValueError, ArithmeticError, TypeError, KeyError, AttributeError) as exc:
