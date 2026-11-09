@@ -148,7 +148,7 @@ def compute_machine_cutting_plane_section(
             continue
 
         top_cuts = slice_polygon_3d_at_x(pts_top_mach, target_x=target_xm)
-        bot_cuts = slice_polygon_3d_at_x(pts_bot_mach, target_x=0.0)
+        bot_cuts = slice_polygon_3d_at_x(pts_bot_mach, target_x=target_xm)
 
         if len(top_cuts) >= 2 and len(bot_cuts) >= 2:
             # Sort endpoints along Y_m to form closed solid quad
