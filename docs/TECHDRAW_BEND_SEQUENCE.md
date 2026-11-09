@@ -1,6 +1,6 @@
 # SMBS — TechDraw bend-sequence production sheet
 
-Status: **SPECIFIED, NOT IMPLEMENTED OR VERIFIED**. This is a mandatory release requirement of SMBS, not a new independent solver.
+Status: **PHASE 1 PARTLY IMPLEMENTED; TECHDRAW GUI/PDF NOT IMPLEMENTED OR VERIFIED**. This is a mandatory release requirement of SMBS, not a new independent solver.
 
 ## User workflow
 
@@ -59,3 +59,13 @@ Status: **SPECIFIED, NOT IMPLEMENTED OR VERIFIED**. This is a mandatory release 
 Do not build a separate CAD engine, manually number unrelated sketch geometry, or mark the feature production-ready based only on the existence of GUI code.
 
 References: FreeCAD official TechDraw Workbench, TechDraw DraftView and TechDraw Templates documentation.
+
+
+## Phase 1 implementation (2026-11-09)
+
+- `smbs_core/kinematics2d/bend_drawing_plan.py` now provides `create_bend_drawing_plan(unfold, accepted_sequence, source_document, accepted_status, verified)` and immutable, JSON-serializable `BendDrawingPlan`.
+- The plan uses `UnfoldData2D.bends`, `UnfoldData2D.sketch_bend_lines_xy` and the **existing** `match_bend_axes` geometric matcher. A missing/ambiguous sketch assignment, incomplete sequence, duplicate bend ID or unverified sequence fails closed.
+- Operations are numbered by accepted planner order, not bend/sketch enumeration order. Explicit signed angles are taken from SheetMetal.
+- The plan includes a deterministic metadata-and-bend-sketch fingerprint; `is_bend_drawing_plan_current` detects changes in those inputs. **Limitation:** it does not yet hash the whole CAD shape or FreeCAD document revision; downstream TechDraw should additionally track source document recompute/signature and view transforms before printing.
+- `tests/test_bend_drawing_plan.py` covers ordering, mapping, duplicate/unknown bends, stale inputs and JSON conversion.
+- **Not yet connected** to a FreeCAD GUI button, TechDraw::DrawPage or PDF printing. No claim of printed-sheet acceptance. Until a verified sequence exists, the production drawing action should remain unavailable.
