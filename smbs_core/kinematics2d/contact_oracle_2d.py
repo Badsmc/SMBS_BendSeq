@@ -50,10 +50,25 @@ def _validate_ring(points: Sequence[Point], tol: float) -> Ring:
         result = tuple((float(p[0]), float(p[1])) for p in points)
     except (IndexError, TypeError, ValueError) as exc:
         raise ContactGeometryError("Invalid polygon coordinates") from exc
-    if len(result) > 1 and result[0] == result[-1]:
-        result = result[:-1]
     if len(result) < 3 or any(not isfinite(x) or not isfinite(y) for x, y in result):
         raise ContactGeometryError("Polygon requires >=3 finite vertices")
+    # BendZone.section_profile(angle=0) intentionally produces repeated
+    # points: a zero-angle arc samples the same coordinate many times.
+    # Remove only numerically identical consecutive vertices, NOT short
+    # finite edges at the user's physical tolerance. A real narrow/short
+    # feature must still be classified as UNVERIFIED, not silently erased.
+    duplicate_eps_mm = 1e-9
+    clean = []
+    for point in result:
+        if not clean or hypot(point[0] - clean[-1][0],
+                              point[1] - clean[-1][1]) > duplicate_eps_mm:
+            clean.append(point)
+    if len(clean) > 1 and hypot(clean[0][0] - clean[-1][0],
+                                clean[0][1] - clean[-1][1]) <= duplicate_eps_mm:
+        clean.pop()
+    result = tuple(clean)
+    if len(result) < 3:
+        raise ContactGeometryError("Polygon collapses after duplicate vertex removal")
     twice_area = sum(
         result[i][0] * result[(i + 1) % len(result)][1]
         - result[(i + 1) % len(result)][0] * result[i][1]
