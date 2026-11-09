@@ -662,10 +662,9 @@ class _PreviewPanel:
                 self.calculate.setToolTip(
                     "Автоматический поиск допустимой последовательности гибки с физической проверкой 2.5D + 3D (D6.3.4)"
                 )
-                for widget in (self.load, self.tooling, self.calculate):
+                for widget in (self.load, self.tooling, self.calculate, self.planar_calculate):
                     row.addWidget(widget)
                 root.addLayout(row)
-                root.addWidget(self.planar_calculate)
 
                 # Phase 5A: Tooling section (Import / Select / Align / Reset / Hide-Show / Library)
                 self.tooling_group = QtWidgets.QGroupBox("Tooling (PUNCH & DIE)")
