@@ -57,6 +57,8 @@ from smbs_core.kinematics2d.sequence_search import (
     search_bend_sequence_backward_25d,
 )
 from smbs_core.kinematics2d.native_kernel_metrics import count_native_kernel_calls
+from smbs_core.kinematics2d.verified_tool_spans import verified_fixed_tool_spans
+from hashlib import sha256
 from smbs_core.kinematics2d.screening_experiment_metrics import (
     SearchMeasurement,
     compare_measurements,
@@ -88,7 +90,7 @@ def run_benchmark_run(
     max_search_time_s: float,
     max_states: int,
     max_checks: int,
-    match_active_bend_length: bool = True,
+    match_active_bend_length: bool = False,
     allow_end_zone_collision: bool = False,
     end_zone_length_mm: float = 0.0,
     optimize_cost: bool = False,
@@ -128,13 +130,15 @@ def run_benchmark_run(
 
         cache = StepEvaluationCache()
 
-        # Multi-station span parameters
+        # Physical benchmark: never turn virtual active-bend tool length into
+        # claimed source-CAD evidence. Both modes use actual fixed CAD tools.
+        if match_active_bend_length:
+            raise ValueError("Physical benchmark requires fixed-length real tooling")
+        tooling.set_match_active_bend_length(False)
         use_2d_screening = (mode == "2D_RISK")
-        p_len = float(getattr(p_tool, "length_mm", 100.0) or 100.0)
-        d_len = float(getattr(d_tool, "length_mm", 100.0) or 100.0)
-        # Measured machine spans centered at 0
-        punch_span = (-p_len / 2.0, p_len / 2.0) if use_2d_screening else None
-        die_span = (-d_len / 2.0, d_len / 2.0) if use_2d_screening else None
+        verified = verified_fixed_tool_spans(tooling, ram_z_mm=float(panel.press_cycle.ram_z_mm))
+        punch_span = verified.punch_span_xm if use_2d_screening else None
+        die_span = verified.die_span_xm if use_2d_screening else None
 
         t0 = time.perf_counter()
         with count_native_kernel_calls() as kernel_counter:
@@ -183,10 +187,22 @@ def run_benchmark_run(
                 raise ValueError(f"Unknown direction: {direction}")
         wall_s = time.perf_counter() - t0
 
-        model_id = f"{fixture_name}:unfold={unfold.Name}"
-        tooling_id = f"punch={punch_name}:die={die_name}"
-        placement_id = f"dir={direction}:match_len={match_active_bend_length}"
-        tol_sig = f"vol_tol={sampling_cfg.volume_tolerance_mm3}:arc_seg={sampling_cfg.arc_segments}"
+        def _file_digest(path):
+            return sha256(Path(path).read_bytes()).hexdigest()
+        model_id = f"{fixture_name}:sha256={_file_digest(fixture_path)}:unfold={unfold.Name}"
+        tooling_id = (
+            f"punch={punch_name}:{_file_digest(verified.punch_source)}"
+            f":die={die_name}:{_file_digest(verified.die_source)}"
+            f":p_span={verified.punch_span_xm}:d_span={verified.die_span_xm}"
+        )
+        placement_id = f"dir={direction}:match_len={match_active_bend_length}:shift=0"
+        tol_sig = (
+            f"near={sampling_cfg.near_tolerance_mm}"
+            f":vol={sampling_cfg.volume_tolerance_mm3}"
+            f":contact={sampling_cfg.contact_distance_tolerance_mm}"
+            f":arc={sampling_cfg.arc_segments}:phase={sampling_cfg.max_phase_time_s}"
+            f":strict_end_zone={allow_end_zone_collision}"
+        )
 
         measurement = from_search_report(
             report,
@@ -199,6 +215,8 @@ def run_benchmark_run(
             tolerance_signature=tol_sig,
         )
         kernel_snapshot = kernel_counter.to_dict()
+        kernel_snapshot["verified_tool_spans"] = verified.to_dict()
+        kernel_snapshot["physical_length_mode"] = "LIBRARY_FIXED"
         return measurement, kernel_snapshot, wall_s
     finally:
         try:
