@@ -38,6 +38,33 @@ class TestFullCyclePhaseDRegression(unittest.TestCase):
         self.panel.deleteLater()
         FreeCAD.closeDocument(self.doc.Name)
 
+    def test_nested_draw_keeps_qgraphics_scene_items_alive(self):
+        """A nested draw cannot delete QGraphicsPolygonItems in the outer draw.
+
+        This previously risked 'Internal C++ object ... already deleted'
+        during a Full Cycle Qt tick.
+        """
+        original = self.panel._draw_tooling_items
+        calls = [0]
+
+        def nested_draw(*args, **kwargs):
+            calls[0] += 1
+            if calls[0] == 1:
+                self.assertTrue(self.panel._draw_in_progress)
+                # Force the exact problematic event: draw during draw.
+                self.panel.draw()
+                self.assertTrue(self.panel._draw_in_progress)
+            return original(*args, **kwargs)
+
+        self.panel._draw_tooling_items = nested_draw
+        try:
+            self.panel.draw()
+            self.assertEqual(calls[0], 1)
+            self.assertFalse(self.panel._draw_in_progress)
+            self.assertGreater(len(self.panel.scene.items()), 0)
+        finally:
+            self.panel._draw_tooling_items = original
+
     def test_b01_to_b02_nonparallel_transfer_no_halt(self):
         """B01 and B02 have non-parallel axes in 3D (Z-plane rotation 90 deg).
 
