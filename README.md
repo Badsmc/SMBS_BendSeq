@@ -26,6 +26,8 @@ A feature is merged into `main` via tested integration; `smbs` is generated from
 
 The UI currently imports 2D kinematics and geometry and therefore the branch **retains supporting `smbs_core/` and FreeCAD integration modules**. Do not delete imports merely to make the tree look smaller. Solver behavior belongs to `2d`/`3d`/`core`; change the UI by narrowing adapters/interfaces where possible. Keep command registration strict, exactly one workbench installation, and make unsupported actions disabled or visibly rejected. Send verified GUI changes via PR to `main`.
 
+See [GUI module boundaries](docs/GUI_ARCHITECTURE.md) for ownership, safe refactor stages, verification gates and pending decomposition of the 2.5D panel.
+
 ## GUI checks
 
 Open/reopen the task panel; choose a document/face; show part; run Play/Pause/Reset/angle slider and order controls; load tooling; confirm that commands do not duplicate and errors are not swallowed.
