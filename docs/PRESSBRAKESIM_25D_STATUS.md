@@ -269,3 +269,15 @@ for bid in ("B01","B02"):
               frame.get("contact"), frame.get("kinematics"),
               frame.get("status"), frame.get("findings"))
 ```
+
+
+## Stage 2 native Z stroke logs — absolute versus relative support-plane coordinates (2026-11-09)
+
+User native Windows FreeCAD ran `tests.test_contact_oracle_2d` and `tests.test_axis_grouped_search`: **30/30 PASS (0.206 s)**. The new `sample_bend_stroke_2d` diagnostic on `Z-10-20-10-(ok)` using `PUNCH_AP_1017_88°_H104,65_R0,8` / `T-DIE_AT_3015_88°_V12_H80` returned:
+- **B01**: `DIE/active_fixed` and `DIE/active_moving` `INTERFERENCE/proper_material_boundary_crossing` already in `APPROACH 0°` and `CONTACT 0°`; mid-bend repeatedly interferes with die; at BOTTOM and RETRACT `CLEAR`.
+- **B02**: initial `TOUCH` (valid sheet/die bearing contact), mid-bend `UNVERIFIED Degenerate polygon edge` at -7.5..-30°; `PUNCH` `INTERFERENCE` starting approximately -37.5° and continuing to -90°; RETRACT `CLEAR`.
+- `GEOMETRIC_COUPLING_VERIFIED` in the log refers to the coupled analytical constraint predicate only, *not* the contact report; it does not disprove or qualify tool collision findings.
+
+Found concrete coordinate inconsistency in the diagnostic: the initial tooling is aligned against `compute_placement(...support_plane_zm=0)` for the flat workpiece, but each phase recalculated the placement using `kin.support_plane_zm(angle)`, which includes **absolute `die_top_z_mm`**. That shifted the sheet by die-top offset a second time (in particular at 0°), potentially creating false die interference before the ram touches the sheet.
+
+Fixed diagnostic to **reuse exact initial pose** for APPROACH and CONTACT and apply only `kin.support_plane_zm(angle)-kin.support_plane_zm(0)` as displacement for BENDING/BOTTOM/RETRACT. Added `support_delta_z_mm` frame evidence and a regression assertion with a deliberately nonzero die datum (`-7.25 mm`). This is a targeted machine-reference correction, **not evidence that the native Z-part collision anomalies are solved**. The user must rerun native Stage 2 diagnostic to verify the B01 initial die classification returns to the original `TOUCH`. Negative B02's later punch overlaps may require separate orientation/flip and physical-pose fixes; short finite bend-zone edges at intermediate angles still need a numerical tolerance strategy. Do not suppress real overlap classifications or artificially widen clearances. Stage 2 remains open.
