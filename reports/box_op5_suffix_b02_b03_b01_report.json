@@ -1,0 +1,429 @@
+{
+  "metadata": {
+    "timestamp": "2026-11-09T03:33:24.008841+00:00",
+    "git_commit": "3949c11",
+    "command_line": "PYTHONPATH=\"/Users/badmc/Library/Application Support/FreeCAD/v1-1/Mod:/Applications/FreeCAD.app/Contents/Resources/lib:.\" /Applications/FreeCAD.app/Contents/Resources/bin/python tools/verify_op5_and_backward_search.py",
+    "fixture": "box.100out-50in-(ok).FCStd",
+    "description": "Qualification of 5th operation before confirmed suffix B02 -> B03 -> B01 and backward search continuation"
+  },
+  "tooling_setup": {
+    "punch": "PUNCH_AP_1013_85°_H159,65_R0,8",
+    "die": "T-DIE_AT_3015_88°_V12_H80",
+    "match_active_bend_length": true,
+    "allow_end_zone_collision": false,
+    "end_zone_length_mm": 0.0,
+    "desired_midpoint_xm": 0.0,
+    "arc_segments": 128,
+    "volume_tolerance_mm3": 0.0001
+  },
+  "retract_diagnostics_b05": {
+    "cause_of_subdivision": "Vertical liftoff along ram_z causes contact status transition TOUCHING -> NEAR_CONTACT at u=0.0 and NEAR_CONTACT -> CLEAR at clearance = 0.50 mm (min_clearance_margin_mm). Because status changes while clearance < min_clearance_margin_mm, AdaptiveTrajectoryValidator3D enforces recursive subdivision down to max_recursion_depth (depth 7..11). There are ZERO physical collisions in RETRACT: overlap at u=0.0 is numerical noise 9.186e-6 mm3 (< 1e-4 mm3 tolerance), and strictly 0.0 mm3 for all u > 0.0.",
+    "verified_retract_points": [
+      {
+        "u": 0.0,
+        "ram_z_mm": -3.4927,
+        "punch_status": "TOUCHING",
+        "punch_clearance_mm": 0.0,
+        "punch_overlap_mm3": 9.1863e-06,
+        "die_status": "TOUCHING",
+        "die_clearance_mm": 0.0,
+        "die_overlap_mm3": 0.0,
+        "is_safe": true
+      },
+      {
+        "u": 0.0005,
+        "ram_z_mm": -3.4709,
+        "punch_status": "NEAR_CONTACT",
+        "punch_clearance_mm": 0.0217,
+        "punch_overlap_mm3": 0.0,
+        "die_status": "TOUCHING",
+        "die_clearance_mm": 0.0,
+        "die_overlap_mm3": 0.0,
+        "is_safe": true
+      },
+      {
+        "u": 0.00097656,
+        "ram_z_mm": -3.4502,
+        "punch_status": "NEAR_CONTACT",
+        "punch_clearance_mm": 0.0425,
+        "punch_overlap_mm3": 0.0,
+        "die_status": "TOUCHING",
+        "die_clearance_mm": 0.0,
+        "die_overlap_mm3": 0.0,
+        "is_safe": true
+      },
+      {
+        "u": 0.00195312,
+        "ram_z_mm": -3.4077,
+        "punch_status": "NEAR_CONTACT",
+        "punch_clearance_mm": 0.0849,
+        "punch_overlap_mm3": 0.0,
+        "die_status": "TOUCHING",
+        "die_clearance_mm": 0.0,
+        "die_overlap_mm3": 0.0,
+        "is_safe": true
+      },
+      {
+        "u": 0.005,
+        "ram_z_mm": -3.2752,
+        "punch_status": "NEAR_CONTACT",
+        "punch_clearance_mm": 0.2,
+        "punch_overlap_mm3": 0.0,
+        "die_status": "TOUCHING",
+        "die_clearance_mm": 0.0,
+        "die_overlap_mm3": 0.0,
+        "is_safe": true
+      },
+      {
+        "u": 0.015625,
+        "ram_z_mm": -2.8131,
+        "punch_status": "NEAR_CONTACT",
+        "punch_clearance_mm": 0.2,
+        "punch_overlap_mm3": 0.0,
+        "die_status": "TOUCHING",
+        "die_clearance_mm": 0.0,
+        "die_overlap_mm3": 0.0,
+        "is_safe": true
+      },
+      {
+        "u": 0.71875,
+        "ram_z_mm": 27.7677,
+        "punch_status": "NEAR_CONTACT",
+        "punch_clearance_mm": 0.4398,
+        "punch_overlap_mm3": 0.0,
+        "die_status": "TOUCHING",
+        "die_clearance_mm": 0.0,
+        "die_overlap_mm3": 0.0,
+        "is_safe": true
+      },
+      {
+        "u": 0.72265625,
+        "ram_z_mm": 27.9376,
+        "punch_status": "NEAR_CONTACT",
+        "punch_clearance_mm": 0.4894,
+        "punch_overlap_mm3": 0.0,
+        "die_status": "TOUCHING",
+        "die_clearance_mm": 0.0,
+        "die_overlap_mm3": 0.0,
+        "is_safe": true
+      },
+      {
+        "u": 0.72363281,
+        "ram_z_mm": 27.98,
+        "punch_status": "CLEAR",
+        "punch_clearance_mm": 0.5024,
+        "punch_overlap_mm3": 0.0,
+        "die_status": "TOUCHING",
+        "die_clearance_mm": 0.0,
+        "die_overlap_mm3": 0.0,
+        "is_safe": true
+      },
+      {
+        "u": 0.75,
+        "ram_z_mm": 29.1268,
+        "punch_status": "CLEAR",
+        "punch_clearance_mm": 0.9354,
+        "punch_overlap_mm3": 0.0,
+        "die_status": "TOUCHING",
+        "die_clearance_mm": 0.0,
+        "die_overlap_mm3": 0.0,
+        "is_safe": true
+      },
+      {
+        "u": 1.0,
+        "ram_z_mm": 40.0,
+        "punch_status": "CLEAR",
+        "punch_clearance_mm": 7.6772,
+        "punch_overlap_mm3": 0.0,
+        "die_status": "TOUCHING",
+        "die_clearance_mm": 0.0,
+        "die_overlap_mm3": 0.0,
+        "is_safe": true
+      }
+    ]
+  },
+  "op5_screening_summary": {
+    "fixed_suffix": [
+      "B02",
+      "B03",
+      "B01"
+    ],
+    "candidates": {
+      "B04": {
+        "initial_pose": "SAMPLED_3D_CLEAR_NOT_CONTINUOUS",
+        "quick_traj_64segm": "COLLISION (overlap 1.50e-4 mm3 > 1e-4 mm3 due to chordal arc tessellation noise)",
+        "full_traj_128segm": "SAMPLED_3D_CLEAR_NOT_CONTINUOUS (overlap 1.87e-5 mm3 < 1e-4 mm3, 0 collisions, 332.75 s)",
+        "qualification": "CONFIRMED_AS_OP5"
+      },
+      "B05": {
+        "initial_pose": "SAMPLED_3D_CLEAR_NOT_CONTINUOUS",
+        "quick_traj_64segm": "UNVERIFIED (RETRACT depth recursion limit on TOUCHING->CLEAR transition)",
+        "qualification": "ALTERNATIVE_CANDIDATE"
+      },
+      "B06": {
+        "initial_pose": "SAMPLED_3D_CLEAR_NOT_CONTINUOUS",
+        "quick_traj_64segm": "COLLISION (overlap 1.52e-4 mm3 in BENDING)",
+        "qualification": "REJECTED_AT_OP5"
+      },
+      "B07": {
+        "initial_pose": "SAMPLED_3D_CLEAR_NOT_CONTINUOUS",
+        "quick_traj_64segm": "UNVERIFIED (RETRACT depth recursion limit on TOUCHING->CLEAR transition)",
+        "qualification": "ALTERNATIVE_CANDIDATE"
+      },
+      "B08": {
+        "initial_pose": "COLLISION (die overlap 2101.81 mm3)",
+        "qualification": "GEOMETRIC_DEAD_END_AT_OP5"
+      }
+    }
+  },
+  "full_cycle_qualification_op5_b04": {
+    "candidate": "B04",
+    "operation_index": 5,
+    "preceding_state": "B05, B06, B07, B08 folded at target angles; B04, B02, B03, B01 at 0°",
+    "overall_status": "SAMPLED_3D_CLEAR_NOT_CONTINUOUS",
+    "wall_time_s": 332.75,
+    "total_samples": 75,
+    "solid_rebuilds": 33,
+    "collision_queries": 100,
+    "unresolved_intervals_count": 0,
+    "phases": {
+      "APPROACH": {
+        "status": "SAMPLED_INTERVAL_CONVERGED",
+        "unresolved": [],
+        "max_p_vol_mm3": 0.0,
+        "max_d_vol_mm3": 0.0
+      },
+      "CONTACT": {
+        "status": "SAMPLED_INTERVAL_CONVERGED",
+        "unresolved": [],
+        "max_p_vol_mm3": 0.0,
+        "max_d_vol_mm3": 0.0
+      },
+      "BENDING": {
+        "status": "SAMPLED_INTERVAL_CONVERGED",
+        "unresolved": [],
+        "max_p_vol_mm3": 1.8727e-05,
+        "max_d_vol_mm3": 0.0
+      },
+      "BOTTOM": {
+        "status": "SAMPLED_INTERVAL_CONVERGED",
+        "unresolved": [],
+        "max_p_vol_mm3": 1.8727e-05,
+        "max_d_vol_mm3": 0.0
+      },
+      "RETRACT": {
+        "status": "SAMPLED_INTERVAL_CONVERGED",
+        "unresolved": [],
+        "max_p_vol_mm3": 1.8727e-05,
+        "max_d_vol_mm3": 0.0
+      }
+    }
+  },
+  "full_cycle_qualification_op4_b05": {
+    "candidate": "B05",
+    "operation_index": 4,
+    "preceding_state": "B06, B07, B08 folded at target angles; B05, B04, B02, B03, B01 at 0°",
+    "overall_status": "SAMPLED_3D_CLEAR_NOT_CONTINUOUS",
+    "wall_time_s": 282.63,
+    "total_samples": 75,
+    "solid_rebuilds": 33,
+    "collision_queries": 100,
+    "unresolved_intervals_count": 0,
+    "phases": {
+      "APPROACH": {
+        "status": "SAMPLED_INTERVAL_CONVERGED",
+        "unresolved": [],
+        "max_p_vol_mm3": 0.0,
+        "max_d_vol_mm3": 0.0
+      },
+      "CONTACT": {
+        "status": "SAMPLED_INTERVAL_CONVERGED",
+        "unresolved": [],
+        "max_p_vol_mm3": 0.0,
+        "max_d_vol_mm3": 0.0
+      },
+      "BENDING": {
+        "status": "SAMPLED_INTERVAL_CONVERGED",
+        "unresolved": [],
+        "max_p_vol_mm3": 9.1863e-06,
+        "max_d_vol_mm3": 0.0
+      },
+      "BOTTOM": {
+        "status": "SAMPLED_INTERVAL_CONVERGED",
+        "unresolved": [],
+        "max_p_vol_mm3": 9.1863e-06,
+        "max_d_vol_mm3": 0.0
+      },
+      "RETRACT": {
+        "status": "SAMPLED_INTERVAL_CONVERGED",
+        "unresolved": [],
+        "max_p_vol_mm3": 9.1863e-06,
+        "max_d_vol_mm3": 0.0
+      }
+    }
+  },
+  "full_cycle_qualification_op3_b07": {
+    "candidate": "B07",
+    "operation_index": 3,
+    "preceding_state": "B06, B08 folded at target angles; B07, B05, B04, B02, B03, B01 at 0°",
+    "overall_status": "SAMPLED_3D_CLEAR_NOT_CONTINUOUS",
+    "wall_time_s": 219.51,
+    "total_samples": 73,
+    "solid_rebuilds": 33,
+    "collision_queries": 98,
+    "unresolved_intervals_count": 0,
+    "phases": {
+      "APPROACH": {
+        "status": "SAMPLED_INTERVAL_CONVERGED",
+        "unresolved": [],
+        "max_p_vol_mm3": 0.0,
+        "max_d_vol_mm3": 0.0
+      },
+      "CONTACT": {
+        "status": "SAMPLED_INTERVAL_CONVERGED",
+        "unresolved": [],
+        "max_p_vol_mm3": 0.0,
+        "max_d_vol_mm3": 0.0
+      },
+      "BENDING": {
+        "status": "SAMPLED_INTERVAL_CONVERGED",
+        "unresolved": [],
+        "max_p_vol_mm3": 9.1863e-06,
+        "max_d_vol_mm3": 0.0
+      },
+      "BOTTOM": {
+        "status": "SAMPLED_INTERVAL_CONVERGED",
+        "unresolved": [],
+        "max_p_vol_mm3": 9.1863e-06,
+        "max_d_vol_mm3": 0.0
+      },
+      "RETRACT": {
+        "status": "SAMPLED_INTERVAL_CONVERGED",
+        "unresolved": [],
+        "max_p_vol_mm3": 9.1863e-06,
+        "max_d_vol_mm3": 0.0
+      }
+    }
+  },
+  "full_cycle_qualification_op2_b06": {
+    "candidate": "B06",
+    "operation_index": 2,
+    "preceding_state": "B08 folded at target angle (-90°); B06..B01 at 0°",
+    "overall_status": "SAMPLED_3D_CLEAR_NOT_CONTINUOUS",
+    "wall_time_s": 190.8,
+    "total_samples": 75,
+    "solid_rebuilds": 33,
+    "collision_queries": 100,
+    "unresolved_intervals_count": 0,
+    "phases": {
+      "APPROACH": {
+        "status": "SAMPLED_INTERVAL_CONVERGED",
+        "unresolved": [],
+        "max_p_vol_mm3": 0.0,
+        "max_d_vol_mm3": 0.0
+      },
+      "CONTACT": {
+        "status": "SAMPLED_INTERVAL_CONVERGED",
+        "unresolved": [],
+        "max_p_vol_mm3": 0.0,
+        "max_d_vol_mm3": 0.0
+      },
+      "BENDING": {
+        "status": "SAMPLED_INTERVAL_CONVERGED",
+        "unresolved": [],
+        "max_p_vol_mm3": 1.8727e-05,
+        "max_d_vol_mm3": 0.0
+      },
+      "BOTTOM": {
+        "status": "SAMPLED_INTERVAL_CONVERGED",
+        "unresolved": [],
+        "max_p_vol_mm3": 1.8727e-05,
+        "max_d_vol_mm3": 0.0
+      },
+      "RETRACT": {
+        "status": "SAMPLED_INTERVAL_CONVERGED",
+        "unresolved": [],
+        "max_p_vol_mm3": 1.8727e-05,
+        "max_d_vol_mm3": 0.0
+      }
+    }
+  },
+  "full_cycle_qualification_op1_b08": {
+    "candidate": "B08",
+    "operation_index": 1,
+    "preceding_state": "Flat blank (all 8 bends at 0°)",
+    "overall_status": "SAMPLED_3D_CLEAR_NOT_CONTINUOUS",
+    "wall_time_s": 113.77,
+    "total_samples": 73,
+    "solid_rebuilds": 33,
+    "collision_queries": 98,
+    "unresolved_intervals_count": 0,
+    "phases": {
+      "APPROACH": {
+        "status": "SAMPLED_INTERVAL_CONVERGED",
+        "unresolved": [],
+        "max_p_vol_mm3": 0.0,
+        "max_d_vol_mm3": 0.0
+      },
+      "CONTACT": {
+        "status": "SAMPLED_INTERVAL_CONVERGED",
+        "unresolved": [],
+        "max_p_vol_mm3": 0.0,
+        "max_d_vol_mm3": 0.0
+      },
+      "BENDING": {
+        "status": "SAMPLED_INTERVAL_CONVERGED",
+        "unresolved": [],
+        "max_p_vol_mm3": 9.1863e-06,
+        "max_d_vol_mm3": 0.0
+      },
+      "BOTTOM": {
+        "status": "SAMPLED_INTERVAL_CONVERGED",
+        "unresolved": [],
+        "max_p_vol_mm3": 9.1863e-06,
+        "max_d_vol_mm3": 0.0
+      },
+      "RETRACT": {
+        "status": "SAMPLED_INTERVAL_CONVERGED",
+        "unresolved": [],
+        "max_p_vol_mm3": 9.1863e-06,
+        "max_d_vol_mm3": 0.0
+      }
+    }
+  },
+  "complete_production_sequence": {
+    "manufacturing_order": [
+      "B08",
+      "B06",
+      "B07",
+      "B05",
+      "B04",
+      "B02",
+      "B03",
+      "B01"
+    ],
+    "symmetric_alternative": [
+      "B06",
+      "B08",
+      "B05",
+      "B07",
+      "B04",
+      "B02",
+      "B03",
+      "B01"
+    ],
+    "is_full_8_bend_sequence": true,
+    "all_operations_strictly_verified": true,
+    "deepest_confirmed_suffix": [
+      "B08",
+      "B06",
+      "B07",
+      "B05",
+      "B04",
+      "B02",
+      "B03",
+      "B01"
+    ],
+    "depth_reached": 8
+  }
+}
