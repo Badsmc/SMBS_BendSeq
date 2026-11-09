@@ -198,3 +198,25 @@ User ran `tests.test_axis_grouped_search` inside Windows FreeCAD: **6/6 PASS** (
 - `status=UNKNOWN_UNVERIFIED`, `evaluated_steps=2`, `order=()`.
 
 This proves the grouping/contract smoke test, **not** a physical solver. Existing `check_sheet_tooling_preview` is a section classifier; no direct connected step oracle currently validates the entire completed-prefix setup/stroke/retract cycle. The UI 'Расчёт' button remains disabled. Do not mark P3 automatic search verified until each oracle CLEAR is backed by real 2D evidence on the existing FoldState and tooling. Also the current bounded function finds the first feasible order, not a proven optimum; objective criteria and cost comparison remain pending.
+
+
+## P3 physical collision oracle bridge: initial read-only setup screen (2026-11-09, native test pending)
+
+`smbs_core/kinematics2d/contact_oracle_2d.py` now includes `make_axis_step_oracle_2d(panel_vertices_xy, tooling, evidence=list)`. It connects the existing `search_axis_grouped_order` iteration to existing `WorkpiecePlacement3D.compute_placement` (machine coordinate placement only), `compute_machine_cutting_plane_section`, `ToolingSetup2D.align_to_cross_section` on a private deep copy, and `check_sheet_tooling_preview` with actual stored PUNCH/DIE polygons. No separate collision solver or fictitious mock CLEAR is introduced in runtime.
+
+For each candidate, the search restores the completed bend prefix, computes the next active bend's central 2D machine setup, checks all extracted section components against punch and die. Confirmed cross-sectional material overlap returns `BLOCKED` with evidence. Missing tooling, unsupported/incomplete machine cutting plane, TOUCH/UNVERIFIED, or geometrically CLEAR but *unsampled* bend stroke returns `UNKNOWN`. The adapter deliberately does not return `CLEAR` from an initial parked setup alone; hence it cannot yet produce `FOUND_2D_ORACLE`. This is first-step **collision-based pruning**, not completed automatic physical sequence finding.
+
+`tests/test_axis_grouped_search.py` includes extra bridge tests for missing tools, confirmed interference, and refusal to certify parked setup as a full stroke. No current evidence of tests run on these commits; pending Windows FreeCAD suite and real model screening.
+
+Native diagnostic in FreeCAD, with a loaded `session` and actual verified ToolingSetup2D named `tooling`:
+```python
+from smbs_core.kinematics2d.fold_sequence import search_axis_grouped_order
+from smbs_core.kinematics2d.contact_oracle_2d import make_axis_step_oracle_2d
+evidence=[]
+oracle=make_axis_step_oracle_2d(session.panel_vertices_xy,tooling,evidence=evidence)
+result=search_axis_grouped_order(session.fold_state,oracle,max_evaluations=2000)
+print(result.status,result.axis_groups,result.evaluated_steps,result.order)
+for item in evidence: print(item)
+```
+
+Do not activate the production `Расчёт` UI button or report a valid sequence until the complete 2D setup/stroke/retract contract is implemented. The contact screen's `BLOCKED` evidence covers only the checked central 2D machine section, not every longitudinal section or external hardware.
