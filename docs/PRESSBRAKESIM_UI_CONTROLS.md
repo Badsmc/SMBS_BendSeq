@@ -1,3 +1,17 @@
+## FreeCAD startup and occupied Task Dialog recovery (2026-11-09)
+
+**Fixed:** FreeCAD can execute the addon root `InitGui.py` without defining `__file__`. Both root entry points now resolve the `freecad_smbs` package through Python's import path or a unique user Mod installation, instead of unconditionally dereferencing `__file__`.
+
+**Fixed:** PressBrakeSim no longer refuses to open the viewer with `FreeCAD already has an active Task Dialog`. If the native FreeCAD Task dialog is occupied, PressBrakeSim opens the controls inside its own dock named `SMBS_FallbackControlsDock`, retaining the three familiar tabs and a Close button. This is an intentional fallback, not a replacement for FreeCAD's task system: an unrelated active FreeCAD task is neither closed nor overwritten. The viewer and the underlying SheetMetal document are retained.
+
+If the native Task Panel is free, the normal native task dialog is used. A viewer-local `Показать панель управления` button reopens a hidden addon controls dock. The owned dock is disposed when the simulation viewer is closed.
+
+**Installation:** The paths in the error log point to `Mod/SMBS_BendSeq-2D`. Ensure the installed directory actually contains the updated `gui` branch code, that only one SMBS checkout is active in the Mod search path, and that FreeCAD is fully restarted. Loading both a 2D checkout and a GUI checkout simultaneously is unsupported. Verify `InitGui.py` and `freecad_smbs/commands/pressbrake_2d.py` are from the same revision.
+
+**Acceptance required:** restart FreeCAD, verify workbench registration, select `Body_Unfold`, open simulation while a different FreeCAD task is active, verify fallback controls are visible, hide/reopen them, then close the simulation viewer and verify no stray fallback dock remains. Live FreeCAD verification has not been performed here.
+
+---
+
 ## Task Panel lifecycle correction (2026-11-09)
 
 The former close/reopen implementation called `Gui.Control.closeDialog()` and attempted to reparent the same tab widget into a newly constructed Task Dialog. This is unsafe: closing a FreeCAD task dialog destroys its native Qt container. The UI now keeps one active Task Dialog for the lifetime of the MDI simulation viewer. **Закрыть панель** hides the containing FreeCAD Tasks dock without calling `closeDialog()`. **Показать панель управления**, **Симуляция**, or the top-level **Оснастка** action restores that same dock and its original Qt controls, without reparenting them or restarting playback.
