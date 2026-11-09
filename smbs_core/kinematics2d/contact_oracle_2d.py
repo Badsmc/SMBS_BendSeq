@@ -389,7 +389,7 @@ def make_axis_step_oracle_2d(panel_vertices_xy, tooling, *, evidence=None,
             else:
                 item["reason"] = "setup_clear_but_stroke_not_checked"
             return "UNKNOWN"
-        except (ValueError, ArithmeticError, TypeError, KeyError, ToolingError) as exc:
+        except (ValueError, ArithmeticError, TypeError, KeyError, AttributeError, ToolingError) as exc:
             item["reason"] = "unsupported_setup: " + str(exc)
             return "UNKNOWN"
         finally:
