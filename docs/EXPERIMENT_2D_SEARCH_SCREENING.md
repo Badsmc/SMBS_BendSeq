@@ -126,3 +126,21 @@ measurement = from_search_report(
 
 - In this schema `occt_boolean_calls` represents instrumented `common()` calls only; distances are independently captured via `counter.to_dict()`. Persist that complete snapshot alongside the experiment report to avoid claiming exhaustive backend coverage.
 - Added synthetic headless tests in `tests/test_native_kernel_metrics.py` and extended the branch-only CI workflow. CI outcomes and native CAD benchmark measurements remain unverified until executed.
+
+
+## Opt-in source panel-prism reuse (eighth increment; requires physical benchmark)
+
+Measured baseline on Windows FreeCAD 1.1.3 / Z-(ok) first B01 physical step:
+- `max_phase_time_s=90`, `max_recursion_depth=6`, `max_evaluated_states_per_phase=48`, search max checks 1; same virtual-length tooling setup.
+- One instrumented run: total search wall 56.45 s; BENDING 41.47 s. Earlier 30-second phase budget stopped BENDING with two unresolved intervals, so do not compare its 30.93 s to a fully converged trajectory.
+- Reported across BENDING: ~24 source **sheet assembly** reconstructions, ~9.895 s solid-build time; punch 10.503 s, die 9.750 s. These are observed baseline timings, not improved results.
+- `native_bend_solid_3d.build_multi_bend_sheet_solid(..., panel_prism_cache=None)` is backward-compatible. Optional per-validator cache reuses only *untransformed source panel prisms* (original face extruded along -thickness); it never caches or reuses transformed panels, moved tools, bend-zone solids, or full joined solids.
+- The `MotionTrajectoryValidator` tracks source panel geometry signature, original face identity, generation token and thickness. It clears cached source prisms if these change and clears with `clear_caches()` and tool changes. Every new angle still applies a fresh rigid placement to a `shape.copy()`, constructs new bend zones, recomputes OCC union, and checks full validity and volume. Source face validity is checked even on a cache hit. No collision tolerances, sampling thresholds, evidence semantics or 2D risk ranking were changed.
+- This specifically eliminates repeated `face.extrude()` for fixed panel primitives at different angles; it cannot eliminate expensive complete-sheet OCC fusion and intersection tests. The *speed benefit is unknown* until physical FreeCAD regression comparison.
+- `tests/test_panel_prism_reuse.py` covers cache hit, original uncached behavior, invalid source rejection on hit, invalid cached solid rejection and independent validator caches. CI includes this headless contract test, but it does not prove FreeCAD-native numerical equivalence.
+
+Before treating this optimization as accepted, compare at **identical** settings and fresh process/cache:
+1. Baseline commit `b3dd944d26fe5213a301ba7053456138246c5cce` vs experimental head, with Z-(ok).FCStd and exact same virtual tooling/mode initially; run B01 once for each.
+2. Check per-phase status, `unresolved_intervals`, every collision class, distances/volumes within tolerance, bend pose, and zero failures; measure total wall, `phase_solid_reconstruction_ms`, measured common/distance calls. Both must remain `SAMPLED_3D_CLEAR_NOT_CONTINUOUS` without unresolved intervals, or investigate.
+3. Repeat with **real full-length verified** AP1017 + AT3015 tool solids separately; virtual-length result is not physical production qualification.
+4. Treat changes in outcome or loss of shape validity as regression, not performance improvement. Do not claim a speedup without actual paired runs.
