@@ -84,11 +84,76 @@ def probe_punch_retract(polygons, tooling, *,
             "reason": "fixed_real_folded_section_rising_punch_only"}
 
 
+
+def probe_lift_then_withdraw(polygons, punch, die, *,
+                             lift_mm=20.0, distance_mm=100.0,
+                             direction=1, lift_samples=21,
+                             withdrawal_samples=21, tolerance_mm=0.02):
+    """Two-segment test: raise the formed section, then move it horizontally.
+
+    All tools remain fixed at the parked configuration. An initial TOUCH with
+    the die is permitted in this diagnostic only, but any INTERFERENCE or
+    UNVERIFIED prevents claiming sampled clearance. This is not a continuous
+    swept-volume collision certificate.
+    """
+    if direction not in (-1, 1):
+        raise ValueError("direction must be -1 or +1")
+    if (not isfinite(lift_mm) or lift_mm <= 0
+            or not isfinite(distance_mm) or distance_mm <= 0
+            or not 2 <= lift_samples <= 1001
+            or not 2 <= withdrawal_samples <= 1001):
+        raise ValueError("invalid lift/withdrawal distance or sampling")
+    if not polygons:
+        return {"status": "UNVERIFIED_2D", "samples": [],
+                "reason": "empty_part_section"}
+    samples = []
+    for phase, count in (("LIFT", lift_samples),
+                         ("LATERAL_AFTER_LIFT", withdrawal_samples)):
+        for i in range(count):
+            if phase == "LIFT":
+                z = lift_mm * i / (count - 1)
+                ds = 0.0
+            else:
+                z = lift_mm
+                ds = direction * distance_mm * i / (count - 1)
+            moved = tuple(
+                (name, tuple((float(x) + ds, float(y) + z)
+                             for x, y in poly))
+                for name, poly in polygons
+            )
+            report = check_machine_section(moved, punch, die, tolerance_mm)
+            problems = [
+                {"tool": finding.tool, "component": finding.sheet_component,
+                 "status": finding.status.value, "reason": finding.reason}
+                for finding in report.findings
+                if finding.status in (ContactStatus.INTERFERENCE,
+                                      ContactStatus.UNVERIFIED)
+            ]
+            samples.append({
+                "phase": phase, "lift_z_mm": z, "offset_s_mm": ds,
+                "status": report.status.value, "findings": problems[:12],
+            })
+    statuses = {sample["status"] for sample in samples}
+    if "INTERFERENCE" in statuses:
+        status = "SAMPLED_2D_INTERFERENCE"
+    elif "UNVERIFIED" in statuses:
+        status = "UNVERIFIED_2D"
+    elif "TOUCH" in statuses:
+        status = "SAMPLED_2D_TOUCH_OR_CLEAR_NOT_CERTIFIED"
+    else:
+        status = "SAMPLED_2D_CLEAR_NOT_CERTIFIED"
+    return {
+        "status": status, "samples": samples,
+        "reason": "hypothetical_vertical_lift_then_horizontal_s_translation",
+    }
+
+
 def run_folded_part_cycle(
     doc, *, sequence=("B01", "B02"),
     punch_id=DEFAULT_PUNCH, die_id=DEFAULT_DIE,
     distance_mm=100.0, retract_samples=21, withdrawal_samples=21,
     parked_clearance_mm=20.0, tolerance_mm=0.02,
+    lift_mm=20.0, lift_samples=21,
     output_path=None,
 ):
     """Compute actual post-bend section, sample ram retract and lateral removal.
@@ -190,6 +255,22 @@ def run_folded_part_cycle(
                         tolerance_mm=tolerance_mm,
                     ),
                 }
+                entry["lift_then_withdrawal"] = {
+                    "negative_s": probe_lift_then_withdraw(
+                        polygons, punch, die,
+                        lift_mm=lift_mm, distance_mm=distance_mm,
+                        direction=-1, lift_samples=lift_samples,
+                        withdrawal_samples=withdrawal_samples,
+                        tolerance_mm=tolerance_mm,
+                    ),
+                    "positive_s": probe_lift_then_withdraw(
+                        polygons, punch, die,
+                        lift_mm=lift_mm, distance_mm=distance_mm,
+                        direction=1, lift_samples=lift_samples,
+                        withdrawal_samples=withdrawal_samples,
+                        tolerance_mm=tolerance_mm,
+                    ),
+                }
                 entry["transfer"] = {
                     "status": "UNVERIFIED_2D",
                     "reason": ("next_bend_pose_change_not_swept"
@@ -212,11 +293,13 @@ def run_folded_part_cycle(
         "retract_samples": retract_samples,
         "withdrawal_samples": withdrawal_samples,
         "distance_mm": distance_mm,
+        "lift_mm": lift_mm, "lift_samples": lift_samples,
         "evidence": "POST_BEND_MACHINE_SECTION_SAMPLES_ONLY_NOT_3D_CERTIFIED",
         "limitations": [
             "Stationary bent section and ram-only upward motion: no springback",
             "Single central section; discrete samples do not certify continuous path",
             "Horizontal +s/-s withdrawal only after ram reaches parked height",
+            "Optional lift then lateral withdraw is a hypothetical 2D trajectory, not a planned machine motion",
             "TRANSFER rotation/flip between machine setups NOT evaluated",
             "No machine frame, backgauge, clamps, punch/die end faces or 3D sweep",
         ],
@@ -250,6 +333,16 @@ def print_folded_part_cycle(payload):
         for direction, path in step.get("withdrawal", {}).items():
             print("   WITHDRAWAL", direction, path["status"],
                   "INTERFERENCE:", sum(s["status"] == "INTERFERENCE" for s in path["samples"]))
+        for direction, path in step.get("lift_then_withdrawal", {}).items():
+            problems = [sample for sample in path["samples"]
+                        if sample["status"] in ("INTERFERENCE", "UNVERIFIED")]
+            print("   LIFT+WITHDRAW", direction, path["status"],
+                  "PROBLEMS:", len(problems))
+            if problems:
+                print("    FIRST:", problems[0]["phase"],
+                      "lift_z_mm=", round(problems[0]["lift_z_mm"], 3),
+                      "s_mm=", round(problems[0]["offset_s_mm"], 3),
+                      problems[0]["findings"][:2])
         if "transfer" in step:
             print("   TRANSFER:", step["transfer"]["status"],
                   step["transfer"]["reason"])
