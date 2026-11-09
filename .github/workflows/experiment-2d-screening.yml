@@ -19,6 +19,7 @@ jobs:
         run: |
           python -m py_compile smbs_core/kinematics2d/axis_screening.py
           python -m py_compile smbs_core/kinematics2d/bend_drawing_plan.py
+          python -m py_compile freecad_smbs/commands/pressbrake_2d.py
           python -m py_compile smbs_core/kinematics2d/machine_station_planner.py
           python -m py_compile smbs_core/kinematics2d/machine_section_3d.py
           python -m py_compile smbs_core/kinematics2d/multi_station_screening.py
