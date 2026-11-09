@@ -109,6 +109,8 @@ def print_planar_summary(payload: dict) -> None:
         )
         if record.get("diagnostic_findings"):
             print("     UNKNOWN CONTACT REASONS:", record["diagnostic_findings"][:8])
+        if record.get("touch_summary"):
+            print("     TOUCH SOURCES:", record["touch_summary"][:12])
     print("RANKED PLANS:", len(report["candidates"]))
     for position, candidate in enumerate(report["candidates"], 1):
         cost = round(candidate["cost"], 3) if candidate["cost_complete"] else "UNVERIFIED"
