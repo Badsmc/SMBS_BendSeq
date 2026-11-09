@@ -91,6 +91,7 @@ class _PreviewPanel:
                 self.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
                 self.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
                 self._user_camera_modified = False
+                self._zoom_steps = 0.0
                 self._orbit_callback = orbit_callback
                 self._last_drag_pos = None
 
@@ -99,6 +100,7 @@ class _PreviewPanel:
                 if scene is None or scene.sceneRect().isEmpty():
                     return
                 self._user_camera_modified = False
+                self._zoom_steps = 0.0
                 self.resetTransform()
                 self.fitInView(scene.sceneRect(), QtCore.Qt.KeepAspectRatio)
 
@@ -107,12 +109,13 @@ class _PreviewPanel:
                 if delta == 0:
                     event.ignore()
                     return
-                factor = 1.15 ** (delta / 120.0)
-                target = self.transform().m11() * factor
-                if not 0.015 <= target <= 250.0:
+                steps = delta / 120.0
+                next_steps = self._zoom_steps + steps
+                if not -35.0 <= next_steps <= 35.0:
                     event.accept()
                     return
-                self.scale(factor, factor)
+                self.scale(1.15 ** steps, 1.15 ** steps)
+                self._zoom_steps = next_steps
                 self._user_camera_modified = True
                 event.accept()
 
