@@ -122,8 +122,12 @@ def _proper_cross(a, b, c, d, tol):
     """Strictly crossing edges, excluding tangents/endpoints/coincidences."""
     len_ab = hypot(b[0]-a[0], b[1]-a[1])
     len_cd = hypot(d[0]-c[0], d[1]-c[1])
-    if len_ab <= tol or len_cd <= tol:
-        raise ContactGeometryError("Degenerate polygon edge")
+    # Contact tolerance is NOT a minimum edge length. Curved bend zones
+    # routinely contain valid tessellation edges shorter than 0.02 mm.
+    # Normalized signed distances remain defined for every nonzero edge;
+    # only numerically zero-length edges make the orientation undefined.
+    if len_ab <= 1e-9 or len_cd <= 1e-9:
+        raise ContactGeometryError("Numerically zero-length polygon edge")
     o1, o2 = _cross(a,b,c)/len_ab, _cross(a,b,d)/len_ab
     o3, o4 = _cross(c,d,a)/len_cd, _cross(c,d,b)/len_cd
     return ((o1 > tol and o2 < -tol or o1 < -tol and o2 > tol)
