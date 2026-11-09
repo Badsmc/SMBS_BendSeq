@@ -305,3 +305,94 @@ def check_sheet_tooling_preview(section, tooling, tolerance_mm: float = 0.02) ->
         tooling.die_polygons_machine(arc_segments=24),
         tolerance_mm,
     )
+
+
+def make_axis_step_oracle_2d(panel_vertices_xy, tooling, *, evidence=None,
+                             tolerance_mm: float = 0.02):
+    """Bridge the axis-grouped order search to the EXISTING 2D contact oracle.
+
+    A candidate is checked at its pre-bend machine setup with all prior bends
+    already folded. Confirmed material interference -> BLOCKED. A sampled
+    CLEAR is NOT an entire continuous bend stroke, 3D tool-length check, or
+    qualified support / regrip: it remains UNKNOWN.
+
+    This callback never edits the FreeCAD source document, owns no controller,
+    and restores the candidate FoldState and tooling across every exception.
+    Attach an optional list as evidence to see each candidate's actual reason.
+    """
+    from copy import deepcopy
+    from .machine_section_3d import compute_machine_cutting_plane_section
+    from .workpiece_placement_3d import WorkpiecePlacement3D
+    from .tooling_25d import ValidationStatus, ToolingError
+
+    if evidence is None:
+        evidence = []
+
+    def evaluate_step(prefix, bend_id, fold_state):
+        item = {"prefix": tuple(prefix), "bend_id": bend_id,
+                "status": "UNKNOWN", "reason": "unverified_2d_setup"}
+        try:
+            if bend_id not in fold_state.bends:
+                item["reason"] = "unknown_bend_id"
+                return "UNKNOWN"
+            if not panel_vertices_xy:
+                item["reason"] = "missing_panel_geometry"
+                return "UNKNOWN"
+            if tooling is None or getattr(tooling, "punch", None) is None or getattr(tooling, "die", None) is None:
+                item["reason"] = "missing_punch_or_die"
+                return "UNKNOWN"
+            if (tooling.punch.validation_status != ValidationStatus.GEOMETRY_VERIFIED
+                    or tooling.die.validation_status != ValidationStatus.GEOMETRY_VERIFIED):
+                item["reason"] = "tool_geometry_not_verified"
+                return "UNKNOWN"
+            if any(abs(fold_state.angles[b]) > 1e-8 for b in fold_state.bends
+                   if b not in prefix):
+                item["reason"] = "nonprefix_bend_is_not_flat"
+                return "UNKNOWN"
+
+            # The search loop already reconstructed this prefix from flat.
+            # Align a PRIVATE tooling copy against the selected machine pose;
+            # never mutate the GUI's selected punch/die, machine pose or ram.
+            placement = WorkpiecePlacement3D.compute_placement(
+                fold_state, bend_id, support_plane_zm=0.0,
+                align_bisector=False,
+            )
+            section = compute_machine_cutting_plane_section(
+                fold_state, panel_vertices_xy, placement,
+                active_bend_id=bend_id, segments=32,
+            )
+            if not (section.get("zone_polygon")
+                    and section.get("fixed_polygon")
+                    and section.get("moving_polygon")):
+                item["reason"] = "incomplete_active_machine_section"
+                return "UNKNOWN"
+            candidate_tooling = deepcopy(tooling)
+            candidate_tooling.align_to_cross_section(
+                section, clearance_mm=20.0, bend_id=bend_id
+            )
+            report = check_sheet_tooling_preview(
+                section, candidate_tooling, tolerance_mm=tolerance_mm
+            )
+            item["contact_status"] = report.status.value
+            item["findings"] = tuple(
+                (f.tool, f.sheet_component, f.status.value, f.reason)
+                for f in report.findings if f.status != ContactStatus.CLEAR
+            )
+            if report.status == ContactStatus.INTERFERENCE:
+                item["status"] = "BLOCKED"
+                item["reason"] = "verified_2d_setup_material_interference"
+                return "BLOCKED"
+            if report.status == ContactStatus.TOUCH:
+                item["reason"] = "setup_boundary_contact_unverified"
+            elif report.status == ContactStatus.UNVERIFIED:
+                item["reason"] = "setup_contact_geometry_unverified"
+            else:
+                item["reason"] = "setup_clear_but_stroke_not_checked"
+            return "UNKNOWN"
+        except (ValueError, ArithmeticError, TypeError, KeyError, ToolingError) as exc:
+            item["reason"] = "unsupported_setup: " + str(exc)
+            return "UNKNOWN"
+        finally:
+            evidence.append(item)
+
+    return evaluate_step
