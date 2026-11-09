@@ -202,6 +202,16 @@ def classify_polygon_contact(
     a = _validate_ring(sheet,tol)
     b = _validate_ring(tool_outer,tol)
     holes = tuple(_validate_ring(h,tol) for h in tool_holes)
+    return _classify_validated_contact(a, b, holes, tol)
+
+
+def _classify_validated_contact(a: Ring, b: Ring, holes: tuple[Ring, ...],
+                                tol: float) -> tuple[ContactStatus, str]:
+    """Run exact predicates on previously validated immutable polygons.
+
+    The machine section path uses this for repeated sheet components against
+    a single tool, avoiding per-component tool polygon conversion and checks.
+    """
     if _bbox_disjoint(_bbox(a),_bbox(b),tol):
         return ContactStatus.CLEAR,"separated_bounding_boxes"
     touching = False
@@ -295,13 +305,26 @@ def check_machine_section(
                                            "missing_tool_geometry"))
             continue
         outer, holes = shape
+        try:
+            tol = float(tolerance_mm)
+            if not isfinite(tol) or not 1e-5 <= tol <= 1.0:
+                raise ContactGeometryError("tolerance_mm must be in [1e-5, 1] mm")
+            tool_ring = _validate_ring(outer, tol)
+            hole_rings = tuple(_validate_ring(h, tol) for h in holes)
+            invalid_tool = None
+        except ContactGeometryError as exc:
+            tool_ring, hole_rings, invalid_tool = None, (), str(exc)
         for identifier, polygon in components:
-            try:
-                status, reason = classify_polygon_contact(
-                    polygon,outer,holes,tolerance_mm
-                )
-            except ContactGeometryError as exc:
-                status, reason = ContactStatus.UNVERIFIED,str(exc)
+            if invalid_tool is not None:
+                status, reason = ContactStatus.UNVERIFIED, invalid_tool
+            else:
+                try:
+                    sheet_ring = _validate_ring(polygon, tol)
+                    status, reason = _classify_validated_contact(
+                        sheet_ring, tool_ring, hole_rings, tol
+                    )
+                except ContactGeometryError as exc:
+                    status, reason = ContactStatus.UNVERIFIED, str(exc)
             findings.append(ContactFinding(tool_name,str(identifier),status,reason))
     if not components:
         findings.append(ContactFinding("SHEET","*",ContactStatus.UNVERIFIED,
