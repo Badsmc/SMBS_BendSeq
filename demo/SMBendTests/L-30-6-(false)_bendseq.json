@@ -1,0 +1,89 @@
+{
+  "status": "PARTIAL",
+  "success": true,
+  "sequence": [
+    {
+      "step": 1,
+      "bend_id": "BEND_01",
+      "status": "unknown",
+      "collision_status": "VALID",
+      "tooling_status": "REAL",
+      "alignment_status": "MISALIGNED",
+      "angle_deg": 90.0,
+      "radius_mm": 1.0,
+      "length_mm": 25.0,
+      "axis": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "origin": [
+        0.0,
+        27.5,
+        2.5
+      ],
+      "moving_panels": [
+        "PANEL_12"
+      ],
+      "backgauge": {
+        "X_mm": 26.0,
+        "R_mm": 3.0,
+        "Z1_mm": -25.0,
+        "Z2_mm": 25.0,
+        "finger_touch_point_1": [
+          26.0,
+          -25.0,
+          3.0
+        ],
+        "finger_touch_point_2": [
+          26.0,
+          25.0,
+          3.0
+        ],
+        "part_stability_score": 0.95,
+        "reference_edge": "REAR_FLANGE_PARALLEL",
+        "geometry_confirmed": false,
+        "warning": "Backgauge coordinates are estimates. Exact flat pattern projection is required for precise X dimension."
+      },
+      "tooling": {
+        "punch_id": "PUNCH_STRAIGHT_100",
+        "punch_type": "straight",
+        "punch_height_mm": 100.0,
+        "die_id": "DIE_V24",
+        "v_width_mm": 24.0,
+        "die_height_mm": 80.0,
+        "segment_layout_mm": [
+          100,
+          200
+        ],
+        "required_tonnage_per_m": 97.5
+      },
+      "operator_instructions": {
+        "station": 1,
+        "requires_part_flip_180": false,
+        "tool_change_required": false,
+        "description": "Position part against backgauge stops X=26.0mm, R=3.0mm."
+      }
+    }
+  ],
+  "bendseq_file": "/Users/badmc/Desktop/SMBS/SMBendTests/L-30-6-(false)_bendseq.json",
+  "validation": {
+    "all_steps_valid": true,
+    "steps_valid": 1,
+    "steps_invalid": 0,
+    "steps_unknown": 0,
+    "tooling_alignment": "MISALIGNED",
+    "collision_free_confirmed": false
+  },
+  "planning_time": 0.03978705406188965,
+  "nodes_explored": 2,
+  "cache_stats": {
+    "size": 94,
+    "hits": 0,
+    "misses": 94,
+    "puts": 94,
+    "gets": 94,
+    "hit_ratio_percent": 0.0
+  },
+  "diagnostics": []
+}

@@ -1,0 +1,55 @@
+{
+  "schema_version": "1.0",
+  "id": "synthetic_die_v24",
+  "kind": "die",
+  "source": "synthetic_die_v24.FCStd",
+  "datums": {
+    "mounting_plane": {
+      "kind": "plane",
+      "origin": [
+        0.0,
+        -60.0,
+        0.0
+      ],
+      "normal": [
+        0,
+        1,
+        0
+      ],
+      "tolerance_mm": 0.05
+    },
+    "working_axis": {
+      "kind": "axis",
+      "origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "direction": [
+        0,
+        0,
+        1
+      ],
+      "tolerance_mm": 0.02
+    },
+    "v_center": {
+      "kind": "axis",
+      "origin": [
+        0.0,
+        -14.0,
+        0.0
+      ],
+      "direction": [
+        0,
+        0,
+        1
+      ]
+    }
+  },
+  "metadata": {
+    "v_width_mm": 24.0,
+    "angle_deg": 88.0,
+    "height_mm": 60.0,
+    "shoulder_radius_mm": 2.0
+  }
+}
