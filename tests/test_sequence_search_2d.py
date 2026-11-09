@@ -14,7 +14,10 @@ from smbs_core.kinematics2d.sequence_search_2d import (
 
 class DummyState:
     def __init__(self, names):
-        self.bends = {name: SimpleNamespace(angle_deg=90.0) for name in names}
+        self.bends = {name: SimpleNamespace(
+            angle_deg=90.0,
+            axis_xyz=((0.0, 0.0, 0.0), (100.0, 0.0, 0.0)),
+        ) for name in names}
         self.angles = {name: 17.0 for name in names}
         self.transforms = {"original": object()}
 
@@ -106,9 +109,43 @@ class PlanarSearchTests(unittest.TestCase):
 
     def test_limits_and_json(self):
         result, _ = self.run_mocked(max_solutions=1)
-        self.assertEqual(result.status, PlanarSearchStatus.LIMIT_REACHED)
-        self.assertEqual(result.limit_reason, "MAX_SOLUTIONS_REACHED")
+        self.assertEqual(result.status, PlanarSearchStatus.SAMPLED_2D_CANDIDATES)
+        self.assertEqual(result.complete_candidates_examined, 2)
         self.assertEqual(len(result.to_dict()["candidates"]), 1)
+
+    def test_search_budget_limits_completed_candidates(self):
+        result, _ = self.run_mocked(max_complete_candidates=1)
+        self.assertEqual(result.status, PlanarSearchStatus.LIMIT_REACHED)
+        self.assertEqual(result.limit_reason, "MAX_COMPLETE_CANDIDATES_REACHED")
+        self.assertEqual(result.complete_candidates_examined, 1)
+
+    def test_numbered_bends_and_parallel_axis_group(self):
+        result, _ = self.run_mocked()
+        self.assertEqual(len(result.axis_groups), 1)
+        self.assertEqual(result.axis_groups[0][1], ("B01", "B02"))
+        seq = result.candidates[0].to_dict()
+        self.assertEqual([entry["number"] for entry in seq["numbered_bends"]], [1, 2])
+        self.assertEqual([entry["axis_group"] for entry in seq["numbered_bends"]], ["AXIS_01", "AXIS_01"])
+
+    def test_cost_ranking_across_axis_groups(self):
+        from smbs_core.kinematics2d.operation_cost import WorkpieceMachineSetup
+        names = ("B01", "B02", "B03")
+        self.state = DummyState(names)
+        self.state.bends["B03"].axis_xyz = ((0, 0, 0), (0, 100, 0))
+        self.session.bend_order = names
+        def setup(_state, bid, **kwargs):
+            return WorkpieceMachineSetup(
+                bid, 0.0 if bid != "B03" else 90.0, False,
+                float(kwargs.get("desired_midpoint_xm", 0.0)), 100.0,
+            )
+        with patch("smbs_core.kinematics2d.sequence_search_2d.compute_workpiece_machine_setup", side_effect=setup):
+            result, _ = self.run_mocked(max_solutions=6, max_complete_candidates=10)
+        self.assertEqual(len(result.candidates), 6)
+        self.assertEqual(len(result.axis_groups), 2)
+        self.assertTrue(result.candidates[0].cost_complete)
+        self.assertEqual(result.candidates[0].group_transitions, 1)
+        self.assertTrue(any(c.group_transitions == 2 for c in result.candidates))
+        self.assertTrue(all(result.candidates[i].cost <= result.candidates[i+1].cost for i in range(5)))
 
     def test_invalid_inputs(self):
         self.assertEqual(
