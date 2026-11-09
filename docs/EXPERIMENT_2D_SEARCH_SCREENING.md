@@ -400,3 +400,28 @@ for sequence, label in ((("B01", "B02"), "forward"), (("B02", "B01"), "reverse")
 ```
 
 This is sampled 2D evidence only. A detected planar `INTERFERENCE` is a useful physical blocker hypothesis requiring verification; `TOUCH` is not automatically a safe contact; `CLEAR` cannot prove a continuous 3D path. No backgauge, frame, clamps, tool-end collision, continuous sweep, springback or true operator transfer is evaluated. The new test harness has **not yet been executed** in the user's FreeCAD installation or confirmed by CI.
+
+
+## Z real folded-part obstacle reproduced (2026-11-09)
+
+The user supplied `z_cycle_forward.json` and `z_cycle_reverse.json`: across both sequences all four BOTTOM samples are `TOUCH` and all 80 subsequent RETRACT samples are `CLEAR`. Each of eight straight lateral WITHDRAWAL paths collides with the **DIE** at offsets +/-5 and +/-10 mm; offsets +/-15 mm and beyond are sampled `CLEAR`. This *correctly surfaces a critical limitation of the previous 20-mm-parked-only lateral test*: the formed zone remains lowered into the die at the bottom stroke.
+
+`run_folded_part_cycle.py` now additionally tests a hypothetical explicit two-leg strategy: lift the stationary post-bend section by `lift_mm` vertically while the punch is parked, then translate the lifted section +/- machine-s. The two phases `LIFT` and `LATERAL_AFTER_LIFT` each report per-sample status and precise offending tool/component. The unchanged direct lateral-withdrawal result is retained for comparison. This does NOT plan a true handling path or certify continuous or 3D extraction; it does not check tooling end faces, backgauge, clamps, frame, or inter-bend reorientation. Positive/negative paths are assessed independently.
+
+FreeCAD acceptance rerun:
+
+```python
+import FreeCAD as App
+from pathlib import Path
+from tools.run_folded_part_cycle import run_folded_part_cycle, print_folded_part_cycle
+for seq,label in ((("B01","B02"),"forward"), (("B02","B01"),"reverse")):
+    dest=Path(App.getUserAppDataDir()) / ("z_cycle_lift_"+label+".json")
+    r=run_folded_part_cycle(
+        App.ActiveDocument, sequence=seq, lift_mm=20.0,
+        lift_samples=21, retract_samples=21, withdrawal_samples=21,
+        distance_mm=100.0, output_path=str(dest))
+    print_folded_part_cycle(r)
+    print(dest)
+```
+
+Regression additions: `tests.test_folded_part_cycle` covers lift-clearance against a low die obstacle and ceiling interference with a punch. These changes are experimental and not yet verified by user's FreeCAD tests or CI.
