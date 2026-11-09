@@ -26,7 +26,8 @@ from tools.run_folded_part_withdrawal import (
 
 def probe_punch_retract(polygons, tooling, *,
                         bottom_ram_z_mm: float, parked_ram_z_mm: float,
-                        sample_count: int = 21, tolerance_mm: float = 0.02):
+                        sample_count: int = 21, tolerance_mm: float = 0.02,
+                        deadline_monotonic=None, stop_on_obstruction=False):
     """Raise a real catalog punch while the formed section remains fixed.
 
     Die is stationary. Each pose checks all section components against both
@@ -48,6 +49,9 @@ def probe_punch_retract(polygons, tooling, *,
         if die is None:
             return {"status": "UNVERIFIED_2D", "reason": "missing_die", "samples": []}
         for i in range(sample_count):
+            if deadline_monotonic is not None and perf_counter() >= deadline_monotonic:
+                return {"status": "UNVERIFIED_SEARCH_LIMIT_REACHED", "samples": samples,
+                        "reason": "deadline_during_retract"}
             fraction = i / (sample_count - 1)
             ram_z = bottom_ram_z_mm + fraction * (parked_ram_z_mm - bottom_ram_z_mm)
             tooling.set_punch_ram_z(ram_z, stroke_mm=0.0)
@@ -67,6 +71,9 @@ def probe_punch_retract(polygons, tooling, *,
                 "status": report.status.value,
                 "findings": findings[:12],
             })
+            if stop_on_obstruction and (report.status in (ContactStatus.INTERFERENCE, ContactStatus.UNVERIFIED)
+                    or (i > 0 and report.status is not ContactStatus.CLEAR)):
+                break
     finally:
         if "original_ram_z" in locals():
             tooling.set_punch_ram_z(original_ram_z, original_ram_stroke)
@@ -88,7 +95,9 @@ def probe_punch_retract(polygons, tooling, *,
 def probe_lift_then_withdraw(polygons, punch, die, *,
                              lift_mm=20.0, distance_mm=100.0,
                              direction=1, lift_samples=21,
-                             withdrawal_samples=21, tolerance_mm=0.02):
+                             withdrawal_samples=21, tolerance_mm=0.02,
+                             deadline_monotonic=None, stop_on_obstruction=False,
+                             cached_lift_samples=None):
     """Two-segment test: raise the formed section, then move it horizontally.
 
     All tools remain fixed at the parked configuration. An initial TOUCH with
@@ -106,10 +115,15 @@ def probe_lift_then_withdraw(polygons, punch, die, *,
     if not polygons:
         return {"status": "UNVERIFIED_2D", "samples": [],
                 "reason": "empty_part_section"}
-    samples = []
+    samples = list(cached_lift_samples or ())
     for phase, count in (("LIFT", lift_samples),
                          ("LATERAL_AFTER_LIFT", withdrawal_samples)):
+        if phase == "LIFT" and cached_lift_samples is not None:
+            continue
         for i in range(count):
+            if deadline_monotonic is not None and perf_counter() >= deadline_monotonic:
+                return {"status": "UNVERIFIED_SEARCH_LIMIT_REACHED", "samples": samples,
+                        "reason": "deadline_during_" + phase}
             if phase == "LIFT":
                 z = lift_mm * i / (count - 1)
                 ds = 0.0
@@ -133,6 +147,10 @@ def probe_lift_then_withdraw(polygons, punch, die, *,
                 "phase": phase, "lift_z_mm": z, "offset_s_mm": ds,
                 "status": report.status.value, "findings": problems[:12],
             })
+            if stop_on_obstruction and report.status is not ContactStatus.CLEAR:
+                break
+        if stop_on_obstruction and samples and samples[-1]["status"] != "CLEAR":
+            break
     statuses = {sample["status"] for sample in samples}
     if "INTERFERENCE" in statuses:
         status = "SAMPLED_2D_INTERFERENCE"
@@ -157,12 +175,10 @@ def search_sampled_withdrawal_paths(
     lift_samples=21, withdrawal_samples=21,
     tolerance_mm=0.02, max_search_time_s=60.0,
 ):
-    """Bounded deterministic search of explicit RETRACT -> LIFT -> +/-S paths.
+    """Bounded search, fail-closed on deadline and on obstructed partial paths.
 
-    Never claims continuous or 3D clearance. Candidate feasibility requires
-    only CLEAR at every non-bottom sample: TOUCH is ranked as unverified.
-    An initial BOTTOM TOUCH is recorded as the expected tool/sheet contact
-    but an INTERFERENCE or UNVERIFIED at bottom rejects that candidate.
+    A verified CLEAR candidate has every sampled pose checked. Any incomplete
+    path remains UNVERIFIED; no geometric partial result is promoted to CLEAR.
     """
     clearances = tuple(float(c) for c in parked_clearances_mm)
     heights = tuple(float(h) for h in lift_heights_mm)
@@ -174,16 +190,18 @@ def search_sampled_withdrawal_paths(
         raise ValueError("invalid path search parameters")
     if not polygons:
         return {"status": "UNVERIFIED_NO_PART_SECTION", "candidates": [],
-                "evaluated_paths": 0}
-    original_ram_z = float(tooling.ram_z_mm)
-    original_ram_stroke = float(tooling.ram_stroke_mm)
-    original_punch_tf = tooling.punch_machine_transform
+                "attempts": [], "evaluated_paths": 0}
     start = perf_counter()
+    deadline = start + max_search_time_s
     attempts = []
+    candidates = []
     stopped = False
+    pose_evaluations = 0
+    original = (float(tooling.ram_z_mm), float(tooling.ram_stroke_mm),
+                tooling.punch_machine_transform)
     try:
         for clearance in sorted(set(clearances)):
-            if perf_counter() - start >= max_search_time_s:
+            if perf_counter() >= deadline:
                 stopped = True
                 break
             parked_z = contact_z_mm + clearance
@@ -193,24 +211,21 @@ def search_sampled_withdrawal_paths(
                 continue
             retract = probe_punch_retract(
                 polygons, tooling,
-                bottom_ram_z_mm=bottom_ram_z_mm,
-                parked_ram_z_mm=parked_z,
+                bottom_ram_z_mm=bottom_ram_z_mm, parked_ram_z_mm=parked_z,
                 sample_count=retract_samples, tolerance_mm=tolerance_mm,
+                deadline_monotonic=deadline, stop_on_obstruction=True,
             )
-            bad_retract = next(
-                (sample for sample in retract["samples"]
-                 if sample["status"] in ("INTERFERENCE", "UNVERIFIED")
-                 or (sample["phase"] != "BOTTOM"
-                     and sample["status"] != "CLEAR")),
-                None,
-            )
-            if bad_retract or not retract["samples"]:
-                attempts.append({
-                    "parked_clearance_mm": clearance,
-                    "status": "RETRACT_NOT_CLEAR",
-                    "first_problem": bad_retract,
-                    "retract_status": retract["status"],
-                })
+            pose_evaluations += len(retract["samples"])
+            if retract["status"] == "UNVERIFIED_SEARCH_LIMIT_REACHED":
+                stopped = True
+                break
+            bad = next((x for x in retract["samples"]
+                        if x["status"] in ("INTERFERENCE", "UNVERIFIED")
+                        or (x["phase"] != "BOTTOM" and x["status"] != "CLEAR")), None)
+            if bad or len(retract["samples"]) != retract_samples:
+                attempts.append({"parked_clearance_mm": clearance,
+                                 "status": "RETRACT_NOT_CLEAR",
+                                 "first_problem": bad})
                 continue
             tooling.set_punch_ram_z(parked_z)
             punch = tooling.punch_polygons_machine(arc_segments=24)
@@ -220,66 +235,88 @@ def search_sampled_withdrawal_paths(
                                  "status": "UNVERIFIED_MISSING_TOOL"})
                 continue
             for lift in sorted(set(heights)):
+                if perf_counter() >= deadline:
+                    stopped = True
+                    break
+                # Compute lift once for each height; both lateral paths share it.
+                lift_result = probe_lift_then_withdraw(
+                    polygons, punch, die, lift_mm=lift, distance_mm=distance_mm,
+                    direction=-1, lift_samples=lift_samples,
+                    withdrawal_samples=withdrawal_samples,
+                    tolerance_mm=tolerance_mm, deadline_monotonic=deadline,
+                    stop_on_obstruction=True,
+                )
+                pose_evaluations += len(lift_result["samples"])
+                prefix = [x for x in lift_result["samples"] if x["phase"] == "LIFT"]
                 for direction in (-1, 1):
-                    if perf_counter() - start >= max_search_time_s:
+                    if perf_counter() >= deadline:
                         stopped = True
                         break
-                    path = probe_lift_then_withdraw(
-                        polygons, punch, die,
-                        lift_mm=lift, distance_mm=distance_mm,
-                        direction=direction, lift_samples=lift_samples,
-                        withdrawal_samples=withdrawal_samples,
-                        tolerance_mm=tolerance_mm,
-                    )
-                    # CLEAR at every sample is an unambiguous sampled candidate,
-                    # not a guarantee about the intervals between samples.
-                    all_clear = (bool(path["samples"]) and all(
-                        sample["status"] == "CLEAR"
-                        for sample in path["samples"]
+                    if direction == -1:
+                        path = lift_result
+                    elif len(prefix) != lift_samples or any(x["status"] != "CLEAR" for x in prefix):
+                        path = {"status": "UNVERIFIED_2D",
+                                "samples": list(prefix),
+                                "reason": "lift_failed_for_both_directions"}
+                    else:
+                        path = probe_lift_then_withdraw(
+                            polygons, punch, die, lift_mm=lift,
+                            distance_mm=distance_mm, direction=direction,
+                            lift_samples=lift_samples,
+                            withdrawal_samples=withdrawal_samples,
+                            tolerance_mm=tolerance_mm, deadline_monotonic=deadline,
+                            stop_on_obstruction=True, cached_lift_samples=prefix,
+                        )
+                        pose_evaluations += len(path["samples"]) - len(prefix)
+                    if path["status"] == "UNVERIFIED_SEARCH_LIMIT_REACHED":
+                        stopped = True
+                    complete = (len(path["samples"]) == lift_samples + withdrawal_samples)
+                    all_clear = (complete and all(
+                        x["status"] == "CLEAR" for x in path["samples"]
                     ))
                     first_problem = next(
-                        (sample for sample in path["samples"]
-                         if sample["status"] != "CLEAR"), None
+                        (x for x in path["samples"] if x["status"] != "CLEAR"), None
                     )
-                    attempts.append({
+                    item = {
                         "parked_clearance_mm": clearance,
                         "parked_ram_z_mm": parked_z,
                         "lift_mm": lift,
                         "direction": "negative_s" if direction < 0 else "positive_s",
-                        "status": ("SAMPLED_2D_CLEAR_NOT_CERTIFIED"
-                                   if all_clear else path["status"]),
+                        "status": ("SAMPLED_2D_CLEAR_NOT_CERTIFIED" if all_clear
+                                   else "UNVERIFIED_SEARCH_LIMIT_REACHED" if stopped
+                                   else path["status"]),
                         "first_problem": first_problem,
                         "sample_count": len(path["samples"]),
-                    })
+                        "complete": complete,
+                    }
+                    attempts.append(item)
+                    if all_clear:
+                        candidates.append(item)
+                    if stopped:
+                        break
                 if stopped:
                     break
             if stopped:
                 break
     finally:
-        tooling.set_punch_ram_z(original_ram_z, original_ram_stroke)
-        tooling.punch_machine_transform = original_punch_tf
-    clear = sorted(
-        (a for a in attempts if a["status"] == "SAMPLED_2D_CLEAR_NOT_CERTIFIED"),
-        key=lambda a: (a["lift_mm"], a["parked_clearance_mm"], a["direction"]),
-    )
-    if clear:
-        status = "SAMPLED_2D_PATH_CANDIDATES_NOT_CERTIFIED"
-    else:
-        status = ("UNVERIFIED_SEARCH_LIMIT_REACHED" if stopped
-                  else "UNVERIFIED_NO_SAMPLED_PATH")
+        tooling.set_punch_ram_z(original[0], original[1])
+        tooling.punch_machine_transform = original[2]
+    candidates.sort(key=lambda x: (x["lift_mm"], x["parked_clearance_mm"], x["direction"]))
     return {
-        "status": status, "candidates": clear,
-        "attempts": attempts, "evaluated_paths": sum(
-            "lift_mm" in a for a in attempts
-        ), "search_limit_reached": stopped,
+        "status": ("SAMPLED_2D_PATH_CANDIDATES_NOT_CERTIFIED" if candidates
+                   else "UNVERIFIED_SEARCH_LIMIT_REACHED" if stopped
+                   else "UNVERIFIED_NO_SAMPLED_PATH"),
+        "candidates": candidates, "attempts": attempts,
+        "evaluated_paths": sum("lift_mm" in x for x in attempts),
+        "evaluated_poses": pose_evaluations,
+        "search_limit_reached": stopped,
         "elapsed_s": perf_counter() - start,
         "limits": {
             "max_search_time_s": max_search_time_s,
-            "parked_clearances_mm": list(sorted(set(clearances))),
-            "lift_heights_mm": list(sorted(set(heights))),
+            "parked_clearances_mm": sorted(set(clearances)),
+            "lift_heights_mm": sorted(set(heights)),
         },
-        "disclaimer": ("Sampled single-plane paths, not continuous/3D validation; "
-                       "no inter-bend reorientation or machine obstacles."),
+        "disclaimer": "Sampled 2D paths only; transfer and 3D not verified.",
     }
 
 
