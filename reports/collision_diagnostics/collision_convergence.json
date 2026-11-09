@@ -1,0 +1,190 @@
+{
+  "convergence_table": [
+    {
+      "bend_id": "B01",
+      "arc_segments": 32,
+      "evidence_status": "DISCRETE_SAMPLES_REJECTED",
+      "is_qualified": false,
+      "first_collision_phase": "BENDING",
+      "first_collision_u": 1.0,
+      "punch_overlap_volume_mm3": 0.0025229932700017504,
+      "die_overlap_volume_mm3": 0.0,
+      "ram_z_mm": -3.4926845421412516,
+      "signed_angle_deg": -90.00000000000003,
+      "tool_coordinates": {
+        "punch_span_xm": [
+          -100.0,
+          100.0
+        ],
+        "die_span_xm": [
+          -100.0,
+          100.0
+        ],
+        "punch_sections_offsets_xm": [
+          -50.0,
+          50.0
+        ],
+        "die_sections_offsets_xm": [
+          -50.0,
+          50.0
+        ]
+      },
+      "calculation_time_s": 10.205
+    },
+    {
+      "bend_id": "B02",
+      "arc_segments": 32,
+      "evidence_status": "DISCRETE_SAMPLES_REJECTED",
+      "is_qualified": false,
+      "first_collision_phase": "BENDING",
+      "first_collision_u": 1.0,
+      "punch_overlap_volume_mm3": 0.0025229932700833687,
+      "die_overlap_volume_mm3": 0.0,
+      "ram_z_mm": -3.4926845421412516,
+      "signed_angle_deg": 90.00000000000003,
+      "tool_coordinates": {
+        "punch_span_xm": [
+          -100.0,
+          100.0
+        ],
+        "die_span_xm": [
+          -100.0,
+          100.0
+        ],
+        "punch_sections_offsets_xm": [
+          -50.0,
+          50.0
+        ],
+        "die_sections_offsets_xm": [
+          -50.0,
+          50.0
+        ]
+      },
+      "calculation_time_s": 5.774
+    },
+    {
+      "bend_id": "B01",
+      "arc_segments": 64,
+      "evidence_status": "DISCRETE_SAMPLES_REJECTED",
+      "is_qualified": false,
+      "first_collision_phase": "BENDING",
+      "first_collision_u": 1.0,
+      "punch_overlap_volume_mm3": 0.000315402656984358,
+      "die_overlap_volume_mm3": 0.0,
+      "ram_z_mm": -3.4926845421412516,
+      "signed_angle_deg": -90.00000000000003,
+      "tool_coordinates": {
+        "punch_span_xm": [
+          -100.0,
+          100.0
+        ],
+        "die_span_xm": [
+          -100.0,
+          100.0
+        ],
+        "punch_sections_offsets_xm": [
+          -50.0,
+          50.0
+        ],
+        "die_sections_offsets_xm": [
+          -50.0,
+          50.0
+        ]
+      },
+      "calculation_time_s": 5.762
+    },
+    {
+      "bend_id": "B02",
+      "arc_segments": 64,
+      "evidence_status": "DISCRETE_SAMPLES_REJECTED",
+      "is_qualified": false,
+      "first_collision_phase": "BENDING",
+      "first_collision_u": 1.0,
+      "punch_overlap_volume_mm3": 0.00031540265701829914,
+      "die_overlap_volume_mm3": 0.0,
+      "ram_z_mm": -3.4926845421412516,
+      "signed_angle_deg": 90.00000000000003,
+      "tool_coordinates": {
+        "punch_span_xm": [
+          -100.0,
+          100.0
+        ],
+        "die_span_xm": [
+          -100.0,
+          100.0
+        ],
+        "punch_sections_offsets_xm": [
+          -50.0,
+          50.0
+        ],
+        "die_sections_offsets_xm": [
+          -50.0,
+          50.0
+        ]
+      },
+      "calculation_time_s": 5.276
+    },
+    {
+      "bend_id": "B01",
+      "arc_segments": 128,
+      "evidence_status": "SAMPLED_INTERVAL_CONVERGED",
+      "is_qualified": true,
+      "first_collision_phase": null,
+      "first_collision_u": null,
+      "punch_overlap_volume_mm3": 0.0,
+      "die_overlap_volume_mm3": 0.0,
+      "ram_z_mm": null,
+      "signed_angle_deg": null,
+      "tool_coordinates": {
+        "punch_span_xm": [
+          -100.0,
+          100.0
+        ],
+        "die_span_xm": [
+          -100.0,
+          100.0
+        ],
+        "punch_sections_offsets_xm": [
+          -50.0,
+          50.0
+        ],
+        "die_sections_offsets_xm": [
+          -50.0,
+          50.0
+        ]
+      },
+      "calculation_time_s": 89.698
+    },
+    {
+      "bend_id": "B02",
+      "arc_segments": 128,
+      "evidence_status": "SAMPLED_INTERVAL_CONVERGED",
+      "is_qualified": true,
+      "first_collision_phase": null,
+      "first_collision_u": null,
+      "punch_overlap_volume_mm3": 0.0,
+      "die_overlap_volume_mm3": 0.0,
+      "ram_z_mm": null,
+      "signed_angle_deg": null,
+      "tool_coordinates": {
+        "punch_span_xm": [
+          -100.0,
+          100.0
+        ],
+        "die_span_xm": [
+          -100.0,
+          100.0
+        ],
+        "punch_sections_offsets_xm": [
+          -50.0,
+          50.0
+        ],
+        "die_sections_offsets_xm": [
+          -50.0,
+          50.0
+        ]
+      },
+      "calculation_time_s": 98.817
+    }
+  ]
+}
