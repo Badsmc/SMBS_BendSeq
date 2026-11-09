@@ -1,3 +1,13 @@
+## Task Panel lifecycle correction (2026-11-09)
+
+The former close/reopen implementation called `Gui.Control.closeDialog()` and attempted to reparent the same tab widget into a newly constructed Task Dialog. This is unsafe: closing a FreeCAD task dialog destroys its native Qt container. The UI now keeps one active Task Dialog for the lifetime of the MDI simulation viewer. **Закрыть панель** hides the containing FreeCAD Tasks dock without calling `closeDialog()`. **Показать панель управления**, **Симуляция**, or the top-level **Оснастка** action restores that same dock and its original Qt controls, without reparenting them or restarting playback.
+
+Closing the simulation MDI window performs the *actual* `closeDialog()` teardown. If the native Tasks dock cannot be located, the close button reports the error instead of silently claiming success.
+
+**Important:** This behavior is implemented in the `gui` branch but still requires a real FreeCAD integration run. A hidden active FreeCAD task dialog may affect availability of other editing commands until the viewer is closed.
+
+---
+
 ## Task Panel reopen fix (2026-11-09)
 
 Closing **Закрыть панель** now detaches the three control tabs from FreeCAD's Task dialog container while preserving their existing Qt widgets and the simulation session. The separate MDI viewer then displays a **Показать панель управления** button. Clicking that button creates a new FreeCAD Task dialog around the existing tabs, without creating a second viewer or resetting the bend state.
