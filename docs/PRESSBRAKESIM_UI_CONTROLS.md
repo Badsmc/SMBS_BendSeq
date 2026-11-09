@@ -1,3 +1,15 @@
+## Viewer navigation (2026-11-09)
+
+- **2.5D viewer:** mouse wheel zooms in/out around the cursor; left-button drag pans. `Fit` restores fit-to-scene scaling.
+- **3D viewer:** mouse wheel zooms around the cursor; left-button drag changes orbit yaw and pitch; `Shift` + left-button drag rotates (rolls) about the viewing axis. `Fit` restores 3D zoom; `reset_3d_view()` restores the default camera orientation and zoom.
+- These are viewer-only transforms. No SheetMetal geometry, bend angle, sequence or playback controller is modified by camera interactions.
+- One animation timer is maintained. Automatic redraws must preserve user zoom and orientation.
+- The 3D view remains a projected preview of the full part, **not** an OpenCascade solid viewport. Polygon depth ordering is approximate; crossing surfaces may have limitations.
+
+**Acceptance test in FreeCAD:** zoom 2.5D, pan, switch to 3D, rotate yaw/pitch/roll, zoom, play full cycle while zoomed/rotated, switch tabs repeatedly, verify Fit, close/reopen and confirm the source FreeCAD document geometry remains unchanged.
+
+---
+
 ## GUI layout contract — FreeCAD Task Panel (2026-11-09)
 
 The FreeCAD workbench toolbar and menu contain four commands in this order:
