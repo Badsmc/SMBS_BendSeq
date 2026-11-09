@@ -233,7 +233,12 @@ def search_bend_sequences_2d(
                 desired_midpoint_xm=float(shifts.get(bend_id, 0.0)),
             )
             if stage_a.decision is ScreeningDecision.PROVEN_BLOCKING:
-                step = PlanarStep(bend_id, "2D_INTERFERENCE",
+                # Invalid source geometry and insufficient tool length are not
+                # evidence of 2D polygon intersection.
+                evidence = ("INVALID_INPUT"
+                            if stage_a.stage in ("STAGE_A_GEOMETRY", "STAGE_A_INPUT")
+                            else "2D_TOOLING_CONSTRAINT")
+                step = PlanarStep(bend_id, evidence,
                                   stage_a.reason, (), (), setup)
             else:
                 stage_b = screen_candidate_stage_b(
@@ -261,7 +266,7 @@ def search_bend_sequences_2d(
         finally:
             state.angles = dict(original_angles)
             state.transforms = dict(original_transforms)
-        if step.evidence in ("2D_INTERFERENCE", "INVALID_INPUT"):
+        if step.evidence in ("2D_INTERFERENCE", "INVALID_INPUT", "2D_TOOLING_CONSTRAINT"):
             rejected += 1
         elif step.evidence == "UNVERIFIED_2D":
             unverified += 1
@@ -319,7 +324,7 @@ def search_bend_sequences_2d(
                 stopped = "MAX_SEARCH_TIME_REACHED"
                 return
             step = eval_step(prefix, bend_id)
-            if step.evidence in ("2D_INTERFERENCE", "INVALID_INPUT"):
+            if step.evidence in ("2D_INTERFERENCE", "INVALID_INPUT", "2D_TOOLING_CONSTRAINT"):
                 continue
             dfs(prefix + (bend_id,), steps + (step,))
             if stopped:
