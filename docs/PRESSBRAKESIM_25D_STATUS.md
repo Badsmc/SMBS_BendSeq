@@ -154,3 +154,16 @@ run()
 ```
 
 The acceptance suite now has **7** tests. If the original failure recurs, collect the complete `draw()` traceback from FreeCAD Report View / addon diagnostic log and the stage1 test's fault step. Preserve failure status and investigate Qt scene ownership rather than suppressing `RuntimeError` or changing its `FAIL` semantics. The 14/14 successful Stage 2 coupling tests remain valid evidence for the headless coupling subcomponent only.
+
+
+## Native follow-up acceptance (2026-11-09): Stage 1 GUI regression requalified
+
+After the Qt QGraphicsScene nested-redraw guard and its regression test, user reran the actual native Windows FreeCAD 1.1.3 acceptance:
+
+- `STAGE1_GUI_ACCEPTANCE_PASS: 7 tests`, `errors=0`, `failures=0`, runtime 45.385 seconds.
+- Original `box.100out-50in-(ok).FCStd` fixture confirmed in local `demo/parts/`.
+- B01→B02 nonparallel-axis Full Cycle, full B01→B08 completion, playback controls, nested draw object lifetime, latched tick errors, recording artifacts and single-timer workspace all passed.
+- Source fixture SHA-256 before/after remained unchanged (enforced by the runner).
+- Stage 2 coupled geometry parameter validation separately passed 14/14 in the same Windows FreeCAD environment (previous user run).
+
+This **restores Stage 1 native acceptance for the tested fixture**. It is not evidence of general physical collision clearance or automatic sequence solving. Next required P2 gate: compare real FoldState bend count, signed angles, thickness and radii against the originating SheetMetal objects/Unfold across the original model fixture matrix. In particular reconcile the observed 1.793-mm planar-section Z-span vs authoritative 1.500-mm sheet thickness before claiming dimensional fidelity. Do not construct synthetic positive test geometry in place of original FCStd files.
