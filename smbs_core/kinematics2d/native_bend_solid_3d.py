@@ -193,6 +193,24 @@ def build_single_bend_sheet_solid(state: FoldState, panel_build, bend_id: str, *
     )
 
 
+def _source_panel_prism(panel_id, face, thickness_mm, App, cache=None):
+    """Return one unchanged source prism, validating source and cached solid.
+
+    Caller owns geometry-aware cache invalidation. Never transform the cached
+    object in place; _apply_rigid_transform always copies it.
+    """
+    if face.isNull() or not face.isValid() or face.Area <= 0:
+        raise NativeBendSolidError(f"invalid_rigid_panel_face_{panel_id}")
+    prism = cache.get(panel_id) if cache is not None else None
+    if prism is None:
+        prism = face.extrude(App.Vector(0, 0, -thickness_mm))
+    if prism.isNull() or not prism.isValid() or len(prism.Solids) != 1:
+        raise NativeBendSolidError(f"invalid_rigid_panel_solid_{panel_id}")
+    if cache is not None:
+        cache[panel_id] = prism
+    return prism
+
+
 def build_multi_bend_sheet_solid(state: FoldState, panel_build, *,
                                  segments=64, panel_prism_cache=None) -> NativeMultiBendSheet:
     """Attempt full-sheet solid from authoritative N-panel, M-bend SheetMetal faces.
@@ -238,19 +256,9 @@ def build_multi_bend_sheet_solid(state: FoldState, panel_build, *,
             panel_prism_cache.clear()
         panel_solids = []
         for panel, face in zip(panels, faces):
-            # Validate source geometry even on cache hits (fail closed).
-            if face.isNull() or not face.isValid() or face.Area <= 0:
-                raise NativeBendSolidError(f"invalid_rigid_panel_face_{panel.panel_id}")
-            panel_solid = (
-                panel_prism_cache.get(panel.panel_id)
-                if panel_prism_cache is not None else None
+            panel_solid = _source_panel_prism(
+                panel.panel_id, face, t, App, panel_prism_cache
             )
-            if panel_solid is None:
-                panel_solid = face.extrude(App.Vector(0, 0, -t))
-                if panel_solid.isNull() or not panel_solid.isValid() or len(panel_solid.Solids) != 1:
-                    raise NativeBendSolidError(f"invalid_rigid_panel_solid_{panel.panel_id}")
-                if panel_prism_cache is not None:
-                    panel_prism_cache[panel.panel_id] = panel_solid
             tf = state.transforms[panel.panel_id]
             panel_solids.append(_apply_rigid_transform(panel_solid, tf, App))
 
