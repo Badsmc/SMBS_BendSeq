@@ -147,7 +147,9 @@ class PostBendCycleTests(unittest.TestCase):
     def test_short_circuit_on_first_lateral_collision(self):
         from tools.run_folded_part_cycle import probe_lift_then_withdraw
         section = (("panel", rect(0, 0, 1, 1)),)
-        punch = (rect(2, 3, 4, 6), ())
+        # Deliberately avoid an earlier boundary-only TOUCH: at lateral
+        # offset 1.5 mm the sheet overlaps the punch with positive area.
+        punch = (rect(2.2, 2.5, 4, 6), ())
         die = (rect(20, -5, 21, -4), ())
         path = probe_lift_then_withdraw(
             section, punch, die, lift_mm=2, distance_mm=10,
@@ -157,6 +159,22 @@ class PostBendCycleTests(unittest.TestCase):
         # Full 3 + 21 samples were not evaluated after the blocker.
         self.assertLess(len(path["samples"]), 24)
         self.assertEqual(path["status"], "SAMPLED_2D_INTERFERENCE")
+
+    def test_short_circuit_on_touch_does_not_promote_to_interference(self):
+        from tools.run_folded_part_cycle import probe_lift_then_withdraw
+        section = (("panel", rect(0, 0, 1, 1)),)
+        # Sheet reaches the punch boundary at the end of the lift,
+        # before any area overlap. A TOUCH must remain distinct.
+        punch = (rect(2, 3, 4, 6), ())
+        die = (rect(20, -5, 21, -4), ())
+        path = probe_lift_then_withdraw(
+            section, punch, die, lift_mm=2, distance_mm=10,
+            direction=1, lift_samples=3, withdrawal_samples=21,
+            stop_on_obstruction=True,
+        )
+        self.assertEqual(path["status"], "SAMPLED_2D_TOUCH_OR_CLEAR_NOT_CERTIFIED")
+        self.assertLess(len(path["samples"]), 24)
+        self.assertNotIn("INTERFERENCE", [s["status"] for s in path["samples"]])
 
     def test_path_search_deadline_returns_unverified(self):
         from tools.run_folded_part_cycle import search_sampled_withdrawal_paths
