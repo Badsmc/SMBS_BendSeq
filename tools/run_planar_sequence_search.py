@@ -81,3 +81,30 @@ def run_planar_search(
         destination.write_text(json.dumps(payload, indent=2, ensure_ascii=False),
                                encoding="utf-8")
     return payload
+
+
+def print_planar_summary(payload: dict) -> None:
+    """Readable ranked 2D report for FreeCAD Python Console."""
+    report = payload["report"]
+    print("2D SEARCH:", report["status"])
+    print("WALL:", round(report["elapsed_s"], 3), "s",
+          "STEPS:", report["evaluated_steps"],
+          "NODES:", report["visited_nodes"],
+          "FULL EXAMINED:", report["complete_candidates_examined"])
+    print("LIMIT:", report["limit_reason"] or "none")
+    print("AXIS GROUPS:")
+    for group in report["axis_groups"]:
+        print(" ", group["group_id"], ":", ", ".join(group["bend_ids"]))
+    print("RANKED PLANS:", len(report["candidates"]))
+    for position, candidate in enumerate(report["candidates"], 1):
+        cost = round(candidate["cost"], 3) if candidate["cost_complete"] else "UNVERIFIED"
+        print(" ", position, "COST:", cost, "EVIDENCE:", candidate["evidence"],
+              "GROUP SWITCHES:", candidate["group_transitions"])
+        print("    ", " -> ".join(
+            "%d:%s[%s]" % (entry["number"], entry["bend_id"], entry["axis_group"])
+            for entry in candidate["numbered_bends"]
+        ))
+        if any(not step["backgauge_checked"] for step in candidate["steps"]):
+            print("     NOTE: Backgauge not fully checked")
+    for warning in report["warnings"]:
+        print("WARNING:", warning)
