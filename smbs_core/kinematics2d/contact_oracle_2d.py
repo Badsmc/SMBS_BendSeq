@@ -322,6 +322,126 @@ def check_sheet_tooling_preview(section, tooling, tolerance_mm: float = 0.02) ->
     )
 
 
+
+def sample_bend_stroke_2d(fold_state, panel_vertices_xy, tooling, bend_id,
+                          *, samples: int = 12, tolerance_mm: float = 0.02):
+    """Stage 2 noncertifying diagnostic of the 2D bend stroke.
+
+    Samples the currently active bend, retaining all previously folded bends.
+    Checks approximate ram/die and sheet pose at each intermediate bend angle
+    using the SAME contact oracle and coupled kinematics already in the app.
+
+    A contact report here is evidence for an evaluated 2D *frame*, NOT a
+    continuous collision proof. Never returns a qualified manufacturing CLEAR.
+    Does not alter caller's FoldState, machine tooling, or FreeCAD document.
+    """
+    from copy import deepcopy
+    from .machine_section_3d import compute_machine_cutting_plane_section
+    from .workpiece_placement_3d import WorkpiecePlacement3D
+    from .coupled_kinematics_2d import CoupledAirBendingKinematics
+    from .tooling_25d import ValidationStatus
+
+    if not isinstance(samples, int) or isinstance(samples, bool) or not 2 <= samples <= 180:
+        raise ValueError("samples must be integer between 2 and 180")
+    if bend_id not in fold_state.bends:
+        raise ValueError("Unknown bend ID")
+    records = []
+    previous = dict(fold_state.angles)
+    candidate = deepcopy(tooling)
+    try:
+        if (candidate.punch is None or candidate.die is None
+                or candidate.punch.validation_status != ValidationStatus.GEOMETRY_VERIFIED
+                or candidate.die.validation_status != ValidationStatus.GEOMETRY_VERIFIED):
+            return {"status": "UNKNOWN", "reason": "missing_verified_tooling", "frames": ()}
+        # Sheet is positioned for the selected active bend, with prior folds
+        # preserved. Tooling remains on a single fixed machine datum.
+        fold_state.set_angle(bend_id, 0.0)
+        start_pose = WorkpiecePlacement3D.compute_placement(
+            fold_state, bend_id, support_plane_zm=0.0, align_bisector=False
+        )
+        start_sec = compute_machine_cutting_plane_section(
+            fold_state, panel_vertices_xy, start_pose, active_bend_id=bend_id,
+            segments=32
+        )
+        if not (start_sec.get("zone_polygon")
+                and start_sec.get("fixed_polygon")
+                and start_sec.get("moving_polygon")):
+            return {"status": "UNKNOWN", "reason": "incomplete_machine_section", "frames": ()}
+        candidate.align_to_cross_section(start_sec, clearance_mm=20.0, bend_id=bend_id)
+        kin = CoupledAirBendingKinematics.from_tooling_and_fold_state(
+            candidate, fold_state, bend_id
+        )
+        if kin.tooling_status != "VERIFIED":
+            return {"status": "UNKNOWN",
+                    "reason": "coupled_tooling_parameters_not_verified",
+                    "frames": ()}
+        target = float(fold_state.bends[bend_id].angle_deg)
+        for index in range(samples + 1):
+            angle = target * index / samples
+            fold_state.set_angle(bend_id, angle)
+            # Reuse physical stroke reference, do not realign the die per frame.
+            ram_z = kin.ram_z_for_angle(angle)
+            candidate.set_punch_ram_z(
+                ram_z, stroke_mm=kin.stroke_for_angle(angle)
+            )
+            pose = WorkpiecePlacement3D.compute_placement(
+                fold_state, bend_id,
+                support_plane_zm=kin.support_plane_zm(angle),
+                align_bisector=(index != 0),
+            )
+            sec = compute_machine_cutting_plane_section(
+                fold_state, panel_vertices_xy, pose,
+                active_bend_id=bend_id, segments=32
+            )
+            if not (sec.get("zone_polygon") and sec.get("fixed_polygon")
+                    and sec.get("moving_polygon")):
+                records.append({"angle_deg": angle,
+                                "status": "UNVERIFIED",
+                                "reason": "incomplete_machine_section"})
+                continue
+            valid, condition, _ = kin.validate_geometric_constraints(
+                angle, ram_z, flange_min_len_mm=0.0
+            )
+            report = check_sheet_tooling_preview(
+                sec, candidate, tolerance_mm=tolerance_mm
+            )
+            # Kinematic failures identify model constraints; contact predicates
+            # identify overlaps *at sampled frames* only.
+            frame = {
+                "angle_deg": angle,
+                "ram_z_mm": ram_z,
+                "contact": report.status.value,
+                "kinematics": condition,
+                "status": ("INTERFERENCE" if report.status == ContactStatus.INTERFERENCE
+                           else "UNVERIFIED" if report.status == ContactStatus.UNVERIFIED
+                           else report.status.value),
+                "findings": tuple(
+                    (finding.tool, finding.sheet_component, finding.status.value, finding.reason)
+                    for finding in report.findings
+                    if finding.status != ContactStatus.CLEAR
+                ),
+            }
+            if not valid:
+                frame["status"] = "UNVERIFIED"
+                frame["reason"] = "coupled_geometric_constraint: " + condition
+            records.append(frame)
+
+        return {
+            "status": "SAMPLED_2D_NOT_CONTINUOUSLY_VERIFIED",
+            "reason": "finite_frames_do_not_prove_full_machine_stroke",
+            "frames": tuple(records),
+        }
+    except (ValueError, ArithmeticError, TypeError, KeyError, AttributeError) as exc:
+        return {"status": "UNKNOWN", "reason": "unsupported_stroke: " + str(exc),
+                "frames": tuple(records)}
+    finally:
+        # Preserve the exact caller state even if an intermediate bend raises.
+        fold_state.reset_all()
+        for bid, angle in previous.items():
+            if abs(angle) > 1e-12:
+                fold_state.set_angle(bid, angle)
+
+
 def make_axis_step_oracle_2d(panel_vertices_xy, tooling, *, evidence=None,
                              tolerance_mm: float = 0.02):
     """Bridge the axis-grouped order search to the EXISTING 2D contact oracle.
