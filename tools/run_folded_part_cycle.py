@@ -148,12 +148,151 @@ def probe_lift_then_withdraw(polygons, punch, die, *,
     }
 
 
+
+def search_sampled_withdrawal_paths(
+    polygons, tooling, *, bottom_ram_z_mm, contact_z_mm,
+    parked_clearances_mm=(20.0, 35.0, 50.0),
+    lift_heights_mm=(2.0, 5.0, 8.0, 12.0, 16.0, 20.0),
+    distance_mm=100.0, retract_samples=21,
+    lift_samples=21, withdrawal_samples=21,
+    tolerance_mm=0.02, max_search_time_s=60.0,
+):
+    """Bounded deterministic search of explicit RETRACT -> LIFT -> +/-S paths.
+
+    Never claims continuous or 3D clearance. Candidate feasibility requires
+    only CLEAR at every non-bottom sample: TOUCH is ranked as unverified.
+    An initial BOTTOM TOUCH is recorded as the expected tool/sheet contact
+    but an INTERFERENCE or UNVERIFIED at bottom rejects that candidate.
+    """
+    clearances = tuple(float(c) for c in parked_clearances_mm)
+    heights = tuple(float(h) for h in lift_heights_mm)
+    if (not clearances or not heights
+            or len(clearances) > 20 or len(heights) > 50
+            or any(not isfinite(c) or c <= 0 for c in clearances)
+            or any(not isfinite(h) or h <= 0 for h in heights)
+            or not isfinite(max_search_time_s) or max_search_time_s <= 0):
+        raise ValueError("invalid path search parameters")
+    if not polygons:
+        return {"status": "UNVERIFIED_NO_PART_SECTION", "candidates": [],
+                "evaluated_paths": 0}
+    original_ram_z = float(tooling.ram_z_mm)
+    original_ram_stroke = float(tooling.ram_stroke_mm)
+    original_punch_tf = tooling.punch_machine_transform
+    start = perf_counter()
+    attempts = []
+    stopped = False
+    try:
+        for clearance in sorted(set(clearances)):
+            if perf_counter() - start >= max_search_time_s:
+                stopped = True
+                break
+            parked_z = contact_z_mm + clearance
+            if parked_z < bottom_ram_z_mm:
+                attempts.append({"parked_clearance_mm": clearance,
+                                 "status": "INVALID_PARKED_BELOW_BOTTOM"})
+                continue
+            retract = probe_punch_retract(
+                polygons, tooling,
+                bottom_ram_z_mm=bottom_ram_z_mm,
+                parked_ram_z_mm=parked_z,
+                sample_count=retract_samples, tolerance_mm=tolerance_mm,
+            )
+            bad_retract = next(
+                (sample for sample in retract["samples"]
+                 if sample["status"] in ("INTERFERENCE", "UNVERIFIED")
+                 or (sample["phase"] != "BOTTOM"
+                     and sample["status"] != "CLEAR")),
+                None,
+            )
+            if bad_retract or not retract["samples"]:
+                attempts.append({
+                    "parked_clearance_mm": clearance,
+                    "status": "RETRACT_NOT_CLEAR",
+                    "first_problem": bad_retract,
+                    "retract_status": retract["status"],
+                })
+                continue
+            tooling.set_punch_ram_z(parked_z)
+            punch = tooling.punch_polygons_machine(arc_segments=24)
+            die = tooling.die_polygons_machine(arc_segments=24)
+            if punch is None or die is None:
+                attempts.append({"parked_clearance_mm": clearance,
+                                 "status": "UNVERIFIED_MISSING_TOOL"})
+                continue
+            for lift in sorted(set(heights)):
+                for direction in (-1, 1):
+                    if perf_counter() - start >= max_search_time_s:
+                        stopped = True
+                        break
+                    path = probe_lift_then_withdraw(
+                        polygons, punch, die,
+                        lift_mm=lift, distance_mm=distance_mm,
+                        direction=direction, lift_samples=lift_samples,
+                        withdrawal_samples=withdrawal_samples,
+                        tolerance_mm=tolerance_mm,
+                    )
+                    # CLEAR at every sample is an unambiguous sampled candidate,
+                    # not a guarantee about the intervals between samples.
+                    all_clear = (bool(path["samples"]) and all(
+                        sample["status"] == "CLEAR"
+                        for sample in path["samples"]
+                    ))
+                    first_problem = next(
+                        (sample for sample in path["samples"]
+                         if sample["status"] != "CLEAR"), None
+                    )
+                    attempts.append({
+                        "parked_clearance_mm": clearance,
+                        "parked_ram_z_mm": parked_z,
+                        "lift_mm": lift,
+                        "direction": "negative_s" if direction < 0 else "positive_s",
+                        "status": ("SAMPLED_2D_CLEAR_NOT_CERTIFIED"
+                                   if all_clear else path["status"]),
+                        "first_problem": first_problem,
+                        "sample_count": len(path["samples"]),
+                    })
+                if stopped:
+                    break
+            if stopped:
+                break
+    finally:
+        tooling.set_punch_ram_z(original_ram_z, original_ram_stroke)
+        tooling.punch_machine_transform = original_punch_tf
+    clear = sorted(
+        (a for a in attempts if a["status"] == "SAMPLED_2D_CLEAR_NOT_CERTIFIED"),
+        key=lambda a: (a["lift_mm"], a["parked_clearance_mm"], a["direction"]),
+    )
+    if clear:
+        status = "SAMPLED_2D_PATH_CANDIDATES_NOT_CERTIFIED"
+    else:
+        status = ("UNVERIFIED_SEARCH_LIMIT_REACHED" if stopped
+                  else "UNVERIFIED_NO_SAMPLED_PATH")
+    return {
+        "status": status, "candidates": clear,
+        "attempts": attempts, "evaluated_paths": sum(
+            "lift_mm" in a for a in attempts
+        ), "search_limit_reached": stopped,
+        "elapsed_s": perf_counter() - start,
+        "limits": {
+            "max_search_time_s": max_search_time_s,
+            "parked_clearances_mm": list(sorted(set(clearances))),
+            "lift_heights_mm": list(sorted(set(heights))),
+        },
+        "disclaimer": ("Sampled single-plane paths, not continuous/3D validation; "
+                       "no inter-bend reorientation or machine obstacles."),
+    }
+
+
 def run_folded_part_cycle(
     doc, *, sequence=("B01", "B02"),
     punch_id=DEFAULT_PUNCH, die_id=DEFAULT_DIE,
     distance_mm=100.0, retract_samples=21, withdrawal_samples=21,
     parked_clearance_mm=20.0, tolerance_mm=0.02,
     lift_mm=20.0, lift_samples=21,
+    search_paths=False,
+    parked_clearances_mm=(20.0, 35.0, 50.0),
+    lift_heights_mm=(2.0, 5.0, 8.0, 12.0, 16.0, 20.0),
+    path_search_time_s=60.0,
     output_path=None,
 ):
     """Compute actual post-bend section, sample ram retract and lateral removal.
@@ -271,6 +410,20 @@ def run_folded_part_cycle(
                         tolerance_mm=tolerance_mm,
                     ),
                 }
+                if search_paths:
+                    entry["path_search"] = search_sampled_withdrawal_paths(
+                        polygons, tooling,
+                        bottom_ram_z_mm=bottom_ram_z,
+                        contact_z_mm=coupled.contact_z_mm,
+                        parked_clearances_mm=parked_clearances_mm,
+                        lift_heights_mm=lift_heights_mm,
+                        distance_mm=distance_mm,
+                        retract_samples=retract_samples,
+                        lift_samples=lift_samples,
+                        withdrawal_samples=withdrawal_samples,
+                        tolerance_mm=tolerance_mm,
+                        max_search_time_s=path_search_time_s,
+                    )
                 entry["transfer"] = {
                     "status": "UNVERIFIED_2D",
                     "reason": ("next_bend_pose_change_not_swept"
@@ -294,6 +447,7 @@ def run_folded_part_cycle(
         "withdrawal_samples": withdrawal_samples,
         "distance_mm": distance_mm,
         "lift_mm": lift_mm, "lift_samples": lift_samples,
+        "search_paths": bool(search_paths),
         "evidence": "POST_BEND_MACHINE_SECTION_SAMPLES_ONLY_NOT_3D_CERTIFIED",
         "limitations": [
             "Stationary bent section and ram-only upward motion: no springback",
@@ -343,6 +497,17 @@ def print_folded_part_cycle(payload):
                       "lift_z_mm=", round(problems[0]["lift_z_mm"], 3),
                       "s_mm=", round(problems[0]["offset_s_mm"], 3),
                       problems[0]["findings"][:2])
+        if "path_search" in step:
+            search = step["path_search"]
+            print("   PATH SEARCH:", search["status"],
+                  "CANDIDATES:", len(search["candidates"]),
+                  "EVALUATED:", search["evaluated_paths"],
+                  "LIMIT:", search["search_limit_reached"])
+            for candidate in search["candidates"][:3]:
+                print("    CANDIDATE:",
+                      candidate["direction"],
+                      "lift_mm=", candidate["lift_mm"],
+                      "park_clearance_mm=", candidate["parked_clearance_mm"])
         if "transfer" in step:
             print("   TRANSFER:", step["transfer"]["status"],
                   step["transfer"]["reason"])
