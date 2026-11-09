@@ -568,3 +568,18 @@ print("TEST SUCCESS:", result.wasSuccessful())
 ```
 
 The real model's previously saved JSON is evidence for the pre-fix revision. A repeat swept report on the new code is required to establish that the revised predicate returns the same physical candidates. In particular, no actual 3D press-brake sequence or production feasibility claim is warranted.
+
+
+## Fixed-CAD benchmark source spans and execution evidence
+
+A review of Antigravity's `tools/benchmark_2d_vs_baseline.py` exposed an unsafe assumption: `length_mm` (falling back to 100mm) was converted into machine spans `(-L/2,+L/2)` and labeled `verified`. This is not a source-CAD measurement.
+
+The benchmark now uses `verified_fixed_tool_spans` to obtain the exact fixed-length selected punch and die FCStd source paths through the same `physical_validation_25d._source_path` contract and machine-placed solid loaders `load_native_punch`/`load_native_die`. It requires `GEOMETRY_VERIFIED` source profiles and uses actual `machine_shape.BoundBox.XMin/XMax`, cross-checked with the native loader's `span_xm`; any mismatch, virtual-length flag, missing source or invalid solid causes an explicit error, never a fabricated span.
+
+**Policy:** this physical benchmark is now strictly `LIBRARY_FIXED` (no `match_active_bend_length` virtual extrusion). Both baseline and 2D modes use this same physical model. Existing independent virtual-length benchmarks are unaffected.
+
+The benchmark identities now include SHA-256 of the model and both selected CAD files, real spans, selected direction, length policy and key tolerances. As before, cold-state results are compared using `compare_measurements`.
+
+The benchmark also runs scoped `count_station_screenings`. This records per-phase multi-station previews, actual evaluated 2D sections, unverified stations and 2D interference reports; mere enabled flags do not count as execution. JSON `screening_evidence.status` is `NO_VERIFIED_2D_STATION_EVALUATION` if no station could be evaluated. Distinct from `Stage B evaluated`, a count of candidate previews.
+
+**Limits:** actual physical results still require a FreeCAD runtime and local execution. The above establishes source spans and observation of sampling, NOT physical certification of the full 3D path or automatic proof of a speedup. New tests are synthetic regression contracts; CI execution is not assumed.
