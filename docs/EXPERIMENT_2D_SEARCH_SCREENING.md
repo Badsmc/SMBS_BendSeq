@@ -453,3 +453,32 @@ for sequence, label in ((("B01", "B02"), "forward"), (("B02", "B01"), "reverse")
 ```
 
 Regression tests: `python -m unittest tests.test_folded_part_cycle -v`. The search is deliberately **finite sampled 2D feasibility screening**. It does not search continuous paths, rotate/flip the workpiece between bends, account for supports, end faces, frame, clamps or backgauge, or demonstrate reachability by a real operator.
+
+
+## 2026-11-09: Real FreeCAD path-search interruption and bounded correction
+
+User ran 9 original regression tests PASS, then attempted automatic path search. Initial call failed because `App.ActiveDocument` was `None` (not a geometry failure). Second call with model open logged a non-fatal warning: flat-section Z span 1.793 mm vs authoritative SheetMetal thickness 1.500 mm; inspect this coordinate/section discrepancy separately. The search was manually interrupted while repeatedly classifying real tool polygons: fixed 3 x 6 x 2 grid at 42 samples per path was too costly, and the previous 60-second time check occurred **only between full paths**.
+
+The experimental search is now bounded *within each sample*, aborts a blocked path on its first INTERFERENCE/UNVERIFIED/non-CLEAR sample, reuses the same LIFT observations for both directions at a given clearance/height, and restores tooling position in `finally`. Only **fully sampled CLEAR** paths become candidates; any partial, ambiguous or deadline-limited evidence is `UNVERIFIED`. The search response includes `evaluated_poses`, `search_limit_reached` and individual first obstruction details.
+
+Use a small smoke test before the full grid, with an explicitly resolved open document:
+
+```python
+import FreeCAD as App
+from pathlib import Path
+from tools.run_folded_part_cycle import run_folded_part_cycle, print_folded_part_cycle
+doc = App.getDocument("Z_10_20_10__ok_")
+assert doc is not None, "Open Z-10-20-10-(ok) in FreeCAD first"
+out = Path(App.getUserAppDataDir()) / "z_path_search_smoke.json"
+report = run_folded_part_cycle(
+    doc, sequence=("B01", "B02"),
+    search_paths=True, path_search_time_s=8.0,
+    parked_clearances_mm=(20.0, 35.0),
+    lift_heights_mm=(5.0, 12.0),
+    retract_samples=9, lift_samples=9, withdrawal_samples=9,
+    distance_mm=100.0, output_path=str(out))
+print_folded_part_cycle(report)
+print(out)
+```
+
+This acceptance run remains pending. Re-run unit tests `tests.test_folded_part_cycle` and report failures. Do not treat the sampled search's lack of a candidate as geometric impossibility.
