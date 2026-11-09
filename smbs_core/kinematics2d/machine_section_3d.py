@@ -71,12 +71,37 @@ def slice_polygon_3d_at_x(
     return intersections
 
 
+def _collision_aware_zone_segments(zone, angle_deg, max_segments, tolerance_mm):
+    """Avoid polygonizing tiny arcs into edges shorter than contact tolerance.
+
+    This only controls polygonization resolution. It NEVER erases real short
+    edges or changes the collision classifier's conservative UNKNOWN behavior.
+    The caller must explicitly opt in; GUI keeps its current visual resolution.
+    """
+    if tolerance_mm is None:
+        return max_segments
+    if not math.isfinite(tolerance_mm) or tolerance_mm <= 0:
+        raise ValueError("contact_tolerance_mm must be positive and finite")
+    radii = (
+        float(value)
+        for value in (zone.inner_radius_mm, zone.outer_radius_mm)
+    )
+    positive = [r for r in radii if math.isfinite(r) and r > 1e-9]
+    if not positive:
+        return 1
+    shortest_arc_mm = math.radians(abs(float(angle_deg))) * min(positive)
+    # 2*tolerance makes arc edge length safely larger than the predicate's
+    # tolerance; this also keeps chord error negligible at shallow angles.
+    return min(max_segments, max(1, int(shortest_arc_mm / (2.0 * tolerance_mm))))
+
+
 def compute_machine_cutting_plane_section(
     fold_state: FoldState,
     panel_vertices_xy: Dict[str, Sequence[Tuple[float, float]]],
     placement: PlacementTransform3D,
     active_bend_id: Optional[str] = None,
     segments: int = 16,
+    contact_tolerance_mm: Optional[float] = None,
 ) -> Dict[str, Any]:
     """Compute exact 2.5D cross-section at machine cutting plane X_m = 0.
 
@@ -172,7 +197,10 @@ def compute_machine_cutting_plane_section(
 
         # Zone profile at cutting plane
         ax_mid_2d = ((ax[0][0] + ax[1][0]) / 2.0, (ax[0][1] + ax[1][1]) / 2.0)
-        zone_sec = fold_state.zone_section(bend_id, segments=segments)
+        zone_segments = _collision_aware_zone_segments(
+            zone, fold_state.angles[bend_id], segments, contact_tolerance_mm
+        )
+        zone_sec = fold_state.zone_section(bend_id, segments=zone_segments)
         zone_side = 1.0 if bend.moving_left else -1.0
         ux, uy = zone.left_xy[0] * zone_side, zone.left_xy[1] * zone_side
 
