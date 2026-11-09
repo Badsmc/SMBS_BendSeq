@@ -273,3 +273,18 @@ print_planar_summary(result)
 ```
 
 For headless tests: `tests.test_contact_oracle_2d`, `tests.test_stage_b_multistation_integration`, `tests.test_sequence_search_2d`. These alone do not establish real-tool geometric equivalence or production safety.
+
+
+## Nov 9 2026: actual Z planar search JSON acceptance data
+
+User-supplied `z_planar_ranked.json` for `Z-10-20-10-(ok)` reports **56.0408647 seconds**, `evaluated_steps=4`, `visited_nodes=5`, `complete_candidates_examined=2`, `limit_reason=""`, and `status=UNVERIFIED_2D_CANDIDATES`. Both `B01,B02` and `B02,B01` were enumerated with complete heuristic changeover cost **12.0**, one axis group, no group transitions. Neither is physically or even fully planar certified.
+
+Four step timings (seconds):
+- B01 initial: `elapsed_s=12.2575`, `pose_and_section=0.1340`, `tooling_and_contact=12.1196`.
+- B02 after B01: `elapsed_s=14.0072`, `pose_and_section=0.1291`, `tooling_and_contact=13.8739`.
+- B02 initial: `elapsed_s=11.6089`, `pose_and_section=0.1229`, `tooling_and_contact=11.4821`.
+- B01 after B02: `elapsed_s=18.1669`, `pose_and_section=0.1263`, `tooling_and_contact=18.0365`.
+
+Thus almost all observed cost is inside tool polygon preparation and/or planar polygon contact evaluation, **not the mathematical FoldState poses**. During BENDING, the sampled 2D statuses include consecutive `UNVERIFIED` results in all four steps; the old JSON does not contain their actual per-tool component/reasons. Backgauge was not provided.
+
+Following this evidence, the 2D contact oracle received a single-pass point-in-polygon winding/boundary check with segment AABB skips and bounds rejection for tool-edge samples; this does not intentionally change contact tolerances. Stage B contact instrumentation now divides `tool_polygon_build` and `polygon_contact` timing and records up to 32 unresolved component findings with phase, tool and reason; the console report displays these for each attempted step. The **new code has not yet been validated or benchmarked in the user's FreeCAD**. Repeat on exactly the same document after branch update and FreeCAD restart, compare the original four step timings and inspect the unknown BENDING contact reason. Never convert UNVERIFIED to CLEAR without evidence.
