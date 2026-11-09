@@ -66,6 +66,38 @@ class SweptTranslationTests(unittest.TestCase):
         self.assertEqual(result["status"],
                          "SWEPT_2D_CLEAR_NOT_3D_CERTIFIED")
 
+    def test_search_rejects_sampled_clear_midpoint_sweep_collision(self):
+        from tools.run_folded_part_cycle import search_sampled_withdrawal_paths
+        from tests.test_folded_part_cycle import FakeTooling
+
+        class HiddenObstacleTooling(FakeTooling):
+            def punch_polygons_machine(self, arc_segments=24):
+                # The punch is clear at x=0 and x=10 but intersects
+                # the sheet's continuous +s sweep at x=4.5.
+                return rect(4.5, 1.2, 5.0, 1.8), ()
+
+        result = search_sampled_withdrawal_paths(
+            (("sheet", rect(0, 0, 1, 1)),),
+            HiddenObstacleTooling(),
+            bottom_ram_z_mm=0, contact_z_mm=0,
+            parked_clearances_mm=(5,),
+            lift_heights_mm=(1,),
+            distance_mm=10, retract_samples=3,
+            lift_samples=2, withdrawal_samples=2,
+            max_search_time_s=15.0,
+            verify_swept_paths=True,
+        )
+        by_direction = {c["direction"]: c for c in result["candidates"]}
+        self.assertIn("positive_s", by_direction)
+        self.assertIn("negative_s", by_direction)
+        self.assertEqual(
+            by_direction["positive_s"]["sweep_screening"]["status"],
+            "SWEPT_2D_INTERFERENCE",
+        )
+        screened = {c["direction"] for c in result["sweep_screened_candidates"]}
+        self.assertIn("negative_s", screened)
+        self.assertNotIn("positive_s", screened)
+
     def test_deadline_is_unverified(self):
         from unittest.mock import patch
         part = (("sheet", rect(0,0,1,1)),)
