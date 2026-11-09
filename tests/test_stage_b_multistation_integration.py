@@ -176,6 +176,30 @@ class StageBIntegrationTests(unittest.TestCase):
             for p in reversed(patches):
                 p.__exit__(None, None, None)
 
+    def test_deadline_marks_unverified_without_mutating_state(self):
+        from time import perf_counter
+        fold, tool = DummyFold(), DummyTooling()
+        before_angles, before_transforms = dict(fold.angles), dict(fold.transforms)
+        patches = self.make_patches()
+        for p in patches:
+            p.__enter__()
+        try:
+            result = screen_candidate_stage_b(
+                fold, "B", tool, {"P": [(0, 0), (1, 0), (1, 1)]},
+                fractions=(0.0, 0.5, 1.0),
+                stroke_fractions=(0.0, 0.5, 1.0),
+                deadline_monotonic=perf_counter() - 1.0,
+            )
+            self.assertEqual(result.stage, "STAGE_B_BUDGET")
+            self.assertEqual(result.decision, ScreeningDecision.UNVERIFIED_NEEDS_3D)
+            self.assertEqual(result.sampled_phases, ())
+            self.assertEqual(fold.angles, before_angles)
+            self.assertEqual(fold.transforms, before_transforms)
+            self.assertIn("timing_ms", result.to_dict())
+        finally:
+            for p in reversed(patches):
+                p.__exit__(None, None, None)
+
     def test_backgauge_polygon_reports_planar_interference(self):
         fold, tool = DummyFold(), DummyTooling()
         patches = list(self.make_patches())
