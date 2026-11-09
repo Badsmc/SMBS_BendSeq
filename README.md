@@ -1,18 +1,23 @@
-# SMBS — FreeCAD user installation (preview)
+# SMBS — minimal FreeCAD installation (preview)
 
-This branch contains the **runtime-only** FreeCAD PressBrakeSim 2.5D workbench.
-Development and integration take place on other branches. The branch is **not yet production-qualified**.
+This branch contains only the FreeCAD runtime code and tooling models for the 2D/2.5D preview. **It is not yet a physically qualified production release and has not been merged from an accepted integrated `main` build.**
+
+## Branch roles
+
+| Branch | Purpose |
+|---|---|
+| [main](https://github.com/Badsmc/SMBS_BendSeq/tree/main) | Integration of tested 2D, 3D, GUI and core development |
+| [2d](https://github.com/Badsmc/SMBS_BendSeq/tree/2d) | 2D/2.5D kinematics, sequence planning and tests |
+| [3d](https://github.com/Badsmc/SMBS_BendSeq/tree/3d) | Native 3D physics and collision research |
+| [gui](https://github.com/Badsmc/SMBS_BendSeq/tree/gui) | FreeCAD controls and interaction |
+| [core](https://github.com/Badsmc/SMBS_BendSeq/tree/core) | Headless calculation, solver contracts |
+| [smbs](https://github.com/Badsmc/SMBS_BendSeq/tree/smbs) | Runtime-only downloadable user installation |
+
+Shared code can appear in more than one development branch when required to keep its imports valid; branch ownership denotes where modifications should originate. Feature changes enter `main` by PR after tests and real FreeCAD checks; the `smbs` snapshot should be refreshed only from an approved `main` state.
 
 ## Installation
 
-Requires FreeCAD 1.1.x with SheetMetal Workbench installed.
-
-1. Download this branch as ZIP, unpack it.
-2. Copy its contents into one folder `SMBS` in FreeCAD's active user `Mod` directory.
-3. Ensure only one SMBS / PressBrakeSim workbench copy is installed.
-4. Restart FreeCAD and choose **PressBrakeSim 2.5D**.
-
-Required top-level files and directories:
+Requires FreeCAD 1.1.x and SheetMetal Workbench. Download this branch as a ZIP, extract the contents into one folder `SMBS` under the active FreeCAD user `Mod` directory. Remove other installed SMBS/PressBrakeSim copies, restart FreeCAD and select **PressBrakeSim 2.5D**.
 
 ```text
 SMBS/
@@ -21,19 +26,13 @@ SMBS/
   freecad_smbs/
   smbs_core/
   toollibrary/
+  README.md
 ```
 
-## Included capabilities
+Only runtime and required supporting code is included; test fixtures, demos, CI workflows and development scripts are excluded.
 
-- PressBrakeSim 2.5D simulation UI
-- Tooling library UI
-- Required model, kinematics, integration and geometry support
+## Current limitations
 
-## Limitations / release gate
+The workbench contains the 2.5D simulation and tooling UI. An animated sequence or section-level clearance does **not** prove a physically feasible sequence. Fresh FreeCAD GUI installation, real-part acceptance and full 3D machine/tool collision qualification remain outstanding. Do not use the preview as a certified press-brake plan.
 
-This installation is a **preview candidate**. A fresh FreeCAD GUI installation, real model loading, animation controls, bend orientation, tooling contacts and full physical 3D collisions have not been independently accepted in this branch. Do not assume that a preview sequence is a validated manufacturing bending plan.
-
-No tests, fixtures, demo parts, CI workflows or developer scripts are shipped in this branch. Those remain on `2d` and other development branches.
-
-Repository: https://github.com/Badsmc/SMBS_BendSeq
-Development: `2d`; integration: `main`; 3D: `3d`; UI: `gui`; kernel: `core`.
+See [integration and release policy](https://github.com/Badsmc/SMBS_BendSeq/blob/main/BRANCH_ARCHITECTURE.md).
