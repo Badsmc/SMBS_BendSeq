@@ -445,7 +445,7 @@ def screen_candidate_stage_b(
                         contact_statuses=tuple(contact_statuses),
                         backgauge_checked=backgauge_polygon_machine is not None,
                         timing_ms=tuple(timing_ms.items()),
-                    diagnostic_findings=tuple(diagnostic_findings),
+                        diagnostic_findings=tuple(diagnostic_findings),
                     )
             except Exception as exc:
                 # Never prune on section computation failure; forward to exact 3D check
@@ -474,7 +474,7 @@ def screen_candidate_stage_b(
             contact_statuses=tuple(contact_statuses),
             backgauge_checked=backgauge_polygon_machine is not None,
             timing_ms=tuple(timing_ms.items()),
-                    diagnostic_findings=tuple(diagnostic_findings),
+            diagnostic_findings=tuple(diagnostic_findings),
         )
 
     finally:
