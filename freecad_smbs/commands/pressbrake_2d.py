@@ -5,6 +5,10 @@ and Qt workspace are maintained in dedicated modules.
 """
 from __future__ import annotations
 
+from pathlib import Path
+
+_ICON_ROOT = Path(__file__).resolve().parents[1] / 'resources' / 'icons'
+
 from freecad_smbs.ui.pressbrake_common import _qt
 from freecad_smbs.ui.diagnostics_logging import _log
 from freecad_smbs.integration.part_session import (
@@ -79,6 +83,7 @@ def get_workspace_widget():
 class PressBrake2DCommand:
     def GetResources(self):
         return {
+            "Pixmap": str(_ICON_ROOT / "gui_simulation.svg"),
             "MenuText": "Симуляция",
             "ToolTip": "Открыть отдельное окно симуляции и панель задач FreeCAD",
         }
@@ -148,7 +153,8 @@ class PressBrake2DCommand:
 
 class LoadPartCommand:
     def GetResources(self):
-        return {"MenuText": "Деталь", "ToolTip": "Загрузить выделенную SheetMetal деталь"}
+        return {"Pixmap": str(_ICON_ROOT / "gui_part.svg"),
+            "MenuText": "Деталь", "ToolTip": "Загрузить выделенную SheetMetal деталь"}
 
     def IsActive(self):
         return True
@@ -166,7 +172,8 @@ class LoadPartCommand:
 
 class ToolingTabCommand:
     def GetResources(self):
-        return {"MenuText": "Оснастка", "ToolTip": "Открыть вкладку оснастки в FreeCAD Task Panel"}
+        return {"Pixmap": str(_ICON_ROOT / "gui_tooling.svg"),
+            "MenuText": "Оснастка", "ToolTip": "Открыть вкладку оснастки в FreeCAD Task Panel"}
 
     def IsActive(self):
         return True
@@ -184,6 +191,7 @@ class ToolingTabCommand:
 class CalculateCommand:
     def GetResources(self):
         return {
+            "Pixmap": str(_ICON_ROOT / "gui_calculate.svg"),
             "MenuText": "Расчёт",
             "ToolTip": "Автоматический расчёт пока не прошёл приёмку — команда отключена",
         }
