@@ -144,6 +144,36 @@ class PostBendCycleTests(unittest.TestCase):
                 lift_heights_mm=(-1,),
             )
 
+    def test_short_circuit_on_first_lateral_collision(self):
+        from tools.run_folded_part_cycle import probe_lift_then_withdraw
+        section = (("panel", rect(0, 0, 1, 1)),)
+        punch = (rect(2, 3, 4, 6), ())
+        die = (rect(20, -5, 21, -4), ())
+        path = probe_lift_then_withdraw(
+            section, punch, die, lift_mm=2, distance_mm=10,
+            direction=1, lift_samples=3, withdrawal_samples=21,
+            stop_on_obstruction=True,
+        )
+        # Full 3 + 21 samples were not evaluated after the blocker.
+        self.assertLess(len(path["samples"]), 24)
+        self.assertEqual(path["status"], "SAMPLED_2D_INTERFERENCE")
+
+    def test_path_search_deadline_returns_unverified(self):
+        from tools.run_folded_part_cycle import search_sampled_withdrawal_paths
+        from unittest.mock import patch
+        tools = FakeTooling()
+        # Deadline is reached before even evaluating the first candidate.
+        with patch("tools.run_folded_part_cycle.perf_counter",
+                   side_effect=(0.0, 2.0, 3.0)):
+            report = search_sampled_withdrawal_paths(
+                (("panel", rect(0, 0, 1, 1)),), tools,
+                bottom_ram_z_mm=0, contact_z_mm=0,
+                max_search_time_s=1.0,
+            )
+        self.assertEqual(report["status"], "UNVERIFIED_SEARCH_LIMIT_REACHED")
+        self.assertTrue(report["search_limit_reached"])
+        self.assertEqual(report["evaluated_paths"], 0)
+
     def test_invalid_retract_range_rejected(self):
         with self.assertRaisesRegex(ValueError, "parked ram"):
             probe_punch_retract(
