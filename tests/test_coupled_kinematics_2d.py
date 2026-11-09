@@ -25,6 +25,68 @@ class TestCoupledAirBendingKinematics(unittest.TestCase):
             die_top_z_mm=0.0,
         )
 
+    def test_stage2_coupling_requires_complete_real_datums(self):
+        from types import SimpleNamespace as NS
+
+        zone = NS(thickness_mm=1.5, inner_radius_mm=1.0)
+        state = NS(bends={"B01": NS(angle_deg=90.0, bend_zone=zone)})
+        die_datums = NS(v_opening_mm=12.0, shoulder_radius_mm=1.0,
+                        die_angle_deg=88.0, v_depth_mm=8.0)
+        punch_datums = NS(tip_radius_mm=0.8, included_angle_deg=88.0)
+        tools = NS(
+            die=NS(die_datums=die_datums),
+            punch=NS(punch_datums=punch_datums),
+            sheet_bottom_z_mm=0.0,
+        )
+        result = CoupledAirBendingKinematics.from_tooling_and_fold_state(
+            tools, state, "B01"
+        )
+        self.assertEqual(result.tooling_status, "VERIFIED")
+        self.assertEqual(result.die_opening_v_mm, 12.0)
+        self.assertEqual(result.sheet_thickness_mm, 1.5)
+
+    def test_stage2_missing_die_field_fails_closed(self):
+        from types import SimpleNamespace as NS
+        state = NS(bends={"B01": NS(
+            angle_deg=-45.0, bend_zone=NS(thickness_mm=1.5, inner_radius_mm=1.0)
+        )})
+        tools = NS(
+            die=NS(die_datums=NS(v_opening_mm=12.0,
+                                 shoulder_radius_mm=1.0,
+                                 die_angle_deg=88.0,
+                                 v_depth_mm=None)),
+            punch=NS(punch_datums=NS(tip_radius_mm=0.8,
+                                      included_angle_deg=88.0)),
+            sheet_bottom_z_mm=0.0,
+        )
+        result = CoupledAirBendingKinematics.from_tooling_and_fold_state(
+            tools, state, "B01"
+        )
+        self.assertNotEqual(result.tooling_status, "VERIFIED")
+
+    def test_stage2_invalid_punch_and_missing_bend_fail_closed(self):
+        from types import SimpleNamespace as NS
+        tools = NS(
+            die=NS(die_datums=NS(v_opening_mm=12.0,
+                                 shoulder_radius_mm=1.0,
+                                 die_angle_deg=88.0,
+                                 v_depth_mm=8.0)),
+            punch=NS(punch_datums=NS(tip_radius_mm=float("nan"),
+                                      included_angle_deg=88.0)),
+            sheet_bottom_z_mm=0.0,
+        )
+        state = NS(bends={"B01": NS(
+            angle_deg=90.0, bend_zone=NS(thickness_mm=1.5, inner_radius_mm=1.0)
+        )})
+        invalid = CoupledAirBendingKinematics.from_tooling_and_fold_state(
+            tools, state, "B01"
+        )
+        missing = CoupledAirBendingKinematics.from_tooling_and_fold_state(
+            tools, state, "DOES_NOT_EXIST"
+        )
+        self.assertNotEqual(invalid.tooling_status, "VERIFIED")
+        self.assertNotEqual(missing.tooling_status, "VERIFIED")
+
     def test_stroke_at_zero_angle(self):
         h0 = self.kin.stroke_for_angle(0.0)
         self.assertAlmostEqual(h0, 0.0, places=6)
