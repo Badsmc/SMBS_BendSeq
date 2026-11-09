@@ -190,12 +190,12 @@ class WorkspaceGuiTests(unittest.TestCase):
             panel.deleteLater()
 
     def test_close_task_panel_retains_viewer_controls(self):
-        """Closing Task Panel must not close the MDI viewer or destroy controls."""
+        """Hide/show must preserve a single native dialog and its Qt controls."""
         try:
             import FreeCAD
             import FreeCADGui
             from freecad_smbs.commands.pressbrake_2d import (
-                _PreviewPanel, _qt, PressBrakeTaskPanel,
+                _PreviewPanel, _qt, PressBrakeTaskPanel, open_task_panel,
             )
             from unittest.mock import patch
             _QtCore, _QtGui, QtWidgets = _qt()
@@ -204,43 +204,38 @@ class WorkspaceGuiTests(unittest.TestCase):
         if QtWidgets.QApplication.instance() is None:
             self.skipTest("Qt GUI application is not running")
         panel = _PreviewPanel()
+        dock = QtWidgets.QDockWidget()
         try:
             task = PressBrakeTaskPanel(panel)
             panel.attach_task_panel(task)
+            task._task_dock = dock
+            task._find_task_dock = lambda: dock
             self.assertEqual(task.close_button.text(), "Закрыть панель")
             self.assertEqual(task.close_button.objectName(), "SMBS_CloseTaskPanel")
             self.assertEqual(panel.show_task_panel_btn.objectName(), "SMBS_ShowTaskPanel")
-            self.assertIs(task.workspace, panel)
-            self.assertIsNotNone(panel._control_tabs.parentWidget())
-            with patch.object(FreeCADGui.Control, "closeDialog") as close_dialog:
+            original_controls = panel._control_tabs
+            with patch.object(FreeCADGui.Control, "closeDialog") as close_dialog, \
+                 patch.object(FreeCADGui.Control, "showDialog") as show_dialog:
                 task.close_button.click()
+                self.assertTrue(task._hidden)
+                self.assertIs(panel._task_panel_host, task)
+                self.assertIs(original_controls, panel._control_tabs)
+                self.assertEqual(original_controls.count(), 3)
+                close_dialog.assert_not_called()
+                restored = open_task_panel(panel)
+                self.assertIs(restored, task)
+                self.assertFalse(task._hidden)
+                show_dialog.assert_not_called()
+                self.assertIs(open_task_panel(panel), task)
+                task.hide_panel()
+                self.assertTrue(task._hidden)
+                task.show_panel()
+                self.assertFalse(task._hidden)
+                task.close_from_workspace()
                 close_dialog.assert_called_once()
-            self.assertIsNone(panel._task_panel_host)
-            self.assertIs(panel._control_tabs.parentWidget(), panel)
-            self.assertEqual(panel._control_tabs.count(), 3)
-            self.assertTrue(panel.show_task_panel_btn.isVisible() or
-                            not panel.isVisible())
-            self.assertFalse(panel.timer.isActive())
-            task.close_panel()  # Repeated close is idempotent.
-            from freecad_smbs.commands.pressbrake_2d import open_task_panel
-            with patch.object(FreeCADGui.Control, "showDialog") as show_dialog, \
-                 patch.object(FreeCADGui.Control, "closeDialog") as close_dialog:
-                reopened = open_task_panel(panel)
-                show_dialog.assert_called_once_with(reopened)
-                self.assertIs(panel._task_panel_host, reopened)
-                self.assertIs(reopened.form.layout().itemAt(0).widget(),
-                              panel._control_tabs)
-                # An already-open panel must never be duplicated.
-                self.assertIs(open_task_panel(panel), reopened)
-                show_dialog.assert_called_once()
-                reopened.close_panel()
-                self.assertIsNone(panel._task_panel_host)
-                reopened_again = open_task_panel(panel)
-                self.assertIsNot(reopened_again, reopened)
-                self.assertIs(panel._task_panel_host, reopened_again)
-                reopened_again.close_panel()
         finally:
             panel.close()
+            dock.deleteLater()
             panel.deleteLater()
 
     def test_separate_workspace_layout_and_single_timer(self):
