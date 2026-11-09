@@ -321,8 +321,6 @@ def make_axis_step_oracle_2d(panel_vertices_xy, tooling, *, evidence=None,
     Attach an optional list as evidence to see each candidate's actual reason.
     """
     from copy import deepcopy
-    from .machine_section_3d import compute_machine_cutting_plane_section
-    from .workpiece_placement_3d import WorkpiecePlacement3D
     from .tooling_25d import ValidationStatus, ToolingError
 
     if evidence is None:
@@ -349,6 +347,12 @@ def make_axis_step_oracle_2d(panel_vertices_xy, tooling, *, evidence=None,
                    if b not in prefix):
                 item["reason"] = "nonprefix_bend_is_not_flat"
                 return "UNKNOWN"
+
+            # Resolve the geometry adapter at evaluation time. This also lets
+            # the regression tests replace the adapter without simulating Qt
+            # or FreeCAD and avoids retaining stale function references.
+            from .machine_section_3d import compute_machine_cutting_plane_section
+            from .workpiece_placement_3d import WorkpiecePlacement3D
 
             # The search loop already reconstructed this prefix from flat.
             # Align a PRIVATE tooling copy against the selected machine pose;
