@@ -29,7 +29,7 @@ SMBS/
   README.md
 ```
 
-Only runtime and required supporting code is included; test fixtures, demos, CI workflows and development scripts are excluded.
+Shared `toollibrary/` and `demo/SMBendTests/` plus `demo/parts/` reference assets are intentionally included in every primary branch. These are inert on-disk resources: FreeCAD must not automatically register or execute test runners. CI workflows and unrelated development scripts remain excluded. For a minimal release ZIP, use an explicit packaging allowlist rather than treating the entire branch checkout as the install payload.
 
 ## Current limitations
 
