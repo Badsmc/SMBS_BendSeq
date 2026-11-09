@@ -1,0 +1,627 @@
+{
+  "format": "BendSeq_v1.0",
+  "metadata": {
+    "part_thickness_mm": 2.0,
+    "k_factor": 0.4,
+    "material": "Steel_S235",
+    "total_bends": 10,
+    "algorithm_used": "astar",
+    "planning_time_sec": 23.761
+  },
+  "sequence_summary": {
+    "total_steps": 10,
+    "total_flips": 8,
+    "tool_stations_used": 1
+  },
+  "steps": [
+    {
+      "step": 1,
+      "bend_id": "BEND_06",
+      "angle_deg": 90.0,
+      "radius_mm": 1.0,
+      "length_mm": 293.0,
+      "axis": [
+        -1.0,
+        -0.0,
+        -0.0
+      ],
+      "origin": [
+        301.79132746156745,
+        2.5,
+        2.5
+      ],
+      "moving_panels": [
+        "PANEL_09",
+        "PANEL_10",
+        "PANEL_08",
+        "PANEL_06",
+        "PANEL_07"
+      ],
+      "backgauge": {
+        "X_mm": 152.5,
+        "R_mm": 1.0,
+        "Z1_mm": 58.6,
+        "Z2_mm": 234.4,
+        "finger_touch_point_1": [
+          152.5,
+          1.0,
+          58.6
+        ],
+        "finger_touch_point_2": [
+          152.5,
+          1.0,
+          234.4
+        ],
+        "part_stability_score": 0.95,
+        "reference_edge": "REAR_FLANGE_PARALLEL"
+      },
+      "tooling": {
+        "punch_id": "PUNCH_GOOSENECK_120",
+        "punch_type": "gooseneck",
+        "punch_height_mm": 120.0,
+        "die_id": "DIE_V12",
+        "v_width_mm": 12.0,
+        "die_height_mm": 80.0,
+        "segment_layout_mm": [
+          100,
+          200
+        ]
+      },
+      "operator_instructions": {
+        "station": 1,
+        "requires_part_flip_180": false,
+        "tool_change_required": false,
+        "description": "Position part against backgauge stops X=152.5mm, R=1.0mm."
+      }
+    },
+    {
+      "step": 2,
+      "bend_id": "BEND_05",
+      "angle_deg": 45.0,
+      "radius_mm": 2.5,
+      "length_mm": 293.0,
+      "axis": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "origin": [
+        8.791327461567448,
+        12.499999999999996,
+        17.5
+      ],
+      "moving_panels": [
+        "PANEL_09",
+        "PANEL_10",
+        "PANEL_08",
+        "PANEL_06",
+        "PANEL_05",
+        "PANEL_07"
+      ],
+      "backgauge": {
+        "X_mm": 152.5,
+        "R_mm": 1.0,
+        "Z1_mm": 58.6,
+        "Z2_mm": 234.4,
+        "finger_touch_point_1": [
+          152.5,
+          1.0,
+          58.6
+        ],
+        "finger_touch_point_2": [
+          152.5,
+          1.0,
+          234.4
+        ],
+        "part_stability_score": 0.95,
+        "reference_edge": "REAR_FLANGE_PARALLEL"
+      },
+      "tooling": {
+        "punch_id": "PUNCH_GOOSENECK_120",
+        "punch_type": "gooseneck",
+        "punch_height_mm": 120.0,
+        "die_id": "DIE_V12",
+        "v_width_mm": 12.0,
+        "die_height_mm": 80.0,
+        "segment_layout_mm": [
+          100,
+          200
+        ]
+      },
+      "operator_instructions": {
+        "station": 1,
+        "requires_part_flip_180": true,
+        "tool_change_required": false,
+        "description": "Position part against backgauge stops X=152.5mm, R=1.0mm."
+      }
+    },
+    {
+      "step": 3,
+      "bend_id": "BEND_07",
+      "angle_deg": 90.0,
+      "radius_mm": 1.0,
+      "length_mm": 293.0,
+      "axis": [
+        -1.0,
+        -0.0,
+        -0.0
+      ],
+      "origin": [
+        301.79132746156745,
+        2.4999999999999987,
+        14.0
+      ],
+      "moving_panels": [
+        "PANEL_08",
+        "PANEL_09",
+        "PANEL_07",
+        "PANEL_10"
+      ],
+      "backgauge": {
+        "X_mm": 152.5,
+        "R_mm": 1.0,
+        "Z1_mm": 58.6,
+        "Z2_mm": 234.4,
+        "finger_touch_point_1": [
+          152.5,
+          1.0,
+          58.6
+        ],
+        "finger_touch_point_2": [
+          152.5,
+          1.0,
+          234.4
+        ],
+        "part_stability_score": 0.95,
+        "reference_edge": "REAR_FLANGE_PARALLEL"
+      },
+      "tooling": {
+        "punch_id": "PUNCH_GOOSENECK_120",
+        "punch_type": "gooseneck",
+        "punch_height_mm": 120.0,
+        "die_id": "DIE_V12",
+        "v_width_mm": 12.0,
+        "die_height_mm": 80.0,
+        "segment_layout_mm": [
+          100,
+          200
+        ]
+      },
+      "operator_instructions": {
+        "station": 1,
+        "requires_part_flip_180": true,
+        "tool_change_required": false,
+        "description": "Position part against backgauge stops X=152.5mm, R=1.0mm."
+      }
+    },
+    {
+      "step": 4,
+      "bend_id": "BEND_04",
+      "angle_deg": 90.0,
+      "radius_mm": 1.0,
+      "length_mm": 295.0,
+      "axis": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "origin": [
+        7.791327461567448,
+        497.5,
+        2.5
+      ],
+      "moving_panels": [
+        "PANEL_04",
+        "PANEL_09",
+        "PANEL_10",
+        "PANEL_08",
+        "PANEL_06",
+        "PANEL_05",
+        "PANEL_07"
+      ],
+      "backgauge": {
+        "X_mm": 153.5,
+        "R_mm": 1.0,
+        "Z1_mm": 59.0,
+        "Z2_mm": 236.0,
+        "finger_touch_point_1": [
+          153.5,
+          1.0,
+          59.0
+        ],
+        "finger_touch_point_2": [
+          153.5,
+          1.0,
+          236.0
+        ],
+        "part_stability_score": 0.95,
+        "reference_edge": "REAR_FLANGE_PARALLEL"
+      },
+      "tooling": {
+        "punch_id": "PUNCH_GOOSENECK_120",
+        "punch_type": "gooseneck",
+        "punch_height_mm": 120.0,
+        "die_id": "DIE_V12",
+        "v_width_mm": 12.0,
+        "die_height_mm": 80.0,
+        "segment_layout_mm": [
+          100,
+          200
+        ]
+      },
+      "operator_instructions": {
+        "station": 1,
+        "requires_part_flip_180": true,
+        "tool_change_required": false,
+        "description": "Position part against backgauge stops X=153.5mm, R=1.0mm."
+      }
+    },
+    {
+      "step": 5,
+      "bend_id": "BEND_03",
+      "angle_deg": 90.0,
+      "radius_mm": 1.0,
+      "length_mm": 498.3,
+      "axis": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "origin": [
+        7.791327461567468,
+        0.0,
+        19.5
+      ],
+      "moving_panels": [
+        "PANEL_04",
+        "PANEL_09",
+        "PANEL_10",
+        "PANEL_08",
+        "PANEL_03",
+        "PANEL_06",
+        "PANEL_05",
+        "PANEL_07"
+      ],
+      "backgauge": {
+        "X_mm": 255.15,
+        "R_mm": 1.0,
+        "Z1_mm": 99.66,
+        "Z2_mm": 398.64,
+        "finger_touch_point_1": [
+          255.15,
+          1.0,
+          99.66
+        ],
+        "finger_touch_point_2": [
+          255.15,
+          1.0,
+          398.64
+        ],
+        "part_stability_score": 0.95,
+        "reference_edge": "REAR_FLANGE_PARALLEL"
+      },
+      "tooling": {
+        "punch_id": "PUNCH_GOOSENECK_120",
+        "punch_type": "gooseneck",
+        "punch_height_mm": 120.0,
+        "die_id": "DIE_V12",
+        "v_width_mm": 12.0,
+        "die_height_mm": 80.0,
+        "segment_layout_mm": [
+          100,
+          200,
+          500
+        ]
+      },
+      "operator_instructions": {
+        "station": 1,
+        "requires_part_flip_180": true,
+        "tool_change_required": false,
+        "description": "Position part against backgauge stops X=255.2mm, R=1.0mm."
+      }
+    },
+    {
+      "step": 6,
+      "bend_id": "BEND_08",
+      "angle_deg": 45.0,
+      "radius_mm": 1.0,
+      "length_mm": 293.0,
+      "axis": [
+        -1.0,
+        -0.0,
+        -0.0
+      ],
+      "origin": [
+        301.79132746156745,
+        19.545941546018394,
+        19.596194077712557
+      ],
+      "moving_panels": [
+        "PANEL_08",
+        "PANEL_09",
+        "PANEL_10"
+      ],
+      "backgauge": {
+        "X_mm": 152.5,
+        "R_mm": 1.0,
+        "Z1_mm": 58.6,
+        "Z2_mm": 234.4,
+        "finger_touch_point_1": [
+          152.5,
+          1.0,
+          58.6
+        ],
+        "finger_touch_point_2": [
+          152.5,
+          1.0,
+          234.4
+        ],
+        "part_stability_score": 0.95,
+        "reference_edge": "REAR_FLANGE_PARALLEL"
+      },
+      "tooling": {
+        "punch_id": "PUNCH_GOOSENECK_120",
+        "punch_type": "gooseneck",
+        "punch_height_mm": 120.0,
+        "die_id": "DIE_V12",
+        "v_width_mm": 12.0,
+        "die_height_mm": 80.0,
+        "segment_layout_mm": [
+          100,
+          200
+        ]
+      },
+      "operator_instructions": {
+        "station": 1,
+        "requires_part_flip_180": true,
+        "tool_change_required": false,
+        "description": "Position part against backgauge stops X=152.5mm, R=1.0mm."
+      }
+    },
+    {
+      "step": 7,
+      "bend_id": "BEND_02",
+      "angle_deg": 90.0,
+      "radius_mm": 1.0,
+      "length_mm": 497.5,
+      "axis": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "origin": [
+        7.7913274615674695,
+        0.0,
+        2.5
+      ],
+      "moving_panels": [
+        "PANEL_04",
+        "PANEL_09",
+        "PANEL_10",
+        "PANEL_08",
+        "PANEL_03",
+        "PANEL_06",
+        "PANEL_02",
+        "PANEL_05",
+        "PANEL_07"
+      ],
+      "backgauge": {
+        "X_mm": 254.75,
+        "R_mm": 1.0,
+        "Z1_mm": 99.5,
+        "Z2_mm": 398.0,
+        "finger_touch_point_1": [
+          254.75,
+          1.0,
+          99.5
+        ],
+        "finger_touch_point_2": [
+          254.75,
+          1.0,
+          398.0
+        ],
+        "part_stability_score": 0.95,
+        "reference_edge": "REAR_FLANGE_PARALLEL"
+      },
+      "tooling": {
+        "punch_id": "PUNCH_GOOSENECK_120",
+        "punch_type": "gooseneck",
+        "punch_height_mm": 120.0,
+        "die_id": "DIE_V12",
+        "v_width_mm": 12.0,
+        "die_height_mm": 80.0,
+        "segment_layout_mm": [
+          100,
+          200,
+          500
+        ]
+      },
+      "operator_instructions": {
+        "station": 1,
+        "requires_part_flip_180": true,
+        "tool_change_required": false,
+        "description": "Position part against backgauge stops X=254.8mm, R=1.0mm."
+      }
+    },
+    {
+      "step": 8,
+      "bend_id": "BEND_09",
+      "angle_deg": 90.0,
+      "radius_mm": 2.5,
+      "length_mm": 498.3,
+      "axis": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "origin": [
+        302.79132746156745,
+        0.0,
+        19.5
+      ],
+      "moving_panels": [
+        "PANEL_09",
+        "PANEL_10"
+      ],
+      "backgauge": {
+        "X_mm": 255.15,
+        "R_mm": 1.0,
+        "Z1_mm": 99.66,
+        "Z2_mm": 398.64,
+        "finger_touch_point_1": [
+          255.15,
+          1.0,
+          99.66
+        ],
+        "finger_touch_point_2": [
+          255.15,
+          1.0,
+          398.64
+        ],
+        "part_stability_score": 0.95,
+        "reference_edge": "REAR_FLANGE_PARALLEL"
+      },
+      "tooling": {
+        "punch_id": "PUNCH_GOOSENECK_120",
+        "punch_type": "gooseneck",
+        "punch_height_mm": 120.0,
+        "die_id": "DIE_V12",
+        "v_width_mm": 12.0,
+        "die_height_mm": 80.0,
+        "segment_layout_mm": [
+          100,
+          200,
+          500
+        ]
+      },
+      "operator_instructions": {
+        "station": 1,
+        "requires_part_flip_180": false,
+        "tool_change_required": false,
+        "description": "Position part against backgauge stops X=255.2mm, R=1.0mm."
+      }
+    },
+    {
+      "step": 9,
+      "bend_id": "BEND_10",
+      "angle_deg": 90.0,
+      "radius_mm": 1.0,
+      "length_mm": 497.5,
+      "axis": [
+        -0.0,
+        -1.0,
+        -0.0
+      ],
+      "origin": [
+        302.79132746156745,
+        497.5,
+        2.5
+      ],
+      "moving_panels": [
+        "PANEL_10"
+      ],
+      "backgauge": {
+        "X_mm": 254.75,
+        "R_mm": 1.0,
+        "Z1_mm": 99.5,
+        "Z2_mm": 398.0,
+        "finger_touch_point_1": [
+          254.75,
+          1.0,
+          99.5
+        ],
+        "finger_touch_point_2": [
+          254.75,
+          1.0,
+          398.0
+        ],
+        "part_stability_score": 0.95,
+        "reference_edge": "REAR_FLANGE_PARALLEL"
+      },
+      "tooling": {
+        "punch_id": "PUNCH_GOOSENECK_120",
+        "punch_type": "gooseneck",
+        "punch_height_mm": 120.0,
+        "die_id": "DIE_V12",
+        "v_width_mm": 12.0,
+        "die_height_mm": 80.0,
+        "segment_layout_mm": [
+          100,
+          200,
+          500
+        ]
+      },
+      "operator_instructions": {
+        "station": 1,
+        "requires_part_flip_180": true,
+        "tool_change_required": false,
+        "description": "Position part against backgauge stops X=254.8mm, R=1.0mm."
+      }
+    },
+    {
+      "step": 10,
+      "bend_id": "BEND_01",
+      "angle_deg": 90.0,
+      "radius_mm": 1.0,
+      "length_mm": 296.6,
+      "axis": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "origin": [
+        6.991327461567437,
+        497.5,
+        19.5
+      ],
+      "moving_panels": [
+        "PANEL_04",
+        "PANEL_09",
+        "PANEL_01",
+        "PANEL_10",
+        "PANEL_08",
+        "PANEL_03",
+        "PANEL_06",
+        "PANEL_02",
+        "PANEL_05",
+        "PANEL_07"
+      ],
+      "backgauge": {
+        "X_mm": 154.3,
+        "R_mm": 1.0,
+        "Z1_mm": 59.32,
+        "Z2_mm": 237.28,
+        "finger_touch_point_1": [
+          154.3,
+          1.0,
+          59.32
+        ],
+        "finger_touch_point_2": [
+          154.3,
+          1.0,
+          237.28
+        ],
+        "part_stability_score": 0.95,
+        "reference_edge": "REAR_FLANGE_PARALLEL"
+      },
+      "tooling": {
+        "punch_id": "PUNCH_GOOSENECK_120",
+        "punch_type": "gooseneck",
+        "punch_height_mm": 120.0,
+        "die_id": "DIE_V12",
+        "v_width_mm": 12.0,
+        "die_height_mm": 80.0,
+        "segment_layout_mm": [
+          100,
+          200
+        ]
+      },
+      "operator_instructions": {
+        "station": 1,
+        "requires_part_flip_180": true,
+        "tool_change_required": false,
+        "description": "Position part against backgauge stops X=154.3mm, R=1.0mm."
+      }
+    }
+  ]
+}

@@ -1,0 +1,49 @@
+{
+  "schema_version": "1.0",
+  "id": "synthetic_punch_a30",
+  "kind": "punch",
+  "source": "synthetic_punch_a30.FCStd",
+  "datums": {
+    "mounting_plane": {
+      "kind": "plane",
+      "origin": [
+        0.0,
+        120.0,
+        0.0
+      ],
+      "normal": [
+        0,
+        -1,
+        0
+      ],
+      "tolerance_mm": 0.05
+    },
+    "working_axis": {
+      "kind": "axis",
+      "origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "direction": [
+        0,
+        0,
+        1
+      ],
+      "tolerance_mm": 0.02
+    },
+    "tip_point": {
+      "kind": "point",
+      "position": [
+        0.0,
+        0.0,
+        0.0
+      ]
+    }
+  },
+  "metadata": {
+    "angle_deg": 30.0,
+    "radius_mm": 3.0,
+    "height_mm": 120.0
+  }
+}
