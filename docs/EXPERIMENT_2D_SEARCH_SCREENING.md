@@ -212,3 +212,34 @@ print([c["sequence"] for c in result["report"]["candidates"]])
 ```
 
 This uses only the 2D section collision model. If all sampled sections appear clear, **do not infer that the plan is safe in 3D**. Do not merge into the main GUI or the physical solver before real FreeCAD tests of signed bends, tool placement, approach/retract path and false negatives. Historical `B01` sampled 3D result is not a validation of this new 2D-only model.
+
+
+## Axis-aware ranked 2D-only planning (eleventh increment)
+
+The standalone planar DFS now integrates the existing `axes_from_fold_state()` and `group_parallel_bends()`: axis groups are derived from authoritative flat-model bend lines; all remaining bends are still eligible at every DFS depth. It prioritizes finishing the previous axis group to reduce handling, **but does not force contiguous group execution**. Cross-group interleavings remain possible and are evaluated against the complete FoldState with all completed bends at target signed angles. This prevents unsafe "optimize each group in isolation and concatenate" assumptions.
+
+Each evaluated step records the actual analytical `compute_workpiece_machine_setup()` result; every complete candidate is scored by existing `score_sequence()` (turns, flips, longitudinal shifts, active length changes). Missing or failed placement calculations set `cost_complete=False` so incomplete cost evidence cannot outrank a complete candidate. No fake cost is treated as verified. Top K plans are sorted by sampled-clear status, complete cost evidence, measured score, axis-group transitions and deterministic bend IDs. Each includes numbered bends, group IDs, step evidence and machine setup data. Search evaluates up to `max_complete_candidates=1000` full sequences within node/evaluation/time limits; **top K is optimal only among examined candidates unless search exhausts all branches**. `SEARCH_LIMIT_REACHED` explicitly discloses truncated searches. This is bounded best-of-examined ranking, not certified global optimum.
+
+Optional `backgauge_polygon_machine` (2D closed solid material polygon in machine (s,z) coordinates) now checks every sampled component in the phase section with the existing area-contact oracle. The geometry MUST come from measured/verified machine inputs: no default gauge is fabricated. If absent, result warnings and per-step `backgauge_checked=False` report the missing coverage. Other frame, clamps, transfers and longitudinal end collisions remain out of the selected 2D plane scope. The physics solver remains unchanged. Tool length matching remains **virtual** and is disclosed in runner JSON.
+
+`tools/run_planar_sequence_search.py` now launches without constructing an _PreviewPanel Qt widget; only a read-only SheetMetal session and the library's two 2D tool profiles are created. `print_planar_summary(payload)` prints grouped, numbered, cost-ranked candidates from FreeCAD's Python Console.
+
+### First FreeCAD acceptance command
+
+Update branch and restart FreeCAD; open `Z-(ok).FCStd` and ensure SheetMetal `*_Unfold` exists:
+
+```python
+from pathlib import Path
+from tools.run_planar_sequence_search import run_planar_search, print_planar_summary
+p = Path(r"C:\Users\User\AppData\Roaming\FreeCAD\v1-1\Mod\SMBS_BendSeq-2D")
+payload = run_planar_search(
+    App.ActiveDocument,
+    max_solutions=10,
+    max_complete_candidates=1000,
+    max_search_time_s=60.0,
+    output_path=str(p / "reports" / "z_planar_ranked.json"),
+)
+print_planar_summary(payload)
+```
+
+Synthetic tests validate axis grouping, cross-group ordering, ranked costs and preservation of state; Stage B tests cover optional backgauge overlap and clearance. Native FreeCAD physical acceptance is **outstanding**. This is not a 3D safety check, nor yet a final tested production-grade implementation of all nine original stages.
