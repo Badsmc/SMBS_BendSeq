@@ -37,11 +37,17 @@ class PressBrakeTaskPanel:
         return self.reject()
 
     def reject(self):
-        if not self._closing:
-            self._closing = True
-            self.workspace._task_panel_host = None
-            if not self.workspace.isHidden():
-                self.workspace.close()
+        global _TASK_PANEL
+        if self._closing:
+            return True
+        self._closing = True
+        _TASK_PANEL = None
+        self.workspace._task_panel_host = None
+        # Closing the Task Panel closes its associated MDI viewer, not the
+        # document and not an arbitrary active FreeCAD subwindow.
+        viewer_window = self.workspace.window()
+        if viewer_window is not None:
+            viewer_window.close()
         return True
 
     def close_from_workspace(self):
