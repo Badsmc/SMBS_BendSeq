@@ -19,6 +19,7 @@ from smbs_core.kinematics2d.coupled_kinematics_2d import CoupledAirBendingKinema
 from smbs_core.kinematics2d.machine_section_3d import compute_machine_cutting_plane_section
 from smbs_core.kinematics2d.tooling_25d import ToolKind, ToolLibrary25D, ToolingSetup2D
 from smbs_core.kinematics2d.workpiece_placement_3d import WorkpiecePlacement3D
+from smbs_core.kinematics2d.swept_translation_2d import screen_lift_then_withdraw_swept
 from tools.run_folded_part_withdrawal import (
     _parts, probe_lateral_withdrawal, DEFAULT_PUNCH, DEFAULT_DIE,
 )
@@ -174,6 +175,7 @@ def search_sampled_withdrawal_paths(
     distance_mm=100.0, retract_samples=21,
     lift_samples=21, withdrawal_samples=21,
     tolerance_mm=0.02, max_search_time_s=60.0,
+    verify_swept_paths=False,
 ):
     """Bounded search, fail-closed on deadline and on obstructed partial paths.
 
@@ -302,11 +304,46 @@ def search_sampled_withdrawal_paths(
         tooling.set_punch_ram_z(original[0], original[1])
         tooling.punch_machine_transform = original[2]
     candidates.sort(key=lambda x: (x["lift_mm"], x["parked_clearance_mm"], x["direction"]))
+    # Sweep verification uses each candidate's REAL parked punch transform.
+    # A failed or ambiguous sweep is preserved in the sampled candidates list,
+    # but is never admitted to sweep_screened_candidates.
+    sweep_candidates = []
+    if verify_swept_paths and candidates:
+        try:
+            for candidate in candidates:
+                if perf_counter() >= deadline:
+                    stopped = True
+                    candidate["sweep_screening"] = {
+                        "status": "UNVERIFIED_SEARCH_LIMIT_REACHED",
+                        "reason": "deadline_before_sweep",
+                    }
+                    continue
+                tooling.set_punch_ram_z(candidate["parked_ram_z_mm"])
+                punch = tooling.punch_polygons_machine(arc_segments=24)
+                die = tooling.die_polygons_machine(arc_segments=24)
+                direction = -1 if candidate["direction"] == "negative_s" else 1
+                sweep = screen_lift_then_withdraw_swept(
+                    polygons, punch, die, lift_mm=candidate["lift_mm"],
+                    distance_mm=distance_mm, direction=direction,
+                    tolerance_mm=tolerance_mm, deadline_monotonic=deadline,
+                )
+                candidate["sweep_screening"] = sweep
+                if sweep["status"] == "SWEPT_2D_CLEAR_NOT_3D_CERTIFIED":
+                    sweep_candidates.append(candidate)
+                elif sweep["status"] == "UNVERIFIED_SEARCH_LIMIT_REACHED":
+                    stopped = True
+        finally:
+            tooling.set_punch_ram_z(original[0], original[1])
+            tooling.punch_machine_transform = original[2]
+
     return {
         "status": ("SAMPLED_2D_PATH_CANDIDATES_NOT_CERTIFIED" if candidates
                    else "UNVERIFIED_SEARCH_LIMIT_REACHED" if stopped
                    else "UNVERIFIED_NO_SAMPLED_PATH"),
-        "candidates": candidates, "attempts": attempts,
+        "candidates": candidates,
+        "sweep_screened_candidates": sweep_candidates,
+        "sweep_verification_requested": bool(verify_swept_paths),
+        "attempts": attempts,
         "evaluated_paths": sum("lift_mm" in x for x in attempts),
         "evaluated_poses": pose_evaluations,
         "search_limit_reached": stopped,
@@ -330,6 +367,7 @@ def run_folded_part_cycle(
     parked_clearances_mm=(20.0, 35.0, 50.0),
     lift_heights_mm=(2.0, 5.0, 8.0, 12.0, 16.0, 20.0),
     path_search_time_s=60.0,
+    verify_swept_paths=False,
     output_path=None,
 ):
     """Compute actual post-bend section, sample ram retract and lateral removal.
@@ -460,6 +498,7 @@ def run_folded_part_cycle(
                         withdrawal_samples=withdrawal_samples,
                         tolerance_mm=tolerance_mm,
                         max_search_time_s=path_search_time_s,
+                        verify_swept_paths=verify_swept_paths,
                     )
                 entry["transfer"] = {
                     "status": "UNVERIFIED_2D",
@@ -485,6 +524,7 @@ def run_folded_part_cycle(
         "distance_mm": distance_mm,
         "lift_mm": lift_mm, "lift_samples": lift_samples,
         "search_paths": bool(search_paths),
+        "verify_swept_paths": bool(verify_swept_paths),
         "evidence": "POST_BEND_MACHINE_SECTION_SAMPLES_ONLY_NOT_3D_CERTIFIED",
         "limitations": [
             "Stationary bent section and ram-only upward motion: no springback",
@@ -540,6 +580,20 @@ def print_folded_part_cycle(payload):
                   "CANDIDATES:", len(search["candidates"]),
                   "EVALUATED:", search["evaluated_paths"],
                   "LIMIT:", search["search_limit_reached"])
+            if search.get("sweep_verification_requested"):
+                print("    SWEPT 2D SCREENED:",
+                      len(search.get("sweep_screened_candidates", ())),
+                      "of", len(search["candidates"]))
+                for candidate in search["candidates"]:
+                    verification = candidate.get("sweep_screening", {})
+                    print("     ", candidate["direction"],
+                          "lift=", candidate["lift_mm"],
+                          "punch_clearance=", candidate["parked_clearance_mm"],
+                          verification.get("status", "NOT_EVALUATED"),
+                          verification.get("first_problem", {}).get("tool", "")
+                          if isinstance(verification.get("first_problem"), dict)
+                          else "")
+
             for candidate in search["candidates"][:3]:
                 print("    CANDIDATE:",
                       candidate["direction"],
