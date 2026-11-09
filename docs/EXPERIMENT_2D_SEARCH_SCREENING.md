@@ -180,3 +180,35 @@ print(kernel_metrics.to_dict())
 ```
 
 The 5-case headless test `tests.test_native_geometry_build_metrics` validates label counting, nested isolation and exception propagation. It is not a substitute for FreeCAD-native B01 geometric/physical equivalence tests. Next step: quantify whether sheet union or zones dominate, and A/B-test any change that modifies OCC construction methods.
+
+
+## Experimental standalone 2D-only sequence planner (tenth increment)
+
+Implemented a **new, separate experimental mode** at `smbs_core/kinematics2d/sequence_search_2d.py`, entry point `search_bend_sequences_2d(session, tooling, ...)`. This mode never invokes `search_bend_sequence_25d`, `evaluate_candidate_bend_step`, `validate_workpiece_tooling_pose`, `check_active_25d_bend_trajectory` or the native 3D OCCT collision detector.
+
+- Uses authoritative `FoldState`, `panel_vertices_xy`, `WorkpiecePlacement3D` **mathematical coordinate placement only**, `compute_machine_cutting_plane_section` (analytic panel section), `CoupledAirBendingKinematics`, aligned 2D tool profiles and `check_sheet_tooling_preview` polygon contact tests. Despite historical module names including `3d`, these steps do not construct or intersect FreeCAD Part solids.
+- Stage A checks geometric inputs/tool coverage, Stage B now records `contact_statuses` alongside sampled phases so the standalone planner can distinguish `CLEAR`/`TOUCH`, `INTERFERENCE`, and `UNVERIFIED`. Existing Stage B -> Stage C behavior is unchanged for the original physical planner.
+- By default samples BENDING at 17 angle fractions (0..1) and APPROACH/RETRACT at 9 ram positions (0..1), plus BOTTOM. These are **finite samples**, not proof of continuous-motion clearance. Stage B's new `stroke_fractions` argument is opt-in and defaults to legacy single-endpoint behavior for the physical solver. Signed negative bend angles now retain sign in FoldState but pass the **absolute** angle to ram/stroke functions.
+- Deterministic forward DFS explores candidate bends with completed earlier bends at target signed angles; each Stage B candidate has its own machine alignment. Tracks visited states, checks, reasons, limits, and up to 10 full sequences. Full sequences containing uncertain sections carry `UNVERIFIED_2D`; those with only sampled clear/contact receive `SAMPLED_2D_CLEAR_OR_TOUCH`. No result is labeled 3D safe or production ready. Section interference prunes branches **in the planar preview only**, not the physical 3D planner.
+- Scope: only active machine cross-section by default, no verified longitudinal tool-end, clamp/backgauge/frame, fixture or self-collision coverage. Optional multi-station mode requires externally grounded source tool spans; it must not synthesize spans or treat virtual tool extrusion as physical evidence. Virtual length matching remains active for the first demo; the reports explicitly disclose it.
+- `tools/run_planar_sequence_search.py` exposes `run_planar_search(App.ActiveDocument, output_path=...)` from FreeCAD Python Console for a document with an existing `*_Unfold` object, the default AP1017 + AT3015 2D tool library profiles, and optional JSON export. No 3D collision oracle is invoked. The runner closes its preview widget but does not change the user's open document.
+- New headless tests in `tests/test_sequence_search_2d.py` and Stage B opt-in stroke/signed-angle tests. These are synthetic; actual FreeCAD model results are **not yet tested**.
+
+### Windows 11 / FreeCAD Console — first test
+
+Update ONLY `experiment/2d-search-screening` in your installed workbench directory and restart FreeCAD. Open `Z-(ok).FCStd` containing an existing SheetMetal `*_Unfold`. In Python Console:
+
+```python
+import FreeCAD as App
+from tools.run_planar_sequence_search import run_planar_search
+from pathlib import Path
+p = Path(r"C:\Users\User\AppData\Roaming\FreeCAD\v1-1\Mod\SMBS_BendSeq-2D")
+result = run_planar_search(
+    App.ActiveDocument, max_solutions=10, max_search_time_s=60.0,
+    output_path=str(p / "reports" / "z_planar_only.json"),
+)
+print(result["report"]["status"], result["report"]["elapsed_s"])
+print([c["sequence"] for c in result["report"]["candidates"]])
+```
+
+This uses only the 2D section collision model. If all sampled sections appear clear, **do not infer that the plan is safe in 3D**. Do not merge into the main GUI or the physical solver before real FreeCAD tests of signed bends, tool placement, approach/retract path and false negatives. Historical `B01` sampled 3D result is not a validation of this new 2D-only model.
