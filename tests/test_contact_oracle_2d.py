@@ -19,6 +19,30 @@ def rect(x0,y0,x1,y1):
 
 
 class ContactOracle2DTests(unittest.TestCase):
+    def test_collision_sampling_reduces_zero_and_shallow_arc_segments(self):
+        from types import SimpleNamespace
+        from smbs_core.kinematics2d.machine_section_3d import (
+            _collision_aware_zone_segments
+        )
+        zone = SimpleNamespace(inner_radius_mm=1.0, outer_radius_mm=2.5)
+        # Existing 2D rendering still uses the caller's 32 segments.
+        self.assertEqual(
+            _collision_aware_zone_segments(zone, 7.5, 32, None), 32
+        )
+        # At small angles 32 segments generate contact-predicate
+        # sub-tolerance edges; use just enough to retain the arc shape.
+        self.assertEqual(
+            _collision_aware_zone_segments(zone, 0.0, 32, 0.02), 1
+        )
+        self.assertEqual(
+            _collision_aware_zone_segments(zone, 7.5, 32, 0.02), 3
+        )
+        self.assertEqual(
+            _collision_aware_zone_segments(zone, 90.0, 32, 0.02), 32
+        )
+        with self.assertRaises(ValueError):
+            _collision_aware_zone_segments(zone, 30.0, 32, 0.0)
+
     def test_flat_bend_zone_duplicate_vertices_preserve_clear(self):
         # BendZone.section_profile at zero angle repeats its arc
         # vertices 32 times. That is valid flat geometry, not an
