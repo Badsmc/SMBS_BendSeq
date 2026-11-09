@@ -29,6 +29,7 @@ def run_planar_search(
     fraction_count: int = 17,
     stroke_fraction_count: int = 9,
     max_complete_candidates: int = 1000,
+    backgauge_polygon_machine: tuple[tuple[float, float], ...] | None = None,
     output_path: str | None = None,
 ) -> dict:
     """Run section-only search without creating or mutating the input document."""
@@ -62,12 +63,14 @@ def run_planar_search(
         fractions=fractions,
         stroke_fractions=strokes,
         match_active_bend_length=True,
+        backgauge_polygon_machine=backgauge_polygon_machine,
     )
     payload = {
         "model": doc.Label,
         "punch": punch_id,
         "die": die_id,
         "virtual_tool_length": True,
+        "backgauge_supplied": backgauge_polygon_machine is not None,
         "fraction_count": fraction_count,
         "stroke_fraction_count": stroke_fraction_count,
         "report": report.to_dict(),
