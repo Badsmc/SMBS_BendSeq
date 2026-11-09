@@ -79,6 +79,7 @@ def screen_swept_translation(
         return {"status": "UNVERIFIED_2D", "reason": "invalid_tool_contours",
                 "checked_patches": 0}
     count = 0
+    first_uncertain = None
     for component, polygon in polygons:
         try:
             patches = swept_translation_patches(polygon, dx, dz)
@@ -100,7 +101,7 @@ def screen_swept_translation(
                          if finding.status is report.status),
                         None,
                     )
-                    return {
+                    finding = {
                         "status": ("SWEPT_2D_INTERFERENCE" if report.status is ContactStatus.INTERFERENCE
                                    else "UNVERIFIED_SWEPT_2D_CONTACT"),
                         "reason": issue.reason if issue else "ambiguous_contact",
@@ -110,10 +111,20 @@ def screen_swept_translation(
                         "contact_status": report.status.value,
                         "checked_patches": count,
                     }
+                    if report.status is ContactStatus.INTERFERENCE:
+                        # Swept area is a UNION of patches: an early strip may
+                        # touch a tool, while a later strip penetrates it.
+                        # Do not discard the stronger positive-area finding.
+                        return finding
+                    if first_uncertain is None:
+                        first_uncertain = finding
         except (ValueError, TypeError, IndexError) as exc:
             return {"status": "UNVERIFIED_2D",
                     "reason": type(exc).__name__ + ": " + str(exc),
                     "checked_patches": count}
+    if first_uncertain is not None:
+        first_uncertain["checked_patches"] = count
+        return first_uncertain
     return {
         "status": "SWEPT_2D_CLEAR_NOT_3D_CERTIFIED",
         "reason": "continuous_rigid_translation_of_polygonal_2d_section",
