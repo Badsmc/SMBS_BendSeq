@@ -161,12 +161,16 @@ class LoadPartCommand:
 
     def Activated(self):
         workspace = get_workspace_widget()
-        if workspace is None:
+        just_opened = workspace is None
+        if just_opened:
             PressBrake2DCommand().Activated()
             workspace = get_workspace_widget()
             if workspace is None:
                 raise RuntimeError("PressBrakeSim viewer did not open")
-        workspace.load_part()
+        # Opening the simulation viewer already loads an existing selection;
+        # do not rebuild the same session twice on one toolbar click.
+        if not just_opened:
+            workspace.load_part()
         workspace.show_control_tab(0)
 
 
