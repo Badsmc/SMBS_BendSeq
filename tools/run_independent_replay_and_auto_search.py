@@ -5,21 +5,16 @@ Part: box.100out-50in-(ok).FCStd (8 bends: B01..B08)
 Tooling: PUNCH_AP_1013_85°_H159,65_R0,8 + T-DIE_AT_3015_88°_V12_H80
 Setup: Centered (xm=0.0), match_active_bend_length=True, strict mode (allow_end_zone_collision=False).
 
-Task 1: Independent Forward Replay
-- Flat blank (0°) -> B08 -> B06 -> B07 -> B05 -> B04 -> B02 -> B03 -> B01.
-- Fresh FreeCAD session, empty transition cache, no hints.
-- Full 5-phase validation (APPROACH, CONTACT, BENDING, BOTTOM, RETRACT) at arc_segments=128.
-- Export to reports/box_independent_forward_replay_report.json.
-
-Task 2: Automatic Search Evaluation
-- Fresh FreeCAD session, unconstrained backward DFS (fixed_suffix=None).
-- Identical tooling, centered, strict mode.
-- Fixed budget (max_search_time_s=300.0, max_states=60, max_checks=120).
-- Measure wall time, OCCT collision calls, explored states, found sequence/partial, rejection reasons.
-- Export to reports/box_automatic_search_report.json.
+Modes:
+- --replay-only: Run only independent forward replay for known sequence (Part 1).
+- --search-only: Run automatic backward search from scratch (fixed_suffix=None),
+                 followed by an independent forward verification in a fresh FreeCAD session
+                 if a complete sequence is found (Part 2).
+- Default (no args): Run both Part 1 and Part 2.
 """
 from __future__ import annotations
 
+import argparse
 import json
 import os
 import subprocess
@@ -61,6 +56,7 @@ from smbs_core.kinematics2d.physical_validation_25d import (
 from smbs_core.kinematics2d.sequence_search import (
     SearchStatus,
     search_bend_sequence_backward_25d,
+    verify_sequence_forward_replay,
     _apply_prefix_to_session,
     _sync_tooling_and_cycle_for_active_bend,
 )
@@ -122,13 +118,17 @@ def init_session():
     return doc, session, panel, panel.tooling_setup
 
 
-def run_part1_independent_forward_replay(git_commit: str, git_dirty: bool) -> Dict[str, Any]:
+def run_part1_independent_forward_replay(
+    git_commit: str,
+    git_dirty: bool,
+    sequence: Tuple[str, ...] = ("B08", "B06", "B07", "B05", "B04", "B02", "B03", "B01"),
+    time_limit_s: float = 3600.0,
+) -> Dict[str, Any]:
     print("\n" + "=" * 70)
     print("=== PART 1: INDEPENDENT FORWARD REPLAY FROM FLAT SHEET (0°) ===")
     print("=" * 70, flush=True)
 
     doc, session, panel, tooling = init_session()
-    sequence = ("B08", "B06", "B07", "B05", "B04", "B02", "B03", "B01")
     config128 = AdaptiveSamplingConfig(
         early_stop_on_blocking_collision=True,
         max_phase_time_s=600.0,
@@ -144,7 +144,7 @@ def run_part1_independent_forward_replay(git_commit: str, git_dirty: bool) -> Di
     for step_idx, bend_id in enumerate(sequence, start=1):
         completed_prefix = sequence[:step_idx - 1]
         remaining_after = sequence[step_idx:]
-        print(f"\n--- [Step {step_idx}/8] Active bend: {bend_id} ---", flush=True)
+        print(f"\n--- [Step {step_idx}/{len(sequence)}] Active bend: {bend_id} ---", flush=True)
         print(f"  Prefix completed: {completed_prefix}", flush=True)
         print(f"  Remaining after:  {remaining_after}", flush=True)
 
@@ -255,6 +255,12 @@ def run_part1_independent_forward_replay(git_commit: str, git_dirty: bool) -> Di
             print(f"  [STOP] Step {step_idx} failed acceptance criterion! Aborting replay.", flush=True)
             break
 
+        elapsed_so_far = time.perf_counter() - t0_total
+        if elapsed_so_far >= time_limit_s:
+            print(f"  [STOP] Time limit exceeded ({elapsed_so_far:.2f} s >= {time_limit_s:.2f} s).", flush=True)
+            overall_ok = False
+            break
+
     t_total = time.perf_counter() - t0_total
     App.closeDocument(doc.Name)
 
@@ -263,7 +269,7 @@ def run_part1_independent_forward_replay(git_commit: str, git_dirty: bool) -> Di
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "git_commit": git_commit,
             "git_dirty": git_dirty,
-            "command": "python tools/run_independent_replay_and_auto_search.py (part 1)",
+            "command": "python tools/run_independent_replay_and_auto_search.py",
             "part": "box.100out-50in-(ok).FCStd",
             "total_wall_time_s": round(t_total, 2),
             "total_occt_calls": total_occt_calls,
@@ -279,30 +285,42 @@ def run_part1_independent_forward_replay(git_commit: str, git_dirty: bool) -> Di
             "volume_tolerance_mm3": 1e-4,
         },
         "sequence": list(sequence),
-        "overall_status": "SAMPLED_3D_CLEAR_NOT_CONTINUOUS" if overall_ok else "REJECTED_OR_UNVERIFIED",
-        "all_8_operations_passed_acceptance": overall_ok,
+        "overall_status": "SAMPLED_3D_CLEAR_NOT_CONTINUOUS" if overall_ok and len(step_results) == len(sequence) else "REJECTED_OR_UNVERIFIED",
+        "all_8_operations_passed_acceptance": overall_ok and len(step_results) == len(sequence),
         "completed_steps_count": len(step_results),
         "steps": step_results,
     }
     return replay_report
 
 
-def run_part2_automatic_search(git_commit: str, git_dirty: bool) -> Dict[str, Any]:
+def run_part2_automatic_search_and_verify(
+    git_commit: str,
+    git_dirty: bool,
+    search_budget_s: float = 3600.0,
+    verify_budget_s: float = 3600.0,
+    max_states: int = 100,
+    max_checks: int = 200,
+) -> Dict[str, Any]:
     print("\n" + "=" * 70)
-    print("=== PART 2: AUTOMATIC BACKWARD SEARCH (NO SUFFIX / HINTS) ===")
+    print("=== PART 2: AUTOMATIC BACKWARD SEARCH & INDEPENDENT VERIFICATION ===")
     print("=" * 70, flush=True)
+    print(f"Configured Search Budget: {search_budget_s:.1f} s, Max States: {max_states}, Max Checks: {max_checks}")
+    print(f"Configured Verification Budget: {verify_budget_s:.1f} s")
+    print("Settings: AP1013 + AT3015, centered, match length, strict mode (allow_end_zone=False)")
+    print("Sampling: 128 arc segments, 1e-4 mm3 volume tolerance, 600.0 s per phase\n", flush=True)
 
+    # 1. Fresh session for backward DFS search
     doc, session, panel, tooling = init_session()
 
     search_cfg = AdaptiveSamplingConfig(
         early_stop_on_blocking_collision=True,
-        max_phase_time_s=60.0,
-        arc_segments=64,
+        max_phase_time_s=600.0,
+        arc_segments=128,
         volume_tolerance_mm3=1e-4,
     )
 
     t0_search = time.perf_counter()
-    print("Launching search_bend_sequence_backward_25d with fixed_suffix=None...", flush=True)
+    print("Launching search_bend_sequence_backward_25d (fixed_suffix=None)...", flush=True)
     search_res = search_bend_sequence_backward_25d(
         session=session,
         press_cycle=panel.press_cycle,
@@ -313,84 +331,169 @@ def run_part2_automatic_search(git_commit: str, git_dirty: bool) -> Dict[str, An
         allow_end_zone_collision=False,
         end_zone_length_mm=0.0,
         fixed_suffix=None,
-        max_search_time_s=300.0,
-        max_states=60,
-        max_checks=120,
+        max_search_time_s=search_budget_s,
+        max_states=max_states,
+        max_checks=max_checks,
     )
     t_search = time.perf_counter() - t0_search
     App.closeDocument(doc.Name)
 
-    print(f"Automatic search completed in {t_search:.2f} s", flush=True)
-    print(f"  Status:             {search_res.status.value}", flush=True)
-    print(f"  Overall Evidence:   {search_res.overall_evidence.value}", flush=True)
-    print(f"  Max Depth Reached:  {search_res.max_depth_reached} / {search_res.total_bends}", flush=True)
-    print(f"  States Visited:     {search_res.states_visited}", flush=True)
-    print(f"  Step Evaluations:   {search_res.step_evaluations}", flush=True)
-    print(f"  Found Sequence:     {search_res.found_sequence}", flush=True)
-    print(f"  Best Partial:       {search_res.best_partial_sequence}", flush=True)
-    print(f"  Limit Reason:       {search_res.search_limit_reason}", flush=True)
+    print(f"\nAutomatic search finished in {t_search:.2f} s (allocated budget: {search_budget_s:.1f} s)", flush=True)
+    print(f"  Search Status:          {search_res.status.value}", flush=True)
+    print(f"  Overall Evidence:       {search_res.overall_evidence.value}", flush=True)
+    print(f"  Max Depth Reached:       {search_res.max_depth_reached} / {search_res.total_bends}", flush=True)
+    print(f"  States Visited:          {search_res.states_visited}", flush=True)
+    print(f"  Step Evaluations:        {search_res.step_evaluations}", flush=True)
+    print(f"  Found Sequence:          {search_res.found_sequence}", flush=True)
+    print(f"  Best Partial Sequence:   {search_res.best_partial_sequence}", flush=True)
+    print(f"  Limit Reason:            {search_res.search_limit_reason}", flush=True)
+    print(f"  Time to 1st Candidate:   {search_res.time_to_first_full_candidate_s}", flush=True)
+    print(f"  Time to 1st Plan:        {search_res.time_to_first_verified_plan_s}", flush=True)
+
+    passed_root = search_res.max_depth_reached > 0
+    found_all_8 = search_res.found_sequence is not None and len(search_res.found_sequence) == search_res.total_bends
+
+    # 2. Independent Final Verification in a completely fresh FreeCAD session
+    independent_verification_report: Optional[Dict[str, Any]] = None
+    verification_passed = False
+
+    if found_all_8 and search_res.found_sequence is not None:
+        print("\n" + "=" * 70)
+        print("=== FINAL INDEPENDENT VERIFICATION OF FOUND SEQUENCE ===")
+        print("=" * 70, flush=True)
+        print(f"Verifying found order: {' -> '.join(search_res.found_sequence)}", flush=True)
+        independent_verification_report = run_part1_independent_forward_replay(
+            git_commit=git_commit,
+            git_dirty=git_dirty,
+            sequence=search_res.found_sequence,
+            time_limit_s=verify_budget_s,
+        )
+        verification_passed = bool(independent_verification_report.get("all_8_operations_passed_acceptance", False))
+        print(f"\nFinal independent verification result: {'PASS' if verification_passed else 'FAIL'}", flush=True)
+    else:
+        print("\nNo complete 8-bend sequence found by auto-search; skipping independent verification.", flush=True)
+
+    # Classify candidate rejections and transitions
+    classified_rejections = {}
+    for cand, reasons in search_res.rejection_summary.items():
+        cand_list = []
+        for r in reasons:
+            kind = "UNKNOWN"
+            if "COLLISION" in r:
+                kind = "COLLISION"
+            elif "UNVERIFIED" in r:
+                kind = "UNVERIFIED"
+            elif "LIMIT" in r or "BUDGET" in r:
+                kind = "BUDGET_EXHAUSTED"
+            cand_list.append({"kind": kind, "detail": r})
+        classified_rejections[cand] = cand_list
 
     auto_search_report = {
         "metadata": {
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "git_commit": git_commit,
             "git_dirty": git_dirty,
-            "command": "python tools/run_independent_replay_and_auto_search.py (part 2)",
+            "command": "python tools/run_independent_replay_and_auto_search.py --search-only",
             "part": "box.100out-50in-(ok).FCStd",
             "search_wall_time_s": round(t_search, 2),
+            "search_budget_allocated_s": search_budget_s,
+            "verification_budget_allocated_s": verify_budget_s,
         },
         "search_parameters": {
             "tooling_punch": "PUNCH_AP_1013_85°_H159,65_R0,8",
             "tooling_die": "T-DIE_AT_3015_88°_V12_H80",
-            "fixed_suffix": None,
+            "desired_midpoint_xm": 0.0,
             "match_active_bend_length": True,
             "allow_end_zone_collision": False,
             "end_zone_length_mm": 0.0,
-            "max_search_time_s": 300.0,
-            "max_states": 60,
-            "max_checks": 120,
-            "arc_segments": 64,
+            "fixed_suffix": None,
+            "max_search_time_s": search_budget_s,
+            "max_states": max_states,
+            "max_checks": max_checks,
+            "arc_segments": 128,
             "volume_tolerance_mm3": 1e-4,
+            "max_phase_time_s": 600.0,
         },
-        "search_results": {
+        "search_summary": {
+            "passed_root": passed_root,
+            "found_all_8_bends": found_all_8,
+            "verification_passed": verification_passed,
             "status": search_res.status.value,
             "overall_evidence": search_res.overall_evidence.value,
-            "found_sequence": list(search_res.found_sequence) if search_res.found_sequence else None,
-            "best_partial_sequence": list(search_res.best_partial_sequence),
             "max_depth_reached": search_res.max_depth_reached,
             "total_bends": search_res.total_bends,
+            "deepest_confirmed_suffix": list(search_res.best_partial_sequence),
+            "found_sequence": list(search_res.found_sequence) if search_res.found_sequence else None,
             "states_visited": search_res.states_visited,
             "step_evaluations": search_res.step_evaluations,
             "cache_hits": search_res.cache_hits,
             "dead_end_hits": search_res.dead_end_hits,
             "backtracks_count": search_res.backtracks_count,
+            "time_to_first_full_candidate_s": search_res.time_to_first_full_candidate_s,
+            "time_to_first_verified_plan_s": search_res.time_to_first_verified_plan_s,
             "search_limit_reason": search_res.search_limit_reason,
-            "rejection_summary": {k: list(v) for k, v in search_res.rejection_summary.items()},
-            "is_strict_pass": search_res.is_strict_pass,
             "message_ru": search_res.message_ru,
         },
+        "classified_rejections": classified_rejections,
+        "winning_steps": [s.to_dict() for s in getattr(search_res, "winning_steps", [])],
+        "independent_final_verification": independent_verification_report,
     }
     return auto_search_report
 
 
 def main():
+    parser = argparse.ArgumentParser(description="Box bend sequence runner")
+    parser.add_argument("--replay-only", action="store_true", help="Run only Part 1 (independent replay)")
+    parser.add_argument("--search-only", action="store_true", help="Run only Part 2 (auto search + verification)")
+    parser.add_argument("--search-budget", type=float, default=3600.0, help="Search budget in seconds (default: 3600.0)")
+    parser.add_argument("--verify-budget", type=float, default=3600.0, help="Verification budget in seconds (default: 3600.0)")
+    parser.add_argument("--max-states", type=int, default=100, help="Maximum search states (default: 100)")
+    parser.add_argument("--max-checks", type=int, default=200, help="Maximum step evaluations (default: 200)")
+    args = parser.parse_args()
+
     git_commit, git_dirty, _ = get_git_info()
     out_dir = ROOT / "reports"
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    # 1. Independent Forward Replay
-    replay_report = run_part1_independent_forward_replay(git_commit, git_dirty)
-    replay_path = out_dir / "box_independent_forward_replay_report.json"
-    with open(replay_path, "w", encoding="utf-8") as f:
-        json.dump(replay_report, f, indent=2, ensure_ascii=False)
-    print(f"\n[OK] Independent forward replay report saved to {replay_path}")
+    if args.replay_only:
+        replay_report = run_part1_independent_forward_replay(git_commit, git_dirty, time_limit_s=args.verify_budget)
+        replay_path = out_dir / "box_independent_forward_replay_report.json"
+        with open(replay_path, "w", encoding="utf-8") as f:
+            json.dump(replay_report, f, indent=2, ensure_ascii=False)
+        print(f"\n[OK] Independent forward replay report saved to {replay_path}")
+    elif args.search_only:
+        auto_report = run_part2_automatic_search_and_verify(
+            git_commit=git_commit,
+            git_dirty=git_dirty,
+            search_budget_s=args.search_budget,
+            verify_budget_s=args.verify_budget,
+            max_states=args.max_states,
+            max_checks=args.max_checks,
+        )
+        auto_path = out_dir / "box_automatic_search_qualification_report.json"
+        with open(auto_path, "w", encoding="utf-8") as f:
+            json.dump(auto_report, f, indent=2, ensure_ascii=False)
+        print(f"\n[OK] Automatic search qualification report saved to {auto_path}")
+    else:
+        # Default: run both
+        replay_report = run_part1_independent_forward_replay(git_commit, git_dirty, time_limit_s=args.verify_budget)
+        replay_path = out_dir / "box_independent_forward_replay_report.json"
+        with open(replay_path, "w", encoding="utf-8") as f:
+            json.dump(replay_report, f, indent=2, ensure_ascii=False)
+        print(f"\n[OK] Independent forward replay report saved to {replay_path}")
 
-    # 2. Automatic Search Evaluation
-    auto_search_report = run_part2_automatic_search(git_commit, git_dirty)
-    auto_search_path = out_dir / "box_automatic_search_report.json"
-    with open(auto_search_path, "w", encoding="utf-8") as f:
-        json.dump(auto_search_report, f, indent=2, ensure_ascii=False)
-    print(f"\n[OK] Automatic search report saved to {auto_search_path}")
+        auto_report = run_part2_automatic_search_and_verify(
+            git_commit=git_commit,
+            git_dirty=git_dirty,
+            search_budget_s=args.search_budget,
+            verify_budget_s=args.verify_budget,
+            max_states=args.max_states,
+            max_checks=args.max_checks,
+        )
+        auto_path = out_dir / "box_automatic_search_qualification_report.json"
+        with open(auto_path, "w", encoding="utf-8") as f:
+            json.dump(auto_report, f, indent=2, ensure_ascii=False)
+        print(f"\n[OK] Automatic search qualification report saved to {auto_path}")
 
 
 if __name__ == "__main__":
