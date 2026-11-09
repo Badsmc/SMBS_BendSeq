@@ -55,6 +55,7 @@ class PreliminaryScreeningReport:
     backgauge_checked: bool = False
     timing_ms: Tuple[Tuple[str, float], ...] = ()
     diagnostic_findings: Tuple[Tuple[str, str, str, str, str], ...] = ()
+    touch_summary: Tuple[Tuple[str, str, str, str, int], ...] = ()
 
     @property
     def is_blocking(self) -> bool:
@@ -74,6 +75,10 @@ class PreliminaryScreeningReport:
             "diagnostic_findings": [
                 {"phase": p, "tool": t, "component": c, "status": s, "reason": r}
                 for p, t, c, s, r in self.diagnostic_findings
+            ],
+            "touch_summary": [
+                {"phase": p, "tool": t, "component": c, "reason": r, "count": n}
+                for p, t, c, r, n in self.touch_summary
             ],
         }
 
@@ -257,6 +262,10 @@ def screen_candidate_stage_b(
         station_reports: List[Dict[str, Any]] = []
         contact_statuses: List[str] = []
         diagnostic_findings: List[Tuple[str, str, str, str, str]] = []
+        touch_counts: Dict[Tuple[str, str, str, str], int] = {}
+
+        def _touch_summary() -> Tuple[Tuple[str, str, str, str, int], ...]:
+            return tuple((*key, count) for key, count in sorted(touch_counts.items()))
         timing_ms: Dict[str, float] = {
             'pose_and_section': 0.0, 'tooling_and_contact': 0.0,
             'total_probe': 0.0,
@@ -312,6 +321,7 @@ def screen_candidate_stage_b(
                     backgauge_checked=backgauge_polygon_machine is not None,
                     timing_ms=tuple(timing_ms.items()),
                     diagnostic_findings=tuple(diagnostic_findings),
+                    touch_summary=_touch_summary(),
                 )
             sample_start = perf_counter()
             sampled_phases.append(phase)
@@ -347,6 +357,10 @@ def screen_candidate_stage_b(
                 # Retain a bounded, useful reason for the actual UNVERIFIED
                 # geometry instead of only the aggregate phase status.
                 for finding in sec_report.findings:
+                    if finding.status is ContactStatus.TOUCH:
+                        key = (phase, finding.tool, finding.sheet_component,
+                               finding.reason)
+                        touch_counts[key] = touch_counts.get(key, 0) + 1
                     if (finding.status is ContactStatus.UNVERIFIED
                             and len(diagnostic_findings) < 32):
                         diagnostic_findings.append((
@@ -446,6 +460,7 @@ def screen_candidate_stage_b(
                         backgauge_checked=backgauge_polygon_machine is not None,
                         timing_ms=tuple(timing_ms.items()),
                         diagnostic_findings=tuple(diagnostic_findings),
+                        touch_summary=_touch_summary(),
                     )
             except Exception as exc:
                 # Never prune on section computation failure; forward to exact 3D check
@@ -460,6 +475,7 @@ def screen_candidate_stage_b(
                     backgauge_checked=backgauge_polygon_machine is not None,
                     timing_ms=tuple(timing_ms.items()),
                     diagnostic_findings=tuple(diagnostic_findings),
+                    touch_summary=_touch_summary(),
                 )
 
         return PreliminaryScreeningReport(
@@ -475,6 +491,7 @@ def screen_candidate_stage_b(
             backgauge_checked=backgauge_polygon_machine is not None,
             timing_ms=tuple(timing_ms.items()),
             diagnostic_findings=tuple(diagnostic_findings),
+            touch_summary=_touch_summary(),
         )
 
     finally:
