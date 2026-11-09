@@ -578,6 +578,9 @@ class _PreviewPanel:
                 self._last_valid_machine_pose = None
                 self._last_valid_machine_bend = None
                 self._machine_pose_fault = None
+                # Qt scene items are owned by QGraphicsScene. Never re-enter
+                # draw() while it is clearing/recreating those C++ objects.
+                self._draw_in_progress = False
                 self.motion_trace = None
                 self._trace_frame_dt = None
                 self._trace_directory = _LOG_FILE_PATH.parent / "pressbrake_traces"
@@ -2490,6 +2493,11 @@ class _PreviewPanel:
                 )
 
             def draw(self):
+                # A nested redraw would scene.clear() items whose Python
+                # wrappers are still in use by the outer renderer.
+                if self._draw_in_progress:
+                    return
+                self._draw_in_progress = True
                 try:
                     t_draw_start = time.perf_counter()
                     self.scene.clear()
@@ -2782,5 +2790,7 @@ class _PreviewPanel:
                 except Exception:
                     _error(traceback.format_exc())
                     raise
+                finally:
+                    self._draw_in_progress = False
 
         return Panel()
