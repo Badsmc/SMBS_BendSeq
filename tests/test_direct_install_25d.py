@@ -14,11 +14,20 @@ class DirectInstallTests(unittest.TestCase):
             with self.subTest(path=name):
                 self.assertTrue((root / name).is_file(), name)
 
-    def test_only_two_active_commands(self):
+    def test_four_toolbar_commands_and_disabled_calculation(self):
         from freecad_smbs.InitGui import COMMANDS_MAP
-        self.assertEqual(set(COMMANDS_MAP), {"SMBS_PressBrake2D", "SMBS_Tooling"})
+        self.assertEqual(set(COMMANDS_MAP), {
+            "SMBS_PressBrake2D", "SMBS_LoadPart",
+            "SMBS_ToolingTab", "SMBS_Calculate",
+        })
         for cls in COMMANDS_MAP.values():
             self.assertTrue(callable(cls))
+        self.assertFalse(COMMANDS_MAP['SMBS_Calculate']().IsActive())
+        root = Path(__file__).resolve().parents[1]
+        for cls in COMMANDS_MAP.values():
+            icon = cls().GetResources()['Pixmap']
+            self.assertTrue(Path(icon).is_file(), icon)
+            self.assertTrue(Path(icon).is_relative_to(root))
 
     def test_tooling_assets_are_repository_relative(self):
         from freecad_smbs.resources.tooling_paths import (
