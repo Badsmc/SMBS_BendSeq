@@ -85,13 +85,20 @@ def _distance_segment(point, a, b) -> float:
 
 def _point_ring(point, ring, tol):
     """Return inside=1, boundary=0, outside=-1 (winding-independent)."""
-    if any(_distance_segment(point, a, b) <= tol for a, b in _segments(ring)):
-        return 0
     x, y = point
     inside = False
+    # Combined boundary/winding scan. The original ran all edges twice and
+    # projected the query onto even remote edges. A segment cannot be within
+    # tolerance when its AABB is farther than tolerance.
     for a, b in _segments(ring):
-        if (a[1] > y) != (b[1] > y):
-            xi = a[0]+(y-a[1])*(b[0]-a[0])/(b[1]-a[1])
+        ax, ay = a
+        bx, by = b
+        if (min(ax, bx) - tol <= x <= max(ax, bx) + tol
+                and min(ay, by) - tol <= y <= max(ay, by) + tol
+                and _distance_segment(point, a, b) <= tol):
+            return 0
+        if (ay > y) != (by > y):
+            xi = ax + (y-ay)*(bx-ax)/(by-ay)
             if xi > x:
                 inside = not inside
     return 1 if inside else -1
@@ -240,7 +247,13 @@ def classify_polygon_contact(
             return ContactStatus.INTERFERENCE,"sheet_in_tool_material"
         if result == 0:
             near = True
+    # Tool boundary samples outside the sheet bounding rectangle cannot
+    # prove tool-in-sheet or boundary coincidence. The early exclusion is
+    # geometric, not a relaxed collision tolerance.
     for p in _edge_samples(b):
+        if (p[0] < sheet_bounds[0]-tol or p[0] > sheet_bounds[2]+tol
+                or p[1] < sheet_bounds[1]-tol or p[1] > sheet_bounds[3]+tol):
+            continue
         result = _point_ring(p,a,tol)
         if result == 1 and _in_material(p,b,holes,tol) >= 0:
             return ContactStatus.INTERFERENCE,"tool_in_sheet_material"
