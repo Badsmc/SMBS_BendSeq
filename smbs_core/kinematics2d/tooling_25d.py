@@ -2394,6 +2394,8 @@ class ToolingSetup2D:
         active_bend_length_mm: Optional[float] = None,
     ) -> None:
         """Enable or disable development virtual tool length mode (`tool_length == active_bend_length`)."""
+        if enabled and (self.punch_section_offsets_xm or self.die_section_offsets_xm):
+            raise ValueError("physical multi-sections are incompatible with virtual tool length")
         self.match_active_bend_length = bool(enabled)
         if active_bend_length_mm is not None:
             val = float(active_bend_length_mm)
