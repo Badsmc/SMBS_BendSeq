@@ -144,3 +144,39 @@ Before treating this optimization as accepted, compare at **identical** settings
 2. Check per-phase status, `unresolved_intervals`, every collision class, distances/volumes within tolerance, bend pose, and zero failures; measure total wall, `phase_solid_reconstruction_ms`, measured common/distance calls. Both must remain `SAMPLED_3D_CLEAR_NOT_CONTINUOUS` without unresolved intervals, or investigate.
 3. Repeat with **real full-length verified** AP1017 + AT3015 tool solids separately; virtual-length result is not physical production qualification.
 4. Treat changes in outcome or loss of shape validity as regression, not performance improvement. Do not claim a speedup without actual paired runs.
+
+
+## Native sheet-construction fine-grained profiling (ninth increment)
+
+Windows FreeCAD 1.1.3 B01, with adaptive phase time 90s, recursion 6, max 48 sampled states: before source-prism cache, 56.45s total wall, 41.47s BENDING; after the cache change, 57.93s total wall, 41.07s BENDING, 32 full sheet reconstructions and 13.27s total BENDING build time. Both returned SAMPLED_3D_CLEAR_NOT_CONTINUOUS without unresolved intervals. This **does not demonstrate a speedup**. An earlier 24-reconstruction run was time-limited and is not equivalent.
+
+Added `native_geometry_build_metrics.py` with explicit opt-in `count_native_geometry_builds()` context manager. It measures these disjoint regions inside the existing full-sheet construction code:
+
+- `panel_extrude`: creation of original, untransformed source-panel prisms; on a valid source cache hit no extrusion occurs.
+- `panel_transform`: rigid transformation of an independent copy of a source panel prism.
+- `bend_zone_build`: entire per-bend zone generation and validation, including the underlying zone extrusion.
+- `sheet_union`: OCC `multiFuse` / `fuse` on assembled panel and zone solids.
+- `sheet_qualification`: validity, closed/single-solid and volume-integrity checks.
+
+Each region includes wall time, invocation count, and failures. Times do not encompass all geometric work or all OCCT kernel operations. Instrumentation preserves original geometry calculations, exception paths, tolerance values and evidence. It is disabled unless the context manager is used.
+
+Run from a freshly restarted FreeCAD Python console, with the experimental branch updated:
+
+```python
+from smbs_core.kinematics2d.native_geometry_build_metrics import count_native_geometry_builds
+from smbs_core.kinematics2d.native_kernel_metrics import count_native_kernel_calls
+with count_native_geometry_builds() as geometry_metrics:
+    with count_native_kernel_calls() as kernel_metrics:
+        report, cache, wall, bends = run_single_search_in_clean_session(
+            direction="FORWARD", fixture_name="Z-(ok).FCStd",
+            punch_name="PUNCH_AP_1017_88°_H104,65_R0,8",
+            die_name="T-DIE_AT_3015_88°_V12_H80",
+            sampling_cfg=cfg4,
+            weights=OperationWeights(flip=20.0, turn_per_90_deg=10.0, shift_fixed=5.0),
+            max_search_time_s=180.0, max_states=2, max_checks=1,
+        )
+print(geometry_metrics.to_dict())
+print(kernel_metrics.to_dict())
+```
+
+The 5-case headless test `tests.test_native_geometry_build_metrics` validates label counting, nested isolation and exception propagation. It is not a substitute for FreeCAD-native B01 geometric/physical equivalence tests. Next step: quantify whether sheet union or zones dominate, and A/B-test any change that modifies OCC construction methods.
