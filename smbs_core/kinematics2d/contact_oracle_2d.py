@@ -12,6 +12,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 from math import hypot, isfinite
+from time import perf_counter
 from typing import Iterable, Sequence
 
 Point = tuple[float, float]
@@ -307,7 +308,7 @@ def check_machine_section(
     return ContactReport(worst,tuple(findings),float(tolerance_mm))
 
 
-def check_sheet_tooling_preview(section, tooling, tolerance_mm: float = 0.02) -> ContactReport:
+def check_sheet_tooling_preview(section, tooling, tolerance_mm: float = 0.02, *, timing_collector=None) -> ContactReport:
     """Read-only adapter of current machine-space FoldState section and tooling.
 
     The section MUST already have a valid machine placement from Phase 5B.
@@ -332,9 +333,20 @@ def check_sheet_tooling_preview(section, tooling, tolerance_mm: float = 0.02) ->
     for key in ("other_panel_polygons","other_zone_polygons"):
         for name,poly in section.get(key,()):
             polygons.append((str(name),poly))
-    return check_machine_section(
-        polygons,
-        tooling.punch_polygons_machine(arc_segments=24),
-        tooling.die_polygons_machine(arc_segments=24),
-        tolerance_mm,
-    )
+    prep_start = perf_counter() if timing_collector is not None else 0.0
+    punch = tooling.punch_polygons_machine(arc_segments=24)
+    die = tooling.die_polygons_machine(arc_segments=24)
+    if timing_collector is not None:
+        prep_end = perf_counter()
+        timing_collector["tool_polygon_build"] = (
+            timing_collector.get("tool_polygon_build", 0.0)
+            + 1000.0 * (prep_end - prep_start)
+        )
+    contact_start = perf_counter() if timing_collector is not None else 0.0
+    report = check_machine_section(polygons, punch, die, tolerance_mm)
+    if timing_collector is not None:
+        timing_collector["polygon_contact"] = (
+            timing_collector.get("polygon_contact", 0.0)
+            + 1000.0 * (perf_counter() - contact_start)
+        )
+    return report
