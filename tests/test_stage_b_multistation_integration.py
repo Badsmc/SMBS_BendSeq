@@ -92,6 +92,41 @@ class StageBIntegrationTests(unittest.TestCase):
         self.assertEqual(fold.transforms, original_transforms)
         self.assertFalse(tool.aligned)
 
+    def test_touch_evidence_aggregates_sources_per_phase(self):
+        from smbs_core.kinematics2d.contact_oracle_2d import ContactFinding
+        fold, tool = DummyFold(), DummyTooling()
+        patches = list(self.make_patches())
+        patches[3] = patch(
+            "smbs_core.kinematics2d.preliminary_screening.check_sheet_tooling_preview",
+            return_value=ContactReport(
+                ContactStatus.TOUCH,
+                (
+                    ContactFinding("PUNCH", "active_bend_zone",
+                                   ContactStatus.TOUCH, "boundaries_within_tolerance"),
+                    ContactFinding("DIE", "active_fixed",
+                                   ContactStatus.CLEAR, "separated_bounding_boxes"),
+                ),
+                0.02,
+            ),
+        )
+        for p in patches:
+            p.__enter__()
+        try:
+            result = screen_candidate_stage_b(
+                fold, "B", tool, {"P": [(0,0), (1,0), (1,1)]},
+                fractions=(0.0, 0.5, 1.0),
+                stroke_fractions=(0.0, 1.0),
+            )
+            summary = result.to_dict()["touch_summary"]
+            self.assertEqual(
+                {v["phase"]: v["count"] for v in summary},
+                {"APPROACH": 2, "BENDING": 3, "BOTTOM": 1, "RETRACT": 2},
+            )
+            self.assertTrue(all(v["tool"] == "PUNCH" for v in summary))
+        finally:
+            for p in reversed(patches):
+                p.__exit__(None, None, None)
+
     def test_interference_still_requires_3d(self):
         fold, tool = DummyFold(), DummyTooling()
         patches = self.make_patches("2D_INTERFERENCE_REQUIRES_3D")
