@@ -220,3 +220,14 @@ for item in evidence: print(item)
 ```
 
 Do not activate the production `Расчёт` UI button or report a valid sequence until the complete 2D setup/stroke/retract contract is implemented. The contact screen's `BLOCKED` evidence covers only the checked central 2D machine section, not every longitudinal section or external hardware.
+
+
+## P3 native 2D-bridge regression fix (2026-11-09)
+
+User ran the nine `tests.test_axis_grouped_search` in Windows FreeCAD: 7 passed, 2 failed. Both new mocked bridge tests returned `UNKNOWN` because a mocked pose was the plain Python `object()`, yielding `unsupported_setup: 'object' object has no attribute 'apply'`. The test replaced the module's `compute_machine_cutting_plane_section`, but the bridge factory had captured its original function reference before the patch. This is a **test injection/late-binding problem**, not evidence of a physical sheet interference calculation failure.
+
+Fixed in `contact_oracle_2d.py`: resolve `compute_machine_cutting_plane_section` and `WorkpiecePlacement3D` inside `evaluate_step` after input checks, so the two existing regression patches now select the intended test double. The runtime still invokes the same underlying section adapter and same contact oracle; this patch does not promote any `UNKNOWN` to `CLEAR`.
+
+Separate FreeCAD console error: the user's `if punch is not None:` block was followed by another `if` at an incomplete console indentation boundary, causing `SyntaxError`. Rerun selections as simple single-line statements or complete each interactive block with a blank line.
+
+The library's first verified die selection in the native session was `DIE_AM_2089_60°_V80 _H115` (80-mm V opening), which is **not** necessarily the selected 12-mm V die previously used for the Z-part. Never silently auto-select the first catalog entry as the intended real tooling. Require exact identification before interpreting geometry results. The fix and nine-test native acceptance are pending re-run.
