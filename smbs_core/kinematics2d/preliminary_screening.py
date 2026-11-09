@@ -265,8 +265,8 @@ def screen_candidate_stage_b(
                 for f in st
             ]
         for f in sorted(set(fractions)):
-            probes.append(("BENDING", f, coupled.ram_z_for_angle(f * target_deg), True))
-        bottom_ram = coupled.ram_z_for_angle(target_deg)
+            probes.append(("BENDING", f, coupled.ram_z_for_angle(abs(f * target_deg)), True))
+        bottom_ram = coupled.ram_z_for_angle(abs(target_deg))
         probes.append(("BOTTOM", 1.0, bottom_ram, True))
         if stroke_fractions is None:
             probes.append(("RETRACT", 1.0, coupled.contact_z_mm + clearance_mm, True))
@@ -372,7 +372,8 @@ def screen_candidate_stage_b(
             decision=ScreeningDecision.CONTINUE_TO_3D,
             stage="STAGE_B_PREVIEW",
             reason=("sampled_2d_section_unverified" if "UNVERIFIED" in contact_statuses
-                    else "all_sampled_2d_sections_clear_or_touch"),
+                    else "all_sampled_2d_sections_clear_or_touch"
+                    if "TOUCH" in contact_statuses else "all_sampled_2d_sections_clear"),
             sampled_phases=tuple(sampled_phases),
             findings_count=total_findings,
             station_reports=tuple(station_reports),
