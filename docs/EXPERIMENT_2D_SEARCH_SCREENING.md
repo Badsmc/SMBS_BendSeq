@@ -425,3 +425,31 @@ for seq,label in ((("B01","B02"),"forward"), (("B02","B01"),"reverse")):
 ```
 
 Regression additions: `tests.test_folded_part_cycle` covers lift-clearance against a low die obstacle and ceiling interference with a punch. These changes are experimental and not yet verified by user's FreeCAD tests or CI.
+
+
+## Automatic sampled retract/lift/withdrawal path search
+
+The user-provided Z-10-20-10 reports showed: both bend orders have a clear 20-sample punch RETRACT after BOTTOM TOUCH; direct lateral translations penetrate the DIE near +/-5 and +/-10 mm; adding a fixed 20-mm LIFT removes die contact but at many horizontal offsets penetrates the parked PUNCH. Neither single arbitrary path is adequate as a physical verdict.
+
+`search_sampled_withdrawal_paths()` in `tools/run_folded_part_cycle.py` now **optionally** enumerates a bounded grid of parked punch clearances (default 20, 35, 50 mm), vertical lifts (2, 5, 8, 12, 16, 20 mm), and both +/-s lateral directions for every completed actual FoldState bend. Each punch height is checked via BOTTOM -> RETRACT samples first; candidates with INTERFERENCE, UNVERIFIED or non-bottom TOUCH are disallowed. Each lift and lateral leg uses the actual formed section and full real-profile punch/die polygons. A candidate requires only CLEAR samples along both legs; TOUCH is not silently promoted to CLEAR. Candidates are ranked deterministically by smallest lift, then smallest punch clearance, then direction. All tested candidates retain the first problematic phase, tool and section component in JSON. If no sampled path appears, status is `UNVERIFIED_NO_SAMPLED_PATH`; on per-step time budget exhaustion without candidates it is `UNVERIFIED_SEARCH_LIMIT_REACHED`. No claim of physical impossibility or 3D certification is made.
+
+The new search is **opt-in** with `search_paths=True`; existing baselines are not made more expensive by default. User acceptance script for the two orders (run after updating branch and restarting FreeCAD):
+
+```python
+import FreeCAD as App
+from pathlib import Path
+from tools.run_folded_part_cycle import run_folded_part_cycle, print_folded_part_cycle
+for sequence, label in ((("B01", "B02"), "forward"), (("B02", "B01"), "reverse")):
+    path = Path(App.getUserAppDataDir()) / ("z_path_search_" + label + ".json")
+    report = run_folded_part_cycle(
+        App.ActiveDocument, sequence=sequence,
+        search_paths=True, path_search_time_s=60.0,
+        parked_clearances_mm=(20.0, 35.0, 50.0),
+        lift_heights_mm=(2.0, 5.0, 8.0, 12.0, 16.0, 20.0),
+        retract_samples=21, lift_samples=21, withdrawal_samples=21,
+        distance_mm=100.0, output_path=str(path))
+    print_folded_part_cycle(report)
+    print(path)
+```
+
+Regression tests: `python -m unittest tests.test_folded_part_cycle -v`. The search is deliberately **finite sampled 2D feasibility screening**. It does not search continuous paths, rotate/flip the workpiece between bends, account for supports, end faces, frame, clamps or backgauge, or demonstrate reachability by a real operator.
