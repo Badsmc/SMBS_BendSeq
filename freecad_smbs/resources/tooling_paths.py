@@ -17,9 +17,9 @@ PUNCH_PATH: Path = TOOL_LIBRARY_ROOT / "punch" / "puancon.FCStd"
 DIE_PATH: Path = TOOL_LIBRARY_ROOT / "die" / "matrica.FCStd"
 PRESS_PATH: Path = TOOL_LIBRARY_ROOT / "presses" / "cncbender.FCStd"
 
-# Missing tooling paths (per β1 — expected path conventions, missing until client provides)
-BACKGAUGE_PATH: Path = TOOL_LIBRARY_ROOT / "backgauge" / "backgauge.FCStd"
-CLAMPS_PATH: Path = TOOL_LIBRARY_ROOT / "clamps" / "clamps.FCStd"
+# Paths to the tracked machine components (case-sensitive on Linux).
+BACKGAUGE_PATH: Path = TOOL_LIBRARY_ROOT / "Backgauge" / "Backgauge.FCStd"
+CLAMPS_PATH: Path = TOOL_LIBRARY_ROOT / "Clamp" / "Clamp.FCStd"
 MACHINE_FRAME_PATH: Path = TOOL_LIBRARY_ROOT / "machine_frame" / "machine_frame.FCStd"
 
 # Canonical mapping of all tooling entities
@@ -32,12 +32,7 @@ ALL_TOOLING_PATHS: Dict[str, Path] = {
     "machine_frame": MACHINE_FRAME_PATH,
 }
 
-# Registry of missing tools per β1.
-# NOTE: computed from canonical Path.exists() at import time. OS-dependent for
-# paths with case/naming variants (e.g. Backgauge/ vs backgauge/, Clamp/ vs
-# clamps/). For accurate presence checks use resolve_backgauge_fcstd(),
-# resolve_clamp_fcstd(), and resolve_machine_frame_fcstd().
-MISSING_TOOLS: List[str] = [
+# Availability reflects actual tracked case-sensitive paths in toollibrary/.\nMISSING_TOOLS: List[str] = [
     name for name, path in ALL_TOOLING_PATHS.items() if not path.exists()
 ]
 
