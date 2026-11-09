@@ -194,8 +194,20 @@ def classify_polygon_contact(
     for ring in (b, *holes):
         if _bbox_disjoint(_bbox(a),_bbox(ring),tol):
             continue
-        for pa,pb in _segments(a):
-            for qa,qb in _segments(ring):
+        # Broad-phase per edge. AABB separation is a necessary condition
+        # for either a proper crossing or a distance <= tolerance. Skip
+        # expensive exact geometry only when these cannot occur.
+        tool_edges = tuple(
+            (qa, qb, (min(qa[0], qb[0]), min(qa[1], qb[1]),
+                      max(qa[0], qb[0]), max(qa[1], qb[1])))
+            for qa, qb in _segments(ring)
+        )
+        for pa, pb in _segments(a):
+            pbox = (min(pa[0], pb[0]), min(pa[1], pb[1]),
+                    max(pa[0], pb[0]), max(pa[1], pb[1]))
+            for qa, qb, qbox in tool_edges:
+                if _bbox_disjoint(pbox, qbox, tol):
+                    continue
                 if _proper_cross(pa,pb,qa,qb,tol):
                     return ContactStatus.INTERFERENCE,"proper_material_boundary_crossing"
                 if _segments_near(pa,pb,qa,qb,tol):
@@ -207,7 +219,13 @@ def classify_polygon_contact(
     for p in _interior_edge_samples(a,tol):
         if _in_material(p,b,holes,tol)==1:
             return ContactStatus.INTERFERENCE,"sheet_in_tool_material"
+    sheet_bounds = _bbox(a)
     for p in _interior_edge_samples(b,tol):
+        # A witness outside the sheet bounding box cannot lie in its
+        # interior. Preserve the same exact containment predicates inside.
+        if (p[0] < sheet_bounds[0] or p[0] > sheet_bounds[2]
+                or p[1] < sheet_bounds[1] or p[1] > sheet_bounds[3]):
+            continue
         if _point_ring(p,a,tol)==1 and _in_material(p,b,holes,tol)==1:
             return ContactStatus.INTERFERENCE,"tool_in_sheet_material"
 
