@@ -422,6 +422,148 @@ class BendSequenceController:
         )
 
 
+@dataclass(frozen=True)
+class AxisGroupedSearchResult:
+    """One-axis-first order search. No physical proof without a real oracle."""
+    status: str
+    order: tuple[str, ...]
+    axis_groups: tuple[tuple[str, ...], ...]
+    evaluated_steps: int
+    reason: str
+
+
+def search_axis_grouped_order(
+    fold_state: FoldState,
+    evaluate_step,
+    *,
+    max_evaluations: int = 2000,
+    axis_parallel_tolerance: float = 1e-6,
+) -> AxisGroupedSearchResult:
+    """Bounded two-axis-first DFS using an explicit physical step oracle.
+
+    Searches permutations within one parallel-axis group, then permutations
+    within the next group. Includes BOTH group orders in the search. Each
+    candidate is evaluated with prior bends already folded. No canonical
+    animation order is accepted without oracle evidence.
+
+    evaluate_step(completed_prefix, next_bend_id, fold_state) must return:
+      "CLEAR"        supported 2D physical checks passed for this transition
+      "BLOCKED"      supported 2D checks established a collision/invalid step
+      "UNKNOWN"      geometry, tooling, or stroke not sufficiently qualified
+    The callback must not mutate FoldState; any mutations are restored
+    between attempts regardless of result. UNKNOWN is never promoted to CLEAR.
+    """
+    from math import sqrt
+    from itertools import permutations
+
+    if not isinstance(fold_state, FoldState):
+        raise SequenceError("A real FoldState is required")
+    if not callable(evaluate_step):
+        raise SequenceError("Physical step oracle is required")
+    if not isinstance(max_evaluations, int) or not 1 <= max_evaluations <= 100000:
+        raise SequenceError("Invalid evaluation bound")
+    if not isfinite(axis_parallel_tolerance) or not 0 < axis_parallel_tolerance < 0.1:
+        raise SequenceError("Invalid parallel-axis tolerance")
+
+    bends = tuple(fold_state.ordered_bends)
+    directions = {}
+    for bend in bends:
+        a, b = bend.axis_xyz
+        d = tuple(float(b[i]) - float(a[i]) for i in range(3))
+        length = sqrt(sum(x*x for x in d))
+        if not isfinite(length) or length < 1e-9:
+            return AxisGroupedSearchResult(
+                "UNSUPPORTED_GEOMETRY", (), (), 0, "degenerate_bend_axis"
+            )
+        directions[bend.bend_id] = tuple(x / length for x in d)
+
+    groups = []
+    for bend in bends:
+        direction = directions[bend.bend_id]
+        for group in groups:
+            base = directions[group[0]]
+            dot = abs(sum(x*y for x, y in zip(direction, base)))
+            if 1.0 - dot <= axis_parallel_tolerance:
+                group.append(bend.bend_id)
+                break
+        else:
+            groups.append([bend.bend_id])
+    canonical_groups = tuple(tuple(group) for group in groups)
+    if len(groups) > 2:
+        return AxisGroupedSearchResult(
+            "UNSUPPORTED_GEOMETRY", (), canonical_groups, 0,
+            "more_than_two_axis_families"
+        )
+
+    # Search deterministic group order, but allow either axis to be first.
+    group_orders = (tuple(groups),)
+    if len(groups) == 2:
+        group_orders += ((groups[1], groups[0]),)
+    evaluated = 0
+    saw_unknown = False
+    limited = False
+    original_angles = dict(fold_state.angles)
+    original_transforms = dict(fold_state.transforms)
+    try:
+        for group_order in group_orders:
+            # The DFS replays each prefix from flat, never evaluating the
+            # next bend on a partially stale or wrong physical state.
+            def dfs(group_index, completed):
+                nonlocal evaluated, saw_unknown, limited
+                if group_index == len(group_order):
+                    return completed
+                group = group_order[group_index]
+                for candidate_group_order in permutations(group):
+                    prefix = completed
+                    possible = True
+                    for bend_id in candidate_group_order:
+                        if evaluated >= max_evaluations:
+                            limited = True
+                            return None
+                        fold_state.reset_all()
+                        for already in prefix:
+                            fold_state.set_angle(
+                                already, fold_state.bends[already].angle_deg
+                            )
+                        evaluated += 1
+                        assessment = evaluate_step(prefix, bend_id, fold_state)
+                        if assessment not in ("CLEAR", "BLOCKED", "UNKNOWN"):
+                            raise SequenceError(
+                                "Oracle must return CLEAR, BLOCKED or UNKNOWN"
+                            )
+                        if assessment != "CLEAR":
+                            saw_unknown |= assessment == "UNKNOWN"
+                            possible = False
+                            break
+                        prefix += (bend_id,)
+                    if possible:
+                        result = dfs(group_index + 1, prefix)
+                        if result is not None:
+                            return result
+                        if limited:
+                            return None
+                return None
+
+            solution = dfs(0, ())
+            if solution is not None:
+                return AxisGroupedSearchResult(
+                    "FOUND_2D_ORACLE", solution, canonical_groups,
+                    evaluated, "all_steps_cleared_by_supplied_2d_oracle"
+                )
+            if limited:
+                break
+    finally:
+        fold_state.angles = original_angles
+        fold_state.transforms = original_transforms
+    if limited:
+        status, reason = "UNKNOWN_LIMIT_REACHED", "evaluation_limit"
+    elif saw_unknown:
+        status, reason = "UNKNOWN_UNVERIFIED", "oracle_returned_unknown"
+    else:
+        status, reason = "NO_VALID_AXIS_GROUPED_ORDER", "all_grouped_orders_blocked"
+    return AxisGroupedSearchResult(status, (), canonical_groups, evaluated, reason)
+
+
 class FoldSequenceController:
     def __init__(self, graph, fixed_panel, order=None):
         self.graph = graph
