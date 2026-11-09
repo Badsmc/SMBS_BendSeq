@@ -583,3 +583,28 @@ The benchmark identities now include SHA-256 of the model and both selected CAD 
 The benchmark also runs scoped `count_station_screenings`. This records per-phase multi-station previews, actual evaluated 2D sections, unverified stations and 2D interference reports; mere enabled flags do not count as execution. JSON `screening_evidence.status` is `NO_VERIFIED_2D_STATION_EVALUATION` if no station could be evaluated. Distinct from `Stage B evaluated`, a count of candidate previews.
 
 **Limits:** actual physical results still require a FreeCAD runtime and local execution. The above establishes source spans and observation of sampling, NOT physical certification of the full 3D path or automatic proof of a speedup. New tests are synthetic regression contracts; CI execution is not assumed.
+
+
+## Two physical 100mm sections for a 200mm Z bend (experimental)
+
+The `Z-(ok).FCStd` physical baseline with AP1017 + AT3015 failed at `INSUFFICIENT_TOOL_COVERAGE`: 200mm bends, one 100mm fixed CAD punch and die. This is a valid guard and must NOT be removed or bypassed with virtual extrusion.
+
+The shared `ToolingSetup2D` now carries optional `punch_section_offsets_xm` and `die_section_offsets_xm`, set via `set_native_sections(...)`. `check_current_25d_pose` and `check_active_25d_bend_trajectory` use the **existing** `load_native_punch` / `load_native_die` `section_offsets_xm` parameter with the same configuration. This also applies to backward search and independent forward replay because those paths use the same physical validator. Step/dead-end cache identities incorporate the section offsets.
+
+The benchmark's `verified_fixed_tool_spans` validates real post-transform CAD `machine_shape.BoundBox`, section count, requested offsets, overlaps and gaps. It does not accept nominal 200mm as evidence. The virtual-bend-length option is prohibited for physical section assemblies. A successful 200mm span establishes geometrical coverage only; it does NOT qualify physical clamping, machine force limits, adapter alignment or continuous trajectory collision freedom.
+
+**macOS command after checking out latest `experiment/2d-search-screening`**:
+
+```bash
+cd "$HOME/Library/Application Support/FreeCAD/v1-1/Mod/SMBS_BendSeq_Experiment"
+export PYTHONPATH="$PWD:$HOME/Library/Application Support/FreeCAD/v1-1/Mod:/Applications/FreeCAD.app/Contents/Resources/lib"
+"/Applications/FreeCAD.app/Contents/Resources/bin/python" tools/benchmark_2d_vs_baseline.py \
+  --fixture "Z-(ok).FCStd" --direction FORWARD \
+  --sections-xm=-50,50 --arc-segments 32 \
+  --phase-time 20 --search-time 40 --max-states 20 --max-checks 50 \
+  --output reports/comparison_z_two_sections.json
+```
+
+In this example each *real* library tool has source length 100mm and is installed twice at machine-X centers -50mm and +50mm. Both baseline and screened runs use the exact same assembly. Read `kernel_snapshots.*.verified_tool_spans`, `kernel_snapshots.*.step_diagnostics`, `kernel_snapshots.*.search_report`, `screening_evidence` and `savings`. Low search limits are for diagnosis, not for production qualification.
+
+The next required test is a local **native FreeCAD/OCCT run** verifying that the assembled solids load, stay valid, and actually reach collision and five-phase trajectory validation. If the native fuse, geometry, coverage, or full independent replay fails, retain the fail-closed result and diagnose it. No complete sequence or speedup is claimed by these commits. Test both FORWARD and BACKWARD after the first successful diagnosis; then test the eight-bend box model, compare 10 diverse verified sequences if feasible, and extend tooling/clamp/backgauge/frame coverage before any public release.
