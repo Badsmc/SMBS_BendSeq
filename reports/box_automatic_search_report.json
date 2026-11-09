@@ -1,0 +1,65 @@
+{
+  "metadata": {
+    "timestamp": "2026-11-09T05:31:33.197844+00:00",
+    "git_commit": "11e784fc17cb74f6ca41080436169e7c2f9fe337",
+    "git_dirty": false,
+    "command": "python tools/run_independent_replay_and_auto_search.py (part 2)",
+    "part": "box.100out-50in-(ok).FCStd",
+    "search_wall_time_s": 281.96
+  },
+  "search_parameters": {
+    "tooling_punch": "PUNCH_AP_1013_85°_H159,65_R0,8",
+    "tooling_die": "T-DIE_AT_3015_88°_V12_H80",
+    "fixed_suffix": null,
+    "match_active_bend_length": true,
+    "allow_end_zone_collision": false,
+    "end_zone_length_mm": 0.0,
+    "max_search_time_s": 300.0,
+    "max_states": 60,
+    "max_checks": 120,
+    "arc_segments": 64,
+    "volume_tolerance_mm3": 0.0001
+  },
+  "search_results": {
+    "status": "UNVERIFIED",
+    "overall_evidence": "UNVERIFIED",
+    "found_sequence": null,
+    "best_partial_sequence": [],
+    "max_depth_reached": 0,
+    "total_bends": 8,
+    "states_visited": 1,
+    "step_evaluations": 8,
+    "cache_hits": 0,
+    "dead_end_hits": 0,
+    "backtracks_count": 0,
+    "search_limit_reason": "",
+    "rejection_summary": {
+      "B01": [
+        "backward_rem=['B03', 'B04', 'B07', 'B02', 'B01', 'B06', 'B08', 'B05']:STAGE_C_3D:UNVERIFIED:trajectory:d634_incomplete:APPROACH=SAMPLED_INTERVAL_CONVERGED,reason=TIMINGS: phase=16717.7ms, actual_punch=11765.5ms, actual_die=998.3ms, solid_build=2277.6ms, cache_lookups=1.2ms, hits=(solid=16, die=16, punch=0), misses=(solid=1, die=1, punch=17),samples=17,solid_rebuilds=1,3d_collision_queries=17,elapsed_s=16.72,punch_eval_s=11.77,die_eval_s=1.00,die_hits=16,die_misses=1,punch_overlap_mm3=0.000000,die_overlap_mm3=0.000000; CONTACT=SAMPLED_INTERVAL_CONVERGED,reason=TIMINGS: phase=88.9ms, actual_punch=0.0ms, actual_die=0.0ms, solid_build=0.0ms, cache_lookups=0.1ms, hits=(solid=0, die=0, punch=0), misses=(solid=0, die=0, punch=0),samples=3,solid_rebuilds=0,3d_collision_queries=3,elapsed_s=0.09,punch_eval_s=0.00,die_eval_s=0.00,die_hits=0,die_misses=0,punch_overlap_mm3=0.000000,die_overlap_mm3=0.000000; BENDING=INTERVAL_UNRESOLVED,unresolved=4,first_interval=(0.25, 0.3125),reason=MAX_TIME_BUDGET_EXCEEDED: elapsed=65.00s,samples=13,solid_rebuilds=12,3d_collision_queries=13,elapsed_s=65.00,punch_eval_s=17.01,die_eval_s=15.09,die_hits=0,die_misses=12,punch_overlap_mm3=0.000071,die_overlap_mm3=0.000000; BOTTOM=SAMPLED_INTERVAL_CONVERGED,reason=TIMINGS: phase=93.3ms, actual_punch=0.0ms, actual_die=0.0ms, solid_build=0.0ms, cache_lookups=0.1ms, hits=(solid=0, die=0, punch=0), misses=(solid=0, die=0, punch=0),samples=3,solid_rebuilds=0,3d_collision_queries=3,elapsed_s=0.09,punch_eval_s=0.00,die_eval_s=0.00,die_hits=0,die_misses=0,punch_overlap_mm3=0.000071,die_overlap_mm3=0.000000; RETRACT=SAMPLED_INTERVAL_CONVERGED,reason=TIMINGS: phase=26859.1ms, actual_punch=25146.7ms, actual_die=0.0ms, solid_build=0.0ms, cache_lookups=1.3ms, hits=(solid=16, die=16, punch=0), misses=(solid=0, die=0, punch=16),samples=17,solid_rebuilds=0,3d_collision_queries=17,elapsed_s=26.86,punch_eval_s=25.15,die_eval_s=0.00,die_hits=16,die_misses=0,punch_overlap_mm3=0.000071,die_overlap_mm3=0.000000"
+      ],
+      "B02": [
+        "backward_rem=['B03', 'B04', 'B07', 'B02', 'B01', 'B06', 'B08', 'B05']:STAGE_C_3D:COLLISION:initial_pose:native_3d_positive_volume_interference:punch=102.225666118mm3;die=0.000000000mm3;details=PUNCH_PENETRATION: overlap=102.2257 mm3;DIE_TOUCHING: surface contact (dist=0.0000 mm)"
+      ],
+      "B03": [
+        "backward_rem=['B03', 'B04', 'B07', 'B02', 'B01', 'B06', 'B08', 'B05']:STAGE_C_3D:UNVERIFIED:trajectory:d634_incomplete:APPROACH=SAMPLED_INTERVAL_CONVERGED,reason=TIMINGS: phase=16464.7ms, actual_punch=11589.0ms, actual_die=998.5ms, solid_build=2283.1ms, cache_lookups=1.1ms, hits=(solid=16, die=16, punch=0), misses=(solid=1, die=1, punch=17),samples=17,solid_rebuilds=1,3d_collision_queries=17,elapsed_s=16.46,punch_eval_s=11.59,die_eval_s=1.00,die_hits=16,die_misses=1,punch_overlap_mm3=0.000000,die_overlap_mm3=0.000000; CONTACT=SAMPLED_INTERVAL_CONVERGED,reason=TIMINGS: phase=87.6ms, actual_punch=0.0ms, actual_die=0.0ms, solid_build=0.0ms, cache_lookups=0.1ms, hits=(solid=0, die=0, punch=0), misses=(solid=0, die=0, punch=0),samples=3,solid_rebuilds=0,3d_collision_queries=3,elapsed_s=0.09,punch_eval_s=0.00,die_eval_s=0.00,die_hits=0,die_misses=0,punch_overlap_mm3=0.000000,die_overlap_mm3=0.000000; BENDING=INTERVAL_UNRESOLVED,unresolved=4,first_interval=(0.25, 0.3125),reason=MAX_TIME_BUDGET_EXCEEDED: elapsed=64.88s,samples=13,solid_rebuilds=12,3d_collision_queries=13,elapsed_s=64.88,punch_eval_s=17.24,die_eval_s=14.91,die_hits=0,die_misses=12,punch_overlap_mm3=0.000071,die_overlap_mm3=0.000000; BOTTOM=SAMPLED_INTERVAL_CONVERGED,reason=TIMINGS: phase=101.7ms, actual_punch=0.0ms, actual_die=0.0ms, solid_build=0.0ms, cache_lookups=0.1ms, hits=(solid=0, die=0, punch=0), misses=(solid=0, die=0, punch=0),samples=3,solid_rebuilds=0,3d_collision_queries=3,elapsed_s=0.10,punch_eval_s=0.00,die_eval_s=0.00,die_hits=0,die_misses=0,punch_overlap_mm3=0.000071,die_overlap_mm3=0.000000; RETRACT=SAMPLED_INTERVAL_CONVERGED,reason=TIMINGS: phase=26692.7ms, actual_punch=24958.6ms, actual_die=0.0ms, solid_build=0.0ms, cache_lookups=1.2ms, hits=(solid=16, die=16, punch=0), misses=(solid=0, die=0, punch=16),samples=17,solid_rebuilds=0,3d_collision_queries=17,elapsed_s=26.69,punch_eval_s=24.96,die_eval_s=0.00,die_hits=16,die_misses=0,punch_overlap_mm3=0.000071,die_overlap_mm3=0.000000"
+      ],
+      "B04": [
+        "backward_rem=['B03', 'B04', 'B07', 'B02', 'B01', 'B06', 'B08', 'B05']:STAGE_C_3D:COLLISION:initial_pose:native_3d_positive_volume_interference:punch=102.225666118mm3;die=0.000000000mm3;details=PUNCH_PENETRATION: overlap=102.2257 mm3;DIE_TOUCHING: surface contact (dist=0.0000 mm)"
+      ],
+      "B05": [
+        "backward_rem=['B03', 'B04', 'B07', 'B02', 'B01', 'B06', 'B08', 'B05']:STAGE_C_3D:COLLISION:initial_pose:native_3d_positive_volume_interference:punch=978.039439266mm3;die=0.000000000mm3;details=PUNCH_PENETRATION: overlap=978.0394 mm3;DIE_TOUCHING: surface contact (dist=0.0000 mm)"
+      ],
+      "B06": [
+        "backward_rem=['B03', 'B04', 'B07', 'B02', 'B01', 'B06', 'B08', 'B05']:STAGE_C_3D:COLLISION:initial_pose:native_3d_positive_volume_interference:punch=0.000000000mm3;die=3637.444142061mm3;details=DIE_PENETRATION: overlap=3637.4441 mm3"
+      ],
+      "B07": [
+        "backward_rem=['B03', 'B04', 'B07', 'B02', 'B01', 'B06', 'B08', 'B05']:STAGE_C_3D:COLLISION:initial_pose:native_3d_positive_volume_interference:punch=978.039439266mm3;die=0.000000000mm3;details=PUNCH_PENETRATION: overlap=978.0394 mm3;DIE_TOUCHING: surface contact (dist=0.0000 mm)"
+      ],
+      "B08": [
+        "backward_rem=['B03', 'B04', 'B07', 'B02', 'B01', 'B06', 'B08', 'B05']:STAGE_C_3D:COLLISION:initial_pose:native_3d_positive_volume_interference:punch=0.000000000mm3;die=3637.444142061mm3;details=DIE_PENETRATION: overlap=3637.4441 mm3"
+      ]
+    },
+    "is_strict_pass": false,
+    "message_ru": "Обратный поиск не смог однозначно подтвердить отсутствие решений из-за наличия непроверенных состояний (UNVERIFIED). Лучший суффикс (0/8): нет."
+  }
+}
