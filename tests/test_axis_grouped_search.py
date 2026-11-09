@@ -54,8 +54,10 @@ class AxisGroupedSearchTests(unittest.TestCase):
             aligned = False
             def align_to_cross_section(self, *args, **kwargs):
                 self.aligned = True
-            def set_punch_ram_z(self, *args, **kwargs):
-                pass
+            def set_punch_ram_z(self, ram_z, stroke_mm=0.0):
+                self.current_punch_z = ram_z
+            def punch_tip_machine(self):
+                return (0.5, self.current_punch_z)
 
         kin = NS(
             tooling_status="VERIFIED", contact_z_mm=2.0,
@@ -93,6 +95,9 @@ class AxisGroupedSearchTests(unittest.TestCase):
             )
         self.assertEqual(report["status"], "SAMPLED_2D_NOT_CONTINUOUSLY_VERIFIED")
         self.assertEqual(report["interference_frames"], 0)
+        self.assertEqual(report["punch_tip_mismatch_frames"], 5)
+        self.assertIsNone(report["frames"][0]["punch_zone_gap_mm"])
+        self.assertAlmostEqual(report["frames"][1]["punch_zone_gap_mm"], 1.5)
         self.assertEqual(blocked["status"], "SAMPLED_2D_INTERFERENCE_DETECTED")
         self.assertEqual(blocked["interference_frames"], 7)
         # One aligned initial pose + 4 bend frames + one retract.
