@@ -217,10 +217,19 @@ def classify_polygon_contact(
                       max(qa[0], qb[0]), max(qa[1], qb[1])))
             for qa, qb in _segments(ring)
         )
+        # Clip tool edges once against the whole sheet AABB. Previously
+        # every sheet edge iterated across the entire tool profile even when
+        # 99% of its edges were far away. This is only a necessary-condition
+        # filter; exact segment predicates remain unchanged.
+        sheet_box = _bbox(a)
+        nearby_tool_edges = tuple(
+            edge for edge in tool_edges
+            if not _bbox_disjoint(sheet_box, edge[2], tol)
+        )
         for pa, pb in _segments(a):
             pbox = (min(pa[0], pb[0]), min(pa[1], pb[1]),
                     max(pa[0], pb[0]), max(pa[1], pb[1]))
-            for qa, qb, qbox in tool_edges:
+            for qa, qb, qbox in nearby_tool_edges:
                 if _bbox_disjoint(pbox, qbox, tol):
                     continue
                 if _proper_cross(pa,pb,qa,qb,tol):
