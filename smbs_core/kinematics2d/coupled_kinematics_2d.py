@@ -263,19 +263,32 @@ class CoupledAirBendingKinematics:
         active_bend_id: str,
     ) -> "CoupledAirBendingKinematics":
         """Construct kinematics bound to selected tooling and active sheet bend."""
-        # 1. Sheet geometry from FoldState
-        thickness = 1.5
-        inner_r = 1.0
-        target_ang = 90.0
+        # Stage 2: loaded datums are not proof of complete geometry.
+        # Preserve estimates for preview, but never label them VERIFIED.
+        def _positive_datum(source, name):
+            value = getattr(source, name, None)
+            return (float(value) if isinstance(value, (int, float))
+                    and not isinstance(value, bool)
+                    and math.isfinite(float(value)) and float(value) > 0.0
+                    else None)
 
+        thickness = DEFAULT_SHEET_THICKNESS_MM
+        inner_r = DEFAULT_INNER_RADIUS_MM
+        target_ang = 90.0
+        sheet_verified = False
         if active_bend_id in fold_state.bends:
             bend = fold_state.bends[active_bend_id]
             target_ang = float(bend.angle_deg)
-            if bend.bend_zone is not None:
-                thickness = float(bend.bend_zone.thickness_mm)
-                inner_r = float(bend.bend_zone.inner_radius_mm)
+            zone = getattr(bend, "bend_zone", None)
+            if zone is not None:
+                thick = _positive_datum(zone, "thickness_mm")
+                inner = _positive_datum(zone, "inner_radius_mm")
+                if thick is not None:
+                    thickness = thick
+                if inner is not None:
+                    inner_r = inner
+                sheet_verified = thick is not None and inner is not None
 
-        # 2. Die parameters
         v_opening = DEFAULT_DIE_OPENING_V_MM
         shoulder_r = DEFAULT_DIE_SHOULDER_RADIUS_MM
         die_angle = DEFAULT_DIE_ANGLE_DEG
@@ -284,37 +297,49 @@ class CoupledAirBendingKinematics:
         die_verified = False
 
         die = getattr(tooling_setup, "die", None)
-        if die is not None and getattr(die, "die_datums", None) is not None:
-            dd = die.die_datums
-            if isinstance(dd.v_opening_mm, (int, float)) and dd.v_opening_mm > 0.0:
-                v_opening = float(dd.v_opening_mm)
-            if isinstance(dd.shoulder_radius_mm, (int, float)) and dd.shoulder_radius_mm > 0.0:
-                shoulder_r = float(dd.shoulder_radius_mm)
-            if isinstance(dd.die_angle_deg, (int, float)) and dd.die_angle_deg > 0.0:
-                die_angle = float(dd.die_angle_deg)
-            if isinstance(dd.v_depth_mm, (int, float)) and dd.v_depth_mm > 0.0:
-                v_depth = float(dd.v_depth_mm)
-            die_top_z = float(getattr(tooling_setup, "sheet_bottom_z_mm", 0.0))
-            die_verified = True
+        dd = getattr(die, "die_datums", None)
+        if dd is not None:
+            vals = {
+                "v_opening_mm": _positive_datum(dd, "v_opening_mm"),
+                "shoulder_radius_mm": _positive_datum(dd, "shoulder_radius_mm"),
+                "die_angle_deg": _positive_datum(dd, "die_angle_deg"),
+                "v_depth_mm": _positive_datum(dd, "v_depth_mm"),
+            }
+            if vals["v_opening_mm"] is not None:
+                v_opening = vals["v_opening_mm"]
+            if vals["shoulder_radius_mm"] is not None:
+                shoulder_r = vals["shoulder_radius_mm"]
+            if vals["die_angle_deg"] is not None:
+                die_angle = vals["die_angle_deg"]
+            if vals["v_depth_mm"] is not None:
+                v_depth = vals["v_depth_mm"]
+            die_top = getattr(tooling_setup, "sheet_bottom_z_mm", None)
+            die_top_valid = (isinstance(die_top, (int, float))
+                             and not isinstance(die_top, bool)
+                             and math.isfinite(float(die_top)))
+            if die_top_valid:
+                die_top_z = float(die_top)
+            die_verified = all(v is not None for v in vals.values()) and die_top_valid
 
-        # 3. Punch parameters
         punch_r = DEFAULT_PUNCH_TIP_RADIUS_MM
         punch_angle = DEFAULT_PUNCH_INCLUDED_ANGLE_DEG
         punch_verified = False
 
         punch = getattr(tooling_setup, "punch", None)
-        if punch is not None and getattr(punch, "punch_datums", None) is not None:
-            pd = punch.punch_datums
-            if isinstance(pd.tip_radius_mm, (int, float)) and pd.tip_radius_mm > 0.0:
-                punch_r = float(pd.tip_radius_mm)
-            if isinstance(pd.included_angle_deg, (int, float)) and pd.included_angle_deg > 0.0:
-                punch_angle = float(pd.included_angle_deg)
-            punch_verified = True
+        pd = getattr(punch, "punch_datums", None)
+        if pd is not None:
+            rp = _positive_datum(pd, "tip_radius_mm")
+            angle = _positive_datum(pd, "included_angle_deg")
+            if rp is not None:
+                punch_r = rp
+            if angle is not None:
+                punch_angle = angle
+            punch_verified = rp is not None and angle is not None
 
-        status = "VERIFIED" if (die_verified and punch_verified) else (
-            "TOOLING_GEOMETRY_DEFAULT_ESTIMATE" if (die_verified or punch_verified)
-            else "TOOLING_GEOMETRY_NOT_SPECIFIED"
-        )
+        status = ("VERIFIED" if sheet_verified and die_verified and punch_verified
+                  else "TOOLING_GEOMETRY_DEFAULT_ESTIMATE"
+                  if dd is not None or pd is not None
+                  else "TOOLING_GEOMETRY_NOT_SPECIFIED")
 
         return cls(
             die_opening_v_mm=v_opening,
