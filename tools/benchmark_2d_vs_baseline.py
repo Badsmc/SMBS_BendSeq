@@ -95,6 +95,7 @@ def run_benchmark_run(
     allow_end_zone_collision: bool = False,
     end_zone_length_mm: float = 0.0,
     optimize_cost: bool = False,
+    section_offsets_xm: Tuple[float, ...] = (),
 ) -> Tuple[SearchMeasurement, Dict[str, Any], float]:
     """Execute a single search run in a clean isolated session with cold cache."""
     fixture_path = demo_part_path(fixture_name)
@@ -136,6 +137,7 @@ def run_benchmark_run(
         if match_active_bend_length:
             raise ValueError("Physical benchmark requires fixed-length real tooling")
         tooling.set_match_active_bend_length(False)
+        tooling.set_native_sections(section_offsets_xm, section_offsets_xm)
         use_2d_screening = (mode == "2D_RISK")
         verified = verified_fixed_tool_spans(tooling, ram_z_mm=float(panel.press_cycle.ram_z_mm))
         punch_span = verified.punch_span_xm if use_2d_screening else None
@@ -195,6 +197,7 @@ def run_benchmark_run(
             f"punch={punch_name}:{_file_digest(verified.punch_source)}"
             f":die={die_name}:{_file_digest(verified.die_source)}"
             f":p_span={verified.punch_span_xm}:d_span={verified.die_span_xm}"
+            f":p_sections={verified.punch_sections_xm}:d_sections={verified.die_sections_xm}"
         )
         placement_id = f"dir={direction}:match_len={match_active_bend_length}:shift=0"
         tol_sig = (
@@ -218,6 +221,11 @@ def run_benchmark_run(
         kernel_snapshot = kernel_counter.to_dict()
         kernel_snapshot["verified_tool_spans"] = verified.to_dict()
         kernel_snapshot["physical_length_mode"] = "LIBRARY_FIXED"
+        kernel_snapshot["section_offsets_xm"] = list(section_offsets_xm)
+        kernel_snapshot["search_report"] = report.to_dict()
+        kernel_snapshot["step_diagnostics"] = [
+            rec.to_dict() for rec in cache._step_cache.values()
+        ]
         kernel_snapshot["multi_station_execution"] = screening_counter.to_dict()
         return measurement, kernel_snapshot, wall_s
     finally:
@@ -238,8 +246,15 @@ def main():
     parser.add_argument("--search-time", type=float, default=600.0, help="Max search time in seconds (default: 600.0)")
     parser.add_argument("--max-states", type=int, default=20, help="Max search states (default: 20)")
     parser.add_argument("--max-checks", type=int, default=50, help="Max step evaluations (default: 50)")
+    parser.add_argument(
+        "--sections-xm", type=str, default="",
+        help="Physical fixed-CAD tool section centers in machine X, comma-separated (e.g.=-50,50). Empty=single section.",
+    )
     parser.add_argument("--output", type=str, default="reports/benchmark_2d_vs_baseline_report.json", help="Output report JSON path")
     args = parser.parse_args()
+    offsets = tuple(float(x.strip()) for x in args.sections_xm.split(",") if x.strip())
+    if len(offsets) == 1:
+        parser.error("--sections-xm needs at least two centers or none")
 
     git_commit, git_dirty = get_git_info()
     sampling_cfg = AdaptiveSamplingConfig(
@@ -269,6 +284,7 @@ def main():
         max_search_time_s=args.search_time,
         max_states=args.max_states,
         max_checks=args.max_checks,
+        section_offsets_xm=offsets,
     )
     print(f"BASELINE completed in {base_wall_s:.2f} s: status={baseline_meas.status}, seq={baseline_meas.found_sequence}", flush=True)
     print(f"  Stage C attempts: {baseline_meas.stage_c_validation_attempts}, OCCT common: {baseline_meas.occt_boolean_calls}, distance: {baseline_kernel.get('distance_calls')}", flush=True)
@@ -286,6 +302,7 @@ def main():
         max_search_time_s=args.search_time,
         max_states=args.max_states,
         max_checks=args.max_checks,
+        section_offsets_xm=offsets,
     )
     print(f"2D_RISK completed in {screen_wall_s:.2f} s: status={screened_meas.status}, seq={screened_meas.found_sequence}", flush=True)
     print(f"  Stage C attempts: {screened_meas.stage_c_validation_attempts}, OCCT common: {screened_meas.occt_boolean_calls}, distance: {screened_kernel.get('distance_calls')}", flush=True)
@@ -311,6 +328,8 @@ def main():
         "direction": args.direction,
         "punch": args.punch,
         "die": args.die,
+        "section_offsets_xm": list(offsets),
+        "tooling_mode": "LIBRARY_FIXED_NATIVE_SECTIONS" if offsets else "LIBRARY_FIXED",
         "budgets": {
             "max_search_time_s": args.search_time,
             "max_phase_time_s": args.phase_time,
