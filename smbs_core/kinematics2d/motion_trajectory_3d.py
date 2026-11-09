@@ -513,6 +513,10 @@ class AdaptiveTrajectoryValidator3D:
         self.actual_common_queries: int = 0
         self.total_cache_lookup_ms: float = 0.0
         self._solid_cache: Dict[Tuple[Any, ...], Any] = {}
+        # Cache only source, untransformed panel prisms during a single
+        # validator lifetime. Never cache moved panels or assembled solids.
+        self._panel_prism_cache: Dict[str, Any] = {}
+        self._panel_prism_cache_identity: Any = None
         self._die_clearance_cache: Dict[Tuple[Any, ...], Any] = {}
         self._punch_clearance_cache: Dict[Tuple[Any, ...], Any] = {}
         self._pose_collision_cache: Dict[Tuple[Any, ...], Any] = {}
@@ -520,6 +524,8 @@ class AdaptiveTrajectoryValidator3D:
     def clear_caches(self) -> None:
         """Clear Part Space solid cache, clearance caches, and pose collision cache."""
         self._solid_cache.clear()
+        self._panel_prism_cache.clear()
+        self._panel_prism_cache_identity = None
         self._die_clearance_cache.clear()
         self._punch_clearance_cache.clear()
         self._pose_collision_cache.clear()
@@ -594,6 +600,18 @@ class AdaptiveTrajectoryValidator3D:
         # Build signatures for cache keys
         angles_tuple = tuple(sorted((b_id, float(a)) for b_id, a in self.fold_state.angles.items()))
         wp_geom_sig = _panel_build_geometry_signature(self.panel_build)
+        first_zone = self.fold_state.ordered_bends[0].bend_zone
+        panel_prism_identity = (
+            id(self.panel_build), wp_geom_sig,
+            float(first_zone.thickness_mm) if first_zone is not None else None,
+            tuple((id(f), id(p)) for p, f in zip(
+                getattr(self.panel_build, "panels", ()),
+                getattr(self.panel_build, "panel_faces", ()),
+            )),
+        )
+        if panel_prism_identity != self._panel_prism_cache_identity:
+            self._panel_prism_cache.clear()
+            self._panel_prism_cache_identity = panel_prism_identity
         die_geom_sig = _die_geometry_signature(self.die)
         punch_geom_sig = _punch_geometry_signature(self.punch_base)
         tolerances_sig = (
@@ -681,6 +699,7 @@ class AdaptiveTrajectoryValidator3D:
                 self.fold_state,
                 self.panel_build,
                 segments=self.config.arc_segments,
+                panel_prism_cache=self._panel_prism_cache,
             )
             self.solid_reconstruction_time_ms += (time.perf_counter() - t_s0) * 1000.0
             self._solid_cache[solid_cache_key] = solid
