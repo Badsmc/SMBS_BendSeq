@@ -42,9 +42,9 @@ class NativeSectionAssemblyTests(unittest.TestCase):
         setup.set_native_sections((-50.0, 50.0), (-50.0, 50.0))
         self.assertEqual(setup.punch_section_offsets_xm, (-50.0, 50.0))
         self.assertEqual(setup.die_section_offsets_xm, (-50.0, 50.0))
-        setup.set_match_active_bend_length(True, 200.0)
         with self.assertRaisesRegex(ValueError, "incompatible"):
-            setup.set_native_sections((-50.0, 50.0), (-50.0, 50.0))
+            setup.set_match_active_bend_length(True, 200.0)
+        self.assertFalse(setup.match_active_bend_length)
 
     def test_refuse_duplicate_and_single_offsets(self):
         setup = ToolingSetup2D()
