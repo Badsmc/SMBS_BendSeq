@@ -223,7 +223,8 @@ class WorkspaceGuiTests(unittest.TestCase):
             self.assertFalse(panel.timer.isActive())
             task.close_panel()  # Repeated close is idempotent.
             from freecad_smbs.commands.pressbrake_2d import open_task_panel
-            with patch.object(FreeCADGui.Control, "showDialog") as show_dialog:
+            with patch.object(FreeCADGui.Control, "showDialog") as show_dialog, \
+                 patch.object(FreeCADGui.Control, "closeDialog") as close_dialog:
                 reopened = open_task_panel(panel)
                 show_dialog.assert_called_once_with(reopened)
                 self.assertIs(panel._task_panel_host, reopened)
