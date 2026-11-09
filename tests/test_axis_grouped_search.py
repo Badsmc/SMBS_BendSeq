@@ -79,19 +79,28 @@ class AxisGroupedSearchTests(unittest.TestCase):
             patch("smbs_core.kinematics2d.machine_section_3d.compute_machine_cutting_plane_section", return_value=sec),
             patch("smbs_core.kinematics2d.coupled_kinematics_2d.CoupledAirBendingKinematics.from_tooling_and_fold_state", return_value=kin),
             patch("smbs_core.kinematics2d.contact_oracle_2d.check_sheet_tooling_preview",
-                  return_value=ContactReport(ContactStatus.TOUCH, (), 0.02)),
+                  return_value=ContactReport(ContactStatus.TOUCH, (), 0.02)) as contact_mock,
         ):
             report = sample_bend_stroke_2d(
                 state, {"P0": ((0, 0), (1, 0), (1, 1))},
                 Tooling(), "B01", samples=4,
             )
+            initial_pose_calls = tuple(placement_mock.call_args_list)
+            contact_mock.return_value = ContactReport(ContactStatus.INTERFERENCE, (), 0.02)
+            blocked = sample_bend_stroke_2d(
+                state, {"P0": ((0, 0), (1, 0), (1, 1))},
+                Tooling(), "B01", samples=4,
+            )
         self.assertEqual(report["status"], "SAMPLED_2D_NOT_CONTINUOUSLY_VERIFIED")
+        self.assertEqual(report["interference_frames"], 0)
+        self.assertEqual(blocked["status"], "SAMPLED_2D_INTERFERENCE_DETECTED")
+        self.assertEqual(blocked["interference_frames"], 7)
         # One aligned initial pose + 4 bend frames + one retract.
         # APPROACH and CONTACT must reuse the original pose exactly.
-        self.assertEqual(placement_mock.call_count, 6)
+        self.assertEqual(len(initial_pose_calls), 6)
         self.assertEqual(
             [round(call.kwargs["support_plane_zm"], 5)
-             for call in placement_mock.call_args_list],
+             for call in initial_pose_calls],
             [0.0, -0.5, -1.0, -1.5, -2.0, -2.0],
         )
         self.assertEqual(
