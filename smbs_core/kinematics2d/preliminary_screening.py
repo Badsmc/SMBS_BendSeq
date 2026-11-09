@@ -34,6 +34,7 @@ from .machine_station_planner import plan_machine_stations
 from .multi_station_screening import screen_machine_stations_2d
 from .panel_kinematics import FoldState
 from .tooling_25d import ToolingSetup2D
+from .screening_execution_metrics import record_station_preview
 from .workpiece_placement_3d import WorkpiecePlacement3D
 
 
@@ -388,6 +389,7 @@ def screen_candidate_stage_b(
                             verified_die_span_xm=verified_die_span_xm,
                             tolerance_mm=tolerance_mm,
                         )
+                        record_station_preview(station_result)
                         station_reports.append({
                             "phase": phase,
                             "angle_deg": angle_at_probe,
