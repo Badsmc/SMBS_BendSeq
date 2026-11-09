@@ -243,3 +243,33 @@ print_planar_summary(payload)
 ```
 
 Synthetic tests validate axis grouping, cross-group ordering, ranked costs and preservation of state; Stage B tests cover optional backgauge overlap and clearance. Native FreeCAD physical acceptance is **outstanding**. This is not a 3D safety check, nor yet a final tested production-grade implementation of all nine original stages.
+
+
+## Real FreeCAD planar benchmark regression and corrective work (Nov 9 2026)
+
+**Observed Windows FreeCAD result**, document `Z_10_20_10__ok_` / existing `Body_Unfold`: `SEARCH_LIMIT_REACHED`, **73.696 s wall**, **2 individual step evaluations**, **2 DFS nodes**, **0 completed candidate sequences** and `MAX_SEARCH_TIME_REACHED` with a configured 60-second search time. This is a performance failure, not a successful 2D search.
+
+This increment addresses two distinct issues:
+
+1. The pure-Python `contact_oracle_2d.classify_polygon_contact` previously called costly exact segment-crossing and segment-distance functions for every sheet/tool edge pair, including edges with obviously disjoint bounding rectangles. It now computes the tool edge rectangles once per polygon and skips exact edge operations unless expanded edge AABBs intersect. This is a **necessary-condition-only exclusion**: for segments with AABB gap > tolerance, neither a proper intersection nor a within-tolerance distance is possible. Interior witnesses for large tool rings outside the sheet polygon AABB are also skipped before point-in-ring evaluation. New tests cover dense 256-sided tool contours, contained sheet and empty cavity.
+2. `machine_section_3d.compute_machine_cutting_plane_section` previously intersected the upper panel skin with `target_xm` but the lower skin with **0.0**. Both now slice at `target_xm`, fixing off-center station geometry.
+
+**Diagnostic additions:** Stage B records `timing_ms` for per-probe placement/section versus tooling/contact, and accepts `deadline_monotonic`. Section-only DFS supplies its overall deadline, enabling Stage B to return `STAGE_B_BUDGET` (unverified), rather than blindly start further samples after the deadline. A single active call still cannot be interrupted, so elapsed time may modestly exceed configured limits. Every attempted planar step is now recorded as `report.evaluated_step_details`, including status, elapsed seconds, section/contact timings, number of sampled phases and a reason. The console `print_planar_summary()` prints each attempted bend **even if zero complete sequences were found**.
+
+**Acceptance remains pending**: No Windows FreeCAD execution or GitHub Actions result was available in the assistant environment. The optimization MUST be compared against the same Z fixture: 2 individual candidate checks should be significantly shorter if polygon broad-phase was the hotspot. If not, the new per-step phase timings will reveal whether geometry placement/setup or tool/contact dominates.
+
+### Single new test run (FreeCAD restarted, branch updated)
+
+```python
+from tools.run_planar_sequence_search import run_planar_search, print_planar_summary
+result = run_planar_search(
+    App.ActiveDocument,
+    max_solutions=10,
+    max_complete_candidates=1000,
+    max_search_time_s=60,
+    output_path=str(repo / "reports" / "z_planar_ranked.json"),
+)
+print_planar_summary(result)
+```
+
+For headless tests: `tests.test_contact_oracle_2d`, `tests.test_stage_b_multistation_integration`, `tests.test_sequence_search_2d`. These alone do not establish real-tool geometric equivalence or production safety.
