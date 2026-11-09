@@ -1,3 +1,15 @@
+## Part button activation — SheetMetal unfold (2026-11-09)
+
+The **Деталь / Part** command is enabled only when a FreeCAD document is active and the current selection resolves to a single SheetMetal unfold (`*_Unfold` with `baseObject`). Selecting the Unfold itself, its source Bend object, or its related unfold sketch may satisfy this requirement; an ambiguous or absent selection does not. Clicking **Деталь** opens the viewer if necessary and loads the selected part.
+
+The command snapshots document and selection **before** changing focus to the MDI viewer / Task Panel. This prevents loading from an empty selection after focus moves away from the FreeCAD model tree.
+
+**Installation note:** FreeCAD stores command registration for the current application session. After updating GUI branch files, restart FreeCAD before checking command availability, especially if an earlier version of the workbench was loaded.
+
+**Live acceptance:** In a restarted FreeCAD instance, select `Body_Unfold` in the model tree and confirm **Деталь** enables; clear selection to confirm it disables; click it and check that the simulation viewer receives the selected model. Verify behavior again with Task Panel open. If FreeCAD suppresses toolbar commands while an active task dialog is shown, that native modal behavior requires a separate UI handling change rather than weakening the selection check.
+
+---
+
 ## Viewer navigation (2026-11-09)
 
 - **2.5D viewer:** mouse wheel zooms in/out around the cursor; left-button drag pans. `Fit` restores fit-to-scene scaling.
