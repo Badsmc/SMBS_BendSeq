@@ -430,6 +430,29 @@ def sample_bend_stroke_2d(fold_state, panel_vertices_xy, tooling, bend_id,
             report = check_sheet_tooling_preview(
                 sec, candidate, tolerance_mm=tolerance_mm
             )
+            # Compare the coupled analytic punch-tip Z with the actual sheet
+            # surface at the punch axis in THIS exact machine-space section.
+            # These independent calculations can disagree even when the
+            # coupled analytic formula reports GEOMETRIC_COUPLING_VERIFIED.
+            # Never reposition the punch to hide this discrepancy: report it.
+            # The central tip gap is not a full-profile collision result.
+            punch_zone_gap_mm = None
+            punch_zone_gap_reason = None
+            if phase in ("CONTACT", "BENDING", "BOTTOM"):
+                try:
+                    from .workpiece_pose_2d import (
+                        WorkpiecePose2D, upper_zone_at_machine_axis
+                    )
+                    tip = candidate.punch_tip_machine()
+                    if tip is None:
+                        punch_zone_gap_reason = "missing_punch_tip_machine"
+                    else:
+                        zone_top = upper_zone_at_machine_axis(
+                            sec, WorkpiecePose2D(), tip[0]
+                        )
+                        punch_zone_gap_mm = float(tip[1]) - float(zone_top)
+                except (ValueError, TypeError, AttributeError, KeyError) as exc:
+                    punch_zone_gap_reason = "zone_tip_cross_section_unavailable: " + str(exc)
             # Kinematic failures identify model constraints; contact predicates
             # identify overlaps *at sampled frames* only.
             frame = {
@@ -438,6 +461,8 @@ def sample_bend_stroke_2d(fold_state, panel_vertices_xy, tooling, bend_id,
                 "ram_z_mm": ram_z,
                 "support_delta_z_mm": support_delta_z,
                 "contact": report.status.value,
+                "punch_zone_gap_mm": punch_zone_gap_mm,
+                "punch_zone_gap_reason": punch_zone_gap_reason,
                 "kinematics": condition,
                 "status": ("INTERFERENCE" if report.status == ContactStatus.INTERFERENCE
                            else "UNVERIFIED" if report.status == ContactStatus.UNVERIFIED
@@ -459,6 +484,11 @@ def sample_bend_stroke_2d(fold_state, panel_vertices_xy, tooling, bend_id,
         interferences = tuple(
             frame for frame in records if frame.get("contact") == "INTERFERENCE"
         )
+        punch_tip_mismatches = tuple(
+            frame for frame in records
+            if frame.get("punch_zone_gap_mm") is not None
+            and abs(frame["punch_zone_gap_mm"]) > tolerance_mm
+        )
         unknown_frames = tuple(
             frame for frame in records
             if frame.get("status") == "UNVERIFIED"
@@ -477,6 +507,7 @@ def sample_bend_stroke_2d(fold_state, panel_vertices_xy, tooling, bend_id,
             "reason": reason,
             "interference_frames": len(interferences),
             "unverified_frames": len(unknown_frames),
+            "punch_tip_mismatch_frames": len(punch_tip_mismatches),
             "frames": tuple(records),
         }
     except (ValueError, ArithmeticError, TypeError, KeyError, AttributeError) as exc:
