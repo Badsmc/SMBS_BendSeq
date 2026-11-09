@@ -1,87 +1,31 @@
-# SMBS_BendSeq
+# SMBS BendSeq — integrated development
 
-Headless bend-sequence planner for sheet metal (FreeCAD / PythonOCC).
+## Repository branch map
 
-## Status (2026-10)
+| Branch | Purpose | Installation |
+|---|---|---|
+| [main](https://github.com/Badsmc/SMBS_BendSeq/tree/main) | Integrates compatible, reviewed 2D / 3D / GUI / solver work | Development only until validated |
+| [2d](https://github.com/Badsmc/SMBS_BendSeq/tree/2d) | 2D and 2.5D section geometry, sequences, press cycle, previews, tests | Development |
+| [3d](https://github.com/Badsmc/SMBS_BendSeq/tree/3d) | 3D OCC / FreeCAD physical collisions, machine geometry and 3D validation | Development |
+| [gui](https://github.com/Badsmc/SMBS_BendSeq/tree/gui) | FreeCAD workbench interface, commands, task panels and UX acceptance tests | Development |
+| [core](https://github.com/Badsmc/SMBS_BendSeq/tree/core) | Headless solvers, contracts, graph model, geometry and physics interfaces | Development |
+| [smbs](https://github.com/Badsmc/SMBS_BendSeq/tree/smbs) | Minimal runtime-only user install (currently 2.5D preview) | Installable preview, **not qualified for production** |
 
-**FreeCAD Runtime Release** (Development on branch `stage-1-fix-correctness`).
+**Branch names describe development ownership, not a claim that code is exclusively present there.** Shared imports remain where required for runnable development environments. Never install multiple checkouts simultaneously in FreeCAD's `Mod` directory.
 
-What works:
-- Unfold via native SheetMetal
-- Planning (A* / DFS backward search)
-- Fold constructive path for N=1 and N=2 linear (`VALID_PER_PANEL`)
-- Relief cut boundary detection and clamped box-hub folding
-- Real press brake machine frame B-Rep collision geometry & tooling catalog (`machine_frame.FCStd`, `puancon.FCStd`, `matrica.FCStd`)
-- FreeCAD workbench `freecad_smbs`:
-  - 1-click calculation for active document (**Рассчитать последовательность**) with auto-annotations on flat pattern
-  - OpenRun, Calculate, Simulate (bidirectional unfold/fold with punch descent), Tooling, Verify, Info
-- Dynamic PNG banners from `geometry_precision` (green `VALID_PER_PANEL`, red `PREVIEW_ONLY`)
-- Cross-platform FreeCAD bootstrap (`FREECAD_LIB`, `FREECAD_MOD_SHEETMETAL`) with in-memory BREP conversion
+A feature is merged into `main` via tested integration; `smbs` is generated from an accepted runtime snapshot only after real FreeCAD GUI acceptance. These are different stages. Historic branches remain available as references.
 
-Known limits:
-- Complex multi-bend tree topologies (N≥3) intermediate visualization steps may fall back to `PREVIEW_ONLY` where exact rigid face partitioning is ambiguous.
+## Current integration status
 
-Full project documentation and developmental progress are tracked on branch [stage-1-fix-correctness](https://github.com/Badsmc/SMBS_BendSeq/tree/stage-1-fix-correctness).
+The current `main` still contains the legacy headless bend-sequence pipeline and original FreeCAD command set. It **does not yet integrate** the newer standalone `2d` / `3d` implementations. The interface, geometry and solver APIs must be reconciled before merge. Do **not** assume that all branches have been combined or physically verified.
 
-## Quick start
+See [BRANCH_ARCHITECTURE.md](BRANCH_ARCHITECTURE.md) for merge gates, release rules and FreeCAD verification checklist.
 
-### 1. In FreeCAD (Primary User Experience)
+## Integration criteria
 
-Install the workbench via symlink:
-```bash
-# macOS
-ln -s /path/to/SMBS_BendSeq/freecad_smbs \
-  ~/Library/Application\ Support/FreeCAD/Mod/freecad_smbs
-
-# Linux
-# ln -s /path/to/SMBS_BendSeq/freecad_smbs ~/.local/share/FreeCAD/Mod/freecad_smbs
-```
-
-1. Open FreeCAD and switch to the **SMBS** workbench.
-2. Open or create your sheet metal model (`.FCStd`) and save it.
-3. Click **Рассчитать последовательность** (Calculate Sequence) on the toolbar.
-4. The pipeline automatically calculates the sequence, attaches numbered bend annotations to the unfolded pattern, and prepares **Симуляция** (Simulate) and **Верификация** (Verify).
-
-### 2. Headless CLI (for CI / Batch Runs)
-
-```bash
-export PYTHONPATH=/path/to/SMBS_BendSeq:$PYTHONPATH
-# optional overrides:
-# export FREECAD_LIB=/path/to/FreeCAD/lib
-# export FREECAD_MOD_SHEETMETAL=/path/to/Mod/SheetMetal
-
-# Run planning pipeline
-python -m smbs_core.cli path/to/part.FCStd
-
-# View and render replay frames to PNG
-python -m smbs_core.viewer.cli view runs/run_<id> --render-png /tmp/frames
-```
-
-## Architecture & Workflows
-
-```
-smbs_core/
-├── contracts/
-│   └── schemas/       # JSON Schema specifications for inter-worker data contracts
-├── coordinator/       # Coordinator orchestrating file flows across runs/<run_id>/
-├── protocols/         # File store, canonicalization, and SHA-256 content hashing
-├── workers/           # Isolated worker processes communicating via versioned files:
-│   ├── sheetmetal/    # FreeCAD SheetMetal adapter (native unfolds & bend lines)
-│   ├── geometry/      # OpenCASCADE B-Rep feature extraction & neutral unfold
-│   ├── topology/      # Panel & bend topological graph construction
-│   ├── validator/     # Physical collision & kinematic transition validator
-│   ├── solver/        # Deterministic search algorithms (A*, DFS, Greedy)
-│   ├── verifier/      # Independent verifier worker
-│   └── export/        # Canonical part_bendseq.json v1.1 generator
-├── Core/              # Bend transform, FoldState, state cache
-├── Geometry/          # Feature extraction, bend matcher, panel topology, sheetmetal folder
-├── Physics/           # Collision detector, tooling assembly, machine kinematics
-├── Solvers/           # Backward planning search implementations
-├── viewer/            # Replayer, render (HLR), CLI viewer
-└── IO/                # Tooling loaders, step readers
-```
-
-## Development & Test Suite
-
-All development history, unit test suites (`tests/`), test fixtures (`SMBendTests/`), and design documentation (`docs/`) are maintained on the development branch:
-- [stage-1-fix-correctness](https://github.com/Badsmc/SMBS_BendSeq/tree/stage-1-fix-correctness)
+- Preserve a single FreeCAD entry point and unique command IDs.
+- Preserve SheetMetal as the authoritative unfold/angle source.
+- Keep 2D clearance distinct from verified 3D collision claims.
+- Run deterministic unit and regression tests plus real GUI smoke/acceptance tests.
+- Reject silent fallback to physically unvalidated sequences.
+- Prepare runtime-only artifact, verify in a clean FreeCAD installation, then promote to `smbs`.
