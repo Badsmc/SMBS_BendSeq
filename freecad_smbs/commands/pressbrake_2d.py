@@ -2387,7 +2387,8 @@ class _PreviewPanel:
                     "сдвиг {:.2f} + {:.2f}/100 мм, "
                     "линия гиба {:.2f} + {:.2f}/100 мм, "
                     "пуансон {:.2f} + {:.2f}/100 мм, "
-                    "матрица {:.2f} + {:.2f}/100 мм. "
+                    "матрица {:.2f} + {:.2f}/100 мм, "
+                    "задний упор {:.2f} + {:.2f}/100 мм. "
                     "Лучший из найденных планов не обязательно глобально оптимален.".format(
                         *[self._last_planar_weights[k] for k in (
                             "turn_fixed", "turn_per_90_deg", "flip",
@@ -2395,6 +2396,7 @@ class _PreviewPanel:
                             "length_change_fixed", "length_delta_per_100_mm",
                             "punch_length_change_fixed", "punch_length_delta_per_100_mm",
                             "die_length_change_fixed", "die_length_delta_per_100_mm",
+                            "backgauge_move_fixed", "backgauge_move_per_100_mm",
                         )]
                     )
                 )
@@ -2512,7 +2514,8 @@ class _PreviewPanel:
                         return
                     candidate = visible_candidates[row]
                     try:
-                        if len(candidate.sequence) < len(self.session.bend_order):
+                        if (self.backgauge_model is not None
+                                or len(candidate.sequence) < len(self.session.bend_order)):
                             from smbs_core.kinematics2d.sequence_search_2d import (
                                 validate_partial_planar_prefix,
                             )
@@ -2525,6 +2528,7 @@ class _PreviewPanel:
                                 candidate.sequence,
                                 match_active_bend_length=not has_sections,
                                 allow_retract_warning=self.retract_warning_checkbox.isChecked(),
+                                backgauge_model=self.backgauge_model,
                             )
                             if not valid:
                                 self.status.setText(
