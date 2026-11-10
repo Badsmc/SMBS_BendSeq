@@ -164,6 +164,7 @@ def screen_candidate_stage_b(
     backgauge_cad_checker: Any = None,
     backgauge_contact_s_mm: Optional[float] = None,
     backgauge_contact_z_mm: Optional[float] = None,
+    backgauge_initial_feed_mm: float = 0.0,
     deadline_monotonic: Optional[float] = None,
     multi_station_enabled: bool = False,
     verified_punch_span_xm: Optional[Tuple[float, float]] = None,
@@ -319,6 +320,75 @@ def screen_candidate_stage_b(
             )
 
         outer_r = float(getattr(bend.bend_zone, "outer_radius_mm", 0.0) if bend.bend_zone else 0.0)
+
+        # INITIAL LOAD: follow the same stationary real CAD stop while a
+        # rigid flat/folded sheet feeds from operator left (-s) to the
+        # contact target. This is sampled 3D gauge-only evidence; punch/die,
+        # clamps and whole-machine swept paths remain separately unverified.
+        if backgauge_initial_feed_mm > 0 and backgauge_cad_checker is not None:
+            from .workpiece_placement_3d import PlacementTransform3D
+            feed_mm = float(backgauge_initial_feed_mm)
+            if not math.isfinite(feed_mm):
+                raise ValueError("backgauge_initial_feed_mm must be finite")
+            initial = WorkpiecePlacement3D.compute_placement(
+                fold_state, candidate_bend_id,
+                desired_midpoint_xm=float(desired_midpoint_xm),
+                support_plane_zm=outer_r,
+                align_bisector=False,
+                align_bend_arc_center=True,
+                rear_panel_vertices_xy=panel_vertices_xy,
+            )
+            for fraction in (0.0, 0.25, 0.5, 0.75, 1.0):
+                if (deadline_monotonic is not None
+                        and perf_counter() >= deadline_monotonic):
+                    return PreliminaryScreeningReport(
+                        decision=ScreeningDecision.UNVERIFIED_NEEDS_3D,
+                        stage="STAGE_B_BUDGET",
+                        reason="cad_initial_feed_sample_budget_exhausted",
+                        sampled_phases=tuple(sampled_phases),
+                        contact_statuses=tuple(contact_statuses),
+                        backgauge_checked=True,
+                    )
+                pose_feed = PlacementTransform3D(
+                    rotation=initial.rotation,
+                    translation=(
+                        initial.translation[0],
+                        initial.translation[1] + feed_mm * (1.0-fraction),
+                        initial.translation[2],
+                    ),
+                )
+                sample = backgauge_cad_checker.check_phase(
+                    fold_state, panel_vertices_xy, pose_feed,
+                    active_bend_id=candidate_bend_id,
+                    contact_s_mm=float(backgauge_contact_s_mm),
+                    contact_z_mm=float(backgauge_contact_z_mm),
+                    tolerance_mm=tolerance_mm,
+                )
+                sampled_phases.append("LOAD_TO_GAUGE")
+                if sample["status"] == "INTERFERENCE":
+                    finding = (
+                        "LOAD_TO_GAUGE", "BACKGAUGE_CAD_3D",
+                        str(sample["component"]), "INTERFERENCE",
+                        "material_overlap_mm3={:.6f}".format(
+                            sample["volume_mm3"]
+                        ),
+                    )
+                    diagnostic_findings.append(finding)
+                    return PreliminaryScreeningReport(
+                        decision=ScreeningDecision.CONTINUE_TO_3D,
+                        stage="STAGE_B_SECTION_REQUIRES_3D",
+                        reason=(
+                            "cad_initial_loading_3d_material_interference:"
+                            + str(sample["component"]) + ":feed_fraction="
+                            + str(fraction)
+                        ),
+                        sampled_phases=tuple(sampled_phases),
+                        contact_statuses=("INTERFERENCE",),
+                        diagnostic_findings=tuple(diagnostic_findings),
+                        backgauge_checked=True,
+                    )
+                if sample["status"] != "SAMPLED_CLEAR_OR_TOUCH":
+                    raise ValueError("CAD load phase returned unknown verdict")
 
         # Evaluate each probe
         for phase, frac, ram_z, align_bis in probes:
