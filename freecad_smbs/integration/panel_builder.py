@@ -114,30 +114,92 @@ def build_panels(unfold_name="Body_Unfold", outline_name=None, bends_name=None,
         raise PanelBuildError("Positive finite strip width and extension required")
     data = read_unfold(unfold_name, doc)
     unfold = doc.getObject(unfold_name)
-    # Resolve sketches by name or by the canonical unfolded object's generated
-    # sketch references. No fallback to an unrelated sketch.
+    # First use the sketches owned by THIS unfold. FreeCAD may assign numeric
+    # internal-name suffixes after a remodel (e.g. ..._Sketch001) while the
+    # visible Label and UnfoldSketches links continue to identify their roles.
+    # Never use sketches from another unfold or pick an arbitrary first match.
     if outline_name is None or bends_name is None:
-        matches = [o for o in doc.Objects if o.Name.startswith(unfold.Name + "_Sketch")]
-        if not matches:
-            unfolds_in_doc = [
-                o for o in doc.Objects
-                if o.Name.endswith("_Unfold") and hasattr(o, "baseObject")
-            ]
-            if len(unfolds_in_doc) == 1 and unfolds_in_doc[0].Name == unfold.Name:
-                matches = [
-                    o for o in doc.Objects
-                    if "_Unfold_Sketch" in o.Name and hasattr(o, "Shape")
-                ]
+        import re
+
+        def _as_object(entry):
+            if isinstance(entry, str):
+                return doc.getObject(entry)
+            if isinstance(entry, (tuple, list)) and entry:
+                return _as_object(entry[0])
+            return entry if hasattr(entry, "Name") else None
+
+        def _unique_objects(entries):
+            seen = set()
+            result = []
+            for entry in entries:
+                obj = _as_object(entry)
+                if obj is None or not hasattr(obj, "Shape"):
+                    continue
+                name = str(obj.Name)
+                if name not in seen:
+                    result.append(obj)
+                    seen.add(name)
+            return result
+
+        # The property is populated by SheetMetal when separate sketches
+        # are generated. An empty property is not considered a valid link set.
+        linked = _unique_objects(getattr(unfold, "UnfoldSketches", ()) or ())
+        if linked:
+            candidates = linked
+            source_kind = "UnfoldSketches links"
+        else:
+            # Older/partially recomputed SheetMetal objects may not expose
+            # UnfoldSketches. Accept numeric FreeCAD internal-name suffixes.
+            pattern = re.compile(
+                r"^" + re.escape(unfold.Name) +
+                r"_Sketch(?:_Bends|_Labels)?\\d*$"
+            )
+            candidates = _unique_objects(
+                o for o in doc.Objects if pattern.fullmatch(str(o.Name))
+            )
+            source_kind = "generated sketch names"
+
+        def _role(obj):
+            # Labels can retain the original name when FreeCAD auto-renames
+            # the internal Name to avoid duplicate names after remodeling.
+            names = (str(getattr(obj, "Name", "")),
+                     str(getattr(obj, "Label", "")))
+            for value in names:
+                if re.search(r"_Sketch_Bends\\d*$", value):
+                    return "bends"
+                if re.search(r"_Sketch_Labels\\d*$", value):
+                    return "labels"
+            for value in names:
+                if re.search(r"_Sketch\\d*$", value):
+                    return "outline"
+            return None
+
+        outline_candidates = [o for o in candidates if _role(o) == "outline"]
+        bends_candidates = [o for o in candidates if _role(o) == "bends"]
         if outline_name is None:
-            outlines = [o for o in matches if o.Name.endswith("_Sketch")]
-            if len(outlines) != 1:
-                raise PanelBuildError("Specify outline_name explicitly")
-            outline_name = outlines[0].Name
+            if len(outline_candidates) != 1:
+                raise PanelBuildError(
+                    "Cannot identify unique outline sketch for {} via {}: "
+                    "found {} candidate(s), names={}. Recompute SheetMetal "
+                    "Unfold with GenerateSketch and SeparateSketchLayers "
+                    "enabled, or supply outline_name explicitly.".format(
+                        unfold.Name, source_kind, len(outline_candidates),
+                        [o.Name for o in candidates],
+                    )
+                )
+            outline_name = outline_candidates[0].Name
         if bends_name is None:
-            axes = [o for o in matches if o.Name.endswith("_Sketch_Bends")]
-            if len(axes) != 1:
-                raise PanelBuildError("Specify bends_name explicitly")
-            bends_name = axes[0].Name
+            if len(bends_candidates) != 1:
+                raise PanelBuildError(
+                    "Cannot identify unique bend-lines sketch for {} via {}: "
+                    "found {} candidate(s), names={}. Recompute SheetMetal "
+                    "Unfold with GenerateSketch and SeparateSketchLayers "
+                    "enabled, or supply bends_name explicitly.".format(
+                        unfold.Name, source_kind, len(bends_candidates),
+                        [o.Name for o in candidates],
+                    )
+                )
+            bends_name = bends_candidates[0].Name
     outline = doc.getObject(outline_name)
     bend_sketch = doc.getObject(bends_name)
     if outline is None or bend_sketch is None:
