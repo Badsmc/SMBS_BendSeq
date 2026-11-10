@@ -110,6 +110,23 @@ class Backgauge2DTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "no usable"):
                 model.resolve_for_state(state, {}, "B01")
 
+    def test_explicit_cad_mode_round_trip_and_validation(self):
+        selected = BackgaugeModel2D(
+            10, 10, {}, automatic=True,
+            cad_geometry_enabled=True, cad_station_xm_mm=42.5,
+        )
+        restored = BackgaugeModel2D.from_dict(selected.to_dict())
+        self.assertTrue(restored.cad_geometry_enabled)
+        self.assertEqual(restored.cad_station_xm_mm, 42.5)
+        self.assertEqual(
+            restored.to_dict()["geometry_evidence"],
+            "CAD_BREP_REQUESTED_RUNTIME_VERIFICATION_REQUIRED",
+        )
+        with self.assertRaisesRegex(ValueError, "cad_geometry_enabled"):
+            BackgaugeModel2D(10, 10, {}, cad_geometry_enabled="true")
+        with self.assertRaisesRegex(ValueError, "cad_station_xm_mm"):
+            BackgaugeModel2D(10, 10, {}, cad_station_xm_mm=float("nan"))
+
     def test_initial_feed_preview_is_opt_in_and_round_trips(self):
         disabled = BackgaugeModel2D(10, 6, {}, automatic=True)
         self.assertEqual(disabled.initial_feed_preview_mm, 0.0)
