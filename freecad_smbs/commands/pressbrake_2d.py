@@ -4334,14 +4334,85 @@ class _PreviewPanel:
                             start[0].s_mm + (target[0].s_mm-start[0].s_mm)*t,
                             start[0].z_mm + (target[0].z_mm-start[0].z_mm)*t,
                         )
-                polygon = make_poly(model.polygon_at(pos))
                 pen = QtGui.QPen(QtGui.QColor("#b45524"), 1.8)
                 pen.setCosmetic(True)
-                brush = QtGui.QBrush(QtGui.QColor(190, 106, 51, 140))
-                item = self.scene.addPolygon(polygon, pen, brush)
-                item.setZValue(Z_LAYER_AUXILIARY)
-                item.setData(0, "backgauge_2d_unverified")
-                label = self.scene.addSimpleText("Упор 2D · путь НЕ проверен")
+                if model.cad_geometry_enabled:
+                    # Draw the actual FCStd BRep cutting section at the
+                    # explicitly mounted X_m station. NEVER show a pretend
+                    # 10x10 rectangle when CAD loading fails.
+                    try:
+                        from smbs_core.kinematics2d.backgauge_cad_3d import (
+                            BackgaugeCAD3D,
+                        )
+                        cached = getattr(self, "_backgauge_cad_draw_cache", None)
+                        if cached is None or cached[0] != model.cad_station_xm_mm:
+                            adapter = BackgaugeCAD3D(
+                                station_xm_mm=model.cad_station_xm_mm
+                            )
+                            self._backgauge_cad_draw_cache = (
+                                model.cad_station_xm_mm, adapter,
+                            )
+                        else:
+                            adapter = cached[1]
+                        # Source Face3 is positioned on the contact edge.
+                        # In auto mode the old 2D centre is depth+halfwidth,
+                        # but the real CAD stop FACE must be at 'depth'.
+                        contact_s = (
+                            pos.s_mm - model.width_s_mm / 2
+                            - model.edge_clearance_mm
+                        )
+                        shape = adapter.positioned_shape(contact_s, pos.z_mm)
+                        from FreeCAD import Vector
+                        wires = shape.slice(
+                            Vector(1, 0, 0),
+                            float(model.cad_station_xm_mm),
+                        )
+                        if not wires:
+                            raise ValueError(
+                                "CAD model does not intersect its X_m station"
+                            )
+                        path = QtGui.QPainterPath()
+                        for wire in wires:
+                            points = []
+                            for edge in wire.Edges:
+                                pts = edge.discretize(Number=24)
+                                for pt in pts:
+                                    qpt = QtCore.QPointF(-float(pt.y), -float(pt.z))
+                                    if not points or points[-1] != qpt:
+                                        points.append(qpt)
+                            if len(points) < 2:
+                                continue
+                            path.moveTo(points[0])
+                            for qpt in points[1:]:
+                                path.lineTo(qpt)
+                            if wire.isClosed():
+                                path.closeSubpath()
+                        if path.isEmpty():
+                            raise ValueError("CAD cross-section has no drawable edges")
+                        item = self.scene.addPath(
+                            path, pen,
+                            QtGui.QBrush(QtGui.QColor(190, 106, 51, 80))
+                        )
+                        item.setData(0, "backgauge_real_fcstd_cad_section")
+                        label_text = (
+                            "Backgauge.FCStd | CAD-сечение | "
+                            "путь НЕ сертифицирован"
+                        )
+                    except Exception as exc:
+                        item = None
+                        label_text = "ОШИБКА CAD УПОРА: " + str(exc)[:100]
+                        _warn(label_text)
+                else:
+                    polygon = make_poly(model.polygon_at(pos))
+                    item = self.scene.addPolygon(
+                        polygon, pen,
+                        QtGui.QBrush(QtGui.QColor(190, 106, 51, 140))
+                    )
+                    item.setData(0, "backgauge_2d_unverified")
+                    label_text = "Упор 2D · путь НЕ проверен"
+                if item is not None:
+                    item.setZValue(Z_LAYER_AUXILIARY)
+                label = self.scene.addSimpleText(label_text)
                 if phase == "LOAD_TO_GAUGE":
                     feed_note = self.scene.addSimpleText(
                         "ПОДВОД ЗАГОТОВКИ К УПОРУ · ПУТЬ НЕ ПРОВЕРЕН"
