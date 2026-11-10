@@ -683,3 +683,12 @@ In integration branch `integration/gui-2d-search-screening`:
 4. Regression tests cover late-root discovery, status, state restoration and coarse-to-full replay.
 
 The change is experimental and is **not** proven to solve this real 10-bend model until its FreeCAD JSON confirms a complete full-density replay. Do not bypass collisions, relax tolerance, or confuse a sampled 2D candidate with 3D machine approval. Important: the 10-bend diagnostic has backgauge checking disabled/missing. Run `python3 -m unittest tests.test_sequence_search_2d -v` and the same 10-bend fixture inside FreeCAD. Preserve the eight-bend `B08 -> B07 -> B06 -> B05 -> B04 -> B03 -> B02 -> B01` GUI replay as a separate acceptance test.
+
+
+## 10-bend live finding: cached states prevented node-based root fairness (2026-11-10)
+
+Actual FreeCAD diagnostics `smbs_2d_search_diagnostics(3).json` after node-budget optimization: 10 bends, 261 unique checked steps, 61 DFS visited nodes, 81 dead-state cache hits, 56 proven dead subsets, 0 deferred root probes, depth 8/10, and `MAX_SEARCH_TIME_REACHED` after 30.0068 s. **Every evaluated step remained under B10**; B09 was rejected 61 times (APPROACH / P02). Although `root_probe_nodes=65`, memo hits kept the visited node count at only 61, so this node threshold did not interrupt B10 even as wall time expired.
+
+Fixed integration search by adding optional `root_probe_seconds` with finite/nonnegative validation and per-root wall-clock deadlines. Local node/time cutoff returns normally, increments `deferred_root_probes`, never marks truncated states as exhausted, and the existing full DFS fallthrough remains. The GUI enables `root_probe_seconds=1.8` for ten or more bends (beside the previous 65-node allowance), **zero for eight bends**, preserving the qualified eight-bend GUI path. Stage B still uses the original global deadline and full-density detailed replay remains mandatory before reporting any candidate.
+
+Regression tests include slow Stage B with node counts below the cutoff to ensure later first-bend roots are examined; invalid time-slice arguments; and prior memo/replay tests. **Requires real FreeCAD re-test**; success is not claimed until JSON shows multiple first-bend roots, full ten-bend sequence, and detailed replay. If still zero candidates, inspect whether B09 has any feasible earliest placement and whether its P02 interference is caused by actual geometry/tooling setup vs preview false positive. No 3D physical approval is implied.
