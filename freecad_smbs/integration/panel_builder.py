@@ -152,7 +152,7 @@ def build_panels(unfold_name="Body_Unfold", outline_name=None, bends_name=None,
             # UnfoldSketches. Accept numeric FreeCAD internal-name suffixes.
             pattern = re.compile(
                 r"^" + re.escape(unfold.Name) +
-                r"_Sketch(?:_Bends|_Labels)?\\d*$"
+                r"_Sketch(?:_Bends|_Labels)?\d*$"
             )
             candidates = _unique_objects(
                 o for o in doc.Objects if pattern.fullmatch(str(o.Name))
@@ -165,12 +165,12 @@ def build_panels(unfold_name="Body_Unfold", outline_name=None, bends_name=None,
             names = (str(getattr(obj, "Name", "")),
                      str(getattr(obj, "Label", "")))
             for value in names:
-                if re.search(r"_Sketch_Bends\\d*$", value):
+                if re.search(r"_Sketch_Bends\d*$", value):
                     return "bends"
-                if re.search(r"_Sketch_Labels\\d*$", value):
+                if re.search(r"_Sketch_Labels\d*$", value):
                     return "labels"
             for value in names:
-                if re.search(r"_Sketch\\d*$", value):
+                if re.search(r"_Sketch\d*$", value):
                     return "outline"
             return None
 
