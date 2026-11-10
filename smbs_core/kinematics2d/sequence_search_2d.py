@@ -527,7 +527,11 @@ def search_bend_sequences_2d(
             for completed in prefix:
                 state.set_angle(completed, float(state.bends[completed].angle_deg))
             setup = compute_workpiece_machine_setup(
-                state, bend_id, desired_midpoint_xm=float(shifts.get(bend_id, 0.0)),
+                state, bend_id,
+                desired_midpoint_xm=float(shifts.get(bend_id, 0.0)),
+                rear_panel_vertices_xy=(
+                    panel_vertices if backgauge_model is not None else None
+                ),
             )
             # Distinguish physical tool length from bend-line length. Under
             # virtual axial matching the effective lengths are only planned,
