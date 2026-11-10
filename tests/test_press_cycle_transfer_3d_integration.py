@@ -154,6 +154,36 @@ class TestWorkpieceTransfer3DIntegration(unittest.TestCase):
         for p1, p2 in zip(pts_b02_setup, pts_b02_actual):
             self.assertAlmostEqual(math.dist(p1, p2), 0.0, places=6)
 
+    def test_initial_loading_feeds_sheet_from_operator_left_before_punch(self):
+        cycle = self.cycle
+        cycle.rear_panel_vertices_xy = self.panel_verts
+        cycle.initial_feed_preview_mm = 40.0
+        cycle.initial_feed_preview_speed_mm_s = 40.0
+        cycle.play_all()
+        self.assertEqual(cycle.phase, CyclePhase.LOAD_TO_GAUGE)
+        initial = cycle.current_workpiece_placement_3d()
+        self.assertAlmostEqual(cycle.current_angle_deg, 0.0)
+        self.assertAlmostEqual(cycle.initial_feed_progress, 0.0)
+
+        cycle.advance_time(0.1)
+        self.assertEqual(cycle.phase, CyclePhase.LOAD_TO_GAUGE)
+        self.assertGreater(cycle.initial_feed_progress, 0.0)
+        partial = cycle.current_workpiece_placement_3d()
+        # Positive machine Y maps to negative s (operator left).
+        self.assertLess(partial.translation[1], initial.translation[1])
+        self.assertAlmostEqual(cycle.current_angle_deg, 0.0)
+
+        while cycle.phase == CyclePhase.LOAD_TO_GAUGE:
+            cycle.advance_time(0.05)
+        self.assertEqual(cycle.phase, CyclePhase.APPROACH)
+        after = cycle.current_workpiece_placement_3d()
+        self.assertAlmostEqual(
+            initial.translation[1] - after.translation[1], 40.0, places=4)
+        self.assertAlmostEqual(cycle.current_angle_deg, 0.0)
+        cycle.reset()
+        self.assertEqual(cycle.initial_feed_progress, 0.0)
+        self.assertEqual(cycle.phase, CyclePhase.IDLE)
+
     def test_pause_resume_and_reset_during_transfer(self):
         cycle = self.cycle
         fold_state = self.fold_state
