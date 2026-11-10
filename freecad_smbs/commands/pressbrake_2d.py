@@ -73,7 +73,6 @@ Z_LAYER_SHEET_ZONE = 35.0
 Z_LAYER_SHEET_SURFACES = 40.0
 Z_LAYER_SHEET_NEUTRAL_AND_TANGENTS = 50.0
 
-_DOCK = None
 _SLIDER_SCALE = 10  # 0.1 degree slider resolution
 _LOGGER: logging.Logger | None = None
 def _pressbrake_user_data_directory():
@@ -710,6 +709,7 @@ class PlanarCandidatesCommand:
     """Preserve experiment's separate fast 2D candidate search."""
     def GetResources(self):
         return {
+            "Pixmap": str(_ICON_ROOT / "gui_planar_candidates.svg"),
             "MenuText": "2D варианты",
             "ToolTip": "Предварительные 2D варианты; не являются 3D-допуском",
         }
