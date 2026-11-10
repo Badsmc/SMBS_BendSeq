@@ -110,6 +110,8 @@ class PlanarSearchReport:
     deepest_prefix: tuple[str, ...] = ()
     rejection_counts: tuple[tuple[str, int], ...] = ()
     slowest_steps: tuple[tuple[str, str, float], ...] = ()
+    final_replay_attempts: int = 0
+    final_replay_rejections: int = 0
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -126,6 +128,8 @@ class PlanarSearchReport:
             "axis_groups": [{"group_id": name, "bend_ids": list(ids)}
                             for name, ids in self.axis_groups],
             "complete_candidates_examined": self.complete_candidates_examined,
+            "final_replay_attempts": self.final_replay_attempts,
+            "final_replay_rejections": self.final_replay_rejections,
             "max_depth_reached": self.max_depth_reached,
             "deepest_prefix": list(self.deepest_prefix),
             "rejection_counts": dict(self.rejection_counts),
@@ -177,6 +181,8 @@ def search_bend_sequences_2d(
     max_search_time_s: float = 60.0,
     fractions: Sequence[float] = tuple(i / 16 for i in range(17)),
     stroke_fractions: Sequence[float] = tuple(i / 8 for i in range(9)),
+    exploration_fractions: Optional[Sequence[float]] = None,
+    exploration_stroke_fractions: Optional[Sequence[float]] = None,
     match_active_bend_length: bool = True,
     bend_shifts: Optional[Mapping[str, float]] = None,
     multi_station_enabled: bool = False,
@@ -190,6 +196,8 @@ def search_bend_sequences_2d(
     Unknown geometry is retained as UNVERIFIED, never reported as safe.
     A 2D overlap can exclude a sequence *from this planar preview only*.
     FoldState and tooling are restored after every branch and after search.
+    Optional reduced exploration sampling NEVER produces a returned candidate
+    without replaying all of its steps at the original full sampling density.
     """
     start = perf_counter()
     warnings = (
@@ -221,6 +229,19 @@ def search_bend_sequences_2d(
         if (not stroke_fs or stroke_fs[0] != 0.0 or stroke_fs[-1] != 1.0
                 or any(not isfinite(x) or x < 0 or x > 1 for x in stroke_fs)):
             raise ValueError("stroke_fractions must contain [0,1] endpoints")
+        coarse_fs = (tuple(sorted(set(float(x) for x in exploration_fractions)))
+                     if exploration_fractions is not None else fs)
+        coarse_stroke_fs = (
+            tuple(sorted(set(float(x) for x in exploration_stroke_fractions)))
+            if exploration_stroke_fractions is not None else stroke_fs
+        )
+        if (not coarse_fs or coarse_fs[0] != 0.0 or coarse_fs[-1] != 1.0
+                or any(not isfinite(x) or x < 0 or x > 1 for x in coarse_fs)):
+            raise ValueError("exploration_fractions must contain 0 and 1")
+        if (not coarse_stroke_fs or coarse_stroke_fs[0] != 0.0 or coarse_stroke_fs[-1] != 1.0
+                or any(not isfinite(x) or x < 0 or x > 1 for x in coarse_stroke_fs)):
+            raise ValueError("exploration_stroke_fractions must contain 0 and 1")
+        progressive = coarse_fs != fs or coarse_stroke_fs != stroke_fs
         axis_groups_raw = group_parallel_bends(axes_from_fold_state(state))
         axis_groups = tuple((g.group_id, g.bend_ids) for g in axis_groups_raw)
         group_of = {bid: group_id for group_id, ids in axis_groups for bid in ids}
@@ -242,13 +263,16 @@ def search_bend_sequences_2d(
     stopped = ""
     candidates: list[PlanarCandidate] = []
     complete_candidates_examined = 0
-    step_cache: dict[tuple[frozenset[str], str], PlanarStep] = {}
+    step_cache: dict[tuple[frozenset[str], str, bool], PlanarStep] = {}
     step_diagnostics: list[tuple[tuple[str, ...], PlanarStep]] = []
     deepest_prefix: tuple[str, ...] = ()
+    final_replay_attempts = final_replay_rejections = 0
 
-    def eval_step(prefix: tuple[str, ...], bend_id: str) -> PlanarStep:
+    def eval_step(prefix: tuple[str, ...], bend_id: str, *, detailed: bool = False) -> PlanarStep:
         nonlocal evaluated, rejected, unverified
-        key = (frozenset(prefix), bend_id)
+        # Separate coarse and full-density results: the same subset must
+        # never reuse a less thoroughly sampled verdict at final replay.
+        key = (frozenset(prefix), bend_id, detailed and progressive)
         if key in step_cache:
             return step_cache[key]
         evaluated += 1
@@ -278,8 +302,9 @@ def search_bend_sequences_2d(
                     state, bend_id, tooling, panel_vertices,
                     desired_midpoint_xm=float(shifts.get(bend_id, 0.0)),
                     match_active_bend_length=match_active_bend_length,
-                    tolerance_mm=tolerance_mm, fractions=fs,
-                    stroke_fractions=stroke_fs,
+                    tolerance_mm=tolerance_mm,
+                    fractions=fs if detailed else coarse_fs,
+                    stroke_fractions=stroke_fs if detailed else coarse_stroke_fs,
                     backgauge_polygon_machine=backgauge_polygon_machine,
                     deadline_monotonic=start + max_search_time_s,
                     multi_station_enabled=multi_station_enabled,
@@ -320,6 +345,7 @@ def search_bend_sequences_2d(
 
     def dfs(prefix: tuple[str, ...], steps: tuple[PlanarStep, ...]) -> None:
         nonlocal visited, stopped, complete_candidates_examined, deepest_prefix
+        nonlocal final_replay_attempts, final_replay_rejections
         if len(prefix) > len(deepest_prefix):
             deepest_prefix = prefix
         if stopped:
@@ -335,6 +361,21 @@ def search_bend_sequences_2d(
             return
         visited += 1
         if len(prefix) == len(order):
+            if progressive:
+                final_replay_attempts += 1
+                replay_steps = []
+                for i, bend_id in enumerate(prefix):
+                    if perf_counter() - start >= max_search_time_s:
+                        stopped = "MAX_SEARCH_TIME_REACHED"
+                        return
+                    replay_step = eval_step(prefix[:i], bend_id, detailed=True)
+                    if replay_step.evidence in (
+                        "2D_INTERFERENCE", "INVALID_INPUT", "2D_TOOLING_CONSTRAINT"
+                    ):
+                        final_replay_rejections += 1
+                        return
+                    replay_steps.append(replay_step)
+                steps = tuple(replay_steps)
             evidence = ("SAMPLED_2D_CLEAR_OR_TOUCH"
                         if all(s.evidence == "SAMPLED_2D_CLEAR_OR_TOUCH" for s in steps)
                         else "UNVERIFIED_2D")
@@ -408,6 +449,8 @@ def search_bend_sequences_2d(
         rejected, unverified, stopped, warnings,
         axis_groups=axis_groups, complete_candidates_examined=complete_candidates_examined,
         evaluated_step_details=tuple(step_diagnostics),
+        final_replay_attempts=final_replay_attempts,
+        final_replay_rejections=final_replay_rejections,
         max_depth_reached=len(deepest_prefix),
         deepest_prefix=deepest_prefix,
         rejection_counts=tuple(sorted(
