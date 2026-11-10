@@ -72,31 +72,85 @@ def inspect_backgauge_cad(library_dir=None):
                 "candidates: " + ",".join(o.Name for o in candidates)
             )
         shape = obj.Shape.copy()
+        # Locate the real FACE, not an infinite plane or a bounding box.
+        # The source datum may be on an edge/vertex rather than in the face
+        # interior. Always record why each geometrically nearby face fails.
         faces = []
+        diagnostic_faces = []
+        planar_count = 0
         for index, face in enumerate(shape.Faces, 1):
             if not isinstance(face.Surface, Part.Plane):
                 continue
-            # Surface.Axis may point opposite to the actual oriented face
-            # normal. Verify the outward face normal, not just its plane.
+            planar_count += 1
             u_min, u_max, v_min, v_max = face.ParameterRange
-            axis = face.normalAt(
-                (u_min + u_max) / 2, (v_min + v_max) / 2
-            )
-            if axis.dot(normal) < 0.999:
+            try:
+                axis = face.normalAt((u_min + u_max) / 2,
+                                     (v_min + v_max) / 2)
+                dot = float(axis.dot(normal))
+                distance, _pairs, _info = face.distToShape(Part.Vertex(point))
+                distance = float(distance)
+                plane_distance = abs(float(
+                    (point - face.CenterOfMass).dot(normal)
+                ))
+            except Exception as exc:
+                diagnostic_faces.append({
+                    "face": index,
+                    "error": type(exc).__name__ + ":" + str(exc),
+                })
                 continue
-            # Datum origin must actually lie on this contact face, not
-            # just its infinite support plane.
-            distance, _pairs, _info = face.distToShape(Part.Vertex(point))
-            if distance <= tol:
+            diagnostic_faces.append({
+                "face": index,
+                "distance_mm": distance,
+                "normal_dot": dot,
+                "area_mm2": float(face.Area),
+                "center": [round(v, 3) for v in (
+                    face.CenterOfMass.x, face.CenterOfMass.y,
+                    face.CenterOfMass.z,
+                )],
+                "plane_distance_along_metadata_normal_mm": plane_distance,
+            })
+            # Only a real, finite, *oriented* CAD face at the datum can
+            # qualify. Opposite normals are reported, never quietly flipped.
+            if distance <= tol and dot >= 0.999:
                 faces.append((index, face, axis))
         if len(faces) != 1:
+            diagnostics = sorted(
+                diagnostic_faces,
+                key=lambda x: (x.get("distance_mm", float("inf")),
+                               -x.get("normal_dot", -2.0)),
+            )
+            examples = []
+            for item in diagnostics[:8]:
+                if "error" in item:
+                    examples.append(
+                        "Face{} ERROR {}".format(item["face"], item["error"])
+                    )
+                else:
+                    examples.append(
+                        "Face{} dist={:.4f} mm normalDot={:+.4f} "
+                        "area={:.2f} mm² center={}".format(
+                            item["face"], item["distance_mm"],
+                            item["normal_dot"], item["area_mm2"],
+                            item["center"],
+                        )
+                    )
             raise ValueError(
-                "Expected exactly one planar CAD face at stop_face datum; "
-                "found {} (not using a synthetic rectangle)".format(len(faces))
+                "Backgauge CAD stop_face datum NOT validated.\n"
+                "Expected one outward-oriented planar face at {} ± {:.3f} mm "
+                "with normal {}; found {}.\n"
+                "CAD object={} solids={} planar_faces={} all_faces={}\n"
+                "Nearest planar faces:\n{}\n"
+                "Interpretation: dist>tol means metadata point misses the "
+                "finite CAD face; normalDot≈-1 means inverted CAD face "
+                "orientation; both must be fixed explicitly.\n"
+                "Collision geometry remains DISABLED."
+                .format(
+                    tuple(origin), tol, tuple(direction), len(faces),
+                    obj.Name, len(shape.Solids), planar_count,
+                    len(shape.Faces), "\n".join(examples) or "NONE",
+                )
             )
         index, face, axis = faces[0]
-        if axis.dot(normal) < 0.999:
-            raise ValueError("CAD stop_face normal opposes metadata")
         bb = shape.BoundBox
         return {
             "source": str(cad_path),
