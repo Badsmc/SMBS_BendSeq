@@ -3239,6 +3239,7 @@ class _PreviewPanel:
                 self._last_3d_frame_at = -1.0
                 self.session = new_session
                 self.last_planar_search_report = None
+                self._last_manual_sequence_report = None
                 self._preview_only_planar_order = None
                 self._partial_preview_limit = 0
                 self._manual_sequence_prefix = []
