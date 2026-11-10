@@ -2016,6 +2016,12 @@ class _PreviewPanel:
                         max_solutions=1,
                         max_complete_candidates=1,
                         min_partial_bends=(7 if len(self.session.bend_order) >= 10 else 0),
+                        # Alternative machine-Z loading trials are advisory:
+                        # the live 2.5D cycle still uses its own active pose.
+                        alternate_axis_bends=(
+                            tuple(b for b in ("B09", "B10") if b in self.session.bend_order)
+                            if len(self.session.bend_order) >= 10 else ()
+                        ),
                         allow_end_zone_collision=bool(self.tooling_setup.allow_end_zone_collision),
                         end_zone_length_mm=float(self.tooling_setup.end_zone_length_mm),
                         max_search_time_s=30.0,
@@ -2098,6 +2104,22 @@ class _PreviewPanel:
                     )
                     notice.setWordWrap(True)
                     layout.addWidget(notice)
+                if report.alternative_setup_trials:
+                    tested = len(report.alternative_setup_trials)
+                    clear = sum(
+                        trial[3] == "SAMPLED_2D_CLEAR_OR_TOUCH"
+                        for trial in report.alternative_setup_trials
+                    )
+                    alternate_notice = QtWidgets.QLabel(
+                        "Альтернативная установка (разворот на 180°): "
+                        "проверено {}, без 2D-пересечений {}. "
+                        "Результат пока диагностический, анимация такой установки "
+                        "и путь перекладки отдельно не подтверждены.".format(
+                            tested, clear
+                        )
+                    )
+                    alternate_notice.setWordWrap(True)
+                    layout.addWidget(alternate_notice)
                 if report.conditional_end_zone_requested:
                     conditional_notice = QtWidgets.QLabel(
                         "CONDITIONAL запрошен. В быстром 2D-сечении нельзя "
