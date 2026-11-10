@@ -894,6 +894,7 @@ class _PreviewPanel:
                 self._last_manual_sequence_report = None
                 self._backgauge_settings = QtCore.QSettings("SMBS", "BendSeq")
                 self.backgauge_model = None
+                self._backgauge_preview_cache = {}
                 if self._backgauge_settings.value(
                     "backgauge/enabled", False, type=bool
                 ):
@@ -4251,6 +4252,84 @@ class _PreviewPanel:
                     "станка выберите Bend Only и нажмите Play All.".format(reason)
                 )
 
+            def _backgauge_preview_position(self, index):
+                """Compute a planning target on isolated FoldState, cache by order.
+
+                Never mutate the live FoldState in the playback timer.
+                An unresolvable target stays UNKNOWN, not a fabricated origin.
+                """
+                model = self.backgauge_model
+                session = self.session
+                if model is None or session is None:
+                    return None
+                order = tuple(session.bend_order)
+                if index < 0 or index >= len(order):
+                    return None
+                if (model.part_label and
+                        model.part_label != session.part_label):
+                    return None
+                key = (id(session), order, id(model), index)
+                if key in self._backgauge_preview_cache:
+                    return self._backgauge_preview_cache[key]
+                try:
+                    from smbs_core.kinematics2d.panel_kinematics import FoldState
+                    model_state = FoldState(
+                        session.fold_state.graph, session.fold_state.fixed_panel
+                    )
+                    for bid in order[:index]:
+                        model_state.set_angle(
+                            bid, float(model_state.bends[bid].angle_deg)
+                        )
+                    point, depth, evidence = model.resolve_for_state(
+                        model_state, session.panel_vertices_xy, order[index],
+                    )
+                    result = (point, depth, evidence)
+                except Exception as exc:
+                    _warn("Backgauge preview target unknown for {}: {}".format(
+                        order[index], exc
+                    ))
+                    result = None
+                self._backgauge_preview_cache[key] = result
+                return result
+
+            def _draw_backgauge_preview(self, QtCore, QtGui, make_poly):
+                """Render gauge position; interpolate its target during TRANSFER.
+
+                This preview does not check collision along the interpolated path.
+                """
+                model, session = self.backgauge_model, self.session
+                if model is None or session is None:
+                    return
+                idx = session.active_bend_index
+                start = self._backgauge_preview_position(idx)
+                if start is None:
+                    return
+                pos = start[0]
+                controller = self.press_cycle
+                phase = getattr(getattr(controller, "phase", None), "value", "")
+                if (phase == "TRANSFER" and
+                        self.execution_mode == CycleExecutionMode.FULL_CYCLE
+                        and idx + 1 < len(session.bend_order)):
+                    target = self._backgauge_preview_position(idx + 1)
+                    if target is not None:
+                        t = max(0.0, min(1.0, float(controller.transfer_progress)))
+                        from smbs_core.kinematics2d.backgauge_2d import BackgaugePosition2D
+                        pos = BackgaugePosition2D(
+                            start[0].s_mm + (target[0].s_mm-start[0].s_mm)*t,
+                            start[0].z_mm + (target[0].z_mm-start[0].z_mm)*t,
+                        )
+                polygon = make_poly(model.polygon_at(pos))
+                pen = QtGui.QPen(QtGui.QColor("#b45524"), 1.8)
+                pen.setCosmetic(True)
+                brush = QtGui.QBrush(QtGui.QColor(190, 106, 51, 140))
+                item = self.scene.addPolygon(polygon, pen, brush)
+                item.setZValue(Z_LAYER_AUXILIARY)
+                item.setData(0, "backgauge_2d_unverified")
+                label = self.scene.addSimpleText("Упор 2D · путь НЕ проверен")
+                label.setBrush(QtGui.QBrush(QtGui.QColor("#b45524")))
+                label.setPos(float(pos.s_mm), -float(pos.z_mm)-12.0)
+                label.setZValue(Z_LAYER_AUXILIARY)
+
             def draw(self):
                 try:
                     t_draw_start = time.perf_counter()
@@ -4441,6 +4520,10 @@ class _PreviewPanel:
                         zone_item = self.scene.addPolygon(make_sheet_poly(sec["zone_polygon"]), zone_pen, zone_brush)
                         zone_item.setZValue(Z_LAYER_SHEET_ZONE)
                         zone_item.setData(0, "sheet_zone")
+
+                        # Gauge movement is a visual planning preview; Stage B
+                        # validates targets only, not its entire transfer path.
+                        self._draw_backgauge_preview(QtCore, QtGui, make_sheet_poly)
 
                         # 6. Both sheet surfaces (inner concave and outer convex)
                         inner_pen = QtGui.QPen(QtGui.QColor("#0e6251"), 2.0)
