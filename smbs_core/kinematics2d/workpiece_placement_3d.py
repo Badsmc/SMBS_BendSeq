@@ -150,6 +150,7 @@ class WorkpiecePlacement3D:
         align_bisector: bool = False,
         align_bend_arc_center: bool = False,
         reverse_axis: bool = False,
+        rear_panel_vertices_xy=None,
     ) -> PlacementTransform3D:
         """Compute rigid 3D placement mapping Part Space -> Machine Space for `active_bend_id`.
 
@@ -266,6 +267,38 @@ class WorkpiecePlacement3D:
                 -mid_rot[1],
                 support_plane_zm - mid_rot[2],
             )
+
+        if rear_panel_vertices_xy is not None:
+            # Machine frame: screen +s = -Y_m = interior/right/rear gauge.
+            # Physically orient the sheet, NOT the tool or camera. A 180-degree
+            # Z rotation preserves the punch-over-die arrangement and all 3D
+            # contacts; screening and viewer must pass the same panel vertices.
+            verts = rear_panel_vertices_xy.get(bend.fixed_panel, ())
+            if len(verts) < 3:
+                raise ValueError(
+                    "rear_frame_missing_fixed_panel_vertices:" + bend.fixed_panel
+                )
+            fixed_tf = fold_state.transforms[bend.fixed_panel]
+            samples = [
+                fixed_tf.point((float(x), float(y), 0.0))
+                for x, y in verts
+            ]
+            # Evaluate each vertex relative to active bend axis, not global
+            # panel dimensions. A side must be identifiable (no guessing).
+            ss = [-(_mat_vec(R, p)[1] + T[1]) for p in samples]
+            smax, smin = max(ss), min(ss)
+            # The support panel may cross the bend line by a tiny thickness
+            # tolerance, but it must predominantly occupy one machine side.
+            if smax > 1.0 and smin < -1.0:
+                if min(smax, -smin) > 0.1 * max(smax, -smin):
+                    raise ValueError("rear_frame_ambiguous_support_on_both_sides")
+            rear_edge = smax if smax >= -smin else smin
+            if abs(rear_edge) <= 1.0:
+                raise ValueError("rear_frame_no_resolved_support_edge")
+            if rear_edge < 0.0:
+                R = (tuple(-v for v in R[0]),
+                     tuple(-v for v in R[1]), R[2])
+                T = (2.0 * desired_midpoint_xm - T[0], -T[1], T[2])
 
         if reverse_axis:
             # A physically distinct loading orientation: rotate the entire
