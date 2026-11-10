@@ -2757,6 +2757,10 @@ class _PreviewPanel:
                             self.session.panel_vertices_xy
                             if self.backgauge_model is not None else None
                         )
+                        self.press_cycle.initial_feed_preview_mm = (
+                            self.backgauge_model.initial_feed_preview_mm
+                            if self.backgauge_model is not None else 0.0
+                        )
                         return self.press_cycle
                 ctrl = getattr(self.session, "controller", None)
                 if ctrl is None:
@@ -2774,6 +2778,10 @@ class _PreviewPanel:
                 self.press_cycle.rear_panel_vertices_xy = (
                     self.session.panel_vertices_xy
                     if self.backgauge_model is not None else None
+                )
+                self.press_cycle.initial_feed_preview_mm = (
+                    self.backgauge_model.initial_feed_preview_mm
+                    if self.backgauge_model is not None else 0.0
                 )
                 self.press_cycle.set_execution_mode(self.execution_mode)
                 return self.press_cycle
@@ -4334,6 +4342,15 @@ class _PreviewPanel:
                 item.setZValue(Z_LAYER_AUXILIARY)
                 item.setData(0, "backgauge_2d_unverified")
                 label = self.scene.addSimpleText("Упор 2D · путь НЕ проверен")
+                if phase == "LOAD_TO_GAUGE":
+                    feed_note = self.scene.addSimpleText(
+                        "ПОДВОД ЗАГОТОВКИ К УПОРУ · ПУТЬ НЕ ПРОВЕРЕН"
+                    )
+                    feed_note.setBrush(QtGui.QBrush(QtGui.QColor("#b45524")))
+                    feed_note.setPos(
+                        float(pos.s_mm)-100.0, -float(pos.z_mm)-25.0
+                    )
+                    feed_note.setZValue(Z_LAYER_AUXILIARY)
                 label.setBrush(QtGui.QBrush(QtGui.QColor("#b45524")))
                 label.setPos(float(pos.s_mm), -float(pos.z_mm)-12.0)
                 label.setZValue(Z_LAYER_AUXILIARY)
