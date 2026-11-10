@@ -168,6 +168,31 @@ class PlanarSearchTests(unittest.TestCase):
         self.assertIn(("B02", (("B01", 90.0), ("B02", 0.0))), seen)
         self.assertIn(("B01", (("B01", 0.0), ("B02", 90.0))), seen)
 
+    def test_diagnostics_explain_timeout_and_deepest_prefix(self):
+        result, _ = self.run_mocked(max_complete_candidates=1)
+        payload = result.to_dict()
+        self.assertEqual(payload["max_depth_reached"], 2)
+        self.assertEqual(len(payload["deepest_prefix"]), 2)
+        self.assertIn("rejection_counts", payload)
+        self.assertIn("slowest_steps", payload)
+        self.assertEqual(payload["complete_candidates_examined"], 1)
+        self.assertEqual(payload["limit_reason"], "MAX_COMPLETE_CANDIDATES_REACHED")
+
+    def test_diagnostics_explain_branch_rejections(self):
+        def blocked(_state, bend, *_args, **_kwargs):
+            if bend == "B01":
+                return PreliminaryScreeningReport(
+                    ScreeningDecision.CONTINUE_TO_3D,
+                    "STAGE_B_SECTION_REQUIRES_3D", "interference",
+                    sampled_phases=("APPROACH",),
+                    contact_statuses=("INTERFERENCE",),
+                )
+            return stage_b_result()
+        result, _ = self.run_mocked(blocked)
+        data = result.to_dict()
+        self.assertEqual(data["max_depth_reached"], 1)
+        self.assertGreater(data["rejection_counts"].get("2D_INTERFERENCE", 0), 0)
+
 
 if __name__ == "__main__":
     unittest.main()
