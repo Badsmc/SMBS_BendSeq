@@ -110,6 +110,17 @@ class Backgauge2DTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "no usable"):
                 model.resolve_for_state(state, {}, "B01")
 
+    def test_initial_feed_preview_is_opt_in_and_round_trips(self):
+        disabled = BackgaugeModel2D(10, 6, {}, automatic=True)
+        self.assertEqual(disabled.initial_feed_preview_mm, 0.0)
+        configured = BackgaugeModel2D(
+            10, 6, {}, automatic=True, initial_feed_preview_mm=40.0)
+        restored = BackgaugeModel2D.from_dict(configured.to_dict())
+        self.assertEqual(restored.initial_feed_preview_mm, 40.0)
+        self.assertEqual(restored.to_dict()["initial_feed_preview_mm"], 40.0)
+        with self.assertRaisesRegex(ValueError, "initial_feed_preview_mm"):
+            BackgaugeModel2D(10, 6, {}, initial_feed_preview_mm=-10)
+
     def test_manual_mode_still_uses_explicit_coordinates(self):
         p, depth, source = self.model().resolve_for_state(None, {}, "B01")
         self.assertEqual(p.s_mm, 20)
