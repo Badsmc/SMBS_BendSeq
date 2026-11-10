@@ -22,6 +22,7 @@ def evaluate_manual_planar_order(
     *,
     match_active_bend_length: bool = True,
     tolerance_mm: float = 0.02,
+    allow_retract_warning: bool = False,
 ) -> dict:
     """Replay the explicit sequence, stopping at the first non-clear Stage A/B.
 
@@ -74,15 +75,21 @@ def evaluate_manual_planar_order(
                         fractions=tuple(i / 16 for i in range(17)),
                         stroke_fractions=tuple(i / 8 for i in range(9)),
                         tolerance_mm=tolerance_mm,
+                        allow_retract_warning=allow_retract_warning,
                     )
                     record["stage_b"] = stage_b.to_dict()
                     verdict = _classify_step(stage_b)
                     reason = stage_b.reason
                 record["evidence"] = verdict
                 record["reason"] = reason
+                record["conditional_retract_warning"] = (
+                    verdict == "2D_RETRACT_WARNING_NOT_3D_VALIDATED"
+                )
                 record["elapsed_s"] = round(perf_counter() - step_start, 6)
                 steps.append(record)
-                if verdict != "SAMPLED_2D_CLEAR_OR_TOUCH":
+                if verdict != "SAMPLED_2D_CLEAR_OR_TOUCH" and not (
+                        allow_retract_warning
+                        and verdict == "2D_RETRACT_WARNING_NOT_3D_VALIDATED"):
                     stop_reason = {
                         "step_number": record["step_number"],
                         "bend_id": bid, "evidence": verdict, "reason": reason,
@@ -108,11 +115,23 @@ def evaluate_manual_planar_order(
     # A successful sampled replay remains diagnostic evidence, never a
     # manufacturing approval. Explicitly distinguish complete vs partial.
     complete = len(sequence) == len(known)
+    warning_steps = [
+        {"step_number": item["step_number"], "bend_id": item["bend_id"],
+         "reason": item["reason"],
+         "diagnostic_findings": (
+             item.get("stage_b") or {}).get("diagnostic_findings", [])}
+        for item in steps if item.get("conditional_retract_warning")
+    ]
     if stop_reason:
         conclusion = (
             "STOPPED_AT_STEP_{}: 2D preview rejected or could not validate {}. "
             "Check stage_a/stage_b findings; this is not proof of 3D impossibility."
         ).format(stop_reason["step_number"], stop_reason["bend_id"])
+    elif warning_steps:
+        conclusion = (
+            "CONDITIONAL_RETRACT_WARNING: {}/{} selected bends checked, "
+            "{} retract punch interference warning(s); no 3D approval."
+        ).format(len(accepted), len(sequence), len(warning_steps))
     elif not complete:
         conclusion = (
             "SELECTED_PREFIX_HAS_NO_SAMPLED_2D_OBSTRUCTION; "
@@ -128,10 +147,13 @@ def evaluate_manual_planar_order(
         "operator_order_complete": complete,
         "algorithm_conclusion": conclusion,
         "created_utc": datetime.now(timezone.utc).isoformat(),
-        "status": ("SAMPLED_2D_PREFIX_CLEAR_OR_TOUCH"
-                   if stop_reason is None else "MANUAL_REPLAY_STOPPED"),
+        "status": ("MANUAL_REPLAY_STOPPED" if stop_reason
+                   else "CONDITIONAL_RETRACT_WARNING_NOT_3D_VALIDATED"
+                   if warning_steps else "SAMPLED_2D_PREFIX_CLEAR_OR_TOUCH"),
         "physical_certification": "NOT_CERTIFIED_3D",
         "selected_sequence": list(sequence),
+        "allow_retract_warning": allow_retract_warning,
+        "retract_warnings": warning_steps,
         "total_bends": len(known),
         "accepted_prefix": accepted,
         "remaining_bends": [bid for bid in known if bid not in accepted],
@@ -145,5 +167,9 @@ def evaluate_manual_planar_order(
             "2D interference does not prove a collision in the actual 3D model.",
             "End-zone conditional exemption is not applied by manual 2D replay.",
             "Only the explicitly numbered sequence was replayed; unselected bends were not executed.",
+            ("RETRACT-only punch section intersections are warnings in this "
+             "diagnostic run; they remain physical hazards pending 3D validation."
+             if allow_retract_warning else
+             "RETRACT intersections remain blocking in this diagnostic run."),
         ],
     }
