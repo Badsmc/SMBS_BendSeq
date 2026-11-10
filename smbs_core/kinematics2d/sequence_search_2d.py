@@ -79,6 +79,7 @@ class PlanarCandidate:
     cost_complete: bool = False
     group_transitions: int = 0
     numbered_bends: tuple[tuple[int, str, str], ...] = ()
+    cost_breakdown: tuple[dict[str, Any], ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -86,6 +87,7 @@ class PlanarCandidate:
             "steps": [step.to_dict() for step in self.steps],
             "cost": self.cost,
             "cost_complete": self.cost_complete,
+            "cost_breakdown": list(self.cost_breakdown),
             "group_transitions": self.group_transitions,
             "numbered_bends": [
                 {"number": n, "bend_id": bid, "axis_group": group}
@@ -123,6 +125,7 @@ class PlanarSearchReport:
     partial_remainder: tuple[str, ...] = ()
     conditional_end_zone_requested: bool = False
     alternative_setup_trials: tuple[tuple[tuple[str, ...], str, str, str], ...] = ()
+    operation_weights: Optional[dict[str, float]] = None
 
     def to_dict(self) -> dict[str, Any]:
         # Aggregate the actual per-transition contact findings; keep each
@@ -170,6 +173,7 @@ class PlanarSearchReport:
             ]
         return {
             "status": self.status.value,
+            "operation_weights": self.operation_weights,
             "partial_candidate": (self.partial_candidate.to_dict()
                                   if self.partial_candidate is not None else None),
             "partial_remainder": list(self.partial_remainder),
@@ -625,8 +629,10 @@ def search_bend_sequences_2d(
             if all(setup is not None for setup in setups):
                 score = score_sequence(prefix, setups, op_weights)
                 cost, cost_complete = score.total, score.is_complete
+                breakdown = tuple(p.to_dict() for p in score.steps)
             else:
                 cost, cost_complete = 0.0, False
+                breakdown = ()
             numbered = tuple((i + 1, bid, group_of[bid])
                              for i, bid in enumerate(prefix))
             transitions = sum(
@@ -635,7 +641,7 @@ def search_bend_sequences_2d(
             )
             candidates.append(PlanarCandidate(
                 prefix, steps, evidence, cost, cost_complete,
-                transitions, numbered,
+                transitions, numbered, cost_breakdown=breakdown,
             ))
             complete_candidates_examined += 1
             # Stop immediately after reaching the requested number of
@@ -767,6 +773,7 @@ def search_bend_sequences_2d(
         partial_remainder=partial_remainder,
         conditional_end_zone_requested=bool(allow_end_zone_collision),
         alternative_setup_trials=tuple(alternative_setup_trials),
+        operation_weights=op_weights.to_dict(),
         max_depth_reached=len(deepest_prefix),
         deepest_prefix=deepest_prefix,
         rejection_counts=tuple(sorted(
