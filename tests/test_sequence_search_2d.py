@@ -279,6 +279,35 @@ class PlanarSearchTests(unittest.TestCase):
         self.assertEqual(result.candidates[0].sequence[0], "B03")
         self.assertGreaterEqual(result.deferred_root_probes, 0)
 
+    def test_contact_summary_identifies_die_without_changing_search(self):
+        def block_second(_state, bend, *_args, **_kwargs):
+            if bend == "B02":
+                return PreliminaryScreeningReport(
+                    ScreeningDecision.CONTINUE_TO_3D,
+                    "STAGE_B_SECTION_REQUIRES_3D",
+                    "2d_section_finding_requires_3d_validation:APPROACH:P02:proper_material_boundary_crossing",
+                    sampled_phases=("APPROACH",),
+                    contact_statuses=("INTERFERENCE",),
+                    diagnostic_findings=(
+                        ("APPROACH", "DIE", "P02", "INTERFERENCE",
+                         "proper_material_boundary_crossing"),
+                        ("APPROACH", "DIE", "P02", "INTERFERENCE",
+                         "proper_material_boundary_crossing"),
+                    ),
+                )
+            return stage_b_result()
+
+        result, _ = self.run_mocked(block_second)
+        data = result.to_dict()
+        self.assertEqual(result.status, PlanarSearchStatus.EXHAUSTED)
+        summary = data["per_bend_contact_summary"]["B02"]
+        self.assertEqual(summary["interferences"], 2)
+        self.assertEqual(summary["clear_or_touch"], 0)
+        self.assertEqual(summary["contact_findings"], [{
+            "phase": "APPROACH", "tool": "DIE", "component": "P02",
+            "reason": "proper_material_boundary_crossing", "transitions": 2,
+        }])
+
     def test_mutual_first_step_obstruction_is_diagnostic_only(self):
         names = ("B01", "B02", "B03")
         self.state = DummyState(names)
