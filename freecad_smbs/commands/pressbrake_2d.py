@@ -2194,6 +2194,30 @@ class _PreviewPanel:
                         return
                     candidate = visible_candidates[row]
                     try:
+                        if len(candidate.sequence) < len(self.session.bend_order):
+                            from smbs_core.kinematics2d.sequence_search_2d import (
+                                validate_partial_planar_prefix,
+                            )
+                            has_sections = bool(
+                                getattr(self.tooling_setup, "punch_section_offsets_xm", ())
+                                or getattr(self.tooling_setup, "die_section_offsets_xm", ())
+                            )
+                            valid, reason = validate_partial_planar_prefix(
+                                self.session, self.tooling_setup,
+                                candidate.sequence,
+                                match_active_bend_length=not has_sections,
+                            )
+                            if not valid:
+                                self.status.setText(
+                                    "Частичный порядок не прошёл полную 2D-проверку: "
+                                    + reason
+                                )
+                                QtWidgets.QMessageBox.warning(
+                                    dlg, "2D-просмотр отклонён",
+                                    "Полная повторная 2D-проверка обнаружила "
+                                    "препятствие: " + reason,
+                                )
+                                return
                         self._stop_timer()
                         self.session.reset_all_bends()
                         is_partial = len(candidate.sequence) < len(self.session.bend_order)
@@ -2310,6 +2334,7 @@ class _PreviewPanel:
                     )
                     self.last_sequence_search_report = search_rep
                     self._preview_only_planar_order = None
+                    self._partial_preview_limit = 0
                     self._conditional_bends_status.clear()
                     if search_rep.status is SearchStatus.CONDITIONAL_VALIDATED:
                         for bid in search_rep.conditional_bends:
@@ -2946,6 +2971,7 @@ class _PreviewPanel:
                 self.session = new_session
                 self.last_planar_search_report = None
                 self._preview_only_planar_order = None
+                self._partial_preview_limit = 0
                 self.last_sequence_search_report = None
                 self._ensure_press_cycle_controller()
                 self._sync_tooling_to_active_bend()
