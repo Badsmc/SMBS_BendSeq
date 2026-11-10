@@ -36,6 +36,7 @@ class BackgaugeModel2D:
     part_label: str = ""
     automatic: bool = False
     edge_clearance_mm: float = 0.0
+    initial_feed_preview_mm: float = 0.0
 
     def __post_init__(self):
         for val in (self.width_s_mm, self.height_z_mm):
@@ -48,6 +49,11 @@ class BackgaugeModel2D:
                 or not isfinite(self.edge_clearance_mm)
                 or self.edge_clearance_mm < 0):
             raise ValueError("edge_clearance_mm must be finite and nonnegative")
+        if (isinstance(self.initial_feed_preview_mm, bool)
+                or not isinstance(self.initial_feed_preview_mm, (int, float))
+                or not isfinite(self.initial_feed_preview_mm)
+                or self.initial_feed_preview_mm < 0):
+            raise ValueError("initial_feed_preview_mm must be finite and nonnegative")
         if not isinstance(self.part_label, str):
             raise ValueError("backgauge part_label must be text")
         if not isinstance(self.positions, Mapping):
@@ -150,6 +156,7 @@ class BackgaugeModel2D:
             "part_label": self.part_label,
             "automatic": self.automatic,
             "edge_clearance_mm": float(self.edge_clearance_mm),
+            "initial_feed_preview_mm": float(self.initial_feed_preview_mm),
             "geometry_evidence": "2D_RECTANGLE_ONLY_NOT_3D_VERIFIED",
         }
 
@@ -170,4 +177,5 @@ class BackgaugeModel2D:
             part_label=str(data.get("part_label", "")),
             automatic=data.get("automatic", False),
             edge_clearance_mm=float(data.get("edge_clearance_mm", 0.0)),
+            initial_feed_preview_mm=float(data.get("initial_feed_preview_mm", 0.0)),
         )
