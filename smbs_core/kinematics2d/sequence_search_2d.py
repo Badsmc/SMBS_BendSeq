@@ -175,6 +175,7 @@ def search_bend_sequences_2d(
     max_solutions: int = 10,
     max_complete_candidates: int = 1000,
     group_first: bool = True,
+    preferred_bend_order: Optional[Sequence[str]] = None,
     weights: Optional[OperationWeights] = None,
     max_nodes: int = 10000,
     max_evaluations: int = 50000,
@@ -242,6 +243,10 @@ def search_bend_sequences_2d(
                 or any(not isfinite(x) or x < 0 or x > 1 for x in coarse_stroke_fs)):
             raise ValueError("exploration_stroke_fractions must contain 0 and 1")
         progressive = coarse_fs != fs or coarse_stroke_fs != stroke_fs
+        priority_order = tuple(str(b) for b in preferred_bend_order) if preferred_bend_order is not None else order
+        if len(priority_order) != len(order) or len(set(priority_order)) != len(order) or set(priority_order) != set(order):
+            raise ValueError("preferred_bend_order must be a permutation of bend IDs")
+        priority_index = {bid: i for i, bid in enumerate(priority_order)}
         axis_groups_raw = group_parallel_bends(axes_from_fold_state(state))
         axis_groups = tuple((g.group_id, g.bend_ids) for g in axis_groups_raw)
         group_of = {bid: group_id for group_id, ids in axis_groups for bid in ids}
@@ -401,13 +406,13 @@ def search_bend_sequences_2d(
             if complete_candidates_examined >= max_complete_candidates:
                 stopped = "MAX_COMPLETE_CANDIDATES_REACHED"
             return
-        remaining = [bid for bid in order if bid not in prefix]
+        remaining = [bid for bid in priority_order if bid not in prefix]
         if group_first and prefix:
             prior_group = group_of[prefix[-1]]
             remaining.sort(key=lambda bid: (group_of[bid] != prior_group,
-                                            group_of[bid], bid))
+                                            group_of[bid], priority_index[bid]))
         elif group_first:
-            remaining.sort(key=lambda bid: (group_of[bid], bid))
+            remaining.sort(key=lambda bid: (group_of[bid], priority_index[bid]))
         for bend_id in remaining:
             if evaluated >= max_evaluations:
                 stopped = "MAX_EVALUATIONS_REACHED"
