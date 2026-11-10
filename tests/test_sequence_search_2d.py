@@ -232,6 +232,25 @@ class PlanarSearchTests(unittest.TestCase):
         self.assertEqual(result.candidates[0].evidence, "SAMPLED_2D_CLEAR_OR_TOUCH")
         self.assertEqual(stage_b.call_count, 4)  # 2 coarse + 2 original-density
 
+    def test_preferred_order_guides_exploration_without_skipping_checks(self):
+        result, stage_b = self.run_mocked(
+            preferred_bend_order=("B02", "B01"),
+            group_first=False,
+            max_complete_candidates=1,
+        )
+        self.assertEqual(result.candidates[0].sequence, ("B02", "B01"))
+        self.assertEqual(result.complete_candidates_examined, 1)
+        self.assertEqual(result.rejected_2d_interferences, 0)
+        self.assertEqual(stage_b.call_count, 2)
+
+    def test_invalid_preferred_order_fails_closed(self):
+        result, _ = self.run_mocked(
+            preferred_bend_order=("B01", "B01"),
+            group_first=False,
+        )
+        self.assertEqual(result.status, PlanarSearchStatus.INVALID_INPUT)
+        self.assertEqual(result.candidates, ())
+
 
 if __name__ == "__main__":
     unittest.main()
