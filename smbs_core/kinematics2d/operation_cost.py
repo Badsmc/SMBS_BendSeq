@@ -33,6 +33,10 @@ class OperationWeights:
     shift_per_100_mm: float = 0.5
     length_change_fixed: float = 2.0
     length_delta_per_100_mm: float = 0.5
+    punch_length_change_fixed: float = 4.0
+    punch_length_delta_per_100_mm: float = 0.5
+    die_length_change_fixed: float = 4.0
+    die_length_delta_per_100_mm: float = 0.5
     rotation_deadband_deg: float = 1.0
     shift_deadband_mm: float = 1.0
     length_deadband_mm: float = 0.5
@@ -46,6 +50,10 @@ class OperationWeights:
             "shift_per_100_mm",
             "length_change_fixed",
             "length_delta_per_100_mm",
+            "punch_length_change_fixed",
+            "punch_length_delta_per_100_mm",
+            "die_length_change_fixed",
+            "die_length_delta_per_100_mm",
             "rotation_deadband_deg",
             "shift_deadband_mm",
             "length_deadband_mm",
@@ -65,6 +73,10 @@ class OperationWeights:
             "shift_per_100_mm": float(self.shift_per_100_mm),
             "length_change_fixed": float(self.length_change_fixed),
             "length_delta_per_100_mm": float(self.length_delta_per_100_mm),
+            "punch_length_change_fixed": float(self.punch_length_change_fixed),
+            "punch_length_delta_per_100_mm": float(self.punch_length_delta_per_100_mm),
+            "die_length_change_fixed": float(self.die_length_change_fixed),
+            "die_length_delta_per_100_mm": float(self.die_length_delta_per_100_mm),
             "rotation_deadband_deg": float(self.rotation_deadband_deg),
             "shift_deadband_mm": float(self.shift_deadband_mm),
             "length_deadband_mm": float(self.length_deadband_mm),
@@ -80,6 +92,10 @@ class WorkpieceMachineSetup:
     shift_xm_mm: float
     bend_length_mm: float
     is_complete: bool = True
+    punch_length_mm: Optional[float] = None
+    die_length_mm: Optional[float] = None
+    punch_length_source: str = "NOT_SPECIFIED"
+    die_length_source: str = "NOT_SPECIFIED"
     note: str = ""
 
     def __post_init__(self):
@@ -93,6 +109,13 @@ class WorkpieceMachineSetup:
                 raise ValueError(f"Numeric finite value required for '{name}': {val}")
         if self.bend_length_mm <= 0:
             raise ValueError("bend_length_mm must be positive")
+        for key in ("punch_length_mm", "die_length_mm"):
+            val = getattr(self, key)
+            if val is not None and (
+                isinstance(val, bool) or not isinstance(val, (int, float))
+                or not isfinite(val) or val <= 0
+            ):
+                raise ValueError(f"{key} must be finite and positive when provided")
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -101,6 +124,10 @@ class WorkpieceMachineSetup:
             "flipped": self.flipped,
             "shift_xm_mm": round(float(self.shift_xm_mm), 2),
             "bend_length_mm": round(float(self.bend_length_mm), 2),
+            "punch_length_mm": self.punch_length_mm,
+            "die_length_mm": self.die_length_mm,
+            "punch_length_source": self.punch_length_source,
+            "die_length_source": self.die_length_source,
             "is_complete": self.is_complete,
             "note": self.note,
         }
@@ -120,10 +147,17 @@ class StepPenalty:
     shift_cost: float
     length_change_cost: float
     is_complete: bool = True
+    punch_length_delta_mm: Optional[float] = None
+    die_length_delta_mm: Optional[float] = None
+    punch_length_cost: float = 0.0
+    die_length_cost: float = 0.0
+    tooling_length_verified: bool = False
 
     @property
     def total(self) -> float:
-        return self.turn_cost + self.flip_cost + self.shift_cost + self.length_change_cost
+        return (self.turn_cost + self.flip_cost + self.shift_cost
+                + self.length_change_cost + self.punch_length_cost
+                + self.die_length_cost)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -137,6 +171,11 @@ class StepPenalty:
             "flip_cost": round(float(self.flip_cost), 4),
             "shift_cost": round(float(self.shift_cost), 4),
             "length_change_cost": round(float(self.length_change_cost), 4),
+            "punch_length_delta_mm": self.punch_length_delta_mm,
+            "die_length_delta_mm": self.die_length_delta_mm,
+            "punch_length_cost": round(float(self.punch_length_cost), 4),
+            "die_length_cost": round(float(self.die_length_cost), 4),
+            "tooling_length_verified": self.tooling_length_verified,
             "total": round(float(self.total), 4),
             "is_complete": self.is_complete,
         }
@@ -308,7 +347,33 @@ def transition_penalty(
         else 0.0
     )
 
+    # Physical tools with fixed lengths incur no changeover between bends.
+    # Virtual axial stretching models planned reconfiguration only. It is
+    # never physical verification of a new tool assembly.
+    pdelta = (abs(current.punch_length_mm - previous.punch_length_mm)
+              if current.punch_length_mm is not None
+              and previous.punch_length_mm is not None else None)
+    ddelta = (abs(current.die_length_mm - previous.die_length_mm)
+              if current.die_length_mm is not None
+              and previous.die_length_mm is not None else None)
+    punch_cost = (
+        weights.punch_length_change_fixed
+        + weights.punch_length_delta_per_100_mm * pdelta / 100.0
+        if pdelta is not None and pdelta > weights.length_deadband_mm else 0.0
+    )
+    die_cost = (
+        weights.die_length_change_fixed
+        + weights.die_length_delta_per_100_mm * ddelta / 100.0
+        if ddelta is not None and ddelta > weights.length_deadband_mm else 0.0
+    )
     is_complete = previous.is_complete and current.is_complete
+    tooling_verified = all(
+        source == "FIXED_PROFILE"
+        for source in (previous.punch_length_source,
+                       previous.die_length_source,
+                       current.punch_length_source,
+                       current.die_length_source)
+    )
     return StepPenalty(
         bend_id=current.bend_id,
         previous_bend_id=previous.bend_id,
@@ -321,6 +386,11 @@ def transition_penalty(
         shift_cost=shift_cost,
         length_change_cost=length_cost,
         is_complete=is_complete,
+        punch_length_delta_mm=pdelta,
+        die_length_delta_mm=ddelta,
+        punch_length_cost=punch_cost,
+        die_length_cost=die_cost,
+        tooling_length_verified=tooling_verified,
     )
 
 
