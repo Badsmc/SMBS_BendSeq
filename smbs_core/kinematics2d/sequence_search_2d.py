@@ -311,6 +311,44 @@ def validate_partial_planar_prefix(
         state.transforms = originals[1]
 
 
+
+def _setup_with_scored_tool_lengths(
+    setup: WorkpieceMachineSetup,
+    tooling: Any,
+    match_active_bend_length: bool,
+) -> WorkpieceMachineSetup:
+    """Get planning lengths from the SAME mode used by Stage A/B.
+
+    Virtual axial stretching uses bend-line length as an explicitly planned
+    tool length. Fixed tooling uses library profile length only. Do not read
+    tooling.match_active_bend_length here: it may differ from the per-search
+    override passed to the collision stages.
+    """
+    punch_profile = getattr(tooling, "punch", None)
+    die_profile = getattr(tooling, "die", None)
+
+    def planned_length(profile: Any) -> tuple[Optional[float], str]:
+        if profile is None:
+            return None, "NOT_SPECIFIED"
+        if match_active_bend_length:
+            return float(setup.bend_length_mm), "VIRTUAL_MATCH_BEND"
+        length = getattr(profile, "length_mm", None)
+        if (isinstance(length, (int, float)) and not isinstance(length, bool)
+                and isfinite(length) and length > 0):
+            return float(length), "FIXED_PROFILE"
+        return None, "NOT_SPECIFIED"
+
+    punch_len, punch_source = planned_length(punch_profile)
+    die_len, die_source = planned_length(die_profile)
+    return replace(
+        setup,
+        punch_length_mm=punch_len,
+        die_length_mm=die_len,
+        punch_length_source=punch_source,
+        die_length_source=die_source,
+    )
+
+
 def search_bend_sequences_2d(
     session: Any,
     tooling: Any,
@@ -462,27 +500,8 @@ def search_bend_sequences_2d(
             # Distinguish physical tool length from bend-line length. Under
             # virtual axial matching the effective lengths are only planned,
             # not a checked machine tooling assembly.
-            virtual_length = bool(match_active_bend_length)
-            punch_profile = getattr(tooling, "punch", None)
-            die_profile = getattr(tooling, "die", None)
-            punch_len = (
-                tooling.effective_punch_length_mm(setup.bend_length_mm)
-                if punch_profile is not None else None
-            )
-            die_len = (
-                tooling.effective_die_length_mm(setup.bend_length_mm)
-                if die_profile is not None else None
-            )
-            setup = replace(
-                setup,
-                punch_length_mm=punch_len,
-                die_length_mm=die_len,
-                punch_length_source=(
-                    "VIRTUAL_MATCH_BEND" if virtual_length else "FIXED_PROFILE"
-                ) if punch_len is not None else "NOT_SPECIFIED",
-                die_length_source=(
-                    "VIRTUAL_MATCH_BEND" if virtual_length else "FIXED_PROFILE"
-                ) if die_len is not None else "NOT_SPECIFIED",
+            setup = _setup_with_scored_tool_lengths(
+                setup, tooling, match_active_bend_length,
             )
             stage_a = screen_candidate_stage_a(
                 state, bend_id, tooling,
