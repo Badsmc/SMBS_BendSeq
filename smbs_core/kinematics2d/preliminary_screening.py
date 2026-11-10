@@ -161,6 +161,9 @@ def screen_candidate_stage_b(
     fractions: Tuple[float, ...] = (0.0, 0.5, 1.0),
     stroke_fractions: Optional[Tuple[float, ...]] = None,
     backgauge_polygon_machine: Optional[Sequence[Tuple[float, float]]] = None,
+    backgauge_cad_checker: Any = None,
+    backgauge_contact_s_mm: Optional[float] = None,
+    backgauge_contact_z_mm: Optional[float] = None,
     deadline_monotonic: Optional[float] = None,
     multi_station_enabled: bool = False,
     verified_punch_span_xm: Optional[Tuple[float, float]] = None,
@@ -235,7 +238,7 @@ def screen_candidate_stage_b(
                 align_bend_arc_center=True,
                 reverse_axis=reverse_axis,
                 rear_panel_vertices_xy=(
-                    panel_vertices_xy if backgauge_polygon_machine is not None
+                    panel_vertices_xy if (backgauge_polygon_machine is not None or backgauge_cad_checker is not None)
                     else None
                 ),
             )
@@ -327,7 +330,7 @@ def screen_candidate_stage_b(
                     findings_count=total_findings,
                     station_reports=tuple(station_reports),
                     contact_statuses=tuple(contact_statuses),
-                    backgauge_checked=backgauge_polygon_machine is not None,
+                    backgauge_checked=(backgauge_polygon_machine is not None or backgauge_cad_checker is not None),
                     timing_ms=tuple(timing_ms.items()),
                     diagnostic_findings=tuple(diagnostic_findings),
                     touch_summary=_touch_summary(),
@@ -351,7 +354,7 @@ def screen_candidate_stage_b(
                     align_bend_arc_center=True,
                     reverse_axis=reverse_axis,
                     rear_panel_vertices_xy=(
-                        panel_vertices_xy if backgauge_polygon_machine is not None
+                        panel_vertices_xy if (backgauge_polygon_machine is not None or backgauge_cad_checker is not None)
                         else None
                     ),
                 )
@@ -425,6 +428,40 @@ def screen_candidate_stage_b(
                 total_findings += len(sec_report.findings)
                 section_status = sec_report.status
                 backgauge_reason = ""
+                if backgauge_cad_checker is not None:
+                    # Real 3D stop and 3D FoldState sheet solids are checked
+                    # at the SAME pose as punch/die; never use the synthetic
+                    # gauge rectangle in CAD mode.
+                    if backgauge_polygon_machine is not None:
+                        raise ValueError("CAD gauge and 2D rectangle are exclusive")
+                    if backgauge_contact_s_mm is None or backgauge_contact_z_mm is None:
+                        raise ValueError("CAD gauge stop-face position is required")
+                    cad_verdict = backgauge_cad_checker.check_phase(
+                        fold_state, panel_vertices_xy, pose,
+                        active_bend_id=candidate_bend_id,
+                        contact_s_mm=float(backgauge_contact_s_mm),
+                        contact_z_mm=float(backgauge_contact_z_mm),
+                        tolerance_mm=tolerance_mm,
+                    )
+                    if cad_verdict["status"] == "INTERFERENCE":
+                        section_status = ContactStatus.INTERFERENCE
+                        comp = str(cad_verdict["component"])
+                        backgauge_reason = (
+                            "BACKGAUGE_CAD_3D:" + comp + ":"
+                            + "material_overlap_mm3={:.6f}".format(
+                                float(cad_verdict["volume_mm3"])
+                            )
+                        )
+                        if len(diagnostic_findings) < 32:
+                            diagnostic_findings.append((
+                                phase, "BACKGAUGE_CAD_3D", comp,
+                                ContactStatus.INTERFERENCE.value,
+                                backgauge_reason,
+                            ))
+                    elif cad_verdict["status"] != "SAMPLED_CLEAR_OR_TOUCH":
+                        raise ValueError(
+                            "CAD backgauge verification returned unsupported status"
+                        )
                 if backgauge_polygon_machine is not None:
                     # The backgauge polygon must be supplied in machine (s,z).
                     # Never invent a default gauge or assume its absence is clear.
@@ -500,7 +537,7 @@ def screen_candidate_stage_b(
                         findings_count=total_findings,
                         station_reports=tuple(station_reports),
                         contact_statuses=tuple(contact_statuses),
-                        backgauge_checked=backgauge_polygon_machine is not None,
+                        backgauge_checked=(backgauge_polygon_machine is not None or backgauge_cad_checker is not None),
                         timing_ms=tuple(timing_ms.items()),
                         diagnostic_findings=tuple(diagnostic_findings),
                         touch_summary=_touch_summary(),
@@ -515,7 +552,7 @@ def screen_candidate_stage_b(
                     findings_count=total_findings,
                     station_reports=tuple(station_reports),
                     contact_statuses=tuple(contact_statuses),
-                    backgauge_checked=backgauge_polygon_machine is not None,
+                    backgauge_checked=(backgauge_polygon_machine is not None or backgauge_cad_checker is not None),
                     timing_ms=tuple(timing_ms.items()),
                     diagnostic_findings=tuple(diagnostic_findings),
                     touch_summary=_touch_summary(),
@@ -532,7 +569,7 @@ def screen_candidate_stage_b(
             findings_count=total_findings,
             station_reports=tuple(station_reports),
             contact_statuses=tuple(contact_statuses),
-            backgauge_checked=backgauge_polygon_machine is not None,
+            backgauge_checked=(backgauge_polygon_machine is not None or backgauge_cad_checker is not None),
             timing_ms=tuple(timing_ms.items()),
             diagnostic_findings=tuple(diagnostic_findings),
             touch_summary=_touch_summary(),
