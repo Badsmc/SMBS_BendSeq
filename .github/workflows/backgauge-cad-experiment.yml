@@ -1,0 +1,36 @@
+name: Experimental real CAD backgauge contract checks
+
+on:
+  push:
+    branches:
+      - experiment/2d-backgauge-kinematics
+  workflow_dispatch:
+
+jobs:
+  cad-backgauge-headless-contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Compile complete Python codebase
+        run: python -m compileall -q Init.py InitGui.py smbs_core freecad_smbs tests
+      - name: Backgauge model and placement regressions
+        env:
+          PYTHONPATH: .
+        run: |
+          python -m unittest -v \
+            tests.test_backgauge_2d \
+            tests.test_backgauge_cad_3d \
+            tests.test_backgauge_cad_inspector \
+            tests.test_workpiece_placement_3d
+      - name: Retained planar-screening and GUI contract tests
+        env:
+          PYTHONPATH: .
+        run: |
+          python -m unittest -v \
+            tests.test_sequence_search_2d \
+            tests.test_contact_oracle_2d \
+            tests.test_gui_experiment_integration
