@@ -105,8 +105,28 @@ def evaluate_manual_planar_order(
     finally:
         state.angles = originals[0]
         state.transforms = originals[1]
+    # A successful sampled replay remains diagnostic evidence, never a
+    # manufacturing approval. Explicitly distinguish complete vs partial.
+    complete = len(sequence) == len(known)
+    if stop_reason:
+        conclusion = (
+            "STOPPED_AT_STEP_{}: 2D preview rejected or could not validate {}. "
+            "Check stage_a/stage_b findings; this is not proof of 3D impossibility."
+        ).format(stop_reason["step_number"], stop_reason["bend_id"])
+    elif not complete:
+        conclusion = (
+            "SELECTED_PREFIX_HAS_NO_SAMPLED_2D_OBSTRUCTION; "
+            "unselected bends and 3D physics remain unverified."
+        )
+    else:
+        conclusion = (
+            "FULL_MANUAL_ORDER_HAS_NO_SAMPLED_2D_OBSTRUCTION; "
+            "continuous 3D collision and machine cycle remain unverified."
+        )
     return {
         "schema_version": "smbs.manual_planar_replay.v1",
+        "operator_order_complete": complete,
+        "algorithm_conclusion": conclusion,
         "created_utc": datetime.now(timezone.utc).isoformat(),
         "status": ("SAMPLED_2D_PREFIX_CLEAR_OR_TOUCH"
                    if stop_reason is None else "MANUAL_REPLAY_STOPPED"),
