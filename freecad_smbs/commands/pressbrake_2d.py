@@ -2089,20 +2089,32 @@ class _PreviewPanel:
                 depth_info.setWordWrap(True)
                 layout.addWidget(depth_info)
                 options = QtWidgets.QListWidget(dlg)
-                for index, candidate in enumerate(report.candidates):
+                # The incomplete preview is deliberately separate from validated
+                # full candidates and cannot be mistaken for a production plan.
+                preview_candidates = list(report.candidates)
+                if report.partial_candidate is not None:
+                    preview_candidates.append(report.partial_candidate)
+                for index, candidate in enumerate(preview_candidates):
                     suffix = (" | стоимость {:.2f}".format(candidate.cost)
                               if candidate.cost_complete else " | стоимость не подтверждена")
+                    is_partial = len(candidate.sequence) < len(self.session.bend_order)
+                    prefix_label = (
+                        "ЧАСТИЧНО {}/{} (оставшиеся НЕ ПРОВЕРЕНЫ) | ".format(
+                            len(candidate.sequence), len(self.session.bend_order))
+                        if is_partial else ""
+                    )
                     options.addItem(
-                        "{}. {} | {}{}".format(
-                            index + 1, " → ".join(candidate.sequence), candidate.evidence, suffix
+                        "{}. {}{} | {}{}".format(
+                            index + 1, prefix_label, " → ".join(candidate.sequence),
+                            candidate.evidence, suffix
                         )
                     )
-                if report.candidates:
+                if preview_candidates:
                     options.setCurrentRow(0)
                 layout.addWidget(options)
                 controls = QtWidgets.QHBoxLayout()
                 use = QtWidgets.QPushButton("Показать порядок в симуляции")
-                use.setEnabled(bool(report.candidates))
+                use.setEnabled(bool(preview_candidates))
                 export_btn = QtWidgets.QPushButton("Сохранить диагностику JSON")
                 close = QtWidgets.QPushButton("Закрыть")
                 controls.addWidget(use)
@@ -2112,13 +2124,21 @@ class _PreviewPanel:
 
                 def on_preview():
                     row = options.currentRow()
-                    if row < 0 or row >= len(report.candidates):
+                    if row < 0 or row >= len(preview_candidates):
                         return
-                    candidate = report.candidates[row]
+                    candidate = preview_candidates[row]
                     try:
                         self._stop_timer()
                         self.session.reset_all_bends()
-                        self.session.set_bend_order(list(candidate.sequence))
+                        # The controller requires a complete permutation. Append
+                        # unsolved bends for bookkeeping, but STOP playback before
+                        # any of those unverified operations may be animated.
+                        original_order = tuple(self.session.bend_order)
+                        remaining = tuple(
+                            bid for bid in original_order
+                            if bid not in candidate.sequence
+                        )
+                        self.session.set_bend_order(list(candidate.sequence + remaining))
                         self._preview_only_planar_order = tuple(candidate.sequence)
                         # A previous strict validation does not apply to a
                         # newly selected, independently ranked planar order.
@@ -2128,8 +2148,11 @@ class _PreviewPanel:
                         self._configure_for_active_bend()
                         self._sync_tooling_to_active_bend()
                         self.draw()
+                        is_partial = len(candidate.sequence) < len(self.session.bend_order)
                         self.status.setText(
-                            "2D-ПРОСМОТР (НЕ ПРОВЕРЕНО В 3D): "
+                            ("ЧАСТИЧНЫЙ 2D-ПРОСМОТР {}/{}; остальные гибы НЕ ПРОВЕРЕНЫ: ".format(
+                                len(candidate.sequence), len(self.session.bend_order))
+                             if is_partial else "2D-ПРОСМОТР (НЕ ПРОВЕРЕНО В 3D): ")
                             + " → ".join(candidate.sequence)
                         )
                         self.physical_check_result.setText(
@@ -2141,6 +2164,7 @@ class _PreviewPanel:
                             sequence=list(candidate.sequence),
                             evidence=candidate.evidence,
                             physical_status="UNVERIFIED",
+                            partial=len(candidate.sequence) < len(self.session.bend_order),
                         )
                         dlg.accept()
                     except Exception as exc:
@@ -3201,6 +3225,16 @@ class _PreviewPanel:
             def next_step(self):
                 if self.session is None:
                     return
+                preview = self._preview_only_planar_order
+                if (preview is not None
+                        and len(preview) < len(self.session.bend_order)
+                        and self.session.active_bend_index >= len(preview) - 1):
+                    self.status.setText(
+                        "Частичная последовательность завершена: {}/{}. "
+                        "Остальные гибы не проверены.".format(
+                            len(preview), len(self.session.bend_order))
+                    )
+                    return
                 self._stop_timer()
                 self._machine_pose_fault = None
                 try:
@@ -3275,6 +3309,24 @@ class _PreviewPanel:
                         if (self.session.active_bend_index != previous_bend
                                 and self.tooling_setup.aligned):
                             self._sync_tooling_to_active_bend()
+                    # Enforce the provisional prefix boundary before rendering
+                    # or advancing any subsequent unverified operation.
+                    preview = self._preview_only_planar_order
+                    if (preview is not None
+                            and len(preview) < len(self.session.bend_order)
+                            and self.session.active_bend_index >= len(preview)):
+                        if pc is not None and self.execution_mode == CycleExecutionMode.FULL_CYCLE:
+                            pc.pause()
+                        else:
+                            self.session.pause()
+                        self._stop_timer()
+                        self._finish_motion_trace("PARTIAL_PREVIEW_COMPLETED")
+                        self.status.setText(
+                            "ЧАСТИЧНАЯ 2D СИМУЛЯЦИЯ: {}/{} гибов; "
+                            "оставшиеся гибы НЕ ПРОВЕРЕНЫ.".format(
+                                len(preview), len(self.session.bend_order))
+                        )
+                        return
                     self._configure_for_active_bend()
                     self._update_tooling_status_label()
                     self.draw()
