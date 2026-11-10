@@ -470,6 +470,10 @@ def search_bend_sequences_2d(
             raise ValueError("axis grouping does not cover every bend")
         op_weights = weights if weights is not None else OperationWeights()
         if backgauge_model is not None:
+            if (backgauge_model.part_label and
+                    backgauge_model.part_label != getattr(session, "part_label", "")):
+                raise ValueError("backgauge targets belong to another part: " +
+                                 backgauge_model.part_label)
             missing = [bid for bid in order if bid not in backgauge_model.positions]
             if missing:
                 raise ValueError(
