@@ -56,6 +56,7 @@ class CycleExecutionMode(str, Enum):
 class CyclePhase(str, Enum):
     """Stages of a press brake working cycle for a single bend operation."""
     IDLE = "IDLE"
+    LOAD_TO_GAUGE = "LOAD_TO_GAUGE"
     APPROACH = "APPROACH"
     CONTACT = "CONTACT"
     BENDING = "BENDING"
@@ -185,6 +186,11 @@ class PressCycleController:
         # Repositioning is opt-in and purely kinematic. One existing controller
         # and playback timer own every movement; no separate GUI animation.
         self.animate_workpiece_transfer = bool(animate_workpiece_transfer)
+        # Visual lead-in for the first operation; opt-in from gauge settings.
+        # A real machine feed path/contact is NOT verified in this preview.
+        self.initial_feed_preview_mm = 0.0
+        self.initial_feed_progress = 0.0
+        self.initial_feed_preview_speed_mm_s = 40.0
         self.transfer_progress = 0.0
         self.transfer_duration_s = 1.8
         self.transfer_feed_mm = 0.0
@@ -429,6 +435,7 @@ class PressCycleController:
         self.sequence.reset()
         self.phase = CyclePhase.IDLE
         self.dwell_remaining_s = 0.0
+        self.initial_feed_progress = 0.0
         self.transfer_progress = 0.0
         self.transfer_3d = None
         self.transfer_fault = None
@@ -509,6 +516,7 @@ class PressCycleController:
         was_paused_mid_cycle = (
             self.sequence.status == PlaybackStatus.PAUSED
             and self.phase in (
+                CyclePhase.LOAD_TO_GAUGE,
                 CyclePhase.APPROACH,
                 CyclePhase.CONTACT,
                 CyclePhase.BENDING,
@@ -545,7 +553,14 @@ class PressCycleController:
                 self.contact_z_mm - frac * self.config.preview_stroke_mm
             )
         else:
-            self.phase = CyclePhase.APPROACH
+            if (self.initial_feed_preview_mm > 0.0
+                    and self.sequence.active_index == 0
+                    and not any(self.sequence.is_bend_completed(bid)
+                                for bid in self.sequence.order)):
+                self.initial_feed_progress = 0.0
+                self.phase = CyclePhase.LOAD_TO_GAUGE
+            else:
+                self.phase = CyclePhase.APPROACH
             self._set_punch_z(self.upper_z_mm)
 
     def pause(self) -> None:
@@ -689,8 +704,28 @@ class PressCycleController:
         effective_dt = min(float(dt_sec), 0.1)
 
         if self.phase == CyclePhase.IDLE or self.phase == CyclePhase.COMPLETED:
-            self.phase = CyclePhase.APPROACH
+            self.phase = (
+                CyclePhase.LOAD_TO_GAUGE
+                if self.initial_feed_preview_mm > 0.0
+                and self.sequence.active_index == 0
+                else CyclePhase.APPROACH
+            )
             self._set_punch_z(self.upper_z_mm)
+            return True
+
+        # First-sheet visual introduction from operator side (-s) to the
+        # selected rear gauge. Does not advance the bend or ram.
+        if self.phase == CyclePhase.LOAD_TO_GAUGE:
+            if (not math.isfinite(self.initial_feed_preview_mm)
+                    or not math.isfinite(self.initial_feed_preview_speed_mm_s)
+                    or self.initial_feed_preview_mm <= 0.0
+                    or self.initial_feed_preview_speed_mm_s <= 0.0):
+                raise PressCycleError("invalid_initial_gauge_feed_preview_settings")
+            delta = (self.initial_feed_preview_speed_mm_s * effective_dt
+                     / self.initial_feed_preview_mm)
+            self.initial_feed_progress = min(1.0, self.initial_feed_progress + delta)
+            if self.initial_feed_progress >= 1.0:
+                self.phase = CyclePhase.APPROACH
             return True
 
         # ------------------------------------------------------------------
@@ -873,7 +908,7 @@ class PressCycleController:
         else:
             support_z = 0.0
 
-        return WorkpiecePlacement3D.compute_placement(
+        pose = WorkpiecePlacement3D.compute_placement(
             fold_state,
             self.active_bend_id,
             desired_midpoint_xm=float(desired_midpoint_xm),
@@ -882,6 +917,20 @@ class PressCycleController:
             align_bend_arc_center=align_arc_center,
             rear_panel_vertices_xy=getattr(self, "rear_panel_vertices_xy", None),
         )
+        if self.phase == CyclePhase.LOAD_TO_GAUGE:
+            # Machine s = -Y_m. Positive machine Y translates the entire
+            # sheet left towards the operator, then feeds it to the right.
+            # Stationary tooling and backgauge never move with the sheet.
+            from .workpiece_placement_3d import PlacementTransform3D
+            remaining = (1.0 - self.initial_feed_progress) * self.initial_feed_preview_mm
+            return PlacementTransform3D(
+                rotation=pose.rotation,
+                translation=(
+                    pose.translation[0], pose.translation[1] + remaining,
+                    pose.translation[2],
+                ),
+            )
+        return pose
 
     def coupled_telemetry(self) -> Dict[str, Any]:
         """Return coupled kinematics status and coordinates for JSONL tracing."""
