@@ -37,11 +37,19 @@ class BackgaugeModel2D:
     automatic: bool = False
     edge_clearance_mm: float = 0.0
     initial_feed_preview_mm: float = 0.0
+    cad_geometry_enabled: bool = False
+    cad_station_xm_mm: float = 0.0
 
     def __post_init__(self):
         for val in (self.width_s_mm, self.height_z_mm):
             if isinstance(val, bool) or not isinstance(val, (int, float)) or not isfinite(val) or val <= 0:
                 raise ValueError("backgauge stop dimensions must be positive and finite")
+        if not isinstance(self.cad_geometry_enabled, bool):
+            raise ValueError("cad_geometry_enabled must be boolean")
+        if (isinstance(self.cad_station_xm_mm, bool)
+                or not isinstance(self.cad_station_xm_mm, (int, float))
+                or not isfinite(self.cad_station_xm_mm)):
+            raise ValueError("cad_station_xm_mm must be a finite number")
         if not isinstance(self.automatic, bool):
             raise ValueError("automatic must be boolean")
         if (isinstance(self.edge_clearance_mm, bool)
@@ -157,7 +165,13 @@ class BackgaugeModel2D:
             "automatic": self.automatic,
             "edge_clearance_mm": float(self.edge_clearance_mm),
             "initial_feed_preview_mm": float(self.initial_feed_preview_mm),
-            "geometry_evidence": "2D_RECTANGLE_ONLY_NOT_3D_VERIFIED",
+            "cad_geometry_enabled": self.cad_geometry_enabled,
+            "cad_station_xm_mm": float(self.cad_station_xm_mm),
+            "geometry_evidence": (
+                "CAD_BREP_REQUESTED_RUNTIME_VERIFICATION_REQUIRED"
+                if self.cad_geometry_enabled else
+                "2D_RECTANGLE_ONLY_NOT_3D_VERIFIED"
+            ),
         }
 
     @staticmethod
@@ -178,4 +192,6 @@ class BackgaugeModel2D:
             automatic=data.get("automatic", False),
             edge_clearance_mm=float(data.get("edge_clearance_mm", 0.0)),
             initial_feed_preview_mm=float(data.get("initial_feed_preview_mm", 0.0)),
+            cad_geometry_enabled=data.get("cad_geometry_enabled", False),
+            cad_station_xm_mm=float(data.get("cad_station_xm_mm", 0.0)),
         )
