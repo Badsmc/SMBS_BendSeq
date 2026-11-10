@@ -593,6 +593,10 @@ def search_bend_sequences_2d(
                 # is rejected by sampled 2D interference. The same complete
                 # Stage B contact oracle is applied to the alternative.
                 if (evidence == "2D_INTERFERENCE"
+                        # An optional 180-degree loading flip would put the
+                        # rear stop on the operator side. It cannot be used
+                        # as a valid alternative in rear-right machine mode.
+                        and backgauge_model is None
                         and bend_id in alternate_axis_bends
                         and not detailed
                         # Bound diagnostic experiments so they do not consume
