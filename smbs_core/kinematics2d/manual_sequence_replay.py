@@ -70,7 +70,13 @@ def evaluate_manual_planar_order(
             }
             try:
                 setup = _setup_with_scored_tool_lengths(
-                    compute_workpiece_machine_setup(state, bid),
+                    compute_workpiece_machine_setup(
+                        state, bid,
+                        rear_panel_vertices_xy=(
+                            session.panel_vertices_xy
+                            if backgauge_model is not None else None
+                        ),
+                    ),
                     tooling, match_active_bend_length,
                 )
                 gauge_polygon = None
