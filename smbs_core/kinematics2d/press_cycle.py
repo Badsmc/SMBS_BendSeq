@@ -639,6 +639,7 @@ class PressCycleController:
                 support_plane_zm=next_outer_r,
                 align_bisector=True,
                 align_bend_arc_center=True,
+                rear_panel_vertices_xy=getattr(self, "rear_panel_vertices_xy", None),
             )
             from smbs_core.kinematics2d.workpiece_transfer_3d import build_transfer_3d
             self.transfer_3d = build_transfer_3d(
@@ -879,6 +880,7 @@ class PressCycleController:
             support_plane_zm=support_z,
             align_bisector=align_bisector,
             align_bend_arc_center=align_arc_center,
+            rear_panel_vertices_xy=getattr(self, "rear_panel_vertices_xy", None),
         )
 
     def coupled_telemetry(self) -> Dict[str, Any]:
