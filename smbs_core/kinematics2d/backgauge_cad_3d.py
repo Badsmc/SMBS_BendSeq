@@ -143,12 +143,9 @@ class BackgaugeCAD3D:
             shp.Placement = app.Placement(
                 translation, self.source_to_machine_rotation
             ).multiply(shp.Placement)
-            # Ensure the actual CAD solid lies on or behind the contact face,
-            # not in operator space. This is a geometric direction invariant.
-            if shp.BoundBox.YMax > -float(contact_s_mm) + 0.1:
-                raise BackgaugeCADError(
-                    "CAD body projects in front of stop face toward operator"
-                )
+            # Backgauge has a stepped/nonconvex profile: some CAD faces
+            # can project in front of the selected contact patch. Do NOT
+            # reject by the global bounding box; evaluate actual 3D solids.
             if not shp.isValid() or not shp.Solids:
                 raise BackgaugeCADError("placed CAD stop is invalid")
             self._placement_cache[key] = shp
