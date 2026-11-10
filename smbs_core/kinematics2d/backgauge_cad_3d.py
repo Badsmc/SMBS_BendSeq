@@ -41,7 +41,8 @@ class BackgaugeCAD3D:
     this class does not invent its station or machine axis range.
     """
 
-    def __init__(self, library_dir=None, *, station_xm_mm=0.0):
+    def __init__(self, library_dir=None, *, station_xm_mm=0.0,
+                 second_station_xm_mm=None):
         import FreeCAD as App
 
         self.app = App
@@ -50,6 +51,15 @@ class BackgaugeCAD3D:
         if not math.isfinite(float(station_xm_mm)):
             raise BackgaugeCADError("nonfinite X_m gauge station")
         self.station_xm_mm = float(station_xm_mm)
+        if second_station_xm_mm is not None:
+            if (not math.isfinite(float(second_station_xm_mm))
+                    or abs(float(second_station_xm_mm)
+                           - self.station_xm_mm) < 1e-6):
+                raise BackgaugeCADError("invalid second CAD stop X station")
+        self.second_station_xm_mm = (
+            float(second_station_xm_mm)
+            if second_station_xm_mm is not None else None
+        )
         directory = (
             Path(library_dir).resolve() if library_dir is not None
             else Path(__file__).resolve().parents[2] / "toollibrary" / "Backgauge"
@@ -124,17 +134,43 @@ class BackgaugeCAD3D:
         self._placement_cache = {}
 
     def positioned_shape(self, contact_s_mm, contact_z_mm):
-        """Position real stop FACE at the chosen right-side workpiece edge."""
+        """Return primary real CAD stop at its configured X station."""
+        return self._positioned_at(
+            contact_s_mm, contact_z_mm, self.station_xm_mm
+        )
+
+    def positioned_shapes(self, contact_s_mm, contact_z_mm):
+        """Return 1 or 2 independent, explicitly mounted CAD stop solids."""
+        shapes = [self.positioned_shape(contact_s_mm, contact_z_mm)]
+        if self.second_station_xm_mm is not None:
+            shapes.append(self._positioned_at(
+                contact_s_mm, contact_z_mm, self.second_station_xm_mm
+            ))
+            # Reject finger bodies physically overlapping one another.
+            ga, sb = shapes[0].BoundBox, shapes[1].BoundBox
+            if not (ga.XMax < sb.XMin or sb.XMax < ga.XMin or
+                    ga.YMax < sb.YMin or sb.YMax < ga.YMin or
+                    ga.ZMax < sb.ZMin or sb.ZMax < ga.ZMin):
+                common = shapes[0].common(shapes[1])
+                if not common.isNull() and float(common.Volume) > 1e-6:
+                    raise BackgaugeCADError(
+                        "two_backgauge_cad_bodies_intersect; choose distinct X stations"
+                    )
+        return tuple(shapes)
+
+    def _positioned_at(self, contact_s_mm, contact_z_mm, station_xm_mm):
+        """Position source Face3 at exact machine stop contact point."""
         if not all(math.isfinite(float(v)) for v in
                    (contact_s_mm, contact_z_mm)):
             raise BackgaugeCADError("invalid stop-face target")
         if contact_s_mm <= 0:
             raise BackgaugeCADError("rear stop face must be right of bend axis")
-        key = (float(contact_s_mm), float(contact_z_mm))
+        key = (float(contact_s_mm), float(contact_z_mm),
+               float(station_xm_mm))
         if key not in self._placement_cache:
             app = self.app
             target = app.Vector(
-                self.station_xm_mm, -float(contact_s_mm), float(contact_z_mm)
+                float(station_xm_mm), -float(contact_s_mm), float(contact_z_mm)
             )
             translation = (
                 target - self.source_to_machine_rotation.multVec(self.stop_origin)
@@ -237,35 +273,34 @@ class BackgaugeCAD3D:
         if bend.bend_zone is None:
             raise BackgaugeCADError("active thickness unavailable")
         thickness = float(bend.bend_zone.thickness_mm)
-        gauge = self.positioned_shape(contact_s_mm, contact_z_mm)
+        gauges = self.positioned_shapes(contact_s_mm, contact_z_mm)
         components = (
             self._panel_solids(
                 state, panel_vertices_xy, placement, thickness
             ) + self._bend_solids(state, placement)
         )
-        for label, solid in components:
-            ga, sb = gauge.BoundBox, solid.BoundBox
-            if (ga.XMax < sb.XMin or sb.XMax < ga.XMin or
-                    ga.YMax < sb.YMin or sb.YMax < ga.YMin or
-                    ga.ZMax < sb.ZMin or sb.ZMax < ga.ZMin):
-                continue
-            common = gauge.common(solid)
-            if common.isNull():
-                # A valid OCC empty intersection (e.g. disjoint shaped solids
-                # with overlapping bounding boxes) has no material volume.
-                continue
-            volume = float(common.Volume)
-            if not math.isfinite(volume):
-                raise BackgaugeCADError("nonfinite CAD intersection volume")
-            # Only positive material volume is a sampled solid collision.
-            # Zero-volume face contact at a stop is intended.
-            if volume > max(1e-6, float(tolerance_mm)**3):
-                return {
-                    "status": "INTERFERENCE",
-                    "component": label,
-                    "volume_mm3": volume,
-                    "evidence": "SAMPLED_REAL_CAD_STOP_VS_FOLDSTATE_SOLIDS",
-                }
+        for finger_no, gauge in enumerate(gauges, 1):
+            for label, solid in components:
+                ga, sb = gauge.BoundBox, solid.BoundBox
+                if (ga.XMax < sb.XMin or sb.XMax < ga.XMin or
+                        ga.YMax < sb.YMin or sb.YMax < ga.YMin or
+                        ga.ZMax < sb.ZMin or sb.ZMax < ga.ZMin):
+                    continue
+                common = gauge.common(solid)
+                if common.isNull():
+                    continue
+                volume = float(common.Volume)
+                if not math.isfinite(volume):
+                    raise BackgaugeCADError(
+                        "nonfinite CAD intersection volume"
+                    )
+                if volume > max(1e-6, float(tolerance_mm)**3):
+                    return {
+                        "status": "INTERFERENCE",
+                        "component": "finger{}:{}".format(finger_no, label),
+                        "volume_mm3": volume,
+                        "evidence": "SAMPLED_REAL_CAD_STOP_VS_FOLDSTATE_SOLIDS",
+                    }
         return {
             "status": "SAMPLED_CLEAR_OR_TOUCH",
             "component": "",
