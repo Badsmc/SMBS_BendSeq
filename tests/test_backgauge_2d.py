@@ -69,6 +69,27 @@ class Backgauge2DTests(unittest.TestCase):
         self.assertEqual(pos.z_mm, 0)
         self.assertIn("AUTO", source)
 
+    def test_automatic_rejects_operator_side_stop_even_if_edge_exists(self):
+        from unittest.mock import patch
+        from types import SimpleNamespace
+        model = BackgaugeModel2D(10, 6, {}, automatic=True)
+        state = SimpleNamespace(bends={
+            "B01": SimpleNamespace(
+                bend_zone=SimpleNamespace(outer_radius_mm=2))
+        })
+        section = {
+            "fixed_polygon": ((0, 1), (-120, 1), (-120, -1), (0, -1)),
+        }
+        with patch(
+            "smbs_core.kinematics2d.workpiece_placement_3d."
+            "WorkpiecePlacement3D.compute_placement", return_value=object(),
+        ), patch(
+            "smbs_core.kinematics2d.machine_section_3d."
+            "compute_machine_cutting_plane_section", return_value=section,
+        ):
+            with self.assertRaisesRegex(ValueError, "positive rear edge"):
+                model.resolve_for_state(state, {}, "B01")
+
     def test_automatic_rejects_missing_fixed_edge(self):
         from unittest.mock import patch
         from types import SimpleNamespace
