@@ -9,7 +9,9 @@ from datetime import datetime, timezone
 from time import perf_counter
 from typing import Any, Optional, Sequence
 
+from dataclasses import replace
 from .operation_cost import OperationWeights, compute_workpiece_machine_setup, score_sequence
+from .backgauge_2d import BackgaugeModel2D
 
 from .preliminary_screening import (
     ScreeningDecision, screen_candidate_stage_a, screen_candidate_stage_b,
@@ -26,6 +28,7 @@ def evaluate_manual_planar_order(
     tolerance_mm: float = 0.02,
     allow_retract_warning: bool = False,
     weights: Optional[OperationWeights] = None,
+    backgauge_model: Optional[BackgaugeModel2D] = None,
 ) -> dict:
     """Replay the explicit sequence, stopping at the first non-clear Stage A/B.
 
@@ -66,6 +69,14 @@ def evaluate_manual_planar_order(
                     compute_workpiece_machine_setup(state, bid),
                     tooling, match_active_bend_length,
                 )
+                gauge_polygon = None
+                if backgauge_model is not None:
+                    point = backgauge_model.position_for(bid)
+                    gauge_polygon = backgauge_model.polygon_for(bid)
+                    setup = replace(
+                        setup, backgauge_s_mm=point.s_mm,
+                        backgauge_z_mm=point.z_mm,
+                    )
                 record["machine_setup"] = setup.to_dict()
                 stage_a = screen_candidate_stage_a(
                     state, bid, tooling,
@@ -86,6 +97,7 @@ def evaluate_manual_planar_order(
                         stroke_fractions=tuple(i / 8 for i in range(9)),
                         tolerance_mm=tolerance_mm,
                         allow_retract_warning=allow_retract_warning,
+                        backgauge_polygon_machine=gauge_polygon,
                     )
                     record["stage_b"] = stage_b.to_dict()
                     verdict = _classify_step(stage_b)
@@ -161,6 +173,8 @@ def evaluate_manual_planar_order(
     # A blocked bend is intentionally excluded from the scored prefix.
     return {
         "operation_weights": op_weights.to_dict(),
+        "backgauge_model": backgauge_model.to_dict() if backgauge_model else None,
+        "backgauge_checked": backgauge_model is not None,
         "plan_cost": plan_score.to_dict(),
         "plan_cost_scope": "ACCEPTED_PREFIX_ONLY",
         "plan_cost_selected_order_complete": (
