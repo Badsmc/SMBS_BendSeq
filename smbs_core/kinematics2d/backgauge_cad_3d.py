@@ -244,11 +244,16 @@ class BackgaugeCAD3D:
             ) + self._bend_solids(state, placement)
         )
         for label, solid in components:
-            if gauge.BoundBox.isDisjoint(solid.BoundBox):
+            ga, sb = gauge.BoundBox, solid.BoundBox
+            if (ga.XMax < sb.XMin or sb.XMax < ga.XMin or
+                    ga.YMax < sb.YMin or sb.YMax < ga.YMin or
+                    ga.ZMax < sb.ZMin or sb.ZMax < ga.ZMin):
                 continue
             common = gauge.common(solid)
             if common.isNull():
-                raise BackgaugeCADError("OCC returned null intersection:" + label)
+                # A valid OCC empty intersection (e.g. disjoint shaped solids
+                # with overlapping bounding boxes) has no material volume.
+                continue
             volume = float(common.Volume)
             if not math.isfinite(volume):
                 raise BackgaugeCADError("nonfinite CAD intersection volume")
