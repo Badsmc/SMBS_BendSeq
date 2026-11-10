@@ -114,6 +114,7 @@ class PlanarSearchReport:
     final_replay_rejections: int = 0
     dead_state_cache_hits: int = 0
     dead_states_proven: int = 0
+    deferred_root_probes: int = 0
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -134,6 +135,7 @@ class PlanarSearchReport:
             "final_replay_rejections": self.final_replay_rejections,
             "dead_state_cache_hits": self.dead_state_cache_hits,
             "dead_states_proven": self.dead_states_proven,
+            "deferred_root_probes": self.deferred_root_probes,
             "max_depth_reached": self.max_depth_reached,
             "deepest_prefix": list(self.deepest_prefix),
             "rejection_counts": dict(self.rejection_counts),
@@ -180,6 +182,7 @@ def search_bend_sequences_2d(
     max_complete_candidates: int = 1000,
     group_first: bool = True,
     preferred_bend_order: Optional[Sequence[str]] = None,
+    root_probe_nodes: int = 0,
     weights: Optional[OperationWeights] = None,
     max_nodes: int = 10000,
     max_evaluations: int = 50000,
@@ -221,7 +224,7 @@ def search_bend_sequences_2d(
             raise ValueError("missing FoldState, tooling, panel vertices, or bend order")
         if len(set(order)) != len(order) or set(order) != set(state.bends):
             raise ValueError("bend order must contain every FoldState bend exactly once")
-        if max_solutions < 1 or max_complete_candidates < 1 or max_nodes < 1 or max_evaluations < 1:
+        if max_solutions < 1 or max_complete_candidates < 1 or max_nodes < 1 or max_evaluations < 1 or root_probe_nodes < 0:
             raise ValueError("positive solution and search limits required")
         if not isfinite(max_search_time_s) or max_search_time_s <= 0:
             raise ValueError("positive finite time budget required")
@@ -279,6 +282,7 @@ def search_bend_sequences_2d(
     # full-density replay outcome, so a replay rejection must NOT memoize it.
     dead_states: set[frozenset[str]] = set()
     dead_state_cache_hits = 0
+    probe_cutoffs = 0
     deepest_prefix: tuple[str, ...] = ()
     final_replay_attempts = final_replay_rejections = 0
 
@@ -357,9 +361,11 @@ def search_bend_sequences_2d(
         step_diagnostics.append((tuple(prefix), step))
         return step
 
-    def dfs(prefix: tuple[str, ...], steps: tuple[PlanarStep, ...]) -> None:
+    def dfs(prefix: tuple[str, ...], steps: tuple[PlanarStep, ...],
+            node_ceiling: Optional[int] = None) -> None:
         nonlocal visited, stopped, complete_candidates_examined, deepest_prefix
         nonlocal final_replay_attempts, final_replay_rejections, dead_state_cache_hits
+        nonlocal probe_cutoffs
         if len(prefix) > len(deepest_prefix):
             deepest_prefix = prefix
         if stopped:
@@ -373,6 +379,11 @@ def search_bend_sequences_2d(
         if visited >= max_nodes:
             stopped = "MAX_NODES_REACHED"
             return
+        # A local root budget is a scheduling hint, not search exhaustion.
+        # Deferred subtrees are retried without a local budget later.
+        if node_ceiling is not None and visited >= node_ceiling:
+            probe_cutoffs += 1
+            return
         mask = frozenset(prefix)
         if mask in dead_states:
             dead_state_cache_hits += 1
@@ -381,6 +392,8 @@ def search_bend_sequences_2d(
         # Subtree exhaustion is proof of deadness only if no *coarse*
         # complete order was seen and no search resource limit intervened.
         completed_before = final_replay_attempts
+        cutoff_before = probe_cutoffs
+        candidate_count_before = len(candidates)
         if len(prefix) == len(order):
             if progressive:
                 final_replay_attempts += 1
@@ -439,18 +452,31 @@ def search_bend_sequences_2d(
             step = eval_step(prefix, bend_id)
             if step.evidence in ("2D_INTERFERENCE", "INVALID_INPUT", "2D_TOOLING_CONSTRAINT"):
                 continue
-            dfs(prefix + (bend_id,), steps + (step,))
+            dfs(prefix + (bend_id,), steps + (step,), node_ceiling)
             if stopped:
                 return
-        if not stopped and final_replay_attempts == completed_before:
-            # With progressive=False, complete paths never increment replay
-            # attempts. In that mode an accepted path sets a stop or causes
-            # the candidate count to increase; avoid caching viable subsets.
-            if progressive or not candidates:
-                dead_states.add(mask)
+        if (not stopped and probe_cutoffs == cutoff_before
+                and final_replay_attempts == completed_before
+                and len(candidates) == candidate_count_before):
+            dead_states.add(mask)
 
     try:
-        dfs((), ())
+        if root_probe_nodes and len(order) >= 3:
+            # Fair first pass: each possible first bend gets a limited slice
+            # of the node budget before any single root can monopolize time.
+            # A full second pass resumes exhaustive search if needed.
+            for first_bend in priority_order:
+                if stopped:
+                    break
+                if perf_counter() - start >= max_search_time_s:
+                    stopped = "MAX_SEARCH_TIME_REACHED"
+                    break
+                step = eval_step((), first_bend)
+                if step.evidence in ("2D_INTERFERENCE", "INVALID_INPUT", "2D_TOOLING_CONSTRAINT"):
+                    continue
+                dfs((first_bend,), (step,), visited + root_probe_nodes)
+        if not stopped:
+            dfs((), ())
     finally:
         state.angles = original_angles
         state.transforms = original_transforms
@@ -483,6 +509,7 @@ def search_bend_sequences_2d(
         final_replay_rejections=final_replay_rejections,
         dead_state_cache_hits=dead_state_cache_hits,
         dead_states_proven=len(dead_states),
+        deferred_root_probes=probe_cutoffs,
         max_depth_reached=len(deepest_prefix),
         deepest_prefix=deepest_prefix,
         rejection_counts=tuple(sorted(
