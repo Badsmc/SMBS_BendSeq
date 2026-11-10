@@ -262,6 +262,7 @@ def validate_partial_planar_prefix(
     state = session.fold_state
     originals = (dict(state.angles), dict(state.transforms))
     completed: set[str] = set()
+    conditional_warnings: list[str] = []
     try:
         if (not sequence or len(set(sequence)) != len(sequence)
                 or any(b not in state.bends for b in sequence)):
@@ -290,7 +291,14 @@ def validate_partial_planar_prefix(
                     allow_retract_warning
                     and evidence == "2D_RETRACT_WARNING_NOT_3D_VALIDATED"):
                 return False, bid + ":" + stage_b.reason
+            if evidence == "2D_RETRACT_WARNING_NOT_3D_VALIDATED":
+                conditional_warnings.append(bid)
             completed.add(bid)
+        if conditional_warnings:
+            return True, (
+                "CONDITIONAL_RETRACT_WARNING_NOT_3D_CERTIFIED:" +
+                ",".join(conditional_warnings)
+            )
         return True, "FULL_DENSITY_SAMPLED_2D_ONLY_NOT_3D_CERTIFIED"
     except Exception as exc:
         return False, "partial_replay_error:" + type(exc).__name__ + ":" + str(exc)
