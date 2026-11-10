@@ -1189,7 +1189,8 @@ class _PreviewPanel:
                 insert(sim_layout, entries[7])  # active operation
                 insert(sim_layout, entries[8])  # next/previous step
                 insert(sim_layout, entries[9])  # move order
-                manual_row = QtWidgets.QHBoxLayout()
+                # Vertical controls avoid button collisions in narrow docks.
+                manual_row = QtWidgets.QVBoxLayout()
                 self.manual_mode_btn = QtWidgets.QPushButton("Ручной порядок: ВЫКЛ")
                 self.manual_mode_btn.setCheckable(True)
                 self.manual_mode_btn.toggled.connect(self._toggle_manual_order)
