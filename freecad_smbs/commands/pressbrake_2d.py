@@ -4345,12 +4345,19 @@ class _PreviewPanel:
                             BackgaugeCAD3D,
                         )
                         cached = getattr(self, "_backgauge_cad_draw_cache", None)
-                        if cached is None or cached[0] != model.cad_station_xm_mm:
+                        stations_key = (
+                            model.cad_station_xm_mm,
+                            model.cad_second_station_xm_mm,
+                        )
+                        if cached is None or cached[0] != stations_key:
                             adapter = BackgaugeCAD3D(
-                                station_xm_mm=model.cad_station_xm_mm
+                                station_xm_mm=model.cad_station_xm_mm,
+                                second_station_xm_mm=(
+                                    model.cad_second_station_xm_mm
+                                ),
                             )
                             self._backgauge_cad_draw_cache = (
-                                model.cad_station_xm_mm, adapter,
+                                stations_key, adapter,
                             )
                         else:
                             adapter = cached[1]
@@ -4361,32 +4368,44 @@ class _PreviewPanel:
                             pos.s_mm - model.width_s_mm / 2
                             - model.edge_clearance_mm
                         )
-                        shape = adapter.positioned_shape(contact_s, pos.z_mm)
-                        from FreeCAD import Vector
-                        wires = shape.slice(
-                            Vector(1, 0, 0),
-                            float(model.cad_station_xm_mm),
+                        shapes = adapter.positioned_shapes(
+                            contact_s, pos.z_mm
                         )
-                        if not wires:
-                            raise ValueError(
-                                "CAD model does not intersect its X_m station"
-                            )
+                        from FreeCAD import Vector
+                        stations = (
+                            [model.cad_station_xm_mm] +
+                            ([model.cad_second_station_xm_mm]
+                             if model.cad_second_station_xm_mm is not None
+                             else [])
+                        )
                         path = QtGui.QPainterPath()
-                        for wire in wires:
-                            points = []
-                            for edge in wire.Edges:
-                                pts = edge.discretize(Number=24)
-                                for pt in pts:
-                                    qpt = QtCore.QPointF(-float(pt.y), -float(pt.z))
-                                    if not points or points[-1] != qpt:
-                                        points.append(qpt)
-                            if len(points) < 2:
-                                continue
-                            path.moveTo(points[0])
-                            for qpt in points[1:]:
-                                path.lineTo(qpt)
-                            if wire.isClosed():
-                                path.closeSubpath()
+                        for station_xm, shape in zip(stations, shapes):
+                            wires = shape.slice(
+                                Vector(1, 0, 0),
+                                float(station_xm),
+                            )
+                            if not wires:
+                                raise ValueError(
+                                    "CAD has no section at station X_m={} mm"
+                                    .format(station_xm)
+                                )
+                            for wire in wires:
+                                points = []
+                                for edge in wire.Edges:
+                                    pts = edge.discretize(Number=24)
+                                    for pt in pts:
+                                        qpt = QtCore.QPointF(
+                                            -float(pt.y), -float(pt.z)
+                                        )
+                                        if not points or points[-1] != qpt:
+                                            points.append(qpt)
+                                if len(points) < 2:
+                                    continue
+                                path.moveTo(points[0])
+                                for qpt in points[1:]:
+                                    path.lineTo(qpt)
+                                if wire.isClosed():
+                                    path.closeSubpath()
                         if path.isEmpty():
                             raise ValueError("CAD cross-section has no drawable edges")
                         item = self.scene.addPath(
@@ -4395,9 +4414,9 @@ class _PreviewPanel:
                         )
                         item.setData(0, "backgauge_real_fcstd_cad_section")
                         label_text = (
-                            "Backgauge.FCStd | CAD-сечение | "
+                            "Backgauge.FCStd | CAD-сечение {} упоров | "
                             "путь НЕ сертифицирован"
-                        )
+                        ).format(len(shapes))
                     except Exception as exc:
                         item = None
                         label_text = "ОШИБКА CAD УПОРА: " + str(exc)[:100]
