@@ -1518,6 +1518,8 @@ class _PreviewPanel:
             def _on_view_changed(self, index):
                 if index == 1:
                     self._update_3d_preview(force=True)
+                elif index == 2:
+                    self._draw_flat_pattern()
 
             def _orbit_3d(self, dx, dy, roll=False):
                 if roll:
@@ -3059,9 +3061,19 @@ class _PreviewPanel:
                     item.setData(0, bend_id)
                     item.setZValue(10)
                     item.setToolTip("{} {:+.1f}°".format(bend_id, conn.angle_deg))
+                    # A separate transparent line provides a practical click
+                    # target even when the bend line is thin on screen.
+                    hit_pen = QtGui.QPen(QtGui.QColor(0, 0, 0, 0))
+                    hit_pen.setWidth(13)
+                    hit_pen.setCosmetic(True)
+                    hit = scene.addLine(float(x1), -float(y1),
+                                        float(x2), -float(y2), hit_pen)
+                    hit.setZValue(12)
+                    hit.setData(0, bend_id)
+                    hit.setToolTip("{} {:+.1f}°".format(bend_id, conn.angle_deg))
                     mx, my = (float(x1)+float(x2))/2, -(float(y1)+float(y2))/2
                     number = (str(self._manual_sequence_prefix.index(bend_id)+1)
-                              if chosen else "·")
+                              if chosen else "{} {:+.0f}°".format(bend_id, conn.angle_deg))
                     label = scene.addSimpleText(number)
                     label.setBrush(QtGui.QBrush(QtGui.QColor(color)))
                     label.setData(0, bend_id)
@@ -3102,7 +3114,12 @@ class _PreviewPanel:
                     self.status.setText(str(exc))
                     self._sync_playback_buttons()
                     return
-                # Synchronize table and slider without triggering geometry redraw in flat state
+                # A legacy Move Up/Down or Restore action changes the entire
+                # permutation. Clear graphical numbering rather than preserve
+                # misleading step numbers from an obsolete manual prefix.
+                self._manual_sequence_prefix = []
+                self._draw_flat_pattern()
+                self._update_manual_hint()
                 self._configure_for_active_bend()
                 if self.tooling_setup.aligned:
                     self._sync_tooling_to_active_bend()
