@@ -1,0 +1,44 @@
+name: GUI plus experimental 2D search integration
+
+on:
+  push:
+    branches:
+      - integration/gui-2d-search-screening
+      - experiment/2d-search-screening
+  pull_request:
+    branches:
+      - experiment/2d-search-screening
+  workflow_dispatch:
+
+jobs:
+  gui-integration-contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Compile full retained Python source
+        run: |
+          python -m compileall -q Init.py InitGui.py freecad_smbs smbs_core tools tests
+      - name: Confirm original search engines and GUI command layout
+        env:
+          PYTHONPATH: .
+        run: |
+          python -m unittest -v \
+            tests.test_gui_experiment_integration \
+            tests.test_direct_install_25d
+      - name: Regression of experimental 2D search and collision screening
+        env:
+          PYTHONPATH: .
+        run: |
+          python -m unittest -v \
+            tests.test_axis_screening \
+            tests.test_sequence_search_2d \
+            tests.test_multi_station_screening \
+            tests.test_contact_oracle_2d
+      - name: GUI contracts (FreeCAD-dependent tests skip in headless CI)
+        env:
+          PYTHONPATH: .
+        run: python -m unittest -v tests.test_pressbrake_workspace_gui

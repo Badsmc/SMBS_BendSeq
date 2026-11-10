@@ -8,6 +8,8 @@ Uses the existing 2.5D pipeline without introducing a second geometry engine:
 """
 from __future__ import annotations
 
+from freecad_smbs.ui.orbit_camera import orbit_project, clamp_pitch
+
 import hashlib
 import logging
 import math
@@ -71,7 +73,6 @@ Z_LAYER_SHEET_ZONE = 35.0
 Z_LAYER_SHEET_SURFACES = 40.0
 Z_LAYER_SHEET_NEUTRAL_AND_TANGENTS = 50.0
 
-_DOCK = None
 _SLIDER_SCALE = 10  # 0.1 degree slider resolution
 _LOGGER: logging.Logger | None = None
 def _pressbrake_user_data_directory():
@@ -506,62 +507,221 @@ def build_part_session(doc, selection, fixed_panel: str | None = None) -> Loaded
     )
 
 
+_ICON_ROOT = Path(__file__).resolve().parents[1] / "resources" / "icons"
+_CONTROLS_DOCK_NAME = "SMBS_SimulationControls"
+
+
+def get_workspace_widget():
+    """Locate existing viewer; never create a second simulation session."""
+    import FreeCADGui as Gui
+    _QtCore, _QtGui, QtWidgets = _qt()
+    main = Gui.getMainWindow()
+    mdi = main.findChild(QtWidgets.QMdiArea)
+    if mdi is None:
+        return None
+    for subwindow in mdi.subWindowList():
+        if subwindow.objectName() == "SMBS_PressBrake2D_Workspace":
+            return subwindow.widget()
+    return None
+
+
+def _selection_snapshot():
+    """Capture active model selection before changing FreeCAD MDI focus."""
+    import FreeCAD as App
+    import FreeCADGui as Gui
+    return getattr(App, "ActiveDocument", None), list(Gui.Selection.getSelection())
+
+
+def show_workspace_controls(workspace, tab=None):
+    """Show durable addon-owned Tasks dock without FreeCAD Control.showDialog.
+
+    This avoids the activeDialog()/closeDialog() lifecycle bug encountered in
+    FreeCAD 1.1 while retaining one set of widgets and one playback timer.
+    """
+    import FreeCADGui as Gui
+    QtCore, _QtGui, QtWidgets = _qt()
+    if tab is not None:
+        workspace._control_tabs.setCurrentIndex(tab)
+    dock = getattr(workspace, "_controls_dock", None)
+    if dock is not None:
+        dock.show()
+        dock.raise_()
+        workspace.show_task_panel_btn.hide()
+        return dock
+
+    main = Gui.getMainWindow()
+    dock = QtWidgets.QDockWidget("PressBrakeSim — Task Panel", main)
+    dock.setObjectName(_CONTROLS_DOCK_NAME)
+    dock.setAllowedAreas(QtCore.Qt.LeftDockWidgetArea | QtCore.Qt.RightDockWidgetArea)
+    dock.setAttribute(QtCore.Qt.WA_DeleteOnClose, False)
+    form = QtWidgets.QWidget(dock)
+    layout = QtWidgets.QVBoxLayout(form)
+    layout.setContentsMargins(4, 4, 4, 4)
+    layout.addWidget(workspace._control_tabs, 1)
+    close_button = QtWidgets.QPushButton("Закрыть панель")
+    close_button.setObjectName("SMBS_CloseTaskPanel")
+    close_button.clicked.connect(dock.hide)
+    layout.addWidget(close_button)
+    dock.setWidget(form)
+    main.addDockWidget(QtCore.Qt.LeftDockWidgetArea, dock)
+    dock.visibilityChanged.connect(
+        lambda visible: workspace.show_task_panel_btn.setVisible(not visible)
+    )
+    workspace._controls_dock = dock
+    dock.show()
+    dock.raise_()
+    workspace.show_task_panel_btn.hide()
+    return dock
+
+
+def close_workspace_controls(workspace):
+    """Remove owned dock without deleting controls prematurely."""
+    dock = getattr(workspace, "_controls_dock", None)
+    if dock is None:
+        return
+    workspace._control_tabs.setParent(workspace)
+    workspace._control_tabs.hide()
+    dock.hide()
+    dock.setWidget(None)
+    dock.deleteLater()
+    workspace._controls_dock = None
+
+
 class PressBrake2DCommand:
     def GetResources(self):
         return {
-            "MenuText": "PressBrakeSim — 2D интерфейс",
-            "ToolTip": "Открыть 2.5D симулятор гибки листовой детали SheetMetal",
+            "Pixmap": str(_ICON_ROOT / "gui_simulation.svg"),
+            "MenuText": "Симуляция",
+            "ToolTip": "Показать окно моделирования и панель управления",
         }
 
     def IsActive(self):
         return True
 
     def Activated(self):
-        """Open a dedicated FreeCAD document-area workspace, never a side dock."""
         import FreeCADGui as Gui
-        global _DOCK
-        QtCore, QtGui, QtWidgets = _qt()
+        doc, selected = _selection_snapshot()
+        QtCore, _QtGui, QtWidgets = _qt()
         main = Gui.getMainWindow()
         mdi = main.findChild(QtWidgets.QMdiArea)
         if mdi is None:
-            raise RuntimeError("FreeCAD MDI area was not found; source document left unchanged.")
+            raise RuntimeError("FreeCAD MDI area was not found")
 
         name = "SMBS_PressBrake2D_Workspace"
         existing = next(
-            (win for win in mdi.subWindowList() if win.objectName() == name), None
+            (win for win in mdi.subWindowList() if win.objectName() == name),
+            None,
         )
         if existing is not None and existing.widget() is not None:
             mdi.setActiveSubWindow(existing)
             existing.show()
             existing.raise_()
+            show_workspace_controls(existing.widget())
             return
-
-        # Retire only this addon's old dock. Never alter FreeCAD's document views.
-        old_dock = main.findChild(QtWidgets.QDockWidget, "SMBS_PressBrake2D_Dock")
-        if old_dock is not None:
-            old_widget = old_dock.widget()
-            if old_widget is not None and hasattr(old_widget, "_stop_timer"):
-                old_widget._stop_timer()
-            old_dock.hide()
-            old_dock.setWidget(None)
-            old_dock.deleteLater()
-        _DOCK = None
 
         widget = _PreviewPanel()
         window = QtWidgets.QMdiSubWindow()
         window.setObjectName(name)
-        window.setWindowTitle("PressBrakeSim 2.5D — рабочее пространство")
+        window.setWindowTitle("PressBrakeSim 2.5D — симуляция")
         window.setAttribute(QtCore.Qt.WA_DeleteOnClose, True)
         window.setWidget(widget)
         mdi.addSubWindow(window)
         window.resize(1000, 720)
         window.showMaximized()
         mdi.setActiveSubWindow(window)
+        show_workspace_controls(widget)
+        if doc is not None and selected:
+            widget.load_part(selection=selected, document=doc)
+        _log("Experimental PressBrakeSim GUI opened; original search engine retained")
 
-        sel = Gui.Selection.getSelection() if hasattr(Gui, "Selection") else []
-        if sel:
-            widget.load_part()
-        _log("2.5D workspace opened in FreeCAD MDI area")
+
+class LoadPartCommand:
+    def GetResources(self):
+        return {
+            "Pixmap": str(_ICON_ROOT / "gui_part.svg"),
+            "MenuText": "Деталь",
+            "ToolTip": "Загрузить выбранную развёртку SheetMetal",
+        }
+
+    def IsActive(self):
+        try:
+            doc, selection = _selection_snapshot()
+            return bool(doc is not None and selection and
+                        resolve_selected_unfold(doc, selection))
+        except (SelectionWarning, AttributeError, TypeError, ValueError, ImportError):
+            return False
+
+    def Activated(self):
+        doc, selection = _selection_snapshot()
+        if not self.IsActive():
+            return
+        workspace = get_workspace_widget()
+        created = workspace is None
+        if created:
+            PressBrake2DCommand().Activated()
+            workspace = get_workspace_widget()
+        if workspace is None:
+            raise RuntimeError("PressBrakeSim viewer did not open")
+        if not created:
+            workspace.load_part(selection=selection, document=doc)
+        show_workspace_controls(workspace, 0)
+
+
+class ToolingTabCommand:
+    def GetResources(self):
+        return {
+            "Pixmap": str(_ICON_ROOT / "gui_tooling.svg"),
+            "MenuText": "Оснастка",
+            "ToolTip": "Открыть оснастку симулятора",
+        }
+
+    def IsActive(self):
+        return True
+
+    def Activated(self):
+        workspace = get_workspace_widget()
+        if workspace is None:
+            PressBrake2DCommand().Activated()
+            workspace = get_workspace_widget()
+        if workspace is not None:
+            show_workspace_controls(workspace, 1)
+
+
+class CalculateCommand:
+    def GetResources(self):
+        return {
+            "Pixmap": str(_ICON_ROOT / "gui_calculate.svg"),
+            "MenuText": "Расчёт",
+            "ToolTip": "Полный поиск последовательности с физическими проверками",
+        }
+
+    def IsActive(self):
+        workspace = get_workspace_widget()
+        return bool(workspace is not None and workspace.calculate.isEnabled())
+
+    def Activated(self):
+        workspace = get_workspace_widget()
+        if workspace is not None and workspace.calculate.isEnabled():
+            workspace.calculate_sequence()
+
+
+class PlanarCandidatesCommand:
+    """Preserve experiment's separate fast 2D candidate search."""
+    def GetResources(self):
+        return {
+            "Pixmap": str(_ICON_ROOT / "gui_planar_candidates.svg"),
+            "MenuText": "2D варианты",
+            "ToolTip": "Предварительные 2D варианты; не являются 3D-допуском",
+        }
+
+    def IsActive(self):
+        workspace = get_workspace_widget()
+        return bool(workspace is not None and workspace.planar_calculate.isEnabled())
+
+    def Activated(self):
+        workspace = get_workspace_widget()
+        if workspace is not None and workspace.planar_calculate.isEnabled():
+            workspace.calculate_planar_candidates()
 
 
 def _button(widgets, label, callback, enabled=True):
@@ -578,18 +738,77 @@ class _PreviewPanel:
         QtCore, QtGui, QtWidgets = _qt()
 
         class Canvas(QtWidgets.QGraphicsView):
-            def __init__(self, parent=None):
+            """2D/3D zoomable viewer; optional 3D orbit controlled by parent Panel."""
+
+            def __init__(self, parent=None, orbit_callback=None):
                 super().__init__(parent)
                 self.setRenderHint(QtGui.QPainter.Antialiasing, True)
                 self.setDragMode(QtWidgets.QGraphicsView.ScrollHandDrag)
+                self.setTransformationAnchor(QtWidgets.QGraphicsView.AnchorUnderMouse)
+                self.setResizeAnchor(QtWidgets.QGraphicsView.AnchorViewCenter)
                 self.setMinimumHeight(240)
                 self.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
                 self.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
+                self._user_camera_modified = False
+                self._zoom_steps = 0.0
+                self._orbit_callback = orbit_callback
+                self._last_drag_pos = None
+
+            def reset_camera(self):
+                scene = self.scene()
+                if scene is None or scene.sceneRect().isEmpty():
+                    return
+                self._user_camera_modified = False
+                self._zoom_steps = 0.0
+                self.resetTransform()
+                self.fitInView(scene.sceneRect(), QtCore.Qt.KeepAspectRatio)
+
+            def wheelEvent(self, event):
+                delta = event.angleDelta().y()
+                if delta == 0:
+                    event.ignore()
+                    return
+                steps = delta / 120.0
+                next_steps = self._zoom_steps + steps
+                if not -35.0 <= next_steps <= 35.0:
+                    event.accept()
+                    return
+                self.scale(1.15 ** steps, 1.15 ** steps)
+                self._zoom_steps = next_steps
+                self._user_camera_modified = True
+                event.accept()
+
+            def mousePressEvent(self, event):
+                if self._orbit_callback is not None and event.button() == QtCore.Qt.LeftButton:
+                    self._last_drag_pos = event.pos()
+                    event.accept()
+                    return
+                super().mousePressEvent(event)
+
+            def mouseMoveEvent(self, event):
+                if self._last_drag_pos is not None and self._orbit_callback is not None:
+                    pos = event.pos()
+                    delta = pos - self._last_drag_pos
+                    self._last_drag_pos = pos
+                    roll = bool(event.modifiers() & QtCore.Qt.ShiftModifier)
+                    if delta.x() or delta.y():
+                        self._orbit_callback(delta.x(), delta.y(), roll)
+                    event.accept()
+                    return
+                super().mouseMoveEvent(event)
+
+            def mouseReleaseEvent(self, event):
+                if self._last_drag_pos is not None and event.button() == QtCore.Qt.LeftButton:
+                    self._last_drag_pos = None
+                    event.accept()
+                    return
+                super().mouseReleaseEvent(event)
 
             def resizeEvent(self, event):
                 super().resizeEvent(event)
-                if self.scene() is not None and not self.scene().sceneRect().isEmpty():
-                    self.fitInView(self.scene().sceneRect(), QtCore.Qt.KeepAspectRatio)
+                if not self._user_camera_modified and self.scene() is not None:
+                    if not self.scene().sceneRect().isEmpty():
+                        self.fitInView(self.scene().sceneRect(), QtCore.Qt.KeepAspectRatio)
 
         class Panel(QtWidgets.QWidget):
             def __init__(self, library_root: Path | str | None = None):
@@ -647,24 +866,24 @@ class _PreviewPanel:
                 self.status.setWordWrap(True)
                 root.addWidget(self.status)
 
-                row = QtWidgets.QHBoxLayout()
-                self.load = _button(QtWidgets, "Деталь", self.load_part, True)
-                self.tooling = _button(QtWidgets, "Оснастка", self.open_tool_library_dialog, True)
+                # Toolbar owns main actions. Retain two original enabled-state
+                # proxies because experimental physical/planar search logic
+                # relies on them, without duplicating on-screen buttons.
                 self.calculate = _button(QtWidgets, "Расчёт", self.calculate_sequence, False)
                 self.planar_calculate = _button(
                     QtWidgets, "2D варианты", self.calculate_planar_candidates, False
                 )
+                self.calculate.setParent(self)
+                self.planar_calculate.setParent(self)
+                self.calculate.hide()
+                self.planar_calculate.hide()
                 self.planar_calculate.setToolTip(
                     "Быстрый 2D поиск вариантов для просмотра. Не подтверждает "
                     "физическую возможность гибки и не отменяет 3D-валидацию."
                 )
-                self.tooling.setToolTip("Открыть библиотеку пользовательской оснастки (PUNCH / DIE)")
                 self.calculate.setToolTip(
                     "Автоматический поиск допустимой последовательности гибки с физической проверкой 2.5D + 3D (D6.3.4)"
                 )
-                for widget in (self.load, self.tooling, self.calculate, self.planar_calculate):
-                    row.addWidget(widget)
-                root.addLayout(row)
 
                 # Phase 5A: Tooling section (Import / Select / Align / Reset / Hide-Show / Library)
                 self.tooling_group = QtWidgets.QGroupBox("Tooling (PUNCH & DIE)")
@@ -893,7 +1112,7 @@ class _PreviewPanel:
                 """
                 # The existing constructor builds these items in a known order.
                 entries = [root.takeAt(0) for _ in range(root.count())]
-                if len(entries) != 14:
+                if len(entries) != 13:
                     raise RuntimeError(
                         "Unexpected PressBrakeSim layout: {} items".format(len(entries))
                     )
@@ -909,15 +1128,17 @@ class _PreviewPanel:
                         nested.setParent(None)
                         layout.addLayout(nested, stretch)
 
-                # Header: title, source selection, and working status.
-                for item in entries[:3]:
+                # Header and status remain in the MDI viewer.
+                for item in entries[:2]:
                     insert(root, item)
 
-                splitter = QtWidgets.QSplitter(QtCore.Qt.Horizontal, self)
-                views = QtWidgets.QTabWidget(splitter)
+                views = QtWidgets.QTabWidget(self)
                 views.setObjectName("SMBS_ViewerTabs")
                 views.addTab(self.view, "2.5D · Гибка")
-                self._preview_3d = QtWidgets.QGraphicsView()
+                self._preview_3d = Canvas(orbit_callback=self._orbit_3d)
+                self._orbit_yaw = 35.0
+                self._orbit_pitch = 25.0
+                self._orbit_roll = 0.0
                 self._last_3d_frame_at = -1.0
                 self._fixed_3d_view_rect = None
                 self._preview_3d.setObjectName("SMBS_3D_ReadOnly")
@@ -926,33 +1147,33 @@ class _PreviewPanel:
                 views.addTab(self._preview_3d, "3D · Просмотр")
                 views.currentChanged.connect(self._on_view_changed)
 
-                controls = QtWidgets.QTabWidget(splitter)
+                controls = QtWidgets.QTabWidget()
                 controls.setObjectName("SMBS_ControlTabs")
                 simulation = QtWidgets.QWidget()
                 sim_layout = QtWidgets.QVBoxLayout(simulation)
                 sim_layout.setSpacing(8)
                 # Mode selection belongs beside playback, not in diagnostic
                 # settings. One Play All operates whichever mode is selected.
-                insert(sim_layout, entries[4])  # mode / speed / cycle config
-                insert(sim_layout, entries[6])  # Reset / Play All / Pause / Fit
-                insert(sim_layout, entries[7])  # angle slider
-                insert(sim_layout, entries[8])  # active operation
-                insert(sim_layout, entries[9])  # next/previous step
-                insert(sim_layout, entries[10])  # move order
+                insert(sim_layout, entries[3])  # mode / speed / cycle config
+                insert(sim_layout, entries[5])  # Reset / Play All / Pause / Fit
+                insert(sim_layout, entries[6])  # angle slider
+                insert(sim_layout, entries[7])  # active operation
+                insert(sim_layout, entries[8])  # next/previous step
+                insert(sim_layout, entries[9])  # move order
                 self.operations.setMaximumHeight(16777215)
-                insert(sim_layout, entries[11], 1)  # operation table
+                insert(sim_layout, entries[10], 1)  # operation table
                 controls.addTab(simulation, "Симуляция")
 
                 tooling = QtWidgets.QWidget()
                 tool_layout = QtWidgets.QVBoxLayout(tooling)
-                insert(tool_layout, entries[3])  # tooling group
+                insert(tool_layout, entries[2])  # tooling group
                 tool_layout.addStretch(1)
                 controls.addTab(tooling, "Оснастка")
 
                 settings = QtWidgets.QWidget()
                 settings_layout = QtWidgets.QVBoxLayout(settings)
-                insert(settings_layout, entries[12])  # diagnostics button
-                insert(settings_layout, entries[13])  # diagnostics output
+                insert(settings_layout, entries[11])  # diagnostics button
+                insert(settings_layout, entries[12])  # diagnostics output
 
                 self.trace_checkbox = QtWidgets.QCheckBox(
                     "Автоматически записывать движения при Play All (JSONL)"
@@ -1002,14 +1223,17 @@ class _PreviewPanel:
                 settings_layout.addStretch(1)
                 controls.addTab(settings, "Настройки")
 
-                splitter.addWidget(views)
-                splitter.addWidget(controls)
-                splitter.setStretchFactor(0, 4)
-                splitter.setStretchFactor(1, 2)
-                splitter.setSizes([720, 370])
-                root.addWidget(splitter, 1)
+                root.addWidget(views, 1)
                 self._viewer_tabs = views
                 self._control_tabs = controls
+                self._controls_dock = None
+                self.show_task_panel_btn = QtWidgets.QPushButton("Показать панель управления")
+                self.show_task_panel_btn.setObjectName("SMBS_ShowTaskPanel")
+                self.show_task_panel_btn.clicked.connect(
+                    lambda: show_workspace_controls(self)
+                )
+                root.addWidget(self.show_task_panel_btn)
+                self.show_task_panel_btn.hide()
 
             def _on_trace_checkbox_toggled(self, enabled):
                 if enabled:
@@ -1259,6 +1483,19 @@ class _PreviewPanel:
                 if index == 1:
                     self._update_3d_preview(force=True)
 
+            def _orbit_3d(self, dx, dy, roll=False):
+                if roll:
+                    self._orbit_roll = (self._orbit_roll + dx * 0.45) % 360.0
+                else:
+                    self._orbit_yaw = (self._orbit_yaw + dx * 0.45) % 360.0
+                    self._orbit_pitch = clamp_pitch(self._orbit_pitch + dy * 0.45)
+                self._update_3d_preview(force=True)
+
+            def reset_3d_view(self):
+                self._orbit_yaw, self._orbit_pitch, self._orbit_roll = 35.0, 25.0, 0.0
+                self._update_3d_preview(force=True)
+                self._preview_3d.reset_camera()
+
             def _update_3d_preview(self, force=False):
                 """Live whole-workpiece isometric 3D projection, read-only.
 
@@ -1293,14 +1530,31 @@ class _PreviewPanel:
                     scene.addSimpleText("3D: {}".format(str(exc)))
                     return
 
-                # Camera: machine s (horizontal), depth (bend axis), z (vertical).
-                # This is a projected 3D surface viewer, not an OCC solid viewport.
-                def project(p):
-                    s, depth, z = p
-                    return QtCore.QPointF(
-                        0.87 * s + 0.48 * depth,
-                        -0.83 * z + 0.36 * depth - 0.10 * s,
+                # Re-orient the camera, not the workpiece or its FoldState.
+                # Orthographic projection with centroid-based orbit target.
+                all_vertices = [v for f in faces for v in f.vertices]
+                if not all_vertices:
+                    scene.addSimpleText("3D: no visible faces")
+                    return
+                center = tuple(
+                    sum(p[axis] for p in all_vertices) / len(all_vertices)
+                    for axis in range(3)
+                )
+                radius = max(
+                    math.sqrt(sum((p[i] - center[i]) ** 2 for i in range(3)))
+                    for p in all_vertices
+                )
+                radius = max(radius, 1.0)
+
+                def camera_point(p):
+                    return orbit_project(
+                        tuple(p[i] - center[i] for i in range(3)),
+                        self._orbit_yaw, self._orbit_pitch, self._orbit_roll,
                     )
+
+                def project(p):
+                    x, y, _depth = camera_point(p)
+                    return QtCore.QPointF(x, y)
 
                 palette = {
                     "panel_top": ("#8bb9d4", "#37647e"),
@@ -1310,13 +1564,12 @@ class _PreviewPanel:
                     "zone_outer": ("#e0b967", "#9a7134"),
                     "zone_end": ("#bd9c65", "#9a7134"),
                 }
-                # Stable approximate painter ordering: view-depth, then height.
+                # Painter order must follow the currently rotated camera depth.
                 ordering = sorted(
                     faces,
-                    key=lambda face: (
-                        sum(pt[1] for pt in face.vertices)/len(face.vertices),
-                        sum(pt[2] for pt in face.vertices)/len(face.vertices),
-                    ),
+                    key=lambda face: sum(camera_point(pt)[2] for pt in face.vertices)
+                    / len(face.vertices),
+                    reverse=True,
                 )
                 for face in ordering:
                     poly = QtGui.QPolygonF([project(pt) for pt in face.vertices])
@@ -1330,7 +1583,7 @@ class _PreviewPanel:
                     item.setToolTip("{}: {}".format(face.kind, face.identifier))
 
                 label = scene.addSimpleText(
-                    "3D FULL PART | {} | FIXED ISOMETRIC | {} | KINEMATIC_PREVIEW".format(
+                    "3D FULL PART | {} | ORBIT CAMERA | {} | KINEMATIC_PREVIEW".format(
                         self.session.active_bend_id,
                         self.execution_mode.value,
                     )
@@ -1343,20 +1596,15 @@ class _PreviewPanel:
                 max_y = max(p.y() for p in sheet_points)
                 label.setPos(min_x, min_y - 25)
                 pad = max(10.0, 0.08 * max(max_x-min_x, max_y-min_y))
+                # Fixed viewport in camera-centered model coordinates prevents
+                # jump/auto-fit when switching bends or dragging the orbit camera.
                 if self._fixed_3d_view_rect is None:
-                    # Stable viewing frame across positive/negative operations:
-                    # the sheet deforms, but the isometric camera does not pan.
-                    width = max_x - min_x
-                    height = max_y - min_y
-                    extra = max(25.0, 0.65 * max(width, height))
+                    extent = radius * 1.8 + 25.0
                     self._fixed_3d_view_rect = QtCore.QRectF(
-                        min_x - extra, min_y - extra - 25,
-                        width + 2 * extra, height + 2 * extra + 25,
+                        -extent, -extent - 25.0, 2 * extent, 2 * extent + 25.0,
                     )
                     scene.setSceneRect(self._fixed_3d_view_rect)
-                    self._preview_3d.fitInView(
-                        self._fixed_3d_view_rect, QtCore.Qt.KeepAspectRatio
-                    )
+                    self._preview_3d.reset_camera()
                 else:
                     scene.setSceneRect(self._fixed_3d_view_rect)
 
@@ -2573,13 +2821,14 @@ class _PreviewPanel:
                 )
                 self._sync_playback_buttons()
 
-            def load_part(self):
-                """Load the currently selected SheetMetal part in FreeCAD."""
+            def load_part(self, selection=None, document=None):
+                """Load selected SheetMetal object captured before viewer focus."""
                 import FreeCAD as App
                 import FreeCADGui as Gui
 
-                doc = getattr(App, "ActiveDocument", None)
-                selection = Gui.Selection.getSelection() if hasattr(Gui, "Selection") else []
+                doc = document if document is not None else getattr(App, "ActiveDocument", None)
+                if selection is None:
+                    selection = Gui.Selection.getSelection() if hasattr(Gui, "Selection") else []
 
                 # Early precondition check BEFORE touching timer, session, controls, or scene
                 outcome, new_session, msg = execute_load_part(self.session, doc, selection)
@@ -3093,13 +3342,9 @@ class _PreviewPanel:
                     # User may pause first; no camera jumps during playback.
                     return
                 if hasattr(self, "_viewer_tabs") and self._viewer_tabs.currentIndex() == 1:
-                    rect = self._preview_3d_scene.sceneRect()
-                    if not rect.isEmpty():
-                        self._preview_3d.fitInView(rect, QtCore.Qt.KeepAspectRatio)
+                    self._preview_3d.reset_camera()
                     return
-                rect = self.scene.sceneRect()
-                if not rect.isEmpty():
-                    self.view.fitInView(rect, QtCore.Qt.KeepAspectRatio)
+                self.view.reset_camera()
 
             def diagnostics(self):
                 has_part = self.session is not None
@@ -3128,6 +3373,7 @@ class _PreviewPanel:
                 self._finish_motion_trace("WORKSPACE_CLOSED")
                 self.timer.stop()
                 self.playing = False
+                close_workspace_controls(self)
                 super().closeEvent(event)
 
             def _draw_tooling_items(
