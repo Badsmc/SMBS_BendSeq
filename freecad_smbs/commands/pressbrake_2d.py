@@ -1809,6 +1809,18 @@ class _PreviewPanel:
                 )
                 details.setWordWrap(True)
                 layout.addWidget(details)
+                depth_info = QtWidgets.QLabel(
+                    "Максимальная глубина: {}/{} | путь: {}\n"
+                    "Классификация проверок: {}".format(
+                        report.max_depth_reached,
+                        len(self.session.bend_order) if self.session is not None else "?",
+                        " → ".join(report.deepest_prefix) or "(начало)",
+                        ", ".join("{}: {}".format(name, count)
+                                  for name, count in report.rejection_counts) or "нет",
+                    )
+                )
+                depth_info.setWordWrap(True)
+                layout.addWidget(depth_info)
                 options = QtWidgets.QListWidget(dlg)
                 for index, candidate in enumerate(report.candidates):
                     suffix = (" | стоимость {:.2f}".format(candidate.cost)
@@ -1824,8 +1836,10 @@ class _PreviewPanel:
                 controls = QtWidgets.QHBoxLayout()
                 use = QtWidgets.QPushButton("Показать порядок в симуляции")
                 use.setEnabled(bool(report.candidates))
+                export_btn = QtWidgets.QPushButton("Сохранить диагностику JSON")
                 close = QtWidgets.QPushButton("Закрыть")
                 controls.addWidget(use)
+                controls.addWidget(export_btn)
                 controls.addWidget(close)
                 layout.addLayout(controls)
 
@@ -1866,7 +1880,26 @@ class _PreviewPanel:
                         self.status.setText("Нельзя показать 2D порядок: " + str(exc))
                         _error("Planar preview exception: " + traceback.format_exc())
 
+                def on_export():
+                    import json
+                    destination, _ = QtWidgets.QFileDialog.getSaveFileName(
+                        dlg, "Сохранить 2D диагностику",
+                        str(Path.home() / "Desktop" / "smbs_2d_search_diagnostics.json"),
+                        "JSON (*.json)",
+                    )
+                    if not destination:
+                        return
+                    try:
+                        Path(destination).write_text(
+                            json.dumps(report.to_dict(), ensure_ascii=False, indent=2),
+                            encoding="utf-8",
+                        )
+                        self.status.setText("2D диагностика сохранена: " + destination)
+                    except Exception as exc:
+                        self.status.setText("Ошибка сохранения диагностики: " + str(exc))
+
                 use.clicked.connect(on_preview)
+                export_btn.clicked.connect(on_export)
                 close.clicked.connect(dlg.reject)
                 dlg.exec()
 
