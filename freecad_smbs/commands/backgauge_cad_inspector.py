@@ -76,8 +76,13 @@ def inspect_backgauge_cad(library_dir=None):
         for index, face in enumerate(shape.Faces, 1):
             if not isinstance(face.Surface, Part.Plane):
                 continue
-            axis = face.Surface.Axis
-            if abs(axis.dot(normal)) < 0.999:
+            # Surface.Axis may point opposite to the actual oriented face
+            # normal. Verify the outward face normal, not just its plane.
+            u_min, u_max, v_min, v_max = face.ParameterRange
+            axis = face.normalAt(
+                (u_min + u_max) / 2, (v_min + v_max) / 2
+            )
+            if axis.dot(normal) < 0.999:
                 continue
             # Datum origin must actually lie on this contact face, not
             # just its infinite support plane.
