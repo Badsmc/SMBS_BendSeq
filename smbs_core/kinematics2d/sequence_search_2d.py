@@ -14,6 +14,7 @@ from time import perf_counter
 from typing import Any, Mapping, Optional, Sequence
 
 from .contact_oracle_2d import ContactStatus
+from .backgauge_2d import BackgaugeModel2D
 from .axis_screening import axes_from_fold_state, group_parallel_bends
 from .operation_cost import (
     OperationWeights, WorkpieceMachineSetup,
@@ -379,6 +380,7 @@ def search_bend_sequences_2d(
     verified_die_span_xm: Optional[tuple[float, float]] = None,
     tolerance_mm: float = 0.02,
     backgauge_polygon_machine: Optional[Sequence[tuple[float, float]]] = None,
+    backgauge_model: Optional[BackgaugeModel2D] = None,
 ) -> PlanarSearchReport:
     """Enumerate up to N sampled 2D sequences without ever running Stage C.
 
@@ -388,6 +390,8 @@ def search_bend_sequences_2d(
     Optional reduced exploration sampling NEVER produces a returned candidate
     without replaying all of its steps at the original full sampling density.
     """
+    if backgauge_model is not None and backgauge_polygon_machine is not None:
+        raise ValueError("Use either per-bend backgauge model or one fixed polygon")
     start = perf_counter()
     warnings = (
         "Sampled 2D cross sections do not certify a continuous stroke, 3D tool ends, "
@@ -397,8 +401,12 @@ def search_bend_sequences_2d(
          "not physical approval; collision findings retained."
          if allow_retract_warning else "RETRACT interference remains blocking in the 2D preview."),
         ("Backgauge machine-space section was provided and sampled."
-         if backgauge_polygon_machine is not None
+         if backgauge_polygon_machine is not None or backgauge_model is not None
          else "Backgauge geometry missing: no backgauge collision checks performed."),
+        ("Backgauge targets are screened at sampled bend phases; "
+         "inter-bend backgauge travel is NOT collision-verified."
+         if backgauge_model is not None
+         else "Backgauge transfer path is not checked."),
     )
     state = getattr(session, "fold_state", None)
     panel_vertices = getattr(session, "panel_vertices_xy", None)
@@ -503,6 +511,13 @@ def search_bend_sequences_2d(
             setup = _setup_with_scored_tool_lengths(
                 setup, tooling, match_active_bend_length,
             )
+            gauge_polygon = backgauge_polygon_machine
+            if backgauge_model is not None:
+                target = backgauge_model.position_for(bend_id)
+                gauge_polygon = backgauge_model.polygon_for(bend_id)
+                setup = replace(
+                    setup, backgauge_s_mm=target.s_mm, backgauge_z_mm=target.z_mm,
+                )
             stage_a = screen_candidate_stage_a(
                 state, bend_id, tooling,
                 match_active_bend_length=match_active_bend_length,
@@ -527,7 +542,7 @@ def search_bend_sequences_2d(
                     tolerance_mm=tolerance_mm,
                     fractions=fs if detailed else coarse_fs,
                     stroke_fractions=stroke_fs if detailed else coarse_stroke_fs,
-                    backgauge_polygon_machine=backgauge_polygon_machine,
+                    backgauge_polygon_machine=gauge_polygon,
                     deadline_monotonic=start + max_search_time_s,
                     multi_station_enabled=multi_station_enabled,
                     verified_punch_span_xm=verified_punch_span_xm,
@@ -557,7 +572,7 @@ def search_bend_sequences_2d(
                         tolerance_mm=tolerance_mm,
                         fractions=fs if detailed else coarse_fs,
                         stroke_fractions=stroke_fs if detailed else coarse_stroke_fs,
-                        backgauge_polygon_machine=backgauge_polygon_machine,
+                        backgauge_polygon_machine=gauge_polygon,
                         deadline_monotonic=start + max_search_time_s,
                         multi_station_enabled=multi_station_enabled,
                         verified_punch_span_xm=verified_punch_span_xm,
