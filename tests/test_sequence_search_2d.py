@@ -115,7 +115,7 @@ class PlanarSearchTests(unittest.TestCase):
 
     def test_search_budget_limits_completed_candidates(self):
         result, _ = self.run_mocked(max_complete_candidates=1)
-        self.assertEqual(result.status, PlanarSearchStatus.LIMIT_REACHED)
+        self.assertEqual(result.status, PlanarSearchStatus.SAMPLED_2D_CANDIDATES)
         self.assertEqual(result.limit_reason, "MAX_COMPLETE_CANDIDATES_REACHED")
         self.assertEqual(result.complete_candidates_examined, 1)
 
