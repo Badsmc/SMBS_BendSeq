@@ -1,6 +1,7 @@
-"""FreeCAD Qt settings for explicit per-bend backgauge section targets.
+"""FreeCAD Qt settings for automatic and explicit backgauge section targets.
 
-No default targets are invented. Geometry is a machine (s,z) rectangle;
+Automatic mode derives the fixed panel edge from the active bend geometry.
+Geometry is a machine (s,z) rectangle;
 a successful 2D screen does not verify finger travel, clamp interaction, or 3D.
 """
 from __future__ import annotations
@@ -20,14 +21,20 @@ def show_backgauge_settings(workspace):
     layout = W.QVBoxLayout(dlg)
     notice = W.QLabel(
         "2D-сечение заднего упора в координатах станка (s,z), мм. "
-        "Задайте центр упора отдельно для КАЖДОГО гиба. "
-        "Пустые клетки не заменяются нулём. Проверка траектории перемещения "
+        "АВТО: положение вычисляется от текущего гиба до края опорной панели. "
+        "РУЧНОЙ: задайте центр упора для каждого гиба. "
+        "Проверка траектории перемещения "
         "между гибами и реальная 3D-геометрия пока не реализованы.")
     notice.setWordWrap(True)
     layout.addWidget(notice)
     active = W.QCheckBox("Проверять задний упор при поиске и ручной проверке")
     active.setChecked(workspace.backgauge_model is not None)
     layout.addWidget(active)
+    auto = W.QCheckBox(
+        "Автоматически вычислять положение по краю опорной панели")
+    model = workspace.backgauge_model
+    auto.setChecked(model.automatic if model else True)
+    layout.addWidget(auto)
     dims = W.QFormLayout()
     width = W.QDoubleSpinBox()
     width.setRange(0.01, 10000)
@@ -37,7 +44,12 @@ def show_backgauge_settings(workspace):
     height.setRange(0.01, 10000)
     height.setDecimals(2)
     height.setSuffix(" мм")
-    model = workspace.backgauge_model
+    clearance = W.QDoubleSpinBox()
+    clearance.setRange(0.0, 500.0)
+    clearance.setDecimals(2)
+    clearance.setSuffix(" мм")
+    clearance.setValue(model.edge_clearance_mm if model else 0.0)
+    dims.addRow("Зазор до края детали:", clearance)
     width.setValue(model.width_s_mm if model else 10.0)
     height.setValue(model.height_z_mm if model else 10.0)
     dims.addRow("Ширина прямоугольника по s:", width)
@@ -50,6 +62,8 @@ def show_backgauge_settings(workspace):
     table.setColumnWidth(0, 100)
     table.setColumnWidth(1, 160)
     layout.addWidget(table, 1)
+    table.setEnabled(not auto.isChecked())
+    auto.toggled.connect(lambda enabled: table.setEnabled(not enabled))
     bends = tuple(workspace.session.canonical_order) if workspace.session else ()
     for bid in bends:
         row = table.rowCount()
@@ -88,7 +102,7 @@ def show_backgauge_settings(workspace):
             return
         targets = {}
         try:
-            for row in range(table.rowCount()):
+            for row in range(table.rowCount() if not auto.isChecked() else 0):
                 bid = table.item(row, 0).text()
                 item_s, item_z = table.item(row, 1), table.item(row, 2)
                 val_s = item_s.text().strip() if item_s else ""
@@ -104,6 +118,8 @@ def show_backgauge_settings(workspace):
                 height_z_mm=float(height.value()),
                 positions=targets,
                 part_label=workspace.session.part_label,
+                automatic=auto.isChecked(),
+                edge_clearance_mm=float(clearance.value()),
             )
         except (ValueError, TypeError) as exc:
             W.QMessageBox.warning(dlg, "Недопустимая конфигурация", str(exc))
@@ -114,8 +130,10 @@ def show_backgauge_settings(workspace):
         )
         workspace._backgauge_settings.setValue("backgauge/enabled", True)
         workspace.status.setText(
-            "Задний упор: 2D-геометрия и цели для {} гибов включены. "
-            "Путь перемещения НЕ проверен.".format(len(targets))
+            ("Задний упор: автоматическая постановка по краю опорной панели."
+             if auto.isChecked() else
+             "Задний упор: ручные координаты для {} гибов.".format(len(targets)))
+            + " Путь перемещения НЕ проверен."
         )
         dlg.accept()
 
