@@ -60,7 +60,8 @@ def evaluate_manual_planar_order(
     if backgauge_model is not None and backgauge_model.cad_geometry_enabled:
         from .backgauge_cad_3d import BackgaugeCAD3D
         cad_checker = BackgaugeCAD3D(
-            station_xm_mm=backgauge_model.cad_station_xm_mm
+            station_xm_mm=backgauge_model.cad_station_xm_mm,
+                second_station_xm_mm=backgauge_model.cad_second_station_xm_mm,
         )
     try:
         for bid in sequence:
