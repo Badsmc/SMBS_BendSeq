@@ -33,11 +33,14 @@ class BackgaugeModel2D:
     width_s_mm: float
     height_z_mm: float
     positions: Mapping[str, BackgaugePosition2D]
+    part_label: str = ""
 
     def __post_init__(self):
         for val in (self.width_s_mm, self.height_z_mm):
             if isinstance(val, bool) or not isinstance(val, (int, float)) or not isfinite(val) or val <= 0:
                 raise ValueError("backgauge stop dimensions must be positive and finite")
+        if not isinstance(self.part_label, str):
+            raise ValueError("backgauge part_label must be text")
         if not isinstance(self.positions, Mapping):
             raise ValueError("backgauge positions must be a mapping")
         if any(not isinstance(bid, str) or not bid or not isinstance(p, BackgaugePosition2D)
@@ -63,6 +66,7 @@ class BackgaugeModel2D:
             "width_s_mm": float(self.width_s_mm),
             "height_z_mm": float(self.height_z_mm),
             "positions": {bid: p.to_dict() for bid, p in self.positions.items()},
+            "part_label": self.part_label,
             "geometry_evidence": "2D_RECTANGLE_ONLY_NOT_3D_VERIFIED",
         }
 
@@ -80,4 +84,5 @@ class BackgaugeModel2D:
                 bid: BackgaugePosition2D(float(p["s_mm"]), float(p["z_mm"]))
                 for bid, p in positions.items()
             },
+            part_label=str(data.get("part_label", "")),
         )
