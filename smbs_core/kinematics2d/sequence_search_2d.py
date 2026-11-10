@@ -341,6 +341,10 @@ def search_bend_sequences_2d(
                 transitions, numbered,
             ))
             complete_candidates_examined += 1
+            # Stop immediately after reaching the requested number of
+            # complete candidates: do not screen another sibling first.
+            if complete_candidates_examined >= max_complete_candidates:
+                stopped = "MAX_COMPLETE_CANDIDATES_REACHED"
             return
         remaining = [bid for bid in order if bid not in prefix]
         if group_first and prefix:
