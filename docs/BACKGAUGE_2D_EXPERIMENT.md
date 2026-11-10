@@ -17,6 +17,48 @@ All machine-section calculations use the same physical frame:
 
 **Regression note:** new sampled 2D results are not directly comparable with earlier reports that used ambiguous machine orientation; recalculate from the current version. No claim of production safety or swept-path clearance.
 
+## Clamp.FCStd audit and loading approach (2026-11-10)
+
+`toollibrary/Clamp/Clamp.FCStd` is a real FreeCAD model with an associated
+`Clamp.tooling.json` sidecar. The checked sidecar declares:
+
+- `kind: clamp` (not yet a certified rear-gauge finger)
+- `width_mm=150`, `length_mm=150`, `height_mm=40`
+- mounting plane origin `(75,75,40)`, normal `(0,0,1)`
+- working axis origin `(75,75,0)`, direction `(1,0,0)`
+- working plane origin `(75,75,0)`, normal `(0,0,-1)`
+
+**Do not substitute the bounding box of this part for a rear-gauge finger**.
+It may be a workholding clamp rather than a backstop. Its actual BRep shape,
+contact face orientation, mounting/stroke constraints and usable finger
+positions need verification in FreeCAD. No existing metadata designates a
+rear-stop contact face, X/R/Z travel datum or left/right finger stations.
+
+Before using the CAD file as collision geometry, a FreeCAD adapter must:
+load the source shape, verify solid validity, derive an explicit backstop
+contact face/normal and mounting transform, position independent physical
+fingers at machine X stations, and intersect each 3D gauge solid with all
+rigid folded panels during both SETUP and the swept first-feed/TRANSFER path.
+Only after the datum/geometry check should it replace the provisional
+2D rectangle in the physical collision oracle.
+
+## Initial introduction of the workpiece (opt-in preview)
+
+The first operation can now start with `LOAD_TO_GAUGE`, before
+`APPROACH`. In the **Задний упор** GUI choose an explicit
+`initial_feed_preview_mm` value (0 disables it). During this phase the
+sheet moves rigidly from the **operator/left** side (`s<0`) to the
+first gauge target (`s>0`); punch and die remain stationary and the
+ram is held at its upper position. This is visual only: the default is
+**disabled** until the operator chooses a preview feed distance, and the
+path has no production-safe collision qualification. The distance is a
+preview start offset, **not** an inferred real loading starting position.
+
+The intended full cycle is:
+`IDLE -> LOAD_TO_GAUGE -> APPROACH -> CONTACT -> BENDING ->
+BOTTOM -> RETRACT -> TRANSFER -> ...`.
+The post-bend `TRANSFER` remains separate from the initial sheet feed.
+
 ## Target behavior
 
 For every bend, the planner computes the machine-space distance from the active bend line to a supporting **fixed-panel edge** using the current folded state. The backgauge stop is positioned at the selected edge, automatically repositions when the next bend is selected, and moves as an interpolated 2D preview in the `TRANSFER` phase.
