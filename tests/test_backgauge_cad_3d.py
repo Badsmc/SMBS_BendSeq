@@ -89,6 +89,22 @@ class BackgaugeRealCADTests(unittest.TestCase):
         )
         self.assertIn("evidence", verdict)
 
+    def test_two_explicit_cad_stations_and_overlap_rejection(self):
+        from smbs_core.kinematics2d.backgauge_cad_3d import (
+            BackgaugeCAD3D, BackgaugeCADError,
+        )
+        separated = BackgaugeCAD3D(
+            station_xm_mm=-200.0, second_station_xm_mm=200.0
+        )
+        shapes = separated.positioned_shapes(120.0, 0.75)
+        self.assertEqual(len(shapes), 2)
+        self.assertTrue(all(shape.isValid() for shape in shapes))
+        overlapping = BackgaugeCAD3D(
+            station_xm_mm=0.0, second_station_xm_mm=1.0
+        )
+        with self.assertRaisesRegex(BackgaugeCADError, "intersect"):
+            overlapping.positioned_shapes(120.0, 0.75)
+
     def test_bad_target_cannot_be_claimed_as_valid_stop(self):
         from smbs_core.kinematics2d.backgauge_cad_3d import (
             BackgaugeCAD3D, BackgaugeCADError,
