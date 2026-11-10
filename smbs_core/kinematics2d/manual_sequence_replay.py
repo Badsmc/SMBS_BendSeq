@@ -7,12 +7,14 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from time import perf_counter
-from typing import Any, Sequence
+from typing import Any, Optional, Sequence
+
+from .operation_cost import OperationWeights, compute_workpiece_machine_setup, score_sequence
 
 from .preliminary_screening import (
     ScreeningDecision, screen_candidate_stage_a, screen_candidate_stage_b,
 )
-from .sequence_search_2d import _classify_step
+from .sequence_search_2d import _classify_step, _setup_with_scored_tool_lengths
 
 
 def evaluate_manual_planar_order(
@@ -23,6 +25,7 @@ def evaluate_manual_planar_order(
     match_active_bend_length: bool = True,
     tolerance_mm: float = 0.02,
     allow_retract_warning: bool = False,
+    weights: Optional[OperationWeights] = None,
 ) -> dict:
     """Replay the explicit sequence, stopping at the first non-clear Stage A/B.
 
@@ -44,6 +47,8 @@ def evaluate_manual_planar_order(
     steps = []
     accepted = []
     stop_reason = None
+    op_weights = weights if weights is not None else OperationWeights()
+    accepted_setups = []
     try:
         for bid in sequence:
             step_start = perf_counter()
@@ -57,6 +62,11 @@ def evaluate_manual_planar_order(
                 "completed_before_step": list(accepted),
             }
             try:
+                setup = _setup_with_scored_tool_lengths(
+                    compute_workpiece_machine_setup(state, bid),
+                    tooling, match_active_bend_length,
+                )
+                record["machine_setup"] = setup.to_dict()
                 stage_a = screen_candidate_stage_a(
                     state, bid, tooling,
                     match_active_bend_length=match_active_bend_length,
@@ -96,6 +106,10 @@ def evaluate_manual_planar_order(
                     }
                     break
                 accepted.append(bid)
+                accepted_setups.append(setup)
+                score = score_sequence(accepted, accepted_setups, op_weights)
+                record["operation_penalty"] = score.steps[-1].to_dict()
+                record["cumulative_penalty"] = round(float(score.total), 4)
             except Exception as exc:
                 record["evidence"] = "UNVERIFIED_2D"
                 record["reason"] = "replay_exception:{}:{}".format(
@@ -142,7 +156,16 @@ def evaluate_manual_planar_order(
             "FULL_MANUAL_ORDER_HAS_NO_SAMPLED_2D_OBSTRUCTION; "
             "continuous 3D collision and machine cycle remain unverified."
         )
+    plan_score = score_sequence(accepted, accepted_setups, op_weights)
+    # A missing setup can produce an estimated cost but not a complete one.
+    # A blocked bend is intentionally excluded from the scored prefix.
     return {
+        "operation_weights": op_weights.to_dict(),
+        "plan_cost": plan_score.to_dict(),
+        "plan_cost_scope": "ACCEPTED_PREFIX_ONLY",
+        "plan_cost_selected_order_complete": (
+            stop_reason is None and len(accepted) == len(sequence)
+        ),
         "schema_version": "smbs.manual_planar_replay.v1",
         "operator_order_complete": complete,
         "algorithm_conclusion": conclusion,
