@@ -112,6 +112,52 @@ class OperationWeightRankingTests(unittest.TestCase):
         self.assertEqual(step.die_length_cost, 0.0)
         self.assertFalse(step.tooling_lengths_from_fixed_profiles)
 
+    def test_search_virtual_lengths_use_bend_length_not_stale_tooling_flag(self):
+        from types import SimpleNamespace
+        from smbs_core.kinematics2d.sequence_search_2d import (
+            _setup_with_scored_tool_lengths,
+        )
+        # GUI's tooling flag may still be False while the search-stage override
+        # match_active_bend_length=True. Both length scoring and Stage A/B must
+        # use the same selected mode.
+        tooling = SimpleNamespace(
+            match_active_bend_length=False,
+            punch=SimpleNamespace(length_mm=100.0),
+            die=SimpleNamespace(length_mm=100.0),
+        )
+        first = _setup_with_scored_tool_lengths(
+            setup("B01", length=293.0), tooling, True)
+        second = _setup_with_scored_tool_lengths(
+            setup("B02", length=498.18), tooling, True)
+        self.assertEqual(first.punch_length_mm, 293.0)
+        self.assertEqual(second.die_length_mm, 498.18)
+        self.assertEqual(first.punch_length_source, "VIRTUAL_MATCH_BEND")
+        self.assertEqual(second.die_length_source, "VIRTUAL_MATCH_BEND")
+        penalty = score_sequence(("B01", "B02"), (first, second)).steps[1]
+        self.assertGreater(penalty.punch_length_cost, 0)
+        self.assertGreater(penalty.die_length_cost, 0)
+
+    def test_search_fixed_lengths_stay_constant_when_bend_changes(self):
+        from types import SimpleNamespace
+        from smbs_core.kinematics2d.sequence_search_2d import (
+            _setup_with_scored_tool_lengths,
+        )
+        tooling = SimpleNamespace(
+            match_active_bend_length=True,
+            punch=SimpleNamespace(length_mm=500.0),
+            die=SimpleNamespace(length_mm=500.0),
+        )
+        first = _setup_with_scored_tool_lengths(
+            setup("B01", length=293.0), tooling, False)
+        second = _setup_with_scored_tool_lengths(
+            setup("B02", length=498.18), tooling, False)
+        self.assertEqual(first.punch_length_mm, 500)
+        self.assertEqual(second.die_length_mm, 500)
+        self.assertEqual(first.punch_length_source, "FIXED_PROFILE")
+        penalty = score_sequence(("B01", "B02"), (first, second)).steps[1]
+        self.assertEqual(penalty.punch_length_cost, 0)
+        self.assertEqual(penalty.die_length_cost, 0)
+
     def test_negative_weight_rejected(self):
         with self.assertRaises(ValueError):
             OperationWeights(flip=-1)
