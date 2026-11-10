@@ -3203,6 +3203,7 @@ class _PreviewPanel:
                         self.session, self.tooling_setup, prefix,
                         match_active_bend_length=not has_sections,
                         allow_retract_warning=self.retract_warning_checkbox.isChecked(),
+                        weights=self._selected_operation_weights(),
                     )
                     # Identify the exact source geometry used for this run.
                     report["model"] = {
@@ -3239,6 +3240,20 @@ class _PreviewPanel:
                         "end_zone_exemption_applied": False,
                     }
                     report["runtime"] = dict(self.runtime_git_info)
+                    score_info = report["plan_cost"]
+                    cost_label = (
+                        "Штраф принятого порядка {:.2f} балла ({}/{} выбранных гибов). "
+                        "Расчёт: {}.".format(
+                            score_info["total"],
+                            len(report["accepted_prefix"]),
+                            len(prefix),
+                            "полный выбранный порядок"
+                            if report["plan_cost_selected_order_complete"]
+                            else "только принятые гибы",
+                        )
+                        if score_info["is_complete"]
+                        else "Штраф не подтверждён: нет полной геометрии установки."
+                    )
                     target, _ = QtWidgets.QFileDialog.getSaveFileName(
                         self, "Сохранить проверку ручной последовательности",
                         str(Path.home() / "smbs_manual_sequence_diagnostics.json"),
@@ -3246,8 +3261,8 @@ class _PreviewPanel:
                     )
                     if not target:
                         self.status.setText(
-                            "Проверка выполнена: {}. Сохранение отменено.".format(
-                                report["status"])
+                            "Проверка выполнена: {}. {} Сохранение отменено.".format(
+                                report["status"], cost_label)
                         )
                         return
                     Path(target).write_text(
@@ -3263,10 +3278,12 @@ class _PreviewPanel:
                         "Проверка остановлена: гиб {bend_id}, шаг {step_number}, "
                         "{evidence}: {reason}".format(**report["first_blocker"])
                     )
-                    self.status.setText("JSON: {} | {}".format(target, verdict))
+                    self.status.setText(
+                        "JSON: {} | {} | {}".format(target, verdict, cost_label)
+                    )
                     self.manual_hint.setText(
-                        "Диагностика сохранена: {}. {}. "
-                        "Передайте JSON для разбора.".format(target, verdict)
+                        "Диагностика сохранена: {}. {}. {} "
+                        "Передайте JSON для разбора.".format(target, verdict, cost_label)
                     )
                 except Exception as exc:
                     self.status.setText("Ошибка проверки ручного порядка: " + str(exc))
