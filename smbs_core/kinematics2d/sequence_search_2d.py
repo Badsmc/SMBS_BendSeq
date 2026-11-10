@@ -281,10 +281,12 @@ def validate_partial_planar_prefix(
             for prior in sequence:
                 if prior in completed:
                     state.set_angle(prior, float(state.bends[prior].angle_deg))
-            gauge_polygon = (
-                backgauge_model.polygon_for(bid)
-                if backgauge_model is not None else None
-            )
+            gauge_polygon = None
+            if backgauge_model is not None:
+                point, _, _ = backgauge_model.resolve_for_state(
+                    state, session.panel_vertices_xy, bid,
+                )
+                gauge_polygon = backgauge_model.polygon_at(point)
             stage_a = screen_candidate_stage_a(
                 state, bid, tooling,
                 match_active_bend_length=match_active_bend_length,
@@ -474,7 +476,10 @@ def search_bend_sequences_2d(
                     backgauge_model.part_label != getattr(session, "part_label", "")):
                 raise ValueError("backgauge targets belong to another part: " +
                                  backgauge_model.part_label)
-            missing = [bid for bid in order if bid not in backgauge_model.positions]
+            missing = (
+                [] if backgauge_model.automatic
+                else [bid for bid in order if bid not in backgauge_model.positions]
+            )
             if missing:
                 raise ValueError(
                     "backgauge positions missing for bends: " + ", ".join(missing)
@@ -532,10 +537,20 @@ def search_bend_sequences_2d(
             )
             gauge_polygon = backgauge_polygon_machine
             if backgauge_model is not None:
-                target = backgauge_model.position_for(bend_id)
-                gauge_polygon = backgauge_model.polygon_for(bend_id)
+                target, gauge_depth, gauge_source = backgauge_model.resolve_for_state(
+                    state, panel_vertices, bend_id,
+                    desired_midpoint_xm=float(shifts.get(bend_id, 0.0)),
+                )
+                gauge_polygon = backgauge_model.polygon_at(target)
                 setup = replace(
-                    setup, backgauge_s_mm=target.s_mm, backgauge_z_mm=target.z_mm,
+                    setup,
+                    backgauge_s_mm=target.s_mm,
+                    backgauge_z_mm=target.z_mm,
+                    note=(setup.note + " | " if setup.note else "") +
+                    gauge_source + (
+                        ":depth_mm={:.3f}".format(gauge_depth)
+                        if isfinite(gauge_depth) else ""
+                    ),
                 )
             stage_a = screen_candidate_stage_a(
                 state, bend_id, tooling,
