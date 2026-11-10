@@ -127,6 +127,7 @@ class PlanarSearchReport:
     conditional_end_zone_requested: bool = False
     alternative_setup_trials: tuple[tuple[tuple[str, ...], str, str, str], ...] = ()
     operation_weights: Optional[dict[str, float]] = None
+    backgauge_configuration: Optional[dict[str, Any]] = None
 
     def to_dict(self) -> dict[str, Any]:
         # Aggregate the actual per-transition contact findings; keep each
@@ -175,6 +176,8 @@ class PlanarSearchReport:
         return {
             "status": self.status.value,
             "operation_weights": self.operation_weights,
+            "backgauge_configuration": self.backgauge_configuration,
+            "backgauge_interbend_motion_checked": False,
             "partial_candidate": (self.partial_candidate.to_dict()
                                   if self.partial_candidate is not None else None),
             "partial_remainder": list(self.partial_remainder),
@@ -466,6 +469,12 @@ def search_bend_sequences_2d(
         if set(group_of) != set(order):
             raise ValueError("axis grouping does not cover every bend")
         op_weights = weights if weights is not None else OperationWeights()
+        if backgauge_model is not None:
+            missing = [bid for bid in order if bid not in backgauge_model.positions]
+            if missing:
+                raise ValueError(
+                    "backgauge positions missing for bends: " + ", ".join(missing)
+                )
         shifts = dict(bend_shifts or {})
         if any(b not in state.bends or not isfinite(float(v)) for b, v in shifts.items()):
             raise ValueError("invalid bend shift")
@@ -839,6 +848,9 @@ def search_bend_sequences_2d(
         conditional_end_zone_requested=bool(allow_end_zone_collision),
         alternative_setup_trials=tuple(alternative_setup_trials),
         operation_weights=op_weights.to_dict(),
+        backgauge_configuration=(
+            backgauge_model.to_dict() if backgauge_model is not None else None
+        ),
         max_depth_reached=len(deepest_prefix),
         deepest_prefix=deepest_prefix,
         rejection_counts=tuple(sorted(
