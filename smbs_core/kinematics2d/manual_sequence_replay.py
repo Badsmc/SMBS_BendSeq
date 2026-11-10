@@ -51,6 +51,10 @@ def evaluate_manual_planar_order(
     accepted = []
     stop_reason = None
     op_weights = weights if weights is not None else OperationWeights()
+    if (backgauge_model is not None and backgauge_model.part_label
+            and backgauge_model.part_label != getattr(session, "part_label", "")):
+        raise ValueError("Backgauge targets belong to another part: " +
+                         backgauge_model.part_label)
     accepted_setups = []
     try:
         for bid in sequence:
