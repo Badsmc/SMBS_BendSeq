@@ -362,7 +362,10 @@ def screen_candidate_stage_b(
                         key = (phase, finding.tool, finding.sheet_component,
                                finding.reason)
                         touch_counts[key] = touch_counts.get(key, 0) + 1
-                    if (finding.status is ContactStatus.UNVERIFIED
+                    # Include decisive interference findings, not just
+                    # ambiguity: component-only reason strings previously
+                    # hid which tool (PUNCH or DIE) actually collided.
+                    if (finding.status in (ContactStatus.UNVERIFIED, ContactStatus.INTERFERENCE)
                             and len(diagnostic_findings) < 32):
                         diagnostic_findings.append((
                             phase, finding.tool, finding.sheet_component,
