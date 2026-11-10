@@ -110,6 +110,21 @@ class Backgauge2DTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "no usable"):
                 model.resolve_for_state(state, {}, "B01")
 
+    def test_two_cad_stations_are_explicit_and_persisted(self):
+        model = BackgaugeModel2D(
+            10, 10, {}, automatic=True,
+            cad_geometry_enabled=True,
+            cad_station_xm_mm=-175.0,
+            cad_second_station_xm_mm=175.0,
+        )
+        restored = BackgaugeModel2D.from_dict(model.to_dict())
+        self.assertEqual(restored.cad_second_station_xm_mm, 175.0)
+        with self.assertRaisesRegex(ValueError, "must not coincide"):
+            BackgaugeModel2D(
+                10, 10, {}, cad_geometry_enabled=True,
+                cad_station_xm_mm=0.0, cad_second_station_xm_mm=0.0,
+            )
+
     def test_explicit_cad_mode_round_trip_and_validation(self):
         selected = BackgaugeModel2D(
             10, 10, {}, automatic=True,
