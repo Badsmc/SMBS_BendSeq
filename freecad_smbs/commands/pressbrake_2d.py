@@ -557,7 +557,17 @@ def show_workspace_controls(workspace, tab=None):
     form = QtWidgets.QWidget(dock)
     layout = QtWidgets.QVBoxLayout(form)
     layout.setContentsMargins(4, 4, 4, 4)
-    layout.addWidget(workspace._control_tabs, 1)
+    # The native dock may be shorter than its content. Put the existing
+    # control tabs inside one resizable, vertically scrolling viewport.
+    # Never create a second set of controls or a second playback timer.
+    scroll = QtWidgets.QScrollArea(form)
+    scroll.setObjectName("SMBS_TaskPanelScroll")
+    scroll.setWidgetResizable(True)
+    scroll.setFrameShape(QtWidgets.QFrame.NoFrame)
+    scroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAsNeeded)
+    scroll.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAsNeeded)
+    scroll.setWidget(workspace._control_tabs)
+    layout.addWidget(scroll, 1)
     close_button = QtWidgets.QPushButton("Закрыть панель")
     close_button.setObjectName("SMBS_CloseTaskPanel")
     close_button.clicked.connect(dock.hide)
@@ -1191,13 +1201,24 @@ class _PreviewPanel:
                 self.manual_clear_btn.clicked.connect(self._clear_manual_order)
                 manual_row.addWidget(self.manual_clear_btn)
                 sim_layout.addLayout(manual_row)
+                self.manual_validate_btn = QtWidgets.QPushButton(
+                    "Проверить ручной порядок и сохранить JSON"
+                )
+                self.manual_validate_btn.setToolTip(
+                    "Последовательно проверить выбранные линии через Stage A/B "
+                    "и сохранить полный диагностический JSON для анализа. "
+                    "2D-проверка не доказывает отсутствие реальных 3D-коллизий."
+                )
+                self.manual_validate_btn.clicked.connect(self._validate_export_manual_order)
+                sim_layout.addWidget(self.manual_validate_btn)
                 self.manual_hint = QtWidgets.QLabel(
                     "Выберите «Развёртка · Порядок», включите ручной режим и нажимайте линии "
                     "в нужной последовательности. Это план без физической сертификации."
                 )
                 self.manual_hint.setWordWrap(True)
                 sim_layout.addWidget(self.manual_hint)
-                self.operations.setMaximumHeight(16777215)
+                self.operations.setMinimumHeight(160)
+                self.operations.setMaximumHeight(280)
                 insert(sim_layout, entries[10], 1)  # operation table
                 controls.addTab(simulation, "Симуляция")
 
@@ -3025,6 +3046,105 @@ class _PreviewPanel:
                 if self._viewer_tabs.currentIndex() == 1:
                     self._update_3d_preview()
                 QtCore.QTimer.singleShot(0, self.fit)
+
+            def _validate_export_manual_order(self):
+                if self.session is None:
+                    self.status.setText("Сначала загрузите деталь.")
+                    return
+                prefix = tuple(self._manual_sequence_prefix)
+                if not prefix:
+                    self.status.setText(
+                        "Сначала пронумеруйте линии на вкладке «Развёртка · Порядок»."
+                    )
+                    return
+                if self.timer.isActive() or self.session.playback_status == PlaybackStatus.PLAYING:
+                    self.status.setText("Остановите симуляцию перед проверкой порядка.")
+                    return
+                self._stop_timer()
+                self.manual_validate_btn.setEnabled(False)
+                self.status.setText(
+                    "Stage A/B: проверка ручного порядка {} гибов...".format(len(prefix))
+                )
+                QtWidgets.QApplication.processEvents()
+                try:
+                    import json
+                    from smbs_core.kinematics2d.manual_sequence_replay import (
+                        evaluate_manual_planar_order,
+                    )
+                    has_sections = bool(
+                        getattr(self.tooling_setup, "punch_section_offsets_xm", ())
+                        or getattr(self.tooling_setup, "die_section_offsets_xm", ())
+                    )
+                    report = evaluate_manual_planar_order(
+                        self.session, self.tooling_setup, prefix,
+                        match_active_bend_length=not has_sections,
+                    )
+                    # Identify the exact source geometry used for this run.
+                    report["model"] = {
+                        "part_label": self.session.part_label,
+                        "unfold_object": getattr(self.session.unfold_data, "unfold_object", ""),
+                        "source_object": getattr(self.session.unfold_data, "source_object", ""),
+                        "source_face": getattr(self.session.unfold_data, "source_face", ""),
+                        "thickness_mm": getattr(self.session.unfold_data, "thickness_mm", None),
+                        "fixed_panel": self.session.fixed_panel,
+                    }
+                    report["bend_geometry"] = [
+                        {
+                            "bend_id": b.bend_id,
+                            "angle_deg": float(b.angle_deg),
+                            "fixed_panel": b.fixed_panel,
+                            "moving_panel": b.moving_panel,
+                            "axis_xy": [[float(v) for v in pt]
+                                        for pt in next(
+                                            conn.axis_xy for conn in
+                                            self.session.panel_build.connections
+                                            if conn.bend_id == b.bend_id
+                                        )],
+                        }
+                        for b in self.session.ordered_bends
+                    ]
+                    report["tooling"] = {
+                        "punch": (getattr(self.tooling_setup.punch, "name", None)
+                                  if self.tooling_setup.punch is not None else None),
+                        "die": (getattr(self.tooling_setup.die, "name", None)
+                                if self.tooling_setup.die is not None else None),
+                        "allow_end_zone_collision_requested": bool(
+                            self.tooling_setup.allow_end_zone_collision),
+                        "end_zone_length_mm": float(self.tooling_setup.end_zone_length_mm),
+                        "end_zone_exemption_applied": False,
+                    }
+                    report["runtime"] = dict(self.runtime_git_info)
+                    target, _ = QtWidgets.QFileDialog.getSaveFileName(
+                        self, "Сохранить проверку ручной последовательности",
+                        str(Path.home() / "smbs_manual_sequence_diagnostics.json"),
+                        "JSON (*.json)",
+                    )
+                    if not target:
+                        self.status.setText(
+                            "Проверка выполнена: {}. Сохранение отменено.".format(
+                                report["status"])
+                        )
+                        return
+                    Path(target).write_text(
+                        json.dumps(report, ensure_ascii=False, indent=2, default=str),
+                        encoding="utf-8",
+                    )
+                    verdict = (
+                        "Нет 2D-препятствий в проверенных сечениях (НЕ 3D-допуск)"
+                        if report["first_blocker"] is None else
+                        "Проверка остановлена: гиб {bend_id}, шаг {step_number}, "
+                        "{evidence}: {reason}".format(**report["first_blocker"])
+                    )
+                    self.status.setText("JSON: {} | {}".format(target, verdict))
+                    self.manual_hint.setText(
+                        "Диагностика сохранена: {}. {}. "
+                        "Передайте JSON для разбора.".format(target, verdict)
+                    )
+                except Exception as exc:
+                    self.status.setText("Ошибка проверки ручного порядка: " + str(exc))
+                    _error("Manual-order diagnostic exception: " + traceback.format_exc())
+                finally:
+                    self.manual_validate_btn.setEnabled(True)
 
             def _toggle_manual_order(self, enabled):
                 self._manual_selection_enabled = bool(enabled)
