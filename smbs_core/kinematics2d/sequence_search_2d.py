@@ -273,6 +273,13 @@ def validate_partial_planar_prefix(
     completed: set[str] = set()
     conditional_warnings: list[str] = []
     try:
+        cad_checker = None
+        if (backgauge_model is not None
+                and backgauge_model.cad_geometry_enabled):
+            from .backgauge_cad_3d import BackgaugeCAD3D
+            cad_checker = BackgaugeCAD3D(
+                station_xm_mm=backgauge_model.cad_station_xm_mm
+            )
         if (not sequence or len(set(sequence)) != len(sequence)
                 or any(b not in state.bends for b in sequence)):
             return False, "invalid_partial_bend_order"
@@ -282,11 +289,20 @@ def validate_partial_planar_prefix(
                 if prior in completed:
                     state.set_angle(prior, float(state.bends[prior].angle_deg))
             gauge_polygon = None
+            cad_contact_s = cad_contact_z = None
             if backgauge_model is not None:
-                point, _, _ = backgauge_model.resolve_for_state(
+                point, depth, _ = backgauge_model.resolve_for_state(
                     state, session.panel_vertices_xy, bid,
                 )
-                gauge_polygon = backgauge_model.polygon_at(point)
+                if cad_checker is not None:
+                    cad_contact_s = (
+                        depth if backgauge_model.automatic
+                        else point.s_mm - backgauge_model.width_s_mm / 2
+                             - backgauge_model.edge_clearance_mm
+                    )
+                    cad_contact_z = point.z_mm
+                else:
+                    gauge_polygon = backgauge_model.polygon_at(point)
             stage_a = screen_candidate_stage_a(
                 state, bid, tooling,
                 match_active_bend_length=match_active_bend_length,
@@ -301,6 +317,9 @@ def validate_partial_planar_prefix(
                 tolerance_mm=tolerance_mm,
                 allow_retract_warning=allow_retract_warning,
                 backgauge_polygon_machine=gauge_polygon,
+                backgauge_cad_checker=cad_checker,
+                backgauge_contact_s_mm=cad_contact_s,
+                backgauge_contact_z_mm=cad_contact_z,
             )
             evidence = _classify_step(stage_b)
             if evidence != "SAMPLED_2D_CLEAR_OR_TOUCH" and not (
@@ -421,6 +440,7 @@ def search_bend_sequences_2d(
     )
     state = getattr(session, "fold_state", None)
     panel_vertices = getattr(session, "panel_vertices_xy", None)
+    cad_checker = None
     order = tuple(getattr(session, "bend_order", ()))
     try:
         if state is None or tooling is None or not panel_vertices or not order:
@@ -471,6 +491,12 @@ def search_bend_sequences_2d(
         if set(group_of) != set(order):
             raise ValueError("axis grouping does not cover every bend")
         op_weights = weights if weights is not None else OperationWeights()
+        if (backgauge_model is not None
+                and backgauge_model.cad_geometry_enabled):
+            from .backgauge_cad_3d import BackgaugeCAD3D
+            cad_checker = BackgaugeCAD3D(
+                station_xm_mm=backgauge_model.cad_station_xm_mm
+            )
         if backgauge_model is not None:
             if (backgauge_model.part_label and
                     backgauge_model.part_label != getattr(session, "part_label", "")):
@@ -540,12 +566,22 @@ def search_bend_sequences_2d(
                 setup, tooling, match_active_bend_length,
             )
             gauge_polygon = backgauge_polygon_machine
+            cad_contact_s = cad_contact_z = None
             if backgauge_model is not None:
                 target, gauge_depth, gauge_source = backgauge_model.resolve_for_state(
                     state, panel_vertices, bend_id,
                     desired_midpoint_xm=float(shifts.get(bend_id, 0.0)),
                 )
-                gauge_polygon = backgauge_model.polygon_at(target)
+                if cad_checker is not None:
+                    cad_contact_s = (
+                        gauge_depth if backgauge_model.automatic
+                        else target.s_mm - backgauge_model.width_s_mm / 2
+                             - backgauge_model.edge_clearance_mm
+                    )
+                    cad_contact_z = target.z_mm
+                    gauge_polygon = None
+                else:
+                    gauge_polygon = backgauge_model.polygon_at(target)
                 setup = replace(
                     setup,
                     backgauge_s_mm=target.s_mm,
@@ -581,6 +617,9 @@ def search_bend_sequences_2d(
                     fractions=fs if detailed else coarse_fs,
                     stroke_fractions=stroke_fs if detailed else coarse_stroke_fs,
                     backgauge_polygon_machine=gauge_polygon,
+                    backgauge_cad_checker=cad_checker,
+                    backgauge_contact_s_mm=cad_contact_s,
+                    backgauge_contact_z_mm=cad_contact_z,
                     deadline_monotonic=start + max_search_time_s,
                     multi_station_enabled=multi_station_enabled,
                     verified_punch_span_xm=verified_punch_span_xm,
