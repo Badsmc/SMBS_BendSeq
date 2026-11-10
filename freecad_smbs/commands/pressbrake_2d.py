@@ -1273,7 +1273,11 @@ class _PreviewPanel:
                     ("shift_fixed", "Сдвиг: базовый штраф"),
                     ("shift_per_100_mm", "Сдвиг: за 100 мм"),
                     ("length_change_fixed", "Смена длины: базовый штраф"),
-                    ("length_delta_per_100_mm", "Смена длины: за 100 мм"),
+                    ("length_delta_per_100_mm", "Линия гиба: за 100 мм"),
+                    ("punch_length_change_fixed", "Пуансон: смена длины"),
+                    ("punch_length_delta_per_100_mm", "Пуансон: за 100 мм"),
+                    ("die_length_change_fixed", "Матрица: смена длины"),
+                    ("die_length_delta_per_100_mm", "Матрица: за 100 мм"),
                 )
                 weights_box = QtWidgets.QGroupBox("Веса операций · 2D поиск")
                 weights_form = QtWidgets.QFormLayout(weights_box)
@@ -1302,7 +1306,9 @@ class _PreviewPanel:
                     self._weight_editors[weight_key] = editor
                 weights_note = QtWidgets.QLabel(
                     "Меньший штраф = предпочтительнее. Первый гиб не штрафуется. "
-                    "Оценка эвристическая; это не оценка безопасности."
+                    "При виртуальной подгонке штраф длины пуансона/матрицы — "
+                    "только оценка планируемой переналадки. При фиксированной "
+                    "оснастке длины не меняются. Это не проверка безопасности."
                 )
                 weights_note.setWordWrap(True)
                 weights_form.addRow(weights_note)
@@ -2243,12 +2249,16 @@ class _PreviewPanel:
                 weights_caption = QtWidgets.QLabel(
                     "Веса: поворот {:.2f} + {:.2f}/90°, переворот {:.2f}, "
                     "сдвиг {:.2f} + {:.2f}/100 мм, "
-                    "смена длины {:.2f} + {:.2f}/100 мм. "
+                    "линия гиба {:.2f} + {:.2f}/100 мм, "
+                    "пуансон {:.2f} + {:.2f}/100 мм, "
+                    "матрица {:.2f} + {:.2f}/100 мм. "
                     "Лучший из найденных планов не обязательно глобально оптимален.".format(
                         *[self._last_planar_weights[k] for k in (
                             "turn_fixed", "turn_per_90_deg", "flip",
                             "shift_fixed", "shift_per_100_mm",
-                            "length_change_fixed", "length_delta_per_100_mm"
+                            "length_change_fixed", "length_delta_per_100_mm",
+                            "punch_length_change_fixed", "punch_length_delta_per_100_mm",
+                            "die_length_change_fixed", "die_length_delta_per_100_mm",
                         )]
                     )
                 )
