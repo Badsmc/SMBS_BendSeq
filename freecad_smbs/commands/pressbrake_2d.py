@@ -740,8 +740,9 @@ class _PreviewPanel:
         class Canvas(QtWidgets.QGraphicsView):
             """2D/3D zoomable viewer; optional 3D orbit controlled by parent Panel."""
 
-            def __init__(self, parent=None, orbit_callback=None):
+            def __init__(self, parent=None, orbit_callback=None, bend_click_callback=None):
                 super().__init__(parent)
+                self._bend_click_callback = bend_click_callback
                 self.setRenderHint(QtGui.QPainter.Antialiasing, True)
                 self.setDragMode(QtWidgets.QGraphicsView.ScrollHandDrag)
                 self.setTransformationAnchor(QtWidgets.QGraphicsView.AnchorUnderMouse)
@@ -779,6 +780,16 @@ class _PreviewPanel:
                 event.accept()
 
             def mousePressEvent(self, event):
+                if (self._bend_click_callback is not None
+                        and event.button() == QtCore.Qt.LeftButton):
+                    item = self.itemAt(event.pos())
+                    while item is not None:
+                        bend_id = item.data(0)
+                        if isinstance(bend_id, str) and bend_id.startswith("B"):
+                            self._bend_click_callback(bend_id)
+                            event.accept()
+                            return
+                        item = item.parentItem()
                 if self._orbit_callback is not None and event.button() == QtCore.Qt.LeftButton:
                     self._last_drag_pos = event.pos()
                     event.accept()
@@ -836,6 +847,8 @@ class _PreviewPanel:
                 self.last_sequence_search_report = None
                 self.last_planar_search_report = None
                 self._preview_only_planar_order = None
+                self._manual_sequence_prefix: list[str] = []
+                self._manual_selection_enabled = False
                 self._conditional_bends_status: dict[str, str] = {}
                 self._highlighted_end_zone_info: dict | None = None
                 _log(
@@ -1145,6 +1158,11 @@ class _PreviewPanel:
                 self._preview_3d_scene = QtWidgets.QGraphicsScene(self._preview_3d)
                 self._preview_3d.setScene(self._preview_3d_scene)
                 views.addTab(self._preview_3d, "3D · Просмотр")
+                self._flat_view = Canvas(bend_click_callback=self._select_flat_bend)
+                self._flat_view.setObjectName("SMBS_FlatPattern_ManualOrder")
+                self._flat_scene = QtWidgets.QGraphicsScene(self._flat_view)
+                self._flat_view.setScene(self._flat_scene)
+                views.addTab(self._flat_view, "Развёртка · Порядок")
                 views.currentChanged.connect(self._on_view_changed)
 
                 controls = QtWidgets.QTabWidget()
@@ -1160,6 +1178,24 @@ class _PreviewPanel:
                 insert(sim_layout, entries[7])  # active operation
                 insert(sim_layout, entries[8])  # next/previous step
                 insert(sim_layout, entries[9])  # move order
+                manual_row = QtWidgets.QHBoxLayout()
+                self.manual_mode_btn = QtWidgets.QPushButton("Ручной порядок: ВЫКЛ")
+                self.manual_mode_btn.setCheckable(True)
+                self.manual_mode_btn.toggled.connect(self._toggle_manual_order)
+                manual_row.addWidget(self.manual_mode_btn)
+                self.manual_undo_btn = QtWidgets.QPushButton("↶ Отменить линию")
+                self.manual_undo_btn.clicked.connect(self._undo_manual_bend)
+                manual_row.addWidget(self.manual_undo_btn)
+                self.manual_clear_btn = QtWidgets.QPushButton("Очистить номера")
+                self.manual_clear_btn.clicked.connect(self._clear_manual_order)
+                manual_row.addWidget(self.manual_clear_btn)
+                sim_layout.addLayout(manual_row)
+                self.manual_hint = QtWidgets.QLabel(
+                    "Выберите «Развёртка · Порядок», включите ручной режим и нажимайте линии "
+                    "в нужной последовательности. Это план без физической сертификации."
+                )
+                self.manual_hint.setWordWrap(True)
+                sim_layout.addWidget(self.manual_hint)
                 self.operations.setMaximumHeight(16777215)
                 insert(sim_layout, entries[10], 1)  # operation table
                 controls.addTab(simulation, "Симуляция")
@@ -2878,6 +2914,7 @@ class _PreviewPanel:
                 self.session = new_session
                 self.last_planar_search_report = None
                 self._preview_only_planar_order = None
+                self._manual_sequence_prefix = []
                 self.last_sequence_search_report = None
                 self._ensure_press_cycle_controller()
                 self._sync_tooling_to_active_bend()
@@ -2888,9 +2925,153 @@ class _PreviewPanel:
                 self.status.setText(msg)
                 self.check_result.setText(msg)
                 self.draw()
+                self._draw_flat_pattern(reset_camera=True)
                 if self._viewer_tabs.currentIndex() == 1:
                     self._update_3d_preview()
                 QtCore.QTimer.singleShot(0, self.fit)
+
+            def _toggle_manual_order(self, enabled):
+                self._manual_selection_enabled = bool(enabled)
+                self.manual_mode_btn.setText(
+                    "Ручной порядок: ВКЛ" if enabled else "Ручной порядок: ВЫКЛ"
+                )
+                if enabled:
+                    if self.session is None:
+                        self.manual_mode_btn.setChecked(False)
+                        self.status.setText("Сначала загрузите развёртку SheetMetal.")
+                        return
+                    self._stop_timer()
+                    self.session.reset_all_bends()
+                    self._viewer_tabs.setCurrentWidget(self._flat_view)
+                    self._draw_flat_pattern(reset_camera=True)
+                self._update_manual_hint()
+
+            def _update_manual_hint(self):
+                if not hasattr(self, "manual_hint"):
+                    return
+                prefix = self._manual_sequence_prefix
+                self.manual_hint.setText(
+                    "Ручная последовательность {}/{}: {}. "
+                    "Нажмите на ненумерованную линию развёртки; номера ставятся по порядку. "
+                    "Порядок ещё НЕ проверен физически.".format(
+                        len(prefix),
+                        len(self.session.bend_order) if self.session else 0,
+                        " → ".join(prefix) or "не назначена"
+                    )
+                )
+
+            def _select_flat_bend(self, bend_id):
+                if self.session is None or not self._manual_selection_enabled:
+                    return
+                if bend_id in self._manual_sequence_prefix:
+                    self.status.setText(
+                        "Линия {} уже имеет номер {}.".format(
+                            bend_id, self._manual_sequence_prefix.index(bend_id) + 1)
+                    )
+                    return
+                if bend_id not in self.session.fold_state.bends:
+                    self.status.setText("Неизвестная линия: " + str(bend_id))
+                    return
+                if not self.session.can_reorder():
+                    self.status.setText(
+                        "Изменение порядка недоступно: остановите симуляцию и сделайте Reset."
+                    )
+                    return
+                self._manual_sequence_prefix.append(bend_id)
+                self._apply_manual_order()
+
+            def _apply_manual_order(self):
+                if self.session is None:
+                    return
+                prefix = tuple(self._manual_sequence_prefix)
+                remainder = tuple(
+                    bend_id for bend_id in self.session.canonical_order
+                    if bend_id not in prefix
+                )
+                try:
+                    self.session.set_bend_order(prefix + remainder)
+                except SequenceError as exc:
+                    self.status.setText(str(exc))
+                    self._manual_sequence_prefix = list(
+                        b for b in self._manual_sequence_prefix[:-1]
+                    )
+                    return
+                self._preview_only_planar_order = None
+                self.last_sequence_search_report = None
+                self._conditional_bends_status.clear()
+                self._populate_operations()
+                self._configure_for_active_bend()
+                self._draw_flat_pattern()
+                self._update_manual_hint()
+                self.status.setText(
+                    "РУЧНОЙ ПОРЯДОК {}/{} (НЕ ПРОВЕРЕН): {}".format(
+                        len(prefix), len(self.session.bend_order),
+                        " → ".join(prefix)
+                    )
+                )
+
+            def _undo_manual_bend(self):
+                if self._manual_sequence_prefix:
+                    self._manual_sequence_prefix.pop()
+                    self._apply_manual_order()
+
+            def _clear_manual_order(self):
+                if self.session is None:
+                    return
+                self._stop_timer()
+                self.session.reset_all_bends()
+                self._manual_sequence_prefix = []
+                self._apply_manual_order()
+
+            def _draw_flat_pattern(self, reset_camera=False):
+                if not hasattr(self, "_flat_scene"):
+                    return
+                scene = self._flat_scene
+                scene.clear()
+                if self.session is None:
+                    scene.addSimpleText("Развёртка не загружена")
+                    return
+                # Match panel connections to canonical sketch geometry by
+                # stable bend IDs; no sketch index assumptions or geometry writes.
+                polygon_pen = QtGui.QPen(QtGui.QColor("#738194"))
+                polygon_pen.setWidthF(0.35)
+                fill = QtGui.QBrush(QtGui.QColor("#e7edf2"))
+                for vertices in self.session.panel_vertices_xy.values():
+                    if len(vertices) < 3:
+                        continue
+                    poly = QtGui.QPolygonF([
+                        QtCore.QPointF(float(x), -float(y))
+                        for x, y in vertices
+                    ])
+                    scene.addPolygon(poly, polygon_pen, fill).setZValue(0)
+                selected = set(self._manual_sequence_prefix)
+                for conn in self.session.panel_build.connections:
+                    bend_id = conn.bend_id
+                    (x1, y1), (x2, y2) = conn.axis_xy
+                    chosen = bend_id in selected
+                    active = (chosen and self._manual_sequence_prefix[-1] == bend_id)
+                    color = "#e67e22" if active else ("#219653" if chosen else "#2864ac")
+                    pen = QtGui.QPen(QtGui.QColor(color))
+                    pen.setWidthF(2.3 if active else 1.4)
+                    pen.setCosmetic(True)
+                    item = scene.addLine(float(x1), -float(y1),
+                                         float(x2), -float(y2), pen)
+                    item.setData(0, bend_id)
+                    item.setZValue(10)
+                    item.setToolTip("{} {:+.1f}°".format(bend_id, conn.angle_deg))
+                    mx, my = (float(x1)+float(x2))/2, -(float(y1)+float(y2))/2
+                    number = (str(self._manual_sequence_prefix.index(bend_id)+1)
+                              if chosen else "·")
+                    label = scene.addSimpleText(number)
+                    label.setBrush(QtGui.QBrush(QtGui.QColor(color)))
+                    label.setData(0, bend_id)
+                    label.setZValue(15)
+                    label.setFlag(QtWidgets.QGraphicsItem.ItemIgnoresTransformations)
+                    label.setPos(mx, my)
+                bounds = scene.itemsBoundingRect().adjusted(-10, -10, 10, 10)
+                scene.setSceneRect(bounds)
+                if reset_camera:
+                    self._flat_view.reset_camera()
 
             def _format_operation_row(self, idx: int, b) -> tuple[str, str, str, str, str]:
                 cur = self.session.fold_state.angles[b.bend_id]
