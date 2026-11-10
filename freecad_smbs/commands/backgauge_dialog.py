@@ -112,8 +112,38 @@ def show_backgauge_settings(workspace):
         "Положение центра одной CAD-модели Backgauge вдоль линии гиба X_m. "
         "Второй палец не добавляется автоматически.")
     dims.addRow("CAD упор: станция по Xₘ:", station)
+    second_enabled = W.QCheckBox("Добавить второй CAD упор")
+    second_enabled.setChecked(
+        model is not None and model.cad_second_station_xm_mm is not None
+    )
+    second_station = W.QDoubleSpinBox()
+    second_station.setRange(-10000.0, 10000.0)
+    second_station.setDecimals(2)
+    second_station.setSuffix(" мм")
+    second_station.setValue(
+        model.cad_second_station_xm_mm
+        if model and model.cad_second_station_xm_mm is not None
+        else 0.0
+    )
+    dims.addRow(second_enabled)
+    dims.addRow("Второй CAD упор: Xₘ:", second_station)
     station.setEnabled(cad_mode.isChecked())
+    second_enabled.setEnabled(cad_mode.isChecked())
+    second_station.setEnabled(
+        cad_mode.isChecked() and second_enabled.isChecked()
+    )
     cad_mode.toggled.connect(station.setEnabled)
+    cad_mode.toggled.connect(second_enabled.setEnabled)
+    cad_mode.toggled.connect(
+        lambda state: second_station.setEnabled(
+            state and second_enabled.isChecked()
+        )
+    )
+    second_enabled.toggled.connect(
+        lambda state: second_station.setEnabled(
+            state and cad_mode.isChecked()
+        )
+    )
     width.setValue(model.width_s_mm if model else 10.0)
     height.setValue(model.height_z_mm if model else 10.0)
     dims.addRow("Ширина прямоугольника по s:", width)
@@ -187,6 +217,11 @@ def show_backgauge_settings(workspace):
                 initial_feed_preview_mm=float(feed.value()),
                 cad_geometry_enabled=cad_mode.isChecked(),
                 cad_station_xm_mm=float(station.value()),
+                cad_second_station_xm_mm=(
+                    float(second_station.value())
+                    if cad_mode.isChecked() and second_enabled.isChecked()
+                    else None
+                ),
             )
         except (ValueError, TypeError) as exc:
             W.QMessageBox.warning(dlg, "Недопустимая конфигурация", str(exc))
@@ -197,8 +232,9 @@ def show_backgauge_settings(workspace):
                     BackgaugeCAD3D,
                 )
                 BackgaugeCAD3D(
-                    station_xm_mm=new_model.cad_station_xm_mm
-                )
+                    station_xm_mm=new_model.cad_station_xm_mm,
+                    second_station_xm_mm=new_model.cad_second_station_xm_mm,
+                ).positioned_shapes(100.0, 0.75)
             except Exception as exc:
                 W.QMessageBox.warning(
                     dlg, "CAD задний упор не загружен",
