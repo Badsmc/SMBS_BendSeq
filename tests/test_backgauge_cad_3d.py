@@ -50,6 +50,45 @@ class BackgaugeRealCADTests(unittest.TestCase):
         finally:
             self.app.closeDocument(previous.Name)
 
+    def test_real_cad_volume_checker_on_freecad_fold_state(self):
+        """Runtime smoke test: real OCC gauge vs real FoldState panel/zone."""
+        from smbs_core.kinematics2d.bend_zone import (
+            bend_parameters, make_bend_zone,
+        )
+        from smbs_core.kinematics2d.panel_graph import GraphEdge, PanelGraph
+        from smbs_core.kinematics2d.panel_kinematics import FoldState
+        from smbs_core.kinematics2d.workpiece_placement_3d import WorkpiecePlacement3D
+        from smbs_core.kinematics2d.backgauge_cad_3d import BackgaugeCAD3D
+        params = bend_parameters(90.0, 1.0, 1.5, 0.4)
+        zone = make_bend_zone(
+            "B01", ((0.0, 50.0), (100.0, 50.0)), params
+        )
+        edge = GraphEdge(
+            "B01", "P00", "P01", 90.0,
+            ((0.0, 50.0, 0.0), (100.0, 50.0, 0.0)),
+            zone,
+        )
+        state = FoldState(PanelGraph(("P00", "P01"), (edge,)), "P00")
+        vertices = {
+            "P00": ((0., 0.), (100., 0.), (100., 50.), (0., 50.)),
+            "P01": ((0., 52.), (100., 52.), (100., 100.), (0., 100.)),
+        }
+        pose = WorkpiecePlacement3D.compute_placement(
+            state, "B01", support_plane_zm=zone.outer_radius_mm,
+            align_bisector=False, align_bend_arc_center=True,
+            rear_panel_vertices_xy=vertices,
+        )
+        adapter = BackgaugeCAD3D()
+        verdict = adapter.check_phase(
+            state, vertices, pose, active_bend_id="B01",
+            contact_s_mm=45.0, contact_z_mm=0.75,
+            tolerance_mm=0.02,
+        )
+        self.assertIn(
+            verdict["status"], ("SAMPLED_CLEAR_OR_TOUCH", "INTERFERENCE"),
+        )
+        self.assertIn("evidence", verdict)
+
     def test_bad_target_cannot_be_claimed_as_valid_stop(self):
         from smbs_core.kinematics2d.backgauge_cad_3d import (
             BackgaugeCAD3D, BackgaugeCADError,
