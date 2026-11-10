@@ -2998,6 +2998,10 @@ class _PreviewPanel:
                         b for b in self._manual_sequence_prefix[:-1]
                     )
                     return
+                # The just-numbered line becomes the active selected bend,
+                # keeping the numbered flat viewer and operations list aligned.
+                if prefix:
+                    self.session.select_bend_index(len(prefix) - 1)
                 self._preview_only_planar_order = None
                 self.last_sequence_search_report = None
                 self._conditional_bends_status.clear()
