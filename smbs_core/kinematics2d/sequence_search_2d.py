@@ -118,8 +118,49 @@ class PlanarSearchReport:
     paired_first_step_obstructions: tuple[tuple[str, str, str, str], ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
+        # Aggregate the actual per-transition contact findings; keep each
+        # tool separate rather than inferring punch/die from a short reason.
+        # This is diagnostic only and does not affect DFS pruning.
+        per_bend: dict[str, dict[str, Any]] = {}
+        for prefix, step in self.evaluated_step_details:
+            item = per_bend.setdefault(step.bend_id, {
+                "evaluations": 0, "clear_or_touch": 0,
+                "interferences": 0, "unverified": 0,
+                "contact_findings": {},
+            })
+            item["evaluations"] += 1
+            if step.evidence == "SAMPLED_2D_CLEAR_OR_TOUCH":
+                item["clear_or_touch"] += 1
+            elif step.evidence == "2D_INTERFERENCE":
+                item["interferences"] += 1
+            elif step.evidence == "UNVERIFIED_2D":
+                item["unverified"] += 1
+            # Count a distinct component/tool finding at most once per
+            # transition; a single phase may emit multiple polygon records.
+            findings_seen = set()
+            for phase, tool, component, status, reason in step.diagnostic_findings:
+                if status != "INTERFERENCE":
+                    continue
+                key = (phase, tool, component, reason)
+                findings_seen.add(key)
+            for phase, tool, component, reason in findings_seen:
+                key = "|".join((phase, tool, component, reason))
+                counts = item["contact_findings"]
+                counts[key] = counts.get(key, 0) + 1
+        for item in per_bend.values():
+            item["contact_findings"] = [
+                {"phase": parts[0], "tool": parts[1],
+                 "component": parts[2], "reason": parts[3],
+                 "transitions": count}
+                for key, count in sorted(
+                    item["contact_findings"].items(),
+                    key=lambda kv: (-kv[1], kv[0])
+                )
+                for parts in [key.split("|", 3)]
+            ]
         return {
             "status": self.status.value,
+            "per_bend_contact_summary": per_bend,
             "evidence": self.evidence,
             "candidates": [c.to_dict() for c in self.candidates],
             "evaluated_steps": self.evaluated_steps,
