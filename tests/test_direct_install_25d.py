@@ -44,9 +44,13 @@ class DirectInstallTests(unittest.TestCase):
             with self.subTest(path=name):
                 self.assertTrue((root / name).is_file(), name)
 
-    def test_only_two_active_commands(self):
+    def test_preserve_existing_commands_and_register_five_gui_actions(self):
         from freecad_smbs.InitGui import COMMANDS_MAP
-        self.assertEqual(set(COMMANDS_MAP), {"SMBS_PressBrake2D", "SMBS_Tooling"})
+        self.assertEqual(set(COMMANDS_MAP), {
+            "SMBS_PressBrake2D", "SMBS_Tooling",
+            "SMBS_LoadPart", "SMBS_ToolingTab",
+            "SMBS_Calculate", "SMBS_PlanarCandidates",
+        })
         for cls in COMMANDS_MAP.values():
             self.assertTrue(callable(cls))
 
