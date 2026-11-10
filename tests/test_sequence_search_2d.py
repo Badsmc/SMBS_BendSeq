@@ -193,6 +193,45 @@ class PlanarSearchTests(unittest.TestCase):
         self.assertEqual(data["max_depth_reached"], 1)
         self.assertGreater(data["rejection_counts"].get("2D_INTERFERENCE", 0), 0)
 
+    def test_progressive_mode_replays_at_full_sampling_before_accepting(self):
+        calls = []
+        def screen(state, bid, *_args, **kwargs):
+            fractions = tuple(kwargs["fractions"])
+            calls.append((bid, fractions))
+            # A collision absent from exploratory endpoints is detected by
+            # the original full-density pass for B01 at the initial state.
+            if bid == "B01" and len(fractions) == 3 and all(
+                abs(angle) < 1e-9 for angle in state.angles.values()
+            ):
+                return PreliminaryScreeningReport(
+                    ScreeningDecision.CONTINUE_TO_3D,
+                    "STAGE_B_SECTION_REQUIRES_3D", "full_resolution_interference",
+                    sampled_phases=("BENDING",),
+                    contact_statuses=("INTERFERENCE",),
+                )
+            return stage_b_result()
+        result, _ = self.run_mocked(
+            screen,
+            exploration_fractions=(0.0, 1.0),
+            max_complete_candidates=1,
+        )
+        self.assertEqual(result.candidates[0].sequence, ("B02", "B01"))
+        self.assertGreaterEqual(result.final_replay_attempts, 2)
+        self.assertEqual(result.final_replay_rejections, 1)
+        self.assertTrue(any(len(fractions) == 2 for _, fractions in calls))
+        self.assertTrue(any(len(fractions) == 3 for _, fractions in calls))
+
+    def test_progressive_mode_keeps_full_sampled_evidence(self):
+        result, stage_b = self.run_mocked(
+            exploration_fractions=(0.0, 1.0),
+            max_complete_candidates=1,
+        )
+        self.assertEqual(len(result.candidates), 1)
+        self.assertEqual(result.final_replay_attempts, 1)
+        self.assertEqual(result.final_replay_rejections, 0)
+        self.assertEqual(result.candidates[0].evidence, "SAMPLED_2D_CLEAR_OR_TOUCH")
+        self.assertEqual(stage_b.call_count, 5)  # 3 coarse + 2 original-density
+
 
 if __name__ == "__main__":
     unittest.main()
