@@ -106,6 +106,10 @@ class PlanarSearchReport:
     axis_groups: tuple[tuple[str, tuple[str, ...]], ...] = ()
     complete_candidates_examined: int = 0
     evaluated_step_details: tuple[tuple[tuple[str, ...], PlanarStep], ...] = ()
+    max_depth_reached: int = 0
+    deepest_prefix: tuple[str, ...] = ()
+    rejection_counts: tuple[tuple[str, int], ...] = ()
+    slowest_steps: tuple[tuple[str, str, float], ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -122,6 +126,13 @@ class PlanarSearchReport:
             "axis_groups": [{"group_id": name, "bend_ids": list(ids)}
                             for name, ids in self.axis_groups],
             "complete_candidates_examined": self.complete_candidates_examined,
+            "max_depth_reached": self.max_depth_reached,
+            "deepest_prefix": list(self.deepest_prefix),
+            "rejection_counts": dict(self.rejection_counts),
+            "slowest_steps": [
+                {"prefix": prefix, "bend_id": bend_id, "elapsed_s": seconds}
+                for prefix, bend_id, seconds in self.slowest_steps
+            ],
             "evaluated_step_details": [
                 {"completed_prefix": list(prefix), **step.to_dict()}
                 for prefix, step in self.evaluated_step_details
@@ -233,6 +244,7 @@ def search_bend_sequences_2d(
     complete_candidates_examined = 0
     step_cache: dict[tuple[frozenset[str], str], PlanarStep] = {}
     step_diagnostics: list[tuple[tuple[str, ...], PlanarStep]] = []
+    deepest_prefix: tuple[str, ...] = ()
 
     def eval_step(prefix: tuple[str, ...], bend_id: str) -> PlanarStep:
         nonlocal evaluated, rejected, unverified
@@ -307,7 +319,9 @@ def search_bend_sequences_2d(
         return step
 
     def dfs(prefix: tuple[str, ...], steps: tuple[PlanarStep, ...]) -> None:
-        nonlocal visited, stopped, complete_candidates_examined
+        nonlocal visited, stopped, complete_candidates_examined, deepest_prefix
+        if len(prefix) > len(deepest_prefix):
+            deepest_prefix = prefix
         if stopped:
             return
         if complete_candidates_examined >= max_complete_candidates:
@@ -394,4 +408,16 @@ def search_bend_sequences_2d(
         rejected, unverified, stopped, warnings,
         axis_groups=axis_groups, complete_candidates_examined=complete_candidates_examined,
         evaluated_step_details=tuple(step_diagnostics),
+        max_depth_reached=len(deepest_prefix),
+        deepest_prefix=deepest_prefix,
+        rejection_counts=tuple(sorted(
+            (label, sum(step.evidence == label for _, step in step_diagnostics))
+            for label in sorted({step.evidence for _, step in step_diagnostics})
+        )),
+        slowest_steps=tuple(
+            ((" -> ".join(prefix)), step.bend_id, round(step.elapsed_s, 3))
+            for prefix, step in sorted(
+                step_diagnostics, key=lambda entry: entry[1].elapsed_s, reverse=True
+            )[:5]
+        ),
     )
