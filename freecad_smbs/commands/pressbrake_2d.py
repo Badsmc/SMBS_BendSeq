@@ -2753,6 +2753,10 @@ class _PreviewPanel:
                 if self.press_cycle is not None:
                     ctrl = getattr(self.session, "controller", None)
                     if ctrl is None or getattr(self.press_cycle, "sequence", None) is ctrl:
+                        self.press_cycle.rear_panel_vertices_xy = (
+                            self.session.panel_vertices_xy
+                            if self.backgauge_model is not None else None
+                        )
                         return self.press_cycle
                 ctrl = getattr(self.session, "controller", None)
                 if ctrl is None:
@@ -2766,6 +2770,10 @@ class _PreviewPanel:
                     ),
                     follow_sheet_contact_preview=True,
                     animate_workpiece_transfer=True,
+                )
+                self.press_cycle.rear_panel_vertices_xy = (
+                    self.session.panel_vertices_xy
+                    if self.backgauge_model is not None else None
                 )
                 self.press_cycle.set_execution_mode(self.execution_mode)
                 return self.press_cycle
