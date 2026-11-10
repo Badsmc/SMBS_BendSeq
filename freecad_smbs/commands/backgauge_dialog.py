@@ -30,6 +30,37 @@ def show_backgauge_settings(workspace):
         "между гибами и реальная 3D-геометрия пока не реализованы.")
     notice.setWordWrap(True)
     layout.addWidget(notice)
+    inspect_btn = W.QPushButton("Проверить CAD-модель Backgauge.FCStd…")
+    layout.addWidget(inspect_btn)
+
+    def inspect_cad():
+        from freecad_smbs.commands.backgauge_cad_inspector import (
+            inspect_backgauge_cad,
+        )
+        try:
+            result = inspect_backgauge_cad()
+        except Exception as exc:
+            W.QMessageBox.warning(
+                dlg, "Backgauge CAD: проверка не пройдена",
+                str(exc) + "\nГеометрия НЕ подключена к проверке коллизий.",
+            )
+            return
+        W.QMessageBox.information(
+            dlg, "Backgauge CAD — проверены тело и базовая грань",
+            "Источник: {}\n"
+            "Объект: {}\n"
+            "Solids: {} | Faces: {}\n"
+            "Контактная грань: Face{}\n"
+            "Статус: {}\n\n"
+            "ВНИМАНИЕ: проверка CAD-геометрии НЕ означает, "
+            "что реальные пальцы заднего упора уже участвуют в коллизиях."
+            .format(
+                result["source"], result["object"], result["solids"],
+                result["faces"], result["stop_face_index"], result["status"],
+            ),
+        )
+
+    inspect_btn.clicked.connect(inspect_cad)
     active = W.QCheckBox("Проверять задний упор при поиске и ручной проверке")
     active.setChecked(workspace.backgauge_model is not None)
     layout.addWidget(active)
