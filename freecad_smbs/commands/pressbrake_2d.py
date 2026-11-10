@@ -706,6 +706,26 @@ class CalculateCommand:
         if workspace is not None and workspace.calculate.isEnabled():
             workspace.calculate_sequence()
 
+class SequenceCatalogCommand:
+    """Open saved sequence collection, without spawning a second simulator."""
+    def GetResources(self):
+        return {
+            "Pixmap": str(_ICON_ROOT / "gui_planar_candidates.svg"),
+            "MenuText": "Последовательности",
+            "ToolTip": "JSON автоматических и ручных последовательностей; назначение симуляции",
+        }
+
+    def IsActive(self):
+        return True
+
+    def Activated(self):
+        workspace = get_workspace_widget()
+        if workspace is None:
+            PressBrake2DCommand().Activated()
+            workspace = get_workspace_widget()
+        if workspace is not None:
+            workspace.open_sequence_catalog_dialog()
+
 
 class PlanarCandidatesCommand:
     """Preserve experiment's separate fast 2D candidate search."""
@@ -851,6 +871,7 @@ class _PreviewPanel:
                 self._preview_only_planar_order = None
                 self._partial_preview_limit = 0
                 self._manual_sequence_prefix: list[str] = []
+                self._last_manual_sequence_report = None
                 self._manual_selection_enabled = False
                 self._conditional_bends_status: dict[str, str] = {}
                 self._highlighted_end_zone_info: dict | None = None
@@ -2233,6 +2254,71 @@ class _PreviewPanel:
                 finally:
                     self._sync_playback_buttons()
 
+            def open_sequence_catalog_dialog(self):
+                from freecad_smbs.commands.sequence_catalog_dialog import show_sequence_catalog
+                show_sequence_catalog(self)
+
+            def assign_catalog_sequence(self, entry):
+                """Replay an imported order and bind it to the existing simulator."""
+                from smbs_core.kinematics2d.sequence_search_2d import (
+                    validate_partial_planar_prefix,
+                )
+                if self.session is None:
+                    raise ValueError("Сначала загрузите деталь SheetMetal")
+                if self.timer.isActive() or self.session.playback_status == PlaybackStatus.PLAYING:
+                    raise ValueError("Остановите воспроизведение перед сменой порядка")
+                sequence = tuple(entry.sequence)
+                current = tuple(self.session.canonical_order)
+                if (not sequence or len(sequence) > len(current)
+                        or len(set(sequence)) != len(sequence)
+                        or any(b not in current for b in sequence)):
+                    raise ValueError("Гибы JSON не соответствуют текущей детали")
+                if (entry.origin == "MANUAL" and entry.model_label
+                        and entry.model_label != self.session.part_label):
+                    raise ValueError(
+                        "Ручной JSON относится к другой детали: " + entry.model_label
+                    )
+                has_sections = bool(
+                    getattr(self.tooling_setup, "punch_section_offsets_xm", ())
+                    or getattr(self.tooling_setup, "die_section_offsets_xm", ())
+                )
+                valid, reason = validate_partial_planar_prefix(
+                    self.session, self.tooling_setup, sequence,
+                    match_active_bend_length=not has_sections,
+                    allow_retract_warning=self.retract_warning_checkbox.isChecked(),
+                )
+                if not valid:
+                    raise ValueError(
+                        "Повторная 2D-проверка не пройдена: " + reason
+                    )
+                self._stop_timer()
+                self.session.reset_all_bends()
+                remainder = [bend for bend in current if bend not in sequence]
+                self.session.set_bend_order(list(sequence) + remainder)
+                is_partial = len(sequence) < len(current)
+                self._partial_preview_limit = len(sequence) if is_partial else 0
+                self._preview_only_planar_order = sequence
+                self.last_sequence_search_report = None
+                self._conditional_bends_status.clear()
+                self._populate_operations()
+                self._configure_for_active_bend()
+                self._sync_tooling_to_active_bend()
+                self.draw()
+                self.status.setText(
+                    "Каталог → симуляция: {}/{} | {} | {}"
+                    .format(len(sequence), len(current), entry.origin, reason)
+                )
+                self.physical_check_result.setText(
+                    "UNVERIFIED: повторная 2D-проверка не является 3D-допуском. "
+                    + reason
+                )
+                self._trace_event(
+                    "CATALOG_SEQUENCE_SELECTED",
+                    sequence=list(sequence), source=entry.source,
+                    evidence=entry.evidence, recheck=reason,
+                    physical_status="UNVERIFIED",
+                )
+
             def _show_planar_candidates_dialog(self, report):
                 """Choose a preview-only bend order; never present it as 3D approved."""
                 dlg = QtWidgets.QDialog(self)
@@ -3240,6 +3326,7 @@ class _PreviewPanel:
                         "end_zone_exemption_applied": False,
                     }
                     report["runtime"] = dict(self.runtime_git_info)
+                    self._last_manual_sequence_report = dict(report)
                     score_info = report["plan_cost"]
                     cost_label = (
                         "Штраф принятого порядка {:.2f} балла ({}/{} выбранных гибов). "
