@@ -632,3 +632,12 @@ Results open a modal list with ordered bend IDs, planar evidence and operation-c
 6. Run the existing `Расчёт` independently for physical qualification; never reclassify an unverified 2D preview as a safe manufacturing instruction.
 
 **Next after GUI acceptance:** use actual verified model runs to improve candidate ranking or choose the correct 2D/3D qualification budget, then test forward and backward replay and the full animation. Continue to protect physical correctness without spending this phase on sub-millimetric punch/contact modeling.
+
+
+## 8-bend 2D GUI search timeout: first-candidate mode (2026-11-10)
+
+User-confirmed: Z sample loaded, 2D candidate search returned orders, and both bends animated correctly. On an 8-bend part the original GUI candidate search timed out with the 30-second budget. The GUI was requesting up to 100 **complete** candidates before ranking; this can be expensive and unnecessary for a first useful preview.
+
+The button `2D варианты` now requests **one complete 2D candidate** with a strict 30-second budget, rather than 100, and the core DFS now stops immediately when the completed-candidate budget is reached. The standalone `tools/run_planar_sequence_search.py` retains its higher-capacity ranking capability. This is a **latency-oriented experimental change**: the first complete candidate is neither globally minimum-cost nor independently 3D validated.
+
+Acceptance on the same 8-bend model: record elapsed time, `status`, `limit_reason`, `visited_nodes`, `evaluated_steps`, `complete_candidates_examined`, candidate list and playback result. If still timing out before a single complete candidate, investigate Stage B call timing, search ordering, and pruning; do not mask the result by raising the timeout or lowering collision safety thresholds. TechDraw and contact thresholds are untouched.
