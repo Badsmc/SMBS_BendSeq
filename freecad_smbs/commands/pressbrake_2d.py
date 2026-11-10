@@ -1262,6 +1262,60 @@ class _PreviewPanel:
 
                 settings = QtWidgets.QWidget()
                 settings_layout = QtWidgets.QVBoxLayout(settings)
+
+                # Cost weights affect ranking only, never collision decisions.
+                from smbs_core.kinematics2d.operation_cost import OperationWeights
+                weight_defaults = OperationWeights().to_dict()
+                weight_names = (
+                    ("turn_fixed", "Поворот: базовый штраф"),
+                    ("turn_per_90_deg", "Поворот: за 90°"),
+                    ("flip", "Переворот листа"),
+                    ("shift_fixed", "Сдвиг: базовый штраф"),
+                    ("shift_per_100_mm", "Сдвиг: за 100 мм"),
+                    ("length_change_fixed", "Смена длины: базовый штраф"),
+                    ("length_delta_per_100_mm", "Смена длины: за 100 мм"),
+                )
+                weights_box = QtWidgets.QGroupBox("Веса операций · 2D поиск")
+                weights_form = QtWidgets.QFormLayout(weights_box)
+                self._weight_editors = {}
+                self._weight_preferences = QtCore.QSettings("SMBS", "BendSeq")
+                for weight_key, caption in weight_names:
+                    editor = QtWidgets.QDoubleSpinBox(weights_box)
+                    editor.setRange(0.0, 100000.0)
+                    editor.setDecimals(2)
+                    editor.setSingleStep(0.5)
+                    editor.setValue(float(self._weight_preferences.value(
+                        "operation_weights/" + weight_key,
+                        weight_defaults[weight_key], type=float,
+                    )))
+                    editor.setToolTip(
+                        "Штрафные баллы для сортировки полных кандидатов. "
+                        "Нулевой вес не отключает проверку коллизий."
+                    )
+                    editor.valueChanged.connect(
+                        lambda value, key=weight_key:
+                        self._weight_preferences.setValue(
+                            "operation_weights/" + key, float(value)
+                        )
+                    )
+                    weights_form.addRow(caption, editor)
+                    self._weight_editors[weight_key] = editor
+                weights_note = QtWidgets.QLabel(
+                    "Меньший штраф = предпочтительнее. Первый гиб не штрафуется. "
+                    "Оценка эвристическая; это не оценка безопасности."
+                )
+                weights_note.setWordWrap(True)
+                weights_form.addRow(weights_note)
+                reset_weights_btn = QtWidgets.QPushButton("Стандартные веса")
+                reset_weights_btn.clicked.connect(
+                    lambda _checked=False: [
+                        self._weight_editors[k].setValue(weight_defaults[k])
+                        for k in self._weight_editors
+                    ]
+                )
+                weights_form.addRow(reset_weights_btn)
+                settings_layout.addWidget(weights_box)
+
                 insert(settings_layout, entries[11])  # diagnostics button
                 insert(settings_layout, entries[12])  # diagnostics output
 
@@ -2079,6 +2133,13 @@ class _PreviewPanel:
                     self.full_physical_check_btn.setEnabled(True)
                     self.physical_check_btn.setEnabled(True)
 
+            def _selected_operation_weights(self):
+                from smbs_core.kinematics2d.operation_cost import OperationWeights
+                values = OperationWeights().to_dict()
+                for name, editor in self._weight_editors.items():
+                    values[name] = float(editor.value())
+                return OperationWeights(**values)
+
             def calculate_planar_candidates(self):
                 """Show ranked sampled-2D candidate sequences, never mark them physically verified."""
                 if self.session is None:
@@ -2104,11 +2165,12 @@ class _PreviewPanel:
                     )
                     report = search_bend_sequences_2d(
                         self.session, self.tooling_setup,
-                        # Quick GUI mode: find the first complete 2D preview.
-                        # Full ranking remains in the standalone search tool.
-                        # This does not qualify 3D physical feasibility.
-                        max_solutions=1,
-                        max_complete_candidates=1,
+                        # Collect multiple complete candidates for genuine
+                        # weight-based comparison, subject to the search budget.
+                        # The best found is not proof of global optimality.
+                        max_solutions=12,
+                        max_complete_candidates=12,
+                        weights=self._selected_operation_weights(),
                         min_partial_bends=(7 if len(self.session.bend_order) >= 10 else 0),
                         # Alternative machine-Z loading trials are advisory:
                         # the live 2.5D cycle still uses its own active pose.
@@ -2148,6 +2210,7 @@ class _PreviewPanel:
                         match_active_bend_length=not has_sections,
                     )
                     self.last_planar_search_report = report
+                    self._last_planar_weights = self._selected_operation_weights().to_dict()
                     self._trace_event(
                         "PLANAR_2D_SEARCH_COMPLETED",
                         status=report.status.value,
@@ -2177,6 +2240,20 @@ class _PreviewPanel:
                 )
                 heading.setWordWrap(True)
                 layout.addWidget(heading)
+                weights_caption = QtWidgets.QLabel(
+                    "Веса: поворот {:.2f} + {:.2f}/90°, переворот {:.2f}, "
+                    "сдвиг {:.2f} + {:.2f}/100 мм, "
+                    "смена длины {:.2f} + {:.2f}/100 мм. "
+                    "Лучший из найденных планов не обязательно глобально оптимален.".format(
+                        *[self._last_planar_weights[k] for k in (
+                            "turn_fixed", "turn_per_90_deg", "flip",
+                            "shift_fixed", "shift_per_100_mm",
+                            "length_change_fixed", "length_delta_per_100_mm"
+                        )]
+                    )
+                )
+                weights_caption.setWordWrap(True)
+                layout.addWidget(weights_caption)
                 details = QtWidgets.QLabel(
                     "Статус: {} | вариантов: {} | 2D проверок: {} | причина остановки: {}".format(
                         report.status.value, len(report.candidates),
@@ -2263,8 +2340,8 @@ class _PreviewPanel:
                 if not visible_candidates and report.partial_candidate is not None:
                     visible_candidates.append(report.partial_candidate)
                 for index, candidate in enumerate(visible_candidates):
-                    suffix = (" | стоимость {:.2f}".format(candidate.cost)
-                              if candidate.cost_complete else " | стоимость не подтверждена")
+                    suffix = (" | штраф {:.2f}".format(candidate.cost)
+                              if candidate.cost_complete else " | штраф не подтверждён")
                     options.addItem(
                         "{}. {} | {}{}".format(
                             index + 1, " → ".join(candidate.sequence), candidate.evidence, suffix
