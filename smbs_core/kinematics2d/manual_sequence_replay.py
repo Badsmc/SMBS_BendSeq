@@ -56,6 +56,12 @@ def evaluate_manual_planar_order(
         raise ValueError("Backgauge targets belong to another part: " +
                          backgauge_model.part_label)
     accepted_setups = []
+    cad_checker = None
+    if backgauge_model is not None and backgauge_model.cad_geometry_enabled:
+        from .backgauge_cad_3d import BackgaugeCAD3D
+        cad_checker = BackgaugeCAD3D(
+            station_xm_mm=backgauge_model.cad_station_xm_mm
+        )
     try:
         for bid in sequence:
             step_start = perf_counter()
@@ -80,11 +86,20 @@ def evaluate_manual_planar_order(
                     tooling, match_active_bend_length,
                 )
                 gauge_polygon = None
+                cad_contact_s = cad_contact_z = None
                 if backgauge_model is not None:
                     point, depth, source = backgauge_model.resolve_for_state(
                         state, session.panel_vertices_xy, bid,
                     )
-                    gauge_polygon = backgauge_model.polygon_at(point)
+                    if cad_checker is not None:
+                        cad_contact_s = (
+                            depth if backgauge_model.automatic
+                            else point.s_mm - backgauge_model.width_s_mm / 2
+                                 - backgauge_model.edge_clearance_mm
+                        )
+                        cad_contact_z = point.z_mm
+                    else:
+                        gauge_polygon = backgauge_model.polygon_at(point)
                     setup = replace(
                         setup, backgauge_s_mm=point.s_mm,
                         backgauge_z_mm=point.z_mm,
@@ -113,6 +128,9 @@ def evaluate_manual_planar_order(
                         tolerance_mm=tolerance_mm,
                         allow_retract_warning=allow_retract_warning,
                         backgauge_polygon_machine=gauge_polygon,
+                        backgauge_cad_checker=cad_checker,
+                        backgauge_contact_s_mm=cad_contact_s,
+                        backgauge_contact_z_mm=cad_contact_z,
                     )
                     record["stage_b"] = stage_b.to_dict()
                     verdict = _classify_step(stage_b)
