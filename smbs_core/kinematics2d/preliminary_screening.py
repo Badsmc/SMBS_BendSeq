@@ -154,6 +154,7 @@ def screen_candidate_stage_b(
     match_active_bend_length: bool = True,
     allow_end_zone_collision: bool = False,
     end_zone_length_mm: float = 0.0,
+    reverse_axis: bool = False,
     tolerance_mm: float = 0.02,
     clearance_mm: float = 5.0,
     fractions: Tuple[float, ...] = (0.0, 0.5, 1.0),
@@ -231,6 +232,7 @@ def screen_candidate_stage_b(
                 support_plane_zm=float(getattr(bend.bend_zone, "outer_radius_mm", 0.0) if bend.bend_zone else 0.0),
                 align_bisector=True,
                 align_bend_arc_center=True,
+                reverse_axis=reverse_axis,
             )
             first_sec = compute_machine_cutting_plane_section(
                 fold_state,
@@ -341,6 +343,7 @@ def screen_candidate_stage_b(
                     support_plane_zm=supp_z,
                     align_bisector=align_bis,
                     align_bend_arc_center=True,
+                    reverse_axis=reverse_axis,
                 )
                 sec = compute_machine_cutting_plane_section(
                     fold_state,
