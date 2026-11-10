@@ -69,6 +69,16 @@ def show_backgauge_settings(workspace):
     model = workspace.backgauge_model
     auto.setChecked(model.automatic if model else True)
     layout.addWidget(auto)
+    cad_mode = W.QCheckBox(
+        "Использовать реальную 3D-модель Backgauge.FCStd при поиске "
+        "(экспериментально)"
+    )
+    cad_mode.setChecked(model.cad_geometry_enabled if model else True)
+    cad_mode.setToolTip(
+        "Твёрдая CAD-модель и объёмные панели/зоны гиба. "
+        "Проверяются дискретные положения; путь подвода и "
+        "перемещения упора НЕ сертифицирован.")
+    layout.addWidget(cad_mode)
     dims = W.QFormLayout()
     width = W.QDoubleSpinBox()
     width.setRange(0.01, 10000)
@@ -93,6 +103,17 @@ def show_backgauge_settings(workspace):
         "Только визуальный начальный подвод заготовки слева к упору. "
         "0 отключает фазу. Траектория не проверяется на коллизии.")
     dims.addRow("Начальная подача листа (визуально):", feed)
+    station = W.QDoubleSpinBox()
+    station.setRange(-10000.0, 10000.0)
+    station.setDecimals(2)
+    station.setSuffix(" мм")
+    station.setValue(model.cad_station_xm_mm if model else 0.0)
+    station.setToolTip(
+        "Положение центра одной CAD-модели Backgauge вдоль линии гиба X_m. "
+        "Второй палец не добавляется автоматически.")
+    dims.addRow("CAD упор: станция по Xₘ:", station)
+    station.setEnabled(cad_mode.isChecked())
+    cad_mode.toggled.connect(station.setEnabled)
     width.setValue(model.width_s_mm if model else 10.0)
     height.setValue(model.height_z_mm if model else 10.0)
     dims.addRow("Ширина прямоугольника по s:", width)
@@ -164,10 +185,28 @@ def show_backgauge_settings(workspace):
                 automatic=auto.isChecked(),
                 edge_clearance_mm=float(clearance.value()),
                 initial_feed_preview_mm=float(feed.value()),
+                cad_geometry_enabled=cad_mode.isChecked(),
+                cad_station_xm_mm=float(station.value()),
             )
         except (ValueError, TypeError) as exc:
             W.QMessageBox.warning(dlg, "Недопустимая конфигурация", str(exc))
             return
+        if new_model.cad_geometry_enabled:
+            try:
+                from smbs_core.kinematics2d.backgauge_cad_3d import (
+                    BackgaugeCAD3D,
+                )
+                BackgaugeCAD3D(
+                    station_xm_mm=new_model.cad_station_xm_mm
+                )
+            except Exception as exc:
+                W.QMessageBox.warning(
+                    dlg, "CAD задний упор не загружен",
+                    "Невозможно использовать реальный CAD упор: {}\n"
+                    "Режим не сохранён. Исправьте модель или выберите "
+                    "старый упрощённый 2D режим.".format(exc),
+                )
+                return
         workspace.backgauge_model = new_model
         workspace._backgauge_settings.setValue(
             "backgauge/config_json", json.dumps(new_model.to_dict())
