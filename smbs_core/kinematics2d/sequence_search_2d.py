@@ -183,6 +183,7 @@ def search_bend_sequences_2d(
     group_first: bool = True,
     preferred_bend_order: Optional[Sequence[str]] = None,
     root_probe_nodes: int = 0,
+    root_probe_seconds: float = 0.0,
     weights: Optional[OperationWeights] = None,
     max_nodes: int = 10000,
     max_evaluations: int = 50000,
@@ -226,6 +227,8 @@ def search_bend_sequences_2d(
             raise ValueError("bend order must contain every FoldState bend exactly once")
         if max_solutions < 1 or max_complete_candidates < 1 or max_nodes < 1 or max_evaluations < 1 or root_probe_nodes < 0:
             raise ValueError("positive solution and search limits required")
+        if not isfinite(root_probe_seconds) or root_probe_seconds < 0:
+            raise ValueError("root_probe_seconds must be finite and non-negative")
         if not isfinite(max_search_time_s) or max_search_time_s <= 0:
             raise ValueError("positive finite time budget required")
         if not isfinite(tolerance_mm) or not 1e-5 <= tolerance_mm <= 1.0:
@@ -362,7 +365,8 @@ def search_bend_sequences_2d(
         return step
 
     def dfs(prefix: tuple[str, ...], steps: tuple[PlanarStep, ...],
-            node_ceiling: Optional[int] = None) -> None:
+            node_ceiling: Optional[int] = None,
+            root_deadline: Optional[float] = None) -> None:
         nonlocal visited, stopped, complete_candidates_examined, deepest_prefix
         nonlocal final_replay_attempts, final_replay_rejections, dead_state_cache_hits
         nonlocal probe_cutoffs
@@ -379,9 +383,10 @@ def search_bend_sequences_2d(
         if visited >= max_nodes:
             stopped = "MAX_NODES_REACHED"
             return
-        # A local root budget is a scheduling hint, not search exhaustion.
-        # Deferred subtrees are retried without a local budget later.
-        if node_ceiling is not None and visited >= node_ceiling:
+        # Local limits are scheduling hints, never proof of exhaustion.
+        # Always retry their deferred subtrees in the unrestricted pass.
+        if ((root_deadline is not None and perf_counter() >= root_deadline)
+                or (node_ceiling is not None and visited >= node_ceiling)):
             probe_cutoffs += 1
             return
         mask = frozenset(prefix)
@@ -443,6 +448,9 @@ def search_bend_sequences_2d(
         elif group_first:
             remaining.sort(key=lambda bid: (group_of[bid], priority_index[bid]))
         for bend_id in remaining:
+            if root_deadline is not None and perf_counter() >= root_deadline:
+                probe_cutoffs += 1
+                return
             if evaluated >= max_evaluations:
                 stopped = "MAX_EVALUATIONS_REACHED"
                 return
@@ -452,7 +460,7 @@ def search_bend_sequences_2d(
             step = eval_step(prefix, bend_id)
             if step.evidence in ("2D_INTERFERENCE", "INVALID_INPUT", "2D_TOOLING_CONSTRAINT"):
                 continue
-            dfs(prefix + (bend_id,), steps + (step,), node_ceiling)
+            dfs(prefix + (bend_id,), steps + (step,), node_ceiling, root_deadline)
             if stopped:
                 return
         if (not stopped and probe_cutoffs == cutoff_before
@@ -461,20 +469,29 @@ def search_bend_sequences_2d(
             dead_states.add(mask)
 
     try:
-        if root_probe_nodes and len(order) >= 3:
-            # Fair first pass: each possible first bend gets a limited slice
-            # of the node budget before any single root can monopolize time.
-            # A full second pass resumes exhaustive search if needed.
+        if (root_probe_nodes or root_probe_seconds) and len(order) >= 3:
+            # Each first bend receives a time slice as well as a node budget.
+            # Caching may keep the visited-node counter below its ceiling,
+            # so node-count-only scheduling is not fair in practice.
+            # After the bounded probes, retry deferred branches in full DFS.
             for first_bend in priority_order:
                 if stopped:
                     break
                 if perf_counter() - start >= max_search_time_s:
                     stopped = "MAX_SEARCH_TIME_REACHED"
                     break
+                root_deadline = (
+                    min(start + max_search_time_s, perf_counter() + root_probe_seconds)
+                    if root_probe_seconds else None
+                )
                 step = eval_step((), first_bend)
                 if step.evidence in ("2D_INTERFERENCE", "INVALID_INPUT", "2D_TOOLING_CONSTRAINT"):
                     continue
-                dfs((first_bend,), (step,), visited + root_probe_nodes)
+                dfs(
+                    (first_bend,), (step,),
+                    visited + root_probe_nodes if root_probe_nodes else None,
+                    root_deadline,
+                )
         if not stopped:
             dfs((), ())
     finally:
