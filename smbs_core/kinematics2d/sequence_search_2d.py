@@ -7,7 +7,7 @@ explicitly requested planar model; it does not prove 3D impossibility.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from enum import Enum
 from math import isfinite
 from time import perf_counter
@@ -362,6 +362,7 @@ def search_bend_sequences_2d(
     probe_cutoffs = 0
     deepest_prefix: tuple[str, ...] = ()
     best_partial_steps: tuple[PlanarStep, ...] = ()
+    best_partial_prefix: tuple[str, ...] = ()
     alternative_setup_trials: list[tuple[tuple[str, ...], str, str, str]] = []
     final_replay_attempts = final_replay_rejections = 0
 
@@ -441,17 +442,11 @@ def search_bend_sequences_2d(
                             tuple(prefix), bend_id, "REVERSE_MACHINE_Z_180",
                             alt_evidence,
                         ))
-                    if alt_evidence not in (
-                        "2D_INTERFERENCE", "INVALID_INPUT",
-                        "2D_TOOLING_CONSTRAINT",
-                    ):
-                        stage_b, evidence = alt, alt_evidence
-                        orientation_variant = "REVERSE_MACHINE_Z_180"
-                        if setup is not None and setup.is_complete:
-                            setup = replace(
-                                setup,
-                                rotation_deg=((setup.rotation_deg + 180.0) % 360.0),
-                            )
+                    # The GUI's live machine-cycle placement is still based
+                    # on the normal orientation. Record alternative feasibility
+                    # as a diagnostic but DO NOT silently treat it as a safe
+                    # sequence transition until playback/transfer can use the
+                    # identical physical pose.
                 step = PlanarStep(
                     bend_id, evidence, stage_b.reason,
                     stage_b.sampled_phases, stage_b.contact_statuses, setup,
@@ -489,11 +484,13 @@ def search_bend_sequences_2d(
             root_deadline: Optional[float] = None) -> None:
         nonlocal visited, stopped, complete_candidates_examined, deepest_prefix
         nonlocal final_replay_attempts, final_replay_rejections, dead_state_cache_hits
-        nonlocal probe_cutoffs, best_partial_steps
+        nonlocal probe_cutoffs, best_partial_steps, best_partial_prefix
         if len(prefix) > len(deepest_prefix):
             deepest_prefix = prefix
-            if min_partial_bends > 0 and min_partial_bends <= len(prefix) < len(order):
+            if (min_partial_bends > 0
+                    and min_partial_bends <= len(prefix) <= min(8, len(order) - 1)):
                 best_partial_steps = steps
+                best_partial_prefix = prefix
         if stopped:
             return
         if complete_candidates_examined >= max_complete_candidates:
@@ -625,7 +622,7 @@ def search_bend_sequences_2d(
     partial = None
     partial_remainder = ()
     if best_partial_steps and not candidates:
-        partial_seq = deepest_prefix
+        partial_seq = best_partial_prefix
         partial_remainder = tuple(b for b in order if b not in partial_seq)
         partial = PlanarCandidate(
             partial_seq, best_partial_steps,
