@@ -204,11 +204,17 @@ class WorkspaceGuiTests(unittest.TestCase):
         panel = _PreviewPanel()
         try:
             tabs = panel.findChild(QtWidgets.QTabWidget, "SMBS_ViewerTabs")
-            controls = panel.findChild(QtWidgets.QTabWidget, "SMBS_ControlTabs")
+            controls = panel._control_tabs
             self.assertIsNotNone(tabs)
             self.assertIsNotNone(controls)
             self.assertEqual(tabs.count(), 2)
             self.assertEqual(controls.count(), 3)
+            self.assertIsNone(panel.findChild(QtWidgets.QSplitter))
+            self.assertFalse(hasattr(panel, "load"))
+            self.assertFalse(hasattr(panel, "tooling"))
+            self.assertTrue(hasattr(panel, "planar_calculate"))
+            self.assertTrue(hasattr(panel, "calculate"))
+            self.assertEqual(panel.show_task_panel_btn.objectName(), "SMBS_ShowTaskPanel")
             # The Simulation tab owns mode selection and one Play All.
             # Duplicate angle arrows, bend arrows and alternate Auto button
             # are forbidden by docs/PRESSBRAKESIM_UI_CONTROLS.md.
