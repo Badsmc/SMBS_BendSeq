@@ -7,7 +7,7 @@ explicitly requested planar model; it does not prove 3D impossibility.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import Enum
 from math import isfinite
 from time import perf_counter
@@ -46,11 +46,14 @@ class PlanarStep:
     timing_ms: tuple[tuple[str, float], ...] = ()
     diagnostic_findings: tuple[tuple[str, str, str, str, str], ...] = ()
     touch_summary: tuple[tuple[str, str, str, str, int], ...] = ()
+    orientation_variant: str = "NORMAL"
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "bend_id": self.bend_id, "evidence": self.evidence,
-            "reason": self.reason, "sampled_phases": list(self.sampled_phases),
+            "reason": self.reason,
+            "orientation_variant": self.orientation_variant,
+            "sampled_phases": list(self.sampled_phases),
             "contact_statuses": list(self.contact_statuses),
             "machine_setup": self.setup.to_dict() if self.setup else None,
             "backgauge_checked": self.backgauge_checked,
@@ -119,6 +122,7 @@ class PlanarSearchReport:
     partial_candidate: Optional[PlanarCandidate] = None
     partial_remainder: tuple[str, ...] = ()
     conditional_end_zone_requested: bool = False
+    alternative_setup_trials: tuple[tuple[tuple[str, ...], str, str, str], ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
         # Aggregate the actual per-transition contact findings; keep each
@@ -167,6 +171,11 @@ class PlanarSearchReport:
                                   if self.partial_candidate is not None else None),
             "partial_remainder": list(self.partial_remainder),
             "conditional_end_zone_requested": self.conditional_end_zone_requested,
+            "alternative_setup_trials": [
+                {"completed_prefix": list(prefix), "bend_id": bid,
+                 "orientation": orientation, "evidence": evidence}
+                for prefix, bid, orientation, evidence in self.alternative_setup_trials
+            ],
             "per_bend_contact_summary": per_bend,
             "evidence": self.evidence,
             "candidates": [c.to_dict() for c in self.candidates],
@@ -242,6 +251,7 @@ def search_bend_sequences_2d(
     min_partial_bends: int = 0,
     allow_end_zone_collision: bool = False,
     end_zone_length_mm: float = 0.0,
+    alternate_axis_bends: Sequence[str] = (),
     weights: Optional[OperationWeights] = None,
     max_nodes: int = 10000,
     max_evaluations: int = 50000,
@@ -285,6 +295,8 @@ def search_bend_sequences_2d(
             raise ValueError("bend order must contain every FoldState bend exactly once")
         if max_solutions < 1 or max_complete_candidates < 1 or max_nodes < 1 or max_evaluations < 1 or root_probe_nodes < 0:
             raise ValueError("positive solution and search limits required")
+        if any(bid not in order for bid in alternate_axis_bends):
+            raise ValueError("alternate_axis_bends contains unknown bend")
         if min_partial_bends < 0 or min_partial_bends > len(order):
             raise ValueError("min_partial_bends must be between zero and bend count")
         if not isfinite(end_zone_length_mm) or end_zone_length_mm < 0:
@@ -350,6 +362,7 @@ def search_bend_sequences_2d(
     probe_cutoffs = 0
     deepest_prefix: tuple[str, ...] = ()
     best_partial_steps: tuple[PlanarStep, ...] = ()
+    alternative_setup_trials: list[tuple[tuple[str, ...], str, str, str]] = []
     final_replay_attempts = final_replay_rejections = 0
 
     def eval_step(prefix: tuple[str, ...], bend_id: str, *, detailed: bool = False) -> PlanarStep:
@@ -398,6 +411,47 @@ def search_bend_sequences_2d(
                     verified_die_span_xm=verified_die_span_xm,
                 )
                 evidence = _classify_step(stage_b)
+                orientation_variant = "NORMAL"
+                # Try a distinct 180-degree Z-axis loading orientation only
+                # for explicitly selected bends and only if the normal pose
+                # is rejected by sampled 2D interference. The same complete
+                # Stage B contact oracle is applied to the alternative.
+                if (evidence == "2D_INTERFERENCE"
+                        and bend_id in alternate_axis_bends
+                        and perf_counter() - start < max_search_time_s):
+                    alt = screen_candidate_stage_b(
+                        state, bend_id, tooling, panel_vertices,
+                        desired_midpoint_xm=float(shifts.get(bend_id, 0.0)),
+                        match_active_bend_length=match_active_bend_length,
+                        allow_end_zone_collision=allow_end_zone_collision,
+                        end_zone_length_mm=end_zone_length_mm,
+                        reverse_axis=True,
+                        tolerance_mm=tolerance_mm,
+                        fractions=fs if detailed else coarse_fs,
+                        stroke_fractions=stroke_fs if detailed else coarse_stroke_fs,
+                        backgauge_polygon_machine=backgauge_polygon_machine,
+                        deadline_monotonic=start + max_search_time_s,
+                        multi_station_enabled=multi_station_enabled,
+                        verified_punch_span_xm=verified_punch_span_xm,
+                        verified_die_span_xm=verified_die_span_xm,
+                    )
+                    alt_evidence = _classify_step(alt)
+                    if not detailed:
+                        alternative_setup_trials.append((
+                            tuple(prefix), bend_id, "REVERSE_MACHINE_Z_180",
+                            alt_evidence,
+                        ))
+                    if alt_evidence not in (
+                        "2D_INTERFERENCE", "INVALID_INPUT",
+                        "2D_TOOLING_CONSTRAINT",
+                    ):
+                        stage_b, evidence = alt, alt_evidence
+                        orientation_variant = "REVERSE_MACHINE_Z_180"
+                        if setup is not None and setup.is_complete:
+                            setup = replace(
+                                setup,
+                                rotation_deg=((setup.rotation_deg + 180.0) % 360.0),
+                            )
                 step = PlanarStep(
                     bend_id, evidence, stage_b.reason,
                     stage_b.sampled_phases, stage_b.contact_statuses, setup,
@@ -405,6 +459,7 @@ def search_bend_sequences_2d(
                     timing_ms=stage_b.timing_ms,
                     diagnostic_findings=stage_b.diagnostic_findings,
                     touch_summary=stage_b.touch_summary,
+                    orientation_variant=orientation_variant,
                 )
         except Exception as exc:
             step = PlanarStep(
@@ -423,7 +478,7 @@ def search_bend_sequences_2d(
             step.sampled_phases, step.contact_statuses,
             step.setup, step.backgauge_checked,
             perf_counter() - step_start, step.timing_ms, step.diagnostic_findings,
-            step.touch_summary,
+            step.touch_summary, step.orientation_variant,
         )
         step_cache[key] = step
         step_diagnostics.append((tuple(prefix), step))
@@ -437,7 +492,7 @@ def search_bend_sequences_2d(
         nonlocal probe_cutoffs, best_partial_steps
         if len(prefix) > len(deepest_prefix):
             deepest_prefix = prefix
-            if len(prefix) >= min_partial_bends > 0:
+            if min_partial_bends > 0 and min_partial_bends <= len(prefix) < len(order):
                 best_partial_steps = steps
         if stopped:
             return
@@ -627,6 +682,7 @@ def search_bend_sequences_2d(
         partial_candidate=partial,
         partial_remainder=partial_remainder,
         conditional_end_zone_requested=bool(allow_end_zone_collision),
+        alternative_setup_trials=tuple(alternative_setup_trials),
         max_depth_reached=len(deepest_prefix),
         deepest_prefix=deepest_prefix,
         rejection_counts=tuple(sorted(
