@@ -279,6 +279,35 @@ class PlanarSearchTests(unittest.TestCase):
         self.assertEqual(result.candidates[0].sequence[0], "B03")
         self.assertGreaterEqual(result.deferred_root_probes, 0)
 
+    def test_mutual_first_step_obstruction_is_diagnostic_only(self):
+        names = ("B01", "B02", "B03")
+        self.state = DummyState(names)
+        self.session.fold_state = self.state
+        self.session.bend_order = names
+
+        def screen(state, bend, *_args, **_kwargs):
+            done = {name for name, angle in state.angles.items() if angle != 0}
+            if (done == {"B01"} and bend == "B02"
+                    or done == {"B02"} and bend == "B01"):
+                return PreliminaryScreeningReport(
+                    ScreeningDecision.CONTINUE_TO_3D,
+                    "STAGE_B_SECTION_REQUIRES_3D", "pairwise_overlap",
+                    sampled_phases=("APPROACH",),
+                    contact_statuses=("INTERFERENCE",),
+                )
+            return stage_b_result()
+
+        result, _ = self.run_mocked(screen, max_complete_candidates=20)
+        paired = result.to_dict()["paired_first_step_obstructions"]
+        self.assertEqual(len(paired), 1)
+        self.assertEqual((paired[0]["first_bend"], paired[0]["second_bend"]),
+                         ("B01", "B02"))
+        self.assertEqual(paired[0]["after_first_reason"], "pairwise_overlap")
+        # Later after B03 both can still be admissible; pairwise findings
+        # must never prune future states or override candidate evidence.
+        self.assertGreater(len(result.candidates), 0)
+        self.assertTrue(any("B03" in c.sequence for c in result.candidates))
+
     def test_timed_root_probe_reaches_later_start_even_with_low_node_count(self):
         from time import sleep
         names = ("B01", "B02", "B03")
