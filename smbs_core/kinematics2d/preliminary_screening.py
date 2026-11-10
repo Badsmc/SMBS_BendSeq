@@ -154,6 +154,7 @@ def screen_candidate_stage_b(
     match_active_bend_length: bool = True,
     allow_end_zone_collision: bool = False,
     end_zone_length_mm: float = 0.0,
+    allow_retract_warning: bool = False,
     reverse_axis: bool = False,
     tolerance_mm: float = 0.02,
     clearance_mm: float = 5.0,
@@ -265,6 +266,7 @@ def screen_candidate_stage_b(
         station_reports: List[Dict[str, Any]] = []
         contact_statuses: List[str] = []
         diagnostic_findings: List[Tuple[str, str, str, str, str]] = []
+        retract_warning_found = False
         touch_counts: Dict[Tuple[str, str, str, str], int] = {}
 
         def _touch_summary() -> Tuple[Tuple[str, str, str, str, int], ...]:
@@ -450,6 +452,22 @@ def screen_candidate_stage_b(
                 contact_statuses.append(section_status.value)
 
                 if section_status is ContactStatus.INTERFERENCE:
+                    # Conditional exploratory mode: only a PUNCH-vs-sheet
+                    # RETRACT intersection can continue with a warning.
+                    # Never accept DIE, BACKGAUGE, APPROACH or BENDING overlap.
+                    # This is not proof of passive resting contact or 3D safety.
+                    retract_only_punch = (
+                        allow_retract_warning and phase == "RETRACT"
+                        and not backgauge_reason
+                        and any(f.status is ContactStatus.INTERFERENCE
+                                for f in sec_report.findings)
+                        and all(f.tool == "PUNCH"
+                                for f in sec_report.findings
+                                if f.status is ContactStatus.INTERFERENCE)
+                    )
+                    if retract_only_punch:
+                        retract_warning_found = True
+                        continue
                     # 2D cross-section planar findings require authoritative 3D verification
                     finding = next((f for f in sec_report.findings if f.status is ContactStatus.INTERFERENCE), None)
                     reason_msg = (
@@ -488,8 +506,9 @@ def screen_candidate_stage_b(
 
         return PreliminaryScreeningReport(
             decision=ScreeningDecision.CONTINUE_TO_3D,
-            stage="STAGE_B_PREVIEW",
-            reason=("sampled_2d_section_unverified" if "UNVERIFIED" in contact_statuses
+            stage=("STAGE_B_RETRACT_WARNING" if retract_warning_found else "STAGE_B_PREVIEW"),
+            reason=("retract_punch_interference_requires_3d_review"
+                    if retract_warning_found else "sampled_2d_section_unverified" if "UNVERIFIED" in contact_statuses
                     else "all_sampled_2d_sections_clear_or_touch"
                     if "TOUCH" in contact_statuses else "all_sampled_2d_sections_clear"),
             sampled_phases=tuple(sampled_phases),
