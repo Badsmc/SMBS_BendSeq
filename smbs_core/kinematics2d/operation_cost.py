@@ -37,6 +37,8 @@ class OperationWeights:
     punch_length_delta_per_100_mm: float = 0.5
     die_length_change_fixed: float = 4.0
     die_length_delta_per_100_mm: float = 0.5
+    backgauge_move_fixed: float = 2.0
+    backgauge_move_per_100_mm: float = 0.5
     rotation_deadband_deg: float = 1.0
     shift_deadband_mm: float = 1.0
     length_deadband_mm: float = 0.5
@@ -54,6 +56,8 @@ class OperationWeights:
             "punch_length_delta_per_100_mm",
             "die_length_change_fixed",
             "die_length_delta_per_100_mm",
+            "backgauge_move_fixed",
+            "backgauge_move_per_100_mm",
             "rotation_deadband_deg",
             "shift_deadband_mm",
             "length_deadband_mm",
@@ -77,6 +81,8 @@ class OperationWeights:
             "punch_length_delta_per_100_mm": float(self.punch_length_delta_per_100_mm),
             "die_length_change_fixed": float(self.die_length_change_fixed),
             "die_length_delta_per_100_mm": float(self.die_length_delta_per_100_mm),
+            "backgauge_move_fixed": float(self.backgauge_move_fixed),
+            "backgauge_move_per_100_mm": float(self.backgauge_move_per_100_mm),
             "rotation_deadband_deg": float(self.rotation_deadband_deg),
             "shift_deadband_mm": float(self.shift_deadband_mm),
             "length_deadband_mm": float(self.length_deadband_mm),
@@ -96,6 +102,8 @@ class WorkpieceMachineSetup:
     die_length_mm: Optional[float] = None
     punch_length_source: str = "NOT_SPECIFIED"
     die_length_source: str = "NOT_SPECIFIED"
+    backgauge_s_mm: Optional[float] = None
+    backgauge_z_mm: Optional[float] = None
     note: str = ""
 
     def __post_init__(self):
@@ -109,6 +117,15 @@ class WorkpieceMachineSetup:
                 raise ValueError(f"Numeric finite value required for '{name}': {val}")
         if self.bend_length_mm <= 0:
             raise ValueError("bend_length_mm must be positive")
+        for key in ("backgauge_s_mm", "backgauge_z_mm"):
+            val = getattr(self, key)
+            if val is not None and (
+                isinstance(val, bool) or not isinstance(val, (int, float))
+                or not isfinite(val)
+            ):
+                raise ValueError(f"{key} must be finite when provided")
+        if ((self.backgauge_s_mm is None) != (self.backgauge_z_mm is None)):
+            raise ValueError("backgauge s and z must both be provided or both absent")
         for key in ("punch_length_mm", "die_length_mm"):
             val = getattr(self, key)
             if val is not None and (
@@ -128,6 +145,8 @@ class WorkpieceMachineSetup:
             "die_length_mm": self.die_length_mm,
             "punch_length_source": self.punch_length_source,
             "die_length_source": self.die_length_source,
+            "backgauge_s_mm": self.backgauge_s_mm,
+            "backgauge_z_mm": self.backgauge_z_mm,
             "is_complete": self.is_complete,
             "note": self.note,
         }
@@ -152,12 +171,15 @@ class StepPenalty:
     punch_length_cost: float = 0.0
     die_length_cost: float = 0.0
     tooling_lengths_from_fixed_profiles: bool = False
+    backgauge_move_mm: Optional[float] = None
+    backgauge_move_cost: float = 0.0
+    backgauge_position_known: bool = False
 
     @property
     def total(self) -> float:
         return (self.turn_cost + self.flip_cost + self.shift_cost
                 + self.length_change_cost + self.punch_length_cost
-                + self.die_length_cost)
+                + self.die_length_cost + self.backgauge_move_cost)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -175,6 +197,9 @@ class StepPenalty:
             "die_length_delta_mm": self.die_length_delta_mm,
             "punch_length_cost": round(float(self.punch_length_cost), 4),
             "die_length_cost": round(float(self.die_length_cost), 4),
+            "backgauge_move_mm": self.backgauge_move_mm,
+            "backgauge_move_cost": round(float(self.backgauge_move_cost), 4),
+            "backgauge_position_known": self.backgauge_position_known,
             "tooling_lengths_from_fixed_profiles": self.tooling_lengths_from_fixed_profiles,
             "total": round(float(self.total), 4),
             "is_complete": self.is_complete,
@@ -366,6 +391,22 @@ def transition_penalty(
         + weights.die_length_delta_per_100_mm * ddelta / 100.0
         if ddelta is not None and ddelta > weights.length_deadband_mm else 0.0
     )
+    gauge_known = all(
+        p.backgauge_s_mm is not None and p.backgauge_z_mm is not None
+        for p in (previous, current)
+    )
+    gauge_distance = (
+        math.hypot(
+            current.backgauge_s_mm - previous.backgauge_s_mm,
+            current.backgauge_z_mm - previous.backgauge_z_mm,
+        ) if gauge_known else None
+    )
+    gauge_cost = (
+        weights.backgauge_move_fixed
+        + weights.backgauge_move_per_100_mm * gauge_distance / 100.0
+        if gauge_distance is not None and gauge_distance > weights.shift_deadband_mm
+        else 0.0
+    )
     is_complete = previous.is_complete and current.is_complete
     tooling_verified = all(
         source == "FIXED_PROFILE"
@@ -391,6 +432,9 @@ def transition_penalty(
         punch_length_cost=punch_cost,
         die_length_cost=die_cost,
         tooling_lengths_from_fixed_profiles=tooling_verified,
+        backgauge_move_mm=gauge_distance,
+        backgauge_move_cost=gauge_cost,
+        backgauge_position_known=gauge_known,
     )
 
 
