@@ -2021,6 +2021,9 @@ class _PreviewPanel:
                         # across different starting bends. Otherwise a large
                         # doomed subtree under B10 may consume the 30s budget.
                         root_probe_nodes=(65 if len(self.session.bend_order) >= 10 else 0),
+                        # Each root gets <=1.8 s, even when memoization
+                        # prevents reaching its node-count allowance.
+                        root_probe_seconds=(1.8 if len(self.session.bend_order) >= 10 else 0.0),
                         # Long box-like parts can require bends late in CAD
                         # construction order to be formed first. For >=6 bends
                         # explore reverse construction order before considering
