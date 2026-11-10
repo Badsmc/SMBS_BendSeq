@@ -557,17 +557,9 @@ def show_workspace_controls(workspace, tab=None):
     form = QtWidgets.QWidget(dock)
     layout = QtWidgets.QVBoxLayout(form)
     layout.setContentsMargins(4, 4, 4, 4)
-    # The native dock may be shorter than its content. Put the existing
-    # control tabs inside one resizable, vertically scrolling viewport.
-    # Never create a second set of controls or a second playback timer.
-    scroll = QtWidgets.QScrollArea(form)
-    scroll.setObjectName("SMBS_TaskPanelScroll")
-    scroll.setWidgetResizable(True)
-    scroll.setFrameShape(QtWidgets.QFrame.NoFrame)
-    scroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAsNeeded)
-    scroll.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAsNeeded)
-    scroll.setWidget(workspace._control_tabs)
-    layout.addWidget(scroll, 1)
+    # Each task tab owns a QScrollArea. Keep the tab bar outside the
+    # scrolling content so it remains visible even in a short dock.
+    layout.addWidget(workspace._control_tabs, 1)
     close_button = QtWidgets.QPushButton("Закрыть панель")
     close_button.setObjectName("SMBS_CloseTaskPanel")
     close_button.clicked.connect(dock.hide)
@@ -1178,6 +1170,28 @@ class _PreviewPanel:
 
                 controls = QtWidgets.QTabWidget()
                 controls.setObjectName("SMBS_ControlTabs")
+                controls.setSizePolicy(QtWidgets.QSizePolicy.Preferred,
+                                       QtWidgets.QSizePolicy.Expanding)
+
+                def scroll_task_page(content, name):
+                    # Scroll the CONTENT of each task tab (not the tab bar).
+                    # A minimum-size layout prevents Qt from compressing the
+                    # controls into the viewport and overlapping them.
+                    content.layout().setSizeConstraint(
+                        QtWidgets.QLayout.SetMinimumSize
+                    )
+                    page = QtWidgets.QScrollArea()
+                    page.setObjectName(name)
+                    page.setWidgetResizable(True)
+                    page.setFrameShape(QtWidgets.QFrame.NoFrame)
+                    page.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOn)
+                    page.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAsNeeded)
+                    page.setMinimumSize(0, 0)
+                    page.setSizePolicy(QtWidgets.QSizePolicy.Preferred,
+                                       QtWidgets.QSizePolicy.Expanding)
+                    page.setWidget(content)
+                    return page
+
                 simulation = QtWidgets.QWidget()
                 sim_layout = QtWidgets.QVBoxLayout(simulation)
                 sim_layout.setSpacing(8)
@@ -1221,13 +1235,19 @@ class _PreviewPanel:
                 self.operations.setMinimumHeight(160)
                 self.operations.setMaximumHeight(280)
                 insert(sim_layout, entries[10], 1)  # operation table
-                controls.addTab(simulation, "Симуляция")
+                controls.addTab(
+                    scroll_task_page(simulation, "SMBS_SimulationScroll"),
+                    "Симуляция"
+                )
 
                 tooling = QtWidgets.QWidget()
                 tool_layout = QtWidgets.QVBoxLayout(tooling)
                 insert(tool_layout, entries[2])  # tooling group
                 tool_layout.addStretch(1)
-                controls.addTab(tooling, "Оснастка")
+                controls.addTab(
+                    scroll_task_page(tooling, "SMBS_ToolingScroll"),
+                    "Оснастка"
+                )
 
                 settings = QtWidgets.QWidget()
                 settings_layout = QtWidgets.QVBoxLayout(settings)
@@ -1280,7 +1300,10 @@ class _PreviewPanel:
                 )
                 settings_layout.addWidget(self.trace_choose_button)
                 settings_layout.addStretch(1)
-                controls.addTab(settings, "Настройки")
+                controls.addTab(
+                    scroll_task_page(settings, "SMBS_SettingsScroll"),
+                    "Настройки"
+                )
 
                 root.addWidget(views, 1)
                 self._viewer_tabs = views
