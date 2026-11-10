@@ -151,7 +151,7 @@ class StepPenalty:
     die_length_delta_mm: Optional[float] = None
     punch_length_cost: float = 0.0
     die_length_cost: float = 0.0
-    tooling_length_verified: bool = False
+    tooling_lengths_from_fixed_profiles: bool = False
 
     @property
     def total(self) -> float:
@@ -175,7 +175,7 @@ class StepPenalty:
             "die_length_delta_mm": self.die_length_delta_mm,
             "punch_length_cost": round(float(self.punch_length_cost), 4),
             "die_length_cost": round(float(self.die_length_cost), 4),
-            "tooling_length_verified": self.tooling_length_verified,
+            "tooling_lengths_from_fixed_profiles": self.tooling_lengths_from_fixed_profiles,
             "total": round(float(self.total), 4),
             "is_complete": self.is_complete,
         }
@@ -390,7 +390,7 @@ def transition_penalty(
         die_length_delta_mm=ddelta,
         punch_length_cost=punch_cost,
         die_length_cost=die_cost,
-        tooling_length_verified=tooling_verified,
+        tooling_lengths_from_fixed_profiles=tooling_verified,
     )
 
 
