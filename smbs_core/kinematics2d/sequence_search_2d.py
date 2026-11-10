@@ -278,7 +278,8 @@ def validate_partial_planar_prefix(
                 and backgauge_model.cad_geometry_enabled):
             from .backgauge_cad_3d import BackgaugeCAD3D
             cad_checker = BackgaugeCAD3D(
-                station_xm_mm=backgauge_model.cad_station_xm_mm
+                station_xm_mm=backgauge_model.cad_station_xm_mm,
+                second_station_xm_mm=backgauge_model.cad_second_station_xm_mm,
             )
         if (not sequence or len(set(sequence)) != len(sequence)
                 or any(b not in state.bends for b in sequence)):
@@ -499,7 +500,8 @@ def search_bend_sequences_2d(
                 and backgauge_model.cad_geometry_enabled):
             from .backgauge_cad_3d import BackgaugeCAD3D
             cad_checker = BackgaugeCAD3D(
-                station_xm_mm=backgauge_model.cad_station_xm_mm
+                station_xm_mm=backgauge_model.cad_station_xm_mm,
+                second_station_xm_mm=backgauge_model.cad_second_station_xm_mm,
             )
         if backgauge_model is not None:
             if (backgauge_model.part_label and
