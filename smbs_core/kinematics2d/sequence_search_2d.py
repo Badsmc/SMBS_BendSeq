@@ -915,7 +915,18 @@ def search_bend_sequences_2d(
         alternative_setup_trials=tuple(alternative_setup_trials),
         operation_weights=op_weights.to_dict(),
         backgauge_configuration=(
-            backgauge_model.to_dict() if backgauge_model is not None else None
+            {
+                **backgauge_model.to_dict(),
+                "geometry_evidence": (
+                    "REAL_BACKGAUGE_FCSTD_SAMPLED_BREP_3D_PANELS_ZONES_NOT_SWEPT"
+                    if cad_checker is not None else
+                    "2D_RECTANGLE_ONLY_NOT_3D_VERIFIED"
+                ),
+                "cad_station_xm_mm": (
+                    cad_checker.station_xm_mm if cad_checker is not None
+                    else backgauge_model.cad_station_xm_mm
+                ),
+            } if backgauge_model is not None else None
         ),
         max_depth_reached=len(deepest_prefix),
         deepest_prefix=deepest_prefix,
