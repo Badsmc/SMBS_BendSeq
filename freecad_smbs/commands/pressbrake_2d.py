@@ -2017,6 +2017,10 @@ class _PreviewPanel:
                         max_search_time_s=30.0,
                         max_nodes=5000,
                         max_evaluations=10000,
+                        # For 10+ bends, distribute the first search pass
+                        # across different starting bends. Otherwise a large
+                        # doomed subtree under B10 may consume the 30s budget.
+                        root_probe_nodes=(65 if len(self.session.bend_order) >= 10 else 0),
                         # Long box-like parts can require bends late in CAD
                         # construction order to be formed first. For >=6 bends
                         # explore reverse construction order before considering
@@ -2088,6 +2092,16 @@ class _PreviewPanel:
                 )
                 depth_info.setWordWrap(True)
                 layout.addWidget(depth_info)
+                cache_info = QtWidgets.QLabel(
+                    "DFS: тупиковых состояний {} | повторов отсечено {} | "
+                    "отложенных ветвей {}".format(
+                        report.dead_states_proven,
+                        report.dead_state_cache_hits,
+                        report.deferred_root_probes,
+                    )
+                )
+                cache_info.setWordWrap(True)
+                layout.addWidget(cache_info)
                 options = QtWidgets.QListWidget(dlg)
                 for index, candidate in enumerate(report.candidates):
                     suffix = (" | стоимость {:.2f}".format(candidate.cost)
