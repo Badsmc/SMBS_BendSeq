@@ -105,6 +105,7 @@ class BackgaugeModel2D:
             support_plane_zm=float(zone.outer_radius_mm),
             align_bisector=False,
             align_bend_arc_center=True,
+            rear_panel_vertices_xy=panel_vertices_xy,
         )
         section = compute_machine_cutting_plane_section(
             fold_state, panel_vertices_xy, plc,
@@ -114,14 +115,13 @@ class BackgaugeModel2D:
         poly = section.get("fixed_polygon") or ()
         if len(poly) < 4:
             raise ValueError("no usable fixed-panel edge in gauge cutting plane: " + bend_id)
-        # s=0 is the active bend axis. Select only the farther edge of
-        # the fixed panel, not the neighboring/moving flange.
+        # Machine contract: +s/right = inside press with rear stop;
+        # -s/left = operator side. NEVER choose the farthest ABSOLUTE
+        # extent and silently move the gauge to the operator side.
         all_s = [float(p[0]) for p in poly]
-        lo, hi = min(all_s), max(all_s)
-        edge_s = hi if abs(hi) >= abs(lo) else lo
-        if not isfinite(edge_s) or abs(edge_s) <= 0.5:
-            raise ValueError("fixed-panel edge is degenerate at bend: " + bend_id)
-        side = 1.0 if edge_s > 0 else -1.0
+        edge_s = max(all_s)
+        if not isfinite(edge_s) or edge_s <= 0.5:
+            raise ValueError("no positive rear edge for bend: " + bend_id)
         # At flat setup, the cut panel is thickness-bearing; select
         # the edge's midpoint in Z rather than a global model elevation.
         edge_points_z = [float(z) for x, z in poly
@@ -130,10 +130,12 @@ class BackgaugeModel2D:
             raise ValueError("fixed panel edge is not resolved in section: " + bend_id)
         edge_z = (min(edge_points_z) + max(edge_points_z)) / 2.0
         position = BackgaugePosition2D(
-            edge_s + side * (self.width_s_mm / 2 + self.edge_clearance_mm),
+            edge_s + self.width_s_mm / 2 + self.edge_clearance_mm,
             edge_z,
         )
-        return position, abs(edge_s), "AUTO_FIXED_PANEL_EDGE_2D_UNVERIFIED"
+        if position.s_mm <= 0.0:
+            raise ValueError("backgauge_target_on_operator_side")
+        return position, edge_s, "AUTO_REAR_EDGE_RIGHT_2D_UNVERIFIED"
 
     def to_dict(self) -> dict[str, Any]:
         return {
