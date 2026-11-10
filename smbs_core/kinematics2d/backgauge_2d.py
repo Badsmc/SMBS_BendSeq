@@ -39,6 +39,7 @@ class BackgaugeModel2D:
     initial_feed_preview_mm: float = 0.0
     cad_geometry_enabled: bool = False
     cad_station_xm_mm: float = 0.0
+    cad_second_station_xm_mm: Optional[float] = None
 
     def __post_init__(self):
         for val in (self.width_s_mm, self.height_z_mm):
@@ -50,6 +51,13 @@ class BackgaugeModel2D:
                 or not isinstance(self.cad_station_xm_mm, (int, float))
                 or not isfinite(self.cad_station_xm_mm)):
             raise ValueError("cad_station_xm_mm must be a finite number")
+        if self.cad_second_station_xm_mm is not None:
+            if (isinstance(self.cad_second_station_xm_mm, bool)
+                    or not isinstance(self.cad_second_station_xm_mm, (int, float))
+                    or not isfinite(self.cad_second_station_xm_mm)):
+                raise ValueError("cad_second_station_xm_mm must be finite or None")
+            if abs(self.cad_second_station_xm_mm - self.cad_station_xm_mm) < 1e-6:
+                raise ValueError("two backgauge CAD stations must not coincide")
         if not isinstance(self.automatic, bool):
             raise ValueError("automatic must be boolean")
         if (isinstance(self.edge_clearance_mm, bool)
@@ -167,6 +175,10 @@ class BackgaugeModel2D:
             "initial_feed_preview_mm": float(self.initial_feed_preview_mm),
             "cad_geometry_enabled": self.cad_geometry_enabled,
             "cad_station_xm_mm": float(self.cad_station_xm_mm),
+            "cad_second_station_xm_mm": (
+                float(self.cad_second_station_xm_mm)
+                if self.cad_second_station_xm_mm is not None else None
+            ),
             "geometry_evidence": (
                 "CAD_BREP_REQUESTED_RUNTIME_VERIFICATION_REQUIRED"
                 if self.cad_geometry_enabled else
@@ -194,4 +206,8 @@ class BackgaugeModel2D:
             initial_feed_preview_mm=float(data.get("initial_feed_preview_mm", 0.0)),
             cad_geometry_enabled=data.get("cad_geometry_enabled", False),
             cad_station_xm_mm=float(data.get("cad_station_xm_mm", 0.0)),
+            cad_second_station_xm_mm=(
+                float(data["cad_second_station_xm_mm"])
+                if data.get("cad_second_station_xm_mm") is not None else None
+            ),
         )
