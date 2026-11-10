@@ -670,3 +670,16 @@ The related, separate `experiment/box-last-bend-setups` test tool lists a previo
 **New experiment:** optional `preferred_bend_order` in `search_bend_sequences_2d` changes DFS branch exploration order only and is validated as a strict permutation of bend IDs. The GUI's `2D варианты` button tries the reverse CAD-order preference for models with >=6 bends (`group_first=False`); smaller models keep the legacy grouping. This aims to visit late construction bends sooner, rather than exhaustively following B01 rooted branches. **No sequence is accepted unless every transition passes the existing Stage A/B, followed by full-density Stage B replay.** Failure/timeouts still report `SEARCH_LIMIT_REACHED`.
 
 This is not a guaranteed fix or universal best heuristic. Next same-fixture run: compare complete candidates, deepest prefix, replay count, step counts and all 2D rejections to the previous JSON. If still blocked, compare with the independently verified backward-search sequence for the exact same fixture and inspect whether fixed section/orientation assumptions reject its known valid steps. Never weaken 3D collision/contact rules to get a result.
+
+
+## 10-bend timeout investigation and safe 2D DFS scheduling (2026-11-10)
+
+Fixture `smbs_2d_search_diagnostics_test.json` reported 10 bends, 270 unique evaluated steps, 520 DFS node visits, 30.003 s search timeout, no complete candidate and a deepest partial order of eight bends. B09 repeatedly failed (63 recorded rejections) after the initial B10-first branch. This outcome is not an infeasibility proof: none of the other starting bends were fully explored.
+
+In integration branch `integration/gui-2d-search-screening`:
+1. The search memoizes **only fully exhausted folded-subset states for which no coarse complete order was reached**. A subset whose coarse full path was rejected during final detailed replay is not memoized as dead (that rejection can be order-dependent). Search cutoffs and resource limits also forbid recording the truncated state as dead. JSON now includes `dead_state_cache_hits` and `dead_states_proven`.
+2. Optional `root_probe_nodes` schedules a bounded DFS trial for **each** root bend, then a complete DFS pass if no solution was found. Cutoff states are not incorrectly declared exhausted. JSON now includes `deferred_root_probes`.
+3. The GUI enables `root_probe_nodes=65` only at 10+ bends. The GUI's existing eight-bend path (`root_probe_nodes=0`), reverse preference, reduced exploration sampling and strict full-sampling final replay are otherwise unchanged.
+4. Regression tests cover late-root discovery, status, state restoration and coarse-to-full replay.
+
+The change is experimental and is **not** proven to solve this real 10-bend model until its FreeCAD JSON confirms a complete full-density replay. Do not bypass collisions, relax tolerance, or confuse a sampled 2D candidate with 3D machine approval. Important: the 10-bend diagnostic has backgauge checking disabled/missing. Run `python3 -m unittest tests.test_sequence_search_2d -v` and the same 10-bend fixture inside FreeCAD. Preserve the eight-bend `B08 -> B07 -> B06 -> B05 -> B04 -> B03 -> B02 -> B01` GUI replay as a separate acceptance test.
