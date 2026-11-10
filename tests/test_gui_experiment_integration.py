@@ -40,8 +40,8 @@ class GuiExperimentIntegrationContracts(unittest.TestCase):
     def test_handlers_delegate_to_original_search_engines(self):
         self.assertIn("search_bend_sequences_2d(", self.source)
         self.assertIn("search_bend_sequence_25d(", self.source)
-        self.assertIn("self.calculate_planar_candidates()", self.source)
-        self.assertIn("self.calculate_sequence()", self.source)
+        self.assertIn("workspace.calculate_planar_candidates()", self.source)
+        self.assertIn("workspace.calculate_sequence()", self.source)
         self.assertIn("self.last_planar_search_report = report", self.source)
         self.assertIn("self.last_sequence_search_report = search_rep", self.source)
 
