@@ -116,6 +116,9 @@ class PlanarSearchReport:
     dead_states_proven: int = 0
     deferred_root_probes: int = 0
     paired_first_step_obstructions: tuple[tuple[str, str, str, str], ...] = ()
+    partial_candidate: Optional[PlanarCandidate] = None
+    partial_remainder: tuple[str, ...] = ()
+    conditional_end_zone_requested: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         # Aggregate the actual per-transition contact findings; keep each
@@ -160,6 +163,10 @@ class PlanarSearchReport:
             ]
         return {
             "status": self.status.value,
+            "partial_candidate": (self.partial_candidate.to_dict()
+                                  if self.partial_candidate is not None else None),
+            "partial_remainder": list(self.partial_remainder),
+            "conditional_end_zone_requested": self.conditional_end_zone_requested,
             "per_bend_contact_summary": per_bend,
             "evidence": self.evidence,
             "candidates": [c.to_dict() for c in self.candidates],
@@ -232,6 +239,9 @@ def search_bend_sequences_2d(
     preferred_bend_order: Optional[Sequence[str]] = None,
     root_probe_nodes: int = 0,
     root_probe_seconds: float = 0.0,
+    min_partial_bends: int = 0,
+    allow_end_zone_collision: bool = False,
+    end_zone_length_mm: float = 0.0,
     weights: Optional[OperationWeights] = None,
     max_nodes: int = 10000,
     max_evaluations: int = 50000,
@@ -275,6 +285,10 @@ def search_bend_sequences_2d(
             raise ValueError("bend order must contain every FoldState bend exactly once")
         if max_solutions < 1 or max_complete_candidates < 1 or max_nodes < 1 or max_evaluations < 1 or root_probe_nodes < 0:
             raise ValueError("positive solution and search limits required")
+        if min_partial_bends < 0 or min_partial_bends > len(order):
+            raise ValueError("min_partial_bends must be between zero and bend count")
+        if not isfinite(end_zone_length_mm) or end_zone_length_mm < 0:
+            raise ValueError("end_zone_length_mm must be finite and non-negative")
         if not isfinite(root_probe_seconds) or root_probe_seconds < 0:
             raise ValueError("root_probe_seconds must be finite and non-negative")
         if not isfinite(max_search_time_s) or max_search_time_s <= 0:
@@ -335,6 +349,7 @@ def search_bend_sequences_2d(
     dead_state_cache_hits = 0
     probe_cutoffs = 0
     deepest_prefix: tuple[str, ...] = ()
+    best_partial_steps: tuple[PlanarStep, ...] = ()
     final_replay_attempts = final_replay_rejections = 0
 
     def eval_step(prefix: tuple[str, ...], bend_id: str, *, detailed: bool = False) -> PlanarStep:
@@ -371,6 +386,8 @@ def search_bend_sequences_2d(
                     state, bend_id, tooling, panel_vertices,
                     desired_midpoint_xm=float(shifts.get(bend_id, 0.0)),
                     match_active_bend_length=match_active_bend_length,
+                    allow_end_zone_collision=allow_end_zone_collision,
+                    end_zone_length_mm=end_zone_length_mm,
                     tolerance_mm=tolerance_mm,
                     fractions=fs if detailed else coarse_fs,
                     stroke_fractions=stroke_fs if detailed else coarse_stroke_fs,
@@ -417,9 +434,11 @@ def search_bend_sequences_2d(
             root_deadline: Optional[float] = None) -> None:
         nonlocal visited, stopped, complete_candidates_examined, deepest_prefix
         nonlocal final_replay_attempts, final_replay_rejections, dead_state_cache_hits
-        nonlocal probe_cutoffs
+        nonlocal probe_cutoffs, best_partial_steps
         if len(prefix) > len(deepest_prefix):
             deepest_prefix = prefix
+            if len(prefix) >= min_partial_bends > 0:
+                best_partial_steps = steps
         if stopped:
             return
         if complete_candidates_examined >= max_complete_candidates:
@@ -546,6 +565,19 @@ def search_bend_sequences_2d(
         state.angles = original_angles
         state.transforms = original_transforms
 
+    # The deepest safe *sampled* prefix is a separate preview artifact.
+    # Never return it as a complete candidate, even if a resource limit fired.
+    partial = None
+    partial_remainder = ()
+    if best_partial_steps and not candidates:
+        partial_seq = deepest_prefix
+        partial_remainder = tuple(b for b in order if b not in partial_seq)
+        partial = PlanarCandidate(
+            partial_seq, best_partial_steps,
+            "PARTIAL_COARSE_2D_NOT_FULLY_REPLAYED",
+            numbered_bends=tuple((i + 1, bid, group_of[bid])
+                                 for i, bid in enumerate(partial_seq)),
+        )
     # Cost ranking applies to all completed candidates inspected within bounds.
     # Incomplete setup metrics never outrank complete measured costs.
     candidates.sort(key=lambda c: (
@@ -592,6 +624,9 @@ def search_bend_sequences_2d(
         dead_states_proven=len(dead_states),
         deferred_root_probes=probe_cutoffs,
         paired_first_step_obstructions=mutually_blocked,
+        partial_candidate=partial,
+        partial_remainder=partial_remainder,
+        conditional_end_zone_requested=bool(allow_end_zone_collision),
         max_depth_reached=len(deepest_prefix),
         deepest_prefix=deepest_prefix,
         rejection_counts=tuple(sorted(
