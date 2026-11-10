@@ -641,3 +641,12 @@ User-confirmed: Z sample loaded, 2D candidate search returned orders, and both b
 The button `2D варианты` now requests **one complete 2D candidate** with a strict 30-second budget, rather than 100, and the core DFS now stops immediately when the completed-candidate budget is reached. The standalone `tools/run_planar_sequence_search.py` retains its higher-capacity ranking capability. This is a **latency-oriented experimental change**: the first complete candidate is neither globally minimum-cost nor independently 3D validated.
 
 Acceptance on the same 8-bend model: record elapsed time, `status`, `limit_reason`, `visited_nodes`, `evaluated_steps`, `complete_candidates_examined`, candidate list and playback result. If still timing out before a single complete candidate, investigate Stage B call timing, search ordering, and pruning; do not mask the result by raising the timeout or lowering collision safety thresholds. TechDraw and contact thresholds are untouched.
+
+
+## 8-bend timeout after first-candidate optimization (2026-11-10)
+
+Observed in FreeCAD GUI: **0 candidates, 118 planar evaluations, MAX_SEARCH_TIME_REACHED**. Reducing `max_complete_candidates` from 100 to 1 was not sufficient. Do not increase timeout as a substitute for diagnosis or claim `NO_FEASIBLE_SEQUENCE`: this is **SEARCH_LIMIT_REACHED** and proves neither feasibility nor impossibility.
+
+Now the existing `PlanarSearchReport` records `max_depth_reached`, `deepest_prefix`, `rejection_counts`, and five `slowest_steps`, and the GUI displays depth/classification and offers **Save diagnostics JSON** in the candidate dialog even with zero candidates. This allows actual 8-bend profiles to distinguish early repeated 2D rejections, slow Stage B evaluation and deep unsuccessful branches. The 3D validator and contact tolerances are unchanged.
+
+**Next gate:** request the real FreeCAD-generated JSON from the eight-bend model. Compare the deepest prefix, per-step reasons, and Stage B timing. Only then choose a deterministic search ordering/pruning/caching change supported by measured evidence. Do not reclassify 2D interference as physically safe to obtain candidates. Qualification and TechDraw are separate milestones.
