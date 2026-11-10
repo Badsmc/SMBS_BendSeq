@@ -7,7 +7,7 @@ explicitly requested planar model; it does not prove 3D impossibility.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import Enum
 from math import isfinite
 from time import perf_counter
@@ -458,6 +458,31 @@ def search_bend_sequences_2d(
                 state.set_angle(completed, float(state.bends[completed].angle_deg))
             setup = compute_workpiece_machine_setup(
                 state, bend_id, desired_midpoint_xm=float(shifts.get(bend_id, 0.0)),
+            )
+            # Distinguish physical tool length from bend-line length. Under
+            # virtual axial matching the effective lengths are only planned,
+            # not a checked machine tooling assembly.
+            virtual_length = bool(match_active_bend_length)
+            punch_profile = getattr(tooling, "punch", None)
+            die_profile = getattr(tooling, "die", None)
+            punch_len = (
+                tooling.effective_punch_length_mm(setup.bend_length_mm)
+                if punch_profile is not None else None
+            )
+            die_len = (
+                tooling.effective_die_length_mm(setup.bend_length_mm)
+                if die_profile is not None else None
+            )
+            setup = replace(
+                setup,
+                punch_length_mm=punch_len,
+                die_length_mm=die_len,
+                punch_length_source=(
+                    "VIRTUAL_MATCH_BEND" if virtual_length else "FIXED_PROFILE"
+                ) if punch_len is not None else "NOT_SPECIFIED",
+                die_length_source=(
+                    "VIRTUAL_MATCH_BEND" if virtual_length else "FIXED_PROFILE"
+                ) if die_len is not None else "NOT_SPECIFIED",
             )
             stage_a = screen_candidate_stage_a(
                 state, bend_id, tooling,
