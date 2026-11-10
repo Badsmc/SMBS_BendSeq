@@ -238,6 +238,57 @@ def _classify_step(report: PreliminaryScreeningReport) -> str:
     return "SAMPLED_2D_CLEAR_OR_TOUCH"
 
 
+
+def validate_partial_planar_prefix(
+    session: Any,
+    tooling: Any,
+    sequence: Sequence[str],
+    *,
+    match_active_bend_length: bool = True,
+    tolerance_mm: float = 0.02,
+) -> tuple[bool, str]:
+    """Full-density sampled 2D gate before displaying an exploratory prefix.
+
+    This method cannot certify a continuous motion or 3D collision safety.
+    Any interference, missing geometry or setup exception fails closed.
+    Restores FoldState even if a preview probe raises an exception.
+    """
+    state = session.fold_state
+    originals = (dict(state.angles), dict(state.transforms))
+    completed: set[str] = set()
+    try:
+        if (not sequence or len(set(sequence)) != len(sequence)
+                or any(b not in state.bends for b in sequence)):
+            return False, "invalid_partial_bend_order"
+        for bid in sequence:
+            state.reset_all()
+            for prior in sequence:
+                if prior in completed:
+                    state.set_angle(prior, float(state.bends[prior].angle_deg))
+            stage_a = screen_candidate_stage_a(
+                state, bid, tooling,
+                match_active_bend_length=match_active_bend_length,
+            )
+            if stage_a.decision is ScreeningDecision.PROVEN_BLOCKING:
+                return False, bid + ":" + stage_a.reason
+            stage_b = screen_candidate_stage_b(
+                state, bid, tooling, session.panel_vertices_xy,
+                match_active_bend_length=match_active_bend_length,
+                fractions=tuple(i / 16 for i in range(17)),
+                stroke_fractions=tuple(i / 8 for i in range(9)),
+                tolerance_mm=tolerance_mm,
+            )
+            if _classify_step(stage_b) != "SAMPLED_2D_CLEAR_OR_TOUCH":
+                return False, bid + ":" + stage_b.reason
+            completed.add(bid)
+        return True, "FULL_DENSITY_SAMPLED_2D_ONLY_NOT_3D_CERTIFIED"
+    except Exception as exc:
+        return False, "partial_replay_error:" + type(exc).__name__ + ":" + str(exc)
+    finally:
+        state.angles = originals[0]
+        state.transforms = originals[1]
+
+
 def search_bend_sequences_2d(
     session: Any,
     tooling: Any,
