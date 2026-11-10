@@ -439,6 +439,15 @@ def screen_candidate_stage_b(
                             except ContactGeometryError as exc:
                                 gauge_status, why = ContactStatus.UNVERIFIED, str(exc)
                             total_findings += 1
+                            if gauge_status in (ContactStatus.INTERFERENCE, ContactStatus.UNVERIFIED):
+                                if len(diagnostic_findings) < 32:
+                                    diagnostic_findings.append((
+                                        phase, "BACKGAUGE", str(label),
+                                        gauge_status.value, str(why),
+                                    ))
+                            elif gauge_status is ContactStatus.TOUCH:
+                                key = (phase, "BACKGAUGE", str(label), str(why))
+                                touch_counts[key] = touch_counts.get(key, 0) + 1
                             if gauge_status is ContactStatus.INTERFERENCE:
                                 section_status = gauge_status
                                 backgauge_reason = "BACKGAUGE:" + str(label) + ":" + why
