@@ -279,6 +279,47 @@ class PlanarSearchTests(unittest.TestCase):
         self.assertEqual(result.candidates[0].sequence[0], "B03")
         self.assertGreaterEqual(result.deferred_root_probes, 0)
 
+    def test_timed_root_probe_reaches_later_start_even_with_low_node_count(self):
+        from time import sleep
+        names = ("B01", "B02", "B03")
+        self.state = DummyState(names)
+        self.session.fold_state = self.state
+        self.session.bend_order = names
+        roots_seen = []
+
+        def delayed_screen(state, bid, *_args, **_kwargs):
+            sleep(0.004)
+            if not any(state.angles.values()):
+                roots_seen.append(bid)
+            # To complete, the solver must start with B03.
+            if bid == "B03" and any(
+                state.angles.get(prev, 0) != 0 for prev in ("B01", "B02")
+            ):
+                return PreliminaryScreeningReport(
+                    ScreeningDecision.CONTINUE_TO_3D,
+                    "STAGE_B_SECTION_REQUIRES_3D", "bad_order",
+                    sampled_phases=("APPROACH",),
+                    contact_statuses=("INTERFERENCE",),
+                )
+            return stage_b_result()
+
+        result, _ = self.run_mocked(
+            delayed_screen, preferred_bend_order=names,
+            group_first=False, root_probe_nodes=100,
+            root_probe_seconds=0.002,
+            max_search_time_s=3.0, max_complete_candidates=1,
+        )
+        self.assertEqual(result.status, PlanarSearchStatus.SAMPLED_2D_CANDIDATES)
+        self.assertIn("B03", roots_seen)
+        self.assertGreater(result.deferred_root_probes, 0)
+        self.assertEqual(result.candidates[0].sequence[0], "B03")
+        self.assertEqual(result.dead_state_cache_hits >= 0, True)
+
+    def test_invalid_root_probe_seconds(self):
+        for value in (-0.1, float("inf"), float("nan")):
+            result, _ = self.run_mocked(root_probe_seconds=value)
+            self.assertEqual(result.status, PlanarSearchStatus.INVALID_INPUT)
+
     def test_dead_subset_memo_never_overrides_replay(self):
         names = ("B01", "B02", "B03")
         self.state = DummyState(names)
