@@ -836,6 +836,7 @@ class _PreviewPanel:
                 self.last_sequence_search_report = None
                 self.last_planar_search_report = None
                 self._preview_only_planar_order = None
+                self._partial_preview_limit = 0
                 self._conditional_bends_status: dict[str, str] = {}
                 self._highlighted_end_zone_info: dict | None = None
                 _log(
@@ -2014,6 +2015,9 @@ class _PreviewPanel:
                         # This does not qualify 3D physical feasibility.
                         max_solutions=1,
                         max_complete_candidates=1,
+                        min_partial_bends=(7 if len(self.session.bend_order) >= 10 else 0),
+                        allow_end_zone_collision=bool(self.tooling_setup.allow_end_zone_collision),
+                        end_zone_length_mm=float(self.tooling_setup.end_zone_length_mm),
                         max_search_time_s=30.0,
                         max_nodes=5000,
                         max_evaluations=10000,
@@ -2083,6 +2087,25 @@ class _PreviewPanel:
                 )
                 details.setWordWrap(True)
                 layout.addWidget(details)
+                if report.partial_candidate is not None and not report.candidates:
+                    notice = QtWidgets.QLabel(
+                        "ЧАСТИЧНЫЙ РЕЗУЛЬТАТ: {} из {} гибов. "
+                        "Это предварительный 2D-префикс без полного контрольного "
+                        "прогона. Остальные гибы не проверены и не будут анимироваться.".format(
+                            len(report.partial_candidate.sequence),
+                            len(self.session.bend_order),
+                        )
+                    )
+                    notice.setWordWrap(True)
+                    layout.addWidget(notice)
+                if report.conditional_end_zone_requested:
+                    conditional_notice = QtWidgets.QLabel(
+                        "CONDITIONAL запрошен. В быстром 2D-сечении нельзя "
+                        "подтвердить столкновение именно с концом пуансона; "
+                        "такие пересечения не разрешаются без 3D-классификации."
+                    )
+                    conditional_notice.setWordWrap(True)
+                    layout.addWidget(conditional_notice)
                 depth_info = QtWidgets.QLabel(
                     "Максимальная глубина: {}/{} | путь: {}\n"
                     "Классификация проверок: {}".format(
@@ -2119,7 +2142,10 @@ class _PreviewPanel:
                     pair_info.setWordWrap(True)
                     layout.addWidget(pair_info)
                 options = QtWidgets.QListWidget(dlg)
-                for index, candidate in enumerate(report.candidates):
+                visible_candidates = list(report.candidates)
+                if not visible_candidates and report.partial_candidate is not None:
+                    visible_candidates.append(report.partial_candidate)
+                for index, candidate in enumerate(visible_candidates):
                     suffix = (" | стоимость {:.2f}".format(candidate.cost)
                               if candidate.cost_complete else " | стоимость не подтверждена")
                     options.addItem(
@@ -2127,12 +2153,12 @@ class _PreviewPanel:
                             index + 1, " → ".join(candidate.sequence), candidate.evidence, suffix
                         )
                     )
-                if report.candidates:
+                if visible_candidates:
                     options.setCurrentRow(0)
                 layout.addWidget(options)
                 controls = QtWidgets.QHBoxLayout()
                 use = QtWidgets.QPushButton("Показать порядок в симуляции")
-                use.setEnabled(bool(report.candidates))
+                use.setEnabled(bool(visible_candidates))
                 export_btn = QtWidgets.QPushButton("Сохранить диагностику JSON")
                 close = QtWidgets.QPushButton("Закрыть")
                 controls.addWidget(use)
@@ -2142,13 +2168,21 @@ class _PreviewPanel:
 
                 def on_preview():
                     row = options.currentRow()
-                    if row < 0 or row >= len(report.candidates):
+                    if row < 0 or row >= len(visible_candidates):
                         return
-                    candidate = report.candidates[row]
+                    candidate = visible_candidates[row]
                     try:
                         self._stop_timer()
                         self.session.reset_all_bends()
-                        self.session.set_bend_order(list(candidate.sequence))
+                        is_partial = len(candidate.sequence) < len(self.session.bend_order)
+                        remainder = [bid for bid in self.session.bend_order
+                                     if bid not in candidate.sequence]
+                        # Sequencer must keep ALL bends: only execute the
+                        # demonstrated prefix, leaving the remainder flat.
+                        self.session.set_bend_order(list(candidate.sequence) + remainder)
+                        self._partial_preview_limit = (
+                            len(candidate.sequence) if is_partial else 0
+                        )
                         self._preview_only_planar_order = tuple(candidate.sequence)
                         # A previous strict validation does not apply to a
                         # newly selected, independently ranked planar order.
@@ -2159,12 +2193,18 @@ class _PreviewPanel:
                         self._sync_tooling_to_active_bend()
                         self.draw()
                         self.status.setText(
-                            "2D-ПРОСМОТР (НЕ ПРОВЕРЕНО В 3D): "
+                            ("ЧАСТИЧНЫЙ 2D-ПРОСМОТР {}/{} (остальные не проверены): ".format(
+                                len(candidate.sequence), len(self.session.bend_order)
+                            ) if is_partial else "2D-ПРОСМОТР (НЕ ПРОВЕРЕНО В 3D): ")
                             + " → ".join(candidate.sequence)
                         )
                         self.physical_check_result.setText(
-                            "UNVERIFIED: порядок выбран из 2D-кандидатов. "
-                            "Коллизии станка и всего хода не проверены."
+                            "UNVERIFIED: {} "
+                            "Полная траектория, 3D-коллизии и незавершённые "
+                            "гибы не проверены.".format(
+                                "частичный 2D-префикс." if is_partial
+                                else "предварительный полный 2D-порядок."
+                            )
                         )
                         self._trace_event(
                             "PLANAR_2D_PREVIEW_ORDER_SELECTED",
@@ -3231,6 +3271,14 @@ class _PreviewPanel:
             def next_step(self):
                 if self.session is None:
                     return
+                if (self._partial_preview_limit and all(
+                    self.session.controller.is_bend_completed(bid)
+                    for bid in self.session.bend_order[:self._partial_preview_limit]
+                )):
+                    self.status.setText(
+                        "Частичный 2D-просмотр завершён: следующие гибы не проверены."
+                    )
+                    return
                 self._stop_timer()
                 self._machine_pose_fault = None
                 try:
@@ -3272,6 +3320,22 @@ class _PreviewPanel:
                 """One Qt tick drives exactly one sequencer/cycle advance."""
                 if self.session is None:
                     self._stop_timer()
+                    return
+                if (self._partial_preview_limit and all(
+                    self.session.controller.is_bend_completed(bid)
+                    for bid in self.session.bend_order[:self._partial_preview_limit]
+                )):
+                    self.session.pause()
+                    if self.press_cycle is not None:
+                        self.press_cycle.pause()
+                    self._stop_timer()
+                    self._finish_motion_trace("PARTIAL_2D_PREVIEW_FINISHED")
+                    self.status.setText(
+                        "ЧАСТИЧНЫЙ ПРОСМОТР ЗАВЕРШЁН: {}/{} гибов; "
+                        "остальные не проверены и остаются плоскими.".format(
+                            self._partial_preview_limit, len(self.session.bend_order)
+                        )
+                    )
                     return
                 if self.session.playback_status != PlaybackStatus.PLAYING:
                     self._stop_timer()
