@@ -112,6 +112,8 @@ class PlanarSearchReport:
     slowest_steps: tuple[tuple[str, str, float], ...] = ()
     final_replay_attempts: int = 0
     final_replay_rejections: int = 0
+    dead_state_cache_hits: int = 0
+    dead_states_proven: int = 0
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -130,6 +132,8 @@ class PlanarSearchReport:
             "complete_candidates_examined": self.complete_candidates_examined,
             "final_replay_attempts": self.final_replay_attempts,
             "final_replay_rejections": self.final_replay_rejections,
+            "dead_state_cache_hits": self.dead_state_cache_hits,
+            "dead_states_proven": self.dead_states_proven,
             "max_depth_reached": self.max_depth_reached,
             "deepest_prefix": list(self.deepest_prefix),
             "rejection_counts": dict(self.rejection_counts),
@@ -270,6 +274,11 @@ def search_bend_sequences_2d(
     complete_candidates_examined = 0
     step_cache: dict[tuple[frozenset[str], str, bool], PlanarStep] = {}
     step_diagnostics: list[tuple[tuple[str, ...], PlanarStep]] = []
+    # Only states with no coarse complete path whatsoever are memoized dead.
+    # A different permutation of the same folded subset may have a different
+    # full-density replay outcome, so a replay rejection must NOT memoize it.
+    dead_states: set[frozenset[str]] = set()
+    dead_state_cache_hits = 0
     deepest_prefix: tuple[str, ...] = ()
     final_replay_attempts = final_replay_rejections = 0
 
@@ -350,7 +359,7 @@ def search_bend_sequences_2d(
 
     def dfs(prefix: tuple[str, ...], steps: tuple[PlanarStep, ...]) -> None:
         nonlocal visited, stopped, complete_candidates_examined, deepest_prefix
-        nonlocal final_replay_attempts, final_replay_rejections
+        nonlocal final_replay_attempts, final_replay_rejections, dead_state_cache_hits
         if len(prefix) > len(deepest_prefix):
             deepest_prefix = prefix
         if stopped:
@@ -364,7 +373,14 @@ def search_bend_sequences_2d(
         if visited >= max_nodes:
             stopped = "MAX_NODES_REACHED"
             return
+        mask = frozenset(prefix)
+        if mask in dead_states:
+            dead_state_cache_hits += 1
+            return
         visited += 1
+        # Subtree exhaustion is proof of deadness only if no *coarse*
+        # complete order was seen and no search resource limit intervened.
+        completed_before = final_replay_attempts
         if len(prefix) == len(order):
             if progressive:
                 final_replay_attempts += 1
@@ -426,6 +442,12 @@ def search_bend_sequences_2d(
             dfs(prefix + (bend_id,), steps + (step,))
             if stopped:
                 return
+        if not stopped and final_replay_attempts == completed_before:
+            # With progressive=False, complete paths never increment replay
+            # attempts. In that mode an accepted path sets a stop or causes
+            # the candidate count to increase; avoid caching viable subsets.
+            if progressive or not candidates:
+                dead_states.add(mask)
 
     try:
         dfs((), ())
@@ -459,6 +481,8 @@ def search_bend_sequences_2d(
         evaluated_step_details=tuple(step_diagnostics),
         final_replay_attempts=final_replay_attempts,
         final_replay_rejections=final_replay_rejections,
+        dead_state_cache_hits=dead_state_cache_hits,
+        dead_states_proven=len(dead_states),
         max_depth_reached=len(deepest_prefix),
         deepest_prefix=deepest_prefix,
         rejection_counts=tuple(sorted(
