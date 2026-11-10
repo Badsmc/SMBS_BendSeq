@@ -1,7 +1,7 @@
 """PressBrakeSim 2.5D — single FreeCAD workbench entry point.
 
 The repository branch '2D' is the canonical active development source.
-Only the supported simulation and tooling commands are registered.
+Preserves experimental full-physics and fast 2D candidate search buttons.
 Legacy SMBS solvers and panels are not imported during startup.
 """
 from __future__ import annotations
@@ -20,13 +20,24 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
-from freecad_smbs.commands.pressbrake_2d import PressBrake2DCommand
+from freecad_smbs.commands.pressbrake_2d import (
+    PressBrake2DCommand, LoadPartCommand, ToolingTabCommand,
+    CalculateCommand, PlanarCandidatesCommand,
+)
 from freecad_smbs.commands.tooling import ToolingCommand
 
 CMD_PRESSBRAKE_2D = "SMBS_PressBrake2D"
-CMD_TOOLING = "SMBS_Tooling"
+CMD_TOOLING = "SMBS_Tooling"  # Preserve existing standalone library command
+CMD_LOAD_PART = "SMBS_LoadPart"
+CMD_TOOLING_TAB = "SMBS_ToolingTab"
+CMD_CALCULATE = "SMBS_Calculate"
+CMD_PLANAR_CANDIDATES = "SMBS_PlanarCandidates"
 COMMANDS_MAP = {
     CMD_PRESSBRAKE_2D: PressBrake2DCommand,
+    CMD_LOAD_PART: LoadPartCommand,
+    CMD_TOOLING_TAB: ToolingTabCommand,
+    CMD_CALCULATE: CalculateCommand,
+    CMD_PLANAR_CANDIDATES: PlanarCandidatesCommand,
     CMD_TOOLING: ToolingCommand,
 }
 _REGISTERED_COMMANDS: set[str] = set()
@@ -52,8 +63,11 @@ class SMBSWorkbench(Workbench):
 
     def Initialize(self) -> None:
         register_commands()
-        commands = [CMD_PRESSBRAKE_2D, CMD_TOOLING]
-        self.appendMenu("PressBrakeSim 2.5D", commands)
+        commands = [
+            CMD_PRESSBRAKE_2D, CMD_LOAD_PART, CMD_TOOLING_TAB,
+            CMD_CALCULATE, CMD_PLANAR_CANDIDATES,
+        ]
+        self.appendMenu("PressBrakeSim 2.5D", commands + [CMD_TOOLING])
         self.appendToolbar("PressBrakeSim 2.5D", commands)
 
     def Activated(self) -> None:
