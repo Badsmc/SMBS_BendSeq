@@ -70,6 +70,32 @@ class WorkpiecePlacement3DTests(unittest.TestCase):
                     expected = 1.0 if i == j else 0.0
                     self.assertAlmostEqual(dot, expected, places=9)
 
+    def test_rear_right_machine_frame_orients_fixed_panel_positive_s(self):
+        """Any source CAD bend-axis direction must place support to the rear."""
+        for bid in ("B01", "B02"):
+            placement = WorkpiecePlacement3D.compute_placement(
+                self.fold_state, bid, rear_panel_vertices_xy=self.verts,
+            )
+            fixed_panel = self.fold_state.bends[bid].fixed_panel
+            machine = WorkpiecePlacement3D.get_panel_vertices_machine(
+                self.fold_state, placement, fixed_panel,
+                self.verts[fixed_panel],
+            )
+            ss = [-point[1] for point in machine]
+            self.assertGreater(max(ss), 1.0, bid)
+            self.assertGreater(max(ss), abs(min(ss)), bid)
+            self.assertAlmostEqual(_mat_det(placement.rotation), 1.0, places=8)
+
+    def test_rear_right_frame_still_centers_punch_die_on_bend_axis(self):
+        for bid in ("B01", "B02"):
+            placement = WorkpiecePlacement3D.compute_placement(
+                self.fold_state, bid, rear_panel_vertices_xy=self.verts,
+            )
+            p0, p1, _ = WorkpiecePlacement3D.get_world_bend_axis(
+                self.fold_state, bid)
+            self.assertAlmostEqual(placement.apply(p0)[1], 0.0, places=7)
+            self.assertAlmostEqual(placement.apply(p1)[1], 0.0, places=7)
+
     def test_active_bend_axis_strictly_maps_to_machine_xm_axis(self):
         """Active bend line must align with X_m (Y_m=0, Z_m=0 at die support)."""
         for bid in ("B01", "B02"):
