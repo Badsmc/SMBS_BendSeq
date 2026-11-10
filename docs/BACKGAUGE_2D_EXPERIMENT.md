@@ -2,6 +2,21 @@
 
 Branch: `experiment/2d-backgauge-kinematics`, forked from `integration/gui-2d-search-screening`.
 
+## Machine coordinate contract — operator left, interior right (2026-11-10)
+
+All machine-section calculations use the same physical frame:
+
+- Screen/machine `s = -Y_m`; the **bend line, punch working axis and die V centre** are at `s = 0`.
+- **Left (`s < 0`)** is the operator side / free portion of the workpiece.
+- **Right (`s > 0`)** is the inside of the press / rear-gauge area.
+- The active bend's fixed/support panel is physically placed to the rear/right. `WorkpiecePlacement3D.compute_placement(..., rear_panel_vertices_xy=...)` uses a 180-degree rigid rotation about machine Z where needed. No screen-only mirroring; tooling is not flipped or moved off the bend axis.
+- The automatic gauge edge is chosen at positive `s` only, and the whole stop rectangle must remain in `s > 0`. Negative manual targets are rejected.
+- If geometry leaves both potential rear edges equally plausible, this is `UNVERIFIED` / ambiguous, not a reason to fabricate a side.
+- Search Stage B, manual replay, operation setup scoring and live 2.5D press-cycle placements use the same rear-right orientation when backgauge is enabled. The previous negative stop positions and all-first-step collisions in the diagnostic JSON should not recur from the old *side-selection* bug; real physical/projection collisions may remain.
+- The punch and die are *stationary machine tooling*: the reference working tip and V groove remain at `s=0`; they are not simply reflected horizontally because their own profile shapes, datum registration and handedness need machine-specific evidence.
+
+**Regression note:** new sampled 2D results are not directly comparable with earlier reports that used ambiguous machine orientation; recalculate from the current version. No claim of production safety or swept-path clearance.
+
 ## Target behavior
 
 For every bend, the planner computes the machine-space distance from the active bend line to a supporting **fixed-panel edge** using the current folded state. The backgauge stop is positioned at the selected edge, automatically repositions when the next bend is selected, and moves as an interpolated 2D preview in the `TRANSFER` phase.
@@ -12,7 +27,7 @@ The operator **does not need to type an individual target for every bend**. In t
 
 - Uses `FoldState` and `WorkpiecePlacement3D` to align the active bend in machine coordinates.
 - Uses `compute_machine_cutting_plane_section(...)` to obtain **the active fixed panel's** real cross-section at the bend midpoint.
-- Derives the far edge from that fixed-panel cut polygon only (not overall part bounding box and never the moving flange).
+- Derives a **strictly positive rear/right** edge from that fixed-panel cut polygon only (not overall part bounding box and never the moving flange), after the physical machine orientation has been normalized.
 - The measured bend-to-edge depth is `abs(edge_s)` in mm; gauge rectangle centre `s` is offset outside that edge by half the stop width plus optional clearance; `z` is aligned to the edge's thickness centre.
 - If no fixed-panel edge can be resolved at the machine cutting plane, the candidate is **UNVERIFIED**; no made-up length.
 - Geometry mode is `AUTO_FIXED_PANEL_EDGE_2D_UNVERIFIED`; geometry/station orientation still requires qualification against the actual machine.
