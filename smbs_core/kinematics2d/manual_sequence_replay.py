@@ -131,6 +131,10 @@ def evaluate_manual_planar_order(
                         backgauge_cad_checker=cad_checker,
                         backgauge_contact_s_mm=cad_contact_s,
                         backgauge_contact_z_mm=cad_contact_z,
+                        backgauge_initial_feed_mm=(
+                            backgauge_model.initial_feed_preview_mm
+                            if cad_checker is not None and not accepted else 0.0
+                        ),
                     )
                     record["stage_b"] = stage_b.to_dict()
                     verdict = _classify_step(stage_b)
