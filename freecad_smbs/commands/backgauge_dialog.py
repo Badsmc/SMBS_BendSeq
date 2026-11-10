@@ -53,6 +53,15 @@ def show_backgauge_settings(workspace):
     clearance.setSuffix(" мм")
     clearance.setValue(model.edge_clearance_mm if model else 0.0)
     dims.addRow("Зазор до края детали:", clearance)
+    feed = W.QDoubleSpinBox()
+    feed.setRange(0.0, 1000.0)
+    feed.setDecimals(1)
+    feed.setSuffix(" мм")
+    feed.setValue(model.initial_feed_preview_mm if model else 0.0)
+    feed.setToolTip(
+        "Только визуальный начальный подвод заготовки слева к упору. "
+        "0 отключает фазу. Траектория не проверяется на коллизии.")
+    dims.addRow("Начальная подача листа (визуально):", feed)
     width.setValue(model.width_s_mm if model else 10.0)
     height.setValue(model.height_z_mm if model else 10.0)
     dims.addRow("Ширина прямоугольника по s:", width)
@@ -123,6 +132,7 @@ def show_backgauge_settings(workspace):
                 part_label=workspace.session.part_label,
                 automatic=auto.isChecked(),
                 edge_clearance_mm=float(clearance.value()),
+                initial_feed_preview_mm=float(feed.value()),
             )
         except (ValueError, TypeError) as exc:
             W.QMessageBox.warning(dlg, "Недопустимая конфигурация", str(exc))
