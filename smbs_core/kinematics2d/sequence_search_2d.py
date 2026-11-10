@@ -441,7 +441,10 @@ def search_bend_sequences_2d(
     ))
     candidates = candidates[:max_solutions]
     fully_sampled = any(c.evidence == "SAMPLED_2D_CLEAR_OR_TOUCH" for c in candidates)
-    if stopped:
+    # Reaching the requested number of completed candidates is a normal,
+    # successful termination, not a resource/time-limit failure. Preserve
+    # MAX_COMPLETE_CANDIDATES_REACHED in limit_reason for diagnostics only.
+    if stopped and stopped != "MAX_COMPLETE_CANDIDATES_REACHED":
         status = PlanarSearchStatus.LIMIT_REACHED
     elif fully_sampled:
         status = PlanarSearchStatus.SAMPLED_2D_CANDIDATES
