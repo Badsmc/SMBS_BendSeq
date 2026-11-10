@@ -9,6 +9,7 @@ from smbs_core.kinematics2d.preliminary_screening import (
 )
 from smbs_core.kinematics2d.sequence_search_2d import (
     PlanarSearchStatus, search_bend_sequences_2d,
+    validate_partial_planar_prefix,
 )
 
 
@@ -66,6 +67,111 @@ class PlanarSearchTests(unittest.TestCase):
                 self.session, self.tooling, fractions=(0.0, 0.5, 1.0), **opts
             )
         return result, stage_b
+
+    def test_best_partial_eight_bends_stays_separate_from_full_candidates(self):
+        names = tuple("B%02d" % n for n in range(1, 11))
+        self.state = DummyState(names)
+        self.session.fold_state = self.state
+        self.session.bend_order = names
+
+        def effect(state, bid, *_args, **_kwargs):
+            if bid in ("B09", "B10") and any(state.angles.values()):
+                return PreliminaryScreeningReport(
+                    ScreeningDecision.CONTINUE_TO_3D,
+                    "STAGE_B_SECTION_REQUIRES_3D",
+                    "interference_after_prior_bend",
+                    contact_statuses=("INTERFERENCE",),
+                )
+            return stage_b_result()
+
+        result, _ = self.run_mocked(
+            effect, min_partial_bends=7,
+            preferred_bend_order=names, group_first=False,
+            max_nodes=150, max_search_time_s=3.0,
+        )
+        self.assertEqual(result.candidates, ())
+        self.assertIsNotNone(result.partial_candidate)
+        self.assertEqual(len(result.partial_candidate.sequence), 8)
+        self.assertEqual(len(result.partial_remainder), 2)
+        self.assertEqual(
+            result.partial_candidate.evidence,
+            "PARTIAL_COARSE_2D_NOT_FULLY_REPLAYED",
+        )
+        self.assertEqual(
+            result.to_dict()["partial_remainder"],
+            list(result.partial_remainder),
+        )
+
+    def test_conditional_request_does_not_accept_central_punch_interference(self):
+        def collide(*_args, **_kwargs):
+            return PreliminaryScreeningReport(
+                ScreeningDecision.CONTINUE_TO_3D,
+                "STAGE_B_SECTION_REQUIRES_3D",
+                "2d_section_finding_requires_3d_validation:APPROACH:P02:intersection",
+                sampled_phases=("APPROACH",),
+                contact_statuses=("INTERFERENCE",),
+                diagnostic_findings=(
+                    ("APPROACH", "PUNCH", "P02", "INTERFERENCE", "intersection"),
+                ),
+            )
+
+        result, call = self.run_mocked(
+            collide, allow_end_zone_collision=True, end_zone_length_mm=10.0
+        )
+        self.assertTrue(result.conditional_end_zone_requested)
+        self.assertEqual(result.candidates, ())
+        self.assertEqual(result.rejected_2d_interferences, 2)
+        self.assertTrue(call.call_args.kwargs["allow_end_zone_collision"])
+
+    def test_alternate_orientation_is_diagnostic_not_automatic_clearance(self):
+        def screen(_state, bid, *_args, **kwargs):
+            if bid == "B02" and not kwargs.get("reverse_axis", False):
+                return PreliminaryScreeningReport(
+                    ScreeningDecision.CONTINUE_TO_3D,
+                    "STAGE_B_SECTION_REQUIRES_3D",
+                    "normal_orientation_collision",
+                    contact_statuses=("INTERFERENCE",),
+                )
+            return stage_b_result()
+
+        result, stage_b = self.run_mocked(
+            screen, alternate_axis_bends=("B02",)
+        )
+        self.assertEqual(result.candidates, ())
+        self.assertGreater(len(result.alternative_setup_trials), 0)
+        self.assertTrue(any(t[3] == "SAMPLED_2D_CLEAR_OR_TOUCH"
+                            for t in result.alternative_setup_trials))
+        self.assertTrue(any(call.kwargs.get("reverse_axis", False)
+                            for call in stage_b.call_args_list))
+
+    def test_full_density_partial_gate_preserves_state_and_rejects_interference(self):
+        original = (dict(self.state.angles), dict(self.state.transforms))
+        with patch(
+            "smbs_core.kinematics2d.sequence_search_2d.screen_candidate_stage_a",
+            return_value=PreliminaryScreeningReport(
+                ScreeningDecision.CONTINUE_TO_3D, "STAGE_A_PASSED", "ok",
+            ),
+        ), patch(
+            "smbs_core.kinematics2d.sequence_search_2d.screen_candidate_stage_b",
+            side_effect=[
+                stage_b_result(),
+                PreliminaryScreeningReport(
+                    ScreeningDecision.CONTINUE_TO_3D,
+                    "STAGE_B_SECTION_REQUIRES_3D", "collision",
+                    contact_statuses=("INTERFERENCE",),
+                ),
+            ],
+        ) as checker:
+            ok, reason = validate_partial_planar_prefix(
+                self.session, self.tooling, ("B01", "B02"),
+            )
+        self.assertFalse(ok)
+        self.assertIn("B02:collision", reason)
+        self.assertEqual(self.state.angles, original[0])
+        self.assertEqual(self.state.transforms, original[1])
+        self.assertEqual(checker.call_count, 2)
+        self.assertEqual(len(checker.call_args.kwargs["fractions"]), 17)
+        self.assertEqual(len(checker.call_args.kwargs["stroke_fractions"]), 9)
 
     def test_finds_planar_candidates_without_three_d(self):
         originals = (dict(self.state.angles), dict(self.state.transforms))
