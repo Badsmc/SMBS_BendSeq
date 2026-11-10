@@ -17,6 +17,25 @@ All machine-section calculations use the same physical frame:
 
 **Regression note:** new sampled 2D results are not directly comparable with earlier reports that used ambiguous machine orientation; recalculate from the current version. No claim of production safety or swept-path clearance.
 
+## Real CAD BRep mode — implementation for FreeCAD runtime (2026-11-10)
+
+**Implemented in the experimental branch**:
+
+- In **Задний упор** choose **Использовать реальную 3D-модель Backgauge.FCStd при поиске (экспериментально)**. Specify the position of **one physical CAD gauge unit** along X_m (mm). The setting is opt-in; the old 2D rectangle remains available only as a separate explicitly selected legacy mode.
+- The `BackgaugeCAD3D` adapter reads `toollibrary/Backgauge/Backgauge.FCStd` as an actual OCC solid (not metadata BBox), checks the corrected Face3 stop datum and rotates its `(-X)` normal into machine `(+Y_m)` (toward the operator). It positions that contact face on the positive rear edge `s > 0`; no silent source-face substitution.
+- Stage B reuses the same rigid machine pose as punch/die, constructs sampled 3D solids for all panels and finite-radius bend zones from `FoldState`, and uses OCC solid Boolean intersections against the actual CAD stop. It reports `BACKGAUGE_CAD_3D` with a panel/zone ID and measured positive overlap volume. Empty sampled intersections do not count as a manufacturing safety certification.
+- Initial `LOAD_TO_GAUGE` with explicit positive feed distance is screened at five sampled positions against the CAD stop **on the FIRST operation only**. This is NOT a continuous swept-path collision check and does not test other machine parts during loading.
+- Automatic search, full-density candidate replay and manual-order replay use the same CAD Stage B gate. Diagnostics have `geometry_evidence=REAL_BACKGAUGE_FCSTD_SAMPLED_BREP_3D_PANELS_ZONES_NOT_SWEPT` only after the adapter actually loads.
+- The 2.5D viewer uses a **slice of the actual positioned CAD BRep** at its configured machine X station. It must not show a synthetic rectangle if the CAD model cannot be loaded.
+
+**Remaining blockers / restrictions**:
+1. One CAD stop body at one **explicitly chosen** X station; this does not invent two separate rear-gauge fingers, their mounting offset, limit switches, or machine travel limits. Two independently driven fingers and their placements need a separate model/configuration.
+2. CAD sheet solids are sampled from the current BendZone/FoldState geometric model. No proof of swept motion between samples, forming-tool contact dynamics, machine frame, clamps, or actual mechanical finger movement. Do not use results as a production go/no-go without independent verification.
+3. FreeCAD runtime tests (`tests/test_backgauge_cad_3d.py`) are only runnable with FreeCAD/Part installed. The authoring environment did not execute FreeCAD or OCC; a local test on the benchmark 10-bend part is still required.
+4. FreeCAD GUI settings must explicitly opt into CAD mode; existing saved settings remain in legacy 2D mode until changed.
+
+**Local test**: update the Git checkout, restart FreeCAD, open **Задний упор**, enable the real CAD model, set the desired X station, Save; rerun search and export a fresh JSON. Check that the reported `geometry_evidence` changed and that collisions mention `BACKGAUGE_CAD_3D` rather than `BACKGAUGE`. A malformed source or invalid sheet solid must yield `UNVERIFIED`/an error, never an invented `CLEAR`.
+
 ## Correct source model: toollibrary/Backgauge (2026-11-10)
 
 The actual rear stop is **`toollibrary/Backgauge/Backgauge.FCStd`**, accompanied by **`Backgauge.tooling.json`**. It is a different asset from the `Clamp` library entry. Verified sidecar metadata:
@@ -33,7 +52,7 @@ The actual rear stop is **`toollibrary/Backgauge/Backgauge.FCStd`**, accompanied
 
 **Source-contract implications:** its contact face is at source-local X=0 and faces -X. In machine section (+s toward rear/right), the physical contact face must face the operator (-s), and the gauge body should remain to the right (+s) of that face. Do NOT treat the source metadata's 200 mm width as the 2D gauge depth or invent a 10x10 mm square; the exact BRep orientation and which solids constitute the actual fingers must be loaded and inspected in FreeCAD.
 
-**Current implementation status:** only the prior simplified 2D rectangle is wired to Stage B; the actual `Backgauge.FCStd` BRep is **not yet** used in collision detection or visualization. Replacing the rectangle safely requires a FreeCAD geometry adapter that preserves the source object's placement, validates the datum plane against actual BRep faces, registers the stop-face-to-target transform and the X-axis stations of separate fingers, and performs collision checks in 3D (including LOAD_TO_GAUGE and TRANSFER). Until this is implemented, diagnostic evidence must not claim CAD backgauge clearance.
+**Current implementation status (updated):** the actual `Backgauge.FCStd` BRep is available as an **opt-in sampled CAD 3D mode** in Stage B; the legacy rectangle is still available separately. Replacing the rectangle safely requires a FreeCAD geometry adapter that preserves the source object's placement, validates the datum plane against actual BRep faces, registers the stop-face-to-target transform and the X-axis stations of separate fingers, and performs collision checks in 3D (including LOAD_TO_GAUGE and TRANSFER). Until this is implemented, diagnostic evidence must not claim CAD backgauge clearance.
 
 The older `Clamp` notes below are retained for clarity only: **Clamp is not the selected rear-gauge tool**.
 
