@@ -320,6 +320,10 @@ def validate_partial_planar_prefix(
                 backgauge_cad_checker=cad_checker,
                 backgauge_contact_s_mm=cad_contact_s,
                 backgauge_contact_z_mm=cad_contact_z,
+                backgauge_initial_feed_mm=(
+                    backgauge_model.initial_feed_preview_mm
+                    if cad_checker is not None and not completed else 0.0
+                ),
             )
             evidence = _classify_step(stage_b)
             if evidence != "SAMPLED_2D_CLEAR_OR_TOUCH" and not (
