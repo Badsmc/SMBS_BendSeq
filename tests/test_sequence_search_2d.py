@@ -251,6 +251,54 @@ class PlanarSearchTests(unittest.TestCase):
         self.assertEqual(result.status, PlanarSearchStatus.INVALID_INPUT)
         self.assertEqual(result.candidates, ())
 
+    def test_fair_root_probing_finds_later_root(self):
+        names = ("B01", "B02", "B03")
+        self.state = DummyState(names)
+        self.session.fold_state = self.state
+        self.session.bend_order = names
+
+        def later_root_only(state, bend, *_args, **_kwargs):
+            # B03 must be performed before any other bend.
+            if bend == "B03" and any(
+                state.angles.get(prev, 0) != 0 for prev in ("B01", "B02")
+            ):
+                return PreliminaryScreeningReport(
+                    ScreeningDecision.CONTINUE_TO_3D,
+                    "STAGE_B_SECTION_REQUIRES_3D", "blocked_after_other_bend",
+                    sampled_phases=("APPROACH",),
+                    contact_statuses=("INTERFERENCE",),
+                )
+            return stage_b_result()
+
+        result, _ = self.run_mocked(
+            later_root_only, preferred_bend_order=names,
+            group_first=False, root_probe_nodes=3,
+            max_complete_candidates=1,
+        )
+        self.assertEqual(result.status, PlanarSearchStatus.SAMPLED_2D_CANDIDATES)
+        self.assertEqual(result.candidates[0].sequence[0], "B03")
+        self.assertGreaterEqual(result.deferred_root_probes, 0)
+
+    def test_dead_subset_memo_never_overrides_replay(self):
+        names = ("B01", "B02", "B03")
+        self.state = DummyState(names)
+        self.session.fold_state = self.state
+        self.session.bend_order = names
+        original_angles = dict(self.state.angles)
+        result, _ = self.run_mocked(
+            exploration_fractions=(0.0, 1.0),
+            preferred_bend_order=("B03", "B02", "B01"),
+            group_first=False,
+            root_probe_nodes=2,
+            max_complete_candidates=1,
+        )
+        self.assertEqual(result.status, PlanarSearchStatus.SAMPLED_2D_CANDIDATES)
+        self.assertEqual(len(result.candidates[0].sequence), 3)
+        self.assertEqual(result.final_replay_attempts, 1)
+        self.assertEqual(self.state.angles, original_angles)
+        self.assertIn("dead_state_cache_hits", result.to_dict())
+        self.assertIn("deferred_root_probes", result.to_dict())
+
 
 if __name__ == "__main__":
     unittest.main()
