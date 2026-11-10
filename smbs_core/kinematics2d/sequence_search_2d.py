@@ -470,6 +470,10 @@ def search_bend_sequences_2d(
                 # Stage B contact oracle is applied to the alternative.
                 if (evidence == "2D_INTERFERENCE"
                         and bend_id in alternate_axis_bends
+                        and not detailed
+                        # Bound diagnostic experiments so they do not consume
+                        # the entire 30-second sequence-search budget.
+                        and len(alternative_setup_trials) < 12
                         and perf_counter() - start < max_search_time_s):
                     alt = screen_candidate_stage_b(
                         state, bend_id, tooling, panel_vertices,
