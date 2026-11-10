@@ -38,6 +38,63 @@ class Backgauge2DTests(unittest.TestCase):
         self.assertEqual(restored.polygon_for("B02"),
                          self.model().polygon_for("B02"))
 
+    def test_automatic_target_uses_fixed_panel_edge_not_moving_panel(self):
+        from unittest.mock import patch
+        from types import SimpleNamespace
+        model = BackgaugeModel2D(
+            10, 6, {}, automatic=True, edge_clearance_mm=0.0)
+        state = SimpleNamespace(bends={
+            "B01": SimpleNamespace(
+                bend_zone=SimpleNamespace(outer_radius_mm=2))
+        })
+        # Fixed-panel edge is at s=120, moving panel extends s=-500:
+        # machine gauge must reference fixed support, never global BBox.
+        section = {
+            "fixed_polygon": ((0, 1), (120, 1), (120, -1), (0, -1)),
+            "moving_polygon": ((0, 1), (-500, 1), (-500, -1), (0, -1)),
+        }
+        with patch(
+            "smbs_core.kinematics2d.workpiece_placement_3d."
+            "WorkpiecePlacement3D.compute_placement",
+            return_value=object(),
+        ), patch(
+            "smbs_core.kinematics2d.machine_section_3d."
+            "compute_machine_cutting_plane_section",
+            return_value=section,
+        ):
+            pos, depth, source = model.resolve_for_state(
+                state, {"P01": [(0, 0), (1, 0), (1, 1)]}, "B01")
+        self.assertEqual(depth, 120)
+        self.assertEqual(pos.s_mm, 125)
+        self.assertEqual(pos.z_mm, 0)
+        self.assertIn("AUTO", source)
+
+    def test_automatic_rejects_missing_fixed_edge(self):
+        from unittest.mock import patch
+        from types import SimpleNamespace
+        model = BackgaugeModel2D(10, 6, {}, automatic=True)
+        state = SimpleNamespace(bends={
+            "B01": SimpleNamespace(
+                bend_zone=SimpleNamespace(outer_radius_mm=2))
+        })
+        with patch(
+            "smbs_core.kinematics2d.workpiece_placement_3d."
+            "WorkpiecePlacement3D.compute_placement",
+            return_value=object(),
+        ), patch(
+            "smbs_core.kinematics2d.machine_section_3d."
+            "compute_machine_cutting_plane_section",
+            return_value={"fixed_polygon": ()},
+        ):
+            with self.assertRaisesRegex(ValueError, "no usable"):
+                model.resolve_for_state(state, {}, "B01")
+
+    def test_manual_mode_still_uses_explicit_coordinates(self):
+        p, depth, source = self.model().resolve_for_state(None, {}, "B01")
+        self.assertEqual(p.s_mm, 20)
+        self.assertTrue(depth != depth)
+        self.assertEqual(source, "MANUAL_TARGET")
+
     def test_bad_dimensions_rejected(self):
         with self.assertRaises(ValueError):
             BackgaugeModel2D(0, 5, {})
