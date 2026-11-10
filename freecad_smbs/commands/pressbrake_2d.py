@@ -1761,8 +1761,11 @@ class _PreviewPanel:
                     )
                     report = search_bend_sequences_2d(
                         self.session, self.tooling_setup,
-                        max_solutions=10,
-                        max_complete_candidates=100,
+                        # Quick GUI mode: find the first complete 2D preview.
+                        # Full ranking remains in the standalone search tool.
+                        # This does not qualify 3D physical feasibility.
+                        max_solutions=1,
+                        max_complete_candidates=1,
                         max_search_time_s=30.0,
                         max_nodes=5000,
                         max_evaluations=10000,
