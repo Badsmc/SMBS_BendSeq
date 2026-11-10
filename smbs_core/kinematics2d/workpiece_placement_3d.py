@@ -149,6 +149,7 @@ class WorkpiecePlacement3D:
         support_plane_zm: float = 0.0,
         align_bisector: bool = False,
         align_bend_arc_center: bool = False,
+        reverse_axis: bool = False,
     ) -> PlacementTransform3D:
         """Compute rigid 3D placement mapping Part Space -> Machine Space for `active_bend_id`.
 
@@ -266,6 +267,14 @@ class WorkpiecePlacement3D:
                 support_plane_zm - mid_rot[2],
             )
 
+        if reverse_axis:
+            # A physically distinct loading orientation: rotate the entire
+            # sheet 180 degrees around the machine vertical Z axis. Keep the
+            # active bend at the requested X_m station, and keep Z unchanged.
+            # This cannot be substituted for a 3D transfer-path check.
+            R = (tuple(-v for v in R[0]),
+                 tuple(-v for v in R[1]), R[2])
+            T = (2.0 * desired_midpoint_xm - T[0], -T[1], T[2])
         return PlacementTransform3D(rotation=R, translation=T)
 
     @staticmethod
