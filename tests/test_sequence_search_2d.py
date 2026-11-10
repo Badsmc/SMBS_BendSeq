@@ -230,7 +230,7 @@ class PlanarSearchTests(unittest.TestCase):
         self.assertEqual(result.final_replay_attempts, 1)
         self.assertEqual(result.final_replay_rejections, 0)
         self.assertEqual(result.candidates[0].evidence, "SAMPLED_2D_CLEAR_OR_TOUCH")
-        self.assertEqual(stage_b.call_count, 5)  # 3 coarse + 2 original-density
+        self.assertEqual(stage_b.call_count, 4)  # 2 coarse + 2 original-density
 
 
 if __name__ == "__main__":
