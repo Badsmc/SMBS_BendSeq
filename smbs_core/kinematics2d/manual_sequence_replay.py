@@ -75,11 +75,16 @@ def evaluate_manual_planar_order(
                 )
                 gauge_polygon = None
                 if backgauge_model is not None:
-                    point = backgauge_model.position_for(bid)
-                    gauge_polygon = backgauge_model.polygon_for(bid)
+                    point, depth, source = backgauge_model.resolve_for_state(
+                        state, session.panel_vertices_xy, bid,
+                    )
+                    gauge_polygon = backgauge_model.polygon_at(point)
                     setup = replace(
                         setup, backgauge_s_mm=point.s_mm,
                         backgauge_z_mm=point.z_mm,
+                        note=(setup.note + " | " if setup.note else "") +
+                        source + (":depth_mm={:.3f}".format(depth)
+                                  if depth == depth else ""),
                     )
                 record["machine_setup"] = setup.to_dict()
                 stage_a = screen_candidate_stage_a(
