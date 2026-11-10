@@ -705,6 +705,26 @@ class CalculateCommand:
         workspace = get_workspace_widget()
         if workspace is not None and workspace.calculate.isEnabled():
             workspace.calculate_sequence()
+class BackgaugeCommand:
+    """Configure explicit backgauge stop geometry and per-bend targets."""
+    def GetResources(self):
+        return {
+            "Pixmap": str(_ICON_ROOT / "gui_tooling.svg"),
+            "MenuText": "Задний упор",
+            "ToolTip": "Целевые позиции заднего упора, веса и проверка 2D коллизий",
+        }
+
+    def IsActive(self):
+        return True
+
+    def Activated(self):
+        workspace = get_workspace_widget()
+        if workspace is None:
+            PressBrake2DCommand().Activated()
+            workspace = get_workspace_widget()
+        if workspace is not None:
+            workspace.open_backgauge_dialog()
+
 
 class SequenceCatalogCommand:
     """Open saved sequence collection, without spawning a second simulator."""
@@ -872,6 +892,22 @@ class _PreviewPanel:
                 self._partial_preview_limit = 0
                 self._manual_sequence_prefix: list[str] = []
                 self._last_manual_sequence_report = None
+                self._backgauge_settings = QtCore.QSettings("SMBS", "BendSeq")
+                self.backgauge_model = None
+                if self._backgauge_settings.value(
+                    "backgauge/enabled", False, type=bool
+                ):
+                    from smbs_core.kinematics2d.backgauge_2d import BackgaugeModel2D
+                    import json
+                    raw_config = self._backgauge_settings.value(
+                        "backgauge/config_json", "", type=str)
+                    if raw_config:
+                        try:
+                            self.backgauge_model = BackgaugeModel2D.from_dict(
+                                json.loads(raw_config)
+                            )
+                        except (ValueError, TypeError, KeyError) as exc:
+                            _error("Backgauge configuration rejected: " + str(exc))
                 self._manual_selection_enabled = False
                 self._conditional_bends_status: dict[str, str] = {}
                 self._highlighted_end_zone_info: dict | None = None
@@ -1299,6 +1335,8 @@ class _PreviewPanel:
                     ("punch_length_delta_per_100_mm", "Пуансон: за 100 мм"),
                     ("die_length_change_fixed", "Матрица: смена длины"),
                     ("die_length_delta_per_100_mm", "Матрица: за 100 мм"),
+                    ("backgauge_move_fixed", "Задний упор: перемещение"),
+                    ("backgauge_move_per_100_mm", "Задний упор: за 100 мм"),
                 )
                 weights_box = QtWidgets.QGroupBox("Веса операций · 2D поиск")
                 weights_form = QtWidgets.QFormLayout(weights_box)
@@ -1343,6 +1381,10 @@ class _PreviewPanel:
                 weights_form.addRow(reset_weights_btn)
                 settings_layout.addWidget(weights_box)
 
+                gauge_settings_btn = QtWidgets.QPushButton(
+                    "Задний упор — геометрия и позиции гибов…")
+                gauge_settings_btn.clicked.connect(self.open_backgauge_dialog)
+                settings_layout.addWidget(gauge_settings_btn)
                 insert(settings_layout, entries[11])  # diagnostics button
                 insert(settings_layout, entries[12])  # diagnostics output
 
@@ -2160,6 +2202,12 @@ class _PreviewPanel:
                     self.full_physical_check_btn.setEnabled(True)
                     self.physical_check_btn.setEnabled(True)
 
+            def open_backgauge_dialog(self):
+                from freecad_smbs.commands.backgauge_dialog import (
+                    show_backgauge_settings,
+                )
+                show_backgauge_settings(self)
+
             def _selected_operation_weights(self):
                 from smbs_core.kinematics2d.operation_cost import OperationWeights
                 values = OperationWeights().to_dict()
@@ -2198,6 +2246,7 @@ class _PreviewPanel:
                         max_solutions=12,
                         max_complete_candidates=12,
                         weights=self._selected_operation_weights(),
+                        backgauge_model=self.backgauge_model,
                         min_partial_bends=(7 if len(self.session.bend_order) >= 10 else 0),
                         # Alternative machine-Z loading trials are advisory:
                         # the live 2.5D cycle still uses its own active pose.
@@ -2286,6 +2335,7 @@ class _PreviewPanel:
                     self.session, self.tooling_setup, sequence,
                     match_active_bend_length=not has_sections,
                     allow_retract_warning=self.retract_warning_checkbox.isChecked(),
+                    backgauge_model=self.backgauge_model,
                 )
                 if not valid:
                     raise ValueError(
@@ -3291,6 +3341,7 @@ class _PreviewPanel:
                         match_active_bend_length=not has_sections,
                         allow_retract_warning=self.retract_warning_checkbox.isChecked(),
                         weights=self._selected_operation_weights(),
+                        backgauge_model=self.backgauge_model,
                     )
                     # Identify the exact source geometry used for this run.
                     report["model"] = {
