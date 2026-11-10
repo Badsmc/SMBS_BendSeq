@@ -112,6 +112,7 @@ class PlanarSearchReport:
     slowest_steps: tuple[tuple[str, str, float], ...] = ()
     final_replay_attempts: int = 0
     final_replay_rejections: int = 0
+    partial_candidate: Optional[PlanarCandidate] = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -132,6 +133,8 @@ class PlanarSearchReport:
             "final_replay_rejections": self.final_replay_rejections,
             "max_depth_reached": self.max_depth_reached,
             "deepest_prefix": list(self.deepest_prefix),
+            "partial_candidate": (self.partial_candidate.to_dict()
+                                  if self.partial_candidate is not None else None),
             "rejection_counts": dict(self.rejection_counts),
             "slowest_steps": [
                 {"prefix": prefix, "bend_id": bend_id, "elapsed_s": seconds}
@@ -271,6 +274,7 @@ def search_bend_sequences_2d(
     step_cache: dict[tuple[frozenset[str], str, bool], PlanarStep] = {}
     step_diagnostics: list[tuple[tuple[str, ...], PlanarStep]] = []
     deepest_prefix: tuple[str, ...] = ()
+    deepest_steps: tuple[PlanarStep, ...] = ()
     final_replay_attempts = final_replay_rejections = 0
 
     def eval_step(prefix: tuple[str, ...], bend_id: str, *, detailed: bool = False) -> PlanarStep:
@@ -349,10 +353,11 @@ def search_bend_sequences_2d(
         return step
 
     def dfs(prefix: tuple[str, ...], steps: tuple[PlanarStep, ...]) -> None:
-        nonlocal visited, stopped, complete_candidates_examined, deepest_prefix
+        nonlocal visited, stopped, complete_candidates_examined, deepest_prefix, deepest_steps
         nonlocal final_replay_attempts, final_replay_rejections
         if len(prefix) > len(deepest_prefix):
             deepest_prefix = prefix
+            deepest_steps = steps
         if stopped:
             return
         if complete_candidates_examined >= max_complete_candidates:
@@ -440,6 +445,20 @@ def search_bend_sequences_2d(
         not c.cost_complete, c.cost, c.group_transitions, c.sequence,
     ))
     candidates = candidates[:max_solutions]
+    # A deepest prefix is not a complete bend plan. Retain its sampled steps
+    # solely as an explicitly provisional animation, never as a solution.
+    partial_candidate = None
+    if 7 <= len(deepest_prefix) < len(order):
+        partial_candidate = PlanarCandidate(
+            sequence=deepest_prefix,
+            steps=deepest_steps,
+            evidence=("UNVERIFIED_2D_PARTIAL_COARSE" if progressive
+                      else "UNVERIFIED_2D_PARTIAL"),
+            numbered_bends=tuple(
+                (i + 1, bid, group_of[bid])
+                for i, bid in enumerate(deepest_prefix)
+            ),
+        )
     fully_sampled = any(c.evidence == "SAMPLED_2D_CLEAR_OR_TOUCH" for c in candidates)
     # Reaching the requested number of completed candidates is a normal,
     # successful termination, not a resource/time-limit failure. Preserve
@@ -461,6 +480,7 @@ def search_bend_sequences_2d(
         final_replay_rejections=final_replay_rejections,
         max_depth_reached=len(deepest_prefix),
         deepest_prefix=deepest_prefix,
+        partial_candidate=partial_candidate,
         rejection_counts=tuple(sorted(
             (label, sum(step.evidence == label for _, step in step_diagnostics))
             for label in sorted({step.evidence for _, step in step_diagnostics})
