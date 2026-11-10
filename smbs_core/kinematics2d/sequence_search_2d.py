@@ -620,6 +620,10 @@ def search_bend_sequences_2d(
                     backgauge_cad_checker=cad_checker,
                     backgauge_contact_s_mm=cad_contact_s,
                     backgauge_contact_z_mm=cad_contact_z,
+                    backgauge_initial_feed_mm=(
+                        backgauge_model.initial_feed_preview_mm
+                        if cad_checker is not None and not prefix else 0.0
+                    ),
                     deadline_monotonic=start + max_search_time_s,
                     multi_station_enabled=multi_station_enabled,
                     verified_punch_span_xm=verified_punch_span_xm,
