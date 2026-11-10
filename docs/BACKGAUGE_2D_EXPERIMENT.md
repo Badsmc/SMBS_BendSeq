@@ -22,10 +22,14 @@ All machine-section calculations use the same physical frame:
 The actual rear stop is **`toollibrary/Backgauge/Backgauge.FCStd`**, accompanied by **`Backgauge.tooling.json`**. It is a different asset from the `Clamp` library entry. Verified sidecar metadata:
 
 - `kind: backgauge`, `id: Backgauge`, `source: Backgauge.FCStd`
-- `stop_face`: plane origin `(0,100,7)` mm, outward normal `(-1,0,0)`, tolerance `0.05` mm
+- `stop_face`: plane origin `(25,137.5,7)` mm, outward normal `(-1,0,0)`, tolerance `0.05` mm (corrected from invalid source origin `(0,100,7)` after FreeCAD Face3 diagnostics)
 - `working_axis`: origin `(0,100,7)` mm, direction `(0,1,0)`, tolerance `0.02` mm
 - `mounting_plane`: origin `(0,0,0)`, normal `(0,0,-1)`
 - metadata dimensions: length `100` mm, width `200` mm, thickness `14` mm
+
+**Datum fix from FreeCAD diagnostic:** source `Body` has 1 solid and 10 faces (8 planar). The original JSON datum point `(0,100,7)` was 25 mm from Face3. Face3 has outward normal dot +1 relative to `(-1,0,0)`, area 1750 mm² and centre `(25,137.5,7)`. Consequently, only the `stop_face.origin` metadata was corrected to the observed Face3 centre. `working_axis` and source CAD were left unchanged pending separate axis verification. Re-run CAD preflight locally before treating this as a validated contact face. The design may contain multiple rearward-facing faces, so actual use as a gauge finger remains unqualified.
+
+**Sequence-search diagnostic `22.json`:** its `backgauge_configuration.geometry_evidence` explicitly says `2D_RECTANGLE_ONLY_NOT_3D_VERIFIED`, and all 10 root bends still fail Stage B at APPROACH. This metadata fix does NOT alter that algorithm and cannot fix those reported 2D projections. The real CAD model must be connected through a separate 3D stop/finger collision contract; never discard intersections by fiat.
 
 **Source-contract implications:** its contact face is at source-local X=0 and faces -X. In machine section (+s toward rear/right), the physical contact face must face the operator (-s), and the gauge body should remain to the right (+s) of that face. Do NOT treat the source metadata's 200 mm width as the 2D gauge depth or invent a 10x10 mm square; the exact BRep orientation and which solids constitute the actual fingers must be loaded and inspected in FreeCAD.
 
