@@ -17,6 +17,22 @@ All machine-section calculations use the same physical frame:
 
 **Regression note:** new sampled 2D results are not directly comparable with earlier reports that used ambiguous machine orientation; recalculate from the current version. No claim of production safety or swept-path clearance.
 
+## Correct source model: toollibrary/Backgauge (2026-11-10)
+
+The actual rear stop is **`toollibrary/Backgauge/Backgauge.FCStd`**, accompanied by **`Backgauge.tooling.json`**. It is a different asset from the `Clamp` library entry. Verified sidecar metadata:
+
+- `kind: backgauge`, `id: Backgauge`, `source: Backgauge.FCStd`
+- `stop_face`: plane origin `(0,100,7)` mm, outward normal `(-1,0,0)`, tolerance `0.05` mm
+- `working_axis`: origin `(0,100,7)` mm, direction `(0,1,0)`, tolerance `0.02` mm
+- `mounting_plane`: origin `(0,0,0)`, normal `(0,0,-1)`
+- metadata dimensions: length `100` mm, width `200` mm, thickness `14` mm
+
+**Source-contract implications:** its contact face is at source-local X=0 and faces -X. In machine section (+s toward rear/right), the physical contact face must face the operator (-s), and the gauge body should remain to the right (+s) of that face. Do NOT treat the source metadata's 200 mm width as the 2D gauge depth or invent a 10x10 mm square; the exact BRep orientation and which solids constitute the actual fingers must be loaded and inspected in FreeCAD.
+
+**Current implementation status:** only the prior simplified 2D rectangle is wired to Stage B; the actual `Backgauge.FCStd` BRep is **not yet** used in collision detection or visualization. Replacing the rectangle safely requires a FreeCAD geometry adapter that preserves the source object's placement, validates the datum plane against actual BRep faces, registers the stop-face-to-target transform and the X-axis stations of separate fingers, and performs collision checks in 3D (including LOAD_TO_GAUGE and TRANSFER). Until this is implemented, diagnostic evidence must not claim CAD backgauge clearance.
+
+The older `Clamp` notes below are retained for clarity only: **Clamp is not the selected rear-gauge tool**.
+
 ## Clamp.FCStd audit and loading approach (2026-11-10)
 
 `toollibrary/Clamp/Clamp.FCStd` is a real FreeCAD model with an associated
