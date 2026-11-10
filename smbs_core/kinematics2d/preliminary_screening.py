@@ -234,6 +234,10 @@ def screen_candidate_stage_b(
                 align_bisector=True,
                 align_bend_arc_center=True,
                 reverse_axis=reverse_axis,
+                rear_panel_vertices_xy=(
+                    panel_vertices_xy if backgauge_polygon_machine is not None
+                    else None
+                ),
             )
             first_sec = compute_machine_cutting_plane_section(
                 fold_state,
@@ -346,6 +350,10 @@ def screen_candidate_stage_b(
                     align_bisector=align_bis,
                     align_bend_arc_center=True,
                     reverse_axis=reverse_axis,
+                    rear_panel_vertices_xy=(
+                        panel_vertices_xy if backgauge_polygon_machine is not None
+                        else None
+                    ),
                 )
                 sec = compute_machine_cutting_plane_section(
                     fold_state,
