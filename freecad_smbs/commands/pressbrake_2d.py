@@ -1216,6 +1216,17 @@ class _PreviewPanel:
                 self.manual_clear_btn.clicked.connect(self._clear_manual_order)
                 manual_row.addWidget(self.manual_clear_btn)
                 sim_layout.addLayout(manual_row)
+                self.retract_warning_checkbox = QtWidgets.QCheckBox(
+                    "RETRACT: продолжать 2D-поиск с предупреждением"
+                )
+                self.retract_warning_checkbox.setChecked(False)
+                self.retract_warning_checkbox.setToolTip(
+                    "Только диагностический режим: пересечение пуансона с "
+                    "деталью во время RETRACT сохраняется как предупреждение, "
+                    "а не как доказанный безопасный контакт. APPROACH, BENDING, "
+                    "BOTTOM, матрица и упор по-прежнему блокируют 2D-поиск."
+                )
+                sim_layout.addWidget(self.retract_warning_checkbox)
                 self.manual_validate_btn = QtWidgets.QPushButton(
                     "Проверить ручной порядок и сохранить JSON"
                 )
@@ -2107,6 +2118,7 @@ class _PreviewPanel:
                         ),
                         allow_end_zone_collision=bool(self.tooling_setup.allow_end_zone_collision),
                         end_zone_length_mm=float(self.tooling_setup.end_zone_length_mm),
+                        allow_retract_warning=self.retract_warning_checkbox.isChecked(),
                         max_search_time_s=30.0,
                         max_nodes=5000,
                         max_evaluations=10000,
@@ -2289,6 +2301,7 @@ class _PreviewPanel:
                                 self.session, self.tooling_setup,
                                 candidate.sequence,
                                 match_active_bend_length=not has_sections,
+                                allow_retract_warning=self.retract_warning_checkbox.isChecked(),
                             )
                             if not valid:
                                 self.status.setText(
@@ -3102,6 +3115,7 @@ class _PreviewPanel:
                     report = evaluate_manual_planar_order(
                         self.session, self.tooling_setup, prefix,
                         match_active_bend_length=not has_sections,
+                        allow_retract_warning=self.retract_warning_checkbox.isChecked(),
                     )
                     # Identify the exact source geometry used for this run.
                     report["model"] = {
@@ -3154,7 +3168,10 @@ class _PreviewPanel:
                         encoding="utf-8",
                     )
                     verdict = (
-                        "Нет 2D-препятствий в проверенных сечениях (НЕ 3D-допуск)"
+                        "Условная 2D-проверка: предупреждений RETRACT {}, "
+                        "не проверено в 3D".format(len(report["retract_warnings"]))
+                        if report["first_blocker"] is None and report["retract_warnings"]
+                        else "Нет 2D-препятствий в проверенных сечениях (НЕ 3D-допуск)"
                         if report["first_blocker"] is None else
                         "Проверка остановлена: гиб {bend_id}, шаг {step_number}, "
                         "{evidence}: {reason}".format(**report["first_blocker"])
