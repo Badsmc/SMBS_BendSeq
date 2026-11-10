@@ -1769,6 +1769,18 @@ class _PreviewPanel:
                         max_search_time_s=30.0,
                         max_nodes=5000,
                         max_evaluations=10000,
+                        # Long box-like parts can require bends late in CAD
+                        # construction order to be formed first. For >=6 bends
+                        # explore reverse construction order before considering
+                        # the legacy group-first order. This only affects
+                        # scheduling; all steps still use the exact same
+                        # contact oracle and detailed replay.
+                        preferred_bend_order=(
+                            tuple(reversed(self.session.bend_order))
+                            if len(self.session.bend_order) >= 6
+                            else tuple(self.session.bend_order)
+                        ),
+                        group_first=len(self.session.bend_order) < 6,
                         # Preliminary fast screen; every returned full order is
                         # replayed by the solver at its original 17/9 samples.
                         exploration_fractions=(0.0, 0.25, 0.5, 0.75, 1.0),
