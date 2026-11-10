@@ -2105,6 +2105,19 @@ class _PreviewPanel:
                 )
                 cache_info.setWordWrap(True)
                 layout.addWidget(cache_info)
+                pair_lines = [
+                    "{} ↔ {}: оба порядка первых двух гибов отклонены в 2D".format(
+                        left, right
+                    )
+                    for left, right, _, _ in report.paired_first_step_obstructions
+                ]
+                if pair_lines:
+                    pair_info = QtWidgets.QLabel(
+                        "Диагностика пар (не доказательство невозможности гибки):\n"
+                        + "\n".join(pair_lines[:6])
+                    )
+                    pair_info.setWordWrap(True)
+                    layout.addWidget(pair_info)
                 options = QtWidgets.QListWidget(dlg)
                 for index, candidate in enumerate(report.candidates):
                     suffix = (" | стоимость {:.2f}".format(candidate.cost)
