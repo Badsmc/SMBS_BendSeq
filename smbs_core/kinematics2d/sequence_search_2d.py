@@ -115,6 +115,7 @@ class PlanarSearchReport:
     dead_state_cache_hits: int = 0
     dead_states_proven: int = 0
     deferred_root_probes: int = 0
+    paired_first_step_obstructions: tuple[tuple[str, str, str, str], ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -136,6 +137,12 @@ class PlanarSearchReport:
             "dead_state_cache_hits": self.dead_state_cache_hits,
             "dead_states_proven": self.dead_states_proven,
             "deferred_root_probes": self.deferred_root_probes,
+            "paired_first_step_obstructions": [
+                {"first_bend": a, "second_bend": b,
+                 "after_first_reason": a_to_b,
+                 "after_second_reason": b_to_a}
+                for a, b, a_to_b, b_to_a in self.paired_first_step_obstructions
+            ],
             "max_depth_reached": self.max_depth_reached,
             "deepest_prefix": list(self.deepest_prefix),
             "rejection_counts": dict(self.rejection_counts),
@@ -517,6 +524,22 @@ def search_bend_sequences_2d(
         status = PlanarSearchStatus.UNVERIFIED_CANDIDATES
     else:
         status = PlanarSearchStatus.EXHAUSTED
+    # Diagnose mutual first-step obstructions based on actually performed
+    # pairwise trials. These are *not* proof of global order impossibility:
+    # an intervening bend, alternative setup or full 3D pose might differ.
+    first_step_rejections = {
+        (prefix[0], step.bend_id): step.reason
+        for prefix, step in step_diagnostics
+        if len(prefix) == 1 and step.evidence == "2D_INTERFERENCE"
+    }
+    mutually_blocked = tuple(
+        (a, b, first_step_rejections[(a, b)],
+         first_step_rejections[(b, a)])
+        for i, a in enumerate(sorted(order))
+        for b in sorted(order)[i + 1:]
+        if (a, b) in first_step_rejections
+        and (b, a) in first_step_rejections
+    )
     return PlanarSearchReport(
         status, tuple(candidates), evaluated, visited, perf_counter()-start,
         rejected, unverified, stopped, warnings,
@@ -527,6 +550,7 @@ def search_bend_sequences_2d(
         dead_state_cache_hits=dead_state_cache_hits,
         dead_states_proven=len(dead_states),
         deferred_root_probes=probe_cutoffs,
+        paired_first_step_obstructions=mutually_blocked,
         max_depth_reached=len(deepest_prefix),
         deepest_prefix=deepest_prefix,
         rejection_counts=tuple(sorted(
