@@ -1769,6 +1769,10 @@ class _PreviewPanel:
                         max_search_time_s=30.0,
                         max_nodes=5000,
                         max_evaluations=10000,
+                        # Preliminary fast screen; every returned full order is
+                        # replayed by the solver at its original 17/9 samples.
+                        exploration_fractions=(0.0, 0.25, 0.5, 0.75, 1.0),
+                        exploration_stroke_fractions=(0.0, 0.5, 1.0),
                         match_active_bend_length=not has_sections,
                     )
                     self.last_planar_search_report = report
