@@ -55,6 +55,11 @@ class BackgaugeModel2D:
         if any(not isinstance(bid, str) or not bid or not isinstance(p, BackgaugePosition2D)
                for bid, p in self.positions.items()):
             raise ValueError("invalid bend-to-backgauge position mapping")
+        if any(p.s_mm - self.width_s_mm / 2 <= 0
+               for p in self.positions.values()):
+            raise ValueError(
+                "backgauge stop must lie entirely on +s/right machine side"
+            )
 
     def position_for(self, bend_id: str) -> BackgaugePosition2D:
         try:
