@@ -1820,7 +1820,10 @@ class _PreviewPanel:
                 details = QtWidgets.QLabel(
                     "Статус: {} | вариантов: {} | 2D проверок: {} | причина остановки: {}".format(
                         report.status.value, len(report.candidates),
-                        report.evaluated_steps, report.limit_reason or "нет",
+                        report.evaluated_steps,
+                        ("цель достигнута: найдено заданное количество вариантов"
+                         if report.limit_reason == "MAX_COMPLETE_CANDIDATES_REACHED"
+                         else report.limit_reason or "нет"),
                     )
                 )
                 details.setWordWrap(True)
