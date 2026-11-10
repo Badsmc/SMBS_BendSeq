@@ -1,38 +1,52 @@
-# SMBS 2D backgauge experiment
+# SMBS 2D automatic backgauge — development status
 
-Development branch: `experiment/2d-backgauge-kinematics` (based on `integration/gui-2d-search-screening`).
+Branch: `experiment/2d-backgauge-kinematics`, forked from `integration/gui-2d-search-screening`.
 
-## Implemented in this branch
+## Target behavior
 
-- FreeCAD top toolbar/menu command **Задний упор** (`SMBS_Backgauge`)
-- Editable, persistent 2D stop dimensions (width along machine `s`, height along machine `z`) and an **explicit target centre (s,z) for every bend**; no inferred default machine position
-- Saved settings retain the part label to reject applying coordinates to another model
-- Automatic sampled 2D Stage B: per-bend backgauge rectangle checked against sheet/panel section in APPROACH, BENDING, BOTTOM and RETRACT via the existing `classify_polygon_contact` oracle
-- Manual-order replay: same per-bend backgauge collision screening and shared operation weights
-- Sequence assignment from JSON: rechecks the selected order using current backgauge configuration
-- Operation weights: `backgauge_move_fixed` (default 2 points per nontrivial move) and `backgauge_move_per_100_mm` (default 0.5 points per 100 mm Euclidean distance between target `s,z` coordinates), including per-step JSON cost breakdown
-- Diagnostic JSON: source coordinates, per-step target, backgauge contact findings and explicit `backgauge_interbend_motion_checked=false`
-- Disabled by default until the operator explicitly specifies all coordinates
+For every bend, the planner computes the machine-space distance from the active bend line to a supporting **fixed-panel edge** using the current folded state. The backgauge stop is positioned at the selected edge, automatically repositions when the next bend is selected, and moves as an interpolated 2D preview in the `TRANSFER` phase.
 
-## How to test in FreeCAD
+The operator **does not need to type an individual target for every bend**. In the **Задний упор** toolbar dialog, enable checks and leave the default **Автоматически вычислять положение по краю опорной панели** checked. Enter the physical stop rectangle dimensions and optional clearance. Manual target entry remains available as an override.
 
-1. Install/check out the development branch. Restart FreeCAD; select the PressBrakeSim workbench.
-2. Load the desired SheetMetal part.
-3. Open **Задний упор** from the top toolbar, enable checking, enter physical stop width and height, then fill both `s` and `z` centre coordinates for **every** bend. Save.
-4. On the **Настройки** tab set the two backgauge movement cost weights.
-5. Run **2D варианты** and inspect candidates' `machine_setup.backgauge_s_mm` / `backgauge_z_mm`, `cost_breakdown[].backgauge_move_cost`, `backgauge_checked`, and `diagnostic_findings` with `tool=BACKGAUGE`.
-6. Use the manual-order Stage A/B JSON check on the same part and compare the cost for an identical order.
-7. Change one target or move weight; confirm that the backgauge cost changes and that collision findings depend on geometry, **not** on penalty weights.
-8. Reopen the GUI to confirm settings persistence; load another part and confirm an old part-specific configuration is not silently accepted.
+## Geometry and coordinates
 
-## Known limitations / not implemented yet
+- Uses `FoldState` and `WorkpiecePlacement3D` to align the active bend in machine coordinates.
+- Uses `compute_machine_cutting_plane_section(...)` to obtain **the active fixed panel's** real cross-section at the bend midpoint.
+- Derives the far edge from that fixed-panel cut polygon only (not overall part bounding box and never the moving flange).
+- The measured bend-to-edge depth is `abs(edge_s)` in mm; gauge rectangle centre `s` is offset outside that edge by half the stop width plus optional clearance; `z` is aligned to the edge's thickness centre.
+- If no fixed-panel edge can be resolved at the machine cutting plane, the candidate is **UNVERIFIED**; no made-up length.
+- Geometry mode is `AUTO_FIXED_PANEL_EDGE_2D_UNVERIFIED`; geometry/station orientation still requires qualification against the actual machine.
 
-- **Inter-bend stop travel is NOT collision checked**, nor is it animated. Only each bend's configured target is checked at sampled phases. Changing a coordinate changes the hypothetical stop target, but does not prove a collision-free movement from the preceding stop.
-- The current 2D rectangle represents **one cutting-plane projection**, not two independent fingers or an actual machine's 3D finger shapes. There is no automated determination of appropriate stop/contact positions from panel edges and flange datum.
-- Native machine X/R/Z gauge axis limits, travel speeds, homing, fingers' independent motion, clamping, and transfer poses are not modeled.
-- A 2D `CLEAR` or `TOUCH` is not a manufacturing certification; end zones and full 3D require independent verification.
-- User-supplied physical tool/gauge dimensions must be checked against the specific machine; no invented default setup becomes production evidence.
+## Collision and weight integration
 
-## Next qualification gate
+- Automatic and manual 2D search generate a target separately for **each active bend in the already-folded sequence prefix**.
+- The existing Stage B 2D polygon-contact oracle checks the stop's *target position* in sampled APPROACH, BENDING, BOTTOM, RETRACT phases.
+- `backgauge_move_fixed` and `backgauge_move_per_100_mm` score changeover between successive target (s,z) positions; they do not change collision outcomes.
+- Automatic cost and manually entered order cost use the same penalty model, and JSON contains per-step targets, source and penalties.
+- The sequence catalog's simulation assignment reruns sampled 2D checks with the current backgauge configuration.
 
-Implement explicit backgauge finger assemblies and axis contracts; determine target positions from bend geometry and machine datums, then validate **each interpolated TRANSFER trajectory** with the correct sheet pose and tool state, prior to marking any backgauge motion as checked. Preserve the current search/replay interfaces and do not elevate risk-only 2D checks to 3D approval.
+## Visualization
+
+- Gauge outline is drawn in the main 2.5D viewer when configured.
+- During the existing `TRANSFER` phase it linearly interpolates stop centre from the previous bend target to the next bend target.
+- This **is a visual planning interpolation only**, not physically constrained axis motion and not a validated collision-free transfer.
+
+## Important limitations still open
+
+1. The selected far edge is a 2D geometric candidate, **not yet proof of an accessible physical rear-gauge contact face**; direction of the rear machine side, finger reach, and support stability need explicit machine-specific contracts.
+2. Stop represented by one 2D rectangular cutting section, not independent left/right fingers, X/R/Z axes or their 3D geometry.
+3. Inter-bend motion is **not collision-checked**, even though its visual interpolation is shown. It can pass through the sheet or tooling.
+4. No motor motion constraints, axis stroke limits, coordinated sheet transfer, safety interlocks, finger retraction, staging, or real-time machine control.
+5. No automatic recognition of alternate supporting edges or reliable backstop placements for flange-less, heavily folded, tapered or unsupported part profiles.
+6. No production certification from any sampled 2D result.
+
+## FreeCAD test protocol
+
+1. Checkout this branch and restart FreeCAD. Load test part `2134`.
+2. Open top toolbar **Задний упор**. Enable checks, keep **Автоматически вычислять положение** active, enter stop width/height and save. **Do not manually enter per-bend positions.**
+3. In **2D варианты**, check JSON `backgauge_configuration.automatic=true`, `machine_setup.backgauge_s_mm`, `backgauge_z_mm`, `machine_setup.note` containing measured depth and `cost_breakdown[].backgauge_move_cost`.
+4. Run manual-order replay with the same sequence and weights; compare scores and backgauge findings.
+5. Select a result for simulation. During **TRANSFER**, observe the orange gauge stop moving smoothly. If it moves across the workpiece or into tooling, that is a **known unsupported hazard in the current stage** and must be logged for future motion checking.
+6. Confirm that missing fixed-panel edge produces a visible unverified diagnostic, not a nominal valid target. Repeat with a different bend sequence and confirm targets are recalculated based on preceding bends.
+
+The next qualification milestone is machine-axis-calibrated dual-finger contact selection, with swept path collision checks for both the stop and the workpiece during TRANSFER.
