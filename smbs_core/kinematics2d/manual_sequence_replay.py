@@ -178,7 +178,12 @@ def evaluate_manual_planar_order(
     return {
         "operation_weights": op_weights.to_dict(),
         "backgauge_model": backgauge_model.to_dict() if backgauge_model else None,
-        "backgauge_checked": backgauge_model is not None,
+        "backgauge_requested": backgauge_model is not None,
+        "backgauge_target_steps_checked": sum(
+            bool((step.get("stage_b") or {}).get("backgauge_checked"))
+            for step in steps
+        ),
+        "backgauge_interbend_motion_checked": False,
         "plan_cost": plan_score.to_dict(),
         "plan_cost_scope": "ACCEPTED_PREFIX_ONLY",
         "plan_cost_selected_order_complete": (
