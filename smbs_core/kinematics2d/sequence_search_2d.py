@@ -138,6 +138,9 @@ class PlanarSearchReport:
             item["evaluations"] += 1
             if step.evidence == "SAMPLED_2D_CLEAR_OR_TOUCH":
                 item["clear_or_touch"] += 1
+            elif step.evidence == "2D_RETRACT_WARNING_NOT_3D_VALIDATED":
+                item.setdefault("retract_warnings", 0)
+                item["retract_warnings"] += 1
             elif step.evidence == "2D_INTERFERENCE":
                 item["interferences"] += 1
             elif step.evidence == "UNVERIFIED_2D":
@@ -216,6 +219,8 @@ class PlanarSearchReport:
 
 def _classify_step(report: PreliminaryScreeningReport) -> str:
     """Interpret Stage B as planar evidence, not as its 3D-search decision."""
+    if report.stage == "STAGE_B_RETRACT_WARNING":
+        return "2D_RETRACT_WARNING_NOT_3D_VALIDATED"
     if report.stage == "STAGE_B_SECTION_REQUIRES_3D":
         return "2D_INTERFERENCE"
     if report.decision is ScreeningDecision.PROVEN_BLOCKING:
@@ -246,6 +251,7 @@ def validate_partial_planar_prefix(
     *,
     match_active_bend_length: bool = True,
     tolerance_mm: float = 0.02,
+    allow_retract_warning: bool = False,
 ) -> tuple[bool, str]:
     """Full-density sampled 2D gate before displaying an exploratory prefix.
 
@@ -277,8 +283,12 @@ def validate_partial_planar_prefix(
                 fractions=tuple(i / 16 for i in range(17)),
                 stroke_fractions=tuple(i / 8 for i in range(9)),
                 tolerance_mm=tolerance_mm,
+                allow_retract_warning=allow_retract_warning,
             )
-            if _classify_step(stage_b) != "SAMPLED_2D_CLEAR_OR_TOUCH":
+            evidence = _classify_step(stage_b)
+            if evidence != "SAMPLED_2D_CLEAR_OR_TOUCH" and not (
+                    allow_retract_warning
+                    and evidence == "2D_RETRACT_WARNING_NOT_3D_VALIDATED"):
                 return False, bid + ":" + stage_b.reason
             completed.add(bid)
         return True, "FULL_DENSITY_SAMPLED_2D_ONLY_NOT_3D_CERTIFIED"
@@ -302,6 +312,7 @@ def search_bend_sequences_2d(
     min_partial_bends: int = 0,
     allow_end_zone_collision: bool = False,
     end_zone_length_mm: float = 0.0,
+    allow_retract_warning: bool = False,
     alternate_axis_bends: Sequence[str] = (),
     weights: Optional[OperationWeights] = None,
     max_nodes: int = 10000,
@@ -332,6 +343,9 @@ def search_bend_sequences_2d(
         "Sampled 2D cross sections do not certify a continuous stroke, 3D tool ends, "
         "backgauge, frame or transfer path.",
         "2D overlaps are planar-model rejection only, not proof of a 3D collision.",
+        ("Conditional RETRACT PUNCH interference warnings enabled: "
+         "not physical approval; collision findings retained."
+         if allow_retract_warning else "RETRACT interference remains blocking in the 2D preview."),
         ("Backgauge machine-space section was provided and sampled."
          if backgauge_polygon_machine is not None
          else "Backgauge geometry missing: no backgauge collision checks performed."),
@@ -453,6 +467,7 @@ def search_bend_sequences_2d(
                     match_active_bend_length=match_active_bend_length,
                     allow_end_zone_collision=allow_end_zone_collision,
                     end_zone_length_mm=end_zone_length_mm,
+                    allow_retract_warning=allow_retract_warning,
                     tolerance_mm=tolerance_mm,
                     fractions=fs if detailed else coarse_fs,
                     stroke_fractions=stroke_fs if detailed else coarse_stroke_fs,
@@ -481,6 +496,7 @@ def search_bend_sequences_2d(
                         match_active_bend_length=match_active_bend_length,
                         allow_end_zone_collision=allow_end_zone_collision,
                         end_zone_length_mm=end_zone_length_mm,
+                        allow_retract_warning=allow_retract_warning,
                         reverse_axis=True,
                         tolerance_mm=tolerance_mm,
                         fractions=fs if detailed else coarse_fs,
@@ -591,6 +607,11 @@ def search_bend_sequences_2d(
                 steps = tuple(replay_steps)
             evidence = ("SAMPLED_2D_CLEAR_OR_TOUCH"
                         if all(s.evidence == "SAMPLED_2D_CLEAR_OR_TOUCH" for s in steps)
+                        else "CONDITIONAL_RETRACT_WARNING_NOT_3D_VALIDATED"
+                        if all(s.evidence in (
+                            "SAMPLED_2D_CLEAR_OR_TOUCH",
+                            "2D_RETRACT_WARNING_NOT_3D_VALIDATED",
+                        ) for s in steps)
                         else "UNVERIFIED_2D")
             setups = [step.setup for step in steps]
             if all(setup is not None for setup in setups):
@@ -681,7 +702,10 @@ def search_bend_sequences_2d(
         partial_remainder = tuple(b for b in order if b not in partial_seq)
         partial = PlanarCandidate(
             partial_seq, best_partial_steps,
-            "PARTIAL_COARSE_2D_NOT_FULLY_REPLAYED",
+            ("PARTIAL_COARSE_2D_WITH_RETRACT_WARNINGS_NOT_FULLY_REPLAYED"
+             if any(s.evidence == "2D_RETRACT_WARNING_NOT_3D_VALIDATED"
+                    for s in best_partial_steps)
+             else "PARTIAL_COARSE_2D_NOT_FULLY_REPLAYED"),
             numbered_bends=tuple((i + 1, bid, group_of[bid])
                                  for i, bid in enumerate(partial_seq)),
         )
