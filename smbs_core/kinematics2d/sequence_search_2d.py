@@ -257,6 +257,7 @@ def validate_partial_planar_prefix(
     match_active_bend_length: bool = True,
     tolerance_mm: float = 0.02,
     allow_retract_warning: bool = False,
+    backgauge_model: Optional[BackgaugeModel2D] = None,
 ) -> tuple[bool, str]:
     """Full-density sampled 2D gate before displaying an exploratory prefix.
 
@@ -277,6 +278,10 @@ def validate_partial_planar_prefix(
             for prior in sequence:
                 if prior in completed:
                     state.set_angle(prior, float(state.bends[prior].angle_deg))
+            gauge_polygon = (
+                backgauge_model.polygon_for(bid)
+                if backgauge_model is not None else None
+            )
             stage_a = screen_candidate_stage_a(
                 state, bid, tooling,
                 match_active_bend_length=match_active_bend_length,
@@ -290,6 +295,7 @@ def validate_partial_planar_prefix(
                 stroke_fractions=tuple(i / 8 for i in range(9)),
                 tolerance_mm=tolerance_mm,
                 allow_retract_warning=allow_retract_warning,
+                backgauge_polygon_machine=gauge_polygon,
             )
             evidence = _classify_step(stage_b)
             if evidence != "SAMPLED_2D_CLEAR_OR_TOUCH" and not (
