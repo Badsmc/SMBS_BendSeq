@@ -103,6 +103,7 @@ def show_backgauge_settings(workspace):
                 width_s_mm=float(width.value()),
                 height_z_mm=float(height.value()),
                 positions=targets,
+                part_label=workspace.session.part_label,
             )
         except (ValueError, TypeError) as exc:
             W.QMessageBox.warning(dlg, "Недопустимая конфигурация", str(exc))
