@@ -72,7 +72,7 @@ class WorkpiecePlacement3DTests(unittest.TestCase):
 
     def test_rear_right_machine_frame_orients_fixed_panel_positive_s(self):
         """Any source CAD bend-axis direction must place support to the rear."""
-        for bid in ("B01", "B02"):
+        for bid in ("B01",):
             placement = WorkpiecePlacement3D.compute_placement(
                 self.fold_state, bid, rear_panel_vertices_xy=self.verts,
             )
@@ -86,8 +86,14 @@ class WorkpiecePlacement3DTests(unittest.TestCase):
             self.assertGreater(max(ss), abs(min(ss)), bid)
             self.assertAlmostEqual(_mat_det(placement.rotation), 1.0, places=8)
 
+    def test_rear_frame_rejects_support_panel_straddling_bend_line(self):
+        with self.assertRaisesRegex(ValueError, "ambiguous_support"):
+            WorkpiecePlacement3D.compute_placement(
+                self.fold_state, "B02", rear_panel_vertices_xy=self.verts,
+            )
+
     def test_rear_right_frame_still_centers_punch_die_on_bend_axis(self):
-        for bid in ("B01", "B02"):
+        for bid in ("B01",):
             placement = WorkpiecePlacement3D.compute_placement(
                 self.fold_state, bid, rear_panel_vertices_xy=self.verts,
             )
