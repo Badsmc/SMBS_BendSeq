@@ -353,8 +353,13 @@ class BackgaugeCAD3D:
                         (bbox_depth, z_candidate, "CAD_BBOX_FALLBACK")
                     )
             # One confirmed placement per panel before checking a distinct
-            # panel; further heights remain available in trace diagnostics.
+            # panel. Probe a few heights on each before spending the entire
+            # CAD budget on one unsuitable tall panel.
+            panel_trials = 0
             for depth, z, depth_source in trial_targets:
+                if panel_trials >= 3:
+                    break
+                panel_trials += 1
                 if occ_trials >= max_occ_trials:
                     break
                 occ_trials += 1
@@ -497,6 +502,20 @@ class BackgaugeCAD3D:
                 item["blocking_component"] or "-"
             ) for item in attempted[:8]
         )
+        # Sampling / bounded OCC trial exhaustion can never prove that
+        # every reachable height or panel has been ruled out. Do not prune
+        # an entire DFS branch on an uncompleted geometric search.
+        if (occ_trials >= max_occ_trials or
+                any(item.get("rejection") != "BACKGAUGE_Z_OUT_OF_RANGE"
+                    for item in attempted)):
+            raise BackgaugeCADError(
+                "CAD_CONTACT_SEARCH_INCOMPLETE:"
+                "station_xm_mm={:.3f} occ_trials={} max_trials={} "
+                "remaining_setup_requires_verification".format(
+                    self.station_xm_mm, occ_trials, max_occ_trials
+                )
+            )
+
         raise BackgaugeCADError(
             "NO_ACCESSIBLE_REAR_EDGE_AT_CONFIGURED_X:"
             "station_xm_mm={:.3f} fixed={} trials={}"
