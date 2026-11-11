@@ -257,6 +257,7 @@ def screen_candidate_stage_b(
     fractions: Tuple[float, ...] = (0.0, 0.5, 1.0),
     stroke_fractions: Optional[Tuple[float, ...]] = None,
     backgauge_polygon_machine: Optional[Sequence[Tuple[float, float]]] = None,
+    enforce_rear_frame: bool = False,
     backgauge_cad_checker: Any = None,
     backgauge_contact_s_mm: Optional[float] = None,
     backgauge_contact_z_mm: Optional[float] = None,
@@ -336,7 +337,7 @@ def screen_candidate_stage_b(
                 align_bend_arc_center=True,
                 reverse_axis=reverse_axis,
                 rear_panel_vertices_xy=(
-                    panel_vertices_xy if (backgauge_polygon_machine is not None or backgauge_cad_checker is not None)
+                    panel_vertices_xy if (enforce_rear_frame or backgauge_polygon_machine is not None or backgauge_cad_checker is not None)
                     else None
                 ),
             )
@@ -550,7 +551,7 @@ def screen_candidate_stage_b(
                     align_bend_arc_center=True,
                     reverse_axis=reverse_axis,
                     rear_panel_vertices_xy=(
-                        panel_vertices_xy if (backgauge_polygon_machine is not None or backgauge_cad_checker is not None)
+                        panel_vertices_xy if (enforce_rear_frame or backgauge_polygon_machine is not None or backgauge_cad_checker is not None)
                         else None
                     ),
                 )
