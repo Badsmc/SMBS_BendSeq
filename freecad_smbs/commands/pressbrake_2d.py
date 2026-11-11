@@ -1185,8 +1185,6 @@ class _PreviewPanel:
                 self.slider.valueChanged.connect(self._on_slider_changed)
                 root.addWidget(self.slider)
 
-                self.step = QtWidgets.QLabel("Активный гиб: — | Угол: — / —")
-                self.step.setWordWrap(True)
 
                 order_row = QtWidgets.QHBoxLayout()
                 order_row.addWidget(QtWidgets.QLabel("Порядок:"))
@@ -1328,8 +1326,6 @@ class _PreviewPanel:
                     self._validate_export_manual_order
                 )
                 manual_layout.addWidget(self.manual_validate_btn)
-                # Internal status only, not the obsolete instructional paragraph.
-                self.manual_hint = QtWidgets.QLabel("")
                 controls.addTab(
                     scroll_task_page(manual, "SMBS_ManualScroll"),
                     QtGui.QIcon(str(_ICON_ROOT / "control_manual.svg")),
@@ -3846,10 +3842,6 @@ class _PreviewPanel:
                     self.status.setText(
                         "JSON: {} | {} | {}".format(target, verdict, cost_label)
                     )
-                    self.manual_hint.setText(
-                        "Диагностика сохранена: {}. {}. {} "
-                        "Передайте JSON для разбора.".format(target, verdict, cost_label)
-                    )
                 except Exception as exc:
                     self.status.setText("Ошибка проверки ручного порядка: " + str(exc))
                     _error("Manual-order diagnostic exception: " + traceback.format_exc())
@@ -3857,11 +3849,15 @@ class _PreviewPanel:
                     self.manual_validate_btn.setEnabled(True)
 
             def activate_manual_mode(self):
-                """Toolbar Manual: open flat pattern and start line selection."""
+                """Toolbar Manual: open flat pattern without discarding order."""
                 if self.session is None:
                     self.status.setText("Сначала загрузите развёртку SheetMetal.")
                     return
-                self._toggle_manual_order(True)
+                if not self._manual_selection_enabled:
+                    self._toggle_manual_order(True)
+                else:
+                    self._viewer_tabs.setCurrentWidget(self._flat_view)
+                    self._draw_flat_pattern(reset_camera=False)
                 show_workspace_controls(self, tab=1)
 
             def _toggle_manual_order(self, enabled):
@@ -3878,18 +3874,16 @@ class _PreviewPanel:
                 self._update_manual_hint()
 
             def _update_manual_hint(self):
-                if not hasattr(self, "manual_hint"):
-                    return
-                prefix = self._manual_sequence_prefix
-                self.manual_hint.setText(
-                    "Ручная последовательность {}/{}: {}. "
-                    "Нажмите на ненумерованную линию развёртки; номера ставятся по порядку. "
-                    "Порядок ещё НЕ проверен физически.".format(
-                        len(prefix),
-                        len(self.session.bend_order) if self.session else 0,
-                        " → ".join(prefix) or "не назначена"
+                """Compact status instead of an instructional text panel."""
+                if self._manual_selection_enabled:
+                    prefix = self._manual_sequence_prefix
+                    self.status.setText(
+                        "Manual: {}/{} | {} | физическая проверка не выполнена".format(
+                            len(prefix),
+                            len(self.session.bend_order) if self.session else 0,
+                            " → ".join(prefix) or "порядок пуст",
+                        )
                     )
-                )
 
             def _select_flat_bend(self, bend_id):
                 if self.session is None or not self._manual_selection_enabled:
@@ -4976,7 +4970,7 @@ class _PreviewPanel:
                         text.setData(0, "placeholder")
                         rect = text.boundingRect()
                         text.setPos(-rect.width() / 2.0, -rect.height() / 2.0)
-                        self.step.setText("Активный гиб: — | Угол: — / —")
+
                         return
 
                     sheet_pts: list = []
@@ -5108,7 +5102,7 @@ class _PreviewPanel:
                             # pose. If none was ever computed, suppress the
                             # workpiece entirely instead of drawing IDENTITY
                             # at a misleading punch/die location.
-                            self.step.setText(
+                            self.status.setText(
                                 "СТОП: невозможно расположить заготовку в 2.5D | "
                                 + pose_warning
                             )
@@ -5234,25 +5228,10 @@ class _PreviewPanel:
                             tan_item.setZValue(Z_LAYER_SHEET_NEUTRAL_AND_TANGENTS)
                             tan_item.setData(0, "sheet_tangent")
 
-                        pc = self._ensure_press_cycle_controller()
-                        if pc is not None and self.execution_mode == CycleExecutionMode.FULL_CYCLE:
-                            status_str = pc.status_line()
-                        else:
-                            status_str = self.session.status_line()
-                        self.step.setText(
-                            "{} | R_вн={:.2f} мм, t={:.2f} мм".format(
-                                status_str + (" | LAST_VALID_FRAME at " +
-                                    str(self._last_valid_machine_bend)
-                                    if pose_warning else " | " + pose.mode)
-                                    + (" | " + pose_warning if pose_warning else ""),
-                                sec["inner_radius_mm"],
-                                sec["thickness_mm"],
-                            )
-                        )
                         self._update_press_cycle_labels()
                         self._update_loading_orientation_label()
                     else:
-                        self.step.setText("Активный гиб: — | Угол: — / —")
+
                         self._update_press_cycle_labels()
                         self._update_loading_orientation_label()
 
