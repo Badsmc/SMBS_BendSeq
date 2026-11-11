@@ -341,12 +341,30 @@ def compute_workpiece_machine_setup(
         vec_y = vx[1] - n0[1]
         azimuth = math.degrees(math.atan2(vec_y, vec_x))
 
+        # Project every known panel vertex onto the machine feed axis.
+        # Machine +s = -Y points to the rear gauge; -s points to operator.
+        # Use complete current folded state, never global unplaced BBox.
+        operator_reach = rear_reach = None
+        if rear_panel_vertices_xy is not None:
+            s_coordinates = []
+            for panel_id, vertices in rear_panel_vertices_xy.items():
+                tf = fold_state.transforms.get(panel_id)
+                if tf is None:
+                    continue
+                for x, y in vertices:
+                    point = plc.apply(tf.point((float(x), float(y), 0.0)))
+                    s_coordinates.append(-float(point[1]))
+            if s_coordinates:
+                operator_reach = max(0.0, -min(s_coordinates))
+                rear_reach = max(0.0, max(s_coordinates))
         return WorkpieceMachineSetup(
             bend_id=active_bend_id,
             rotation_deg=float(azimuth),
             flipped=flipped,
             shift_xm_mm=float(desired_midpoint_xm),
             bend_length_mm=float(bend_len),
+            operator_reach_mm=operator_reach,
+            rear_reach_mm=rear_reach,
             is_complete=True,
         )
     except Exception as exc:
