@@ -393,13 +393,37 @@ class BackgaugeCAD3D:
         other_hit, _ = probe(high_s, target_only=False)
         if other_hit is not None:
             finger, component, volume = other_hit
+            # The OCC intersection is physical material overlap at this
+            # *specific* mounted CAD configuration. Include its spatial
+            # location and any part of the gauge projecting ahead of Face3.
+            gauge_body = shapes[finger - 1]
+            obstructing_solid = next(
+                shape for label, shape in components if label == component
+            )
+            common = gauge_body.common(obstructing_solid)
+            if common.isNull() or not common.isValid():
+                raise BackgaugeCADError(
+                    "OCC_CAD_OBSTRUCTION_GEOMETRY_UNVERIFIED:"
+                    "finger={} component={}".format(finger, component)
+                )
+            gb = gauge_body.BoundBox
+            cb = common.BoundBox
+            ahead = max(0.0, float(gb.YMax) + float(high_s))
             raise BackgaugeCADError(
                 "OTHER_PANEL_BLOCKS_REQUIRED_GAUGE_CONTACT:"
                 "finger={} obstructing_component={} "
                 "volume_mm3={:.6f} fixed={} "
-                "required_stop_s_mm={:.4f} hint_s_mm={:.4f}"
-                .format(finger, component, volume,
-                        fixed_id, high_s, hint_s)
+                "required_stop_s_mm={:.4f} hint_s_mm={:.4f} "
+                "front_protrusion_mm={:.4f} "
+                "overlap_bbox_xyz_mm=[{:.3f},{:.3f},{:.3f},{:.3f},"
+                "{:.3f},{:.3f}]"
+                .format(
+                    finger, component, volume, fixed_id, high_s, hint_s,
+                    ahead,
+                    float(cb.XMin), float(cb.XMax),
+                    float(cb.YMin), float(cb.YMax),
+                    float(cb.ZMin), float(cb.ZMax),
+                )
             )
         return self._qualified_contact(
             shapes, fixed, high_s, contact_z_mm, hint_s,
