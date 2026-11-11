@@ -122,30 +122,30 @@ def _record_planar_tool_interference(
             ],
         }
 
-    component = finding.sheet_component
-    match = {
-        "active_fixed": section.get("fixed_polygon"),
-        "active_moving": section.get("moving_polygon"),
-        "active_bend_zone": section.get("zone_polygon"),
-    }.get(component)
-    if match is None:
-        for collection in ("other_panel_polygons", "other_zone_polygons"):
-            for label, polygon in section.get(collection, ()):
-                if str(label) == str(component):
-                    match = polygon
-                    break
-            if match is not None:
-                break
-
-    if finding.tool == "PUNCH":
-        profile = tooling.punch_polygons_machine(arc_segments=24)
-    elif finding.tool == "DIE":
-        profile = tooling.die_polygons_machine(arc_segments=24)
-    else:
-        profile = None
-
-    outer, holes = (profile if profile is not None else (None, ()))
     try:
+        component = finding.sheet_component
+        match = {
+            "active_fixed": section.get("fixed_polygon"),
+            "active_moving": section.get("moving_polygon"),
+            "active_bend_zone": section.get("zone_polygon"),
+        }.get(component)
+        if match is None:
+            for collection in ("other_panel_polygons", "other_zone_polygons"):
+                for label, polygon in section.get(collection, ()):
+                    if str(label) == str(component):
+                        match = polygon
+                        break
+                if match is not None:
+                    break
+
+        if finding.tool == "PUNCH":
+            profile = tooling.punch_polygons_machine(arc_segments=24)
+        elif finding.tool == "DIE":
+            profile = tooling.die_polygons_machine(arc_segments=24)
+        else:
+            profile = None
+
+        outer, holes = (profile if profile is not None else (None, ()))
         cad_checker._trace(
             "PLANAR_TOOL_INTERFERENCE",
             bend_id=str(bend_id),
