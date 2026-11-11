@@ -1779,16 +1779,15 @@ class _PreviewPanel:
                     scene.addSimpleText("3D: {}".format(str(exc)))
                     return
 
-                # Re-orient the camera, not the workpiece or its FoldState.
-                # Orthographic projection with centroid-based orbit target.
+                # Camera orbit is anchored at the PHYSICAL DIE ORIGIN.
+                # Recentering on the mesh centroid each frame hid long
+                # operator/rear feeds and produced false visual "jumps".
+                # Orbit the camera, never translate the machine or sheet.
                 all_vertices = [v for f in faces for v in f.vertices]
                 if not all_vertices:
                     scene.addSimpleText("3D: no visible faces")
                     return
-                center = tuple(
-                    sum(p[axis] for p in all_vertices) / len(all_vertices)
-                    for axis in range(3)
-                )
+                center = (0.0, 0.0, 0.0)
                 radius = max(
                     math.sqrt(sum((p[i] - center[i]) ** 2 for i in range(3)))
                     for p in all_vertices
