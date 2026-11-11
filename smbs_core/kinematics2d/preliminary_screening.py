@@ -321,6 +321,7 @@ def screen_candidate_stage_b(
 
         outer_r = float(getattr(bend.bend_zone, "outer_radius_mm", 0.0) if bend.bend_zone else 0.0)
 
+        loading_route_unverified = False
         # INITIAL LOAD: follow the same stationary real CAD stop while a
         # rigid flat/folded sheet feeds from operator left (-s) to the
         # contact target. This is sampled 3D gauge-only evidence; punch/die,
@@ -373,20 +374,17 @@ def screen_candidate_stage_b(
                             sample["volume_mm3"]
                         ),
                     )
+                    # This is a genuine OCC overlap at the *assumed*
+                    # loading pose, but the starting position is a preview
+                    # offset chosen by the user, not a validated loading
+                    # configuration. It must remain visible and UNVERIFIED,
+                    # but cannot prove that the bend order is impossible.
+                    # Continue to the independently sampled machine bend
+                    # setup, whose CAD gauge collisions remain blocking.
                     diagnostic_findings.append(finding)
-                    return PreliminaryScreeningReport(
-                        decision=ScreeningDecision.CONTINUE_TO_3D,
-                        stage="STAGE_B_SECTION_REQUIRES_3D",
-                        reason=(
-                            "cad_initial_loading_3d_material_interference:"
-                            + str(sample["component"]) + ":feed_fraction="
-                            + str(fraction)
-                        ),
-                        sampled_phases=tuple(sampled_phases),
-                        contact_statuses=("INTERFERENCE",),
-                        diagnostic_findings=tuple(diagnostic_findings),
-                        backgauge_checked=True,
-                    )
+                    contact_statuses.append("UNVERIFIED")
+                    loading_route_unverified = True
+                    break
                 if sample["status"] != "SAMPLED_CLEAR_OR_TOUCH":
                     raise ValueError("CAD load phase returned unknown verdict")
 
@@ -630,9 +628,13 @@ def screen_candidate_stage_b(
 
         return PreliminaryScreeningReport(
             decision=ScreeningDecision.CONTINUE_TO_3D,
-            stage=("STAGE_B_RETRACT_WARNING" if retract_warning_found else "STAGE_B_PREVIEW"),
+            stage=("STAGE_B_RETRACT_WARNING" if retract_warning_found
+                   else "STAGE_B_LOADING_ROUTE_UNVERIFIED"
+                   if loading_route_unverified else "STAGE_B_PREVIEW"),
             reason=("retract_punch_interference_requires_3d_review"
-                    if retract_warning_found else "sampled_2d_section_unverified" if "UNVERIFIED" in contact_statuses
+                    if retract_warning_found else
+                    "initial_cad_loading_route_intersection_at_assumed_start_not_bend_rejection"
+                    if loading_route_unverified else "sampled_2d_section_unverified" if "UNVERIFIED" in contact_statuses
                     else "all_sampled_2d_sections_clear_or_touch"
                     if "TOUCH" in contact_statuses else "all_sampled_2d_sections_clear"),
             sampled_phases=tuple(sampled_phases),
