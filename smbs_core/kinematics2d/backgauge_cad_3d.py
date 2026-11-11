@@ -383,6 +383,10 @@ class BackgaugeCAD3D:
         from .workpiece_placement_3d import WorkpiecePlacement3D
 
         if backgauge_model.automatic:
+            if self.second_station_xm_mm is not None:
+                raise BackgaugeCADError(
+                    "TWO_CAD_FINGERS_REQUIRE_INDEPENDENT_REAR_EDGE_SOLVER"
+                )
             if float(backgauge_model.edge_clearance_mm) > tolerance_mm:
                 # A deliberate gap cannot be silently classified as genuine
                 # Face6-to-sheet contact.
@@ -403,14 +407,15 @@ class BackgaugeCAD3D:
                 align_bend_arc_center=True,
                 rear_panel_vertices_xy=panel_vertices_xy,
             )
-            self._trace(
-                "EXTERNAL_REAR_AUTO_REQUEST",
-                bend_id=str(bend_id),
-                kinematic_fixed_panel=str(state.bends[bend_id].fixed_panel),
-                station_xm_mm=float(self.station_xm_mm),
-                workpiece_pose_rotation=placement.rotation,
-                workpiece_pose_translation_xyz_mm=placement.translation,
-            )
+            if getattr(self, "_trace_writer", None) is not None:
+                self._trace(
+                    "EXTERNAL_REAR_AUTO_REQUEST",
+                    bend_id=str(bend_id),
+                    kinematic_fixed_panel=str(state.bends[bend_id].fixed_panel),
+                    station_xm_mm=float(self.station_xm_mm),
+                    workpiece_pose_rotation=placement.rotation,
+                    workpiece_pose_translation_xyz_mm=placement.translation,
+                )
             result = self.solve_accessible_rear_contact(
                 state, panel_vertices_xy, placement,
                 active_bend_id=bend_id, tolerance_mm=tolerance_mm,
