@@ -775,7 +775,18 @@ def search_bend_sequences_2d(
         nonlocal probe_cutoffs, best_partial_steps, best_partial_prefix
         if len(prefix) > len(deepest_prefix):
             deepest_prefix = prefix
-            if (min_partial_bends > 0
+            # A previewable partial prefix must consist only of completed
+            # sampled checks. Merely reaching Stage B before the global
+            # deadline (UNVERIFIED_2D with zero sampled phases) is NOT a
+            # seventh validated bend and must not enter playback.
+            partial_eligible = all(
+                item.evidence in (
+                    "SAMPLED_2D_CLEAR_OR_TOUCH",
+                    "2D_RETRACT_WARNING_NOT_3D_VALIDATED",
+                )
+                for item in steps
+            )
+            if (partial_eligible and min_partial_bends > 0
                     and min_partial_bends <= len(prefix) <= min(8, len(order) - 1)):
                 best_partial_steps = steps
                 best_partial_prefix = prefix
@@ -872,6 +883,16 @@ def search_bend_sequences_2d(
                 stopped = "MAX_SEARCH_TIME_REACHED"
                 return
             step = eval_step(prefix, bend_id)
+            if (step.evidence == "UNVERIFIED_2D"
+                    and step.reason in (
+                        "2d_probe_time_budget_reached",
+                        "cad_initial_feed_sample_budget_exhausted",
+                    )):
+                # Stage B did not finish even the first or next sample:
+                # this is a hard time stop, not an exploratory bend that
+                # may be appended to a visualized or completed sequence.
+                stopped = "MAX_SEARCH_TIME_REACHED"
+                return
             if step.evidence in ("2D_INTERFERENCE", "CAD_3D_INTERFERENCE", "CAD_CONTACT_UNAVAILABLE", "INVALID_INPUT", "2D_TOOLING_CONSTRAINT"):
                 continue
             dfs(prefix + (bend_id,), steps + (step,), node_ceiling, root_deadline)
@@ -899,6 +920,13 @@ def search_bend_sequences_2d(
                     if root_probe_seconds else None
                 )
                 step = eval_step((), first_bend)
+                if (step.evidence == "UNVERIFIED_2D"
+                        and step.reason in (
+                            "2d_probe_time_budget_reached",
+                            "cad_initial_feed_sample_budget_exhausted",
+                        )):
+                    stopped = "MAX_SEARCH_TIME_REACHED"
+                    break
                 if step.evidence in ("2D_INTERFERENCE", "CAD_3D_INTERFERENCE", "CAD_CONTACT_UNAVAILABLE", "INVALID_INPUT", "2D_TOOLING_CONSTRAINT"):
                     continue
                 dfs(
