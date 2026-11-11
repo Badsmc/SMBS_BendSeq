@@ -775,21 +775,21 @@ def search_bend_sequences_2d(
         nonlocal probe_cutoffs, best_partial_steps, best_partial_prefix
         if len(prefix) > len(deepest_prefix):
             deepest_prefix = prefix
-            # A previewable partial prefix must consist only of completed
-            # sampled checks. Merely reaching Stage B before the global
-            # deadline (UNVERIFIED_2D with zero sampled phases) is NOT a
-            # seventh validated bend and must not enter playback.
-            partial_eligible = all(
-                item.evidence in (
-                    "SAMPLED_2D_CLEAR_OR_TOUCH",
-                    "2D_RETRACT_WARNING_NOT_3D_VALIDATED",
-                )
-                for item in steps
+        # "Deepest explored" is not synonymous with "longest previewable":
+        # after a speculative unknown branch reaches depth 7, a different,
+        # fully sampled depth-7 prefix must still be eligible for playback.
+        partial_eligible = all(
+            item.evidence in (
+                "SAMPLED_2D_CLEAR_OR_TOUCH",
+                "2D_RETRACT_WARNING_NOT_3D_VALIDATED",
             )
-            if (partial_eligible and min_partial_bends > 0
-                    and min_partial_bends <= len(prefix) <= min(8, len(order) - 1)):
-                best_partial_steps = steps
-                best_partial_prefix = prefix
+            for item in steps
+        )
+        if (partial_eligible and min_partial_bends > 0
+                and min_partial_bends <= len(prefix) <= min(8, len(order) - 1)
+                and len(prefix) > len(best_partial_prefix)):
+            best_partial_steps = steps
+            best_partial_prefix = prefix
         if stopped:
             return
         if complete_candidates_examined >= max_complete_candidates:
