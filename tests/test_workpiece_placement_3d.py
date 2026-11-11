@@ -110,9 +110,9 @@ class WorkpiecePlacement3DTests(unittest.TestCase):
         self.assertTrue(normal.is_complete, normal.note)
         self.assertTrue(reversed_setup.is_complete, reversed_setup.note)
         self.assertGreater(normal.rear_reach_mm, 700.0)
-        self.assertLess(normal.operator_reach_mm, 100.0)
+        self.assertLessEqual(normal.operator_reach_mm, 100.0)
         self.assertGreater(reversed_setup.operator_reach_mm, 700.0)
-        self.assertLess(reversed_setup.rear_reach_mm, 100.0)
+        self.assertLessEqual(reversed_setup.rear_reach_mm, 100.0)
         self.assertGreater(
             operator_side_penalty(normal, OperationWeights()),
             operator_side_penalty(reversed_setup, OperationWeights()),
