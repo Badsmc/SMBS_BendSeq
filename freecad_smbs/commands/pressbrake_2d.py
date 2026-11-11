@@ -901,6 +901,7 @@ class _PreviewPanel:
                 self._selected_planar_gauge_order = ()
                 self._selected_planar_gauge_positions = {}
                 self._selected_planar_gauge_model_id = None
+                self._selected_planar_loading_orientation = {}
                 if self._backgauge_settings.value(
                     "backgauge/enabled", False, type=bool
                 ):
@@ -2408,6 +2409,7 @@ class _PreviewPanel:
                 self._selected_planar_gauge_order = ()
                 self._selected_planar_gauge_positions = {}
                 self._selected_planar_gauge_model_id = None
+                self._selected_planar_loading_orientation = {}
                 self._backgauge_preview_cache.clear()
                 self.last_sequence_search_report = None
                 self._conditional_bends_status.clear()
@@ -2626,6 +2628,10 @@ class _PreviewPanel:
                                     step.backgauge_variant_index
                                     for step in candidate.steps
                                 ),
+                                loading_orientation_variants=tuple(
+                                    step.orientation_variant
+                                    for step in candidate.steps
+                                ),
                             )
                             if not valid:
                                 self.status.setText(
@@ -2652,6 +2658,12 @@ class _PreviewPanel:
                         self._preview_only_planar_order = tuple(candidate.sequence)
                         self._selected_planar_gauge_order = tuple(candidate.sequence)
                         self._selected_planar_gauge_model_id = id(self.backgauge_model)
+                        self._selected_planar_loading_orientation = {
+                            str(step.bend_id): step.orientation_variant.startswith(
+                                "REVERSE_MACHINE_Z_180"
+                            )
+                            for step in candidate.steps
+                        }
                         self._selected_planar_gauge_positions = {
                             i: (float(step.setup.backgauge_s_mm),
                                 float(step.setup.backgauge_z_mm))
@@ -2661,6 +2673,11 @@ class _PreviewPanel:
                                 and step.setup.backgauge_z_mm is not None)
                         }
                         self._backgauge_preview_cache.clear()
+                        self._ensure_press_cycle_controller()
+                        if self.press_cycle is not None:
+                            self.press_cycle.loading_orientation_by_bend = dict(
+                                self._selected_planar_loading_orientation
+                            )
                         # A previous strict validation does not apply to a
                         # newly selected, independently ranked planar order.
                         self.last_sequence_search_report = None
@@ -2769,6 +2786,7 @@ class _PreviewPanel:
                     self._selected_planar_gauge_order = ()
                     self._selected_planar_gauge_positions = {}
                     self._selected_planar_gauge_model_id = None
+                    self._selected_planar_loading_orientation = {}
                     self._backgauge_preview_cache.clear()
                     self._conditional_bends_status.clear()
                     if search_rep.status is SearchStatus.CONDITIONAL_VALIDATED:
@@ -2868,6 +2886,9 @@ class _PreviewPanel:
                             self.session.panel_vertices_xy
                             if self.backgauge_model is not None else None
                         )
+                        self.press_cycle.loading_orientation_by_bend = dict(
+                            self._selected_planar_loading_orientation
+                        )
                         self.press_cycle.initial_feed_preview_mm = (
                             self.backgauge_model.initial_feed_preview_mm
                             if self.backgauge_model is not None else 0.0
@@ -2889,6 +2910,9 @@ class _PreviewPanel:
                 self.press_cycle.rear_panel_vertices_xy = (
                     self.session.panel_vertices_xy
                     if self.backgauge_model is not None else None
+                )
+                self.press_cycle.loading_orientation_by_bend = dict(
+                    self._selected_planar_loading_orientation
                 )
                 self.press_cycle.initial_feed_preview_mm = (
                     self.backgauge_model.initial_feed_preview_mm
@@ -3427,6 +3451,7 @@ class _PreviewPanel:
                 self._selected_planar_gauge_order = ()
                 self._selected_planar_gauge_positions = {}
                 self._selected_planar_gauge_model_id = None
+                self._selected_planar_loading_orientation = {}
                 self._backgauge_preview_cache.clear()
                 self._manual_sequence_prefix = []
                 self.last_sequence_search_report = None
@@ -3638,6 +3663,7 @@ class _PreviewPanel:
                 self._selected_planar_gauge_order = ()
                 self._selected_planar_gauge_positions = {}
                 self._selected_planar_gauge_model_id = None
+                self._selected_planar_loading_orientation = {}
                 self._backgauge_preview_cache.clear()
                 self.last_sequence_search_report = None
                 self._conditional_bends_status.clear()
