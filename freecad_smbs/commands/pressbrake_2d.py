@@ -4248,10 +4248,26 @@ class _PreviewPanel:
                 if self.session is None:
                     self._stop_timer()
                     return
-                if (self._partial_preview_limit and all(
-                    self.session.controller.is_bend_completed(bid)
-                    for bid in self.session.bend_order[:self._partial_preview_limit]
-                )):
+                # A partial candidate must finish retracting the final
+                # punch before stopping. Otherwise the last sampled geometry
+                # freezes at BOTTOM/BENDING and looks like an illegal setup.
+                partial_prefix_done = bool(
+                    self._partial_preview_limit and all(
+                        self.session.controller.is_bend_completed(bid)
+                        for bid in self.session.bend_order[
+                            :self._partial_preview_limit
+                        ]
+                    )
+                )
+                partial_safe_to_stop = (
+                    self.execution_mode != CycleExecutionMode.FULL_CYCLE
+                    or self.press_cycle is None
+                    or self.press_cycle.phase in (
+                        CyclePhase.STEP_COMPLETE, CyclePhase.COMPLETED,
+                        CyclePhase.IDLE,
+                    )
+                )
+                if partial_prefix_done and partial_safe_to_stop:
                     self.session.pause()
                     if self.press_cycle is not None:
                         self.press_cycle.pause()
