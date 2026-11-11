@@ -215,6 +215,160 @@ class BackgaugeCAD3D:
                     )
         return tuple(shapes)
 
+    def solve_accessible_rear_contact(self, state, panel_vertices_xy,
+                                      placement, *, active_bend_id,
+                                      tolerance_mm=0.02):
+        """Find an external, physically reachable panel edge at the mounted X.
+
+        This is a sampled *static* CAD setup solver. Unlike fixed_panel,
+        which defines bend kinematics, the stop may contact any exposed
+        rear-facing sheet edge. Generate depths from actual placed panel
+        solids, then verify Pad.Face6-to-panel contact AND BRep clearance
+        against every panel and finite bend zone. Never assume that a BBox
+        coincidence is a valid contact, never omit the 200mm rear stop body.
+        Machine-axis limits and transfer sweeps remain UNVERIFIED.
+        """
+        import Part
+        if (not math.isfinite(float(tolerance_mm)) or
+                not 0.001 <= float(tolerance_mm) <= 0.2):
+            raise BackgaugeCADError("invalid external contact tolerance")
+        bend = state.bends[active_bend_id]
+        if bend.bend_zone is None:
+            raise BackgaugeCADError("authoritative bend thickness missing")
+        if self.second_station_xm_mm is not None:
+            # Two X stations generally contact distinct external boundaries
+            # and need independently driven depth / height. No such axis
+            # model is available, so do not manufacture a shared setup.
+            raise BackgaugeCADError(
+                "TWO_CAD_FINGERS_REQUIRE_INDEPENDENT_REAR_EDGE_SOLVER"
+            )
+        thickness = float(bend.bend_zone.thickness_mm)
+        components = (
+            self._panel_solids(state, panel_vertices_xy, placement, thickness)
+            + self._bend_solids(state, placement)
+        )
+        panels = [(name, solid) for name, solid in components
+                  if name.startswith("panel:")]
+        if not panels:
+            raise BackgaugeCADError("no 3D panel solids for rear stop")
+        volume_limit = max(1e-6, float(tolerance_mm) ** 3)
+        gap_limit = max(0.05, float(tolerance_mm) + 0.03)
+        fixed_id = "panel:" + str(bend.fixed_panel)
+        # Stable ordering: the physical backgauge approaches the *outer*
+        # rear boundary first, not the internal edge of fixed_panel.
+        options = sorted(
+            ((-float(part.BoundBox.YMin), name, part)
+             for name, part in panels
+             if math.isfinite(float(part.BoundBox.YMin)) and
+             -float(part.BoundBox.YMin) > 0.001),
+            key=lambda item: (-item[0], item[1]),
+        )
+        attempted = []
+        for depth, panel_id, panel in options:
+            # Align the selected physical face vertically with this panel.
+            # Its 14mm height is sourced from FCStd; do not invent offsets.
+            z_mid = (
+                float(panel.BoundBox.ZMin) + float(panel.BoundBox.ZMax)
+            ) / 2.0
+            gauges = self.positioned_shapes(depth, z_mid)
+            gauge = gauges[0]
+            face = gauge.Faces[self.stop_face_index - 1]
+            u0, u1, v0, v1 = face.ParameterRange
+            n = face.normalAt((u0 + u1)/2, (v0 + v1)/2)
+            if n.dot(self.app.Vector(0, 1, 0)) < 0.999:
+                raise BackgaugeCADError("SELECTED_WORKING_FACE_NOT_OPERATOR_FACING")
+            face_gap = float(face.distToShape(panel)[0])
+            if not math.isfinite(face_gap):
+                raise BackgaugeCADError("nonfinite selected face contact gap")
+            reason = None
+            blocked_by = None
+            overlap_volume = 0.0
+            if face_gap > gap_limit:
+                reason = "WORKING_FACE_DOES_NOT_REACH_EDGE"
+            else:
+                gbb = gauge.BoundBox
+                for name, solid in components:
+                    sb = solid.BoundBox
+                    if (gbb.XMax < sb.XMin or sb.XMax < gbb.XMin or
+                            gbb.YMax < sb.YMin or sb.YMax < gbb.YMin or
+                            gbb.ZMax < sb.ZMin or sb.ZMax < gbb.ZMin):
+                        continue
+                    common = gauge.common(solid)
+                    if common.isNull():
+                        continue
+                    overlap = float(common.Volume)
+                    if not math.isfinite(overlap):
+                        raise BackgaugeCADError(
+                            "nonfinite OCC external stop overlap"
+                        )
+                    if overlap > volume_limit:
+                        reason, blocked_by, overlap_volume = (
+                            "CAD_VOLUME_INTERFERENCE", name, overlap,
+                        )
+                        break
+            attempted.append({
+                "panel": panel_id,
+                "depth_s_mm": round(depth, 6),
+                "station_xm_mm": float(self.station_xm_mm),
+                "face_gap_mm": round(face_gap, 6),
+                "rejection": reason,
+                "blocking_component": blocked_by,
+                "overlap_mm3": round(overlap_volume, 6),
+            })
+            self._trace(
+                "EXTERNAL_REAR_CONTACT_TRIAL",
+                bend_id=str(active_bend_id), **attempted[-1],
+            )
+            if reason is not None:
+                continue
+            result = {
+                "contact_s_mm": float(depth),
+                "contact_z_mm": float(z_mid),
+                "hint_s_mm": float(depth),
+                "shift_rearward_mm": 0.0,
+                "actual_faces": [self.stop_face_index],
+                "datum_face_indices": [self.stop_face_index],
+                "selected_datum_is_contact": True,
+                "source_datum": "{}.{}".format(
+                    self.stop_source_object, self.stop_source_subelement
+                ),
+                "support_panel_id": panel_id.removeprefix("panel:"),
+                "support_panel_matches_fixed": panel_id == fixed_id,
+                "contact_station_xm_mm": float(self.station_xm_mm),
+                "face_gap_mm": float(face_gap),
+                "status": "EXTERNAL_REAR_FACE6_STATIC_CAD_CONTACT_SAMPLED",
+                "note": (
+                    "EXTERNAL_REAR_PANEL_{}".format(panel_id)
+                    + ("_MATCHES_FIXED" if panel_id == fixed_id
+                       else "_NOT_FIXED_PANEL_NEEDS_SETUP_REVIEW")
+                ),
+                "swept_path_verified": False,
+                "axis_limits_verified": False,
+            }
+            self._trace(
+                "EXTERNAL_REAR_CONTACT_SOLVED",
+                bend_id=str(active_bend_id), **result,
+            )
+            return result
+        self._trace(
+            "EXTERNAL_REAR_CONTACT_EXHAUSTED",
+            bend_id=str(active_bend_id),
+            configured_station_xm_mm=self.station_xm_mm,
+            fixed_panel=fixed_id,
+            attempted=attempted,
+        )
+        summary = ";".join(
+            "{}@{:.3f}:{}:{}".format(
+                item["panel"], item["depth_s_mm"], item["rejection"],
+                item["blocking_component"] or "-"
+            ) for item in attempted[:8]
+        )
+        raise BackgaugeCADError(
+            "NO_ACCESSIBLE_REAR_EDGE_AT_CONFIGURED_X:"
+            "station_xm_mm={:.3f} fixed={} trials={}"
+            .format(self.station_xm_mm, fixed_id, summary)
+        )
+
     def resolve_contact_for_bend(self, state, panel_vertices_xy, bend_id,
                                  backgauge_model, *,
                                  desired_midpoint_xm=0.0,
