@@ -1,0 +1,90 @@
+name: GUI SVG icon and FreeCAD command contracts
+
+on:
+  push:
+    branches:
+      - GUI/v0.0.1
+  workflow_dispatch:
+
+jobs:
+  gui-icon-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Compile FreeCAD workbench code
+        run: python -m compileall -q Init.py InitGui.py freecad_smbs smbs_core
+      - name: Check FreeCAD commands and SVG icon resources
+        env:
+          PYTHONPATH: .
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from xml.etree import ElementTree as ET
+          import re
+          from freecad_smbs.InitGui import COMMANDS_MAP, SMBSWorkbench
+
+          base = Path("freecad_smbs/resources/icons")
+          icons = sorted(base.glob("*.svg"))
+          assert len(icons) >= 20, len(icons)
+          valid_tags = {
+              "svg", "title", "rect", "path", "circle", "ellipse",
+              "line", "g", "polygon", "polyline",
+          }
+          for file in icons:
+              source = file.read_text(encoding="utf-8")
+              root = ET.fromstring(source)
+              assert root.tag.endswith("svg"), file
+              assert root.attrib["viewBox"] == "0 0 32 32", file
+              assert root.attrib["width"] == "32", file
+              assert root.attrib["height"] == "32", file
+              for node in root.iter():
+                  tag = node.tag.rsplit("}", 1)[-1]
+                  assert tag in valid_tags, (file, tag)
+                  assert not any(key.startswith("on") for key in node.attrib), file
+                  for value in node.attrib.values():
+                      assert "http://" not in value and "https://" not in value, file
+              assert "rgb(" not in source, file
+
+          expected_commands = {
+              "SMBS_PressBrake2D": "gui_simulation.svg",
+              "SMBS_LoadPart": "gui_part.svg",
+              "SMBS_ToolingTab": "gui_tooling.svg",
+              "SMBS_Calculate": "gui_calculate.svg",
+              "SMBS_PlanarCandidates": "gui_planar_candidates.svg",
+              "SMBS_SequenceCatalog": "gui_sequence_catalog.svg",
+              "SMBS_Backgauge": "gui_backgauge.svg",
+              "SMBS_Tooling": "tooling.svg",
+          }
+          assert set(COMMANDS_MAP) == set(expected_commands), (
+              "Unexpected command changes: " + str(set(COMMANDS_MAP))
+          )
+          for name, icon_name in expected_commands.items():
+              command = COMMANDS_MAP[name]()
+              resources = command.GetResources()
+              assert Path(resources["Pixmap"]).name == icon_name, name
+              assert Path(resources["Pixmap"]).is_file(), name
+
+          assert Path(SMBSWorkbench.Icon).name == "gui_workbench.svg"
+          assert Path(SMBSWorkbench.Icon).is_file()
+
+          gui_source = Path("freecad_smbs/commands/pressbrake_2d.py").read_text(
+              encoding="utf-8"
+          )
+          declared = set(re.findall(r'"([a-z_]+\.svg)"', gui_source))
+          missing = sorted(name for name in declared if not (base / name).is_file())
+          assert not missing, "GUI icon files missing: " + str(missing)
+          for required in (
+              "control_play.svg", "control_pause.svg", "control_reset.svg",
+              "control_fit.svg", "control_prev.svg", "control_next.svg",
+              "control_record.svg", "control_manual.svg",
+          ):
+              assert required in declared, required
+          assert "def _apply_svg_button_icons(self):" in gui_source
+          print("GUI_SVG_ICON_CONTRACT_OK", len(icons))
+          print("COMMAND_ICON_CONTRACT_OK", len(expected_commands))
+          print("PLAYBACK_ICON_CONTRACT_OK", len(declared))
+          PY
