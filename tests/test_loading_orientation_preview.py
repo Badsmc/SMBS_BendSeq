@@ -51,7 +51,7 @@ class OperatorFacingManualPreviewTests(unittest.TestCase):
         entry = plan_preview_loading_orientations(
             self.state, self.verts, ("B01",),
         )[0].to_dict()
-        self.assertIn("UNVERIFIED", entry["status"])
+        self.assertIn("NOT_CAD_VALIDATED", entry["status"])
         self.assertNotIn("CERTIFIED", entry["status"])
 
 
