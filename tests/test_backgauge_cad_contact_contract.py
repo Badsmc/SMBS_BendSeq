@@ -30,6 +30,7 @@ class CADFirstContactContractTests(TestCase):
         adapter = BackgaugeCAD3D.__new__(BackgaugeCAD3D)
         adapter.station_xm_mm = 50.0
         adapter.second_station_xm_mm = None
+        adapter.stop_face_index = 3
         expected = {
             "contact_s_mm": 127.5, "contact_z_mm": 0.75,
             "hint_s_mm": 120.01, "shift_rearward_mm": 7.49,
