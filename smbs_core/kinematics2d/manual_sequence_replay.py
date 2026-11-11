@@ -172,8 +172,24 @@ def evaluate_manual_planar_order(
                         "OTHER_PANEL_BLOCKS_REQUIRED_GAUGE_CONTACT:"
                     )
                 )
+                configured_stop_unreachable = (
+                    isinstance(exc, BackgaugeCADError)
+                    and str(exc).startswith(
+                        "NO_ACCESSIBLE_REAR_EDGE_AT_CONFIGURED_X:"
+                    )
+                )
+                invalid_stop_configuration = (
+                    isinstance(exc, BackgaugeCADError)
+                    and str(exc).startswith((
+                        "TWO_CAD_FINGERS_REQUIRE_INDEPENDENT_REAR_EDGE_SOLVER",
+                        "AUTO_CAD_CONTACT_REQUIRES_ZERO_EDGE_CLEARANCE:",
+                    ))
+                )
                 record["evidence"] = (
                     "CAD_3D_INTERFERENCE" if physical_obstruction
+                    else "CAD_CONTACT_UNAVAILABLE"
+                    if configured_stop_unreachable
+                    else "INVALID_INPUT" if invalid_stop_configuration
                     else "UNVERIFIED_2D"
                 )
                 record["reason"] = "replay_exception:{}:{}".format(
