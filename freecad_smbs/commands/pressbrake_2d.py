@@ -709,7 +709,7 @@ class BackgaugeCommand:
     """Configure explicit backgauge stop geometry and per-bend targets."""
     def GetResources(self):
         return {
-            "Pixmap": str(_ICON_ROOT / "gui_tooling.svg"),
+            "Pixmap": str(_ICON_ROOT / "gui_backgauge.svg"),
             "MenuText": "Задний упор",
             "ToolTip": "Целевые позиции заднего упора, веса и проверка 2D коллизий",
         }
@@ -730,7 +730,7 @@ class SequenceCatalogCommand:
     """Open saved sequence collection, without spawning a second simulator."""
     def GetResources(self):
         return {
-            "Pixmap": str(_ICON_ROOT / "gui_planar_candidates.svg"),
+            "Pixmap": str(_ICON_ROOT / "gui_sequence_catalog.svg"),
             "MenuText": "Последовательности",
             "ToolTip": "JSON автоматических и ручных последовательностей; назначение симуляции",
         }
@@ -1469,6 +1469,53 @@ class _PreviewPanel:
                 )
                 root.addWidget(self.show_task_panel_btn)
                 self.show_task_panel_btn.hide()
+                self._apply_svg_button_icons()
+
+            def _apply_svg_button_icons(self):
+                """Use the same industrial SVG family in task controls.
+
+                Only the visual presentation is modified. The existing
+                QPushButton instances, signals and enabled states are retained.
+                QtSvg renders the assets in FreeCAD's bundled Qt runtime.
+                """
+                icon_pairs = (
+                    (self.reset_btn, "control_reset.svg"),
+                    (self.play_btn, "control_play.svg"),
+                    (self.pause_btn, "control_pause.svg"),
+                    (self.fit_btn, "control_fit.svg"),
+                    (self.prev_step_btn, "control_prev.svg"),
+                    (self.next_step_btn, "control_next.svg"),
+                    (self.restore_order_btn, "control_reset.svg"),
+                    (self.manual_mode_btn, "control_manual.svg"),
+                    (self.manual_undo_btn, "control_prev.svg"),
+                    (self.manual_clear_btn, "control_reset.svg"),
+                    (self.manual_validate_btn, "control_validate.svg"),
+                    (self.trace_start_button, "control_record.svg"),
+                    (self.trace_stop_button, "control_stop.svg"),
+                    (self.trace_open_button, "control_folder.svg"),
+                    (self.trace_choose_button, "control_folder.svg"),
+                    (self.show_task_panel_btn, "gui_simulation.svg"),
+                    (self.tool_library_btn, "tooling.svg"),
+                    (self.import_punch_btn, "gui_tooling.svg"),
+                    (self.import_die_btn, "gui_tooling.svg"),
+                    (self.select_punch_btn, "gui_tooling.svg"),
+                    (self.select_die_btn, "gui_tooling.svg"),
+                    (self.align_tooling_btn, "gui_tooling.svg"),
+                    (self.reset_tooling_btn, "control_reset.svg"),
+                    (self.toggle_tooling_btn, "gui_tooling.svg"),
+                    (self.physical_check_btn, "control_validate.svg"),
+                    (self.full_physical_check_btn, "control_validate.svg"),
+                    (self.cycle_config_btn, "gui_backgauge.svg"),
+                    (self.check_btn, "control_validate.svg"),
+                )
+                for widget, icon_name in icon_pairs:
+                    asset = _ICON_ROOT / icon_name
+                    if not asset.is_file():
+                        raise FileNotFoundError(
+                            "SMBS GUI icon is missing: " + str(asset)
+                        )
+                    widget.setIcon(QtGui.QIcon(str(asset)))
+                    widget.setIconSize(QtCore.QSize(19, 19))
 
             def _on_trace_checkbox_toggled(self, enabled):
                 if enabled:
@@ -3512,6 +3559,9 @@ class _PreviewPanel:
             def _sync_playback_buttons(self):
                 if self.session is None:
                     self.play_btn.setText("▶ Play All")
+                    self.pause_btn.setIcon(QtGui.QIcon(str(
+                        _ICON_ROOT / "control_pause.svg"
+                    )))
                     self.pause_btn.setText("Ⅱ Pause")
                     self.pause_btn.setEnabled(False)
                     self.move_up_btn.setEnabled(False)
@@ -3521,6 +3571,11 @@ class _PreviewPanel:
                     self.planar_calculate.setEnabled(False)
                     return
                 st = self.session.playback_status
+                self.pause_btn.setIcon(QtGui.QIcon(str(
+                    _ICON_ROOT / ("control_play.svg"
+                                  if st == PlaybackStatus.PAUSED
+                                  else "control_pause.svg")
+                )))
                 self.playing = st == PlaybackStatus.PLAYING
                 bend_order = getattr(self.session, "bend_order", [])
                 self.calculate.setEnabled(not self.playing and len(bend_order) > 1)
