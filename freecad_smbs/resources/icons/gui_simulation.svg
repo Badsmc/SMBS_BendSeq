@@ -1,1 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><path d="M3 3h18v18H3z" fill="none" stroke="#416b83" stroke-width="1.5"/><path d="m9 7 8 5-8 5z" fill="#3c9d85"/></svg>
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32" role="img">
+<title>gui simulation</title>
+<rect x="1" y="1" width="30" height="30" rx="6.5" fill="#233B4D" stroke="#56788A" stroke-width="1.1"/>
+<rect x="5" y="6" width="22" height="20" rx="2.4" stroke="#A6C9D6" stroke-width="1.65" stroke-linejoin="round" stroke-linecap="round" fill="none"/><path d="M9 9H23M16 9V13" stroke="#E7F3F7" stroke-width="1.9" stroke-linejoin="round" stroke-linecap="round" fill="none"/><path d="M12 14L16 19L20 14" stroke="#FFC272" stroke-width="1.9" fill="none" stroke-linejoin="round"/><path d="M9 22L16 25L23 22" stroke="#55CFC0" stroke-width="2.15" stroke-linejoin="round" stroke-linecap="round" fill="none"/><path d="M16 19V20" stroke="#FFC272" stroke-width="2.05" stroke-linejoin="round" stroke-linecap="round" fill="none"/>
+</svg>
