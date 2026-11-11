@@ -303,10 +303,12 @@ def validate_partial_planar_prefix(
                         )
                     )
                     cad_contact_z = cad_contact_data["contact_z_mm"]
+                    backgauge_model.validate_z_travel(_point, bid)
                 else:
                     point, _depth, _ = backgauge_model.resolve_for_state(
                         state, session.panel_vertices_xy, bid,
                     )
+                    backgauge_model.validate_z_travel(point, bid)
                     gauge_polygon = backgauge_model.polygon_at(point)
             stage_a = screen_candidate_stage_a(
                 state, bid, tooling,
@@ -601,6 +603,7 @@ def search_bend_sequences_2d(
                         )
                     )
                     gauge_polygon = backgauge_model.polygon_at(target)
+                backgauge_model.validate_z_travel(target, bend_id)
                 setup = replace(
                     setup,
                     backgauge_s_mm=target.s_mm,
@@ -721,6 +724,8 @@ def search_bend_sequences_2d(
                     "NO_ACCESSIBLE_REAR_EDGE_AT_CONFIGURED_X:"
                 )
             )
+            from .backgauge_2d import BackgaugeZTravelError
+            z_travel_violation = isinstance(exc, BackgaugeZTravelError)
             invalid_stop_configuration = (
                 isinstance(exc, BackgaugeCADError)
                 and str(exc).startswith((
@@ -731,6 +736,7 @@ def search_bend_sequences_2d(
             evidence = (
                 "CAD_3D_INTERFERENCE" if physical_obstruction else
                 "CAD_CONTACT_UNAVAILABLE" if configured_stop_unreachable else
+                "BACKGAUGE_Z_OUT_OF_RANGE" if z_travel_violation else
                 "INVALID_INPUT" if invalid_stop_configuration else "UNVERIFIED_2D"
             )
             # Distinguish a configuration-specific contact failure from
@@ -752,7 +758,7 @@ def search_bend_sequences_2d(
         finally:
             state.angles = dict(original_angles)
             state.transforms = dict(original_transforms)
-        if step.evidence in ("2D_INTERFERENCE", "CAD_3D_INTERFERENCE", "CAD_CONTACT_UNAVAILABLE", "INVALID_INPUT", "2D_TOOLING_CONSTRAINT"):
+        if step.evidence in ("2D_INTERFERENCE", "CAD_3D_INTERFERENCE", "CAD_CONTACT_UNAVAILABLE", "BACKGAUGE_Z_OUT_OF_RANGE", "INVALID_INPUT", "2D_TOOLING_CONSTRAINT"):
             rejected += 1
         elif step.evidence == "UNVERIFIED_2D":
             unverified += 1
@@ -827,7 +833,7 @@ def search_bend_sequences_2d(
                         return
                     replay_step = eval_step(prefix[:i], bend_id, detailed=True)
                     if replay_step.evidence in (
-                        "2D_INTERFERENCE", "CAD_3D_INTERFERENCE", "CAD_CONTACT_UNAVAILABLE", "INVALID_INPUT", "2D_TOOLING_CONSTRAINT"
+                        "2D_INTERFERENCE", "CAD_3D_INTERFERENCE", "CAD_CONTACT_UNAVAILABLE", "BACKGAUGE_Z_OUT_OF_RANGE", "INVALID_INPUT", "2D_TOOLING_CONSTRAINT"
                     ):
                         final_replay_rejections += 1
                         return
@@ -893,7 +899,7 @@ def search_bend_sequences_2d(
                 # may be appended to a visualized or completed sequence.
                 stopped = "MAX_SEARCH_TIME_REACHED"
                 return
-            if step.evidence in ("2D_INTERFERENCE", "CAD_3D_INTERFERENCE", "CAD_CONTACT_UNAVAILABLE", "INVALID_INPUT", "2D_TOOLING_CONSTRAINT"):
+            if step.evidence in ("2D_INTERFERENCE", "CAD_3D_INTERFERENCE", "CAD_CONTACT_UNAVAILABLE", "BACKGAUGE_Z_OUT_OF_RANGE", "INVALID_INPUT", "2D_TOOLING_CONSTRAINT"):
                 continue
             dfs(prefix + (bend_id,), steps + (step,), node_ceiling, root_deadline)
             if stopped:
@@ -927,7 +933,7 @@ def search_bend_sequences_2d(
                         )):
                     stopped = "MAX_SEARCH_TIME_REACHED"
                     break
-                if step.evidence in ("2D_INTERFERENCE", "CAD_3D_INTERFERENCE", "CAD_CONTACT_UNAVAILABLE", "INVALID_INPUT", "2D_TOOLING_CONSTRAINT"):
+                if step.evidence in ("2D_INTERFERENCE", "CAD_3D_INTERFERENCE", "CAD_CONTACT_UNAVAILABLE", "BACKGAUGE_Z_OUT_OF_RANGE", "INVALID_INPUT", "2D_TOOLING_CONSTRAINT"):
                     continue
                 dfs(
                     (first_bend,), (step,),
