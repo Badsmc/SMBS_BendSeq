@@ -654,6 +654,11 @@ class PressCycleController:
                 support_plane_zm=next_outer_r,
                 align_bisector=True,
                 align_bend_arc_center=True,
+                reverse_axis=bool(
+                    getattr(self, "loading_orientation_by_bend", {}).get(
+                        nxt.bend_id, False
+                    )
+                ),
                 rear_panel_vertices_xy=getattr(self, "rear_panel_vertices_xy", None),
             )
             from smbs_core.kinematics2d.workpiece_transfer_3d import build_transfer_3d
@@ -915,6 +920,11 @@ class PressCycleController:
             support_plane_zm=support_z,
             align_bisector=align_bisector,
             align_bend_arc_center=align_arc_center,
+            reverse_axis=bool(
+                getattr(self, "loading_orientation_by_bend", {}).get(
+                    self.active_bend_id, False
+                )
+            ),
             rear_panel_vertices_xy=getattr(self, "rear_panel_vertices_xy", None),
         )
         if self.phase == CyclePhase.LOAD_TO_GAUGE:
