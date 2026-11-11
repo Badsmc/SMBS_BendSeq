@@ -895,6 +895,12 @@ class _PreviewPanel:
                 self._backgauge_settings = QtCore.QSettings("SMBS", "BendSeq")
                 self.backgauge_model = None
                 self._backgauge_preview_cache = {}
+                # Preserve the exact S/Z candidate accepted by the search.
+                # Otherwise a GUI redraw would recompute the primary gauge
+                # and depict a different setup from the chosen DFS branch.
+                self._selected_planar_gauge_order = ()
+                self._selected_planar_gauge_positions = {}
+                self._selected_planar_gauge_model_id = None
                 if self._backgauge_settings.value(
                     "backgauge/enabled", False, type=bool
                 ):
@@ -2399,6 +2405,10 @@ class _PreviewPanel:
                 is_partial = len(sequence) < len(current)
                 self._partial_preview_limit = len(sequence) if is_partial else 0
                 self._preview_only_planar_order = sequence
+                self._selected_planar_gauge_order = ()
+                self._selected_planar_gauge_positions = {}
+                self._selected_planar_gauge_model_id = None
+                self._backgauge_preview_cache.clear()
                 self.last_sequence_search_report = None
                 self._conditional_bends_status.clear()
                 self._populate_operations()
@@ -2612,6 +2622,10 @@ class _PreviewPanel:
                                 match_active_bend_length=not has_sections,
                                 allow_retract_warning=self.retract_warning_checkbox.isChecked(),
                                 backgauge_model=self.backgauge_model,
+                                backgauge_variant_indices=tuple(
+                                    step.backgauge_variant_index
+                                    for step in candidate.steps
+                                ),
                             )
                             if not valid:
                                 self.status.setText(
@@ -2636,6 +2650,17 @@ class _PreviewPanel:
                             len(candidate.sequence) if is_partial else 0
                         )
                         self._preview_only_planar_order = tuple(candidate.sequence)
+                        self._selected_planar_gauge_order = tuple(candidate.sequence)
+                        self._selected_planar_gauge_model_id = id(self.backgauge_model)
+                        self._selected_planar_gauge_positions = {
+                            i: (float(step.setup.backgauge_s_mm),
+                                float(step.setup.backgauge_z_mm))
+                            for i, step in enumerate(candidate.steps)
+                            if (step.setup is not None
+                                and step.setup.backgauge_s_mm is not None
+                                and step.setup.backgauge_z_mm is not None)
+                        }
+                        self._backgauge_preview_cache.clear()
                         # A previous strict validation does not apply to a
                         # newly selected, independently ranked planar order.
                         self.last_sequence_search_report = None
@@ -3395,6 +3420,10 @@ class _PreviewPanel:
                 self._last_manual_sequence_report = None
                 self._preview_only_planar_order = None
                 self._partial_preview_limit = 0
+                self._selected_planar_gauge_order = ()
+                self._selected_planar_gauge_positions = {}
+                self._selected_planar_gauge_model_id = None
+                self._backgauge_preview_cache.clear()
                 self._manual_sequence_prefix = []
                 self.last_sequence_search_report = None
                 self._ensure_press_cycle_controller()
@@ -4366,6 +4395,23 @@ class _PreviewPanel:
                 if (model.part_label and
                         model.part_label != session.part_label):
                     return None
+                # Read the exact S/Z confirmed for the selected candidate.
+                # These are plotted as preview targets; no continuous
+                # transfer or 3D manufacturing certification is implied.
+                selected_order = self._selected_planar_gauge_order
+                if (selected_order
+                        and order[:len(selected_order)] == selected_order
+                        and self._selected_planar_gauge_model_id == id(model)
+                        and index in self._selected_planar_gauge_positions):
+                    from smbs_core.kinematics2d.backgauge_2d import (
+                        BackgaugePosition2D,
+                    )
+                    s, z = self._selected_planar_gauge_positions[index]
+                    return (
+                        BackgaugePosition2D(s, z),
+                        s - model.width_s_mm / 2,
+                        "SELECTED_DFS_CONTACT_SAMPLED_NOT_3D_CERTIFIED",
+                    )
                 key = (id(session), order, id(model), index)
                 if key in self._backgauge_preview_cache:
                     return self._backgauge_preview_cache[key]
