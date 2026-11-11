@@ -217,7 +217,8 @@ class BackgaugeCAD3D:
 
     def solve_accessible_rear_contact(self, state, panel_vertices_xy,
                                       placement, *, active_bend_id,
-                                      tolerance_mm=0.02):
+                                      tolerance_mm=0.02,
+                                      z_min_mm=-20.0, z_max_mm=20.0):
         """Find an external, physically reachable panel edge at the mounted X.
 
         This is a sampled *static* CAD setup solver. Unlike fixed_panel,
@@ -264,12 +265,33 @@ class BackgaugeCAD3D:
             key=lambda item: (-item[0], item[1]),
         )
         attempted = []
+        if (not math.isfinite(float(z_min_mm))
+                or not math.isfinite(float(z_max_mm))
+                or z_min_mm >= z_max_mm):
+            raise BackgaugeCADError("invalid configured backgauge Z travel")
         for depth, panel_id, panel in options:
             # Align the selected physical face vertically with this panel.
             # Its 14mm height is sourced from FCStd; do not invent offsets.
             z_mid = (
                 float(panel.BoundBox.ZMin) + float(panel.BoundBox.ZMax)
             ) / 2.0
+            if z_mid < z_min_mm - 1e-7 or z_mid > z_max_mm + 1e-7:
+                attempted.append({
+                    "panel": panel_id,
+                    "depth_s_mm": round(depth, 6),
+                    "station_xm_mm": float(self.station_xm_mm),
+                    "candidate_z_mm": round(z_mid, 6),
+                    "allowed_z_mm": [float(z_min_mm), float(z_max_mm)],
+                    "rejection": "BACKGAUGE_Z_OUT_OF_RANGE",
+                    "blocking_component": None,
+                    "overlap_mm3": 0.0,
+                    "face_gap_mm": None,
+                })
+                self._trace(
+                    "EXTERNAL_REAR_CONTACT_TRIAL",
+                    bend_id=str(active_bend_id), **attempted[-1],
+                )
+                continue
             gauges = self.positioned_shapes(depth, z_mid)
             gauge = gauges[0]
             face = gauge.Faces[self.stop_face_index - 1]
@@ -419,6 +441,8 @@ class BackgaugeCAD3D:
             result = self.solve_accessible_rear_contact(
                 state, panel_vertices_xy, placement,
                 active_bend_id=bend_id, tolerance_mm=tolerance_mm,
+                z_min_mm=backgauge_model.z_min_mm,
+                z_max_mm=backgauge_model.z_max_mm,
             )
             actual_s = float(result["contact_s_mm"])
             actual_z = float(result["contact_z_mm"])
