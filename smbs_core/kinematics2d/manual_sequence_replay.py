@@ -165,7 +165,17 @@ def evaluate_manual_planar_order(
                 record["operation_penalty"] = score.steps[-1].to_dict()
                 record["cumulative_penalty"] = round(float(score.total), 4)
             except Exception as exc:
-                record["evidence"] = "UNVERIFIED_2D"
+                from .backgauge_cad_3d import BackgaugeCADError
+                physical_obstruction = (
+                    isinstance(exc, BackgaugeCADError)
+                    and str(exc).startswith(
+                        "OTHER_PANEL_BLOCKS_REQUIRED_GAUGE_CONTACT:"
+                    )
+                )
+                record["evidence"] = (
+                    "CAD_3D_INTERFERENCE" if physical_obstruction
+                    else "UNVERIFIED_2D"
+                )
                 record["reason"] = "replay_exception:{}:{}".format(
                     type(exc).__name__, exc)
                 record["elapsed_s"] = round(perf_counter() - step_start, 6)
