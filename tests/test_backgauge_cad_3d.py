@@ -110,6 +110,51 @@ class BackgaugeRealCADTests(unittest.TestCase):
         self.assertIn("X2=1.00 mm", str(ctx.exception))
         self.assertIn("actual CAD X-width=", str(ctx.exception))
 
+    def test_real_face6_reaches_exposed_external_panel_not_fixed_internal(self):
+        """FreeCAD/OCC: 200mm stop body must not penetrate the whole sheet."""
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        from smbs_core.kinematics2d.backgauge_cad_3d import BackgaugeCAD3D
+
+        app, part = self.app, self.part
+        adapter = BackgaugeCAD3D(station_xm_mm=0.0)
+
+        def panel_box(low_s, high_s):
+            return part.makeBox(
+                293.0, high_s-low_s, 1.5,
+                app.Vector(-146.5, -high_s, 0.0),
+            )
+
+        panels = [
+            ("panel:P04", panel_box(0, 11.2566)),
+            ("panel:P05", panel_box(13.7699, 508.7699)),
+            ("panel:P07", panel_box(530.0, 548.0)),
+        ]
+        state = SimpleNamespace(bends={
+            "B06": SimpleNamespace(
+                fixed_panel="P04",
+                bend_zone=SimpleNamespace(thickness_mm=1.5),
+            ),
+        })
+        with patch.object(adapter, "_panel_solids",
+                          return_value=panels), patch.object(
+            adapter, "_bend_solids", return_value=[],
+        ):
+            contact = adapter.solve_accessible_rear_contact(
+                state, {}, object(), active_bend_id="B06",
+            )
+            sampled = adapter.check_phase(
+                state, {}, object(), active_bend_id="B06",
+                contact_s_mm=contact["contact_s_mm"],
+                contact_z_mm=contact["contact_z_mm"],
+            )
+        self.assertEqual(contact["support_panel_id"], "P07")
+        self.assertEqual(contact["source_datum"], "Pad.Face6")
+        self.assertAlmostEqual(contact["contact_s_mm"], 548.0, places=3)
+        self.assertFalse(contact["support_panel_matches_fixed"])
+        self.assertFalse(contact["axis_limits_verified"])
+        self.assertEqual(sampled["status"], "SAMPLED_CLEAR_OR_TOUCH")
+
     def test_bad_target_cannot_be_claimed_as_valid_stop(self):
         from smbs_core.kinematics2d.backgauge_cad_3d import (
             BackgaugeCAD3D, BackgaugeCADError,
