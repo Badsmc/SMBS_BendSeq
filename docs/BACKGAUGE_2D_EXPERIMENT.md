@@ -1,3 +1,16 @@
+## 2026-11-11 — 110735 Face6 trace: exact planar punch interference evidence
+
+Latest user reports `smbs_2d_search_diagnostics(20261111-090953).json` and `smbs_backgauge_cad_20261111-110735_8bbe0eeb.jsonl` confirm that the six-step preview after the partial-report fix contains **only** `SAMPLED_2D_CLEAR_OR_TOUCH` transitions: `B10,B09,B08,B07,B06,B05`. It is NOT a full replay or a 3D-certified machine program. Four steps `B01,B02,B03,B04` remain. DFS ended at 90.08s after 86 evaluated steps: 40 sampled-clear/touch, 45 sampled-2D-interference, 1 unfinished `2d_probe_time_budget_reached`. There are no complete candidates or final replay attempts. The deepest examined state is exactly the six-step prefix.
+
+The real CAD stop reached a static `Pad.Face6` external-panel contact for all 86 requests. Out of 95 candidate panel trials, nine were rejected because the working face could not reach that panel, and each request had a different acceptable contact. This is static machine placement only: stop R/Z axis range, full machine tooling and swept transfer are NOT validated. Selected stop Z_m ranges approx -383.94mm to +248.75mm in exploratory branches, which cannot be presented as reachable without axis limits.
+
+The dominant Stage B findings occur **at machine section X_m=0**, using sampled 2D outlines (not authoritative 3D punch solids): B04 punch-vs-P07 at BENDING 13 times; B03 punch-vs-P09 at BENDING 9; B02 punch-vs-P02 at APPROACH 6; B01 punch-vs-P11 at BENDING 5. These are conservative planar exclusions of the current setup, not full 3D impossibility proofs.
+
+**Diagnostics improvement:** when CAD tracing is active, the existing bounded JSONL file now also emits `PLANAR_TOOL_INTERFERENCE` for the decisive stage-B PUNCH/DIE collision. Each event records: bend ID, phase, sampled bend-angle fraction/angle, punch-ram Z, the offending named sheet panel, the **actual 2D (s,z) vertex polygon** and the **sampled punch/die outer/hole polygons**, bounding rectangles, and tolerance, all in machine coordinates. Polygon arrays are bounded to 256 vertices and hole rings to 8, recording truncation flags. This evidence enables offline reconstruction of the 2D intersection without loosening collision checks or interpreting 2D as verified 3D. Diagnostic failures are isolated and cannot change the screening verdict. Headless writer tests are in `tests/test_planar_collision_trace.py` and GitHub Actions.
+
+**Next run:** download the experimental branch, repeat 10-bend CAD search under the same conditions; send new JSON and JSONL. Inspect the `PLANAR_TOOL_INTERFERENCE` event for B04 vs P07 first. If the profiles actually cross in the authoritative section, evaluate a different safe 3D setup or tooling; do not bypass `proper_material_boundary_crossing` with a tolerance change.
+
+
 ## 2026-11-11 — 90-second CAD run (102548 trace) and false seven-bend partial
 
 Source files: `smbs_2d_search_diagnostics(20261111-083640).json` and `smbs_backgauge_cad_20261111-102548_ffc04f03.jsonl`, generated on the user's FreeCAD machine.
