@@ -988,8 +988,6 @@ class _PreviewPanel:
                 self.select_punch_combo = QtWidgets.QComboBox()
                 self.select_punch_combo.currentIndexChanged.connect(self._on_punch_combo_changed)
                 t_row2.addWidget(self.select_punch_combo, 1)
-                self.select_punch_btn = _button(QtWidgets, "Select Punch", self.select_punch_from_combo, True)
-                t_row2.addWidget(self.select_punch_btn)
                 t_layout.addLayout(t_row2)
 
                 t_row3 = QtWidgets.QHBoxLayout()
@@ -997,17 +995,7 @@ class _PreviewPanel:
                 self.select_die_combo = QtWidgets.QComboBox()
                 self.select_die_combo.currentIndexChanged.connect(self._on_die_combo_changed)
                 t_row3.addWidget(self.select_die_combo, 1)
-                self.select_die_btn = _button(QtWidgets, "Select Die", self.select_die_from_combo, True)
-                t_row3.addWidget(self.select_die_btn)
                 t_layout.addLayout(t_row3)
-
-                t_row4 = QtWidgets.QHBoxLayout()
-                self.align_tooling_btn = _button(QtWidgets, "Align Tooling", self.align_tooling, True)
-                self.reset_tooling_btn = _button(QtWidgets, "Reset Tooling Position", self.reset_tooling_position, True)
-                self.toggle_tooling_btn = _button(QtWidgets, "Hide/Show Tooling", self.toggle_tooling_visibility, True)
-                for w in (self.align_tooling_btn, self.reset_tooling_btn, self.toggle_tooling_btn):
-                    t_row4.addWidget(w)
-                t_layout.addLayout(t_row4)
 
                 # Development virtual tool length & controlled punch end-zone policy
                 self.virtual_tool_len_checkbox = QtWidgets.QCheckBox(
@@ -1079,7 +1067,7 @@ class _PreviewPanel:
                 root.addWidget(self.tooling_group)
 
                 # Phase 5B: Press Cycle section (Bend Only / Full Cycle, Ram Position, Cycle Phase, Speed & Config)
-                self.press_cycle_group = QtWidgets.QGroupBox("Press Cycle (Phase 5B — KINEMATIC_PREVIEW)")
+                self.press_cycle_group = QtWidgets.QGroupBox("Режим симуляции")
                 pc_layout = QtWidgets.QVBoxLayout(self.press_cycle_group)
                 pc_layout.setContentsMargins(6, 6, 6, 6)
                 pc_layout.setSpacing(4)
@@ -1132,21 +1120,19 @@ class _PreviewPanel:
                 root.addWidget(self.view, 1)
 
                 row = QtWidgets.QHBoxLayout()
-                # Stable operator controls: Reset, Play All, Pause/Resume, Fit.
-                # Angle adjustment is via the slider; bend navigation uses
-                # explicit Previous/Next Step and the operation table.
-                self.reset_btn = _button(QtWidgets, "↺ Reset", self.reset, False)
-                self.play_btn = _button(QtWidgets, "▶ Play All", self.play_all, False)
-                self.play_btn.setToolTip(
-                    "Запуск автоматической симуляции в выбранном режиме: "
-                    "Bend Only или Full Cycle."
+                # One playback button owns Play, Pause and Resume, with step
+                # navigation immediately on either side.
+                self.reset_btn = _button(QtWidgets, "Reset", self.reset, False)
+                self.prev_step_btn = _button(QtWidgets, "|<<", self.previous_step, False)
+                self.play_btn = _button(
+                    QtWidgets, "Play", self._toggle_play_pause, False
                 )
-                self.pause_btn = _button(
-                    QtWidgets, "Ⅱ Pause", self.toggle_pause_resume, False
-                )
+                self.play_btn.setToolTip("Play / Pause / Resume для выбранного режима")
+                self.next_step_btn = _button(QtWidgets, ">>|", self.next_step, False)
                 self.fit_btn = _button(QtWidgets, "Fit", self.fit, True)
                 for widget in (
-                    self.reset_btn, self.play_btn, self.pause_btn, self.fit_btn
+                    self.reset_btn, self.prev_step_btn, self.play_btn,
+                    self.next_step_btn, self.fit_btn
                 ):
                     row.addWidget(widget)
                 root.addLayout(row)
@@ -1159,18 +1145,6 @@ class _PreviewPanel:
 
                 self.step = QtWidgets.QLabel("Активный гиб: — | Угол: — / —")
                 self.step.setWordWrap(True)
-                root.addWidget(self.step)
-
-                bend_nav_row = QtWidgets.QHBoxLayout()
-                bend_nav_row.addWidget(QtWidgets.QLabel("Шаги:"))
-                self.prev_step_btn = _button(QtWidgets, "⏮ Previous Step", self.previous_step, False)
-                self.next_step_btn = _button(QtWidgets, "Next Step ⏭", self.next_step, False)
-                for widget in (
-                    self.prev_step_btn,
-                    self.next_step_btn,
-                ):
-                    bend_nav_row.addWidget(widget)
-                root.addLayout(bend_nav_row)
 
                 order_row = QtWidgets.QHBoxLayout()
                 order_row.addWidget(QtWidgets.QLabel("Порядок:"))
@@ -1204,7 +1178,7 @@ class _PreviewPanel:
                 """
                 # The existing constructor builds these items in a known order.
                 entries = [root.takeAt(0) for _ in range(root.count())]
-                if len(entries) != 13:
+                if len(entries) != 11:
                     raise RuntimeError(
                         "Unexpected PressBrakeSim layout: {} items".format(len(entries))
                     )
@@ -1496,7 +1470,6 @@ class _PreviewPanel:
                 icon_pairs = (
                     (self.reset_btn, "control_reset.svg"),
                     (self.play_btn, "control_play.svg"),
-                    (self.pause_btn, "control_pause.svg"),
                     (self.fit_btn, "control_fit.svg"),
                     (self.prev_step_btn, "control_prev.svg"),
                     (self.next_step_btn, "control_next.svg"),
@@ -1513,11 +1486,6 @@ class _PreviewPanel:
                     (self.tool_library_btn, "tooling.svg"),
                     (self.import_punch_btn, "gui_tooling.svg"),
                     (self.import_die_btn, "gui_tooling.svg"),
-                    (self.select_punch_btn, "gui_tooling.svg"),
-                    (self.select_die_btn, "gui_tooling.svg"),
-                    (self.align_tooling_btn, "gui_tooling.svg"),
-                    (self.reset_tooling_btn, "control_reset.svg"),
-                    (self.toggle_tooling_btn, "gui_tooling.svg"),
                     (self.physical_check_btn, "control_validate.svg"),
                     (self.full_physical_check_btn, "control_validate.svg"),
                     (self.cycle_config_btn, "gui_backgauge.svg"),
@@ -3573,41 +3541,29 @@ class _PreviewPanel:
 
             def _sync_playback_buttons(self):
                 if self.session is None:
-                    self.play_btn.setText("▶ Play All")
-                    self.pause_btn.setIcon(QtGui.QIcon(str(
-                        _ICON_ROOT / "control_pause.svg"
-                    )))
-                    self.pause_btn.setText("Ⅱ Pause")
-                    self.pause_btn.setEnabled(False)
-                    self.move_up_btn.setEnabled(False)
+                    self.play_btn.setText("Play")
+                    self.play_btn.setIcon(QtGui.QIcon(str(_ICON_ROOT / "control_play.svg")))
+                        self.move_up_btn.setEnabled(False)
                     self.move_down_btn.setEnabled(False)
                     self.restore_order_btn.setEnabled(False)
                     self.calculate.setEnabled(False)
                     self.planar_calculate.setEnabled(False)
                     return
                 st = self.session.playback_status
-                self.pause_btn.setIcon(QtGui.QIcon(str(
-                    _ICON_ROOT / ("control_play.svg"
-                                  if st == PlaybackStatus.PAUSED
-                                  else "control_pause.svg")
-                )))
                 self.playing = st == PlaybackStatus.PLAYING
                 bend_order = getattr(self.session, "bend_order", [])
                 self.calculate.setEnabled(not self.playing and len(bend_order) > 1)
                 self.planar_calculate.setEnabled(not self.playing and len(bend_order) > 0)
-                self.play_btn.setText(
-                    "▶ Play All (станок)" if self.execution_mode == CycleExecutionMode.FULL_CYCLE
-                    else "▶ Play All (геометрия)"
-                )
                 if st == PlaybackStatus.PLAYING:
-                    self.pause_btn.setText("Ⅱ Pause")
-                    self.pause_btn.setEnabled(True)
+                    self.play_btn.setText("Pause")
+                    icon_name = "control_pause.svg"
                 elif st == PlaybackStatus.PAUSED:
-                    self.pause_btn.setText("▶ Resume")
-                    self.pause_btn.setEnabled(True)
+                    self.play_btn.setText("Resume")
+                    icon_name = "control_play.svg"
                 else:
-                    self.pause_btn.setText("Ⅱ Pause")
-                    self.pause_btn.setEnabled(False)
+                    self.play_btn.setText("Play")
+                    icon_name = "control_play.svg"
+                self.play_btn.setIcon(QtGui.QIcon(str(_ICON_ROOT / icon_name)))
 
                 can_reorder_fn = getattr(self.session, "can_reorder", None)
                 can_reorder_val = can_reorder_fn() if callable(can_reorder_fn) else False
@@ -4286,6 +4242,18 @@ class _PreviewPanel:
                     self.timer.start()
                 self.draw()
                 _log("Playback resumed at bend {}".format(self.session.active_bend_id))
+
+            def _toggle_play_pause(self):
+                """Single task-panel control for start, pause and resume."""
+                if self.session is None:
+                    return
+                st = self.session.playback_status
+                if st == PlaybackStatus.PLAYING:
+                    self.pause()
+                elif st == PlaybackStatus.PAUSED:
+                    self.resume()
+                else:
+                    self.play_all()
 
             def toggle_pause_resume(self):
                 if self.session is None:
