@@ -1,3 +1,20 @@
+## Real first-contact placement correction — 55.json follow-up
+
+**Issue proven by source review:** prior CAD mode copied a 2D edge target measured in the **bend-midpoint cutting plane** (`X_m=desired_midpoint_xm`, normally zero) and positioned the real stop at a different machine station (the reported run used `X_m=50 mm`). It did not verify first contact before Stage B; selected `Face3` is a valid BRep face but may be recessed behind other surfaces.
+
+**Implemented in this experimental branch:**
+
+1. For CAD mode, sample the fixed panel at the *actual configured stop X station* without moving the workpiece's bend reference. Two separate gauge stations must agree in their support-edge target within 0.05 mm; otherwise fail closed until independently driven stop axes are modeled.
+2. Keep the current press-aligned workpiece pose. Build the actual OCC panel/bend-zone solids once and position one or two genuine CAD stop bodies. If they overlap, move **the stop bodies rearwards (increasing machine +s)** until there is no material intersection; bracket the first physical collision, then binary-search the nearest **nonpenetrating** contact location. Bounds come from actual sheet/gauge extents, **not guessed machine travel**.
+3. Check the final stop body's distance to the *intended fixed panel* and to its real **operator-facing planar surface**; if contact occurs first with another panel, or no operator-facing face can make physical contact, return explicit `BackgaugeCADError` and do not label it collision-free. The system never teleports the sheet through the stop to force the bend.
+4. Record `stop_s_mm`, rearward correction `shift_rear_mm`, `actual_faces` and source `datum_face` in the setup note. If the physically encountered surface is **not** metadata `Face3`, mark the step `UNVERIFIED_2D`: this surface has not been qualified as the intended machine stop. Continue independent phase collision tests for diagnostic evidence.
+5. Automatic search, manual replay, prefix replay and the 2.5D CAD viewer now request the same actual first-contact solver. They retain normal stage-A/B checks and do not auto-accept a step with unresolved CAD contact.
+
+**Limits:** the first physical contact is a static geometric placement only. The temporary rearward positions used to bracket it are not a claim that machine X/R/Z axes can reach those positions; clamp travel, full station swept paths and tooling safety remain unverified. FreeCAD OCC runtime tests need to be run on the 10-bend benchmark after updating the installation; headless CI does not contain FreeCAD/Part.
+
+**How to interpret follow-up JSON:** `cad_geometry_enabled=true` is still needed. If `machine_setup.note` contains `CAD_FIRST_CONTACT:stop_s_mm=...`, a real nonpenetrating contact was found. Errors `FIRST_CONTACT_WRONG_PANEL_OR_NO_FIXED_CONTACT`, `NO_OPERATOR_FACING_STOP_FACE_CONTACT`, or `NO_PHYSICAL_CONTACT_IN_REAR_GAUGE_TRAVEL` indicate that the chosen CAD stop/finger station is not physically placed against the intended fixed panel. These findings must not be suppressed. A changed `max_depth_reached` is evidence of search progress, not manufacturing approval.
+
+
 ## 55.json — actual CAD stop collision at APPROACH
 
 The ten-bend run with one gauge at `X_m=50 mm` and `initial_feed_preview_mm=100` still has **zero first-step candidates** and `max_depth_reached=0`. Unlike `44.json`, the assumed first-load overlap is preserved as **UNVERIFIED** and Stage B proceeds to `APPROACH`. Every root bend then has positive OCC volume intersection between the actual `Backgauge.FCStd` BRep and a FoldState panel.
