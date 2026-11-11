@@ -94,7 +94,7 @@ def evaluate_manual_planar_order(
                     )
                     if cad_checker is not None:
                         cad_contact_s = (
-                            depth if backgauge_model.automatic
+                            (depth + backgauge_model.edge_clearance_mm) if backgauge_model.automatic
                             else point.s_mm - backgauge_model.width_s_mm / 2
                                  - backgauge_model.edge_clearance_mm
                         )
