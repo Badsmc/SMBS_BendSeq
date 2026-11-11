@@ -7,6 +7,7 @@ Only explicit GUI/CLI requests create files; no trace in ordinary core tests.
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from collections import Counter
 import json
 import math
 from pathlib import Path
@@ -43,7 +44,7 @@ class BackgaugeCADTrace:
     events intact. A single search gets a unique file from its caller.
     """
 
-    def __init__(self, path, *, max_events=1500):
+    def __init__(self, path, *, max_events=12000):
         if max_events < 1:
             raise ValueError("max_events must be positive")
         self.path = Path(path)
@@ -51,6 +52,10 @@ class BackgaugeCADTrace:
         self.limit = int(max_events)
         self.events = 0
         self.truncated = False
+        self.seen = 0
+        self.event_counts = Counter()
+        self.rejection_counts = Counter()
+        self.source_counts = Counter()
         with self.path.open("w", encoding="utf-8") as out:
             out.write(json.dumps({
                 "schema": "SMBS_BACKGAUGE_CAD_TRACE_V1",
@@ -68,6 +73,11 @@ class BackgaugeCADTrace:
             }, ensure_ascii=False) + "\n")
 
     def emit(self, event, **fields):
+        self.seen += 1
+        self.event_counts[str(event)] += 1
+        if event == "EXTERNAL_REAR_CONTACT_TRIAL":
+            self.rejection_counts[str(fields.get("rejection") or "VALID_CONTACT")] += 1
+            self.source_counts[str(fields.get("candidate_depth_source") or "UNSPECIFIED")] += 1
         if self.events >= self.limit:
             if not self.truncated:
                 self.truncated = True
@@ -75,6 +85,14 @@ class BackgaugeCADTrace:
                     "schema": "SMBS_BACKGAUGE_CAD_TRACE_V1",
                     "event": "TRACE_TRUNCATED",
                     "max_events": self.limit,
+                    **self._summary(),
+                })
+            # Preserve aggregate outcomes without unbounded raw event logs.
+            elif self.seen % 1000 == 0:
+                self._append({
+                    "schema": "SMBS_BACKGAUGE_CAD_TRACE_V1",
+                    "event": "TRACE_COUNTS_CHECKPOINT",
+                    **self._summary(),
                 })
             return
         self.events += 1
@@ -83,6 +101,15 @@ class BackgaugeCADTrace:
             "event": str(event),
             **fields,
         })
+
+    def _summary(self):
+        return {
+            "events_seen": self.seen,
+            "events_written": self.events,
+            "event_counts": dict(self.event_counts),
+            "trial_rejection_counts": dict(self.rejection_counts),
+            "trial_source_counts": dict(self.source_counts),
+        }
 
     def _append(self, record):
         with self.path.open("a", encoding="utf-8") as out:
