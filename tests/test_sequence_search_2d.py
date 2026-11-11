@@ -162,6 +162,52 @@ class PlanarSearchTests(unittest.TestCase):
             for finding in step.diagnostic_findings
         ))
 
+    def test_sampled_partial_replaces_earlier_unverified_same_depth(self):
+        """Speculative depth 7 must not hide later fully sampled depth 7."""
+        names = tuple("B%02d" % n for n in range(1, 11))
+        self.state = DummyState(names)
+        self.session.fold_state = self.state
+        self.session.bend_order = names
+
+        def effect(state, bid, *_args, **_kwargs):
+            completed = sum(
+                float(v) > 0.0 for v in state.angles.values()
+            )
+            if completed >= 7:
+                return PreliminaryScreeningReport(
+                    ScreeningDecision.CONTINUE_TO_3D,
+                    "STAGE_B_SECTION_REQUIRES_3D", "blocked after seventh",
+                    contact_statuses=("INTERFERENCE",),
+                )
+            if completed == 6 and bid == "B07":
+                return stage_b_result("UNVERIFIED")
+            if completed == 6 and bid != "B08":
+                return PreliminaryScreeningReport(
+                    ScreeningDecision.CONTINUE_TO_3D,
+                    "STAGE_B_SECTION_REQUIRES_3D", "not an exterior candidate",
+                    contact_statuses=("INTERFERENCE",),
+                )
+            if bid in names[:6] or (completed == 6 and bid == "B08"):
+                return stage_b_result()
+            return PreliminaryScreeningReport(
+                ScreeningDecision.CONTINUE_TO_3D,
+                "STAGE_B_SECTION_REQUIRES_3D", "blocked before seventh",
+                contact_statuses=("INTERFERENCE",),
+            )
+
+        report, _ = self.run_mocked(
+            effect, min_partial_bends=7,
+            preferred_bend_order=names, group_first=False,
+            max_nodes=90, max_search_time_s=5.0,
+        )
+        self.assertIsNotNone(report.partial_candidate)
+        self.assertEqual(len(report.partial_candidate.sequence), 7)
+        self.assertEqual(report.partial_candidate.sequence[-1], "B08")
+        self.assertTrue(all(
+            step.evidence == "SAMPLED_2D_CLEAR_OR_TOUCH"
+            for step in report.partial_candidate.steps
+        ))
+
     def test_time_budget_does_not_fake_seventh_checked_cad_bend(self):
         """Regression for 20261111-083640: six sampled, seventh timed out."""
         names = tuple("B%02d" % n for n in range(1, 11))
