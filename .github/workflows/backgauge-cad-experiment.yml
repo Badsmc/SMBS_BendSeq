@@ -25,6 +25,7 @@ jobs:
             tests.test_backgauge_2d \
             tests.test_backgauge_cad_3d \
             tests.test_backgauge_cad_contact_contract \
+            tests.test_backgauge_cad_trace \
             tests.test_backgauge_cad_inspector \
             tests.test_workpiece_placement_3d
       - name: Retained planar-screening and GUI contract tests
