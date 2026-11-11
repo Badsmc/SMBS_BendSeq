@@ -3,6 +3,7 @@ import unittest
 
 from smbs_core.kinematics2d.backgauge_contact_height import (
     contact_height_candidates, rear_edge_at_face_height,
+    working_face_section_stations,
 )
 
 
@@ -46,6 +47,19 @@ class BackgaugeContactHeightTests(unittest.TestCase):
         rear = rear_edge_at_face_height(polygon, -2.0, 2.0)
         self.assertIsNotNone(rear)
         self.assertLess(rear, 310.0)
+
+    def test_working_face_stations_are_inside_real_face_width(self):
+        points = working_face_section_stations(-50.0, 50.0, 0.0)
+        self.assertEqual(points, (0.0, -25.0, 25.0))
+
+    def test_working_face_stations_clamp_outside_mount_offset(self):
+        points = working_face_section_stations(-60.0, -20.0, 0.0)
+        self.assertEqual(points[0], -20.0)
+        self.assertTrue(all(-60.0 <= v <= -20.0 for v in points))
+
+    def test_working_face_rejects_invalid_span(self):
+        with self.assertRaises(ValueError):
+            working_face_section_stations(1.0, 1.0, 0.0)
 
     def test_section_outside_height_returns_none(self):
         polygon = ((500.0, 200.0), (510.0, 200.0),
