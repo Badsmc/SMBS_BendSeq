@@ -686,7 +686,7 @@ class ToolingTabCommand:
             PressBrake2DCommand().Activated()
             workspace = get_workspace_widget()
         if workspace is not None:
-            show_workspace_controls(workspace, 1)
+            workspace.open_tooling_settings_dialog()
 
 
 class CalculateCommand:
@@ -745,6 +745,48 @@ class SequenceCatalogCommand:
             workspace = get_workspace_widget()
         if workspace is not None:
             workspace.open_sequence_catalog_dialog()
+
+
+class ManualCommand:
+    """Start manual bend-line ordering on a loaded SheetMetal unfold."""
+
+    def GetResources(self):
+        return {
+            "Pixmap": str(_ICON_ROOT / "gui_manual.svg"),
+            "MenuText": "Manual",
+            "ToolTip": "Развёртка: выбрать ручную последовательность гибов",
+        }
+
+    def IsActive(self):
+        workspace = get_workspace_widget()
+        return bool(workspace is not None and workspace.session is not None)
+
+    def Activated(self):
+        workspace = get_workspace_widget()
+        if workspace is not None and workspace.session is not None:
+            workspace.activate_manual_mode()
+
+
+class SettingsCommand:
+    """Open all simulation, machine and diagnostic settings."""
+
+    def GetResources(self):
+        return {
+            "Pixmap": str(_ICON_ROOT / "gui_settings.svg"),
+            "MenuText": "Настройки",
+            "ToolTip": "Режим гибки, скорость, проверки, допуски и запись",
+        }
+
+    def IsActive(self):
+        return True
+
+    def Activated(self):
+        workspace = get_workspace_widget()
+        if workspace is None:
+            PressBrake2DCommand().Activated()
+            workspace = get_workspace_widget()
+        if workspace is not None:
+            workspace.open_settings_dialog()
 
 
 class PlanarCandidatesCommand:
