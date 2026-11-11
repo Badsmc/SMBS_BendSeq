@@ -116,5 +116,95 @@ class ContactIntervalTests(unittest.TestCase):
         self.assertEqual(result["alternative_contacts"][0]["contact_s_mm"], 30)
 
 
+    def test_three_x_stations_find_contact_without_redundant_cad_bbox(self):
+        panel = SimpleNamespace(BoundBox=BBox(-40, 40, -50, -49, 0, 100))
+        checker = self.make_checker([("panel:P01", panel)])
+        events, stations = [], []
+        checker._trace = lambda event, **fields: events.append((event, fields))
+        state = SimpleNamespace(bends={
+            "B01": SimpleNamespace(
+                fixed_panel="P01", moving_panel="P02",
+                bend_zone=SimpleNamespace(thickness_mm=1.5),
+            )
+        })
+
+        def section_at_x(*_args, **kwargs):
+            x = float(kwargs["target_xm"])
+            stations.append(x)
+            poly = ((49, 0), (50, 0), (50, 100), (49, 100))
+            return {
+                "fixed_polygon": poly if x == -25.0 else (),
+                "moving_polygon": (), "other_panel_polygons": (),
+            }
+
+        with patch.dict(sys.modules, {"Part": types.ModuleType("Part")}), patch(
+            "smbs_core.kinematics2d.machine_section_3d.compute_machine_cutting_plane_section",
+            side_effect=section_at_x,
+        ):
+            result = checker.solve_accessible_rear_contact(
+                state, {}, None, active_bend_id="B01"
+            )
+        self.assertEqual(stations, [0.0, -25.0, 25.0])
+        self.assertEqual(result["contact_s_mm"], 50.0)
+        trials = [f for event, f in events
+                  if event == "EXTERNAL_REAR_CONTACT_TRIAL"]
+        self.assertTrue(trials)
+        self.assertTrue(all(
+            trial.get("candidate_depth_source") == "2D_SECTION"
+            for trial in trials
+        ))
+        self.assertLessEqual(result["candidate_occ_trials"], 3)
+
+    def test_fallback_only_when_section_cannot_locate_rear_contact(self):
+        panel = SimpleNamespace(BoundBox=BBox(-10, 10, -50, -49, 0, 100))
+        checker = self.make_checker([("panel:P01", panel)])
+        events = []
+        checker._trace = lambda event, **fields: events.append((event, fields))
+        state = SimpleNamespace(bends={
+            "B01": SimpleNamespace(
+                fixed_panel="P01", moving_panel="P02",
+                bend_zone=SimpleNamespace(thickness_mm=1.5),
+            )
+        })
+        with patch.dict(sys.modules, {"Part": types.ModuleType("Part")}), patch(
+            "smbs_core.kinematics2d.machine_section_3d.compute_machine_cutting_plane_section",
+            return_value={},
+        ):
+            result = checker.solve_accessible_rear_contact(
+                state, {}, None, active_bend_id="B01"
+            )
+        self.assertEqual(result["candidate_occ_trials"], 1)
+        sources = [fields["candidate_depth_source"]
+                   for event, fields in events
+                   if event == "EXTERNAL_REAR_CONTACT_TRIAL"]
+        self.assertEqual(sources, ["CAD_BBOX_FALLBACK"])
+
+    def test_failed_section_proposal_never_claims_proven_impossible(self):
+        from smbs_core.kinematics2d.backgauge_cad_3d import BackgaugeCADError
+        panel = SimpleNamespace(BoundBox=BBox(-10, 10, -50, -49, 0, 100))
+        checker = self.make_checker([("panel:P01", panel)])
+        state = SimpleNamespace(bends={
+            "B01": SimpleNamespace(
+                fixed_panel="P01", moving_panel="P02",
+                bend_zone=SimpleNamespace(thickness_mm=1.5),
+            )
+        })
+        # The section proposes S=40, but the real CAD panel is at S=50.
+        # Do not promote its AABB fallback or prove a global impossibility.
+        wrong_section = {
+            "fixed_polygon": ((39, 0), (40, 0), (40, 100), (39, 100)),
+            "moving_polygon": (), "other_panel_polygons": (),
+        }
+        with patch.dict(sys.modules, {"Part": types.ModuleType("Part")}), patch(
+            "smbs_core.kinematics2d.machine_section_3d.compute_machine_cutting_plane_section",
+            return_value=wrong_section,
+        ), self.assertRaisesRegex(
+            BackgaugeCADError, "CAD_CONTACT_SEARCH_INCOMPLETE"
+        ):
+            checker.solve_accessible_rear_contact(
+                state, {}, None, active_bend_id="B01"
+            )
+
+
 if __name__ == "__main__":
     unittest.main()
