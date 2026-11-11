@@ -229,6 +229,8 @@ def _classify_step(report: PreliminaryScreeningReport) -> str:
     """Interpret Stage B as planar evidence, not as its 3D-search decision."""
     if report.stage == "STAGE_B_RETRACT_WARNING":
         return "2D_RETRACT_WARNING_NOT_3D_VALIDATED"
+    if report.stage == "STAGE_B_LOADING_ROUTE_UNVERIFIED":
+        return "UNVERIFIED_2D"
     if report.stage == "STAGE_B_SECTION_REQUIRES_3D":
         return "2D_INTERFERENCE"
     if report.decision is ScreeningDecision.PROVEN_BLOCKING:
