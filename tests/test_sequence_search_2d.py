@@ -162,6 +162,59 @@ class PlanarSearchTests(unittest.TestCase):
             for finding in step.diagnostic_findings
         ))
 
+    def test_time_budget_does_not_fake_seventh_checked_cad_bend(self):
+        """Regression for 20261111-083640: six sampled, seventh timed out."""
+        names = tuple("B%02d" % n for n in range(1, 11))
+        self.state = DummyState(names)
+        self.session.fold_state = self.state
+        self.session.bend_order = names
+
+        def effect(state, bid, *_args, **_kwargs):
+            completed = sum(
+                float(v) > 0.0 for v in state.angles.values()
+            )
+            if completed >= 6:
+                return PreliminaryScreeningReport(
+                    ScreeningDecision.UNVERIFIED_NEEDS_3D,
+                    "STAGE_B_BUDGET",
+                    "2d_probe_time_budget_reached",
+                    sampled_phases=(), contact_statuses=(),
+                )
+            if bid in names[:6]:
+                return stage_b_result()
+            return PreliminaryScreeningReport(
+                ScreeningDecision.CONTINUE_TO_3D,
+                "STAGE_B_SECTION_REQUIRES_3D",
+                "a different bend is blocking in this arrangement",
+                sampled_phases=("BENDING",),
+                contact_statuses=("INTERFERENCE",),
+            )
+
+        report, _ = self.run_mocked(
+            effect, min_partial_bends=6,
+            preferred_bend_order=names, group_first=False,
+            max_nodes=150, max_search_time_s=5.0,
+        )
+        self.assertEqual(report.status, PlanarSearchStatus.LIMIT_REACHED)
+        self.assertEqual(report.limit_reason, "MAX_SEARCH_TIME_REACHED")
+        self.assertEqual(report.max_depth_reached, 6)
+        self.assertFalse(report.candidates)
+        self.assertIsNotNone(report.partial_candidate)
+        self.assertEqual(len(report.partial_candidate.sequence), 6)
+        self.assertEqual(len(report.partial_remainder), 4)
+        self.assertEqual(
+            tuple(s.evidence for s in report.partial_candidate.steps),
+            ("SAMPLED_2D_CLEAR_OR_TOUCH",) * 6,
+        )
+        self.assertTrue(any(
+            step.evidence == "UNVERIFIED_2D"
+            and step.reason == "2d_probe_time_budget_reached"
+            for _, step in report.evaluated_step_details
+        ))
+        self.assertNotIn(
+            "B07", report.partial_candidate.sequence,
+        )
+
     def test_best_partial_eight_bends_stays_separate_from_full_candidates(self):
         names = tuple("B%02d" % n for n in range(1, 11))
         self.state = DummyState(names)
