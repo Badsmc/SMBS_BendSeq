@@ -107,5 +107,69 @@ class BackgaugeDFSVariantTests(unittest.TestCase):
         self.assertIn(("B01", 5.0), z_samples)
 
 
+    def test_precheck_blocks_punch_interference_before_cad_resolution(self):
+        from unittest.mock import Mock
+        state = DummyState(("B01", "B02"))
+        for bend in state.bends.values():
+            bend.bend_zone = SimpleNamespace(outer_radius_mm=1.5)
+        session = SimpleNamespace(
+            fold_state=state, bend_order=("B01", "B02"),
+            panel_vertices_xy={"P": [(0, 0), (1, 0), (1, 1)]},
+            part_label="",
+        )
+        model = BackgaugeModel2D(
+            width_s_mm=10.0, height_z_mm=10.0,
+            positions={}, automatic=True, cad_geometry_enabled=True,
+        )
+        resolver = Mock(side_effect=AssertionError("CAD must be skipped"))
+        checker = SimpleNamespace(
+            station_xm_mm=0.0, second_station_xm_mm=None,
+            resolve_contact_for_bend=resolver,
+        )
+        precheck_args = []
+
+        def tool_collision(*_args, **kwargs):
+            precheck_args.append(kwargs)
+            return PreliminaryScreeningReport(
+                ScreeningDecision.CONTINUE_TO_3D,
+                "STAGE_B_SECTION_REQUIRES_3D", "punch_interference",
+                sampled_phases=("BENDING",),
+                contact_statuses=("INTERFERENCE",),
+            )
+
+        with patch(
+            "smbs_core.kinematics2d.backgauge_cad_3d.BackgaugeCAD3D",
+            return_value=checker,
+        ), patch(
+            "smbs_core.kinematics2d.sequence_search_2d.screen_candidate_stage_a",
+            return_value=PreliminaryScreeningReport(
+                ScreeningDecision.CONTINUE_TO_3D, "STAGE_A_PASSED", "ok",
+            ),
+        ), patch(
+            "smbs_core.kinematics2d.sequence_search_2d.screen_candidate_stage_b",
+            side_effect=tool_collision,
+        ), patch(
+            "smbs_core.kinematics2d.sequence_search_2d.compute_workpiece_machine_setup",
+            side_effect=lambda _state, bid, **kw: WorkpieceMachineSetup(
+                bend_id=bid, rotation_deg=0.0, flipped=False,
+                shift_xm_mm=0.0, bend_length_mm=100.0,
+            ),
+        ):
+            report = search_bend_sequences_2d(
+                session, object(), backgauge_model=model,
+                group_first=False, max_nodes=25, max_search_time_s=3.0,
+            )
+
+        resolver.assert_not_called()
+        self.assertFalse(report.candidates)
+        self.assertTrue(precheck_args)
+        self.assertTrue(all(
+            p["enforce_rear_frame"] is True for p in precheck_args
+        ))
+        self.assertGreater(
+            dict(report.rejection_counts).get("2D_INTERFERENCE", 0), 0
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
