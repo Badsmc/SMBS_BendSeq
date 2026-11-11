@@ -2766,6 +2766,10 @@ class _PreviewPanel:
                     self.last_sequence_search_report = search_rep
                     self._preview_only_planar_order = None
                     self._partial_preview_limit = 0
+                    self._selected_planar_gauge_order = ()
+                    self._selected_planar_gauge_positions = {}
+                    self._selected_planar_gauge_model_id = None
+                    self._backgauge_preview_cache.clear()
                     self._conditional_bends_status.clear()
                     if search_rep.status is SearchStatus.CONDITIONAL_VALIDATED:
                         for bid in search_rep.conditional_bends:
@@ -3631,6 +3635,10 @@ class _PreviewPanel:
                     self.session.select_bend_index(len(prefix) - 1)
                 self._preview_only_planar_order = None
                 self._partial_preview_limit = 0
+                self._selected_planar_gauge_order = ()
+                self._selected_planar_gauge_positions = {}
+                self._selected_planar_gauge_model_id = None
+                self._backgauge_preview_cache.clear()
                 self.last_sequence_search_report = None
                 self._conditional_bends_status.clear()
                 self._populate_operations()
