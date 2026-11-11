@@ -1,134 +1,107 @@
-# PressBrakeSim 2.5D — FreeCAD SheetMetal workbench
+# SMBS Handmode — PressBrakeSim 2.5D for FreeCAD
 
-**Authoritative development branch: [`2D`](https://github.com/Badsmc/SMBS_BendSeq/tree/2D).**
-Always install, test and continue 2.5D development from this branch.
-`main`, `d6-native-3d` and archived branches are NOT substitutes for this source tree.
+**Branch:** `handmode` — clean, installable workbench distribution.
+**Source of this build:** `experiment/2d-backgauge-kinematics-cascade`
+at commit `4b666384ab313951c40e3856266929804edbd682`.
 
-**Status: release candidate under verification — not a certified machine planner.**
-The Python test suite passes on GitHub Actions, but a fresh real FreeCAD GUI
-installation, the full 2.5D workflow on original FCStd models, physical
-tooling/collision validation and automated manufacturing sequence search
-still require acceptance.
+## What is included
 
-## Runtime architecture
+This distribution keeps the current functional workbench, its real geometry
+and backgauge algorithms, the SheetMetal model adapter, and the tooling library.
+No test suite, development scripts, benchmark results, demonstration models,
+historical reports, or synthetic test tools are shipped.
 
-- `freecad_smbs/InitGui.py` — one active workbench, two commands: **PressBrakeSim 2.5D**
-  (simulation workspace) and **Библиотека оснастки** (tooling dialog).
-- `freecad_smbs/commands/pressbrake_2d.py` — the one 2.5D UI/workspace.
-  Includes angle slider, bend order table, Play All, Pause/Resume, Reset,
-  tooling controls, 2.5D machine-section view and read-only 3D preview.
-- `freecad_smbs/integration/` — authoritative SheetMetal unfold reader,
-  panel builder, direction validator and optional diagnostics.
-- `smbs_core/kinematics2d/` — finite-radius bend zones, signed FoldState,
-  workpiece pose, press cycle, 2D collision oracle, 3D surface preview,
-  motion JSONL recorder and trace analyzer.
-- `freecad_smbs/ui/tooling_panel.py`,
-  `smbs_core/geometry_backend/io/` and `toollibrary/` — tooling catalog,
-  punch, die, clamps, backgauge and machine-frame source models.
-- `demo/parts/` — original CAD reference workpieces (see below).
-- `tests/` and `.github/workflows/pressbrake-preview-2d.yml` —
-  source-level regression tests.
+- `Init.py`, `InitGui.py` — direct FreeCAD addon entry points.
+- `freecad_smbs/` — PressBrakeSim 2.5D workspace, active GUI commands,
+  SheetMetal import, tooling UI, sequence catalog and backgauge configuration.
+- `smbs_core/kinematics2d/` — real finite-radius bend model, 2D collision
+  screening, automatic sequence search, alternative 180-degree loading poses,
+  real CAD backgauge contact, machine placement, Full Cycle and Bend Only,
+  partial result replay, and optional native 3D checks.
+- `smbs_core/geometry_backend/` and `smbs_core/models/` — geometry/tooling
+  adapters used by the workbench.
+- `toollibrary/` — actual punch, die, backgauge, clamp, press and frame
+  geometry with their sidecar metadata and original DXF files.
 
-The obsolete HandMod/SMBS OCC pipeline, duplicate FreeCAD commands, old GUI
-dialogs, macros and unrelated CLI have been removed from `2D`. Their history
-remains on [`archive/2d-pre-cleanup-20261106`](https://github.com/Badsmc/SMBS_BendSeq/tree/archive/2d-pre-cleanup-20261106).
-The experimental native D6.3.4 evaluator remains isolated in `d6-native-3d`
-and is **not** a required 2.5D runtime dependency.
+### Commands
 
-## Install directly in FreeCAD
+The **PressBrakeSim 2.5D** menu and toolbar provide the simulation workspace,
+load part, tooling panel, automatic physical search, fast 2D candidates,
+sequence catalog and backgauge configuration. The independent tooling library
+command remains available. These features are not removed by cleanup.
 
-Requirements: **FreeCAD 1.1.x**, the FreeCAD **SheetMetal Workbench**, and
-FreeCAD's Python 3.11 / PySide6 environment. The runtime uses FreeCAD's
-built-in `Part` geometry; **installing `pythonocc-core` is not required**.
+## Install
 
-Download the `2D` branch using GitHub **Code → Download ZIP**, or clone
-`git clone --branch 2D https://github.com/Badsmc/SMBS_BendSeq.git`.
+Requires **FreeCAD 1.1.x**, the **SheetMetal Workbench** and FreeCAD's bundled
+Python environment. The addon uses FreeCAD's `Part` / OpenCASCADE modules;
+`pythonocc-core` is **not** required for the GUI workbench.
 
-Put the **checkout root** directly under the *active FreeCAD user Mod
-directory* in a single folder, for example on Windows:
+1. Download the ZIP for this **handmode** branch.
+2. Extract the *contents* of that ZIP into one folder directly beneath
+   your active FreeCAD user `Mod` directory. Do not nest another checkout.
+3. Example for FreeCAD v1.1 on Windows:
 
 ```text
-%APPDATA%/FreeCAD/v1-1/Mod/SMBS_BendSeq-2D/
-  Init.py
-  InitGui.py
-  freecad_smbs/
-  smbs_core/
-  demo/
-  toollibrary/
-  tools/
+%APPDATA%\FreeCAD\v1-1\Mod\SMBS_Handmode\
+    Init.py
+    InitGui.py
+    freecad_smbs\
+    smbs_core\
+    toollibrary\
+    README.md
 ```
 
-Do **not** install a second copy of the old SMBS workbench in the same Mod
-directory. Restart FreeCAD after installing or updating code. In the Workbench
-selector choose **PressBrakeSim 2.5D**.
+4. Remove or disable any **other installed SMBS_BendSeq or PressBrakeSim
+   checkout** from the same FreeCAD Mod search paths. Duplicate registrations
+   can make FreeCAD load stale Python modules.
+5. Fully restart FreeCAD, then select **PressBrakeSim 2.5D** in the workbench
+   selector. Select a SheetMetal model with a valid Unfold, and use **Load
+   Part** followed by **Simulation / 2D candidates**.
 
-On macOS or Linux, place the same checkout under the FreeCAD user Mod directory.
-Paths inside the project are always resolved from module files, not from
-Windows-style paths, the user's Desktop or current working directory.
+Use the actual installed workbench folder, not the GitHub source branch, as
+the authoritative runtime source. If the menu is missing, first inspect
+FreeCAD **View → Panels → Report view** for an InitGui import error.
 
-Direct checkout installation is the **only supported install route** for
-the cleaned `2D` branch: it keeps the Workbench, geometry, models and
-demo files under one root and avoids duplicate FreeCAD registrations.
+## Bending and operator-facing placement
 
-## Original demo CAD models
+Search checks both rigid machine-Z loading orientations. Where possible,
+it prefers **the longer reachable sheet extent on the operator (-s) side**
+and **the shorter extent towards the rear gauge (+s)**. Each automatic
+candidate uses its own real backgauge S/Z placement and sampled collision
+checks. The same selected pose is carried into 2.5D/3D display and Full Cycle.
 
-The 17 user-supplied `.FCStd` models are described in
-`demo/MANIFEST.json`, but **their original binary content has not yet been
-committed to GitHub**. Do not claim that downloading `2D` alone includes
-L, Z, U and box reference workpieces.
+For manual orders, the long-operator-side orientation is an
+`ERGONOMIC_ONLY_NOT_CAD_VALIDATED` suggestion: it has **not** been checked
+against all machine obstacles or verified rear-stop contact. The GUI displays
+this evidence limitation.
 
-Download `SMBS_demo_FCStd_17_files.zip` separately and put it in your
-Downloads folder. In FreeCAD's Python Console, adjust `root` to match
-your installed checkout:
+The workstation preview shows operator to the left and gauge to the right;
+a different camera angle does not change machine orientation. Use motion
+JSONL diagnostics to inspect the per-bend `reverse_axis` and selected S/Z.
 
-```python
-from pathlib import Path
-import sys
-root = Path("C:/Users/User/AppData/Roaming/FreeCAD/v1-1/Mod/SMBS_BendSeq-2D")
-sys.path.insert(0, str(root))
-from tools.install_demo_models import install_demo_archive
-print(install_demo_archive())
-from smbs_core.demo_paths import all_demo_parts
-print("Demo FCStd:", len(all_demo_parts()))
-```
+## Status and safety limitations
 
-The installer checks all original file sizes and SHA-256 hashes, checks FCStd
-archive format, and refuses to overwrite different files. When all original
-files are later committed, a separate ZIP will no longer be necessary.
+**Working experimental addon, not a certified manufacturing planner.**
 
-## Use and limitations
+- The last reported 10-bend reference search reached **7 of 10 bends** under
+  the configured search time limit. A complete valid sequence has not been
+  demonstrated for that model.
+- Static CAD/2.5D contact is not a proof of collision-free continuous feed,
+  retract or transfer.
+- Independent full 3D trajectory validation for reverse-loaded bends is not
+  implemented. The GUI must mark those checks `UNVERIFIED`.
+- Actual CAD `Backgauge.FCStd` and configured tooling must be checked in
+  FreeCAD; a visually playable animation does not certify a safe press-brake
+  manufacturing sequence.
+- A clean headless Python build validates import contracts and files, but
+  **does not replace a real FreeCAD GUI and workpiece test**.
 
-1. Open a valid FreeCAD SheetMetal document with an Unfold feature.
-2. Select the relevant part/face in the tree, then launch the simulator.
-3. Choose **Bend Only** for automatic **kinematic visualization** with
-   one `Play All` control.
-4. Choose **Full Cycle** for press-motion preview when the machine pose and
-   tooling geometry are supported. An unsupported nonparallel-axis or
-   unverified contact case must stop with an explicit warning, not fake safety.
-5. Use the bend table, angle slider, manual order, controls and optional JSONL
-   motion recorder to inspect the sequence.
-6. Do not equate a playable/manual order with a physically feasible
-   **manufacturing sequence**. Automatic valid sequence planning remains work
-   to complete before that capability can be promised.
+## Clean branch policy
 
-2.5D section clearance cannot guarantee full 3D collision freedom. Clamps,
-backgauge, machine frame and out-of-section interference require independent
-qualification; collision and transfer results must state their evidence limits.
-This product does not compute tonnage, springback or FEM behavior.
+`handmode` contains **only installable runtime code and required assets**.
+Experiments, test fixtures, research documents, generated reports, tools and
+regression tests remain available in the source/development branches of the
+repository. They must be run there before publishing a new handmode build.
 
-## Tests and release criteria
-
-GitHub Actions runs all retained **pure-Python** tests, source compilation,
-install-path checks and scope assertions. Tests requiring real FreeCAD/Qt
-and original FCStd fixtures need a separate Windows/macOS/Linux validation
-environment.
-
-Current release gates:
-[`docs/PRESSBRAKESIM_25D_RELEASE_GATES.md`](docs/PRESSBRAKESIM_25D_RELEASE_GATES.md).
-
-Traceability and legacy decisions:
-[`docs/2D_BRANCH_CLEANUP_AUDIT.md`](docs/2D_BRANCH_CLEANUP_AUDIT.md).
-
-**The branch is the single source of development truth, but must not be tagged
-as a production-ready release until all release-blocking tests and real GUI
-acceptance steps pass.**
+Do not copy `tests/`, `reports/`, `demo/` or other development artifacts
+into this branch as part of a normal release.
