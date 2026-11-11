@@ -77,10 +77,23 @@ class GuiExperimentIntegrationContracts(unittest.TestCase):
         self.assertIn("loading_orientation_variants=tuple(", self.source)
         self.assertIn("self._selected_planar_loading_orientation = {", self.source)
         self.assertIn(
-            "self.press_cycle.loading_orientation_by_bend = dict(",
+            "self.press_cycle.loading_orientation_by_bend = (",
             self.source,
         )
+        self.assertIn("self._effective_loading_orientation_map()", self.source)
         self.assertIn("selected_planar_loading_orientation.get(", self.source)
+
+    def test_both_machine_views_share_selected_3d_placement(self):
+        self.assertIn("def _current_preview_machine_placement(self):", self.source)
+        self.assertIn("machine_placement=current_placement", self.source)
+        self.assertIn("self._current_preview_machine_placement()", self.source)
+        self.assertIn("def _effective_loading_orientation_map(self):", self.source)
+        self.assertIn("plan_preview_loading_orientations(", self.source)
+
+    def test_partial_full_cycle_finishes_retraction_before_stop(self):
+        self.assertIn("partial_prefix_done", self.source)
+        self.assertIn("partial_safe_to_stop", self.source)
+        self.assertIn("CyclePhase.STEP_COMPLETE", self.source)
 
     def test_native_calculation_code_remains_present(self):
         # These components belong to the experimental branch, not the GUI.
