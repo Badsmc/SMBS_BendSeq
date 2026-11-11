@@ -34,17 +34,16 @@
     },
     "stop_face": {
       "kind": "plane",
+      "source_object": "Pad",
+      "subelement": "Face6",
       "origin": [
-        25,
-        137.5,
-        7
-      ],
-      "normal": [
-        -1,
+        49.3567,
         0,
-        0
+        6.75308
       ],
-      "tolerance_mm": 0.05
+      "normal_source": "EXTRACT_FROM_SELECTED_CAD_FACE",
+      "tolerance_mm": 0.05,
+      "selection_evidence": "Body/Pad.Face6 (FreeCAD selection; selected point 49.3567,0,6.75308)"
     }
   },
   "metadata": {
