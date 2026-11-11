@@ -14,6 +14,10 @@ from math import isfinite
 from typing import Any, Mapping, Optional
 
 
+class BackgaugeZTravelError(ValueError):
+    """Requested backgauge Z position is outside the configured machine travel."""
+
+
 @dataclass(frozen=True)
 class BackgaugePosition2D:
     s_mm: float
@@ -40,6 +44,8 @@ class BackgaugeModel2D:
     cad_geometry_enabled: bool = False
     cad_station_xm_mm: float = 0.0
     cad_second_station_xm_mm: Optional[float] = None
+    z_min_mm: float = -20.0
+    z_max_mm: float = 20.0
 
     def __post_init__(self):
         for val in (self.width_s_mm, self.height_z_mm):
@@ -58,6 +64,12 @@ class BackgaugeModel2D:
                 raise ValueError("cad_second_station_xm_mm must be finite or None")
             if abs(self.cad_second_station_xm_mm - self.cad_station_xm_mm) < 1e-6:
                 raise ValueError("two backgauge CAD stations must not coincide")
+        for name in ("z_min_mm", "z_max_mm"):
+            val = getattr(self, name)
+            if isinstance(val, bool) or not isinstance(val, (int, float)) or not isfinite(val):
+                raise ValueError(name + " must be finite numeric")
+        if self.z_min_mm >= self.z_max_mm:
+            raise ValueError("backgauge Z range must have min < max")
         if not isinstance(self.automatic, bool):
             raise ValueError("automatic must be boolean")
         if (isinstance(self.edge_clearance_mm, bool)
@@ -81,6 +93,14 @@ class BackgaugeModel2D:
                for p in self.positions.values()):
             raise ValueError(
                 "backgauge stop must lie entirely on +s/right machine side"
+            )
+
+    def validate_z_travel(self, position: BackgaugePosition2D, bend_id: str) -> None:
+        if position.z_mm < self.z_min_mm - 1e-7 or position.z_mm > self.z_max_mm + 1e-7:
+            raise BackgaugeZTravelError(
+                "BACKGAUGE_Z_OUT_OF_RANGE:bend={} z_mm={:.4f} allowed=[{:.4f},{:.4f}]".format(
+                    bend_id, position.z_mm, self.z_min_mm, self.z_max_mm
+                )
             )
 
     def position_for(self, bend_id: str) -> BackgaugePosition2D:
