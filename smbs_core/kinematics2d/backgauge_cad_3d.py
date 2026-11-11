@@ -153,8 +153,28 @@ class BackgaugeCAD3D:
                     ga.ZMax < sb.ZMin or sb.ZMax < ga.ZMin):
                 common = shapes[0].common(shapes[1])
                 if not common.isNull() and float(common.Volume) > 1e-6:
+                    # Same rigid CAD model at each X station. The projected
+                    # width along machine X is the minimum separation that
+                    # guarantees non-overlapping X extents (regardless of
+                    # any concavity elsewhere in the true BRep).
+                    actual_width = float(shapes[0].BoundBox.XLength)
+                    actual_gap = abs(
+                        self.second_station_xm_mm - self.station_xm_mm
+                    )
                     raise BackgaugeCADError(
-                        "two_backgauge_cad_bodies_intersect; choose distinct X stations"
+                        "two_backgauge_cad_bodies_intersect: "
+                        "X1={:.2f} mm, X2={:.2f} mm, "
+                        "separation={:.2f} mm, "
+                        "actual CAD X-width={:.2f} mm, "
+                        "minimum guaranteed non-overlap separation={:.2f} mm. "
+                        "Uncheck 'Добавить второй CAD упор' to use one, "
+                        "or set real machine X positions with sufficient "
+                        "clearance. No safety margin is assumed."
+                        .format(
+                            self.station_xm_mm,
+                            self.second_station_xm_mm,
+                            actual_gap, actual_width, actual_width,
+                        )
                     )
         return tuple(shapes)
 
