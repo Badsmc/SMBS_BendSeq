@@ -453,6 +453,7 @@ def screen_candidate_stage_b(
                 support_plane_zm=outer_r,
                 align_bisector=False,
                 align_bend_arc_center=True,
+                reverse_axis=reverse_axis,
                 rear_panel_vertices_xy=panel_vertices_xy,
             )
             for fraction in (0.0, 0.25, 0.5, 0.75, 1.0):
