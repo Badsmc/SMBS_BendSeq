@@ -42,7 +42,7 @@ class BackgaugeCAD3D:
     """
 
     def __init__(self, library_dir=None, *, station_xm_mm=0.0,
-                 second_station_xm_mm=None):
+                 second_station_xm_mm=None, trace_path=None):
         import FreeCAD as App
 
         self.app = App
@@ -132,6 +132,48 @@ class BackgaugeCAD3D:
         # Source -X normal rotates to machine +Y, operator/left.
         self.source_to_machine_rotation = App.Rotation(App.Vector(0,0,1), -90)
         self._placement_cache = {}
+        self._trace_writer = None
+        if trace_path is not None:
+            from .backgauge_cad_trace import (
+                BackgaugeCADTrace, bbox_xyz, point_xyz,
+            )
+            self._trace_writer = BackgaugeCADTrace(trace_path)
+            face_info = []
+            for index, face in enumerate(self.source_shape.Faces, 1):
+                if not isinstance(face.Surface, Part.Plane):
+                    continue
+                u0, u1, v0, v1 = face.ParameterRange
+                normal = face.normalAt((u0 + u1) / 2, (v0 + v1) / 2)
+                center = face.CenterOfMass
+                face_info.append({
+                    "face": "Face{}".format(index),
+                    "area_mm2": round(float(face.Area), 6),
+                    "center_source_xyz_mm": point_xyz(center),
+                    "normal_source_xyz": point_xyz(normal),
+                    "bbox_source_xyz_mm": bbox_xyz(face),
+                    "normal_machine_xyz": point_xyz(
+                        self.source_to_machine_rotation.multVec(normal)
+                    ),
+                })
+            self._trace_writer.emit(
+                "SOURCE_CAD_VERIFIED",
+                cad_path=str(path),
+                datum_path=str(metadata),
+                stop_face="Face{}".format(self.stop_face_index),
+                stop_face_origin_source_xyz_mm=point_xyz(self.stop_origin),
+                stop_face_normal_source_xyz=[-1., 0., 0.],
+                stop_face_normal_machine_xyz=[0., 1., 0.],
+                first_station_xm_mm=self.station_xm_mm,
+                second_station_xm_mm=self.second_station_xm_mm,
+                source_body_bbox_xyz_mm=bbox_xyz(self.source_shape),
+                source_solid_volume_mm3=round(float(self.source_shape.Volume), 6),
+                planar_faces=face_info,
+            )
+
+    def _trace(self, event, **fields):
+        writer = getattr(self, "_trace_writer", None)
+        if writer is not None:
+            writer.emit(event, **fields)
 
     def positioned_shape(self, contact_s_mm, contact_z_mm):
         """Return primary real CAD stop at its configured X station."""
@@ -227,11 +269,31 @@ class BackgaugeCAD3D:
             align_bend_arc_center=True,
             rear_panel_vertices_xy=panel_vertices_xy,
         )
+        self._trace(
+            "BEND_CONTACT_REQUEST",
+            bend_id=str(bend_id),
+            fixed_panel=str(state.bends[bend_id].fixed_panel),
+            desired_midpoint_xm_mm=float(desired_midpoint_xm),
+            contact_station_xm_mm=self.station_xm_mm,
+            second_station_xm_mm=self.second_station_xm_mm,
+            nominal_stop_s_mm=round(float(hint_s), 6),
+            target_center_s_mm=round(float(target.s_mm), 6),
+            target_z_mm=round(float(target.z_mm), 6),
+            legacy_rectangle_width_s_mm=float(backgauge_model.width_s_mm),
+            requested_edge_clearance_mm=float(backgauge_model.edge_clearance_mm),
+            workpiece_pose_rotation=pose.rotation,
+            workpiece_pose_translation_xyz_mm=pose.translation,
+        )
         result = self.solve_first_contact(
             state, panel_vertices_xy, pose,
             active_bend_id=bend_id,
             hint_s_mm=hint_s, contact_z_mm=target.z_mm,
             tolerance_mm=tolerance_mm,
+        )
+        self._trace(
+            "BEND_CONTACT_SOLVED",
+            bend_id=str(bend_id),
+            **result,
         )
         actual_s = float(result["contact_s_mm"])
         actual_z = float(result["contact_z_mm"])
@@ -286,6 +348,28 @@ class BackgaugeCAD3D:
                 "fixed panel CAD solid missing:" + fixed_id
             )
         volume_tol = max(1e-6, float(tolerance_mm)**3)
+        if getattr(self, "_trace_writer", None) is not None:
+            from .backgauge_cad_trace import bbox_xyz
+            self._trace(
+                "CONTACT_GEOMETRY_PRECHECK",
+                bend_id=str(active_bend_id),
+                required_fixed_panel=fixed_id,
+                hint_s_mm=round(float(hint_s_mm), 6),
+                contact_z_mm=round(float(contact_z_mm), 6),
+                tolerance_mm=float(tolerance_mm),
+                volume_threshold_mm3=volume_tol,
+                part_panels_and_bend_zones=[
+                    {"component": label, "bbox_xyz_mm": bbox_xyz(shape),
+                     "volume_mm3": round(float(shape.Volume), 6)}
+                    for label, shape in components
+                ],
+                selected_fixed_bbox_xyz_mm=bbox_xyz(fixed),
+                stop_at_hint_bbox_xyz_mm=[
+                    bbox_xyz(g) for g in self.positioned_shapes(
+                        float(hint_s_mm), float(contact_z_mm)
+                    )
+                ],
+            )
 
         def probe(s_mm, *, target_only):
             """Volume interference for the required fixed panel or entire sheet.
@@ -382,6 +466,21 @@ class BackgaugeCAD3D:
             else:
                 low_s = mid_s
         fixed_hit, shapes = probe(high_s, target_only=True)
+        if getattr(self, "_trace_writer", None) is not None:
+            from .backgauge_cad_trace import bbox_xyz
+            self._trace(
+                "CONTACT_BRACKET_RESULT",
+                bend_id=str(active_bend_id),
+                required_fixed_panel=fixed_id,
+                hint_s_mm=round(hint_s, 6),
+                bracket_low_s_mm=round(low_s, 6),
+                first_nonpenetrating_stop_s_mm=round(high_s, 6),
+                fixed_panel_distance_mm=[
+                    round(float(g.distToShape(fixed)[0]), 6)
+                    for g in shapes
+                ],
+                stop_bboxes_xyz_mm=[bbox_xyz(g) for g in shapes],
+            )
         if fixed_hit is not None:
             raise BackgaugeCADError(
                 "OCC fixed-panel contact solver did not converge"
@@ -409,6 +508,52 @@ class BackgaugeCAD3D:
             gb = gauge_body.BoundBox
             cb = common.BoundBox
             ahead = max(0.0, float(gb.YMax) + float(high_s))
+            if getattr(self, "_trace_writer", None) is not None:
+                from .backgauge_cad_trace import bbox_xyz
+                operator_faces = []
+                for face_index, face in enumerate(gauge_body.Faces, 1):
+                    if not isinstance(face.Surface, Part.Plane):
+                        continue
+                    uv = face.ParameterRange
+                    normal = face.normalAt(
+                        (uv[0] + uv[1]) / 2,
+                        (uv[2] + uv[3]) / 2,
+                    )
+                    if normal.dot(self.app.Vector(0, 1, 0)) < .999:
+                        continue
+                    operator_faces.append({
+                        "face": "Face{}".format(face_index),
+                        "bbox_xyz_mm": bbox_xyz(face),
+                        "distance_to_fixed_mm": round(
+                            float(face.distToShape(fixed)[0]), 6
+                        ),
+                        "distance_to_obstruction_mm": round(
+                            float(face.distToShape(obstructing_solid)[0]), 6
+                        ),
+                    })
+                self._trace(
+                    "CONTACT_OBSTRUCTED",
+                    bend_id=str(active_bend_id),
+                    required_fixed_panel=fixed_id,
+                    obstructing_component=component,
+                    finger_number=int(finger),
+                    station_xm_mm=(
+                        self.station_xm_mm if finger == 1
+                        else self.second_station_xm_mm
+                    ),
+                    source_datum_face="Face{}".format(self.stop_face_index),
+                    candidate_stop_s_mm=round(float(high_s), 6),
+                    initial_hint_s_mm=round(float(hint_s), 6),
+                    front_protrusion_mm=round(ahead, 6),
+                    overlap_volume_mm3=round(float(volume), 6),
+                    overlap_bbox_xyz_mm=bbox_xyz(common),
+                    stop_body_bbox_xyz_mm=bbox_xyz(gauge_body),
+                    fixed_panel_bbox_xyz_mm=bbox_xyz(fixed),
+                    obstructing_panel_bbox_xyz_mm=bbox_xyz(obstructing_solid),
+                    operator_facing_planar_faces=operator_faces,
+                    contact_verified=False,
+                    continuous_path_verified=False,
+                )
             raise BackgaugeCADError(
                 "OTHER_PANEL_BLOCKS_REQUIRED_GAUGE_CONTACT:"
                 "finger={} obstructing_component={} "
