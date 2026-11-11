@@ -3630,7 +3630,7 @@ class _PreviewPanel:
                 if self.session is None:
                     self.play_btn.setText("Play")
                     self.play_btn.setIcon(QtGui.QIcon(str(_ICON_ROOT / "control_play.svg")))
-                        self.move_up_btn.setEnabled(False)
+                    self.move_up_btn.setEnabled(False)
                     self.move_down_btn.setEnabled(False)
                     self.restore_order_btn.setEnabled(False)
                     self.calculate.setEnabled(False)
