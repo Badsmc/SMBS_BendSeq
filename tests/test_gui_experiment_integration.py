@@ -67,6 +67,12 @@ class GuiExperimentIntegrationContracts(unittest.TestCase):
         self.assertNotIn("QtWidgets.QSplitter(", self.source)
         self.assertEqual(self.source.count("self.timer = QtCore.QTimer(self)"), 1)
 
+    def test_selected_backgauge_variant_is_preserved_through_gui_replay(self):
+        self.assertIn("backgauge_variant_indices=tuple(", self.source)
+        self.assertIn("self._selected_planar_gauge_positions = {", self.source)
+        self.assertIn("self._selected_planar_gauge_order", self.source)
+        self.assertIn("SELECTED_DFS_CONTACT_SAMPLED_NOT_3D_CERTIFIED", self.source)
+
     def test_native_calculation_code_remains_present(self):
         # These components belong to the experimental branch, not the GUI.
         for path in (
