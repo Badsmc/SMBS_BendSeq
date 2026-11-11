@@ -102,8 +102,11 @@ class BackgaugeRealCADTests(unittest.TestCase):
         overlapping = BackgaugeCAD3D(
             station_xm_mm=0.0, second_station_xm_mm=1.0
         )
-        with self.assertRaisesRegex(BackgaugeCADError, "intersect"):
+        with self.assertRaisesRegex(BackgaugeCADError, "intersect") as ctx:
             overlapping.positioned_shapes(120.0, 0.75)
+        self.assertIn("X1=0.00 mm", str(ctx.exception))
+        self.assertIn("X2=1.00 mm", str(ctx.exception))
+        self.assertIn("actual CAD X-width=", str(ctx.exception))
 
     def test_bad_target_cannot_be_claimed_as_valid_stop(self):
         from smbs_core.kinematics2d.backgauge_cad_3d import (
