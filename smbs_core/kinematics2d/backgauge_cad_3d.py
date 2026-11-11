@@ -269,21 +269,22 @@ class BackgaugeCAD3D:
             align_bend_arc_center=True,
             rear_panel_vertices_xy=panel_vertices_xy,
         )
-        self._trace(
-            "BEND_CONTACT_REQUEST",
-            bend_id=str(bend_id),
-            fixed_panel=str(state.bends[bend_id].fixed_panel),
-            desired_midpoint_xm_mm=float(desired_midpoint_xm),
-            contact_station_xm_mm=self.station_xm_mm,
-            second_station_xm_mm=self.second_station_xm_mm,
-            nominal_stop_s_mm=round(float(hint_s), 6),
-            target_center_s_mm=round(float(target.s_mm), 6),
-            target_z_mm=round(float(target.z_mm), 6),
-            legacy_rectangle_width_s_mm=float(backgauge_model.width_s_mm),
-            requested_edge_clearance_mm=float(backgauge_model.edge_clearance_mm),
-            workpiece_pose_rotation=pose.rotation,
-            workpiece_pose_translation_xyz_mm=pose.translation,
-        )
+        if getattr(self, "_trace_writer", None) is not None:
+            self._trace(
+                "BEND_CONTACT_REQUEST",
+                bend_id=str(bend_id),
+                fixed_panel=str(state.bends[bend_id].fixed_panel),
+                desired_midpoint_xm_mm=float(desired_midpoint_xm),
+                contact_station_xm_mm=self.station_xm_mm,
+                second_station_xm_mm=self.second_station_xm_mm,
+                nominal_stop_s_mm=round(float(hint_s), 6),
+                target_center_s_mm=round(float(target.s_mm), 6),
+                target_z_mm=round(float(target.z_mm), 6),
+                legacy_rectangle_width_s_mm=float(backgauge_model.width_s_mm),
+                requested_edge_clearance_mm=float(backgauge_model.edge_clearance_mm),
+                workpiece_pose_rotation=pose.rotation,
+                workpiece_pose_translation_xyz_mm=pose.translation,
+            )
         result = self.solve_first_contact(
             state, panel_vertices_xy, pose,
             active_bend_id=bend_id,
