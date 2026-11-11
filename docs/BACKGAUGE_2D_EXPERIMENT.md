@@ -1,3 +1,14 @@
+## 2026-11-11 — real CAD stop obstruction at X_m=0 (20261111-060950 diagnostics)
+
+This source report used **one** complete `Backgauge.FCStd` BRep at `X_m=0`, zero `edge_clearance_mm`, no initial feed, and found 12 *unverified* 10-bend exploratory orders. All ten first-step bend records had `OTHER_PANEL_BLOCKS_REQUIRED_GAUGE_CONTACT`: for B06, selected contact panel `P04` at `required_stop_s_mm=36.2601` is blocked by `P05` at positive OCC volume **18963.980887 mm³**; hint was `s=11.2566`. B08/B07/B05 repeat the same P05 intersection volume, and the post-fixed-panel retreat is consistently close to 25 mm across nearly every bend.
+
+The **25 mm** systematic shift is consistent with CAD source geometry protruding toward the operator ahead of the documented `Face3` datum at source local X=25 mm. A separate, previously measured -X face exists at local X=0 mm (Face5), but it is in a different source Y region. This is evidence of a likely **CAD body mounting/contact-patch mismatch**, not proof that Face5 is the correct working stop or that a valid gauge configuration exists at X_m=0.
+
+**Changes:** include OCC intersection bounding-box and CAD body leading protrusion in contact errors; reclassify this *specific confirmed solid-solid obstruction* as `CAD_3D_INTERFERENCE` and prune that setup from search. Other source/FreeCAD errors remain `UNVERIFIED_2D`. Manual replay uses the same distinction. This prevents invented complete 10-bend candidates made entirely of physically blocked contacts. It does **not** suppress overlap, change mesh tolerances, or certify any configuration.
+
+**Next physical FreeCAD check:** identify which pieces of `Backgauge.FCStd` constitute the actual contact finger vs mounting body, inspect Face3/Face5 and machine X_m span, and ensure the backgauge geometry is physically installed at its intended X_m/Z_m. A full 200-mm-class body can genuinely strike other panels even if its selected contact face is near a fixed panel. Moving to another X station must only be accepted after actual fixed-panel contact and full 3D collision checks. A new report should list `CAD_3D_INTERFERENCE` rather than classify these as unverified candidates.
+
+
 ## 66.json — corrected first-contact search target (2026-11-11)
 
 The latest ten-bend run (`X_m=50 mm`, single CAD finger, `edge_clearance_mm=25`, `initial_feed_preview_mm=1`) reached depth 10 and produced six **UNVERIFIED_2D** coarse candidates, but all ten bends' contacts failed `FIRST_CONTACT_WRONG_PANEL_OR_NO_FIXED_CONTACT`. Example B06 requested fixed `P04` at `hint_s=36.2566`, yet the previous solver retracted to `stop_s=563.2974` and then reported a 527.0407 mm distance from P04. This is **not a valid physical sequence**; 30-second `SEARCH_LIMIT_REACHED` also applies.
