@@ -72,21 +72,9 @@ class BackgaugeCAD3D:
         if raw.get("kind") != "backgauge" or raw.get("source") != path.name:
             raise BackgaugeCADError("Backgauge kind/source mismatch")
         datum = raw.get("datums", {}).get("stop_face", {})
-        if datum.get("kind") != "plane":
-            raise BackgaugeCADError("Real stop_face plane datum required")
-        point = datum.get("origin")
-        normal = datum.get("normal")
-        if (not isinstance(point, list) or not isinstance(normal, list)
-                or len(point) != 3 or len(normal) != 3
-                or any(not math.isfinite(float(v)) for v in point + normal)):
-            raise BackgaugeCADError("Invalid contact datum coordinates")
-        if math.dist(normal, (-1, 0, 0)) > 1e-4:
-            raise BackgaugeCADError(
-                "unsupported source stop_face normal; expected (-1,0,0)"
-            )
-        tol = float(datum.get("tolerance_mm", 0.05))
-        if not math.isfinite(tol) or tol <= 0:
-            raise BackgaugeCADError("invalid CAD face tolerance")
+        from .backgauge_cad_datum import (
+            resolve_stop_face, StopDatumError, z_rotation_to_operator_deg,
+        )
 
         import Part
         active = getattr(App.ActiveDocument, "Name", None)
@@ -101,36 +89,40 @@ class BackgaugeCAD3D:
                 raise BackgaugeCADError(
                     "Expected exactly one valid solid PartDesign Body in Backgauge.FCStd"
                 )
-            shape = bodies[0].Shape.copy()
-            origin = _v(App, point)
-            target_faces = []
-            for idx, face in enumerate(shape.Faces, 1):
-                if not isinstance(face.Surface, Part.Plane):
-                    continue
-                bounds = face.ParameterRange
-                outward = face.normalAt(
-                    0.5*(bounds[0]+bounds[1]),
-                    0.5*(bounds[2]+bounds[3]),
+            selected_body = bodies[0]
+            try:
+                selected_index, origin, outward = resolve_stop_face(
+                    doc, selected_body, datum, App, Part
                 )
-                if outward.dot(_v(App, normal)) < 0.999:
-                    continue
-                distance, _, _ = face.distToShape(Part.Vertex(origin))
-                if distance <= tol:
-                    target_faces.append(idx)
-            if len(target_faces) != 1:
+            except StopDatumError as exc:
                 raise BackgaugeCADError(
-                    "CAD contact face not uniquely verified: " + str(target_faces)
-                )
-            self.source_shape = shape
+                    "SELECTED_BACKGAUGE_FACE_UNVERIFIED:"
+                    + str(exc)
+                ) from exc
+            self.source_shape = selected_body.Shape.copy()
             self.stop_origin = origin
-            self.stop_face_index = target_faces[0]
+            self.stop_source_normal = outward
+            self.stop_source_object = str(datum["source_object"])
+            self.stop_source_subelement = str(datum["subelement"])
+            self.stop_face_index = selected_index
+            self.stop_rotation_z_deg = z_rotation_to_operator_deg(outward)
         finally:
             if doc is not None:
                 App.closeDocument(doc.Name)
             if active and active in App.listDocuments():
                 App.setActiveDocument(active)
-        # Source -X normal rotates to machine +Y, operator/left.
-        self.source_to_machine_rotation = App.Rotation(App.Vector(0,0,1), -90)
+        # Align the actual Pad.Face6 normal with operator-facing +Y while
+        # preserving world Z-up; never guess the orientation from Body.Face3.
+        self.source_to_machine_rotation = App.Rotation(
+            App.Vector(0, 0, 1), self.stop_rotation_z_deg
+        )
+        mapped_normal = self.source_to_machine_rotation.multVec(
+            self.stop_source_normal
+        )
+        if mapped_normal.dot(App.Vector(0, 1, 0)) < .999:
+            raise BackgaugeCADError(
+                "selected source face cannot align to operator-facing +Y"
+            )
         self._placement_cache = {}
         self._trace_writer = None
         if trace_path is not None:
@@ -160,9 +152,12 @@ class BackgaugeCAD3D:
                 cad_path=str(path),
                 datum_path=str(metadata),
                 stop_face="Face{}".format(self.stop_face_index),
+                selected_source_object=self.stop_source_object,
+                selected_source_subelement=self.stop_source_subelement,
                 stop_face_origin_source_xyz_mm=point_xyz(self.stop_origin),
-                stop_face_normal_source_xyz=[-1., 0., 0.],
-                stop_face_normal_machine_xyz=[0., 1., 0.],
+                stop_face_normal_source_xyz=point_xyz(self.stop_source_normal),
+                stop_rotation_about_z_deg=self.stop_rotation_z_deg,
+                stop_face_normal_machine_xyz=point_xyz(mapped_normal),
                 first_station_xm_mm=self.station_xm_mm,
                 second_station_xm_mm=self.second_station_xm_mm,
                 source_body_bbox_xyz_mm=bbox_xyz(self.source_shape),
@@ -542,7 +537,10 @@ class BackgaugeCAD3D:
                         self.station_xm_mm if finger == 1
                         else self.second_station_xm_mm
                     ),
-                    source_datum_face="Face{}".format(self.stop_face_index),
+                    source_datum_face="{}.{}->Body.Face{}".format(
+                        self.stop_source_object, self.stop_source_subelement,
+                        self.stop_face_index
+                    ),
                     candidate_stop_s_mm=round(float(high_s), 6),
                     initial_hint_s_mm=round(float(hint_s), 6),
                     front_protrusion_mm=round(ahead, 6),
@@ -625,12 +623,15 @@ class BackgaugeCAD3D:
             "shift_rearward_mm": float(contact_s - hint_s),
             "actual_faces": actual_face_indices,
             "datum_face_indices": [self.stop_face_index] * len(gauges),
-            "face3_is_contact": all(
+            "selected_datum_is_contact": all(
                 index == self.stop_face_index for index in actual_face_indices
+            ),
+            "source_datum": "{}.{}".format(
+                self.stop_source_object, self.stop_source_subelement
             ),
             "status": "FIRST_NONPENETRATING_CAD_FACE_CONTACT_SAMPLED",
             "note": (
-                "CONTACT_FACE3" if all(
+                "CONTACT_SELECTED_CAD_FACE" if all(
                     index == self.stop_face_index for index in actual_face_indices
                 ) else "CONTACT_ON_DIFFERENT_CAD_FACE_NEEDS_TOOLING_REVIEW"
             ),
@@ -639,7 +640,7 @@ class BackgaugeCAD3D:
         }
 
     def _positioned_at(self, contact_s_mm, contact_z_mm, station_xm_mm):
-        """Position source Face3 at exact machine stop contact point."""
+        """Position explicitly selected CAD source face at machine point."""
         if not all(math.isfinite(float(v)) for v in
                    (contact_s_mm, contact_z_mm)):
             raise BackgaugeCADError("invalid stop-face target")
