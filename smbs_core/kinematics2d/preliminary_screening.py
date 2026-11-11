@@ -84,6 +84,102 @@ class PreliminaryScreeningReport:
         }
 
 
+
+def _record_planar_tool_interference(
+    cad_checker: Any, section: Dict[str, Any], tooling: ToolingSetup2D,
+    finding: ContactFinding, *, bend_id: str, phase: str,
+    angle_fraction: float, angle_deg: float, ram_z_mm: float,
+    tolerance_mm: float,
+) -> None:
+    """Capture exact input polygons for a decisive 2D tool intersection.
+
+    This is diagnostics only. Never influence the contact oracle or its
+    verdict if tracing is unavailable. The coordinates are in the same
+    machine (s,z) frame consumed by classify_polygon_contact, at X_m=0.
+    """
+    if cad_checker is None or getattr(cad_checker, "_trace_writer", None) is None:
+        return
+
+    def _ring(points):
+        if points is None:
+            return None
+        arr = [(float(v[0]), float(v[1])) for v in points]
+        if not arr or not all(
+            math.isfinite(s) and math.isfinite(z) for s, z in arr
+        ):
+            return None
+        return {
+            "vertices_count": len(arr),
+            "truncated": len(arr) > 256,
+            "vertices_sz_mm": [
+                [round(a, 6), round(b, 6)] for a, b in arr[:256]
+            ],
+            "bbox_sz_mm": [
+                round(min(v[0] for v in arr), 6),
+                round(min(v[1] for v in arr), 6),
+                round(max(v[0] for v in arr), 6),
+                round(max(v[1] for v in arr), 6),
+            ],
+        }
+
+    component = finding.sheet_component
+    match = {
+        "active_fixed": section.get("fixed_polygon"),
+        "active_moving": section.get("moving_polygon"),
+        "active_bend_zone": section.get("zone_polygon"),
+    }.get(component)
+    if match is None:
+        for collection in ("other_panel_polygons", "other_zone_polygons"):
+            for label, polygon in section.get(collection, ()):
+                if str(label) == str(component):
+                    match = polygon
+                    break
+            if match is not None:
+                break
+
+    if finding.tool == "PUNCH":
+        profile = tooling.punch_polygons_machine(arc_segments=24)
+    elif finding.tool == "DIE":
+        profile = tooling.die_polygons_machine(arc_segments=24)
+    else:
+        profile = None
+
+    outer, holes = (profile if profile is not None else (None, ()))
+    try:
+        cad_checker._trace(
+            "PLANAR_TOOL_INTERFERENCE",
+            bend_id=str(bend_id),
+            phase=str(phase),
+            angle_fraction=round(float(angle_fraction), 6),
+            bend_angle_deg=round(float(angle_deg), 6),
+            ram_z_mm=round(float(ram_z_mm), 6),
+            station_xm_mm=0.0,
+            tolerance_mm=float(tolerance_mm),
+            tool=str(finding.tool),
+            sheet_component=str(component),
+            interference_reason=str(finding.reason),
+            sheet_polygon=_ring(match),
+            tool_outer_polygon=_ring(outer),
+            tool_holes=[
+                _ring(hole) for hole in tuple(holes)[:8]
+            ],
+            geometry_scope="SAMPLED_2D_ONLY_NOT_3D_VERIFIED",
+        )
+    except Exception as exc:
+        # A failed optional diagnostic cannot turn a physical collision
+        # into a usable candidate or invalidate the search.
+        try:
+            cad_checker._trace(
+                "PLANAR_TOOL_TRACE_FAILED",
+                bend_id=str(bend_id),
+                phase=str(phase),
+                reason=type(exc).__name__ + ":" + str(exc),
+            )
+        except Exception:
+            pass
+
+
+
 def screen_candidate_stage_a(
     fold_state: FoldState,
     candidate_bend_id: str,
@@ -641,6 +737,13 @@ def screen_candidate_stage_b(
                         continue
                     # 2D cross-section planar findings require authoritative 3D verification
                     finding = next((f for f in sec_report.findings if f.status is ContactStatus.INTERFERENCE), None)
+                    if finding is not None and backgauge_cad_checker is not None:
+                        _record_planar_tool_interference(
+                            backgauge_cad_checker, sec, tooling, finding,
+                            bend_id=candidate_bend_id, phase=phase,
+                            angle_fraction=frac, angle_deg=angle_at_probe,
+                            ram_z_mm=ram_z, tolerance_mm=tolerance_mm,
+                        )
                     reason_msg = (
                         f"{phase}:{backgauge_reason}" if backgauge_reason
                         else f"{phase}:{finding.sheet_component}:{finding.reason}" if finding
