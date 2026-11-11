@@ -8,8 +8,8 @@ at commit `4b666384ab313951c40e3856266929804edbd682`.
 
 This distribution keeps the current functional workbench, its real geometry
 and backgauge algorithms, the SheetMetal model adapter, and the tooling library.
-No test suite, development scripts, benchmark results, demonstration models,
-historical reports, or synthetic test tools are shipped.
+No test suite, development scripts, benchmark reports, historical reports,
+or synthetic test tools are shipped. The original demo CAD workpieces are included.
 
 - `Init.py`, `InitGui.py` — direct FreeCAD addon entry points.
 - `freecad_smbs/` — PressBrakeSim 2.5D workspace, active GUI commands,
@@ -22,6 +22,8 @@ historical reports, or synthetic test tools are shipped.
   adapters used by the workbench.
 - `toollibrary/` — actual punch, die, backgauge, clamp, press and frame
   geometry with their sidecar metadata and original DXF files.
+- `demo/parts/` — 16 original `.FCStd` workpieces for opening and testing in FreeCAD.
+  `demo/MANIFEST.json` records their filenames, sizes and SHA-256 hashes.
 
 ### Commands
 
@@ -48,6 +50,10 @@ Python environment. The addon uses FreeCAD's `Part` / OpenCASCADE modules;
     freecad_smbs\
     smbs_core\
     toollibrary\
+    demo\
+      MANIFEST.json
+      parts\
+        *.FCStd
     README.md
 ```
 
@@ -103,5 +109,6 @@ Experiments, test fixtures, research documents, generated reports, tools and
 regression tests remain available in the source/development branches of the
 repository. They must be run there before publishing a new handmode build.
 
-Do not copy `tests/`, `reports/`, `demo/` or other development artifacts
-into this branch as part of a normal release.
+Keep `demo/parts/` and its validated manifest in this distribution.
+Do not copy `tests/`, `reports/`, `demo/SMBendTests/` or other
+non-runtime development artifacts into this branch as part of a normal release.
