@@ -59,15 +59,55 @@ working-face contact as outside the configured machine axis travel.
 - DFS branches over the bounded returned contacts, but the CAD search is
   not exhaustive: contact heights and three X sections are sampled, and
   some physically feasible setups may not appear.
-- The operator-side length preference does not yet create and simulate the
-  opposite physical loading orientation. Both loading orientations and their
-  backgauge/transfer paths require full pose propagation into the GUI replay.
+- The DFS now checks BOTH true 180-degree machine-Z loading orientations
+  for each CAD-backgauge bend. A cheap operator/rear reach cost hint orders
+  the trial but never hard-rejects the less ergonomic alternative.
+- The reverse orientation propagates through CAD Pad.Face6 contact resolution,
+  tooling-only prefilter, full Stage B machine-space sampling, variant-specific
+  final replay and GUI press-cycle/transfer pose. The selected CAD S/Z
+  contact is also preserved in the simulated gauge target.
+- This still does **not** certify continuous loading/transfer paths, support
+  stability or native D6.3.4 3D bend trajectories for reversed orientations.
+  The GUI refuses to claim D6.3.4 validation when the active bend uses reverse
+  loading. Physical checks must use matching spatial poses.
 - 2.5D sections and sampled CAD static checks do not certify continuous
   transfer sweeps, first-feed stop contact, or tool end-zone collisions.
 - Sampling bounds may miss a feasible contact. Unknown must remain unknown.
   `candidate_trial_limit_reached` reports bounded search, not impossibility.
 - Actual speed-up is **not yet established**. Compare against the parent
   branch on the same FCStd, tooling and search budget.
+
+## Opposite loading orientation / operator access (2026-11-11)
+
+The old `rear_panel_vertices_xy` machine-frame normalization always rotated
+the **kinematic fixed panel** to +s (rear/right). The operator-side preference
+could only score this one setup; no amount of penalty could generate a real
+alternative. A 12 mm operator side against an 800 mm rear side could therefore
+be the only geometric orientation examined.
+
+For CAD automatic stop planning, DFS now tries `reverse_axis=False` and
+`reverse_axis=True` (rigid 180° rotation about machine Z, determinant +1),
+with independent contact proposals, screening-cache keys, Stage B contact
+verification and machine setup scores for each. The cheaper ergonomic
+orientation is explored first, but the original orientation remains reachable
+when the preferred one collides or cannot reach the stop.
+
+`PlanarStep.orientation_variant` records the physical orientation and
+`backgauge_variant_index` its separately checked stop variant. The candidate
+GUI validation passes both values to full-density sampled replay, then
+`PressCycleController.loading_orientation_by_bend` drives the same pose during
+the bending phases and interbend TRANSFER. GUI backgauge drawing uses the
+selected S/Z rather than the original-side guess.
+
+**This is still a preliminary sampled 2.5D/CAD simulation, not production
+clearance certification.** Native D6.3.4 full 3D trajectory validation has
+not been adapted for reverse loading, and is explicitly marked UNVERIFIED
+instead of using a misleading forward-only check.
+
+Test example: long 800 mm fixed flange initially at rear; reversing about
+machine Z puts that flange toward the operator and seeks real short-rear
+Pad.Face6 contact. If there is no reachable rear contact or the tooling
+collides, the reversed candidate must not be accepted as sampled-clear.
 
 ## Verification
 
