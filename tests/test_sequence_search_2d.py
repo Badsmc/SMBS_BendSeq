@@ -68,6 +68,34 @@ class PlanarSearchTests(unittest.TestCase):
             )
         return result, stage_b
 
+    def test_real_occ_gauge_obstruction_is_blocking_not_candidate(self):
+        from smbs_core.kinematics2d.backgauge_cad_3d import BackgaugeCADError
+        def obstructed(*args, **kwargs):
+            raise BackgaugeCADError(
+                "OTHER_PANEL_BLOCKS_REQUIRED_GAUGE_CONTACT:"
+                "finger=1 obstructing_component=panel:P05 "
+                "volume_mm3=18963.980887 fixed=panel:P04 "
+                "required_stop_s_mm=36.2601 hint_s_mm=11.2566 "
+                "front_protrusion_mm=25.0 "
+                "overlap_bbox_xyz_mm=[0,1,0,1,0,1]"
+            )
+        result, _ = self.run_mocked(
+            obstructed, group_first=False, max_nodes=20,
+            max_search_time_s=3.0,
+        )
+        self.assertEqual(result.max_depth_reached, 0)
+        self.assertFalse(result.candidates)
+        self.assertEqual(result.rejected_2d_interferences, 2)
+        self.assertTrue(result.evaluated_step_details)
+        self.assertTrue(all(
+            step.evidence == "CAD_3D_INTERFERENCE"
+            for _, step in result.evaluated_step_details
+        ))
+        self.assertEqual(
+            result.to_dict()["per_bend_contact_summary"]["B01"]["interferences"],
+            1
+        )
+
     def test_unverified_initial_loading_does_not_exhaust_root_search(self):
         """An assumed 100mm loading start cannot prove a bend impossible."""
         from smbs_core.kinematics2d.sequence_search_2d import _classify_step
