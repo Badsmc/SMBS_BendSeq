@@ -1,3 +1,16 @@
+## 2026-11-11 — 90-second CAD run (102548 trace) and false seven-bend partial
+
+Source files: `smbs_2d_search_diagnostics(20261111-083640).json` and `smbs_backgauge_cad_20261111-102548_ffc04f03.jsonl`, generated on the user's FreeCAD machine.
+
+The longer 90 s search reached 86 evaluated transitions, 28 DFS nodes, 45 sampled 2D interferences, 40 sampled-clear/touch results and 1 unverified timeout. It saw 7 coarse steps in the deepest prefix `B10,B09,B08,B06,B03,B01,B04`, but the last B04 has `UNVERIFIED_2D / 2d_probe_time_budget_reached`, *zero sampled phases* and must not be represented as the seventh successful bend. The actual preliminary **six** checked bends are `B10,B09,B08,B06,B03,B01`; their full-density replay, 3D tooling and machine movement remain unverified. The report has no completed 10-bend candidate. The remaining B02/B05/B07 were not solved on that prefix.
+
+The 102548 JSONL contains 86 `EXTERNAL_REAR_CONTACT_SOLVED` events and 95 trials. Nine trial geometries were rejected as the working Face6 being too far from a requested panel, but an alternate real candidate was found each time. The contact oracle does not explain the remaining punch/die crossings; those appear in planar Stage B. Some CAD-contact setups occur at extreme negative/positive Z and cannot be certified until actual machine travel and R-axis geometry are supplied. Do not silently apply arbitrary machine limits.
+
+**Code correction:** the DFS no longer appends an explicitly timed-out Stage B transition into the next previewable prefix; sampled-only/conditional-warning prefixes are required for a preview, and best sampled-prefix selection is independent from the deepest speculative branch. For the ten-bend CAD workflow the GUI can present six sampled steps if no seven-step valid prefix exists, still displaying the 3D certification warning and running full-density replay before playback. Regression tests cover the timeout scenario and the later-safe-branch-after-speculative-depth case. No collision has been bypassed, no OCC tolerance changed.
+
+Next FreeCAD retest must confirm that the UI displays 6 checked bends rather than seven after the same deadline and that it refuses to animate any unverified B04. Expect remaining P05/P07/P09/P02/P11 punch/die findings to require real geometry verification if an exhaustive sequence is still unavailable.
+
+
 ## 2026-11-11 — after external rear-contact solver (100722 CAD trace)
 
 Provided FreeCAD files: `smbs_2d_search_diagnostics(20261111-080809).json` and `smbs_backgauge_cad_20261111-100722_23fe6ed3.jsonl`.
