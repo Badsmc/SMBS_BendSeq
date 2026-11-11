@@ -325,10 +325,10 @@ def screen_candidate_stage_b(
         loading_route_unverified = False
         if (backgauge_contact_metadata is not None
                 and not backgauge_contact_metadata.get(
-                    "face3_is_contact", False
+                    "selected_datum_is_contact", False
                 )):
             # Actual first CAD contact is valid but is NOT the certified
-            # user-selected working datum Face3. Preserve geometry and
+            # selected working datum (Pad.Face6). Preserve geometry and
             # flag setup as unverified; never claim physical approval.
             diagnostic_findings.append((
                 "CONTACT_SETUP", "BACKGAUGE_CAD_3D",
@@ -336,7 +336,7 @@ def screen_candidate_stage_b(
                     backgauge_contact_metadata.get("actual_faces")
                 ),
                 "UNVERIFIED",
-                "selected_face3_not_first_physical_contact:"
+                "selected_working_face_not_first_physical_contact:"
                 + str(backgauge_contact_metadata.get("note", "")),
             ))
             contact_statuses.append("UNVERIFIED")
