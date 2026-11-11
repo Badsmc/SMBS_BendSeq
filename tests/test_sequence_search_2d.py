@@ -68,6 +68,30 @@ class PlanarSearchTests(unittest.TestCase):
             )
         return result, stage_b
 
+    def test_no_accessible_cad_edge_at_configured_x_is_setup_rejection(self):
+        from smbs_core.kinematics2d.backgauge_cad_3d import BackgaugeCADError
+        def missing(*_args, **_kwargs):
+            raise BackgaugeCADError(
+                "NO_ACCESSIBLE_REAR_EDGE_AT_CONFIGURED_X:"
+                "station_xm_mm=0.000 fixed=panel:P04 "
+                "trials=P07@548.000:WORKING_FACE_DOES_NOT_REACH_EDGE:-"
+            )
+        report, _ = self.run_mocked(
+            missing, group_first=False, max_nodes=20,
+            max_search_time_s=3.0,
+        )
+        self.assertFalse(report.candidates)
+        self.assertEqual(report.max_depth_reached, 0)
+        self.assertEqual(report.rejected_2d_interferences, 2)
+        self.assertTrue(all(
+            step.evidence == "CAD_CONTACT_UNAVAILABLE"
+            for _, step in report.evaluated_step_details
+        ))
+        self.assertEqual(
+            report.to_dict()["per_bend_contact_summary"]["B01"]["unverified"],
+            1
+        )
+
     def test_real_occ_gauge_obstruction_is_blocking_not_candidate(self):
         from smbs_core.kinematics2d.backgauge_cad_3d import BackgaugeCADError
         def obstructed(*args, **kwargs):
