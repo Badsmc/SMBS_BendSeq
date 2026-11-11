@@ -35,7 +35,7 @@ class BackgaugeDFSVariantTests(unittest.TestCase):
             width_s_mm=10.0, height_z_mm=10.0,
             positions={}, automatic=True, cad_geometry_enabled=True,
         )
-        contact = SimpleNamespace()
+        contact = SimpleNamespace(station_xm_mm=0.0, second_station_xm_mm=None)
 
         def resolve(_state, _vertices, _bend_id, _model, **_kwargs):
             return (
