@@ -265,6 +265,7 @@ def validate_partial_planar_prefix(
     tolerance_mm: float = 0.02,
     allow_retract_warning: bool = False,
     backgauge_model: Optional[BackgaugeModel2D] = None,
+    backgauge_variant_indices: Optional[Sequence[int]] = None,
 ) -> tuple[bool, str]:
     """Full-density sampled 2D gate before displaying an exploratory prefix.
 
@@ -288,7 +289,15 @@ def validate_partial_planar_prefix(
         if (not sequence or len(set(sequence)) != len(sequence)
                 or any(b not in state.bends for b in sequence)):
             return False, "invalid_partial_bend_order"
-        for bid in sequence:
+        if backgauge_variant_indices is not None:
+            if (len(backgauge_variant_indices) != len(sequence)
+                    or any(not isinstance(i, int) or isinstance(i, bool)
+                           or i < 0 for i in backgauge_variant_indices)):
+                return False, "invalid_backgauge_variant_indices"
+            if (any(i > 0 for i in backgauge_variant_indices)
+                    and (cad_checker is None or backgauge_model is None)):
+                return False, "cad_backgauge_variants_require_real_cad"
+        for step_index, bid in enumerate(sequence):
             state.reset_all()
             for prior in sequence:
                 if prior in completed:
@@ -305,6 +314,30 @@ def validate_partial_planar_prefix(
                         )
                     )
                     cad_contact_z = cad_contact_data["contact_z_mm"]
+                    variant_index = (
+                        backgauge_variant_indices[step_index]
+                        if backgauge_variant_indices is not None else 0
+                    )
+                    if variant_index:
+                        variants = cad_contact_data.get("alternative_contacts", ())
+                        if variant_index > len(variants):
+                            return False, (
+                                "backgauge_variant_no_longer_available:"
+                                + bid + ":" + str(variant_index)
+                            )
+                        alt = variants[variant_index - 1]
+                        cad_contact_s = float(alt["contact_s_mm"])
+                        cad_contact_z = float(alt["contact_z_mm"])
+                        from .backgauge_2d import BackgaugePosition2D
+                        _point = BackgaugePosition2D(
+                            cad_contact_s + backgauge_model.width_s_mm / 2,
+                            cad_contact_z,
+                        )
+                        cad_contact_data = {
+                            **cad_contact_data, **alt,
+                            "candidate_variant_index": variant_index,
+                            "note": "CAD_GAUGE_VARIANT_REPLAY_" + str(variant_index),
+                        }
                     backgauge_model.validate_z_travel(_point, bid)
                 else:
                     point, _depth, _ = backgauge_model.resolve_for_state(
