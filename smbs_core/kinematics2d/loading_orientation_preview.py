@@ -60,11 +60,16 @@ def plan_preview_loading_orientations(
         z = float(zone.outer_radius_mm) if zone is not None else 0.0
         setups = []
         for reverse in (False, True):
-            setup = compute_workpiece_machine_setup(
-                isolated, bend_id, support_plane_zm=z,
-                align_bisector=False, reverse_axis=reverse,
-                rear_panel_vertices_xy=panel_vertices_xy,
-            )
+            try:
+                setup = compute_workpiece_machine_setup(
+                    isolated, bend_id, support_plane_zm=z,
+                    align_bisector=False, reverse_axis=reverse,
+                    rear_panel_vertices_xy=panel_vertices_xy,
+                )
+            except (ValueError, TypeError, KeyError, AttributeError):
+                # An unavailable pose is NOT evidence that this orientation
+                # is physically obstructed. Keep the decision unverified.
+                continue
             front, rear = setup.operator_reach_mm, setup.rear_reach_mm
             if (setup.is_complete and front is not None and rear is not None
                     and isfinite(front) and isfinite(rear)):
