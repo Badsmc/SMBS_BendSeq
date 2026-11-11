@@ -4296,9 +4296,41 @@ class _PreviewPanel:
                         model_state.set_angle(
                             bid, float(model_state.bends[bid].angle_deg)
                         )
-                    point, depth, evidence = model.resolve_for_state(
-                        model_state, session.panel_vertices_xy, order[index],
-                    )
+                    if model.cad_geometry_enabled:
+                        from smbs_core.kinematics2d.backgauge_cad_3d import (
+                            BackgaugeCAD3D,
+                        )
+                        stations_key = (
+                            model.cad_station_xm_mm,
+                            model.cad_second_station_xm_mm,
+                        )
+                        cached = getattr(
+                            self, "_backgauge_cad_draw_cache", None
+                        )
+                        if cached is None or cached[0] != stations_key:
+                            adapter = BackgaugeCAD3D(
+                                station_xm_mm=model.cad_station_xm_mm,
+                                second_station_xm_mm=(
+                                    model.cad_second_station_xm_mm
+                                ),
+                            )
+                            self._backgauge_cad_draw_cache = (
+                                stations_key, adapter,
+                            )
+                        else:
+                            adapter = cached[1]
+                        point, depth, evidence, solution = (
+                            adapter.resolve_contact_for_bend(
+                                model_state, session.panel_vertices_xy,
+                                order[index], model,
+                            )
+                        )
+                        evidence += "|" + solution["note"]
+                    else:
+                        point, depth, evidence = model.resolve_for_state(
+                            model_state, session.panel_vertices_xy,
+                            order[index],
+                        )
                     result = (point, depth, evidence)
                 except Exception as exc:
                     _warn("Backgauge preview target unknown for {}: {}".format(
