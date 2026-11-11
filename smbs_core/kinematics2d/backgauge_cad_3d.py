@@ -287,11 +287,18 @@ class BackgaugeCAD3D:
             )
         volume_tol = max(1e-6, float(tolerance_mm)**3)
 
-        def probe(s_mm):
+        def probe(s_mm, *, target_only):
+            """Volume interference for the required fixed panel or entire sheet.
+
+            A near-side collision with an unrelated panel must not shift the
+            stop past the designated fixed panel. The full part is checked
+            independently at the resulting fixed-panel contact.
+            """
             shapes = self.positioned_shapes(s_mm, contact_z_mm)
+            checked = ((fixed_id, fixed),) if target_only else components
             for index, gauge in enumerate(shapes, 1):
                 ga = gauge.BoundBox
-                for label, sheet in components:
+                for label, sheet in checked:
                     sb = sheet.BoundBox
                     if (ga.XMax < sb.XMin or sb.XMax < ga.XMin or
                             ga.YMax < sb.YMin or sb.YMax < ga.YMin or
@@ -309,47 +316,46 @@ class BackgaugeCAD3D:
             return None, shapes
 
         hint_s = float(hint_s_mm)
-        interference, shapes = probe(hint_s)
-        if interference is None:
-            # Existing gauge location may already be at first contact.
-            nearest = min(float(gauge.distToShape(fixed)[0])
-                          for gauge in shapes)
-            if nearest <= float(tolerance_mm) + 0.03:
-                return self._qualified_contact(
-                    shapes, fixed, hint_s, contact_z_mm, hint_s,
-                    tolerance_mm, fixed_id,
-                )
+        fixed_interference, shapes = probe(hint_s, target_only=True)
+        if fixed_interference is None:
+            # The nominal stop may already contact the intended panel.
+            if all(float(g.distToShape(fixed)[0]) <=
+                   max(0.05, float(tolerance_mm) + 0.03)
+                   for g in shapes):
+                all_collision, _ = probe(hint_s, target_only=False)
+                if all_collision is None:
+                    return self._qualified_contact(
+                        shapes, fixed, hint_s, contact_z_mm, hint_s,
+                        tolerance_mm, fixed_id,
+                    )
 
-        # Calculate a provably Y-disjoint rearward bound from actual CAD
-        # bounding boxes of ALL sheet solids, not an arbitrary travel limit.
-        # This is purely geometric bracketing, NOT machine axis qualification.
-        sheet_rearmost_s = max(
-            -float(shape.BoundBox.YMin) for _, shape in components
-        )
-        forward_protrusion = max(
+        # Only the fixed panel defines the search bracket. Other sheet
+        # panels are never a target and cannot drive the stop 500mm away.
+        rear_s = -float(fixed.BoundBox.YMin)
+        max_forward_protrusion = max(
             float(shape.BoundBox.YMax) + hint_s for shape in shapes
         )
-        far_s = max(hint_s + 1.0,
-                    sheet_rearmost_s + forward_protrusion + 1.0)
+        far_s = max(
+            hint_s + 1.0, rear_s + max_forward_protrusion + 1.0
+        )
         if not math.isfinite(far_s):
-            raise BackgaugeCADError("nonfinite geometric search bound")
+            raise BackgaugeCADError("nonfinite geometric fixed-panel bound")
 
-        if interference is not None:
-            low_s = hint_s
-            high_s = far_s
-            far_interference, _ = probe(high_s)
+        if fixed_interference is not None:
+            low_s, high_s = hint_s, far_s
+            far_interference, _ = probe(high_s, target_only=True)
             if far_interference is not None:
                 raise BackgaugeCADError(
-                    "gauge did not retract to Y-disjoint position"
+                    "fixed panel contact cannot be cleared rearwards"
                 )
         else:
-            # Hint is clear but may not touch any panel: approach from
-            # operator side only until real material contact first occurs.
+            # Hint is clear of intended panel. Move the stop toward
+            # operator, decreasing +s, until actual fixed-panel overlap.
             high_s = hint_s
             low_s = max(0.001, hint_s - 1.0)
             step = 1.0
             for _ in range(18):
-                collision, _ = probe(low_s)
+                collision, _ = probe(low_s, target_only=True)
                 if collision is not None:
                     break
                 if low_s <= 0.001:
@@ -361,24 +367,39 @@ class BackgaugeCAD3D:
                 low_s = max(0.001, hint_s - step)
             else:
                 raise BackgaugeCADError(
-                    "contact bracketing exhausted for fixed panel"
+                    "fixed panel contact bracketing exhausted"
                 )
 
-        # Bisection preserves an OCC-clear upper bound and an interfering
-        # lower bound. Do not accept an intersecting final placement.
+        # Binary search approaches the true contact with the selected
+        # fixed panel from its rear/clear side.
         for _ in range(28):
-            if high_s - low_s <= max(0.005, float(tolerance_mm) / 2.0):
+            if high_s - low_s <= max(0.005, float(tolerance_mm) / 2):
                 break
-            mid_s = (low_s + high_s) / 2.0
-            collision, _ = probe(mid_s)
-            if collision is None:
+            mid_s = (low_s + high_s) / 2
+            fixed_hit, _ = probe(mid_s, target_only=True)
+            if fixed_hit is None:
                 high_s = mid_s
             else:
                 low_s = mid_s
-        collision, shapes = probe(high_s)
-        if collision is not None:
+        fixed_hit, shapes = probe(high_s, target_only=True)
+        if fixed_hit is not None:
             raise BackgaugeCADError(
-                "OCC contact solver failed to find nonpenetrating position"
+                "OCC fixed-panel contact solver did not converge"
+            )
+
+        # Independent full-workpiece 3D test AT the fixed-panel target.
+        # If another panel is obstructing the intended stop, report
+        # obstruction rather than retreating to an unrelated outer edge.
+        other_hit, _ = probe(high_s, target_only=False)
+        if other_hit is not None:
+            finger, component, volume = other_hit
+            raise BackgaugeCADError(
+                "OTHER_PANEL_BLOCKS_REQUIRED_GAUGE_CONTACT:"
+                "finger={} obstructing_component={} "
+                "volume_mm3={:.6f} fixed={} "
+                "required_stop_s_mm={:.4f} hint_s_mm={:.4f}"
+                .format(finger, component, volume,
+                        fixed_id, high_s, hint_s)
             )
         return self._qualified_contact(
             shapes, fixed, high_s, contact_z_mm, hint_s,
