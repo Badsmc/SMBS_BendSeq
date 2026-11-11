@@ -16,7 +16,7 @@ def show_backgauge_settings(workspace):
     from .pressbrake_2d import _qt
     QtCore, _, W = _qt()
     dlg = W.QDialog(workspace)
-    dlg.setWindowTitle("SMBS — Задний упор (2D)")
+    dlg.setWindowTitle("SMBS — Задний упор (CAD / 2D)")
     dlg.resize(680, 560)
     layout = W.QVBoxLayout(dlg)
     notice = W.QLabel(
@@ -26,8 +26,10 @@ def show_backgauge_settings(workspace):
         "2D-сечение заднего упора в координатах станка (s,z), мм. "
         "АВТО: положение вычисляется от текущего гиба до края опорной панели. "
         "РУЧНОЙ: задайте центр упора для каждого гиба. "
-        "Проверка траектории перемещения "
-        "между гибами и реальная 3D-геометрия пока не реализованы.")
+        "Реальный Backgauge.FCStd доступен в экспериментальном CAD-режиме. "
+        "Первый контакт определяется по объёмной геометрии; "
+        "путь перемещения между гибами и ограничения осей "
+        "ещё не подтверждены.")
     notice.setWordWrap(True)
     layout.addWidget(notice)
     inspect_btn = W.QPushButton("Проверить CAD-модель Backgauge.FCStd…")
@@ -52,8 +54,10 @@ def show_backgauge_settings(workspace):
             "Solids: {} | Faces: {}\n"
             "Контактная грань: Face{}\n"
             "Статус: {}\n\n"
-            "ВНИМАНИЕ: проверка CAD-геометрии НЕ означает, "
-            "что реальные пальцы заднего упора уже участвуют в коллизиях."
+            "ВНИМАНИЕ: это проверка исходной CAD-модели. "
+            "Для использования в поиске включите CAD-режим и "
+            "сохраните настройки. Проверка траектории и осей "
+            "не является производственной сертификацией."
             .format(
                 result["source"], result["object"], result["solids"],
                 result["faces"], result["stop_face_index"], result["status"],
@@ -100,8 +104,8 @@ def show_backgauge_settings(workspace):
     feed.setSuffix(" мм")
     feed.setValue(model.initial_feed_preview_mm if model else 0.0)
     feed.setToolTip(
-        "Только визуальный начальный подвод заготовки слева к упору. "
-        "0 отключает фазу. Траектория не проверяется на коллизии.")
+        "Подвод к упору: в CAD-режиме проверяются отдельные позиции. "
+        "Непрерывная траектория и другие части станка не проверены.")
     dims.addRow("Начальная подача листа (визуально):", feed)
     station = W.QDoubleSpinBox()
     station.setRange(-10000.0, 10000.0)
