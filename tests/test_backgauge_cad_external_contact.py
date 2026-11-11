@@ -89,7 +89,7 @@ class ExternalRearCADContactTests(unittest.TestCase):
         with patch.dict(sys.modules, {"Part": Mock()}), patch.object(
             adapter, "_panel_solids", return_value=panels,
         ), patch.object(
-            adapter, "_bend_solids", return_value=zones,
+            adapter, "_bend_solids", return_value=list(zones),
         ), patch.object(
             adapter, "positioned_shapes",
             side_effect=lambda s, z: (Gauge(s),),
