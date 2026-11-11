@@ -95,6 +95,40 @@ class Preview3DTests(unittest.TestCase):
                 self.assertAlmostEqual(z,q[2],places=6)
                 self.assertAlmostEqual(p[1],q[1],places=6)
 
+    def test_machine_pose_is_applied_to_real_3d_faces_not_model_camera(self):
+        from smbs_core.kinematics2d.workpiece_placement_3d import (
+            PlacementTransform3D,
+        )
+        from smbs_core.kinematics2d.panel_kinematics import IDENTITY
+        sheet = FoldStateFixture()
+        neutral_pose = PlacementTransform3D(
+            rotation=IDENTITY, translation=(0., 0., 0.),
+        )
+        reverse_pose = PlacementTransform3D(
+            rotation=((-1., 0., 0.), (0., -1., 0.), (0., 0., 1.)),
+            translation=(0., 0., 0.),
+        )
+        front = build_sheet_preview_faces(
+            sheet, self.outlines, "B01", WorkpiecePose2D(),
+            machine_placement=neutral_pose,
+        )
+        back = build_sheet_preview_faces(
+            sheet, self.outlines, "B01",
+            WorkpiecePose2D(rotation_deg=45., shift=(1000., 1000.)),
+            machine_placement=reverse_pose,
+        )
+        def fixed_face(faces):
+            return next(f for f in faces
+                        if f.kind == "panel_top" and f.identifier == "Left")
+        p = fixed_face(front).vertices
+        q = fixed_face(back).vertices
+        # Screen s = -Y_m: machine 180 rotation swaps left and right.
+        for v, w in zip(p, q):
+            self.assertAlmostEqual(v[0], -w[0], places=8)
+            self.assertAlmostEqual(v[1], -w[1], places=8)
+            self.assertAlmostEqual(v[2], w[2], places=8)
+        self.assertEqual(self.outlines["Left"][0], (-55., 0.))
+
     def test_invalid_active_bend_fails_closed(self):
         with self.assertRaises(PreviewMeshError):
             build_sheet_preview_faces(
