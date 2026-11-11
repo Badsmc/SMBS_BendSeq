@@ -31,6 +31,7 @@ jobs:
             tests.test_backgauge_cad_trace \
             tests.test_backgauge_contact_height \
             tests.test_backgauge_cad_contact_interval \
+            tests.test_backgauge_variants_in_dfs \
             tests.test_operator_side_preference \
             tests.test_collision_cascade \
             tests.test_planar_collision_trace \
