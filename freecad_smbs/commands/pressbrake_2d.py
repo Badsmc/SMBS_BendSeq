@@ -1421,8 +1421,8 @@ class _PreviewPanel:
                 )))
                 gauge_settings_btn.clicked.connect(self.open_backgauge_dialog)
                 settings_layout.addWidget(gauge_settings_btn)
-                insert(settings_layout, entries[11])  # diagnostics button
-                insert(settings_layout, entries[12])  # diagnostics output
+                insert(settings_layout, entries[9])  # diagnostics button
+                insert(settings_layout, entries[10])  # diagnostics output
 
                 self.trace_checkbox = QtWidgets.QCheckBox(
                     "Автоматически записывать движения при Play All (JSONL)"
@@ -1493,6 +1493,18 @@ class _PreviewPanel:
                 root.addWidget(self.show_task_panel_btn)
                 self.show_task_panel_btn.hide()
                 self._apply_svg_button_icons()
+
+            def open_tooling_settings_dialog(self):
+                """Open a single persistent tooling dialog with Basic/Import tabs."""
+                self._tooling_dialog.show()
+                self._tooling_dialog.raise_()
+                self._tooling_dialog.activateWindow()
+
+            def open_settings_dialog(self):
+                """Open all settings and diagnostic controls outside Task Panel."""
+                self._settings_dialog.show()
+                self._settings_dialog.raise_()
+                self._settings_dialog.activateWindow()
 
             def _apply_svg_button_icons(self):
                 """Use the same industrial SVG family in task controls.
@@ -3802,16 +3814,21 @@ class _PreviewPanel:
                 finally:
                     self.manual_validate_btn.setEnabled(True)
 
+            def activate_manual_mode(self):
+                """Toolbar Manual: open flat pattern and start line selection."""
+                if self.session is None:
+                    self.status.setText("Сначала загрузите развёртку SheetMetal.")
+                    return
+                self._toggle_manual_order(True)
+                show_workspace_controls(self, tab=1)
+
             def _toggle_manual_order(self, enabled):
+                if enabled and self.session is None:
+                    self._manual_selection_enabled = False
+                    self.status.setText("Сначала загрузите развёртку SheetMetal.")
+                    return
                 self._manual_selection_enabled = bool(enabled)
-                self.manual_mode_btn.setText(
-                    "Ручной порядок: ВКЛ" if enabled else "Ручной порядок: ВЫКЛ"
-                )
                 if enabled:
-                    if self.session is None:
-                        self.manual_mode_btn.setChecked(False)
-                        self.status.setText("Сначала загрузите развёртку SheetMetal.")
-                        return
                     self._stop_timer()
                     self.session.reset_all_bends()
                     self._viewer_tabs.setCurrentWidget(self._flat_view)
