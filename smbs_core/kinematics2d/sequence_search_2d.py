@@ -266,6 +266,7 @@ def validate_partial_planar_prefix(
     allow_retract_warning: bool = False,
     backgauge_model: Optional[BackgaugeModel2D] = None,
     backgauge_variant_indices: Optional[Sequence[int]] = None,
+    loading_orientation_variants: Optional[Sequence[str]] = None,
 ) -> tuple[bool, str]:
     """Full-density sampled 2D gate before displaying an exploratory prefix.
 
@@ -297,7 +298,28 @@ def validate_partial_planar_prefix(
             if (any(i > 0 for i in backgauge_variant_indices)
                     and (cad_checker is None or backgauge_model is None)):
                 return False, "cad_backgauge_variants_require_real_cad"
+        if loading_orientation_variants is not None:
+            if (len(loading_orientation_variants) != len(sequence)
+                    or any(
+                        value not in ("NORMAL", "REVERSE_MACHINE_Z_180")
+                        and not value.startswith(
+                            ("NORMAL_GAUGE_ALTERNATIVE_",
+                             "REVERSE_MACHINE_Z_180_GAUGE_ALTERNATIVE_")
+                        )
+                        for value in loading_orientation_variants
+                    )):
+                return False, "invalid_loading_orientation_variants"
+            if (any(value.startswith("REVERSE_MACHINE_Z_180")
+                    for value in loading_orientation_variants)
+                    and cad_checker is None):
+                return False, "reversed_loading_requires_cad_backgauge"
         for step_index, bid in enumerate(sequence):
+            reverse = bool(
+                loading_orientation_variants is not None
+                and loading_orientation_variants[step_index].startswith(
+                    "REVERSE_MACHINE_Z_180"
+                )
+            )
             state.reset_all()
             for prior in sequence:
                 if prior in completed:
@@ -311,6 +333,7 @@ def validate_partial_planar_prefix(
                         cad_checker.resolve_contact_for_bend(
                             state, session.panel_vertices_xy, bid,
                             backgauge_model, tolerance_mm=tolerance_mm,
+                            reverse_axis=reverse,
                         )
                     )
                     cad_contact_z = cad_contact_data["contact_z_mm"]
@@ -360,6 +383,7 @@ def validate_partial_planar_prefix(
                 allow_retract_warning=allow_retract_warning,
                 backgauge_polygon_machine=gauge_polygon,
                 backgauge_cad_checker=cad_checker,
+                reverse_axis=reverse,
                 backgauge_contact_s_mm=cad_contact_s,
                 backgauge_contact_z_mm=cad_contact_z,
                 backgauge_contact_metadata=cad_contact_data,
