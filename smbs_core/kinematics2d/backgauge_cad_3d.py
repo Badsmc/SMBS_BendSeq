@@ -264,89 +264,144 @@ class BackgaugeCAD3D:
              -float(part.BoundBox.YMin) > 0.001),
             key=lambda item: (-item[0], item[1]),
         )
-        attempted = []
+        from .backgauge_contact_height import contact_height_candidates
         if (not math.isfinite(float(z_min_mm))
                 or not math.isfinite(float(z_max_mm))
                 or z_min_mm >= z_max_mm):
             raise BackgaugeCADError("invalid configured backgauge Z travel")
+        attempted = []
+        solutions = []
+        # The target Z is the actual datum origin (Pad.Face6), NOT the
+        # midpoint of the sheet panel. The face spans z+relative offsets.
+        datum_at_zero = self.positioned_shape(1.0, 0.0)
+        datum_face = datum_at_zero.Faces[self.stop_face_index - 1]
+        dz0 = float(datum_face.BoundBox.ZMin)
+        dz1 = float(datum_face.BoundBox.ZMax)
+        # Limit expensive OCC confirmation trials; geometric prefilter below
+        # always runs first. This is NOT proof that other setups are impossible.
+        max_occ_trials = 24
+        max_solutions = 4
+        occ_trials = 0
         for depth, panel_id, panel in options:
-            # Align the selected physical face vertically with this panel.
-            # Its 14mm height is sourced from FCStd; do not invent offsets.
-            z_mid = (
-                float(panel.BoundBox.ZMin) + float(panel.BoundBox.ZMax)
-            ) / 2.0
-            if z_mid < z_min_mm - 1e-7 or z_mid > z_max_mm + 1e-7:
-                attempted.append({
+            if occ_trials >= max_occ_trials or len(solutions) >= max_solutions:
+                break
+            heights = contact_height_candidates(
+                float(panel.BoundBox.ZMin), float(panel.BoundBox.ZMax),
+                dz0, dz1, z_min_mm, z_max_mm,
+            )
+            if not heights:
+                item = {
                     "panel": panel_id,
                     "depth_s_mm": round(depth, 6),
                     "station_xm_mm": float(self.station_xm_mm),
-                    "candidate_z_mm": round(z_mid, 6),
+                    "candidate_z_mm": None,
                     "allowed_z_mm": [float(z_min_mm), float(z_max_mm)],
                     "rejection": "BACKGAUGE_Z_OUT_OF_RANGE",
                     "blocking_component": None,
                     "overlap_mm3": 0.0,
                     "face_gap_mm": None,
-                })
-                self._trace(
-                    "EXTERNAL_REAR_CONTACT_TRIAL",
-                    bend_id=str(active_bend_id), **attempted[-1],
-                )
+                }
+                attempted.append(item)
+                self._trace("EXTERNAL_REAR_CONTACT_TRIAL",
+                            bend_id=str(active_bend_id), **item)
                 continue
-            gauges = self.positioned_shapes(depth, z_mid)
-            gauge = gauges[0]
-            face = gauge.Faces[self.stop_face_index - 1]
-            u0, u1, v0, v1 = face.ParameterRange
-            n = face.normalAt((u0 + u1)/2, (v0 + v1)/2)
-            if n.dot(self.app.Vector(0, 1, 0)) < 0.999:
-                raise BackgaugeCADError("SELECTED_WORKING_FACE_NOT_OPERATOR_FACING")
-            face_gap = float(face.distToShape(panel)[0])
-            if not math.isfinite(face_gap):
-                raise BackgaugeCADError("nonfinite selected face contact gap")
-            reason = None
-            blocked_by = None
-            overlap_volume = 0.0
-            if face_gap > gap_limit:
-                reason = "WORKING_FACE_DOES_NOT_REACH_EDGE"
-            else:
-                gbb = gauge.BoundBox
-                for name, solid in components:
-                    sb = solid.BoundBox
-                    if (gbb.XMax < sb.XMin or sb.XMax < gbb.XMin or
-                            gbb.YMax < sb.YMin or sb.YMax < gbb.YMin or
-                            gbb.ZMax < sb.ZMin or sb.ZMax < gbb.ZMin):
-                        continue
-                    common = gauge.common(solid)
-                    if common.isNull():
-                        continue
-                    overlap = float(common.Volume)
-                    if not math.isfinite(overlap):
+            # Once a physical contact is found on this panel, other heights
+            # at the same depth are alternatives for a later solver stage;
+            # try a distinct panel before spending more OCC calls here.
+            for z in heights:
+                if occ_trials >= max_occ_trials:
+                    break
+                occ_trials += 1
+                gauge = self.positioned_shape(depth, z)
+                face = gauge.Faces[self.stop_face_index - 1]
+                u0, u1, v0, v1 = face.ParameterRange
+                n = face.normalAt((u0 + u1)/2, (v0 + v1)/2)
+                if n.dot(self.app.Vector(0, 1, 0)) < 0.999:
+                    raise BackgaugeCADError(
+                        "SELECTED_WORKING_FACE_NOT_OPERATOR_FACING"
+                    )
+                # Only an AABB exclusion, never proof of contact.
+                fbb, pbb = face.BoundBox, panel.BoundBox
+                if (fbb.XMax < pbb.XMin - gap_limit or
+                        pbb.XMax < fbb.XMin - gap_limit or
+                        fbb.ZMax < pbb.ZMin - gap_limit or
+                        pbb.ZMax < fbb.ZMin - gap_limit):
+                    gap, reason = float("inf"), "WORKING_FACE_OUTSIDE_PANEL_SPAN"
+                else:
+                    gap = float(face.distToShape(panel)[0])
+                    if not math.isfinite(gap):
                         raise BackgaugeCADError(
-                            "nonfinite OCC external stop overlap"
+                            "nonfinite selected face contact gap"
                         )
-                    if overlap > volume_limit:
-                        reason, blocked_by, overlap_volume = (
-                            "CAD_VOLUME_INTERFERENCE", name, overlap,
-                        )
-                        break
-            attempted.append({
-                "panel": panel_id,
-                "depth_s_mm": round(depth, 6),
-                "station_xm_mm": float(self.station_xm_mm),
-                "face_gap_mm": round(face_gap, 6),
-                "rejection": reason,
-                "blocking_component": blocked_by,
-                "overlap_mm3": round(overlap_volume, 6),
-            })
-            self._trace(
-                "EXTERNAL_REAR_CONTACT_TRIAL",
-                bend_id=str(active_bend_id), **attempted[-1],
-            )
-            if reason is not None:
-                continue
+                    reason = (
+                        "WORKING_FACE_DOES_NOT_REACH_EDGE"
+                        if gap > gap_limit else None
+                    )
+                blocked_by = None
+                overlap_volume = 0.0
+                if reason is None:
+                    gbb = gauge.BoundBox
+                    for name, solid in components:
+                        sb = solid.BoundBox
+                        if (gbb.XMax < sb.XMin or sb.XMax < gbb.XMin or
+                                gbb.YMax < sb.YMin or sb.YMax < gbb.YMin or
+                                gbb.ZMax < sb.ZMin or sb.ZMax < gbb.ZMin):
+                            continue
+                        common = gauge.common(solid)
+                        if common.isNull():
+                            continue
+                        overlap = float(common.Volume)
+                        if not math.isfinite(overlap):
+                            raise BackgaugeCADError(
+                                "nonfinite OCC external stop overlap"
+                            )
+                        if overlap > volume_limit:
+                            reason, blocked_by, overlap_volume = (
+                                "CAD_VOLUME_INTERFERENCE", name, overlap,
+                            )
+                            break
+                item = {
+                    "panel": panel_id,
+                    "depth_s_mm": round(depth, 6),
+                    "station_xm_mm": float(self.station_xm_mm),
+                    "candidate_z_mm": round(z, 6),
+                    "allowed_z_mm": [float(z_min_mm), float(z_max_mm)],
+                    "face_gap_mm": (
+                        round(gap, 6) if math.isfinite(gap) else None
+                    ),
+                    "rejection": reason,
+                    "blocking_component": blocked_by,
+                    "overlap_mm3": round(overlap_volume, 6),
+                }
+                attempted.append(item)
+                self._trace("EXTERNAL_REAR_CONTACT_TRIAL",
+                            bend_id=str(active_bend_id), **item)
+                if reason is not None:
+                    continue
+                solutions.append({
+                    "contact_s_mm": float(depth),
+                    "contact_z_mm": float(z),
+                    "support_panel_id": panel_id.removeprefix("panel:"),
+                    "support_panel_matches_fixed": panel_id == fixed_id,
+                    "face_gap_mm": float(gap),
+                })
+                break
+
+        if solutions:
+            # Preserve physically exterior-first depth order. A smaller S
+            # alone cannot establish first contact during forward feeding.
+            # Do not promote an inner contact merely to improve cost.
+            solutions.sort(key=lambda s: (
+                -s["contact_s_mm"],
+                abs(s["contact_z_mm"]),
+                not s["support_panel_matches_fixed"],
+                s["support_panel_id"],
+            ))
+            chosen = solutions[0]
             result = {
-                "contact_s_mm": float(depth),
-                "contact_z_mm": float(z_mid),
-                "hint_s_mm": float(depth),
+                "contact_s_mm": chosen["contact_s_mm"],
+                "contact_z_mm": chosen["contact_z_mm"],
+                "hint_s_mm": chosen["contact_s_mm"],
                 "shift_rearward_mm": 0.0,
                 "actual_faces": [self.stop_face_index],
                 "datum_face_indices": [self.stop_face_index],
@@ -354,23 +409,33 @@ class BackgaugeCAD3D:
                 "source_datum": "{}.{}".format(
                     self.stop_source_object, self.stop_source_subelement
                 ),
-                "support_panel_id": panel_id.removeprefix("panel:"),
-                "support_panel_matches_fixed": panel_id == fixed_id,
+                "support_panel_id": chosen["support_panel_id"],
+                "support_panel_matches_fixed":
+                    chosen["support_panel_matches_fixed"],
                 "contact_station_xm_mm": float(self.station_xm_mm),
-                "face_gap_mm": float(face_gap),
+                "face_gap_mm": chosen["face_gap_mm"],
                 "status": "EXTERNAL_REAR_FACE6_STATIC_CAD_CONTACT_SAMPLED",
                 "note": (
-                    "EXTERNAL_REAR_PANEL_{}".format(panel_id)
-                    + ("_MATCHES_FIXED" if panel_id == fixed_id
-                       else "_NOT_FIXED_PANEL_NEEDS_SETUP_REVIEW")
+                    "EXTERNAL_REAR_PANEL_panel:{}".format(
+                        chosen["support_panel_id"]
+                    ) + ("_MATCHES_FIXED" if chosen["support_panel_matches_fixed"]
+                         else "_NOT_FIXED_PANEL_NEEDS_SETUP_REVIEW")
+                ),
+                # Independent choices are exposed, not silently marked as
+                # verified complete multi-setup search branches.
+                "alternative_contacts": solutions[1:],
+                "candidate_z_interval_checked": True,
+                "candidate_trials_count": len(attempted),
+                "candidate_occ_trials": occ_trials,
+                "candidate_trial_limit_reached": (
+                    occ_trials >= max_occ_trials or
+                    len(solutions) >= max_solutions
                 ),
                 "swept_path_verified": False,
                 "axis_limits_verified": False,
             }
-            self._trace(
-                "EXTERNAL_REAR_CONTACT_SOLVED",
-                bend_id=str(active_bend_id), **result,
-            )
+            self._trace("EXTERNAL_REAR_CONTACT_SOLVED",
+                        bend_id=str(active_bend_id), **result)
             return result
         self._trace(
             "EXTERNAL_REAR_CONTACT_EXHAUSTED",
