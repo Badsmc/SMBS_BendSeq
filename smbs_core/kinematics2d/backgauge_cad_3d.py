@@ -315,11 +315,38 @@ class BackgaugeCAD3D:
                         "nonfinite CAD intersection volume"
                     )
                 if volume > max(1e-6, float(tolerance_mm)**3):
+                    # The selected Face3 is not necessarily the physical
+                    # foremost surface of this nonconvex part. Report the
+                    # actual body penetration toward the operator so a
+                    # genuine overlap can be distinguished from incorrect
+                    # stop-datum selection or mounting.
+                    contact_machine_y = -float(contact_s_mm)
+                    protrusion_operator_mm = max(
+                        0.0, float(ga.YMax) - contact_machine_y
+                    )
                     return {
                         "status": "INTERFERENCE",
                         "component": "finger{}:{}".format(finger_no, label),
                         "volume_mm3": volume,
                         "evidence": "SAMPLED_REAL_CAD_STOP_VS_FOLDSTATE_SOLIDS",
+                        "station_xm_mm": (
+                            self.station_xm_mm if finger_no == 1
+                            else self.second_station_xm_mm
+                        ),
+                        "stop_face_s_mm": float(contact_s_mm),
+                        "body_protrusion_ahead_of_stop_face_mm": (
+                            protrusion_operator_mm
+                        ),
+                        "finger_bbox_xyz_mm": [
+                            float(ga.XMin), float(ga.XMax),
+                            float(ga.YMin), float(ga.YMax),
+                            float(ga.ZMin), float(ga.ZMax),
+                        ],
+                        "sheet_component_bbox_xyz_mm": [
+                            float(sb.XMin), float(sb.XMax),
+                            float(sb.YMin), float(sb.YMax),
+                            float(sb.ZMin), float(sb.ZMax),
+                        ],
                     }
         return {
             "status": "SAMPLED_CLEAR_OR_TOUCH",
