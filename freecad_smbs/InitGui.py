@@ -1,8 +1,8 @@
 """PressBrakeSim 2.5D — single FreeCAD workbench entry point.
 
-The repository branch '2D' is the canonical active development source.
-Preserves experimental full-physics and fast 2D candidate search buttons.
-Legacy SMBS solvers and panels are not imported during startup.
+GUI/v0.0.1 is a dedicated FreeCAD interface development snapshot.
+Preserves the working bend search, tooling and machine simulation commands.
+No alternate legacy GUI registers on startup.
 """
 from __future__ import annotations
 
@@ -17,6 +17,7 @@ except ImportError:
     Workbench = object
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
+_ICON_ROOT = Path(__file__).resolve().parent / "resources" / "icons"
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
@@ -64,7 +65,7 @@ def register_commands() -> None:
 class SMBSWorkbench(Workbench):
     MenuText = "PressBrakeSim 2.5D"
     ToolTip = "SheetMetal press-brake bending preview and tooling"
-    Icon = ""
+    Icon = str(_ICON_ROOT / "gui_workbench.svg")
 
     def Initialize(self) -> None:
         register_commands()
