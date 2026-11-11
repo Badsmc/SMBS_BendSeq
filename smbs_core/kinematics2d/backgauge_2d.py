@@ -107,6 +107,7 @@ class BackgaugeModel2D:
         bend_id: str,
         *,
         desired_midpoint_xm: float = 0.0,
+        cutting_plane_xm: Optional[float] = None,
     ) -> tuple[BackgaugePosition2D, float, str]:
         """Resolve the stop from the fixed-panel cut edge at the active bend.
 
@@ -137,7 +138,11 @@ class BackgaugeModel2D:
         section = compute_machine_cutting_plane_section(
             fold_state, panel_vertices_xy, plc,
             active_bend_id=bend_id, segments=32,
-            target_xm=float(desired_midpoint_xm),
+            target_xm=(
+                float(cutting_plane_xm)
+                if cutting_plane_xm is not None
+                else float(desired_midpoint_xm)
+            ),
         )
         poly = section.get("fixed_polygon") or ()
         if len(poly) < 4:
