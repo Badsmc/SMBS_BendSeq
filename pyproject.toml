@@ -14,6 +14,3 @@ dependencies = []
 where = ["."]
 include = ["smbs_core*", "freecad_smbs*"]
 
-[tool.pytest.ini_options]
-testpaths = ["tests"]
-python_files = ["test_*.py"]
