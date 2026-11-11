@@ -178,6 +178,68 @@ class BackgaugeCAD3D:
                     )
         return tuple(shapes)
 
+    def resolve_contact_for_bend(self, state, panel_vertices_xy, bend_id,
+                                 backgauge_model, *,
+                                 desired_midpoint_xm=0.0,
+                                 tolerance_mm=0.02):
+        """Resolve edge at the actual finger X station and find OCC contact.
+
+        The bend pose stays fixed at the die; only the gauge's rear
+        translational axis is varied. Never move the bend line to force
+        contact. Returns the actual front-face target and diagnostics.
+        """
+        from .backgauge_2d import BackgaugePosition2D
+        from .workpiece_placement_3d import WorkpiecePlacement3D
+
+        target, _depth, source = backgauge_model.resolve_for_state(
+            state, panel_vertices_xy, bend_id,
+            desired_midpoint_xm=float(desired_midpoint_xm),
+            cutting_plane_xm=self.station_xm_mm,
+        )
+        if self.second_station_xm_mm is not None:
+            other, _, _ = backgauge_model.resolve_for_state(
+                state, panel_vertices_xy, bend_id,
+                desired_midpoint_xm=float(desired_midpoint_xm),
+                cutting_plane_xm=self.second_station_xm_mm,
+            )
+            if (abs(other.s_mm - target.s_mm) > 0.05 or
+                    abs(other.z_mm - target.z_mm) > 0.05):
+                raise BackgaugeCADError(
+                    "TWO_FINGERS_REQUIRE_INDEPENDENT_TARGETS:"
+                    "fixed_panel_edge_diff_s_mm={:.4f} diff_z_mm={:.4f}"
+                    .format(other.s_mm-target.s_mm,
+                            other.z_mm-target.z_mm)
+                )
+        if backgauge_model.automatic:
+            # Automatic 2D position is a rectangle centre. Subtract only
+            # half of its width to obtain the intended CAD stop-face s.
+            hint_s = target.s_mm - backgauge_model.width_s_mm / 2
+        else:
+            hint_s = target.s_mm - backgauge_model.width_s_mm / 2
+        zone = state.bends[bend_id].bend_zone
+        if zone is None:
+            raise BackgaugeCADError("no authoritative bend zone")
+        pose = WorkpiecePlacement3D.compute_placement(
+            state, bend_id,
+            desired_midpoint_xm=float(desired_midpoint_xm),
+            support_plane_zm=float(zone.outer_radius_mm),
+            align_bisector=False,
+            align_bend_arc_center=True,
+            rear_panel_vertices_xy=panel_vertices_xy,
+        )
+        result = self.solve_first_contact(
+            state, panel_vertices_xy, pose,
+            active_bend_id=bend_id,
+            hint_s_mm=hint_s, contact_z_mm=target.z_mm,
+            tolerance_mm=tolerance_mm,
+        )
+        actual_s = float(result["contact_s_mm"])
+        actual_z = float(result["contact_z_mm"])
+        display = BackgaugePosition2D(
+            actual_s + backgauge_model.width_s_mm / 2, actual_z
+        )
+        return (display, actual_s, source + "|CAD_FIRST_CONTACT", result)
+
     def solve_first_contact(self, state, panel_vertices_xy, placement, *,
                             active_bend_id, hint_s_mm, contact_z_mm,
                             tolerance_mm=0.02):
