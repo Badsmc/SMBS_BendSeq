@@ -18,9 +18,12 @@ class BackgaugeCADInspectorTests(unittest.TestCase):
         )
         result = inspect_backgauge_cad()
         self.assertEqual(result["status"],
-                         "CAD_SOLID_AND_STOP_FACE_VALIDATED_ONLY")
-        self.assertEqual(result["stop_face_origin_mm"], [25.0, 137.5, 7.0])
-        self.assertEqual(result["stop_face_normal"], [-1.0, 0.0, 0.0])
+                         "CAD_SOLID_AND_SELECTED_PAD_FACE_VALIDATED_ONLY")
+        self.assertEqual(result["stop_face_origin_mm"], [49.3567, 0.0, 6.75308])
+        self.assertEqual(result["source_feature"], "Pad")
+        self.assertEqual(result["source_subelement"], "Face6")
+        self.assertAlmostEqual(result["stop_face_normal"][2], 0.0, places=2)
+        self.assertAlmostEqual(result["mapped_normal_machine_xyz"][1], 1.0, places=3)
         self.assertEqual(result["solids"], 1)
         self.assertFalse(result["collision_model_active"])
 
