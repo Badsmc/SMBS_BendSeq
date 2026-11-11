@@ -902,6 +902,9 @@ class _PreviewPanel:
                 self._selected_planar_gauge_positions = {}
                 self._selected_planar_gauge_model_id = None
                 self._selected_planar_loading_orientation = {}
+                self._ergonomic_loading_cache_key = None
+                self._ergonomic_loading_cache = {}
+                self._ergonomic_loading_status = "NO_REAR_GAUGE"
                 if self._backgauge_settings.value(
                     "backgauge/enabled", False, type=bool
                 ):
@@ -2886,6 +2889,101 @@ class _PreviewPanel:
                         f"Ram Position: {ram_z:+.2f} mm (Stroke: {ram_stroke:.2f} mm)"
                     )
 
+            def _effective_loading_orientation_map(self):
+                """One source of machine-facing orientation for every viewer.
+
+                Search-selected orientation always takes precedence. For
+                manual/canonical playback with an enabled backgauge, use a
+                deterministic ergonomic preview, never label it CAD verified.
+                The FoldState of the running simulation is not modified.
+                """
+                if self.session is None:
+                    self._ergonomic_loading_status = "NO_PART"
+                    return {}
+                order = tuple(self.session.bend_order)
+                checked_prefix = tuple(self._selected_planar_gauge_order)
+                if (checked_prefix and order[:len(checked_prefix)] == checked_prefix
+                        and self._selected_planar_gauge_model_id
+                        == id(self.backgauge_model)):
+                    self._ergonomic_loading_status = (
+                        "SELECTED_2D_CAD_STATIC_NOT_FULL_3D_CERTIFIED"
+                    )
+                    return dict(self._selected_planar_loading_orientation)
+                if self.backgauge_model is None:
+                    self._ergonomic_loading_status = "NO_REAR_GAUGE"
+                    return {}
+                key = (
+                    id(self.session), order, id(self.backgauge_model),
+                )
+                if key == self._ergonomic_loading_cache_key:
+                    return dict(self._ergonomic_loading_cache)
+                from smbs_core.kinematics2d.loading_orientation_preview import (
+                    plan_preview_loading_orientations,
+                )
+                try:
+                    suggestions = plan_preview_loading_orientations(
+                        self.session.fold_state,
+                        self.session.panel_vertices_xy,
+                        order,
+                    )
+                    choices = {
+                        item.bend_id: item.reverse_axis
+                        for item in suggestions
+                        if item.status == "ERGONOMIC_ONLY_NOT_CAD_VALIDATED"
+                    }
+                    unavailable = [
+                        item.bend_id for item in suggestions
+                        if item.status != "ERGONOMIC_ONLY_NOT_CAD_VALIDATED"
+                    ]
+                    self._ergonomic_loading_status = (
+                        "ERGONOMIC_PREVIEW_UNVERIFIED"
+                        if not unavailable else
+                        "ERGONOMIC_PREVIEW_INCOMPLETE:" + ",".join(unavailable)
+                    )
+                except (ValueError, TypeError, KeyError, AttributeError) as exc:
+                    _warn(
+                        "Operator-side loading preview unavailable: "
+                        + type(exc).__name__ + ":" + str(exc)
+                    )
+                    self._ergonomic_loading_status = (
+                        "ERGONOMIC_PREVIEW_UNAVAILABLE:" + type(exc).__name__
+                    )
+                    choices = {}
+                self._ergonomic_loading_cache_key = key
+                self._ergonomic_loading_cache = dict(choices)
+                return choices
+
+            def _current_preview_machine_placement(self):
+                """Return common machine-space sheet pose for 2D and 3D views."""
+                if self.session is None:
+                    raise WorkpiecePoseError("No part loaded")
+                pc = self._ensure_press_cycle_controller()
+                if (pc is not None
+                        and self.execution_mode == CycleExecutionMode.FULL_CYCLE):
+                    return pc.current_workpiece_placement_3d()
+                from smbs_core.kinematics2d.workpiece_placement_3d import (
+                    WorkpiecePlacement3D,
+                )
+                fs = self.session.fold_state
+                bid = self.session.active_bend_id
+                zone = fs.bends[bid].bend_zone
+                if zone is None:
+                    raise WorkpiecePoseError(
+                        "BEND_ONLY_MACHINE_POSE_REQUIRES_BEND_ZONE:" + bid
+                    )
+                orientations = self._effective_loading_orientation_map()
+                return WorkpiecePlacement3D.compute_placement(
+                    fs, bid,
+                    support_plane_zm=float(zone.outer_radius_mm),
+                    align_bisector=True,
+                    align_bend_arc_center=True,
+                    reverse_axis=bool(orientations.get(bid, False)),
+                    rear_panel_vertices_xy=(
+                        self.session.panel_vertices_xy
+                        if self.backgauge_model is not None else None
+                    ),
+                )
+
             def _ensure_press_cycle_controller(self) -> PressCycleController | None:
                 if self.session is None:
                     self.press_cycle = None
@@ -2897,8 +2995,8 @@ class _PreviewPanel:
                             self.session.panel_vertices_xy
                             if self.backgauge_model is not None else None
                         )
-                        self.press_cycle.loading_orientation_by_bend = dict(
-                            self._selected_planar_loading_orientation
+                        self.press_cycle.loading_orientation_by_bend = (
+                            self._effective_loading_orientation_map()
                         )
                         self.press_cycle.initial_feed_preview_mm = (
                             self.backgauge_model.initial_feed_preview_mm
@@ -2922,8 +3020,8 @@ class _PreviewPanel:
                     self.session.panel_vertices_xy
                     if self.backgauge_model is not None else None
                 )
-                self.press_cycle.loading_orientation_by_bend = dict(
-                    self._selected_planar_loading_orientation
+                self.press_cycle.loading_orientation_by_bend = (
+                    self._effective_loading_orientation_map()
                 )
                 self.press_cycle.initial_feed_preview_mm = (
                     self.backgauge_model.initial_feed_preview_mm
