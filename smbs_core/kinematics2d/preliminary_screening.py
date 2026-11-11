@@ -164,6 +164,7 @@ def screen_candidate_stage_b(
     backgauge_cad_checker: Any = None,
     backgauge_contact_s_mm: Optional[float] = None,
     backgauge_contact_z_mm: Optional[float] = None,
+    backgauge_contact_metadata: Optional[dict] = None,
     backgauge_initial_feed_mm: float = 0.0,
     deadline_monotonic: Optional[float] = None,
     multi_station_enabled: bool = False,
@@ -322,6 +323,24 @@ def screen_candidate_stage_b(
         outer_r = float(getattr(bend.bend_zone, "outer_radius_mm", 0.0) if bend.bend_zone else 0.0)
 
         loading_route_unverified = False
+        if (backgauge_contact_metadata is not None
+                and not backgauge_contact_metadata.get(
+                    "face3_is_contact", False
+                )):
+            # Actual first CAD contact is valid but is NOT the certified
+            # user-selected working datum Face3. Preserve geometry and
+            # flag setup as unverified; never claim physical approval.
+            diagnostic_findings.append((
+                "CONTACT_SETUP", "BACKGAUGE_CAD_3D",
+                "actual_faces={}".format(
+                    backgauge_contact_metadata.get("actual_faces")
+                ),
+                "UNVERIFIED",
+                "selected_face3_not_first_physical_contact:"
+                + str(backgauge_contact_metadata.get("note", "")),
+            ))
+            contact_statuses.append("UNVERIFIED")
+            loading_route_unverified = True
         # INITIAL LOAD: follow the same stationary real CAD stop while a
         # rigid flat/folded sheet feeds from operator left (-s) to the
         # contact target. This is sampled 3D gauge-only evidence; punch/die,
