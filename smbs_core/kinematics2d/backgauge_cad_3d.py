@@ -276,7 +276,7 @@ class BackgaugeCAD3D:
         solutions = []
         # The target Z is the actual datum origin (Pad.Face6), NOT the
         # midpoint of the sheet panel. The face spans z+relative offsets.
-        datum_at_zero = self.positioned_shape(1.0, 0.0)
+        datum_at_zero = self.positioned_shapes(1.0, 0.0)[0]
         datum_face = datum_at_zero.Faces[self.stop_face_index - 1]
         dz0 = float(datum_face.BoundBox.ZMin)
         dz1 = float(datum_face.BoundBox.ZMax)
@@ -363,7 +363,7 @@ class BackgaugeCAD3D:
                 if occ_trials >= max_occ_trials:
                     break
                 occ_trials += 1
-                gauge = self.positioned_shape(depth, z)
+                gauge = self.positioned_shapes(depth, z)[0]
                 face = gauge.Faces[self.stop_face_index - 1]
                 u0, u1, v0, v1 = face.ParameterRange
                 n = face.normalAt((u0 + u1)/2, (v0 + v1)/2)
