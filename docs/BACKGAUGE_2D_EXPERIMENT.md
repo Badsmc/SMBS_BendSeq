@@ -1,3 +1,15 @@
+## 55.json — actual CAD stop collision at APPROACH
+
+The ten-bend run with one gauge at `X_m=50 mm` and `initial_feed_preview_mm=100` still has **zero first-step candidates** and `max_depth_reached=0`. Unlike `44.json`, the assumed first-load overlap is preserved as **UNVERIFIED** and Stage B proceeds to `APPROACH`. Every root bend then has positive OCC volume intersection between the actual `Backgauge.FCStd` BRep and a FoldState panel.
+
+Selected first-phase volumes: B05/B07/B08 with P05 ≈16322.206985 mm³; B10 with P01 ≈787.248491 mm³; B06 with P01 ≈280.277396 mm³. Thus the current _single specific CAD mounting_ does not fit the tested first-bend poses. Do not bypass or weaken these intersections to manufacture a sequence.
+
+The previous FreeCAD stop-face audit identified multiple -X-oriented planar faces: Face3 at local X=25 mm, Face5 at local X=0 mm. That means **some source-model material may be ahead of the selected Face3 contact plane**, depending on its actual lateral/vertical extent. Face3 is a valid face, but *not thereby proven to be the leading usable workpiece stop for this entire CAD body*. Other possible blockers are the 200mm-class source CAD axial span and placement at one fixed `X_m=50mm` station versus the actual sheet panel spans. The machine configuration and intended finger contact region need independent verification.
+
+The CAD checker now records per-overlap `gauge_station_xm_mm`, `body_ahead_of_stop_face_mm`, and exact `finger_bbox_xyz_mm` and `panel_bbox_xyz_mm`. The automatic target's configured small clearance is applied consistently in search, manual replay, and CAD section viewer. These measurements DO NOT certify manufacturing clearance; they identify whether the BRep was mounted as intended.
+
+**Next check**: after updating/restarting FreeCAD, rerun the same 10-bend part with the same one-gauge X station. Inspect the new CAD BRep bounding boxes and forward protrusion. Verify the stop face and mounting by inspecting the actual single-finger CAD geometry; do not change the collision threshold or silently relabel Face3 as the frontmost face.
+
 # SMBS 2D automatic backgauge — development status
 
 Branch: `experiment/2d-backgauge-kinematics`, forked from `integration/gui-2d-search-screening`.
