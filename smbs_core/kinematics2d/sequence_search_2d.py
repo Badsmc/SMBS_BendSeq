@@ -570,6 +570,12 @@ def search_bend_sequences_2d(
             setup = compute_workpiece_machine_setup(
                 state, bend_id,
                 desired_midpoint_xm=float(shifts.get(bend_id, 0.0)),
+                support_plane_zm=(
+                    float(state.bends[bend_id].bend_zone.outer_radius_mm)
+                    if backgauge_model is not None
+                    and state.bends[bend_id].bend_zone is not None else 0.0
+                ),
+                align_bisector=backgauge_model is None,
                 rear_panel_vertices_xy=(
                     panel_vertices if backgauge_model is not None else None
                 ),
