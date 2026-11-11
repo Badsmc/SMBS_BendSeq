@@ -18,7 +18,7 @@ from .backgauge_2d import BackgaugeModel2D
 from .axis_screening import axes_from_fold_state, group_parallel_bends
 from .operation_cost import (
     OperationWeights, WorkpieceMachineSetup,
-    compute_workpiece_machine_setup, score_sequence,
+    compute_workpiece_machine_setup, score_sequence, transition_penalty,
 )
 from .preliminary_screening import (
     PreliminaryScreeningReport, ScreeningDecision,
@@ -879,6 +879,11 @@ def search_bend_sequences_2d(
                                             group_of[bid], priority_index[bid]))
         elif group_first:
             remaining.sort(key=lambda bid: (group_of[bid], priority_index[bid]))
+        # Evaluate each eligible successor at its current folded state.
+        # Cost is applied ONLY after that successor passes the collision cascade.
+        # Keep unknown geometry separate from certified clearance.
+        prev_setup = steps[-1].setup if steps else None
+        scored_successors = []
         for bend_id in remaining:
             if root_deadline is not None and perf_counter() >= root_deadline:
                 probe_cutoffs += 1
@@ -895,13 +900,36 @@ def search_bend_sequences_2d(
                         "2d_probe_time_budget_reached",
                         "cad_initial_feed_sample_budget_exhausted",
                     )):
-                # Stage B did not finish even the first or next sample:
-                # this is a hard time stop, not an exploratory bend that
-                # may be appended to a visualized or completed sequence.
                 stopped = "MAX_SEARCH_TIME_REACHED"
                 return
-            if step.evidence in ("2D_INTERFERENCE", "CAD_3D_INTERFERENCE", "CAD_CONTACT_UNAVAILABLE", "BACKGAUGE_Z_OUT_OF_RANGE", "INVALID_INPUT", "2D_TOOLING_CONSTRAINT"):
+            if step.evidence in (
+                "2D_INTERFERENCE", "CAD_3D_INTERFERENCE",
+                "CAD_CONTACT_UNAVAILABLE", "BACKGAUGE_Z_OUT_OF_RANGE",
+                "INVALID_INPUT", "2D_TOOLING_CONSTRAINT",
+            ):
                 continue
+            if step.setup is None:
+                transition_cost, unknown_cost = float("inf"), True
+            else:
+                penalty = transition_penalty(prev_setup, step.setup, op_weights)
+                transition_cost = penalty.total
+                unknown_cost = not penalty.is_complete
+            # Within identical costs retain grouping preferences and stable IDs.
+            group_change = int(bool(prefix)
+                               and group_of[bend_id] != group_of[prefix[-1]])
+            scored_successors.append((
+                (unknown_cost, transition_cost,
+                 group_change if group_first else 0,
+                 priority_index[bend_id], bend_id),
+                bend_id, step,
+            ))
+        scored_successors.sort(key=lambda entry: entry[0])
+        for _rank, bend_id, step in scored_successors:
+            if stopped:
+                return
+            if perf_counter() - start >= max_search_time_s:
+                stopped = "MAX_SEARCH_TIME_REACHED"
+                return
             dfs(prefix + (bend_id,), steps + (step,), node_ceiling, root_deadline)
             if stopped:
                 return
