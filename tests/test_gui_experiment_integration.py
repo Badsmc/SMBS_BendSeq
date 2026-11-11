@@ -73,6 +73,15 @@ class GuiExperimentIntegrationContracts(unittest.TestCase):
         self.assertIn("self._selected_planar_gauge_order", self.source)
         self.assertIn("SELECTED_DFS_CONTACT_SAMPLED_NOT_3D_CERTIFIED", self.source)
 
+    def test_selected_loading_orientation_propagates_to_machine_cycle(self):
+        self.assertIn("loading_orientation_variants=tuple(", self.source)
+        self.assertIn("self._selected_planar_loading_orientation = {", self.source)
+        self.assertIn(
+            "self.press_cycle.loading_orientation_by_bend = dict(",
+            self.source,
+        )
+        self.assertIn("selected_planar_loading_orientation.get(", self.source)
+
     def test_native_calculation_code_remains_present(self):
         # These components belong to the experimental branch, not the GUI.
         for path in (
