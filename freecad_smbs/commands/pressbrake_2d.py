@@ -4366,7 +4366,6 @@ class _PreviewPanel:
                         # but the real CAD stop FACE must be at 'depth'.
                         contact_s = (
                             pos.s_mm - model.width_s_mm / 2
-                            - model.edge_clearance_mm
                         )
                         shapes = adapter.positioned_shapes(
                             contact_s, pos.z_mm
