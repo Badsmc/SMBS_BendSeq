@@ -580,45 +580,46 @@ def search_bend_sequences_2d(
             setup = _setup_with_scored_tool_lengths(
                 setup, tooling, match_active_bend_length,
             )
-            gauge_polygon = backgauge_polygon_machine
-            cad_contact_s = cad_contact_z = None
-            cad_contact_data = None
-            if backgauge_model is not None:
-                if cad_checker is not None:
-                    target, gauge_depth, gauge_source, cad_contact_data = (
-                        cad_checker.resolve_contact_for_bend(
-                            state, panel_vertices, bend_id, backgauge_model,
-                            desired_midpoint_xm=float(shifts.get(bend_id, 0.0)),
-                            tolerance_mm=tolerance_mm,
-                        )
-                    )
-                    cad_contact_s = cad_contact_data["contact_s_mm"]
-                    cad_contact_z = cad_contact_data["contact_z_mm"]
-                    gauge_polygon = None
-                else:
-                    target, gauge_depth, gauge_source = (
-                        backgauge_model.resolve_for_state(
-                            state, panel_vertices, bend_id,
-                            desired_midpoint_xm=float(shifts.get(bend_id, 0.0)),
-                        )
-                    )
-                    gauge_polygon = backgauge_model.polygon_at(target)
-                backgauge_model.validate_z_travel(target, bend_id)
-                setup = replace(
-                    setup,
-                    backgauge_s_mm=target.s_mm,
-                    backgauge_z_mm=target.z_mm,
-                    note=(setup.note + " | " if setup.note else "") +
-                    gauge_source + (
-                        ":depth_mm={:.3f}".format(gauge_depth)
-                        if isfinite(gauge_depth) else ""
-                    ),
-                )
             stage_a = screen_candidate_stage_a(
                 state, bend_id, tooling,
                 match_active_bend_length=match_active_bend_length,
                 desired_midpoint_xm=float(shifts.get(bend_id, 0.0)),
             )
+            if stage_a.decision is not ScreeningDecision.PROVEN_BLOCKING:
+                gauge_polygon = backgauge_polygon_machine
+                cad_contact_s = cad_contact_z = None
+                cad_contact_data = None
+                if backgauge_model is not None:
+                    if cad_checker is not None:
+                        target, gauge_depth, gauge_source, cad_contact_data = (
+                            cad_checker.resolve_contact_for_bend(
+                                state, panel_vertices, bend_id, backgauge_model,
+                                desired_midpoint_xm=float(shifts.get(bend_id, 0.0)),
+                                tolerance_mm=tolerance_mm,
+                            )
+                        )
+                        cad_contact_s = cad_contact_data["contact_s_mm"]
+                        cad_contact_z = cad_contact_data["contact_z_mm"]
+                        gauge_polygon = None
+                    else:
+                        target, gauge_depth, gauge_source = (
+                            backgauge_model.resolve_for_state(
+                                state, panel_vertices, bend_id,
+                                desired_midpoint_xm=float(shifts.get(bend_id, 0.0)),
+                            )
+                        )
+                        gauge_polygon = backgauge_model.polygon_at(target)
+                    backgauge_model.validate_z_travel(target, bend_id)
+                    setup = replace(
+                        setup,
+                        backgauge_s_mm=target.s_mm,
+                        backgauge_z_mm=target.z_mm,
+                        note=(setup.note + " | " if setup.note else "") +
+                        gauge_source + (
+                            ":depth_mm={:.3f}".format(gauge_depth)
+                            if isfinite(gauge_depth) else ""
+                        ),
+                    )
             if stage_a.decision is ScreeningDecision.PROVEN_BLOCKING:
                 # Invalid source geometry and insufficient tool length are not
                 # evidence of 2D polygon intersection.
