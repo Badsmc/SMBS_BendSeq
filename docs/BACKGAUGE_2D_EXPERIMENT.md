@@ -17,6 +17,31 @@ All machine-section calculations use the same physical frame:
 
 **Regression note:** new sampled 2D results are not directly comparable with earlier reports that used ambiguous machine orientation; recalculate from the current version. No claim of production safety or swept-path clearance.
 
+## 44.json — assumed initial-load pose is not a proven mandatory route
+
+The one-finger CAD run at `X_m=50 mm`, with the operator-entered
+`initial_feed_preview_mm=100`, successfully invoked real OCC BRep
+intersections, but **all ten first-bend candidates** were rejected at
+`LOAD_TO_GAUGE`. B05–B10 had the *same* `finger1:panel:P05`
+intersection volume (~19152.378444 mm³) at feed fraction `0.0`.
+This validates that the CAD solids overlap at the *assumed* initial
+preview pose, but does not prove the part cannot be loaded or that every
+first bend is infeasible: the starting pose is not derived from a real
+operator loading/handling plan, and different initial grips/heights or
+machine axes were not explored.
+
+**Implemented change**: retain those 3D intersection measurements in
+`diagnostic_findings` and mark the corresponding first operation
+`STAGE_B_LOADING_ROUTE_UNVERIFIED -> UNVERIFIED_2D` **if its sampled
+bend setup is otherwise clear**. Search can continue exploring the
+bend order, but the loading route stays unresolved and its candidate is
+never certified as physically collision-free. **Actual collisions in
+APPROACH/BENDING/BOTTOM/RETRACT remain blocking**, with no tolerance
+widening, collision suppression, or fabricated machine positions.
+Any preview/UI gate requiring fully verified steps may still refuse
+playback of the unverified result; this is intentional until a real
+loading trajectory is specified and checked.
+
 ## Real CAD BRep mode — implementation for FreeCAD runtime (2026-11-10)
 
 **Implemented in the experimental branch**:
