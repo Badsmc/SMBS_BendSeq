@@ -68,6 +68,48 @@ class PlanarSearchTests(unittest.TestCase):
             )
         return result, stage_b
 
+    def test_unverified_initial_loading_does_not_exhaust_root_search(self):
+        """An assumed 100mm loading start cannot prove a bend impossible."""
+        from smbs_core.kinematics2d.sequence_search_2d import _classify_step
+        finding = PreliminaryScreeningReport(
+            ScreeningDecision.CONTINUE_TO_3D,
+            "STAGE_B_LOADING_ROUTE_UNVERIFIED",
+            "initial_cad_loading_route_intersection_at_assumed_start_not_bend_rejection",
+            sampled_phases=("LOAD_TO_GAUGE", "APPROACH", "BENDING",
+                            "BOTTOM", "RETRACT"),
+            contact_statuses=("UNVERIFIED", "CLEAR", "CLEAR",
+                              "CLEAR", "CLEAR"),
+            backgauge_checked=True,
+            diagnostic_findings=((
+                "LOAD_TO_GAUGE", "BACKGAUGE_CAD_3D", "finger1:panel:P05",
+                "INTERFERENCE", "material_overlap_mm3=19152.378444",
+            ),),
+        )
+        self.assertEqual(_classify_step(finding), "UNVERIFIED_2D")
+        result, _ = self.run_mocked(
+            finding, group_first=False, max_nodes=20,
+            max_search_time_s=3.0
+        )
+        self.assertGreater(result.max_depth_reached, 0)
+        self.assertEqual(result.rejected_2d_interferences, 0)
+        self.assertEqual(
+            result.status, PlanarSearchStatus.UNVERIFIED_CANDIDATES
+        )
+        self.assertTrue(result.candidates)
+        self.assertTrue(all(
+            c.evidence != "SAMPLED_2D_CLEAR_OR_TOUCH"
+            for c in result.candidates
+        ))
+        self.assertTrue(any(
+            "LOAD_TO_GAUGE" in f
+            for _, step in result.evaluated_step_details
+            for f in (step.reason,)
+        ) or any(
+            "BACKGAUGE_CAD_3D" == finding[1]
+            for _, step in result.evaluated_step_details
+            for finding in step.diagnostic_findings
+        ))
+
     def test_best_partial_eight_bends_stays_separate_from_full_candidates(self):
         names = tuple("B%02d" % n for n in range(1, 11))
         self.state = DummyState(names)
