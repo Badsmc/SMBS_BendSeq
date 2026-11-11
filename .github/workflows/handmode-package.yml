@@ -71,7 +71,7 @@ jobs:
           python - <<'PY'
           from pathlib import Path
           root = Path.cwd()
-          for directory in ("tests", "tools", "reports", "demo", "fixtures",
+          for directory in ("tests", "tools", "reports", "fixtures",
                             "benchmarks", "scripts", "docs"):
               assert not (root / directory).exists(), (
                   f"Development directory must not ship: {directory}"
@@ -102,6 +102,27 @@ jobs:
           assert resolve_clamp_fcstd(TOOL_LIBRARY_ROOT) is not None
           assert resolve_machine_frame_fcstd(TOOL_LIBRARY_ROOT) is not None
           assert not list(TOOL_LIBRARY_ROOT.rglob("synthetic_*.FCStd"))
+          import json
+          import hashlib
+          manifest = json.loads(
+              (root / "demo" / "MANIFEST.json").read_text(encoding="utf-8")
+          )
+          parts = root / "demo" / "parts"
+          expected = manifest["files"]
+          assert manifest["active_fixture_count"] == 16
+          assert len(expected) == 16, "Fixture manifest must list 16 parts"
+          actual_names = {p.name for p in parts.glob("*.FCStd")}
+          expected_names = {entry["name"] for entry in expected}
+          assert actual_names == expected_names, (
+              "Missing or unexpected demo models: "
+              + str(actual_names.symmetric_difference(expected_names))
+          )
+          for item in expected:
+              file = parts / item["name"]
+              assert file.stat().st_size == item["size_bytes"], file
+              assert hashlib.sha256(file.read_bytes()).hexdigest() == item["sha256"], file
+          assert not (root / "demo" / "SMBendTests").exists()
+          print("DEMO_FCSTD_MANIFEST_OK", len(expected))
           for icon in ("gui_simulation.svg", "gui_part.svg",
                        "gui_tooling.svg", "gui_calculate.svg",
                        "gui_planar_candidates.svg"):
