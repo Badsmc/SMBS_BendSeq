@@ -273,6 +273,7 @@ def compute_workpiece_machine_setup(
     support_plane_zm: float = 0.0,
     align_bisector: bool = True,
     rear_panel_vertices_xy=None,
+    reverse_axis: bool = False,
 ) -> WorkpieceMachineSetup:
     """Derive actual spatial placement orientation and dimensions for active_bend_id.
 
@@ -322,6 +323,7 @@ def compute_workpiece_machine_setup(
             desired_midpoint_xm=float(desired_midpoint_xm),
             support_plane_zm=float(support_plane_zm),
             align_bisector=bool(align_bisector),
+            reverse_axis=bool(reverse_axis),
             rear_panel_vertices_xy=rear_panel_vertices_xy,
         )
         root_panel = getattr(fold_state, "fixed_panel", None)
