@@ -293,18 +293,20 @@ def validate_partial_planar_prefix(
                     state.set_angle(prior, float(state.bends[prior].angle_deg))
             gauge_polygon = None
             cad_contact_s = cad_contact_z = None
+            cad_contact_data = None
             if backgauge_model is not None:
-                point, depth, _ = backgauge_model.resolve_for_state(
-                    state, session.panel_vertices_xy, bid,
-                )
                 if cad_checker is not None:
-                    cad_contact_s = (
-                        (depth + backgauge_model.edge_clearance_mm) if backgauge_model.automatic
-                        else point.s_mm - backgauge_model.width_s_mm / 2
-                             - backgauge_model.edge_clearance_mm
+                    _point, cad_contact_s, _source, cad_contact_data = (
+                        cad_checker.resolve_contact_for_bend(
+                            state, session.panel_vertices_xy, bid,
+                            backgauge_model, tolerance_mm=tolerance_mm,
+                        )
                     )
-                    cad_contact_z = point.z_mm
+                    cad_contact_z = cad_contact_data["contact_z_mm"]
                 else:
+                    point, _depth, _ = backgauge_model.resolve_for_state(
+                        state, session.panel_vertices_xy, bid,
+                    )
                     gauge_polygon = backgauge_model.polygon_at(point)
             stage_a = screen_candidate_stage_a(
                 state, bid, tooling,
@@ -323,6 +325,7 @@ def validate_partial_planar_prefix(
                 backgauge_cad_checker=cad_checker,
                 backgauge_contact_s_mm=cad_contact_s,
                 backgauge_contact_z_mm=cad_contact_z,
+                backgauge_contact_metadata=cad_contact_data,
                 backgauge_initial_feed_mm=(
                     backgauge_model.initial_feed_preview_mm
                     if cad_checker is not None and not completed else 0.0
@@ -575,20 +578,26 @@ def search_bend_sequences_2d(
             )
             gauge_polygon = backgauge_polygon_machine
             cad_contact_s = cad_contact_z = None
+            cad_contact_data = None
             if backgauge_model is not None:
-                target, gauge_depth, gauge_source = backgauge_model.resolve_for_state(
-                    state, panel_vertices, bend_id,
-                    desired_midpoint_xm=float(shifts.get(bend_id, 0.0)),
-                )
                 if cad_checker is not None:
-                    cad_contact_s = (
-                        (gauge_depth + backgauge_model.edge_clearance_mm) if backgauge_model.automatic
-                        else target.s_mm - backgauge_model.width_s_mm / 2
-                             - backgauge_model.edge_clearance_mm
+                    target, gauge_depth, gauge_source, cad_contact_data = (
+                        cad_checker.resolve_contact_for_bend(
+                            state, panel_vertices, bend_id, backgauge_model,
+                            desired_midpoint_xm=float(shifts.get(bend_id, 0.0)),
+                            tolerance_mm=tolerance_mm,
+                        )
                     )
-                    cad_contact_z = target.z_mm
+                    cad_contact_s = cad_contact_data["contact_s_mm"]
+                    cad_contact_z = cad_contact_data["contact_z_mm"]
                     gauge_polygon = None
                 else:
+                    target, gauge_depth, gauge_source = (
+                        backgauge_model.resolve_for_state(
+                            state, panel_vertices, bend_id,
+                            desired_midpoint_xm=float(shifts.get(bend_id, 0.0)),
+                        )
+                    )
                     gauge_polygon = backgauge_model.polygon_at(target)
                 setup = replace(
                     setup,
@@ -628,6 +637,7 @@ def search_bend_sequences_2d(
                     backgauge_cad_checker=cad_checker,
                     backgauge_contact_s_mm=cad_contact_s,
                     backgauge_contact_z_mm=cad_contact_z,
+                    backgauge_contact_metadata=cad_contact_data,
                     backgauge_initial_feed_mm=(
                         backgauge_model.initial_feed_preview_mm
                         if cad_checker is not None and not prefix else 0.0
