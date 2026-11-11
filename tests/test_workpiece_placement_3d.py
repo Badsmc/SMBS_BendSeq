@@ -86,6 +86,49 @@ class WorkpiecePlacement3DTests(unittest.TestCase):
             self.assertGreater(max(ss), abs(min(ss)), bid)
             self.assertAlmostEqual(_mat_det(placement.rotation), 1.0, places=8)
 
+    def test_operator_long_loading_reverses_real_sheet_not_gauge(self):
+        """800 mm fixed flange must be able to face operator, 12 mm to stop."""
+        from smbs_core.kinematics2d.operation_cost import (
+            OperationWeights, compute_workpiece_machine_setup,
+            operator_side_penalty,
+        )
+        vertices = {
+            **self.verts,
+            "P00": ((0.0, -750.0), (100.0, -750.0),
+                    (100.0, 50.0), (0.0, 50.0)),
+            "P01": ((0.0, 52.0), (100.0, 52.0),
+                    (100.0, 64.0), (0.0, 64.0)),
+        }
+        normal = compute_workpiece_machine_setup(
+            self.fold_state, "B01",
+            rear_panel_vertices_xy=vertices, reverse_axis=False,
+        )
+        reversed_setup = compute_workpiece_machine_setup(
+            self.fold_state, "B01",
+            rear_panel_vertices_xy=vertices, reverse_axis=True,
+        )
+        self.assertTrue(normal.is_complete, normal.note)
+        self.assertTrue(reversed_setup.is_complete, reversed_setup.note)
+        self.assertGreater(normal.rear_reach_mm, 700.0)
+        self.assertLess(normal.operator_reach_mm, 100.0)
+        self.assertGreater(reversed_setup.operator_reach_mm, 700.0)
+        self.assertLess(reversed_setup.rear_reach_mm, 100.0)
+        self.assertGreater(
+            operator_side_penalty(normal, OperationWeights()),
+            operator_side_penalty(reversed_setup, OperationWeights()),
+        )
+        for reverse in (False, True):
+            pose = WorkpiecePlacement3D.compute_placement(
+                self.fold_state, "B01",
+                rear_panel_vertices_xy=vertices, reverse_axis=reverse,
+            )
+            self.assertAlmostEqual(_mat_det(pose.rotation), 1.0, places=8)
+            axis = WorkpiecePlacement3D.get_world_bend_axis(
+                self.fold_state, "B01",
+            )
+            self.assertAlmostEqual(pose.apply(axis[0])[1], 0.0, places=7)
+            self.assertAlmostEqual(pose.apply(axis[1])[1], 0.0, places=7)
+
     def test_rear_frame_rejects_support_panel_straddling_bend_line(self):
         with self.assertRaisesRegex(ValueError, "ambiguous_support"):
             WorkpiecePlacement3D.compute_placement(
