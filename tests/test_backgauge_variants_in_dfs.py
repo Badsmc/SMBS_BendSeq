@@ -120,8 +120,10 @@ class BackgaugeDFSVariantTests(unittest.TestCase):
             width_s_mm=10.0, height_z_mm=10.0,
             positions={}, automatic=True, cad_geometry_enabled=True,
         )
-        checker = SimpleNamespace(
-            resolve_contact_for_bend=lambda *_args, **_kwargs: (
+        resolved_orientations = []
+        def resolve(*_args, **kwargs):
+            resolved_orientations.append(bool(kwargs.get("reverse_axis", False)))
+            return (
                 BackgaugePosition2D(105.0, 0.0), 100.0, "PRIMARY",
                 {
                     "contact_s_mm": 100.0, "contact_z_mm": 0.0,
@@ -132,11 +134,12 @@ class BackgaugeDFSVariantTests(unittest.TestCase):
                     }],
                 },
             )
-        )
-        seen_z = []
+        checker = SimpleNamespace(resolve_contact_for_bend=resolve)
+        seen_z, seen_orientation = [], []
 
         def sampled_screen(*_args, **kwargs):
             seen_z.append(kwargs.get("backgauge_contact_z_mm"))
+            seen_orientation.append(bool(kwargs.get("reverse_axis", False)))
             return stage_b_result()
 
         with patch(
@@ -154,6 +157,9 @@ class BackgaugeDFSVariantTests(unittest.TestCase):
             valid, reason = validate_partial_planar_prefix(
                 session, object(), ("B01", "B02"),
                 backgauge_model=model, backgauge_variant_indices=(1, 0),
+                loading_orientation_variants=(
+                    "REVERSE_MACHINE_Z_180_GAUGE_ALTERNATIVE_1", "NORMAL",
+                ),
             )
             invalid, invalid_reason = validate_partial_planar_prefix(
                 session, object(), ("B01", "B02"),
@@ -161,6 +167,8 @@ class BackgaugeDFSVariantTests(unittest.TestCase):
             )
         self.assertTrue(valid, reason)
         self.assertEqual(seen_z, [5.0, 0.0])
+        self.assertEqual(seen_orientation, [True, False])
+        self.assertEqual(resolved_orientations[:2], [True, False])
         self.assertFalse(invalid)
         self.assertIn("backgauge_variant_no_longer_available", invalid_reason)
 
