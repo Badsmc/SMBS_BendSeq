@@ -17,6 +17,53 @@ jobs:
           python-version: '3.11'
       - name: Compile runtime source, no test suite in release
         run: python -m compileall -q Init.py InitGui.py freecad_smbs smbs_core
+      - name: Check internal Python imports after release pruning
+        run: |
+          python - <<'PY'
+          import ast
+          import importlib.util
+          from pathlib import Path
+
+          roots = ("smbs_core", "freecad_smbs")
+          missing = []
+          checked = 0
+
+          def on_disk(name):
+              path = Path(*name.split("."))
+              return (path.with_suffix(".py").is_file()
+                      or (path / "__init__.py").is_file()
+                      or path.is_dir())
+
+          for prefix in roots:
+              for path in Path(prefix).rglob("*.py"):
+                  package = ".".join(path.parent.parts)
+                  tree = ast.parse(path.read_text(encoding="utf-8"))
+                  for node in ast.walk(tree):
+                      if isinstance(node, ast.ImportFrom):
+                          if node.level:
+                              try:
+                                  target = importlib.util.resolve_name(
+                                      "." * node.level + (node.module or ""),
+                                      package,
+                                  )
+                              except ImportError as exc:
+                                  missing.append((str(path), str(exc)))
+                                  continue
+                          else:
+                              target = node.module or ""
+                          names = (target,)
+                      elif isinstance(node, ast.Import):
+                          names = tuple(alias.name for alias in node.names)
+                      else:
+                          continue
+                      for name in names:
+                          if (name.split(".")[0] in roots
+                                  and not on_disk(name)):
+                              missing.append((str(path), name))
+                          checked += 1
+          assert not missing, "Missing internal modules: " + repr(missing[:30])
+          print("INTERNAL_IMPORT_GRAPH_OK", checked)
+          PY
       - name: Verify FreeCAD entrypoints, tools and release-only layout
         env:
           PYTHONPATH: .
