@@ -575,14 +575,14 @@ def search_bend_sequences_2d(
     stopped = ""
     candidates: list[PlanarCandidate] = []
     complete_candidates_examined = 0
-    step_cache: dict[tuple[frozenset[str], str, bool, int], PlanarStep] = {}
+    step_cache: dict[tuple[frozenset[str], str, bool, int, bool], PlanarStep] = {}
     # Resolved gauge alternatives are CAD-checked at the setup state once;
     # each variant still goes through its own Stage B phase checks.
     cad_contact_options: dict[
-        tuple[frozenset[str], str], tuple[tuple[Any, float, str, dict], ...]
+        tuple[frozenset[str], str, bool], tuple[tuple[Any, float, str, dict], ...]
     ] = {}
     tooling_prefilter_cache: dict[
-        tuple[frozenset[str], str], PreliminaryScreeningReport
+        tuple[frozenset[str], str, bool], PreliminaryScreeningReport
     ] = {}
     step_diagnostics: list[tuple[tuple[str, ...], PlanarStep]] = []
     # Only states with no coarse complete path whatsoever are memoized dead.
@@ -598,11 +598,12 @@ def search_bend_sequences_2d(
     final_replay_attempts = final_replay_rejections = 0
 
     def eval_step(prefix: tuple[str, ...], bend_id: str, *,
-                  detailed: bool = False, gauge_variant: int = 0) -> PlanarStep:
+                  detailed: bool = False, gauge_variant: int = 0,
+                  reverse_axis: bool = False) -> PlanarStep:
         nonlocal evaluated, rejected, unverified
         # Separate coarse and full-density results: the same subset must
         # never reuse a less thoroughly sampled verdict at final replay.
-        key = (frozenset(prefix), bend_id, detailed and progressive, gauge_variant)
+        key = (frozenset(prefix), bend_id, detailed and progressive, gauge_variant, reverse_axis)
         if key in step_cache:
             return step_cache[key]
         evaluated += 1
@@ -620,6 +621,7 @@ def search_bend_sequences_2d(
                     and state.bends[bend_id].bend_zone is not None else 0.0
                 ),
                 align_bisector=backgauge_model is None,
+                reverse_axis=reverse_axis,
                 rear_panel_vertices_xy=(
                     panel_vertices if backgauge_model is not None else None
                 ),
@@ -641,7 +643,7 @@ def search_bend_sequences_2d(
                 # Cheap PUNCH/DIE screen in the SAME rear-oriented machine
                 # frame, before any costly CAD rear-stop contact generation.
                 # Only confirmed sampled 2D interference prunes this setup.
-                prefilter_key = (frozenset(prefix), bend_id)
+                prefilter_key = (frozenset(prefix), bend_id, reverse_axis)
                 fast_report = tooling_prefilter_cache.get(prefilter_key)
                 if fast_report is None:
                     fast_report = screen_candidate_stage_b(
@@ -655,6 +657,7 @@ def search_bend_sequences_2d(
                         fractions=(0.0, 1.0),
                         stroke_fractions=(0.0, 1.0),
                         enforce_rear_frame=True,
+                        reverse_axis=reverse_axis,
                         deadline_monotonic=start + max_search_time_s,
                     )
                     tooling_prefilter_cache[prefilter_key] = fast_report
@@ -667,13 +670,14 @@ def search_bend_sequences_2d(
                 cad_contact_data = None
                 if backgauge_model is not None:
                     if cad_checker is not None:
-                        setup_key = (frozenset(prefix), bend_id)
+                        setup_key = (frozenset(prefix), bend_id, reverse_axis)
                         options = cad_contact_options.get(setup_key)
                         if options is None:
                             base = cad_checker.resolve_contact_for_bend(
                                 state, panel_vertices, bend_id, backgauge_model,
                                 desired_midpoint_xm=float(shifts.get(bend_id, 0.0)),
                                 tolerance_mm=tolerance_mm,
+                                reverse_axis=reverse_axis,
                             )
                             options_list = [base]
                             primary_meta = base[3]
@@ -763,6 +767,7 @@ def search_bend_sequences_2d(
                     stroke_fractions=stroke_fs if detailed else coarse_stroke_fs,
                     backgauge_polygon_machine=gauge_polygon,
                     backgauge_cad_checker=cad_checker,
+                    reverse_axis=reverse_axis,
                     backgauge_contact_s_mm=cad_contact_s,
                     backgauge_contact_z_mm=cad_contact_z,
                     backgauge_contact_metadata=cad_contact_data,
@@ -777,8 +782,9 @@ def search_bend_sequences_2d(
                 )
                 evidence = _classify_step(stage_b)
                 orientation_variant = (
-                    "GAUGE_ALTERNATIVE_" + str(gauge_variant)
-                    if gauge_variant else "NORMAL"
+                    ("REVERSE_MACHINE_Z_180" if reverse_axis else "NORMAL")
+                    + ("_GAUGE_ALTERNATIVE_" + str(gauge_variant)
+                       if gauge_variant else "")
                 )
                 # Try a distinct 180-degree Z-axis loading orientation only
                 # for explicitly selected bends and only if the normal pose
@@ -892,6 +898,11 @@ def search_bend_sequences_2d(
             step,
             elapsed_s=perf_counter() - step_start,
             backgauge_variant_index=gauge_variant,
+            orientation_variant=(
+                ("REVERSE_MACHINE_Z_180" if reverse_axis else "NORMAL")
+                + ("_GAUGE_ALTERNATIVE_" + str(gauge_variant)
+                   if gauge_variant else "")
+            ),
         )
         step_cache[key] = step
         step_diagnostics.append((tuple(prefix), step))
@@ -900,9 +911,10 @@ def search_bend_sequences_2d(
     def ordered_gauge_variants(
         prefix: tuple[str, ...], bend_id: str, base_step: PlanarStep,
         previous_setup: Optional[WorkpieceMachineSetup],
+        reverse_axis: bool = False,
     ) -> tuple[int, ...]:
         """Rank already-discovered static CAD contacts without more OCC work."""
-        options = cad_contact_options.get((frozenset(prefix), bend_id), ())
+        options = cad_contact_options.get((frozenset(prefix), bend_id, reverse_axis), ())
         if not options or base_step.setup is None:
             return (0,)
         ranked = []
@@ -981,6 +993,9 @@ def search_bend_sequences_2d(
                     replay_step = eval_step(
                         prefix[:i], bend_id, detailed=True,
                         gauge_variant=steps[i].backgauge_variant_index,
+                        reverse_axis=steps[i].orientation_variant.startswith(
+                            "REVERSE_MACHINE_Z_180"
+                        ),
                     )
                     if replay_step.evidence in (
                         "2D_INTERFERENCE", "CAD_3D_INTERFERENCE", "CAD_CONTACT_UNAVAILABLE", "BACKGAUGE_Z_OUT_OF_RANGE", "INVALID_INPUT", "2D_TOOLING_CONSTRAINT"
