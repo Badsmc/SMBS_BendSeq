@@ -1744,15 +1744,18 @@ class _PreviewPanel:
                     scene.addSimpleText("Загрузите листовую деталь в PressBrakeSim")
                     return
                 try:
-                    # Fixed isometric assembly view: only FoldState bends.
-                    # No machine-space pose, negative-bend flip or tooling.
+                    # The whole-sheet 3D tab MUST use the same rigid
+                    # machine-space pose as the 2.5D sheet. Model-space
+                    # rendering hid the actual operator/rear orientation.
+                    current_placement = self._current_preview_machine_placement()
                     pose = WorkpiecePose2D()
                     faces = build_sheet_preview_faces(
                         self.session.fold_state,
                         self.session.panel_vertices_xy,
-                        self.session.controller.canonical_order[0],
+                        self.session.active_bend_id,
                         pose,
                         segments=12,
+                        machine_placement=current_placement,
                     )
                 except (PreviewMeshError, WorkpiecePoseError, KinematicsError) as exc:
                     _warn("3D whole-sheet preview unavailable: {}".format(exc))
@@ -1812,9 +1815,10 @@ class _PreviewPanel:
                     item.setToolTip("{}: {}".format(face.kind, face.identifier))
 
                 label = scene.addSimpleText(
-                    "3D FULL PART | {} | ORBIT CAMERA | {} | KINEMATIC_PREVIEW".format(
+                    "3D MACHINE FRAME | {} | {} | {} | NOT 3D CERTIFIED".format(
                         self.session.active_bend_id,
                         self.execution_mode.value,
+                        self._ergonomic_loading_status,
                     )
                 )
                 label.setBrush(QtGui.QBrush(QtGui.QColor("#536b7f")))
@@ -4594,6 +4598,11 @@ class _PreviewPanel:
                             adapter.resolve_contact_for_bend(
                                 model_state, session.panel_vertices_xy,
                                 order[index], model,
+                                reverse_axis=bool(
+                                    self._effective_loading_orientation_map().get(
+                                        order[index], False
+                                    )
+                                ),
                             )
                         )
                         evidence += "|" + solution["note"]
@@ -4819,7 +4828,7 @@ class _PreviewPanel:
                                     raise WorkpiecePoseError("Press cycle is not initialized")
 
                                 # D3: True physical cutting-plane section at X_m = 0 in Machine Space
-                                current_placement = pc_for_pose.current_workpiece_placement_3d()
+                                current_placement = self._current_preview_machine_placement()
                                 sec = compute_machine_cutting_plane_section(
                                     fs,
                                     verts,
@@ -4849,8 +4858,35 @@ class _PreviewPanel:
                                 else:
                                     sec = fs.cross_section_2d(reference_id, verts, segments=32)
                         else:
-                            # BEND_ONLY mode: use local active bend section
-                            sec = fs.cross_section_2d(self.session.active_bend_id, verts, segments=32)
+                            # Bend Only is a machine-side preview too. Using
+                            # source-local cross_section_2d silently ignored
+                            # the search-selected 180-degree loading pose.
+                            try:
+                                current_placement = (
+                                    self._current_preview_machine_placement()
+                                )
+                                sec = compute_machine_cutting_plane_section(
+                                    fs, verts, current_placement,
+                                    active_bend_id=self.session.active_bend_id,
+                                    segments=32,
+                                )
+                                self._last_valid_machine_section = sec
+                                self._last_valid_machine_pose = pose
+                                self._last_valid_machine_bend = (
+                                    self.session.active_bend_id
+                                )
+                            except (WorkpiecePoseError, PressCycleError,
+                                    ValueError, KeyError) as exc:
+                                pose_warning = (
+                                    "BEND_ONLY_MACHINE_POSE_UNVERIFIED:" + str(exc)
+                                )
+                                if self._last_valid_machine_section is not None:
+                                    sec = self._last_valid_machine_section
+                                    pose = self._last_valid_machine_pose
+                                else:
+                                    sec = fs.cross_section_2d(
+                                        reference_id, verts, segments=32
+                                    )
 
                         if pose_warning:
                             # Unsupported 2.5D placement must never look like
