@@ -1,3 +1,18 @@
+## 2026-11-11 — after external rear-contact solver (100722 CAD trace)
+
+Provided FreeCAD files: `smbs_2d_search_diagnostics(20261111-080809).json` and `smbs_backgauge_cad_20261111-100722_23fe6ed3.jsonl`.
+
+**Observed, not inferred:** 33 CAD automatic setup requests, 33 `EXTERNAL_REAR_CONTACT_TRIAL`, and 33 `EXTERNAL_REAR_CONTACT_SOLVED`; no trial was rejected by the real OCC stop-vs-sheet geometry at the sampled setup. Selection uses `Pad.Face6` and external support panels such as P07/P02/P11 instead of mandatory bend-kinematic `fixed_panel`. This eliminates the earlier blanket root `CAD_3D_INTERFERENCE`.
+
+The 2D DFS report now records 28 sampled-clear-or-touch transitions, four 2D tool interferences, and one `UNVERIFIED_2D` timeout; 33 evaluations, 21 visited nodes, 30.05s consumed, `MAX_SEARCH_TIME_REACHED`, `max_depth_reached=6`, and no complete sequence. Deepest path `B10 → B09 → B08 → B07 → B06 → B05` has five sampled-clear steps; B05 ended with `2d_probe_time_budget_reached`, so the sixth bend is **not physically proven**. 2D interferences include P05 vs punch during B10 `BENDING`, and P05 (plus B06 zone in one state) vs die during B09 `APPROACH`. Do not weaken these collisions.
+
+**Performance adjustment:** For 10+ bends **with real CAD backgauge enabled**, GUI preliminary search budget rises from **30s to 90s**, and fair initial first-bend probe windows shrink from 1.8s to 0.9s to leave more time for uninterrupted deeper DFS. Other searches remain 30s. The UI shows the configured budget; diagnostics contain `PLANAR_2D_SEARCH_COMPLETED.budget_seconds` in the normal FreeCAD file log. Sampling density, OCC volume thresholds, and rejection policy are unchanged. No claim a 7/8-bend prefix will necessarily be found.
+
+**Unverified machine-axis travel:** source trace includes calculated stop-contact Z_m of approx `-383.94 mm` and `+248.75 mm` in some paths. These are actual geometrically matching model poses, **not** evidence the physical gauge has that R-axis motion. Neither vertical travel limits nor continuous stop/piece/punch/die transfer are currently qualified; such setups must not be presented as certified machine programs.
+
+Re-run on the same ten-bend fixture with one `Pad.Face6` CAD gauge at X_m=0 and no configured gap. Provide fresh search JSON plus CAD JSONL. If still resource-limited, investigate Stage B OCC cost, incremental caching, and machine-axis constraints rather than suppressing physical collisions.
+
+
 ## 2026-11-11 — real Face6 and accessible external rear edge (094252 diagnostics)
 
 The user supplied two matching files: `smbs_2d_search_diagnostics(20261111-074316).json` and `smbs_backgauge_cad_20261111-094252_2080ba17.jsonl`. The selected `Pad.Face6` survives as a final `Body.Face6`, has normal `(0,-1,0)`, and is now rotated **180°** around Z to machine-facing `+Y_m`. The placed CAD body extends **200 mm behind its actual contact face**; the previous 25 mm forward intrusion is **zero** (`front_protrusion_mm=0`). These are verified by the supplied FreeCAD log; not inferred from a bounding-box-only test.
