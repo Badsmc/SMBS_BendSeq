@@ -24,7 +24,7 @@ if str(_REPO_ROOT) not in sys.path:
 from freecad_smbs.commands.pressbrake_2d import (
     PressBrake2DCommand, LoadPartCommand, ToolingTabCommand,
     CalculateCommand, PlanarCandidatesCommand, SequenceCatalogCommand,
-    BackgaugeCommand,
+    BackgaugeCommand, ManualCommand, SettingsCommand,
 )
 from freecad_smbs.commands.tooling import ToolingCommand
 
@@ -36,6 +36,8 @@ CMD_CALCULATE = "SMBS_Calculate"
 CMD_PLANAR_CANDIDATES = "SMBS_PlanarCandidates"
 CMD_SEQUENCE_CATALOG = "SMBS_SequenceCatalog"
 CMD_BACKGAUGE = "SMBS_Backgauge"
+CMD_MANUAL = "SMBS_Manual"
+CMD_SETTINGS = "SMBS_Settings"
 COMMANDS_MAP = {
     CMD_PRESSBRAKE_2D: PressBrake2DCommand,
     CMD_LOAD_PART: LoadPartCommand,
@@ -44,6 +46,8 @@ COMMANDS_MAP = {
     CMD_PLANAR_CANDIDATES: PlanarCandidatesCommand,
     CMD_SEQUENCE_CATALOG: SequenceCatalogCommand,
     CMD_BACKGAUGE: BackgaugeCommand,
+    CMD_MANUAL: ManualCommand,
+    CMD_SETTINGS: SettingsCommand,
     CMD_TOOLING: ToolingCommand,
 }
 _REGISTERED_COMMANDS: set[str] = set()
@@ -72,7 +76,7 @@ class SMBSWorkbench(Workbench):
         commands = [
             CMD_PRESSBRAKE_2D, CMD_LOAD_PART, CMD_TOOLING_TAB,
             CMD_CALCULATE, CMD_PLANAR_CANDIDATES, CMD_SEQUENCE_CATALOG,
-            CMD_BACKGAUGE,
+            CMD_BACKGAUGE, CMD_MANUAL, CMD_SETTINGS,
         ]
         self.appendMenu("PressBrakeSim 2.5D", commands + [CMD_TOOLING])
         self.appendToolbar("PressBrakeSim 2.5D", commands)
