@@ -885,11 +885,55 @@ def search_bend_sequences_2d(
                                             group_of[bid], priority_index[bid]))
         elif group_first:
             remaining.sort(key=lambda bid: (group_of[bid], priority_index[bid]))
-        # Evaluate each eligible successor at its current folded state.
-        # Cost is applied ONLY after that successor passes the collision cascade.
-        # Keep unknown geometry separate from certified clearance.
-        prev_setup = steps[-1].setup if steps else None
-        scored_successors = []
+        # Cheap cost hint only: never evaluate full Stage B / OCC contact
+        # for every sibling before descending the first viable child.
+        # This avoids breadth-first CAD expansion under a tight deadline.
+        if backgauge_model is not None:
+            previous_setup = steps[-1].setup if steps else None
+            estimated = {}
+            for bid in remaining:
+                try:
+                    state.reset_all()
+                    for completed in prefix:
+                        state.set_angle(
+                            completed, float(state.bends[completed].angle_deg)
+                        )
+                    zone = state.bends[bid].bend_zone
+                    guess = compute_workpiece_machine_setup(
+                        state, bid,
+                        desired_midpoint_xm=float(shifts.get(bid, 0.0)),
+                        support_plane_zm=(
+                            float(zone.outer_radius_mm)
+                            if zone is not None else 0.0
+                        ),
+                        align_bisector=False,
+                        rear_panel_vertices_xy=panel_vertices,
+                    )
+                    # Unknown gauge position is not invented. The prediction
+                    # includes operator reach, turn, flip and sheet shift;
+                    # the final candidate is scored with real gauge S/Z.
+                    estimated[bid] = (
+                        transition_penalty(previous_setup, guess, op_weights).total
+                        if guess.is_complete else 0.0
+                    )
+                except (ValueError, TypeError, AttributeError, KeyError):
+                    estimated[bid] = 0.0
+                finally:
+                    state.angles = dict(original_angles)
+                    state.transforms = dict(original_transforms)
+            if group_first and prefix:
+                remaining.sort(key=lambda bid: (
+                    group_of[bid] != group_of[prefix[-1]],
+                    estimated[bid], priority_index[bid],
+                ))
+            elif group_first:
+                remaining.sort(key=lambda bid: (
+                    group_of[bid], estimated[bid], priority_index[bid],
+                ))
+            else:
+                remaining.sort(key=lambda bid: (
+                    estimated[bid], priority_index[bid],
+                ))
         for bend_id in remaining:
             if root_deadline is not None and perf_counter() >= root_deadline:
                 probe_cutoffs += 1
@@ -914,28 +958,6 @@ def search_bend_sequences_2d(
                 "INVALID_INPUT", "2D_TOOLING_CONSTRAINT",
             ):
                 continue
-            if step.setup is None:
-                transition_cost, unknown_cost = float("inf"), True
-            else:
-                penalty = transition_penalty(prev_setup, step.setup, op_weights)
-                transition_cost = penalty.total
-                unknown_cost = not penalty.is_complete
-            # Within identical costs retain grouping preferences and stable IDs.
-            group_change = int(bool(prefix)
-                               and group_of[bend_id] != group_of[prefix[-1]])
-            scored_successors.append((
-                (unknown_cost, transition_cost,
-                 group_change if group_first else 0,
-                 priority_index[bend_id], bend_id),
-                bend_id, step,
-            ))
-        scored_successors.sort(key=lambda entry: entry[0])
-        for _rank, bend_id, step in scored_successors:
-            if stopped:
-                return
-            if perf_counter() - start >= max_search_time_s:
-                stopped = "MAX_SEARCH_TIME_REACHED"
-                return
             dfs(prefix + (bend_id,), steps + (step,), node_ceiling, root_deadline)
             if stopped:
                 return
