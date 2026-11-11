@@ -1,171 +1,90 @@
-"""Inspect the real Backgauge.FCStd CAD and verify its stop-face datum.
+"""Read-only preflight for the explicitly selected backgauge contact face.
 
-This is a read-only FreeCAD preflight, NOT a collision oracle. No BBox or
-approximate rectangle may be reported as a verified finger.
+The user's `Body/Pad.Face6` is resolved on the Pad feature and then
+checked against the *final* Body Shape, which has independent face indices.
+This check validates CAD geometry only, not collision-free manufacturing.
 """
 from __future__ import annotations
 
 from pathlib import Path
 import json
-import math
 
 
 def inspect_backgauge_cad(library_dir=None):
-    """Validate source CAD solid and sidecar stop face, without touching user doc.
-
-    Returns diagnostics; raises descriptive ValueError when the required
-    physical contact surface is absent or cannot be validated.
-    """
     import FreeCAD as App
     import Part
+    from smbs_core.kinematics2d.backgauge_cad_datum import (
+        resolve_stop_face, z_rotation_to_operator_deg,
+    )
 
     source_dir = (
         Path(library_dir).resolve() if library_dir is not None
         else Path(__file__).resolve().parents[2] / "toollibrary" / "Backgauge"
     )
-    cad_path = source_dir / "Backgauge.FCStd"
-    json_path = source_dir / "Backgauge.tooling.json"
-    if not cad_path.is_file() or not json_path.is_file():
+    path = source_dir / "Backgauge.FCStd"
+    config_path = source_dir / "Backgauge.tooling.json"
+    if not path.is_file() or not config_path.is_file():
         raise ValueError("Backgauge.FCStd / Backgauge.tooling.json missing")
-
-    data = json.loads(json_path.read_text(encoding="utf-8"))
-    if data.get("kind") != "backgauge" or data.get("source") != cad_path.name:
-        raise ValueError("Backgauge source/kind mismatch")
+    data = json.loads(config_path.read_text(encoding="utf-8"))
+    if data.get("kind") != "backgauge" or data.get("source") != path.name:
+        raise ValueError("Backgauge kind/source mismatch")
     datum = data.get("datums", {}).get("stop_face", {})
-    if datum.get("kind") != "plane":
-        raise ValueError("Backgauge stop_face plane datum is missing")
-    origin = datum.get("origin", ())
-    direction = datum.get("normal", ())
-    if (len(origin) != 3 or len(direction) != 3
-            or any(not isinstance(n, (float, int)) or
-                   isinstance(n, bool) or not math.isfinite(n)
-                   for n in (*origin, *direction))):
-        raise ValueError("Invalid stop_face origin or normal")
-    norm = math.sqrt(sum(float(n)**2 for n in direction))
-    if not 0.999 <= norm <= 1.001:
-        raise ValueError("stop_face normal must have unit length")
-    tol = float(datum.get("tolerance_mm", 0.05))
-    if not math.isfinite(tol) or tol <= 0:
-        raise ValueError("Invalid stop_face tolerance")
-    point = App.Vector(*map(float, origin))
-    normal = App.Vector(*map(float, direction))
 
-    active = getattr(App, "ActiveDocument", None)
-    active_name = getattr(active, "Name", None)
+    active_name = getattr(App.ActiveDocument, "Name", None)
     doc = None
     try:
-        doc = App.openDocument(str(cad_path), True)
-        candidates = [
+        doc = App.openDocument(str(path), True)
+        bodies = [
             obj for obj in doc.Objects
-            if hasattr(obj, "Shape") and not obj.Shape.isNull()
-            and getattr(obj.Shape, "Solids", ())
-            and obj.Shape.isValid()
+            if obj.TypeId == "PartDesign::Body"
+            and hasattr(obj, "Shape") and not obj.Shape.isNull()
+            and obj.Shape.isValid() and len(obj.Shape.Solids) == 1
         ]
-        # Prefer one assembled body over duplicated tree stages (Pad/Sketch).
-        bodies = [o for o in candidates if o.TypeId == "PartDesign::Body"]
-        obj = bodies[0] if len(bodies) == 1 else (
-            candidates[-1] if len(candidates) == 1 else None
+        if len(bodies) != 1:
+            raise ValueError(
+                "expected one valid final PartDesign::Body; found {}"
+                .format(len(bodies))
+            )
+        body = bodies[0]
+        index, point, normal = resolve_stop_face(
+            doc, body, datum, App, Part
         )
-        if obj is None:
+        angle_deg = z_rotation_to_operator_deg(normal)
+        rotation = App.Rotation(App.Vector(0, 0, 1), angle_deg)
+        transformed = rotation.multVec(normal)
+        if transformed.dot(App.Vector(0, 1, 0)) < .999:
             raise ValueError(
-                "Cannot uniquely identify valid Backgauge solid/Body; "
-                "candidates: " + ",".join(o.Name for o in candidates)
+                "selected stop normal cannot be oriented toward operator"
             )
-        shape = obj.Shape.copy()
-        # Locate the real FACE, not an infinite plane or a bounding box.
-        # The source datum may be on an edge/vertex rather than in the face
-        # interior. Always record why each geometrically nearby face fails.
-        faces = []
-        diagnostic_faces = []
-        planar_count = 0
-        for index, face in enumerate(shape.Faces, 1):
-            if not isinstance(face.Surface, Part.Plane):
-                continue
-            planar_count += 1
-            u_min, u_max, v_min, v_max = face.ParameterRange
-            try:
-                axis = face.normalAt((u_min + u_max) / 2,
-                                     (v_min + v_max) / 2)
-                dot = float(axis.dot(normal))
-                distance, _pairs, _info = face.distToShape(Part.Vertex(point))
-                distance = float(distance)
-                plane_distance = abs(float(
-                    (point - face.CenterOfMass).dot(normal)
-                ))
-            except Exception as exc:
-                diagnostic_faces.append({
-                    "face": index,
-                    "error": type(exc).__name__ + ":" + str(exc),
-                })
-                continue
-            diagnostic_faces.append({
-                "face": index,
-                "distance_mm": distance,
-                "normal_dot": dot,
-                "area_mm2": float(face.Area),
-                "center": [round(v, 3) for v in (
-                    face.CenterOfMass.x, face.CenterOfMass.y,
-                    face.CenterOfMass.z,
-                )],
-                "plane_distance_along_metadata_normal_mm": plane_distance,
-            })
-            # Only a real, finite, *oriented* CAD face at the datum can
-            # qualify. Opposite normals are reported, never quietly flipped.
-            if distance <= tol and dot >= 0.999:
-                faces.append((index, face, axis))
-        if len(faces) != 1:
-            diagnostics = sorted(
-                diagnostic_faces,
-                key=lambda x: (x.get("distance_mm", float("inf")),
-                               -x.get("normal_dot", -2.0)),
-            )
-            examples = []
-            for item in diagnostics[:8]:
-                if "error" in item:
-                    examples.append(
-                        "Face{} ERROR {}".format(item["face"], item["error"])
-                    )
-                else:
-                    examples.append(
-                        "Face{} dist={:.4f} mm normalDot={:+.4f} "
-                        "area={:.2f} mm² center={}".format(
-                            item["face"], item["distance_mm"],
-                            item["normal_dot"], item["area_mm2"],
-                            item["center"],
-                        )
-                    )
-            raise ValueError(
-                "Backgauge CAD stop_face datum NOT validated.\n"
-                "Expected one outward-oriented planar face at {} ± {:.3f} mm "
-                "with normal {}; found {}.\n"
-                "CAD object={} solids={} planar_faces={} all_faces={}\n"
-                "Nearest planar faces:\n{}\n"
-                "Interpretation: dist>tol means metadata point misses the "
-                "finite CAD face; normalDot≈-1 means inverted CAD face "
-                "orientation; both must be fixed explicitly.\n"
-                "Collision geometry remains DISABLED."
-                .format(
-                    tuple(origin), tol, tuple(direction), len(faces),
-                    obj.Name, len(shape.Solids), planar_count,
-                    len(shape.Faces), "\n".join(examples) or "NONE",
-                )
-            )
-        index, face, axis = faces[0]
-        bb = shape.BoundBox
+        shape = body.Shape
+        bounds = shape.BoundBox
         return {
-            "source": str(cad_path),
-            "object": obj.Name,
+            "source": str(path),
+            "object": body.Name,
             "solids": len(shape.Solids),
             "faces": len(shape.Faces),
+            "source_feature": str(datum["source_object"]),
+            "source_subelement": str(datum["subelement"]),
+            "body_stop_face_index": index,
             "stop_face_index": index,
-            "stop_face_origin_mm": list(map(float, origin)),
-            "stop_face_normal": list(map(float, direction)),
+            "stop_face_origin_mm": [
+                float(point.x), float(point.y), float(point.z)
+            ],
+            "stop_face_normal": [
+                float(normal.x), float(normal.y), float(normal.z)
+            ],
+            "rotation_to_operator_z_deg": float(angle_deg),
+            "mapped_normal_machine_xyz": [
+                float(transformed.x),
+                float(transformed.y),
+                float(transformed.z),
+            ],
             "bbox_mm": {
-                "x": float(bb.XLength),
-                "y": float(bb.YLength),
-                "z": float(bb.ZLength),
+                "x": float(bounds.XLength),
+                "y": float(bounds.YLength),
+                "z": float(bounds.ZLength),
             },
-            "status": "CAD_SOLID_AND_STOP_FACE_VALIDATED_ONLY",
+            "status": "CAD_SOLID_AND_SELECTED_PAD_FACE_VALIDATED_ONLY",
             "collision_model_active": False,
         }
     finally:
