@@ -178,6 +178,203 @@ class BackgaugeCAD3D:
                     )
         return tuple(shapes)
 
+    def solve_first_contact(self, state, panel_vertices_xy, placement, *,
+                            active_bend_id, hint_s_mm, contact_z_mm,
+                            tolerance_mm=0.02):
+        """Locate first nonpenetrating CAD stop contact without moving the bend.
+
+        The actual CAD stop is withdrawn towards machine +s if the suggested
+        Face3 station overlaps the workpiece. A bounded OCC binary search
+        returns a nonpenetrating placement, then *independently* verifies that
+        the designated fixed panel is physically contacted by the CAD body.
+        Contact with another panel or an unverified source face is not a
+        substitute for the intended stop; such cases raise an explicit
+        BackgaugeCADError and must NOT be treated as collision-free.
+        """
+        import Part
+
+        if (not math.isfinite(float(hint_s_mm))
+                or not math.isfinite(float(contact_z_mm))
+                or float(hint_s_mm) <= 0.0
+                or not 0.001 <= float(tolerance_mm) <= 0.2):
+            raise BackgaugeCADError("invalid CAD contact search arguments")
+        bend = state.bends[active_bend_id]
+        if bend.bend_zone is None:
+            raise BackgaugeCADError("active BendZone required for CAD contact")
+        thickness_mm = float(bend.bend_zone.thickness_mm)
+        components = (
+            self._panel_solids(state, panel_vertices_xy, placement, thickness_mm)
+            + self._bend_solids(state, placement)
+        )
+        fixed_id = "panel:" + str(bend.fixed_panel)
+        fixed = next((solid for label, solid in components
+                      if label == fixed_id), None)
+        if fixed is None:
+            raise BackgaugeCADError(
+                "fixed panel CAD solid missing:" + fixed_id
+            )
+        volume_tol = max(1e-6, float(tolerance_mm)**3)
+
+        def probe(s_mm):
+            shapes = self.positioned_shapes(s_mm, contact_z_mm)
+            for index, gauge in enumerate(shapes, 1):
+                ga = gauge.BoundBox
+                for label, sheet in components:
+                    sb = sheet.BoundBox
+                    if (ga.XMax < sb.XMin or sb.XMax < ga.XMin or
+                            ga.YMax < sb.YMin or sb.YMax < ga.YMin or
+                            ga.ZMax < sb.ZMin or sb.ZMax < ga.ZMin):
+                        continue
+                    common = gauge.common(sheet)
+                    if not common.isNull():
+                        volume = float(common.Volume)
+                        if not math.isfinite(volume):
+                            raise BackgaugeCADError(
+                                "nonfinite OCC CAD contact volume"
+                            )
+                        if volume > volume_tol:
+                            return (index, label, volume), shapes
+            return None, shapes
+
+        hint_s = float(hint_s_mm)
+        interference, shapes = probe(hint_s)
+        if interference is None:
+            # Existing gauge location may already be at first contact.
+            nearest = min(float(gauge.distToShape(fixed)[0])
+                          for gauge in shapes)
+            if nearest <= float(tolerance_mm) + 0.03:
+                return self._qualified_contact(
+                    shapes, fixed, hint_s, contact_z_mm, hint_s,
+                    tolerance_mm, fixed_id,
+                )
+
+        # Calculate a provably Y-disjoint rearward bound from actual CAD
+        # bounding boxes of ALL sheet solids, not an arbitrary travel limit.
+        # This is purely geometric bracketing, NOT machine axis qualification.
+        sheet_rearmost_s = max(
+            -float(shape.BoundBox.YMin) for _, shape in components
+        )
+        forward_protrusion = max(
+            float(shape.BoundBox.YMax) + hint_s for shape in shapes
+        )
+        far_s = max(hint_s + 1.0,
+                    sheet_rearmost_s + forward_protrusion + 1.0)
+        if not math.isfinite(far_s):
+            raise BackgaugeCADError("nonfinite geometric search bound")
+
+        if interference is not None:
+            low_s = hint_s
+            high_s = far_s
+            far_interference, _ = probe(high_s)
+            if far_interference is not None:
+                raise BackgaugeCADError(
+                    "gauge did not retract to Y-disjoint position"
+                )
+        else:
+            # Hint is clear but may not touch any panel: approach from
+            # operator side only until real material contact first occurs.
+            high_s = hint_s
+            low_s = max(0.001, hint_s - 1.0)
+            step = 1.0
+            for _ in range(18):
+                collision, _ = probe(low_s)
+                if collision is not None:
+                    break
+                if low_s <= 0.001:
+                    raise BackgaugeCADError(
+                        "NO_PHYSICAL_CONTACT_IN_REAR_GAUGE_TRAVEL:"
+                        "fixed_panel=" + fixed_id
+                    )
+                step *= 2.0
+                low_s = max(0.001, hint_s - step)
+            else:
+                raise BackgaugeCADError(
+                    "contact bracketing exhausted for fixed panel"
+                )
+
+        # Bisection preserves an OCC-clear upper bound and an interfering
+        # lower bound. Do not accept an intersecting final placement.
+        for _ in range(28):
+            if high_s - low_s <= max(0.005, float(tolerance_mm) / 2.0):
+                break
+            mid_s = (low_s + high_s) / 2.0
+            collision, _ = probe(mid_s)
+            if collision is None:
+                high_s = mid_s
+            else:
+                low_s = mid_s
+        collision, shapes = probe(high_s)
+        if collision is not None:
+            raise BackgaugeCADError(
+                "OCC contact solver failed to find nonpenetrating position"
+            )
+        return self._qualified_contact(
+            shapes, fixed, high_s, contact_z_mm, hint_s,
+            tolerance_mm, fixed_id,
+        )
+
+    def _qualified_contact(self, gauges, fixed, contact_s, contact_z,
+                           hint_s, tolerance_mm, fixed_id):
+        """Verify contact against the required panel AND real oriented face."""
+        import Part
+
+        matched = []
+        gap_limit = max(0.05, float(tolerance_mm) + 0.03)
+        for finger_index, gauge in enumerate(gauges, 1):
+            distance = float(gauge.distToShape(fixed)[0])
+            if distance > gap_limit:
+                raise BackgaugeCADError(
+                    "FIRST_CONTACT_WRONG_PANEL_OR_NO_FIXED_CONTACT:"
+                    "finger={} fixed={} distance_mm={:.4f} "
+                    "stop_s_mm={:.4f} hint_s_mm={:.4f}".format(
+                        finger_index, fixed_id, distance,
+                        contact_s, hint_s,
+                    )
+                )
+            face_hits = []
+            for face_idx, face in enumerate(gauge.Faces, 1):
+                if not isinstance(face.Surface, Part.Plane):
+                    continue
+                b = face.ParameterRange
+                normal = face.normalAt(
+                    0.5 * (b[0] + b[1]), 0.5 * (b[2] + b[3])
+                )
+                # Operator-facing surface of the stop points +Y_m.
+                if normal.dot(self.app.Vector(0, 1, 0)) < 0.999:
+                    continue
+                gap = float(face.distToShape(fixed)[0])
+                if gap <= gap_limit:
+                    face_hits.append((face_idx, gap))
+            if not face_hits:
+                raise BackgaugeCADError(
+                    "NO_OPERATOR_FACING_STOP_FACE_CONTACT:"
+                    "finger={} fixed={} stop_s_mm={:.4f}".format(
+                        finger_index, fixed_id, contact_s
+                    )
+                )
+            matched.append(min(face_hits, key=lambda item: item[1]))
+
+        actual_face_indices = [i for i, _gap in matched]
+        return {
+            "contact_s_mm": float(contact_s),
+            "contact_z_mm": float(contact_z),
+            "hint_s_mm": float(hint_s),
+            "shift_rearward_mm": float(contact_s - hint_s),
+            "actual_faces": actual_face_indices,
+            "datum_face_indices": [self.stop_face_index] * len(gauges),
+            "face3_is_contact": all(
+                index == self.stop_face_index for index in actual_face_indices
+            ),
+            "status": "FIRST_NONPENETRATING_CAD_FACE_CONTACT_SAMPLED",
+            "note": (
+                "CONTACT_FACE3" if all(
+                    index == self.stop_face_index for index in actual_face_indices
+                ) else "CONTACT_ON_DIFFERENT_CAD_FACE_NEEDS_TOOLING_REVIEW"
+            ),
+            "swept_path_verified": False,
+            "axis_limits_verified": False,
+        }
+
     def _positioned_at(self, contact_s_mm, contact_z_mm, station_xm_mm):
         """Position source Face3 at exact machine stop contact point."""
         if not all(math.isfinite(float(v)) for v in
