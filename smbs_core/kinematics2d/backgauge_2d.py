@@ -193,6 +193,8 @@ class BackgaugeModel2D:
         return {
             "width_s_mm": float(self.width_s_mm),
             "height_z_mm": float(self.height_z_mm),
+            "z_min_mm": float(self.z_min_mm),
+            "z_max_mm": float(self.z_max_mm),
             "positions": {bid: p.to_dict() for bid, p in self.positions.items()},
             "part_label": self.part_label,
             "automatic": self.automatic,
@@ -221,6 +223,8 @@ class BackgaugeModel2D:
         return BackgaugeModel2D(
             width_s_mm=float(data["width_s_mm"]),
             height_z_mm=float(data["height_z_mm"]),
+            z_min_mm=float(data.get("z_min_mm", -20.0)),
+            z_max_mm=float(data.get("z_max_mm", 20.0)),
             positions={
                 bid: BackgaugePosition2D(float(p["s_mm"]), float(p["z_mm"]))
                 for bid, p in positions.items()
