@@ -2280,7 +2280,14 @@ class _PreviewPanel:
                         backgauge_cad_trace_path=(
                             self._last_backgauge_cad_trace_path
                         ),
-                        min_partial_bends=(7 if len(self.session.bend_order) >= 10 else 0),
+                        # Do not lose a six-step sampled prefix when the
+                        # 90s OCC budget expires during the seventh bend.
+                        # The solver itself now excludes unfinished/unverified
+                        # steps from any previewable partial sequence.
+                        min_partial_bends=(
+                            6 if cad_extended_search else
+                            7 if len(self.session.bend_order) >= 10 else 0
+                        ),
                         # Alternative machine-Z loading trials are advisory:
                         # the live 2.5D cycle still uses its own active pose.
                         alternate_axis_bends=(
@@ -2488,9 +2495,12 @@ class _PreviewPanel:
                         layout.addWidget(open_trace_folder)
                 if report.partial_candidate is not None and not report.candidates:
                     notice = QtWidgets.QLabel(
-                        "ЧАСТИЧНЫЙ РЕЗУЛЬТАТ: {} из {} гибов. "
-                        "Это предварительный 2D-префикс без полного контрольного "
-                        "прогона. Остальные гибы не проверены и не будут анимироваться.".format(
+                        "ЧАСТИЧНЫЙ РЕЗУЛЬТАТ: {} из {} гибов прошли "
+                        "предварительную проверку 2D. "
+                        "Это префикс без полного контрольного прогона; "
+                        "следующий незавершённый по тайм-ауту гиб не включён. "
+                        "Остальные гибы не будут анимироваться. "
+                        "Реальная безопасность станка не подтверждена.".format(
                             len(report.partial_candidate.sequence),
                             len(self.session.bend_order),
                         )
