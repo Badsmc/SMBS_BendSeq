@@ -421,6 +421,7 @@ def search_bend_sequences_2d(
     tolerance_mm: float = 0.02,
     backgauge_polygon_machine: Optional[Sequence[tuple[float, float]]] = None,
     backgauge_model: Optional[BackgaugeModel2D] = None,
+    backgauge_cad_trace_path: Optional[str] = None,
 ) -> PlanarSearchReport:
     """Enumerate up to N sampled 2D sequences without ever running Stage C.
 
@@ -507,6 +508,7 @@ def search_bend_sequences_2d(
             cad_checker = BackgaugeCAD3D(
                 station_xm_mm=backgauge_model.cad_station_xm_mm,
                 second_station_xm_mm=backgauge_model.cad_second_station_xm_mm,
+                trace_path=backgauge_cad_trace_path,
             )
         if backgauge_model is not None:
             if (backgauge_model.part_label and
@@ -967,6 +969,11 @@ def search_bend_sequences_2d(
                 "cad_station_xm_mm": (
                     cad_checker.station_xm_mm if cad_checker is not None
                     else backgauge_model.cad_station_xm_mm
+                ),
+                "cad_trace_path": (
+                    str(backgauge_cad_trace_path)
+                    if cad_checker is not None and backgauge_cad_trace_path
+                    else None
                 ),
             } if backgauge_model is not None else None
         ),
