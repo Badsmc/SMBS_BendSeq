@@ -4351,6 +4351,16 @@ class _PreviewPanel:
                 idx = session.active_bend_index
                 start = self._backgauge_preview_position(idx)
                 if start is None:
+                    if model.cad_geometry_enabled:
+                        warning = self.scene.addSimpleText(
+                            "CAD-УПОР: контакт с опорной панелью НЕ подтверждён"
+                        )
+                        warning.setBrush(
+                            QtGui.QBrush(QtGui.QColor("#d06440"))
+                        )
+                        warning.setPos(20.0, -65.0)
+                        warning.setZValue(Z_LAYER_AUXILIARY)
+                        warning.setData(0, "cad_backgauge_contact_unknown")
                     return
                 pos = start[0]
                 controller = self.press_cycle
