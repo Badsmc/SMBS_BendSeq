@@ -58,6 +58,8 @@ jobs:
               "SMBS_SequenceCatalog": "gui_sequence_catalog.svg",
               "SMBS_Backgauge": "gui_backgauge.svg",
               "SMBS_Tooling": "tooling.svg",
+              "SMBS_Manual": "gui_manual.svg",
+              "SMBS_Settings": "gui_settings.svg",
           }
           assert set(COMMANDS_MAP) == set(expected_commands), (
               "Unexpected command changes: " + str(set(COMMANDS_MAP))
@@ -84,6 +86,36 @@ jobs:
           ):
               assert required in declared, required
           assert "def _apply_svg_button_icons(self):" in gui_source
+          assert "def activate_manual_mode(self):" in gui_source
+          assert "def open_tooling_settings_dialog(self):" in gui_source
+          assert "def open_settings_dialog(self):" in gui_source
+          assert "def _toggle_play_pause(self):" in gui_source
+          assert "self.pause_btn" not in gui_source
+          assert "self.manual_mode_btn" not in gui_source
+          assert "if len(entries) != 11:" in gui_source
+          assert "SMBS_ManualScroll" in gui_source
+          assert "SMBS_SettingsScroll" in gui_source
+          assert "SMBS_ToolingScroll" not in gui_source
+          assert '"Проверить"' in gui_source
+          assert '"Manual"' in gui_source
+          assert "show_workspace_controls(self, tab=1)" in gui_source
+          # Only Simulation and Manual are in the Task Panel.
+          assert 'controls.addTab(' in gui_source
+          assert gui_source.count("controls.addTab(") == 2
+          # Config is in Settings, tooling in its own Basic/Import dialog.
+          assert 'tool_tabs.addTab(tool_main, "Основные")' in gui_source
+          assert 'tool_tabs.addTab(tool_import, "Импорт")' in gui_source
+          assert 'insert(settings_layout, entries[3])' in gui_source
+          assert 'settings_layout.addWidget(self.retract_warning_checkbox)' in gui_source
+          assert 'tool_opts_layout.addWidget(self.virtual_tool_len_checkbox)' in gui_source
+          assert 'tool_opts_layout.addWidget(self.physical_check_btn)' in gui_source
+          assert 'tool_opts_layout.addWidget(self.full_physical_check_btn)' in gui_source
+          assert '"Select Punch"' not in gui_source
+          assert '"Select Die"' not in gui_source
+          assert '"Align Tooling"' not in gui_source
+          assert '"Reset Tooling Position"' not in gui_source
+          assert '"Hide/Show Tooling"' not in gui_source
+          print("GUI_TASK_PANEL_RESTRUCTURE_OK")
           print("GUI_SVG_ICON_CONTRACT_OK", len(icons))
           print("COMMAND_ICON_CONTRACT_OK", len(expected_commands))
           print("PLAYBACK_ICON_CONTRACT_OK", len(declared))
