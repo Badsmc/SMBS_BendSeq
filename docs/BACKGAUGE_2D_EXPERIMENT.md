@@ -1,3 +1,14 @@
+## 66.json — corrected first-contact search target (2026-11-11)
+
+The latest ten-bend run (`X_m=50 mm`, single CAD finger, `edge_clearance_mm=25`, `initial_feed_preview_mm=1`) reached depth 10 and produced six **UNVERIFIED_2D** coarse candidates, but all ten bends' contacts failed `FIRST_CONTACT_WRONG_PANEL_OR_NO_FIXED_CONTACT`. Example B06 requested fixed `P04` at `hint_s=36.2566`, yet the previous solver retracted to `stop_s=563.2974` and then reported a 527.0407 mm distance from P04. This is **not a valid physical sequence**; 30-second `SEARCH_LIMIT_REACHED` also applies.
+
+Root cause in earlier implementation: its initial contact search bisected against **any** workpiece panel/bend-zone volume. It therefore solved the *rearmost collision of the entire assembly*, which may be hundreds of mm beyond the selected support panel. Checking support-panel proximity only afterward could never repair that incorrect target.
+
+Fix: bracket and bisect contact against the **required fixed panel** only. At that chosen candidate placement, separately run OCC boolean collision against **every panel and bend-zone**. If an unrelated solid obstructs the contact, fail closed with `OTHER_PANEL_BLOCKS_REQUIRED_GAUGE_CONTACT` including obstructing component and overlap volume. Do **not** retreat to another panel and falsely call the result contact. Verify proximity and operator-facing face on the fixed panel as before. Search's exploratory unverified candidates remain explicitly unverified until FreeCAD validation.
+
+Headless regressions construct synthetic solids to verify that a distant unrelated rear panel no longer moves the contact and that another panel blocking the intended contact is explicitly rejected. They do not validate the real FCStd BRep or machine travel.
+
+
 ## Real first-contact placement correction — 55.json follow-up
 
 **Issue proven by source review:** prior CAD mode copied a 2D edge target measured in the **bend-midpoint cutting plane** (`X_m=desired_midpoint_xm`, normally zero) and positioned the real stop at a different machine station (the reported run used `X_m=50 mm`). It did not verify first contact before Stage B; selected `Face3` is a valid BRep face but may be recessed behind other surfaces.
