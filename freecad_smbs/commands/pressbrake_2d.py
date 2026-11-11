@@ -1113,6 +1113,14 @@ class _PreviewPanel:
                 pc_row2.addWidget(self.cycle_phase_label, 1)
                 pc_row2.addWidget(self.ram_position_label, 1)
                 pc_layout.addLayout(pc_row2)
+                self.loading_orientation_status = QtWidgets.QLabel(
+                    "Оператор ← | Упор → | Подача: пока не определена"
+                )
+                self.loading_orientation_status.setWordWrap(True)
+                self.loading_orientation_status.setStyleSheet(
+                    "font-size: 11px; color: #815a2a;"
+                )
+                pc_layout.addWidget(self.loading_orientation_status)
                 root.addWidget(self.press_cycle_group)
 
                 self._auto_select_default_tooling()
@@ -1572,6 +1580,15 @@ class _PreviewPanel:
                         part_label=str(self.session.part_label),
                         mode=self.execution_mode.value,
                         bends_topology=bend_graph_data,
+                        loading_orientation_by_bend=(
+                            self._effective_loading_orientation_map()
+                        ),
+                        loading_orientation_status=(
+                            self._ergonomic_loading_status
+                        ),
+                        selected_planar_prefix=list(
+                            self._selected_planar_gauge_order
+                        ),
                     )
                     # Runtime evidence: distinguishes actual executed Python
                     # module from a checkout path, without guessing from the
@@ -2986,6 +3003,32 @@ class _PreviewPanel:
                         self.session.panel_vertices_xy
                         if self.backgauge_model is not None else None
                     ),
+                )
+
+            def _update_loading_orientation_label(self):
+                """Expose the actual machine direction, never CAD-certify a hint."""
+                if self.session is None:
+                    self.loading_orientation_status.setText(
+                        "Оператор ← | Упор → | Деталь не загружена"
+                    )
+                    return
+                choices = self._effective_loading_orientation_map()
+                bend_id = str(self.session.active_bend_id)
+                reversed_pose = bool(choices.get(bend_id, False))
+                source = self._ergonomic_loading_status
+                if source.startswith("SELECTED_2D"):
+                    evidence = "выбрано из 2D-поиска; 3D не проверено"
+                elif source.startswith("ERGONOMIC_PREVIEW"):
+                    evidence = "по длинам сторон; КОНТАКТ НЕ ПРОВЕРЕН"
+                else:
+                    evidence = source
+                self.loading_orientation_status.setText(
+                    "Оператор ← (-S)  |  Упор → (+S)  |  {}: {}  |  {}"
+                    .format(
+                        bend_id,
+                        "РАЗВОРОТ 180°" if reversed_pose else "обычно 0°",
+                        evidence,
+                    )
                 )
 
             def _ensure_press_cycle_controller(self) -> PressCycleController | None:
@@ -4860,6 +4903,12 @@ class _PreviewPanel:
                                     phase=pc_for_pose.phase.value,
                                     cutting_panels=[p[0] for p in sec.get("other_panel_polygons", [])],
                                     translation=list(current_placement.translation),
+                                    reverse_axis=bool(
+                                        self._effective_loading_orientation_map().get(
+                                            str(self.session.active_bend_id), False
+                                        )
+                                    ),
+                                    orientation_status=self._ergonomic_loading_status,
                                 )
 
                                 self._last_valid_machine_section = sec
@@ -5075,9 +5124,11 @@ class _PreviewPanel:
                             )
                         )
                         self._update_press_cycle_labels()
+                        self._update_loading_orientation_label()
                     else:
                         self.step.setText("Активный гиб: — | Угол: — / —")
                         self._update_press_cycle_labels()
+                        self._update_loading_orientation_label()
 
                     # Compute separated scene bounds (sheet_bounds, punch_bounds, die_bounds, combined_bounds)
                     self.last_scene_bounds = compute_scene_bounds_2d(
