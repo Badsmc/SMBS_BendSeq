@@ -2226,7 +2226,22 @@ class _PreviewPanel:
                     return
                 self.planar_calculate.setEnabled(False)
                 self.calculate.setEnabled(False)
-                self.status.setText("Выполняется предварительный поиск последовательностей в 2D...")
+                # Real Part/OCC CAD gauge tests now cost ~0.8-1.6 s per
+                # evaluated bend on the 10-bend fixture. The previous 30 s
+                # limit expired inside Stage B at the sixth operation, not
+                # because a collision was proven. Longer search is only for
+                # explicit real CAD mode on complex parts.
+                cad_extended_search = bool(
+                    len(self.session.bend_order) >= 10
+                    and self.backgauge_model is not None
+                    and self.backgauge_model.cad_geometry_enabled
+                )
+                search_budget_s = 90.0 if cad_extended_search else 30.0
+                self.status.setText(
+                    "Выполняется предварительный поиск в 2D "
+                    "(лимит {:.0f} с; 3D безопасность не подтверждена)..."
+                    .format(search_budget_s)
+                )
                 QtWidgets.QApplication.processEvents()
                 try:
                     from smbs_core.kinematics2d.sequence_search_2d import (
@@ -2275,7 +2290,7 @@ class _PreviewPanel:
                         allow_end_zone_collision=bool(self.tooling_setup.allow_end_zone_collision),
                         end_zone_length_mm=float(self.tooling_setup.end_zone_length_mm),
                         allow_retract_warning=self.retract_warning_checkbox.isChecked(),
-                        max_search_time_s=30.0,
+                        max_search_time_s=search_budget_s,
                         max_nodes=5000,
                         max_evaluations=10000,
                         # For 10+ bends, distribute the first search pass
@@ -2284,7 +2299,11 @@ class _PreviewPanel:
                         root_probe_nodes=(65 if len(self.session.bend_order) >= 10 else 0),
                         # Each root gets <=1.8 s, even when memoization
                         # prevents reaching its node-count allowance.
-                        root_probe_seconds=(1.8 if len(self.session.bend_order) >= 10 else 0.0),
+                        root_probe_seconds=(
+                            0.9 if cad_extended_search
+                            else 1.8 if len(self.session.bend_order) >= 10
+                            else 0.0
+                        ),
                         # Long box-like parts can require bends late in CAD
                         # construction order to be formed first. For >=6 bends
                         # explore reverse construction order before considering
@@ -2317,6 +2336,8 @@ class _PreviewPanel:
                         visited_nodes=report.visited_nodes,
                         candidate_count=len(report.candidates),
                         limit_reason=report.limit_reason,
+                        budget_seconds=search_budget_s,
+                        cad_extended_search=cad_extended_search,
                     )
                     self._show_planar_candidates_dialog(report)
                 except Exception as exc:
