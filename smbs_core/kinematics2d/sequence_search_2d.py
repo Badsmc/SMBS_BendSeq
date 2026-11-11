@@ -48,12 +48,14 @@ class PlanarStep:
     diagnostic_findings: tuple[tuple[str, str, str, str, str], ...] = ()
     touch_summary: tuple[tuple[str, str, str, str, int], ...] = ()
     orientation_variant: str = "NORMAL"
+    backgauge_variant_index: int = 0
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "bend_id": self.bend_id, "evidence": self.evidence,
             "reason": self.reason,
             "orientation_variant": self.orientation_variant,
+            "backgauge_variant_index": self.backgauge_variant_index,
             "sampled_phases": list(self.sampled_phases),
             "contact_statuses": list(self.contact_statuses),
             "machine_setup": self.setup.to_dict() if self.setup else None,
@@ -540,7 +542,12 @@ def search_bend_sequences_2d(
     stopped = ""
     candidates: list[PlanarCandidate] = []
     complete_candidates_examined = 0
-    step_cache: dict[tuple[frozenset[str], str, bool], PlanarStep] = {}
+    step_cache: dict[tuple[frozenset[str], str, bool, int], PlanarStep] = {}
+    # Resolved gauge alternatives are CAD-checked at the setup state once;
+    # each variant still goes through its own Stage B phase checks.
+    cad_contact_options: dict[
+        tuple[frozenset[str], str], tuple[tuple[Any, float, str, dict], ...]
+    ] = {}
     step_diagnostics: list[tuple[tuple[str, ...], PlanarStep]] = []
     # Only states with no coarse complete path whatsoever are memoized dead.
     # A different permutation of the same folded subset may have a different
@@ -554,11 +561,12 @@ def search_bend_sequences_2d(
     alternative_setup_trials: list[tuple[tuple[str, ...], str, str, str]] = []
     final_replay_attempts = final_replay_rejections = 0
 
-    def eval_step(prefix: tuple[str, ...], bend_id: str, *, detailed: bool = False) -> PlanarStep:
+    def eval_step(prefix: tuple[str, ...], bend_id: str, *,
+                  detailed: bool = False, gauge_variant: int = 0) -> PlanarStep:
         nonlocal evaluated, rejected, unverified
         # Separate coarse and full-density results: the same subset must
         # never reuse a less thoroughly sampled verdict at final replay.
-        key = (frozenset(prefix), bend_id, detailed and progressive)
+        key = (frozenset(prefix), bend_id, detailed and progressive, gauge_variant)
         if key in step_cache:
             return step_cache[key]
         evaluated += 1
@@ -597,12 +605,47 @@ def search_bend_sequences_2d(
                 cad_contact_data = None
                 if backgauge_model is not None:
                     if cad_checker is not None:
-                        target, gauge_depth, gauge_source, cad_contact_data = (
-                            cad_checker.resolve_contact_for_bend(
+                        setup_key = (frozenset(prefix), bend_id)
+                        options = cad_contact_options.get(setup_key)
+                        if options is None:
+                            base = cad_checker.resolve_contact_for_bend(
                                 state, panel_vertices, bend_id, backgauge_model,
                                 desired_midpoint_xm=float(shifts.get(bend_id, 0.0)),
                                 tolerance_mm=tolerance_mm,
                             )
+                            options_list = [base]
+                            primary_meta = base[3]
+                            from .backgauge_2d import BackgaugePosition2D
+                            for alt_index, alternative in enumerate(
+                                primary_meta.get("alternative_contacts", ()), 1
+                            ):
+                                contact_s = float(alternative["contact_s_mm"])
+                                contact_z = float(alternative["contact_z_mm"])
+                                alt_metadata = {
+                                    **primary_meta,
+                                    **alternative,
+                                    "candidate_variant_index": alt_index,
+                                    "note": "GAUGE_ALTERNATIVE_STATIC_CAD_CONTACT_"
+                                            + str(alt_index),
+                                }
+                                options_list.append((
+                                    BackgaugePosition2D(
+                                        contact_s + backgauge_model.width_s_mm / 2,
+                                        contact_z,
+                                    ),
+                                    contact_s,
+                                    "AUTO_EXTERNAL_REAR_CAD_ALTERNATIVE_"
+                                    + str(alt_index),
+                                    alt_metadata,
+                                ))
+                            options = tuple(options_list)
+                            cad_contact_options[setup_key] = options
+                        if not 0 <= gauge_variant < len(options):
+                            raise ValueError(
+                                "requested backgauge variant not available"
+                            )
+                        target, gauge_depth, gauge_source, cad_contact_data = (
+                            options[gauge_variant]
                         )
                         cad_contact_s = cad_contact_data["contact_s_mm"]
                         cad_contact_z = cad_contact_data["contact_z_mm"]
@@ -660,7 +703,10 @@ def search_bend_sequences_2d(
                     verified_die_span_xm=verified_die_span_xm,
                 )
                 evidence = _classify_step(stage_b)
-                orientation_variant = "NORMAL"
+                orientation_variant = (
+                    "GAUGE_ALTERNATIVE_" + str(gauge_variant)
+                    if gauge_variant else "NORMAL"
+                )
                 # Try a distinct 180-degree Z-axis loading orientation only
                 # for explicitly selected bends and only if the normal pose
                 # is rejected by sampled 2D interference. The same complete
@@ -769,12 +815,10 @@ def search_bend_sequences_2d(
             rejected += 1
         elif step.evidence == "UNVERIFIED_2D":
             unverified += 1
-        step = PlanarStep(
-            step.bend_id, step.evidence, step.reason,
-            step.sampled_phases, step.contact_statuses,
-            step.setup, step.backgauge_checked,
-            perf_counter() - step_start, step.timing_ms, step.diagnostic_findings,
-            step.touch_summary, step.orientation_variant,
+        step = replace(
+            step,
+            elapsed_s=perf_counter() - step_start,
+            backgauge_variant_index=gauge_variant,
         )
         step_cache[key] = step
         step_diagnostics.append((tuple(prefix), step))
