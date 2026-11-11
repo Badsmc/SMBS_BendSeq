@@ -38,7 +38,7 @@ class CADFirstContactContractTests(TestCase):
         }
         target = BackgaugePosition2D(125.01, 0.75)
         with patch.object(
-            model, "resolve_for_state",
+            BackgaugeModel2D, "resolve_for_state",
             return_value=(target, 120.0, "AUTO")
         ) as resolve, patch(
             "smbs_core.kinematics2d.workpiece_placement_3d."
@@ -76,7 +76,7 @@ class CADFirstContactContractTests(TestCase):
         adapter.station_xm_mm = -200.0
         adapter.second_station_xm_mm = 200.0
         with patch.object(
-            model, "resolve_for_state",
+            BackgaugeModel2D, "resolve_for_state",
             side_effect=[
                 (BackgaugePosition2D(125, .75), 120, "AUTO"),
                 (BackgaugePosition2D(130, .75), 125, "AUTO"),
