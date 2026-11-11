@@ -382,6 +382,55 @@ class BackgaugeCAD3D:
         from .backgauge_2d import BackgaugePosition2D
         from .workpiece_placement_3d import WorkpiecePlacement3D
 
+        if backgauge_model.automatic:
+            if float(backgauge_model.edge_clearance_mm) > tolerance_mm:
+                # A deliberate gap cannot be silently classified as genuine
+                # Face6-to-sheet contact.
+                raise BackgaugeCADError(
+                    "AUTO_CAD_CONTACT_REQUIRES_ZERO_EDGE_CLEARANCE:"
+                    "specified_mm={:.4f}".format(
+                        float(backgauge_model.edge_clearance_mm)
+                    )
+                )
+            zone = state.bends[bend_id].bend_zone
+            if zone is None:
+                raise BackgaugeCADError("no authoritative bend zone")
+            placement = WorkpiecePlacement3D.compute_placement(
+                state, bend_id,
+                desired_midpoint_xm=float(desired_midpoint_xm),
+                support_plane_zm=float(zone.outer_radius_mm),
+                align_bisector=False,
+                align_bend_arc_center=True,
+                rear_panel_vertices_xy=panel_vertices_xy,
+            )
+            self._trace(
+                "EXTERNAL_REAR_AUTO_REQUEST",
+                bend_id=str(bend_id),
+                kinematic_fixed_panel=str(state.bends[bend_id].fixed_panel),
+                station_xm_mm=float(self.station_xm_mm),
+                workpiece_pose_rotation=placement.rotation,
+                workpiece_pose_translation_xyz_mm=placement.translation,
+            )
+            result = self.solve_accessible_rear_contact(
+                state, panel_vertices_xy, placement,
+                active_bend_id=bend_id, tolerance_mm=tolerance_mm,
+            )
+            actual_s = float(result["contact_s_mm"])
+            actual_z = float(result["contact_z_mm"])
+            display = BackgaugePosition2D(
+                actual_s + backgauge_model.width_s_mm / 2, actual_z
+            )
+            return (
+                display, actual_s,
+                "AUTO_EXTERNAL_REAR_CAD:"
+                "support_panel={}:fixed_panel={}:stop_s_mm={:.4f}:"
+                "station_xm_mm={:.4f}:{}".format(
+                    result["support_panel_id"],
+                    state.bends[bend_id].fixed_panel,
+                    actual_s, self.station_xm_mm, result["note"],
+                ), result,
+            )
+
         target, _depth, source = backgauge_model.resolve_for_state(
             state, panel_vertices_xy, bend_id,
             desired_midpoint_xm=float(desired_midpoint_xm),
