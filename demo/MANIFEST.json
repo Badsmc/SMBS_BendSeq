@@ -1,0 +1,89 @@
+{
+  "schema": "smbs-demo-parts-v2",
+  "note": "Authoritative manifest for the 16 active demo fixtures present in demo/parts. The historical 17-model archive from SMBS_demo_FCStd_17_files.zip remains separate and is NOT declared restored. box.100out-50in-(ok).FCStd was replaced from BendSeq_Fixtures_Source to supply a functional SheetMetal Body_Unfold object.",
+  "active_fixture_count": 16,
+  "files": [
+    {
+      "name": "135-(ok).FCStd",
+      "size_bytes": 25285,
+      "sha256": "29e0642b5d6e1ca7b4ee69b1f7130c45b0bbe546c1e1dfe023edb8e8e1ce5a52"
+    },
+    {
+      "name": "2-1-3-4-(ok).FCStd",
+      "size_bytes": 134528,
+      "sha256": "618133a9c629045fa37c91656455db909236160965f14dd659bf2439bffadfb9"
+    },
+    {
+      "name": "L-(ok).FCStd",
+      "size_bytes": 18978,
+      "sha256": "dd43ee2a80dfc902e9199b8eb2df1b6eef97b06f10c1e7541eaf1d97965a496a"
+    },
+    {
+      "name": "L-30-6-(false).FCStd",
+      "size_bytes": 20571,
+      "sha256": "eab7213d9df5d37292167a9ff19ca6b7e792b5a005a53fdec9a348412d92433c"
+    },
+    {
+      "name": "SQin.200-25-10-(ok).FCStd",
+      "size_bytes": 49163,
+      "sha256": "8473f7cb6342857f6f8437a4782e6c4df6d65ba4ac5068ac6bffd6a903f44e47"
+    },
+    {
+      "name": "SQout.200-25-10-(ok).FCStd",
+      "size_bytes": 47466,
+      "sha256": "7180f581ea1d371a6157d0f08370dfb8c457872d7d1077cab4231e4f43990de6"
+    },
+    {
+      "name": "U-10-10-20-(false).FCStd",
+      "size_bytes": 25640,
+      "sha256": "7a566bb0f5dc84678431d4bcf4529dbac38254dfde077de753011b089e36faec"
+    },
+    {
+      "name": "U-10-15-10-(punch2-OK).FCStd",
+      "size_bytes": 22805,
+      "sha256": "b1144f2105dab2642b2bdccb64e7e814ae9989ab1b088050b7f795a07d4373db"
+    },
+    {
+      "name": "U-10-30-10-(OK).FCStd",
+      "size_bytes": 22924,
+      "sha256": "95ed1bab816b360c00a93247005243dee70c2e8f97c00d5296e1070b168baee3"
+    },
+    {
+      "name": "U-60deg-30deg-(ok).FCStd",
+      "size_bytes": 27982,
+      "sha256": "0fba76621644d51fe23c30cb783d919786dc597a90bc54c266307bf1a258a21b"
+    },
+    {
+      "name": "U-90deg-90deg-(ok).FCStd",
+      "size_bytes": 23544,
+      "sha256": "d26659e73d9fdf0bc463dd9e7a54bad88bc569de070410fa39a107fc78888d05"
+    },
+    {
+      "name": "Z-(ok).FCStd",
+      "size_bytes": 27563,
+      "sha256": "68a6670795749796ba260fa135d6cc56ea75c96264c03666b9b137c4c283753a"
+    },
+    {
+      "name": "Z-10-20-10-(false).FCStd",
+      "size_bytes": 27841,
+      "sha256": "50d6e48b21efea093ed58f043737d2e08f7f6cadbe996c37148bc0ea1a6d91a3"
+    },
+    {
+      "name": "Z-10-20-10-(ok).FCStd",
+      "size_bytes": 27829,
+      "sha256": "d1c89e1d8c668539fceac706526dcfbd8dcfe1fc376cee09492e39274ef8da10"
+    },
+    {
+      "name": "box.100in-50out-(false).FCStd",
+      "size_bytes": 58824,
+      "sha256": "75e357f9c6170ea633191a46378a6ce67734eea11221d4915faa1959e360d9fb"
+    },
+    {
+      "name": "box.100out-50in-(ok).FCStd",
+      "size_bytes": 86662,
+      "sha256": "6510d62cdf6427cfac18d936243c39f8aafa4e31718248124105642ad9e52db3",
+      "source": "BendSeq_Fixtures_Source/box.100out-50in-(ok).FCStd",
+      "replacement_reason": "Replaced non-unfolded AutoMod fixture (which lacked Body_Unfold) with functional unfolded fixture from BendSeq_Fixtures_Source containing 18 objects including Body_Unfold."
+    }
+  ]
+}
