@@ -824,6 +824,29 @@ def search_bend_sequences_2d(
         step_diagnostics.append((tuple(prefix), step))
         return step
 
+    def ordered_gauge_variants(
+        prefix: tuple[str, ...], bend_id: str, base_step: PlanarStep,
+        previous_setup: Optional[WorkpieceMachineSetup],
+    ) -> tuple[int, ...]:
+        """Rank already-discovered static CAD contacts without more OCC work."""
+        options = cad_contact_options.get((frozenset(prefix), bend_id), ())
+        if not options or base_step.setup is None:
+            return (0,)
+        ranked = []
+        for idx, (point, _depth, _source, _metadata) in enumerate(options):
+            try:
+                candidate = replace(
+                    base_step.setup,
+                    backgauge_s_mm=point.s_mm,
+                    backgauge_z_mm=point.z_mm,
+                )
+                penalty = transition_penalty(previous_setup, candidate, op_weights)
+                ranked.append((not penalty.is_complete, penalty.total, idx))
+            except (ValueError, TypeError):
+                ranked.append((True, float("inf"), idx))
+        ranked.sort()
+        return tuple(idx for _unknown, _penalty, idx in ranked)
+
     def dfs(prefix: tuple[str, ...], steps: tuple[PlanarStep, ...],
             node_ceiling: Optional[int] = None,
             root_deadline: Optional[float] = None) -> None:
@@ -882,7 +905,10 @@ def search_bend_sequences_2d(
                     if perf_counter() - start >= max_search_time_s:
                         stopped = "MAX_SEARCH_TIME_REACHED"
                         return
-                    replay_step = eval_step(prefix[:i], bend_id, detailed=True)
+                    replay_step = eval_step(
+                        prefix[:i], bend_id, detailed=True,
+                        gauge_variant=steps[i].backgauge_variant_index,
+                    )
                     if replay_step.evidence in (
                         "2D_INTERFERENCE", "CAD_3D_INTERFERENCE", "CAD_CONTACT_UNAVAILABLE", "BACKGAUGE_Z_OUT_OF_RANGE", "INVALID_INPUT", "2D_TOOLING_CONSTRAINT"
                     ):
@@ -988,23 +1014,38 @@ def search_bend_sequences_2d(
             if perf_counter() - start >= max_search_time_s:
                 stopped = "MAX_SEARCH_TIME_REACHED"
                 return
-            step = eval_step(prefix, bend_id)
-            if (step.evidence == "UNVERIFIED_2D"
-                    and step.reason in (
+            base_step = eval_step(prefix, bend_id)
+            if (base_step.evidence == "UNVERIFIED_2D"
+                    and base_step.reason in (
                         "2d_probe_time_budget_reached",
                         "cad_initial_feed_sample_budget_exhausted",
                     )):
                 stopped = "MAX_SEARCH_TIME_REACHED"
                 return
-            if step.evidence in (
-                "2D_INTERFERENCE", "CAD_3D_INTERFERENCE",
-                "CAD_CONTACT_UNAVAILABLE", "BACKGAUGE_Z_OUT_OF_RANGE",
-                "INVALID_INPUT", "2D_TOOLING_CONSTRAINT",
-            ):
-                continue
-            dfs(prefix + (bend_id,), steps + (step,), node_ceiling, root_deadline)
-            if stopped:
-                return
+            for variant in ordered_gauge_variants(
+                    prefix, bend_id, base_step,
+                    steps[-1].setup if steps else None):
+                if stopped:
+                    return
+                if root_deadline is not None and perf_counter() >= root_deadline:
+                    probe_cutoffs += 1
+                    return
+                if perf_counter() - start >= max_search_time_s:
+                    stopped = "MAX_SEARCH_TIME_REACHED"
+                    return
+                step = (base_step if variant == 0
+                        else eval_step(prefix, bend_id,
+                                       gauge_variant=variant))
+                if step.evidence in (
+                    "2D_INTERFERENCE", "CAD_3D_INTERFERENCE",
+                    "CAD_CONTACT_UNAVAILABLE", "BACKGAUGE_Z_OUT_OF_RANGE",
+                    "INVALID_INPUT", "2D_TOOLING_CONSTRAINT",
+                ):
+                    continue
+                dfs(prefix + (bend_id,), steps + (step,),
+                    node_ceiling, root_deadline)
+                if stopped:
+                    return
         if (not stopped and probe_cutoffs == cutoff_before
                 and final_replay_attempts == completed_before
                 and len(candidates) == candidate_count_before):
@@ -1026,21 +1067,33 @@ def search_bend_sequences_2d(
                     min(start + max_search_time_s, perf_counter() + root_probe_seconds)
                     if root_probe_seconds else None
                 )
-                step = eval_step((), first_bend)
-                if (step.evidence == "UNVERIFIED_2D"
-                        and step.reason in (
+                base_step = eval_step((), first_bend)
+                if (base_step.evidence == "UNVERIFIED_2D"
+                        and base_step.reason in (
                             "2d_probe_time_budget_reached",
                             "cad_initial_feed_sample_budget_exhausted",
                         )):
                     stopped = "MAX_SEARCH_TIME_REACHED"
                     break
-                if step.evidence in ("2D_INTERFERENCE", "CAD_3D_INTERFERENCE", "CAD_CONTACT_UNAVAILABLE", "BACKGAUGE_Z_OUT_OF_RANGE", "INVALID_INPUT", "2D_TOOLING_CONSTRAINT"):
-                    continue
-                dfs(
-                    (first_bend,), (step,),
-                    visited + root_probe_nodes if root_probe_nodes else None,
-                    root_deadline,
-                )
+                for variant in ordered_gauge_variants(
+                        (), first_bend, base_step, None):
+                    if stopped or (root_deadline is not None
+                                   and perf_counter() >= root_deadline):
+                        break
+                    step = (base_step if variant == 0
+                            else eval_step((), first_bend,
+                                           gauge_variant=variant))
+                    if step.evidence in (
+                        "2D_INTERFERENCE", "CAD_3D_INTERFERENCE",
+                        "CAD_CONTACT_UNAVAILABLE", "BACKGAUGE_Z_OUT_OF_RANGE",
+                        "INVALID_INPUT", "2D_TOOLING_CONSTRAINT",
+                    ):
+                        continue
+                    dfs(
+                        (first_bend,), (step,),
+                        visited + root_probe_nodes if root_probe_nodes else None,
+                        root_deadline,
+                    )
         if not stopped:
             dfs((), ())
     finally:
