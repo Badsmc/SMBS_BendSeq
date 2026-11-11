@@ -557,7 +557,8 @@ class BackgaugeCAD3D:
     def resolve_contact_for_bend(self, state, panel_vertices_xy, bend_id,
                                  backgauge_model, *,
                                  desired_midpoint_xm=0.0,
-                                 tolerance_mm=0.02):
+                                 tolerance_mm=0.02,
+                                 reverse_axis=False):
         """Resolve edge at the actual finger X station and find OCC contact.
 
         The bend pose stays fixed at the die; only the gauge's rear
@@ -590,6 +591,7 @@ class BackgaugeCAD3D:
                 support_plane_zm=float(zone.outer_radius_mm),
                 align_bisector=False,
                 align_bend_arc_center=True,
+                reverse_axis=bool(reverse_axis),
                 rear_panel_vertices_xy=panel_vertices_xy,
             )
             if getattr(self, "_trace_writer", None) is not None:
@@ -597,6 +599,7 @@ class BackgaugeCAD3D:
                     "EXTERNAL_REAR_AUTO_REQUEST",
                     bend_id=str(bend_id),
                     kinematic_fixed_panel=str(state.bends[bend_id].fixed_panel),
+                    reverse_axis=bool(reverse_axis),
                     station_xm_mm=float(self.station_xm_mm),
                     workpiece_pose_rotation=placement.rotation,
                     workpiece_pose_translation_xyz_mm=placement.translation,
@@ -657,6 +660,7 @@ class BackgaugeCAD3D:
             support_plane_zm=float(zone.outer_radius_mm),
             align_bisector=False,
             align_bend_arc_center=True,
+            reverse_axis=bool(reverse_axis),
             rear_panel_vertices_xy=panel_vertices_xy,
         )
         if getattr(self, "_trace_writer", None) is not None:
