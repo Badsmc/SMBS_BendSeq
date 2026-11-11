@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - experiment/2d-backgauge-kinematics
+      - experiment/2d-backgauge-kinematics-cascade
   workflow_dispatch:
 
 jobs:
@@ -28,6 +29,10 @@ jobs:
             tests.test_backgauge_cad_contact_contract \
             tests.test_backgauge_cad_external_contact \
             tests.test_backgauge_cad_trace \
+            tests.test_backgauge_contact_height \
+            tests.test_backgauge_cad_contact_interval \
+            tests.test_operator_side_preference \
+            tests.test_collision_cascade \
             tests.test_planar_collision_trace \
             tests.test_backgauge_cad_inspector \
             tests.test_workpiece_placement_3d
