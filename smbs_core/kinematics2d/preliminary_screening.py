@@ -566,6 +566,7 @@ def screen_candidate_stage_b(
                 sec_report = check_sheet_tooling_preview(
                     sec, tooling, tolerance_mm=tolerance_mm,
                     timing_collector=timing_ms,
+                    cascade=True,
                 )
                 # Retain a bounded, useful reason for the actual UNVERIFIED
                 # geometry instead of only the aggregate phase status.
@@ -624,7 +625,8 @@ def screen_candidate_stage_b(
                 total_findings += len(sec_report.findings)
                 section_status = sec_report.status
                 backgauge_reason = ""
-                if backgauge_cad_checker is not None:
+                if (backgauge_cad_checker is not None
+                        and section_status is not ContactStatus.INTERFERENCE):
                     # Real 3D stop and 3D FoldState sheet solids are checked
                     # at the SAME pose as punch/die; never use the synthetic
                     # gauge rectangle in CAD mode.
@@ -675,7 +677,8 @@ def screen_candidate_stage_b(
                         raise ValueError(
                             "CAD backgauge verification returned unsupported status"
                         )
-                if backgauge_polygon_machine is not None:
+                if (backgauge_polygon_machine is not None
+                        and section_status is not ContactStatus.INTERFERENCE):
                     # The backgauge polygon must be supplied in machine (s,z).
                     # Never invent a default gauge or assume its absence is clear.
                     section_polygons = []
