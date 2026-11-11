@@ -1077,8 +1077,11 @@ def search_bend_sequences_2d(
                     break
                 for variant in ordered_gauge_variants(
                         (), first_bend, base_step, None):
-                    if stopped or (root_deadline is not None
-                                   and perf_counter() >= root_deadline):
+                    if stopped:
+                        break
+                    if (root_deadline is not None
+                            and perf_counter() >= root_deadline):
+                        probe_cutoffs += 1
                         break
                     step = (base_step if variant == 0
                             else eval_step((), first_bend,
