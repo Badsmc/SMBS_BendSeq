@@ -298,7 +298,7 @@ class BackgaugeCAD3D:
                 "panel:" + str(pid): poly
                 for pid, poly in cut.get("other_panel_polygons", ())
             })
-        except (ValueError, TypeError, KeyError) as exc:
+        except (ValueError, TypeError, KeyError, AttributeError) as exc:
             # Missing section is UNVERIFIED; use original CAD proposals
             # instead of falsely proving this setup impossible.
             section_panels = {}
