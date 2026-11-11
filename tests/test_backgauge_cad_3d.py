@@ -22,7 +22,9 @@ class BackgaugeRealCADTests(unittest.TestCase):
     def test_real_stop_face_aligns_to_machine_right(self):
         from smbs_core.kinematics2d.backgauge_cad_3d import BackgaugeCAD3D
         adapter = BackgaugeCAD3D(station_xm_mm=15.0)
-        self.assertEqual(adapter.stop_face_index, 3)
+        self.assertEqual(adapter.stop_source_object, "Pad")
+        self.assertEqual(adapter.stop_source_subelement, "Face6")
+        self.assertGreater(adapter.stop_face_index, 0)
         shape = adapter.positioned_shape(150.0, 0.75)
         self.assertTrue(shape.isValid())
         self.assertEqual(len(shape.Solids), 1)
