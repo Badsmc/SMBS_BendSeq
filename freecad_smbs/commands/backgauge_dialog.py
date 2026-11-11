@@ -194,6 +194,23 @@ def show_backgauge_settings(workspace):
         if not bends:
             W.QMessageBox.warning(dlg, "Нет детали", "Сначала загрузите деталь.")
             return
+        # Catch duplicate stations in the GUI before model construction.
+        # Do not silently disable the second gauge or shift it to a
+        # fabricated position. The operator must choose a real station.
+        if (cad_mode.isChecked() and second_enabled.isChecked()
+                and abs(second_station.value() - station.value()) < 1e-6):
+            W.QMessageBox.warning(
+                dlg, "Два упора на одной позиции",
+                "Первый и второй CAD-упоры имеют одинаковую "
+                "координату Xₘ: {:.2f} мм.\n\n"
+                "Для одного упора снимите галочку «Добавить второй CAD упор».\n"
+                "Для двух упоров укажите реальное положение второго "
+                "по Xₘ. Их 3D-тела также не должны пересекаться."
+                .format(float(station.value())),
+            )
+            second_station.setFocus()
+            second_station.selectAll()
+            return
         targets = {}
         try:
             for row in range(table.rowCount() if not auto.isChecked() else 0):
