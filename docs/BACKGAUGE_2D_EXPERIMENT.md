@@ -1,3 +1,34 @@
+## Automatic CAD contact trace for FreeCAD searches
+
+Real CAD mode now writes a **separate, bounded JSON Lines log** automatically
+whenever **SMBS -> 2D search** is started with a CAD backgauge enabled:
+
+- **macOS:** `~/Library/Application Support/FreeCAD/v1-1/diagnostics/smbs_backgauge_cad_<timestamp>_<id>.jsonl`
+- **Windows:** `%APPDATA%\\FreeCAD\\v1-1\\diagnostics\\smbs_backgauge_cad_<timestamp>_<id>.jsonl` (falling back to `LOCALAPPDATA` when Roaming is unavailable)
+- **Linux:** `~/.local/share/FreeCAD/v1-1/diagnostics/`, or `$XDG_DATA_HOME/FreeCAD/v1-1/diagnostics/`
+
+The results dialog shows the **actual complete filename** and has an
+**«Открыть папку CAD-лога»** button. The saved regular 2D search JSON now also
+contains `backgauge_configuration.cad_trace_path`. The trace file is *not*
+embedded in the JSON report: upload **both files** for diagnosis.
+
+Trace events: `TRACE_STARTED`, `SOURCE_CAD_VERIFIED` (all planar faces,
+source bounding box and metadata Face3), `BEND_CONTACT_REQUEST`
+(actual X station, candidate fixed panel, 3D placement transform),
+`CONTACT_GEOMETRY_PRECHECK` (each transformed 3D panel/bend zone),
+`CONTACT_BRACKET_RESULT` (computed nonpenetrating contact),
+`CONTACT_OBSTRUCTED` (actual BRep overlap volume, the 3D overlap bounding box,
+the obstructing panel, individual stop-face distances and any body
+protruding in front of Face3), and `BEND_CONTACT_SOLVED`.
+
+The file is incrementally written so partial events survive a search abort.
+It has an explicit **1,500 event cap** and `TRACE_TRUNCATED` marker to avoid
+unbounded logs. Writing a trace does **not** relax collision checks or certify
+a valid manufacturing sequence. FreeCAD-only OCC instrumentation must still
+be verified on the user's local machine; headless CI only verifies the
+writer contract and related search behavior.
+
+
 ## 2026-11-11 — real CAD stop obstruction at X_m=0 (20261111-060950 diagnostics)
 
 This source report used **one** complete `Backgauge.FCStd` BRep at `X_m=0`, zero `edge_clearance_mm`, no initial feed, and found 12 *unverified* 10-bend exploratory orders. All ten first-step bend records had `OTHER_PANEL_BLOCKS_REQUIRED_GAUGE_CONTACT`: for B06, selected contact panel `P04` at `required_stop_s_mm=36.2601` is blocked by `P05` at positive OCC volume **18963.980887 mm³**; hint was `s=11.2566`. B08/B07/B05 repeat the same P05 intersection volume, and the post-fixed-panel retreat is consistently close to 25 mm across nearly every bend.
