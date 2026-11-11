@@ -58,3 +58,37 @@ def contact_height_candidates(
         if not any(abs(z - prev) < 1e-6 for prev in out):
             out.append(z)
     return tuple(out)
+
+
+def rear_edge_at_face_height(
+    polygon_sz: tuple[tuple[float, float], ...],
+    face_zmin_mm: float,
+    face_zmax_mm: float,
+) -> float | None:
+    """Largest +s coordinate of a machine-section panel inside a Z band.
+
+    Uses the exact 2.5D section (s=-Y, z=Z) at the configured finger X
+    station. It is a proposal only, never an authoritative collision or
+    first-contact certificate. Returns None when no section is available.
+    """
+    if (not isfinite(face_zmin_mm) or not isfinite(face_zmax_mm)
+            or face_zmax_mm < face_zmin_mm):
+        raise ValueError("invalid face Z span")
+    if len(polygon_sz) < 3:
+        return None
+    values = []
+    for i, a in enumerate(polygon_sz):
+        b = polygon_sz[(i + 1) % len(polygon_sz)]
+        s0, z0 = float(a[0]), float(a[1])
+        s1, z1 = float(b[0]), float(b[1])
+        if not all(isfinite(x) for x in (s0, z0, s1, z1)):
+            raise ValueError("nonfinite sheet section vertex")
+        if face_zmin_mm <= z0 <= face_zmax_mm:
+            values.append(s0)
+        if abs(z1 - z0) <= 1e-12:
+            continue
+        for z_cut in (face_zmin_mm, face_zmax_mm):
+            t = (z_cut - z0) / (z1 - z0)
+            if 0.0 <= t <= 1.0:
+                values.append(s0 + t * (s1 - s0))
+    return max(values) if values else None
