@@ -2107,6 +2107,16 @@ class _PreviewPanel:
 
             def check_active_bend_physical_trajectory(self):
                 """D6.3.4 adaptive evaluation on demand; no timer-side OCC calls."""
+                if (self.session is not None
+                        and self._selected_planar_loading_orientation.get(
+                            str(self.session.active_bend_id), False
+                        )):
+                    self.physical_check_result.setText(
+                        "UNVERIFIED: нативный D6.3.4 проверяет только обычную "
+                        "ориентацию; обратная загрузка из 2D-поиска ещё не "
+                        "поддержана независимой 3D-проверкой траектории."
+                    )
+                    return
                 if self.session is None:
                     self.physical_check_result.setText(
                         "UNVERIFIED: деталь не загружена"
@@ -2656,6 +2666,7 @@ class _PreviewPanel:
                             len(candidate.sequence) if is_partial else 0
                         )
                         self._preview_only_planar_order = tuple(candidate.sequence)
+                        self._physical_check_signature = None
                         self._selected_planar_gauge_order = tuple(candidate.sequence)
                         self._selected_planar_gauge_model_id = id(self.backgauge_model)
                         self._selected_planar_loading_orientation = {
