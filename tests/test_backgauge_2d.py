@@ -69,6 +69,40 @@ class Backgauge2DTests(unittest.TestCase):
         self.assertEqual(pos.z_mm, 0)
         self.assertIn("AUTO", source)
 
+    def test_automatic_target_uses_actual_cad_station_not_bend_midpoint(self):
+        from unittest.mock import patch
+        from types import SimpleNamespace
+        model = BackgaugeModel2D(
+            10, 6, {}, automatic=True, edge_clearance_mm=0.01,
+            cad_geometry_enabled=True, cad_station_xm_mm=50.0,
+        )
+        state = SimpleNamespace(bends={
+            "B01": SimpleNamespace(
+                bend_zone=SimpleNamespace(outer_radius_mm=2.0)
+            )
+        })
+        section = {
+            "fixed_polygon": ((0, 1), (120, 1), (120, -1), (0, -1)),
+        }
+        with patch(
+            "smbs_core.kinematics2d.workpiece_placement_3d."
+            "WorkpiecePlacement3D.compute_placement", return_value=object(),
+        ), patch(
+            "smbs_core.kinematics2d.machine_section_3d."
+            "compute_machine_cutting_plane_section",
+            return_value=section,
+        ) as compute_section:
+            target, depth, _ = model.resolve_for_state(
+                state, {}, "B01",
+                desired_midpoint_xm=0.0,
+                cutting_plane_xm=50.0,
+            )
+        self.assertEqual(depth, 120)
+        self.assertAlmostEqual(target.s_mm, 125.01)
+        self.assertEqual(
+            compute_section.call_args.kwargs["target_xm"], 50.0
+        )
+
     def test_automatic_rejects_operator_side_stop_even_if_edge_exists(self):
         from unittest.mock import patch
         from types import SimpleNamespace
