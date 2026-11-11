@@ -92,3 +92,31 @@ def rear_edge_at_face_height(
             if 0.0 <= t <= 1.0:
                 values.append(s0 + t * (s1 - s0))
     return max(values) if values else None
+
+
+def working_face_section_stations(
+    face_xmin_mm: float,
+    face_xmax_mm: float,
+    mounted_station_xm_mm: float,
+) -> tuple[float, ...]:
+    """Three deterministic X stations inside the actual Pad.Face6 span.
+
+    They are *sample locations*, not proof that the whole CAD face is clear.
+    A panel may touch in between; absence of a section candidate must never
+    be treated as a proven physical obstruction.
+    """
+    values = (face_xmin_mm, face_xmax_mm, mounted_station_xm_mm)
+    if any(isinstance(v, bool) or not isinstance(v, (int, float))
+           or not isfinite(v) for v in values):
+        raise ValueError("working-face station values must be finite")
+    lo, hi, mounted = (float(v) for v in values)
+    if hi <= lo:
+        raise ValueError("working-face X span must be positive")
+    width = hi - lo
+    mid = min(hi, max(lo, mounted))
+    samples = (mid, lo + width * 0.25, lo + width * 0.75)
+    out = []
+    for x in samples:
+        if not any(abs(x - old) < 1e-6 for old in out):
+            out.append(x)
+    return tuple(out)
