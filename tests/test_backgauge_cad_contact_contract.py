@@ -91,8 +91,13 @@ class CADFirstContactContractTests(TestCase):
             def common(self, other):
                 width = max(0., min(self.s_max, other.s_max)
                             - max(self.s_min, other.s_min))
-                return SimpleNamespace(isNull=lambda: width == 0.,
-                                       Volume=width)
+                return SimpleNamespace(
+                    isNull=lambda: width == 0.,
+                    isValid=lambda: True,
+                    Volume=width,
+                    BoundBox=Box(max(self.s_min, other.s_min),
+                                 min(self.s_max, other.s_max)),
+                )
 
             def distToShape(self, other):
                 dist = max(0., other.s_min - self.s_max,
