@@ -238,7 +238,17 @@ class BackgaugeCAD3D:
         display = BackgaugePosition2D(
             actual_s + backgauge_model.width_s_mm / 2, actual_z
         )
-        return (display, actual_s, source + "|CAD_FIRST_CONTACT", result)
+        return (
+            display, actual_s,
+            source + (
+                "|CAD_FIRST_CONTACT:stop_s_mm={:.4f}:shift_rear_mm={:.4f}:"
+                "actual_faces={}:datum_face={}:{}"
+            ).format(
+                actual_s, result["shift_rearward_mm"],
+                ",".join(map(str, result["actual_faces"])),
+                self.stop_face_index, result["note"],
+            ), result
+        )
 
     def solve_first_contact(self, state, panel_vertices_xy, placement, *,
                             active_bend_id, hint_s_mm, contact_z_mm,
