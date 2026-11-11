@@ -1248,78 +1248,107 @@ class _PreviewPanel:
                     page.setWidget(content)
                     return page
 
+                # Simulation task panel now contains ONLY playback and angle.
                 simulation = QtWidgets.QWidget()
                 sim_layout = QtWidgets.QVBoxLayout(simulation)
                 sim_layout.setSpacing(8)
-                # Mode selection belongs beside playback, not in diagnostic
-                # settings. One Play All operates whichever mode is selected.
-                insert(sim_layout, entries[3])  # mode / speed / cycle config
-                insert(sim_layout, entries[5])  # Reset / Play All / Pause / Fit
+                insert(sim_layout, entries[5])  # Reset / Previous / Play-Pause / Next / Fit
                 insert(sim_layout, entries[6])  # angle slider
-                insert(sim_layout, entries[7])  # active operation
-                insert(sim_layout, entries[8])  # next/previous step
-                insert(sim_layout, entries[9])  # move order
-                # Vertical controls avoid button collisions in narrow docks.
-                manual_row = QtWidgets.QVBoxLayout()
-                self.manual_mode_btn = QtWidgets.QPushButton("Ручной порядок: ВЫКЛ")
-                self.manual_mode_btn.setCheckable(True)
-                self.manual_mode_btn.toggled.connect(self._toggle_manual_order)
-                manual_row.addWidget(self.manual_mode_btn)
-                self.manual_undo_btn = QtWidgets.QPushButton("↶ Отменить линию")
-                self.manual_undo_btn.clicked.connect(self._undo_manual_bend)
-                manual_row.addWidget(self.manual_undo_btn)
-                self.manual_clear_btn = QtWidgets.QPushButton("Очистить номера")
-                self.manual_clear_btn.clicked.connect(self._clear_manual_order)
-                manual_row.addWidget(self.manual_clear_btn)
-                sim_layout.addLayout(manual_row)
-                self.retract_warning_checkbox = QtWidgets.QCheckBox(
-                    "RETRACT: продолжать 2D-поиск с предупреждением"
-                )
-                self.retract_warning_checkbox.setChecked(False)
-                self.retract_warning_checkbox.setToolTip(
-                    "Только диагностический режим: пересечение пуансона с "
-                    "деталью во время RETRACT сохраняется как предупреждение, "
-                    "а не как доказанный безопасный контакт. APPROACH, BENDING, "
-                    "BOTTOM, матрица и упор по-прежнему блокируют 2D-поиск."
-                )
-                sim_layout.addWidget(self.retract_warning_checkbox)
-                self.manual_validate_btn = QtWidgets.QPushButton(
-                    "Проверить ручной порядок и сохранить JSON"
-                )
-                self.manual_validate_btn.setToolTip(
-                    "Последовательно проверить выбранные линии через Stage A/B "
-                    "и сохранить полный диагностический JSON для анализа. "
-                    "2D-проверка не доказывает отсутствие реальных 3D-коллизий."
-                )
-                self.manual_validate_btn.clicked.connect(self._validate_export_manual_order)
-                sim_layout.addWidget(self.manual_validate_btn)
-                self.manual_hint = QtWidgets.QLabel(
-                    "Выберите «Развёртка · Порядок», включите ручной режим и нажимайте линии "
-                    "в нужной последовательности. Это план без физической сертификации."
-                )
-                self.manual_hint.setWordWrap(True)
-                sim_layout.addWidget(self.manual_hint)
-                self.operations.setMinimumHeight(160)
-                self.operations.setMaximumHeight(280)
-                insert(sim_layout, entries[10], 1)  # operation table
+                sim_layout.addStretch(1)
                 controls.addTab(
                     scroll_task_page(simulation, "SMBS_SimulationScroll"),
                     QtGui.QIcon(str(_ICON_ROOT / "gui_simulation.svg")),
                     "Симуляция"
                 )
 
-                tooling = QtWidgets.QWidget()
-                tool_layout = QtWidgets.QVBoxLayout(tooling)
-                insert(tool_layout, entries[2])  # tooling group
-                tool_layout.addStretch(1)
+                # Manual task panel is opened directly by the toolbar command.
+                manual = QtWidgets.QWidget()
+                manual_layout = QtWidgets.QVBoxLayout(manual)
+                manual_layout.setSpacing(8)
+                insert(manual_layout, entries[7])  # move up / down / restore
+                manual_row = QtWidgets.QHBoxLayout()
+                self.manual_undo_btn = QtWidgets.QPushButton("Отменить линию")
+                self.manual_undo_btn.clicked.connect(self._undo_manual_bend)
+                self.manual_clear_btn = QtWidgets.QPushButton("Очистить")
+                self.manual_clear_btn.clicked.connect(self._clear_manual_order)
+                manual_row.addWidget(self.manual_undo_btn)
+                manual_row.addWidget(self.manual_clear_btn)
+                manual_layout.addLayout(manual_row)
+                self.operations.setMinimumHeight(160)
+                self.operations.setMaximumHeight(350)
+                insert(manual_layout, entries[8], 1)  # sequence data table
+                self.manual_validate_btn = QtWidgets.QPushButton("Проверить")
+                self.manual_validate_btn.setToolTip(
+                    "Проверка выбранного ручного порядка Stage A/B, сохранение "
+                    "диагностического JSON. Это не полная 3D-сертификация."
+                )
+                self.manual_validate_btn.clicked.connect(
+                    self._validate_export_manual_order
+                )
+                manual_layout.addWidget(self.manual_validate_btn)
+                # Internal status only, not the obsolete instructional paragraph.
+                self.manual_hint = QtWidgets.QLabel("")
                 controls.addTab(
-                    scroll_task_page(tooling, "SMBS_ToolingScroll"),
-                    QtGui.QIcon(str(_ICON_ROOT / "gui_tooling.svg")),
-                    "Оснастка"
+                    scroll_task_page(manual, "SMBS_ManualScroll"),
+                    QtGui.QIcon(str(_ICON_ROOT / "control_manual.svg")),
+                    "Manual"
                 )
 
+                # RETRACT warning belongs to Settings, not Simulation.
+                self.retract_warning_checkbox = QtWidgets.QCheckBox(
+                    "RETRACT: продолжать 2D-поиск с предупреждением"
+                )
+                self.retract_warning_checkbox.setChecked(False)
+                self.retract_warning_checkbox.setToolTip(
+                    "Диагностическое продолжение, а не физический допуск. "
+                    "Пересечения APPROACH, BENDING, BOTTOM и упора блокируют поиск."
+                )
+
+                # Detached tooling window: "Основные" and "Импорт".
+                self._tooling_dialog = QtWidgets.QDialog(self)
+                self._tooling_dialog.setWindowTitle("SMBS — Оснастка")
+                self._tooling_dialog.setMinimumWidth(430)
+                td_layout = QtWidgets.QVBoxLayout(self._tooling_dialog)
+                tool_tabs = QtWidgets.QTabWidget(self._tooling_dialog)
+                tool_main = QtWidgets.QWidget()
+                tool_main_layout = QtWidgets.QFormLayout(tool_main)
+                tool_main_layout.addRow("Punch:", self.select_punch_combo)
+                tool_main_layout.addRow("Die:", self.select_die_combo)
+                tool_main_layout.addRow(self.tooling_status)
+                tool_import = QtWidgets.QWidget()
+                tool_import_layout = QtWidgets.QVBoxLayout(tool_import)
+                tool_import_layout.addWidget(self.import_punch_btn)
+                tool_import_layout.addWidget(self.import_die_btn)
+                tool_import_layout.addWidget(self.tool_library_btn)
+                tool_import_layout.addStretch(1)
+                tool_tabs.addTab(tool_main, "Основные")
+                tool_tabs.addTab(tool_import, "Импорт")
+                td_layout.addWidget(tool_tabs)
+                close_tooling = QtWidgets.QPushButton("Закрыть")
+                close_tooling.clicked.connect(self._tooling_dialog.hide)
+                td_layout.addWidget(close_tooling)
+                self._tooling_tabs = tool_tabs
+                # All functional widgets have been moved out of the obsolete group.
+                self.tooling_group.deleteLater()
+
+                # Settings is a standalone window opened from the toolbar,
+                # not a task-panel tab. Keep all existing signal connections.
                 settings = QtWidgets.QWidget()
                 settings_layout = QtWidgets.QVBoxLayout(settings)
+                insert(settings_layout, entries[3])  # Mode / Full Cycle / Speed
+                settings_layout.addWidget(self.retract_warning_checkbox)
+                tool_opts = QtWidgets.QGroupBox("Оснастка — параметры и проверки")
+                tool_opts_layout = QtWidgets.QVBoxLayout(tool_opts)
+                tool_opts_layout.addWidget(self.virtual_tool_len_checkbox)
+                zone_row = QtWidgets.QHBoxLayout()
+                zone_row.addWidget(QtWidgets.QLabel("Концевая зона пуансона (мм):"))
+                zone_row.addWidget(self.end_zone_len_spin)
+                tool_opts_layout.addLayout(zone_row)
+                tool_opts_layout.addWidget(self.allow_end_zone_checkbox)
+                tool_opts_layout.addWidget(self.physical_check_btn)
+                tool_opts_layout.addWidget(self.full_physical_check_btn)
+                tool_opts_layout.addWidget(self.physical_check_result)
+                settings_layout.addWidget(tool_opts)
 
                 # Cost weights affect ranking only, never collision decisions.
                 from smbs_core.kinematics2d.operation_cost import OperationWeights
@@ -1441,11 +1470,16 @@ class _PreviewPanel:
                 )
                 settings_layout.addWidget(self.trace_choose_button)
                 settings_layout.addStretch(1)
-                controls.addTab(
-                    scroll_task_page(settings, "SMBS_SettingsScroll"),
-                    QtGui.QIcon(str(_ICON_ROOT / "gui_backgauge.svg")),
-                    "Настройки"
+                self._settings_dialog = QtWidgets.QDialog(self)
+                self._settings_dialog.setWindowTitle("SMBS — Настройки")
+                self._settings_dialog.resize(550, 700)
+                sd_layout = QtWidgets.QVBoxLayout(self._settings_dialog)
+                sd_layout.addWidget(
+                    scroll_task_page(settings, "SMBS_SettingsScroll"), 1
                 )
+                settings_close = QtWidgets.QPushButton("Закрыть")
+                settings_close.clicked.connect(self._settings_dialog.hide)
+                sd_layout.addWidget(settings_close)
 
                 root.addWidget(views, 1)
                 self._viewer_tabs = views
@@ -1474,7 +1508,6 @@ class _PreviewPanel:
                     (self.prev_step_btn, "control_prev.svg"),
                     (self.next_step_btn, "control_next.svg"),
                     (self.restore_order_btn, "control_reset.svg"),
-                    (self.manual_mode_btn, "control_manual.svg"),
                     (self.manual_undo_btn, "control_prev.svg"),
                     (self.manual_clear_btn, "control_reset.svg"),
                     (self.manual_validate_btn, "control_validate.svg"),
