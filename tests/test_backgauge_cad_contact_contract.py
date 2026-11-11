@@ -31,11 +31,13 @@ class CADFirstContactContractTests(TestCase):
         adapter.station_xm_mm = 50.0
         adapter.second_station_xm_mm = None
         adapter.stop_face_index = 3
+        adapter.stop_source_object = "Pad"
+        adapter.stop_source_subelement = "Face6"
         expected = {
             "contact_s_mm": 127.5, "contact_z_mm": 0.75,
             "hint_s_mm": 120.01, "shift_rearward_mm": 7.49,
-            "face3_is_contact": True,
-            "actual_faces": [3], "note": "CONTACT_FACE3",
+            "selected_datum_is_contact": True,
+            "actual_faces": [3], "note": "CONTACT_SELECTED_CAD_FACE",
         }
         target = BackgaugePosition2D(125.01, 0.75)
         with patch.object(
