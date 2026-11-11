@@ -39,6 +39,9 @@ class OperationWeights:
     die_length_delta_per_100_mm: float = 0.5
     backgauge_move_fixed: float = 2.0
     backgauge_move_per_100_mm: float = 0.5
+    backgauge_height_change_fixed: float = 12.0
+    backgauge_height_change_per_10_mm: float = 2.0
+    backgauge_height_deadband_mm: float = 0.5
     rotation_deadband_deg: float = 1.0
     shift_deadband_mm: float = 1.0
     length_deadband_mm: float = 0.5
@@ -58,6 +61,9 @@ class OperationWeights:
             "die_length_delta_per_100_mm",
             "backgauge_move_fixed",
             "backgauge_move_per_100_mm",
+            "backgauge_height_change_fixed",
+            "backgauge_height_change_per_10_mm",
+            "backgauge_height_deadband_mm",
             "rotation_deadband_deg",
             "shift_deadband_mm",
             "length_deadband_mm",
@@ -83,6 +89,9 @@ class OperationWeights:
             "die_length_delta_per_100_mm": float(self.die_length_delta_per_100_mm),
             "backgauge_move_fixed": float(self.backgauge_move_fixed),
             "backgauge_move_per_100_mm": float(self.backgauge_move_per_100_mm),
+            "backgauge_height_change_fixed": float(self.backgauge_height_change_fixed),
+            "backgauge_height_change_per_10_mm": float(self.backgauge_height_change_per_10_mm),
+            "backgauge_height_deadband_mm": float(self.backgauge_height_deadband_mm),
             "rotation_deadband_deg": float(self.rotation_deadband_deg),
             "shift_deadband_mm": float(self.shift_deadband_mm),
             "length_deadband_mm": float(self.length_deadband_mm),
@@ -174,12 +183,15 @@ class StepPenalty:
     backgauge_move_mm: Optional[float] = None
     backgauge_move_cost: float = 0.0
     backgauge_position_known: bool = False
+    backgauge_height_delta_mm: Optional[float] = None
+    backgauge_height_cost: float = 0.0
 
     @property
     def total(self) -> float:
         return (self.turn_cost + self.flip_cost + self.shift_cost
                 + self.length_change_cost + self.punch_length_cost
-                + self.die_length_cost + self.backgauge_move_cost)
+                + self.die_length_cost + self.backgauge_move_cost
+                + self.backgauge_height_cost)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -200,6 +212,8 @@ class StepPenalty:
             "backgauge_move_mm": self.backgauge_move_mm,
             "backgauge_move_cost": round(float(self.backgauge_move_cost), 4),
             "backgauge_position_known": self.backgauge_position_known,
+            "backgauge_height_delta_mm": self.backgauge_height_delta_mm,
+            "backgauge_height_cost": round(float(self.backgauge_height_cost), 4),
             "tooling_lengths_from_fixed_profiles": self.tooling_lengths_from_fixed_profiles,
             "total": round(float(self.total), 4),
             "is_complete": self.is_complete,
@@ -397,16 +411,32 @@ def transition_penalty(
         p.backgauge_s_mm is not None and p.backgauge_z_mm is not None
         for p in (previous, current)
     )
+    # Retain physical 2-axis travel for diagnostics but score S and Z separately.
     gauge_distance = (
         math.hypot(
             current.backgauge_s_mm - previous.backgauge_s_mm,
             current.backgauge_z_mm - previous.backgauge_z_mm,
         ) if gauge_known else None
     )
+    gauge_s_delta = (
+        abs(current.backgauge_s_mm - previous.backgauge_s_mm)
+        if gauge_known else None
+    )
+    gauge_z_delta = (
+        abs(current.backgauge_z_mm - previous.backgauge_z_mm)
+        if gauge_known else None
+    )
     gauge_cost = (
         weights.backgauge_move_fixed
-        + weights.backgauge_move_per_100_mm * gauge_distance / 100.0
-        if gauge_distance is not None and gauge_distance > weights.shift_deadband_mm
+        + weights.backgauge_move_per_100_mm * gauge_s_delta / 100.0
+        if gauge_s_delta is not None and gauge_s_delta > weights.shift_deadband_mm
+        else 0.0
+    )
+    gauge_height_cost = (
+        weights.backgauge_height_change_fixed
+        + weights.backgauge_height_change_per_10_mm * gauge_z_delta / 10.0
+        if gauge_z_delta is not None
+        and gauge_z_delta > weights.backgauge_height_deadband_mm
         else 0.0
     )
     is_complete = previous.is_complete and current.is_complete
@@ -436,6 +466,8 @@ def transition_penalty(
         tooling_lengths_from_fixed_profiles=tooling_verified,
         backgauge_move_mm=gauge_distance,
         backgauge_move_cost=gauge_cost,
+        backgauge_height_delta_mm=gauge_z_delta,
+        backgauge_height_cost=gauge_height_cost,
         backgauge_position_known=gauge_known,
     )
 
