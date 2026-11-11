@@ -146,7 +146,7 @@ class PlanarSearchReport:
             elif step.evidence == "2D_RETRACT_WARNING_NOT_3D_VALIDATED":
                 item.setdefault("retract_warnings", 0)
                 item["retract_warnings"] += 1
-            elif step.evidence == "2D_INTERFERENCE":
+            elif step.evidence in ("2D_INTERFERENCE", "CAD_3D_INTERFERENCE"):
                 item["interferences"] += 1
             elif step.evidence == "UNVERIFIED_2D":
                 item["unverified"] += 1
@@ -702,14 +702,34 @@ def search_bend_sequences_2d(
                     orientation_variant=orientation_variant,
                 )
         except Exception as exc:
+            # A real OCC volume overlap at the attempted CAD stop mounting
+            # is a proven obstruction for THIS setup, not an unknown step
+            # that the DFS may use as if it could be feasible.
+            # Unrelated errors remain UNVERIFIED; never guess collision.
+            from .backgauge_cad_3d import BackgaugeCADError
+            physical_obstruction = (
+                isinstance(exc, BackgaugeCADError)
+                and str(exc).startswith(
+                    "OTHER_PANEL_BLOCKS_REQUIRED_GAUGE_CONTACT:"
+                )
+            )
             step = PlanarStep(
-                bend_id, "UNVERIFIED_2D",
-                "planar_evaluation_error:" + type(exc).__name__ + ":" + str(exc), (), (),
+                bend_id,
+                "CAD_3D_INTERFERENCE" if physical_obstruction else "UNVERIFIED_2D",
+                "cad_contact_error:" + type(exc).__name__ + ":" + str(exc),
+                (), (),
+                backgauge_checked=physical_obstruction,
+                diagnostic_findings=((
+                    "CONTACT_SETUP", "BACKGAUGE_CAD_3D",
+                    str(exc).split("obstructing_component=", 1)[-1]
+                    .split(" ", 1)[0],
+                    "INTERFERENCE", str(exc),
+                ),) if physical_obstruction else (),
             )
         finally:
             state.angles = dict(original_angles)
             state.transforms = dict(original_transforms)
-        if step.evidence in ("2D_INTERFERENCE", "INVALID_INPUT", "2D_TOOLING_CONSTRAINT"):
+        if step.evidence in ("2D_INTERFERENCE", "CAD_3D_INTERFERENCE", "INVALID_INPUT", "2D_TOOLING_CONSTRAINT"):
             rejected += 1
         elif step.evidence == "UNVERIFIED_2D":
             unverified += 1
@@ -773,7 +793,7 @@ def search_bend_sequences_2d(
                         return
                     replay_step = eval_step(prefix[:i], bend_id, detailed=True)
                     if replay_step.evidence in (
-                        "2D_INTERFERENCE", "INVALID_INPUT", "2D_TOOLING_CONSTRAINT"
+                        "2D_INTERFERENCE", "CAD_3D_INTERFERENCE", "INVALID_INPUT", "2D_TOOLING_CONSTRAINT"
                     ):
                         final_replay_rejections += 1
                         return
@@ -829,7 +849,7 @@ def search_bend_sequences_2d(
                 stopped = "MAX_SEARCH_TIME_REACHED"
                 return
             step = eval_step(prefix, bend_id)
-            if step.evidence in ("2D_INTERFERENCE", "INVALID_INPUT", "2D_TOOLING_CONSTRAINT"):
+            if step.evidence in ("2D_INTERFERENCE", "CAD_3D_INTERFERENCE", "INVALID_INPUT", "2D_TOOLING_CONSTRAINT"):
                 continue
             dfs(prefix + (bend_id,), steps + (step,), node_ceiling, root_deadline)
             if stopped:
@@ -856,7 +876,7 @@ def search_bend_sequences_2d(
                     if root_probe_seconds else None
                 )
                 step = eval_step((), first_bend)
-                if step.evidence in ("2D_INTERFERENCE", "INVALID_INPUT", "2D_TOOLING_CONSTRAINT"):
+                if step.evidence in ("2D_INTERFERENCE", "CAD_3D_INTERFERENCE", "INVALID_INPUT", "2D_TOOLING_CONSTRAINT"):
                     continue
                 dfs(
                     (first_bend,), (step,),
@@ -910,7 +930,7 @@ def search_bend_sequences_2d(
     first_step_rejections = {
         (prefix[0], step.bend_id): step.reason
         for prefix, step in step_diagnostics
-        if len(prefix) == 1 and step.evidence == "2D_INTERFERENCE"
+        if len(prefix) == 1 and step.evidence in ("2D_INTERFERENCE", "CAD_3D_INTERFERENCE")
     }
     mutually_blocked = tuple(
         (a, b, first_step_rejections[(a, b)],
