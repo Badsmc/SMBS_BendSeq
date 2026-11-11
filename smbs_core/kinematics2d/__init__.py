@@ -1,7 +1,6 @@
-"""Deterministic 2D cross-section kinematics for bend-sequence exploration.
+"""SMBS SheetMetal 2.5D kinematics and machine-coordinate simulation.
 
-This module does NOT certify 3D collisions or production eligibility.
+Public runtime modules are imported explicitly (panel_kinematics, press_cycle,
+sequence_search_2d, etc.). The obsolete zero-thickness engine API was removed
+from this install-only branch; no legacy import is performed at package load.
 """
-from .engine import Point2D, Segment2D, Bend2D, SectionState, fold_section, intersect_segments, self_intersections
-
-__all__ = ["Point2D", "Segment2D", "Bend2D", "SectionState", "fold_section", "intersect_segments", "self_intersections"]
