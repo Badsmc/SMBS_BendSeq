@@ -164,6 +164,88 @@ class BackgaugeDFSVariantTests(unittest.TestCase):
         self.assertFalse(invalid)
         self.assertIn("backgauge_variant_no_longer_available", invalid_reason)
 
+    def test_operator_long_reversed_orientation_is_searched_and_selected(self):
+        state = DummyState(("B01", "B02"))
+        for bend in state.bends.values():
+            bend.bend_zone = SimpleNamespace(outer_radius_mm=1.5)
+        session = SimpleNamespace(
+            fold_state=state, bend_order=("B01", "B02"),
+            panel_vertices_xy={"P": [(0, 0), (1, 0), (1, 1)]},
+            part_label="",
+        )
+        model = BackgaugeModel2D(
+            width_s_mm=10.0, height_z_mm=10.0,
+            positions={}, automatic=True, cad_geometry_enabled=True,
+        )
+        resolver_orientations, screened_orientations = [], []
+
+        def resolve(_state, _verts, _bid, _model, **kwargs):
+            reverse = bool(kwargs.get("reverse_axis", False))
+            resolver_orientations.append(reverse)
+            stop_s = 12.0 if reverse else 800.0
+            return (
+                BackgaugePosition2D(stop_s + 5, 0.0), stop_s, "CAD",
+                {
+                    "contact_s_mm": stop_s, "contact_z_mm": 0.0,
+                    "selected_datum_is_contact": True,
+                    "alternative_contacts": (),
+                },
+            )
+
+        def screen(_state, _bid, *_args, **kwargs):
+            reverse = bool(kwargs.get("reverse_axis", False))
+            screened_orientations.append(reverse)
+            if not reverse:
+                return PreliminaryScreeningReport(
+                    ScreeningDecision.CONTINUE_TO_3D,
+                    "STAGE_B_SECTION_REQUIRES_3D",
+                    "wrong_loading_side_punch_collision",
+                    sampled_phases=("BENDING",),
+                    contact_statuses=("INTERFERENCE",),
+                )
+            return stage_b_result()
+
+        checker = SimpleNamespace(
+            station_xm_mm=0.0, second_station_xm_mm=None,
+            resolve_contact_for_bend=resolve,
+        )
+        with patch(
+            "smbs_core.kinematics2d.backgauge_cad_3d.BackgaugeCAD3D",
+            return_value=checker,
+        ), patch(
+            "smbs_core.kinematics2d.sequence_search_2d.screen_candidate_stage_a",
+            return_value=PreliminaryScreeningReport(
+                ScreeningDecision.CONTINUE_TO_3D, "STAGE_A_PASSED", "ok",
+            ),
+        ), patch(
+            "smbs_core.kinematics2d.sequence_search_2d.screen_candidate_stage_b",
+            side_effect=screen,
+        ), patch(
+            "smbs_core.kinematics2d.sequence_search_2d.compute_workpiece_machine_setup",
+            side_effect=lambda _state, bid, **kw: WorkpieceMachineSetup(
+                bend_id=bid,
+                rotation_deg=180.0 if kw.get("reverse_axis") else 0.0,
+                flipped=False, shift_xm_mm=0.0,
+                bend_length_mm=100.0,
+                operator_reach_mm=800.0 if kw.get("reverse_axis") else 12.0,
+                rear_reach_mm=12.0 if kw.get("reverse_axis") else 800.0,
+            ),
+        ):
+            report = search_bend_sequences_2d(
+                session, object(), backgauge_model=model,
+                max_nodes=25, max_search_time_s=3.0,
+                max_complete_candidates=1, group_first=False,
+            )
+        self.assertEqual(report.status, PlanarSearchStatus.SAMPLED_2D_CANDIDATES)
+        candidate = report.candidates[0]
+        for step in candidate.steps:
+            self.assertEqual(step.orientation_variant, "REVERSE_MACHINE_Z_180")
+            self.assertEqual(step.setup.operator_reach_mm, 800.0)
+            self.assertEqual(step.setup.rear_reach_mm, 12.0)
+            self.assertEqual(step.setup.backgauge_s_mm, 17.0)
+        self.assertIn(True, screened_orientations)
+        self.assertIn(True, resolver_orientations)
+
     def test_precheck_blocks_punch_interference_before_cad_resolution(self):
         from unittest.mock import Mock
         state = DummyState(("B01", "B02"))
