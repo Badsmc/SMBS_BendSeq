@@ -1,0 +1,64 @@
+name: Handmode install package integrity
+
+on:
+  push:
+    branches:
+      - handmode
+  workflow_dispatch:
+
+jobs:
+  install-integrity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Compile runtime source, no test suite in release
+        run: python -m compileall -q Init.py InitGui.py freecad_smbs smbs_core
+      - name: Verify FreeCAD entrypoints, tools and release-only layout
+        env:
+          PYTHONPATH: .
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          root = Path.cwd()
+          for directory in ("tests", "tools", "reports", "demo", "fixtures",
+                            "benchmarks", "scripts", "docs"):
+              assert not (root / directory).exists(), (
+                  f"Development directory must not ship: {directory}"
+              )
+          for root_file in ("Init.py", "InitGui.py"):
+              assert (root / root_file).is_file(), root_file
+          from freecad_smbs.InitGui import COMMANDS_MAP
+          required = {
+              "SMBS_PressBrake2D", "SMBS_LoadPart", "SMBS_ToolingTab",
+              "SMBS_Calculate", "SMBS_PlanarCandidates",
+              "SMBS_SequenceCatalog", "SMBS_Backgauge", "SMBS_Tooling",
+          }
+          assert required <= set(COMMANDS_MAP), (
+              "FreeCAD commands missing: " + str(required - set(COMMANDS_MAP))
+          )
+          import smbs_core.kinematics2d.sequence_search_2d
+          import smbs_core.kinematics2d.press_cycle
+          import smbs_core.kinematics2d.loading_orientation_preview
+          import smbs_core.kinematics2d.native_collision_3d
+          from freecad_smbs.resources.tooling_paths import (
+              TOOL_LIBRARY_ROOT, resolve_backgauge_fcstd,
+              resolve_clamp_fcstd, resolve_machine_frame_fcstd,
+          )
+          for kind in ("punch", "die"):
+              path = TOOL_LIBRARY_ROOT / kind
+              assert path.is_dir() and list(path.glob("*.FCStd")), kind
+          assert resolve_backgauge_fcstd(TOOL_LIBRARY_ROOT) is not None
+          assert resolve_clamp_fcstd(TOOL_LIBRARY_ROOT) is not None
+          assert resolve_machine_frame_fcstd(TOOL_LIBRARY_ROOT) is not None
+          assert not list(TOOL_LIBRARY_ROOT.rglob("synthetic_*.FCStd"))
+          for icon in ("gui_simulation.svg", "gui_part.svg",
+                       "gui_tooling.svg", "gui_calculate.svg",
+                       "gui_planar_candidates.svg"):
+              assert (root / "freecad_smbs/resources/icons" / icon).is_file()
+          print("HANDMODE_PACKAGE_STRUCTURE_OK")
+          print("Commands:", ", ".join(sorted(COMMANDS_MAP)))
+          PY
