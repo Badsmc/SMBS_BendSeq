@@ -1226,7 +1226,9 @@ class _PreviewPanel:
 
                 views = QtWidgets.QTabWidget(self)
                 views.setObjectName("SMBS_ViewerTabs")
-                views.addTab(self.view, "2.5D · Гибка")
+                views.addTab(self.view, QtGui.QIcon(str(
+                    _ICON_ROOT / "gui_simulation.svg"
+                )), "2.5D · Гибка")
                 self._preview_3d = Canvas(orbit_callback=self._orbit_3d)
                 self._orbit_yaw = 35.0
                 self._orbit_pitch = 25.0
@@ -1236,12 +1238,16 @@ class _PreviewPanel:
                 self._preview_3d.setObjectName("SMBS_3D_ReadOnly")
                 self._preview_3d_scene = QtWidgets.QGraphicsScene(self._preview_3d)
                 self._preview_3d.setScene(self._preview_3d_scene)
-                views.addTab(self._preview_3d, "3D · Просмотр")
+                views.addTab(self._preview_3d, QtGui.QIcon(str(
+                    _ICON_ROOT / "gui_part.svg"
+                )), "3D · Просмотр")
                 self._flat_view = Canvas(bend_click_callback=self._select_flat_bend)
                 self._flat_view.setObjectName("SMBS_FlatPattern_ManualOrder")
                 self._flat_scene = QtWidgets.QGraphicsScene(self._flat_view)
                 self._flat_view.setScene(self._flat_scene)
-                views.addTab(self._flat_view, "Развёртка · Порядок")
+                views.addTab(self._flat_view, QtGui.QIcon(str(
+                    _ICON_ROOT / "gui_sequence_catalog.svg"
+                )), "Развёртка · Порядок")
                 views.currentChanged.connect(self._on_view_changed)
 
                 controls = QtWidgets.QTabWidget()
@@ -1324,6 +1330,7 @@ class _PreviewPanel:
                 insert(sim_layout, entries[10], 1)  # operation table
                 controls.addTab(
                     scroll_task_page(simulation, "SMBS_SimulationScroll"),
+                    QtGui.QIcon(str(_ICON_ROOT / "gui_simulation.svg")),
                     "Симуляция"
                 )
 
@@ -1333,6 +1340,7 @@ class _PreviewPanel:
                 tool_layout.addStretch(1)
                 controls.addTab(
                     scroll_task_page(tooling, "SMBS_ToolingScroll"),
+                    QtGui.QIcon(str(_ICON_ROOT / "gui_tooling.svg")),
                     "Оснастка"
                 )
 
@@ -1391,6 +1399,9 @@ class _PreviewPanel:
                 weights_note.setWordWrap(True)
                 weights_form.addRow(weights_note)
                 reset_weights_btn = QtWidgets.QPushButton("Стандартные веса")
+                reset_weights_btn.setIcon(QtGui.QIcon(str(
+                    _ICON_ROOT / "control_reset.svg"
+                )))
                 reset_weights_btn.clicked.connect(
                     lambda _checked=False: [
                         self._weight_editors[k].setValue(weight_defaults[k])
@@ -1402,6 +1413,9 @@ class _PreviewPanel:
 
                 gauge_settings_btn = QtWidgets.QPushButton(
                     "Задний упор — геометрия и позиции гибов…")
+                gauge_settings_btn.setIcon(QtGui.QIcon(str(
+                    _ICON_ROOT / "gui_backgauge.svg"
+                )))
                 gauge_settings_btn.clicked.connect(self.open_backgauge_dialog)
                 settings_layout.addWidget(gauge_settings_btn)
                 insert(settings_layout, entries[11])  # diagnostics button
@@ -1455,6 +1469,7 @@ class _PreviewPanel:
                 settings_layout.addStretch(1)
                 controls.addTab(
                     scroll_task_page(settings, "SMBS_SettingsScroll"),
+                    QtGui.QIcon(str(_ICON_ROOT / "gui_backgauge.svg")),
                     "Настройки"
                 )
 
