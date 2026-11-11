@@ -42,6 +42,32 @@ class TestBackgaugeCADTrace(unittest.TestCase):
                 "TRACE_TRUNCATED",
             ])
 
+    def test_capped_log_keeps_aggregate_rejections_and_sources(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "aggregate.jsonl"
+            sink = BackgaugeCADTrace(path, max_events=2)
+            for i in range(1000):
+                sink.emit(
+                    "EXTERNAL_REAR_CONTACT_TRIAL",
+                    candidate_depth_source=(
+                        "2D_SECTION" if i % 2 else "CAD_BBOX_FALLBACK"
+                    ),
+                    rejection=(
+                        "CAD_VOLUME_INTERFERENCE" if i % 3 else None
+                    ),
+                )
+            records = [json.loads(line) for line in path.read_text(
+                encoding="utf-8"
+            ).splitlines()]
+            self.assertEqual(records[-1]["event"], "TRACE_COUNTS_CHECKPOINT")
+            self.assertEqual(records[-1]["events_seen"], 1000)
+            self.assertEqual(records[-1]["trial_source_counts"]["2D_SECTION"], 500)
+            self.assertEqual(records[-1]["trial_source_counts"]["CAD_BBOX_FALLBACK"], 500)
+            self.assertEqual(
+                records[-1]["event_counts"]["EXTERNAL_REAR_CONTACT_TRIAL"],
+                1000,
+            )
+
     def test_bbox_and_point_are_serializable(self):
         box = SimpleNamespace(XMin=-25, XMax=25, YMin=-35,
                               YMax=0, ZMin=0, ZMax=14)
