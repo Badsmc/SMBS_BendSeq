@@ -1857,9 +1857,6 @@ class _PreviewPanel:
                 else:
                     scene.setSceneRect(self._fixed_3d_view_rect)
 
-            def unavailable(self):
-                pass  # Disabled controls for Phase 5B/6 features.
-
             def _auto_select_default_tooling(self):
                 """Auto-select verified default tooling (puancon / matrica) if none selected."""
                 if self.tooling_setup.punch is not None and self.tooling_setup.die is not None:
