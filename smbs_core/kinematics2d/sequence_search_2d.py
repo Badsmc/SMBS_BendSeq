@@ -581,6 +581,9 @@ def search_bend_sequences_2d(
     cad_contact_options: dict[
         tuple[frozenset[str], str], tuple[tuple[Any, float, str, dict], ...]
     ] = {}
+    tooling_prefilter_cache: dict[
+        tuple[frozenset[str], str], PreliminaryScreeningReport
+    ] = {}
     step_diagnostics: list[tuple[tuple[str, ...], PlanarStep]] = []
     # Only states with no coarse complete path whatsoever are memoized dead.
     # A different permutation of the same folded subset may have a different
@@ -632,7 +635,33 @@ def search_bend_sequences_2d(
                 match_active_bend_length=match_active_bend_length,
                 desired_midpoint_xm=float(shifts.get(bend_id, 0.0)),
             )
-            if stage_a.decision is not ScreeningDecision.PROVEN_BLOCKING:
+            early_tool_collision = None
+            if (cad_checker is not None
+                    and stage_a.decision is not ScreeningDecision.PROVEN_BLOCKING):
+                # Cheap PUNCH/DIE screen in the SAME rear-oriented machine
+                # frame, before any costly CAD rear-stop contact generation.
+                # Only confirmed sampled 2D interference prunes this setup.
+                prefilter_key = (frozenset(prefix), bend_id)
+                fast_report = tooling_prefilter_cache.get(prefilter_key)
+                if fast_report is None:
+                    fast_report = screen_candidate_stage_b(
+                        state, bend_id, tooling, panel_vertices,
+                        desired_midpoint_xm=float(shifts.get(bend_id, 0.0)),
+                        match_active_bend_length=match_active_bend_length,
+                        allow_end_zone_collision=allow_end_zone_collision,
+                        end_zone_length_mm=end_zone_length_mm,
+                        allow_retract_warning=allow_retract_warning,
+                        tolerance_mm=tolerance_mm,
+                        fractions=(0.0, 1.0),
+                        stroke_fractions=(0.0, 1.0),
+                        enforce_rear_frame=True,
+                        deadline_monotonic=start + max_search_time_s,
+                    )
+                    tooling_prefilter_cache[prefilter_key] = fast_report
+                if _classify_step(fast_report) == "2D_INTERFERENCE":
+                    early_tool_collision = fast_report
+            if (stage_a.decision is not ScreeningDecision.PROVEN_BLOCKING
+                    and early_tool_collision is None):
                 gauge_polygon = backgauge_polygon_machine
                 cad_contact_s = cad_contact_z = None
                 cad_contact_data = None
@@ -702,7 +731,18 @@ def search_bend_sequences_2d(
                             if isfinite(gauge_depth) else ""
                         ),
                     )
-            if stage_a.decision is ScreeningDecision.PROVEN_BLOCKING:
+            if early_tool_collision is not None:
+                step = PlanarStep(
+                    bend_id, "2D_INTERFERENCE",
+                    "EARLY_TOOLING_PREFILTER:" + early_tool_collision.reason,
+                    early_tool_collision.sampled_phases,
+                    early_tool_collision.contact_statuses,
+                    setup, False,
+                    timing_ms=early_tool_collision.timing_ms,
+                    diagnostic_findings=early_tool_collision.diagnostic_findings,
+                    touch_summary=early_tool_collision.touch_summary,
+                )
+            elif stage_a.decision is ScreeningDecision.PROVEN_BLOCKING:
                 # Invalid source geometry and insufficient tool length are not
                 # evidence of 2D polygon intersection.
                 evidence = ("INVALID_INPUT"
