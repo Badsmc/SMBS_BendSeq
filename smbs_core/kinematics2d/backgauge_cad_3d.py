@@ -264,7 +264,10 @@ class BackgaugeCAD3D:
              -float(part.BoundBox.YMin) > 0.001),
             key=lambda item: (-item[0], item[1]),
         )
-        from .backgauge_contact_height import contact_height_candidates
+        from .backgauge_contact_height import (
+            contact_height_candidates, rear_edge_at_face_height,
+        )
+        from .machine_section_3d import compute_machine_cutting_plane_section
         if (not math.isfinite(float(z_min_mm))
                 or not math.isfinite(float(z_max_mm))
                 or z_min_mm >= z_max_mm):
@@ -277,12 +280,39 @@ class BackgaugeCAD3D:
         datum_face = datum_at_zero.Faces[self.stop_face_index - 1]
         dz0 = float(datum_face.BoundBox.ZMin)
         dz1 = float(datum_face.BoundBox.ZMax)
+        # Compute placed sheet sections once at the real stop's X station.
+        # Unlike global 3D panel YMin, this reveals the rear edge locally
+        # at the candidate Z height, preventing inflated depths from tall
+        # tilted flanges. It remains a proposal, with CAD confirmation.
+        try:
+            cut = compute_machine_cutting_plane_section(
+                state, panel_vertices_xy, placement,
+                active_bend_id=active_bend_id,
+                segments=24, target_xm=self.station_xm_mm,
+            )
+            section_panels = {
+                "panel:" + str(bend.fixed_panel): cut.get("fixed_polygon"),
+                "panel:" + str(bend.moving_panel): cut.get("moving_polygon"),
+            }
+            section_panels.update({
+                "panel:" + str(pid): poly
+                for pid, poly in cut.get("other_panel_polygons", ())
+            })
+        except (ValueError, TypeError, KeyError) as exc:
+            # Missing section is UNVERIFIED; use original CAD proposals
+            # instead of falsely proving this setup impossible.
+            section_panels = {}
+            self._trace(
+                "EXTERNAL_REAR_SECTION_UNVERIFIED",
+                bend_id=str(active_bend_id),
+                reason=type(exc).__name__ + ":" + str(exc),
+            )
         # Limit expensive OCC confirmation trials; geometric prefilter below
         # always runs first. This is NOT proof that other setups are impossible.
         max_occ_trials = 24
         max_solutions = 4
         occ_trials = 0
-        for depth, panel_id, panel in options:
+        for bbox_depth, panel_id, panel in options:
             if occ_trials >= max_occ_trials or len(solutions) >= max_solutions:
                 break
             heights = contact_height_candidates(
@@ -292,7 +322,7 @@ class BackgaugeCAD3D:
             if not heights:
                 item = {
                     "panel": panel_id,
-                    "depth_s_mm": round(depth, 6),
+                    "depth_s_mm": round(bbox_depth, 6),
                     "station_xm_mm": float(self.station_xm_mm),
                     "candidate_z_mm": None,
                     "allowed_z_mm": [float(z_min_mm), float(z_max_mm)],
@@ -305,10 +335,26 @@ class BackgaugeCAD3D:
                 self._trace("EXTERNAL_REAR_CONTACT_TRIAL",
                             bend_id=str(active_bend_id), **item)
                 continue
-            # Once a physical contact is found on this panel, other heights
-            # at the same depth are alternatives for a later solver stage;
-            # try a distinct panel before spending more OCC calls here.
-            for z in heights:
+            # Use the local 2.5D rear edge at each working-face height;
+            # keep the global CAD-bound candidate as conservative fallback.
+            section_poly = section_panels.get(panel_id) or ()
+            trial_targets = []
+            for z_candidate in heights:
+                local_depth = rear_edge_at_face_height(
+                    section_poly, z_candidate + dz0, z_candidate + dz1,
+                ) if section_poly else None
+                if local_depth is not None and local_depth > 0.001:
+                    trial_targets.append(
+                        (float(local_depth), z_candidate, "2D_SECTION")
+                    )
+                if (local_depth is None or
+                        abs(float(local_depth) - bbox_depth) > 0.05):
+                    trial_targets.append(
+                        (bbox_depth, z_candidate, "CAD_BBOX_FALLBACK")
+                    )
+            # One confirmed placement per panel before checking a distinct
+            # panel; further heights remain available in trace diagnostics.
+            for depth, z, depth_source in trial_targets:
                 if occ_trials >= max_occ_trials:
                     break
                 occ_trials += 1
@@ -365,6 +411,7 @@ class BackgaugeCAD3D:
                     "depth_s_mm": round(depth, 6),
                     "station_xm_mm": float(self.station_xm_mm),
                     "candidate_z_mm": round(z, 6),
+                    "candidate_depth_source": depth_source,
                     "allowed_z_mm": [float(z_min_mm), float(z_max_mm)],
                     "face_gap_mm": (
                         round(gap, 6) if math.isfinite(gap) else None
