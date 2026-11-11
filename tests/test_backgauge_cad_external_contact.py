@@ -47,6 +47,10 @@ class Face:
     def __init__(self, stop_s, xmin=-50.6433, xmax=49.3567):
         self.stop_s = stop_s
         self.xmin, self.xmax = xmin, xmax
+        self.BoundBox = Bounds(
+            stop_s, stop_s, x0=xmin, x1=xmax,
+            z0=-6.00308, z1=7.99692,
+        )
     def normalAt(self, u, v):
         return Vector(0, 1, 0)
     def distToShape(self, solid):
@@ -83,6 +87,7 @@ class ExternalRearCADContactTests(unittest.TestCase):
         state = SimpleNamespace(bends={
             "B06": SimpleNamespace(
                 fixed_panel="P04",
+                moving_panel="P05",
                 bend_zone=SimpleNamespace(thickness_mm=1.5),
             )
         })
@@ -122,7 +127,7 @@ class ExternalRearCADContactTests(unittest.TestCase):
 
     def test_real_intervening_bend_zone_remains_blocking(self):
         with self.assertRaisesRegex(
-            BackgaugeCADError, "NO_ACCESSIBLE_REAR_EDGE_AT_CONFIGURED_X",
+            BackgaugeCADError, "CAD_CONTACT_SEARCH_INCOMPLETE",
         ):
             self.run_contact([
                 ("panel:P04", Solid(0, 11.2566)),
