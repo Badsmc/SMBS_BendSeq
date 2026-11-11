@@ -88,18 +88,21 @@ def evaluate_manual_planar_order(
                 )
                 gauge_polygon = None
                 cad_contact_s = cad_contact_z = None
+                cad_contact_data = None
                 if backgauge_model is not None:
-                    point, depth, source = backgauge_model.resolve_for_state(
-                        state, session.panel_vertices_xy, bid,
-                    )
                     if cad_checker is not None:
-                        cad_contact_s = (
-                            (depth + backgauge_model.edge_clearance_mm) if backgauge_model.automatic
-                            else point.s_mm - backgauge_model.width_s_mm / 2
-                                 - backgauge_model.edge_clearance_mm
+                        point, depth, source, cad_contact_data = (
+                            cad_checker.resolve_contact_for_bend(
+                                state, session.panel_vertices_xy, bid,
+                                backgauge_model, tolerance_mm=tolerance_mm,
+                            )
                         )
-                        cad_contact_z = point.z_mm
+                        cad_contact_s = cad_contact_data["contact_s_mm"]
+                        cad_contact_z = cad_contact_data["contact_z_mm"]
                     else:
+                        point, depth, source = backgauge_model.resolve_for_state(
+                            state, session.panel_vertices_xy, bid,
+                        )
                         gauge_polygon = backgauge_model.polygon_at(point)
                     setup = replace(
                         setup, backgauge_s_mm=point.s_mm,
@@ -132,6 +135,7 @@ def evaluate_manual_planar_order(
                         backgauge_cad_checker=cad_checker,
                         backgauge_contact_s_mm=cad_contact_s,
                         backgauge_contact_z_mm=cad_contact_z,
+                        backgauge_contact_metadata=cad_contact_data,
                         backgauge_initial_feed_mm=(
                             backgauge_model.initial_feed_preview_mm
                             if cad_checker is not None and not accepted else 0.0
