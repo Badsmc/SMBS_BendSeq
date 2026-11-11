@@ -582,7 +582,7 @@ def search_bend_sequences_2d(
                 )
                 if cad_checker is not None:
                     cad_contact_s = (
-                        gauge_(depth + backgauge_model.edge_clearance_mm) if backgauge_model.automatic
+                        (gauge_depth + backgauge_model.edge_clearance_mm) if backgauge_model.automatic
                         else target.s_mm - backgauge_model.width_s_mm / 2
                              - backgauge_model.edge_clearance_mm
                     )
