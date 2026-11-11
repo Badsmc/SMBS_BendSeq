@@ -19,24 +19,35 @@ working-face contact as outside the configured machine axis travel.
    `backgauge_model.z_min_mm..z_max_mm` (default -20..+20 mm).
 3. Generate deterministic sample heights (near machine zero, centre,
    endpoints and interior offsets). This interval is a **broad-phase only**.
-4. At the configured X machine station, compute a placed 2.5D sheet section
-   once per contact request. Use the section's local rear edge over the
-   face-height band as a proposed contact depth. Keep a conservative fallback
-   using the original 3D panel bounding box.
+4. Sample three X positions inside the actual Pad.Face6 width (mounted
+   station and two quarter-width positions). Use each placed 2.5D section's
+   local rear edge over the face-height band as a contact-depth proposal.
+   Only if *none* of the sections resolves a depth for a panel may the
+   original CAD panel bounding box provide **one** fallback proposal.
 5. For each proposed (S,Z), verify real CAD Pad.Face6-to-panel distance
    and actual whole-body CAD material overlap with *all* panels and bend zones.
    Do not approve on 2D overlap alone.
-6. Preserve several distinct physically checked contact proposals in the
-   returned `alternative_contacts` and in JSONL trace records, retaining
-   a backward-compatible primary contact result.
+6. Preserve up to four distinct statically CAD-checked (S,Z) proposals
+   as primary and `alternative_contacts`. The DFS evaluates these as
+   separate gauge setups (each with its own phase screening and cost),
+   retains the chosen variant index in every PlanarStep, and full-density
+   replay rechecks the matching variant. The GUI preview validator
+   re-resolves and rechecks the chosen variant, then draws its selected
+   coordinates rather than silently showing the primary contact.
 7. If the bounded CAD search cannot establish contact, label it
    `CAD_CONTACT_SEARCH_INCOMPLETE` (unverified), not a physically proven
    impossibility. The trial limit is not evidence of no feasible setup.
-8. Use a **lazy DFS**: cheap predicted handling/ergonomic score can order
-   next bends, but sibling branches are not all subjected to costly Stage B
-   and CAD checks in advance. Final scoring still uses actual stop positions.
-9. The existing preference for a longer operator-side projected reach remains
-   a *soft cost*, including for the first bend.
+8. First run a lightweight tooling-only 2D check in the **same
+   rear-oriented machine frame**. A confirmed sampled PUNCH/DIE intersection
+   avoids expensive CAD gauge resolution; inconclusive results proceed.
+   Use a lazy DFS: cheap predicted handling/ergonomic score orders next
+   bends, but sibling bends are not all subjected to costly Stage B/OCC
+   ahead of exploration. Final scoring uses actual selected stop positions.
+9. CAD JSONL trace captures up to 12,000 raw events; on truncation it emits
+   aggregate event, rejection, and proposal-source counts. Periodic
+   checkpoints preserve totals during longer runs.
+10. The preference for a longer operator-side projected reach remains
+    a *soft cost*, including for the first bend.
 
 ## Important limits (not yet implemented)
 
@@ -45,9 +56,9 @@ working-face contact as outside the configured machine axis travel.
   contact still undergoes selected Pad.Face6 and CAD interference validation.
   Replacing this final validation with the 2D projection would risk approving
   contacts at a different machine X position or missing genuine 3D collisions.
-- `alternative_contacts` is preserved for diagnostics and later search
-  variants, but the DFS currently consumes **one primary setup per bend**.
-  It does not yet branch over all S/Z variants.
+- DFS branches over the bounded returned contacts, but the CAD search is
+  not exhaustive: contact heights and three X sections are sampled, and
+  some physically feasible setups may not appear.
 - The operator-side length preference does not yet create and simulate the
   opposite physical loading orientation. Both loading orientations and their
   backgauge/transfer paths require full pose propagation into the GUI replay.
@@ -68,6 +79,9 @@ compiles Python code and exercises:
 - `tests.test_operator_side_preference`
 - `tests.test_collision_cascade`
 - `tests.test_sequence_search_2d`
+- `tests.test_backgauge_variants_in_dfs`
+- `tests.test_backgauge_cad_trace`
+- `tests.test_gui_experiment_integration`
 
 Full FreeCAD runtime test is still necessary. In the test run log, compare
 `EXTERNAL_REAR_CONTACT_TRIAL`, `EXTERNAL_REAR_CONTACT_SOLVED`,
