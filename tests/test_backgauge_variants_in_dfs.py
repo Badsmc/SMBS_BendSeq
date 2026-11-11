@@ -107,6 +107,63 @@ class BackgaugeDFSVariantTests(unittest.TestCase):
         self.assertIn(("B01", 5.0), z_samples)
 
 
+    def test_full_density_replay_rechecks_selected_stop_variant(self):
+        from smbs_core.kinematics2d.sequence_search_2d import (
+            validate_partial_planar_prefix,
+        )
+        state = DummyState(("B01", "B02"))
+        session = SimpleNamespace(
+            fold_state=state, bend_order=("B01", "B02"),
+            panel_vertices_xy={"P": [(0, 0), (1, 0), (1, 1)]},
+        )
+        model = BackgaugeModel2D(
+            width_s_mm=10.0, height_z_mm=10.0,
+            positions={}, automatic=True, cad_geometry_enabled=True,
+        )
+        checker = SimpleNamespace(
+            resolve_contact_for_bend=lambda *_args, **_kwargs: (
+                BackgaugePosition2D(105.0, 0.0), 100.0, "PRIMARY",
+                {
+                    "contact_s_mm": 100.0, "contact_z_mm": 0.0,
+                    "selected_datum_is_contact": True,
+                    "alternative_contacts": [{
+                        "contact_s_mm": 102.0, "contact_z_mm": 5.0,
+                        "support_panel_id": "P", "face_gap_mm": 0.0,
+                    }],
+                },
+            )
+        )
+        seen_z = []
+
+        def sampled_screen(*_args, **kwargs):
+            seen_z.append(kwargs.get("backgauge_contact_z_mm"))
+            return stage_b_result()
+
+        with patch(
+            "smbs_core.kinematics2d.backgauge_cad_3d.BackgaugeCAD3D",
+            return_value=checker,
+        ), patch(
+            "smbs_core.kinematics2d.sequence_search_2d.screen_candidate_stage_a",
+            return_value=PreliminaryScreeningReport(
+                ScreeningDecision.CONTINUE_TO_3D, "STAGE_A_PASSED", "ok",
+            ),
+        ), patch(
+            "smbs_core.kinematics2d.sequence_search_2d.screen_candidate_stage_b",
+            side_effect=sampled_screen,
+        ):
+            valid, reason = validate_partial_planar_prefix(
+                session, object(), ("B01", "B02"),
+                backgauge_model=model, backgauge_variant_indices=(1, 0),
+            )
+            invalid, invalid_reason = validate_partial_planar_prefix(
+                session, object(), ("B01", "B02"),
+                backgauge_model=model, backgauge_variant_indices=(2, 0),
+            )
+        self.assertTrue(valid, reason)
+        self.assertEqual(seen_z, [5.0, 0.0])
+        self.assertFalse(invalid)
+        self.assertIn("backgauge_variant_no_longer_available", invalid_reason)
+
     def test_precheck_blocks_punch_interference_before_cad_resolution(self):
         from unittest.mock import Mock
         state = DummyState(("B01", "B02"))
