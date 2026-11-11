@@ -42,6 +42,9 @@ class OperationWeights:
     backgauge_height_change_fixed: float = 12.0
     backgauge_height_change_per_10_mm: float = 2.0
     backgauge_height_deadband_mm: float = 0.5
+    operator_short_side_fixed: float = 10.0
+    operator_short_side_per_100_mm: float = 3.0
+    operator_side_deadband_mm: float = 10.0
     rotation_deadband_deg: float = 1.0
     shift_deadband_mm: float = 1.0
     length_deadband_mm: float = 0.5
@@ -64,6 +67,9 @@ class OperationWeights:
             "backgauge_height_change_fixed",
             "backgauge_height_change_per_10_mm",
             "backgauge_height_deadband_mm",
+            "operator_short_side_fixed",
+            "operator_short_side_per_100_mm",
+            "operator_side_deadband_mm",
             "rotation_deadband_deg",
             "shift_deadband_mm",
             "length_deadband_mm",
@@ -92,6 +98,9 @@ class OperationWeights:
             "backgauge_height_change_fixed": float(self.backgauge_height_change_fixed),
             "backgauge_height_change_per_10_mm": float(self.backgauge_height_change_per_10_mm),
             "backgauge_height_deadband_mm": float(self.backgauge_height_deadband_mm),
+            "operator_short_side_fixed": float(self.operator_short_side_fixed),
+            "operator_short_side_per_100_mm": float(self.operator_short_side_per_100_mm),
+            "operator_side_deadband_mm": float(self.operator_side_deadband_mm),
             "rotation_deadband_deg": float(self.rotation_deadband_deg),
             "shift_deadband_mm": float(self.shift_deadband_mm),
             "length_deadband_mm": float(self.length_deadband_mm),
@@ -113,6 +122,8 @@ class WorkpieceMachineSetup:
     die_length_source: str = "NOT_SPECIFIED"
     backgauge_s_mm: Optional[float] = None
     backgauge_z_mm: Optional[float] = None
+    operator_reach_mm: Optional[float] = None
+    rear_reach_mm: Optional[float] = None
     note: str = ""
 
     def __post_init__(self):
@@ -126,7 +137,8 @@ class WorkpieceMachineSetup:
                 raise ValueError(f"Numeric finite value required for '{name}': {val}")
         if self.bend_length_mm <= 0:
             raise ValueError("bend_length_mm must be positive")
-        for key in ("backgauge_s_mm", "backgauge_z_mm"):
+        for key in ("backgauge_s_mm", "backgauge_z_mm",
+                    "operator_reach_mm", "rear_reach_mm"):
             val = getattr(self, key)
             if val is not None and (
                 isinstance(val, bool) or not isinstance(val, (int, float))
@@ -135,6 +147,9 @@ class WorkpieceMachineSetup:
                 raise ValueError(f"{key} must be finite when provided")
         if ((self.backgauge_s_mm is None) != (self.backgauge_z_mm is None)):
             raise ValueError("backgauge s and z must both be provided or both absent")
+        if any(getattr(self, name) is not None and getattr(self, name) < 0
+               for name in ("operator_reach_mm", "rear_reach_mm")):
+            raise ValueError("operator/rear reach must be nonnegative")
         for key in ("punch_length_mm", "die_length_mm"):
             val = getattr(self, key)
             if val is not None and (
@@ -156,6 +171,8 @@ class WorkpieceMachineSetup:
             "die_length_source": self.die_length_source,
             "backgauge_s_mm": self.backgauge_s_mm,
             "backgauge_z_mm": self.backgauge_z_mm,
+            "operator_reach_mm": self.operator_reach_mm,
+            "rear_reach_mm": self.rear_reach_mm,
             "is_complete": self.is_complete,
             "note": self.note,
         }
@@ -185,13 +202,14 @@ class StepPenalty:
     backgauge_position_known: bool = False
     backgauge_height_delta_mm: Optional[float] = None
     backgauge_height_cost: float = 0.0
+    operator_side_cost: float = 0.0
 
     @property
     def total(self) -> float:
         return (self.turn_cost + self.flip_cost + self.shift_cost
                 + self.length_change_cost + self.punch_length_cost
                 + self.die_length_cost + self.backgauge_move_cost
-                + self.backgauge_height_cost)
+                + self.backgauge_height_cost + self.operator_side_cost)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -214,6 +232,7 @@ class StepPenalty:
             "backgauge_position_known": self.backgauge_position_known,
             "backgauge_height_delta_mm": self.backgauge_height_delta_mm,
             "backgauge_height_cost": round(float(self.backgauge_height_cost), 4),
+            "operator_side_cost": round(float(self.operator_side_cost), 4),
             "tooling_lengths_from_fixed_profiles": self.tooling_lengths_from_fixed_profiles,
             "total": round(float(self.total), 4),
             "is_complete": self.is_complete,
@@ -342,6 +361,25 @@ def compute_workpiece_machine_setup(
         )
 
 
+def operator_side_penalty(
+    current: WorkpieceMachineSetup, weights: OperationWeights,
+) -> float:
+    """Soft ergonomic penalty: excessive rear reach over the operator reach.
+
+    Both reaches are projected distances from active bend line in machine
+    coordinates, not panel lengths or proof of loading safety.
+    """
+    front, rear = current.operator_reach_mm, current.rear_reach_mm
+    if front is None or rear is None:
+        return 0.0
+    excess = rear - front
+    return (
+        weights.operator_short_side_fixed
+        + weights.operator_short_side_per_100_mm * excess / 100.0
+        if excess > weights.operator_side_deadband_mm else 0.0
+    )
+
+
 def transition_penalty(
     previous: Optional[WorkpieceMachineSetup],
     current: WorkpieceMachineSetup,
@@ -364,6 +402,7 @@ def transition_penalty(
             shift_cost=0.0,
             length_change_cost=0.0,
             is_complete=current.is_complete,
+            operator_side_cost=operator_side_penalty(current, weights),
         )
 
     turn = smallest_turn_deg(previous.rotation_deg, current.rotation_deg)
@@ -469,6 +508,7 @@ def transition_penalty(
         backgauge_height_delta_mm=gauge_z_delta,
         backgauge_height_cost=gauge_height_cost,
         backgauge_position_known=gauge_known,
+        operator_side_cost=operator_side_penalty(current, weights),
     )
 
 
