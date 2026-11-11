@@ -2239,6 +2239,20 @@ class _PreviewPanel:
                         getattr(self.tooling_setup, "punch_section_offsets_xm", ())
                         or getattr(self.tooling_setup, "die_section_offsets_xm", ())
                     )
+                    # User-writable, uniquely named diagnostic trace for the
+                    # real OCC contact oracle. Created automatically only
+                    # when a CAD backgauge is actually selected.
+                    self._last_backgauge_cad_trace_path = None
+                    if (self.backgauge_model is not None
+                            and self.backgauge_model.cad_geometry_enabled):
+                        from smbs_core.kinematics2d.backgauge_cad_trace import (
+                            fresh_trace_path,
+                        )
+                        self._last_backgauge_cad_trace_path = str(
+                            fresh_trace_path(
+                                _pressbrake_user_data_directory() / "diagnostics"
+                            )
+                        )
                     report = search_bend_sequences_2d(
                         self.session, self.tooling_setup,
                         # Collect multiple complete candidates for genuine
@@ -2248,6 +2262,9 @@ class _PreviewPanel:
                         max_complete_candidates=12,
                         weights=self._selected_operation_weights(),
                         backgauge_model=self.backgauge_model,
+                        backgauge_cad_trace_path=(
+                            self._last_backgauge_cad_trace_path
+                        ),
                         min_partial_bends=(7 if len(self.session.bend_order) >= 10 else 0),
                         # Alternative machine-Z loading trials are advisory:
                         # the live 2.5D cycle still uses its own active pose.
@@ -2287,6 +2304,11 @@ class _PreviewPanel:
                         match_active_bend_length=not has_sections,
                     )
                     self.last_planar_search_report = report
+                    if self._last_backgauge_cad_trace_path:
+                        _log(
+                            "BACKGAUGE_CAD_TRACE_PATH: "
+                            + self._last_backgauge_cad_trace_path
+                        )
                     self._last_planar_weights = self._selected_operation_weights().to_dict()
                     self._trace_event(
                         "PLANAR_2D_SEARCH_COMPLETED",
@@ -2414,6 +2436,35 @@ class _PreviewPanel:
                 )
                 details.setWordWrap(True)
                 layout.addWidget(details)
+                cad_trace_path = getattr(
+                    self, "_last_backgauge_cad_trace_path", None
+                )
+                if cad_trace_path:
+                    from pathlib import Path
+                    log_file = Path(cad_trace_path)
+                    trace_exists = log_file.is_file()
+                    trace_label = QtWidgets.QLabel(
+                        ("CAD-лог контакта: " if trace_exists else
+                         "CAD-лог не создан — проверьте исходную модель: ")
+                        + str(log_file)
+                    )
+                    trace_label.setWordWrap(True)
+                    trace_label.setTextInteractionFlags(
+                        QtCore.Qt.TextSelectableByMouse
+                    )
+                    layout.addWidget(trace_label)
+                    if trace_exists:
+                        open_trace_folder = QtWidgets.QPushButton(
+                            "Открыть папку CAD-лога"
+                        )
+                        open_trace_folder.clicked.connect(
+                            lambda: QtGui.QDesktopServices.openUrl(
+                                QtCore.QUrl.fromLocalFile(
+                                    str(log_file.parent)
+                                )
+                            )
+                        )
+                        layout.addWidget(open_trace_folder)
                 if report.partial_candidate is not None and not report.candidates:
                     notice = QtWidgets.QLabel(
                         "ЧАСТИЧНЫЙ РЕЗУЛЬТАТ: {} из {} гибов. "
