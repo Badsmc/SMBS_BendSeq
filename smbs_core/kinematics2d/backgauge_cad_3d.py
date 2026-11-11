@@ -280,33 +280,40 @@ class BackgaugeCAD3D:
         datum_face = datum_at_zero.Faces[self.stop_face_index - 1]
         dz0 = float(datum_face.BoundBox.ZMin)
         dz1 = float(datum_face.BoundBox.ZMax)
-        # Compute placed sheet sections once at the real stop's X station.
-        # Unlike global 3D panel YMin, this reveals the rear edge locally
-        # at the candidate Z height, preventing inflated depths from tall
-        # tilted flanges. It remains a proposal, with CAD confirmation.
-        try:
-            cut = compute_machine_cutting_plane_section(
-                state, panel_vertices_xy, placement,
-                active_bend_id=active_bend_id,
-                segments=24, target_xm=self.station_xm_mm,
-            )
-            section_panels = {
-                "panel:" + str(bend.fixed_panel): cut.get("fixed_polygon"),
-                "panel:" + str(bend.moving_panel): cut.get("moving_polygon"),
-            }
-            section_panels.update({
-                "panel:" + str(pid): poly
-                for pid, poly in cut.get("other_panel_polygons", ())
-            })
-        except (ValueError, TypeError, KeyError, AttributeError) as exc:
-            # Missing section is UNVERIFIED; use original CAD proposals
-            # instead of falsely proving this setup impossible.
-            section_panels = {}
-            self._trace(
-                "EXTERNAL_REAR_SECTION_UNVERIFIED",
-                bend_id=str(active_bend_id),
-                reason=type(exc).__name__ + ":" + str(exc),
-            )
+        # Probe the real face's centre and quarter-width X positions.  The
+        # 2.5D sections only generate candidate S values; actual Part checks
+        # are still required to verify contact and body clearance.
+        from .backgauge_contact_height import working_face_section_stations
+        face_stations = working_face_section_stations(
+            datum_face.BoundBox.XMin, datum_face.BoundBox.XMax,
+            self.station_xm_mm,
+        )
+        station_sections = []
+        for station_xm in face_stations:
+            try:
+                cut = compute_machine_cutting_plane_section(
+                    state, panel_vertices_xy, placement,
+                    active_bend_id=active_bend_id,
+                    segments=24, target_xm=station_xm,
+                )
+                section_panels = {
+                    "panel:" + str(bend.fixed_panel): cut.get("fixed_polygon"),
+                    "panel:" + str(bend.moving_panel): cut.get("moving_polygon"),
+                }
+                section_panels.update({
+                    "panel:" + str(pid): poly
+                    for pid, poly in cut.get("other_panel_polygons", ())
+                })
+                station_sections.append((station_xm, section_panels))
+            except (ValueError, TypeError, KeyError, AttributeError) as exc:
+                # A missing section leaves candidate contact UNVERIFIED.
+                # It may call for a bounded CAD fallback, never a hard prune.
+                self._trace(
+                    "EXTERNAL_REAR_SECTION_UNVERIFIED",
+                    bend_id=str(active_bend_id),
+                    station_xm_mm=float(station_xm),
+                    reason=type(exc).__name__ + ":" + str(exc),
+                )
         # Limit expensive OCC confirmation trials; geometric prefilter below
         # always runs first. This is NOT proof that other setups are impossible.
         max_occ_trials = 24
@@ -335,23 +342,48 @@ class BackgaugeCAD3D:
                 self._trace("EXTERNAL_REAR_CONTACT_TRIAL",
                             bend_id=str(active_bend_id), **item)
                 continue
-            # Use the local 2.5D rear edge at each working-face height;
-            # keep the global CAD-bound candidate as conservative fallback.
-            section_poly = section_panels.get(panel_id) or ()
+            # Use only section-derived targets when actual local geometry
+            # yields candidates. The global CAD BBox fallback is considered
+            # ONLY when none of the inspected X sections resolves a target.
+            # This eliminates the low-yield duplicate fallback trials.
             trial_targets = []
             for z_candidate in heights:
-                local_depth = rear_edge_at_face_height(
-                    section_poly, z_candidate + dz0, z_candidate + dz1,
-                ) if section_poly else None
-                if local_depth is not None and local_depth > 0.001:
-                    trial_targets.append(
-                        (float(local_depth), z_candidate, "2D_SECTION")
+                for station_xm, panels_at_x in station_sections:
+                    section_poly = panels_at_x.get(panel_id) or ()
+                    local_depth = (
+                        rear_edge_at_face_height(
+                            section_poly, z_candidate + dz0, z_candidate + dz1,
+                        ) if section_poly else None
                     )
-                if (local_depth is None or
-                        abs(float(local_depth) - bbox_depth) > 0.05):
-                    trial_targets.append(
-                        (bbox_depth, z_candidate, "CAD_BBOX_FALLBACK")
-                    )
+                    if local_depth is not None and local_depth > 0.001:
+                        if not any(
+                            abs(local_depth - old_depth) < 0.02
+                            and abs(z_candidate - old_z) < 0.02
+                            for old_depth, old_z, _source in trial_targets
+                        ):
+                            trial_targets.append((
+                                float(local_depth), z_candidate, "2D_SECTION",
+                            ))
+            if not trial_targets:
+                # Inconclusive 2.5D cross-sections cannot exclude physical
+                # contact between the sampled X planes. Limit the expensive
+                # fallback to one Z proposal per panel.
+                trial_targets.append((
+                    bbox_depth, heights[0], "CAD_BBOX_FALLBACK",
+                ))
+            self._trace(
+                "EXTERNAL_REAR_PREFILTER_SUMMARY",
+                bend_id=str(active_bend_id),
+                panel=panel_id,
+                section_stations_xm_mm=list(face_stations),
+                proposed_2d_targets=sum(
+                    source == "2D_SECTION" for _s, _z, source in trial_targets
+                ),
+                proposed_cad_fallbacks=sum(
+                    source == "CAD_BBOX_FALLBACK"
+                    for _s, _z, source in trial_targets
+                ),
+            )
             # One confirmed placement per panel before checking a distinct
             # panel. Probe a few heights on each before spending the entire
             # CAD budget on one unsuitable tall panel.
