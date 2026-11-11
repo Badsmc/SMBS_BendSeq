@@ -18,7 +18,7 @@ from smbs_core.kinematics2d.backgauge_cad_3d import (
 class CADFirstContactContractTests(TestCase):
     def test_contact_solver_uses_finger_station_and_does_not_move_bend_pose(self):
         model = BackgaugeModel2D(
-            10.0, 10.0, {}, automatic=True,
+            10.0, 10.0, {}, automatic=False,
             cad_geometry_enabled=True,
             cad_station_xm_mm=50.0,
         )
@@ -66,6 +66,51 @@ class CADFirstContactContractTests(TestCase):
         self.assertEqual(depth, 127.5)
         self.assertEqual(result["actual_faces"], [3])
         self.assertIn("CAD_FIRST_CONTACT", source)
+
+    def test_auto_mode_uses_exposed_external_panel_not_fixed_panel(self):
+        model = BackgaugeModel2D(
+            10.0, 10.0, {}, automatic=True,
+            cad_geometry_enabled=True, cad_station_xm_mm=0.0,
+        )
+        state = SimpleNamespace(bends={
+            "B06": SimpleNamespace(
+                fixed_panel="P04",
+                bend_zone=SimpleNamespace(outer_radius_mm=1.5),
+            )
+        })
+        adapter = BackgaugeCAD3D.__new__(BackgaugeCAD3D)
+        adapter.station_xm_mm = 0.0
+        adapter.second_station_xm_mm = None
+        result = {
+            "contact_s_mm": 540.0, "contact_z_mm": 0.75,
+            "hint_s_mm": 540.0, "shift_rearward_mm": 0.0,
+            "selected_datum_is_contact": True,
+            "actual_faces": [6],
+            "support_panel_id": "P07",
+            "support_panel_matches_fixed": False,
+            "note": "EXTERNAL_REAR_PANEL_P07_NOT_FIXED_PANEL_NEEDS_SETUP_REVIEW",
+        }
+        with patch.object(
+            BackgaugeModel2D, "resolve_for_state",
+            side_effect=AssertionError("automatic CAD must not choose fixed edge")
+        ), patch(
+            "smbs_core.kinematics2d.workpiece_placement_3d."
+            "WorkpiecePlacement3D.compute_placement",
+            return_value=object(),
+        ) as placement, patch.object(
+            adapter, "solve_accessible_rear_contact", return_value=result,
+        ) as solve:
+            point, depth, source, actual = adapter.resolve_contact_for_bend(
+                state, {}, "B06", model,
+                desired_midpoint_xm=0.0, tolerance_mm=0.02,
+            )
+        self.assertEqual(placement.call_args.kwargs["desired_midpoint_xm"], 0.0)
+        self.assertEqual(solve.call_args.kwargs["active_bend_id"], "B06")
+        self.assertEqual(depth, 540.0)
+        self.assertEqual(point.s_mm, 545.0)
+        self.assertEqual(actual["support_panel_id"], "P07")
+        self.assertIn("AUTO_EXTERNAL_REAR_CAD", source)
+        self.assertIn("fixed_panel=P04", source)
 
     def test_contact_brackets_fixed_panel_not_unrelated_rear_panel(self):
         """Other sheet material cannot push the intended stop hundreds of mm.
@@ -202,13 +247,8 @@ class CADFirstContactContractTests(TestCase):
         adapter = BackgaugeCAD3D.__new__(BackgaugeCAD3D)
         adapter.station_xm_mm = -200.0
         adapter.second_station_xm_mm = 200.0
-        with patch.object(
-            BackgaugeModel2D, "resolve_for_state",
-            side_effect=[
-                (BackgaugePosition2D(125, .75), 120, "AUTO"),
-                (BackgaugePosition2D(130, .75), 125, "AUTO"),
-            ],
-        ), self.assertRaisesRegex(
-            BackgaugeCADError, "INDEPENDENT_TARGETS"
+        with self.assertRaisesRegex(
+            BackgaugeCADError,
+            "TWO_CAD_FINGERS_REQUIRE_INDEPENDENT_REAR_EDGE_SOLVER"
         ):
             adapter.resolve_contact_for_bend(state, {}, "B01", model)
