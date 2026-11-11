@@ -370,8 +370,21 @@ def screen_candidate_stage_b(
                     finding = (
                         "LOAD_TO_GAUGE", "BACKGAUGE_CAD_3D",
                         str(sample["component"]), "INTERFERENCE",
-                        "material_overlap_mm3={:.6f}".format(
-                            sample["volume_mm3"]
+                        (
+                            "material_overlap_mm3={:.6f};"
+                            "gauge_station_xm_mm={:.3f};"
+                            "body_ahead_of_stop_face_mm={:.3f};"
+                            "finger_bbox_xyz_mm={};"
+                            "panel_bbox_xyz_mm={}"
+                        ).format(
+                            float(sample["volume_mm3"]),
+                            float(sample.get("station_xm_mm", float("nan"))),
+                            float(sample.get(
+                                "body_protrusion_ahead_of_stop_face_mm",
+                                float("nan")
+                            )),
+                            sample.get("finger_bbox_xyz_mm", []),
+                            sample.get("sheet_component_bbox_xyz_mm", []),
                         ),
                     )
                     # This is a genuine OCC overlap at the *assumed*
@@ -516,8 +529,25 @@ def screen_candidate_stage_b(
                         comp = str(cad_verdict["component"])
                         backgauge_reason = (
                             "BACKGAUGE_CAD_3D:" + comp + ":"
-                            + "material_overlap_mm3={:.6f}".format(
-                                float(cad_verdict["volume_mm3"])
+                            + (
+                                "material_overlap_mm3={:.6f};"
+                                "gauge_station_xm_mm={:.3f};"
+                                "body_ahead_of_stop_face_mm={:.3f};"
+                                "finger_bbox_xyz_mm={};"
+                                "panel_bbox_xyz_mm={}"
+                            ).format(
+                                float(cad_verdict["volume_mm3"]),
+                                float(cad_verdict.get(
+                                    "station_xm_mm", float("nan")
+                                )),
+                                float(cad_verdict.get(
+                                    "body_protrusion_ahead_of_stop_face_mm",
+                                    float("nan")
+                                )),
+                                cad_verdict.get("finger_bbox_xyz_mm", []),
+                                cad_verdict.get(
+                                    "sheet_component_bbox_xyz_mm", []
+                                ),
                             )
                         )
                         if len(diagnostic_findings) < 32:
