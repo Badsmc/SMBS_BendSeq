@@ -350,10 +350,14 @@ def check_machine_section(
     punch: tuple[Sequence[Point], Iterable[Sequence[Point]]] | None,
     die: tuple[Sequence[Point], Iterable[Sequence[Point]]] | None,
     tolerance_mm: float = 0.02,
+    *,
+    selected_tools: tuple[str, ...] = ("PUNCH", "DIE"),
 ) -> ContactReport:
-    """Report all sheet components, not just active bend, against both tools."""
+    """Report selected tools against all components in the same machine section."""
     findings = []
-    tools = (("PUNCH", punch), ("DIE",die))
+    if not selected_tools or any(name not in ("PUNCH", "DIE") for name in selected_tools):
+        raise ValueError("selected_tools must contain PUNCH and/or DIE")
+    tools = tuple((name, {"PUNCH": punch, "DIE": die}[name]) for name in selected_tools)
     components = tuple(sheet_polygons)
     for tool_name, shape in tools:
         if shape is None:
@@ -398,7 +402,7 @@ def check_machine_section(
     return ContactReport(worst,tuple(findings),float(tolerance_mm))
 
 
-def check_sheet_tooling_preview(section, tooling, tolerance_mm: float = 0.02, *, timing_collector=None) -> ContactReport:
+def check_sheet_tooling_preview(section, tooling, tolerance_mm: float = 0.02, *, timing_collector=None, cascade: bool = False) -> ContactReport:
     """Read-only adapter of current machine-space FoldState section and tooling.
 
     The section MUST already have a valid machine placement from Phase 5B.
@@ -425,6 +429,44 @@ def check_sheet_tooling_preview(section, tooling, tolerance_mm: float = 0.02, *,
             polygons.append((str(name),poly))
     prep_start = perf_counter() if timing_collector is not None else 0.0
     punch = tooling.punch_polygons_machine(arc_segments=24)
+    if cascade:
+        # Fast path: a confirmed punch intersection cannot be rescued by
+        # a later die or gauge test for the same sampled machine pose.
+        first = check_machine_section(
+            polygons, punch, None, tolerance_mm,
+            selected_tools=("PUNCH",),
+        )
+        if first.status is ContactStatus.INTERFERENCE:
+            if timing_collector is not None:
+                timing_collector["cascade_punch_rejections"] = (
+                    timing_collector.get("cascade_punch_rejections", 0) + 1
+                )
+                timing_collector["polygon_contact"] = (
+                    timing_collector.get("polygon_contact", 0.0)
+                    + 1000.0 * (perf_counter() - prep_start)
+                )
+            return first
+        die = tooling.die_polygons_machine(arc_segments=24)
+        second = check_machine_section(
+            polygons, None, die, tolerance_mm,
+            selected_tools=("DIE",),
+        )
+        findings = first.findings + second.findings
+        priority = (ContactStatus.INTERFERENCE, ContactStatus.UNVERIFIED,
+                    ContactStatus.TOUCH, ContactStatus.CLEAR)
+        worst = next((status for status in priority
+                      if any(f.status is status for f in findings)),
+                     ContactStatus.UNVERIFIED)
+        if timing_collector is not None:
+            timing_collector["cascade_die_rejections"] = (
+                timing_collector.get("cascade_die_rejections", 0)
+                + int(second.status is ContactStatus.INTERFERENCE)
+            )
+            timing_collector["polygon_contact"] = (
+                timing_collector.get("polygon_contact", 0.0)
+                + 1000.0 * (perf_counter() - prep_start)
+            )
+        return ContactReport(worst, findings, float(tolerance_mm))
     die = tooling.die_polygons_machine(arc_segments=24)
     if timing_collector is not None:
         prep_end = perf_counter()
