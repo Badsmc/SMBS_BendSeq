@@ -106,6 +106,27 @@ class RetractPathTests(unittest.TestCase):
         self.assertEqual(result["status"], "UNVERIFIED")
         self.assertEqual(result["sample_count"], 2)
 
+    def test_missing_initial_sample_is_not_a_clear_retract(self):
+        result = retract_evidence_from_trajectory(fake_trajectory(
+            states=(sample(.5, 4.0), sample(1, 15.0)),
+        ))
+        self.assertEqual(result["status"], "UNVERIFIED")
+        self.assertFalse(result["start_position_sampled"])
+        self.assertTrue(result["end_position_sampled"])
+
+    def test_mismatched_bottom_sample_is_not_a_clear_retract(self):
+        result = retract_evidence_from_trajectory(fake_trajectory(
+            states=(sample(0, -2), sample(1, 15)),
+        ))
+        self.assertEqual(result["status"], "UNVERIFIED")
+        self.assertIn("does not match", result["reason"])
+
+    def test_phase_marked_unsafe_cannot_override_native_verdict(self):
+        trajectory = fake_trajectory()
+        trajectory.phase_results[0].is_safe = False
+        result = retract_evidence_from_trajectory(trajectory)
+        self.assertEqual(result["status"], "UNVERIFIED")
+
     def test_discrete_collision_is_not_waived(self):
         result = retract_evidence_from_trajectory(fake_trajectory(
             status="DISCRETE_SAMPLES_REJECTED",
