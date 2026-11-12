@@ -12,6 +12,8 @@ from smbs_core.kinematics2d.backgauge_2d import (
 from smbs_core.kinematics2d.gauge_preview import (
     bend_to_blank_edge_mm,
     local_bend_dimension_mm,
+    gauge_rear_envelope_from_section,
+    sequenced_gauge_envelopes,
     visual_gauge_target,
 )
 
@@ -107,31 +109,112 @@ class GaugePreviewTests(unittest.TestCase):
             local_bend_dimension_mm(first, self.outline, (short_elsewhere,)), 10.0,
         )
 
-    def test_cad_auto_target_uses_measured_edge_and_display_height(self):
+    def test_machine_envelope_includes_thickness_and_signed_slope(self):
+        # A physical sheet section with a previously folded 1.5-mm wall.
+        section = {
+            "fixed_polygon": ((0, 0), (22.0, 0), (22.0, 1.5), (0, 1.5)),
+            "moving_polygon": ((-5.0, 0), (-5.0, 1.5)),
+            "zone_polygon": (),
+            "other_panel_polygons": [
+                ("P01", ((21.99, 0), (23.5, 0.5), (23.5, 2.0),
+                         (21.99, 1.5))),
+            ],
+            "other_zone_polygons": [],
+        }
+        self.assertEqual(gauge_rear_envelope_from_section(section), (23.5, 1.25))
+
+        # A 45-degree return wall exposes a different rear-most profile:
+        # never use a universal +1.5-mm fudge factor.
+        forty_five = {
+            **section,
+            "other_panel_polygons": [
+                ("P01", ((22.0, 0), (23.06066, 1.06066),
+                         (22.0, 2.12132))),
+            ],
+        }
+        s, z = gauge_rear_envelope_from_section(forty_five)
+        self.assertAlmostEqual(s, 23.06066, places=5)
+        self.assertAlmostEqual(z, 1.06066, places=5)
+
+    def test_cad_auto_target_uses_folded_envelope_s_and_z(self):
         model = BackgaugeModel2D(
             width_s_mm=10, height_z_mm=10, positions={}, automatic=True,
             edge_clearance_mm=1.0, cad_geometry_enabled=True,
         )
-        bend = SimpleNamespace(
-            bend_id="B01",
-            bend_zone=SimpleNamespace(outer_radius_mm=2.5, thickness_mm=1.5),
-        )
-        position, evidence = visual_gauge_target(model, bend, 90.0)
-        self.assertAlmostEqual(position.s_mm - model.width_s_mm / 2, 91.0)
-        self.assertAlmostEqual(position.z_mm, 1.75)
-        self.assertEqual(evidence, "VISUAL_ONLY_OUTLINE_DISTANCE")
+        bend = SimpleNamespace(bend_id="B01")
+        pos, evidence = visual_gauge_target(model, bend, 23.5, 2.0)
+        self.assertAlmostEqual(pos.s_mm - model.width_s_mm / 2, 24.5)
+        self.assertAlmostEqual(pos.z_mm, 2.0)
+        self.assertEqual(evidence, "VISUAL_ONLY_FOLDED_MACHINE_ENVELOPE")
+        with self.assertRaisesRegex(ValueError, "missing physical"):
+            visual_gauge_target(model, bend, 22.0, None)
 
-    def test_manual_target_does_not_override_measurement(self):
+    def test_manual_target_overrides_automatic_rear_envelope(self):
         target = BackgaugePosition2D(48.0, 2.0)
         model = BackgaugeModel2D(
             width_s_mm=10, height_z_mm=10, positions={"B01": target},
             automatic=False, cad_geometry_enabled=True,
         )
         value, evidence = visual_gauge_target(
-            model, SimpleNamespace(bend_id="B01"), 90.0,
+            model, SimpleNamespace(bend_id="B01"), None, None,
         )
         self.assertIs(value, target)
         self.assertEqual(evidence, "VISUAL_ONLY_MANUAL")
+
+    def test_sequential_gauge_uses_authoritative_signed_fold_state(self):
+        from smbs_core.kinematics2d.bend_zone import (
+            make_bend_zone, bend_parameters,
+        )
+        from smbs_core.kinematics2d.panel_graph import PanelGraph, GraphEdge
+        from smbs_core.kinematics2d.panel_kinematics import FoldState
+
+        t, radius, k = 1.5, 1.0, 0.31
+        a = ((10, 0), (10, 50))
+        b = ((32, 0), (32, 50))
+        def zone(bid, axis, angle):
+            source_angle = math.copysign(180 - abs(angle), angle)
+            reference_radius = radius if angle > 0 else radius + t
+            return make_bend_zone(
+                bid, axis,
+                bend_parameters(source_angle, reference_radius, t, k),
+            )
+        bz1, bz2 = zone("B01", a, 90), zone("B02", b, -45)
+        graph = PanelGraph(("P01", "P02", "P03"), (
+            GraphEdge("B01", "P01", "P02", 90.0,
+                      ((10, 0, 0), (10, 50, 0)), bz1),
+            GraphEdge("B02", "P02", "P03", -45.0,
+                      ((32, 0, 0), (32, 50, 0)), bz2),
+        ))
+        def rect(lo, hi):
+            return ((lo, 0), (hi, 0), (hi, 50), (lo, 50))
+        panels = {
+            "P01": rect(0, 10 - bz1.half_width_mm),
+            "P02": rect(10 + bz1.half_width_mm, 32 - bz2.half_width_mm),
+            "P03": rect(32 + bz2.half_width_mm, 100),
+        }
+        state = FoldState(graph, "P01")
+        session = SimpleNamespace(
+            bend_order=("B01", "B02"), graph=graph, fixed_panel="P01",
+            panel_vertices_xy=panels, fold_state=state,
+        )
+        targets, errors = sequenced_gauge_envelopes(session)
+        self.assertEqual(errors, {}, errors)
+        self.assertEqual(set(targets), {"B01", "B02"})
+        self.assertAlmostEqual(targets["B01"][0], 10.0, delta=0.5)
+        self.assertNotAlmostEqual(targets["B02"][0], 22.0, delta=0.05)
+        # Source FoldState is NOT mutated by the per-step setup computation.
+        self.assertEqual(state.angles, {"B01": 0.0, "B02": 0.0})
+
+        # Order is physically important: swapping operations changes the
+        # antecedent geometry, despite identical flat-pattern dimensions.
+        reverse = SimpleNamespace(**{
+            **session.__dict__, "bend_order": ("B02", "B01"),
+        })
+        reverse_targets, reverse_errors = sequenced_gauge_envelopes(reverse)
+        self.assertEqual(reverse_errors, {}, reverse_errors)
+        self.assertNotAlmostEqual(
+            targets["B02"][0], reverse_targets["B02"][0], delta=0.05,
+        )
 
 
 if __name__ == "__main__":
