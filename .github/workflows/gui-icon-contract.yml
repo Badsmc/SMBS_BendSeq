@@ -220,7 +220,8 @@ jobs:
           assert 'self.task_progress.setRange(0, 0)' in gui_source
           assert 'self.status.setParent(workspace)' not in gui_source
           assert 'child.setParent(workspace)' in gui_source
-          assert 'workspace.status, workspace.task_progress' in gui_source
+          assert 'workspace._task_stack, workspace.status,' in gui_source
+          assert 'workspace.task_progress, workspace._task_status_chip,' in gui_source
           assert 'Gui.Control.showDialog(panel)' in gui_source
           assert 'layout.addWidget(footer)' in gui_source
           assert "DockWidgetFloatable" not in gui_source
