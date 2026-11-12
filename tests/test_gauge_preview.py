@@ -11,6 +11,7 @@ from smbs_core.kinematics2d.backgauge_2d import (
 )
 from smbs_core.kinematics2d.gauge_preview import (
     bend_to_blank_edge_mm,
+    local_bend_dimension_mm,
     visual_gauge_target,
 )
 
@@ -53,6 +54,58 @@ class GaugePreviewTests(unittest.TestCase):
             bend_to_blank_edge_mm(self.axis, ((5, 10), (15, 10), (10, 30)), self.outline)
         with self.assertRaises(ValueError):
             bend_to_blank_edge_mm(self.axis, self.left_panel, ((20, 20), (30, 20), (30, 30)))
+
+    def test_two_sequential_bends_show_10_then_22_not_32(self):
+        first = ((10, 0), (10, 50))
+        second = ((32, 0), (32, 50))
+        self.assertAlmostEqual(
+            local_bend_dimension_mm(first, self.outline, (second,)), 10.0,
+        )
+        self.assertAlmostEqual(
+            local_bend_dimension_mm(second, self.outline, (first,)), 22.0,
+        )
+        # The pre-existing gauge's absolute reach remains separate.
+        self.assertAlmostEqual(
+            bend_to_blank_edge_mm(second, self.left_panel, self.outline), 32.0,
+        )
+
+    def test_multiple_bends_use_nearest_local_boundary(self):
+        first = ((10, 0), (10, 50))
+        second = ((32, 0), (32, 50))
+        third = ((70, 0), (70, 50))
+        self.assertAlmostEqual(
+            local_bend_dimension_mm(first, self.outline, (second, third)), 10.0,
+        )
+        self.assertAlmostEqual(
+            local_bend_dimension_mm(second, self.outline, (first, third)), 22.0,
+        )
+        # Third bend is nearer the right outline at 100 mm than the
+        # second bend at 32 mm: it is a local 30 mm flange.
+        self.assertAlmostEqual(
+            local_bend_dimension_mm(third, self.outline, (first, second)), 30.0,
+        )
+
+    def test_local_dimensions_ignore_bend_axis_reversal(self):
+        first = ((10, 0), (10, 50))
+        second = ((32, 0), (32, 50))
+        self.assertAlmostEqual(
+            local_bend_dimension_mm(tuple(reversed(second)), self.outline,
+                                    (tuple(reversed(first)),)), 22.0,
+        )
+
+    def test_unrelated_perpendicular_bend_is_not_a_flange_boundary(self):
+        first = ((10, 0), (10, 50))
+        perpendicular = ((0, 27), (100, 27))
+        self.assertAlmostEqual(
+            local_bend_dimension_mm(first, self.outline, (perpendicular,)), 10.0,
+        )
+
+    def test_local_neighbour_must_overlap_perpendicular_probe(self):
+        first = ((10, 0), (10, 50))
+        short_elsewhere = ((12, 70), (12, 80))
+        self.assertAlmostEqual(
+            local_bend_dimension_mm(first, self.outline, (short_elsewhere,)), 10.0,
+        )
 
     def test_cad_auto_target_uses_measured_edge_and_display_height(self):
         model = BackgaugeModel2D(
