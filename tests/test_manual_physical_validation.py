@@ -40,6 +40,7 @@ def evidence(status, *, conditional=False):
         status=status, native_status=status.value, reason="test_" + status.value,
         checked_scope=("3D_PUNCH_DIE_SAMPLED_BEND",),
         tool_length_info={"active_bend_length_mm": 50.0},
+        raw_report=SimpleNamespace(phase_results=()),
         is_conditional=conditional,
     )
 
