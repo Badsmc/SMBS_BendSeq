@@ -140,6 +140,24 @@ def concise_3d_blocker(trajectory: Any) -> dict:
             round(float(candidate.signed_angle_deg), 6)
             if candidate is not None else None
         ),
+        "sampled_machine_pose": (
+            {
+                "bend_id": str(candidate.active_bend_id),
+                "phase": name,
+                "signed_angle_deg": float(candidate.signed_angle_deg),
+                "ram_z_mm": float(candidate.ram_z_mm),
+                "support_plane_zm": float(candidate.support_plane_zm),
+                "completed_angles": dict(candidate.completed_angles),
+                "rotation": [
+                    list(r) for r in candidate.workpiece_placement.rotation
+                ],
+                "translation": list(
+                    candidate.workpiece_placement.translation
+                ),
+            } if candidate is not None and getattr(
+                candidate, "workpiece_placement", None
+            ) is not None else None
+        ),
         "reason": (diagnostics[0][:400] if diagnostics
                    else phase_status),
     }
