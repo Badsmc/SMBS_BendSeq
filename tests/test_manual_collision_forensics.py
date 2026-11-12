@@ -11,7 +11,9 @@ from smbs_core.kinematics2d.motion_trajectory_3d import (
     MotionState3D, TrajectoryEvidenceStatus,
 )
 from smbs_core.kinematics2d.native_collision_3d import CollisionClass
-from smbs_core.kinematics2d.native_collision_attribution import component_hits
+from smbs_core.kinematics2d.native_collision_attribution import (
+    component_hits, collision_preview_boxes,
+)
 from smbs_core.kinematics2d.manual_sequence_replay import off_section_prior_fold_risk
 from smbs_core.kinematics2d.panel_graph import GraphEdge, PanelGraph
 from smbs_core.kinematics2d.panel_kinematics import FoldState
@@ -113,6 +115,49 @@ class NativeOnsetTests(unittest.TestCase):
 
 
 class ComponentAttributionTests(unittest.TestCase):
+    def test_complete_native_attribution_focuses_real_panel_collision_bbox(self):
+        full = {"xmin": -248.75, "xmax": 248.75,
+                "ymin": -13.765, "ymax": 0.0, "zmin": -1.4, "zmax": 14.66}
+        panel = {"xmin": -248.55, "xmax": 219.75,
+                 "ymin": -13.765, "ymax": -13.363,
+                 "zmin": 14.315, "zmax": 14.658}
+        blocker = {
+            "intersection_bbox_xyz_mm": {"punch": full},
+            "component_attribution": {
+                "status": "ATTRIBUTED",
+                "complete": True,
+                "hits": [{
+                    "tool": "PUNCH", "component_id": "panel:P09",
+                    "overlap_bbox_xyz_mm": panel,
+                }],
+            },
+        }
+        self.assertEqual(collision_preview_boxes(blocker), [{
+            "tool": "PUNCH", "component_id": "panel:P09",
+            "bbox": panel, "source": "NATIVE_COMPONENT_COMMON_AABB",
+        }])
+        blocker["component_attribution"]["complete"] = False
+        self.assertEqual(collision_preview_boxes(blocker), [{
+            "tool": "PUNCH", "component_id": "whole_sheet",
+            "bbox": full, "source": "NATIVE_FULL_SHEET_COMMON_AABB",
+        }])
+
+    def test_missing_one_positive_component_bbox_falls_back_as_group(self):
+        full = {"xmin": -1, "xmax": 1}
+        attrs = {
+            "status": "ATTRIBUTED", "complete": True,
+            "hits": [
+                {"tool": "PUNCH", "component_id": "panel:P09",
+                 "overlap_bbox_xyz_mm": full},
+                {"tool": "PUNCH", "component_id": "bend_zone:B07",
+                 "overlap_bbox_xyz_mm": None},
+            ],
+        }
+        self.assertEqual(collision_preview_boxes({
+            "intersection_bbox_xyz_mm": {"punch": full},
+            "component_attribution": attrs,
+        })[0]["component_id"], "whole_sheet")
+
     def test_actual_positive_brep_hit_attributed_to_P09_not_axis_guess(self):
         components = [
             ("panel:P05", SimpleNamespace(BoundBox="P05")),
@@ -294,7 +339,7 @@ class ComponentAttributionTests(unittest.TestCase):
         self.assertIn('def _show_first_collision_in_3d(self):', gui)
         self.assertIn('inspection_state = FoldState(', gui)
         self.assertIn('current_placement = PlacementTransform3D(', gui)
-        self.assertIn('obstacle.get("intersection_bbox_xyz_mm")', gui)
+        self.assertIn('collision_preview_boxes(obstacle)', gui)
         self.assertIn('"MANUAL_FLAT_BEND_CLICK"', gui)
 
 
