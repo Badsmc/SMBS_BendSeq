@@ -108,7 +108,7 @@ jobs:
           assert 'self._task_stack = controls' in gui_source
           assert '("Деталь", self._page_part)' in gui_source
           assert '("Оснастка", self._page_tooling)' in gui_source
-          assert '("Расчёт", self._page_calculate)' in gui_source
+          assert '("Симуляция", self._page_simulation)' in gui_source
           assert '("2D варианты", self._page_planar)' in gui_source
           assert '("Manual", self._page_manual)' in gui_source
           assert '("Настройки", self._page_settings)' in gui_source
@@ -133,10 +133,14 @@ jobs:
               assert ".exec()" not in source, (name, path)
           assert "dlg.exec()" not in gui_source
           print("GUI_SHARED_TASK_DIALOG_CONTRACT_OK")
-          # Tooling controls and import are shown without nested tabs.
-          assert "tool_tabs.addTab(" not in gui_source
-          assert 'tooling_body.addWidget(tool_main)' in gui_source
-          assert 'tooling_body.addWidget(tool_import)' in gui_source
+          # No duplicated Task Panel tabs; the Tooling action alone
+          # provides exactly two nested choices requested by the user.
+          assert gui_source.count("tool_tabs.addTab(") == 2
+          assert 'tool_tabs.addTab(tool_main, "Основные")' in gui_source
+          assert 'tool_tabs.addTab(tool_import, "Импорт")' in gui_source
+          assert 'tooling_body.addWidget(tool_tabs)' in gui_source
+          assert 'tool_main_layout.addRow("Punch:", self.select_punch_combo)' in gui_source
+          assert 'tool_main_layout.addRow("Die:", self.select_die_combo)' in gui_source
           assert 'insert(cycle_body, entries[3])' in gui_source
           assert 'cycle_body.addWidget(self.retract_warning_checkbox)' in gui_source
           assert 'tool_opts_layout.addWidget(self.virtual_tool_len_checkbox)' in gui_source
@@ -175,6 +179,30 @@ jobs:
           assert 'self.appendToolbar("PressBrakeSim 2.5D", toolbar)' in wb_source
           assert "CMD_LOAD_PART, CMD_TOOLING_TAB, CMD_CALCULATE," in wb_source
           assert "CMD_PLANAR_CANDIDATES, CMD_MANUAL, CMD_SETTINGS," in wb_source
+          # The single Simulation surface contains ONLY playback and slider,
+          # no duplicated full-search and diagnostic buttons.
+          assert 'sim_body = sim_layout' in gui_source
+          assert 'insert(sim_body, entries[5])' in gui_source
+          assert 'insert(sim_body, entries[6])' in gui_source
+          assert 'self.calculate.hide()' in gui_source
+          assert 'self.planar_calculate.hide()' in gui_source
+          assert 'self.play_btn = _button(' in gui_source
+          assert 'QtWidgets, "Play", self._toggle_play_pause, False' in gui_source
+          assert '"Reset", "|<<", "Play / Pause", ">>|", "Fit"' in gui_source
+          assert "self.play_btn.setStyleSheet(\"font-size: 0px;\")" not in gui_source
+          assert "Активный гиб:" not in gui_source
+          # Manual toolbar command is disabled until a loaded session exists;
+          # selecting it activates flat-view line selection and its own page.
+          assert 'workspace.session is not None)' in gui_source
+          assert 'workspace.activate_manual_mode()' in gui_source
+          assert 'show_workspace_controls(self, tab=4)' in gui_source
+          assert 'QtWidgets.QPushButton("Проверить"), primary=True' in gui_source
+          # Everything moved out of the playback context is still live in Settings.
+          assert 'insert(cycle_body, entries[3])' in gui_source
+          assert 'cycle_body.addWidget(self.retract_warning_checkbox)' in gui_source
+          assert 'tool_opts_layout.addWidget(self.virtual_tool_len_checkbox)' in gui_source
+          assert 'tool_opts_layout.addWidget(self.allow_end_zone_checkbox)' in gui_source
+          assert 'diagnostics_body.addWidget(self.physical_check_result)' in gui_source
           assert '"Select Punch"' not in gui_source
           assert '"Select Die"' not in gui_source
           assert '"Align Tooling"' not in gui_source
