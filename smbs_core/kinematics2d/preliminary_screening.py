@@ -214,23 +214,66 @@ def screen_candidate_stage_a(
                 reason=f"invalid_inner_radius:{r_mm}",
             )
 
+    if getattr(tooling, "punch", None) is None or getattr(tooling, "die", None) is None:
+        return PreliminaryScreeningReport(
+            decision=ScreeningDecision.PROVEN_BLOCKING,
+            stage="STAGE_A_INPUT",
+            reason="selected_punch_and_die_required",
+        )
+
     axis = getattr(bend, "axis_xyz", None)
-    if axis and len(axis) >= 2:
-        bend_len = math.dist(axis[0], axis[1])
-        # Tooling span coverage check (when not automatically matching bend length)
-        if not match_active_bend_length and hasattr(tooling, "coverage_report"):
-            cov_punch = tooling.coverage_report(bend_len, desired_midpoint_xm)
-            if getattr(cov_punch, "punch_status", None) == "INSUFFICIENT_PUNCH_LENGTH":
+    if not axis or len(axis) < 2:
+        return PreliminaryScreeningReport(
+            decision=ScreeningDecision.PROVEN_BLOCKING,
+            stage="STAGE_A_GEOMETRY",
+            reason="missing_bend_axis",
+        )
+    bend_len = math.dist(axis[0], axis[1])
+    if not math.isfinite(bend_len) or bend_len <= 1e-6:
+        return PreliminaryScreeningReport(
+            decision=ScreeningDecision.PROVEN_BLOCKING,
+            stage="STAGE_A_GEOMETRY",
+            reason="invalid_bend_axis_length",
+        )
+
+    # The old hasattr(tooling, "coverage_report") guard was always false:
+    # ToolingSetup2D does NOT have that method. Check known actual selected
+    # FCStd catalog lengths when the operator has NOT selected virtual
+    # bend-length matching. Native 3D later checks exact spans and gaps.
+    physical_sections = bool(
+        getattr(tooling, "punch_section_offsets_xm", ())
+        or getattr(tooling, "die_section_offsets_xm", ())
+    )
+    if not match_active_bend_length and not physical_sections:
+        for kind, getter in (
+            ("punch", "effective_punch_length_mm"),
+            ("die", "effective_die_length_mm"),
+        ):
+            func = getattr(tooling, getter, None)
+            if not callable(func):
                 return PreliminaryScreeningReport(
-                    decision=ScreeningDecision.PROVEN_BLOCKING,
+                    decision=ScreeningDecision.UNVERIFIED_NEEDS_3D,
                     stage="STAGE_A_TOOLING",
-                    reason=f"punch_shorter_than_bend:{cov_punch.punch_span_mm:.1f}<{bend_len:.1f}",
+                    reason="selected_{}_length_unavailable".format(kind),
                 )
-            if getattr(cov_punch, "die_status", None) == "INSUFFICIENT_DIE_LENGTH":
+            tool_length = func()
+            if (tool_length is None or not isinstance(tool_length, (int, float))
+                    or not math.isfinite(float(tool_length))
+                    or float(tool_length) <= 0.0):
+                return PreliminaryScreeningReport(
+                    decision=ScreeningDecision.UNVERIFIED_NEEDS_3D,
+                    stage="STAGE_A_TOOLING",
+                    reason="selected_{}_length_unverified".format(kind),
+                )
+            if float(tool_length) + 0.1 < bend_len:
                 return PreliminaryScreeningReport(
                     decision=ScreeningDecision.PROVEN_BLOCKING,
                     stage="STAGE_A_TOOLING",
-                    reason=f"die_shorter_than_bend:{cov_punch.die_span_mm:.1f}<{bend_len:.1f}",
+                    reason=(
+                        "selected_{}_shorter_than_bend:{:.2f}<{:.2f}".format(
+                            kind, float(tool_length), bend_len,
+                        )
+                    ),
                 )
 
     return PreliminaryScreeningReport(
