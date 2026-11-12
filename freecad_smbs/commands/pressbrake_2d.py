@@ -698,7 +698,7 @@ class PressBrake2DCommand:
             mdi.setActiveSubWindow(existing)
             existing.show()
             existing.raise_()
-            show_workspace_controls(existing.widget())
+            show_workspace_controls(existing.widget(), tab=0)
             return
 
         widget = _PreviewPanel()
@@ -711,7 +711,7 @@ class PressBrake2DCommand:
         window.resize(1000, 720)
         window.showMaximized()
         mdi.setActiveSubWindow(window)
-        show_workspace_controls(widget)
+        show_workspace_controls(widget, tab=0)
         if doc is not None and selected:
             widget.load_part(selection=selected, document=doc)
         _log("Experimental PressBrakeSim GUI opened; original search engine retained")
