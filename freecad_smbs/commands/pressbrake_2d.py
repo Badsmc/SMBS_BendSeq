@@ -5278,6 +5278,16 @@ class _PreviewPanel:
                     "die_sections": tuple(
                         self.tooling_setup.die_section_offsets_xm or ()
                     ),
+                    "end_zone_allow": bool(
+                        self.tooling_setup.allow_end_zone_collision
+                    ),
+                    "end_zone_mm": float(
+                        self.tooling_setup.end_zone_length_mm
+                    ),
+                    "operator_reverse": bool(
+                        self.manual_reverse_3d_checkbox.isChecked()
+                    ),
+                    "session_identity": id(self.session),
                 }
                 if not expected or current != expected:
                     self.status.setText(
@@ -6125,6 +6135,10 @@ class _PreviewPanel:
                         "die_sections": tuple(
                             self.tooling_setup.die_section_offsets_xm or ()
                         ),
+                        "end_zone_allow": allow_end_zone,
+                        "end_zone_mm": end_zone_mm,
+                        "operator_reverse": manual_reversed,
+                        "session_identity": id(self.session),
                     }
                     for step in physical["steps"]:
                         if (step.get("status") == "COLLISION"
