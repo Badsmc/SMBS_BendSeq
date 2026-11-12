@@ -40,12 +40,27 @@ def called_names(node):
 
 
 class ManualVerifyEmbeddedContractTests(unittest.TestCase):
-    def test_manual_button_runs_3d_not_save_json_dialog(self):
-        source = ast.get_source_segment(
-            SOURCE.read_text(encoding="utf-8"),
-            method("_validate_export_manual_order"),
-        )
-        calls = called_names(method("_validate_export_manual_order"))
+    def test_manual_legacy_button_restores_fast_2d_stage_a_b(self):
+        gui = SOURCE.read_text(encoding="utf-8")
+        fn = method("_validate_manual_planar_only")
+        source = ast.get_source_segment(gui, fn)
+        calls = called_names(fn)
+        self.assertIn("evaluate_manual_planar_order", calls)
+        self.assertNotIn("check_manual_3d_sequence", calls)
+        self.assertNotIn("AdaptiveTrajectoryValidator3D", source)
+        self.assertIn("LEGACY_STAGE_A_B_ONLY", source)
+        self.assertIn("NOT_CHECKED_3D", source)
+        self.assertIn("_persist_manual_check_to_fcstd", calls)
+        self.assertNotIn("getSaveFileName", calls)
+        self.assertNotIn("json.dumps", source)
+        self.assertIn("QPushButton(\"Проверить 2D\")", gui)
+        self.assertIn("self._validate_manual_planar_only", gui)
+
+    def test_separate_native_3d_button_retains_full_validator(self):
+        gui = SOURCE.read_text(encoding="utf-8")
+        fn = method("_validate_export_manual_order")
+        source = ast.get_source_segment(gui, fn)
+        calls = called_names(fn)
         self.assertIn("check_manual_3d_sequence", calls)
         self.assertIn("evaluate_manual_planar_order", calls)
         self.assertIn("_persist_manual_check_to_fcstd", calls)
@@ -53,7 +68,9 @@ class ManualVerifyEmbeddedContractTests(unittest.TestCase):
         self.assertNotIn("getSaveFileName", calls)
         self.assertNotIn("write_text", calls)
         self.assertNotIn("json.dumps", source)
-        self.assertNotIn("smbs_manual_sequence_diagnostics.json", source)
+        self.assertIn("QPushButton(\"Проверить 3D\")", gui)
+        self.assertIn("self._validate_export_manual_order", gui)
+        self.assertIn("self.manual_validate_3d_btn", source)
 
     def test_native_fcstd_persistence_does_not_rename_or_export(self):
         calls = called_names(method("_persist_manual_check_to_fcstd"))
