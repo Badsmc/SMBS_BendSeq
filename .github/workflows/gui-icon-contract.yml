@@ -14,6 +14,7 @@ on:
       - fix/native-tasks-reopen-desktop-debug-json
       - fix/manual-collision-component-angle-diagnostics
       - fix/unified-native-manual-pose-regression
+      - fix/restore-legacy-manual-2d-check
   workflow_dispatch:
 
 jobs:
