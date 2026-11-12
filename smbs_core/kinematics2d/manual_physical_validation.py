@@ -462,6 +462,7 @@ def check_manual_3d_sequence(
             ),
             "allow_end_zone_collision": bool(allow_end_zone_collision),
             "end_zone_length_mm": end_len,
+            "reverse_axis_by_bend": {bid: bool(reverse_axis_by_bend.get(bid, False)) for bid in order},
             "steps": steps,
             "elapsed_s": round(perf_counter() - t0, 4),
         }
@@ -523,25 +524,6 @@ def check_manual_3d_sequence(
     for i, bend_id in enumerate(order):
         if progress_callback is not None:
             progress_callback(i + 1, len(order), bend_id)
-        if reverse_axis_by_bend.get(bend_id, False):
-            steps.append({
-                "step_number": i + 1,
-                "bend_id": bend_id,
-                "angle_deg": float(independent.bends[bend_id].angle_deg),
-                "completed_before_step": list(previous),
-                "status": "UNVERIFIED",
-                "reason": "reverse_axis_3d_trajectory_not_implemented",
-                "native_status": "UNVERIFIED",
-                "checked_scope": [],
-                "tool_length_info": None,
-                "retract": retract_evidence_from_trajectory(None),
-                "is_conditional": False,
-                "elapsed_s": 0.0,
-            })
-            return final_result(
-                "UNVERIFIED", steps,
-                "reverse_axis_3d_trajectory_not_implemented:" + bend_id,
-            )
         independent.reset_all()
         for prev in previous:
             independent.set_angle(
@@ -562,11 +544,14 @@ def check_manual_3d_sequence(
             fold_angles=dict(independent.angles),
             bend_axis_xyz=independent.bends[bend_id].axis_xyz,
             punch_id=punch_id, die_id=die_id,
+            reverse_axis=bool(reverse_axis_by_bend.get(bend_id, False)),
         )
         started = perf_counter()
         try:
             report = check_active_25d_bend_trajectory(
-                pseudo_session, tooling, **check_kwargs,
+                pseudo_session, tooling,
+                reverse_axis=bool(reverse_axis_by_bend.get(bend_id, False)),
+                **check_kwargs,
             )
             try:
                 complete_d6 = summarize_native_trajectory(report.raw_report)
@@ -661,6 +646,7 @@ def check_manual_3d_sequence(
                 "bend_id": bend_id,
                 "angle_deg": float(independent.bends[bend_id].angle_deg),
                 "completed_before_step": list(previous),
+                "reverse_axis": bool(reverse_axis_by_bend.get(bend_id, False)),
                 "status": status.value,
                 "reason": report.reason,
                 "native_status": report.native_status,
