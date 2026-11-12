@@ -1,8 +1,6 @@
-"""FreeCAD Qt settings for automatic and explicit backgauge section targets.
+"""FreeCAD settings for the real FCStd backgauge as visual-only moving geometry.
 
-Automatic mode derives the fixed panel edge from the active bend geometry.
-Geometry is a machine (s,z) rectangle;
-a successful 2D screen does not verify finger travel, clamp interaction, or 3D.
+No gauge collision, penetration, contact or travel check participates in search.
 """
 from __future__ import annotations
 
@@ -18,20 +16,17 @@ def show_backgauge_settings(workspace):
         return
     QtCore, _, W = _qt()
     dlg = W.QDialog(workspace)
-    dlg.setWindowTitle("SMBS — Задний упор (CAD / 2D)")
+    dlg.setWindowTitle("SMBS — Задний упор (FCStd, визуализация)")
     dlg.resize(680, 560)
     layout = W.QVBoxLayout(dlg)
     notice = W.QLabel(
-        "Направления станка: СЛЕВА (−s) оператор и свободная часть; "
-        "СПРАВА (+s) внутренняя часть станка и задний упор. "
-        "Линия гиба и оси пуансона/матрицы находятся на s=0. "
-        "2D-сечение заднего упора в координатах станка (s,z), мм. "
-        "АВТО: положение вычисляется от текущего гиба до края опорной панели. "
-        "РУЧНОЙ: задайте центр упора для каждого гиба. "
-        "Реальный Backgauge.FCStd доступен в экспериментальном CAD-режиме. "
-        "Первый контакт определяется по объёмной геометрии; "
-        "путь перемещения между гибами и ограничения осей "
-        "ещё не подтверждены.")
+        "Используется только реальная модель Backgauge.FCStd. "
+        "Автоматическая позиция рассчитывается от середины линии гиба "
+        "до внешнего края развёртки на стороне опорной панели. "
+        "Ручной режим задаёт центр S/Z для каждого гиба. "
+        "Упор только перемещается при просмотре: столкновения, "
+        "проникновения, контакт и допустимость хода НЕ проверяются."
+    )
     notice.setWordWrap(True)
     layout.addWidget(notice)
     inspect_btn = W.QPushButton("Проверить CAD-модель Backgauge.FCStd…")
@@ -46,7 +41,7 @@ def show_backgauge_settings(workspace):
         except Exception as exc:
             W.QMessageBox.warning(
                 dlg, "Backgauge CAD: проверка не пройдена",
-                str(exc) + "\nГеометрия НЕ подключена к проверке коллизий.",
+                str(exc) + "\nМодель требуется только для визуализации.",
             )
             return
         W.QMessageBox.information(
@@ -56,10 +51,8 @@ def show_backgauge_settings(workspace):
             "Solids: {} | Faces: {}\n"
             "Контактная грань: Face{}\n"
             "Статус: {}\n\n"
-            "ВНИМАНИЕ: это проверка исходной CAD-модели. "
-            "Для использования в поиске включите CAD-режим и "
-            "сохраните настройки. Проверка траектории и осей "
-            "не является производственной сертификацией."
+            "Проверены исходная модель и базовая грань. "
+            "Столкновения и доступность контакта не проверяются."
             .format(
                 result["source"], result["object"], result["solids"],
                 result["faces"], result["stop_face_index"], result["status"],
@@ -67,23 +60,18 @@ def show_backgauge_settings(workspace):
         )
 
     inspect_btn.clicked.connect(inspect_cad)
-    active = W.QCheckBox("Проверять задний упор при поиске и ручной проверке")
+    active = W.QCheckBox("Показывать движущийся упор Backgauge.FCStd")
     active.setChecked(workspace.backgauge_model is not None)
     layout.addWidget(active)
     auto = W.QCheckBox(
-        "Автоматически вычислять положение по краю опорной панели")
+        "Автоматически рассчитывать положение до внешнего края развёртки")
     model = workspace.backgauge_model
     auto.setChecked(model.automatic if model else True)
     layout.addWidget(auto)
-    cad_mode = W.QCheckBox(
-        "Использовать реальную 3D-модель Backgauge.FCStd при поиске "
-        "(экспериментально)"
-    )
-    cad_mode.setChecked(model.cad_geometry_enabled if model else True)
-    cad_mode.setToolTip(
-        "Твёрдая CAD-модель и объёмные панели/зоны гиба. "
-        "Проверяются дискретные положения; путь подвода и "
-        "перемещения упора НЕ сертифицирован.")
+    # CAD geometry is mandatory in this feature; no 2D rectangle fallback.
+    cad_mode = W.QCheckBox("Только настоящая модель Backgauge.FCStd")
+    cad_mode.setChecked(True)
+    cad_mode.setEnabled(False)
     layout.addWidget(cad_mode)
     dims = W.QFormLayout()
     width = W.QDoubleSpinBox()
@@ -106,8 +94,7 @@ def show_backgauge_settings(workspace):
     feed.setSuffix(" мм")
     feed.setValue(model.initial_feed_preview_mm if model else 0.0)
     feed.setToolTip(
-        "Подвод к упору: в CAD-режиме проверяются отдельные позиции. "
-        "Непрерывная траектория и другие части станка не проверены.")
+        "Визуальный подвод без проверок контакта или пересечений.")
     dims.addRow("Начальная подача листа (визуально):", feed)
     station = W.QDoubleSpinBox()
     station.setRange(-10000.0, 10000.0)
@@ -152,8 +139,8 @@ def show_backgauge_settings(workspace):
     )
     width.setValue(model.width_s_mm if model else 10.0)
     height.setValue(model.height_z_mm if model else 10.0)
-    dims.addRow("Ширина прямоугольника по s:", width)
-    dims.addRow("Высота прямоугольника по z:", height)
+    dims.addRow("Служебная ширина S (позиция центра):", width)
+    dims.addRow("Служебная высота Z (без геометрии):", height)
     layout.addLayout(dims)
     table = W.QTableWidget(0, 3, dlg)
     table.setObjectName("SMBS_BackgaugeTargets")
@@ -193,8 +180,10 @@ def show_backgauge_settings(workspace):
             workspace.backgauge_model = None
             workspace._backgauge_settings.setValue("backgauge/enabled", False)
             workspace.status.setText(
-                "Задний упор отключён. Коллизии и перемещения упора не проверяются."
+                "Модель упора скрыта. Расчёты последовательности не зависят от упора."
             )
+            workspace._backgauge_preview_cache.clear()
+            workspace.draw()
             dlg.accept()
             return
         if not bends:
@@ -211,7 +200,7 @@ def show_backgauge_settings(workspace):
                 "координату Xₘ: {:.2f} мм.\n\n"
                 "Для одного упора снимите галочку «Добавить второй CAD упор».\n"
                 "Для двух упоров укажите реальное положение второго "
-                "по Xₘ. Их 3D-тела также не должны пересекаться."
+                "по Xₘ."
                 .format(float(station.value())),
             )
             second_station.setFocus()
@@ -257,13 +246,12 @@ def show_backgauge_settings(workspace):
                 BackgaugeCAD3D(
                     station_xm_mm=new_model.cad_station_xm_mm,
                     second_station_xm_mm=new_model.cad_second_station_xm_mm,
-                ).positioned_shapes(100.0, 0.75)
+                ).preview_positioned_shapes(100.0, 0.75)
             except Exception as exc:
                 W.QMessageBox.warning(
                     dlg, "CAD задний упор не загружен",
                     "Невозможно использовать реальный CAD упор: {}\n"
-                    "Режим не сохранён. Исправьте модель или выберите "
-                    "старый упрощённый 2D режим.".format(exc),
+                    "Режим не сохранён. Исправьте CAD-модель.".format(exc),
                 )
                 return
         workspace.backgauge_model = new_model
@@ -272,11 +260,14 @@ def show_backgauge_settings(workspace):
         )
         workspace._backgauge_settings.setValue("backgauge/enabled", True)
         workspace.status.setText(
-            ("Задний упор: автоматическая постановка по краю опорной панели."
+            ("Задний упор: визуальная постановка по контуру развёртки."
              if auto.isChecked() else
              "Задний упор: ручные координаты для {} гибов.".format(len(targets)))
-            + " Путь перемещения НЕ проверен."
+            + " Столкновения и контакт не проверяются."
         )
+        workspace._backgauge_preview_cache.clear()
+        workspace._ergonomic_loading_cache_key = None
+        workspace.draw()
         dlg.accept()
 
     save.clicked.connect(accept)
