@@ -44,13 +44,14 @@ def _check_selected_tool_pair_at_sampled_rams(
     import FreeCAD as App
 
     phases = getattr(trajectory, "phase_results", None) or ()
-    positions = set()
+    positions = {}
     for phase in phases:
+        phase_name = str(getattr(phase, "phase_name", "UNKNOWN"))
         for state in getattr(phase, "states", ()) or ():
             z = float(state.ram_z_mm)
             if not isfinite(z):
                 raise ValueError("nonfinite sampled ram height")
-            positions.add(round(z, 6))
+            positions.setdefault(round(z, 6), set()).add(phase_name)
     if not positions:
         return {
             "status": "UNVERIFIED", "reason": "no_D6_ram_positions",
@@ -82,6 +83,7 @@ def _check_selected_tool_pair_at_sampled_rams(
                     "reason": "punch_die_positive_overlap",
                     "checked_ram_positions": i + 1,
                     "ram_z_mm": ram_z,
+                    "phases": sorted(positions[ram_z]),
                     "overlap_volume_mm3": float(result.overlap_volume_mm3),
                 }
             if result.status not in (
@@ -93,6 +95,7 @@ def _check_selected_tool_pair_at_sampled_rams(
                     "reason": "punch_die_pair_unverified:" + str(result.reason),
                     "checked_ram_positions": i + 1,
                     "ram_z_mm": ram_z,
+                    "phases": sorted(positions[ram_z]),
                 }
         return {
             "status": "SAMPLED_CLEAR",
