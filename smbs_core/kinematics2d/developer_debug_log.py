@@ -285,6 +285,9 @@ def summarize_native_trajectory(result):
             "evidence_status": _jsonable(phase.evidence_status),
             "is_safe": getattr(phase, "is_safe", None),
             "is_conditional": getattr(phase, "is_conditional", None),
+            "first_collision_bracket": _jsonable(
+                getattr(phase, "first_collision_bracket", None),
+            ),
             "unresolved_intervals": _jsonable(
                 getattr(phase, "unresolved_intervals", ())
             ),

@@ -149,6 +149,11 @@ class AdaptiveSamplingConfig:
     # Use the same *relative to contact* upper travel as PressCycleController.
     # Do not hard-code absolute +40/+50 mm in sampled D6 trajectories.
     initial_clearance_mm: float = DEFAULT_INITIAL_PUNCH_CLEARANCE_MM
+    # Only after a proven endpoint collision: bound its onset with adaptive
+    # native OCC checks, without claiming uninspected intervals are safe.
+    onset_refinement_max_samples: int = 6
+    onset_refinement_max_s: float = 30.0
+    onset_refinement_min_angle_deg: float = 1.0
 
 
 @dataclass
@@ -190,6 +195,7 @@ class TrajectoryPhaseResult:
     actual_distance_queries: int = 0
     actual_common_queries: int = 0
     state_evaluation_requests: int = 0
+    first_collision_bracket: Optional[Dict[str, Any]] = None
 
 
 @dataclass
@@ -1059,6 +1065,7 @@ class AdaptiveTrajectoryValidator3D:
         unresolved: List[Tuple[float, float]] = []
         discontinuities: List[str] = []
         uninspected_intervals: List[Tuple[float, float]] = []
+        first_collision_bracket = None
 
         # Local sample cache to avoid redundant evaluations of identical path_u values
         cache: Dict[float, MotionState3D] = {}
@@ -1112,9 +1119,75 @@ class AdaptiveTrajectoryValidator3D:
             phase_states: List[MotionState3D] = [s0]
 
             if getattr(self.config, "early_stop_on_blocking_collision", True) and is_blocking_collision(s1):
-                diags.append(f"EARLY_STOP_ON_BLOCKING_COLLISION_AT_PHASE_END: u=1.0, phase={phase_name}")
-                uninspected_intervals.append((0.0, 1.0))
+                # A collision at 90 degrees does NOT mean the first contact
+                # occurred at 90. Search between the last tested nonblocking
+                # point and the first blocking point, preserving full OCC
+                # validation, time/recursion limits and epistemic uncertainty.
                 phase_states.append(s1)
+                low, high = s0, s1
+                probes = 0
+                refinement_started = time.perf_counter()
+                for _ in range(max(0, int(self.config.onset_refinement_max_samples))):
+                    if (self.total_states_evaluated - initial_eval_count
+                            >= self.config.max_evaluated_states_per_phase):
+                        diags.append("ONSET_REFINEMENT_STATE_LIMIT")
+                        break
+                    if (time.perf_counter() - refinement_started
+                            >= self.config.onset_refinement_max_s
+                            or time.perf_counter() - t_start
+                            >= self.config.max_phase_time_s):
+                        diags.append("ONSET_REFINEMENT_TIME_LIMIT")
+                        break
+                    if abs(high.signed_angle_deg - low.signed_angle_deg) <= (
+                            self.config.onset_refinement_min_angle_deg
+                    ) and phase_name == "BENDING":
+                        break
+                    if high.path_u - low.path_u <= 1e-6:
+                        break
+                    middle = sample_state((low.path_u + high.path_u) * 0.5)
+                    phase_states.append(middle)
+                    probes += 1
+                    if is_blocking_collision(middle):
+                        high = middle
+                    elif (middle.collision_report is None
+                          or middle.collision_report.status in (
+                              CollisionClass.INVALID_GEOMETRY,
+                              CollisionClass.MISSING_EVIDENCE,
+                          )):
+                        diags.append("ONSET_REFINEMENT_UNVERIFIED_INTERMEDIATE")
+                        break
+                    elif getattr(middle, "is_conditional_safe", False) or middle.is_safe:
+                        low = middle
+                    else:
+                        diags.append("ONSET_REFINEMENT_AMBIGUOUS_INTERMEDIATE")
+                        break
+                first_collision_bracket = {
+                    "phase": phase_name,
+                    "last_sampled_nonblocking_u": round(low.path_u, 6),
+                    "first_sampled_blocking_u": round(high.path_u, 6),
+                    "last_sampled_nonblocking_angle_deg": round(
+                        low.signed_angle_deg, 6,
+                    ),
+                    "first_sampled_blocking_angle_deg": round(
+                        high.signed_angle_deg, 6,
+                    ),
+                    "last_nonblocking_ram_z_mm": round(low.ram_z_mm, 6),
+                    "first_blocking_ram_z_mm": round(high.ram_z_mm, 6),
+                    "refinement_samples": probes,
+                    "continuous_interval_certified": False,
+                    "nonmonotone_collision_not_excluded": True,
+                }
+                diags.append(
+                    "ONSET_BRACKET_SAMPLED: "
+                    "angle=[{:.3f},{:.3f}]deg u=[{:.6f},{:.6f}], "
+                    "probes={}".format(
+                        low.signed_angle_deg, high.signed_angle_deg,
+                        low.path_u, high.path_u, probes,
+                    )
+                )
+                # The rest of the path remains uninspected. Do NOT turn
+                # BENDING into a PASS from this diagnostic refinement.
+                uninspected_intervals.append((0.0, 1.0))
                 peak_depth = 1
             elif s0.path_u < s1.path_u:
                 peak_depth = self.validate_adaptive_interval(
@@ -1256,6 +1329,7 @@ class AdaptiveTrajectoryValidator3D:
             actual_distance_queries=phase_dist_queries,
             actual_common_queries=phase_comm_queries,
             state_evaluation_requests=phase_requests,
+            first_collision_bracket=first_collision_bracket,
         )
 
     def validate_bend_trajectory(

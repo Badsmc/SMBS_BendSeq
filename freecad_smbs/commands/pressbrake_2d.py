@@ -1312,6 +1312,8 @@ class _PreviewPanel:
                 self._partial_preview_limit = 0
                 self._manual_sequence_prefix: list[str] = []
                 self._last_manual_sequence_report = None
+                self._collision_inspection = None
+                self._collision_display_active = False
                 self._manual_3d_verdicts = {}
                 self._manual_retract_verdicts = {}
                 self._backgauge_settings = QtCore.QSettings("SMBS", "BendSeq")
@@ -2040,6 +2042,23 @@ class _PreviewPanel:
                 )
                 self.manual_check_details.hide()
                 order_body.addWidget(self.manual_check_details)
+                self.manual_show_collision_btn = style_action(
+                    QtWidgets.QPushButton("Показать коллизию в 3D")
+                )
+                self.manual_show_collision_btn.setObjectName(
+                    "SMBS_ShowNativeCollision"
+                )
+                self.manual_show_collision_btn.setToolTip(
+                    "Открыть 3D-вьювер с фактическим положением детали "
+                    "в момент найденного пересечения. Красные границы "
+                    "соответствуют объёму OCC Common."
+                )
+                self.manual_show_collision_btn.clicked.connect(
+                    self._show_first_collision_in_3d
+                )
+                self.manual_show_collision_btn.setEnabled(False)
+                self.manual_show_collision_btn.hide()
+                order_body.addWidget(self.manual_show_collision_btn)
                 self._manual_preview_help = QtWidgets.QLabel(
                     "Симулировать — просмотр без проверки коллизий. "
                     "Проверить — весь выбранный порядок: 2D + 3D пуансон/матрица. "
@@ -2839,21 +2858,71 @@ class _PreviewPanel:
                 if self.session is None:
                     scene.addSimpleText("Загрузите листовую деталь в PressBrakeSim")
                     return
+                inspection = (
+                    self._collision_inspection
+                    if self._collision_display_active else None
+                )
+                inspected_components = set()
                 try:
-                    # The whole-sheet 3D tab MUST use the same rigid
-                    # machine-space pose as the 2.5D sheet. Model-space
-                    # rendering hid the actual operator/rear orientation.
-                    current_placement = self._current_preview_machine_placement()
+                    # A real D6 3D collision uses the tool-centric MACHINE
+                    # coordinate system, which can differ from the ergonomic
+                    # reverse-axis 2.5D preview. For inspection, reconstruct
+                    # a SEPARATE FoldState and use the exact logged rigid pose.
+                    if inspection:
+                        entry = inspection.get("first_blocker") or {}
+                        actual = entry.get("sampled_machine_pose") or {}
+                        if (actual.get("bend_id") != inspection.get("bend_id")
+                                or not actual.get("rotation")
+                                or not actual.get("translation")):
+                            raise ValueError(
+                                "missing_native_machine_frame_for_collision"
+                            )
+                        inspection_state = FoldState(
+                            self.session.fold_state.graph,
+                            self.session.fold_state.fixed_panel,
+                        )
+                        for bid, deg in actual.get(
+                                "completed_angles", {}).items():
+                            inspection_state.set_angle(bid, float(deg))
+                        inspection_state.set_angle(
+                            actual["bend_id"],
+                            float(actual["signed_angle_deg"]),
+                        )
+                        current_placement = PlacementTransform3D(
+                            rotation=tuple(
+                                tuple(float(x) for x in row)
+                                for row in actual["rotation"]
+                            ),
+                            translation=tuple(
+                                float(x) for x in actual["translation"]
+                            ),
+                        )
+                        attribution = entry.get("component_attribution") or {}
+                        inspected_components = {
+                            str(hit.get("component_id")).split(":", 1)[1]
+                            for hit in attribution.get("hits", ())
+                            if str(hit.get("component_id", "")).startswith(
+                                "panel:"
+                            )
+                        }
+                        fold_state = inspection_state
+                        bend_id = actual["bend_id"]
+                    else:
+                        # Normal 2.5D/3D interactive preview remains unchanged.
+                        current_placement = self._current_preview_machine_placement()
+                        fold_state = self.session.fold_state
+                        bend_id = self.session.active_bend_id
                     pose = WorkpiecePose2D()
                     faces = build_sheet_preview_faces(
-                        self.session.fold_state,
+                        fold_state,
                         self.session.panel_vertices_xy,
-                        self.session.active_bend_id,
+                        bend_id,
                         pose,
                         segments=12,
                         machine_placement=current_placement,
                     )
-                except (PreviewMeshError, WorkpiecePoseError, KinematicsError) as exc:
+                except (PreviewMeshError, WorkpiecePoseError,
+                        KinematicsError, ValueError, KeyError) as exc:
                     _warn("3D whole-sheet preview unavailable: {}".format(exc))
                     scene.addSimpleText("3D: {}".format(str(exc)))
                     return
@@ -2903,13 +2972,68 @@ class _PreviewPanel:
                     if len(poly) < 3:
                         continue
                     fill_hex, edge_hex = palette.get(face.kind, ("#91a5b3", "#4c6474"))
-                    pen = QtGui.QPen(QtGui.QColor(edge_hex), 0.65)
+                    if inspection and face.identifier in inspected_components:
+                        edge_hex, fill_hex = "#cf3030", "#e8a1a1"
+                    pen = QtGui.QPen(QtGui.QColor(edge_hex), 2.0 if (
+                        inspection and face.identifier in inspected_components
+                    ) else 0.65)
                     pen.setCosmetic(True)
                     brush = QtGui.QBrush(QtGui.QColor(fill_hex))
                     item = scene.addPolygon(poly, pen, brush)
                     item.setToolTip("{}: {}".format(face.kind, face.identifier))
 
+                if inspection:
+                    actual = (inspection.get("first_blocker") or {}).get(
+                        "sampled_machine_pose"
+                    ) or {}
+                    obstacle = inspection.get("first_blocker") or {}
+                    for tool_kind, bound in (
+                        obstacle.get("intersection_bbox_xyz_mm") or {}
+                    ).items():
+                        if not isinstance(bound, dict):
+                            continue
+                        # 12 edges of the exact OCC common-solid AABB in
+                        # MACHINE coordinates. Do NOT imply the red wireframe
+                        # is the exact contact surface itself.
+                        lo = (bound["xmin"], bound["ymin"], bound["zmin"])
+                        hi = (bound["xmax"], bound["ymax"], bound["zmax"])
+                        corners = [
+                            (x, y, z)
+                            for x in (lo[0], hi[0])
+                            for y in (lo[1], hi[1])
+                            for z in (lo[2], hi[2])
+                        ]
+                        red = QtGui.QPen(QtGui.QColor("#df2020"), 2.6)
+                        red.setCosmetic(True)
+                        for i in range(8):
+                            for j in range(i + 1, 8):
+                                if sum(
+                                    corners[i][axis] != corners[j][axis]
+                                    for axis in range(3)
+                                ) != 1:
+                                    continue
+                                a, b = project(corners[i]), project(corners[j])
+                                wire = scene.addLine(
+                                    a.x(), a.y(), b.x(), b.y(), red,
+                                )
+                                wire.setZValue(500.0)
+                        text_item = scene.addSimpleText(
+                            "OCC {}: XYZ BBox / native D6".format(
+                                tool_kind.upper()
+                            )
+                        )
+                        text_item.setBrush(QtGui.QBrush(
+                            QtGui.QColor("#ce1818")
+                        ))
+                        text_item.setPos(project(corners[0]))
+                        text_item.setZValue(501.0)
                 label = scene.addSimpleText(
+                    ("3D КОЛЛИЗИЯ | гиб {} | фаза {} | угол {:.2f}° | "
+                     "native XYZ BBox, НЕ поверхность контакта".format(
+                        inspection["bend_id"],
+                        (inspection["first_blocker"] or {}).get("phase", "?"),
+                        float(actual.get("signed_angle_deg", 0.0)),
+                    )) if inspection else
                     "3D MACHINE FRAME | {} | {} | NOT 3D CERTIFIED".format(
                         self.session.active_bend_id,
                         self.execution_mode.value,
@@ -3451,7 +3575,6 @@ class _PreviewPanel:
                         candidate_count=len(report.candidates),
                         limit_reason=report.limit_reason,
                         budget_seconds=search_budget_s,
-                        cad_extended_search=cad_extended_search,
                     )
                     self._show_planar_candidates_dialog(report)
                 except Exception as exc:
@@ -4824,6 +4947,11 @@ class _PreviewPanel:
                 )
                 self.manual_check_details.clear()
                 self.manual_check_details.hide()
+                self._collision_inspection = None
+                self._collision_display_active = False
+                if hasattr(self, "manual_show_collision_btn"):
+                    self.manual_show_collision_btn.setEnabled(False)
+                    self.manual_show_collision_btn.hide()
 
             def _show_manual_check_feedback(self, status, summary, steps=()):
                 """Show native check result in Manual, including the failed bend."""
@@ -4861,8 +4989,25 @@ class _PreviewPanel:
                                 blocker.get("phase", "?"), tool_label,
                                 blocker.get("ram_z_mm")
                                 if blocker.get("ram_z_mm") is not None else "—",
-                                float(blocker.get("punch_overlap_mm3") or 0.0),
-                                float(blocker.get("die_overlap_mm3") or 0.0),
+                                float(
+                                    blocker.get("first_sample_punch_overlap_mm3")
+                                    if blocker.get("first_sample_punch_overlap_mm3")
+                                    is not None else
+                                    blocker.get("punch_overlap_mm3") or 0.0
+                                ),
+                                float(
+                                    blocker.get("first_sample_die_overlap_mm3")
+                                    if blocker.get("first_sample_die_overlap_mm3")
+                                    is not None else
+                                    blocker.get("die_overlap_mm3") or 0.0
+                                ),
+                            )
+                        )
+                        lines.append(
+                            "  МАКС. ПРОНИКНОВЕНИЕ за проверенные положения: "
+                            "пуансон={:.6f} мм³, матрица={:.6f} мм³".format(
+                                float(blocker.get("punch_overlap_mm3") or 0),
+                                float(blocker.get("die_overlap_mm3") or 0),
                             )
                         )
                         bbox_dict = blocker.get("intersection_bbox_xyz_mm") or {}
@@ -4878,6 +5023,43 @@ class _PreviewPanel:
                                         coords["ymin"], coords["ymax"],
                                         coords["zmin"], coords["zmax"],
                                     )
+                                )
+                        bracket = blocker.get("sampled_onset_bracket") or {}
+                        if bracket:
+                            lines.append(
+                                "  НАЧАЛО СТОЛКНОВЕНИЯ (выборочно): "
+                                "{}° без блокирующей коллизии → "
+                                "{}° с коллизией, {} доп. проверок. "
+                                "Непроверенные углы не исключены.".format(
+                                    bracket.get(
+                                        "last_sampled_nonblocking_angle_deg"
+                                    ),
+                                    bracket.get(
+                                        "first_sampled_blocking_angle_deg"
+                                    ),
+                                    bracket.get("refinement_samples", 0),
+                                )
+                            )
+                        attribution = blocker.get("component_attribution") or {}
+                        if attribution:
+                            names = attribution.get(
+                                "hits", attribution.get("positive_overlap_components", [])
+                            )
+                            if names:
+                                lines.append(
+                                    "  ПЕРЕСЕКШИЕСЯ ЭЛЕМЕНТЫ (native OCC): " +
+                                    ", ".join(
+                                        "{} {:.3f} мм³".format(
+                                            hit.get("component_id", "?"),
+                                            float(hit.get("overlap_volume_mm3", 0.0)),
+                                        )
+                                        for hit in names[:8]
+                                    )
+                                )
+                            else:
+                                lines.append(
+                                    "  Конкретная панель не подтверждена: " +
+                                    str(attribution.get("status", "UNVERIFIED"))
                                 )
                         lines.append(
                             "  Код: {} | {}".format(
@@ -4923,6 +5105,42 @@ class _PreviewPanel:
                     ]
                 self.manual_check_details.setPlainText("\n".join(lines))
                 self.manual_check_details.show()
+
+            def _show_first_collision_in_3d(self):
+                """Visualize true OCC hit bounding box in the native machine frame.
+
+                A *separate* isolated FoldState recreates the native D6
+                collision pose. Do not project machine coordinates onto the
+                ergonomic 2.5D placement: its reverse axis may differ.
+                """
+                if not self._collision_inspection:
+                    self.status.setText("Нет сохранённой 3D-коллизии для показа.")
+                    return
+                self._stop_timer()
+                self._collision_display_active = not self._collision_display_active
+                if hasattr(self, "manual_show_collision_btn"):
+                    self.manual_show_collision_btn.setText(
+                        "Вернуться к обычному 3D"
+                        if self._collision_display_active else
+                        "Показать коллизию в 3D"
+                    )
+                self._viewer_tabs.setCurrentWidget(self._preview_3d)
+                self._last_3d_frame_at = -1.0
+                self._fixed_3d_view_rect = None
+                self._update_3d_preview(force=True)
+                self._trace_event(
+                    "MANUAL_COLLISION_3D_INSPECTION",
+                    bend_id=self._collision_inspection.get("bend_id"),
+                    blocker=self._collision_inspection.get("first_blocker"),
+                )
+                self.status.setText(
+                    "Показано место столкновения в машинных XYZ. "
+                    "Геометрия обзора приближённая, красная область — "
+                    "границы точного 3D-пересечения OCC."
+                    if self._collision_display_active else
+                    "Возврат к обычному 3D-просмотру; коллизия остаётся "
+                    "в диагностике Manual."
+                )
 
             def _record_manual_precheck_failure(self, selected, reason):
                 """Fail visibly and save the UNVERIFIED reason in FCStd as well."""
@@ -5439,7 +5657,19 @@ class _PreviewPanel:
                         # native collision validation.
                         reverse_axis_by_bend={},
                     )
+                    self._collision_inspection = None
+                    self._collision_display_active = False
+                    self.manual_show_collision_btn.setText(
+                        "Показать коллизию в 3D"
+                    )
                     for step in physical["steps"]:
+                        if (step.get("status") == "COLLISION"
+                                and (step.get("first_blocker") or {})
+                                    .get("sampled_machine_pose")):
+                            self._collision_inspection = {
+                                "bend_id": step["bend_id"],
+                                "first_blocker": step["first_blocker"],
+                            }
                         self._manual_3d_verdicts[step["bend_id"]] = (
                             step["status"]
                         )
@@ -5448,6 +5678,12 @@ class _PreviewPanel:
                                 "status", "NOT_EVALUATED"
                             )
                         )
+                    if self._collision_inspection:
+                        self.manual_show_collision_btn.setEnabled(True)
+                        self.manual_show_collision_btn.show()
+                    else:
+                        self.manual_show_collision_btn.setEnabled(False)
+                        self.manual_show_collision_btn.hide()
                     self._populate_operations()
 
                     # A confirmed 2D section disagreement does not override
@@ -5728,6 +5964,12 @@ class _PreviewPanel:
             def _select_flat_bend(self, bend_id):
                 if self.session is None or not self._manual_selection_enabled:
                     return
+                _desktop_debug_event(
+                    "MANUAL_FLAT_BEND_CLICK",
+                    bend_id=str(bend_id),
+                    accepted_before=list(self._manual_sequence_prefix),
+                    current_order=list(self.session.bend_order),
+                )
                 if bend_id in self._manual_sequence_prefix:
                     self.status.setText(
                         "Линия {} уже имеет номер {}.".format(
@@ -5743,6 +5985,11 @@ class _PreviewPanel:
                     )
                     return
                 self._manual_sequence_prefix.append(bend_id)
+                _desktop_debug_event(
+                    "MANUAL_FLAT_BEND_ACCEPTED",
+                    bend_id=str(bend_id),
+                    sequence=list(self._manual_sequence_prefix),
+                )
                 self._apply_manual_order()
 
             def _apply_manual_order(self):

@@ -19,6 +19,35 @@ from .preliminary_screening import (
 from .sequence_search_2d import _classify_step, _setup_with_scored_tool_lengths
 
 
+def off_section_prior_fold_risk(fold_state: Any, completed_bends: Sequence[str]) -> dict:
+    """Name previously folded panels invisible to center-plane 2D screening.
+
+    This is an honest cheap *risk indicator*, not a claim of intersection.
+    The final selected native 3D punch/die solids decide collision.
+    """
+    moved = sorted({
+        pid
+        for bend_id in completed_bends
+        for pid in getattr(fold_state.bends[bend_id], "moving_subtree", ())
+    })
+    return {
+        "scope": "2D_ACTIVE_AXIS_CROSS_SECTION_ONLY",
+        "native_full_span_3d_required": bool(completed_bends),
+        "completed_bends": list(completed_bends),
+        "previously_folded_panels": moved,
+        "status": (
+            "UNVERIFIED_OUT_OF_SECTION_PANELS"
+            if completed_bends else "NO_PRIOR_FOLDS"
+        ),
+        "reason": (
+            "A center-plane 2D pass cannot exclude a prior folded flange "
+            "striking the real punch at another position along its length."
+            if completed_bends else
+            "No previously completed bends; 3D tooling remains unverified."
+        ),
+    }
+
+
 def evaluate_manual_planar_order(
     session: Any,
     tooling: Any,
@@ -74,6 +103,9 @@ def evaluate_manual_planar_order(
                 "bend_id": bid,
                 "angle_deg": float(state.bends[bid].angle_deg),
                 "completed_before_step": list(accepted),
+                "off_section_3d_risk": off_section_prior_fold_risk(
+                    state, accepted,
+                ),
             }
             try:
                 setup = _setup_with_scored_tool_lengths(
@@ -274,6 +306,7 @@ def evaluate_manual_planar_order(
                      "tolerance_mm": tolerance_mm},
         "warnings": [
             "Sampled planar sections cannot certify continuous motion, 3D tool ends, backgauge, frame, or transfer.",
+            "Previous folds (such as B07/P09 before B03) may occupy another axial X station and never appear in the central 2D cutting section; use per-panel native 3D attribution.",
             "2D interference does not prove a collision in the actual 3D model.",
             "End-zone conditional exemption is not applied by manual 2D replay.",
             "Only the explicitly numbered sequence was replayed; unselected bends were not executed.",
