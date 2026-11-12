@@ -1501,11 +1501,9 @@ class _PreviewPanel:
                 )), "Развёртка · Порядок")
                 views.currentChanged.connect(self._on_view_changed)
 
-                controls = QtWidgets.QTabWidget()
-                controls.setObjectName("SMBS_ControlTabs")
-                controls.setIconSize(QtCore.QSize(17, 17))
-                controls.tabBar().setUsesScrollButtons(True)
-                controls.setSizePolicy(QtWidgets.QSizePolicy.Preferred,
+                controls = QtWidgets.QStackedWidget()
+                controls.setObjectName("SMBS_TaskStack")
+                controls.setSizePolicy(QtWidgets.QSizePolicy.Ignored,
                                        QtWidgets.QSizePolicy.Expanding)
 
                 from freecad_smbs.ui.pressbrake_theme import (
@@ -1525,15 +1523,16 @@ class _PreviewPanel:
                         OUTER_MARGIN, OUTER_MARGIN,
                     )
                     content.layout().setSpacing(SECTION_GAP)
+                    # The page must be able to shrink with the FreeCAD dock.
                     content.layout().setSizeConstraint(
-                        QtWidgets.QLayout.SetMinimumSize
+                        QtWidgets.QLayout.SetNoConstraint
                     )
                     page = QtWidgets.QScrollArea()
                     page.setObjectName(name)
                     page.setWidgetResizable(True)
                     page.setFrameShape(QtWidgets.QFrame.NoFrame)
                     page.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOn)
-                    page.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAsNeeded)
+                    page.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
                     page.setMinimumSize(0, 0)
                     page.setSizePolicy(QtWidgets.QSizePolicy.Preferred,
                                        QtWidgets.QSizePolicy.Expanding)
@@ -1544,6 +1543,8 @@ class _PreviewPanel:
                 # as the preview design. No duplicate playback/controller widgets.
                 simulation = QtWidgets.QWidget()
                 sim_layout = QtWidgets.QVBoxLayout(simulation)
+                part_page = QtWidgets.QWidget()
+                part_layout = QtWidgets.QVBoxLayout(part_page)
 
                 source_card, source_body = card("Источник / Деталь")
                 source_grid = QtWidgets.QGridLayout()
@@ -1571,7 +1572,9 @@ class _PreviewPanel:
                 source_grid.setColumnStretch(0, 1)
                 source_grid.setColumnStretch(1, 0)
                 source_body.addLayout(source_grid)
-                sim_layout.addWidget(source_card)
+                part_layout.addWidget(source_card)
+                part_layout.addStretch(1)
+                self._page_part = scroll_task_page(part_page, "SMBS_PartScroll")
 
                 sim_card, sim_body = card(
                     "Режим симуляции и управление воспроизведением"
@@ -1586,6 +1589,14 @@ class _PreviewPanel:
                 self.slider.setToolTip("Угол активного гиба")
                 insert(sim_body, entries[6])  # angle slider
                 sim_layout.addWidget(sim_card)
+
+                run_calc_row = QtWidgets.QHBoxLayout()
+                self.calculate.show()
+                style_action(self.calculate, primary=True)
+                self.calculate.setText("Запустить расчёт")
+                run_calc_row.addWidget(self.calculate)
+                run_calc_row.addStretch(1)
+                sim_layout.addLayout(run_calc_row)
 
                 sim_diag_card, sim_diag_body = card(
                     "Результаты / Диагностика"
@@ -1606,10 +1617,30 @@ class _PreviewPanel:
                 )
                 sim_layout.addWidget(sim_diag_card)
                 sim_layout.addStretch(1)
-                controls.addTab(
-                    scroll_task_page(simulation, "SMBS_SimulationScroll"),
-                    QtGui.QIcon(str(_ICON_ROOT / "gui_simulation.svg")),
-                    "Симуляция"
+                self._page_calculate = scroll_task_page(
+                    simulation, "SMBS_CalculateScroll"
+                )
+                planar_page = QtWidgets.QWidget()
+                planar_layout = QtWidgets.QVBoxLayout(planar_page)
+                planar_card, planar_body = card("Предварительный 2D поиск")
+                planar_note = QtWidgets.QLabel(
+                    "Быстрый поиск вариантов порядка гибки. Результат не "
+                    "является подтверждением физической возможности или "
+                    "полноценной 3D-проверки."
+                )
+                planar_note.setWordWrap(True)
+                planar_body.addWidget(planar_note)
+                self.planar_calculate.show()
+                style_action(self.planar_calculate, primary=True)
+                self.planar_calculate.setText("Найти 2D варианты")
+                planar_run_row = QtWidgets.QHBoxLayout()
+                planar_run_row.addWidget(self.planar_calculate)
+                planar_run_row.addStretch(1)
+                planar_body.addLayout(planar_run_row)
+                planar_layout.addWidget(planar_card)
+                planar_layout.addStretch(1)
+                self._page_planar = scroll_task_page(
+                    planar_page, "SMBS_PlanarScroll"
                 )
 
                 manual = QtWidgets.QWidget()
@@ -1659,10 +1690,8 @@ class _PreviewPanel:
                 verify_row.addWidget(self.manual_validate_btn)
                 order_body.addLayout(verify_row)
                 manual_layout.addWidget(order_card, 1)
-                controls.addTab(
-                    scroll_task_page(manual, "SMBS_ManualScroll"),
-                    QtGui.QIcon(str(_ICON_ROOT / "control_manual.svg")),
-                    "Manual"
+                self._page_manual = scroll_task_page(
+                    manual, "SMBS_ManualScroll"
                 )
 
                 # RETRACT warning belongs to Settings, not Simulation.
@@ -1678,8 +1707,8 @@ class _PreviewPanel:
                 tooling = QtWidgets.QWidget()
                 td_layout = QtWidgets.QVBoxLayout(tooling)
                 tooling_card, tooling_body = card("Оснастка и станок")
-                tool_tabs = QtWidgets.QTabWidget(tooling_card)
-                tool_tabs.setIconSize(QtCore.QSize(17, 17))
+                # Both tooling sections stay on one contextual page.
+                # No nested "Основные / Импорт" tabs.
                 tool_main = QtWidgets.QWidget()
                 tool_main_layout = QtWidgets.QFormLayout(tool_main)
                 tool_main_layout.setContentsMargins(
@@ -1708,16 +1737,15 @@ class _PreviewPanel:
                     style_action(btn)
                     tool_import_layout.addWidget(btn)
                 tool_import_layout.addStretch(1)
-                tool_tabs.addTab(tool_main, "Основные")
-                tool_tabs.addTab(tool_import, "Импорт")
-                tooling_body.addWidget(tool_tabs)
+                tooling_body.addWidget(tool_main)
+                import_heading = QtWidgets.QLabel("Импорт и библиотека")
+                import_heading.setObjectName("SMBS_SectionTitle")
+                tooling_body.addWidget(import_heading)
+                tooling_body.addWidget(tool_import)
                 td_layout.addWidget(tooling_card)
                 td_layout.addStretch(1)
-                self._tooling_tabs = tool_tabs
-                controls.addTab(
-                    scroll_task_page(tooling, "SMBS_ToolingScroll"),
-                    QtGui.QIcon(str(_ICON_ROOT / "gui_tooling.svg")),
-                    "Оснастка"
+                self._page_tooling = scroll_task_page(
+                    tooling, "SMBS_ToolingScroll"
                 )
                 # All active tooling widgets have been reparented.
                 self.tooling_group.deleteLater()
@@ -1899,15 +1927,28 @@ class _PreviewPanel:
                     style_action(btn)
                 settings_layout.addWidget(trace_card)
                 settings_layout.addStretch(1)
-                controls.addTab(
-                    scroll_task_page(settings, "SMBS_SettingsScroll"),
-                    QtGui.QIcon(str(_ICON_ROOT / "gui_settings.svg")),
-                    "Настройки"
+                self._page_settings = scroll_task_page(
+                    settings, "SMBS_SettingsScroll"
                 )
 
+                # Fixed contextual pages match the six operator toolbar actions.
+                # Only the selected page is shown. Specialist QDialogs may be
+                # temporarily added and removed without creating tabs.
+                page_specs = (
+                    ("Деталь", self._page_part),
+                    ("Оснастка", self._page_tooling),
+                    ("Расчёт", self._page_calculate),
+                    ("2D варианты", self._page_planar),
+                    ("Manual", self._page_manual),
+                    ("Настройки", self._page_settings),
+                )
+                self._task_page_titles = {}
+                for name, page in page_specs:
+                    controls.addWidget(page)
+                    self._task_page_titles[page] = name
                 root.addWidget(views, 1)
                 self._viewer_tabs = views
-                self._control_tabs = controls
+                self._task_stack = controls
                 self._controls_dock = None
                 self.show_task_panel_btn = QtWidgets.QPushButton("Показать панель управления")
                 self.show_task_panel_btn.setObjectName("SMBS_ShowTaskPanel")
