@@ -604,12 +604,13 @@ def show_workspace_controls(workspace, tab=None):
 
 
 def activate_task_dialog(workspace, key):
-    """Return to a dialog already embedded in this workspace's Task Panel."""
+    """Select an existing specialist page, never spawn a second window."""
     widgets = getattr(workspace, "_task_dialogs", {})
     widget = widgets.get(key)
     if widget is None:
         return False
-    index = workspace._control_tabs.indexOf(widget)
+    page = getattr(widget, "_smbs_task_page", widget)
+    index = workspace._control_tabs.indexOf(page)
     if index < 0:
         widgets.pop(key, None)
         return False
@@ -618,12 +619,15 @@ def activate_task_dialog(workspace, key):
 
 
 def embed_task_dialog(workspace, widget, title, key):
-    """Mount an existing QDialog UI inside the one persistent Task Panel.
+    """Rehost a real QDialog inside a scrollable page of the shared Task Panel.
 
-    Keeps existing dialog button signals/validation. Accepted/rejected
-    widgets are removed from the tab bar rather than opening a window.
+    This preserves its native accepted/rejected signals and save callbacks.
+    Specialist forms can exceed the dock height without clipping actions.
     """
-    QtCore, _QtGui, _QtWidgets = _qt()
+    QtCore, _QtGui, QtWidgets = _qt()
+    from freecad_smbs.ui.pressbrake_theme import (
+        OUTER_MARGIN, SECTION_GAP, style_action,
+    )
     if activate_task_dialog(workspace, key):
         widget.deleteLater()
         return
@@ -632,22 +636,59 @@ def embed_task_dialog(workspace, widget, title, key):
     if dialogs is None:
         dialogs = {}
         workspace._task_dialogs = dialogs
+
     widget.setWindowFlags(QtCore.Qt.Widget)
-    widget.setParent(tabs)
     widget.setMinimumWidth(0)
     widget.setObjectName("SMBS_Task_" + key)
-    index = tabs.addTab(widget, title)
+    original_layout = widget.layout()
+    if original_layout is not None:
+        original_layout.setContentsMargins(
+            OUTER_MARGIN, OUTER_MARGIN, OUTER_MARGIN, OUTER_MARGIN
+        )
+        original_layout.setSpacing(SECTION_GAP)
+
+    page = QtWidgets.QWidget(tabs)
+    page.setObjectName("SMBS_EmbeddedPage_" + key)
+    page_layout = QtWidgets.QVBoxLayout(page)
+    page_layout.setContentsMargins(0, 0, 0, 0)
+    page_layout.setSpacing(0)
+    scroll = QtWidgets.QScrollArea(page)
+    scroll.setWidgetResizable(True)
+    scroll.setFrameShape(QtWidgets.QFrame.NoFrame)
+    scroll.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAsNeeded)
+    scroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAsNeeded)
+    scroll.setWidget(widget)
+    page_layout.addWidget(scroll, 1)
+
+    bottom = QtWidgets.QWidget(page)
+    bottom_layout = QtWidgets.QHBoxLayout(bottom)
+    bottom_layout.setContentsMargins(
+        OUTER_MARGIN, SECTION_GAP // 2, OUTER_MARGIN, SECTION_GAP // 2
+    )
+    bottom_layout.addStretch(1)
+    close_btn = style_action(QtWidgets.QPushButton("Закрыть раздел"))
+    bottom_layout.addWidget(close_btn)
+    page_layout.addWidget(bottom, 0)
+
+    widget._smbs_task_page = page
+    index = tabs.addTab(page, title)
     dialogs[key] = widget
 
     def on_finished(_result):
-        i = tabs.indexOf(widget)
+        i = tabs.indexOf(page)
         if i >= 0:
             tabs.removeTab(i)
         if dialogs.get(key) is widget:
             del dialogs[key]
-        widget.deleteLater()
+        page.deleteLater()
+
+    def on_close():
+        widget.close()  # honour QDialog.closeEvent (tool previews cleanup)
+        if tabs.indexOf(page) >= 0:
+            on_finished(0)
 
     widget.finished.connect(on_finished)
+    close_btn.clicked.connect(on_close)
     show_workspace_controls(workspace, tab=index)
 
 
