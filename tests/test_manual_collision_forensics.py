@@ -149,6 +149,112 @@ class ComponentAttributionTests(unittest.TestCase):
             4120.24,
         )
 
+    def test_exact_component_rebuild_uses_isolated_bend_state_and_native_xyz(self):
+        """End-to-end attribution fixture: P09 only, not a label inferred from bbox."""
+        import sys
+        from pathlib import Path
+        from types import ModuleType
+        from smbs_core.kinematics2d.native_collision_attribution import (
+            attribute_native_collision,
+        )
+        from smbs_core.kinematics2d.panel_kinematics import RigidTransform
+
+        class Shape:
+            def __init__(self, name):
+                self.name = name
+                self.BoundBox = name
+            def copy(self):
+                return Shape(self.name)
+            def transformShape(self, matrix, copy=False):
+                return self
+
+        class Zone:
+            thickness_mm = 1.5
+            def moving_transform(self, angle_deg, moving_left=True):
+                return RigidTransform()
+
+        graph = PanelGraph(("P05", "P08", "P09"), (
+            GraphEdge("B03", "P05", "P08", 90,
+                      ((0, 0, 0), (0, 100, 0)), Zone()),
+            GraphEdge("B07", "P08", "P09", 90,
+                      ((10, 0, 0), (10, 100, 0)), Zone()),
+        ))
+        state = FoldState(graph, "P05")
+        baseline = dict(state.angles)
+        session = SimpleNamespace(
+            fold_state=state,
+            panel_build=SimpleNamespace(
+                panels=[SimpleNamespace(panel_id=p) for p in graph.panels],
+                panel_faces=[Shape(p) for p in graph.panels],
+            ),
+        )
+        placement = SimpleNamespace(
+            rotation=((1.,0.,0.),(0.,1.,0.),(0.,0.,1.)),
+            translation=(0.,0.,0.),
+        )
+        hit = SimpleNamespace(
+            active_bend_id="B03", phase="BENDING",
+            signed_angle_deg=40.0, ram_z_mm=-1.0,
+            completed_angles={"B07": 90.0},
+            workpiece_placement=placement,
+            collision_report=SimpleNamespace(
+                punch_result=SimpleNamespace(
+                    status=CollisionClass.PENETRATION,
+                ),
+                die_result=SimpleNamespace(status=CollisionClass.CLEAR),
+            ),
+        )
+        app = ModuleType("FreeCAD")
+        app.Matrix = type("Matrix", (), {})
+        loader = ModuleType("smbs_core.kinematics2d.native_tool_loader")
+        loader.load_native_punch = lambda *args, **kwargs: SimpleNamespace(
+            machine_shape=Shape("PUNCH")
+        )
+        loader.load_native_die = lambda *args, **kwargs: SimpleNamespace(
+            machine_shape=Shape("DIE")
+        )
+        loader.set_punch_ram_z = lambda item,z: item
+        build = ModuleType("smbs_core.kinematics2d.native_bend_solid_3d")
+        build._source_panel_prism = lambda pid, face, thick, app: Shape(pid)
+        build._apply_rigid_transform = lambda solid,tf,app: solid
+        build.build_bend_zone_solid = lambda st, bend_id, segments: (
+            SimpleNamespace(shape=Shape(bend_id))
+        )
+        def clearance(shape, tool_shape, tool_label):
+            is_hit = shape.name == "P09"
+            return SimpleNamespace(
+                status=(CollisionClass.PENETRATION if is_hit
+                        else CollisionClass.CLEAR),
+                overlap_volume_mm3=350.0 if is_hit else 0.0,
+                overlap_bbox_xyz_mm=None,
+                reason="test native component common",
+            )
+        with patch.dict(sys.modules, {
+            "FreeCAD": app,
+            "smbs_core.kinematics2d.native_tool_loader": loader,
+            "smbs_core.kinematics2d.native_bend_solid_3d": build,
+        }), patch(
+            "smbs_core.kinematics2d.native_collision_3d.check_pair_clearance",
+            side_effect=clearance,
+        ), patch(
+            "smbs_core.kinematics2d.native_collision_3d.compute_aabb_gap",
+            return_value=0.0,
+        ):
+            report = attribute_native_collision(
+                session, hit, punch_source=Path("selected-punch.FCStd"),
+                die_source=Path("selected-die.FCStd"),
+                virtual_length=True, bend_length_mm=497.5,
+                tooling=SimpleNamespace(
+                    punch_section_offsets_xm=(),
+                    die_section_offsets_xm=(),
+                ),
+            )
+        self.assertTrue(report["complete"], report)
+        self.assertEqual(report["status"], "ATTRIBUTED")
+        self.assertEqual([x["component_id"] for x in report["hits"]],
+                         ["panel:P09"])
+        self.assertEqual(state.angles, baseline)
+
     def test_missing_or_failed_kernel_evidence_cannot_be_diagnosed_as_clear(self):
         fake = [("panel:P09", SimpleNamespace(BoundBox=1))]
         result = component_hits(
