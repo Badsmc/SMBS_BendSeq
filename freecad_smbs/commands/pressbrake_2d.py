@@ -541,10 +541,16 @@ def show_workspace_controls(workspace, tab=None):
     import FreeCADGui as Gui
     QtCore, _QtGui, QtWidgets = _qt()
     from freecad_smbs.ui.pressbrake_theme import (
-        TASK_QSS, OUTER_MARGIN, SECTION_GAP,
+        OUTER_MARGIN, SECTION_GAP,
     )
     if tab is not None:
-        workspace._control_tabs.setCurrentIndex(tab)
+        if 0 <= int(tab) < workspace._task_stack.count():
+            workspace._task_stack.setCurrentIndex(int(tab))
+    section = workspace._task_stack.currentWidget()
+    caption = workspace._task_page_titles.get(section, "Панель задач")
+    header = getattr(workspace, "_task_section_label", None)
+    if header is not None and getattr(workspace, "_controls_dock", None) is not None:
+        header.setText(caption)
     dock = getattr(workspace, "_controls_dock", None)
     if dock is not None:
         dock.show()
@@ -553,7 +559,7 @@ def show_workspace_controls(workspace, tab=None):
         return dock
 
     main = Gui.getMainWindow()
-    dock = QtWidgets.QDockWidget("PressBrakeSim — Task Panel", main)
+    dock = QtWidgets.QDockWidget("PressBrakeSim TaskPanel", main)
     dock.setObjectName(_CONTROLS_DOCK_NAME)
     dock.setAllowedAreas(QtCore.Qt.LeftDockWidgetArea | QtCore.Qt.RightDockWidgetArea)
     dock.setFeatures(
@@ -561,21 +567,30 @@ def show_workspace_controls(workspace, tab=None):
         QtWidgets.QDockWidget.DockWidgetMovable
     )  # Do not allow a floating window for the main Task Panel.
     dock.setAttribute(QtCore.Qt.WA_DeleteOnClose, False)
-    dock.setMinimumWidth(300)
+    dock.setMinimumWidth(265)
     form = QtWidgets.QWidget(dock)
     form.setObjectName("SMBS_TaskDockRoot")
-    form.setStyleSheet(TASK_QSS)
+    # No local stylesheet: inherit FreeCAD's native dark/light QStyle.
     layout = QtWidgets.QVBoxLayout(form)
     layout.setContentsMargins(0, 0, 0, 0)
     layout.setSpacing(0)
-    # Only the page content scrolls; tab bar and status/progress remain fixed.
-    layout.addWidget(workspace._control_tabs, 1)
+    # Exactly one context is visible; there is deliberately no task tab bar.
+    header = QtWidgets.QLabel(form)
+    header.setObjectName("SMBS_TaskSectionTitle")
+    header.setText(caption)
+    header.setContentsMargins(8, 5, 8, 5)
+    native_font = header.font()
+    native_font.setBold(True)
+    header.setFont(native_font)
+    workspace._task_section_label = header
+    layout.addWidget(header, 0)
+    layout.addWidget(workspace._task_stack, 1)
 
     footer = QtWidgets.QFrame(form)
     footer.setObjectName("SMBS_TaskFooter")
     footer_layout = QtWidgets.QVBoxLayout(footer)
     footer_layout.setContentsMargins(
-        OUTER_MARGIN, 12, OUTER_MARGIN, 12
+        OUTER_MARGIN, 5, OUTER_MARGIN, 5
     )
     footer_layout.setSpacing(SECTION_GAP // 2)
     state_row = QtWidgets.QHBoxLayout()
@@ -586,12 +601,12 @@ def show_workspace_controls(workspace, tab=None):
     footer_layout.addWidget(workspace.task_progress)
     workspace.status.setObjectName("SMBS_StatusLabel")
     workspace.status.setWordWrap(True)
-    workspace.status.setMaximumHeight(52)
+    workspace.status.setMaximumHeight(38)
     footer_layout.addWidget(workspace.status)
     layout.addWidget(footer)
     dock.setWidget(form)
     main.addDockWidget(QtCore.Qt.LeftDockWidgetArea, dock)
-    dock.resize(410, dock.height())
+    dock.resize(330, dock.height())
     workspace._on_task_status_change(workspace.status.text())
     dock.visibilityChanged.connect(
         lambda visible: workspace.show_task_panel_btn.setVisible(not visible)
@@ -610,7 +625,7 @@ def activate_task_dialog(workspace, key):
     if widget is None:
         return False
     page = getattr(widget, "_smbs_task_page", widget)
-    index = workspace._control_tabs.indexOf(page)
+    index = workspace._task_stack.indexOf(page)
     if index < 0:
         widgets.pop(key, None)
         return False
@@ -619,10 +634,10 @@ def activate_task_dialog(workspace, key):
 
 
 def embed_task_dialog(workspace, widget, title, key):
-    """Rehost a real QDialog inside a scrollable page of the shared Task Panel.
+    """Rehost a real QDialog inside the *single* contextual Tasks surface.
 
-    This preserves its native accepted/rejected signals and save callbacks.
-    Specialist forms can exceed the dock height without clipping actions.
+    No extra tabs or second simulation panel are created. QDialog signals,
+    callbacks and cleanup remain bound to the original controls.
     """
     QtCore, _QtGui, QtWidgets = _qt()
     from freecad_smbs.ui.pressbrake_theme import (
@@ -631,7 +646,8 @@ def embed_task_dialog(workspace, widget, title, key):
     if activate_task_dialog(workspace, key):
         widget.deleteLater()
         return
-    tabs = workspace._control_tabs
+    stack = workspace._task_stack
+    return_page = stack.currentWidget()
     dialogs = getattr(workspace, "_task_dialogs", None)
     if dialogs is None:
         dialogs = {}
@@ -647,7 +663,7 @@ def embed_task_dialog(workspace, widget, title, key):
         )
         original_layout.setSpacing(SECTION_GAP)
 
-    page = QtWidgets.QWidget(tabs)
+    page = QtWidgets.QWidget(stack)
     page.setObjectName("SMBS_EmbeddedPage_" + key)
     page_layout = QtWidgets.QVBoxLayout(page)
     page_layout.setContentsMargins(0, 0, 0, 0)
@@ -656,7 +672,7 @@ def embed_task_dialog(workspace, widget, title, key):
     scroll.setWidgetResizable(True)
     scroll.setFrameShape(QtWidgets.QFrame.NoFrame)
     scroll.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAsNeeded)
-    scroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAsNeeded)
+    scroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
     scroll.setWidget(widget)
     page_layout.addWidget(scroll, 1)
 
@@ -671,20 +687,28 @@ def embed_task_dialog(workspace, widget, title, key):
     page_layout.addWidget(bottom, 0)
 
     widget._smbs_task_page = page
-    index = tabs.addTab(page, title)
+    index = stack.addWidget(page)
+    workspace._task_page_titles[page] = title
     dialogs[key] = widget
 
     def on_finished(_result):
-        i = tabs.indexOf(page)
-        if i >= 0:
-            tabs.removeTab(i)
+        i = stack.indexOf(page)
+        if i < 0:
+            return
+        was_current = (stack.currentWidget() is page)
+        stack.removeWidget(page)
+        workspace._task_page_titles.pop(page, None)
         if dialogs.get(key) is widget:
             del dialogs[key]
+        if was_current:
+            fallback = return_page if stack.indexOf(return_page) >= 0 else stack.widget(0)
+            if fallback is not None:
+                show_workspace_controls(workspace, tab=stack.indexOf(fallback))
         page.deleteLater()
 
     def on_close():
         widget.close()  # honour QDialog.closeEvent (tool previews cleanup)
-        if tabs.indexOf(page) >= 0:
+        if stack.indexOf(page) >= 0:
             on_finished(0)
 
     widget.finished.connect(on_finished)
@@ -697,8 +721,8 @@ def close_workspace_controls(workspace):
     dock = getattr(workspace, "_controls_dock", None)
     if dock is None:
         return
-    workspace._control_tabs.setParent(workspace)
-    workspace._control_tabs.hide()
+    workspace._task_stack.setParent(workspace)
+    workspace._task_stack.hide()
     # These live controls must survive destruction of the old dock.
     workspace.status.setParent(workspace)
     workspace.task_progress.setParent(workspace)
@@ -708,6 +732,7 @@ def close_workspace_controls(workspace):
     dock.setWidget(None)
     dock.deleteLater()
     workspace._controls_dock = None
+    workspace._task_section_label = None
 
 
 class PressBrake2DCommand:
@@ -739,7 +764,11 @@ class PressBrake2DCommand:
             mdi.setActiveSubWindow(existing)
             existing.show()
             existing.raise_()
-            show_workspace_controls(existing.widget(), tab=0)
+            workspace = existing.widget()
+            # Simulation is navigation only, not an automatic search. Leave
+            # the manual order, fold angles and playback state untouched.
+            workspace._viewer_tabs.setCurrentWidget(workspace.view)
+            show_workspace_controls(workspace, tab=2)
             return
 
         widget = _PreviewPanel()
@@ -752,7 +781,7 @@ class PressBrake2DCommand:
         window.resize(1000, 720)
         window.showMaximized()
         mdi.setActiveSubWindow(window)
-        show_workspace_controls(widget, tab=0)
+        show_workspace_controls(widget, tab=2)
         if doc is not None and selected:
             widget.load_part(selection=selected, document=doc)
         _log("Experimental PressBrakeSim GUI opened; original search engine retained")
@@ -767,17 +796,11 @@ class LoadPartCommand:
         }
 
     def IsActive(self):
-        try:
-            doc, selection = _selection_snapshot()
-            return bool(doc is not None and selection and
-                        resolve_selected_unfold(doc, selection))
-        except (SelectionWarning, AttributeError, TypeError, ValueError, ImportError):
-            return False
+        # The Detail section must remain accessible before a part is selected.
+        return True
 
     def Activated(self):
         doc, selection = _selection_snapshot()
-        if not self.IsActive():
-            return
         workspace = get_workspace_widget()
         created = workspace is None
         if created:
@@ -785,8 +808,12 @@ class LoadPartCommand:
             workspace = get_workspace_widget()
         if workspace is None:
             raise RuntimeError("PressBrakeSim viewer did not open")
-        if not created:
-            workspace.load_part(selection=selection, document=doc)
+        if not created and doc is not None and selection:
+            try:
+                if resolve_selected_unfold(doc, selection):
+                    workspace.load_part(selection=selection, document=doc)
+            except (SelectionWarning, AttributeError, TypeError, ValueError, ImportError):
+                pass
         show_workspace_controls(workspace, 0)
 
 
@@ -814,18 +841,24 @@ class CalculateCommand:
     def GetResources(self):
         return {
             "Pixmap": str(_ICON_ROOT / "gui_calculate.svg"),
-            "MenuText": "Расчёт",
-            "ToolTip": "Полный поиск последовательности с физическими проверками",
+            "MenuText": "Автопоиск последовательности",
+            "ToolTip": "Отдельный физический поиск порядка гибки (не требуется для просмотра Manual)",
         }
 
     def IsActive(self):
-        workspace = get_workspace_widget()
-        return bool(workspace is not None and workspace.calculate.isEnabled())
+        return True
 
     def Activated(self):
         workspace = get_workspace_widget()
-        if workspace is not None and workspace.calculate.isEnabled():
-            workspace.calculate_sequence()
+        if workspace is None:
+            PressBrake2DCommand().Activated()
+            workspace = get_workspace_widget()
+        if workspace is not None:
+            show_workspace_controls(workspace, 2)
+            if workspace.calculate.isEnabled():
+                workspace.calculate_sequence()
+
+
 class BackgaugeCommand:
     """Configure explicit backgauge stop geometry and per-bend targets."""
     def GetResources(self):
@@ -869,7 +902,7 @@ class SequenceCatalogCommand:
 
 
 class ManualCommand:
-    """Start manual bend-line ordering on a loaded SheetMetal unfold."""
+    """Enable manual bend-line ordering only after SheetMetal loading."""
 
     def GetResources(self):
         return {
@@ -884,8 +917,9 @@ class ManualCommand:
 
     def Activated(self):
         workspace = get_workspace_widget()
-        if workspace is not None and workspace.session is not None:
-            workspace.activate_manual_mode()
+        if workspace is None or workspace.session is None:
+            return
+        workspace.activate_manual_mode()
 
 
 class SettingsCommand:
@@ -920,17 +954,32 @@ class PlanarCandidatesCommand:
         }
 
     def IsActive(self):
-        workspace = get_workspace_widget()
-        return bool(workspace is not None and workspace.planar_calculate.isEnabled())
+        return True
 
     def Activated(self):
         workspace = get_workspace_widget()
-        if workspace is not None and workspace.planar_calculate.isEnabled():
-            workspace.calculate_planar_candidates()
+        if workspace is None:
+            PressBrake2DCommand().Activated()
+            workspace = get_workspace_widget()
+        if workspace is not None:
+            show_workspace_controls(workspace, 3)
+            if workspace.planar_calculate.isEnabled():
+                workspace.calculate_planar_candidates()
 
 
 def _button(widgets, label, callback, enabled=True):
     btn = widgets.QPushButton(label)
+    btn.setEnabled(enabled)
+    btn.clicked.connect(callback)
+    return btn
+
+
+def _playback_button(QtCore, widgets, label, callback, enabled=True):
+    """FreeCAD-style compact toolbar control; keep existing signal handlers."""
+    btn = widgets.QToolButton()
+    btn.setAutoRaise(True)
+    btn.setToolButtonStyle(QtCore.Qt.ToolButtonTextOnly)
+    btn.setText(label)
     btn.setEnabled(enabled)
     btn.clicked.connect(callback)
     return btn
@@ -1109,6 +1158,7 @@ class _PreviewPanel:
                         except (ValueError, TypeError, KeyError) as exc:
                             _error("Backgauge configuration rejected: " + str(exc))
                 self._manual_selection_enabled = False
+                self._manual_preview_unverified = False
                 self._conditional_bends_status: dict[str, str] = {}
                 self._highlighted_end_zone_info: dict | None = None
                 _log(
@@ -1124,18 +1174,10 @@ class _PreviewPanel:
                 self.timer = QtCore.QTimer(self)
                 self.timer.setInterval(25)  # 40 Hz Qt playback; one timer only
                 self.timer.timeout.connect(self.advance)
-                self.setMinimumWidth(580)
+                self.setMinimumWidth(0)
                 self.setObjectName("SMBS_ViewerRoot")
-                self.setStyleSheet(
-                    "QWidget#SMBS_ViewerRoot { background: palette(window); }"
-                    "QTabWidget#SMBS_ViewerTabs::pane {"
-                    " border: 1px solid palette(midlight);"
-                    " border-radius: 9px; }"
-                    "QTabWidget#SMBS_ViewerTabs QTabBar::tab {"
-                    " padding: 9px 14px; min-height: 27px; }"
-                    "QTabWidget#SMBS_ViewerTabs QTabBar::tab:selected {"
-                    " border-bottom: 2px solid #48A99C; }"
-                )
+                # The host FreeCAD style paints the viewport and viewer tabs.
+                # No colored borders, background fills or pseudo-native QSS.
 
                 from freecad_smbs.ui.pressbrake_theme import (
                     OUTER_MARGIN, SECTION_GAP,
@@ -1147,7 +1189,10 @@ class _PreviewPanel:
                 )
                 root.setSpacing(SECTION_GAP)
                 title = QtWidgets.QLabel("PressBrakeSim 2.5D")
-                title.setStyleSheet("font-weight: 600; font-size: 14px;")
+                # Keep its layout slot (used by the original 11-item
+                # reparenting contract), but the MDI title already names
+                # the simulator. A second large heading wastes CAD space.
+                title.hide()
                 root.addWidget(title)
 
                 self.status = TaskStatusLabel(
@@ -1205,7 +1250,7 @@ class _PreviewPanel:
 
                 # Development virtual tool length & controlled punch end-zone policy
                 self.virtual_tool_len_checkbox = QtWidgets.QCheckBox(
-                    "Разработка: длина инструмента равна длине гиба"
+                    "Виртуальная длина инструмента\nравна длине гиба"
                 )
                 self.virtual_tool_len_checkbox.setChecked(False)
                 self.virtual_tool_len_checkbox.setToolTip(
@@ -1227,7 +1272,7 @@ class _PreviewPanel:
                 t_layout.addLayout(ez_row)
 
                 self.allow_end_zone_checkbox = QtWidgets.QCheckBox(
-                    "Условный допуск концевых зон пуансона (CONDITIONAL)"
+                    "Условный допуск концевых зон\nпуансона (CONDITIONAL)"
                 )
                 self.allow_end_zone_checkbox.setChecked(False)
                 self.allow_end_zone_checkbox.setToolTip(
@@ -1241,7 +1286,6 @@ class _PreviewPanel:
 
                 self.tooling_status = QtWidgets.QLabel(self.tooling_setup.status_line())
                 self.tooling_status.setWordWrap(True)
-                self.tooling_status.setStyleSheet("font-size: 11px; color: palette(window-text);")
                 t_layout.addWidget(self.tooling_status)
                 # Explicit, on-demand physical check: no expensive BRep
                 # booleans in the 25–40 Hz drawing/timer path.
@@ -1314,9 +1358,8 @@ class _PreviewPanel:
                     "Оператор ← | Упор → | Подача: пока не определена"
                 )
                 self.loading_orientation_status.setWordWrap(True)
-                self.loading_orientation_status.setStyleSheet(
-                    "font-size: 11px; color: #815a2a;"
-                )
+                self.cycle_phase_label.setWordWrap(True)
+                self.ram_position_label.setWordWrap(True)
                 pc_layout.addWidget(self.loading_orientation_status)
                 root.addWidget(self.press_cycle_group)
 
@@ -1329,37 +1372,35 @@ class _PreviewPanel:
                 root.addWidget(self.view, 1)
 
                 row = QtWidgets.QGridLayout()
-                row.setHorizontalSpacing(16)
-                row.setVerticalSpacing(16)
+                row.setHorizontalSpacing(3)
+                row.setVerticalSpacing(3)
                 # One playback button owns Play, Pause and Resume, with step
                 # navigation immediately on either side.
-                self.reset_btn = _button(QtWidgets, "Reset", self.reset, False)
-                self.prev_step_btn = _button(QtWidgets, "|<<", self.previous_step, False)
-                self.play_btn = _button(
-                    QtWidgets, "Play", self._toggle_play_pause, False
+                self.reset_btn = _playback_button(QtCore, QtWidgets, "Reset", self.reset, False)
+                self.prev_step_btn = _playback_button(QtCore, QtWidgets, "|<<", self.previous_step, False)
+                self.play_btn = _playback_button(
+                    QtCore, QtWidgets, "Play", self._toggle_play_pause, False
                 )
                 self.play_btn.setToolTip("Play / Pause / Resume для выбранного режима")
-                self.next_step_btn = _button(QtWidgets, ">>|", self.next_step, False)
-                self.fit_btn = _button(QtWidgets, "Fit", self.fit, True)
+                self.next_step_btn = _playback_button(QtCore, QtWidgets, ">>|", self.next_step, False)
+                self.fit_btn = _playback_button(QtCore, QtWidgets, "Fit", self.fit, True)
                 buttons = (
                     self.reset_btn, self.prev_step_btn, self.play_btn,
                     self.next_step_btn, self.fit_btn,
                 )
                 captions = ("Reset", "|<<", "Play / Pause", ">>|", "Fit")
-                for col, (widget, caption) in enumerate(zip(buttons, captions)):
-                    # A 400px Tasks dock cannot hold five icon+text buttons.
-                    # Keep actual connected QPushButtons, use icon surfaces
-                    # and concise captions underneath as in the design.
-                    if widget is not self.play_btn:
-                        widget.setText("")
+                sizes = (48, 34, 64, 34, 36)
+                row.setColumnMinimumWidth(0, 0)
+                for col, (widget, caption, width) in enumerate(
+                    zip(buttons, captions, sizes)
+                ):
+                    # Native compact controls: one row, no separate labels and
+                    # no duplicate Pause button. Text updates in the original
+                    # _sync_playback_buttons() callback.
                     widget.setToolTip(caption)
+                    widget.setFixedSize(width, 27)
                     row.addWidget(widget, 0, col)
-                    mini_label = QtWidgets.QLabel(caption)
-                    mini_label.setObjectName("SMBS_SectionCaption")
-                    mini_label.setAlignment(QtCore.Qt.AlignHCenter)
-                    mini_label.setWordWrap(True)
-                    row.addWidget(mini_label, 1, col)
-                    row.setColumnStretch(col, 1)
+                    row.setColumnStretch(col, 0)
                 root.addLayout(row)
 
                 self.slider = QtWidgets.QSlider(QtCore.Qt.Horizontal)
@@ -1370,21 +1411,25 @@ class _PreviewPanel:
 
 
                 order_row = QtWidgets.QGridLayout()
-                order_row.setHorizontalSpacing(16)
-                order_row.setVerticalSpacing(16)
+                order_row.setHorizontalSpacing(6)
+                order_row.setVerticalSpacing(6)
                 self.move_up_btn = _button(QtWidgets, "↑ Move Up", self.move_selected_up, False)
                 self.move_down_btn = _button(QtWidgets, "↓ Move Down", self.move_selected_down, False)
                 self.restore_order_btn = _button(QtWidgets, "↺ Restore Order", self.restore_order, False)
-                for col, widget in enumerate((
-                    self.move_up_btn, self.move_down_btn, self.restore_order_btn
-                )):
-                    order_row.addWidget(widget, 0, col)
-                    order_row.setColumnStretch(col, 1)
+                order_row.addWidget(self.move_up_btn, 0, 0)
+                order_row.addWidget(self.move_down_btn, 0, 1)
+                order_row.addWidget(self.restore_order_btn, 1, 0, 1, 2)
+                order_row.setColumnStretch(0, 0)
+                order_row.setColumnStretch(1, 0)
+                order_row.setColumnStretch(2, 1)
                 root.addLayout(order_row)
 
                 self.operations = QtWidgets.QTreeWidget()
                 self.operations.setHeaderLabels(["Step", "Bend", "Target", "Current", "Status"])
                 self.operations.setRootIsDecorated(False)
+                self.operations.setHorizontalScrollBarPolicy(
+                    QtCore.Qt.ScrollBarAlwaysOff
+                )
                 self.operations.setObjectName("SMBS_Operations")
                 self.operations.setAlternatingRowColors(True)
                 self.operations.setMinimumHeight(220)
@@ -1445,6 +1490,7 @@ class _PreviewPanel:
                 self.task_progress = QtWidgets.QProgressBar(self)
                 self.task_progress.setObjectName("SMBS_TaskProgress")
                 self.task_progress.setTextVisible(False)
+                self.task_progress.setFixedHeight(7)
                 self.task_progress.setRange(0, 100)
                 self.task_progress.setValue(0)
                 self._task_status_chip = QtWidgets.QLabel("Ready", self)
@@ -1452,10 +1498,15 @@ class _PreviewPanel:
                 self._task_status_chip.setProperty("state", "ready")
                 self._task_progress_caption = QtWidgets.QLabel("0%", self)
                 self._task_progress_caption.setObjectName("SMBS_SectionCaption")
+                status_font = self._task_status_chip.font()
+                status_font.setBold(True)
+                self._task_status_chip.setFont(status_font)
 
                 views = QtWidgets.QTabWidget(self)
                 views.setObjectName("SMBS_ViewerTabs")
                 views.setDocumentMode(True)
+                views.setIconSize(QtCore.QSize(16, 16))
+                views.tabBar().setExpanding(False)
                 views.addTab(self.view, QtGui.QIcon(str(
                     _ICON_ROOT / "gui_simulation.svg"
                 )), "2.5D · Гибка")
@@ -1480,11 +1531,9 @@ class _PreviewPanel:
                 )), "Развёртка · Порядок")
                 views.currentChanged.connect(self._on_view_changed)
 
-                controls = QtWidgets.QTabWidget()
-                controls.setObjectName("SMBS_ControlTabs")
-                controls.setIconSize(QtCore.QSize(17, 17))
-                controls.tabBar().setUsesScrollButtons(True)
-                controls.setSizePolicy(QtWidgets.QSizePolicy.Preferred,
+                controls = QtWidgets.QStackedWidget()
+                controls.setObjectName("SMBS_TaskStack")
+                controls.setSizePolicy(QtWidgets.QSizePolicy.Ignored,
                                        QtWidgets.QSizePolicy.Expanding)
 
                 from freecad_smbs.ui.pressbrake_theme import (
@@ -1504,15 +1553,16 @@ class _PreviewPanel:
                         OUTER_MARGIN, OUTER_MARGIN,
                     )
                     content.layout().setSpacing(SECTION_GAP)
+                    # The page must be able to shrink with the FreeCAD dock.
                     content.layout().setSizeConstraint(
-                        QtWidgets.QLayout.SetMinimumSize
+                        QtWidgets.QLayout.SetNoConstraint
                     )
                     page = QtWidgets.QScrollArea()
                     page.setObjectName(name)
                     page.setWidgetResizable(True)
                     page.setFrameShape(QtWidgets.QFrame.NoFrame)
                     page.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOn)
-                    page.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAsNeeded)
+                    page.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
                     page.setMinimumSize(0, 0)
                     page.setSizePolicy(QtWidgets.QSizePolicy.Preferred,
                                        QtWidgets.QSizePolicy.Expanding)
@@ -1523,8 +1573,10 @@ class _PreviewPanel:
                 # as the preview design. No duplicate playback/controller widgets.
                 simulation = QtWidgets.QWidget()
                 sim_layout = QtWidgets.QVBoxLayout(simulation)
+                part_page = QtWidgets.QWidget()
+                part_layout = QtWidgets.QVBoxLayout(part_page)
 
-                source_card, source_body = card("Источник / Деталь")
+                source_card, source_body = card("")
                 source_grid = QtWidgets.QGridLayout()
                 source_grid.setHorizontalSpacing(SECTION_GAP)
                 self._source_summary = QtWidgets.QLabel(
@@ -1550,45 +1602,56 @@ class _PreviewPanel:
                 source_grid.setColumnStretch(0, 1)
                 source_grid.setColumnStretch(1, 0)
                 source_body.addLayout(source_grid)
-                sim_layout.addWidget(source_card)
+                part_layout.addWidget(source_card)
+                part_layout.addStretch(1)
+                self._page_part = scroll_task_page(part_page, "SMBS_PartScroll")
 
-                sim_card, sim_body = card(
-                    "Режим симуляции и управление воспроизведением"
-                )
+                # The dock header already says "Симуляция": no duplicate
+                # section title or large diagnostic card above playback.
+                sim_body = sim_layout
                 for btn in (
                     self.reset_btn, self.prev_step_btn, self.next_step_btn,
                     self.fit_btn,
                 ):
                     style_action(btn, compact=True)
                 style_action(self.play_btn, primary=True)
-                insert(sim_body, entries[5])  # 5-column playback QGridLayout
-                self.slider.setToolTip("Угол активного гиба")
+                insert(sim_body, entries[5])  # Reset / Prev / Play-Pause / Next / Fit
+                self.slider.setToolTip(
+                    "Перемещение угла и пуансона: кинематический просмотр, "
+                    "не проверка коллизий"
+                )
                 insert(sim_body, entries[6])  # angle slider
-                sim_layout.addWidget(sim_card)
+                self._manual_preview_notice = QtWidgets.QLabel(
+                    "РУЧНОЙ ПРОСМОТР — коллизии не проверены"
+                )
+                self._manual_preview_notice.setWordWrap(True)
+                self._manual_preview_notice.hide()
+                sim_body.addWidget(self._manual_preview_notice)
 
-                sim_diag_card, sim_diag_body = card(
-                    "Результаты / Диагностика"
-                )
-                self._simulation_diagnostics_summary = QtWidgets.QLabel(
-                    "Unverified · физическая проверка ещё не выполнена"
-                )
-                self._simulation_diagnostics_summary.setObjectName(
-                    "SMBS_SectionCaption"
-                )
-                self._simulation_diagnostics_summary.setAlignment(
-                    QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter
-                )
-                self._simulation_diagnostics_summary.setWordWrap(True)
-                sim_diag_body.addWidget(self._simulation_diagnostics_summary)
-                self._on_physical_result_change(
-                    self.physical_check_result.text()
-                )
-                sim_layout.addWidget(sim_diag_card)
+                # Full search is initiated by the FreeCAD toolbar "Расчёт".
+                # Its enabled-state proxy remains a single hidden widget.
+                self.calculate.hide()
                 sim_layout.addStretch(1)
-                controls.addTab(
-                    scroll_task_page(simulation, "SMBS_SimulationScroll"),
-                    QtGui.QIcon(str(_ICON_ROOT / "gui_simulation.svg")),
-                    "Симуляция"
+                self._page_simulation = scroll_task_page(
+                    simulation, "SMBS_SimulationScroll"
+                )
+                planar_page = QtWidgets.QWidget()
+                planar_layout = QtWidgets.QVBoxLayout(planar_page)
+                planar_card, planar_body = card("Предварительный 2D поиск")
+                planar_note = QtWidgets.QLabel(
+                    "Быстрый поиск вариантов порядка гибки. Результат не "
+                    "является подтверждением физической возможности или "
+                    "полноценной 3D-проверки."
+                )
+                planar_note.setWordWrap(True)
+                planar_body.addWidget(planar_note)
+                # The native toolbar command runs the search; this section
+                # displays its description/results without a duplicate button.
+                self.planar_calculate.hide()
+                planar_layout.addWidget(planar_card)
+                planar_layout.addStretch(1)
+                self._page_planar = scroll_task_page(
+                    planar_page, "SMBS_PlanarScroll"
                 )
 
                 manual = QtWidgets.QWidget()
@@ -1600,8 +1663,8 @@ class _PreviewPanel:
                     style_action(btn, compact=True)
                 insert(order_body, entries[7])  # move up/down/restore grid
 
-                undo_row = QtWidgets.QGridLayout()
-                undo_row.setHorizontalSpacing(SECTION_GAP)
+                undo_row = QtWidgets.QVBoxLayout()
+                undo_row.setSpacing(SECTION_GAP)
                 self.manual_undo_btn = style_action(
                     QtWidgets.QPushButton("Отменить линию")
                 )
@@ -1610,10 +1673,8 @@ class _PreviewPanel:
                     QtWidgets.QPushButton("Очистить")
                 )
                 self.manual_clear_btn.clicked.connect(self._clear_manual_order)
-                undo_row.addWidget(self.manual_undo_btn, 0, 0)
-                undo_row.addWidget(self.manual_clear_btn, 0, 1)
-                undo_row.setColumnStretch(0, 1)
-                undo_row.setColumnStretch(1, 1)
+                undo_row.addWidget(self.manual_undo_btn)
+                undo_row.addWidget(self.manual_clear_btn)
                 order_body.addLayout(undo_row)
 
                 self.operations.setMinimumHeight(220)
@@ -1623,8 +1684,18 @@ class _PreviewPanel:
                     QtWidgets.QSizePolicy.Expanding,
                 )
                 insert(order_body, entries[8], 1)  # actual sequence table
+                self.manual_simulate_btn = style_action(
+                    QtWidgets.QPushButton("Симулировать"), primary=True
+                )
+                self.manual_simulate_btn.setToolTip(
+                    "Сразу просмотреть выбранный ручной порядок: без расчёта "
+                    "последовательности и без проверки столкновений"
+                )
+                self.manual_simulate_btn.clicked.connect(
+                    self.simulate_manual_order_unverified
+                )
                 self.manual_validate_btn = style_action(
-                    QtWidgets.QPushButton("Проверить"), primary=True
+                    QtWidgets.QPushButton("Проверить")
                 )
                 self.manual_validate_btn.setToolTip(
                     "Stage A/B: проверить ручной порядок и сохранить "
@@ -1634,19 +1705,24 @@ class _PreviewPanel:
                     self._validate_export_manual_order
                 )
                 verify_row = QtWidgets.QHBoxLayout()
-                verify_row.addStretch(1)
+                verify_row.addWidget(self.manual_simulate_btn)
                 verify_row.addWidget(self.manual_validate_btn)
+                verify_row.addStretch(1)
                 order_body.addLayout(verify_row)
+                self._manual_preview_help = QtWidgets.QLabel(
+                    "Симулировать — просмотр без проверки коллизий. "
+                    "Проверить — отдельная диагностика ручного порядка."
+                )
+                self._manual_preview_help.setWordWrap(True)
+                order_body.addWidget(self._manual_preview_help)
                 manual_layout.addWidget(order_card, 1)
-                controls.addTab(
-                    scroll_task_page(manual, "SMBS_ManualScroll"),
-                    QtGui.QIcon(str(_ICON_ROOT / "control_manual.svg")),
-                    "Manual"
+                self._page_manual = scroll_task_page(
+                    manual, "SMBS_ManualScroll"
                 )
 
                 # RETRACT warning belongs to Settings, not Simulation.
                 self.retract_warning_checkbox = QtWidgets.QCheckBox(
-                    "RETRACT: продолжать 2D-поиск с предупреждением"
+                    "RETRACT: продолжать 2D-поиск\nс предупреждением"
                 )
                 self.retract_warning_checkbox.setChecked(False)
                 self.retract_warning_checkbox.setToolTip(
@@ -1657,8 +1733,11 @@ class _PreviewPanel:
                 tooling = QtWidgets.QWidget()
                 td_layout = QtWidgets.QVBoxLayout(tooling)
                 tooling_card, tooling_body = card("Оснастка и станок")
+                # One tooling context from the native toolbar, with exactly
+                # two internal pages requested by the operator.
                 tool_tabs = QtWidgets.QTabWidget(tooling_card)
-                tool_tabs.setIconSize(QtCore.QSize(17, 17))
+                tool_tabs.setObjectName("SMBS_ToolingSubtabs")
+                tool_tabs.tabBar().setUsesScrollButtons(False)
                 tool_main = QtWidgets.QWidget()
                 tool_main_layout = QtWidgets.QFormLayout(tool_main)
                 tool_main_layout.setContentsMargins(
@@ -1692,12 +1771,10 @@ class _PreviewPanel:
                 tooling_body.addWidget(tool_tabs)
                 td_layout.addWidget(tooling_card)
                 td_layout.addStretch(1)
-                self._tooling_tabs = tool_tabs
-                controls.addTab(
-                    scroll_task_page(tooling, "SMBS_ToolingScroll"),
-                    QtGui.QIcon(str(_ICON_ROOT / "gui_tooling.svg")),
-                    "Оснастка"
+                self._page_tooling = scroll_task_page(
+                    tooling, "SMBS_ToolingScroll"
                 )
+                self._tooling_tabs = tool_tabs
                 # All active tooling widgets have been reparented.
                 self.tooling_group.deleteLater()
 
@@ -1812,6 +1889,17 @@ class _PreviewPanel:
                 diagnostics_card, diagnostics_body = card(
                     "Результаты / Диагностика"
                 )
+                self._simulation_diagnostics_summary = QtWidgets.QLabel(
+                    "Unverified · физическая проверка ещё не выполнена"
+                )
+                self._simulation_diagnostics_summary.setObjectName(
+                    "SMBS_SectionCaption"
+                )
+                self._simulation_diagnostics_summary.setWordWrap(True)
+                diagnostics_body.addWidget(self._simulation_diagnostics_summary)
+                self._on_physical_result_change(
+                    self.physical_check_result.text()
+                )
                 style_action(gauge_settings_btn)
                 diagnostics_body.addWidget(gauge_settings_btn)
                 for check in (
@@ -1827,7 +1915,7 @@ class _PreviewPanel:
 
                 trace_card, trace_body = card("Запись и файлы диагностики")
                 self.trace_checkbox = QtWidgets.QCheckBox(
-                    "Автоматически записывать движения при Play All (JSONL)"
+                    "Автоматическая запись движений\nпри Play All (JSONL)"
                 )
                 self.trace_checkbox.setChecked(False)
                 self.trace_checkbox.setToolTip(
@@ -1846,7 +1934,7 @@ class _PreviewPanel:
                 )
                 trace_body.addWidget(self.trace_status)
 
-                trace_buttons = QtWidgets.QHBoxLayout()
+                trace_buttons = QtWidgets.QVBoxLayout()
                 self.trace_start_button = QtWidgets.QPushButton("Начать запись JSONL")
                 self.trace_start_button.clicked.connect(
                     lambda _checked=False: self._start_motion_trace(manual=True)
@@ -1878,15 +1966,28 @@ class _PreviewPanel:
                     style_action(btn)
                 settings_layout.addWidget(trace_card)
                 settings_layout.addStretch(1)
-                controls.addTab(
-                    scroll_task_page(settings, "SMBS_SettingsScroll"),
-                    QtGui.QIcon(str(_ICON_ROOT / "gui_settings.svg")),
-                    "Настройки"
+                self._page_settings = scroll_task_page(
+                    settings, "SMBS_SettingsScroll"
                 )
 
+                # Fixed contextual pages match the six operator toolbar actions.
+                # Only the selected page is shown. Specialist QDialogs may be
+                # temporarily added and removed without creating tabs.
+                page_specs = (
+                    ("Деталь", self._page_part),
+                    ("Оснастка", self._page_tooling),
+                    ("Симуляция", self._page_simulation),
+                    ("2D варианты", self._page_planar),
+                    ("Manual", self._page_manual),
+                    ("Настройки", self._page_settings),
+                )
+                self._task_page_titles = {}
+                for name, page in page_specs:
+                    controls.addWidget(page)
+                    self._task_page_titles[page] = name
                 root.addWidget(views, 1)
                 self._viewer_tabs = views
-                self._control_tabs = controls
+                self._task_stack = controls
                 self._controls_dock = None
                 self.show_task_panel_btn = QtWidgets.QPushButton("Показать панель управления")
                 self.show_task_panel_btn.setObjectName("SMBS_ShowTaskPanel")
@@ -1896,6 +1997,26 @@ class _PreviewPanel:
                 root.addWidget(self.show_task_panel_btn)
                 self.show_task_panel_btn.hide()
                 self._apply_svg_button_icons()
+                self._task_stack.installEventFilter(self)
+                self._apply_context_width(360)
+
+            def _apply_context_width(self, width):
+                """Keep operator information useful at narrow dock widths."""
+                compact = int(width) < 590
+                # The full five-column report is still available on a wide
+                # dock. On narrow ones show Step, Bend and Status; tooltips
+                # retain complete target/current readings.
+                self.operations.setColumnHidden(2, compact)
+                self.operations.setColumnHidden(3, compact)
+                self.operations.header().setSectionResizeMode(
+                    QtWidgets.QHeaderView.Stretch
+                )
+
+            def eventFilter(self, watched, event):
+                if (getattr(self, "_task_stack", None) is watched
+                        and event.type() == QtCore.QEvent.Resize):
+                    self._apply_context_width(event.size().width())
+                return super().eventFilter(watched, event)
 
             def _on_task_status_change(self, message):
                 """Refresh dock severity when existing handlers call status.setText."""
@@ -1965,12 +2086,12 @@ class _PreviewPanel:
                     self._task_progress_caption.setText(caption)
 
             def open_tooling_settings_dialog(self):
-                """Show tooling Basic/Import within the shared Task Panel."""
-                show_workspace_controls(self, tab=2)
+                """Show the single tooling page, without nested tabs."""
+                show_workspace_controls(self, tab=1)
 
             def open_settings_dialog(self):
-                """Show all configuration controls within the shared Task Panel."""
-                show_workspace_controls(self, tab=3)
+                """Show all configuration controls on one contextual page."""
+                show_workspace_controls(self, tab=5)
 
             def _apply_svg_button_icons(self):
                 """Use the same industrial SVG family in task controls.
@@ -1980,11 +2101,9 @@ class _PreviewPanel:
                 QtSvg renders the assets in FreeCAD's bundled Qt runtime.
                 """
                 icon_pairs = (
-                    (self.reset_btn, "control_reset.svg"),
+                    # Playback buttons are intentionally text-sized. Only
+                    # Play/Pause retains a state-changing icon alongside text.
                     (self.play_btn, "control_play.svg"),
-                    (self.fit_btn, "control_fit.svg"),
-                    (self.prev_step_btn, "control_prev.svg"),
-                    (self.next_step_btn, "control_next.svg"),
                     (self.restore_order_btn, "control_reset.svg"),
                     (self.manual_undo_btn, "control_prev.svg"),
                     (self.manual_clear_btn, "control_reset.svg"),
@@ -2808,6 +2927,8 @@ class _PreviewPanel:
                     return
                 self.planar_calculate.setEnabled(False)
                 self.calculate.setEnabled(False)
+                self._manual_preview_unverified = False
+                self._manual_preview_notice.hide()
                 self._set_task_busy(True)
                 # Real Part/OCC CAD gauge tests now cost ~0.8-1.6 s per
                 # evaluated bend on the 10-bend fixture. The previous 30 s
@@ -3328,6 +3449,8 @@ class _PreviewPanel:
                 self.calculate.setEnabled(False)
                 self.physical_check_btn.setEnabled(False)
                 self.full_physical_check_btn.setEnabled(False)
+                self._manual_preview_unverified = False
+                self._manual_preview_notice.hide()
                 self._highlighted_end_zone_info = None
                 self._set_task_busy(True)
                 self.status.setText(
@@ -3545,10 +3668,23 @@ class _PreviewPanel:
                     raise WorkpiecePoseError(
                         "BEND_ONLY_MACHINE_POSE_REQUIRES_BEND_ZONE:" + bid
                     )
+                # Bend Only also uses the real coupled stroke. The previous
+                # constant outer_radius placement rotated the sheet in place
+                # while only the punch descended: visually impossible.
+                if pc is None:
+                    raise WorkpiecePoseError(
+                        "BEND_ONLY_REQUIRES_PRESS_CYCLE"
+                    )
+                try:
+                    sheet_support_z = pc.preview_workpiece_support_zm()
+                except (PressCycleError, ValueError, TypeError) as exc:
+                    raise WorkpiecePoseError(
+                        "BEND_ONLY_COUPLED_SHEET_PLACEMENT_FAILED:" + str(exc)
+                    ) from exc
                 orientations = self._effective_loading_orientation_map()
                 return WorkpiecePlacement3D.compute_placement(
                     fs, bid,
-                    support_plane_zm=float(zone.outer_radius_mm),
+                    support_plane_zm=float(sheet_support_z),
                     align_bisector=True,
                     align_bend_arc_center=True,
                     reverse_axis=bool(orientations.get(bid, False)),
@@ -4165,6 +4301,9 @@ class _PreviewPanel:
                 self._selected_planar_loading_orientation = {}
                 self._backgauge_preview_cache.clear()
                 self._manual_sequence_prefix = []
+                self._manual_preview_unverified = False
+                self._manual_selection_enabled = False
+                self._manual_preview_notice.hide()
                 self.last_sequence_search_report = None
                 self._ensure_press_cycle_controller()
                 self._sync_tooling_to_active_bend()
@@ -4305,6 +4444,93 @@ class _PreviewPanel:
                     self._set_task_busy(False)
                     self.manual_validate_btn.setEnabled(True)
 
+            def simulate_manual_order_unverified(self):
+                """Preview current Manual order without ANY collision validation.
+
+                The existing BendSequenceController and playback timer are
+                reused. Only the angles are reset; the chosen order is retained.
+                A partial manually numbered prefix never silently certifies
+                or plays the unselected canonical remainder.
+                """
+                if self.session is None:
+                    self.status.setText("Сначала загрузите развёртку детали.")
+                    return
+                order = tuple(self.session.bend_order)
+                if not order:
+                    self.status.setText("Нет гибов для симуляции.")
+                    return
+                prefix = tuple(self._manual_sequence_prefix)
+                if prefix and order[:len(prefix)] != prefix:
+                    self.status.setText(
+                        "Ручной порядок изменился. Проверьте выбранные линии."
+                    )
+                    return
+                self._stop_timer()
+                self._manual_selection_enabled = False
+                self._manual_preview_unverified = True
+                self._partial_preview_limit = (
+                    len(prefix) if prefix and len(prefix) < len(order) else 0
+                )
+                self._preview_only_planar_order = None
+                self.last_planar_search_report = None
+                self.last_sequence_search_report = None
+                self._last_manual_sequence_report = None
+                self._physical_check_signature = None
+                self._machine_pose_fault = None
+                self._highlighted_end_zone_info = None
+                self._conditional_bends_status.clear()
+                self._viewer_tabs.setCurrentWidget(self.view)
+                show_workspace_controls(self, tab=2)
+                try:
+                    self.set_cycle_mode(CycleExecutionMode.BEND_ONLY)
+                    pc = self._ensure_press_cycle_controller()
+                    if pc is not None:
+                        pc.reset()
+                        self.session.active_bend_index = (
+                            self.session.controller.active_index
+                        )
+                    else:
+                        self.session.reset_all_bends()
+                    if tuple(self.session.bend_order) != order:
+                        raise RuntimeError("Сброс изменил выбранный порядок гибов")
+                except Exception as exc:
+                    self._manual_preview_unverified = False
+                    self.status.setText(
+                        "Не удалось подготовить ручную симуляцию: " + str(exc)
+                    )
+                    return
+                self._configure_for_active_bend()
+                self._update_tooling_status_label()
+                self._manual_preview_notice.show()
+                self.physical_check_result.setText(
+                    "UNVERIFIED: ручная кинематическая симуляция; "
+                    "коллизии с пуансоном, матрицей, упором и станком не проверены."
+                )
+                self.draw()
+                QtCore.QTimer.singleShot(0, self.fit)
+                self.play_all()
+                if self.session.playback_status == PlaybackStatus.PLAYING:
+                    scope = (
+                        "первые {}/{} гибов".format(
+                            self._partial_preview_limit, len(order)
+                        ) if self._partial_preview_limit else
+                        "все {} гибов".format(len(order))
+                    )
+                    self.status.setText(
+                        "РУЧНАЯ СИМУЛЯЦИЯ: {} · БЕЗ ПРОВЕРКИ КОЛЛИЗИЙ"
+                        .format(scope)
+                    )
+                    self._trace_event(
+                        "MANUAL_UNVERIFIED_PREVIEW_STARTED",
+                        bend_order=list(order),
+                        explicit_prefix=list(prefix),
+                        preview_count=(
+                            self._partial_preview_limit or len(order)
+                        ),
+                        collision_validated=False,
+                        physical_status="UNVERIFIED",
+                    )
+
             def activate_manual_mode(self):
                 """Toolbar Manual: open flat pattern without discarding order."""
                 if self.session is None:
@@ -4315,7 +4541,7 @@ class _PreviewPanel:
                 else:
                     self._viewer_tabs.setCurrentWidget(self._flat_view)
                     self._draw_flat_pattern(reset_camera=False)
-                show_workspace_controls(self, tab=1)
+                show_workspace_controls(self, tab=4)
 
             def _toggle_manual_order(self, enabled):
                 if enabled and self.session is None:
@@ -4324,6 +4550,8 @@ class _PreviewPanel:
                     return
                 self._manual_selection_enabled = bool(enabled)
                 if enabled:
+                    self._manual_preview_unverified = False
+                    self._manual_preview_notice.hide()
                     self._stop_timer()
                     self.session.reset_all_bends()
                     self._viewer_tabs.setCurrentWidget(self._flat_view)
@@ -4380,6 +4608,8 @@ class _PreviewPanel:
                 if prefix:
                     self.session.select_bend_index(len(prefix) - 1)
                 self._preview_only_planar_order = None
+                self._manual_preview_unverified = False
+                self._manual_preview_notice.hide()
                 self._partial_preview_limit = 0
                 self._selected_planar_gauge_order = ()
                 self._selected_planar_gauge_positions = {}
@@ -4501,6 +4731,8 @@ class _PreviewPanel:
                     return
                 # Move Up/Down and Restore replace the manually numbered prefix.
                 self._manual_sequence_prefix = []
+                self._manual_preview_unverified = False
+                self._manual_preview_notice.hide()
                 self._draw_flat_pattern()
                 self._update_manual_hint()
                 self._configure_for_active_bend()
@@ -4617,7 +4849,7 @@ class _PreviewPanel:
                 try:
                     pc = self._ensure_press_cycle_controller()
                     if pc is not None:
-                        pc.set_manual_angle(float(signed_angle_deg))
+                        pc.set_manual_preview_angle(float(signed_angle_deg))
                         self.session.active_bend_index = self.session.controller.active_index
                     else:
                         self.session.set_active_angle(float(signed_angle_deg))
@@ -4932,6 +5164,11 @@ class _PreviewPanel:
                         if (self.session.active_bend_index != previous_bend
                                 and self.tooling_setup.aligned):
                             self._sync_tooling_to_active_bend()
+                        elif pc is not None:
+                            # Exactly the same coupled stroke model as the
+                            # manual slider. Do not leave the punch parked
+                            # while the sheet is bending in Bend Only mode.
+                            pc.preview_punch_at_current_angle()
                     self._configure_for_active_bend()
                     self._update_tooling_status_label()
                     self.draw()
@@ -4947,9 +5184,11 @@ class _PreviewPanel:
                         self.draw()
                         self._finish_motion_trace("PLAYBACK_COMPLETED")
                         self.status.setText(
-                            "AUTO PLAY завершён: {} | {} гибов".format(
+                            "AUTO PLAY завершён: {} | {} гибов{}".format(
                                 self.execution_mode.value,
                                 len(self.session.bend_order),
+                                " | РУЧНОЙ ПРОСМОТР БЕЗ ПРОВЕРКИ КОЛЛИЗИЙ"
+                                if self._manual_preview_unverified else "",
                             )
                         )
                         _log("Sequence playback completed")
@@ -4961,12 +5200,14 @@ class _PreviewPanel:
                             else "BEND_ONLY"
                         )
                         self.status.setText(
-                            "AUTO PLAY: {} | {} | гиб {} | угол {:+.1f}° | {} мс".format(
+                            "AUTO PLAY: {} | {} | гиб {} | угол {:+.1f}° | {} мс{}".format(
                                 self.execution_mode.value,
                                 phase,
                                 self.session.active_bend_id,
                                 self.session.current_angle_deg,
                                 self.timer.interval(),
+                                " | UNVERIFIED" if self._manual_preview_unverified
+                                else "",
                             )
                         )
                 except Exception as exc:

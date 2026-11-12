@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - GUI/v0.0.1
+      - GUI/v0.0.1-context-panel
   workflow_dispatch:
 
 jobs:
@@ -17,6 +18,10 @@ jobs:
           python-version: '3.11'
       - name: Compile FreeCAD workbench code
         run: python -m compileall -q Init.py InitGui.py freecad_smbs smbs_core
+      - name: Test coupled punch motion during manual preview
+        env:
+          PYTHONPATH: .
+        run: python -m unittest discover -s tests -p 'test_press_cycle_manual_preview.py' -v
       - name: Check FreeCAD commands and SVG icon resources
         env:
           PYTHONPATH: .
@@ -48,6 +53,11 @@ jobs:
                   for value in node.attrib.values():
                       assert "http://" not in value and "https://" not in value, file
               assert "rgb(" not in source, file
+              assert "fill=\"#233B4D\"" not in source, file
+              assert 'rx="6.5"' not in source, "Old colored icon tile: " + file.name
+              assert set(re.findall(r"#[0-9a-fA-F]{6}", source)) <= {
+                  "#888888"
+              }, "Icon has non-neutral colors: " + file.name
 
           expected_commands = {
               "SMBS_PressBrake2D": "gui_simulation.svg",
@@ -81,8 +91,7 @@ jobs:
           assert not missing, "GUI icon files missing: " + str(missing)
           for required in (
               "control_play.svg", "control_pause.svg", "control_reset.svg",
-              "control_fit.svg", "control_prev.svg", "control_next.svg",
-              "control_record.svg", "control_manual.svg",
+              "control_prev.svg", "control_record.svg", "gui_manual.svg",
           ):
               assert required in declared, required
           assert "def _apply_svg_button_icons(self):" in gui_source
@@ -99,10 +108,20 @@ jobs:
           assert '"Проверить"' in gui_source
           assert '"Manual"' in gui_source
           assert "show_workspace_controls(self, tab=1)" in gui_source
-          # Simulation, Manual, Tooling, Settings share one Task Panel.
-          assert gui_source.count("controls.addTab(") == 4
-          assert "show_workspace_controls(self, tab=2)" in gui_source
-          assert "show_workspace_controls(self, tab=3)" in gui_source
+          assert "show_workspace_controls(self, tab=4)" in gui_source
+          assert "show_workspace_controls(self, tab=5)" in gui_source
+          # Single context panel: no task tabs, six fixed pages.
+          assert "controls = QtWidgets.QStackedWidget()" in gui_source
+          assert gui_source.count("controls.addTab(") == 0
+          assert 'self._task_stack = controls' in gui_source
+          assert '("Деталь", self._page_part)' in gui_source
+          assert '("Оснастка", self._page_tooling)' in gui_source
+          assert '("Симуляция", self._page_simulation)' in gui_source
+          assert '("2D варианты", self._page_planar)' in gui_source
+          assert '("Manual", self._page_manual)' in gui_source
+          assert '("Настройки", self._page_settings)' in gui_source
+          assert "scroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)" in gui_source
+          assert "page.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)" in gui_source
           assert "self._tooling_dialog" not in gui_source
           assert "self._settings_dialog" not in gui_source
           assert "def embed_task_dialog(workspace, widget, title, key):" in gui_source
@@ -122,9 +141,14 @@ jobs:
               assert ".exec()" not in source, (name, path)
           assert "dlg.exec()" not in gui_source
           print("GUI_SHARED_TASK_DIALOG_CONTRACT_OK")
-          # Tooling retains its Basic/Import sub-tabs within Task Panel.
+          # No duplicated Task Panel tabs; the Tooling action alone
+          # provides exactly two nested choices requested by the user.
+          assert gui_source.count("tool_tabs.addTab(") == 2
           assert 'tool_tabs.addTab(tool_main, "Основные")' in gui_source
           assert 'tool_tabs.addTab(tool_import, "Импорт")' in gui_source
+          assert 'tooling_body.addWidget(tool_tabs)' in gui_source
+          assert 'tool_main_layout.addRow("Punch:", self.select_punch_combo)' in gui_source
+          assert 'tool_main_layout.addRow("Die:", self.select_die_combo)' in gui_source
           assert 'insert(cycle_body, entries[3])' in gui_source
           assert 'cycle_body.addWidget(self.retract_warning_checkbox)' in gui_source
           assert 'tool_opts_layout.addWidget(self.virtual_tool_len_checkbox)' in gui_source
@@ -136,12 +160,25 @@ jobs:
               TASK_QSS, classify_status,
           )
           assert (OUTER_MARGIN, SECTION_PADDING, SECTION_GAP, CORNER_RADIUS) == (
-              20, 16, 16, 9
+              6, 2, 6, 0
           )
-          assert 'QFrame#SMBS_SectionCard' in TASK_QSS
-          assert 'QLabel#SMBS_StatusChip[state="error"]' in TASK_QSS
-          assert 'QPushButton#SMBS_PrimaryAction:disabled' in TASK_QSS
-          assert 'QProgressBar#SMBS_TaskProgress::chunk' in TASK_QSS
+          assert TASK_QSS == "", "Addon-owned colors override the native FreeCAD theme"
+          theme_source = Path("freecad_smbs/ui/pressbrake_theme.py").read_text(
+              encoding="utf-8"
+          )
+          assert 'frame.setFrameShape(QtWidgets.QFrame.NoFrame)' in theme_source
+          assert 'heading_font.setBold(True)' in theme_source
+          assert 'button.setMaximumHeight(29)' in theme_source
+          assert 'button.setMaximumWidth(280)' in theme_source
+          assert "setStyleSheet(" not in gui_source
+          assert 'form.setStyleSheet(' not in gui_source
+          assert 'self.setStyleSheet(' not in gui_source
+          assert 'views.tabBar().setExpanding(False)' in gui_source
+          assert 'def _playback_button(QtCore, widgets, label, callback, enabled=True):' in gui_source
+          assert 'btn = widgets.QToolButton()' in gui_source
+          assert 'btn.setAutoRaise(True)' in gui_source
+          assert 'btn.setToolButtonStyle(QtCore.Qt.ToolButtonTextOnly)' in gui_source
+          assert 'widget.setFixedSize(width, 27)' in gui_source
           assert 'self.status = TaskStatusLabel(' in gui_source
           assert 'self.physical_check_result = TaskPhysicalResultLabel(' in gui_source
           assert 'self._source_summary' in gui_source
@@ -159,6 +196,56 @@ jobs:
           assert classify_status("Ошибка проверки столкновения")[0] == "error"
           assert classify_status("Выполняется поиск")[0] == "running"
           print("GUI_INDUSTRIAL_LAYOUT_CONTRACT_OK")
+          wb_source = Path("freecad_smbs/InitGui.py").read_text(encoding="utf-8")
+          assert 'self.appendToolbar("PressBrakeSim 2.5D", toolbar)' in wb_source
+          assert 'toolbar.setToolButtonStyle(QtCore.Qt.ToolButtonTextBesideIcon)' in wb_source
+          assert 'toolbar.setIconSize(QtCore.QSize(18, 18))' in wb_source
+          assert 'QtCore.QTimer.singleShot(0, configure_native_toolbar)' in wb_source
+          assert "CMD_LOAD_PART, CMD_TOOLING_TAB, CMD_PRESSBRAKE_2D," in wb_source
+          assert "CMD_CALCULATE, CMD_SEQUENCE_CATALOG," in wb_source
+          assert "CMD_PLANAR_CANDIDATES, CMD_MANUAL, CMD_SETTINGS," in wb_source
+          # The single Simulation surface contains ONLY playback and slider,
+          # no duplicated full-search and diagnostic buttons.
+          assert 'sim_body = sim_layout' in gui_source
+          assert 'insert(sim_body, entries[5])' in gui_source
+          assert 'insert(sim_body, entries[6])' in gui_source
+          assert 'self.calculate.hide()' in gui_source
+          assert 'self.planar_calculate.hide()' in gui_source
+          assert 'self.manual_simulate_btn.clicked.connect(' in gui_source
+          assert 'self.simulate_manual_order_unverified' in gui_source
+          assert 'def simulate_manual_order_unverified(self):' in gui_source
+          assert 'self.set_cycle_mode(CycleExecutionMode.BEND_ONLY)' in gui_source
+          assert 'pc.set_manual_preview_angle(float(signed_angle_deg))' in gui_source
+          assert 'pc.preview_punch_at_current_angle()' in gui_source
+          # 2.5D and 3D share ONE coupled workpiece support height.
+          assert 'sheet_support_z = pc.preview_workpiece_support_zm()' in gui_source
+          assert 'support_plane_zm=float(sheet_support_z)' in gui_source
+          core_source = Path("smbs_core/kinematics2d/press_cycle.py").read_text(
+              encoding="utf-8"
+          )
+          assert 'def preview_workpiece_support_zm(self)' in core_source
+          assert 'support_z = self.preview_workpiece_support_zm()' in core_source
+          assert 'or self._manual_preview_active' in core_source
+          assert 'self._manual_preview_notice.show()' in gui_source
+          assert 'workspace._viewer_tabs.setCurrentWidget(workspace.view)' in gui_source
+          assert 'self.play_btn = _playback_button(' in gui_source
+          assert 'QtCore, QtWidgets, "Play", self._toggle_play_pause, False' in gui_source
+          assert '"Reset", "|<<", "Play / Pause", ">>|", "Fit"' in gui_source
+          assert "self.play_btn.setStyleSheet(\"font-size: 0px;\")" not in gui_source
+          assert "Активный гиб:" not in gui_source
+          # Manual toolbar command is disabled until a loaded session exists;
+          # selecting it activates flat-view line selection and its own page.
+          assert 'workspace.session is not None)' in gui_source
+          assert 'workspace.activate_manual_mode()' in gui_source
+          assert 'show_workspace_controls(self, tab=4)' in gui_source
+          assert 'QtWidgets.QPushButton("Проверить")' in gui_source
+          assert 'QtWidgets.QPushButton("Симулировать"), primary=True' in gui_source
+          # Everything moved out of the playback context is still live in Settings.
+          assert 'insert(cycle_body, entries[3])' in gui_source
+          assert 'cycle_body.addWidget(self.retract_warning_checkbox)' in gui_source
+          assert 'tool_opts_layout.addWidget(self.virtual_tool_len_checkbox)' in gui_source
+          assert 'tool_opts_layout.addWidget(self.allow_end_zone_checkbox)' in gui_source
+          assert 'diagnostics_body.addWidget(self.physical_check_result)' in gui_source
           assert '"Select Punch"' not in gui_source
           assert '"Select Die"' not in gui_source
           assert '"Align Tooling"' not in gui_source
