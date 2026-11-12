@@ -24,6 +24,7 @@ class GuiExperimentIntegrationContracts(unittest.TestCase):
         self.assertTrue({
             "SMBS_PressBrake2D", "SMBS_LoadPart", "SMBS_ToolingTab",
             "SMBS_Calculate", "SMBS_PlanarCandidates", "SMBS_Tooling",
+            "SMBS_ManualTab", "SMBS_SettingsTab",
         } <= set(COMMANDS_MAP))
 
     def test_both_experimental_search_handlers_survive(self):
@@ -45,16 +46,26 @@ class GuiExperimentIntegrationContracts(unittest.TestCase):
         self.assertIn("self.last_planar_search_report = report", self.source)
         self.assertIn("self.last_sequence_search_report = search_rep", self.source)
 
-    def test_five_toolbar_commands_have_distinct_resources(self):
+    def test_six_toolbar_commands_have_distinct_resources(self):
         from freecad_smbs.InitGui import COMMANDS_MAP
         for name in (
-            "SMBS_PressBrake2D", "SMBS_LoadPart", "SMBS_ToolingTab",
-            "SMBS_Calculate", "SMBS_PlanarCandidates",
+            "SMBS_LoadPart", "SMBS_ToolingTab", "SMBS_Calculate",
+            "SMBS_PlanarCandidates", "SMBS_ManualTab", "SMBS_SettingsTab",
         ):
             with self.subTest(command=name):
                 resources = COMMANDS_MAP[name]().GetResources()
                 self.assertTrue(resources["MenuText"])
                 self.assertTrue(Path(resources["Pixmap"]).is_file())
+
+    def test_responsive_task_tabs_do_not_duplicate_controls(self):
+        self.assertEqual(self.source.count("controls.addTab("), 4)
+        self.assertIn('scroll_task_page(manual, "SMBS_ManualScroll")', self.source)
+        self.assertIn("page.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)", self.source)
+        self.assertIn("def _update_responsive_controls(", self.source)
+        self.assertIn("def eventFilter(", self.source)
+        from freecad_smbs.InitGui import CMD_MANUAL_TAB, CMD_SETTINGS_TAB
+        self.assertEqual((CMD_MANUAL_TAB, CMD_SETTINGS_TAB),
+                         ("SMBS_ManualTab", "SMBS_SettingsTab"))
 
     def test_viewer_is_separated_from_controls_without_second_timer(self):
         panel = self.classes["Panel"]
