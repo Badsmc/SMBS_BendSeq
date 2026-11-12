@@ -4581,6 +4581,35 @@ class _PreviewPanel:
                 self.manual_check_details.setPlainText("\n".join(lines))
                 self.manual_check_details.show()
 
+            def _record_manual_precheck_failure(self, selected, reason):
+                """Fail visibly and save the UNVERIFIED reason in FCStd as well."""
+                message = "UNVERIFIED: " + str(reason)
+                self._last_manual_sequence_report = {
+                    "schema_version": "smbs.manual_2d_and_native_3d.v2",
+                    "status": "UNVERIFIED",
+                    "planar_status": "NOT_RUN",
+                    "physical_certification": "NOT_CHECKED",
+                    "manual_3d_validation": {
+                        "status": "UNVERIFIED",
+                        "reason": str(reason),
+                        "requested_bends": list(selected),
+                        "checked_bends": 0,
+                        "steps": [],
+                    },
+                }
+                self._show_manual_check_feedback("UNVERIFIED", reason)
+                self.physical_check_result.setText(message)
+                try:
+                    note = self._persist_manual_check_to_fcstd()
+                except Exception as exc:
+                    note = "НЕ СОХРАНЕНО В FCStd: " + str(exc)
+                    _error(
+                        "Manual validation precheck could not be embedded: "
+                        + traceback.format_exc()
+                    )
+                self.manual_check_summary.setText(message + "\n" + note)
+                self.status.setText(message)
+
             def _persist_manual_check_to_fcstd(self):
                 """Embed manual results, saving the SAME FCStd, never JSON.
 
@@ -4925,17 +4954,19 @@ class _PreviewPanel:
                                != ValidationStatus.GEOMETRY_VERIFIED
                             or selected_die.validation_status
                                != ValidationStatus.GEOMETRY_VERIFIED):
-                        self.physical_check_result.setText(
-                            "UNVERIFIED: выберите действительные пуансон и матрицу "
-                            "с проверенными геометрическими базами."
+                        self._record_manual_precheck_failure(
+                            selected,
+                            "Выберите действительные пуансон и матрицу "
+                            "с проверенными геометрическими базами.",
                         )
                         return
 
                     self._sync_tooling_to_active_bend()
                     if not self.tooling_setup.aligned:
-                        self.physical_check_result.setText(
-                            "UNVERIFIED: выбранная оснастка не выровнена "
-                            "относительно текущей линии гиба."
+                        self._record_manual_precheck_failure(
+                            selected,
+                            "Выбранная оснастка не выровнена "
+                            "относительно текущей линии гиба.",
                         )
                         return
                     match_length = bool(
@@ -4952,9 +4983,10 @@ class _PreviewPanel:
                         or self.tooling_setup.die_section_offsets_xm
                     )
                     if has_sections and match_length:
-                        self.physical_check_result.setText(
-                            "UNVERIFIED: виртуальная длина несовместима "
-                            "с реальными наборными секциями инструмента."
+                        self._record_manual_precheck_failure(
+                            selected,
+                            "Виртуальная длина несовместима "
+                            "с реальными наборными секциями инструмента.",
                         )
                         return
 
@@ -5144,17 +5176,13 @@ class _PreviewPanel:
                     )
                     self.status.setText(saved_note)
                 except Exception as exc:
-                    self._show_manual_check_feedback(
-                        "UNVERIFIED",
-                        "Ошибка проверки ручного порядка: " + str(exc),
-                    )
-                    self.physical_check_result.setText(
-                        "UNVERIFIED: ошибка проверки ручного порядка: "
-                        + str(exc)
-                    )
                     _error(
                         "Manual 3D tooling validation exception: "
                         + traceback.format_exc()
+                    )
+                    self._record_manual_precheck_failure(
+                        selected,
+                        "Ошибка проверки ручного порядка: " + str(exc),
                     )
                 finally:
                     self._set_task_busy(False)
