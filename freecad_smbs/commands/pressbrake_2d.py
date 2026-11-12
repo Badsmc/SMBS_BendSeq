@@ -1233,6 +1233,7 @@ class _PreviewPanel:
                 self._manual_sequence_prefix: list[str] = []
                 self._last_manual_sequence_report = None
                 self._manual_3d_verdicts = {}
+                self._manual_retract_verdicts = {}
                 self._backgauge_settings = QtCore.QSettings("SMBS", "BendSeq")
                 self.backgauge_model = None
                 self._backgauge_preview_cache = {}
@@ -1533,7 +1534,7 @@ class _PreviewPanel:
                 root.addLayout(order_row)
 
                 self.operations = QtWidgets.QTreeWidget()
-                self.operations.setHeaderLabels(["Step", "Bend", "Target", "Current", "До гиба, мм", "Упор S, мм", "Status"])
+                self.operations.setHeaderLabels(["Step", "Bend", "Target", "Current", "До гиба, мм", "Упор S, мм", "Status", "RETRACT"])
                 self.operations.setRootIsDecorated(False)
                 self.operations.setHorizontalScrollBarPolicy(
                     QtCore.Qt.ScrollBarAsNeeded
@@ -1568,7 +1569,10 @@ class _PreviewPanel:
                     5, QtWidgets.QHeaderView.ResizeToContents
                 )
                 self.operations.header().setSectionResizeMode(
-                    6, QtWidgets.QHeaderView.Stretch
+                    6, QtWidgets.QHeaderView.ResizeToContents
+                )
+                self.operations.header().setSectionResizeMode(
+                    7, QtWidgets.QHeaderView.Stretch
                 )
                 self.operations.currentItemChanged.connect(self._on_operation_selected)
                 root.addWidget(self.operations)
@@ -2800,6 +2804,7 @@ class _PreviewPanel:
 
             def _on_virtual_tool_length_toggled(self, enabled: bool):
                 self._manual_3d_verdicts.clear()
+                self._manual_retract_verdicts.clear()
                 self._clear_manual_check_feedback()
                 bend_len = self._active_bend_length_mm()
                 if hasattr(self.tooling_setup, "set_match_active_bend_length"):
@@ -2811,6 +2816,7 @@ class _PreviewPanel:
 
             def _on_end_zone_length_changed(self, val: float):
                 self._manual_3d_verdicts.clear()
+                self._manual_retract_verdicts.clear()
                 self._clear_manual_check_feedback()
                 try:
                     fval = max(0.0, float(val))
@@ -2821,6 +2827,7 @@ class _PreviewPanel:
 
             def _on_allow_end_zone_toggled(self, enabled: bool):
                 self._manual_3d_verdicts.clear()
+                self._manual_retract_verdicts.clear()
                 self._clear_manual_check_feedback()
                 self.tooling_setup.allow_end_zone_collision = bool(enabled)
                 self._update_tooling_status_label()
@@ -4070,6 +4077,7 @@ class _PreviewPanel:
 
             def select_punch(self, punch: ToolProfile | None):
                 self._manual_3d_verdicts.clear()
+                self._manual_retract_verdicts.clear()
                 self._clear_manual_check_feedback()
                 try:
                     self.tooling_setup.select_punch(punch)
@@ -4096,6 +4104,7 @@ class _PreviewPanel:
 
             def select_die(self, die: ToolProfile | None):
                 self._manual_3d_verdicts.clear()
+                self._manual_retract_verdicts.clear()
                 self._clear_manual_check_feedback()
                 try:
                     self.tooling_setup.select_die(die)
@@ -4456,6 +4465,7 @@ class _PreviewPanel:
                 self.last_planar_search_report = None
                 self._last_manual_sequence_report = None
                 self._manual_3d_verdicts.clear()
+                self._manual_retract_verdicts.clear()
                 self._clear_manual_check_feedback()
                 self._preview_only_planar_order = None
                 self._partial_preview_limit = 0
@@ -4545,9 +4555,7 @@ class _PreviewPanel:
                 """Show native check result in Manual, including the failed bend."""
                 if not hasattr(self, "manual_check_summary"):
                     return
-                self.manual_check_summary.setText(
-                    "{}: {}".format(str(status), str(summary))
-                )
+                self.manual_check_summary.setText(str(summary))
                 lines = []
                 for item in steps or ():
                     bend_id = str(item.get("bend_id", "?"))
@@ -4555,6 +4563,7 @@ class _PreviewPanel:
                     verdict = str(item.get("status", "UNVERIFIED"))
                     phase_evidence = str(item.get("reason", ""))
                     tool_pair = item.get("punch_die_pair")
+                    retract = item.get("retract") or {}
                     lines.append(
                         "{}. {} | {} | угол {}°".format(
                             index, bend_id, verdict, item.get("angle_deg", "?"),
@@ -4573,6 +4582,18 @@ class _PreviewPanel:
                                 if tool_pair.get("status") != "SAMPLED_CLEAR" else "",
                             )
                         )
+                    lines.append(
+                        "  RETRACT: {} | нач. Z={} мм → конеч. Z={} мм | "
+                        "выборок={} | {}".format(
+                            retract.get("status", "NOT_EVALUATED"),
+                            (retract.get("start_z_mm") if
+                             retract.get("start_z_mm") is not None else "—"),
+                            (retract.get("end_z_mm") if
+                             retract.get("end_z_mm") is not None else "—"),
+                            retract.get("sample_count", 0),
+                            str(retract.get("reason", ""))[:180],
+                        )
+                    )
                 if not lines:
                     lines = [
                         "Ни один гиб не подтверждён. Проверьте выбранные "
@@ -4745,6 +4766,7 @@ class _PreviewPanel:
                 self.last_planar_search_report = None
                 self._last_manual_sequence_report = None
                 self._manual_3d_verdicts.clear()
+                self._manual_retract_verdicts.clear()
                 self._clear_manual_check_feedback()
                 self._physical_check_signature = None
                 self._conditional_bends_status.clear()
@@ -4931,6 +4953,7 @@ class _PreviewPanel:
                     control.setEnabled(False)
                 self._set_task_busy(True)
                 self._manual_3d_verdicts.clear()
+                self._manual_retract_verdicts.clear()
                 self._clear_manual_check_feedback()
                 self._last_manual_sequence_report = None
                 self.status.setText(
@@ -5037,11 +5060,21 @@ class _PreviewPanel:
                         self.manual_check_summary.setText(label)
                         QtWidgets.QApplication.processEvents()
 
+                    from smbs_core.kinematics2d.motion_trajectory_3d import (
+                        AdaptiveSamplingConfig,
+                    )
                     physical = check_manual_3d_sequence(
                         self.session, self.tooling_setup, selected,
                         match_active_bend_length=match_length,
                         allow_end_zone_collision=allow_end_zone,
                         end_zone_length_mm=end_zone_mm,
+                        # One clearance value controls both the FreeCAD
+                        # FULL_CYCLE and native 3D APPROACH/RETRACT path.
+                        config=AdaptiveSamplingConfig(
+                            initial_clearance_mm=(
+                                float(self.cycle_config.initial_clearance_mm)
+                            ),
+                        ),
                         progress_callback=on_progress,
                         # Manual 3D checks assume the actual operator's
                         # unflipped machine setup. The rear-gauge ergonomic
@@ -5053,6 +5086,11 @@ class _PreviewPanel:
                     for step in physical["steps"]:
                         self._manual_3d_verdicts[step["bend_id"]] = (
                             step["status"]
+                        )
+                        self._manual_retract_verdicts[step["bend_id"]] = (
+                            (step.get("retract") or {}).get(
+                                "status", "NOT_EVALUATED"
+                            )
                         )
                     self._populate_operations()
 
@@ -5137,14 +5175,20 @@ class _PreviewPanel:
                         for b in self.session.ordered_bends
                     ]
                     self._last_manual_sequence_report = dict(result)
+                    readable_verdict = {
+                        "SAMPLED_3D_CLEAR_NOT_CONTINUOUS":
+                            "ПРОВЕРКА ПРОЙДЕНА (выборочная 3D)",
+                        "COLLISION": "ОБНАРУЖЕНА КОЛЛИЗИЯ",
+                        "CONDITIONAL": "УСЛОВНО ДОПУСТИМО",
+                        "UNVERIFIED": "ПРОВЕРКА НЕ ПОДТВЕРЖДЕНА",
+                    }.get(physical_status, "НЕИЗВЕСТНЫЙ РЕЗУЛЬТАТ")
                     summary = (
-                        "{}: проверено {}/{} гибов | "
-                        "{} | 2D={} | деталь/пуансон/матрица + "
-                        "пуансон/матрица: только выборочная 3D, "
-                        "не непрерывное движение"
+                        "{} — {}/{} гибов | 2D={} | "
+                        "RETRACT в таблице | {} | "
+                        "Без сертификации непрерывного движения"
                     ).format(
-                        physical_status, complete_steps, len(selected),
-                        physical["reason"], planar["status"],
+                        readable_verdict, complete_steps, len(selected),
+                        planar["status"], physical["reason"],
                     )
                     self.physical_check_result.setText(summary)
                     self.status.setText(summary)
@@ -5221,6 +5265,7 @@ class _PreviewPanel:
                 self.last_sequence_search_report = None
                 self._last_manual_sequence_report = None
                 self._manual_3d_verdicts.clear()
+                self._manual_retract_verdicts.clear()
                 self._clear_manual_check_feedback()
                 self._physical_check_signature = None
                 self._machine_pose_fault = None
@@ -5341,6 +5386,7 @@ class _PreviewPanel:
                 if self.session is None:
                     return
                 self._manual_3d_verdicts.clear()
+                self._manual_retract_verdicts.clear()
                 self._clear_manual_check_feedback()
                 prefix = tuple(self._manual_sequence_prefix)
                 remainder = tuple(
@@ -5449,7 +5495,7 @@ class _PreviewPanel:
                 if reset_camera:
                     self._flat_view.reset_camera()
 
-            def _format_operation_row(self, idx: int, b) -> tuple[str, str, str, str, str, str, str]:
+            def _format_operation_row(self, idx: int, b) -> tuple[str, str, str, str, str, str, str, str]:
                 cur = self.session.fold_state.angles[b.bend_id]
                 done = self.session.controller.is_bend_completed(b.bend_id)
                 is_active = (idx - 1) == self.session.active_bend_index
@@ -5465,6 +5511,14 @@ class _PreviewPanel:
                     status_str += " [3D:{}]".format(
                         self._manual_3d_verdicts[b.bend_id]
                     )
+                retract_status = self._manual_retract_verdicts.get(b.bend_id)
+                retract_label = {
+                    "SAMPLED_CLEAR": "ПРОЙДЕН",
+                    "CONDITIONAL": "УСЛОВНО",
+                    "COLLISION": "КОЛЛИЗИЯ",
+                    "NOT_EVALUATED": "НЕ ВЫПОЛНЕН",
+                    "UNVERIFIED": "НЕ ПРОВЕРЕН",
+                }.get(retract_status, "—")
                 flat_mm = self.session.local_bend_dimensions_mm.get(b.bend_id)
                 gauge = self._backgauge_preview_position(idx - 1)
                 face_s = (
@@ -5480,12 +5534,14 @@ class _PreviewPanel:
                     "{:.2f}".format(flat_mm) if flat_mm is not None else "—",
                     "{:.2f}".format(face_s) if face_s is not None else "—",
                     status_str,
+                    retract_label,
                 )
 
             def _apply_reorder(self, action_fn):
                 if self.session is None:
                     return
                 self._manual_3d_verdicts.clear()
+                self._manual_retract_verdicts.clear()
                 self._clear_manual_check_feedback()
                 try:
                     action_fn()
