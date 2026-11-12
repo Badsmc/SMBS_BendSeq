@@ -8,6 +8,7 @@ on:
       - feature/fcstd-embedded-smbs-json
       - feature/visual-only-fcstd-backgauge
       - feature/manual-3d-tooling-validation-pan
+      - fix/manual-verify-embedded-fcstd-report
   workflow_dispatch:
 
 jobs:
@@ -39,6 +40,10 @@ jobs:
         run: |
           python -m unittest discover -s tests -p 'test_manual_physical_validation.py' -v
           python -m unittest discover -s tests -p 'test_manual_tooling_stage_a.py' -v
+      - name: Test Manual Verify result UI and embedded FCStd route
+        env:
+          PYTHONPATH: .
+        run: python -m unittest discover -s tests -p 'test_manual_check_embedded_ui_contract.py' -v
       - name: Check FreeCAD commands and SVG icon resources
         env:
           PYTHONPATH: .
