@@ -5,6 +5,7 @@ on:
     branches:
       - GUI/v0.0.1
       - GUI/v0.0.1-context-panel
+      - feature/fcstd-embedded-smbs-json
   workflow_dispatch:
 
 jobs:
@@ -22,6 +23,10 @@ jobs:
         env:
           PYTHONPATH: .
         run: python -m unittest discover -s tests -p 'test_press_cycle_manual_preview.py' -v
+      - name: Test FCStd embedded JSON round-trip and safety
+        env:
+          PYTHONPATH: .
+        run: python -m unittest discover -s tests -p 'test_fcstd_embedded_session.py' -v
       - name: Check FreeCAD commands and SVG icon resources
         env:
           PYTHONPATH: .
@@ -204,6 +209,26 @@ jobs:
           assert "CMD_LOAD_PART, CMD_TOOLING_TAB, CMD_PRESSBRAKE_2D," in wb_source
           assert "CMD_CALCULATE, CMD_SEQUENCE_CATALOG," in wb_source
           assert "CMD_PLANAR_CANDIDATES, CMD_MANUAL, CMD_SETTINGS," in wb_source
+          assert 'def slotStartSaveDocument(self, document, filename):' in gui_source
+          assert 'panel._write_embedded_smbs_json(document)' in gui_source
+          assert 'def _restore_embedded_smbs_json(self, document):' in gui_source
+          assert 'def _save_embedded_smbs_json_clicked(self):' in gui_source
+          assert 'def _register_embedded_smbs_observer(self):' in gui_source
+          assert 'App.addDocumentObserver(observer)' in gui_source
+          assert 'App.removeDocumentObserver(self._smbs_fcstd_observer)' in gui_source
+          assert 'self._smbs_allow_auto_embed = False' in gui_source
+          assert 'self.fcstd_save_btn.clicked.connect(' in gui_source
+          assert 'self.fcstd_load_btn.clicked.connect(' in gui_source
+          storage = Path("freecad_smbs/integration/fcstd_session_store.py").read_text(
+              encoding="utf-8"
+          )
+          assert 'App::PropertyFileIncluded' in storage
+          assert 'def write_included_json(document, snapshot):' in storage
+          assert 'def read_included_json(document):' in storage
+          assert 'def validate_restore(snapshot, session, document):' in storage
+          assert 'document.getObject(OBJECT_NAME)' in storage
+          assert 'exportBrepToString()' in storage
+          assert 'MAX_PAYLOAD_BYTES = 4 * 1024 * 1024' in storage
           # The single Simulation surface contains ONLY playback and slider,
           # no duplicated full-search and diagnostic buttons.
           assert 'sim_body = sim_layout' in gui_source
