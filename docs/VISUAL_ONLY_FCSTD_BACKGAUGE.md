@@ -9,27 +9,39 @@ independent punch/die/frame verification paths.
 1. Open the SMBS 2.5D workbench, select a SheetMetal part and load its unfold.
 2. Open **Задний упор**, enable **Показывать движущийся упор Backgauge.FCStd**, and choose automatic placement (or enter explicit S/Z targets).
 3. Save settings. The simulation draws only the actual CAD cross-section from `toollibrary/Backgauge/Backgauge.FCStd`. If the model cannot be loaded, no synthetic rectangle is drawn.
-4. In the bends table, **До края, мм** shows the geometric distance, regardless of manual gauge positioning.
+4. In the bends table, **Полка, мм** shows the *local* flange pitch: from the midpoint of the active bend line to the nearest parallel neighbouring bend line or physical blank edge. This is independent of the gauge's visual position.
 5. Switching bends moves the stop to each bend's target. During full-cycle `TRANSFER`, the target moves smoothly between operations. Text labels are not overlaid on the viewer.
 
-## Distance definition
+## Dimension definition (operations table)
 
-The distance is measured in the unfolded SheetMetal XY coordinate frame:
-- Start: midpoint of the *canonical bend line*, not a bend tangent or flange corner.
-- Direction: perpendicular to that line, toward the rooted fixed panel's centroid.
-- End: first intersection with the *full external blank contour*. Artificial cuts between topology panels are not treated as the workpiece edge.
-- Units: millimeters; two decimal places in the operations table.
+These dimensions are **local**, not cumulative distances to the same
+original outside edge. Example, on a 100 mm-wide flat blank:
 
-The algorithm uses an ordered discretization of the real outline wire
-(0.05 mm deflection). It computes each dimension once on part load.
-Ambiguous/missing geometry is reported as **—**. The application does
-not guess a value or use the bounding box as a substitute.
+- Bend B01 is at X=10 mm → **Полка = 10 mm** (the outside edge at X=0).
+- Bend B02 is at X=32 mm → **Полка = 22 mm** (the neighbouring B01 line
+  at X=10), **NOT 32 mm** from the original outside edge.
 
-In automatic placement, the CAD stop's datum front face is placed at
-`distance + configured clearance` in machine S; the Z coordinate is
-a *preview* estimate from the active flat bend-zone support and thickness.
-Manual S/Z targets override the visual position, but not the measurement
-displayed in the table.
+Each candidate is measured from the midpoint of its own canonical bend
+line, perpendicular to its axis, on both sides. The nearest true external
+blank boundary or nearly parallel neighbouring bend axis (within ~5.7°
+and covering the probe point) is taken. Sketch segments of other
+orientations are not silently used as flange boundaries. The result
+uses the flat SheetMetal XY frame, in millimetres with two decimals.
+If a meaningful boundary cannot be resolved, the table shows **—**.
+
+This is a nominal layout flange pitch, **not** a finished internal/external
+flange dimension after bending allowance. It is geometric and does
+not change when the operator rearranges the bend sequence.
+
+### Separate visual gauge placement
+
+The previously implemented absolute distance from a bend line to the
+full unfolded outer contour on its rooted fixed-panel side is still
+stored separately in `gauge_distances_mm`. It is *not* the table value.
+The CAD gauge placement continues to use that earlier distance and is
+still an unverified visual approximation; the placement issue seen
+in real FreeCAD must be checked separately against the active machine
+section. Neither value certifies backgauge contact or machine clearance.
 
 ## Deliberately disabled for this feature
 
