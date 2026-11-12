@@ -10,7 +10,7 @@ not continuous clearance, transfers, clamps, frame, or manufacturing safety.
 """
 from __future__ import annotations
 
-from math import isfinite
+from math import dist, isfinite
 from pathlib import Path
 from time import perf_counter
 from types import SimpleNamespace
@@ -162,7 +162,9 @@ def check_manual_3d_sequence(
             "continuous_motion_certified": False,
             "backgauge_collisions_checked": False,
             "transfer_clamps_frame_checked": False,
-            "punch_die_pair_checked": True,
+            "punch_die_pair_checked": sum(
+                item.get("punch_die_pair") is not None for item in steps
+            ),
             "punch": punch_id or None,
             "die": die_id or None,
             "punch_fcstd_source": str(p_path) if p_path else None,
@@ -243,14 +245,8 @@ def check_manual_3d_sequence(
                 try:
                     tool_pair = _check_selected_tool_pair_at_sampled_rams(
                         p_path, d_path,
-                        float(
-                            independent.bends[bend_id].axis_xyz[1][0]
-                            - independent.bends[bend_id].axis_xyz[0][0]
-                        ) if False else
-                        # True 3D bend-axis length; axes are not always X-aligned.
-                        __import__("math").dist(
-                            *independent.bends[bend_id].axis_xyz
-                        ),
+                        # True axis length, not one axis' X projection.
+                        dist(*independent.bends[bend_id].axis_xyz),
                         tooling,
                         report.raw_report,
                         virtual_length=virtual,
