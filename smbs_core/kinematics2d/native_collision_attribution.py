@@ -152,7 +152,12 @@ def attribute_native_collision(
         zone = independent.ordered_bends[0].bend_zone
         thickness_mm = float(zone.thickness_mm)
         components = []
+        if len(src_panels) != len(src_faces) or not src_panels:
+            raise ValueError("inconsistent panel geometry source count")
         for panel, face in zip(src_panels, src_faces):
+            if perf_counter() - start >= max_time_s:
+                record["errors"].append("component_build_time_limit")
+                break
             pshape = _source_panel_prism(
                 panel.panel_id, face, thickness_mm, App,
             )
@@ -165,16 +170,20 @@ def attribute_native_collision(
                     pshape, collision_state.workpiece_placement, App,
                 ),
             ))
-        for bend in independent.ordered_bends:
-            zshape = build_bend_zone_solid(
-                independent, bend.bend_id, segments=segments,
-            ).shape
-            components.append((
-                "bend_zone:" + bend.bend_id,
-                _machine_transform(
-                    zshape, collision_state.workpiece_placement, App,
-                ),
-            ))
+        if not record["errors"]:
+            for bend in independent.ordered_bends:
+                if perf_counter() - start >= max_time_s:
+                    record["errors"].append("bend_zone_build_time_limit")
+                    break
+                zshape = build_bend_zone_solid(
+                    independent, bend.bend_id, segments=segments,
+                ).shape
+                components.append((
+                    "bend_zone:" + bend.bend_id,
+                    _machine_transform(
+                        zshape, collision_state.workpiece_placement, App,
+                    ),
+                ))
 
         common = collision_state.collision_report
         target_kinds = []
