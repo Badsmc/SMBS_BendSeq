@@ -2857,21 +2857,68 @@ class _PreviewPanel:
                 if self.session is None:
                     scene.addSimpleText("Загрузите листовую деталь в PressBrakeSim")
                     return
+                inspection = self._collision_inspection
+                inspected_components = set()
                 try:
-                    # The whole-sheet 3D tab MUST use the same rigid
-                    # machine-space pose as the 2.5D sheet. Model-space
-                    # rendering hid the actual operator/rear orientation.
-                    current_placement = self._current_preview_machine_placement()
+                    # A real D6 3D collision uses the tool-centric MACHINE
+                    # coordinate system, which can differ from the ergonomic
+                    # reverse-axis 2.5D preview. For inspection, reconstruct
+                    # a SEPARATE FoldState and use the exact logged rigid pose.
+                    if inspection:
+                        entry = inspection.get("first_blocker") or {}
+                        actual = entry.get("sampled_machine_pose") or {}
+                        if (actual.get("bend_id") != inspection.get("bend_id")
+                                or not actual.get("rotation")
+                                or not actual.get("translation")):
+                            raise ValueError(
+                                "missing_native_machine_frame_for_collision"
+                            )
+                        inspection_state = FoldState(
+                            self.session.fold_state.graph,
+                            self.session.fold_state.fixed_panel,
+                        )
+                        for bid, deg in actual.get(
+                                "completed_angles", {}).items():
+                            inspection_state.set_angle(bid, float(deg))
+                        inspection_state.set_angle(
+                            actual["bend_id"],
+                            float(actual["signed_angle_deg"]),
+                        )
+                        current_placement = PlacementTransform3D(
+                            rotation=tuple(
+                                tuple(float(x) for x in row)
+                                for row in actual["rotation"]
+                            ),
+                            translation=tuple(
+                                float(x) for x in actual["translation"]
+                            ),
+                        )
+                        attribution = entry.get("component_attribution") or {}
+                        inspected_components = {
+                            str(hit.get("component_id")).split(":", 1)[1]
+                            for hit in attribution.get("hits", ())
+                            if str(hit.get("component_id", "")).startswith(
+                                "panel:"
+                            )
+                        }
+                        fold_state = inspection_state
+                        bend_id = actual["bend_id"]
+                    else:
+                        # Normal 2.5D/3D interactive preview remains unchanged.
+                        current_placement = self._current_preview_machine_placement()
+                        fold_state = self.session.fold_state
+                        bend_id = self.session.active_bend_id
                     pose = WorkpiecePose2D()
                     faces = build_sheet_preview_faces(
-                        self.session.fold_state,
+                        fold_state,
                         self.session.panel_vertices_xy,
-                        self.session.active_bend_id,
+                        bend_id,
                         pose,
                         segments=12,
                         machine_placement=current_placement,
                     )
-                except (PreviewMeshError, WorkpiecePoseError, KinematicsError) as exc:
+                except (PreviewMeshError, WorkpiecePoseError,
+                        KinematicsError, ValueError, KeyError) as exc:
                     _warn("3D whole-sheet preview unavailable: {}".format(exc))
                     scene.addSimpleText("3D: {}".format(str(exc)))
                     return
@@ -2921,13 +2968,68 @@ class _PreviewPanel:
                     if len(poly) < 3:
                         continue
                     fill_hex, edge_hex = palette.get(face.kind, ("#91a5b3", "#4c6474"))
-                    pen = QtGui.QPen(QtGui.QColor(edge_hex), 0.65)
+                    if inspection and face.identifier in inspected_components:
+                        edge_hex, fill_hex = "#cf3030", "#e8a1a1"
+                    pen = QtGui.QPen(QtGui.QColor(edge_hex), 2.0 if (
+                        inspection and face.identifier in inspected_components
+                    ) else 0.65)
                     pen.setCosmetic(True)
                     brush = QtGui.QBrush(QtGui.QColor(fill_hex))
                     item = scene.addPolygon(poly, pen, brush)
                     item.setToolTip("{}: {}".format(face.kind, face.identifier))
 
+                if inspection:
+                    actual = (inspection.get("first_blocker") or {}).get(
+                        "sampled_machine_pose"
+                    ) or {}
+                    obstacle = inspection.get("first_blocker") or {}
+                    for tool_kind, bound in (
+                        obstacle.get("intersection_bbox_xyz_mm") or {}
+                    ).items():
+                        if not isinstance(bound, dict):
+                            continue
+                        # 12 edges of the exact OCC common-solid AABB in
+                        # MACHINE coordinates. Do NOT imply the red wireframe
+                        # is the exact contact surface itself.
+                        lo = (bound["xmin"], bound["ymin"], bound["zmin"])
+                        hi = (bound["xmax"], bound["ymax"], bound["zmax"])
+                        corners = [
+                            (x, y, z)
+                            for x in (lo[0], hi[0])
+                            for y in (lo[1], hi[1])
+                            for z in (lo[2], hi[2])
+                        ]
+                        red = QtGui.QPen(QtGui.QColor("#df2020"), 2.6)
+                        red.setCosmetic(True)
+                        for i in range(8):
+                            for j in range(i + 1, 8):
+                                if sum(
+                                    corners[i][axis] != corners[j][axis]
+                                    for axis in range(3)
+                                ) != 1:
+                                    continue
+                                a, b = project(corners[i]), project(corners[j])
+                                wire = scene.addLine(
+                                    a.x(), a.y(), b.x(), b.y(), red,
+                                )
+                                wire.setZValue(500.0)
+                        text_item = scene.addSimpleText(
+                            "OCC {}: XYZ BBox / native D6".format(
+                                tool_kind.upper()
+                            )
+                        )
+                        text_item.setBrush(QtGui.QBrush(
+                            QtGui.QColor("#ce1818")
+                        ))
+                        text_item.setPos(project(corners[0]))
+                        text_item.setZValue(501.0)
                 label = scene.addSimpleText(
+                    ("3D КОЛЛИЗИЯ | гиб {} | фаза {} | угол {:.2f}° | "
+                     "native XYZ BBox, НЕ поверхность контакта".format(
+                        inspection["bend_id"],
+                        (inspection["first_blocker"] or {}).get("phase", "?"),
+                        float(actual.get("signed_angle_deg", 0.0)),
+                    )) if inspection else
                     "3D MACHINE FRAME | {} | {} | NOT 3D CERTIFIED".format(
                         self.session.active_bend_id,
                         self.execution_mode.value,
