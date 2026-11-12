@@ -312,6 +312,7 @@ def check_manual_3d_sequence(
                 "native_status": "UNVERIFIED",
                 "checked_scope": [],
                 "tool_length_info": None,
+                "retract": retract_evidence_from_trajectory(None),
                 "is_conditional": False,
                 "elapsed_s": 0.0,
             })
@@ -336,6 +337,12 @@ def check_manual_3d_sequence(
                 pseudo_session, tooling, **check_kwargs,
             )
             status = report.status
+            retract = retract_evidence_from_trajectory(report.raw_report)
+            # No sampled RETRACT -> no claim of a fully validated bend.
+            # This is separate from any already proven earlier collision.
+            if status in (CLEAR, PhysicalEvidence.CONDITIONAL):
+                if retract["status"] not in ("SAMPLED_CLEAR", "CONDITIONAL"):
+                    status = PhysicalEvidence.UNVERIFIED
             tool_pair = None
             if status in (CLEAR, PhysicalEvidence.CONDITIONAL):
                 try:
@@ -367,7 +374,14 @@ def check_manual_3d_sequence(
                 "tool_length_info": report.tool_length_info,
                 "is_conditional": bool(report.is_conditional),
                 "punch_die_pair": tool_pair,
+                "retract": retract,
             }
+            if status is PhysicalEvidence.UNVERIFIED and report.status in (
+                    CLEAR, PhysicalEvidence.CONDITIONAL):
+                record["status"] = status.value
+                record["reason"] = (
+                    "RETRACT_not_verified:" + str(retract["reason"])
+                )
             if tool_pair is not None:
                 if tool_pair["status"] == "COLLISION":
                     status = PhysicalEvidence.COLLISION
@@ -392,6 +406,7 @@ def check_manual_3d_sequence(
                 "completed_before_step": list(previous),
                 "status": "UNVERIFIED",
                 "punch_die_pair": None,
+                "retract": retract_evidence_from_trajectory(None),
                 "reason": "native_3d_exception:{}:{}".format(
                     type(exc).__name__, exc,
                 ),
