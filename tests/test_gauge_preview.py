@@ -251,6 +251,72 @@ class GaugePreviewTests(unittest.TestCase):
             },
         })
 
+    def test_opposite_45_pair_changes_third_bend_machine_reach(self):
+        from smbs_core.kinematics2d.bend_zone import (
+            make_bend_zone, bend_parameters,
+        )
+        from smbs_core.kinematics2d.panel_graph import PanelGraph, GraphEdge
+        from smbs_core.kinematics2d.panel_kinematics import FoldState
+
+        def make_fixture(second_angle):
+            t, radius, k = 1.5, 1.0, 0.31
+            bend_data = (("B01", 10, +45), ("B02", 32, second_angle),
+                         ("B03", 54, +90))
+            zones = {}
+            for bid, x, angle in bend_data:
+                reference_radius = radius if angle > 0 else radius + t
+                params = bend_parameters(
+                    math.copysign(180 - abs(angle), angle),
+                    reference_radius, t, k,
+                )
+                zones[bid] = make_bend_zone(
+                    bid, ((x, 0), (x, 50)), params,
+                )
+            names = ("P01", "P02", "P03", "P04")
+            edges = tuple(
+                GraphEdge(bid, names[i], names[i + 1], angle,
+                          ((x, 0, 0), (x, 50, 0)), zones[bid])
+                for i, (bid, x, angle) in enumerate(bend_data)
+            )
+            graph = PanelGraph(names, edges)
+            def rect(lo, hi):
+                return ((lo, 0), (hi, 0), (hi, 50), (lo, 50))
+            vertices = {
+                "P01": rect(0, 10 - zones["B01"].half_width_mm),
+                "P02": rect(10 + zones["B01"].half_width_mm,
+                            32 - zones["B02"].half_width_mm),
+                "P03": rect(32 + zones["B02"].half_width_mm,
+                            54 - zones["B03"].half_width_mm),
+                "P04": rect(54 + zones["B03"].half_width_mm, 100),
+            }
+            return SimpleNamespace(
+                bend_order=("B01", "B02", "B03"), graph=graph,
+                fixed_panel="P01", fold_state=FoldState(graph, "P01"),
+                panel_vertices_xy=vertices,
+            )
+
+        mixed, mixed_errors = sequenced_gauge_envelopes(
+            make_fixture(-45),
+        )
+        same, same_errors = sequenced_gauge_envelopes(
+            make_fixture(+45),
+        )
+        self.assertEqual(mixed_errors, {}, mixed_errors)
+        self.assertEqual(same_errors, {}, same_errors)
+        self.assertAlmostEqual(
+            mixed["B01"][0], same["B01"][0], places=5,
+        )
+        self.assertAlmostEqual(
+            mixed["B02"][0], same["B02"][0], places=5,
+        )
+        # Only *after* the second bend has happened does its sign change
+        # the geometry that must be projected to set up the next operation.
+        print("AFTER_B01_45_B02_MINUS45_B03_REACH", mixed["B03"][0])
+        print("AFTER_B01_45_B02_PLUS45_B03_REACH", same["B03"][0])
+        self.assertGreater(
+            abs(mixed["B03"][0] - same["B03"][0]), 0.25,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
