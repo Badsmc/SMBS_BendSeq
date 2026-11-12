@@ -540,6 +540,9 @@ def show_workspace_controls(workspace, tab=None):
     """
     import FreeCADGui as Gui
     QtCore, _QtGui, QtWidgets = _qt()
+    from freecad_smbs.ui.pressbrake_theme import (
+        TASK_QSS, OUTER_MARGIN, SECTION_GAP,
+    )
     if tab is not None:
         workspace._control_tabs.setCurrentIndex(tab)
     dock = getattr(workspace, "_controls_dock", None)
@@ -553,19 +556,43 @@ def show_workspace_controls(workspace, tab=None):
     dock = QtWidgets.QDockWidget("PressBrakeSim — Task Panel", main)
     dock.setObjectName(_CONTROLS_DOCK_NAME)
     dock.setAllowedAreas(QtCore.Qt.LeftDockWidgetArea | QtCore.Qt.RightDockWidgetArea)
+    dock.setFeatures(
+        QtWidgets.QDockWidget.DockWidgetClosable |
+        QtWidgets.QDockWidget.DockWidgetMovable
+    )  # Do not allow a floating window for the main Task Panel.
     dock.setAttribute(QtCore.Qt.WA_DeleteOnClose, False)
+    dock.setMinimumWidth(300)
     form = QtWidgets.QWidget(dock)
+    form.setObjectName("SMBS_TaskDockRoot")
+    form.setStyleSheet(TASK_QSS)
     layout = QtWidgets.QVBoxLayout(form)
-    layout.setContentsMargins(4, 4, 4, 4)
-    # Each task tab owns a QScrollArea. Keep the tab bar outside the
-    # scrolling content so it remains visible even in a short dock.
+    layout.setContentsMargins(0, 0, 0, 0)
+    layout.setSpacing(0)
+    # Only the page content scrolls; tab bar and status/progress remain fixed.
     layout.addWidget(workspace._control_tabs, 1)
-    close_button = QtWidgets.QPushButton("Закрыть панель")
-    close_button.setObjectName("SMBS_CloseTaskPanel")
-    close_button.clicked.connect(dock.hide)
-    layout.addWidget(close_button)
+
+    footer = QtWidgets.QFrame(form)
+    footer.setObjectName("SMBS_TaskFooter")
+    footer_layout = QtWidgets.QVBoxLayout(footer)
+    footer_layout.setContentsMargins(
+        OUTER_MARGIN, 12, OUTER_MARGIN, 12
+    )
+    footer_layout.setSpacing(SECTION_GAP // 2)
+    state_row = QtWidgets.QHBoxLayout()
+    state_row.addWidget(workspace._task_status_chip)
+    state_row.addStretch(1)
+    state_row.addWidget(workspace._task_progress_caption)
+    footer_layout.addLayout(state_row)
+    footer_layout.addWidget(workspace.task_progress)
+    workspace.status.setObjectName("SMBS_StatusLabel")
+    workspace.status.setWordWrap(True)
+    workspace.status.setMaximumHeight(52)
+    footer_layout.addWidget(workspace.status)
+    layout.addWidget(footer)
     dock.setWidget(form)
     main.addDockWidget(QtCore.Qt.LeftDockWidgetArea, dock)
+    dock.resize(410, dock.height())
+    workspace._on_task_status_change(workspace.status.text())
     dock.visibilityChanged.connect(
         lambda visible: workspace.show_task_panel_btn.setVisible(not visible)
     )
@@ -631,6 +658,11 @@ def close_workspace_controls(workspace):
         return
     workspace._control_tabs.setParent(workspace)
     workspace._control_tabs.hide()
+    # These live controls must survive destruction of the old dock.
+    workspace.status.setParent(workspace)
+    workspace.task_progress.setParent(workspace)
+    workspace._task_status_chip.setParent(workspace)
+    workspace._task_progress_caption.setParent(workspace)
     dock.hide()
     dock.setWidget(None)
     dock.deleteLater()
@@ -953,6 +985,18 @@ class _PreviewPanel:
                     if not self.scene().sceneRect().isEmpty():
                         self.fitInView(self.scene().sceneRect(), QtCore.Qt.KeepAspectRatio)
 
+        class TaskStatusLabel(QtWidgets.QLabel):
+            """Existing application status, observed without polling the GUI."""
+
+            def __init__(self, workspace, message):
+                super().__init__(message, workspace)
+                self._workspace = workspace
+
+            def setText(self, message):
+                super().setText(str(message))
+                self.setToolTip(str(message))
+                self._workspace._on_task_status_change(str(message))
+
         class Panel(QtWidgets.QWidget):
             def __init__(self, library_root: Path | str | None = None):
                 super().__init__()
@@ -1025,17 +1069,23 @@ class _PreviewPanel:
                 self.timer = QtCore.QTimer(self)
                 self.timer.setInterval(25)  # 40 Hz Qt playback; one timer only
                 self.timer.timeout.connect(self.advance)
-                self.setMinimumWidth(360)
+                self.setMinimumWidth(580)
 
+                from freecad_smbs.ui.pressbrake_theme import (
+                    OUTER_MARGIN, SECTION_GAP,
+                )
                 root = QtWidgets.QVBoxLayout(self)
-                root.setContentsMargins(8, 8, 8, 8)
-                root.setSpacing(6)
-                title = QtWidgets.QLabel("PressBrakeSim 2.5D  |  Реальная геометрия гиба")
-                title.setStyleSheet("font-weight: bold; font-size: 13px")
+                root.setContentsMargins(
+                    OUTER_MARGIN, OUTER_MARGIN,
+                    OUTER_MARGIN, OUTER_MARGIN,
+                )
+                root.setSpacing(SECTION_GAP)
+                title = QtWidgets.QLabel("PressBrakeSim 2.5D")
+                title.setStyleSheet("font-weight: 600; font-size: 14px;")
                 root.addWidget(title)
 
-                self.status = QtWidgets.QLabel(
-                    "Выделите листовую деталь в FreeCAD и нажмите «Деталь»."
+                self.status = TaskStatusLabel(
+                    self, "Выделите листовую деталь в FreeCAD и нажмите «Деталь»."
                 )
                 self.status.setWordWrap(True)
                 root.addWidget(self.status)
@@ -1282,9 +1332,9 @@ class _PreviewPanel:
                         nested.setParent(None)
                         layout.addLayout(nested, stretch)
 
-                # Header and status remain in the MDI viewer.
-                for item in entries[:2]:
-                    insert(root, item)
+                # MDI contains only the heading and CAD views.
+                # The original status QLabel is reparented into the dock footer.
+                insert(root, entries[0])
 
                 views = QtWidgets.QTabWidget(self)
                 views.setObjectName("SMBS_ViewerTabs")
