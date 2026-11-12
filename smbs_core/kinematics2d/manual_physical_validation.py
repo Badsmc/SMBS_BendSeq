@@ -317,7 +317,7 @@ def _check_selected_tool_pair_at_sampled_rams(
                 status=result.status.value,
                 reason=result.reason,
                 overlap_mm3=result.overlap_volume_mm3,
-                distance_mm=result.distance_mm,
+                distance_mm=getattr(result, "distance_mm", None),
                 punch_file=str(punch_file),
                 die_file=str(die_file),
                 bend_length_mm=bend_length_mm,
