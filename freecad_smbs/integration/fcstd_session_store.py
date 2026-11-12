@@ -112,7 +112,7 @@ def geometry_manifest(session, document):
     return {"sha256": _sha(_json_bytes(manifest)), "data": manifest}
 
 
-def _tool_reference(profile):
+def tool_reference(profile):
     if profile is None:
         return None
     if not hasattr(profile, "to_dict"):
@@ -191,8 +191,8 @@ def build_snapshot(
             "canonical_bend_ids": canonical,
         },
         "tooling": {
-            "punch": _tool_reference(getattr(tooling, "punch", None)),
-            "die": _tool_reference(getattr(tooling, "die", None)),
+            "punch": tool_reference(getattr(tooling, "punch", None)),
+            "die": tool_reference(getattr(tooling, "die", None)),
             "match_active_bend_length": bool(tooling.match_active_bend_length),
             "allow_end_zone_collision": bool(tooling.allow_end_zone_collision),
             "end_zone_length_mm": _finite(tooling.end_zone_length_mm),
