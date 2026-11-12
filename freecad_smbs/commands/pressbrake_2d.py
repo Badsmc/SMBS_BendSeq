@@ -1328,11 +1328,24 @@ class _PreviewPanel:
                 self.play_btn.setToolTip("Play / Pause / Resume для выбранного режима")
                 self.next_step_btn = _button(QtWidgets, ">>|", self.next_step, False)
                 self.fit_btn = _button(QtWidgets, "Fit", self.fit, True)
-                for col, widget in enumerate((
+                buttons = (
                     self.reset_btn, self.prev_step_btn, self.play_btn,
-                    self.next_step_btn, self.fit_btn
-                )):
+                    self.next_step_btn, self.fit_btn,
+                )
+                captions = ("Reset", "|<<", "Play / Pause", ">>|", "Fit")
+                for col, (widget, caption) in enumerate(zip(buttons, captions)):
+                    # A 400px Tasks dock cannot hold five icon+text buttons.
+                    # Keep actual connected QPushButtons, use icon surfaces
+                    # and concise captions underneath as in the design.
+                    if widget is not self.play_btn:
+                        widget.setText("")
+                    widget.setToolTip(caption)
                     row.addWidget(widget, 0, col)
+                    mini_label = QtWidgets.QLabel(caption)
+                    mini_label.setObjectName("SMBS_SectionCaption")
+                    mini_label.setAlignment(QtCore.Qt.AlignHCenter)
+                    mini_label.setWordWrap(True)
+                    row.addWidget(mini_label, 1, col)
                     row.setColumnStretch(col, 1)
                 root.addLayout(row)
 
