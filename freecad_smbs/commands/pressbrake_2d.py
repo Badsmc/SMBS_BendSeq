@@ -2616,6 +2616,11 @@ class _PreviewPanel:
 
             def _show_planar_candidates_dialog(self, report):
                 """Choose a preview-only bend order; never present it as 3D approved."""
+                # A new search may replace a previous result; close the old tab
+                # explicitly rather than presenting a stale list.
+                previous = getattr(self, "_task_dialogs", {}).get("planar_candidates")
+                if previous is not None:
+                    previous.reject()
                 dlg = QtWidgets.QDialog(self)
                 dlg.setWindowTitle("SMBS — предварительные 2D варианты")
                 dlg.resize(700, 430)
@@ -2915,7 +2920,7 @@ class _PreviewPanel:
                 use.clicked.connect(on_preview)
                 export_btn.clicked.connect(on_export)
                 close.clicked.connect(dlg.reject)
-                dlg.exec()
+                embed_task_dialog(self, dlg, "2D варианты", "planar_candidates")
 
             def calculate_sequence(self):
                 """Run automatic 2.5D + D6 physical sequence search with backtracking and forward replay."""
@@ -3274,6 +3279,8 @@ class _PreviewPanel:
                 self.set_cycle_config(new_cfg)
 
             def open_cycle_config_dialog(self):
+                if activate_task_dialog(self, "cycle_config"):
+                    return
                 dlg = QtWidgets.QDialog(self)
                 dlg.setWindowTitle("Параметры кинематического цикла пресса (KINEMATIC_PREVIEW)")
                 vbox = QtWidgets.QVBoxLayout(dlg)
@@ -3345,7 +3352,7 @@ class _PreviewPanel:
 
                 btn_ok.clicked.connect(on_apply)
                 btn_cancel.clicked.connect(dlg.reject)
-                dlg.exec()
+                embed_task_dialog(self, dlg, "Параметры цикла", "cycle_config")
 
             def _sync_tooling_to_active_bend(self):
                 """Re-align static tooling to the active bend line if already aligned."""
@@ -3554,6 +3561,8 @@ class _PreviewPanel:
                     self.status.setText(msg)
 
             def open_tool_library_dialog(self):
+                if activate_task_dialog(self, "tool_profiles"):
+                    return
                 dlg = QtWidgets.QDialog(self)
                 dlg.setWindowTitle("Библиотека пользовательской оснастки 2.5D (PUNCH & DIE)")
                 dlg.resize(560, 420)
@@ -3653,7 +3662,7 @@ class _PreviewPanel:
                 for b in (btn_imp_p, btn_imp_d, btn_use, btn_del, btn_close):
                     btn_row.addWidget(b)
                 vbox.addLayout(btn_row)
-                dlg.exec()
+                embed_task_dialog(self, dlg, "Профили оснастки", "tool_profiles")
 
             def _stop_timer(self):
                 self.timer.stop()
