@@ -663,6 +663,10 @@ def show_workspace_controls(workspace, tab=None):
         cycle.loading_orientation_by_bend = (
             workspace._effective_loading_orientation_map()
         )
+        if hasattr(workspace, "_rear_frame_for_preview"):
+            cycle.rear_panel_vertices_xy = (
+                workspace._rear_frame_for_preview()
+            )
     caption = workspace._task_page_titles.get(section, "Панель задач")
     header = getattr(workspace, "_task_section_label", None)
     if header is not None:
@@ -4140,6 +4144,25 @@ class _PreviewPanel:
                         f"Ram Position: {ram_z:+.2f} mm (Stroke: {ram_stroke:.2f} mm)"
                     )
 
+            def _manual_operator_pose_active(self):
+                return (
+                    getattr(self, "_task_stack", None) is not None
+                    and self._task_stack.currentWidget()
+                    is getattr(self, "_page_manual", None)
+                )
+
+            def _rear_frame_for_preview(self):
+                # Manual uses the same explicit machine-frame placement as
+                # native D6. The rear-frame ergonomic auto-flip is NOT an
+                # operator loading choice or a physical 3D verification.
+                if self._manual_operator_pose_active():
+                    return None
+                return (
+                    self.session.panel_vertices_xy
+                    if self.session is not None and self.backgauge_model is not None
+                    else None
+                )
+
             def _effective_loading_orientation_map(self):
                 """One source of machine-facing orientation for every viewer.
 
@@ -4157,9 +4180,7 @@ class _PreviewPanel:
                 )
                 manual_page_active = (
                     reverse_checkbox is not None
-                    and getattr(self, "_task_stack", None) is not None
-                    and self._task_stack.currentWidget()
-                    is getattr(self, "_page_manual", None)
+                    and self._manual_operator_pose_active()
                 )
                 if manual_page_active:
                     reversed_pose = bool(reverse_checkbox.isChecked())
@@ -4258,10 +4279,7 @@ class _PreviewPanel:
                     align_bisector=True,
                     align_bend_arc_center=True,
                     reverse_axis=bool(orientations.get(bid, False)),
-                    rear_panel_vertices_xy=(
-                        self.session.panel_vertices_xy
-                        if self.backgauge_model is not None else None
-                    ),
+                    rear_panel_vertices_xy=self._rear_frame_for_preview(),
                 )
 
             def _update_loading_orientation_label(self):
@@ -4298,8 +4316,7 @@ class _PreviewPanel:
                     ctrl = getattr(self.session, "controller", None)
                     if ctrl is None or getattr(self.press_cycle, "sequence", None) is ctrl:
                         self.press_cycle.rear_panel_vertices_xy = (
-                            self.session.panel_vertices_xy
-                            if self.backgauge_model is not None else None
+                            self._rear_frame_for_preview()
                         )
                         self.press_cycle.loading_orientation_by_bend = (
                             self._effective_loading_orientation_map()
@@ -4323,8 +4340,7 @@ class _PreviewPanel:
                     animate_workpiece_transfer=True,
                 )
                 self.press_cycle.rear_panel_vertices_xy = (
-                    self.session.panel_vertices_xy
-                    if self.backgauge_model is not None else None
+                    self._rear_frame_for_preview()
                 )
                 self.press_cycle.loading_orientation_by_bend = (
                     self._effective_loading_orientation_map()
