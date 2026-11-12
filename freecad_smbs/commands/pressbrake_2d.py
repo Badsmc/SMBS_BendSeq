@@ -1335,6 +1335,17 @@ class _PreviewPanel:
                 # MDI contains only the heading and CAD views.
                 # The original status QLabel is reparented into the dock footer.
                 insert(root, entries[0])
+                self._task_progress_busy = False
+                self.task_progress = QtWidgets.QProgressBar(self)
+                self.task_progress.setObjectName("SMBS_TaskProgress")
+                self.task_progress.setTextVisible(False)
+                self.task_progress.setRange(0, 100)
+                self.task_progress.setValue(0)
+                self._task_status_chip = QtWidgets.QLabel("Ready", self)
+                self._task_status_chip.setObjectName("SMBS_StatusChip")
+                self._task_status_chip.setProperty("state", "ready")
+                self._task_progress_caption = QtWidgets.QLabel("0%", self)
+                self._task_progress_caption.setObjectName("SMBS_SectionCaption")
 
                 views = QtWidgets.QTabWidget(self)
                 views.setObjectName("SMBS_ViewerTabs")
@@ -1624,6 +1635,59 @@ class _PreviewPanel:
                 root.addWidget(self.show_task_panel_btn)
                 self.show_task_panel_btn.hide()
                 self._apply_svg_button_icons()
+
+            def _on_task_status_change(self, message):
+                """Refresh dock severity when existing handlers call status.setText."""
+                if not hasattr(self, "_task_status_chip"):
+                    return
+                from freecad_smbs.ui.pressbrake_theme import classify_status
+                state, caption = classify_status(message)
+                if getattr(self, "_task_progress_busy", False):
+                    state, caption = "running", "Running"
+                badge = self._task_status_chip
+                if badge.property("state") != state:
+                    badge.setProperty("state", state)
+                    badge.style().unpolish(badge)
+                    badge.style().polish(badge)
+                badge.setText(caption)
+
+            def _set_task_busy(self, busy):
+                """Use indeterminate progress for unbounded DFS/OCC searches."""
+                self._task_progress_busy = bool(busy)
+                if busy:
+                    self.task_progress.setRange(0, 0)
+                    self._task_progress_caption.setText("Расчёт…")
+                else:
+                    self.task_progress.setRange(0, 100)
+                    self._update_task_progress()
+                self._on_task_status_change(self.status.text())
+
+            def _update_task_progress(self):
+                """Known geometric bend progress, never DFS search percentage."""
+                if getattr(self, "_task_progress_busy", False):
+                    return
+                session = self.session
+                if session is None or not getattr(session, "bend_order", None):
+                    self.task_progress.setValue(0)
+                    self._task_progress_caption.setText("0%")
+                    return
+                n = len(session.bend_order)
+                idx = min(n, max(0, int(session.active_bend_index)))
+                try:
+                    angle = float(session.current_angle_deg)
+                    target = abs(float(session.target_angle_deg))
+                    fraction = (
+                        min(1.0, abs(angle) / target) if target > 1e-8 else 0.0
+                    )
+                except (ValueError, TypeError, AttributeError, ZeroDivisionError):
+                    fraction = 0.0
+                if session.playback_status == PlaybackStatus.COMPLETED:
+                    idx, fraction = n, 0.0
+                value = min(100, max(0, int(
+                    round(100.0 * (idx + fraction) / n)
+                )))
+                self.task_progress.setValue(value)
+                self._task_progress_caption.setText("Гибы · {}%".format(value))
 
             def open_tooling_settings_dialog(self):
                 """Show tooling Basic/Import within the shared Task Panel."""
@@ -3722,6 +3786,7 @@ class _PreviewPanel:
 
             def _sync_playback_buttons(self):
                 if self.session is None:
+                    self._update_task_progress()
                     self.play_btn.setText("Play")
                     self.play_btn.setIcon(QtGui.QIcon(str(_ICON_ROOT / "control_play.svg")))
                     self.move_up_btn.setEnabled(False)
@@ -3731,6 +3796,7 @@ class _PreviewPanel:
                     self.planar_calculate.setEnabled(False)
                     return
                 st = self.session.playback_status
+                self._update_task_progress()
                 self.playing = st == PlaybackStatus.PLAYING
                 bend_order = getattr(self.session, "bend_order", [])
                 self.calculate.setEnabled(not self.playing and len(bend_order) > 1)
@@ -3822,6 +3888,11 @@ class _PreviewPanel:
                 self._update_tooling_status_label()
                 self.status.setText(msg)
                 self.check_result.setText(msg)
+                if hasattr(self, "_source_summary"):
+                    self._source_summary.setText(
+                        str(self.session.part_label or "SheetMetal")
+                    )
+                self._update_task_progress()
                 self.draw()
                 self._draw_flat_pattern(reset_camera=True)
                 if self._viewer_tabs.currentIndex() == 1:
