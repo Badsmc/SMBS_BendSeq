@@ -125,6 +125,10 @@ def concise_3d_blocker(trajectory: Any) -> dict:
         "tool": tool,
         "punch_overlap_mm3": round(punch_overlap, 6),
         "die_overlap_mm3": round(die_overlap, 6),
+        "intersection_bbox_xyz_mm": {
+            "punch": getattr(p, "overlap_bbox_xyz_mm", None),
+            "die": getattr(d, "overlap_bbox_xyz_mm", None),
+        },
         "ram_z_mm": (
             round(float(candidate.ram_z_mm), 6)
             if candidate is not None else None
