@@ -663,7 +663,7 @@ def show_workspace_controls(workspace, tab=None):
     """Display ALL SMBS control pages inside the standard FreeCAD Tasks view.
 
     One native Gui.Control.showDialog is active at a time. No independent dock
-    or floating "PressBrakeSim TaskPanel" is created. The MDI only contains
+    or floating addon-owned dock is created. The MDI only contains
     2.5D/3D/flat graphics; the operator can still change the chosen page.
     """
     import FreeCADGui as Gui
