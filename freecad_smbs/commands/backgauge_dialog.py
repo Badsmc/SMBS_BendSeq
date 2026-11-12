@@ -13,7 +13,9 @@ from smbs_core.kinematics2d.backgauge_2d import (
 
 
 def show_backgauge_settings(workspace):
-    from .pressbrake_2d import _qt
+    from .pressbrake_2d import _qt, activate_task_dialog, embed_task_dialog
+    if activate_task_dialog(workspace, "backgauge"):
+        return
     QtCore, _, W = _qt()
     dlg = W.QDialog(workspace)
     dlg.setWindowTitle("SMBS — Задний упор (CAD / 2D)")
@@ -279,4 +281,4 @@ def show_backgauge_settings(workspace):
 
     save.clicked.connect(accept)
     cancel.clicked.connect(dlg.reject)
-    dlg.exec()
+    embed_task_dialog(workspace, dlg, "Задний упор", "backgauge")
