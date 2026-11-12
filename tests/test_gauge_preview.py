@@ -215,6 +215,41 @@ class GaugePreviewTests(unittest.TestCase):
         self.assertNotAlmostEqual(
             targets["B02"][0], reverse_targets["B02"][0], delta=0.05,
         )
+        # Paired +45/-45 folds use actual signed finite-radius kinematics,
+        # not just flat panel lengths or a universal +thickness correction.
+        signed_results = {}
+        for a1, a2 in ((45, -45), (45, 45), (-45, 45)):
+            first, second = zone("B01", a, a1), zone("B02", b, a2)
+            signed_graph = PanelGraph(("P01", "P02", "P03"), (
+                GraphEdge("B01", "P01", "P02", float(a1),
+                          ((10, 0, 0), (10, 50, 0)), first),
+                GraphEdge("B02", "P02", "P03", float(a2),
+                          ((32, 0, 0), (32, 50, 0)), second),
+            ))
+            signed_panels = {
+                "P01": rect(0, 10 - first.half_width_mm),
+                "P02": rect(10 + first.half_width_mm, 32 - second.half_width_mm),
+                "P03": rect(32 + second.half_width_mm, 100),
+            }
+            signed_state = FoldState(signed_graph, "P01")
+            signed_session = SimpleNamespace(
+                bend_order=("B01", "B02"), graph=signed_graph,
+                fixed_panel="P01", panel_vertices_xy=signed_panels,
+                fold_state=signed_state,
+            )
+            signed_targets, signed_errors = sequenced_gauge_envelopes(
+                signed_session,
+            )
+            self.assertEqual(signed_errors, {}, (a1, a2, signed_errors))
+            self.assertIn("B02", signed_targets)
+            signed_results[(a1, a2)] = signed_targets["B02"][0]
+        print("MACHINE_GAUGE_PROJECTIONS_MM:", {
+            "B01_90_then_B02_minus45": round(targets["B02"][0], 5),
+            **{
+                "B01_{}_B02_{}".format(a1, a2): round(value, 5)
+                for (a1, a2), value in signed_results.items()
+            },
+        })
 
 
 if __name__ == "__main__":
