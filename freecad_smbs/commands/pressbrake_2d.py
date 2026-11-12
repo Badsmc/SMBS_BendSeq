@@ -1234,7 +1234,7 @@ class _PreviewPanel:
 
                 # Development virtual tool length & controlled punch end-zone policy
                 self.virtual_tool_len_checkbox = QtWidgets.QCheckBox(
-                    "Разработка: длина инструмента равна длине гиба"
+                    "Виртуальная длина инструмента\nравна длине гиба"
                 )
                 self.virtual_tool_len_checkbox.setChecked(False)
                 self.virtual_tool_len_checkbox.setToolTip(
@@ -1256,7 +1256,7 @@ class _PreviewPanel:
                 t_layout.addLayout(ez_row)
 
                 self.allow_end_zone_checkbox = QtWidgets.QCheckBox(
-                    "Условный допуск концевых зон пуансона (CONDITIONAL)"
+                    "Условный допуск концевых зон\nпуансона (CONDITIONAL)"
                 )
                 self.allow_end_zone_checkbox.setChecked(False)
                 self.allow_end_zone_checkbox.setToolTip(
@@ -1343,6 +1343,8 @@ class _PreviewPanel:
                     "Оператор ← | Упор → | Подача: пока не определена"
                 )
                 self.loading_orientation_status.setWordWrap(True)
+                self.cycle_phase_label.setWordWrap(True)
+                self.ram_position_label.setWordWrap(True)
                 self.loading_orientation_status.setStyleSheet(
                     "font-size: 11px; color: #815a2a;"
                 )
@@ -1358,8 +1360,8 @@ class _PreviewPanel:
                 root.addWidget(self.view, 1)
 
                 row = QtWidgets.QGridLayout()
-                row.setHorizontalSpacing(16)
-                row.setVerticalSpacing(16)
+                row.setHorizontalSpacing(4)
+                row.setVerticalSpacing(6)
                 # One playback button owns Play, Pause and Resume, with step
                 # navigation immediately on either side.
                 self.reset_btn = _button(QtWidgets, "Reset", self.reset, False)
@@ -1414,6 +1416,9 @@ class _PreviewPanel:
                 self.operations = QtWidgets.QTreeWidget()
                 self.operations.setHeaderLabels(["Step", "Bend", "Target", "Current", "Status"])
                 self.operations.setRootIsDecorated(False)
+                self.operations.setHorizontalScrollBarPolicy(
+                    QtCore.Qt.ScrollBarAlwaysOff
+                )
                 self.operations.setObjectName("SMBS_Operations")
                 self.operations.setAlternatingRowColors(True)
                 self.operations.setMinimumHeight(220)
@@ -1593,6 +1598,14 @@ class _PreviewPanel:
                 ):
                     style_action(btn, compact=True)
                 style_action(self.play_btn, primary=True)
+                for btn in (
+                    self.reset_btn, self.prev_step_btn, self.play_btn,
+                    self.next_step_btn, self.fit_btn,
+                ):
+                    btn.setFixedSize(40, 40)
+                # The dynamic Play/Pause/Resume caption is retained for
+                # accessibility; the SVG icon is the visible button content.
+                self.play_btn.setStyleSheet("font-size: 0px;")
                 insert(sim_body, entries[5])  # 5-column playback QGridLayout
                 self.slider.setToolTip("Угол активного гиба")
                 insert(sim_body, entries[6])  # angle slider
@@ -1660,8 +1673,8 @@ class _PreviewPanel:
                     style_action(btn, compact=True)
                 insert(order_body, entries[7])  # move up/down/restore grid
 
-                undo_row = QtWidgets.QGridLayout()
-                undo_row.setHorizontalSpacing(SECTION_GAP)
+                undo_row = QtWidgets.QVBoxLayout()
+                undo_row.setSpacing(SECTION_GAP)
                 self.manual_undo_btn = style_action(
                     QtWidgets.QPushButton("Отменить линию")
                 )
@@ -1670,10 +1683,8 @@ class _PreviewPanel:
                     QtWidgets.QPushButton("Очистить")
                 )
                 self.manual_clear_btn.clicked.connect(self._clear_manual_order)
-                undo_row.addWidget(self.manual_undo_btn, 0, 0)
-                undo_row.addWidget(self.manual_clear_btn, 0, 1)
-                undo_row.setColumnStretch(0, 1)
-                undo_row.setColumnStretch(1, 1)
+                undo_row.addWidget(self.manual_undo_btn)
+                undo_row.addWidget(self.manual_clear_btn)
                 order_body.addLayout(undo_row)
 
                 self.operations.setMinimumHeight(220)
@@ -1704,7 +1715,7 @@ class _PreviewPanel:
 
                 # RETRACT warning belongs to Settings, not Simulation.
                 self.retract_warning_checkbox = QtWidgets.QCheckBox(
-                    "RETRACT: продолжать 2D-поиск с предупреждением"
+                    "RETRACT: продолжать 2D-поиск\nс предупреждением"
                 )
                 self.retract_warning_checkbox.setChecked(False)
                 self.retract_warning_checkbox.setToolTip(
@@ -1884,7 +1895,7 @@ class _PreviewPanel:
 
                 trace_card, trace_body = card("Запись и файлы диагностики")
                 self.trace_checkbox = QtWidgets.QCheckBox(
-                    "Автоматически записывать движения при Play All (JSONL)"
+                    "Автоматическая запись движений\nпри Play All (JSONL)"
                 )
                 self.trace_checkbox.setChecked(False)
                 self.trace_checkbox.setToolTip(
@@ -1903,7 +1914,7 @@ class _PreviewPanel:
                 )
                 trace_body.addWidget(self.trace_status)
 
-                trace_buttons = QtWidgets.QHBoxLayout()
+                trace_buttons = QtWidgets.QVBoxLayout()
                 self.trace_start_button = QtWidgets.QPushButton("Начать запись JSONL")
                 self.trace_start_button.clicked.connect(
                     lambda _checked=False: self._start_motion_trace(manual=True)
@@ -1966,6 +1977,26 @@ class _PreviewPanel:
                 root.addWidget(self.show_task_panel_btn)
                 self.show_task_panel_btn.hide()
                 self._apply_svg_button_icons()
+                self._task_stack.installEventFilter(self)
+                self._apply_context_width(360)
+
+            def _apply_context_width(self, width):
+                """Keep operator information useful at narrow dock widths."""
+                compact = int(width) < 590
+                # The full five-column report is still available on a wide
+                # dock. On narrow ones show Step, Bend and Status; tooltips
+                # retain complete target/current readings.
+                self.operations.setColumnHidden(2, compact)
+                self.operations.setColumnHidden(3, compact)
+                self.operations.header().setSectionResizeMode(
+                    QtWidgets.QHeaderView.Stretch
+                )
+
+            def eventFilter(self, watched, event):
+                if (getattr(self, "_task_stack", None) is watched
+                        and event.type() == QtCore.QEvent.Resize):
+                    self._apply_context_width(event.size().width())
+                return super().eventFilter(watched, event)
 
             def _on_task_status_change(self, message):
                 """Refresh dock severity when existing handlers call status.setText."""
