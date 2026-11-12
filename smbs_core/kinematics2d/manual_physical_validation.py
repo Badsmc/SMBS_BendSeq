@@ -433,6 +433,9 @@ def check_manual_3d_sequence(
     )
     virtual = bool(match_active_bend_length)
     end_len = float(end_zone_length_mm)
+    # Normalize before early-return reporting: a failed precheck must
+    # still be serializable without an AttributeError.
+    reverse_axis_by_bend = dict(reverse_axis_by_bend or {})
     if not isfinite(end_len) or end_len < 0.0:
         raise ValueError("end_zone_length_mm must be finite and nonnegative")
 
@@ -513,7 +516,6 @@ def check_manual_3d_sequence(
     previous = []
     steps = []
     any_conditional = False
-    reverse_axis_by_bend = dict(reverse_axis_by_bend or {})
     check_kwargs = {
         "config": config,
         "match_active_bend_length": virtual,
