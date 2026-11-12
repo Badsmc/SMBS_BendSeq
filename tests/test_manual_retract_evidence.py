@@ -143,10 +143,31 @@ class RetractPathTests(unittest.TestCase):
         self.assertIn("does not match", result["reason"])
 
     def test_conditional_end_zone_does_not_become_green(self):
-        result = retract_evidence_from_trajectory(fake_trajectory(
+        trajectory = fake_trajectory(
             status="SAMPLED_INTERVAL_CONDITIONAL_END_ZONE",
-        ))
+        )
+        # Native D6 marks an accepted end-zone overlap is_safe=False:
+        # it must stay conditional rather than become COLLISION or PASS.
+        phase = trajectory.phase_results[0]
+        phase.is_safe = False
+        conditional_state = sample(.5, 4.0, collision=True)
+        conditional_state.is_safe = False
+        conditional_state.is_conditional_safe = True
+        phase.states = (
+            sample(0, -7), conditional_state, sample(1, 15),
+        )
+        result = retract_evidence_from_trajectory(trajectory)
         self.assertEqual(result["status"], "CONDITIONAL")
+        self.assertTrue(result["end_position_sampled"])
+
+    def test_non_conditional_die_penetration_stays_collision(self):
+        trajectory = fake_trajectory(
+            status="DISCRETE_SAMPLES_REJECTED",
+            states=(sample(0, -7), sample(.5, 5, collision=True)),
+        )
+        trajectory.phase_results[0].is_safe = False
+        result = retract_evidence_from_trajectory(trajectory)
+        self.assertEqual(result["status"], "COLLISION")
 
     def test_gui_passes_clearance_and_shows_retract_per_bend(self):
         root = Path(__file__).resolve().parents[1]
