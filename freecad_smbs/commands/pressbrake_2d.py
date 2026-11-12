@@ -686,7 +686,51 @@ class ToolingTabCommand:
             PressBrake2DCommand().Activated()
             workspace = get_workspace_widget()
         if workspace is not None:
+            show_workspace_controls(workspace, 2)
+
+
+class ManualTabCommand:
+    """Select the existing manual-order tab; do not create another panel."""
+
+    def GetResources(self):
+        return {
+            "Pixmap": str(_ICON_ROOT / "gui_simulation.svg"),
+            "MenuText": "Manual",
+            "ToolTip": "Открыть вкладку ручной последовательности",
+        }
+
+    def IsActive(self):
+        return True
+
+    def Activated(self):
+        workspace = get_workspace_widget()
+        if workspace is None:
+            PressBrake2DCommand().Activated()
+            workspace = get_workspace_widget()
+        if workspace is not None:
             show_workspace_controls(workspace, 1)
+
+
+class SettingsTabCommand:
+    """Select the settings tab in the existing dock."""
+
+    def GetResources(self):
+        return {
+            "Pixmap": str(_ICON_ROOT / "gui_calculate.svg"),
+            "MenuText": "Настройки",
+            "ToolTip": "Открыть настройки симулятора",
+        }
+
+    def IsActive(self):
+        return True
+
+    def Activated(self):
+        workspace = get_workspace_widget()
+        if workspace is None:
+            PressBrake2DCommand().Activated()
+            workspace = get_workspace_widget()
+        if workspace is not None:
+            show_workspace_controls(workspace, 3)
 
 
 class CalculateCommand:
@@ -1223,8 +1267,11 @@ class _PreviewPanel:
                 insert(sim_layout, entries[6])  # angle slider
                 insert(sim_layout, entries[7])  # active operation
                 insert(sim_layout, entries[8])  # next/previous step
-                insert(sim_layout, entries[9])  # move order
-                # Vertical controls avoid button collisions in narrow docks.
+                # Manual editing is in its own tab, without duplicated controls.
+                manual = QtWidgets.QWidget()
+                manual_layout = QtWidgets.QVBoxLayout(manual)
+                manual_layout.setSpacing(8)
+                insert(manual_layout, entries[9])  # move / restore order
                 manual_row = QtWidgets.QVBoxLayout()
                 self.manual_mode_btn = QtWidgets.QPushButton("Ручной порядок: ВЫКЛ")
                 self.manual_mode_btn.setCheckable(True)
@@ -1236,7 +1283,7 @@ class _PreviewPanel:
                 self.manual_clear_btn = QtWidgets.QPushButton("Очистить номера")
                 self.manual_clear_btn.clicked.connect(self._clear_manual_order)
                 manual_row.addWidget(self.manual_clear_btn)
-                sim_layout.addLayout(manual_row)
+                manual_layout.addLayout(manual_row)
                 self.retract_warning_checkbox = QtWidgets.QCheckBox(
                     "RETRACT: продолжать 2D-поиск с предупреждением"
                 )
@@ -1247,7 +1294,7 @@ class _PreviewPanel:
                     "а не как доказанный безопасный контакт. APPROACH, BENDING, "
                     "BOTTOM, матрица и упор по-прежнему блокируют 2D-поиск."
                 )
-                sim_layout.addWidget(self.retract_warning_checkbox)
+                # RETRACT diagnostic option is displayed under Settings.
                 self.manual_validate_btn = QtWidgets.QPushButton(
                     "Проверить ручной порядок и сохранить JSON"
                 )
@@ -1257,19 +1304,24 @@ class _PreviewPanel:
                     "2D-проверка не доказывает отсутствие реальных 3D-коллизий."
                 )
                 self.manual_validate_btn.clicked.connect(self._validate_export_manual_order)
-                sim_layout.addWidget(self.manual_validate_btn)
+                manual_layout.addWidget(self.manual_validate_btn)
                 self.manual_hint = QtWidgets.QLabel(
                     "Выберите «Развёртка · Порядок», включите ручной режим и нажимайте линии "
                     "в нужной последовательности. Это план без физической сертификации."
                 )
                 self.manual_hint.setWordWrap(True)
-                sim_layout.addWidget(self.manual_hint)
+                manual_layout.addWidget(self.manual_hint)
+                manual_layout.addStretch(1)
                 self.operations.setMinimumHeight(160)
                 self.operations.setMaximumHeight(280)
                 insert(sim_layout, entries[10], 1)  # operation table
                 controls.addTab(
                     scroll_task_page(simulation, "SMBS_SimulationScroll"),
                     "Симуляция"
+                )
+                controls.addTab(
+                    scroll_task_page(manual, "SMBS_ManualScroll"),
+                    "Manual"
                 )
 
                 tooling = QtWidgets.QWidget()
@@ -1342,6 +1394,7 @@ class _PreviewPanel:
                 )
                 weights_form.addRow(reset_weights_btn)
                 settings_layout.addWidget(weights_box)
+                settings_layout.addWidget(self.retract_warning_checkbox)
 
                 insert(settings_layout, entries[11])  # diagnostics button
                 insert(settings_layout, entries[12])  # diagnostics output
