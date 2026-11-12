@@ -17,10 +17,20 @@
    punch/sheet/die kinematics while the slider changes the bend angle.
 6. To check the order use **Проверить**. It first runs sampled Stage A/B
    (2D) and then native D6.3.4 (3D) for each selected bend in manual order.
-   Each bend is simulated with the **selected real FCStd punch and die**,
-   their chosen real or virtual length, and all previously formed signed
-   bends. It also checks punch-vs-die collision at each sampled ram height.
-   The backgauge remains visual-only and is not tested.
+   Each bend uses the **selected real FCStd punch and die**, their chosen
+   real or virtual length and previous signed bends. Punch-vs-die collision
+   is also checked at every sampled ram height. The backgauge remains
+   visual-only and is not checked.
+   **The result appears directly in Manual**: overall verdict plus every
+   tested bend's status, native reason and tool-pair check. **There is no
+   standalone JSON download dialog.** Manual results are embedded in
+   `SMBS_Data / SessionJSON` in the *same* FreeCAD document.
+   - If the FreeCAD document already has an FCStd filename, Verify calls
+     native `document.save()`, committing the included report in-place.
+   - If the document is still unnamed, Verify stages the report inside the
+     document. Use FreeCAD **Ctrl+S** to name/save the first FCStd file.
+   - Reopening an FCStd restores stored checks as **historical only**:
+     `HISTORICAL / UNVERIFIED`, never a live collision clearance.
 7. Full automatic physically screened search remains accessible through
    **PressBrakeSim 2.5D > Автопоиск последовательности** in the FreeCAD
    menu, separate from the toolbar **Симуляция** action.
@@ -47,6 +57,20 @@ plays as the entire current order.
   `manual_physical_validation.check_manual_3d_sequence()`.
   A fresh, isolated `FoldState` applies completed signed bends for each
   operation without overwriting live playback state or source FCStd files.
+- The result is first shown in `manual_check_summary` and
+  `manual_check_details`, then staged by
+  `_persist_manual_check_to_fcstd()` through
+  `fcstd_session_store.build_snapshot()` and `write_included_json()`.
+  The snapshot preserves selected tools, per-bend D6 phase evidence,
+  native punch-die pair diagnostics and Stage A/B findings.
+- Native FCStd save serializes the existing `App::PropertyFileIncluded`
+  attachment. The Manual button never opens a JSON file chooser.
+  Storage failure is explicitly reported as **НЕ СОХРАНЕНО В FCStd**;
+  unsaved documents report that Ctrl+S is required.
+- Manual precondition failures are `UNVERIFIED` and are included in the
+  same document, rather than being silently skipped. Stored diagnostics
+  remain `HISTORICAL_ONLY_RECHECK_REQUIRED` on reopen, and a later
+  Ctrl+S preserves their per-bend details unless overwritten by a new check.
 - Only verified selected **FCStd** punch/die solids qualify for native
   checks; an unverified DXF or STEP profile alone cannot claim 3D clearance.
 - The **virtual tool length** checkbox constructs in-memory axial tool
@@ -96,8 +120,13 @@ signed history, virtual length, conditional end-zone state, native punch-die
 pair sampling, missing evidence, reverse-loading and FoldState nonmutation.
 `tests/test_manual_tooling_stage_a.py` tests actual tool-length checks.
 All are headless with mocked native geometry; they are **not** an OCC
-validation on a real workpiece. `.github/workflows/gui-icon-contract.yml`
-tests these and GUI contracts and Python compilation.
+validation on a real workpiece.
+`tests/test_fcstd_embedded_session.py` covers embedded per-bend native
+diagnostics, historical re-save, checksums and size limits.
+`tests/test_manual_check_embedded_ui_contract.py` guards against
+a standalone JSON download reappearing on Manual Verify.
+`.github/workflows/gui-icon-contract.yml` runs these, GUI contracts
+and Python compilation.
 
 **Acceptance required on Windows 11 / FreeCAD 1.1.3:**
 
@@ -112,8 +141,15 @@ tests these and GUI contracts and Python compilation.
 - Confirm the UI always marks unverified manual preview as UNVERIFIED.
 
 - With two actual FCStd tools, press Manual **Проверить**; verify the
-  full manual order is traversed and JSON records the selected CAD paths,
-  each bend's D6 evidence and tool-pair ram sample count.
+  task panel visibly displays progress, final status and per-bend reasons.
+  **No JSON save dialog must appear.**
+- Reopen the original FCStd and inspect `SMBS_Data / SessionJSON`:
+  `diagnostics.manual.manual_3d_validation.steps` must contain
+  the actual statuses, selected tool IDs and D6/punch-die diagnostics.
+  The UI must label restored evidence historical, not live.
+- Repeat with an unsaved FreeCAD document: Manual Verify should stage
+  the attachment without asking for a JSON filename; Ctrl+S should
+  save the entire document as FCStd.
 - Use a real tool shorter than the bend. With virtual length OFF, Stage A
   must reject its length. With virtual length ON, the report must label
   the synthetic axial geometry and never claim source-CAD span coverage.
