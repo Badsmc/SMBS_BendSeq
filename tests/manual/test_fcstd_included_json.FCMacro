@@ -1,0 +1,83 @@
+# Manual acceptance macro: native FreeCAD FCStd JSON inclusion and reopening.
+#
+# Run only with the feature/fcstd-embedded-smbs-json addon installed:
+# FreeCAD 1.1.x -> Macro -> Macros -> select/run this file.
+# This macro uses a TEMPORARY test document and does not touch user parts.
+from __future__ import annotations
+
+import hashlib
+import json
+from pathlib import Path
+import tempfile
+import zipfile
+
+import FreeCAD as App
+from freecad_smbs.integration.fcstd_session_store import (
+    ATTACHMENT_NAME, OBJECT_NAME, SCHEMA, SCHEMA_VERSION,
+    read_included_json, write_included_json,
+)
+
+document = None
+with tempfile.TemporaryDirectory(prefix="smbs_fcstd_acceptance_") as folder:
+    file_path = Path(folder) / "SMBS_included_json_test.FCStd"
+    try:
+        document = App.newDocument("SMBS_Embed_Test")
+        manifest = {"source_object": "Fake", "bends": [{"id": "B01"}]}
+        canonical = (json.dumps(
+            manifest, ensure_ascii=False, indent=2,
+            sort_keys=True, separators=(",", ": ")
+        ) + "\n").encode("utf-8")
+        payload = {
+            "schema": SCHEMA,
+            "schema_version": SCHEMA_VERSION,
+            "geometry": {
+                "data": manifest,
+                "sha256": hashlib.sha256(canonical).hexdigest(),
+            },
+            "order": {
+                "bend_ids": ["B01"], "canonical_bend_ids": ["B01"],
+                "manual_prefix": ["B01"],
+            },
+            "tooling": {"punch": None, "die": None},
+            "simulation": {
+                "execution_mode": "BEND_ONLY",
+                "cycle_config": {},
+                "operation_weights": {},
+            },
+            "diagnostics": {},
+            "validation": {"on_restore": "UNVERIFIED_RECHECK_REQUIRED"},
+        }
+        obj = write_included_json(document, payload)
+        assert obj.Name == OBJECT_NAME
+        assert obj.getTypeIdOfProperty("SessionJSON") == (
+            "App::PropertyFileIncluded"
+        )
+        document.saveAs(str(file_path))
+        App.closeDocument(document.Name)
+        document = None
+
+        # Verify real physical ZIP entry, not merely an XML property value.
+        with zipfile.ZipFile(file_path) as archive:
+            names = archive.namelist()
+            embedded_files = [
+                n for n in names
+                if ATTACHMENT_NAME in n
+            ]
+            assert embedded_files, "smbs_session.json not found in FCStd ZIP"
+            source_data = archive.read(embedded_files[0])
+            assert json.loads(source_data.decode("utf-8"))["schema"] == SCHEMA
+
+        document = App.openDocument(str(file_path))
+        restored = read_included_json(document)
+        assert restored is not None
+        assert restored["order"]["manual_prefix"] == ["B01"]
+        assert restored["validation"]["on_restore"] == (
+            "UNVERIFIED_RECHECK_REQUIRED"
+        )
+        App.Console.PrintMessage(
+            "SMBS FCStd embedded JSON round-trip PASS: " +
+            str(file_path) + "\n"
+        )
+    finally:
+        if document is not None:
+            App.closeDocument(document.Name)
