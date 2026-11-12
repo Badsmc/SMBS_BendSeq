@@ -4455,7 +4455,9 @@ class _PreviewPanel:
                     len(prefix) if prefix and len(prefix) < len(order) else 0
                 )
                 self._preview_only_planar_order = None
+                self.last_planar_search_report = None
                 self.last_sequence_search_report = None
+                self._last_manual_sequence_report = None
                 self._physical_check_signature = None
                 self._machine_pose_fault = None
                 self._highlighted_end_zone_info = None
@@ -4472,7 +4474,10 @@ class _PreviewPanel:
                         )
                     else:
                         self.session.reset_all_bends()
+                    if tuple(self.session.bend_order) != order:
+                        raise RuntimeError("Сброс изменил выбранный порядок гибов")
                 except Exception as exc:
+                    self._manual_preview_unverified = False
                     self.status.setText(
                         "Не удалось подготовить ручную симуляцию: " + str(exc)
                     )
@@ -4497,6 +4502,16 @@ class _PreviewPanel:
                     self.status.setText(
                         "РУЧНАЯ СИМУЛЯЦИЯ: {} · БЕЗ ПРОВЕРКИ КОЛЛИЗИЙ"
                         .format(scope)
+                    )
+                    self._trace_event(
+                        "MANUAL_UNVERIFIED_PREVIEW_STARTED",
+                        bend_order=list(order),
+                        explicit_prefix=list(prefix),
+                        preview_count=(
+                            self._partial_preview_limit or len(order)
+                        ),
+                        collision_validated=False,
+                        physical_status="UNVERIFIED",
                     )
 
             def activate_manual_mode(self):
@@ -5152,9 +5167,11 @@ class _PreviewPanel:
                         self.draw()
                         self._finish_motion_trace("PLAYBACK_COMPLETED")
                         self.status.setText(
-                            "AUTO PLAY завершён: {} | {} гибов".format(
+                            "AUTO PLAY завершён: {} | {} гибов{}".format(
                                 self.execution_mode.value,
                                 len(self.session.bend_order),
+                                " | РУЧНОЙ ПРОСМОТР БЕЗ ПРОВЕРКИ КОЛЛИЗИЙ"
+                                if self._manual_preview_unverified else "",
                             )
                         )
                         _log("Sequence playback completed")
@@ -5166,12 +5183,14 @@ class _PreviewPanel:
                             else "BEND_ONLY"
                         )
                         self.status.setText(
-                            "AUTO PLAY: {} | {} | гиб {} | угол {:+.1f}° | {} мс".format(
+                            "AUTO PLAY: {} | {} | гиб {} | угол {:+.1f}° | {} мс{}".format(
                                 self.execution_mode.value,
                                 phase,
                                 self.session.active_bend_id,
                                 self.session.current_angle_deg,
                                 self.timer.interval(),
+                                " | UNVERIFIED" if self._manual_preview_unverified
+                                else "",
                             )
                         )
                 except Exception as exc:
