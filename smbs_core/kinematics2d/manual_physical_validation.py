@@ -462,6 +462,11 @@ def check_manual_3d_sequence(
             ),
             "allow_end_zone_collision": bool(allow_end_zone_collision),
             "end_zone_length_mm": end_len,
+            "loading_orientation_by_bend": {
+                bend_id: bool(reverse_axis_by_bend.get(bend_id, False))
+                for bend_id in order
+            },
+            "loading_orientation_source": "EXPLICIT_MANUAL_SELECTION",
             "steps": steps,
             "elapsed_s": round(perf_counter() - t0, 4),
         }
@@ -477,6 +482,10 @@ def check_manual_3d_sequence(
         punch_file=str(p_path) if p_path else None,
         die_file=str(d_path) if d_path else None,
         virtual_tool_length=virtual,
+        loading_orientation_by_bend={
+            bend_id: bool((reverse_axis_by_bend or {}).get(bend_id, False))
+            for bend_id in order
+        },
         tool_sections={
             "punch": getattr(tooling, "punch_section_offsets_xm", ()),
             "die": getattr(tooling, "die_section_offsets_xm", ()),
@@ -523,25 +532,7 @@ def check_manual_3d_sequence(
     for i, bend_id in enumerate(order):
         if progress_callback is not None:
             progress_callback(i + 1, len(order), bend_id)
-        if reverse_axis_by_bend.get(bend_id, False):
-            steps.append({
-                "step_number": i + 1,
-                "bend_id": bend_id,
-                "angle_deg": float(independent.bends[bend_id].angle_deg),
-                "completed_before_step": list(previous),
-                "status": "UNVERIFIED",
-                "reason": "reverse_axis_3d_trajectory_not_implemented",
-                "native_status": "UNVERIFIED",
-                "checked_scope": [],
-                "tool_length_info": None,
-                "retract": retract_evidence_from_trajectory(None),
-                "is_conditional": False,
-                "elapsed_s": 0.0,
-            })
-            return final_result(
-                "UNVERIFIED", steps,
-                "reverse_axis_3d_trajectory_not_implemented:" + bend_id,
-            )
+        reverse_axis = bool(reverse_axis_by_bend.get(bend_id, False))
         independent.reset_all()
         for prev in previous:
             independent.set_angle(
@@ -562,11 +553,15 @@ def check_manual_3d_sequence(
             fold_angles=dict(independent.angles),
             bend_axis_xyz=independent.bends[bend_id].axis_xyz,
             punch_id=punch_id, die_id=die_id,
+            reverse_axis=reverse_axis,
+            loading_orientation="REVERSE_MACHINE_Z_180" if reverse_axis
+                                else "STANDARD_MACHINE_Z_0",
         )
         started = perf_counter()
         try:
             report = check_active_25d_bend_trajectory(
-                pseudo_session, tooling, **check_kwargs,
+                pseudo_session, tooling, reverse_axis=reverse_axis,
+                **check_kwargs,
             )
             try:
                 complete_d6 = summarize_native_trajectory(report.raw_report)
@@ -661,6 +656,11 @@ def check_manual_3d_sequence(
                 "bend_id": bend_id,
                 "angle_deg": float(independent.bends[bend_id].angle_deg),
                 "completed_before_step": list(previous),
+                "reverse_axis": reverse_axis,
+                "loading_orientation": (
+                    "REVERSE_MACHINE_Z_180" if reverse_axis
+                    else "STANDARD_MACHINE_Z_0"
+                ),
                 "status": status.value,
                 "reason": report.reason,
                 "native_status": report.native_status,
@@ -704,6 +704,11 @@ def check_manual_3d_sequence(
                 "bend_id": bend_id,
                 "angle_deg": float(independent.bends[bend_id].angle_deg),
                 "completed_before_step": list(previous),
+                "reverse_axis": reverse_axis,
+                "loading_orientation": (
+                    "REVERSE_MACHINE_Z_180" if reverse_axis
+                    else "STANDARD_MACHINE_Z_0"
+                ),
                 "status": "UNVERIFIED",
                 "punch_die_pair": None,
                 "retract": retract_evidence_from_trajectory(None),
