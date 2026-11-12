@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32" role="img">
 <title>gui part</title>
-<rect x="1" y="1" width="30" height="30" rx="6.5" fill="#233B4D" stroke="#56788A" stroke-width="1.1"/>
-<path d="M8 10V23H24" stroke="#E7F3F7" stroke-width="1.9" stroke-linejoin="round" stroke-linecap="round" fill="none"/><path d="M8 23L13 18H20V11L24 7" stroke="#55CFC0" stroke-width="2.15" stroke-linejoin="round" stroke-linecap="round" fill="none"/><path d="M6 7L10 7M8 5V9" stroke="#FFC272" stroke-width="2.05" stroke-linejoin="round" stroke-linecap="round" fill="none"/><path d="M20 11L24 7" stroke="#E7F3F7" stroke-width="1.9" stroke-linejoin="round" stroke-linecap="round" fill="none"/><circle cx="20" cy="11" r="1.5" fill="#FFC272"/>
+
+<path d="M8 10V23H24" stroke="#888888" stroke-width="1.9" stroke-linejoin="round" stroke-linecap="round" fill="none"/><path d="M8 23L13 18H20V11L24 7" stroke="#888888" stroke-width="2.15" stroke-linejoin="round" stroke-linecap="round" fill="none"/><path d="M6 7L10 7M8 5V9" stroke="#888888" stroke-width="2.05" stroke-linejoin="round" stroke-linecap="round" fill="none"/><path d="M20 11L24 7" stroke="#888888" stroke-width="1.9" stroke-linejoin="round" stroke-linecap="round" fill="none"/><circle cx="20" cy="11" r="1.5" fill="#888888"/>
 </svg>
