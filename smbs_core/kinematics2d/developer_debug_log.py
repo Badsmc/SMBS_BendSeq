@@ -316,6 +316,9 @@ def summarize_native_trajectory(result):
                     "overlap_volume_mm3": getattr(p, "overlap_volume_mm3", None),
                     "reason": getattr(p, "reason", None),
                     "tool_label": getattr(p, "tool_label", None),
+                    "overlap_bbox_xyz_mm": getattr(
+                        p, "overlap_bbox_xyz_mm", None,
+                    ),
                 }
             ph["samples"].append({
                 "path_u": state.path_u,
