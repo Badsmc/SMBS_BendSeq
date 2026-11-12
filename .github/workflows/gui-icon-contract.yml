@@ -49,6 +49,11 @@ jobs:
                   for value in node.attrib.values():
                       assert "http://" not in value and "https://" not in value, file
               assert "rgb(" not in source, file
+              assert "fill=\"#233B4D\"" not in source, file
+              assert 'rx="6.5"' not in source, "Old colored icon tile: " + file.name
+              assert set(re.findall(r"#[0-9a-fA-F]{6}", source)) <= {
+                  "#888888"
+              }, "Icon has non-neutral colors: " + file.name
 
           expected_commands = {
               "SMBS_PressBrake2D": "gui_simulation.svg",
@@ -189,6 +194,9 @@ jobs:
           print("GUI_INDUSTRIAL_LAYOUT_CONTRACT_OK")
           wb_source = Path("freecad_smbs/InitGui.py").read_text(encoding="utf-8")
           assert 'self.appendToolbar("PressBrakeSim 2.5D", toolbar)' in wb_source
+          assert 'toolbar.setToolButtonStyle(QtCore.Qt.ToolButtonTextBesideIcon)' in wb_source
+          assert 'toolbar.setIconSize(QtCore.QSize(18, 18))' in wb_source
+          assert 'QtCore.QTimer.singleShot(0, configure_native_toolbar)' in wb_source
           assert "CMD_LOAD_PART, CMD_TOOLING_TAB, CMD_CALCULATE," in wb_source
           assert "CMD_PLANAR_CANDIDATES, CMD_MANUAL, CMD_SETTINGS," in wb_source
           # The single Simulation surface contains ONLY playback and slider,
