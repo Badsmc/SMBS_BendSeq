@@ -151,12 +151,25 @@ jobs:
               TASK_QSS, classify_status,
           )
           assert (OUTER_MARGIN, SECTION_PADDING, SECTION_GAP, CORNER_RADIUS) == (
-              10, 9, 8, 3
+              6, 2, 6, 0
           )
-          assert 'QFrame#SMBS_SectionCard' in TASK_QSS
-          assert 'QLabel#SMBS_StatusChip[state="error"]' in TASK_QSS
-          assert 'QPushButton#SMBS_PrimaryAction:disabled' in TASK_QSS
-          assert 'QProgressBar#SMBS_TaskProgress::chunk' in TASK_QSS
+          assert TASK_QSS == "", "Addon-owned colors override the native FreeCAD theme"
+          theme_source = Path("freecad_smbs/ui/pressbrake_theme.py").read_text(
+              encoding="utf-8"
+          )
+          assert 'frame.setFrameShape(QtWidgets.QFrame.NoFrame)' in theme_source
+          assert 'heading_font.setBold(True)' in theme_source
+          assert 'button.setMaximumHeight(29)' in theme_source
+          assert 'button.setMaximumWidth(280)' in theme_source
+          assert "setStyleSheet(" not in gui_source
+          assert 'form.setStyleSheet(' not in gui_source
+          assert 'self.setStyleSheet(' not in gui_source
+          assert 'views.tabBar().setExpanding(False)' in gui_source
+          assert 'def _playback_button(QtCore, widgets, label, callback, enabled=True):' in gui_source
+          assert 'btn = widgets.QToolButton()' in gui_source
+          assert 'btn.setAutoRaise(True)' in gui_source
+          assert 'btn.setToolButtonStyle(QtCore.Qt.ToolButtonTextOnly)' in gui_source
+          assert 'widget.setFixedSize(width, 27)' in gui_source
           assert 'self.status = TaskStatusLabel(' in gui_source
           assert 'self.physical_check_result = TaskPhysicalResultLabel(' in gui_source
           assert 'self._source_summary' in gui_source
@@ -185,8 +198,8 @@ jobs:
           assert 'insert(sim_body, entries[6])' in gui_source
           assert 'self.calculate.hide()' in gui_source
           assert 'self.planar_calculate.hide()' in gui_source
-          assert 'self.play_btn = _button(' in gui_source
-          assert 'QtWidgets, "Play", self._toggle_play_pause, False' in gui_source
+          assert 'self.play_btn = _playback_button(' in gui_source
+          assert 'QtCore, QtWidgets, "Play", self._toggle_play_pause, False' in gui_source
           assert '"Reset", "|<<", "Play / Pause", ">>|", "Fit"' in gui_source
           assert "self.play_btn.setStyleSheet(\"font-size: 0px;\")" not in gui_source
           assert "Активный гиб:" not in gui_source
