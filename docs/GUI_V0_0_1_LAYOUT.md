@@ -19,14 +19,62 @@ not the experimental search or collision algorithms.
 - **Настройки**: selects the **Настройки** page of the existing Task Panel.
 - **Библиотека оснастки**: displays the full tooling catalog in a temporary Task Panel page.
 
+## Visual design system (implemented)
+
+Source: `freecad_smbs/ui/pressbrake_theme.py`, applied only to the
+PressBrakeSim Task Panel; the global FreeCAD theme is untouched.
+
+| Token | Value |
+| --- | --- |
+| Dock / page outer margin | 20 px |
+| Engineering card padding | 16 px |
+| Spacing between cards / controls | 16 px |
+| Card border radius | 9 px |
+| Main action minimum height | 36 px |
+| Task dock preferred width | ~410 px; minimum 300 px |
+| MDI viewer initial size | 1000 × 720 px; opens maximized |
+
+The Tasks dock is non-floating and retains one set of controller widgets.
+The central MDI workspace retains the 2.5D view, 3D view and flat pattern.
+The window background comes from the user's Qt/FreeCAD palette, with restrained
+teal accents for primary actions and status.
+
+A permanent footer **outside all page scroll areas** displays:
+
+- Ready / Running / Warning / Unverified / Error status, classified from
+  actual application messages (never a manufactured physical PASS).
+- Simulation bend progress as the completed/active bend fraction.
+- Indeterminate progress during DFS/OCC search or physical validation;
+  search depth is not represented as percent.
+- The existing diagnostic/status message (full text available as tooltip).
+
+Main Task Panel pages scroll vertically without scrolling away the footer.
+Specialist pages (backgauge, 2D variants, sequence catalog, cycle settings
+and tooling inventories) are embedded as scrollable temporary pages with a
+local close action. File pickers and error confirmation boxes stay native.
+
+The full tooling inventory uses the same 20/16px grid, with a 2-column
+action layout to remain usable in a narrow dock.
+
 ## Task Panel: one dock, four permanent pages
 
-**Симуляция** has a single horizontal row:
+**Симуляция** is grouped into three cards:
 
 ```text
-[Reset] [|<<] [Play <-> Pause] [>>|] [Fit]
-[---- current bend angle slider ----]
+Источник / Деталь
+    [Loaded SheetMetal model]                [Загрузить]
+
+Режим симуляции и управление воспроизведением
+    [↺]       [⏮]       [▶ Play/Pause]  [⏭]    [⛶]
+   Reset      |<<        Play/Pause     >>|     Fit
+    [------------ current bend angle slider -----------]
+
+Результаты / Диагностика
+    [Latest actual validation reason / Unverified]
 ```
+
+The buttons are icon-first with captions, because five full icon-and-text
+buttons do not fit a typical 380–410 px FreeCAD Tasks dock.
 
 The Play/Pause button shows Play when stopped, Pause while running,
 Resume when paused, and uses the existing controller methods. Previous
@@ -121,8 +169,16 @@ PressBrakeSim application windows.
    creating duplicate timers, or triggering deleted-widget errors.
 9. From the toolbar, open Backgauge, Sequence Catalog, Tool Library and
    Cycle Config: verify no extra top-level editor window appears.
-10. Close temporary pages with their existing Done/Cancel/Close buttons;
-    reopening must create a fresh populated page in the same dock.
+10. Close temporary pages with their existing Done/Cancel/Close buttons or
+    the dock's *Закрыть раздел* action; reopening must create a fresh populated
+    page inside the same dock.
+11. With the dock narrowed to 300–380 px, the five playback commands remain
+    distinguishable; large forms and the full tooling library scroll.
+12. Verify the status and progress footer remains visible while scrolling all
+    pages. During a real DFS search the progress bar must be indeterminate;
+    during playback it must show bend progress. Confirm validation errors and
+    CONDITIONAL/UNVERIFIED results are never displayed as green PASS.
+13. Confirm light and dark FreeCAD themes have readable controls and statuses.
 
 GitHub Actions validates Python compilation, SVG resources, and the
 structural command/layout contract, **not** interactive PySide6/FreeCAD
