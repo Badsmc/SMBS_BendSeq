@@ -87,7 +87,29 @@ class SMBSWorkbench(Workbench):
         self.appendToolbar("PressBrakeSim 2.5D", toolbar)
 
     def Activated(self) -> None:
-        pass
+        # FreeCAD's own QToolBar remains the command host. Only this addon's
+        # toolbar gets compact labels beside small neutral icons, so the six
+        # actions are recognizable without memorizing their pictograms.
+        # No application-level QStyle or QPalette changes are made.
+        if FreeCADGui is None:
+            return
+        from freecad_smbs.commands.pressbrake_2d import _qt
+        QtCore, _QtGui, QtWidgets = _qt()
+
+        def configure_native_toolbar():
+            main = FreeCADGui.getMainWindow()
+            if main is None:
+                return
+            for toolbar in main.findChildren(QtWidgets.QToolBar):
+                if (
+                    toolbar.objectName() == "PressBrakeSim 2.5D"
+                    or toolbar.windowTitle() == "PressBrakeSim 2.5D"
+                ):
+                    toolbar.setToolButtonStyle(QtCore.Qt.ToolButtonTextBesideIcon)
+                    toolbar.setIconSize(QtCore.QSize(18, 18))
+
+        # FreeCAD can finalize its workbench toolbars after Activated().
+        QtCore.QTimer.singleShot(0, configure_native_toolbar)
 
     def Deactivated(self) -> None:
         pass
