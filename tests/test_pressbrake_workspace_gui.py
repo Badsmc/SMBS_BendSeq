@@ -207,8 +207,8 @@ class WorkspaceGuiTests(unittest.TestCase):
             controls = panel._control_tabs
             self.assertIsNotNone(tabs)
             self.assertIsNotNone(controls)
-            self.assertEqual(tabs.count(), 2)
-            self.assertEqual(controls.count(), 3)
+            self.assertEqual(tabs.count(), 3)
+            self.assertEqual(controls.count(), 4)
             self.assertIsNone(panel.findChild(QtWidgets.QSplitter))
             self.assertFalse(hasattr(panel, "load"))
             self.assertFalse(hasattr(panel, "tooling"))
@@ -230,7 +230,7 @@ class WorkspaceGuiTests(unittest.TestCase):
             self.assertTrue(panel.next_step_btn is not None)
             self.assertEqual(
                 [controls.tabText(i) for i in range(controls.count())],
-                ["Симуляция", "Оснастка", "Настройки"],
+                ["Симуляция", "Manual", "Оснастка", "Настройки"],
             )
             from smbs_core.kinematics2d.press_cycle import CycleExecutionMode
             self.assertEqual(panel.execution_mode, CycleExecutionMode.FULL_CYCLE)
@@ -247,7 +247,24 @@ class WorkspaceGuiTests(unittest.TestCase):
             self.assertEqual(len(panel.findChildren(QtCore.QTimer)), 1)
             self.assertIs(tabs.widget(0), panel.view)
             self.assertIs(tabs.widget(1), panel._preview_3d)
+            self.assertIs(tabs.widget(2), panel._flat_view)
             self.assertEqual(panel._preview_3d.objectName(), "SMBS_3D_ReadOnly")
+            # Compact task panels never request horizontal scroll.
+            for idx in range(controls.count()):
+                page = controls.widget(idx)
+                self.assertEqual(
+                    page.horizontalScrollBarPolicy(), QtCore.Qt.ScrollBarAlwaysOff,
+                )
+            panel._update_responsive_controls(280, QtWidgets)
+            self.assertEqual(
+                panel._responsive_rows[0][0].direction(),
+                QtWidgets.QBoxLayout.TopToBottom,
+            )
+            panel._update_responsive_controls(720, QtWidgets)
+            self.assertEqual(
+                panel._responsive_rows[0][0].direction(),
+                QtWidgets.QBoxLayout.LeftToRight,
+            )
             tabs.setCurrentIndex(1)
             self.assertFalse(panel._preview_3d_scene.items() == [])
         finally:
