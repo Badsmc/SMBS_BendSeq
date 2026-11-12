@@ -764,7 +764,11 @@ class PressBrake2DCommand:
             mdi.setActiveSubWindow(existing)
             existing.show()
             existing.raise_()
-            show_workspace_controls(existing.widget(), tab=2)
+            workspace = existing.widget()
+            # Simulation is navigation only, not an automatic search. Leave
+            # the manual order, fold angles and playback state untouched.
+            workspace._viewer_tabs.setCurrentWidget(workspace.view)
+            show_workspace_controls(workspace, tab=2)
             return
 
         widget = _PreviewPanel()
