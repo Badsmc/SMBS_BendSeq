@@ -218,6 +218,31 @@ class EmbeddedStorageTests(unittest.TestCase):
     def test_missing_data_object_is_not_an_error(self):
         self.assertIsNone(read_included_json(self.document))
 
+    def test_observer_only_updates_bound_document_on_ctrl_s(self):
+        from freecad_smbs.commands.pressbrake_2d import _SMBSFCStdSaveObserver
+
+        class _Panel:
+            session = object()
+            _smbs_document_name = "Part"
+            _smbs_allow_auto_embed = True
+
+            def __init__(self):
+                self.saved = []
+
+            def _write_embedded_smbs_json(self, document):
+                self.saved.append(document)
+
+        panel = _Panel()
+        observer = _SMBSFCStdSaveObserver(panel)
+        other_doc = SimpleNamespace(Name="Other")
+        observer.slotStartSaveDocument(other_doc, "Other.FCStd")
+        self.assertEqual(panel.saved, [])
+        observer.slotStartSaveDocument(self.document, "Part.FCStd")
+        self.assertEqual(panel.saved, [self.document])
+        panel._smbs_allow_auto_embed = False
+        observer.slotStartSaveDocument(self.document, "Part.FCStd")
+        self.assertEqual(panel.saved, [self.document])
+
 
 if __name__ == "__main__":
     unittest.main()
