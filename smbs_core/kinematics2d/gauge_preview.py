@@ -54,6 +54,74 @@ def bend_to_blank_edge_mm(axis_xy, fixed_panel_xy, outline_xy):
     return min(intersections)
 
 
+def local_bend_dimension_mm(axis_xy, outline_xy, other_bend_axes=()):
+    """Local straight flange pitch, NOT cumulative reach to the outer outline.
+
+    Measure from the midpoint of the current bend line along either normal,
+    stopping at the first *parallel neighbouring bend line* or real external
+    blank edge. This yields 10, 22 for bends at x=10 and x=32 on an x=0..100
+    blank, rather than 10, 32. Parallel bend lines are accepted only where
+    the perpendicular probe really intersects their finite segment.
+
+    This is a flat-pattern nominal dimension (not an inside/outside formed
+    flange length or a verified backgauge position). No contact is checked.
+    """
+    if len(axis_xy) != 2 or len(outline_xy) < 3:
+        raise ValueError("incomplete local bend geometry")
+    (x0, y0), (x1, y1) = ((float(x), float(y)) for x, y in axis_xy)
+    dx, dy = x1 - x0, y1 - y0
+    length = hypot(dx, dy)
+    if not isfinite(length) or length <= 1e-9:
+        raise ValueError("degenerate bend axis")
+    mx, my = (x0 + x1) * 0.5, (y0 + y1) * 0.5
+    nx, ny = -dy / length, dx / length
+
+    outline = tuple((float(x), float(y)) for x, y in outline_xy)
+    if not all(isfinite(x) and isfinite(y) for x, y in outline):
+        raise ValueError("nonfinite blank outline")
+
+    def ray_segment_distance(sign, a, b):
+        """Forward ray/finite-segment intersection, in millimetres."""
+        rx, ry = nx * sign, ny * sign
+        ex, ey = b[0] - a[0], b[1] - a[1]
+        det = rx * ey - ry * ex
+        if abs(det) <= 1e-10:
+            return None
+        qx, qy = a[0] - mx, a[1] - my
+        distance = (qx * ey - qy * ex) / det
+        segment_t = (qx * ry - qy * rx) / det
+        if distance > 1e-7 and -1e-8 <= segment_t <= 1.0 + 1e-8:
+            return distance
+        return None
+
+    segments = list(zip(outline, outline[1:] + outline[:1]))
+    for other in other_bend_axes:
+        if len(other) != 2:
+            raise ValueError("invalid neighbouring bend axis")
+        a, b = ((float(x), float(y)) for x, y in other)
+        ox, oy = b[0] - a[0], b[1] - a[1]
+        other_length = hypot(ox, oy)
+        if not isfinite(other_length) or other_length <= 1e-9:
+            raise ValueError("invalid neighbouring bend axis")
+        # Only a neighbouring bend with almost the same direction creates
+        # the requested local flange pitch. Perpendicular/crossing bend lines
+        # should not appear as a zero-length flange boundary.
+        parallel_cos = abs((dx * ox + dy * oy) / (length * other_length))
+        if parallel_cos >= 0.995:
+            segments.append((a, b))
+
+    hits = [
+        value
+        for sign in (-1.0, 1.0)
+        for a, b in segments
+        for value in (ray_segment_distance(sign, a, b),)
+        if value is not None
+    ]
+    if not hits:
+        raise ValueError("no local flange boundary at bend midpoint")
+    return min(hits)
+
+
 def visual_gauge_target(model, bend, edge_distance_mm):
     """Return display target only; do not use for machine safety decisions.
 
