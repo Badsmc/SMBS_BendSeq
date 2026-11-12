@@ -1401,16 +1401,17 @@ class _PreviewPanel:
 
 
                 order_row = QtWidgets.QGridLayout()
-                order_row.setHorizontalSpacing(16)
-                order_row.setVerticalSpacing(16)
+                order_row.setHorizontalSpacing(6)
+                order_row.setVerticalSpacing(6)
                 self.move_up_btn = _button(QtWidgets, "↑ Move Up", self.move_selected_up, False)
                 self.move_down_btn = _button(QtWidgets, "↓ Move Down", self.move_selected_down, False)
                 self.restore_order_btn = _button(QtWidgets, "↺ Restore Order", self.restore_order, False)
-                for col, widget in enumerate((
-                    self.move_up_btn, self.move_down_btn, self.restore_order_btn
-                )):
-                    order_row.addWidget(widget, 0, col)
-                    order_row.setColumnStretch(col, 1)
+                order_row.addWidget(self.move_up_btn, 0, 0)
+                order_row.addWidget(self.move_down_btn, 0, 1)
+                order_row.addWidget(self.restore_order_btn, 1, 0, 1, 2)
+                order_row.setColumnStretch(0, 0)
+                order_row.setColumnStretch(1, 0)
+                order_row.setColumnStretch(2, 1)
                 root.addLayout(order_row)
 
                 self.operations = QtWidgets.QTreeWidget()
@@ -1689,8 +1690,13 @@ class _PreviewPanel:
                 tooling = QtWidgets.QWidget()
                 td_layout = QtWidgets.QVBoxLayout(tooling)
                 tooling_card, tooling_body = card("Оснастка и станок")
-                # Both tooling sections stay on one contextual page.
-                # No nested "Основные / Импорт" tabs.
+                # One tooling context from the native toolbar, with exactly
+                # two internal pages requested by the operator.
+                tool_tabs = QtWidgets.QTabWidget(tooling_card)
+                tool_tabs.setObjectName("SMBS_ToolingSubtabs")
+                tool_tabs.setUsesScrollButtons(True) if hasattr(
+                    tool_tabs, "setUsesScrollButtons"
+                ) else None
                 tool_main = QtWidgets.QWidget()
                 tool_main_layout = QtWidgets.QFormLayout(tool_main)
                 tool_main_layout.setContentsMargins(
@@ -1719,16 +1725,15 @@ class _PreviewPanel:
                     style_action(btn)
                     tool_import_layout.addWidget(btn)
                 tool_import_layout.addStretch(1)
-                tooling_body.addWidget(tool_main)
-                import_heading = QtWidgets.QLabel("Импорт и библиотека")
-                import_heading.setObjectName("SMBS_SectionTitle")
-                tooling_body.addWidget(import_heading)
-                tooling_body.addWidget(tool_import)
+                tool_tabs.addTab(tool_main, "Основные")
+                tool_tabs.addTab(tool_import, "Импорт")
+                tooling_body.addWidget(tool_tabs)
                 td_layout.addWidget(tooling_card)
                 td_layout.addStretch(1)
                 self._page_tooling = scroll_task_page(
                     tooling, "SMBS_ToolingScroll"
                 )
+                self._tooling_tabs = tool_tabs
                 # All active tooling widgets have been reparented.
                 self.tooling_group.deleteLater()
 
