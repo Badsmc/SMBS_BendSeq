@@ -142,9 +142,8 @@ QTabWidget#SMBS_ControlTabs QTabBar::tab:selected {
 """
 
 
-def section_card(QtWidgets, title: str):
+def section_card(QtCore, QtWidgets, title: str):
     """Create one semantic engineering card with 16px inner grid."""
-    QtCore = __import__(QtWidgets.__name__.split(".")[0] + ".QtCore", fromlist=["Qt"])
     frame = QtWidgets.QFrame()
     frame.setObjectName("SMBS_SectionCard")
     layout = QtWidgets.QVBoxLayout(frame)
