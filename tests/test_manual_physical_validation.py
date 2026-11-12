@@ -493,6 +493,35 @@ class NativePhaseBlockerTests(unittest.TestCase):
         self.assertEqual(result["die_overlap_mm3"], 12.54321)
         self.assertEqual(result["reason"], "native collision evidence")
 
+    def test_first_blocking_ignores_earlier_conditional_end_zone_contact(self):
+        # FreeCAD SMBS_debug_log(6): B08 at 180 degrees.
+        # 11.25 and 16.875 degrees touch only conditional end zones;
+        # 22.5 degrees is the first sampled NONCONDITIONAL blocker.
+        conditional = self._state("PUNCH", 0.819485, 11.25, "BENDING")
+        conditional.is_conditional_safe = True
+        fatal = self._state("PUNCH", 0.177188, 22.5, "BENDING")
+        phase = self._phase(
+            "BENDING", "DISCRETE_SAMPLES_REJECTED",
+            states=(conditional, fatal), punch_overlap=1190.163472,
+        )
+        phase.first_collision_bracket = {
+            "last_sampled_nonblocking_angle_deg": 16.875,
+            "first_sampled_blocking_angle_deg": 22.5,
+        }
+        trajectory = SimpleNamespace(
+            phase_results=(phase,), first_collision_state=fatal,
+        )
+        result = concise_3d_blocker(trajectory)
+        self.assertEqual(result["phase"], "BENDING")
+        self.assertEqual(result["tool"], "PUNCH")
+        self.assertEqual(result["angle_deg"], 22.5)
+        self.assertAlmostEqual(result["ram_z_mm"], 0.177188)
+        self.assertEqual(
+            result["sampled_onset_bracket"]["first_sampled_blocking_angle_deg"],
+            result["angle_deg"],
+        )
+        self.assertAlmostEqual(result["punch_overlap_mm3"], 1190.163472)
+
     def test_punch_penetration_reports_correct_instrument(self):
         hit = self._state("PUNCH", -2.0, 25.0, "BOTTOM")
         trajectory = SimpleNamespace(
