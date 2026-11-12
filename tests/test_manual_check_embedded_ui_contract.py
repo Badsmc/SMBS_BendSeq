@@ -72,6 +72,21 @@ class ManualVerifyEmbeddedContractTests(unittest.TestCase):
         self.assertIn("self._validate_export_manual_order", gui)
         self.assertIn("self.manual_validate_3d_btn", source)
 
+    def test_exact_occ_collision_view_is_separate_and_native(self):
+        source = SOURCE.read_text(encoding="utf-8")
+        calls = called_names(method("_open_exact_collision_inspector"))
+        self.assertIn("open_exact_collision_document", calls)
+        self.assertIn("_desktop_debug_event", calls)
+        self.assertIn("SMBS_OpenExactNativeOCCCollision", source)
+        self.assertIn("Открыть точное пересечение OCC", source)
+        self.assertIn("self._open_exact_collision_inspector", source)
+        self.assertIn("self.manual_exact_occ_btn.show()", source)
+        self.assertIn("self.manual_exact_occ_btn.hide()", source)
+        # The restored fast 2D verifier must not invoke any native OCC.
+        quick = called_names(method("_validate_manual_planar_only"))
+        self.assertNotIn("open_exact_collision_document", quick)
+        self.assertNotIn("check_manual_3d_sequence", quick)
+
     def test_native_fcstd_persistence_does_not_rename_or_export(self):
         calls = called_names(method("_persist_manual_check_to_fcstd"))
         self.assertIn("_bound_smbs_document", calls)
