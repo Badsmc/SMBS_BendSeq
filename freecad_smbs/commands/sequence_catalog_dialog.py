@@ -8,7 +8,9 @@ from smbs_core.kinematics2d.sequence_catalog import load_catalog_file, parse_dia
 
 def show_sequence_catalog(workspace):
     """Open a standalone modal UI, sharing the existing viewer and controller."""
-    from .pressbrake_2d import _qt
+    from .pressbrake_2d import _qt, activate_task_dialog, embed_task_dialog
+    if activate_task_dialog(workspace, "catalog"):
+        return
     QtCore, _, QtWidgets = _qt()
     dlg = QtWidgets.QDialog(workspace)
     dlg.setObjectName("SMBS_SequenceCatalog")
@@ -165,4 +167,4 @@ def show_sequence_catalog(workspace):
     table.itemDoubleClicked.connect(lambda _item: assign_selected())
     close_btn.clicked.connect(dlg.reject)
     reload()
-    dlg.exec()
+    embed_task_dialog(workspace, dlg, "Последовательности", "catalog")
