@@ -1112,8 +1112,8 @@ class _PreviewPanel:
                 # Phase 5A: Tooling section (Import / Select / Align / Reset / Hide-Show / Library)
                 self.tooling_group = QtWidgets.QGroupBox("Tooling (PUNCH & DIE)")
                 t_layout = QtWidgets.QVBoxLayout(self.tooling_group)
-                t_layout.setContentsMargins(6, 6, 6, 6)
-                t_layout.setSpacing(4)
+                t_layout.setContentsMargins(16, 16, 16, 16)
+                t_layout.setSpacing(16)
 
                 t_row1 = QtWidgets.QHBoxLayout()
                 self.import_punch_btn = _button(QtWidgets, "Import Punch", self.import_punch_dialog, True)
@@ -1175,7 +1175,7 @@ class _PreviewPanel:
 
                 self.tooling_status = QtWidgets.QLabel(self.tooling_setup.status_line())
                 self.tooling_status.setWordWrap(True)
-                self.tooling_status.setStyleSheet("font-size: 11px; color: #2c3e50;")
+                self.tooling_status.setStyleSheet("font-size: 11px; color: palette(window-text);")
                 t_layout.addWidget(self.tooling_status)
                 # Explicit, on-demand physical check: no expensive BRep
                 # booleans in the 25–40 Hz drawing/timer path.
@@ -1209,37 +1209,40 @@ class _PreviewPanel:
                 # Phase 5B: Press Cycle section (Bend Only / Full Cycle, Ram Position, Cycle Phase, Speed & Config)
                 self.press_cycle_group = QtWidgets.QGroupBox("Режим симуляции")
                 pc_layout = QtWidgets.QVBoxLayout(self.press_cycle_group)
-                pc_layout.setContentsMargins(6, 6, 6, 6)
-                pc_layout.setSpacing(4)
+                pc_layout.setContentsMargins(0, 0, 0, 0)
+                pc_layout.setSpacing(16)
 
-                pc_row1 = QtWidgets.QHBoxLayout()
-                pc_row1.addWidget(QtWidgets.QLabel("Mode:"))
+                pc_row1 = QtWidgets.QGridLayout()
+                pc_row1.setHorizontalSpacing(16)
+                pc_row1.setVerticalSpacing(16)
+                pc_row1.addWidget(QtWidgets.QLabel("Mode:"), 0, 0)
                 self.cycle_mode_combo = QtWidgets.QComboBox()
                 self.cycle_mode_combo.addItem("Bend Only", CycleExecutionMode.BEND_ONLY.value)
                 self.cycle_mode_combo.addItem("Full Cycle", CycleExecutionMode.FULL_CYCLE.value)
                 self.cycle_mode_combo.setCurrentIndex(1)
                 self.cycle_mode_combo.currentIndexChanged.connect(self._on_cycle_mode_combo_changed)
-                pc_row1.addWidget(self.cycle_mode_combo, 1)
-
-                pc_row1.addWidget(QtWidgets.QLabel("Speed (°/s):"))
+                pc_row1.addWidget(self.cycle_mode_combo, 0, 1)
+                pc_row1.addWidget(QtWidgets.QLabel("Speed (°/s):"), 1, 0)
                 self.cycle_speed_spin = QtWidgets.QDoubleSpinBox()
                 self.cycle_speed_spin.setRange(1.0, 720.0)
                 self.cycle_speed_spin.setValue(self.cycle_config.bend_rate_deg_s)
                 self.cycle_speed_spin.setSingleStep(15.0)
                 self.cycle_speed_spin.valueChanged.connect(self._on_cycle_speed_changed)
-                pc_row1.addWidget(self.cycle_speed_spin)
+                pc_row1.addWidget(self.cycle_speed_spin, 1, 1)
 
                 self.cycle_config_btn = _button(QtWidgets, "Cycle Config...", self.open_cycle_config_dialog, True)
-                pc_row1.addWidget(self.cycle_config_btn)
+                pc_row1.addWidget(self.cycle_config_btn, 2, 1)
+                pc_row1.setColumnStretch(0, 0)
+                pc_row1.setColumnStretch(1, 1)
                 pc_layout.addLayout(pc_row1)
 
-                pc_row2 = QtWidgets.QHBoxLayout()
+                pc_row2 = QtWidgets.QVBoxLayout()
                 self.cycle_phase_label = QtWidgets.QLabel("Cycle Phase: IDLE (KINEMATIC_PREVIEW)")
                 self.ram_position_label = QtWidgets.QLabel(
                     "Ram Position: {:+.2f} mm (Stroke: 0.00 mm)".format(self.tooling_setup.ram_z_mm)
                 )
-                pc_row2.addWidget(self.cycle_phase_label, 1)
-                pc_row2.addWidget(self.ram_position_label, 1)
+                pc_row2.addWidget(self.cycle_phase_label)
+                pc_row2.addWidget(self.ram_position_label)
                 pc_layout.addLayout(pc_row2)
                 self.loading_orientation_status = QtWidgets.QLabel(
                     "Оператор ← | Упор → | Подача: пока не определена"
@@ -1259,7 +1262,9 @@ class _PreviewPanel:
                 self.view.setScene(self.scene)
                 root.addWidget(self.view, 1)
 
-                row = QtWidgets.QHBoxLayout()
+                row = QtWidgets.QGridLayout()
+                row.setHorizontalSpacing(16)
+                row.setVerticalSpacing(16)
                 # One playback button owns Play, Pause and Resume, with step
                 # navigation immediately on either side.
                 self.reset_btn = _button(QtWidgets, "Reset", self.reset, False)
@@ -1270,11 +1275,12 @@ class _PreviewPanel:
                 self.play_btn.setToolTip("Play / Pause / Resume для выбранного режима")
                 self.next_step_btn = _button(QtWidgets, ">>|", self.next_step, False)
                 self.fit_btn = _button(QtWidgets, "Fit", self.fit, True)
-                for widget in (
+                for col, widget in enumerate((
                     self.reset_btn, self.prev_step_btn, self.play_btn,
                     self.next_step_btn, self.fit_btn
-                ):
-                    row.addWidget(widget)
+                )):
+                    row.addWidget(widget, 0, col)
+                    row.setColumnStretch(col, 1)
                 root.addLayout(row)
 
                 self.slider = QtWidgets.QSlider(QtCore.Qt.Horizontal)
@@ -1284,19 +1290,40 @@ class _PreviewPanel:
                 root.addWidget(self.slider)
 
 
-                order_row = QtWidgets.QHBoxLayout()
-                order_row.addWidget(QtWidgets.QLabel("Порядок:"))
+                order_row = QtWidgets.QGridLayout()
+                order_row.setHorizontalSpacing(16)
+                order_row.setVerticalSpacing(16)
                 self.move_up_btn = _button(QtWidgets, "↑ Move Up", self.move_selected_up, False)
                 self.move_down_btn = _button(QtWidgets, "↓ Move Down", self.move_selected_down, False)
                 self.restore_order_btn = _button(QtWidgets, "↺ Restore Order", self.restore_order, False)
-                for widget in (self.move_up_btn, self.move_down_btn, self.restore_order_btn):
-                    order_row.addWidget(widget)
+                for col, widget in enumerate((
+                    self.move_up_btn, self.move_down_btn, self.restore_order_btn
+                )):
+                    order_row.addWidget(widget, 0, col)
+                    order_row.setColumnStretch(col, 1)
                 root.addLayout(order_row)
 
                 self.operations = QtWidgets.QTreeWidget()
                 self.operations.setHeaderLabels(["Step", "Bend", "Target", "Current", "Status"])
                 self.operations.setRootIsDecorated(False)
-                self.operations.setMaximumHeight(110)
+                self.operations.setObjectName("SMBS_Operations")
+                self.operations.setAlternatingRowColors(True)
+                self.operations.setMinimumHeight(220)
+                self.operations.header().setSectionResizeMode(
+                    0, QtWidgets.QHeaderView.ResizeToContents
+                )
+                self.operations.header().setSectionResizeMode(
+                    1, QtWidgets.QHeaderView.ResizeToContents
+                )
+                self.operations.header().setSectionResizeMode(
+                    2, QtWidgets.QHeaderView.Interactive
+                )
+                self.operations.header().setSectionResizeMode(
+                    3, QtWidgets.QHeaderView.Interactive
+                )
+                self.operations.header().setSectionResizeMode(
+                    4, QtWidgets.QHeaderView.Stretch
+                )
                 self.operations.currentItemChanged.connect(self._on_operation_selected)
                 root.addWidget(self.operations)
 
@@ -1349,6 +1376,7 @@ class _PreviewPanel:
 
                 views = QtWidgets.QTabWidget(self)
                 views.setObjectName("SMBS_ViewerTabs")
+                views.setDocumentMode(True)
                 views.addTab(self.view, QtGui.QIcon(str(
                     _ICON_ROOT / "gui_simulation.svg"
                 )), "2.5D · Гибка")
@@ -1375,13 +1403,28 @@ class _PreviewPanel:
 
                 controls = QtWidgets.QTabWidget()
                 controls.setObjectName("SMBS_ControlTabs")
+                controls.setIconSize(QtCore.QSize(17, 17))
+                controls.tabBar().setUsesScrollButtons(True)
                 controls.setSizePolicy(QtWidgets.QSizePolicy.Preferred,
                                        QtWidgets.QSizePolicy.Expanding)
+
+                from freecad_smbs.ui.pressbrake_theme import (
+                    OUTER_MARGIN, SECTION_GAP, section_card, style_action,
+                )
+
+                def card(title):
+                    return section_card(QtCore, QtWidgets, title)
 
                 def scroll_task_page(content, name):
                     # Scroll the CONTENT of each task tab (not the tab bar).
                     # A minimum-size layout prevents Qt from compressing the
                     # controls into the viewport and overlapping them.
+                    content.setObjectName("SMBS_TaskContent")
+                    content.layout().setContentsMargins(
+                        OUTER_MARGIN, OUTER_MARGIN,
+                        OUTER_MARGIN, OUTER_MARGIN,
+                    )
+                    content.layout().setSpacing(SECTION_GAP)
                     content.layout().setSizeConstraint(
                         QtWidgets.QLayout.SetMinimumSize
                     )
