@@ -508,6 +508,7 @@ def check_active_25d_bend_trajectory(
     *,
     config=None,
     desired_midpoint_xm: float = 0.0,
+    reverse_axis: bool = False,
     match_active_bend_length: bool | None = None,
     virtual_tool_length_mm: float | None = None,
     allow_end_zone_collision: bool | None = None,
@@ -628,6 +629,7 @@ def check_active_25d_bend_trajectory(
                     die,
                     config=config,
                     desired_midpoint_xm=desired_midpoint_xm,
+                    reverse_axis=reverse_axis,
                     end_zone_policy=ez_policy,
                     classify_end_zone_length_mm=eff_classify_end_zone_len,
                 )
@@ -639,6 +641,7 @@ def check_active_25d_bend_trajectory(
                     die,
                     config=config,
                     desired_midpoint_xm=desired_midpoint_xm,
+                    reverse_axis=reverse_axis,
                 )
             report = validator.validate_bend_trajectory(active_id, prior)
         finally:
