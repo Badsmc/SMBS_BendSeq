@@ -486,6 +486,14 @@ def check_manual_3d_sequence(
         adaptive_config=(
             vars(config) if config is not None else None
         ),
+        # The caller's end-zone policy overrides the sampling config's
+        # defaults. Log the *effective* policy separately so diagnostic
+        # readers do not mistake config defaults for the active setting.
+        effective_end_zone_policy={
+            "allow_end_zone_collision": bool(allow_end_zone_collision),
+            "end_zone_length_mm": end_len,
+            "classify_end_zone_length_mm": end_len if end_len > 0.0 else 10.0,
+        },
     )
 
     if p_path is None or d_path is None:
