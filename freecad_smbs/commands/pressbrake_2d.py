@@ -654,6 +654,15 @@ def show_workspace_controls(workspace, tab=None):
     if tab is not None and 0 <= int(tab) < workspace._task_stack.count():
         workspace._task_stack.setCurrentIndex(int(tab))
     section = workspace._task_stack.currentWidget()
+    # Explicit Manual orientation must update the same live viewer pose.
+    # Never borrow an unverified 2D heuristic for native 3D validation.
+    cycle = getattr(workspace, "press_cycle", None)
+    if (cycle is not None
+            and getattr(workspace, "session", None) is not None
+            and hasattr(workspace, "_effective_loading_orientation_map")):
+        cycle.loading_orientation_by_bend = (
+            workspace._effective_loading_orientation_map()
+        )
     caption = workspace._task_page_titles.get(section, "Панель задач")
     header = getattr(workspace, "_task_section_label", None)
     if header is not None:
@@ -4142,12 +4151,19 @@ class _PreviewPanel:
                 reverse_checkbox = getattr(
                     self, "manual_reverse_3d_checkbox", None
                 )
-                if (reverse_checkbox is not None
-                        and reverse_checkbox.isChecked()):
+                manual_page_active = (
+                    reverse_checkbox is not None
+                    and getattr(self, "_task_stack", None) is not None
+                    and self._task_stack.currentWidget()
+                    is getattr(self, "_page_manual", None)
+                )
+                if manual_page_active:
+                    reversed_pose = bool(reverse_checkbox.isChecked())
                     self._ergonomic_loading_status = (
-                        "OPERATOR_SELECTED_REVERSE_3D_NOT_TRANSFER_VERIFIED"
+                        "OPERATOR_SELECTED_MANUAL_REVERSE_3D"
+                        if reversed_pose else "OPERATOR_SELECTED_MANUAL_NORMAL_3D"
                     )
-                    return {bend_id: True for bend_id in order}
+                    return {bend_id: reversed_pose for bend_id in order}
                 checked_prefix = tuple(self._selected_planar_gauge_order)
                 if (checked_prefix and order[:len(checked_prefix)] == checked_prefix
                         and self._selected_planar_gauge_model_id
