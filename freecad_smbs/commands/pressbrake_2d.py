@@ -555,7 +555,6 @@ def build_part_session(doc, selection, fixed_panel: str | None = None) -> Loaded
                 bid, exc,
             ))
         try:
-        try:
             gauge_distances_mm[bend.bend_id] = bend_to_blank_edge_mm(
                 tuple((p[0], p[1]) for p in bend.axis_xyz),
                 panel_vertices_xy[bend.fixed_panel],
