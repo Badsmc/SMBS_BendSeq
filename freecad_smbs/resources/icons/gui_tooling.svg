@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32" role="img">
 <title>gui tooling</title>
-<rect x="1" y="1" width="30" height="30" rx="6.5" fill="#233B4D" stroke="#56788A" stroke-width="1.1"/>
-<path d="M7 8H25L18.5 15H13.5Z" fill="#A6C9D6" stroke="#E7F3F7" stroke-width="1.6" stroke-linejoin="round"/><path d="M16 15V19" stroke="#FFC272" stroke-width="2.05" stroke-linejoin="round" stroke-linecap="round" fill="none"/><path d="M7 25L12 19H20L25 25Z" stroke="#E7F3F7" stroke-width="1.9" stroke-linejoin="round" stroke-linecap="round" fill="none"/><path d="M12 19L16 24L20 19" stroke="#55CFC0" stroke-width="2.15" stroke-linejoin="round" stroke-linecap="round" fill="none"/><path d="M6 6H26" stroke="#A6C9D6" stroke-width="1.65" stroke-linejoin="round" stroke-linecap="round" fill="none"/>
+
+<path d="M7 8H25L18.5 15H13.5Z" fill="#888888" stroke="#888888" stroke-width="1.6" stroke-linejoin="round"/><path d="M16 15V19" stroke="#888888" stroke-width="2.05" stroke-linejoin="round" stroke-linecap="round" fill="none"/><path d="M7 25L12 19H20L25 25Z" stroke="#888888" stroke-width="1.9" stroke-linejoin="round" stroke-linecap="round" fill="none"/><path d="M12 19L16 24L20 19" stroke="#888888" stroke-width="2.15" stroke-linejoin="round" stroke-linecap="round" fill="none"/><path d="M6 6H26" stroke="#888888" stroke-width="1.65" stroke-linejoin="round" stroke-linecap="round" fill="none"/>
 </svg>
