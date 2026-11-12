@@ -185,6 +185,19 @@ class EmbeddedStorageTests(unittest.TestCase):
                 "phases": ["BOTTOM", "BENDING"],
                 "checked_ram_positions": 5,
             },
+            "retract": {
+                "status": "NOT_EVALUATED",
+                "phase_evidence": "NOT_EVALUATED",
+                "start_z_mm": -7.5,
+                "end_z_mm": 15.0,
+                "contact_z_mm": 3.0,
+                "bottom_z_mm": -7.5,
+                "initial_clearance_mm": 12.0,
+                "sample_count": 0,
+                "sampled_end_z_mm": None,
+                "end_position_sampled": False,
+                "reason": "RETRACT phase not reached",
+            },
         }
         manual = {
             "schema_version": "smbs.manual_2d_and_native_3d.v2",
@@ -222,6 +235,14 @@ class EmbeddedStorageTests(unittest.TestCase):
             step["punch_die_pair"],
         )
         self.assertIn("BENDING", embedded["manual_3d_validation"]["steps"][0]["reason"])
+        self.assertEqual(
+            embedded["manual_3d_validation"]["steps"][0]["retract"]["status"],
+            "NOT_EVALUATED",
+        )
+        self.assertEqual(
+            embedded["manual_3d_validation"]["steps"][0]["retract"]["end_z_mm"],
+            15.0,
+        )
         self.assertEqual(embedded["planar_steps"][0]["bend_id"], "B02")
         self.assertEqual(loaded["validation"]["on_restore"],
                          "UNVERIFIED_RECHECK_REQUIRED")

@@ -44,7 +44,34 @@ def evidence(status, *, conditional=False):
         status=status, native_status=status.value, reason="test_" + status.value,
         checked_scope=("3D_PUNCH_DIE_SAMPLED_BEND",),
         tool_length_info={"active_bend_length_mm": 50.0},
-        raw_report=SimpleNamespace(phase_results=()),
+        raw_report=SimpleNamespace(
+            ram_cycle_positions_mm={
+                "contact_z_mm": 0.0, "bottom_z_mm": -4.0,
+                "retract_start_z_mm": -4.0, "retract_end_z_mm": 5.0,
+                "initial_clearance_mm": 5.0,
+                "approach_start_z_mm": 5.0,
+            },
+            phase_results=(
+                SimpleNamespace(
+                    phase_name="RETRACT",
+                    evidence_status=SimpleNamespace(
+                        value="SAMPLED_INTERVAL_CONVERGED",
+                    ),
+                    states=(
+                        SimpleNamespace(path_u=0.0, ram_z_mm=-4.0,
+                                        collision_report=None),
+                        SimpleNamespace(path_u=1.0, ram_z_mm=5.0,
+                                        collision_report=None),
+                    ),
+                    diagnostics=(),
+                    unresolved_intervals=(),
+                    uninspected_intervals=(),
+                    discontinuities=(),
+                    max_punch_overlap_volume_mm3=0.0,
+                    max_die_overlap_volume_mm3=0.0,
+                ),
+            ),
+        ),
         is_conditional=conditional,
     )
 
@@ -112,6 +139,10 @@ class ManualToolingTests(unittest.TestCase):
         self.assertFalse(report["continuous_motion_certified"])
         self.assertFalse(report["backgauge_collisions_checked"])
         self.assertEqual(report["punch_die_pair_checked"], 2)
+        self.assertEqual(report["steps"][0]["retract"]["status"],
+                         "SAMPLED_CLEAR")
+        self.assertEqual(report["steps"][0]["retract"]["start_z_mm"], -4.0)
+        self.assertEqual(report["steps"][0]["retract"]["end_z_mm"], 5.0)
         self.assertEqual(report["punch"], self.punch_file.stem)
         self.assertEqual(report["die"], self.die_file.stem)
         self.assertEqual(calls[0][1], {"B01": 0.0, "B02": 0.0})

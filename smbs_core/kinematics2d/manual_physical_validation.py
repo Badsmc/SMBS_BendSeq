@@ -27,6 +27,127 @@ from .physical_validation_25d import (
 CLEAR = PhysicalEvidence.SAMPLED_3D_CLEAR_NOT_CONTINUOUS
 
 
+def retract_evidence_from_trajectory(trajectory: Any) -> dict:
+    """Bounded, per-bend RETRACT evidence for the embedded FCStd JSON.
+
+    Distinguish the *planned* ram endpoints from the physical samples that
+    really ran. An unexecuted RETRACT after an earlier collision is NEVER
+    reported clear. Do not embed per-frame OCC shape objects in the FCStd.
+    """
+    planned = getattr(trajectory, "ram_cycle_positions_mm", None) or {}
+    out = {
+        "status": "NOT_EVALUATED",
+        "phase_evidence": "NOT_EVALUATED",
+        "start_z_mm": None,
+        "end_z_mm": None,
+        "contact_z_mm": None,
+        "bottom_z_mm": None,
+        "initial_clearance_mm": None,
+        "sample_count": 0,
+        "sampled_start_z_mm": None,
+        "sampled_end_z_mm": None,
+        "start_position_sampled": False,
+        "end_position_sampled": False,
+        "max_punch_overlap_mm3": None,
+        "max_die_overlap_mm3": None,
+        "reason": "RETRACT phase not reached",
+    }
+    for target, key in (
+        ("start_z_mm", "retract_start_z_mm"),
+        ("end_z_mm", "retract_end_z_mm"),
+        ("contact_z_mm", "contact_z_mm"),
+        ("bottom_z_mm", "bottom_z_mm"),
+        ("initial_clearance_mm", "initial_clearance_mm"),
+    ):
+        if key in planned:
+            val = float(planned[key])
+            if not isfinite(val):
+                raise ValueError("nonfinite planned RETRACT coordinate")
+            out[target] = round(val, 6)
+    for phase in getattr(trajectory, "phase_results", ()) or ():
+        if str(getattr(phase, "phase_name", "")) != "RETRACT":
+            continue
+        raw_status = getattr(phase.evidence_status, "value",
+                             str(phase.evidence_status))
+        out["phase_evidence"] = str(raw_status)
+        states = tuple(getattr(phase, "states", ()) or ())
+        out["sample_count"] = len(states)
+        if states:
+            first = min(states, key=lambda st: float(st.path_u))
+            last = max(states, key=lambda st: float(st.path_u))
+            out["sampled_start_z_mm"] = round(float(first.ram_z_mm), 6)
+            out["sampled_end_z_mm"] = round(float(last.ram_z_mm), 6)
+            out["start_position_sampled"] = abs(float(first.path_u)) < 1e-6
+            out["end_position_sampled"] = abs(float(last.path_u) - 1.0) < 1e-6
+        out["max_punch_overlap_mm3"] = round(
+            float(getattr(phase, "max_punch_overlap_volume_mm3", 0.0)), 6,
+        )
+        out["max_die_overlap_mm3"] = round(
+            float(getattr(phase, "max_die_overlap_volume_mm3", 0.0)), 6,
+        )
+        diags = tuple(str(x) for x in getattr(phase, "diagnostics", ()) or ())
+        out["reason"] = diags[0][:400] if diags else str(raw_status)
+        any_observed_collision = any(
+            getattr(getattr(st, "collision_report", None), "status", None)
+            is not None
+            and str(getattr(
+                getattr(st.collision_report, "status"), "value",
+                getattr(st.collision_report, "status"),
+            )) == "PENETRATION"
+            and not bool(getattr(st, "is_conditional_safe", False))
+            for st in states
+        )
+        # The native phase explicitly marks permitted punch END_ZONE_ONLY
+        # penetration as not strictly safe. Preserve CONDITIONAL for this
+        # precise case; never waive ordinary sheet/die or tool/tool hits.
+        native_conditional = (
+            raw_status == "SAMPLED_INTERVAL_CONDITIONAL_END_ZONE"
+        )
+        unresolved = bool(
+            getattr(phase, "unresolved_intervals", None)
+            or getattr(phase, "uninspected_intervals", None)
+            or getattr(phase, "discontinuities", None)
+            or (
+                getattr(phase, "is_safe", True) is False
+                and not native_conditional
+            )
+            or any(
+                getattr(st, "is_safe", True) is False
+                and not bool(getattr(st, "is_conditional_safe", False))
+                for st in states
+            )
+        )
+        if any_observed_collision:
+            out["status"] = "COLLISION"
+        elif raw_status == "SAMPLED_INTERVAL_CONDITIONAL_END_ZONE":
+            out["status"] = (
+                "CONDITIONAL" if (
+                    out["start_position_sampled"]
+                    and out["end_position_sampled"] and not unresolved
+                ) else "UNVERIFIED"
+            )
+        elif (raw_status in (
+            "SAMPLED_INTERVAL_CONVERGED", "ADAPTIVE_SAMPLING_CONVERGED",
+        ) and out["start_position_sampled"]
+                and out["end_position_sampled"] and not unresolved):
+            out["status"] = "SAMPLED_CLEAR"
+        else:
+            out["status"] = "UNVERIFIED"
+        # A green phase must reach the SAME planned end position as the
+        # simulated FULL_CYCLE retract; otherwise fail closed.
+        if out["status"] in ("SAMPLED_CLEAR", "CONDITIONAL"):
+            if (out["start_z_mm"] is None or out["end_z_mm"] is None
+                    or abs(out["sampled_start_z_mm"] - out["start_z_mm"]) > 1e-4
+                    or abs(out["sampled_end_z_mm"] - out["end_z_mm"]) > 1e-4):
+                out["status"] = "UNVERIFIED"
+                out["reason"] = (
+                    "RETRACT sampled start/end does not match "
+                    "configured bottom/upper Z"
+                )
+        return out
+    return out
+
+
 def _check_selected_tool_pair_at_sampled_rams(
     punch_file: Path, die_file: Path, bend_length_mm: float,
     tooling: Any, trajectory: Any, *, virtual_length: bool,
@@ -219,6 +340,7 @@ def check_manual_3d_sequence(
                 "native_status": "UNVERIFIED",
                 "checked_scope": [],
                 "tool_length_info": None,
+                "retract": retract_evidence_from_trajectory(None),
                 "is_conditional": False,
                 "elapsed_s": 0.0,
             })
@@ -243,6 +365,12 @@ def check_manual_3d_sequence(
                 pseudo_session, tooling, **check_kwargs,
             )
             status = report.status
+            retract = retract_evidence_from_trajectory(report.raw_report)
+            # No sampled RETRACT -> no claim of a fully validated bend.
+            # This is separate from any already proven earlier collision.
+            if status in (CLEAR, PhysicalEvidence.CONDITIONAL):
+                if retract["status"] not in ("SAMPLED_CLEAR", "CONDITIONAL"):
+                    status = PhysicalEvidence.UNVERIFIED
             tool_pair = None
             if status in (CLEAR, PhysicalEvidence.CONDITIONAL):
                 try:
@@ -274,7 +402,14 @@ def check_manual_3d_sequence(
                 "tool_length_info": report.tool_length_info,
                 "is_conditional": bool(report.is_conditional),
                 "punch_die_pair": tool_pair,
+                "retract": retract,
             }
+            if status is PhysicalEvidence.UNVERIFIED and report.status in (
+                    CLEAR, PhysicalEvidence.CONDITIONAL):
+                record["status"] = status.value
+                record["reason"] = (
+                    "RETRACT_not_verified:" + str(retract["reason"])
+                )
             if tool_pair is not None:
                 if tool_pair["status"] == "COLLISION":
                     status = PhysicalEvidence.COLLISION
@@ -299,6 +434,7 @@ def check_manual_3d_sequence(
                 "completed_before_step": list(previous),
                 "status": "UNVERIFIED",
                 "punch_die_pair": None,
+                "retract": retract_evidence_from_trajectory(None),
                 "reason": "native_3d_exception:{}:{}".format(
                     type(exc).__name__, exc,
                 ),
