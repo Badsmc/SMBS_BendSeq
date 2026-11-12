@@ -4813,7 +4813,7 @@ class _PreviewPanel:
                 try:
                     pc = self._ensure_press_cycle_controller()
                     if pc is not None:
-                        pc.set_manual_angle(float(signed_angle_deg))
+                        pc.set_manual_preview_angle(float(signed_angle_deg))
                         self.session.active_bend_index = self.session.controller.active_index
                     else:
                         self.session.set_active_angle(float(signed_angle_deg))
@@ -5128,6 +5128,11 @@ class _PreviewPanel:
                         if (self.session.active_bend_index != previous_bend
                                 and self.tooling_setup.aligned):
                             self._sync_tooling_to_active_bend()
+                        elif pc is not None:
+                            # Exactly the same coupled stroke model as the
+                            # manual slider. Do not leave the punch parked
+                            # while the sheet is bending in Bend Only mode.
+                            pc.preview_punch_at_current_angle()
                     self._configure_for_active_bend()
                     self._update_tooling_status_label()
                     self.draw()
