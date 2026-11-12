@@ -201,6 +201,9 @@ class PressCycleController:
         self.transfer_fault: Optional[str] = None
         self.contact_tracking_status = "PROGRAMMED_PREVIEW_STROKE"
         self.coupled_kinematics: Optional[CoupledAirBendingKinematics] = None
+        # A user-controlled slider scrub is not an automatic press phase.
+        # Keep it explicitly distinguishable from APPROACH/IDLE/RETRACT.
+        self._manual_preview_active = False
 
         self.phase: CyclePhase = CyclePhase.IDLE
         self.contact_kind: ContactBoundaryKind = ContactBoundaryKind.ASSUMED_CONTACT
@@ -432,6 +435,7 @@ class PressCycleController:
         set phase to IDLE, and set active operation to the first bend in `bend_order`.
         Preserves user-defined `bend_order`.
         """
+        self._manual_preview_active = False
         self.sequence.reset()
         self.phase = CyclePhase.IDLE
         self.dwell_remaining_s = 0.0
@@ -443,6 +447,7 @@ class PressCycleController:
 
     def select_operation(self, index: int) -> None:
         """Select operation `index` manually; parks punch at upper position."""
+        self._manual_preview_active = False
         if self.sequence.status == PlaybackStatus.PLAYING:
             self.pause()
         self.sequence.select_operation(index)
@@ -463,6 +468,7 @@ class PressCycleController:
         Never triggers automatic cycle motion; parks the punch at the safe upper
         retracted preview position so the two modes never fight over angle or ram Z.
         """
+        self._manual_preview_active = False
         if self.sequence.status == PlaybackStatus.PLAYING:
             self.pause()
         self.sequence.set_manual_angle(signed_angle_deg)
@@ -497,17 +503,50 @@ class PressCycleController:
         self._set_punch_z(self.contact_z_mm - max(0.0, stroke))
         self.contact_tracking_status = "UNVERIFIED_SLIDER_KINEMATIC_PREVIEW"
 
-    def set_manual_preview_angle(self, signed_angle_deg: float) -> None:
-        """Set the slider angle AND the corresponding coupled punch position.
+    def preview_workpiece_support_zm(self) -> float:
+        """Shared V-die sheet position from the same coupled stroke as PUNCH.
 
-        The older set_manual_angle API intentionally parks the punch, so keep
-        that public contract unchanged for other headless clients.
+        WorkpiecePlacement3D maps the active bend arc center to this height.
+        The bend zone outer radius is authoritative (SheetMetal); neither the
+        object placement nor the lower tool is modified. Preview only:
+        NO collision, die-support or force validation is implied.
+        """
+        bend = self.sequence.fold_state.bends[self.active_bend_id]
+        zone = bend.bend_zone
+        if zone is None:
+            raise PressCycleError(
+                "Manual preview requires an authoritative BendZone"
+            )
+        if self.coupled_kinematics is None:
+            raise PressCycleError(
+                "Manual preview requires coupled punch-sheet kinematics"
+            )
+        outer_r = float(zone.outer_radius_mm)
+        if not math.isfinite(outer_r) or outer_r <= 0.0:
+            raise PressCycleError("Nonfinite/invalid bend zone outer radius")
+        stroke = float(
+            self.coupled_kinematics.stroke_for_angle(
+                abs(self.current_angle_deg)
+            )
+        )
+        if not math.isfinite(stroke) or stroke < -1e-6:
+            raise PressCycleError("Nonfinite/invalid workpiece stroke")
+        return outer_r - max(0.0, stroke)
+
+    def set_manual_preview_angle(self, signed_angle_deg: float) -> None:
+        """Set slider angle, coupled punch AND matching workpiece preview.
+
+        No automatic phase is started. The placement renderer consumes the
+        preview flag to use the shared support height even when phase=IDLE.
+        The legacy set_manual_angle API still retracts the ram for callers.
         """
         self.set_manual_angle(signed_angle_deg)
         self.preview_punch_at_current_angle()
+        self._manual_preview_active = True
 
     def next_step(self) -> None:
         """Step instantaneously to the next completed bend state with punch retracted at upper Z."""
+        self._manual_preview_active = False
         if self.sequence.status == PlaybackStatus.PLAYING:
             self.pause()
         self.sequence.next_step()
@@ -522,6 +561,7 @@ class PressCycleController:
 
     def previous_step(self) -> None:
         """Step instantaneously to the previous completed bend state with punch retracted at upper Z."""
+        self._manual_preview_active = False
         if self.sequence.status == PlaybackStatus.PLAYING:
             self.pause()
         self.sequence.previous_step()
@@ -532,6 +572,7 @@ class PressCycleController:
 
     def play_all(self) -> None:
         """Start or restart automatic playback in the active `execution_mode`."""
+        self._manual_preview_active = False
         if self.execution_mode == CycleExecutionMode.BEND_ONLY:
             self.sequence.play_all()
             self.phase = CyclePhase.BENDING
@@ -910,10 +951,14 @@ class PressCycleController:
             if self.transfer_3d is not None:
                 return self.transfer_3d.pose_at(elapsed_s)
 
-        # Coupled penetration during BENDING, BOTTOM, RETRACT
+        # Coupled penetration during BENDING, BOTTOM, RETRACT and explicit
+        # manual scrub. Scrubbing does NOT change the automatic cycle phase.
         align_bisector = False
         align_arc_center = False
-        if self.coupled_kinematics is not None and self.execution_mode == CycleExecutionMode.FULL_CYCLE:
+        if self.coupled_kinematics is not None and (
+            self.execution_mode == CycleExecutionMode.FULL_CYCLE
+            or self._manual_preview_active
+        ):
             bz = None
             if self.active_bend_id in fold_state.bends:
                 bz = fold_state.bends[self.active_bend_id].bend_zone
@@ -926,10 +971,8 @@ class PressCycleController:
                     f"UNSUPPORTED: Missing authoritative BendZone geometry for active bend '{self.active_bend_id}'"
                 )
 
-            if self.phase == CyclePhase.BENDING:
-                cur_angle = abs(self.current_angle_deg)
-                stroke = self.coupled_kinematics.stroke_for_angle(cur_angle)
-                support_z = outer_r - stroke
+            if self.phase == CyclePhase.BENDING or self._manual_preview_active:
+                support_z = self.preview_workpiece_support_zm()
                 align_bisector = True
                 align_arc_center = True
             elif self.phase in (CyclePhase.BOTTOM, CyclePhase.RETRACT, CyclePhase.STEP_COMPLETE):
