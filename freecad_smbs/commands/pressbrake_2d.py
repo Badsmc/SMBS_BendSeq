@@ -319,6 +319,7 @@ class LoadedPartSession:
     fixed_panel: str
     fold_state: FoldState
     active_bend_index: int = 0
+    local_bend_dimensions_mm: dict = field(default_factory=dict)
     controller: BendSequenceController = field(init=False)
 
     def __post_init__(self) -> None:
@@ -527,6 +528,28 @@ def build_part_session(doc, selection, fixed_panel: str | None = None) -> Loaded
             fixed_panel = panel_build.connections[0].panel_a
 
     fold_state = FoldState(graph, fixed_panel)
+    # Local bend-line distance is independent of the visual machine setup.
+    # Flat development does not incorporate thickness or previous fold angles.
+    from smbs_core.kinematics2d.gauge_preview import (
+        local_bend_dimension_mm,
+    )
+    outline_xy = getattr(panel_build, "outline_vertices_xy", ())
+    local_bend_dimensions_mm = {}
+    axes_xy = {
+        bend.bend_id: tuple((p[0], p[1]) for p in bend.axis_xyz)
+        for bend in fold_state.bends.values()
+    }
+    for bend in fold_state.bends.values():
+        bid = bend.bend_id
+        try:
+            local_bend_dimensions_mm[bid] = local_bend_dimension_mm(
+                axes_xy[bid], outline_xy,
+                tuple(axis for other_id, axis in axes_xy.items() if other_id != bid),
+            )
+        except (ValueError, TypeError, KeyError) as exc:
+            _warn("Local bend dimension unavailable for {}: {}".format(
+                bid, exc,
+            ))
     sel_label = getattr(selection[0], "Label", getattr(selection[0], "Name", unfold_name))
     return LoadedPartSession(
         part_label=str(sel_label),
@@ -537,6 +560,7 @@ def build_part_session(doc, selection, fixed_panel: str | None = None) -> Loaded
         fixed_panel=fixed_panel,
         fold_state=fold_state,
         active_bend_index=0,
+        local_bend_dimensions_mm=local_bend_dimensions_mm,
     )
 
 
@@ -898,7 +922,7 @@ class BackgaugeCommand:
         return {
             "Pixmap": str(_ICON_ROOT / "gui_backgauge.svg"),
             "MenuText": "Задний упор",
-            "ToolTip": "Целевые позиции заднего упора, веса и проверка 2D коллизий",
+            "ToolTip": "Визуальная FCStd-модель упора: позиция по контуру развёртки",
         }
 
     def IsActive(self):
@@ -1166,6 +1190,7 @@ class _PreviewPanel:
                 self._backgauge_settings = QtCore.QSettings("SMBS", "BendSeq")
                 self.backgauge_model = None
                 self._backgauge_preview_cache = {}
+                self._machine_gauge_envelope_cache = None
                 # Preserve the exact S/Z candidate accepted by the search.
                 # Otherwise a GUI redraw would recompute the primary gauge
                 # and depict a different setup from the chosen DFS branch.
@@ -1462,12 +1487,20 @@ class _PreviewPanel:
                 root.addLayout(order_row)
 
                 self.operations = QtWidgets.QTreeWidget()
-                self.operations.setHeaderLabels(["Step", "Bend", "Target", "Current", "Status"])
+                self.operations.setHeaderLabels(["Step", "Bend", "Target", "Current", "До гиба, мм", "Упор S, мм", "Status"])
                 self.operations.setRootIsDecorated(False)
                 self.operations.setHorizontalScrollBarPolicy(
-                    QtCore.Qt.ScrollBarAlwaysOff
+                    QtCore.Qt.ScrollBarAsNeeded
                 )
                 self.operations.setObjectName("SMBS_Operations")
+                self.operations.setToolTip(
+                    "До гиба, мм: локальный размер по развёртке до ближайшей "
+                    "соседней линии гиба или края. Упор S, мм: визуальная "
+                    "установка от оси гиба до лицевой поверхности упора, "
+                    "рассчитанная по уже согнутой детали (с толщиной и радиусом); "
+                    "в ручном режиме отображается заданная позиция. "
+                    "Без проверки контакта или столкновений."
+                )
                 self.operations.setAlternatingRowColors(True)
                 self.operations.setMinimumHeight(220)
                 self.operations.header().setSectionResizeMode(
@@ -1483,7 +1516,13 @@ class _PreviewPanel:
                     3, QtWidgets.QHeaderView.Interactive
                 )
                 self.operations.header().setSectionResizeMode(
-                    4, QtWidgets.QHeaderView.Stretch
+                    4, QtWidgets.QHeaderView.ResizeToContents
+                )
+                self.operations.header().setSectionResizeMode(
+                    5, QtWidgets.QHeaderView.ResizeToContents
+                )
+                self.operations.header().setSectionResizeMode(
+                    6, QtWidgets.QHeaderView.Stretch
                 )
                 self.operations.currentItemChanged.connect(self._on_operation_selected)
                 root.addWidget(self.operations)
@@ -2564,10 +2603,9 @@ class _PreviewPanel:
                     item.setToolTip("{}: {}".format(face.kind, face.identifier))
 
                 label = scene.addSimpleText(
-                    "3D MACHINE FRAME | {} | {} | {} | NOT 3D CERTIFIED".format(
+                    "3D MACHINE FRAME | {} | {} | NOT 3D CERTIFIED".format(
                         self.session.active_bend_id,
                         self.execution_mode.value,
-                        self._ergonomic_loading_status,
                     )
                 )
                 label.setBrush(QtGui.QBrush(QtGui.QColor("#536b7f")))
@@ -3003,17 +3041,9 @@ class _PreviewPanel:
                 self._manual_preview_unverified = False
                 self._manual_preview_notice.hide()
                 self._set_task_busy(True)
-                # Real Part/OCC CAD gauge tests now cost ~0.8-1.6 s per
-                # evaluated bend on the 10-bend fixture. The previous 30 s
-                # limit expired inside Stage B at the sixth operation, not
-                # because a collision was proven. Longer search is only for
-                # explicit real CAD mode on complex parts.
-                cad_extended_search = bool(
-                    len(self.session.bend_order) >= 10
-                    and self.backgauge_model is not None
-                    and self.backgauge_model.cad_geometry_enabled
-                )
-                search_budget_s = 90.0 if cad_extended_search else 30.0
+                # Rear gauge is visualization-only; never spend OCC search
+                # budget on collision, clearance, contact or CAD penetration.
+                search_budget_s = 30.0
                 self.status.setText(
                     "Выполняется предварительный поиск в 2D "
                     "(лимит {:.0f} с; 3D безопасность не подтверждена)..."
@@ -3031,20 +3061,8 @@ class _PreviewPanel:
                         getattr(self.tooling_setup, "punch_section_offsets_xm", ())
                         or getattr(self.tooling_setup, "die_section_offsets_xm", ())
                     )
-                    # User-writable, uniquely named diagnostic trace for the
-                    # real OCC contact oracle. Created automatically only
-                    # when a CAD backgauge is actually selected.
+                    # No CAD backgauge contact trace in visual-only mode.
                     self._last_backgauge_cad_trace_path = None
-                    if (self.backgauge_model is not None
-                            and self.backgauge_model.cad_geometry_enabled):
-                        from smbs_core.kinematics2d.backgauge_cad_trace import (
-                            fresh_trace_path,
-                        )
-                        self._last_backgauge_cad_trace_path = str(
-                            fresh_trace_path(
-                                _pressbrake_user_data_directory() / "diagnostics"
-                            )
-                        )
                     report = search_bend_sequences_2d(
                         self.session, self.tooling_setup,
                         # Collect multiple complete candidates for genuine
@@ -3053,16 +3071,13 @@ class _PreviewPanel:
                         max_solutions=12,
                         max_complete_candidates=12,
                         weights=self._selected_operation_weights(),
-                        backgauge_model=self.backgauge_model,
-                        backgauge_cad_trace_path=(
-                            self._last_backgauge_cad_trace_path
-                        ),
+                        backgauge_model=None,
+                        backgauge_cad_trace_path=None,
                         # Do not lose a six-step sampled prefix when the
                         # 90s OCC budget expires during the seventh bend.
                         # The solver itself now excludes unfinished/unverified
                         # steps from any previewable partial sequence.
                         min_partial_bends=(
-                            6 if cad_extended_search else
                             7 if len(self.session.bend_order) >= 10 else 0
                         ),
                         # Alternative machine-Z loading trials are advisory:
@@ -3084,8 +3099,7 @@ class _PreviewPanel:
                         # Each root gets <=1.8 s, even when memoization
                         # prevents reaching its node-count allowance.
                         root_probe_seconds=(
-                            0.9 if cad_extended_search
-                            else 1.8 if len(self.session.bend_order) >= 10
+                            1.8 if len(self.session.bend_order) >= 10
                             else 0.0
                         ),
                         # Long box-like parts can require bends late in CAD
@@ -3164,7 +3178,7 @@ class _PreviewPanel:
                     self.session, self.tooling_setup, sequence,
                     match_active_bend_length=not has_sections,
                     allow_retract_warning=self.retract_warning_checkbox.isChecked(),
-                    backgauge_model=self.backgauge_model,
+                    backgauge_model=None,
                 )
                 if not valid:
                     raise ValueError(
@@ -3385,8 +3399,7 @@ class _PreviewPanel:
                         return
                     candidate = visible_candidates[row]
                     try:
-                        if (self.backgauge_model is not None
-                                or len(candidate.sequence) < len(self.session.bend_order)):
+                        if len(candidate.sequence) < len(self.session.bend_order):
                             from smbs_core.kinematics2d.sequence_search_2d import (
                                 validate_partial_planar_prefix,
                             )
@@ -3399,14 +3412,11 @@ class _PreviewPanel:
                                 candidate.sequence,
                                 match_active_bend_length=not has_sections,
                                 allow_retract_warning=self.retract_warning_checkbox.isChecked(),
-                                backgauge_model=self.backgauge_model,
-                                backgauge_variant_indices=tuple(
-                                    step.backgauge_variant_index
-                                    for step in candidate.steps
-                                ),
+                                backgauge_model=None,
+                                # Match selected pose, but do not replay CAD
+                                # gauge contacts or alternative gauge fingers.
                                 loading_orientation_variants=tuple(
-                                    step.orientation_variant
-                                    for step in candidate.steps
+                                    step.orientation_variant for step in candidate.steps
                                 ),
                             )
                             if not valid:
@@ -3676,7 +3686,7 @@ class _PreviewPanel:
                         and self._selected_planar_gauge_model_id
                         == id(self.backgauge_model)):
                     self._ergonomic_loading_status = (
-                        "SELECTED_2D_CAD_STATIC_NOT_FULL_3D_CERTIFIED"
+                        "SELECTED_2D_PREVIEW_UNVERIFIED"
                     )
                     return dict(self._selected_planar_loading_orientation)
                 if self.backgauge_model is None:
@@ -4706,7 +4716,7 @@ class _PreviewPanel:
                         match_active_bend_length=not has_sections,
                         allow_retract_warning=self.retract_warning_checkbox.isChecked(),
                         weights=self._selected_operation_weights(),
-                        backgauge_model=self.backgauge_model,
+                        backgauge_model=None,
                     )
                     # Identify the exact source geometry used for this run.
                     report["model"] = {
@@ -5048,7 +5058,7 @@ class _PreviewPanel:
                 if reset_camera:
                     self._flat_view.reset_camera()
 
-            def _format_operation_row(self, idx: int, b) -> tuple[str, str, str, str, str]:
+            def _format_operation_row(self, idx: int, b) -> tuple[str, str, str, str, str, str, str]:
                 cur = self.session.fold_state.angles[b.bend_id]
                 done = self.session.controller.is_bend_completed(b.bend_id)
                 is_active = (idx - 1) == self.session.active_bend_index
@@ -5060,11 +5070,20 @@ class _PreviewPanel:
                     status_str = "IDLE"
                 if b.bend_id in self._conditional_bends_status:
                     status_str += " [CONDITIONAL]"
+                flat_mm = self.session.local_bend_dimensions_mm.get(b.bend_id)
+                gauge = self._backgauge_preview_position(idx - 1)
+                face_s = (
+                    gauge[0].s_mm - self.backgauge_model.width_s_mm / 2.0
+                    if gauge is not None and self.backgauge_model is not None
+                    else None
+                )
                 return (
                     str(idx),
                     "{} ({} → {})".format(b.bend_id, b.fixed_panel, b.moving_panel),
                     "{:+.1f}°".format(b.angle_deg),
                     "{:+.1f}°".format(cur),
+                    "{:.2f}".format(flat_mm) if flat_mm is not None else "—",
+                    "{:.2f}".format(face_s) if face_s is not None else "—",
                     status_str,
                 )
 
@@ -5769,245 +5788,173 @@ class _PreviewPanel:
                     "станка выберите Bend Only и нажмите Play All.".format(reason)
                 )
 
-            def _backgauge_preview_position(self, index):
-                """Compute a planning target on isolated FoldState, cache by order.
+            def _sequenced_gauge_envelopes(self, orientations=None):
+                """Cached projected geometry from signed preceding bends."""
+                model, session = self.backgauge_model, self.session
+                if (model is None or session is None or
+                        not model.cad_geometry_enabled):
+                    return {}
+                if orientations is None:
+                    orientations = self._effective_loading_orientation_map()
+                key = (
+                    id(session), tuple(session.bend_order), id(model),
+                    float(model.cad_station_xm_mm),
+                    tuple(sorted(orientations.items())),
+                )
+                cached = self._machine_gauge_envelope_cache
+                if cached is not None and cached[0] == key:
+                    return cached[1]
+                from smbs_core.kinematics2d.gauge_preview import (
+                    sequenced_gauge_envelopes,
+                )
+                values, errors = sequenced_gauge_envelopes(
+                    session, station_xm_mm=model.cad_station_xm_mm,
+                    reverse_axis_by_bend=orientations,
+                )
+                self._machine_gauge_envelope_cache = (key, values)
+                for bend_id, reason in errors.items():
+                    _warn("Visual setup of CAD gauge for {} unavailable: {}"
+                          .format(bend_id, reason))
+                return values
 
-                Never mutate the live FoldState in the playback timer.
-                An unresolvable target stays UNKNOWN, not a fabricated origin.
+            def _backgauge_preview_position(self, index):
+                """Visual CAD target from fully formed preceding bend geometry.
+
+                Local flat-pattern pitch in the table is deliberately NOT used
+                as an S offset. This function never invokes collision tests.
                 """
-                model = self.backgauge_model
-                session = self.session
-                if model is None or session is None:
+                model, session = self.backgauge_model, self.session
+                if (model is None or session is None or
+                        not model.cad_geometry_enabled):
                     return None
                 order = tuple(session.bend_order)
                 if index < 0 or index >= len(order):
                     return None
-                if (model.part_label and
-                        model.part_label != session.part_label):
+                if model.part_label and model.part_label != session.part_label:
                     return None
-                # Read the exact S/Z confirmed for the selected candidate.
-                # These are plotted as preview targets; no continuous
-                # transfer or 3D manufacturing certification is implied.
-                selected_order = self._selected_planar_gauge_order
-                if (selected_order
-                        and order[:len(selected_order)] == selected_order
-                        and self._selected_planar_gauge_model_id == id(model)
-                        and index in self._selected_planar_gauge_positions):
-                    from smbs_core.kinematics2d.backgauge_2d import (
-                        BackgaugePosition2D,
-                    )
-                    s, z = self._selected_planar_gauge_positions[index]
-                    return (
-                        BackgaugePosition2D(s, z),
-                        s - model.width_s_mm / 2,
-                        "SELECTED_DFS_CONTACT_SAMPLED_NOT_3D_CERTIFIED",
-                    )
-                key = (id(session), order, id(model), index)
+                orientations = self._effective_loading_orientation_map()
+                key = (
+                    id(session), order, id(model), index,
+                    tuple(sorted(orientations.items())),
+                )
                 if key in self._backgauge_preview_cache:
                     return self._backgauge_preview_cache[key]
+                bend_id = order[index]
                 try:
-                    from smbs_core.kinematics2d.panel_kinematics import FoldState
-                    model_state = FoldState(
-                        session.fold_state.graph, session.fold_state.fixed_panel
+                    from smbs_core.kinematics2d.gauge_preview import (
+                        visual_gauge_target,
                     )
-                    for bid in order[:index]:
-                        model_state.set_angle(
-                            bid, float(model_state.bends[bid].angle_deg)
-                        )
-                    if model.cad_geometry_enabled:
-                        from smbs_core.kinematics2d.backgauge_cad_3d import (
-                            BackgaugeCAD3D,
-                        )
-                        stations_key = (
-                            model.cad_station_xm_mm,
-                            model.cad_second_station_xm_mm,
-                        )
-                        cached = getattr(
-                            self, "_backgauge_cad_draw_cache", None
-                        )
-                        if cached is None or cached[0] != stations_key:
-                            adapter = BackgaugeCAD3D(
-                                station_xm_mm=model.cad_station_xm_mm,
-                                second_station_xm_mm=(
-                                    model.cad_second_station_xm_mm
-                                ),
-                            )
-                            self._backgauge_cad_draw_cache = (
-                                stations_key, adapter,
-                            )
-                        else:
-                            adapter = cached[1]
-                        point, depth, evidence, solution = (
-                            adapter.resolve_contact_for_bend(
-                                model_state, session.panel_vertices_xy,
-                                order[index], model,
-                                reverse_axis=bool(
-                                    self._effective_loading_orientation_map().get(
-                                        order[index], False
-                                    )
-                                ),
-                            )
-                        )
-                        evidence += "|" + solution["note"]
-                    else:
-                        point, depth, evidence = model.resolve_for_state(
-                            model_state, session.panel_vertices_xy,
-                            order[index],
-                        )
-                    result = (point, depth, evidence)
-                except Exception as exc:
-                    _warn("Backgauge preview target unknown for {}: {}".format(
-                        order[index], exc
+                    # Manual S/Z does not need a geometrical calculation.
+                    envelope = (
+                        self._sequenced_gauge_envelopes(orientations).get(bend_id)
+                        if model.automatic else None
+                    )
+                    rear_s, rear_z = envelope if envelope is not None else (None, None)
+                    point, evidence = visual_gauge_target(
+                        model, session.fold_state.bends[bend_id],
+                        rear_s, rear_z,
+                    )
+                    result = (point, rear_s, evidence)
+                except (ValueError, TypeError, KeyError) as exc:
+                    _warn("Visual gauge target unavailable for {}: {}".format(
+                        bend_id, exc,
                     ))
                     result = None
                 self._backgauge_preview_cache[key] = result
                 return result
 
             def _draw_backgauge_preview(self, QtCore, QtGui, make_poly):
-                """Render gauge position; interpolate its target during TRANSFER.
+                """Show only genuine Backgauge.FCStd geometry at moving S/Z.
 
-                This preview does not check collision along the interpolated path.
+                Render its real solid cross-section, interpolated on TRANSFER.
+                No stop contact, collision, body overlap or penetration checks.
+                No labels or diagnostic text are placed in the scene.
                 """
                 model, session = self.backgauge_model, self.session
-                if model is None or session is None:
+                if (model is None or session is None or
+                        not model.cad_geometry_enabled):
                     return
                 idx = session.active_bend_index
                 start = self._backgauge_preview_position(idx)
                 if start is None:
-                    if model.cad_geometry_enabled:
-                        warning = self.scene.addSimpleText(
-                            "CAD-УПОР: контакт с опорной панелью НЕ подтверждён"
-                        )
-                        warning.setBrush(
-                            QtGui.QBrush(QtGui.QColor("#d06440"))
-                        )
-                        warning.setPos(20.0, -65.0)
-                        warning.setZValue(Z_LAYER_AUXILIARY)
-                        warning.setData(0, "cad_backgauge_contact_unknown")
                     return
                 pos = start[0]
                 controller = self.press_cycle
                 phase = getattr(getattr(controller, "phase", None), "value", "")
-                if (phase == "TRANSFER" and
-                        self.execution_mode == CycleExecutionMode.FULL_CYCLE
+                if (phase == "TRANSFER" and controller is not None
+                        and self.execution_mode == CycleExecutionMode.FULL_CYCLE
                         and idx + 1 < len(session.bend_order)):
                     target = self._backgauge_preview_position(idx + 1)
                     if target is not None:
                         t = max(0.0, min(1.0, float(controller.transfer_progress)))
-                        from smbs_core.kinematics2d.backgauge_2d import BackgaugePosition2D
+                        from smbs_core.kinematics2d.backgauge_2d import (
+                            BackgaugePosition2D,
+                        )
                         pos = BackgaugePosition2D(
-                            start[0].s_mm + (target[0].s_mm-start[0].s_mm)*t,
-                            start[0].z_mm + (target[0].z_mm-start[0].z_mm)*t,
+                            start[0].s_mm + (target[0].s_mm - start[0].s_mm) * t,
+                            start[0].z_mm + (target[0].z_mm - start[0].z_mm) * t,
                         )
-                pen = QtGui.QPen(QtGui.QColor("#b45524"), 1.8)
-                pen.setCosmetic(True)
-                if model.cad_geometry_enabled:
-                    # Draw the actual FCStd BRep cutting section at the
-                    # explicitly mounted X_m station. NEVER show a pretend
-                    # 10x10 rectangle when CAD loading fails.
-                    try:
-                        from smbs_core.kinematics2d.backgauge_cad_3d import (
-                            BackgaugeCAD3D,
-                        )
-                        cached = getattr(self, "_backgauge_cad_draw_cache", None)
-                        stations_key = (
-                            model.cad_station_xm_mm,
-                            model.cad_second_station_xm_mm,
-                        )
-                        if cached is None or cached[0] != stations_key:
-                            adapter = BackgaugeCAD3D(
-                                station_xm_mm=model.cad_station_xm_mm,
-                                second_station_xm_mm=(
-                                    model.cad_second_station_xm_mm
-                                ),
-                            )
-                            self._backgauge_cad_draw_cache = (
-                                stations_key, adapter,
-                            )
-                        else:
-                            adapter = cached[1]
-                        # Source Face3 is positioned on the contact edge.
-                        # In auto mode the old 2D centre is depth+halfwidth,
-                        # but the real CAD stop FACE must be at 'depth'.
-                        contact_s = (
-                            pos.s_mm - model.width_s_mm / 2
-                        )
-                        shapes = adapter.positioned_shapes(
-                            contact_s, pos.z_mm
-                        )
-                        from FreeCAD import Vector
-                        stations = (
-                            [model.cad_station_xm_mm] +
-                            ([model.cad_second_station_xm_mm]
-                             if model.cad_second_station_xm_mm is not None
-                             else [])
-                        )
-                        path = QtGui.QPainterPath()
-                        for station_xm, shape in zip(stations, shapes):
-                            wires = shape.slice(
-                                Vector(1, 0, 0),
-                                float(station_xm),
-                            )
-                            if not wires:
-                                raise ValueError(
-                                    "CAD has no section at station X_m={} mm"
-                                    .format(station_xm)
-                                )
-                            for wire in wires:
-                                points = []
-                                for edge in wire.Edges:
-                                    pts = edge.discretize(Number=24)
-                                    for pt in pts:
-                                        qpt = QtCore.QPointF(
-                                            -float(pt.y), -float(pt.z)
-                                        )
-                                        if not points or points[-1] != qpt:
-                                            points.append(qpt)
-                                if len(points) < 2:
-                                    continue
-                                path.moveTo(points[0])
-                                for qpt in points[1:]:
-                                    path.lineTo(qpt)
-                                if wire.isClosed():
-                                    path.closeSubpath()
-                        if path.isEmpty():
-                            raise ValueError("CAD cross-section has no drawable edges")
-                        item = self.scene.addPath(
-                            path, pen,
-                            QtGui.QBrush(QtGui.QColor(190, 106, 51, 80))
-                        )
-                        item.setData(0, "backgauge_real_fcstd_cad_section")
-                        label_text = (
-                            "Backgauge.FCStd | CAD-сечение {} упоров | "
-                            "путь НЕ сертифицирован"
-                        ).format(len(shapes))
-                    except Exception as exc:
-                        item = None
-                        label_text = "ОШИБКА CAD УПОРА: " + str(exc)[:100]
-                        _warn(label_text)
-                else:
-                    polygon = make_poly(model.polygon_at(pos))
-                    item = self.scene.addPolygon(
-                        polygon, pen,
-                        QtGui.QBrush(QtGui.QColor(190, 106, 51, 140))
+                try:
+                    from smbs_core.kinematics2d.backgauge_cad_3d import (
+                        BackgaugeCAD3D,
                     )
-                    item.setData(0, "backgauge_2d_unverified")
-                    label_text = "Упор 2D · путь НЕ проверен"
-                if item is not None:
+                    cached = getattr(self, "_backgauge_cad_draw_cache", None)
+                    stations_key = (
+                        model.cad_station_xm_mm,
+                        model.cad_second_station_xm_mm,
+                    )
+                    if cached is None or cached[0] != stations_key:
+                        adapter = BackgaugeCAD3D(
+                            station_xm_mm=model.cad_station_xm_mm,
+                            second_station_xm_mm=model.cad_second_station_xm_mm,
+                        )
+                        self._backgauge_cad_draw_cache = (
+                            stations_key, adapter,
+                        )
+                    else:
+                        adapter = cached[1]
+                    # BackgaugePosition2D stores the historical rectangle
+                    # centre; the real CAD datum is its front working face.
+                    contact_s = pos.s_mm - model.width_s_mm / 2.0
+                    shapes = adapter.preview_positioned_shapes(
+                        contact_s, pos.z_mm,
+                    )
+                    from FreeCAD import Vector
+                    stations = [model.cad_station_xm_mm]
+                    if model.cad_second_station_xm_mm is not None:
+                        stations.append(model.cad_second_station_xm_mm)
+                    path = QtGui.QPainterPath()
+                    for station_xm, shape in zip(stations, shapes):
+                        wires = shape.slice(Vector(1, 0, 0), float(station_xm))
+                        for wire in wires:
+                            points = []
+                            for edge in wire.Edges:
+                                for pt in edge.discretize(Number=24):
+                                    qp = QtCore.QPointF(
+                                        -float(pt.y), -float(pt.z),
+                                    )
+                                    if not points or points[-1] != qp:
+                                        points.append(qp)
+                            if len(points) < 2:
+                                continue
+                            path.moveTo(points[0])
+                            for point in points[1:]:
+                                path.lineTo(point)
+                            if wire.isClosed():
+                                path.closeSubpath()
+                    if path.isEmpty():
+                        raise ValueError("Backgauge.FCStd: empty CAD section")
+                    pen = QtGui.QPen(QtGui.QColor("#b45524"), 1.8)
+                    pen.setCosmetic(True)
+                    item = self.scene.addPath(
+                        path, pen, QtGui.QBrush(QtGui.QColor(190, 106, 51, 80)),
+                    )
+                    item.setData(0, "backgauge_real_fcstd_cad_section")
                     item.setZValue(Z_LAYER_AUXILIARY)
-                label = self.scene.addSimpleText(label_text)
-                if phase == "LOAD_TO_GAUGE":
-                    feed_note = self.scene.addSimpleText(
-                        "ПОДВОД ЗАГОТОВКИ К УПОРУ · ПУТЬ НЕ ПРОВЕРЕН"
-                    )
-                    feed_note.setBrush(QtGui.QBrush(QtGui.QColor("#b45524")))
-                    feed_note.setPos(
-                        float(pos.s_mm)-100.0, -float(pos.z_mm)-25.0
-                    )
-                    feed_note.setZValue(Z_LAYER_AUXILIARY)
-                label.setBrush(QtGui.QBrush(QtGui.QColor("#b45524")))
-                label.setPos(float(pos.s_mm), -float(pos.z_mm)-12.0)
-                label.setZValue(Z_LAYER_AUXILIARY)
+                except Exception as exc:
+                    # Log failures without inserting viewer text or silently
+                    # substituting a fake rectangle.
+                    _warn("Cannot render real FCStd gauge: " + str(exc))
 
             def draw(self):
                 self._update_task_progress()

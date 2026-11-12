@@ -215,6 +215,21 @@ class BackgaugeCAD3D:
                     )
         return tuple(shapes)
 
+    def preview_positioned_shapes(self, contact_s_mm, contact_z_mm):
+        """Place real FCStd finger solids for display, WITHOUT collision tests.
+
+        No common(), distToShape(), stop-face contact search, overlap
+        rejection or other manufacturing feasibility logic is invoked.
+        """
+        shapes = [self._positioned_at(
+            contact_s_mm, contact_z_mm, self.station_xm_mm,
+        )]
+        if self.second_station_xm_mm is not None:
+            shapes.append(self._positioned_at(
+                contact_s_mm, contact_z_mm, self.second_station_xm_mm,
+            ))
+        return tuple(shapes)
+
     def solve_accessible_rear_contact(self, state, panel_vertices_xy,
                                       placement, *, active_bend_id,
                                       tolerance_mm=0.02,

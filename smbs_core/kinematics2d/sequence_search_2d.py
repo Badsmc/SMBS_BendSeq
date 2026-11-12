@@ -311,7 +311,7 @@ def validate_partial_planar_prefix(
                 return False, "invalid_loading_orientation_variants"
             if (any(value.startswith("REVERSE_MACHINE_Z_180")
                     for value in loading_orientation_variants)
-                    and cad_checker is None):
+                    and backgauge_model is not None and cad_checker is None):
                 return False, "reversed_loading_requires_cad_backgauge"
         for step_index, bid in enumerate(sequence):
             reverse = bool(
