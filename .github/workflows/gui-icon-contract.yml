@@ -11,6 +11,7 @@ on:
       - fix/manual-verify-embedded-fcstd-report
       - feature/manual-retract-evidence-fcstd
       - feature/native-freecad-tasks-panel
+      - fix/native-tasks-reopen-desktop-debug-json
   workflow_dispatch:
 
 jobs:
@@ -54,6 +55,10 @@ jobs:
         env:
           PYTHONPATH: .
         run: python -m unittest discover -s tests -p 'test_native_freecad_tasks_panel.py' -v
+      - name: Test single Desktop JSON developer journal and complete native 3D samples
+        env:
+          PYTHONPATH: .
+        run: python -m unittest discover -s tests -p 'test_desktop_debug_log.py' -v
       - name: Check FreeCAD commands and SVG icon resources
         env:
           PYTHONPATH: .
