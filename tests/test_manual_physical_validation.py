@@ -15,6 +15,8 @@ from enum import Enum
 from smbs_core.kinematics2d.manual_physical_validation import (
     _check_selected_tool_pair_at_sampled_rams,
 )
+from smbs_core.kinematics2d.workpiece_placement_3d import WorkpiecePlacement3D
+from smbs_core.kinematics2d.motion_trajectory_3d import AdaptiveTrajectoryValidator3D
 
 from smbs_core.kinematics2d.manual_physical_validation import (
     check_manual_3d_sequence, concise_3d_blocker,
@@ -75,6 +77,49 @@ def evidence(status, *, conditional=False):
         ),
         is_conditional=conditional,
     )
+
+
+class NativeOrientationPoseTests(unittest.TestCase):
+    def test_reverse_180_preserves_height_and_mirrors_machine_xy(self):
+        state = part().fold_state
+        base = WorkpiecePlacement3D.compute_placement(
+            state, "B01", desired_midpoint_xm=13.0,
+            align_bisector=True, align_bend_arc_center=True,
+            reverse_axis=False,
+        )
+        reverse = WorkpiecePlacement3D.compute_placement(
+            state, "B01", desired_midpoint_xm=13.0,
+            align_bisector=True, align_bend_arc_center=True,
+            reverse_axis=True,
+        )
+        for point in ((0., 0., 0.), (8., 24., 1.5), (37., -3., 5.)):
+            a = base.apply(point)
+            b = reverse.apply(point)
+            self.assertAlmostEqual(b[0], 26.0 - a[0], places=8)
+            self.assertAlmostEqual(b[1], -a[1], places=8)
+            self.assertAlmostEqual(b[2], a[2], places=8)
+        self.assertEqual(dict(state.angles), {"B01": 0., "B02": 0.})
+
+    def test_d6_snapshot_uses_selected_reverse_orientation(self):
+        import sys
+        validator = AdaptiveTrajectoryValidator3D(
+            part().fold_state, SimpleNamespace(),
+            SimpleNamespace(v_opening_mm=12.0),
+            SimpleNamespace(v_opening_mm=12.0),
+            reverse_axis=True,
+        )
+        with patch.dict(sys.modules, {"FreeCAD": ModuleType("FreeCAD")}):
+            with patch(
+                "smbs_core.kinematics2d.motion_trajectory_3d."
+                "WorkpiecePlacement3D.compute_placement",
+                side_effect=RuntimeError("pose_probe_stop"),
+            ) as pose:
+                with self.assertRaisesRegex(RuntimeError, "pose_probe_stop"):
+                    validator.create_state_snapshot(
+                        "B01", "BENDING", 0.25, 22.5, -1.0, 2.5, {},
+                    )
+        self.assertEqual(pose.call_count, 1)
+        self.assertIs(pose.call_args.kwargs["reverse_axis"], True)
 
 
 class ManualToolingTests(unittest.TestCase):
