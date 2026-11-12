@@ -17,6 +17,7 @@ import os
 import sys
 import time
 import traceback
+import weakref
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -74,6 +75,36 @@ Z_LAYER_SHEET_SURFACES = 40.0
 Z_LAYER_SHEET_NEUTRAL_AND_TANGENTS = 50.0
 
 _SLIDER_SCALE = 10  # 0.1 degree slider resolution
+
+
+class _SMBSFCStdSaveObserver:
+    """Watch Ctrl+S on the bound document, without a second save path.
+
+    FreeCAD's slotStartSaveDocument runs before the native FCStd serializer.
+    This observer MUST NOT call document.save(), or it would recurse.
+    """
+
+    def __init__(self, workspace):
+        self._panel_ref = weakref.ref(workspace)
+
+    def slotStartSaveDocument(self, document, filename):
+        panel = self._panel_ref()
+        if panel is None or panel.session is None:
+            return
+        if str(getattr(document, "Name", "")) != str(
+            getattr(panel, "_smbs_document_name", "")
+        ):
+            return
+        try:
+            panel._write_embedded_smbs_json(document)
+        except Exception as exc:
+            # Never corrupt or abort the user's CAD document save.
+            message = "SMBS JSON не вложен в FCStd: " + str(exc)
+            _error(message + "\n" + traceback.format_exc())
+            panel.status.setText(message)
+
+
+
 _LOGGER: logging.Logger | None = None
 def _pressbrake_user_data_directory():
     """Platform-specific writable diagnostics home, not the plugin checkout.
@@ -1159,6 +1190,9 @@ class _PreviewPanel:
                             _error("Backgauge configuration rejected: " + str(exc))
                 self._manual_selection_enabled = False
                 self._manual_preview_unverified = False
+                self._smbs_document_name = None
+                self._smbs_fcstd_observer = None
+                self._embedded_diagnostics_history = None
                 self._conditional_bends_status: dict[str, str] = {}
                 self._highlighted_end_zone_info: dict | None = None
                 _log(
@@ -1965,6 +1999,42 @@ class _PreviewPanel:
                 ):
                     style_action(btn)
                 settings_layout.addWidget(trace_card)
+
+                # JSON is a genuine FCStd attachment, not a plaintext string
+                # masquerading as a file and not a second external archive.
+                fcstd_card, fcstd_body = card("Данные SMBS в документе FCStd")
+                self.fcstd_save_btn = style_action(
+                    QtWidgets.QPushButton("Сохранить в FCStd"), compact=True
+                )
+                self.fcstd_save_btn.setToolTip(
+                    "Вложить JSON с порядком гибов, настройками и историей "
+                    "проверок в этот документ и сохранить FCStd"
+                )
+                self.fcstd_save_btn.clicked.connect(
+                    self._save_embedded_smbs_json_clicked
+                )
+                self.fcstd_load_btn = style_action(
+                    QtWidgets.QPushButton("Восстановить из FCStd"), compact=True
+                )
+                self.fcstd_load_btn.setToolTip(
+                    "Восстановить сохранённый порядок и настройки. "
+                    "Исторические результаты не считаются проверенными."
+                )
+                self.fcstd_load_btn.clicked.connect(
+                    self._restore_embedded_smbs_json_clicked
+                )
+                fcstd_buttons = QtWidgets.QHBoxLayout()
+                fcstd_buttons.addWidget(self.fcstd_save_btn)
+                fcstd_buttons.addWidget(self.fcstd_load_btn)
+                fcstd_buttons.addStretch(1)
+                fcstd_body.addLayout(fcstd_buttons)
+                self.fcstd_note = QtWidgets.QLabel(
+                    "JSON автоматически вкладывается при Ctrl+S после загрузки "
+                    "детали. История проверки — только справочная."
+                )
+                self.fcstd_note.setWordWrap(True)
+                fcstd_body.addWidget(self.fcstd_note)
+                settings_layout.addWidget(fcstd_card)
                 settings_layout.addStretch(1)
                 self._page_settings = scroll_task_page(
                     settings, "SMBS_SettingsScroll"
@@ -4291,6 +4361,7 @@ class _PreviewPanel:
                 self._machine_pose_fault = None
                 self._last_3d_frame_at = -1.0
                 self.session = new_session
+                self._smbs_document_name = str(doc.Name)
                 self.last_planar_search_report = None
                 self._last_manual_sequence_report = None
                 self._preview_only_planar_order = None
@@ -4311,7 +4382,25 @@ class _PreviewPanel:
                 self._configure_for_active_bend()
                 self._set_playback_controls_enabled(True)
                 self._update_tooling_status_label()
-                self.status.setText(msg)
+                restore_message = ""
+                try:
+                    restore_message = self._restore_embedded_smbs_json(doc)
+                except Exception as exc:
+                    # Changed geometry, wrong schema or damaged JSON must
+                    # never overwrite the successfully loaded live session.
+                    _warn("Embedded SMBS state not restored: " + str(exc))
+                    restore_message = "SMBS JSON не восстановлен: " + str(exc)
+                    self.fcstd_note.setText(restore_message)
+                try:
+                    self._register_embedded_smbs_observer()
+                except Exception as exc:
+                    _warn("SMBS save observer not registered: " + str(exc))
+                    restore_message += (
+                        " | Автосохранение JSON недоступно: " + str(exc)
+                    )
+                self.status.setText(
+                    msg + (" | " + restore_message if restore_message else "")
+                )
                 self.check_result.setText(msg)
                 if hasattr(self, "_source_summary"):
                     self._source_summary.setText(
@@ -4323,6 +4412,246 @@ class _PreviewPanel:
                 if self._viewer_tabs.currentIndex() == 1:
                     self._update_3d_preview()
                 QtCore.QTimer.singleShot(0, self.fit)
+
+            def _bound_smbs_document(self):
+                """Never write SMBS data into a different active FCStd tab."""
+                import FreeCAD as App
+
+                if self.session is None or not self._smbs_document_name:
+                    raise RuntimeError("Сначала загрузите SheetMetal деталь")
+                document = App.getDocument(self._smbs_document_name)
+                if document is None:
+                    raise RuntimeError("Документ выбранной детали закрыт")
+                return document
+
+            def _register_embedded_smbs_observer(self):
+                import FreeCAD as App
+
+                if self._smbs_fcstd_observer is not None:
+                    return
+                observer = _SMBSFCStdSaveObserver(self)
+                App.addDocumentObserver(observer)
+                self._smbs_fcstd_observer = observer
+
+            def _write_embedded_smbs_json(self, document):
+                """Stage a native included attachment without calling save()."""
+                from freecad_smbs.integration.fcstd_session_store import (
+                    build_snapshot, write_included_json,
+                )
+
+                if document is None or (
+                    str(getattr(document, "Name", ""))
+                    != str(self._smbs_document_name)
+                ):
+                    raise RuntimeError("Неверный документ для данных SMBS")
+                weights = self._selected_operation_weights()
+                snapshot = build_snapshot(
+                    session=self.session,
+                    document=document,
+                    tooling=self.tooling_setup,
+                    cycle_config=self.cycle_config,
+                    execution_mode=self.execution_mode,
+                    manual_prefix=tuple(self._manual_sequence_prefix),
+                    manual_report=self._last_manual_sequence_report,
+                    search_report=self.last_sequence_search_report,
+                    planar_report=self.last_planar_search_report,
+                    operation_weights=weights.to_dict(),
+                    retract_warning=self.retract_warning_checkbox.isChecked(),
+                )
+                write_included_json(document, snapshot)
+                return snapshot
+
+            def _save_embedded_smbs_json_clicked(self):
+                try:
+                    document = self._bound_smbs_document()
+                    self._write_embedded_smbs_json(document)
+                    # An unsaved document has no target archive yet. Avoid
+                    # silently writing to a made-up default filename.
+                    if str(getattr(document, "FileName", "")):
+                        document.save()
+                    else:
+                        proposed = str(
+                            Path.home() /
+                            (str(document.Name) + ".FCStd")
+                        )
+                        target, _ = QtWidgets.QFileDialog.getSaveFileName(
+                            self, "Сохранить деталь с JSON SMBS",
+                            proposed, "FreeCAD (*.FCStd)",
+                        )
+                        if not target:
+                            self.status.setText(
+                                "JSON подготовлен в документе; "
+                                "FCStd не сохранён (отмена)."
+                            )
+                            return
+                        document.saveAs(str(target))
+                    self.fcstd_note.setText(
+                        "JSON вложен: SMBS_Data / SessionJSON. "
+                        "Сохранён в " + str(document.FileName)
+                    )
+                    self.status.setText(
+                        "SMBS JSON сохранён внутри FCStd; "
+                        "результаты проверок — исторические."
+                    )
+                except Exception as exc:
+                    _error("FCStd SMBS save failed: " + traceback.format_exc())
+                    self.status.setText("Ошибка вложения JSON: " + str(exc))
+
+            def _restore_embedded_smbs_json_clicked(self):
+                try:
+                    document = self._bound_smbs_document()
+                    message = self._restore_embedded_smbs_json(document)
+                    self.status.setText(message)
+                except Exception as exc:
+                    _error("FCStd SMBS load failed: " + traceback.format_exc())
+                    self.status.setText("Ошибка чтения JSON: " + str(exc))
+
+            def _restore_embedded_smbs_json(self, document):
+                """Only apply validated geometry/order; saved passes are history."""
+                from freecad_smbs.integration.fcstd_session_store import (
+                    EmbeddedSessionError, read_included_json,
+                    validate_restore, tool_reference,
+                )
+
+                payload = read_included_json(document)
+                if payload is None:
+                    self._embedded_diagnostics_history = None
+                    self.fcstd_note.setText(
+                        "В этом документе пока нет вложенного SMBS JSON."
+                    )
+                    return "В FCStd нет сохранённой сессии SMBS."
+                order, prefix = validate_restore(
+                    payload, self.session, document
+                )
+                if self.timer.isActive() or self.playing:
+                    self._stop_timer()
+                # A loaded FoldState must be clean before reordering; neither
+                # recorded angles nor stale collision passes are replayed.
+                self.session.reset_all_bends()
+                self.session.set_bend_order(order)
+                self._manual_sequence_prefix = list(prefix)
+                self._manual_preview_unverified = False
+                self._manual_selection_enabled = False
+                self._manual_preview_notice.hide()
+                self._partial_preview_limit = 0
+                self._preview_only_planar_order = None
+                self.last_sequence_search_report = None
+                self.last_planar_search_report = None
+                self._last_manual_sequence_report = None
+                self._physical_check_signature = None
+                self._conditional_bends_status.clear()
+                self._embedded_diagnostics_history = payload["diagnostics"]
+
+                warnings = []
+                for key, kind in (
+                    ("punch", ToolKind.PUNCH), ("die", ToolKind.DIE)
+                ):
+                    ref = payload["tooling"].get(key)
+                    if ref is None:
+                        # The explicit saved selection of None is meaningful.
+                        profile = None
+                    else:
+                        try:
+                            profile = self.tool_library.load_tool(
+                                ref["id"], kind, use_cache=False
+                            )
+                            if tool_reference(profile) != ref:
+                                raise EmbeddedSessionError(
+                                    "Tool library profile changed: " + ref["id"]
+                                )
+                        except (ToolingError, EmbeddedSessionError,
+                                KeyError, TypeError, ValueError) as exc:
+                            warnings.append(
+                                "{} не восстановлен: {}".format(key, exc)
+                            )
+                            continue
+                    try:
+                        if key == "punch":
+                            self.tooling_setup.select_punch(profile)
+                        else:
+                            self.tooling_setup.select_die(profile)
+                    except ToolingError as exc:
+                        warnings.append(
+                            "{} не восстановлен: {}".format(key, exc)
+                        )
+
+                config_dict = dict(
+                    payload["simulation"].get("cycle_config", {})
+                )
+                try:
+                    config_dict["simulation_mode"] = CycleSimulationMode(
+                        config_dict["simulation_mode"]
+                    )
+                    restored_config = CycleConfig(**config_dict)
+                    self.cycle_speed_spin.blockSignals(True)
+                    self.cycle_speed_spin.setValue(
+                        restored_config.bend_rate_deg_s
+                    )
+                    self.cycle_speed_spin.blockSignals(False)
+                    self.set_cycle_config(restored_config)
+                    self.set_cycle_mode(
+                        CycleExecutionMode(
+                            payload["simulation"]["execution_mode"]
+                        )
+                    )
+                except (KeyError, TypeError, ValueError, PressCycleError) as exc:
+                    warnings.append("Параметры цикла: " + str(exc))
+
+                opts = payload["tooling"]
+                try:
+                    self.tooling_setup.set_match_active_bend_length(
+                        bool(opts["match_active_bend_length"]),
+                        self._active_bend_length_mm(),
+                    )
+                    self.virtual_tool_len_checkbox.setChecked(
+                        bool(opts["match_active_bend_length"])
+                    )
+                    self.end_zone_len_spin.setValue(
+                        float(opts["end_zone_length_mm"])
+                    )
+                    self.allow_end_zone_checkbox.setChecked(
+                        bool(opts["allow_end_zone_collision"])
+                    )
+                    self.retract_warning_checkbox.setChecked(
+                        bool(payload["simulation"]["retract_warning"])
+                    )
+                except (KeyError, TypeError, ValueError, ToolingError) as exc:
+                    warnings.append("Допуски оснастки: " + str(exc))
+
+                for key, value in payload["simulation"].get(
+                    "operation_weights", {}
+                ).items():
+                    editor = self._weight_editors.get(key)
+                    if editor is not None:
+                        try:
+                            number = float(value)
+                            if math.isfinite(number) and 0.0 <= number <= 100000.0:
+                                editor.setValue(number)
+                        except (TypeError, ValueError):
+                            warnings.append("Вес операции " + str(key))
+
+                self._refresh_tooling_combos()
+                self._ensure_press_cycle_controller()
+                try:
+                    self._sync_tooling_to_active_bend()
+                except (ToolingError, PressCycleError, ValueError) as exc:
+                    warnings.append("Выравнивание оснастки: " + str(exc))
+                self._populate_operations()
+                self._configure_for_active_bend()
+                self._draw_flat_pattern(reset_camera=False)
+                self.draw()
+                self.physical_check_result.setText(
+                    "ИСТОРИЯ SMBS ИЗ FCStd: проверки НЕ ПОДТВЕРЖДЕНЫ "
+                    "для новой сессии. Нужна повторная проверка."
+                )
+                note = (
+                    "Восстановлены порядок и настройки из FCStd. "
+                    "Проверки: ИСТОРИЧЕСКИЕ, UNVERIFIED."
+                )
+                if warnings:
+                    note += " Ограничения: " + "; ".join(warnings)
+                self.fcstd_note.setText(note)
+                return note
 
             def _validate_export_manual_order(self):
                 if self.session is None:
@@ -5268,6 +5597,13 @@ class _PreviewPanel:
                 return checks
 
             def closeEvent(self, event):
+                if self._smbs_fcstd_observer is not None:
+                    try:
+                        import FreeCAD as App
+                        App.removeDocumentObserver(self._smbs_fcstd_observer)
+                    except Exception as exc:
+                        _warn("SMBS observer removal failed: " + str(exc))
+                    self._smbs_fcstd_observer = None
                 self._finish_motion_trace("WORKSPACE_CLOSED")
                 self.timer.stop()
                 self.playing = False
