@@ -4572,9 +4572,16 @@ class _PreviewPanel:
                                     "Tool library profile changed: " + ref["id"]
                                 )
                         except (ToolingError, EmbeddedSessionError,
-                                KeyError, TypeError, ValueError) as exc:
+                                OSError, KeyError, TypeError, ValueError) as exc:
+                            # Never leave an automatically selected *different*
+                            # tool looking as if the saved tool was restored.
+                            if key == "punch":
+                                self.tooling_setup.select_punch(None)
+                            else:
+                                self.tooling_setup.select_die(None)
                             warnings.append(
-                                "{} не восстановлен: {}".format(key, exc)
+                                "{} не восстановлен, выбор сброшен: {}"
+                                .format(key, exc)
                             )
                             continue
                     try:
