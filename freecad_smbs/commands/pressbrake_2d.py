@@ -549,7 +549,7 @@ def show_workspace_controls(workspace, tab=None):
     section = workspace._task_stack.currentWidget()
     caption = workspace._task_page_titles.get(section, "Панель задач")
     header = getattr(workspace, "_task_section_label", None)
-    if header is not None:
+    if header is not None and getattr(workspace, "_controls_dock", None) is not None:
         header.setText(caption)
     dock = getattr(workspace, "_controls_dock", None)
     if dock is not None:
@@ -729,6 +729,7 @@ def close_workspace_controls(workspace):
     dock.setWidget(None)
     dock.deleteLater()
     workspace._controls_dock = None
+    workspace._task_section_label = None
 
 
 class PressBrake2DCommand:
@@ -838,11 +839,13 @@ class CalculateCommand:
         }
 
     def IsActive(self):
-        workspace = get_workspace_widget()
-        return bool(workspace is not None and workspace.calculate.isEnabled())
+        return True
 
     def Activated(self):
         workspace = get_workspace_widget()
+        if workspace is None:
+            PressBrake2DCommand().Activated()
+            workspace = get_workspace_widget()
         if workspace is not None:
             show_workspace_controls(workspace, 2)
             if workspace.calculate.isEnabled():
@@ -947,11 +950,13 @@ class PlanarCandidatesCommand:
         }
 
     def IsActive(self):
-        workspace = get_workspace_widget()
-        return bool(workspace is not None and workspace.planar_calculate.isEnabled())
+        return True
 
     def Activated(self):
         workspace = get_workspace_widget()
+        if workspace is None:
+            PressBrake2DCommand().Activated()
+            workspace = get_workspace_widget()
         if workspace is not None:
             show_workspace_controls(workspace, 3)
             if workspace.planar_calculate.isEnabled():
