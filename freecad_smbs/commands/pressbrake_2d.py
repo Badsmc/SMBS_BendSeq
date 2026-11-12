@@ -2008,6 +2008,22 @@ class _PreviewPanel:
                 self.manual_simulate_btn.clicked.connect(
                     self.simulate_manual_order_unverified
                 )
+                self.manual_reverse_3d_checkbox = QtWidgets.QCheckBox(
+                    "Manual: развернуть заготовку на 180° для всех гибов"
+                )
+                self.manual_reverse_3d_checkbox.setObjectName(
+                    "SMBS_ManualReverseNative3D"
+                )
+                self.manual_reverse_3d_checkbox.setToolTip(
+                    "Явный выбор установки оператора. Применяется к реальной "
+                    "3D-проверке и 3D-просмотру, НЕ означает проверку "
+                    "перемещения детали между гибами или контакта с упором."
+                )
+                self.manual_reverse_3d_checkbox.setChecked(False)
+                self.manual_reverse_3d_checkbox.toggled.connect(
+                    self._manual_native_orientation_changed
+                )
+                order_body.addWidget(self.manual_reverse_3d_checkbox)
                 self.manual_validate_btn = style_action(
                     QtWidgets.QPushButton("Проверить")
                 )
@@ -4123,6 +4139,15 @@ class _PreviewPanel:
                     self._ergonomic_loading_status = "NO_PART"
                     return {}
                 order = tuple(self.session.bend_order)
+                reverse_checkbox = getattr(
+                    self, "manual_reverse_3d_checkbox", None
+                )
+                if (reverse_checkbox is not None
+                        and reverse_checkbox.isChecked()):
+                    self._ergonomic_loading_status = (
+                        "OPERATOR_SELECTED_REVERSE_3D_NOT_TRANSFER_VERIFIED"
+                    )
+                    return {bend_id: True for bend_id in order}
                 checked_prefix = tuple(self._selected_planar_gauge_order)
                 if (checked_prefix and order[:len(checked_prefix)] == checked_prefix
                         and self._selected_planar_gauge_model_id
@@ -5472,6 +5497,28 @@ class _PreviewPanel:
                 self.fcstd_note.setText(note)
                 return note
 
+            def _manual_native_orientation_changed(self, _enabled):
+                """Update preview using only an explicit operator orientation."""
+                if self.session is None:
+                    return
+                self._last_manual_sequence_report = None
+                self._manual_3d_verdicts.clear()
+                self._manual_retract_verdicts.clear()
+                self._collision_inspection = None
+                self._collision_display_active = False
+                self._physical_check_signature = None
+                self._ensure_press_cycle_controller()
+                if self.press_cycle is not None:
+                    self.press_cycle.loading_orientation_by_bend = (
+                        self._effective_loading_orientation_map()
+                    )
+                self._trace_event(
+                    "MANUAL_NATIVE_ORIENTATION_SELECTED",
+                    reverse_axis=bool(self.manual_reverse_3d_checkbox.isChecked()),
+                    order=list(self.session.bend_order),
+                )
+                self.draw()
+
             def _validate_export_manual_order(self):
                 """Validate selected manual order: Stage A/B plus actual FCStd 3D.
 
@@ -5511,6 +5558,7 @@ class _PreviewPanel:
                     self.manual_validate_btn, self.manual_simulate_btn,
                     self.select_punch_combo, self.select_die_combo,
                     self.virtual_tool_len_checkbox,
+                    self.manual_reverse_3d_checkbox,
                     self.allow_end_zone_checkbox, self.end_zone_len_spin,
                     self.import_punch_btn, self.import_die_btn,
                     self.tool_library_btn, self.move_up_btn,
@@ -5585,10 +5633,20 @@ class _PreviewPanel:
                         )
                         return
 
-                    # 2D is only an advisory screening pass; its synthetic
-                    # section can disagree with actual native FCStd 3D. Do
-                    # not mark a bend physically blocked based on 2D alone.
+                    # 2D is advisory; its current Manual replay cannot
+                    # independently model the operator's reversed setup.
+                    # Never compare mismatched poses as though equivalent.
+                    manual_reversed = bool(
+                        self.manual_reverse_3d_checkbox.isChecked()
+                    )
+                    reverse_selection = {
+                        bid: manual_reversed for bid in selected
+                    }
                     try:
+                        if manual_reversed:
+                            raise ValueError(
+                                "manual_2d_reverse_orientation_not_implemented"
+                            )
                         planar = evaluate_manual_planar_order(
                             self.session,
                             self.tooling_setup,
@@ -5653,12 +5711,9 @@ class _PreviewPanel:
                             ),
                         ),
                         progress_callback=on_progress,
-                        # Manual 3D checks assume the actual operator's
-                        # unflipped machine setup. The rear-gauge ergonomic
-                        # preview may infer a reversal that was NEVER selected
-                        # or CAD verified; do not inject that suggestion into
-                        # native collision validation.
-                        reverse_axis_by_bend={},
+                        # Validate the EXPLICIT operator loading selection.
+                        # Do not silently substitute ergonomic 2D suggestions.
+                        reverse_axis_by_bend=reverse_selection,
                     )
                     self._collision_inspection = None
                     self._collision_display_active = False
