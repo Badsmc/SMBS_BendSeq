@@ -164,6 +164,93 @@ class EmbeddedStorageTests(unittest.TestCase):
         self.assertEqual(validate_restore(loaded, self.session, self.document),
                          (("B02", "B01"), ("B02",)))
 
+    def test_manual_native_3d_report_is_embedded_with_each_bend_and_pair(self):
+        """No separate JSON: native D6 step evidence survives FCStd save/reload."""
+        step = {
+            "step_number": 1, "bend_id": "B02", "angle_deg": -45.0,
+            "completed_before_step": [], "status": "COLLISION",
+            "reason": "native_d634_rejected:BENDING=DISCRETE_SAMPLES_REJECTED;"
+                      "punch_overlap_mm3=4.2",
+            "native_status": "DISCRETE_SAMPLES_REJECTED",
+            "checked_scope": ["3D_PUNCH_DIE_SAMPLED_BEND", "3D_TOOL_LENGTH"],
+            "tool_length_info": {
+                "punch_tool_id": "P1", "die_tool_id": "D1",
+                "is_virtual_tool_geometry": True,
+            },
+            "punch_die_pair": {
+                "status": "COLLISION",
+                "reason": "punch_die_positive_overlap",
+                "ram_z_mm": -2.5,
+                "overlap_volume_mm3": 3.2,
+                "phases": ["BOTTOM", "BENDING"],
+                "checked_ram_positions": 5,
+            },
+        }
+        manual = {
+            "schema_version": "smbs.manual_2d_and_native_3d.v2",
+            "status": "COLLISION", "planar_status": "MANUAL_REPLAY_STOPPED",
+            "physical_certification": "NOT_CONTINUOUSLY_CERTIFIED",
+            "tooling": {
+                "punch_id": "P1", "die_id": "D1",
+                "match_active_bend_length": True,
+                "allow_end_zone_collision_requested": False,
+            },
+            "manual_3d_validation": {
+                "status": "COLLISION",
+                "requested_bends": ["B02", "B01"],
+                "checked_bends": 1,
+                "reason": "punch_or_die_collision_at:B02",
+                "steps": [step],
+            },
+            "steps": [
+                {"step_number": 1, "bend_id": "B02",
+                 "evidence": "2D_TOOLING_CONSTRAINT",
+                 "stage_a": {"decision": "CONTINUE_TO_3D"},
+                 "stage_b": {"reason": "2d_overlap"}},
+            ],
+        }
+        snapshot = build_snapshot(
+            self.session, self.document, self.tooling, self.config,
+            "BEND_ONLY", manual_prefix=("B02",), manual_report=manual,
+        )
+        write_included_json(self.document, snapshot)
+        loaded = read_included_json(self.document)
+        embedded = loaded["diagnostics"]["manual"]
+        self.assertEqual(embedded["status"], "COLLISION")
+        self.assertEqual(
+            embedded["manual_3d_validation"]["steps"][0]["punch_die_pair"],
+            step["punch_die_pair"],
+        )
+        self.assertIn("BENDING", embedded["manual_3d_validation"]["steps"][0]["reason"])
+        self.assertEqual(embedded["planar_steps"][0]["bend_id"], "B02")
+        self.assertEqual(loaded["validation"]["on_restore"],
+                         "UNVERIFIED_RECHECK_REQUIRED")
+
+        # A later Ctrl+S without a fresh check must retain the old report as
+        # historical evidence, not silently discard its per-bend details.
+        second = build_snapshot(
+            self.session, self.document, self.tooling, self.config,
+            "BEND_ONLY", manual_prefix=("B02",), manual_report=embedded,
+        )
+        write_included_json(self.document, second)
+        again = read_included_json(self.document)["diagnostics"]["manual"]
+        self.assertEqual(again["planar_steps"], embedded["planar_steps"])
+        self.assertEqual(again["manual_3d_validation"], embedded["manual_3d_validation"])
+
+    def test_oversized_manual_3d_report_must_not_claim_saved(self):
+        data = {
+            "status": "UNVERIFIED",
+            "manual_3d_validation": {
+                "status": "UNVERIFIED",
+                "steps": [{"bend_id": "B01", "reason": "x" * (3 * 1024 * 1024)}],
+            },
+        }
+        with self.assertRaisesRegex(EmbeddedSessionError, "3 MiB"):
+            build_snapshot(
+                self.session, self.document, self.tooling, self.config,
+                "BEND_ONLY", manual_prefix=("B02",), manual_report=data,
+            )
+
     def test_overwrite_updates_included_copy_and_checksum(self):
         first = self._snapshot()
         write_included_json(self.document, first)
