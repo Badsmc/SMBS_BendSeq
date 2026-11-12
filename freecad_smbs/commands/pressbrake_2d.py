@@ -887,7 +887,7 @@ def embed_task_dialog(workspace, widget, title, key):
 
     widget.finished.connect(on_finished)
     close_btn.clicked.connect(on_close)
-    workspace._install_automatic_debug_ui_signals(QtWidgets)
+    workspace._install_automatic_debug_ui_signals(QtWidgets, root=widget)
     _desktop_debug_event(
         "SPECIALIST_TASK_OPENED", key=str(key), title=str(title),
     )
@@ -1760,14 +1760,14 @@ class _PreviewPanel:
                     # An unavailable UI log must never block input in FreeCAD.
                     pass
 
-            def _install_automatic_debug_ui_signals(self, QtWidgets):
+            def _install_automatic_debug_ui_signals(self, QtWidgets, root=None):
                 """Capture user actions automatically without duplicating handlers.
 
                 Includes controls inside the standard FreeCAD Tasks stack and
                 the MDI; newly embedded specialist settings are wired too.
                 No keyboard passwords or arbitrary document text is collected.
                 """
-                for widget in self.findChildren(QtWidgets.QWidget):
+                for widget in (root or self).findChildren(QtWidgets.QWidget):
                     if widget.property("_smbs_debug_wired"):
                         continue
                     widget.setProperty("_smbs_debug_wired", True)
@@ -2771,8 +2771,27 @@ class _PreviewPanel:
                         _warn("Motion trace event failed: {}".format(exc))
 
             def _trace_drawn_frame(self, sec, pose, warning, pc):
+                """Always capture sampled scene geometry in Desktop JSON.
+
+                Native D6 additionally records EVERY OCC-evaluated state.
+                GUI preview uses up to 5 frames/s to avoid turning a
+                long 40Hz playback into unbounded gigabytes of JSON.
+                """
+                if self.session is None:
+                    return
                 trace = self.motion_trace
-                if trace is None or not trace.is_open or self.session is None:
+                tracing = trace is not None and trace.is_open
+                now = time.monotonic()
+                signature = (
+                    self.session.active_bend_id,
+                    getattr(getattr(pc, "phase", None), "value", "NO_CYCLE"),
+                    str(warning),
+                )
+                full_debug = (
+                    signature != self._last_debug_frame_signature or
+                    now - self._last_debug_frame_at >= 0.2
+                )
+                if not tracing and not full_debug:
                     return
                 try:
                     frame = make_frame_record(
@@ -2786,12 +2805,22 @@ class _PreviewPanel:
                         scene_rect=self.scene.sceneRect(),
                         dt_s=self._trace_frame_dt,
                     )
-                    trace.record(frame)
-                    self._trace_frame_dt = None
+                    if full_debug:
+                        self._last_debug_frame_at = now
+                        self._last_debug_frame_signature = signature
+                        _desktop_debug_event("PREVIEW_GEOMETRY_FRAME", frame=frame)
+                    if tracing:
+                        trace.record(frame)
+                        self._trace_frame_dt = None
                 except Exception as exc:
-                    _warn("Motion trace frame failed: {}".format(exc))
-                    self.trace_status.setText("Ошибка трассы: {}".format(exc))
-                    self._finish_motion_trace("TRACE_FRAME_ERROR")
+                    _desktop_debug_event(
+                        "PREVIEW_FRAME_ERROR", error=str(exc),
+                        traceback=traceback.format_exc(),
+                        bend_id=self.session.active_bend_id,
+                    )
+                    if tracing:
+                        self.trace_status.setText("Ошибка трассы: {}".format(exc))
+                        self._finish_motion_trace("TRACE_FRAME_ERROR")
 
             def _on_view_changed(self, index):
                 if index == 1:
