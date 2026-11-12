@@ -1590,7 +1590,9 @@ class _PreviewPanel:
                 part_layout.addStretch(1)
                 self._page_part = scroll_task_page(part_page, "SMBS_PartScroll")
 
-                sim_card, sim_body = card("Симуляция")
+                # The dock header already says "Симуляция": no duplicate
+                # section title or large diagnostic card above playback.
+                sim_body = sim_layout
                 for btn in (
                     self.reset_btn, self.prev_step_btn, self.next_step_btn,
                     self.fit_btn,
@@ -1600,7 +1602,6 @@ class _PreviewPanel:
                 insert(sim_body, entries[5])  # Reset / Prev / Play-Pause / Next / Fit
                 self.slider.setToolTip("Угол активного гиба")
                 insert(sim_body, entries[6])  # angle slider
-                sim_layout.addWidget(sim_card)
 
                 # Full search is initiated by the FreeCAD toolbar "Расчёт".
                 # Its enabled-state proxy remains a single hidden widget.
@@ -1694,9 +1695,7 @@ class _PreviewPanel:
                 # two internal pages requested by the operator.
                 tool_tabs = QtWidgets.QTabWidget(tooling_card)
                 tool_tabs.setObjectName("SMBS_ToolingSubtabs")
-                tool_tabs.setUsesScrollButtons(True) if hasattr(
-                    tool_tabs, "setUsesScrollButtons"
-                ) else None
+                tool_tabs.tabBar().setUsesScrollButtons(False)
                 tool_main = QtWidgets.QWidget()
                 tool_main_layout = QtWidgets.QFormLayout(tool_main)
                 tool_main_layout.setContentsMargins(
