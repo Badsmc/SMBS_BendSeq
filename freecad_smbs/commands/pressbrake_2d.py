@@ -4423,6 +4423,78 @@ class _PreviewPanel:
                     self._set_task_busy(False)
                     self.manual_validate_btn.setEnabled(True)
 
+            def simulate_manual_order_unverified(self):
+                """Preview current Manual order without ANY collision validation.
+
+                The existing BendSequenceController and playback timer are
+                reused. Only the angles are reset; the chosen order is retained.
+                A partial manually numbered prefix never silently certifies
+                or plays the unselected canonical remainder.
+                """
+                if self.session is None:
+                    self.status.setText("Сначала загрузите развёртку детали.")
+                    return
+                order = tuple(self.session.bend_order)
+                if not order:
+                    self.status.setText("Нет гибов для симуляции.")
+                    return
+                prefix = tuple(self._manual_sequence_prefix)
+                if prefix and order[:len(prefix)] != prefix:
+                    self.status.setText(
+                        "Ручной порядок изменился. Проверьте выбранные линии."
+                    )
+                    return
+                self._stop_timer()
+                self._manual_selection_enabled = False
+                self._manual_preview_unverified = True
+                self._partial_preview_limit = (
+                    len(prefix) if prefix and len(prefix) < len(order) else 0
+                )
+                self._preview_only_planar_order = None
+                self.last_sequence_search_report = None
+                self._physical_check_signature = None
+                self._machine_pose_fault = None
+                self._highlighted_end_zone_info = None
+                self._conditional_bends_status.clear()
+                self._viewer_tabs.setCurrentWidget(self.view)
+                show_workspace_controls(self, tab=2)
+                try:
+                    self.set_cycle_mode(CycleExecutionMode.BEND_ONLY)
+                    pc = self._ensure_press_cycle_controller()
+                    if pc is not None:
+                        pc.reset()
+                        self.session.active_bend_index = (
+                            self.session.controller.active_index
+                        )
+                    else:
+                        self.session.reset_all_bends()
+                except Exception as exc:
+                    self.status.setText(
+                        "Не удалось подготовить ручную симуляцию: " + str(exc)
+                    )
+                    return
+                self._configure_for_active_bend()
+                self._update_tooling_status_label()
+                self._manual_preview_notice.show()
+                self.physical_check_result.setText(
+                    "UNVERIFIED: ручная кинематическая симуляция; "
+                    "коллизии с пуансоном, матрицей, упором и станком не проверены."
+                )
+                self.draw()
+                QtCore.QTimer.singleShot(0, self.fit)
+                self.play_all()
+                if self.session.playback_status == PlaybackStatus.PLAYING:
+                    scope = (
+                        "первые {}/{} гибов".format(
+                            self._partial_preview_limit, len(order)
+                        ) if self._partial_preview_limit else
+                        "все {} гибов".format(len(order))
+                    )
+                    self.status.setText(
+                        "РУЧНАЯ СИМУЛЯЦИЯ: {} · БЕЗ ПРОВЕРКИ КОЛЛИЗИЙ"
+                        .format(scope)
+                    )
+
             def activate_manual_mode(self):
                 """Toolbar Manual: open flat pattern without discarding order."""
                 if self.session is None:
@@ -4442,6 +4514,8 @@ class _PreviewPanel:
                     return
                 self._manual_selection_enabled = bool(enabled)
                 if enabled:
+                    self._manual_preview_unverified = False
+                    self._manual_preview_notice.hide()
                     self._stop_timer()
                     self.session.reset_all_bends()
                     self._viewer_tabs.setCurrentWidget(self._flat_view)
@@ -4498,6 +4572,8 @@ class _PreviewPanel:
                 if prefix:
                     self.session.select_bend_index(len(prefix) - 1)
                 self._preview_only_planar_order = None
+                self._manual_preview_unverified = False
+                self._manual_preview_notice.hide()
                 self._partial_preview_limit = 0
                 self._selected_planar_gauge_order = ()
                 self._selected_planar_gauge_positions = {}
@@ -4619,6 +4695,8 @@ class _PreviewPanel:
                     return
                 # Move Up/Down and Restore replace the manually numbered prefix.
                 self._manual_sequence_prefix = []
+                self._manual_preview_unverified = False
+                self._manual_preview_notice.hide()
                 self._draw_flat_pattern()
                 self._update_manual_hint()
                 self._configure_for_active_bend()
