@@ -5676,9 +5676,8 @@ class _PreviewPanel:
                         )
                         return
 
-                    # 2D is advisory; its current Manual replay cannot
-                    # independently model the operator's reversed setup.
-                    # Never compare mismatched poses as though equivalent.
+                    # 2D is advisory. Both replay engines must receive the
+                    # exact same explicitly selected operator orientation.
                     manual_reversed = bool(
                         self.manual_reverse_3d_checkbox.isChecked()
                     )
@@ -5792,6 +5791,21 @@ class _PreviewPanel:
                         self.manual_show_collision_btn.hide()
                     self._populate_operations()
 
+                    # Keep two independent geometric evidence streams and
+                    # explicitly record contradictions such as B03 at 180°:
+                    # 2D P09 interference while sampled native OCC is clear.
+                    from smbs_core.kinematics2d.manual_sequence_replay import (
+                        crosscheck_manual_planar_native_evidence,
+                    )
+                    crosscheck = crosscheck_manual_planar_native_evidence(
+                        planar, physical,
+                    )
+                    physical["planar_native_discrepancies"] = crosscheck
+                    if crosscheck:
+                        _desktop_debug_event(
+                            "MANUAL_2D_NATIVE_EVIDENCE_DISAGREEMENT",
+                            evidence=crosscheck,
+                        )
                     # A confirmed 2D section disagreement does not override
                     # a native 3D collision, but prevents a falsely clean
                     # overall verdict without further investigation.
@@ -5811,14 +5825,15 @@ class _PreviewPanel:
                         # stays CONDITIONAL (never PASS). A conflicting die
                         # interference cannot be waived by that exemption.
                         flagged_die = any(
-                            str(finding[1]).upper() == "DIE"
-                            and str(finding[3]).upper() == "INTERFERENCE"
+                            isinstance(finding, dict)
+                            and str(finding.get("tool", "")).upper() == "DIE"
+                            and str(finding.get("status", "")).upper()
+                                == "INTERFERENCE"
                             for record in planar.get("steps", [])
                             for finding in (
                                 (record.get("stage_b") or {})
                                 .get("diagnostic_findings", [])
                             )
-                            if len(finding) >= 4
                         )
                         if flagged_die:
                             physical_status = "UNVERIFIED"
@@ -5832,12 +5847,14 @@ class _PreviewPanel:
                         entire_native_report=physical,
                         planar_status=planar.get("status"),
                         disagreement=disagreement,
+                        discrepancies=crosscheck,
                     )
                     complete_steps = physical["checked_bends"]
                     result = dict(planar)
                     result["schema_version"] = "smbs.manual_2d_and_native_3d.v2"
                     result["planar_status"] = planar["status"]
                     result["manual_3d_validation"] = physical
+                    result["planar_native_discrepancies"] = crosscheck
                     result["status"] = physical_status
                     result["physical_certification"] = "NOT_CONTINUOUSLY_CERTIFIED"
                     result["tooling"] = {
@@ -5895,6 +5912,11 @@ class _PreviewPanel:
                         readable_verdict, complete_steps, len(selected),
                         planar["status"], physical["reason"],
                     )
+                    if crosscheck:
+                        summary += (
+                            " | 2D/3D расхождение: {} (детали в SMBS_debug_log.json)"
+                            .format(", ".join(item["bend_id"] for item in crosscheck))
+                        )
                     self.physical_check_result.setText(summary)
                     self.status.setText(summary)
                     self._trace_event(
