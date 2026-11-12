@@ -1820,9 +1820,10 @@ class _PreviewPanel:
                     QtWidgets.QPushButton("Проверить")
                 )
                 self.manual_validate_btn.setToolTip(
-                    "Проверка выбранного ручного порядка: предварительные 2D-сечения "
-                    "и адаптивная 3D-проверка каждого гиба с выбранными реальными "
-                    "FCStd пуансоном и матрицей. Результат остаётся выборочным."
+                    "Проверить каждый гиб выбранного ручного порядка: "
+                    "2D Stage A/B и адаптивная 3D-проверка реальных FCStd "
+                    "пуансона и матрицы. Итог появится ниже и будет сохранён "
+                    "в SMBS_Data внутри этого же FCStd, без отдельного JSON."
                 )
                 self.manual_validate_btn.clicked.connect(
                     self._validate_export_manual_order
@@ -1832,9 +1833,27 @@ class _PreviewPanel:
                 verify_row.addWidget(self.manual_validate_btn)
                 verify_row.addStretch(1)
                 order_body.addLayout(verify_row)
+                # Verification must have a visible result in the Manual
+                # workspace, not a file-save dialog as its only feedback.
+                self.manual_check_summary = QtWidgets.QLabel(
+                    "Проверка не выполнена. Выберите оснастку и нажмите «Проверить»."
+                )
+                self.manual_check_summary.setWordWrap(True)
+                self.manual_check_summary.setObjectName("SMBS_ManualCheckSummary")
+                order_body.addWidget(self.manual_check_summary)
+                self.manual_check_details = QtWidgets.QPlainTextEdit()
+                self.manual_check_details.setObjectName("SMBS_ManualCheckDetails")
+                self.manual_check_details.setReadOnly(True)
+                self.manual_check_details.setMaximumHeight(160)
+                self.manual_check_details.setPlaceholderText(
+                    "Здесь появятся результаты по каждому проверенному гибу."
+                )
+                self.manual_check_details.hide()
+                order_body.addWidget(self.manual_check_details)
                 self._manual_preview_help = QtWidgets.QLabel(
                     "Симулировать — просмотр без проверки коллизий. "
                     "Проверить — весь выбранный порядок: 2D + 3D пуансон/матрица. "
+                    "Результат проверки выводится ниже и сохраняется внутри FCStd. "
                     "Виртуальная длина и концевой условный допуск — из настроек оснастки."
                 )
                 self._manual_preview_help.setWordWrap(True)
