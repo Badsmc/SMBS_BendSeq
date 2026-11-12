@@ -8,7 +8,7 @@ not the experimental search or collision algorithms.
 
 - **Симуляция**: opens the singleton workspace and Task Panel.
 - **Деталь**: loads the selected SheetMetal unfold.
-- **Оснастка**: opens a persistent **Оснастка** window (not a Task Panel tab).
+- **Оснастка**: selects the **Оснастка** page of the existing Task Panel.
 - **Расчёт**: main 2.5D / native sequence search.
 - **2D варианты**: sampled 2D sequence candidates.
 - **Последовательности**: sequence catalog.
@@ -16,10 +16,10 @@ not the experimental search or collision algorithms.
 - **Manual**: enabled only when a model/unfold is loaded; switches viewer to
   `Развёртка · Порядок`, activates line-by-line bend selection, and
   selects the **Manual** Task Panel tab.
-- **Настройки**: opens a persistent independent settings window.
-- **Библиотека оснастки**: existing separate tooling library menu action.
+- **Настройки**: selects the **Настройки** page of the existing Task Panel.
+- **Библиотека оснастки**: displays the full tooling catalog in a temporary Task Panel page.
 
-## Task Panel: exactly two tabs
+## Task Panel: one dock, four permanent pages
 
 **Симуляция** has a single horizontal row:
 
@@ -50,7 +50,7 @@ remain in this tab.
 its brief label does not reduce scope. No obsolete instruction paragraph
 is shown. Re-opening Manual preserves the current manual selection.
 
-## Standalone: Оснастка
+## Task Panel page: Оснастка
 
 Tabs:
 
@@ -62,7 +62,7 @@ Tabs:
 Removed from the UI (but underlying needed alignment functions are retained):
 Align Tooling, Reset Tooling Position, Hide/Show Tooling.
 
-## Standalone: Настройки
+## Task Panel page: Настройки
 
 Contains the **entire former Settings Task Panel page**, plus:
 
@@ -75,11 +75,28 @@ Contains the **entire former Settings Task Panel page**, plus:
 - Operation weights, backgauge settings and diagnostics.
 - JSONL automatic/manual recording and output-folder settings.
 
+## Temporary Task Panel pages
+
+Top-toolbar and in-panel actions reuse the single Task Panel for detailed tools:
+
+- **Задний упор**: CAD backgauge geometry and stop positions.
+- **Последовательности**: JSON sequence catalog.
+- **2D варианты**: result shortlist and partial sequences.
+- **Cycle Config**: detailed kinematic parameters.
+- **Tool Library / Библиотека оснастки**: profile list and full tooling inventory.
+
+The toolkit's native file/directory pickers and warning/confirmation
+message boxes remain separate system dialogs: they are not persistent
+PressBrakeSim application windows.
+
 ## Preservation and constraints
 
 - The same QTimer, loaded part, FoldState, tooling selectors, cycle
   controller, collision checks, search and JSON log callbacks are used.
-- Settings and tooling dialogs persist during the workspace lifetime.
+- Settings and tooling widgets are contained in the same persistent Task Panel.
+- The Backgauge, Sequence Catalog, 2D search results, Cycle Config and both
+  tooling catalogs mount as temporary Task Panel pages. They never call
+  `QDialog.exec()` for the main workflow.
 - Automatic search checks remain **sampled / experimental** and do not
   imply full machine safety. No collision logic was changed in this GUI
   refactor.
@@ -100,8 +117,12 @@ Contains the **entire former Settings Task Panel page**, plus:
    import buttons and library work from Импорт.
 7. Open Настройки: all former settings, including mode/speed, RETRACT,
    virtual tool length, end zone, physical tests and JSONL recording work.
-8. Open/close dialogs and Task Panel repeatedly without losing the part,
+8. Open/close every Task Panel page repeatedly without losing the part,
    creating duplicate timers, or triggering deleted-widget errors.
+9. From the toolbar, open Backgauge, Sequence Catalog, Tool Library and
+   Cycle Config: verify no extra top-level editor window appears.
+10. Close temporary pages with their existing Done/Cancel/Close buttons;
+    reopening must create a fresh populated page in the same dock.
 
 GitHub Actions validates Python compilation, SVG resources, and the
 structural command/layout contract, **not** interactive PySide6/FreeCAD
