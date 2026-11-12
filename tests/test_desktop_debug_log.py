@@ -139,6 +139,62 @@ class DesktopDebugLogTests(unittest.TestCase):
         self.assertEqual(sample["ram_z_mm"], -2.7)
         self.assertEqual(sample["angle_deg"], 67.0)
 
+    def test_occ_common_bbox_is_exact_and_does_not_rerun_boolean(self):
+        from smbs_core.kinematics2d.native_collision_3d import (
+            CollisionClass, check_pair_clearance,
+        )
+
+        def bbox(xmin, xmax, ymin, ymax, zmin, zmax):
+            return SimpleNamespace(
+                XMin=xmin, XMax=xmax, YMin=ymin,
+                YMax=ymax, ZMin=zmin, ZMax=zmax,
+            )
+
+        original_box = bbox(0, 100, -10, 10, -20, 20)
+        intersection_box = bbox(32.5, 35.0, -2.0, 1.0, -3.5, -1.2)
+        shape = SimpleNamespace(
+            isNull=lambda: False, isValid=lambda: True,
+            isClosed=lambda: True, Volume=1000, BoundBox=original_box,
+        )
+        common = SimpleNamespace(
+            isNull=lambda: False, isValid=lambda: True,
+            Volume=3.25, BoundBox=intersection_box,
+        )
+        with patch(
+            "smbs_core.kinematics2d.native_collision_3d.measured_common",
+            return_value=common,
+        ) as occ, patch(
+            "smbs_core.kinematics2d.native_collision_3d."
+            "_compute_exact_distance_with_pruning",
+            return_value=0.0,
+        ):
+            result = check_pair_clearance(shape, shape, tool_label="PUNCH")
+        self.assertEqual(result.status, CollisionClass.PENETRATION)
+        self.assertAlmostEqual(result.overlap_volume_mm3, 3.25)
+        self.assertEqual(result.overlap_bbox_xyz_mm, {
+            "xmin": 32.5, "xmax": 35.0,
+            "ymin": -2.0, "ymax": 1.0,
+            "zmin": -3.5, "zmax": -1.2,
+        })
+        occ.assert_called_once()  # no second slow OCC boolean for location
+
+    def test_no_bbox_means_unknown_location_not_false_zeroes(self):
+        from smbs_core.kinematics2d.native_collision_3d import (
+            _evaluate_common_volume,
+        )
+        common = SimpleNamespace(
+            isNull=lambda: False,
+            isValid=lambda: True, Volume=5.3,
+        )
+        with patch(
+            "smbs_core.kinematics2d.native_collision_3d.measured_common",
+            return_value=common,
+        ):
+            self.assertEqual(
+                _evaluate_common_volume(object(), object(), include_bbox=True),
+                (5.3, None),
+            )
+
     def test_default_log_filename_and_no_network_or_async_export(self):
         self.assertEqual(
             (debug.desktop_directory(self.path.parent.parent) /
