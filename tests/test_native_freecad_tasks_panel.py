@@ -24,6 +24,10 @@ class Widget:
         self.value = ""
     def setParent(self, parent):
         self.parent = parent
+    def parentWidget(self):
+        return self.parent if hasattr(self.parent, "layout") else None
+    def layout(self):
+        return None
     def hide(self):
         self.visible = False
     def show(self):
@@ -178,6 +182,10 @@ class NativeTasksTests(TestCase):
         self.assertIsNot(first, second)
         self.assertIs(self.workspace._task_stack, original[0])
         self.assertIs(self.workspace.status, original[1])
+        # Explicit hide() in _detach must be reversed for *every* widget.
+        # This is the regression that caused an empty native Tasks pane.
+        for child in original:
+            self.assertTrue(child.visible)
         self.assertEqual(len(self.control.shown), 2)
         self.assertIs(self.control.current, second)
 

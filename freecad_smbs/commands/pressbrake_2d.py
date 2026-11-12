@@ -11,7 +11,6 @@ from __future__ import annotations
 from freecad_smbs.ui.orbit_camera import orbit_project, clamp_pitch
 
 import hashlib
-import logging
 import math
 import os
 import sys
@@ -21,6 +20,10 @@ import weakref
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from smbs_core.kinematics2d.developer_debug_log import (
+    debug_event as _desktop_debug_event,
+    desktop_directory as _debug_desktop_directory,
+)
 from smbs_core.kinematics2d.fold_sequence import (
     BendSequenceController,
     PlaybackStatus,
@@ -107,7 +110,6 @@ class _SMBSFCStdSaveObserver:
 
 
 
-_LOGGER: logging.Logger | None = None
 def _pressbrake_user_data_directory():
     """Platform-specific writable diagnostics home, not the plugin checkout.
 
@@ -126,31 +128,6 @@ def _pressbrake_user_data_directory():
         base = Path(os.environ.get("XDG_DATA_HOME") or
                     str(Path.home() / ".local" / "share"))
     return base / "FreeCAD" / "v1-1"
-
-
-_LOG_FILE_PATH = _pressbrake_user_data_directory() / "pressbrake_2d.log"
-
-
-def _get_file_logger() -> logging.Logger:
-    """Return a non-blocking file logger decoupled from FreeCAD.Console and Qt NotificationArea."""
-    global _LOGGER
-    if _LOGGER is not None:
-        return _LOGGER
-    logger = logging.getLogger("smbs.pressbrake_2d")
-    logger.setLevel(logging.INFO)
-    logger.propagate = False
-    if not logger.handlers:
-        try:
-            _LOG_FILE_PATH.parent.mkdir(parents=True, exist_ok=True)
-            handler = logging.FileHandler(str(_LOG_FILE_PATH), encoding="utf-8")
-            handler.setFormatter(
-                logging.Formatter("%(asctime)s [%(levelname)s] %(message)s")
-            )
-            logger.addHandler(handler)
-        except OSError:
-            logger.addHandler(logging.NullHandler())
-    _LOGGER = logger
-    return logger
 
 
 def _qt():
@@ -174,27 +151,18 @@ def _qt():
 
 
 def _log(message):
-    """Write diagnostic message to file log without invoking FreeCAD.Console / NotificationArea."""
-    try:
-        _get_file_logger().info("%s", message)
-    except Exception:
-        pass
+    """Write normal diagnostics to the ONE Desktop JSON, not a second .log."""
+    _desktop_debug_event("FREECAD_INFO", message=str(message))
 
 
 def _warn(message):
-    """Write warning to file log without invoking FreeCAD.Console.PrintWarning (avoids NotificationArea deadlock)."""
-    try:
-        _get_file_logger().warning("%s", message)
-    except Exception:
-        pass
+    """Log warning without FreeCAD's potentially reentrant NotificationArea."""
+    _desktop_debug_event("FREECAD_WARNING", message=str(message))
 
 
 def _error(message):
-    """Write unexpected error to file log without triggering FreeCAD NotificationArea popup deadlock."""
-    try:
-        _get_file_logger().error("%s", message)
-    except Exception:
-        pass
+    """Log traceback or error in the ONE Desktop debug JSON."""
+    _desktop_debug_event("FREECAD_ERROR", message=str(message))
 
 
 def get_runtime_git_info() -> dict:
@@ -611,6 +579,7 @@ class _SMBSNativeTaskPanel:
     def _detach(self):
         if not self._attached:
             return
+        _desktop_debug_event("TASKS_CLOSE_DETACH", panel="SMBS_NativeTasksRoot")
         self._attached = False
         workspace = self.workspace
         self.workspace = None
@@ -618,11 +587,17 @@ class _SMBSNativeTaskPanel:
             return
         # Native FreeCAD owns self.form. Detach all *reusable* children
         # before the TaskDialogPython releases that Qt form.
+        # Hidden widgets do not auto-show when reparented on Tasks reopen.
+        # Explicitly remove them from the disposable FreeCAD form layout.
         for child in (
             workspace._task_stack, workspace.status,
             workspace.task_progress, workspace._task_status_chip,
             workspace._task_progress_caption,
         ):
+            old_parent = child.parentWidget()
+            old_layout = old_parent.layout() if old_parent is not None else None
+            if old_layout is not None:
+                old_layout.removeWidget(child)
             child.setParent(workspace)
             child.hide()
         if getattr(workspace, "_native_task_panel", None) is self:
@@ -687,6 +662,9 @@ def show_workspace_controls(workspace, tab=None):
     active = bool(Gui.Control.activeDialog())
     panel = getattr(workspace, "_native_task_panel", None)
     if panel is not None and panel._attached and active:
+        _desktop_debug_event(
+            "TASKS_SWITCH_SECTION", section=str(caption), index=tab,
+        )
         # FreeCAD Tasks already owns this form. Never call showDialog
         # twice or create an extra Qt window simply to switch SMBS pages.
         workspace.show_task_panel_btn.hide()
@@ -697,6 +675,10 @@ def show_workspace_controls(workspace, tab=None):
         panel.closed()
 
     if active:
+        _desktop_debug_event(
+            "TASKS_OPEN_BLOCKED", reason="another_freecad_task_active",
+            requested_section=str(caption),
+        )
         # Do not close an unrelated FreeCAD Sketcher/PartDesign task and
         # lose its pending edits merely because an SMBS toolbar was clicked.
         message = (
@@ -746,6 +728,15 @@ def show_workspace_controls(workspace, tab=None):
     footer_layout.addWidget(workspace.status)
     layout.addWidget(footer)
 
+    # Closing an earlier native task explicitly hid these live widgets.
+    # Qt does not reverse that state when they join a new layout.
+    for child in (
+        workspace._task_stack, workspace.status,
+        workspace.task_progress, workspace._task_status_chip,
+        workspace._task_progress_caption,
+    ):
+        child.show()
+
     panel = _SMBSNativeTaskPanel(workspace, form)
     workspace._native_task_panel = panel
     try:
@@ -756,6 +747,10 @@ def show_workspace_controls(workspace, tab=None):
         raise
     workspace._on_task_status_change(workspace.status.text())
     workspace.show_task_panel_btn.hide()
+    _desktop_debug_event(
+        "TASKS_OPENED", section=str(caption), selected_tab=tab,
+        stacked_pages=workspace._task_stack.count(),
+    )
     return panel
 
 
@@ -854,6 +849,10 @@ def embed_task_dialog(workspace, widget, title, key):
 
     widget.finished.connect(on_finished)
     close_btn.clicked.connect(on_close)
+    workspace._install_automatic_debug_ui_signals(QtWidgets, root=widget)
+    _desktop_debug_event(
+        "SPECIALIST_TASK_OPENED", key=str(key), title=str(title),
+    )
     show_workspace_controls(workspace, tab=index)
 
 
@@ -868,6 +867,7 @@ def close_workspace_controls(workspace):
     panel.closed()
     if bool(Gui.Control.activeDialog()):
         Gui.Control.closeDialog()
+    _desktop_debug_event("TASKS_CLOSE_REQUESTED")
 
 
 class PressBrake2DCommand:
@@ -1302,7 +1302,9 @@ class _PreviewPanel:
                 self.motion_trace = None
                 self._physical_check_signature = None
                 self._trace_frame_dt = None
-                self._trace_directory = _LOG_FILE_PATH.parent / "pressbrake_traces"
+                self._trace_directory = (
+                    _pressbrake_user_data_directory() / "pressbrake_traces"
+                )
                 self.runtime_git_info = get_runtime_git_info()
                 self.last_sequence_search_report = None
                 self.last_planar_search_report = None
@@ -1354,6 +1356,15 @@ class _PreviewPanel:
                         self.runtime_git_info["git_branch"],
                         self.runtime_git_info["git_commit"],
                     )
+                )
+                _desktop_debug_event(
+                    "SMBS_RUNTIME_READY",
+                    runtime=self.runtime_git_info,
+                    cycle_config={
+                        "initial_clearance_mm":
+                            self.cycle_config.initial_clearance_mm,
+                        "mode": self.execution_mode.value,
+                    },
                 )
                 self.angle = 0.0
                 self.playing = False
@@ -1662,7 +1673,104 @@ class _PreviewPanel:
                 root.addWidget(self.check_result)
 
                 self._install_workspace_layout(root, QtCore, QtWidgets)
+                self._install_automatic_debug_ui_signals(QtWidgets)
+                self._last_debug_frame_at = 0.0
+                self._last_debug_frame_signature = None
                 self.draw()
+
+            def _debug_session_context(self):
+                """Snapshot actual operator state, without Qt or OCC objects."""
+                session = self.session
+                tooling = self.tooling_setup
+                return {
+                    "part": session.part_label if session is not None else None,
+                    "document": self._smbs_document_name,
+                    "active_bend": session.active_bend_id if session is not None else None,
+                    "bend_order": list(session.bend_order) if session is not None else [],
+                    "manual_prefix": list(self._manual_sequence_prefix),
+                    "fold_angles_deg": dict(session.fold_state.angles)
+                    if session is not None else {},
+                    "punch": getattr(getattr(tooling, "punch", None), "tool_id", None),
+                    "die": getattr(getattr(tooling, "die", None), "tool_id", None),
+                    "tool_length_virtual": bool(getattr(
+                        tooling, "match_active_bend_length", False,
+                    )),
+                    "end_zone_allowed": bool(getattr(
+                        tooling, "allow_end_zone_collision", False,
+                    )),
+                    "end_zone_mm": getattr(tooling, "end_zone_length_mm", None),
+                    "cycle_mode": self.execution_mode.value,
+                    "initial_clearance_mm": self.cycle_config.initial_clearance_mm,
+                    "running": bool(self.timer.isActive()),
+                }
+
+            def _debug_ui_action(self, widget, action, value=None):
+                try:
+                    widget_name = str(widget.objectName() or "")
+                    caption = (
+                        widget.text() if hasattr(widget, "text") and
+                        callable(widget.text) else ""
+                    )
+                    _desktop_debug_event(
+                        "OPERATOR_UI_ACTION",
+                        action=str(action),
+                        widget=widget_name or type(widget).__name__,
+                        widget_class=type(widget).__name__,
+                        label=str(caption)[:200],
+                        value=value,
+                        session=self._debug_session_context(),
+                    )
+                except Exception:
+                    # An unavailable UI log must never block input in FreeCAD.
+                    pass
+
+            def _install_automatic_debug_ui_signals(self, QtWidgets, root=None):
+                """Capture user actions automatically without duplicating handlers.
+
+                Includes controls inside the standard FreeCAD Tasks stack and
+                the MDI; newly embedded specialist settings are wired too.
+                No keyboard passwords or arbitrary document text is collected.
+                """
+                for widget in (root or self).findChildren(QtWidgets.QWidget):
+                    if widget.property("_smbs_debug_wired"):
+                        continue
+                    widget.setProperty("_smbs_debug_wired", True)
+                    if isinstance(widget, QtWidgets.QAbstractButton):
+                        widget.clicked.connect(
+                            lambda checked=False, w=widget:
+                                self._debug_ui_action(w, "CLICK", bool(checked))
+                        )
+                    elif isinstance(widget, QtWidgets.QComboBox):
+                        widget.currentIndexChanged.connect(
+                            lambda index, w=widget:
+                                self._debug_ui_action(
+                                    w, "SELECT", {
+                                        "index": int(index),
+                                        "text": str(w.currentText())[:200],
+                                    },
+                                )
+                        )
+                    elif isinstance(widget, QtWidgets.QAbstractSlider):
+                        widget.sliderReleased.connect(
+                            lambda w=widget:
+                                self._debug_ui_action(w, "SLIDER_RELEASE", w.value())
+                        )
+                    elif isinstance(widget, (
+                            QtWidgets.QDoubleSpinBox, QtWidgets.QSpinBox)):
+                        widget.valueChanged.connect(
+                            lambda val, w=widget:
+                                self._debug_ui_action(w, "VALUE", val)
+                        )
+                    elif isinstance(widget, QtWidgets.QLineEdit):
+                        widget.editingFinished.connect(
+                            lambda w=widget:
+                                self._debug_ui_action(w, "EDIT_FINISHED")
+                        )
+                    elif isinstance(widget, QtWidgets.QTabWidget):
+                        widget.currentChanged.connect(
+                            lambda index, w=widget:
+                                self._debug_ui_action(w, "VIEW_TAB", index)
+                        )
 
             def _install_workspace_layout(self, root, QtCore, QtWidgets):
                 """Rearrange existing controls without rebuilding the simulation engine.
@@ -2158,6 +2266,22 @@ class _PreviewPanel:
                     QtCore.Qt.TextSelectableByMouse
                 )
                 trace_body.addWidget(self.trace_status)
+                # Developer journal is ALWAYS on, independent of the
+                # optional legacy JSONL motion recording below.
+                self.desktop_debug_log_note = QtWidgets.QLabel(
+                    "Автоматический единый журнал разработки:\n" +
+                    str(_debug_desktop_directory() / "SMBS_debug_log.json") +
+                    "\nЗаписывается без включения кнопок. Может содержать "
+                    "названия деталей и локальные пути."
+                )
+                self.desktop_debug_log_note.setObjectName(
+                    "SMBS_DesktopDebugLogPath"
+                )
+                self.desktop_debug_log_note.setTextInteractionFlags(
+                    QtCore.Qt.TextSelectableByMouse
+                )
+                self.desktop_debug_log_note.setWordWrap(True)
+                trace_body.addWidget(self.desktop_debug_log_note)
 
                 trace_buttons = QtWidgets.QVBoxLayout()
                 self.trace_start_button = QtWidgets.QPushButton("Начать запись JSONL")
@@ -2618,6 +2742,8 @@ class _PreviewPanel:
                     self.status.setText(message)
 
             def _trace_event(self, name, **fields):
+                # Always-on Desktop JSON, independent of optional JSONL.
+                _desktop_debug_event(str(name), **fields)
                 if self.motion_trace is not None and self.motion_trace.is_open:
                     try:
                         self.motion_trace.event(name, **fields)
@@ -2625,8 +2751,27 @@ class _PreviewPanel:
                         _warn("Motion trace event failed: {}".format(exc))
 
             def _trace_drawn_frame(self, sec, pose, warning, pc):
+                """Always capture sampled scene geometry in Desktop JSON.
+
+                Native D6 additionally records EVERY OCC-evaluated state.
+                GUI preview uses up to 5 frames/s to avoid turning a
+                long 40Hz playback into unbounded gigabytes of JSON.
+                """
+                if self.session is None:
+                    return
                 trace = self.motion_trace
-                if trace is None or not trace.is_open or self.session is None:
+                tracing = trace is not None and trace.is_open
+                now = time.monotonic()
+                signature = (
+                    self.session.active_bend_id,
+                    getattr(getattr(pc, "phase", None), "value", "NO_CYCLE"),
+                    str(warning),
+                )
+                full_debug = (
+                    signature != self._last_debug_frame_signature or
+                    now - self._last_debug_frame_at >= 0.2
+                )
+                if not tracing and not full_debug:
                     return
                 try:
                     frame = make_frame_record(
@@ -2640,12 +2785,22 @@ class _PreviewPanel:
                         scene_rect=self.scene.sceneRect(),
                         dt_s=self._trace_frame_dt,
                     )
-                    trace.record(frame)
-                    self._trace_frame_dt = None
+                    if full_debug:
+                        self._last_debug_frame_at = now
+                        self._last_debug_frame_signature = signature
+                        _desktop_debug_event("PREVIEW_GEOMETRY_FRAME", frame=frame)
+                    if tracing:
+                        trace.record(frame)
+                        self._trace_frame_dt = None
                 except Exception as exc:
-                    _warn("Motion trace frame failed: {}".format(exc))
-                    self.trace_status.setText("Ошибка трассы: {}".format(exc))
-                    self._finish_motion_trace("TRACE_FRAME_ERROR")
+                    _desktop_debug_event(
+                        "PREVIEW_FRAME_ERROR", error=str(exc),
+                        traceback=traceback.format_exc(),
+                        bend_id=self.session.active_bend_id,
+                    )
+                    if tracing:
+                        self.trace_status.setText("Ошибка трассы: {}".format(exc))
+                        self._finish_motion_trace("TRACE_FRAME_ERROR")
 
             def _on_view_changed(self, index):
                 if index == 1:
@@ -4520,7 +4675,21 @@ class _PreviewPanel:
                     selection = Gui.Selection.getSelection() if hasattr(Gui, "Selection") else []
 
                 # Early precondition check BEFORE touching timer, session, controls, or scene
+                _desktop_debug_event(
+                    "PART_LOAD_REQUEST",
+                    document_name=getattr(doc, "Name", None),
+                    document_path=getattr(doc, "FileName", None),
+                    selection=[
+                        {"name": getattr(item, "Name", None),
+                         "label": getattr(item, "Label", None),
+                         "type": getattr(item, "TypeId", None)}
+                        for item in selection
+                    ],
+                )
                 outcome, new_session, msg = execute_load_part(self.session, doc, selection)
+                _desktop_debug_event(
+                    "PART_LOAD_OUTCOME", outcome=outcome, message=msg,
+                )
                 if outcome == "warning":
                     self.status.setText(msg)
                     return
@@ -4541,6 +4710,30 @@ class _PreviewPanel:
                 self._machine_pose_fault = None
                 self._last_3d_frame_at = -1.0
                 self.session = new_session
+                _desktop_debug_event(
+                    "PART_GEOMETRY_LOADED",
+                    document_name=str(doc.Name),
+                    document_path=str(getattr(doc, "FileName", "") or ""),
+                    part_label=new_session.part_label,
+                    fixed_panel=new_session.fixed_panel,
+                    panel_vertices=new_session.panel_vertices_xy,
+                    bends=[
+                        {
+                            "id": bend.bend_id,
+                            "angle_deg": bend.angle_deg,
+                            "fixed_panel": bend.fixed_panel,
+                            "moving_panel": bend.moving_panel,
+                            "axis_xyz": bend.axis_xyz,
+                            "thickness_mm": bend.bend_zone.thickness_mm
+                            if bend.bend_zone else None,
+                            "inner_radius_mm": bend.bend_zone.inner_radius_mm
+                            if bend.bend_zone else None,
+                            "bend_allowance_mm": bend.bend_zone.bend_allowance_mm
+                            if bend.bend_zone else None,
+                        }
+                        for bend in new_session.ordered_bends
+                    ],
+                )
                 self._smbs_document_name = str(doc.Name)
                 self._smbs_allow_auto_embed = False
                 self.last_planar_search_report = None
@@ -4672,6 +4865,20 @@ class _PreviewPanel:
                                 float(blocker.get("die_overlap_mm3") or 0.0),
                             )
                         )
+                        bbox_dict = blocker.get("intersection_bbox_xyz_mm") or {}
+                        for kind, coords in bbox_dict.items():
+                            if isinstance(coords, dict):
+                                lines.append(
+                                    "  ОБЛАСТЬ {} (машинные XYZ, мм): "
+                                    "X [{:.3f}, {:.3f}], "
+                                    "Y [{:.3f}, {:.3f}], "
+                                    "Z [{:.3f}, {:.3f}]".format(
+                                        kind.upper(),
+                                        coords["xmin"], coords["xmax"],
+                                        coords["ymin"], coords["ymax"],
+                                        coords["zmin"], coords["zmax"],
+                                    )
+                                )
                         lines.append(
                             "  Код: {} | {}".format(
                                 blocker.get("phase_status", "UNVERIFIED"),
@@ -4720,6 +4927,11 @@ class _PreviewPanel:
             def _record_manual_precheck_failure(self, selected, reason):
                 """Fail visibly and save the UNVERIFIED reason in FCStd as well."""
                 message = "UNVERIFIED: " + str(reason)
+                _desktop_debug_event(
+                    "MANUAL_PRECHECK_REJECTED",
+                    selected_order=list(selected), reason=str(reason),
+                    session=self._debug_session_context(),
+                )
                 self._last_manual_sequence_report = {
                     "schema_version": "smbs.manual_2d_and_native_3d.v2",
                     "status": "UNVERIFIED",
@@ -4757,12 +4969,30 @@ class _PreviewPanel:
                 snapshot = self._write_embedded_smbs_json(document)
                 self._smbs_allow_auto_embed = True
                 self._embedded_diagnostics_history = snapshot["diagnostics"]
+                _desktop_debug_event(
+                    "FCSTD_MANUAL_DIAGNOSTICS_STAGED",
+                    document_name=getattr(document, "Name", None),
+                    file_name=getattr(document, "FileName", None),
+                    manual_status=(
+                        self._last_manual_sequence_report or {}
+                    ).get("status"),
+                    stored_sections=list(snapshot.get("diagnostics", {}).keys()),
+                )
                 filename = str(getattr(document, "FileName", "") or "")
                 if filename:
                     # FreeCAD itself writes PropertyFileIncluded into the
                     # native FCStd archive, preserving all other objects.
                     document.save()
+                    _desktop_debug_event(
+                        "FCSTD_MANUAL_DIAGNOSTICS_SAVED",
+                        document_name=getattr(document, "Name", None),
+                        path=filename,
+                    )
                     return "Результат сохранён внутри FCStd: " + filename
+                _desktop_debug_event(
+                    "FCSTD_MANUAL_DIAGNOSTICS_PENDING_FIRST_SAVE",
+                    document_name=getattr(document, "Name", None),
+                )
                 return (
                     "Результат вложен в открытый документ. "
                     "Для записи на диск сохраните его как FCStd через Ctrl+S."
@@ -5048,6 +5278,12 @@ class _PreviewPanel:
                     )
                     return
                 self._stop_timer()
+                _desktop_debug_event(
+                    "MANUAL_VERIFY_REQUESTED",
+                    requested_bends=list(selected),
+                    all_bends=list(order),
+                    session=self._debug_session_context(),
+                )
                 # Qt event pumping keeps progress legible, but the operator
                 # must not change tool identity, options or order mid-check.
                 locked_controls = (
@@ -5156,6 +5392,11 @@ class _PreviewPanel:
                             },
                             "plan_cost": None,
                         }
+                    _desktop_debug_event(
+                        "MANUAL_STAGE_AB_PLANAR_RESULT",
+                        selected_order=list(selected),
+                        entire_2d_report=planar,
+                    )
                     self.status.setText(
                         "Предварительный 2D: {}. Проверка реальных FCStd в 3D..."
                         .format(planar["status"])
@@ -5243,6 +5484,13 @@ class _PreviewPanel:
                         else:
                             physical["reason"] += ";2d_advisory_disagreement_conditional_only"
                     physical["status"] = physical_status
+                    _desktop_debug_event(
+                        "MANUAL_VERIFY_FINAL_RESULT",
+                        verdict=physical_status,
+                        entire_native_report=physical,
+                        planar_status=planar.get("status"),
+                        disagreement=disagreement,
+                    )
                     complete_steps = physical["checked_bends"]
                     result = dict(planar)
                     result["schema_version"] = "smbs.manual_2d_and_native_3d.v2"

@@ -151,6 +151,9 @@ class PairClearanceResult:
     distance_time_ms: float = 0.0
     common_time_ms: float = 0.0
     tool_label: str = ""
+    # Actual OCC intersection solid bbox in MACHINE X/Y/Z, not merely the
+    # overlapping bounding boxes of the original solids. None if absent.
+    overlap_bbox_xyz_mm: Optional[Dict[str, float]] = None
 
 
 @dataclass(frozen=True)
@@ -229,7 +232,9 @@ def check_solid_validity(shape: Any, name: str = "shape") -> Tuple[bool, str]:
 def _evaluate_common_volume(
     shape_a: Any,
     shape_b: Any,
-) -> float:
+    *,
+    include_bbox: bool = False,
+):
     """Compute exact intersection volume between shape_a and shape_b.
 
     Strictly differentiates between a valid empty intersection (0.0 volume)
@@ -249,7 +254,7 @@ def _evaluate_common_volume(
     # In OCC, if intersection is completely empty, it may be a null shape or an empty compound
     if hasattr(common_shape, "isNull") and common_shape.isNull():
         # Valid empty intersection shape
-        return 0.0
+        return (0.0, None) if include_bbox else 0.0
 
     if hasattr(common_shape, "isValid") and not common_shape.isValid():
         raise ValueError("KERNEL_COMMON_SHAPE_INVALID")
@@ -268,7 +273,29 @@ def _evaluate_common_volume(
     if vol < 0.0:
         raise ValueError(f"KERNEL_COMMON_NEGATIVE_VOLUME:{vol}")
 
-    return vol
+    if not include_bbox:
+        return vol
+    # Capture the EXACT common-solid location for developer diagnostics at
+    # zero extra Common/OCC booleans. If the kernel cannot provide its bbox,
+    # preserve the collision verdict but explicitly expose no location.
+    bb = getattr(common_shape, "BoundBox", None)
+    if bb is None or vol <= 0.0:
+        return vol, None
+    try:
+        coords = {
+            "xmin": float(bb.XMin), "xmax": float(bb.XMax),
+            "ymin": float(bb.YMin), "ymax": float(bb.YMax),
+            "zmin": float(bb.ZMin), "zmax": float(bb.ZMax),
+        }
+        if not all(math.isfinite(v) for v in coords.values()):
+            return vol, None
+        if (coords["xmin"] > coords["xmax"]
+                or coords["ymin"] > coords["ymax"]
+                or coords["zmin"] > coords["zmax"]):
+            return vol, None
+    except (AttributeError, TypeError, ValueError):
+        return vol, None
+    return vol, coords
 
 
 def _compute_exact_distance_with_pruning(
@@ -466,7 +493,9 @@ def check_pair_clearance(
 
             # Potential enclosure: verify common volume explicitly.
             t_comm0 = time.perf_counter()
-            vol = _evaluate_common_volume(shape_a, shape_b)
+            vol, overlap_bbox = _evaluate_common_volume(
+                shape_a, shape_b, include_bbox=True,
+            )
             t_comm_ms = (time.perf_counter() - t_comm0) * 1000.0
             dt = (time.perf_counter() - t0) * 1000.0
             if vol > volume_tolerance_mm3:
@@ -483,6 +512,7 @@ def check_pair_clearance(
                     distance_time_ms=t_dist_ms,
                     common_time_ms=t_comm_ms,
                     tool_label=tool_label,
+                    overlap_bbox_xyz_mm=overlap_bbox,
                 )
             return PairClearanceResult(
                 CollisionClass.CLEAR,
@@ -500,7 +530,9 @@ def check_pair_clearance(
             )
 
         t_comm0 = time.perf_counter()
-        vol = _evaluate_common_volume(shape_a, shape_b)
+        vol, overlap_bbox = _evaluate_common_volume(
+            shape_a, shape_b, include_bbox=True,
+        )
         t_comm_ms = (time.perf_counter() - t_comm0) * 1000.0
         dt = (time.perf_counter() - t0) * 1000.0
 
@@ -518,6 +550,7 @@ def check_pair_clearance(
                 distance_time_ms=t_dist_ms,
                 common_time_ms=t_comm_ms,
                 tool_label=tool_label,
+                overlap_bbox_xyz_mm=overlap_bbox,
             )
 
         if dist <= contact_distance_tolerance_mm:

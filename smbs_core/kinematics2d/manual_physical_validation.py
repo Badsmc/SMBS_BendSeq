@@ -16,6 +16,7 @@ from time import perf_counter
 from types import SimpleNamespace
 from typing import Any, Callable, Optional, Sequence
 
+from .developer_debug_log import debug_event, summarize_native_trajectory
 from .panel_kinematics import FoldState
 from .physical_validation_25d import (
     PhysicalEvidence,
@@ -124,6 +125,10 @@ def concise_3d_blocker(trajectory: Any) -> dict:
         "tool": tool,
         "punch_overlap_mm3": round(punch_overlap, 6),
         "die_overlap_mm3": round(die_overlap, 6),
+        "intersection_bbox_xyz_mm": {
+            "punch": getattr(p, "overlap_bbox_xyz_mm", None),
+            "die": getattr(d, "overlap_bbox_xyz_mm", None),
+        },
         "ram_z_mm": (
             round(float(candidate.ram_z_mm), 6)
             if candidate is not None else None
@@ -308,6 +313,23 @@ def _check_selected_tool_pair_at_sampled_rams(
                 moved.machine_shape, die.machine_shape,
                 tool_label="PUNCH_DIE",
             )
+            debug_event(
+                "PUNCH_DIE_NATIVE_RAM_SAMPLE",
+                ram_z_mm=ram_z,
+                phases=sorted(positions[ram_z]),
+                sample_number=i + 1,
+                status=result.status.value,
+                reason=result.reason,
+                overlap_mm3=result.overlap_volume_mm3,
+                distance_mm=getattr(result, "distance_mm", None),
+                overlap_bbox_xyz_mm=getattr(
+                    result, "overlap_bbox_xyz_mm", None,
+                ),
+                punch_file=str(punch_file),
+                die_file=str(die_file),
+                bend_length_mm=bend_length_mm,
+                virtual_length=virtual_length,
+            )
             if result.status is CollisionClass.PENETRATION:
                 return {
                     "status": "COLLISION",
@@ -383,7 +405,7 @@ def check_manual_3d_sequence(
         raise ValueError("end_zone_length_mm must be finite and nonnegative")
 
     def final_result(status, steps, reason):
-        return {
+        result = {
             "schema_version": "smbs.manual_native_tooling.v1",
             "status": str(status),
             "reason": str(reason),
@@ -411,6 +433,28 @@ def check_manual_3d_sequence(
             "steps": steps,
             "elapsed_s": round(perf_counter() - t0, 4),
         }
+        debug_event("MANUAL_NATIVE_CHECK_FINISHED", **result)
+        return result
+
+    debug_event(
+        "MANUAL_NATIVE_CHECK_STARTED",
+        bend_order=list(order),
+        original_angles=dict(state_in.angles),
+        punch_id=punch_id,
+        die_id=die_id,
+        punch_file=str(p_path) if p_path else None,
+        die_file=str(d_path) if d_path else None,
+        virtual_tool_length=virtual,
+        tool_sections={
+            "punch": getattr(tooling, "punch_section_offsets_xm", ()),
+            "die": getattr(tooling, "die_section_offsets_xm", ()),
+        },
+        conditional_end_zone_allowed=bool(allow_end_zone_collision),
+        end_zone_length_mm=end_len,
+        adaptive_config=(
+            vars(config) if config is not None else None
+        ),
+    )
 
     if p_path is None or d_path is None:
         return final_result(
@@ -469,10 +513,36 @@ def check_manual_3d_sequence(
             active_bend_id=bend_id,
             bend_order=order,
         )
+        debug_event(
+            "MANUAL_NATIVE_BEND_STARTED",
+            step=i + 1, total=len(order),
+            bend_id=bend_id,
+            target_angle_deg=float(independent.bends[bend_id].angle_deg),
+            signed_previous_bends=list(previous),
+            fold_angles=dict(independent.angles),
+            bend_axis_xyz=independent.bends[bend_id].axis_xyz,
+            punch_id=punch_id, die_id=die_id,
+        )
         started = perf_counter()
         try:
             report = check_active_25d_bend_trajectory(
                 pseudo_session, tooling, **check_kwargs,
+            )
+            try:
+                complete_d6 = summarize_native_trajectory(report.raw_report)
+            except Exception as serialize_exc:
+                complete_d6 = {
+                    "log_serialization_error": str(serialize_exc),
+                }
+            debug_event(
+                "MANUAL_NATIVE_BEND_TRAJECTORY",
+                bend_id=bend_id,
+                status=report.status.value,
+                reason=report.reason,
+                native_status=report.native_status,
+                tool_length_info=report.tool_length_info,
+                first_blocker=concise_3d_blocker(report.raw_report),
+                native_d6_samples=complete_d6,
             )
             status = report.status
             retract = retract_evidence_from_trajectory(report.raw_report)
@@ -563,6 +633,10 @@ def check_manual_3d_sequence(
             }
         record["elapsed_s"] = round(perf_counter() - started, 4)
         steps.append(record)
+        debug_event(
+            "MANUAL_NATIVE_BEND_RESULT",
+            bend=record, step=i + 1, tool_length_virtual=virtual,
+        )
         if status is PhysicalEvidence.COLLISION:
             return final_result("COLLISION", steps, "punch_or_die_collision_at:" + bend_id)
         if status is PhysicalEvidence.UNVERIFIED or status is PhysicalEvidence.SECTION_CLEAR_3D_UNVERIFIED:
