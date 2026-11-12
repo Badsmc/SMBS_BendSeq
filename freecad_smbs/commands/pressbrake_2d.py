@@ -2512,6 +2512,7 @@ class _PreviewPanel:
                     return
                 self.physical_check_btn.setEnabled(False)
                 self._highlighted_end_zone_info = None
+                self._set_task_busy(True)
                 try:
                     from smbs_core.kinematics2d.physical_validation_25d import (
                         PhysicalEvidence,
@@ -2597,6 +2598,7 @@ class _PreviewPanel:
                     )
                     _error("Physical pose check exception: " + traceback.format_exc())
                 finally:
+                    self._set_task_busy(False)
                     self.physical_check_btn.setEnabled(True)
 
             def check_active_bend_physical_trajectory(self):
@@ -2624,6 +2626,7 @@ class _PreviewPanel:
                 self.full_physical_check_btn.setEnabled(False)
                 self.physical_check_btn.setEnabled(False)
                 self._highlighted_end_zone_info = None
+                self._set_task_busy(True)
                 self.physical_check_result.setText(
                     "Проверяется нативная 3D-траектория D6.3.4; "
                     "состояние FreeCAD будет сохранено."
@@ -2711,6 +2714,7 @@ class _PreviewPanel:
                     )
                     _error(traceback.format_exc())
                 finally:
+                    self._set_task_busy(False)
                     self.full_physical_check_btn.setEnabled(True)
                     self.physical_check_btn.setEnabled(True)
 
@@ -2737,6 +2741,7 @@ class _PreviewPanel:
                     return
                 self.planar_calculate.setEnabled(False)
                 self.calculate.setEnabled(False)
+                self._set_task_busy(True)
                 # Real Part/OCC CAD gauge tests now cost ~0.8-1.6 s per
                 # evaluated bend on the 10-bend fixture. The previous 30 s
                 # limit expired inside Stage B at the sixth operation, not
@@ -2863,6 +2868,7 @@ class _PreviewPanel:
                     self.status.setText(msg)
                     _error("Planar search exception: " + traceback.format_exc())
                 finally:
+                    self._set_task_busy(False)
                     self._sync_playback_buttons()
 
             def open_sequence_catalog_dialog(self):
@@ -3256,6 +3262,7 @@ class _PreviewPanel:
                 self.physical_check_btn.setEnabled(False)
                 self.full_physical_check_btn.setEnabled(False)
                 self._highlighted_end_zone_info = None
+                self._set_task_busy(True)
                 self.status.setText(
                     "Выполняется поиск последовательности гибки с физической проверкой 2.5D + D6 (backtracking)..."
                 )
@@ -3274,6 +3281,9 @@ class _PreviewPanel:
                         seq_str = " -> ".join(partial_seq) if partial_seq else "корень"
                         self.physical_check_result.setText(
                             f"Поиск последовательности (глубина {depth}/{total}): {seq_str}..."
+                        )
+                        self._task_progress_caption.setText(
+                            f"Глубина {depth}/{total} · не %"
                         )
                         QtWidgets.QApplication.processEvents()
                         return True
@@ -3346,6 +3356,7 @@ class _PreviewPanel:
                     self.physical_check_result.setText(msg)
                     _error("Sequence search exception: " + traceback.format_exc())
                 finally:
+                    self._set_task_busy(False)
                     self.full_physical_check_btn.setEnabled(True)
                     self.physical_check_btn.setEnabled(True)
                     self._sync_playback_buttons()
@@ -4122,6 +4133,7 @@ class _PreviewPanel:
                     return
                 self._stop_timer()
                 self.manual_validate_btn.setEnabled(False)
+                self._set_task_busy(True)
                 self.status.setText(
                     "Stage A/B: проверка ручного порядка {} гибов...".format(len(prefix))
                 )
@@ -4223,6 +4235,7 @@ class _PreviewPanel:
                     self.status.setText("Ошибка проверки ручного порядка: " + str(exc))
                     _error("Manual-order diagnostic exception: " + traceback.format_exc())
                 finally:
+                    self._set_task_busy(False)
                     self.manual_validate_btn.setEnabled(True)
 
             def activate_manual_mode(self):
