@@ -67,6 +67,29 @@ class ManualVerifyEmbeddedContractTests(unittest.TestCase):
         self.assertIn("build_snapshot", snap_calls)
         self.assertIn("write_included_json", snap_calls)
 
+    def test_planar_search_completion_trace_has_only_bound_values(self):
+        """Regression: a dead CAD-search flag raised NameError after 2D search."""
+        fn = method("calculate_planar_candidates")
+        traces = [
+            node for node in ast.walk(fn)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "_trace_event"
+            and node.args
+            and isinstance(node.args[0], ast.Constant)
+            and node.args[0].value == "PLANAR_2D_SEARCH_COMPLETED"
+        ]
+        self.assertEqual(len(traces), 1)
+        supplied = {kw.arg for kw in traces[0].keywords}
+        self.assertEqual(supplied, {
+            "status", "evaluated_steps", "visited_nodes",
+            "candidate_count", "limit_reason", "budget_seconds",
+        })
+        self.assertNotIn("cad_extended_search",
+                         ast.get_source_segment(
+                             SOURCE.read_text(encoding="utf-8"), fn
+                         ))
+
     def test_manual_panel_has_inline_state_and_historical_restore(self):
         text = SOURCE.read_text(encoding="utf-8")
         self.assertIn("self.manual_check_summary = QtWidgets.QLabel(", text)
