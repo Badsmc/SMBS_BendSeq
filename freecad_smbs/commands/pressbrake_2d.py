@@ -5749,6 +5749,14 @@ class _PreviewPanel:
                             initial_clearance_mm=(
                                 float(self.cycle_config.initial_clearance_mm)
                             ),
+                            # Manual validation must have sufficient budget
+                            # for expensive multi-fold native OCC trajectories.
+                            # B05 (after B07, B03) previously left 2 intervals
+                            # unresolved at 27 samples / 120s. A longer bound
+                            # cannot turn missing evidence into a PASS: D6
+                            # still reports INTERVAL_UNRESOLVED if exhausted.
+                            max_phase_time_s=300.0,
+                            max_evaluated_states_per_phase=64,
                         ),
                         progress_callback=on_progress,
                         # Validate the EXPLICIT operator loading selection.
