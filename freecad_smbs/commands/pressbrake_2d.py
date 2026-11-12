@@ -1036,7 +1036,8 @@ class _PreviewPanel:
             def setText(self, message):
                 super().setText(str(message))
                 self.setToolTip(str(message))
-                self._workspace._on_task_status_change(str(message))
+                if hasattr(self, "_workspace"):
+                    self._workspace._on_task_status_change(str(message))
 
         class TaskPhysicalResultLabel(QtWidgets.QLabel):
             """Mirror the actual validator output into the compact simulation card."""
@@ -1048,7 +1049,8 @@ class _PreviewPanel:
             def setText(self, message):
                 super().setText(str(message))
                 self.setToolTip(str(message))
-                self._workspace._on_physical_result_change(str(message))
+                if hasattr(self, "_workspace"):
+                    self._workspace._on_physical_result_change(str(message))
 
         class Panel(QtWidgets.QWidget):
             def __init__(self, library_root: Path | str | None = None):
@@ -1123,6 +1125,17 @@ class _PreviewPanel:
                 self.timer.setInterval(25)  # 40 Hz Qt playback; one timer only
                 self.timer.timeout.connect(self.advance)
                 self.setMinimumWidth(580)
+                self.setObjectName("SMBS_ViewerRoot")
+                self.setStyleSheet(
+                    "QWidget#SMBS_ViewerRoot { background: palette(window); }"
+                    "QTabWidget#SMBS_ViewerTabs::pane {"
+                    " border: 1px solid palette(midlight);"
+                    " border-radius: 9px; }"
+                    "QTabWidget#SMBS_ViewerTabs QTabBar::tab {"
+                    " padding: 9px 14px; min-height: 27px; }"
+                    "QTabWidget#SMBS_ViewerTabs QTabBar::tab:selected {"
+                    " border-bottom: 2px solid #48A99C; }"
+                )
 
                 from freecad_smbs.ui.pressbrake_theme import (
                     OUTER_MARGIN, SECTION_GAP,
