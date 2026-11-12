@@ -21,8 +21,10 @@ def show_backgauge_settings(workspace):
     layout = W.QVBoxLayout(dlg)
     notice = W.QLabel(
         "Используется только реальная модель Backgauge.FCStd. "
-        "Автоматическая позиция рассчитывается от середины линии гиба "
-        "до внешнего края развёртки на стороне опорной панели. "
+        "В таблице: «До гиба» — размер по развёртке; "
+        "«Упор S» — положение лицевой поверхности упора от оси гиба. "
+        "В автоматическом режиме оно рассчитывается по машинному "
+        "сечению детали с учётом толщины и уже выполненных гибов. "
         "Ручной режим задаёт центр S/Z для каждого гиба. "
         "Упор только перемещается при просмотре: столкновения, "
         "проникновения, контакт и допустимость хода НЕ проверяются."
@@ -64,7 +66,7 @@ def show_backgauge_settings(workspace):
     active.setChecked(workspace.backgauge_model is not None)
     layout.addWidget(active)
     auto = W.QCheckBox(
-        "Автоматически рассчитывать положение до внешнего края развёртки")
+        "Авто: учитывать уже согнутую геометрию и толщину")
     model = workspace.backgauge_model
     auto.setChecked(model.automatic if model else True)
     layout.addWidget(auto)
@@ -183,6 +185,8 @@ def show_backgauge_settings(workspace):
                 "Модель упора скрыта. Расчёты последовательности не зависят от упора."
             )
             workspace._backgauge_preview_cache.clear()
+            workspace._machine_gauge_envelope_cache = None
+            workspace._update_operations_visual_state()
             workspace.draw()
             dlg.accept()
             return
@@ -260,13 +264,15 @@ def show_backgauge_settings(workspace):
         )
         workspace._backgauge_settings.setValue("backgauge/enabled", True)
         workspace.status.setText(
-            ("Задний упор: визуальная постановка по контуру развёртки."
+            ("Задний упор: визуальная установка по согнутому машинному сечению."
              if auto.isChecked() else
              "Задний упор: ручные координаты для {} гибов.".format(len(targets)))
             + " Столкновения и контакт не проверяются."
         )
         workspace._backgauge_preview_cache.clear()
+        workspace._machine_gauge_envelope_cache = None
         workspace._ergonomic_loading_cache_key = None
+        workspace._update_operations_visual_state()
         workspace.draw()
         dlg.accept()
 
