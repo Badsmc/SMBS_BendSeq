@@ -4865,6 +4865,20 @@ class _PreviewPanel:
                                 float(blocker.get("die_overlap_mm3") or 0.0),
                             )
                         )
+                        bbox_dict = blocker.get("intersection_bbox_xyz_mm") or {}
+                        for kind, coords in bbox_dict.items():
+                            if isinstance(coords, dict):
+                                lines.append(
+                                    "  ОБЛАСТЬ {} (машинные XYZ, мм): "
+                                    "X [{:.3f}, {:.3f}], "
+                                    "Y [{:.3f}, {:.3f}], "
+                                    "Z [{:.3f}, {:.3f}]".format(
+                                        kind.upper(),
+                                        coords["xmin"], coords["xmax"],
+                                        coords["ymin"], coords["ymax"],
+                                        coords["zmin"], coords["zmax"],
+                                    )
+                                )
                         lines.append(
                             "  Код: {} | {}".format(
                                 blocker.get("phase_status", "UNVERIFIED"),
