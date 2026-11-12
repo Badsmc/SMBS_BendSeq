@@ -2987,14 +2987,17 @@ class _PreviewPanel:
                         "sampled_machine_pose"
                     ) or {}
                     obstacle = inspection.get("first_blocker") or {}
-                    for tool_kind, bound in (
-                        obstacle.get("intersection_bbox_xyz_mm") or {}
-                    ).items():
-                        if not isinstance(bound, dict):
-                            continue
-                        # 12 edges of the exact OCC common-solid AABB in
-                        # MACHINE coordinates. Do NOT imply the red wireframe
-                        # is the exact contact surface itself.
+                    from smbs_core.kinematics2d.native_collision_attribution import (
+                        collision_preview_boxes,
+                    )
+                    for marker in collision_preview_boxes(obstacle):
+                        tool_kind = marker["tool"]
+                        bound = marker["bbox"]
+                        # 12 edges of a positive OCC common-solid AABB in
+                        # MACHINE coordinates. Use independently attributed
+                        # panel P09 bounds instead of the entire sheet when
+                        # complete diagnostics support that precision. This
+                        # wireframe is NEVER the actual contact surface.
                         lo = (bound["xmin"], bound["ymin"], bound["zmin"])
                         hi = (bound["xmax"], bound["ymax"], bound["zmax"])
                         corners = [
@@ -3018,8 +3021,8 @@ class _PreviewPanel:
                                 )
                                 wire.setZValue(500.0)
                         text_item = scene.addSimpleText(
-                            "OCC {}: XYZ BBox / native D6".format(
-                                tool_kind.upper()
+                            "OCC {} x {}: XYZ BBox / native D6".format(
+                                tool_kind.upper(), marker["component_id"],
                             )
                         )
                         text_item.setBrush(QtGui.QBrush(
