@@ -135,6 +135,35 @@ class PreviewPunchRegression(unittest.TestCase):
         self.assertFalse(pc._manual_preview_active)
         self.assertAlmostEqual(pc.tooling.ram_z_mm, pc.upper_z_mm)
 
+    def test_switching_to_bend_only_does_not_separate_sheet_and_punch(self):
+        pc = _cycle()
+        pc.set_manual_preview_angle(35.0)
+        original_z = pc.ram_z_mm
+        pc.set_execution_mode(CycleExecutionMode.BEND_ONLY)
+        self.assertAlmostEqual(pc.ram_z_mm, original_z)
+        self.assertAlmostEqual(
+            pc.preview_workpiece_support_zm(),
+            2.5 - pc.coupled_kinematics.stroke_for_angle(35.0),
+        )
+        self.assertTrue(pc._manual_preview_active)
+
+    def test_tooling_change_reestablishes_punch_preview(self):
+        pc = _cycle()
+        pc.set_manual_preview_angle(35.0)
+        original_z = pc.ram_z_mm
+        with patch.object(
+            pc, "_sync_bounds_and_orientation_for_active_bend"
+        ) as resync:
+            pc.on_tooling_changed()
+            resync.assert_called_once_with(reposition_tools=True)
+        self.assertAlmostEqual(pc.ram_z_mm, original_z)
+
+    def test_missing_bend_zone_never_fabricates_sheet_height(self):
+        pc = _cycle()
+        pc.sequence.fold_state.bends["B01"].bend_zone = None
+        with self.assertRaises(PressCycleError):
+            pc.preview_workpiece_support_zm()
+
     def test_negative_bend_uses_same_stroke_magnitude(self):
         pc = _cycle(target=-90.0)
         pc.set_manual_preview_angle(-45.0)
