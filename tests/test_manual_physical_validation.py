@@ -238,7 +238,8 @@ class ManualToolingTests(unittest.TestCase):
         self.assertEqual(report["status"], "UNVERIFIED")
         self.assertEqual(report["checked_bends"], 1)
 
-    def test_reverse_loaded_bend_is_not_falsely_certified(self):
+    def test_manual_reversed_orientation_reaches_native_validator(self):
+        """The actual D6 checker, not just the 2.5D camera, gets the choice."""
         with patch(
             "smbs_core.kinematics2d.manual_physical_validation"
             ".check_active_25d_bend_trajectory",
@@ -248,11 +249,17 @@ class ManualToolingTests(unittest.TestCase):
         ) as check:
             report = check_manual_3d_sequence(
                 self.session, self.tooling, ("B01", "B02"),
-                reverse_axis_by_bend={"B01": True},
+                reverse_axis_by_bend={"B01": True, "B02": False},
             )
-        self.assertEqual(report["status"], "UNVERIFIED")
-        self.assertIn("reverse_axis", report["reason"])
-        check.assert_not_called()
+        self.assertEqual(report["status"], "SAMPLED_3D_CLEAR_NOT_CONTINUOUS")
+        self.assertEqual(report["checked_bends"], 2)
+        self.assertEqual(check.call_count, 2)
+        self.assertTrue(check.call_args_list[0].kwargs["reverse_axis"])
+        self.assertFalse(check.call_args_list[1].kwargs["reverse_axis"])
+        self.assertEqual(report["reverse_axis_by_bend"],
+                         {"B01": True, "B02": False})
+        self.assertTrue(report["steps"][0]["reverse_axis"])
+        self.assertFalse(report["steps"][1]["reverse_axis"])
 
     def test_tool_pair_checker_uses_every_distinct_sample_and_actual_source(self):
         class NativeStatus(Enum):
