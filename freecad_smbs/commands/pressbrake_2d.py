@@ -91,6 +91,8 @@ class _SMBSFCStdSaveObserver:
         panel = self._panel_ref()
         if panel is None or panel.session is None:
             return
+        if not getattr(panel, "_smbs_allow_auto_embed", False):
+            return
         if str(getattr(document, "Name", "")) != str(
             getattr(panel, "_smbs_document_name", "")
         ):
@@ -1192,6 +1194,7 @@ class _PreviewPanel:
                 self._manual_preview_unverified = False
                 self._smbs_document_name = None
                 self._smbs_fcstd_observer = None
+                self._smbs_allow_auto_embed = False
                 self._embedded_diagnostics_history = None
                 self._conditional_bends_status: dict[str, str] = {}
                 self._highlighted_end_zone_info: dict | None = None
@@ -4362,6 +4365,7 @@ class _PreviewPanel:
                 self._last_3d_frame_at = -1.0
                 self.session = new_session
                 self._smbs_document_name = str(doc.Name)
+                self._smbs_allow_auto_embed = False
                 self.last_planar_search_report = None
                 self._last_manual_sequence_report = None
                 self._preview_only_planar_order = None
@@ -4389,7 +4393,12 @@ class _PreviewPanel:
                     # Changed geometry, wrong schema or damaged JSON must
                     # never overwrite the successfully loaded live session.
                     _warn("Embedded SMBS state not restored: " + str(exc))
-                    restore_message = "SMBS JSON не восстановлен: " + str(exc)
+                    restore_message = (
+                        "SMBS JSON не восстановлен: " + str(exc) +
+                        " | Автозапись JSON отключена до явного сохранения,"
+                        " чтобы не уничтожить старые данные."
+                    )
+                    self._smbs_allow_auto_embed = False
                     self.fcstd_note.setText(restore_message)
                 try:
                     self._register_embedded_smbs_observer()
@@ -4465,6 +4474,7 @@ class _PreviewPanel:
                 try:
                     document = self._bound_smbs_document()
                     self._write_embedded_smbs_json(document)
+                    self._smbs_allow_auto_embed = True
                     # An unsaved document has no target archive yet. Avoid
                     # silently writing to a made-up default filename.
                     if str(getattr(document, "FileName", "")):
@@ -4515,6 +4525,7 @@ class _PreviewPanel:
 
                 payload = read_included_json(document)
                 if payload is None:
+                    self._smbs_allow_auto_embed = True
                     self._embedded_diagnostics_history = None
                     self.fcstd_note.setText(
                         "В этом документе пока нет вложенного SMBS JSON."
@@ -4523,6 +4534,7 @@ class _PreviewPanel:
                 order, prefix = validate_restore(
                     payload, self.session, document
                 )
+                self._smbs_allow_auto_embed = True
                 if self.timer.isActive() or self.playing:
                     self._stop_timer()
                 # A loaded FoldState must be clean before reordering; neither
