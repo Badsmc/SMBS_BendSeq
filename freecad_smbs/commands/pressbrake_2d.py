@@ -320,6 +320,7 @@ class LoadedPartSession:
     fold_state: FoldState
     active_bend_index: int = 0
     gauge_distances_mm: dict = field(default_factory=dict)
+    local_bend_dimensions_mm: dict = field(default_factory=dict)
     controller: BendSequenceController = field(init=False)
 
     def __post_init__(self) -> None:
@@ -528,12 +529,32 @@ def build_part_session(doc, selection, fixed_panel: str | None = None) -> Loaded
             fixed_panel = panel_build.connections[0].panel_a
 
     fold_state = FoldState(graph, fixed_panel)
-    # Bend-axis midpoint -> physical OUTER blank boundary, not a virtual
-    # panel split along another bend. Fail individually, without fake values.
-    from smbs_core.kinematics2d.gauge_preview import bend_to_blank_edge_mm
+    # Keep the absolute outer-edge reach used by the legacy gauge preview
+    # completely separate from the local dimensions in the bends table.
+    # A neighbouring bend is a flange boundary for the table, not the end
+    # of the physical blank for the gauge's visual machine placement.
+    from smbs_core.kinematics2d.gauge_preview import (
+        bend_to_blank_edge_mm, local_bend_dimension_mm,
+    )
     outline_xy = getattr(panel_build, "outline_vertices_xy", ())
     gauge_distances_mm = {}
+    local_bend_dimensions_mm = {}
+    axes_xy = {
+        bend.bend_id: tuple((p[0], p[1]) for p in bend.axis_xyz)
+        for bend in fold_state.bends.values()
+    }
     for bend in fold_state.bends.values():
+        bid = bend.bend_id
+        try:
+            local_bend_dimensions_mm[bid] = local_bend_dimension_mm(
+                axes_xy[bid], outline_xy,
+                tuple(axis for other_id, axis in axes_xy.items() if other_id != bid),
+            )
+        except (ValueError, TypeError, KeyError) as exc:
+            _warn("Local bend dimension unavailable for {}: {}".format(
+                bid, exc,
+            ))
+        try:
         try:
             gauge_distances_mm[bend.bend_id] = bend_to_blank_edge_mm(
                 tuple((p[0], p[1]) for p in bend.axis_xyz),
@@ -555,6 +576,7 @@ def build_part_session(doc, selection, fixed_panel: str | None = None) -> Loaded
         fold_state=fold_state,
         active_bend_index=0,
         gauge_distances_mm=gauge_distances_mm,
+        local_bend_dimensions_mm=local_bend_dimensions_mm,
     )
 
 
@@ -1480,12 +1502,17 @@ class _PreviewPanel:
                 root.addLayout(order_row)
 
                 self.operations = QtWidgets.QTreeWidget()
-                self.operations.setHeaderLabels(["Step", "Bend", "Target", "Current", "До края, мм", "Status"])
+                self.operations.setHeaderLabels(["Step", "Bend", "Target", "Current", "Полка, мм", "Status"])
                 self.operations.setRootIsDecorated(False)
                 self.operations.setHorizontalScrollBarPolicy(
                     QtCore.Qt.ScrollBarAsNeeded
                 )
                 self.operations.setObjectName("SMBS_Operations")
+                self.operations.setToolTip(
+                    "Полка, мм: от середины текущей линии гиба до ближайшей "
+                    "соседней параллельной линии гиба или наружного края "
+                    "развёртки. Локальный размер, без накопления."
+                )
                 self.operations.setAlternatingRowColors(True)
                 self.operations.setMinimumHeight(220)
                 self.operations.header().setSectionResizeMode(
@@ -5052,7 +5079,7 @@ class _PreviewPanel:
                     status_str = "IDLE"
                 if b.bend_id in self._conditional_bends_status:
                     status_str += " [CONDITIONAL]"
-                distance = self.session.gauge_distances_mm.get(b.bend_id)
+                distance = self.session.local_bend_dimensions_mm.get(b.bend_id)
                 return (
                     str(idx),
                     "{} ({} → {})".format(b.bend_id, b.fixed_panel, b.moving_panel),
