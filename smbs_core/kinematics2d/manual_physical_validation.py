@@ -94,14 +94,28 @@ def retract_evidence_from_trajectory(trajectory: Any) -> dict:
                 getattr(st.collision_report, "status"), "value",
                 getattr(st.collision_report, "status"),
             )) == "PENETRATION"
+            and not bool(getattr(st, "is_conditional_safe", False))
             for st in states
+        )
+        # The native phase explicitly marks permitted punch END_ZONE_ONLY
+        # penetration as not strictly safe. Preserve CONDITIONAL for this
+        # precise case; never waive ordinary sheet/die or tool/tool hits.
+        native_conditional = (
+            raw_status == "SAMPLED_INTERVAL_CONDITIONAL_END_ZONE"
         )
         unresolved = bool(
             getattr(phase, "unresolved_intervals", None)
             or getattr(phase, "uninspected_intervals", None)
             or getattr(phase, "discontinuities", None)
-            or getattr(phase, "is_safe", True) is False
-            or any(getattr(st, "is_safe", True) is False for st in states)
+            or (
+                getattr(phase, "is_safe", True) is False
+                and not native_conditional
+            )
+            or any(
+                getattr(st, "is_safe", True) is False
+                and not bool(getattr(st, "is_conditional_safe", False))
+                for st in states
+            )
         )
         if any_observed_collision:
             out["status"] = "COLLISION"
