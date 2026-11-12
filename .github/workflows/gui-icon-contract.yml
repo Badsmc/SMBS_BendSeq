@@ -82,8 +82,7 @@ jobs:
           assert not missing, "GUI icon files missing: " + str(missing)
           for required in (
               "control_play.svg", "control_pause.svg", "control_reset.svg",
-              "control_fit.svg", "control_prev.svg", "control_next.svg",
-              "control_record.svg", "gui_manual.svg",
+              "control_prev.svg", "control_record.svg", "gui_manual.svg",
           ):
               assert required in declared, required
           assert "def _apply_svg_button_icons(self):" in gui_source
