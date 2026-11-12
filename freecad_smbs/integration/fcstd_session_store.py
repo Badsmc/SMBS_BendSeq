@@ -157,7 +157,9 @@ def _bounded_report(report):
                 "step_number", "bend_id", "angle_deg", "evidence", "reason",
                 "stage_a", "stage_b",
             ) if k in step}
-            for step in report.get("steps", ())
+            for step in report.get(
+                "steps", report.get("planar_steps", ())
+            )
         ]
         # Refuse unrepresentable or oversized evidence. Never claim that
         # the report was embedded if it was silently dropped.
