@@ -16,6 +16,7 @@ from smbs_core.kinematics2d.native_collision_attribution import (
 )
 from smbs_core.kinematics2d.manual_sequence_replay import (
     off_section_prior_fold_risk, evaluate_manual_planar_order,
+    crosscheck_manual_planar_native_evidence,
 )
 from smbs_core.kinematics2d.preliminary_screening import (
     PreliminaryScreeningReport, ScreeningDecision,
@@ -46,6 +47,44 @@ def mock_state(u, phase="BENDING", threshold=0.4):
         ),
         is_safe=not collides,
     )
+
+
+class ManualEvidenceCrosscheckTests(unittest.TestCase):
+    def test_reversed_B03_planar_interference_vs_sampled_native_clear(self):
+        planar = {"steps": [
+            {"bend_id": "B07", "evidence": "SAMPLED_2D_CLEAR_OR_TOUCH",
+             "reverse_axis": True},
+            {"bend_id": "B03", "evidence": "2D_INTERFERENCE",
+             "reason": "BENDING:P09:proper_material_boundary_crossing",
+             "reverse_axis": True},
+        ]}
+        native = {"steps": [
+            {"bend_id": "B07",
+             "status": "SAMPLED_3D_CLEAR_NOT_CONTINUOUS",
+             "reverse_axis": True},
+            {"bend_id": "B03",
+             "status": "SAMPLED_3D_CLEAR_NOT_CONTINUOUS",
+             "reverse_axis": True},
+            {"bend_id": "B05", "status": "UNVERIFIED",
+             "reverse_axis": True},
+        ]}
+        conflicts = crosscheck_manual_planar_native_evidence(planar, native)
+        self.assertEqual(len(conflicts), 1)
+        self.assertEqual(conflicts[0]["bend_id"], "B03")
+        self.assertEqual(conflicts[0]["kind"],
+                         "2D_SECTION_INTERFERENCE_NOT_REPRODUCED_IN_SAMPLED_NATIVE_3D")
+        self.assertTrue(conflicts[0]["reverse_axis_2d"])
+        self.assertTrue(conflicts[0]["reverse_axis_3d"])
+        self.assertFalse(conflicts[0]["continuous_clearance_certified"])
+
+    def test_native_collision_missed_by_2d_is_preserved(self):
+        planar = {"steps": [{"bend_id": "B03",
+                             "evidence": "SAMPLED_2D_CLEAR_OR_TOUCH"}]}
+        native = {"steps": [{"bend_id": "B03", "status": "COLLISION"}]}
+        conflicts = crosscheck_manual_planar_native_evidence(planar, native)
+        self.assertEqual(len(conflicts), 1)
+        self.assertEqual(conflicts[0]["kind"],
+                         "NATIVE_COLLISION_NOT_DETECTED_BY_SAMPLED_2D")
 
 
 class ManualPlanarOrientationTests(unittest.TestCase):
