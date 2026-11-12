@@ -17,7 +17,7 @@ from smbs_core.kinematics2d.manual_physical_validation import (
 )
 
 from smbs_core.kinematics2d.manual_physical_validation import (
-    check_manual_3d_sequence,
+    check_manual_3d_sequence, concise_3d_blocker,
 )
 from smbs_core.kinematics2d.physical_validation_25d import PhysicalEvidence
 from smbs_core.kinematics2d.panel_graph import GraphEdge, PanelGraph
@@ -364,6 +364,101 @@ class ManualToolingTests(unittest.TestCase):
             with self.subTest(order=order):
                 with self.assertRaises(ValueError):
                     check_manual_3d_sequence(self.session, self.tooling, order)
+
+
+
+class NativePhaseBlockerTests(unittest.TestCase):
+    """A long log must not hide the BENDING/BOTTOM phase that rejected B03."""
+
+    @staticmethod
+    def _phase(name, verdict, *, states=(), punch_overlap=0.0,
+               die_overlap=0.0, discontinuities=()):
+        return SimpleNamespace(
+            phase_name=name,
+            evidence_status=SimpleNamespace(value=verdict),
+            states=states,
+            max_punch_overlap_volume_mm3=punch_overlap,
+            max_die_overlap_volume_mm3=die_overlap,
+            diagnostics=[
+                "TIMINGS: phase=2500ms, cache_lookups=0.2ms",
+                "native collision evidence",
+            ],
+            discontinuities=discontinuities,
+            unresolved_intervals=(),
+            uninspected_intervals=(),
+        )
+
+    @staticmethod
+    def _state(tool, z, angle, phase):
+        punch_state = "PENETRATION" if tool == "PUNCH" else "CLEAR"
+        die_state = "PENETRATION" if tool == "DIE" else "CLEAR"
+        return SimpleNamespace(
+            phase=phase, ram_z_mm=z, signed_angle_deg=angle,
+            is_safe=False, is_conditional_safe=False,
+            collision_report=SimpleNamespace(
+                status=SimpleNamespace(value="PENETRATION"),
+                punch_result=SimpleNamespace(
+                    status=SimpleNamespace(value=punch_state),
+                ),
+                die_result=SimpleNamespace(
+                    status=SimpleNamespace(value=die_state),
+                ),
+            ),
+        )
+
+    def test_clear_approach_and_contact_do_not_hide_bending_die_penetration(self):
+        hit = self._state("DIE", -3.5, 62.0, "BENDING")
+        trajectory = SimpleNamespace(
+            phase_results=[
+                self._phase("APPROACH", "SAMPLED_INTERVAL_CONVERGED"),
+                self._phase("CONTACT", "SAMPLED_INTERVAL_CONVERGED"),
+                self._phase("BENDING", "DISCRETE_SAMPLES_REJECTED",
+                            states=(hit,), die_overlap=12.543210),
+            ],
+            first_collision_state=hit,
+        )
+        result = concise_3d_blocker(trajectory)
+        self.assertEqual(result["phase"], "BENDING")
+        self.assertEqual(result["tool"], "DIE")
+        self.assertAlmostEqual(result["ram_z_mm"], -3.5)
+        self.assertAlmostEqual(result["angle_deg"], 62.0)
+        self.assertEqual(result["die_overlap_mm3"], 12.54321)
+        self.assertEqual(result["reason"], "native collision evidence")
+
+    def test_punch_penetration_reports_correct_instrument(self):
+        hit = self._state("PUNCH", -2.0, 25.0, "BOTTOM")
+        trajectory = SimpleNamespace(
+            phase_results=[
+                self._phase("BOTTOM", "DISCRETE_SAMPLES_REJECTED",
+                            states=(hit,), punch_overlap=3.2),
+            ],
+            first_collision_state=hit,
+        )
+        result = concise_3d_blocker(trajectory)
+        self.assertEqual(result["phase"], "BOTTOM")
+        self.assertEqual(result["tool"], "PUNCH")
+        self.assertAlmostEqual(result["punch_overlap_mm3"], 3.2)
+
+    def test_native_discontinuity_not_falsely_called_tool_penetration(self):
+        trajectory = SimpleNamespace(
+            phase_results=[
+                self._phase("BENDING", "DISCRETE_SAMPLES_REJECTED",
+                            discontinuities=("machine_pose_jump",)),
+            ],
+            first_collision_state=None,
+        )
+        result = concise_3d_blocker(trajectory)
+        self.assertEqual(result["tool"], "UNKNOWN")
+        self.assertIn("machine_pose_jump", result["reason"])
+
+    def test_clear_trajectory_has_no_blocker(self):
+        trajectory = SimpleNamespace(
+            phase_results=[
+                self._phase("BENDING", "SAMPLED_INTERVAL_CONVERGED"),
+                self._phase("RETRACT", "SAMPLED_INTERVAL_CONVERGED"),
+            ]
+        )
+        self.assertEqual(concise_3d_blocker(trajectory)["phase"], "NONE")
 
 
 if __name__ == "__main__":
