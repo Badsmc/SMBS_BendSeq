@@ -20,6 +20,7 @@ from smbs_core.kinematics2d.manual_physical_validation import (
     check_manual_3d_sequence, concise_3d_blocker,
 )
 from smbs_core.kinematics2d.physical_validation_25d import PhysicalEvidence
+from smbs_core.kinematics2d.motion_trajectory_3d import AdaptiveSamplingConfig
 from smbs_core.kinematics2d.panel_graph import GraphEdge, PanelGraph
 from smbs_core.kinematics2d.panel_kinematics import FoldState
 from smbs_core.kinematics2d.tooling_25d import ValidationStatus
@@ -172,13 +173,28 @@ class ManualToolingTests(unittest.TestCase):
         with patch(
             "smbs_core.kinematics2d.manual_physical_validation"
             ".check_active_25d_bend_trajectory", side_effect=fake,
-        ):
+        ), patch(
+            "smbs_core.kinematics2d.manual_physical_validation.debug_event"
+        ) as journal:
             report = check_manual_3d_sequence(
                 self.session, self.tooling, ("B01", "B02"),
                 allow_end_zone_collision=True, end_zone_length_mm=10.0,
+                config=AdaptiveSamplingConfig(),
             )
         self.assertEqual(report["status"], "CONDITIONAL")
         self.assertTrue(all(s["is_conditional"] for s in report["steps"]))
+        starts = [
+            call.kwargs for call in journal.call_args_list
+            if call.args[0] == "MANUAL_NATIVE_CHECK_STARTED"
+        ]
+        self.assertEqual(len(starts), 1)
+        self.assertFalse(starts[0]["adaptive_config"]["allow_end_zone_collision"])
+        self.assertEqual(starts[0]["adaptive_config"]["end_zone_length_mm"], 0.0)
+        self.assertEqual(starts[0]["effective_end_zone_policy"], {
+            "allow_end_zone_collision": True,
+            "end_zone_length_mm": 10.0,
+            "classify_end_zone_length_mm": 10.0,
+        })
 
     def test_punch_die_tool_pair_intersection_is_blocking_even_if_sheet_clear(self):
         self.pair_mock.return_value = {
