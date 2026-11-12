@@ -4525,6 +4525,78 @@ class _PreviewPanel:
                 App.addDocumentObserver(observer)
                 self._smbs_fcstd_observer = observer
 
+            def _clear_manual_check_feedback(self):
+                """Invalidate LIVE validation display; never present stale PASS."""
+                if not hasattr(self, "manual_check_summary"):
+                    return
+                self.manual_check_summary.setText(
+                    "UNVERIFIED: параметры изменились; запустите «Проверить» снова."
+                )
+                self.manual_check_details.clear()
+                self.manual_check_details.hide()
+
+            def _show_manual_check_feedback(self, status, summary, steps=()):
+                """Show native check result in Manual, including the failed bend."""
+                if not hasattr(self, "manual_check_summary"):
+                    return
+                self.manual_check_summary.setText(
+                    "{}: {}".format(str(status), str(summary))
+                )
+                lines = []
+                for item in steps or ():
+                    bend_id = str(item.get("bend_id", "?"))
+                    index = item.get("step_number", "?")
+                    verdict = str(item.get("status", "UNVERIFIED"))
+                    phase_evidence = str(item.get("reason", ""))
+                    tool_pair = item.get("punch_die_pair")
+                    lines.append(
+                        "{}. {} | {} | угол {}°".format(
+                            index, bend_id, verdict, item.get("angle_deg", "?"),
+                        )
+                    )
+                    if phase_evidence:
+                        # The complete diagnostic stays in embedded FCStd;
+                        # the manual widget displays a readable excerpt.
+                        lines.append("  " + phase_evidence[:650])
+                    if isinstance(tool_pair, dict):
+                        lines.append(
+                            "  Пуансон/матрица: {} | {} позиций{}".format(
+                                tool_pair.get("status", "UNVERIFIED"),
+                                tool_pair.get("checked_ram_positions", 0),
+                                (" | " + str(tool_pair.get("reason", "")))
+                                if tool_pair.get("status") != "SAMPLED_CLEAR" else "",
+                            )
+                        )
+                if not lines:
+                    lines = [
+                        "Ни один гиб не подтверждён. Проверьте выбранные "
+                        "FCStd-инструменты, режим длины и журнал ошибок."
+                    ]
+                self.manual_check_details.setPlainText("\n".join(lines))
+                self.manual_check_details.show()
+
+            def _persist_manual_check_to_fcstd(self):
+                """Embed manual results, saving the SAME FCStd, never JSON.
+
+                No export dialog is allowed here. For an unsaved FreeCAD
+                document, stage the included attachment and rely on native
+                File → Save to choose the first FCStd filename.
+                """
+                document = self._bound_smbs_document()
+                snapshot = self._write_embedded_smbs_json(document)
+                self._smbs_allow_auto_embed = True
+                self._embedded_diagnostics_history = snapshot["diagnostics"]
+                filename = str(getattr(document, "FileName", "") or "")
+                if filename:
+                    # FreeCAD itself writes PropertyFileIncluded into the
+                    # native FCStd archive, preserving all other objects.
+                    document.save()
+                    return "Результат сохранён внутри FCStd: " + filename
+                return (
+                    "Результат вложен в открытый документ. "
+                    "Для записи на диск сохраните его как FCStd через Ctrl+S."
+                )
+
             def _write_embedded_smbs_json(self, document):
                 """Stage a native included attachment without calling save()."""
                 from freecad_smbs.integration.fcstd_session_store import (
@@ -4544,7 +4616,11 @@ class _PreviewPanel:
                     cycle_config=self.cycle_config,
                     execution_mode=self.execution_mode,
                     manual_prefix=tuple(self._manual_sequence_prefix),
-                    manual_report=self._last_manual_sequence_report,
+                    manual_report=(
+                        self._last_manual_sequence_report
+                        if self._last_manual_sequence_report is not None
+                        else (self._embedded_diagnostics_history or {}).get("manual")
+                    ),
                     search_report=self.last_sequence_search_report,
                     planar_report=self.last_planar_search_report,
                     operation_weights=weights.to_dict(),
