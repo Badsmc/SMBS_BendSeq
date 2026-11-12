@@ -1065,6 +1065,13 @@ class _PreviewPanel:
                 self._zoom_steps = 0.0
                 self._orbit_callback = orbit_callback
                 self._last_drag_pos = None
+                self._pan_last_pos = None
+                self._pan_button = None
+                self.setToolTip(
+                    "Колесо мыши: масштаб; средняя кнопка или Ctrl+ЛКМ "
+                    "и перетаскивание: перемещение сцены по горизонтали "
+                    "и вертикали. Fit: восстановить масштаб и центр."
+                )
 
             def reset_camera(self):
                 scene = self.scene()
@@ -1091,6 +1098,22 @@ class _PreviewPanel:
                 event.accept()
 
             def mousePressEvent(self, event):
+                # Middle-drag is available in both 2.5D and 3D. Ctrl+LMB
+                # is a trackpad alternative; ordinary left drag continues
+                # to orbit 3D or select bend lines in the unfold.
+                pan_button = (
+                    event.button() == QtCore.Qt.MiddleButton
+                    or (
+                        event.button() == QtCore.Qt.LeftButton
+                        and bool(event.modifiers() & QtCore.Qt.ControlModifier)
+                    )
+                )
+                if pan_button:
+                    self._pan_last_pos = event.pos()
+                    self._pan_button = event.button()
+                    self.setCursor(QtCore.Qt.ClosedHandCursor)
+                    event.accept()
+                    return
                 if (self._bend_click_callback is not None
                         and event.button() == QtCore.Qt.LeftButton):
                     item = self.itemAt(event.pos())
@@ -1108,6 +1131,21 @@ class _PreviewPanel:
                 super().mousePressEvent(event)
 
             def mouseMoveEvent(self, event):
+                if self._pan_last_pos is not None:
+                    pos = event.pos()
+                    delta = pos - self._pan_last_pos
+                    self._pan_last_pos = pos
+                    if delta.x() or delta.y():
+                        tr = self.transform()
+                        # Viewer transforms only scale; convert viewport
+                        # pixels to scene units to make pan speed invariant
+                        # under mouse-wheel zoom, in both axes.
+                        sx, sy = float(tr.m11()), float(tr.m22())
+                        if abs(sx) > 1e-10 and abs(sy) > 1e-10:
+                            self.translate(delta.x() / sx, delta.y() / sy)
+                            self._user_camera_modified = True
+                    event.accept()
+                    return
                 if self._last_drag_pos is not None and self._orbit_callback is not None:
                     pos = event.pos()
                     delta = pos - self._last_drag_pos
@@ -1120,6 +1158,13 @@ class _PreviewPanel:
                 super().mouseMoveEvent(event)
 
             def mouseReleaseEvent(self, event):
+                if (self._pan_last_pos is not None
+                        and event.button() == self._pan_button):
+                    self._pan_last_pos = None
+                    self._pan_button = None
+                    self.unsetCursor()
+                    event.accept()
+                    return
                 if self._last_drag_pos is not None and event.button() == QtCore.Qt.LeftButton:
                     self._last_drag_pos = None
                     event.accept()
@@ -2735,6 +2780,7 @@ class _PreviewPanel:
                 return 0.0
 
             def _on_virtual_tool_length_toggled(self, enabled: bool):
+                self._manual_3d_verdicts.clear()
                 bend_len = self._active_bend_length_mm()
                 if hasattr(self.tooling_setup, "set_match_active_bend_length"):
                     self.tooling_setup.set_match_active_bend_length(bool(enabled), bend_len)
@@ -2744,6 +2790,7 @@ class _PreviewPanel:
                 self.draw()
 
             def _on_end_zone_length_changed(self, val: float):
+                self._manual_3d_verdicts.clear()
                 try:
                     fval = max(0.0, float(val))
                 except (TypeError, ValueError):
@@ -2752,6 +2799,7 @@ class _PreviewPanel:
                 self._update_tooling_status_label()
 
             def _on_allow_end_zone_toggled(self, enabled: bool):
+                self._manual_3d_verdicts.clear()
                 self.tooling_setup.allow_end_zone_collision = bool(enabled)
                 self._update_tooling_status_label()
 
@@ -3999,6 +4047,7 @@ class _PreviewPanel:
                 self._update_tooling_status_label()
 
             def select_punch(self, punch: ToolProfile | None):
+                self._manual_3d_verdicts.clear()
                 try:
                     self.tooling_setup.select_punch(punch)
                 except ToolingError as exc:
@@ -4023,6 +4072,7 @@ class _PreviewPanel:
                 QtCore.QTimer.singleShot(0, self.fit)
 
             def select_die(self, die: ToolProfile | None):
+                self._manual_3d_verdicts.clear()
                 try:
                     self.tooling_setup.select_die(die)
                 except ToolingError as exc:
@@ -4381,6 +4431,7 @@ class _PreviewPanel:
                 self._smbs_allow_auto_embed = False
                 self.last_planar_search_report = None
                 self._last_manual_sequence_report = None
+                self._manual_3d_verdicts.clear()
                 self._preview_only_planar_order = None
                 self._partial_preview_limit = 0
                 self._selected_planar_gauge_order = ()
@@ -4950,6 +5001,7 @@ class _PreviewPanel:
                 self.last_planar_search_report = None
                 self.last_sequence_search_report = None
                 self._last_manual_sequence_report = None
+                self._manual_3d_verdicts.clear()
                 self._physical_check_signature = None
                 self._machine_pose_fault = None
                 self._highlighted_end_zone_info = None
@@ -5068,6 +5120,7 @@ class _PreviewPanel:
             def _apply_manual_order(self):
                 if self.session is None:
                     return
+                self._manual_3d_verdicts.clear()
                 prefix = tuple(self._manual_sequence_prefix)
                 remainder = tuple(
                     bend_id for bend_id in self.session.canonical_order
@@ -5211,6 +5264,7 @@ class _PreviewPanel:
             def _apply_reorder(self, action_fn):
                 if self.session is None:
                     return
+                self._manual_3d_verdicts.clear()
                 try:
                     action_fn()
                 except SequenceError as exc:
