@@ -29,6 +29,7 @@ from .fold_sequence import ANGLE_EPS, BendSequenceController, PlaybackStatus, Se
 from .workpiece_placement_3d import PlacementTransform3D, WorkpiecePlacement3D
 from .workpiece_transfer_3d import Transfer3D, build_bend_transfer
 from .coupled_kinematics_2d import CoupledAirBendingKinematics
+from .ram_cycle_geometry import ram_cycle_positions
 from .tooling_25d import (
     DEFAULT_INITIAL_PUNCH_CLEARANCE_MM,
     NOT_SPECIFIED,
@@ -336,10 +337,14 @@ class PressCycleController:
         self.sheet_bottom_z_mm = self.coupled_kinematics.die_top_z_mm
         self.sheet_top_z_mm = self.coupled_kinematics.contact_z_mm
         self.contact_z_mm = self.sheet_top_z_mm
-        self.upper_z_mm = self.contact_z_mm + float(self.config.initial_clearance_mm)
         target_mag = abs(self.target_angle_deg)
         max_stroke = self.coupled_kinematics.stroke_for_angle(target_mag)
-        self.bottom_z_mm = self.contact_z_mm - max_stroke
+        ram_positions = ram_cycle_positions(
+            self.contact_z_mm, self.contact_z_mm - max_stroke,
+            self.config.initial_clearance_mm,
+        )
+        self.upper_z_mm = ram_positions["retract_end_z_mm"]
+        self.bottom_z_mm = ram_positions["bottom_z_mm"]
         self.contact_tracking_status = f"COUPLED_AIR_BENDING ({self.coupled_kinematics.tooling_status})"
 
         if reposition_tools:
