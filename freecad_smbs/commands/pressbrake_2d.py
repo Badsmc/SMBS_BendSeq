@@ -1313,6 +1313,7 @@ class _PreviewPanel:
                 self._manual_sequence_prefix: list[str] = []
                 self._last_manual_sequence_report = None
                 self._collision_inspection = None
+                self._collision_display_active = False
                 self._manual_3d_verdicts = {}
                 self._manual_retract_verdicts = {}
                 self._backgauge_settings = QtCore.QSettings("SMBS", "BendSeq")
@@ -2857,7 +2858,10 @@ class _PreviewPanel:
                 if self.session is None:
                     scene.addSimpleText("Загрузите листовую деталь в PressBrakeSim")
                     return
-                inspection = self._collision_inspection
+                inspection = (
+                    self._collision_inspection
+                    if self._collision_display_active else None
+                )
                 inspected_components = set()
                 try:
                     # A real D6 3D collision uses the tool-centric MACHINE
@@ -4945,6 +4949,7 @@ class _PreviewPanel:
                 self.manual_check_details.clear()
                 self.manual_check_details.hide()
                 self._collision_inspection = None
+                self._collision_display_active = False
                 if hasattr(self, "manual_show_collision_btn"):
                     self.manual_show_collision_btn.setEnabled(False)
                     self.manual_show_collision_btn.hide()
@@ -4985,8 +4990,25 @@ class _PreviewPanel:
                                 blocker.get("phase", "?"), tool_label,
                                 blocker.get("ram_z_mm")
                                 if blocker.get("ram_z_mm") is not None else "—",
-                                float(blocker.get("punch_overlap_mm3") or 0.0),
-                                float(blocker.get("die_overlap_mm3") or 0.0),
+                                float(
+                                    blocker.get("first_sample_punch_overlap_mm3")
+                                    if blocker.get("first_sample_punch_overlap_mm3")
+                                    is not None else
+                                    blocker.get("punch_overlap_mm3") or 0.0
+                                ),
+                                float(
+                                    blocker.get("first_sample_die_overlap_mm3")
+                                    if blocker.get("first_sample_die_overlap_mm3")
+                                    is not None else
+                                    blocker.get("die_overlap_mm3") or 0.0
+                                ),
+                            )
+                        )
+                        lines.append(
+                            "  МАКС. ПРОНИКНОВЕНИЕ за проверенные положения: "
+                            "пуансон={:.6f} мм³, матрица={:.6f} мм³".format(
+                                float(blocker.get("punch_overlap_mm3") or 0),
+                                float(blocker.get("die_overlap_mm3") or 0),
                             )
                         )
                         bbox_dict = blocker.get("intersection_bbox_xyz_mm") or {}
@@ -5096,6 +5118,13 @@ class _PreviewPanel:
                     self.status.setText("Нет сохранённой 3D-коллизии для показа.")
                     return
                 self._stop_timer()
+                self._collision_display_active = not self._collision_display_active
+                if hasattr(self, "manual_show_collision_btn"):
+                    self.manual_show_collision_btn.setText(
+                        "Вернуться к обычному 3D"
+                        if self._collision_display_active else
+                        "Показать коллизию в 3D"
+                    )
                 self._viewer_tabs.setCurrentWidget(self._preview_3d)
                 self._last_3d_frame_at = -1.0
                 self._fixed_3d_view_rect = None
@@ -5109,6 +5138,9 @@ class _PreviewPanel:
                     "Показано место столкновения в машинных XYZ. "
                     "Геометрия обзора приближённая, красная область — "
                     "границы точного 3D-пересечения OCC."
+                    if self._collision_display_active else
+                    "Возврат к обычному 3D-просмотру; коллизия остаётся "
+                    "в диагностике Manual."
                 )
 
             def _record_manual_precheck_failure(self, selected, reason):
@@ -5627,6 +5659,10 @@ class _PreviewPanel:
                         reverse_axis_by_bend={},
                     )
                     self._collision_inspection = None
+                    self._collision_display_active = False
+                    self.manual_show_collision_btn.setText(
+                        "Показать коллизию в 3D"
+                    )
                     for step in physical["steps"]:
                         if (step.get("status") == "COLLISION"
                                 and (step.get("first_blocker") or {})
