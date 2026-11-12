@@ -73,13 +73,18 @@ class SMBSWorkbench(Workbench):
 
     def Initialize(self) -> None:
         register_commands()
-        commands = [
-            CMD_PRESSBRAKE_2D, CMD_LOAD_PART, CMD_TOOLING_TAB,
-            CMD_CALCULATE, CMD_PLANAR_CANDIDATES, CMD_SEQUENCE_CATALOG,
-            CMD_BACKGAUGE, CMD_MANUAL, CMD_SETTINGS,
+        # Six native FreeCAD toolbar commands. Other actions remain available
+        # through the workbench menu, without duplicating the toolbar buttons.
+        toolbar = [
+            CMD_LOAD_PART, CMD_TOOLING_TAB, CMD_CALCULATE,
+            CMD_PLANAR_CANDIDATES, CMD_MANUAL, CMD_SETTINGS,
         ]
-        self.appendMenu("PressBrakeSim 2.5D", commands + [CMD_TOOLING])
-        self.appendToolbar("PressBrakeSim 2.5D", commands)
+        menu = [
+            *toolbar, CMD_PRESSBRAKE_2D, CMD_SEQUENCE_CATALOG,
+            CMD_BACKGAUGE, CMD_TOOLING,
+        ]
+        self.appendMenu("PressBrakeSim 2.5D", menu)
+        self.appendToolbar("PressBrakeSim 2.5D", toolbar)
 
     def Activated(self) -> None:
         pass
