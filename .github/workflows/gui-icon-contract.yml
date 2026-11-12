@@ -229,7 +229,8 @@ jobs:
           assert 'workspace.session is not None)' in gui_source
           assert 'workspace.activate_manual_mode()' in gui_source
           assert 'show_workspace_controls(self, tab=4)' in gui_source
-          assert 'QtWidgets.QPushButton("Проверить"), primary=True' in gui_source
+          assert 'QtWidgets.QPushButton("Проверить")' in gui_source
+          assert 'QtWidgets.QPushButton("Симулировать"), primary=True' in gui_source
           # Everything moved out of the playback context is still live in Settings.
           assert 'insert(cycle_body, entries[3])' in gui_source
           assert 'cycle_body.addWidget(self.retract_warning_checkbox)' in gui_source
