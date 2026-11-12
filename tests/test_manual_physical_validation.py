@@ -9,8 +9,12 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
-from types import SimpleNamespace
+from types import ModuleType, SimpleNamespace
 from unittest.mock import patch
+from enum import Enum
+from smbs_core.kinematics2d.manual_physical_validation import (
+    _check_selected_tool_pair_at_sampled_rams,
+)
 
 from smbs_core.kinematics2d.manual_physical_validation import (
     check_manual_3d_sequence,
@@ -202,6 +206,69 @@ class ManualToolingTests(unittest.TestCase):
         self.assertEqual(report["status"], "UNVERIFIED")
         self.assertIn("reverse_axis", report["reason"])
         check.assert_not_called()
+
+    def test_tool_pair_checker_uses_every_distinct_sample_and_actual_source(self):
+        class NativeStatus(Enum):
+            CLEAR = "CLEAR"
+            NEAR_CONTACT = "NEAR_CONTACT"
+            TOUCHING = "TOUCHING"
+            PENETRATION = "PENETRATION"
+
+        called = []
+        app = ModuleType("FreeCAD")
+        app.ActiveDocument = None
+        app.getDocument = lambda _name: None
+        app.setActiveDocument = lambda _name: None
+        loader = ModuleType("smbs_core.kinematics2d.native_tool_loader")
+        def load_punch(file_path, **kw):
+            self.assertEqual(Path(file_path), self.punch_file)
+            self.assertEqual(kw["virtual_length_mm"], 50.0)
+            return SimpleNamespace()
+        def load_die(file_path, **kw):
+            self.assertEqual(Path(file_path), self.die_file)
+            self.assertEqual(kw["virtual_length_mm"], 50.0)
+            return SimpleNamespace(machine_shape="die")
+        def move_punch(_base, z):
+            return SimpleNamespace(machine_shape=z)
+        loader.load_native_punch = load_punch
+        loader.load_native_die = load_die
+        loader.set_punch_ram_z = move_punch
+        collisions = ModuleType("smbs_core.kinematics2d.native_collision_3d")
+        collisions.CollisionClass = NativeStatus
+        def check_pair(a, b, **kwargs):
+            self.assertEqual(b, "die")
+            self.assertEqual(kwargs["tool_label"], "PUNCH_DIE")
+            called.append(a)
+            return SimpleNamespace(
+                status=(NativeStatus.PENETRATION if a == -2.0
+                        else NativeStatus.CLEAR),
+                overlap_volume_mm3=2.5, reason="test",
+            )
+        collisions.check_pair_clearance = check_pair
+        phases = SimpleNamespace(phase_results=(
+            SimpleNamespace(states=(
+                SimpleNamespace(ram_z_mm=12.0),
+                SimpleNamespace(ram_z_mm=12.0),
+                SimpleNamespace(ram_z_mm=3.0),
+            )),
+            SimpleNamespace(states=(
+                SimpleNamespace(ram_z_mm=-2.0),
+                SimpleNamespace(ram_z_mm=3.0),
+            )),
+        ))
+        with patch.dict("sys.modules", {
+            "FreeCAD": app,
+            "smbs_core.kinematics2d.native_tool_loader": loader,
+            "smbs_core.kinematics2d.native_collision_3d": collisions,
+        }):
+            result = _check_selected_tool_pair_at_sampled_rams(
+                self.punch_file, self.die_file, 50.0,
+                self.tooling, phases, virtual_length=True,
+            )
+        self.assertEqual(result["status"], "COLLISION")
+        self.assertEqual(result["overlap_volume_mm3"], 2.5)
+        self.assertEqual(result["checked_ram_positions"], 1)
+        self.assertEqual(called, [-2.0])
 
     def test_incomplete_manual_prefix_is_unverified(self):
         with patch(
