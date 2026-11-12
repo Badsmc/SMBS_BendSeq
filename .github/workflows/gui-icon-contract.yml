@@ -125,11 +125,40 @@ jobs:
           # Tooling retains its Basic/Import sub-tabs within Task Panel.
           assert 'tool_tabs.addTab(tool_main, "Основные")' in gui_source
           assert 'tool_tabs.addTab(tool_import, "Импорт")' in gui_source
-          assert 'insert(settings_layout, entries[3])' in gui_source
-          assert 'settings_layout.addWidget(self.retract_warning_checkbox)' in gui_source
+          assert 'insert(cycle_body, entries[3])' in gui_source
+          assert 'cycle_body.addWidget(self.retract_warning_checkbox)' in gui_source
           assert 'tool_opts_layout.addWidget(self.virtual_tool_len_checkbox)' in gui_source
-          assert 'tool_opts_layout.addWidget(self.physical_check_btn)' in gui_source
-          assert 'tool_opts_layout.addWidget(self.full_physical_check_btn)' in gui_source
+          assert 'diagnostics_body.addWidget(self.physical_check_result)' in gui_source
+          assert 'for check in (' in gui_source
+          # Enforce approved industrial layout and real live controls.
+          from freecad_smbs.ui.pressbrake_theme import (
+              OUTER_MARGIN, SECTION_PADDING, SECTION_GAP, CORNER_RADIUS,
+              TASK_QSS, classify_status,
+          )
+          assert (OUTER_MARGIN, SECTION_PADDING, SECTION_GAP, CORNER_RADIUS) == (
+              20, 16, 16, 9
+          )
+          assert 'QFrame#SMBS_SectionCard' in TASK_QSS
+          assert 'QLabel#SMBS_StatusChip[state="error"]' in TASK_QSS
+          assert 'QPushButton#SMBS_PrimaryAction:disabled' in TASK_QSS
+          assert 'QProgressBar#SMBS_TaskProgress::chunk' in TASK_QSS
+          assert 'self.status = TaskStatusLabel(' in gui_source
+          assert 'self.physical_check_result = TaskPhysicalResultLabel(' in gui_source
+          assert 'self._source_summary' in gui_source
+          assert 'self._simulation_diagnostics_summary' in gui_source
+          assert 'self._task_progress_busy' in gui_source
+          assert 'self._task_progress_caption' in gui_source
+          assert 'self.task_progress.setRange(0, 0)' in gui_source
+          assert 'self.status.setParent(workspace)' not in gui_source
+          assert 'workspace.status.setParent(workspace)' in gui_source
+          assert 'layout.addWidget(footer)' in gui_source
+          assert "DockWidgetFloatable" not in gui_source
+          assert 'self.task_progress.setValue(value)' in gui_source
+          assert 'self.operations.setMaximumHeight(16777215)' in gui_source
+          assert classify_status("UNVERIFIED: 3D not checked")[0] == "unverified"
+          assert classify_status("Ошибка проверки столкновения")[0] == "error"
+          assert classify_status("Выполняется поиск")[0] == "running"
+          print("GUI_INDUSTRIAL_LAYOUT_CONTRACT_OK")
           assert '"Select Punch"' not in gui_source
           assert '"Select Die"' not in gui_source
           assert '"Align Tooling"' not in gui_source
