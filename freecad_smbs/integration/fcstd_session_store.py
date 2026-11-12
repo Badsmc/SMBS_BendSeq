@@ -135,6 +135,39 @@ def _bounded_report(report):
     """Include compact diagnostic evidence, never a per-frame JSONL dump."""
     if report is None:
         return None
+    if isinstance(report, dict) and isinstance(
+        report.get("manual_3d_validation"), dict
+    ):
+        # The old compact report only kept "status", silently discarding the
+        # native 3D per-bend results. Preserve all actionable manual checking
+        # evidence in the SAME PropertyFileIncluded attachment as the session.
+        # Exclude redundant geometry and large experimental solver objects.
+        keys = (
+            "schema_version", "status", "planar_status",
+            "physical_certification", "selected_sequence",
+            "accepted_prefix", "first_blocker", "retract_warnings",
+            "sampling", "plan_cost_selected_order_complete",
+            "tooling", "model", "runtime", "manual_3d_validation",
+        )
+        data = {k: report[k] for k in keys if k in report}
+        # Stage A/B evidence matters when native 3D and 2D disagree. Keep
+        # individual step summaries, not giant sampled scene meshes.
+        data["planar_steps"] = [
+            {k: step[k] for k in (
+                "step_number", "bend_id", "angle_deg", "evidence", "reason",
+                "stage_a", "stage_b",
+            ) if k in step}
+            for step in report.get("steps", ())
+        ]
+        # Refuse unrepresentable or oversized evidence. Never claim that
+        # the report was embedded if it was silently dropped.
+        encoded = _json_bytes(data)
+        if len(encoded) > 3 * 1024 * 1024:
+            raise EmbeddedSessionError(
+                "Manual verification report exceeds 3 MiB; "
+                "reduce diagnostics before saving this FCStd document"
+            )
+        return data
     if isinstance(report, dict):
         keys = (
             "status", "overall_evidence", "accepted_prefix", "first_blocker",
