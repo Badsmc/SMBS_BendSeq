@@ -21,6 +21,9 @@ import weakref
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from smbs_core.kinematics2d.developer_debug_log import (
+    debug_event as _desktop_debug_event,
+)
 from smbs_core.kinematics2d.fold_sequence import (
     BendSequenceController,
     PlaybackStatus,
@@ -175,6 +178,7 @@ def _qt():
 
 def _log(message):
     """Write diagnostic message to file log without invoking FreeCAD.Console / NotificationArea."""
+    _desktop_debug_event("FREECAD_INFO", message=str(message))
     try:
         _get_file_logger().info("%s", message)
     except Exception:
@@ -183,6 +187,7 @@ def _log(message):
 
 def _warn(message):
     """Write warning to file log without invoking FreeCAD.Console.PrintWarning (avoids NotificationArea deadlock)."""
+    _desktop_debug_event("FREECAD_WARNING", message=str(message))
     try:
         _get_file_logger().warning("%s", message)
     except Exception:
@@ -191,6 +196,7 @@ def _warn(message):
 
 def _error(message):
     """Write unexpected error to file log without triggering FreeCAD NotificationArea popup deadlock."""
+    _desktop_debug_event("FREECAD_ERROR", message=str(message))
     try:
         _get_file_logger().error("%s", message)
     except Exception:
@@ -611,6 +617,7 @@ class _SMBSNativeTaskPanel:
     def _detach(self):
         if not self._attached:
             return
+        _desktop_debug_event("TASKS_CLOSE_DETACH", panel="SMBS_NativeTasksRoot")
         self._attached = False
         workspace = self.workspace
         self.workspace = None
@@ -693,6 +700,9 @@ def show_workspace_controls(workspace, tab=None):
     active = bool(Gui.Control.activeDialog())
     panel = getattr(workspace, "_native_task_panel", None)
     if panel is not None and panel._attached and active:
+        _desktop_debug_event(
+            "TASKS_SWITCH_SECTION", section=str(caption), index=tab,
+        )
         # FreeCAD Tasks already owns this form. Never call showDialog
         # twice or create an extra Qt window simply to switch SMBS pages.
         workspace.show_task_panel_btn.hide()
@@ -703,6 +713,10 @@ def show_workspace_controls(workspace, tab=None):
         panel.closed()
 
     if active:
+        _desktop_debug_event(
+            "TASKS_OPEN_BLOCKED", reason="another_freecad_task_active",
+            requested_section=str(caption),
+        )
         # Do not close an unrelated FreeCAD Sketcher/PartDesign task and
         # lose its pending edits merely because an SMBS toolbar was clicked.
         message = (
@@ -771,6 +785,10 @@ def show_workspace_controls(workspace, tab=None):
         raise
     workspace._on_task_status_change(workspace.status.text())
     workspace.show_task_panel_btn.hide()
+    _desktop_debug_event(
+        "TASKS_OPENED", section=str(caption), selected_tab=tab,
+        stacked_pages=workspace._task_stack.count(),
+    )
     return panel
 
 
@@ -883,6 +901,7 @@ def close_workspace_controls(workspace):
     panel.closed()
     if bool(Gui.Control.activeDialog()):
         Gui.Control.closeDialog()
+    _desktop_debug_event("TASKS_CLOSE_REQUESTED")
 
 
 class PressBrake2DCommand:
@@ -1370,6 +1389,15 @@ class _PreviewPanel:
                         self.runtime_git_info["git_commit"],
                     )
                 )
+                _desktop_debug_event(
+                    "SMBS_RUNTIME_READY",
+                    runtime=self.runtime_git_info,
+                    cycle_config={
+                        "initial_clearance_mm":
+                            self.cycle_config.initial_clearance_mm,
+                        "mode": self.execution_mode.value,
+                    },
+                )
                 self.angle = 0.0
                 self.playing = False
                 self._last_tick_monotonic: float | None = None
@@ -1677,6 +1705,9 @@ class _PreviewPanel:
                 root.addWidget(self.check_result)
 
                 self._install_workspace_layout(root, QtCore, QtWidgets)
+                self._install_automatic_debug_ui_signals(QtWidgets)
+                self._last_debug_frame_at = 0.0
+                self._last_debug_frame_signature = None
                 self.draw()
 
             def _install_workspace_layout(self, root, QtCore, QtWidgets):
@@ -2633,6 +2664,8 @@ class _PreviewPanel:
                     self.status.setText(message)
 
             def _trace_event(self, name, **fields):
+                # Always-on Desktop JSON, independent of optional JSONL.
+                _desktop_debug_event(str(name), **fields)
                 if self.motion_trace is not None and self.motion_trace.is_open:
                     try:
                         self.motion_trace.event(name, **fields)
