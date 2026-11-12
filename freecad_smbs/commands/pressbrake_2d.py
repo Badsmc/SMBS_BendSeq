@@ -1281,7 +1281,7 @@ class _PreviewPanel:
 
                 self.tooling_status = QtWidgets.QLabel(self.tooling_setup.status_line())
                 self.tooling_status.setWordWrap(True)
-                 t_layout.addWidget(self.tooling_status)
+                t_layout.addWidget(self.tooling_status)
                 # Explicit, on-demand physical check: no expensive BRep
                 # booleans in the 25–40 Hz drawing/timer path.
                 self.physical_check_btn = _button(
@@ -1355,7 +1355,7 @@ class _PreviewPanel:
                 self.loading_orientation_status.setWordWrap(True)
                 self.cycle_phase_label.setWordWrap(True)
                 self.ram_position_label.setWordWrap(True)
-                 pc_layout.addWidget(self.loading_orientation_status)
+                pc_layout.addWidget(self.loading_orientation_status)
                 root.addWidget(self.press_cycle_group)
 
                 self._auto_select_default_tooling()
