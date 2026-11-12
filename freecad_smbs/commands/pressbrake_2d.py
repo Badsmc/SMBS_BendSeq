@@ -788,17 +788,11 @@ class LoadPartCommand:
         }
 
     def IsActive(self):
-        try:
-            doc, selection = _selection_snapshot()
-            return bool(doc is not None and selection and
-                        resolve_selected_unfold(doc, selection))
-        except (SelectionWarning, AttributeError, TypeError, ValueError, ImportError):
-            return False
+        # The Detail section must remain accessible before a part is selected.
+        return True
 
     def Activated(self):
         doc, selection = _selection_snapshot()
-        if not self.IsActive():
-            return
         workspace = get_workspace_widget()
         created = workspace is None
         if created:
@@ -806,8 +800,12 @@ class LoadPartCommand:
             workspace = get_workspace_widget()
         if workspace is None:
             raise RuntimeError("PressBrakeSim viewer did not open")
-        if not created:
-            workspace.load_part(selection=selection, document=doc)
+        if not created and doc is not None and selection:
+            try:
+                if resolve_selected_unfold(doc, selection):
+                    workspace.load_part(selection=selection, document=doc)
+            except (SelectionWarning, AttributeError, TypeError, ValueError, ImportError):
+                pass
         show_workspace_controls(workspace, 0)
 
 
@@ -845,8 +843,12 @@ class CalculateCommand:
 
     def Activated(self):
         workspace = get_workspace_widget()
-        if workspace is not None and workspace.calculate.isEnabled():
-            workspace.calculate_sequence()
+        if workspace is not None:
+            show_workspace_controls(workspace, 2)
+            if workspace.calculate.isEnabled():
+                workspace.calculate_sequence()
+
+
 class BackgaugeCommand:
     """Configure explicit backgauge stop geometry and per-bend targets."""
     def GetResources(self):
@@ -900,13 +902,17 @@ class ManualCommand:
         }
 
     def IsActive(self):
-        workspace = get_workspace_widget()
-        return bool(workspace is not None and workspace.session is not None)
+        return True
 
     def Activated(self):
         workspace = get_workspace_widget()
-        if workspace is not None and workspace.session is not None:
-            workspace.activate_manual_mode()
+        if workspace is None:
+            PressBrake2DCommand().Activated()
+            workspace = get_workspace_widget()
+        if workspace is not None:
+            show_workspace_controls(workspace, 4)
+            if workspace.session is not None:
+                workspace.activate_manual_mode()
 
 
 class SettingsCommand:
@@ -946,8 +952,10 @@ class PlanarCandidatesCommand:
 
     def Activated(self):
         workspace = get_workspace_widget()
-        if workspace is not None and workspace.planar_calculate.isEnabled():
-            workspace.calculate_planar_candidates()
+        if workspace is not None:
+            show_workspace_controls(workspace, 3)
+            if workspace.planar_calculate.isEnabled():
+                workspace.calculate_planar_candidates()
 
 
 def _button(widgets, label, callback, enabled=True):
@@ -1145,7 +1153,7 @@ class _PreviewPanel:
                 self.timer = QtCore.QTimer(self)
                 self.timer.setInterval(25)  # 40 Hz Qt playback; one timer only
                 self.timer.timeout.connect(self.advance)
-                self.setMinimumWidth(580)
+                self.setMinimumWidth(0)
                 self.setObjectName("SMBS_ViewerRoot")
                 self.setStyleSheet(
                     "QWidget#SMBS_ViewerRoot { background: palette(window); }"
@@ -2027,12 +2035,12 @@ class _PreviewPanel:
                     self._task_progress_caption.setText(caption)
 
             def open_tooling_settings_dialog(self):
-                """Show tooling Basic/Import within the shared Task Panel."""
-                show_workspace_controls(self, tab=2)
+                """Show the single tooling page, without nested tabs."""
+                show_workspace_controls(self, tab=1)
 
             def open_settings_dialog(self):
-                """Show all configuration controls within the shared Task Panel."""
-                show_workspace_controls(self, tab=3)
+                """Show all configuration controls on one contextual page."""
+                show_workspace_controls(self, tab=5)
 
             def _apply_svg_button_icons(self):
                 """Use the same industrial SVG family in task controls.
@@ -4377,7 +4385,7 @@ class _PreviewPanel:
                 else:
                     self._viewer_tabs.setCurrentWidget(self._flat_view)
                     self._draw_flat_pattern(reset_camera=False)
-                show_workspace_controls(self, tab=1)
+                show_workspace_controls(self, tab=4)
 
             def _toggle_manual_order(self, enabled):
                 if enabled and self.session is None:
