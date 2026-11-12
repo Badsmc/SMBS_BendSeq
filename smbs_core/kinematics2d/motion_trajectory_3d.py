@@ -53,6 +53,8 @@ from enum import Enum
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 from smbs_core.kinematics2d.coupled_kinematics_2d import CoupledAirBendingKinematics
+from smbs_core.kinematics2d.ram_cycle_geometry import ram_cycle_positions
+from smbs_core.kinematics2d.tooling_25d import DEFAULT_INITIAL_PUNCH_CLEARANCE_MM
 from smbs_core.kinematics2d.native_bend_solid_3d import build_multi_bend_sheet_solid
 from smbs_core.kinematics2d.native_collision_3d import (
     CollisionClass,
@@ -144,6 +146,9 @@ class AdaptiveSamplingConfig:
     allow_end_zone_collision: bool = False
     end_zone_length_mm: float = 0.0
     early_stop_on_blocking_collision: bool = True
+    # Use the same *relative to contact* upper travel as PressCycleController.
+    # Do not hard-code absolute +40/+50 mm in sampled D6 trajectories.
+    initial_clearance_mm: float = DEFAULT_INITIAL_PUNCH_CLEARANCE_MM
 
 
 @dataclass
@@ -215,6 +220,7 @@ class BendTrajectoryResult:
     total_distance_queries: int = 0
     total_common_queries: int = 0
     total_state_evaluation_requests: int = 0
+    ram_cycle_positions_mm: Dict[str, float] = field(default_factory=dict)
 
 
 class FoldStateRestorationError(RuntimeError):
@@ -1304,11 +1310,17 @@ class AdaptiveTrajectoryValidator3D:
             signed_target_deg = float(bend.angle_deg)
             abs_target_deg = abs(signed_target_deg)
             sign = 1.0 if signed_target_deg >= 0.0 else -1.0
+            ram_cycle = ram_cycle_positions(
+                coupled.contact_z_mm,
+                coupled.ram_z_for_angle(abs_target_deg),
+                self.config.initial_clearance_mm,
+            )
 
-            # Phase generators: u in [0, 1] -> (signed_angle, ram_z, support_z)
-            # 1. APPROACH: ram moves from +50mm clearance down to contact_z; sheet flat on die shoulders
+            # Both APPROACH and RETRACT use this SAME configured upper Z
+            # as the FreeCAD simulation, relative to actual tool contact.
             def gen_approach(u: float) -> Tuple[float, float, float]:
-                ram_z = 50.0 + u * (coupled.contact_z_mm - 50.0)
+                upper = ram_cycle["approach_start_z_mm"]
+                ram_z = upper + u * (ram_cycle["contact_z_mm"] - upper)
                 return (0.0, ram_z, bz.outer_radius_mm)
 
             # 2. CONTACT: stationary contact pose
@@ -1328,10 +1340,11 @@ class AdaptiveTrajectoryValidator3D:
                 supp_z = -coupled.stroke_for_angle(abs_target_deg) + bz.outer_radius_mm
                 return (signed_target_deg, ram_z, supp_z)
 
-            # 5. RETRACT: punch elevates back to +40mm clearance; sheet rests at bottom stroke
+            # 5. RETRACT: finish at the same contact-relative upper Z as
+            # the GUI controller. Sheet stays at completed signed bend angle.
             def gen_retract(u: float) -> Tuple[float, float, float]:
-                bottom_ram_z = coupled.ram_z_for_angle(abs_target_deg)
-                ram_z = bottom_ram_z + u * (40.0 - bottom_ram_z)
+                bottom = ram_cycle["retract_start_z_mm"]
+                ram_z = bottom + u * (ram_cycle["retract_end_z_mm"] - bottom)
                 supp_z = -coupled.stroke_for_angle(abs_target_deg) + bz.outer_radius_mm
                 return (signed_target_deg, ram_z, supp_z)
 
@@ -1490,6 +1503,7 @@ class AdaptiveTrajectoryValidator3D:
                 total_distance_queries=total_dist_queries,
                 total_common_queries=total_comm_queries,
                 total_state_evaluation_requests=total_requests,
+                ram_cycle_positions_mm=ram_cycle,
             )
 
         finally:
