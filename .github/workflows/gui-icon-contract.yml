@@ -10,6 +10,7 @@ on:
       - feature/manual-3d-tooling-validation-pan
       - fix/manual-verify-embedded-fcstd-report
       - feature/manual-retract-evidence-fcstd
+      - feature/native-freecad-tasks-panel
   workflow_dispatch:
 
 jobs:
@@ -49,6 +50,10 @@ jobs:
         env:
           PYTHONPATH: .
         run: python -m unittest discover -s tests -p 'test_manual_retract_evidence.py' -v
+      - name: Test native FreeCAD Tasks routing and close/reopen lifecycle
+        env:
+          PYTHONPATH: .
+        run: python -m unittest discover -s tests -p 'test_native_freecad_tasks_panel.py' -v
       - name: Check FreeCAD commands and SVG icon resources
         env:
           PYTHONPATH: .
@@ -214,7 +219,10 @@ jobs:
           assert 'self._task_progress_caption' in gui_source
           assert 'self.task_progress.setRange(0, 0)' in gui_source
           assert 'self.status.setParent(workspace)' not in gui_source
-          assert 'workspace.status.setParent(workspace)' in gui_source
+          assert 'child.setParent(workspace)' in gui_source
+          assert 'workspace._task_stack, workspace.status,' in gui_source
+          assert 'workspace.task_progress, workspace._task_status_chip,' in gui_source
+          assert 'Gui.Control.showDialog(panel)' in gui_source
           assert 'layout.addWidget(footer)' in gui_source
           assert "DockWidgetFloatable" not in gui_source
           assert 'self.task_progress.setValue(value)' in gui_source

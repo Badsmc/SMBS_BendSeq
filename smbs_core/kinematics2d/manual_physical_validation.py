@@ -27,6 +27,116 @@ from .physical_validation_25d import (
 CLEAR = PhysicalEvidence.SAMPLED_3D_CLEAR_NOT_CONTINUOUS
 
 
+def concise_3d_blocker(trajectory: Any) -> dict:
+    """Find the first native D6 rejected phase without a truncated reason.
+
+    Preserve actual phase, ram Z and individual punch/die overlap; never
+    infer which tool penetrated merely from an aggregate COLLISION label.
+    """
+    if trajectory is None:
+        return {
+            "phase": "UNKNOWN", "reason": "no_native_3d_trajectory",
+            "tool": "UNKNOWN", "punch_overlap_mm3": None,
+            "die_overlap_mm3": None, "ram_z_mm": None,
+            "angle_deg": None, "phase_status": "UNVERIFIED",
+        }
+
+    phase_results = tuple(getattr(trajectory, "phase_results", ()) or ())
+    allowed = {
+        "SAMPLED_INTERVAL_CONVERGED",
+        "ADAPTIVE_SAMPLING_CONVERGED",
+        "SAMPLED_INTERVAL_CONDITIONAL_END_ZONE",
+    }
+    problem = next((
+        phase for phase in phase_results
+        if str(getattr(getattr(phase, "evidence_status", None),
+                       "value", getattr(phase, "evidence_status", "")))
+        not in allowed
+    ), None)
+    if problem is None:
+        return {
+            "phase": "NONE", "reason": "no_rejected_native_phase",
+            "tool": "NONE", "punch_overlap_mm3": None,
+            "die_overlap_mm3": None, "ram_z_mm": None,
+            "angle_deg": None, "phase_status": "SAMPLED_CLEAR",
+        }
+
+    name = str(getattr(problem, "phase_name", "UNKNOWN"))
+    phase_status = str(getattr(getattr(problem, "evidence_status", None),
+                               "value", getattr(problem, "evidence_status", "")))
+    rejected = [
+        st for st in getattr(problem, "states", ()) or ()
+        if (
+            getattr(getattr(st, "collision_report", None),
+                    "status", None) is not None
+            and str(getattr(
+                getattr(st.collision_report, "status"), "value",
+                st.collision_report.status,
+            )) == "PENETRATION"
+        ) or (
+            getattr(st, "is_safe", True) is False
+            and not bool(getattr(st, "is_conditional_safe", False))
+        )
+    ]
+    candidate = next(iter(rejected), None)
+    if candidate is None:
+        first = getattr(trajectory, "first_collision_state", None)
+        if first is not None and str(getattr(first, "phase", "")) == name:
+            candidate = first
+
+    punch_overlap = float(getattr(problem, "max_punch_overlap_volume_mm3", 0.0))
+    die_overlap = float(getattr(problem, "max_die_overlap_volume_mm3", 0.0))
+    cr = getattr(candidate, "collision_report", None) if candidate else None
+    p = getattr(cr, "punch_result", None)
+    d = getattr(cr, "die_result", None)
+    punch_status = str(getattr(getattr(p, "status", None),
+                               "value", getattr(p, "status", "")))
+    die_status = str(getattr(getattr(d, "status", None),
+                             "value", getattr(d, "status", "")))
+    if punch_status == "PENETRATION" and die_status == "PENETRATION":
+        tool = "PUNCH_AND_DIE"
+    elif punch_status == "PENETRATION":
+        tool = "PUNCH"
+    elif die_status == "PENETRATION":
+        tool = "DIE"
+    elif punch_overlap > 1e-4 and die_overlap > 1e-4:
+        tool = "PUNCH_AND_DIE"
+    elif punch_overlap > 1e-4:
+        tool = "PUNCH"
+    elif die_overlap > 1e-4:
+        tool = "DIE"
+    else:
+        tool = "UNKNOWN"
+
+    diagnostics = [
+        str(line) for line in getattr(problem, "diagnostics", ()) or ()
+        if not str(line).startswith(("TIMINGS:", "CACHE:", "STATS:"))
+    ]
+    if getattr(problem, "discontinuities", None):
+        diagnostics.insert(0, str(problem.discontinuities[0]))
+    elif getattr(problem, "unresolved_intervals", None):
+        diagnostics.insert(0, "unresolved_native_interval")
+    elif getattr(problem, "uninspected_intervals", None):
+        diagnostics.insert(0, "uninspected_native_interval")
+    return {
+        "phase": name,
+        "phase_status": phase_status,
+        "tool": tool,
+        "punch_overlap_mm3": round(punch_overlap, 6),
+        "die_overlap_mm3": round(die_overlap, 6),
+        "ram_z_mm": (
+            round(float(candidate.ram_z_mm), 6)
+            if candidate is not None else None
+        ),
+        "angle_deg": (
+            round(float(candidate.signed_angle_deg), 6)
+            if candidate is not None else None
+        ),
+        "reason": (diagnostics[0][:400] if diagnostics
+                   else phase_status),
+    }
+
+
 def retract_evidence_from_trajectory(trajectory: Any) -> dict:
     """Bounded, per-bend RETRACT evidence for the embedded FCStd JSON.
 
@@ -403,6 +513,13 @@ def check_manual_3d_sequence(
                 "is_conditional": bool(report.is_conditional),
                 "punch_die_pair": tool_pair,
                 "retract": retract,
+                "first_blocker": (
+                    concise_3d_blocker(report.raw_report)
+                    if status in (
+                        PhysicalEvidence.COLLISION,
+                        PhysicalEvidence.UNVERIFIED,
+                    ) else None
+                ),
             }
             if status is PhysicalEvidence.UNVERIFIED and report.status in (
                     CLEAR, PhysicalEvidence.CONDITIONAL):
@@ -435,6 +552,7 @@ def check_manual_3d_sequence(
                 "status": "UNVERIFIED",
                 "punch_die_pair": None,
                 "retract": retract_evidence_from_trajectory(None),
+                "first_blocker": concise_3d_blocker(None),
                 "reason": "native_3d_exception:{}:{}".format(
                     type(exc).__name__, exc,
                 ),

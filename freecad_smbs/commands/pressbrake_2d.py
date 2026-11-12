@@ -156,8 +156,14 @@ def _get_file_logger() -> logging.Logger:
 def _qt():
     """Return QtCore, QtGui, QtWidgets for FreeCAD-supported bindings."""
     try:
+        # FreeCAD 1.x exposes a PySide compatibility shim. On Qt6 it has
+        # QtWidgets separately; on older PySide/Qt4 widgets live in QtGui.
         from PySide import QtCore, QtGui
-        return QtCore, QtGui, QtGui
+        try:
+            from PySide import QtWidgets
+        except ImportError:
+            QtWidgets = QtGui
+        return QtCore, QtGui, QtWidgets
     except ImportError:
         try:
             from PySide2 import QtCore, QtGui, QtWidgets
@@ -565,7 +571,77 @@ def build_part_session(doc, selection, fixed_panel: str | None = None) -> Loaded
 
 
 _ICON_ROOT = Path(__file__).resolve().parents[1] / "resources" / "icons"
-_CONTROLS_DOCK_NAME = "SMBS_SimulationControls"
+class _SMBSNativeTaskPanel:
+    """FreeCAD-native Tasks adapter; NOT a custom QDockWidget.
+
+    The authoritative controls, signal connections and press-cycle timer are
+    owned by the MDI workspace. Every native Tasks activation gets a fresh
+    disposable form which temporarily hosts the *existing* control widgets.
+    When FreeCAD closes or replaces this task, we detach those widgets
+    BEFORE it can destroy the form; reopening cannot lose the simulation.
+    """
+
+    def __init__(self, workspace, form):
+        self.workspace = workspace
+        self.form = form
+        self._attached = True
+
+    def getStandardButtons(self):
+        # A task's standard Cancel closes only the controls, NOT the
+        # simulation workspace or the user's FCStd document.
+        _QtCore, _QtGui, QtWidgets = _qt()
+        return int(QtWidgets.QDialogButtonBox.Cancel)
+
+    def modifyStandardButtons(self, button_box):
+        _QtCore, _QtGui, QtWidgets = _qt()
+        button = button_box.button(QtWidgets.QDialogButtonBox.Cancel)
+        if button is not None:
+            button.setText("Закрыть")
+
+    def isAllowedAlterDocument(self):
+        return True
+
+    def isAllowedAlterSelection(self):
+        # SheetMetal's original unfold may be selected while Tasks is open.
+        return True
+
+    def isAllowedAlterView(self):
+        return True
+
+    def _detach(self):
+        if not self._attached:
+            return
+        self._attached = False
+        workspace = self.workspace
+        self.workspace = None
+        if workspace is None:
+            return
+        # Native FreeCAD owns self.form. Detach all *reusable* children
+        # before the TaskDialogPython releases that Qt form.
+        for child in (
+            workspace._task_stack, workspace.status,
+            workspace.task_progress, workspace._task_status_chip,
+            workspace._task_progress_caption,
+        ):
+            child.setParent(workspace)
+            child.hide()
+        if getattr(workspace, "_native_task_panel", None) is self:
+            workspace._native_task_panel = None
+            workspace._task_section_label = None
+            workspace.show_task_panel_btn.show()
+
+    def closed(self):
+        # FreeCAD can close Tasks externally when another edit begins.
+        self._detach()
+
+    def accept(self):
+        return self.reject()
+
+    def reject(self):
+        import FreeCADGui as Gui
+        self._detach()
+        Gui.Control.closeDialog()
+        return True
 
 
 def get_workspace_widget():
@@ -590,89 +666,97 @@ def _selection_snapshot():
 
 
 def show_workspace_controls(workspace, tab=None):
-    """Show durable addon-owned Tasks dock without FreeCAD Control.showDialog.
+    """Display ALL SMBS control pages inside the standard FreeCAD Tasks view.
 
-    This avoids the activeDialog()/closeDialog() lifecycle bug encountered in
-    FreeCAD 1.1 while retaining one set of widgets and one playback timer.
+    One native Gui.Control.showDialog is active at a time. No independent dock
+    or floating addon-owned dock is created. The MDI only contains
+    2.5D/3D/flat graphics; the operator can still change the chosen page.
     """
     import FreeCADGui as Gui
     QtCore, _QtGui, QtWidgets = _qt()
-    from freecad_smbs.ui.pressbrake_theme import (
-        OUTER_MARGIN, SECTION_GAP,
-    )
-    if tab is not None:
-        if 0 <= int(tab) < workspace._task_stack.count():
-            workspace._task_stack.setCurrentIndex(int(tab))
+    from freecad_smbs.ui.pressbrake_theme import OUTER_MARGIN, SECTION_GAP
+
+    if tab is not None and 0 <= int(tab) < workspace._task_stack.count():
+        workspace._task_stack.setCurrentIndex(int(tab))
     section = workspace._task_stack.currentWidget()
     caption = workspace._task_page_titles.get(section, "Панель задач")
     header = getattr(workspace, "_task_section_label", None)
-    if header is not None and getattr(workspace, "_controls_dock", None) is not None:
+    if header is not None:
         header.setText(caption)
-    dock = getattr(workspace, "_controls_dock", None)
-    if dock is not None:
-        dock.show()
-        dock.raise_()
-        workspace.show_task_panel_btn.hide()
-        return dock
 
-    main = Gui.getMainWindow()
-    dock = QtWidgets.QDockWidget("PressBrakeSim TaskPanel", main)
-    dock.setObjectName(_CONTROLS_DOCK_NAME)
-    dock.setAllowedAreas(QtCore.Qt.LeftDockWidgetArea | QtCore.Qt.RightDockWidgetArea)
-    dock.setFeatures(
-        QtWidgets.QDockWidget.DockWidgetClosable |
-        QtWidgets.QDockWidget.DockWidgetMovable
-    )  # Do not allow a floating window for the main Task Panel.
-    dock.setAttribute(QtCore.Qt.WA_DeleteOnClose, False)
-    dock.setMinimumWidth(265)
-    form = QtWidgets.QWidget(dock)
-    form.setObjectName("SMBS_TaskDockRoot")
-    # No local stylesheet: inherit FreeCAD's native dark/light QStyle.
+    active = bool(Gui.Control.activeDialog())
+    panel = getattr(workspace, "_native_task_panel", None)
+    if panel is not None and panel._attached and active:
+        # FreeCAD Tasks already owns this form. Never call showDialog
+        # twice or create an extra Qt window simply to switch SMBS pages.
+        workspace.show_task_panel_btn.hide()
+        return panel
+    if panel is not None:
+        # The old native task disappeared (ESC, other command, Cancel).
+        # Drop only its disposable form; preserve the live controls.
+        panel.closed()
+
+    if active:
+        # Do not close an unrelated FreeCAD Sketcher/PartDesign task and
+        # lose its pending edits merely because an SMBS toolbar was clicked.
+        message = (
+            "Сначала завершите текущую задачу FreeCAD, "
+            "затем откройте раздел SMBS снова."
+        )
+        workspace.status.setText(message)
+        workspace.show_task_panel_btn.show()
+        _warn(message)
+        return None
+
+    form = QtWidgets.QWidget()
+    form.setObjectName("SMBS_NativeTasksRoot")
+    form.setWindowTitle("SMBS — " + caption)
     layout = QtWidgets.QVBoxLayout(form)
     layout.setContentsMargins(0, 0, 0, 0)
     layout.setSpacing(0)
-    # Exactly one context is visible; there is deliberately no task tab bar.
+
     header = QtWidgets.QLabel(form)
     header.setObjectName("SMBS_TaskSectionTitle")
     header.setText(caption)
-    header.setContentsMargins(8, 5, 8, 5)
-    native_font = header.font()
-    native_font.setBold(True)
-    header.setFont(native_font)
-    workspace._task_section_label = header
+    header.setContentsMargins(OUTER_MARGIN, 5, OUTER_MARGIN, 5)
+    font = header.font()
+    font.setBold(True)
+    header.setFont(font)
     layout.addWidget(header, 0)
+    workspace._task_section_label = header
+
+    # Reuse the SAME stacked pages and their original handlers (Manual,
+    # Simulation, Tooling, Part, Candidates, Settings, specialist dialogs).
     layout.addWidget(workspace._task_stack, 1)
 
     footer = QtWidgets.QFrame(form)
     footer.setObjectName("SMBS_TaskFooter")
     footer_layout = QtWidgets.QVBoxLayout(footer)
-    footer_layout.setContentsMargins(
-        OUTER_MARGIN, 5, OUTER_MARGIN, 5
-    )
-    footer_layout.setSpacing(SECTION_GAP // 2)
-    state_row = QtWidgets.QHBoxLayout()
-    state_row.addWidget(workspace._task_status_chip)
-    state_row.addStretch(1)
-    state_row.addWidget(workspace._task_progress_caption)
-    footer_layout.addLayout(state_row)
+    footer_layout.setContentsMargins(OUTER_MARGIN, 5, OUTER_MARGIN, 5)
+    footer_layout.setSpacing(max(1, SECTION_GAP // 2))
+    row = QtWidgets.QHBoxLayout()
+    row.addWidget(workspace._task_status_chip)
+    row.addStretch(1)
+    row.addWidget(workspace._task_progress_caption)
+    footer_layout.addLayout(row)
     footer_layout.addWidget(workspace.task_progress)
     workspace.status.setObjectName("SMBS_StatusLabel")
     workspace.status.setWordWrap(True)
     workspace.status.setMaximumHeight(38)
     footer_layout.addWidget(workspace.status)
     layout.addWidget(footer)
-    dock.setWidget(form)
-    main.addDockWidget(QtCore.Qt.LeftDockWidgetArea, dock)
-    dock.resize(330, dock.height())
+
+    panel = _SMBSNativeTaskPanel(workspace, form)
+    workspace._native_task_panel = panel
+    try:
+        # This opens the actual native FreeCAD Tasks tab, not a new dock.
+        Gui.Control.showDialog(panel)
+    except Exception:
+        panel.closed()
+        raise
     workspace._on_task_status_change(workspace.status.text())
-    dock.visibilityChanged.connect(
-        lambda visible: workspace.show_task_panel_btn.setVisible(not visible)
-    )
-    workspace._controls_dock = dock
-    dock.show()
-    dock.raise_()
     workspace.show_task_panel_btn.hide()
-    return dock
+    return panel
 
 
 def activate_task_dialog(workspace, key):
@@ -774,22 +858,16 @@ def embed_task_dialog(workspace, widget, title, key):
 
 
 def close_workspace_controls(workspace):
-    """Remove owned dock without deleting controls prematurely."""
-    dock = getattr(workspace, "_controls_dock", None)
-    if dock is None:
+    """Close only our native Tasks dialog; retain the FCStd and CAD viewer."""
+    import FreeCADGui as Gui
+    panel = getattr(workspace, "_native_task_panel", None)
+    if panel is None:
         return
-    workspace._task_stack.setParent(workspace)
-    workspace._task_stack.hide()
-    # These live controls must survive destruction of the old dock.
-    workspace.status.setParent(workspace)
-    workspace.task_progress.setParent(workspace)
-    workspace._task_status_chip.setParent(workspace)
-    workspace._task_progress_caption.setParent(workspace)
-    dock.hide()
-    dock.setWidget(None)
-    dock.deleteLater()
-    workspace._controls_dock = None
-    workspace._task_section_label = None
+    # FreeCAD may destroy a TaskPanel form when closing it. Reparent the
+    # persistent controls first. The closed() callback is idempotent.
+    panel.closed()
+    if bool(Gui.Control.activeDialog()):
+        Gui.Control.closeDialog()
 
 
 class PressBrake2DCommand:
@@ -797,7 +875,7 @@ class PressBrake2DCommand:
         return {
             "Pixmap": str(_ICON_ROOT / "gui_simulation.svg"),
             "MenuText": "Симуляция",
-            "ToolTip": "Показать окно моделирования и панель управления",
+            "ToolTip": "Открыть просмотр 2.5D и штатную вкладку Задачи FreeCAD",
         }
 
     def IsActive(self):
@@ -1610,7 +1688,7 @@ class _PreviewPanel:
                         layout.addLayout(nested, stretch)
 
                 # MDI contains only the heading and CAD views.
-                # The original status QLabel is reparented into the dock footer.
+                # The original status QLabel is reparented into FreeCAD Tasks.
                 insert(root, entries[0])
                 self._task_progress_busy = False
                 self.task_progress = QtWidgets.QProgressBar(self)
@@ -1732,7 +1810,7 @@ class _PreviewPanel:
                 part_layout.addStretch(1)
                 self._page_part = scroll_task_page(part_page, "SMBS_PartScroll")
 
-                # The dock header already says "Симуляция": no duplicate
+                # The native Tasks header already says "Симуляция": no duplicate
                 # section title or large diagnostic card above playback.
                 sim_body = sim_layout
                 for btn in (
@@ -2171,7 +2249,7 @@ class _PreviewPanel:
                 root.addWidget(views, 1)
                 self._viewer_tabs = views
                 self._task_stack = controls
-                self._controls_dock = None
+                self._native_task_panel = None
                 self.show_task_panel_btn = QtWidgets.QPushButton("Показать панель управления")
                 self.show_task_panel_btn.setObjectName("SMBS_ShowTaskPanel")
                 self.show_task_panel_btn.clicked.connect(
@@ -2184,13 +2262,16 @@ class _PreviewPanel:
                 self._apply_context_width(360)
 
             def _apply_context_width(self, width):
-                """Keep operator information useful at narrow dock widths."""
+                """Keep operator information useful at narrow Tasks widths."""
                 compact = int(width) < 590
                 # The full five-column report is still available on a wide
                 # dock. On narrow ones show Step, Bend and Status; tooltips
                 # retain complete target/current readings.
-                self.operations.setColumnHidden(2, compact)
-                self.operations.setColumnHidden(3, compact)
+                # FreeCAD's standard Tasks pane is narrower than our
+                # former full-width custom dock: keep the core verdicts and
+                # RETRACT visible; complete dimensions remain in row tooltips.
+                for col in (2, 3, 4, 5):
+                    self.operations.setColumnHidden(col, compact)
                 self.operations.header().setSectionResizeMode(
                     QtWidgets.QHeaderView.Stretch
                 )
@@ -2202,7 +2283,7 @@ class _PreviewPanel:
                 return super().eventFilter(watched, event)
 
             def _on_task_status_change(self, message):
-                """Refresh dock severity when existing handlers call status.setText."""
+                """Refresh native Tasks severity when handlers call status.setText."""
                 if not hasattr(self, "_task_status_chip"):
                     return
                 from freecad_smbs.ui.pressbrake_theme import classify_status
@@ -4564,15 +4645,49 @@ class _PreviewPanel:
                     phase_evidence = str(item.get("reason", ""))
                     tool_pair = item.get("punch_die_pair")
                     retract = item.get("retract") or {}
+                    blocker = item.get("first_blocker") or {}
+                    try:
+                        angle_text = "{:+.2f}".format(float(item.get("angle_deg", 0.0)))
+                    except (TypeError, ValueError):
+                        angle_text = "?"
                     lines.append(
                         "{}. {} | {} | угол {}°".format(
-                            index, bend_id, verdict, item.get("angle_deg", "?"),
+                            index, bend_id, verdict, angle_text,
                         )
                     )
-                    if phase_evidence:
-                        # The complete diagnostic stays in embedded FCStd;
-                        # the manual widget displays a readable excerpt.
-                        lines.append("  " + phase_evidence[:650])
+                    if blocker and blocker.get("phase") not in (
+                            None, "NONE", "UNKNOWN"):
+                        tool_label = {
+                            "PUNCH": "пуансон",
+                            "DIE": "матрица",
+                            "PUNCH_AND_DIE": "пуансон и матрица",
+                        }.get(blocker.get("tool"), "источник не установлен")
+                        lines.append(
+                            "  ПРОБЛЕМА: фаза {} | {} | Z={} мм | "
+                            "пуансон={:.6f} мм³, матрица={:.6f} мм³".format(
+                                blocker.get("phase", "?"), tool_label,
+                                blocker.get("ram_z_mm")
+                                if blocker.get("ram_z_mm") is not None else "—",
+                                float(blocker.get("punch_overlap_mm3") or 0.0),
+                                float(blocker.get("die_overlap_mm3") or 0.0),
+                            )
+                        )
+                        lines.append(
+                            "  Код: {} | {}".format(
+                                blocker.get("phase_status", "UNVERIFIED"),
+                                str(blocker.get("reason", ""))[:250],
+                            )
+                        )
+                    elif phase_evidence:
+                        # Do not show the first 650 bytes of timings from
+                        # APPROACH; they obscure later BENDING/BOTTOM failure.
+                        if phase_evidence.startswith("native_d634_rejected:"):
+                            lines.append(
+                                "  D6 отклонил траекторию — этап и причина "
+                                "не определены; подробности в FCStd."
+                            )
+                        else:
+                            lines.append("  " + phase_evidence[:240])
                     if isinstance(tool_pair, dict):
                         lines.append(
                             "  Пуансон/матрица: {} | {} позиций{}".format(
@@ -5587,6 +5702,13 @@ class _PreviewPanel:
                     for idx, b in enumerate(self.session.ordered_bends, 1):
                         cols = self._format_operation_row(idx, b)
                         item = QtWidgets.QTreeWidgetItem(list(cols))
+                        item.setToolTip(
+                            1, " | ".join(
+                                "{}: {}".format(
+                                    self.operations.headerItem().text(i), value
+                                ) for i, value in enumerate(cols)
+                            ),
+                        )
                         self.operations.addTopLevelItem(item)
                     if self.operations.topLevelItemCount() > 0:
                         self.operations.setCurrentItem(
@@ -5610,6 +5732,13 @@ class _PreviewPanel:
                     for col_i, text in enumerate(cols):
                         if hasattr(item, "setText"):
                             item.setText(col_i, text)
+                    item.setToolTip(
+                        1, " | ".join(
+                            "{}: {}".format(
+                                self.operations.headerItem().text(i), value
+                            ) for i, value in enumerate(cols)
+                        ),
+                    )
                 if 0 <= self.session.active_bend_index < count:
                     target_item = self.operations.topLevelItem(self.session.active_bend_index)
                     if target_item is not None and self.operations.currentItem() is not target_item:
