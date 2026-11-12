@@ -1187,6 +1187,7 @@ class _PreviewPanel:
                 self._partial_preview_limit = 0
                 self._manual_sequence_prefix: list[str] = []
                 self._last_manual_sequence_report = None
+                self._manual_3d_verdicts = {}
                 self._backgauge_settings = QtCore.QSettings("SMBS", "BendSeq")
                 self.backgauge_model = None
                 self._backgauge_preview_cache = {}
@@ -1774,8 +1775,9 @@ class _PreviewPanel:
                     QtWidgets.QPushButton("Проверить")
                 )
                 self.manual_validate_btn.setToolTip(
-                    "Stage A/B: проверить ручной порядок и сохранить "
-                    "диагностический JSON. Это не полная 3D-сертификация."
+                    "Проверка выбранного ручного порядка: предварительные 2D-сечения "
+                    "и адаптивная 3D-проверка каждого гиба с выбранными реальными "
+                    "FCStd пуансоном и матрицей. Результат остаётся выборочным."
                 )
                 self.manual_validate_btn.clicked.connect(
                     self._validate_export_manual_order
@@ -1787,7 +1789,8 @@ class _PreviewPanel:
                 order_body.addLayout(verify_row)
                 self._manual_preview_help = QtWidgets.QLabel(
                     "Симулировать — просмотр без проверки коллизий. "
-                    "Проверить — отдельная диагностика ручного порядка."
+                    "Проверить — весь выбранный порядок: 2D + 3D пуансон/матрица. "
+                    "Виртуальная длина и концевой условный допуск — из настроек оснастки."
                 )
                 self._manual_preview_help.setWordWrap(True)
                 order_body.addWidget(self._manual_preview_help)
@@ -4683,23 +4686,40 @@ class _PreviewPanel:
                 return note
 
             def _validate_export_manual_order(self):
+                """Validate selected manual order: Stage A/B plus actual FCStd 3D.
+
+                The backgauge stays visual-only. Simulation/slider retain
+                their separate UNVERIFIED and nonblocking preview paths.
+                """
                 if self.session is None:
                     self.status.setText("Сначала загрузите деталь.")
                     return
                 prefix = tuple(self._manual_sequence_prefix)
-                if not prefix:
+                order = tuple(self.session.bend_order)
+                if prefix and order[:len(prefix)] != prefix:
                     self.status.setText(
-                        "Сначала пронумеруйте линии на вкладке «Развёртка · Порядок»."
+                        "Ручной порядок изменился: перенумеруйте линии."
                     )
                     return
-                if self.timer.isActive() or self.session.playback_status == PlaybackStatus.PLAYING:
-                    self.status.setText("Остановите симуляцию перед проверкой порядка.")
+                selected = prefix or order  # Move Up/Down is a valid full order.
+                if not selected:
+                    self.status.setText("Нет выбранных гибов.")
+                    return
+                if (self.timer.isActive()
+                        or self.session.playback_status == PlaybackStatus.PLAYING):
+                    self.status.setText(
+                        "Остановите симуляцию перед проверкой ручного порядка."
+                    )
                     return
                 self._stop_timer()
                 self.manual_validate_btn.setEnabled(False)
+                self.manual_simulate_btn.setEnabled(False)
                 self._set_task_busy(True)
+                self._manual_3d_verdicts.clear()
+                self._last_manual_sequence_report = None
                 self.status.setText(
-                    "Stage A/B: проверка ручного порядка {} гибов...".format(len(prefix))
+                    "Проверка выбранной оснастки и ручного порядка: {}/{} гибов..."
+                    .format(len(selected), len(order))
                 )
                 QtWidgets.QApplication.processEvents()
                 try:
@@ -4707,19 +4727,121 @@ class _PreviewPanel:
                     from smbs_core.kinematics2d.manual_sequence_replay import (
                         evaluate_manual_planar_order,
                     )
-                    has_sections = bool(
-                        getattr(self.tooling_setup, "punch_section_offsets_xm", ())
-                        or getattr(self.tooling_setup, "die_section_offsets_xm", ())
+                    from smbs_core.kinematics2d.manual_physical_validation import (
+                        check_manual_3d_sequence,
                     )
-                    report = evaluate_manual_planar_order(
-                        self.session, self.tooling_setup, prefix,
-                        match_active_bend_length=not has_sections,
+                    from smbs_core.kinematics2d.tooling_25d import ValidationStatus
+
+                    selected_punch = self.tooling_setup.punch
+                    selected_die = self.tooling_setup.die
+                    if (selected_punch is None or selected_die is None
+                            or selected_punch.validation_status
+                               != ValidationStatus.GEOMETRY_VERIFIED
+                            or selected_die.validation_status
+                               != ValidationStatus.GEOMETRY_VERIFIED):
+                        self.physical_check_result.setText(
+                            "UNVERIFIED: выберите действительные пуансон и матрицу "
+                            "с проверенными геометрическими базами."
+                        )
+                        return
+
+                    match_length = bool(
+                        self.tooling_setup.match_active_bend_length
+                    )
+                    allow_end_zone = bool(
+                        self.tooling_setup.allow_end_zone_collision
+                    )
+                    end_zone_mm = float(
+                        self.tooling_setup.end_zone_length_mm
+                    )
+                    has_sections = bool(
+                        self.tooling_setup.punch_section_offsets_xm
+                        or self.tooling_setup.die_section_offsets_xm
+                    )
+                    if has_sections and match_length:
+                        self.physical_check_result.setText(
+                            "UNVERIFIED: виртуальная длина несовместима "
+                            "с реальными наборными секциями инструмента."
+                        )
+                        return
+
+                    # 2D is only an advisory screening pass; its synthetic
+                    # section can disagree with actual native FCStd 3D. Do
+                    # not mark a bend physically blocked based on 2D alone.
+                    planar = evaluate_manual_planar_order(
+                        self.session,
+                        self.tooling_setup,
+                        selected,
+                        match_active_bend_length=match_length,
                         allow_retract_warning=self.retract_warning_checkbox.isChecked(),
                         weights=self._selected_operation_weights(),
                         backgauge_model=None,
                     )
-                    # Identify the exact source geometry used for this run.
-                    report["model"] = {
+                    self.status.setText(
+                        "Предварительный 2D: {}. Проверка реальных FCStd в 3D..."
+                        .format(planar["status"])
+                    )
+                    QtWidgets.QApplication.processEvents()
+
+                    def on_progress(step_no, count, bend_id):
+                        self.status.setText(
+                            "Ручная 3D-проверка: гиб {}/{} ({}) — реальный "
+                            "пуансон + матрица".format(step_no, count, bend_id)
+                        )
+                        QtWidgets.QApplication.processEvents()
+
+                    physical = check_manual_3d_sequence(
+                        self.session, self.tooling_setup, selected,
+                        match_active_bend_length=match_length,
+                        allow_end_zone_collision=allow_end_zone,
+                        end_zone_length_mm=end_zone_mm,
+                        progress_callback=on_progress,
+                    )
+                    for step in physical["steps"]:
+                        self._manual_3d_verdicts[step["bend_id"]] = (
+                            step["status"]
+                        )
+                    self._populate_operations()
+
+                    # A confirmed 2D section disagreement does not override
+                    # a native 3D collision, but prevents a falsely clean
+                    # overall verdict without further investigation.
+                    physical_status = physical["status"]
+                    disagreement = (
+                        planar.get("first_blocker") is not None
+                        or planar.get("status") not in (
+                            "SAMPLED_2D_PREFIX_CLEAR_OR_TOUCH",
+                        )
+                    )
+                    if (disagreement and physical_status
+                            == "SAMPLED_3D_CLEAR_NOT_CONTINUOUS"):
+                        physical_status = "UNVERIFIED"
+                        physical["reason"] += ";2d_3d_disagreement_requires_review"
+                    if (disagreement and physical_status == "CONDITIONAL"):
+                        physical_status = "UNVERIFIED"
+                        physical["reason"] += ";2d_3d_disagreement_requires_review"
+                    physical["status"] = physical_status
+                    complete_steps = physical["checked_bends"]
+                    result = dict(planar)
+                    result["schema_version"] = "smbs.manual_2d_and_native_3d.v2"
+                    result["planar_status"] = planar["status"]
+                    result["manual_3d_validation"] = physical
+                    result["status"] = physical_status
+                    result["physical_certification"] = "NOT_CONTINUOUSLY_CERTIFIED"
+                    result["tooling"] = {
+                        "punch": selected_punch.name,
+                        "punch_id": selected_punch.tool_id,
+                        "die": selected_die.name,
+                        "die_id": selected_die.tool_id,
+                        "match_active_bend_length": match_length,
+                        "allow_end_zone_collision_requested": allow_end_zone,
+                        "end_zone_length_mm": end_zone_mm,
+                        "end_zone_exemption_applied": any(
+                            x.get("is_conditional", False)
+                            for x in physical["steps"]
+                        ),
+                    }
+                    result["model"] = {
                         "part_label": self.session.part_label,
                         "unfold_object": getattr(self.session.unfold_data, "unfold_object", ""),
                         "source_object": getattr(self.session.unfold_data, "source_object", ""),
@@ -4727,80 +4849,75 @@ class _PreviewPanel:
                         "thickness_mm": getattr(self.session.unfold_data, "thickness_mm", None),
                         "fixed_panel": self.session.fixed_panel,
                     }
-                    report["bend_geometry"] = [
+                    result["runtime"] = dict(self.runtime_git_info)
+                    result["bend_geometry"] = [
                         {
                             "bend_id": b.bend_id,
                             "angle_deg": float(b.angle_deg),
                             "fixed_panel": b.fixed_panel,
                             "moving_panel": b.moving_panel,
-                            "axis_xy": [[float(v) for v in pt]
-                                        for pt in next(
-                                            conn.axis_xy for conn in
-                                            self.session.panel_build.connections
-                                            if conn.bend_id == b.bend_id
-                                        )],
+                            "axis_xy": [
+                                [float(v) for v in pt]
+                                for pt in next(
+                                    conn.axis_xy for conn
+                                    in self.session.panel_build.connections
+                                    if conn.bend_id == b.bend_id
+                                )
+                            ],
                         }
                         for b in self.session.ordered_bends
                     ]
-                    report["tooling"] = {
-                        "punch": (getattr(self.tooling_setup.punch, "name", None)
-                                  if self.tooling_setup.punch is not None else None),
-                        "die": (getattr(self.tooling_setup.die, "name", None)
-                                if self.tooling_setup.die is not None else None),
-                        "allow_end_zone_collision_requested": bool(
-                            self.tooling_setup.allow_end_zone_collision),
-                        "end_zone_length_mm": float(self.tooling_setup.end_zone_length_mm),
-                        "end_zone_exemption_applied": False,
-                    }
-                    report["runtime"] = dict(self.runtime_git_info)
-                    self._last_manual_sequence_report = dict(report)
-                    score_info = report["plan_cost"]
-                    cost_label = (
-                        "Штраф принятого порядка {:.2f} балла ({}/{} выбранных гибов). "
-                        "Расчёт: {}.".format(
-                            score_info["total"],
-                            len(report["accepted_prefix"]),
-                            len(prefix),
-                            "полный выбранный порядок"
-                            if report["plan_cost_selected_order_complete"]
-                            else "только принятые гибы",
-                        )
-                        if score_info["is_complete"]
-                        else "Штраф не подтверждён: нет полной геометрии установки."
+                    self._last_manual_sequence_report = dict(result)
+                    summary = (
+                        "{}: проверено {}/{} гибов | "
+                        "{} | 2D={} | проверено только "
+                        "пуансон/матрица, не непрерывное движение"
+                    ).format(
+                        physical_status, complete_steps, len(selected),
+                        physical["reason"], planar["status"],
+                    )
+                    self.physical_check_result.setText(summary)
+                    self.status.setText(summary)
+                    self._trace_event(
+                        "MANUAL_3D_CHECK_COMPLETED",
+                        status=physical_status,
+                        checked_bends=complete_steps,
+                        selected_bends=list(selected),
+                        punch_id=selected_punch.tool_id,
+                        die_id=selected_die.tool_id,
+                        virtual_length=match_length,
+                        end_zone_conditional=allow_end_zone,
+                    )
+                    suggested = str(
+                        Path.home() / "smbs_manual_sequence_diagnostics.json"
                     )
                     target, _ = QtWidgets.QFileDialog.getSaveFileName(
-                        self, "Сохранить проверку ручной последовательности",
-                        str(Path.home() / "smbs_manual_sequence_diagnostics.json"),
-                        "JSON (*.json)",
+                        self, "Сохранить проверку ручного порядка",
+                        suggested, "JSON (*.json)",
                     )
-                    if not target:
-                        self.status.setText(
-                            "Проверка выполнена: {}. {} Сохранение отменено.".format(
-                                report["status"], cost_label)
+                    if target:
+                        Path(target).write_text(
+                            json.dumps(
+                                result, ensure_ascii=False, indent=2,
+                                default=str,
+                            ), encoding="utf-8",
                         )
-                        return
-                    Path(target).write_text(
-                        json.dumps(report, ensure_ascii=False, indent=2, default=str),
-                        encoding="utf-8",
-                    )
-                    verdict = (
-                        "Условная 2D-проверка: предупреждений RETRACT {}, "
-                        "не проверено в 3D".format(len(report["retract_warnings"]))
-                        if report["first_blocker"] is None and report["retract_warnings"]
-                        else "Нет 2D-препятствий в проверенных сечениях (НЕ 3D-допуск)"
-                        if report["first_blocker"] is None else
-                        "Проверка остановлена: гиб {bend_id}, шаг {step_number}, "
-                        "{evidence}: {reason}".format(**report["first_blocker"])
-                    )
-                    self.status.setText(
-                        "JSON: {} | {} | {}".format(target, verdict, cost_label)
-                    )
+                        self.status.setText("JSON: {} | {}".format(
+                            target, summary,
+                        ))
                 except Exception as exc:
-                    self.status.setText("Ошибка проверки ручного порядка: " + str(exc))
-                    _error("Manual-order diagnostic exception: " + traceback.format_exc())
+                    self.physical_check_result.setText(
+                        "UNVERIFIED: ошибка проверки ручного порядка: "
+                        + str(exc)
+                    )
+                    _error(
+                        "Manual 3D tooling validation exception: "
+                        + traceback.format_exc()
+                    )
                 finally:
                     self._set_task_busy(False)
                     self.manual_validate_btn.setEnabled(True)
+                    self.manual_simulate_btn.setEnabled(True)
 
             def simulate_manual_order_unverified(self):
                 """Preview current Manual order without ANY collision validation.
@@ -5070,6 +5187,10 @@ class _PreviewPanel:
                     status_str = "IDLE"
                 if b.bend_id in self._conditional_bends_status:
                     status_str += " [CONDITIONAL]"
+                if b.bend_id in self._manual_3d_verdicts:
+                    status_str += " [3D:{}]".format(
+                        self._manual_3d_verdicts[b.bend_id]
+                    )
                 flat_mm = self.session.local_bend_dimensions_mm.get(b.bend_id)
                 gauge = self._backgauge_preview_position(idx - 1)
                 face_s = (
