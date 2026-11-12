@@ -105,6 +105,23 @@ jobs:
           assert "show_workspace_controls(self, tab=3)" in gui_source
           assert "self._tooling_dialog" not in gui_source
           assert "self._settings_dialog" not in gui_source
+          assert "def embed_task_dialog(workspace, widget, title, key):" in gui_source
+          assert "def activate_task_dialog(workspace, key):" in gui_source
+          assert 'embed_task_dialog(self, dlg, "Профили оснастки", "tool_profiles")' in gui_source
+          assert 'embed_task_dialog(self, dlg, "2D варианты", "planar_candidates")' in gui_source
+          assert 'embed_task_dialog(self, dlg, "Параметры цикла", "cycle_config")' in gui_source
+          from pathlib import Path as _Path
+          modules = {
+              "backgauge": _Path("freecad_smbs/commands/backgauge_dialog.py"),
+              "catalog": _Path("freecad_smbs/commands/sequence_catalog_dialog.py"),
+              "library": _Path("freecad_smbs/commands/tooling.py"),
+          }
+          for name, path in modules.items():
+              source = path.read_text(encoding="utf-8")
+              assert "embed_task_dialog(" in source, (name, path)
+              assert ".exec()" not in source, (name, path)
+          assert "dlg.exec()" not in gui_source
+          print("GUI_SHARED_TASK_DIALOG_CONTRACT_OK")
           # Tooling retains its Basic/Import sub-tabs within Task Panel.
           assert 'tool_tabs.addTab(tool_main, "Основные")' in gui_source
           assert 'tool_tabs.addTab(tool_import, "Импорт")' in gui_source
