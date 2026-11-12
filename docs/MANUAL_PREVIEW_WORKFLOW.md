@@ -31,6 +31,14 @@
      document. Use FreeCAD **Ctrl+S** to name/save the first FCStd file.
    - Reopening an FCStd restores stored checks as **historical only**:
      `HISTORICAL / UNVERIFIED`, never a live collision clearance.
+   - Every bend now also shows a **RETRACT** column (`ПРОЙДЕН`,
+     `КОЛЛИЗИЯ`, `УСЛОВНО`, `НЕ ПРОВЕРЕН`, or `НЕ ВЫПОЛНЕН`).
+     The Manual results below the table show the beginning and final
+     **Machine Z (mm)** of the punch retraction, the sampled phase
+     evidence and the reason for any non-clear result.
+     Green sampled clearance is allowed only when the RETRACT phase
+     sampled **both** its planned bottom and upper endpoints.
+
 7. Full automatic physically screened search remains accessible through
    **PressBrakeSim 2.5D > Автопоиск последовательности** in the FreeCAD
    menu, separate from the toolbar **Симуляция** action.
@@ -57,6 +65,30 @@ plays as the entire current order.
   `manual_physical_validation.check_manual_3d_sequence()`.
   A fresh, isolated `FoldState` applies completed signed bends for each
   operation without overwriting live playback state or source FCStd files.
+- **Shared RETRACT geometry:** `ram_cycle_geometry.ram_cycle_positions()`
+  is the one FreeCAD-independent reference for the simulation
+  `PressCycleController` and native D6.3.4 `AdaptiveTrajectoryValidator3D`.
+  Instead of former fixed native endpoints +50 (APPROACH) and +40 mm
+  (RETRACT), both now calculate `upper_z = contact_z +
+  cycle_config.initial_clearance_mm`, and `retract_start_z = bottom_z`.
+  Manual Verify passes the same `CycleConfig.initial_clearance_mm`
+  into `AdaptiveSamplingConfig.initial_clearance_mm`.
+- Each native `BendTrajectoryResult` includes `ram_cycle_positions_mm`
+  (planned machine Z positions). The Manual checker stores a compact
+  `retract` object in **each** `manual_3d_validation.steps[]` item:
+  `start_z_mm`, `end_z_mm`, `contact_z_mm`, `bottom_z_mm`,
+  `initial_clearance_mm`, `sampled_start_z_mm`,
+  `sampled_end_z_mm`, `end_position_sampled`, `sample_count`,
+  `status`, `phase_evidence`, max overlaps and a concise reason.
+  If the trajectory aborts during an earlier phase, the unexecuted
+  RETRACT reports `NOT_EVALUATED`; **planned coordinates are not
+  presented as measured clearance**. Endpoint mismatch, missing
+  samples or native uncertainty remain `UNVERIFIED`.
+- The FCStd `SMBS_Data/SessionJSON` attachment includes these per-bend
+  retract records with the rest of the bounded native 3D manual report.
+  Reopened evidence remains `HISTORICAL / UNVERIFIED`: no automatic
+  replay of an old safe state.
+
 - The result is first shown in `manual_check_summary` and
   `manual_check_details`, then staged by
   `_persist_manual_check_to_fcstd()` through
@@ -150,6 +182,20 @@ and Python compilation.
 - Repeat with an unsaved FreeCAD document: Manual Verify should stage
   the attachment without asking for a JSON filename; Ctrl+S should
   save the entire document as FCStd.
+- Set `initial_clearance_mm` to a value other than the default, run
+  Manual Verify on a valid native FCStd setup, then run Full Cycle.
+  For each bend, compare native RETRACT `end_z_mm` against the GUI
+  `upper_z_mm`; compare native bottom/start Z against the simulated
+  `bottom_z_mm`. They must agree for the same selected tools.
+- Create a physical collision during BENDING: the step must be
+  `COLLISION` and its RETRACT column `НЕ ВЫПОЛНЕН`, not green.
+  Test a RETRACT-only collision: the step must be `COLLISION`, with
+  RETRACT `КОЛЛИЗИЯ`. Test a conditional end-zone-only RETRACT:
+  `УСЛОВНО` must never turn into a green unconditional PASS.
+- Save and reopen the FCStd, inspect
+  `diagnostics.manual.manual_3d_validation.steps[*].retract`.
+  Actual end Z, sample count and phase status must survive unchanged.
+
 - Use a real tool shorter than the bend. With virtual length OFF, Stage A
   must reject its length. With virtual length ON, the report must label
   the synthetic axial geometry and never claim source-CAD span coverage.
