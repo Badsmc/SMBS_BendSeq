@@ -23,6 +23,7 @@ if str(_REPO_ROOT) not in sys.path:
 from freecad_smbs.commands.pressbrake_2d import (
     PressBrake2DCommand, LoadPartCommand, ToolingTabCommand,
     CalculateCommand, PlanarCandidatesCommand, SequenceCatalogCommand,
+    ManualTabCommand, SettingsTabCommand,
 )
 from freecad_smbs.commands.tooling import ToolingCommand
 
@@ -33,6 +34,8 @@ CMD_TOOLING_TAB = "SMBS_ToolingTab"
 CMD_CALCULATE = "SMBS_Calculate"
 CMD_PLANAR_CANDIDATES = "SMBS_PlanarCandidates"
 CMD_SEQUENCE_CATALOG = "SMBS_SequenceCatalog"
+CMD_MANUAL_TAB = "SMBS_ManualTab"
+CMD_SETTINGS_TAB = "SMBS_SettingsTab"
 COMMANDS_MAP = {
     CMD_PRESSBRAKE_2D: PressBrake2DCommand,
     CMD_LOAD_PART: LoadPartCommand,
@@ -40,6 +43,8 @@ COMMANDS_MAP = {
     CMD_CALCULATE: CalculateCommand,
     CMD_PLANAR_CANDIDATES: PlanarCandidatesCommand,
     CMD_SEQUENCE_CATALOG: SequenceCatalogCommand,
+    CMD_MANUAL_TAB: ManualTabCommand,
+    CMD_SETTINGS_TAB: SettingsTabCommand,
     CMD_TOOLING: ToolingCommand,
 }
 _REGISTERED_COMMANDS: set[str] = set()
@@ -65,12 +70,17 @@ class SMBSWorkbench(Workbench):
 
     def Initialize(self) -> None:
         register_commands()
-        commands = [
-            CMD_PRESSBRAKE_2D, CMD_LOAD_PART, CMD_TOOLING_TAB,
-            CMD_CALCULATE, CMD_PLANAR_CANDIDATES, CMD_SEQUENCE_CATALOG,
+        # FreeCAD native toolbar: six operator commands, not task-panel tabs.
+        toolbar = [
+            CMD_LOAD_PART, CMD_TOOLING_TAB, CMD_CALCULATE,
+            CMD_PLANAR_CANDIDATES, CMD_MANUAL_TAB, CMD_SETTINGS_TAB,
         ]
-        self.appendMenu("PressBrakeSim 2.5D", commands + [CMD_TOOLING])
-        self.appendToolbar("PressBrakeSim 2.5D", commands)
+        # Existing simulation and sequence catalogue remain accessible through
+        # the menu without duplicating the dock's navigation.
+        self.appendMenu("PressBrakeSim 2.5D", [
+            CMD_PRESSBRAKE_2D, *toolbar, CMD_SEQUENCE_CATALOG, CMD_TOOLING,
+        ])
+        self.appendToolbar("PressBrakeSim 2.5D", toolbar)
 
     def Activated(self) -> None:
         pass
