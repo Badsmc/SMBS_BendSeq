@@ -413,6 +413,7 @@ def check_manual_3d_sequence(
     """
     t0 = perf_counter()
     order = tuple(selected_order)
+    reverse_axis_by_bend = dict(reverse_axis_by_bend or {})
     known = tuple(session.bend_order)
     state_in = session.fold_state
     if (not order or len(order) != len(set(order))
@@ -521,7 +522,6 @@ def check_manual_3d_sequence(
     previous = []
     steps = []
     any_conditional = False
-    reverse_axis_by_bend = dict(reverse_axis_by_bend or {})
     check_kwargs = {
         "config": config,
         "match_active_bend_length": virtual,
