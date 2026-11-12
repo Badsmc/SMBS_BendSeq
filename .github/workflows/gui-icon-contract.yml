@@ -217,6 +217,15 @@ jobs:
           assert 'self.set_cycle_mode(CycleExecutionMode.BEND_ONLY)' in gui_source
           assert 'pc.set_manual_preview_angle(float(signed_angle_deg))' in gui_source
           assert 'pc.preview_punch_at_current_angle()' in gui_source
+          # 2.5D and 3D share ONE coupled workpiece support height.
+          assert 'sheet_support_z = pc.preview_workpiece_support_zm()' in gui_source
+          assert 'support_plane_zm=float(sheet_support_z)' in gui_source
+          core_source = Path("smbs_core/kinematics2d/press_cycle.py").read_text(
+              encoding="utf-8"
+          )
+          assert 'def preview_workpiece_support_zm(self)' in core_source
+          assert 'support_z = self.preview_workpiece_support_zm()' in core_source
+          assert 'or self._manual_preview_active' in core_source
           assert 'self._manual_preview_notice.show()' in gui_source
           assert 'workspace._viewer_tabs.setCurrentWidget(workspace.view)' in gui_source
           assert 'self.play_btn = _playback_button(' in gui_source
