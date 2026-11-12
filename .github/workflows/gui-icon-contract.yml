@@ -95,14 +95,17 @@ jobs:
           assert "if len(entries) != 11:" in gui_source
           assert "SMBS_ManualScroll" in gui_source
           assert "SMBS_SettingsScroll" in gui_source
-          assert "SMBS_ToolingScroll" not in gui_source
+          assert "SMBS_ToolingScroll" in gui_source
           assert '"Проверить"' in gui_source
           assert '"Manual"' in gui_source
           assert "show_workspace_controls(self, tab=1)" in gui_source
-          # Only Simulation and Manual are in the Task Panel.
-          assert 'controls.addTab(' in gui_source
-          assert gui_source.count("controls.addTab(") == 2
-          # Config is in Settings, tooling in its own Basic/Import dialog.
+          # Simulation, Manual, Tooling, Settings share one Task Panel.
+          assert gui_source.count("controls.addTab(") == 4
+          assert "show_workspace_controls(self, tab=2)" in gui_source
+          assert "show_workspace_controls(self, tab=3)" in gui_source
+          assert "self._tooling_dialog" not in gui_source
+          assert "self._settings_dialog" not in gui_source
+          # Tooling retains its Basic/Import sub-tabs within Task Panel.
           assert 'tool_tabs.addTab(tool_main, "Основные")' in gui_source
           assert 'tool_tabs.addTab(tool_import, "Импорт")' in gui_source
           assert 'insert(settings_layout, entries[3])' in gui_source
