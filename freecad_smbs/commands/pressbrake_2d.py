@@ -5609,6 +5609,17 @@ class _PreviewPanel:
                 return checks
 
             def closeEvent(self, event):
+                # A user may close the simulator first and press Ctrl+S in
+                # FreeCAD afterwards. Stage the final live JSON before losing
+                # this workspace's observer; the CAD file still requires a
+                # native document save. Never overwrite a stale attachment.
+                if self.session is not None and self._smbs_allow_auto_embed:
+                    try:
+                        self._write_embedded_smbs_json(
+                            self._bound_smbs_document()
+                        )
+                    except Exception as exc:
+                        _warn("FCStd SMBS stage on viewer close failed: " + str(exc))
                 if self._smbs_fcstd_observer is not None:
                     try:
                         import FreeCAD as App
