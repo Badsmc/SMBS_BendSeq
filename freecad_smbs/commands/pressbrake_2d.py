@@ -887,6 +887,10 @@ def embed_task_dialog(workspace, widget, title, key):
 
     widget.finished.connect(on_finished)
     close_btn.clicked.connect(on_close)
+    workspace._install_automatic_debug_ui_signals(QtWidgets)
+    _desktop_debug_event(
+        "SPECIALIST_TASK_OPENED", key=str(key), title=str(title),
+    )
     show_workspace_controls(workspace, tab=index)
 
 
@@ -1709,6 +1713,100 @@ class _PreviewPanel:
                 self._last_debug_frame_at = 0.0
                 self._last_debug_frame_signature = None
                 self.draw()
+
+            def _debug_session_context(self):
+                """Snapshot actual operator state, without Qt or OCC objects."""
+                session = self.session
+                tooling = self.tooling_setup
+                return {
+                    "part": session.part_label if session is not None else None,
+                    "document": self._smbs_document_name,
+                    "active_bend": session.active_bend_id if session is not None else None,
+                    "bend_order": list(session.bend_order) if session is not None else [],
+                    "manual_prefix": list(self._manual_sequence_prefix),
+                    "fold_angles_deg": dict(session.fold_state.angles)
+                    if session is not None else {},
+                    "punch": getattr(getattr(tooling, "punch", None), "tool_id", None),
+                    "die": getattr(getattr(tooling, "die", None), "tool_id", None),
+                    "tool_length_virtual": bool(getattr(
+                        tooling, "match_active_bend_length", False,
+                    )),
+                    "end_zone_allowed": bool(getattr(
+                        tooling, "allow_end_zone_collision", False,
+                    )),
+                    "end_zone_mm": getattr(tooling, "end_zone_length_mm", None),
+                    "cycle_mode": self.execution_mode.value,
+                    "initial_clearance_mm": self.cycle_config.initial_clearance_mm,
+                    "running": bool(self.timer.isActive()),
+                }
+
+            def _debug_ui_action(self, widget, action, value=None):
+                try:
+                    widget_name = str(widget.objectName() or "")
+                    caption = (
+                        widget.text() if hasattr(widget, "text") and
+                        callable(widget.text) else ""
+                    )
+                    _desktop_debug_event(
+                        "OPERATOR_UI_ACTION",
+                        action=str(action),
+                        widget=widget_name or type(widget).__name__,
+                        widget_class=type(widget).__name__,
+                        label=str(caption)[:200],
+                        value=value,
+                        session=self._debug_session_context(),
+                    )
+                except Exception:
+                    # An unavailable UI log must never block input in FreeCAD.
+                    pass
+
+            def _install_automatic_debug_ui_signals(self, QtWidgets):
+                """Capture user actions automatically without duplicating handlers.
+
+                Includes controls inside the standard FreeCAD Tasks stack and
+                the MDI; newly embedded specialist settings are wired too.
+                No keyboard passwords or arbitrary document text is collected.
+                """
+                for widget in self.findChildren(QtWidgets.QWidget):
+                    if widget.property("_smbs_debug_wired"):
+                        continue
+                    widget.setProperty("_smbs_debug_wired", True)
+                    if isinstance(widget, QtWidgets.QAbstractButton):
+                        widget.clicked.connect(
+                            lambda checked=False, w=widget:
+                                self._debug_ui_action(w, "CLICK", bool(checked))
+                        )
+                    elif isinstance(widget, QtWidgets.QComboBox):
+                        widget.currentIndexChanged.connect(
+                            lambda index, w=widget:
+                                self._debug_ui_action(
+                                    w, "SELECT", {
+                                        "index": int(index),
+                                        "text": str(w.currentText())[:200],
+                                    },
+                                )
+                        )
+                    elif isinstance(widget, QtWidgets.QAbstractSlider):
+                        widget.sliderReleased.connect(
+                            lambda w=widget:
+                                self._debug_ui_action(w, "SLIDER_RELEASE", w.value())
+                        )
+                    elif isinstance(widget, (
+                            QtWidgets.QDoubleSpinBox, QtWidgets.QSpinBox)):
+                        widget.valueChanged.connect(
+                            lambda val, w=widget:
+                                self._debug_ui_action(w, "VALUE", val)
+                        )
+                    elif isinstance(widget, QtWidgets.QLineEdit):
+                        widget.editingFinished.connect(
+                            lambda w=widget:
+                                self._debug_ui_action(w, "EDIT_FINISHED")
+                        )
+                    elif isinstance(widget, QtWidgets.QTabWidget):
+                        widget.currentChanged.connect(
+                            lambda index, w=widget:
+                                self._debug_ui_action(w, "VIEW_TAB", index)
+                        )
 
             def _install_workspace_layout(self, root, QtCore, QtWidgets):
                 """Rearrange existing controls without rebuilding the simulation engine.
