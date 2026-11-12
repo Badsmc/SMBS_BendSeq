@@ -5670,10 +5670,6 @@ class _PreviewPanel:
                         bid: manual_reversed for bid in selected
                     }
                     try:
-                        if manual_reversed:
-                            raise ValueError(
-                                "manual_2d_reverse_orientation_not_implemented"
-                            )
                         planar = evaluate_manual_planar_order(
                             self.session,
                             self.tooling_setup,
@@ -5682,6 +5678,7 @@ class _PreviewPanel:
                             allow_retract_warning=self.retract_warning_checkbox.isChecked(),
                             weights=self._selected_operation_weights(),
                             backgauge_model=None,
+                            reverse_axis_by_bend=reverse_selection,
                         )
                     except Exception as planar_exc:
                         # 2D diagnostics are advisory. Failure to build an
