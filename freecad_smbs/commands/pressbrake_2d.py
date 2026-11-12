@@ -837,8 +837,8 @@ class CalculateCommand:
     def GetResources(self):
         return {
             "Pixmap": str(_ICON_ROOT / "gui_calculate.svg"),
-            "MenuText": "Расчёт",
-            "ToolTip": "Полный поиск последовательности с физическими проверками",
+            "MenuText": "Автопоиск последовательности",
+            "ToolTip": "Отдельный физический поиск порядка гибки (не требуется для просмотра Manual)",
         }
 
     def IsActive(self):
@@ -1154,6 +1154,7 @@ class _PreviewPanel:
                         except (ValueError, TypeError, KeyError) as exc:
                             _error("Backgauge configuration rejected: " + str(exc))
                 self._manual_selection_enabled = False
+                self._manual_preview_unverified = False
                 self._conditional_bends_status: dict[str, str] = {}
                 self._highlighted_end_zone_info: dict | None = None
                 _log(
@@ -1611,8 +1612,17 @@ class _PreviewPanel:
                     style_action(btn, compact=True)
                 style_action(self.play_btn, primary=True)
                 insert(sim_body, entries[5])  # Reset / Prev / Play-Pause / Next / Fit
-                self.slider.setToolTip("Угол активного гиба")
+                self.slider.setToolTip(
+                    "Перемещение угла и пуансона: кинематический просмотр, "
+                    "не проверка коллизий"
+                )
                 insert(sim_body, entries[6])  # angle slider
+                self._manual_preview_notice = QtWidgets.QLabel(
+                    "РУЧНОЙ ПРОСМОТР — коллизии не проверены"
+                )
+                self._manual_preview_notice.setWordWrap(True)
+                self._manual_preview_notice.hide()
+                sim_body.addWidget(self._manual_preview_notice)
 
                 # Full search is initiated by the FreeCAD toolbar "Расчёт".
                 # Its enabled-state proxy remains a single hidden widget.
@@ -1670,8 +1680,18 @@ class _PreviewPanel:
                     QtWidgets.QSizePolicy.Expanding,
                 )
                 insert(order_body, entries[8], 1)  # actual sequence table
+                self.manual_simulate_btn = style_action(
+                    QtWidgets.QPushButton("Симулировать"), primary=True
+                )
+                self.manual_simulate_btn.setToolTip(
+                    "Сразу просмотреть выбранный ручной порядок: без расчёта "
+                    "последовательности и без проверки столкновений"
+                )
+                self.manual_simulate_btn.clicked.connect(
+                    self.simulate_manual_order_unverified
+                )
                 self.manual_validate_btn = style_action(
-                    QtWidgets.QPushButton("Проверить"), primary=True
+                    QtWidgets.QPushButton("Проверить")
                 )
                 self.manual_validate_btn.setToolTip(
                     "Stage A/B: проверить ручной порядок и сохранить "
@@ -1681,9 +1701,16 @@ class _PreviewPanel:
                     self._validate_export_manual_order
                 )
                 verify_row = QtWidgets.QHBoxLayout()
-                verify_row.addStretch(1)
+                verify_row.addWidget(self.manual_simulate_btn)
                 verify_row.addWidget(self.manual_validate_btn)
+                verify_row.addStretch(1)
                 order_body.addLayout(verify_row)
+                self._manual_preview_help = QtWidgets.QLabel(
+                    "Симулировать — просмотр без проверки коллизий. "
+                    "Проверить — отдельная диагностика ручного порядка."
+                )
+                self._manual_preview_help.setWordWrap(True)
+                order_body.addWidget(self._manual_preview_help)
                 manual_layout.addWidget(order_card, 1)
                 self._page_manual = scroll_task_page(
                     manual, "SMBS_ManualScroll"
@@ -4253,6 +4280,9 @@ class _PreviewPanel:
                 self._selected_planar_loading_orientation = {}
                 self._backgauge_preview_cache.clear()
                 self._manual_sequence_prefix = []
+                self._manual_preview_unverified = False
+                self._manual_selection_enabled = False
+                self._manual_preview_notice.hide()
                 self.last_sequence_search_report = None
                 self._ensure_press_cycle_controller()
                 self._sync_tooling_to_active_bend()
