@@ -997,6 +997,18 @@ class _PreviewPanel:
                 self.setToolTip(str(message))
                 self._workspace._on_task_status_change(str(message))
 
+        class TaskPhysicalResultLabel(QtWidgets.QLabel):
+            """Mirror the actual validator output into the compact simulation card."""
+
+            def __init__(self, workspace, message):
+                super().__init__(message, workspace)
+                self._workspace = workspace
+
+            def setText(self, message):
+                super().setText(str(message))
+                self.setToolTip(str(message))
+                self._workspace._on_physical_result_change(str(message))
+
         class Panel(QtWidgets.QWidget):
             def __init__(self, library_root: Path | str | None = None):
                 super().__init__()
@@ -1199,8 +1211,8 @@ class _PreviewPanel:
                     "Непрерывное движение и прочие компоненты станка не сертифицированы."
                 )
                 t_layout.addWidget(self.full_physical_check_btn)
-                self.physical_check_result = QtWidgets.QLabel(
-                    "Проверка коллизий не выполнена."
+                self.physical_check_result = TaskPhysicalResultLabel(
+                    self, "UNVERIFIED: проверка коллизий не выполнена."
                 )
                 self.physical_check_result.setWordWrap(True)
                 t_layout.addWidget(self.physical_check_result)
@@ -1501,6 +1513,9 @@ class _PreviewPanel:
                 )
                 self._simulation_diagnostics_summary.setWordWrap(True)
                 sim_diag_body.addWidget(self._simulation_diagnostics_summary)
+                self._on_physical_result_change(
+                    self.physical_check_result.text()
+                )
                 sim_layout.addWidget(sim_diag_card)
                 sim_layout.addStretch(1)
                 controls.addTab(
@@ -1830,6 +1845,17 @@ class _PreviewPanel:
                     badge.style().polish(badge)
                 badge.setText(caption)
 
+            def _on_physical_result_change(self, message):
+                if hasattr(self, "_simulation_diagnostics_summary"):
+                    self._simulation_diagnostics_summary.setText(str(message))
+                    self._simulation_diagnostics_summary.setToolTip(str(message))
+                # Status-bar reports the last actual validation outcome,
+                # never a synthetic success badge.
+                if hasattr(self, "status") and not getattr(
+                    self, "_task_progress_busy", False
+                ):
+                    self.status.setText(str(message))
+
             def _set_task_busy(self, busy):
                 """Use indeterminate progress for unbounded DFS/OCC searches."""
                 self._task_progress_busy = bool(busy)
@@ -1865,8 +1891,11 @@ class _PreviewPanel:
                 value = min(100, max(0, int(
                     round(100.0 * (idx + fraction) / n)
                 )))
-                self.task_progress.setValue(value)
-                self._task_progress_caption.setText("Гибы · {}%".format(value))
+                if self.task_progress.value() != value:
+                    self.task_progress.setValue(value)
+                caption = "Гибы · {}%".format(value)
+                if self._task_progress_caption.text() != caption:
+                    self._task_progress_caption.setText(caption)
 
             def open_tooling_settings_dialog(self):
                 """Show tooling Basic/Import within the shared Task Panel."""
@@ -5294,6 +5323,7 @@ class _PreviewPanel:
                 label.setZValue(Z_LAYER_AUXILIARY)
 
             def draw(self):
+                self._update_task_progress()
                 try:
                     t_draw_start = time.perf_counter()
                     self.scene.clear()
