@@ -4763,8 +4763,24 @@ class _PreviewPanel:
                     )
                     return
                 self._stop_timer()
-                self.manual_validate_btn.setEnabled(False)
-                self.manual_simulate_btn.setEnabled(False)
+                # Qt event pumping keeps progress legible, but the operator
+                # must not change tool identity, options or order mid-check.
+                locked_controls = (
+                    self.manual_validate_btn, self.manual_simulate_btn,
+                    self.select_punch_combo, self.select_die_combo,
+                    self.virtual_tool_len_checkbox,
+                    self.allow_end_zone_checkbox, self.end_zone_len_spin,
+                    self.import_punch_btn, self.import_die_btn,
+                    self.tool_library_btn, self.move_up_btn,
+                    self.move_down_btn, self.restore_order_btn,
+                    self.manual_undo_btn, self.manual_clear_btn,
+                )
+                old_control_states = tuple(
+                    (control, control.isEnabled())
+                    for control in locked_controls
+                )
+                for control, _enabled in old_control_states:
+                    control.setEnabled(False)
                 self._set_task_busy(True)
                 self._manual_3d_verdicts.clear()
                 self._last_manual_sequence_report = None
@@ -5010,8 +5026,8 @@ class _PreviewPanel:
                     )
                 finally:
                     self._set_task_busy(False)
-                    self.manual_validate_btn.setEnabled(True)
-                    self.manual_simulate_btn.setEnabled(True)
+                    for control, enabled in old_control_states:
+                        control.setEnabled(enabled)
 
             def simulate_manual_order_unverified(self):
                 """Preview current Manual order without ANY collision validation.
