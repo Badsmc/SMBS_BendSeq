@@ -1,5 +1,35 @@
 # PressBrakeSim: Manual preview vs. collision validation
 
+## FreeCAD-native Tasks integration
+
+All SMBS controls now open in the **native FreeCAD Задачи / Tasks tab**,
+via `FreeCADGui.Control.showDialog(...)`, rather than a separate
+`PressBrakeSim TaskPanel` QDockWidget. The independent MDI scene
+continues to display the 2.5D, 3D and flat-pattern views.
+
+The native Tasks page holds Деталь, Оснастка, Симуляция, 2D варианты,
+Manual and Настройки, plus embedded specialist forms and progress/results.
+The normal toolbar actions switch pages in that same Task panel; there
+is no second addon dock, modal tool dialog or duplicated playback timer.
+
+**Закрыть** or Esc closes only the native Task controls, not the selected
+SheetMetal model or SMBS viewing session. To reopen the controls, click
+**Показать панель управления** in the viewer or an SMBS toolbar action.
+The same in-memory tool selections, order and Manual verification results
+remain attached to the viewer. Closing the viewer itself cleans up the
+Tasks page and document observer. SMBS never forcibly closes an unrelated
+Sketcher or PartDesign task; finish it first.
+
+**Acceptance in FreeCAD 1.1.x:** restart FreeCAD after installing this
+branch; click Симуляция and confirm the controls appear in the *existing*
+Задачи tab, not in a new PressBrakeSim TaskPanel dock. Switch to Оснастка,
+Manual, Настройки and Задний упор; close/reopen Tasks twice and confirm
+the selected punch/die, sequence, slider, results and mouse pan still
+work. Check for Qt widget deletion errors in Report View.
+
+The automated tests model FreeCAD's task lifecycle without Qt; actual
+visual rendering in FreeCAD still requires an interactive test.
+
 ## User-facing workflow
 
 1. Open **Деталь** and load the selected SheetMetal unfold in FreeCAD.
@@ -8,7 +38,7 @@
 3. Click the bend lines in the desired order or reorder the operations with
    **Move Up / Move Down / Restore**.
 4. Click **Симулировать** to watch the selected order immediately.
-   The main viewer switches to **2.5D · Гибка**, the Tasks dock changes to
+   The main viewer switches to **2.5D · Гибка**, the native FreeCAD Tasks view changes to
    **Симуляция**, and playback starts in **Bend Only** mode. **No collision
    validation or automatic sequence search runs.** This is explicitly
    `UNVERIFIED`.
