@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - GUI/v0.0.1
+      - GUI/v0.0.1-context-panel
   workflow_dispatch:
 
 jobs:
@@ -99,10 +100,20 @@ jobs:
           assert '"Проверить"' in gui_source
           assert '"Manual"' in gui_source
           assert "show_workspace_controls(self, tab=1)" in gui_source
-          # Simulation, Manual, Tooling, Settings share one Task Panel.
-          assert gui_source.count("controls.addTab(") == 4
-          assert "show_workspace_controls(self, tab=2)" in gui_source
-          assert "show_workspace_controls(self, tab=3)" in gui_source
+          assert "show_workspace_controls(self, tab=4)" in gui_source
+          assert "show_workspace_controls(self, tab=5)" in gui_source
+          # Single context panel: no task tabs, six fixed pages.
+          assert "controls = QtWidgets.QStackedWidget()" in gui_source
+          assert gui_source.count("controls.addTab(") == 0
+          assert 'self._task_stack = controls' in gui_source
+          assert '("Деталь", self._page_part)' in gui_source
+          assert '("Оснастка", self._page_tooling)' in gui_source
+          assert '("Расчёт", self._page_calculate)' in gui_source
+          assert '("2D варианты", self._page_planar)' in gui_source
+          assert '("Manual", self._page_manual)' in gui_source
+          assert '("Настройки", self._page_settings)' in gui_source
+          assert "scroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)" in gui_source
+          assert "page.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)" in gui_source
           assert "self._tooling_dialog" not in gui_source
           assert "self._settings_dialog" not in gui_source
           assert "def embed_task_dialog(workspace, widget, title, key):" in gui_source
@@ -122,9 +133,10 @@ jobs:
               assert ".exec()" not in source, (name, path)
           assert "dlg.exec()" not in gui_source
           print("GUI_SHARED_TASK_DIALOG_CONTRACT_OK")
-          # Tooling retains its Basic/Import sub-tabs within Task Panel.
-          assert 'tool_tabs.addTab(tool_main, "Основные")' in gui_source
-          assert 'tool_tabs.addTab(tool_import, "Импорт")' in gui_source
+          # Tooling controls and import are shown without nested tabs.
+          assert "tool_tabs.addTab(" not in gui_source
+          assert 'tooling_body.addWidget(tool_main)' in gui_source
+          assert 'tooling_body.addWidget(tool_import)' in gui_source
           assert 'insert(cycle_body, entries[3])' in gui_source
           assert 'cycle_body.addWidget(self.retract_warning_checkbox)' in gui_source
           assert 'tool_opts_layout.addWidget(self.virtual_tool_len_checkbox)' in gui_source
@@ -136,7 +148,7 @@ jobs:
               TASK_QSS, classify_status,
           )
           assert (OUTER_MARGIN, SECTION_PADDING, SECTION_GAP, CORNER_RADIUS) == (
-              20, 16, 16, 9
+              10, 9, 8, 3
           )
           assert 'QFrame#SMBS_SectionCard' in TASK_QSS
           assert 'QLabel#SMBS_StatusChip[state="error"]' in TASK_QSS
@@ -159,6 +171,10 @@ jobs:
           assert classify_status("Ошибка проверки столкновения")[0] == "error"
           assert classify_status("Выполняется поиск")[0] == "running"
           print("GUI_INDUSTRIAL_LAYOUT_CONTRACT_OK")
+          wb_source = Path("freecad_smbs/InitGui.py").read_text(encoding="utf-8")
+          assert 'self.appendToolbar("PressBrakeSim 2.5D", toolbar)' in wb_source
+          assert "CMD_LOAD_PART, CMD_TOOLING_TAB, CMD_CALCULATE," in wb_source
+          assert "CMD_PLANAR_CANDIDATES, CMD_MANUAL, CMD_SETTINGS," in wb_source
           assert '"Select Punch"' not in gui_source
           assert '"Select Die"' not in gui_source
           assert '"Align Tooling"' not in gui_source
