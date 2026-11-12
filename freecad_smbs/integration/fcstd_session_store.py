@@ -151,9 +151,22 @@ def _bounded_report(report):
             k: _enum_to_value(getattr(report, k))
             for k in keys if hasattr(report, k)
         }
+    # A report from an experimental solver may contain a custom Python
+    # object. Preserve the live session snapshot while honestly labeling the
+    # unavailable evidence; never pickle or silently claim a verification.
+    try:
+        encoded = _json_bytes(data)
+    except EmbeddedSessionError:
+        return {
+            "note": "Report is not JSON-serializable; use the external diagnostic",
+            "evidence_available": False,
+        }
     # Reject rather than truncate, since partial evidence could mislead.
-    if len(_json_bytes(data)) > 256 * 1024:
-        return {"note": "Report too large; see external diagnostic JSON/JSONL"}
+    if len(encoded) > 256 * 1024:
+        return {
+            "note": "Report too large; see external diagnostic JSON/JSONL",
+            "evidence_available": False,
+        }
     return data
 
 
