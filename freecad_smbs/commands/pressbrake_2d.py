@@ -1205,6 +1205,7 @@ class _PreviewPanel:
                 self._backgauge_settings = QtCore.QSettings("SMBS", "BendSeq")
                 self.backgauge_model = None
                 self._backgauge_preview_cache = {}
+                self._machine_gauge_envelope_cache = None
                 # Preserve the exact S/Z candidate accepted by the search.
                 # Otherwise a GUI redraw would recompute the primary gauge
                 # and depict a different setup from the chosen DFS branch.
@@ -1501,16 +1502,19 @@ class _PreviewPanel:
                 root.addLayout(order_row)
 
                 self.operations = QtWidgets.QTreeWidget()
-                self.operations.setHeaderLabels(["Step", "Bend", "Target", "Current", "Полка, мм", "Status"])
+                self.operations.setHeaderLabels(["Step", "Bend", "Target", "Current", "До гиба, мм", "Упор S, мм", "Status"])
                 self.operations.setRootIsDecorated(False)
                 self.operations.setHorizontalScrollBarPolicy(
                     QtCore.Qt.ScrollBarAsNeeded
                 )
                 self.operations.setObjectName("SMBS_Operations")
                 self.operations.setToolTip(
-                    "Полка, мм: от середины текущей линии гиба до ближайшей "
-                    "соседней параллельной линии гиба или наружного края "
-                    "развёртки. Локальный размер, без накопления."
+                    "До гиба, мм: локальный размер по развёртке до ближайшей "
+                    "соседней линии гиба или края. Упор S, мм: визуальная "
+                    "установка от оси гиба до лицевой поверхности упора, "
+                    "рассчитанная по уже согнутой детали (с толщиной и радиусом); "
+                    "в ручном режиме отображается заданная позиция. "
+                    "Без проверки контакта или столкновений."
                 )
                 self.operations.setAlternatingRowColors(True)
                 self.operations.setMinimumHeight(220)
@@ -1530,7 +1534,10 @@ class _PreviewPanel:
                     4, QtWidgets.QHeaderView.ResizeToContents
                 )
                 self.operations.header().setSectionResizeMode(
-                    5, QtWidgets.QHeaderView.Stretch
+                    5, QtWidgets.QHeaderView.ResizeToContents
+                )
+                self.operations.header().setSectionResizeMode(
+                    6, QtWidgets.QHeaderView.Stretch
                 )
                 self.operations.currentItemChanged.connect(self._on_operation_selected)
                 root.addWidget(self.operations)
@@ -5066,7 +5073,7 @@ class _PreviewPanel:
                 if reset_camera:
                     self._flat_view.reset_camera()
 
-            def _format_operation_row(self, idx: int, b) -> tuple[str, str, str, str, str, str]:
+            def _format_operation_row(self, idx: int, b) -> tuple[str, str, str, str, str, str, str]:
                 cur = self.session.fold_state.angles[b.bend_id]
                 done = self.session.controller.is_bend_completed(b.bend_id)
                 is_active = (idx - 1) == self.session.active_bend_index
@@ -5078,13 +5085,20 @@ class _PreviewPanel:
                     status_str = "IDLE"
                 if b.bend_id in self._conditional_bends_status:
                     status_str += " [CONDITIONAL]"
-                distance = self.session.local_bend_dimensions_mm.get(b.bend_id)
+                flat_mm = self.session.local_bend_dimensions_mm.get(b.bend_id)
+                gauge = self._backgauge_preview_position(idx - 1)
+                face_s = (
+                    gauge[0].s_mm - self.backgauge_model.width_s_mm / 2.0
+                    if gauge is not None and self.backgauge_model is not None
+                    else None
+                )
                 return (
                     str(idx),
                     "{} ({} → {})".format(b.bend_id, b.fixed_panel, b.moving_panel),
                     "{:+.1f}°".format(b.angle_deg),
                     "{:+.1f}°".format(cur),
-                    "{:.2f}".format(distance) if distance is not None else "—",
+                    "{:.2f}".format(flat_mm) if flat_mm is not None else "—",
+                    "{:.2f}".format(face_s) if face_s is not None else "—",
                     status_str,
                 )
 
@@ -5789,8 +5803,41 @@ class _PreviewPanel:
                     "станка выберите Bend Only и нажмите Play All.".format(reason)
                 )
 
+            def _sequenced_gauge_envelopes(self, orientations=None):
+                """Cached projected geometry from signed preceding bends."""
+                model, session = self.backgauge_model, self.session
+                if (model is None or session is None or
+                        not model.cad_geometry_enabled):
+                    return {}
+                if orientations is None:
+                    orientations = self._effective_loading_orientation_map()
+                key = (
+                    id(session), tuple(session.bend_order), id(model),
+                    float(model.cad_station_xm_mm),
+                    tuple(sorted(orientations.items())),
+                )
+                cached = self._machine_gauge_envelope_cache
+                if cached is not None and cached[0] == key:
+                    return cached[1]
+                from smbs_core.kinematics2d.gauge_preview import (
+                    sequenced_gauge_envelopes,
+                )
+                values, errors = sequenced_gauge_envelopes(
+                    session, station_xm_mm=model.cad_station_xm_mm,
+                    reverse_axis_by_bend=orientations,
+                )
+                self._machine_gauge_envelope_cache = (key, values)
+                for bend_id, reason in errors.items():
+                    _warn("Visual setup of CAD gauge for {} unavailable: {}"
+                          .format(bend_id, reason))
+                return values
+
             def _backgauge_preview_position(self, index):
-                """Visual target from blank outline. Never solve CAD contact."""
+                """Visual CAD target from fully formed preceding bend geometry.
+
+                Local flat-pattern pitch in the table is deliberately NOT used
+                as an S offset. This function never invokes collision tests.
+                """
                 model, session = self.backgauge_model, self.session
                 if (model is None or session is None or
                         not model.cad_geometry_enabled):
@@ -5800,22 +5847,32 @@ class _PreviewPanel:
                     return None
                 if model.part_label and model.part_label != session.part_label:
                     return None
-                key = (id(session), order, id(model), index)
+                orientations = self._effective_loading_orientation_map()
+                key = (
+                    id(session), order, id(model), index,
+                    tuple(sorted(orientations.items())),
+                )
                 if key in self._backgauge_preview_cache:
                     return self._backgauge_preview_cache[key]
-                bid = order[index]
+                bend_id = order[index]
                 try:
                     from smbs_core.kinematics2d.gauge_preview import (
                         visual_gauge_target,
                     )
-                    distance = session.gauge_distances_mm.get(bid)
-                    point, evidence = visual_gauge_target(
-                        model, session.fold_state.bends[bid], distance,
+                    # Manual S/Z does not need a geometrical calculation.
+                    envelope = (
+                        self._sequenced_gauge_envelopes(orientations).get(bend_id)
+                        if model.automatic else None
                     )
-                    result = (point, distance, evidence)
+                    rear_s, rear_z = envelope if envelope is not None else (None, None)
+                    point, evidence = visual_gauge_target(
+                        model, session.fold_state.bends[bend_id],
+                        rear_s, rear_z,
+                    )
+                    result = (point, rear_s, evidence)
                 except (ValueError, TypeError, KeyError) as exc:
                     _warn("Visual gauge target unavailable for {}: {}".format(
-                        bid, exc,
+                        bend_id, exc,
                     ))
                     result = None
                 self._backgauge_preview_cache[key] = result
