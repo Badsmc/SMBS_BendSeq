@@ -3053,7 +3053,7 @@ class _PreviewPanel:
                         max_solutions=12,
                         max_complete_candidates=12,
                         weights=self._selected_operation_weights(),
-                        backgauge_model=None  # FCStd gauge is display-only,
+                        backgauge_model=None,
                         backgauge_cad_trace_path=None,
                         # Do not lose a six-step sampled prefix when the
                         # 90s OCC budget expires during the seventh bend.
@@ -3160,7 +3160,7 @@ class _PreviewPanel:
                     self.session, self.tooling_setup, sequence,
                     match_active_bend_length=not has_sections,
                     allow_retract_warning=self.retract_warning_checkbox.isChecked(),
-                    backgauge_model=None  # FCStd gauge is display-only,
+                    backgauge_model=None,
                 )
                 if not valid:
                     raise ValueError(
@@ -3394,7 +3394,7 @@ class _PreviewPanel:
                                 candidate.sequence,
                                 match_active_bend_length=not has_sections,
                                 allow_retract_warning=self.retract_warning_checkbox.isChecked(),
-                                backgauge_model=None  # FCStd gauge is display-only,
+                                backgauge_model=None,
                                 # Match selected pose, but do not replay CAD
                                 # gauge contacts or alternative gauge fingers.
                                 loading_orientation_variants=tuple(
@@ -4698,7 +4698,7 @@ class _PreviewPanel:
                         match_active_bend_length=not has_sections,
                         allow_retract_warning=self.retract_warning_checkbox.isChecked(),
                         weights=self._selected_operation_weights(),
-                        backgauge_model=None  # FCStd gauge is display-only,
+                        backgauge_model=None,
                     )
                     # Identify the exact source geometry used for this run.
                     report["model"] = {
