@@ -694,7 +694,7 @@ class ManualTabCommand:
 
     def GetResources(self):
         return {
-            "Pixmap": str(_ICON_ROOT / "gui_simulation.svg"),
+            "Pixmap": str(_ICON_ROOT / "gui_manual.svg"),
             "MenuText": "Manual",
             "ToolTip": "Открыть вкладку ручной последовательности",
         }
@@ -716,7 +716,7 @@ class SettingsTabCommand:
 
     def GetResources(self):
         return {
-            "Pixmap": str(_ICON_ROOT / "gui_calculate.svg"),
+            "Pixmap": str(_ICON_ROOT / "gui_settings.svg"),
             "MenuText": "Настройки",
             "ToolTip": "Открыть настройки симулятора",
         }
