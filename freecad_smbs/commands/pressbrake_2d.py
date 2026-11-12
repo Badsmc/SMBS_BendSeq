@@ -2585,10 +2585,9 @@ class _PreviewPanel:
                     item.setToolTip("{}: {}".format(face.kind, face.identifier))
 
                 label = scene.addSimpleText(
-                    "3D MACHINE FRAME | {} | {} | {} | NOT 3D CERTIFIED".format(
+                    "3D MACHINE FRAME | {} | {} | NOT 3D CERTIFIED".format(
                         self.session.active_bend_id,
                         self.execution_mode.value,
-                        self._ergonomic_loading_status,
                     )
                 )
                 label.setBrush(QtGui.QBrush(QtGui.QColor("#536b7f")))
@@ -3024,17 +3023,9 @@ class _PreviewPanel:
                 self._manual_preview_unverified = False
                 self._manual_preview_notice.hide()
                 self._set_task_busy(True)
-                # Real Part/OCC CAD gauge tests now cost ~0.8-1.6 s per
-                # evaluated bend on the 10-bend fixture. The previous 30 s
-                # limit expired inside Stage B at the sixth operation, not
-                # because a collision was proven. Longer search is only for
-                # explicit real CAD mode on complex parts.
-                cad_extended_search = bool(
-                    len(self.session.bend_order) >= 10
-                    and self.backgauge_model is not None
-                    and self.backgauge_model.cad_geometry_enabled
-                )
-                search_budget_s = 90.0 if cad_extended_search else 30.0
+                # Rear gauge is visualization-only; never spend OCC search
+                # budget on collision, clearance, contact or CAD penetration.
+                search_budget_s = 30.0
                 self.status.setText(
                     "Выполняется предварительный поиск в 2D "
                     "(лимит {:.0f} с; 3D безопасность не подтверждена)..."
@@ -3052,20 +3043,8 @@ class _PreviewPanel:
                         getattr(self.tooling_setup, "punch_section_offsets_xm", ())
                         or getattr(self.tooling_setup, "die_section_offsets_xm", ())
                     )
-                    # User-writable, uniquely named diagnostic trace for the
-                    # real OCC contact oracle. Created automatically only
-                    # when a CAD backgauge is actually selected.
+                    # No CAD backgauge contact trace in visual-only mode.
                     self._last_backgauge_cad_trace_path = None
-                    if (self.backgauge_model is not None
-                            and self.backgauge_model.cad_geometry_enabled):
-                        from smbs_core.kinematics2d.backgauge_cad_trace import (
-                            fresh_trace_path,
-                        )
-                        self._last_backgauge_cad_trace_path = str(
-                            fresh_trace_path(
-                                _pressbrake_user_data_directory() / "diagnostics"
-                            )
-                        )
                     report = search_bend_sequences_2d(
                         self.session, self.tooling_setup,
                         # Collect multiple complete candidates for genuine
@@ -3074,16 +3053,13 @@ class _PreviewPanel:
                         max_solutions=12,
                         max_complete_candidates=12,
                         weights=self._selected_operation_weights(),
-                        backgauge_model=self.backgauge_model,
-                        backgauge_cad_trace_path=(
-                            self._last_backgauge_cad_trace_path
-                        ),
+                        backgauge_model=None  # FCStd gauge is display-only,
+                        backgauge_cad_trace_path=None,
                         # Do not lose a six-step sampled prefix when the
                         # 90s OCC budget expires during the seventh bend.
                         # The solver itself now excludes unfinished/unverified
                         # steps from any previewable partial sequence.
                         min_partial_bends=(
-                            6 if cad_extended_search else
                             7 if len(self.session.bend_order) >= 10 else 0
                         ),
                         # Alternative machine-Z loading trials are advisory:
@@ -3105,8 +3081,7 @@ class _PreviewPanel:
                         # Each root gets <=1.8 s, even when memoization
                         # prevents reaching its node-count allowance.
                         root_probe_seconds=(
-                            0.9 if cad_extended_search
-                            else 1.8 if len(self.session.bend_order) >= 10
+                            1.8 if len(self.session.bend_order) >= 10
                             else 0.0
                         ),
                         # Long box-like parts can require bends late in CAD
@@ -3185,7 +3160,7 @@ class _PreviewPanel:
                     self.session, self.tooling_setup, sequence,
                     match_active_bend_length=not has_sections,
                     allow_retract_warning=self.retract_warning_checkbox.isChecked(),
-                    backgauge_model=self.backgauge_model,
+                    backgauge_model=None  # FCStd gauge is display-only,
                 )
                 if not valid:
                     raise ValueError(
@@ -3406,8 +3381,7 @@ class _PreviewPanel:
                         return
                     candidate = visible_candidates[row]
                     try:
-                        if (self.backgauge_model is not None
-                                or len(candidate.sequence) < len(self.session.bend_order)):
+                        if len(candidate.sequence) < len(self.session.bend_order):
                             from smbs_core.kinematics2d.sequence_search_2d import (
                                 validate_partial_planar_prefix,
                             )
@@ -3420,14 +3394,11 @@ class _PreviewPanel:
                                 candidate.sequence,
                                 match_active_bend_length=not has_sections,
                                 allow_retract_warning=self.retract_warning_checkbox.isChecked(),
-                                backgauge_model=self.backgauge_model,
-                                backgauge_variant_indices=tuple(
-                                    step.backgauge_variant_index
-                                    for step in candidate.steps
-                                ),
+                                backgauge_model=None  # FCStd gauge is display-only,
+                                # Match selected pose, but do not replay CAD
+                                # gauge contacts or alternative gauge fingers.
                                 loading_orientation_variants=tuple(
-                                    step.orientation_variant
-                                    for step in candidate.steps
+                                    step.orientation_variant for step in candidate.steps
                                 ),
                             )
                             if not valid:
@@ -3697,7 +3668,7 @@ class _PreviewPanel:
                         and self._selected_planar_gauge_model_id
                         == id(self.backgauge_model)):
                     self._ergonomic_loading_status = (
-                        "SELECTED_2D_CAD_STATIC_NOT_FULL_3D_CERTIFIED"
+                        "SELECTED_2D_PREVIEW_UNVERIFIED"
                     )
                     return dict(self._selected_planar_loading_orientation)
                 if self.backgauge_model is None:
@@ -4727,7 +4698,7 @@ class _PreviewPanel:
                         match_active_bend_length=not has_sections,
                         allow_retract_warning=self.retract_warning_checkbox.isChecked(),
                         weights=self._selected_operation_weights(),
-                        backgauge_model=self.backgauge_model,
+                        backgauge_model=None  # FCStd gauge is display-only,
                     )
                     # Identify the exact source geometry used for this run.
                     report["model"] = {
