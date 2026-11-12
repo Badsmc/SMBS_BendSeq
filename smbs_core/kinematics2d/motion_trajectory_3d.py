@@ -479,6 +479,7 @@ class AdaptiveTrajectoryValidator3D:
         desired_midpoint_xm: float = 0.0,
         end_zone_policy: Optional[EndZoneCollisionPolicy] = None,
         classify_end_zone_length_mm: Optional[float] = None,
+        reverse_axis: bool = False,
     ):
         self.fold_state = fold_state
         self.panel_build = panel_build
@@ -486,6 +487,8 @@ class AdaptiveTrajectoryValidator3D:
         self.die = die
         self.config = config or AdaptiveSamplingConfig()
         self.desired_midpoint_xm = float(desired_midpoint_xm)
+        # Rotate the WORKPIECE around the machine vertical, never the tools.
+        self.reverse_axis = bool(reverse_axis)
         self.end_zone_policy = end_zone_policy or EndZoneCollisionPolicy(
             allow_end_zone_collision=bool(getattr(self.config, "allow_end_zone_collision", False)),
             end_zone_length_mm=float(getattr(self.config, "end_zone_length_mm", 0.0)),
@@ -606,6 +609,7 @@ class AdaptiveTrajectoryValidator3D:
             align_bisector=True,
             align_bend_arc_center=True,
             desired_midpoint_xm=self.desired_midpoint_xm,
+            reverse_axis=self.reverse_axis,
         )
         self.placement_calc_time_ms += (time.perf_counter() - t_p0) * 1000.0
 
@@ -644,6 +648,7 @@ class AdaptiveTrajectoryValidator3D:
             float(ram_z),
             float(support_z),
             float(self.desired_midpoint_xm),
+            self.reverse_axis,
             angles_tuple,
             punch_geom_sig,
             die_geom_sig,
@@ -724,6 +729,7 @@ class AdaptiveTrajectoryValidator3D:
             active_bend_id,
             float(support_z),
             float(self.desired_midpoint_xm),
+            self.reverse_axis,
             angles_tuple,
             die_geom_sig,
             wp_geom_sig,
@@ -735,6 +741,7 @@ class AdaptiveTrajectoryValidator3D:
             float(ram_z),
             float(support_z),
             float(self.desired_midpoint_xm),
+            self.reverse_axis,
             angles_tuple,
             punch_geom_sig,
             wp_geom_sig,
