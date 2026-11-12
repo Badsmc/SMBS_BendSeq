@@ -544,7 +544,13 @@ def show_workspace_controls(workspace, tab=None):
         TASK_QSS, OUTER_MARGIN, SECTION_GAP,
     )
     if tab is not None:
-        workspace._control_tabs.setCurrentIndex(tab)
+        if 0 <= int(tab) < workspace._task_stack.count():
+            workspace._task_stack.setCurrentIndex(int(tab))
+    section = workspace._task_stack.currentWidget()
+    caption = workspace._task_page_titles.get(section, "Панель задач")
+    header = getattr(workspace, "_task_section_label", None)
+    if header is not None:
+        header.setText(caption)
     dock = getattr(workspace, "_controls_dock", None)
     if dock is not None:
         dock.show()
@@ -568,8 +574,14 @@ def show_workspace_controls(workspace, tab=None):
     layout = QtWidgets.QVBoxLayout(form)
     layout.setContentsMargins(0, 0, 0, 0)
     layout.setSpacing(0)
-    # Only the page content scrolls; tab bar and status/progress remain fixed.
-    layout.addWidget(workspace._control_tabs, 1)
+    # Exactly one context is visible; there is deliberately no task tab bar.
+    header = QtWidgets.QLabel(form)
+    header.setObjectName("SMBS_TaskSectionTitle")
+    header.setText(caption)
+    header.setContentsMargins(12, 9, 12, 8)
+    workspace._task_section_label = header
+    layout.addWidget(header, 0)
+    layout.addWidget(workspace._task_stack, 1)
 
     footer = QtWidgets.QFrame(form)
     footer.setObjectName("SMBS_TaskFooter")
@@ -610,7 +622,7 @@ def activate_task_dialog(workspace, key):
     if widget is None:
         return False
     page = getattr(widget, "_smbs_task_page", widget)
-    index = workspace._control_tabs.indexOf(page)
+    index = workspace._task_stack.indexOf(page)
     if index < 0:
         widgets.pop(key, None)
         return False
@@ -619,10 +631,10 @@ def activate_task_dialog(workspace, key):
 
 
 def embed_task_dialog(workspace, widget, title, key):
-    """Rehost a real QDialog inside a scrollable page of the shared Task Panel.
+    """Rehost a real QDialog inside the *single* contextual Tasks surface.
 
-    This preserves its native accepted/rejected signals and save callbacks.
-    Specialist forms can exceed the dock height without clipping actions.
+    No extra tabs or second simulation panel are created. QDialog signals,
+    callbacks and cleanup remain bound to the original controls.
     """
     QtCore, _QtGui, QtWidgets = _qt()
     from freecad_smbs.ui.pressbrake_theme import (
@@ -631,7 +643,8 @@ def embed_task_dialog(workspace, widget, title, key):
     if activate_task_dialog(workspace, key):
         widget.deleteLater()
         return
-    tabs = workspace._control_tabs
+    stack = workspace._task_stack
+    return_page = stack.currentWidget()
     dialogs = getattr(workspace, "_task_dialogs", None)
     if dialogs is None:
         dialogs = {}
@@ -647,7 +660,7 @@ def embed_task_dialog(workspace, widget, title, key):
         )
         original_layout.setSpacing(SECTION_GAP)
 
-    page = QtWidgets.QWidget(tabs)
+    page = QtWidgets.QWidget(stack)
     page.setObjectName("SMBS_EmbeddedPage_" + key)
     page_layout = QtWidgets.QVBoxLayout(page)
     page_layout.setContentsMargins(0, 0, 0, 0)
@@ -656,7 +669,7 @@ def embed_task_dialog(workspace, widget, title, key):
     scroll.setWidgetResizable(True)
     scroll.setFrameShape(QtWidgets.QFrame.NoFrame)
     scroll.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAsNeeded)
-    scroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAsNeeded)
+    scroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
     scroll.setWidget(widget)
     page_layout.addWidget(scroll, 1)
 
@@ -671,20 +684,28 @@ def embed_task_dialog(workspace, widget, title, key):
     page_layout.addWidget(bottom, 0)
 
     widget._smbs_task_page = page
-    index = tabs.addTab(page, title)
+    index = stack.addWidget(page)
+    workspace._task_page_titles[page] = title
     dialogs[key] = widget
 
     def on_finished(_result):
-        i = tabs.indexOf(page)
-        if i >= 0:
-            tabs.removeTab(i)
+        i = stack.indexOf(page)
+        if i < 0:
+            return
+        was_current = (stack.currentWidget() is page)
+        stack.removeWidget(page)
+        workspace._task_page_titles.pop(page, None)
         if dialogs.get(key) is widget:
             del dialogs[key]
+        if was_current:
+            fallback = return_page if stack.indexOf(return_page) >= 0 else stack.widget(0)
+            if fallback is not None:
+                show_workspace_controls(workspace, tab=stack.indexOf(fallback))
         page.deleteLater()
 
     def on_close():
         widget.close()  # honour QDialog.closeEvent (tool previews cleanup)
-        if tabs.indexOf(page) >= 0:
+        if stack.indexOf(page) >= 0:
             on_finished(0)
 
     widget.finished.connect(on_finished)
@@ -697,8 +718,8 @@ def close_workspace_controls(workspace):
     dock = getattr(workspace, "_controls_dock", None)
     if dock is None:
         return
-    workspace._control_tabs.setParent(workspace)
-    workspace._control_tabs.hide()
+    workspace._task_stack.setParent(workspace)
+    workspace._task_stack.hide()
     # These live controls must survive destruction of the old dock.
     workspace.status.setParent(workspace)
     workspace.task_progress.setParent(workspace)
