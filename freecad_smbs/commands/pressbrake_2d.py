@@ -1379,7 +1379,7 @@ class _PreviewPanel:
                     self.next_step_btn, self.fit_btn,
                 )
                 captions = ("Reset", "|<<", "Play / Pause", ">>|", "Fit")
-                sizes = (49, 35, 74, 35, 40)
+                sizes = (48, 34, 90, 34, 38)
                 row.setColumnMinimumWidth(0, 0)
                 for col, (widget, caption, width) in enumerate(
                     zip(buttons, captions, sizes)
@@ -2059,11 +2059,9 @@ class _PreviewPanel:
                 QtSvg renders the assets in FreeCAD's bundled Qt runtime.
                 """
                 icon_pairs = (
-                    (self.reset_btn, "control_reset.svg"),
+                    # Playback buttons are intentionally text-sized. Only
+                    # Play/Pause retains a state-changing icon alongside text.
                     (self.play_btn, "control_play.svg"),
-                    (self.fit_btn, "control_fit.svg"),
-                    (self.prev_step_btn, "control_prev.svg"),
-                    (self.next_step_btn, "control_next.svg"),
                     (self.restore_order_btn, "control_reset.svg"),
                     (self.manual_undo_btn, "control_prev.svg"),
                     (self.manual_clear_btn, "control_reset.svg"),
