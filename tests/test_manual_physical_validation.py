@@ -70,6 +70,17 @@ class ManualToolingTests(unittest.TestCase):
             die_section_offsets_xm=(),
         )
         self.session = part()
+        self.pair_patcher = patch(
+            "smbs_core.kinematics2d.manual_physical_validation"
+            "._check_selected_tool_pair_at_sampled_rams",
+            return_value={
+                "status": "SAMPLED_CLEAR",
+                "reason": "test_pair_clear",
+                "checked_ram_positions": 6,
+            },
+        )
+        self.pair_mock = self.pair_patcher.start()
+        self.addCleanup(self.pair_patcher.stop)
 
     def test_all_steps_use_selected_tools_and_signed_prior_geometry(self):
         original = dict(self.session.fold_state.angles)
@@ -95,6 +106,7 @@ class ManualToolingTests(unittest.TestCase):
         self.assertEqual(report["checked_bends"], 2)
         self.assertFalse(report["continuous_motion_certified"])
         self.assertFalse(report["backgauge_collisions_checked"])
+        self.assertEqual(report["punch_die_pair_checked"], 2)
         self.assertEqual(report["punch"], self.punch_file.stem)
         self.assertEqual(report["die"], self.die_file.stem)
         self.assertEqual(calls[0][1], {"B01": 0.0, "B02": 0.0})
@@ -131,6 +143,64 @@ class ManualToolingTests(unittest.TestCase):
             )
         self.assertEqual(report["status"], "CONDITIONAL")
         self.assertTrue(all(s["is_conditional"] for s in report["steps"]))
+
+    def test_punch_die_tool_pair_intersection_is_blocking_even_if_sheet_clear(self):
+        self.pair_mock.return_value = {
+            "status": "COLLISION",
+            "reason": "punch_die_positive_overlap",
+            "checked_ram_positions": 3,
+            "ram_z_mm": -4.0,
+            "overlap_volume_mm3": 2.5,
+        }
+        with patch(
+            "smbs_core.kinematics2d.manual_physical_validation"
+            ".check_active_25d_bend_trajectory",
+            return_value=evidence(
+                PhysicalEvidence.SAMPLED_3D_CLEAR_NOT_CONTINUOUS
+            ),
+        ) as check:
+            report = check_manual_3d_sequence(
+                self.session, self.tooling, ("B01", "B02"),
+                allow_end_zone_collision=True,
+            )
+        self.assertEqual(report["status"], "COLLISION")
+        self.assertEqual(report["checked_bends"], 1)
+        self.assertIn("punch_die_tool_tool_collision", report["steps"][0]["reason"])
+        check.assert_called_once()
+
+    def test_missing_tool_pair_evidence_cannot_be_clear(self):
+        self.pair_mock.return_value = {
+            "status": "UNVERIFIED", "reason": "tool_shape_missing",
+            "checked_ram_positions": 0,
+        }
+        with patch(
+            "smbs_core.kinematics2d.manual_physical_validation"
+            ".check_active_25d_bend_trajectory",
+            return_value=evidence(
+                PhysicalEvidence.SAMPLED_3D_CLEAR_NOT_CONTINUOUS
+            ),
+        ):
+            report = check_manual_3d_sequence(
+                self.session, self.tooling, ("B01", "B02"),
+            )
+        self.assertEqual(report["status"], "UNVERIFIED")
+        self.assertEqual(report["checked_bends"], 1)
+
+    def test_reverse_loaded_bend_is_not_falsely_certified(self):
+        with patch(
+            "smbs_core.kinematics2d.manual_physical_validation"
+            ".check_active_25d_bend_trajectory",
+            return_value=evidence(
+                PhysicalEvidence.SAMPLED_3D_CLEAR_NOT_CONTINUOUS
+            ),
+        ) as check:
+            report = check_manual_3d_sequence(
+                self.session, self.tooling, ("B01", "B02"),
+                reverse_axis_by_bend={"B01": True},
+            )
+        self.assertEqual(report["status"], "UNVERIFIED")
+        self.assertIn("reverse_axis", report["reason"])
+        check.assert_not_called()
 
     def test_incomplete_manual_prefix_is_unverified(self):
         with patch(
