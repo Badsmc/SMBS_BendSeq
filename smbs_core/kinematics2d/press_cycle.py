@@ -473,6 +473,39 @@ class PressCycleController:
             self.phase = CyclePhase.IDLE
         self._park_punch_at_upper_position()
 
+    def preview_punch_at_current_angle(self) -> None:
+        """Couple the visible punch to the current bend in UNVERIFIED preview.
+
+        The authoritative coupled air-bending model supplies the punch stroke
+        for the *actual* FoldState angle; no invented linear interpolation or
+        collision claim. The die and source geometry remain unchanged. This is
+        exclusively visual kinematics and never invokes a physical validator.
+        """
+        if self.coupled_kinematics is None:
+            raise PressCycleError("No coupled bend/punch kinematics available")
+        angle = abs(float(self.current_angle_deg))
+        target = abs(float(self.target_angle_deg))
+        if not math.isfinite(angle) or not math.isfinite(target):
+            raise PressCycleError("Nonfinite bend angle in punch preview")
+        if angle > target + 1e-4:
+            raise PressCycleError("Preview angle exceeds the selected bend target")
+        stroke = float(self.coupled_kinematics.stroke_for_angle(
+            min(angle, target)
+        ))
+        if not math.isfinite(stroke) or stroke < -1e-6:
+            raise PressCycleError("Invalid coupled punch stroke")
+        self._set_punch_z(self.contact_z_mm - max(0.0, stroke))
+        self.contact_tracking_status = "UNVERIFIED_SLIDER_KINEMATIC_PREVIEW"
+
+    def set_manual_preview_angle(self, signed_angle_deg: float) -> None:
+        """Set the slider angle AND the corresponding coupled punch position.
+
+        The older set_manual_angle API intentionally parks the punch, so keep
+        that public contract unchanged for other headless clients.
+        """
+        self.set_manual_angle(signed_angle_deg)
+        self.preview_punch_at_current_angle()
+
     def next_step(self) -> None:
         """Step instantaneously to the next completed bend state with punch retracted at upper Z."""
         if self.sequence.status == PlaybackStatus.PLAYING:
