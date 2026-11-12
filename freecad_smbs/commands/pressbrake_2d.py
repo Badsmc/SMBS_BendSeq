@@ -3575,7 +3575,6 @@ class _PreviewPanel:
                         candidate_count=len(report.candidates),
                         limit_reason=report.limit_reason,
                         budget_seconds=search_budget_s,
-                        cad_extended_search=cad_extended_search,
                     )
                     self._show_planar_candidates_dialog(report)
                 except Exception as exc:
