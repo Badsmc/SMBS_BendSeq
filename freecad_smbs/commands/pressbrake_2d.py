@@ -1572,51 +1572,79 @@ class _PreviewPanel:
                     "Пересечения APPROACH, BENDING, BOTTOM и упора блокируют поиск."
                 )
 
-                # Embedded tooling page in the existing Task Panel.
                 tooling = QtWidgets.QWidget()
                 td_layout = QtWidgets.QVBoxLayout(tooling)
-                tool_tabs = QtWidgets.QTabWidget(tooling)
+                tooling_card, tooling_body = card("Оснастка и станок")
+                tool_tabs = QtWidgets.QTabWidget(tooling_card)
+                tool_tabs.setIconSize(QtCore.QSize(17, 17))
                 tool_main = QtWidgets.QWidget()
                 tool_main_layout = QtWidgets.QFormLayout(tool_main)
+                tool_main_layout.setContentsMargins(
+                    SECTION_GAP, SECTION_GAP, SECTION_GAP, SECTION_GAP
+                )
+                tool_main_layout.setSpacing(SECTION_GAP)
+                tool_main_layout.setFieldGrowthPolicy(
+                    QtWidgets.QFormLayout.AllNonFixedFieldsGrow
+                )
+                tool_main_layout.setRowWrapPolicy(
+                    QtWidgets.QFormLayout.WrapLongRows
+                )
                 tool_main_layout.addRow("Punch:", self.select_punch_combo)
                 tool_main_layout.addRow("Die:", self.select_die_combo)
                 tool_main_layout.addRow(self.tooling_status)
                 tool_import = QtWidgets.QWidget()
                 tool_import_layout = QtWidgets.QVBoxLayout(tool_import)
-                tool_import_layout.addWidget(self.import_punch_btn)
-                tool_import_layout.addWidget(self.import_die_btn)
-                tool_import_layout.addWidget(self.tool_library_btn)
+                tool_import_layout.setContentsMargins(
+                    SECTION_GAP, SECTION_GAP, SECTION_GAP, SECTION_GAP
+                )
+                tool_import_layout.setSpacing(SECTION_GAP)
+                for btn in (
+                    self.import_punch_btn, self.import_die_btn,
+                    self.tool_library_btn,
+                ):
+                    style_action(btn)
+                    tool_import_layout.addWidget(btn)
                 tool_import_layout.addStretch(1)
                 tool_tabs.addTab(tool_main, "Основные")
                 tool_tabs.addTab(tool_import, "Импорт")
-                td_layout.addWidget(tool_tabs)
+                tooling_body.addWidget(tool_tabs)
+                td_layout.addWidget(tooling_card)
+                td_layout.addStretch(1)
                 self._tooling_tabs = tool_tabs
                 controls.addTab(
                     scroll_task_page(tooling, "SMBS_ToolingScroll"),
                     QtGui.QIcon(str(_ICON_ROOT / "gui_tooling.svg")),
                     "Оснастка"
                 )
-                # Widgets above were reparented; obsolete group can be disposed.
+                # All active tooling widgets have been reparented.
                 self.tooling_group.deleteLater()
 
-                # Settings is a standalone window opened from the toolbar,
-                # not a task-panel tab. Keep all existing signal connections.
                 settings = QtWidgets.QWidget()
                 settings_layout = QtWidgets.QVBoxLayout(settings)
-                insert(settings_layout, entries[3])  # Mode / Full Cycle / Speed
-                settings_layout.addWidget(self.retract_warning_checkbox)
-                tool_opts = QtWidgets.QGroupBox("Оснастка — параметры и проверки")
-                tool_opts_layout = QtWidgets.QVBoxLayout(tool_opts)
+
+                cycle_card, cycle_body = card("Режим симуляции")
+                self.press_cycle_group.setTitle("")
+                self.press_cycle_group.setFlat(True)
+                style_action(self.cycle_config_btn)
+                insert(cycle_body, entries[3])  # Mode / Full Cycle / Speed
+                cycle_body.addWidget(self.retract_warning_checkbox)
+                settings_layout.addWidget(cycle_card)
+
+                tool_opts_card, tool_opts_layout = card("Оснастка — параметры")
                 tool_opts_layout.addWidget(self.virtual_tool_len_checkbox)
-                zone_row = QtWidgets.QHBoxLayout()
-                zone_row.addWidget(QtWidgets.QLabel("Концевая зона пуансона (мм):"))
-                zone_row.addWidget(self.end_zone_len_spin)
+                zone_row = QtWidgets.QGridLayout()
+                zone_row.setHorizontalSpacing(SECTION_GAP)
+                end_zone_caption = QtWidgets.QLabel(
+                    "Концевая зона пуансона (мм):"
+                )
+                end_zone_caption.setWordWrap(True)
+                zone_row.addWidget(end_zone_caption, 0, 0)
+                zone_row.addWidget(self.end_zone_len_spin, 0, 1)
+                zone_row.setColumnStretch(0, 1)
+                zone_row.setColumnStretch(1, 0)
                 tool_opts_layout.addLayout(zone_row)
                 tool_opts_layout.addWidget(self.allow_end_zone_checkbox)
-                tool_opts_layout.addWidget(self.physical_check_btn)
-                tool_opts_layout.addWidget(self.full_physical_check_btn)
-                tool_opts_layout.addWidget(self.physical_check_result)
-                settings_layout.addWidget(tool_opts)
+                settings_layout.addWidget(tool_opts_card)
 
                 # Cost weights affect ranking only, never collision decisions.
                 from smbs_core.kinematics2d.operation_cost import OperationWeights
@@ -1636,8 +1664,17 @@ class _PreviewPanel:
                     ("backgauge_move_fixed", "Задний упор: перемещение"),
                     ("backgauge_move_per_100_mm", "Задний упор: за 100 мм"),
                 )
-                weights_box = QtWidgets.QGroupBox("Веса операций · 2D поиск")
+                weights_card, weights_body = card("Веса операций / 2D поиск")
+                weights_box = QtWidgets.QWidget()
                 weights_form = QtWidgets.QFormLayout(weights_box)
+                weights_form.setContentsMargins(0, 0, 0, 0)
+                weights_form.setSpacing(SECTION_GAP)
+                weights_form.setRowWrapPolicy(
+                    QtWidgets.QFormLayout.WrapLongRows
+                )
+                weights_form.setFieldGrowthPolicy(
+                    QtWidgets.QFormLayout.AllNonFixedFieldsGrow
+                )
                 self._weight_editors = {}
                 self._weight_preferences = QtCore.QSettings("SMBS", "BendSeq")
                 for weight_key, caption in weight_names:
@@ -1679,8 +1716,10 @@ class _PreviewPanel:
                         for k in self._weight_editors
                     ]
                 )
+                style_action(reset_weights_btn)
                 weights_form.addRow(reset_weights_btn)
-                settings_layout.addWidget(weights_box)
+                weights_body.addWidget(weights_box)
+                settings_layout.addWidget(weights_card)
 
                 gauge_settings_btn = QtWidgets.QPushButton(
                     "Задний упор — геометрия и позиции гибов…")
@@ -1688,10 +1727,23 @@ class _PreviewPanel:
                     _ICON_ROOT / "gui_backgauge.svg"
                 )))
                 gauge_settings_btn.clicked.connect(self.open_backgauge_dialog)
-                settings_layout.addWidget(gauge_settings_btn)
-                insert(settings_layout, entries[9])  # diagnostics button
-                insert(settings_layout, entries[10])  # diagnostics output
+                diagnostics_card, diagnostics_body = card(
+                    "Результаты / Диагностика"
+                )
+                style_action(gauge_settings_btn)
+                diagnostics_body.addWidget(gauge_settings_btn)
+                for check in (
+                    self.physical_check_btn, self.full_physical_check_btn,
+                ):
+                    style_action(check)
+                    diagnostics_body.addWidget(check)
+                diagnostics_body.addWidget(self.physical_check_result)
+                style_action(self.check_btn)
+                insert(diagnostics_body, entries[9])  # diagnostic button
+                insert(diagnostics_body, entries[10])  # diagnostic result
+                settings_layout.addWidget(diagnostics_card)
 
+                trace_card, trace_body = card("Запись и файлы диагностики")
                 self.trace_checkbox = QtWidgets.QCheckBox(
                     "Автоматически записывать движения при Play All (JSONL)"
                 )
@@ -1700,7 +1752,7 @@ class _PreviewPanel:
                     "Создаёт папку при начале записи. После остановки сохраняет "
                     "кадры в *.jsonl и сводный отчёт в *.summary.json."
                 )
-                settings_layout.addWidget(self.trace_checkbox)
+                trace_body.addWidget(self.trace_checkbox)
                 self.trace_checkbox.toggled.connect(self._on_trace_checkbox_toggled)
 
                 self.trace_status = QtWidgets.QLabel(
@@ -1710,7 +1762,7 @@ class _PreviewPanel:
                 self.trace_status.setTextInteractionFlags(
                     QtCore.Qt.TextSelectableByMouse
                 )
-                settings_layout.addWidget(self.trace_status)
+                trace_body.addWidget(self.trace_status)
 
                 trace_buttons = QtWidgets.QHBoxLayout()
                 self.trace_start_button = QtWidgets.QPushButton("Начать запись JSONL")
@@ -1723,20 +1775,26 @@ class _PreviewPanel:
                     lambda _checked=False: self._finish_motion_trace("USER_STOP")
                 )
                 trace_buttons.addWidget(self.trace_stop_button)
-                settings_layout.addLayout(trace_buttons)
+                trace_body.addLayout(trace_buttons)
 
                 self.trace_open_button = QtWidgets.QPushButton("Открыть папку записей")
                 self.trace_open_button.clicked.connect(
                     lambda _checked=False: self._open_trace_directory()
                 )
-                settings_layout.addWidget(self.trace_open_button)
+                trace_body.addWidget(self.trace_open_button)
                 self.trace_choose_button = QtWidgets.QPushButton(
                     "Выбрать папку для JSONL/JSON"
                 )
                 self.trace_choose_button.clicked.connect(
                     lambda _checked=False: self._choose_trace_directory()
                 )
-                settings_layout.addWidget(self.trace_choose_button)
+                trace_body.addWidget(self.trace_choose_button)
+                for btn in (
+                    self.trace_start_button, self.trace_stop_button,
+                    self.trace_open_button, self.trace_choose_button,
+                ):
+                    style_action(btn)
+                settings_layout.addWidget(trace_card)
                 settings_layout.addStretch(1)
                 controls.addTab(
                     scroll_task_page(settings, "SMBS_SettingsScroll"),
