@@ -1,8 +1,8 @@
-"""Visual-only gauge placement from the SheetMetal flat-pattern outline.
+"""Independent flat dimensions and folded-machine rear stop preview.
 
-No collision, penetration, stop-face contact or reachability checks are made.
-Distances refer to the midpoint of each canonical bend axis, projected
-perpendicularly toward its rooted fixed panel until the OUTER blank boundary.
+No collision, penetration, stop-face contact or reachability is checked.
+The table's local flat bend dimensions must NOT be used as the physical
+backgauge location after preceding folds.
 """
 from __future__ import annotations
 
@@ -122,27 +122,114 @@ def local_bend_dimension_mm(axis_xy, outline_xy, other_bend_axes=()):
     return min(hits)
 
 
-def visual_gauge_target(model, bend, edge_distance_mm):
-    """Return display target only; do not use for machine safety decisions.
+def gauge_rear_envelope_from_section(section):
+    """Rear-most sheet envelope (S, Z) in a machine X-station cross-section.
 
-    An explicit manual target overrides automatic placement, but never the
-    measured bend-to-edge distance displayed in the operations table.
+    All already folded rigid panels and finite-radius bend zones participate.
+    Thickness is carried by the physical panel polygons. This is a projected
+    envelope for visual gauge setup ONLY; no first-contact, collision, access
+    or finger clearance solver is invoked.
+    """
+    polygons = (
+        [section.get("fixed_polygon"), section.get("moving_polygon"),
+         section.get("zone_polygon")]
+        + [poly for _pid, poly in section.get("other_panel_polygons", ())]
+        + [poly for _bid, poly in section.get("other_zone_polygons", ())]
+    )
+    candidates = []
+    for poly in polygons:
+        if not poly:
+            continue
+        for s, z in poly:
+            s, z = float(s), float(z)
+            if not (isfinite(s) and isfinite(z)):
+                raise ValueError("nonfinite machine cross-section point")
+            if s > 1e-7:
+                candidates.append((s, z))
+    if not candidates:
+        raise ValueError("no physical rear-side sheet envelope at gauge station")
+    rear_s = max(s for s, _z in candidates)
+    # Average the actual rear-most edge's Z vertices. No inferred contact
+    # location if the cross-section itself is absent.
+    z_at_edge = [z for s, z in candidates if abs(s - rear_s) <= 0.05]
+    return rear_s, sum(z_at_edge) / len(z_at_edge)
+
+
+def sequenced_gauge_envelopes(session, *, station_xm_mm=0.0,
+                              reverse_axis_by_bend=None):
+    """Compute physical S/Z per bend before it is formed, in user bend order.
+
+    Previous bends are at their final signed angles; the current and future
+    bends are still flat. Every step is evaluated in an isolated FoldState
+    using the same machine-axis alignment as the pre-bend 2.5D viewer.
+    This avoids mutating the playback, returning cumulative flat lengths,
+    and hard-coding a thickness offset (which is wrong for +/-45 deg).
+
+    Returns (targets_by_bend, errors_by_bend) with values (S, Z) in mm.
+    """
+    from .panel_kinematics import FoldState
+    from .workpiece_placement_3d import WorkpiecePlacement3D
+    from .machine_section_3d import compute_machine_cutting_plane_section
+
+    order = tuple(session.bend_order)
+    if len(order) != len(set(order)):
+        raise ValueError("duplicate bends in sequence")
+    if any(bid not in session.fold_state.bends for bid in order):
+        raise ValueError("unknown bend in sequence")
+    if not isfinite(float(station_xm_mm)):
+        raise ValueError("invalid CAD backgauge X station")
+
+    orientations = reverse_axis_by_bend or {}
+    state = FoldState(session.graph, session.fixed_panel)
+    targets, errors = {}, {}
+    for bend_id in order:
+        bend = state.bends[bend_id]
+        zone = bend.bend_zone
+        try:
+            if zone is None:
+                raise ValueError("missing authoritative bend zone")
+            placement = WorkpiecePlacement3D.compute_placement(
+                state, bend_id,
+                desired_midpoint_xm=0.0,
+                support_plane_zm=float(zone.outer_radius_mm),
+                align_bisector=True,
+                align_bend_arc_center=True,
+                reverse_axis=bool(orientations.get(bend_id, False)),
+                rear_panel_vertices_xy=session.panel_vertices_xy,
+            )
+            section = compute_machine_cutting_plane_section(
+                state, session.panel_vertices_xy, placement,
+                active_bend_id=bend_id,
+                segments=32, target_xm=float(station_xm_mm),
+            )
+            targets[bend_id] = gauge_rear_envelope_from_section(section)
+        except (ValueError, TypeError, KeyError, AttributeError) as exc:
+            errors[bend_id] = str(exc)
+        # An unresolvable setup must not erase the signed history required to
+        # measure later bends; keep the state independent of the live viewer.
+        state.set_angle(bend_id, float(bend.angle_deg))
+    return targets, errors
+
+
+def visual_gauge_target(model, bend, rear_s_mm, rear_z_mm):
+    """Return the visual gauge centre from the PHYSICAL folded envelope.
+
+    A manual position overrides the calculated setup. The supplied machine
+    S/Z coordinates represent a stop-face target, not a flat-pattern length.
+    Real finger contact and manufacturing clearance remain UNVERIFIED.
     """
     if not model.automatic:
         return model.position_for(bend.bend_id), "VISUAL_ONLY_MANUAL"
-    if (edge_distance_mm is None or
-            not isfinite(float(edge_distance_mm)) or edge_distance_mm <= 0):
-        raise ValueError("missing valid bend-to-edge distance")
-    zone = bend.bend_zone
-    if zone is None:
-        raise ValueError("missing authoritative bend-zone section")
-    # The blank's mid-thickness at the flat machine support plane is a
-    # display-height approximation, not a verified contact height.
-    z_mm = float(zone.outer_radius_mm) - float(zone.thickness_mm) / 2.0
-    stop_face_s_mm = float(edge_distance_mm) + model.edge_clearance_mm
+    if (rear_s_mm is None or rear_z_mm is None
+            or not isfinite(float(rear_s_mm))
+            or not isfinite(float(rear_z_mm))
+            or float(rear_s_mm) <= 0):
+        raise ValueError("missing physical machine rear envelope")
     return (
         BackgaugePosition2D(
-            stop_face_s_mm + model.width_s_mm / 2.0, z_mm,
+            float(rear_s_mm) + model.edge_clearance_mm
+            + model.width_s_mm / 2.0,
+            float(rear_z_mm),
         ),
-        "VISUAL_ONLY_OUTLINE_DISTANCE",
+        "VISUAL_ONLY_FOLDED_MACHINE_ENVELOPE",
     )
