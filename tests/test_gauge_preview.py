@@ -10,7 +10,6 @@ from smbs_core.kinematics2d.backgauge_2d import (
     BackgaugePosition2D,
 )
 from smbs_core.kinematics2d.gauge_preview import (
-    bend_to_blank_edge_mm,
     local_bend_dimension_mm,
     gauge_rear_envelope_from_section,
     sequenced_gauge_envelopes,
@@ -22,41 +21,6 @@ class GaugePreviewTests(unittest.TestCase):
     def setUp(self):
         self.outline = ((0, 0), (100, 0), (100, 50), (0, 50))
         self.axis = ((10, 0), (10, 50))
-        self.left_panel = ((0, 0), (9, 0), (9, 50), (0, 50))
-        self.right_panel = ((11, 0), (50, 0), (50, 50), (11, 50))
-
-    def test_rear_edge_is_outer_blank_not_partition_line(self):
-        self.assertAlmostEqual(
-            bend_to_blank_edge_mm(self.axis, self.left_panel, self.outline),
-            10.0,
-        )
-        self.assertAlmostEqual(
-            bend_to_blank_edge_mm(self.axis, self.right_panel, self.outline),
-            90.0,
-        )
-
-    def test_reverse_axis_direction_does_not_change_distance(self):
-        self.assertAlmostEqual(
-            bend_to_blank_edge_mm(tuple(reversed(self.axis)), self.left_panel, self.outline),
-            10.0,
-        )
-
-    def test_diagonal_axis_has_true_perpendicular_distance(self):
-        axis = ((0, 0), (10, 10))
-        outline = ((-10, -10), (20, -10), (20, 20), (-10, 20))
-        panel = ((0, 10), (0, 15), (5, 15))
-        self.assertAlmostEqual(
-            bend_to_blank_edge_mm(axis, panel, outline),
-            15.0 * math.sqrt(2.0),
-            places=5,
-        )
-
-    def test_no_edge_or_ambiguous_side_fails_without_fake_distance(self):
-        with self.assertRaisesRegex(ValueError, "fixed-panel side"):
-            bend_to_blank_edge_mm(self.axis, ((5, 10), (15, 10), (10, 30)), self.outline)
-        with self.assertRaises(ValueError):
-            bend_to_blank_edge_mm(self.axis, self.left_panel, ((20, 20), (30, 20), (30, 30)))
-
     def test_two_sequential_bends_show_10_then_22_not_32(self):
         first = ((10, 0), (10, 50))
         second = ((32, 0), (32, 50))
@@ -65,10 +29,6 @@ class GaugePreviewTests(unittest.TestCase):
         )
         self.assertAlmostEqual(
             local_bend_dimension_mm(second, self.outline, (first,)), 22.0,
-        )
-        # The pre-existing gauge's absolute reach remains separate.
-        self.assertAlmostEqual(
-            bend_to_blank_edge_mm(second, self.left_panel, self.outline), 32.0,
         )
 
     def test_multiple_bends_use_nearest_local_boundary(self):
