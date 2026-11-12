@@ -1713,6 +1713,10 @@ class _PreviewPanel:
                     "cycle_mode": self.execution_mode.value,
                     "initial_clearance_mm": self.cycle_config.initial_clearance_mm,
                     "running": bool(self.timer.isActive()),
+                    "manual_operator_reverse_180": bool(
+                        getattr(self, "manual_reverse_3d_checkbox", None)
+                        and self.manual_reverse_3d_checkbox.isChecked()
+                    ),
                 }
 
             def _debug_ui_action(self, widget, action, value=None):
@@ -5522,6 +5526,13 @@ class _PreviewPanel:
                 self._manual_retract_verdicts.clear()
                 self._collision_inspection = None
                 self._collision_display_active = False
+                if hasattr(self, "manual_show_collision_btn"):
+                    self.manual_show_collision_btn.setEnabled(False)
+                    self.manual_show_collision_btn.hide()
+                    self.manual_show_collision_btn.setText(
+                        "Показать коллизию в 3D"
+                    )
+                self._clear_manual_check_feedback()
                 self._physical_check_signature = None
                 self._ensure_press_cycle_controller()
                 if self.press_cycle is not None:
