@@ -3668,10 +3668,23 @@ class _PreviewPanel:
                     raise WorkpiecePoseError(
                         "BEND_ONLY_MACHINE_POSE_REQUIRES_BEND_ZONE:" + bid
                     )
+                # Bend Only also uses the real coupled stroke. The previous
+                # constant outer_radius placement rotated the sheet in place
+                # while only the punch descended: visually impossible.
+                if pc is None:
+                    raise WorkpiecePoseError(
+                        "BEND_ONLY_REQUIRES_PRESS_CYCLE"
+                    )
+                try:
+                    sheet_support_z = pc.preview_workpiece_support_zm()
+                except (PressCycleError, ValueError, TypeError) as exc:
+                    raise WorkpiecePoseError(
+                        "BEND_ONLY_COUPLED_SHEET_PLACEMENT_FAILED:" + str(exc)
+                    ) from exc
                 orientations = self._effective_loading_orientation_map()
                 return WorkpiecePlacement3D.compute_placement(
                     fs, bid,
-                    support_plane_zm=float(zone.outer_radius_mm),
+                    support_plane_zm=float(sheet_support_z),
                     align_bisector=True,
                     align_bend_arc_center=True,
                     reverse_axis=bool(orientations.get(bid, False)),
