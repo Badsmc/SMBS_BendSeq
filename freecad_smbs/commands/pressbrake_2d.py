@@ -1440,12 +1440,68 @@ class _PreviewPanel:
                     page.setWidget(content)
                     return page
 
-                # Simulation task panel now contains ONLY playback and angle.
+                # Main Task Panel uses the same 20/16px engineering card grid
+                # as the preview design. No duplicate playback/controller widgets.
                 simulation = QtWidgets.QWidget()
                 sim_layout = QtWidgets.QVBoxLayout(simulation)
-                sim_layout.setSpacing(8)
-                insert(sim_layout, entries[5])  # Reset / Previous / Play-Pause / Next / Fit
-                insert(sim_layout, entries[6])  # angle slider
+
+                source_card, source_body = card("Источник / Деталь")
+                source_grid = QtWidgets.QGridLayout()
+                source_grid.setHorizontalSpacing(SECTION_GAP)
+                self._source_summary = QtWidgets.QLabel(
+                    str(self.session.part_label) if self.session else
+                    "Деталь не загружена"
+                )
+                self._source_summary.setObjectName("SMBS_SectionCaption")
+                self._source_summary.setWordWrap(True)
+                self._source_summary.setAlignment(
+                    QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter
+                )
+                source_grid.addWidget(self._source_summary, 0, 0)
+                self._source_load_btn = style_action(
+                    QtWidgets.QPushButton("Загрузить"), compact=True
+                )
+                self._source_load_btn.setToolTip(
+                    "Загрузить выделенную в FreeCAD развёртку SheetMetal"
+                )
+                self._source_load_btn.clicked.connect(
+                    lambda _checked=False: self.load_part()
+                )
+                source_grid.addWidget(self._source_load_btn, 0, 1)
+                source_grid.setColumnStretch(0, 1)
+                source_grid.setColumnStretch(1, 0)
+                source_body.addLayout(source_grid)
+                sim_layout.addWidget(source_card)
+
+                sim_card, sim_body = card(
+                    "Режим симуляции и управление воспроизведением"
+                )
+                for btn in (
+                    self.reset_btn, self.prev_step_btn, self.next_step_btn,
+                    self.fit_btn,
+                ):
+                    style_action(btn, compact=True)
+                style_action(self.play_btn, primary=True)
+                insert(sim_body, entries[5])  # 5-column playback QGridLayout
+                self.slider.setToolTip("Угол активного гиба")
+                insert(sim_body, entries[6])  # angle slider
+                sim_layout.addWidget(sim_card)
+
+                sim_diag_card, sim_diag_body = card(
+                    "Результаты / Диагностика"
+                )
+                self._simulation_diagnostics_summary = QtWidgets.QLabel(
+                    "Unverified · физическая проверка ещё не выполнена"
+                )
+                self._simulation_diagnostics_summary.setObjectName(
+                    "SMBS_SectionCaption"
+                )
+                self._simulation_diagnostics_summary.setAlignment(
+                    QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter
+                )
+                self._simulation_diagnostics_summary.setWordWrap(True)
+                sim_diag_body.addWidget(self._simulation_diagnostics_summary)
+                sim_layout.addWidget(sim_diag_card)
                 sim_layout.addStretch(1)
                 controls.addTab(
                     scroll_task_page(simulation, "SMBS_SimulationScroll"),
@@ -1453,31 +1509,53 @@ class _PreviewPanel:
                     "Симуляция"
                 )
 
-                # Manual task panel is opened directly by the toolbar command.
                 manual = QtWidgets.QWidget()
                 manual_layout = QtWidgets.QVBoxLayout(manual)
-                manual_layout.setSpacing(8)
-                insert(manual_layout, entries[7])  # move up / down / restore
-                manual_row = QtWidgets.QHBoxLayout()
-                self.manual_undo_btn = QtWidgets.QPushButton("Отменить линию")
+                order_card, order_body = card("Порядок гибов")
+                for btn in (
+                    self.move_up_btn, self.move_down_btn, self.restore_order_btn,
+                ):
+                    style_action(btn, compact=True)
+                insert(order_body, entries[7])  # move up/down/restore grid
+
+                undo_row = QtWidgets.QGridLayout()
+                undo_row.setHorizontalSpacing(SECTION_GAP)
+                self.manual_undo_btn = style_action(
+                    QtWidgets.QPushButton("Отменить линию")
+                )
                 self.manual_undo_btn.clicked.connect(self._undo_manual_bend)
-                self.manual_clear_btn = QtWidgets.QPushButton("Очистить")
+                self.manual_clear_btn = style_action(
+                    QtWidgets.QPushButton("Очистить")
+                )
                 self.manual_clear_btn.clicked.connect(self._clear_manual_order)
-                manual_row.addWidget(self.manual_undo_btn)
-                manual_row.addWidget(self.manual_clear_btn)
-                manual_layout.addLayout(manual_row)
-                self.operations.setMinimumHeight(160)
-                self.operations.setMaximumHeight(350)
-                insert(manual_layout, entries[8], 1)  # sequence data table
-                self.manual_validate_btn = QtWidgets.QPushButton("Проверить")
+                undo_row.addWidget(self.manual_undo_btn, 0, 0)
+                undo_row.addWidget(self.manual_clear_btn, 0, 1)
+                undo_row.setColumnStretch(0, 1)
+                undo_row.setColumnStretch(1, 1)
+                order_body.addLayout(undo_row)
+
+                self.operations.setMinimumHeight(220)
+                self.operations.setMaximumHeight(16777215)
+                self.operations.setSizePolicy(
+                    QtWidgets.QSizePolicy.Expanding,
+                    QtWidgets.QSizePolicy.Expanding,
+                )
+                insert(order_body, entries[8], 1)  # actual sequence table
+                self.manual_validate_btn = style_action(
+                    QtWidgets.QPushButton("Проверить"), primary=True
+                )
                 self.manual_validate_btn.setToolTip(
-                    "Проверка выбранного ручного порядка Stage A/B, сохранение "
-                    "диагностического JSON. Это не полная 3D-сертификация."
+                    "Stage A/B: проверить ручной порядок и сохранить "
+                    "диагностический JSON. Это не полная 3D-сертификация."
                 )
                 self.manual_validate_btn.clicked.connect(
                     self._validate_export_manual_order
                 )
-                manual_layout.addWidget(self.manual_validate_btn)
+                verify_row = QtWidgets.QHBoxLayout()
+                verify_row.addStretch(1)
+                verify_row.addWidget(self.manual_validate_btn)
+                order_body.addLayout(verify_row)
+                manual_layout.addWidget(order_card, 1)
                 controls.addTab(
                     scroll_task_page(manual, "SMBS_ManualScroll"),
                     QtGui.QIcon(str(_ICON_ROOT / "control_manual.svg")),
