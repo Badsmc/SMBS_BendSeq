@@ -319,6 +319,7 @@ class LoadedPartSession:
     fixed_panel: str
     fold_state: FoldState
     active_bend_index: int = 0
+    gauge_distances_mm: dict = field(default_factory=dict)
     controller: BendSequenceController = field(init=False)
 
     def __post_init__(self) -> None:
@@ -527,6 +528,22 @@ def build_part_session(doc, selection, fixed_panel: str | None = None) -> Loaded
             fixed_panel = panel_build.connections[0].panel_a
 
     fold_state = FoldState(graph, fixed_panel)
+    # Bend-axis midpoint -> physical OUTER blank boundary, not a virtual
+    # panel split along another bend. Fail individually, without fake values.
+    from smbs_core.kinematics2d.gauge_preview import bend_to_blank_edge_mm
+    outline_xy = getattr(panel_build, "outline_vertices_xy", ())
+    gauge_distances_mm = {}
+    for bend in fold_state.bends.values():
+        try:
+            gauge_distances_mm[bend.bend_id] = bend_to_blank_edge_mm(
+                tuple((p[0], p[1]) for p in bend.axis_xyz),
+                panel_vertices_xy[bend.fixed_panel],
+                outline_xy,
+            )
+        except (ValueError, TypeError, KeyError) as exc:
+            _warn("Gauge dimension unavailable for {}: {}".format(
+                bend.bend_id, exc,
+            ))
     sel_label = getattr(selection[0], "Label", getattr(selection[0], "Name", unfold_name))
     return LoadedPartSession(
         part_label=str(sel_label),
@@ -537,6 +554,7 @@ def build_part_session(doc, selection, fixed_panel: str | None = None) -> Loaded
         fixed_panel=fixed_panel,
         fold_state=fold_state,
         active_bend_index=0,
+        gauge_distances_mm=gauge_distances_mm,
     )
 
 
@@ -898,7 +916,7 @@ class BackgaugeCommand:
         return {
             "Pixmap": str(_ICON_ROOT / "gui_backgauge.svg"),
             "MenuText": "Задний упор",
-            "ToolTip": "Целевые позиции заднего упора, веса и проверка 2D коллизий",
+            "ToolTip": "Визуальная FCStd-модель упора: позиция по контуру развёртки",
         }
 
     def IsActive(self):
@@ -1462,10 +1480,10 @@ class _PreviewPanel:
                 root.addLayout(order_row)
 
                 self.operations = QtWidgets.QTreeWidget()
-                self.operations.setHeaderLabels(["Step", "Bend", "Target", "Current", "Status"])
+                self.operations.setHeaderLabels(["Step", "Bend", "Target", "Current", "До края, мм", "Status"])
                 self.operations.setRootIsDecorated(False)
                 self.operations.setHorizontalScrollBarPolicy(
-                    QtCore.Qt.ScrollBarAlwaysOff
+                    QtCore.Qt.ScrollBarAsNeeded
                 )
                 self.operations.setObjectName("SMBS_Operations")
                 self.operations.setAlternatingRowColors(True)
@@ -1483,7 +1501,10 @@ class _PreviewPanel:
                     3, QtWidgets.QHeaderView.Interactive
                 )
                 self.operations.header().setSectionResizeMode(
-                    4, QtWidgets.QHeaderView.Stretch
+                    4, QtWidgets.QHeaderView.ResizeToContents
+                )
+                self.operations.header().setSectionResizeMode(
+                    5, QtWidgets.QHeaderView.Stretch
                 )
                 self.operations.currentItemChanged.connect(self._on_operation_selected)
                 root.addWidget(self.operations)
@@ -5048,7 +5069,7 @@ class _PreviewPanel:
                 if reset_camera:
                     self._flat_view.reset_camera()
 
-            def _format_operation_row(self, idx: int, b) -> tuple[str, str, str, str, str]:
+            def _format_operation_row(self, idx: int, b) -> tuple[str, str, str, str, str, str]:
                 cur = self.session.fold_state.angles[b.bend_id]
                 done = self.session.controller.is_bend_completed(b.bend_id)
                 is_active = (idx - 1) == self.session.active_bend_index
@@ -5060,11 +5081,13 @@ class _PreviewPanel:
                     status_str = "IDLE"
                 if b.bend_id in self._conditional_bends_status:
                     status_str += " [CONDITIONAL]"
+                distance = self.session.gauge_distances_mm.get(b.bend_id)
                 return (
                     str(idx),
                     "{} ({} → {})".format(b.bend_id, b.fixed_panel, b.moving_panel),
                     "{:+.1f}°".format(b.angle_deg),
                     "{:+.1f}°".format(cur),
+                    "{:.2f}".format(distance) if distance is not None else "—",
                     status_str,
                 )
 
