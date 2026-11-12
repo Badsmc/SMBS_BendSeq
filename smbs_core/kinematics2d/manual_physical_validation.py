@@ -27,6 +27,83 @@ from .physical_validation_25d import (
 CLEAR = PhysicalEvidence.SAMPLED_3D_CLEAR_NOT_CONTINUOUS
 
 
+def _check_selected_tool_pair_at_sampled_rams(
+    punch_file: Path, die_file: Path, bend_length_mm: float,
+    tooling: Any, trajectory: Any, *, virtual_length: bool,
+) -> dict:
+    """Test punch-vs-die solids at EVERY distinct D6 sampled ram Z.
+
+    A tool/tool penetration is never covered by the sheet/tool end-zone
+    exception. Strictly reuse selected FCStd sources and their length mode.
+    This is discrete 3D evidence, not continuous collision certification.
+    """
+    from .native_collision_3d import CollisionClass, check_pair_clearance
+    from .native_tool_loader import (
+        load_native_die, load_native_punch, set_punch_ram_z,
+    )
+    import FreeCAD as App
+
+    phases = getattr(trajectory, "phase_results", None) or ()
+    positions = set()
+    for phase in phases:
+        for state in getattr(phase, "states", ()) or ():
+            z = float(state.ram_z_mm)
+            if not isfinite(z):
+                raise ValueError("nonfinite sampled ram height")
+            positions.add(round(z, 6))
+    if not positions:
+        return {
+            "status": "UNVERIFIED", "reason": "no_D6_ram_positions",
+            "checked_ram_positions": 0,
+        }
+
+    v_len = float(bend_length_mm) if virtual_length else None
+    p_sections = tuple(getattr(tooling, "punch_section_offsets_xm", ()) or ())
+    d_sections = tuple(getattr(tooling, "die_section_offsets_xm", ()) or ())
+    original = getattr(getattr(App, "ActiveDocument", None), "Name", None)
+    try:
+        punch = load_native_punch(
+            punch_file, ram_z_mm=0.0, virtual_length_mm=v_len,
+            section_offsets_xm=p_sections or None,
+        )
+        die = load_native_die(
+            die_file, virtual_length_mm=v_len,
+            section_offsets_xm=d_sections or None,
+        )
+        for i, ram_z in enumerate(sorted(positions)):
+            moved = set_punch_ram_z(punch, ram_z)
+            result = check_pair_clearance(
+                moved.machine_shape, die.machine_shape,
+                tool_label="PUNCH_DIE",
+            )
+            if result.status is CollisionClass.PENETRATION:
+                return {
+                    "status": "COLLISION",
+                    "reason": "punch_die_positive_overlap",
+                    "checked_ram_positions": i + 1,
+                    "ram_z_mm": ram_z,
+                    "overlap_volume_mm3": float(result.overlap_volume_mm3),
+                }
+            if result.status not in (
+                CollisionClass.CLEAR, CollisionClass.NEAR_CONTACT,
+                CollisionClass.TOUCHING,
+            ):
+                return {
+                    "status": "UNVERIFIED",
+                    "reason": "punch_die_pair_unverified:" + str(result.reason),
+                    "checked_ram_positions": i + 1,
+                    "ram_z_mm": ram_z,
+                }
+        return {
+            "status": "SAMPLED_CLEAR",
+            "reason": "selected_FCStd_punch_die_pair_clear_at_all_D6_sampled_rams",
+            "checked_ram_positions": len(positions),
+        }
+    finally:
+        if original and App.getDocument(original) is not None:
+            App.setActiveDocument(original)
+
+
 def check_manual_3d_sequence(
     session: Any,
     tooling: Any,
@@ -37,6 +114,7 @@ def check_manual_3d_sequence(
     end_zone_length_mm: float = 0.0,
     progress_callback: Optional[Callable[[int, int, str], None]] = None,
     config: Any = None,
+    reverse_axis_by_bend: Optional[dict[str, bool]] = None,
 ) -> dict:
     """Check a selected prefix (or complete order) with native FCStd tools.
 
@@ -84,6 +162,7 @@ def check_manual_3d_sequence(
             "continuous_motion_certified": False,
             "backgauge_collisions_checked": False,
             "transfer_clamps_frame_checked": False,
+            "punch_die_pair_checked": True,
             "punch": punch_id or None,
             "die": die_id or None,
             "punch_fcstd_source": str(p_path) if p_path else None,
@@ -113,6 +192,7 @@ def check_manual_3d_sequence(
     previous = []
     steps = []
     any_conditional = False
+    reverse_axis_by_bend = dict(reverse_axis_by_bend or {})
     check_kwargs = {
         "config": config,
         "match_active_bend_length": virtual,
@@ -123,6 +203,24 @@ def check_manual_3d_sequence(
     for i, bend_id in enumerate(order):
         if progress_callback is not None:
             progress_callback(i + 1, len(order), bend_id)
+        if reverse_axis_by_bend.get(bend_id, False):
+            steps.append({
+                "step_number": i + 1,
+                "bend_id": bend_id,
+                "angle_deg": float(independent.bends[bend_id].angle_deg),
+                "completed_before_step": list(previous),
+                "status": "UNVERIFIED",
+                "reason": "reverse_axis_3d_trajectory_not_implemented",
+                "native_status": "UNVERIFIED",
+                "checked_scope": [],
+                "tool_length_info": None,
+                "is_conditional": False,
+                "elapsed_s": 0.0,
+            })
+            return final_result(
+                "UNVERIFIED", steps,
+                "reverse_axis_3d_trajectory_not_implemented:" + bend_id,
+            )
         independent.reset_all()
         for prev in previous:
             independent.set_angle(
@@ -140,6 +238,31 @@ def check_manual_3d_sequence(
                 pseudo_session, tooling, **check_kwargs,
             )
             status = report.status
+            tool_pair = None
+            if status in (CLEAR, PhysicalEvidence.CONDITIONAL):
+                try:
+                    tool_pair = _check_selected_tool_pair_at_sampled_rams(
+                        p_path, d_path,
+                        float(
+                            independent.bends[bend_id].axis_xyz[1][0]
+                            - independent.bends[bend_id].axis_xyz[0][0]
+                        ) if False else
+                        # True 3D bend-axis length; axes are not always X-aligned.
+                        __import__("math").dist(
+                            *independent.bends[bend_id].axis_xyz
+                        ),
+                        tooling,
+                        report.raw_report,
+                        virtual_length=virtual,
+                    )
+                except Exception as pair_exc:
+                    tool_pair = {
+                        "status": "UNVERIFIED",
+                        "reason": "punch_die_pair_exception:{}:{}".format(
+                            type(pair_exc).__name__, pair_exc,
+                        ),
+                        "checked_ram_positions": 0,
+                    }
             record = {
                 "step_number": i + 1,
                 "bend_id": bend_id,
@@ -151,7 +274,21 @@ def check_manual_3d_sequence(
                 "checked_scope": list(report.checked_scope),
                 "tool_length_info": report.tool_length_info,
                 "is_conditional": bool(report.is_conditional),
+                "punch_die_pair": tool_pair,
             }
+            if tool_pair is not None:
+                if tool_pair["status"] == "COLLISION":
+                    status = PhysicalEvidence.COLLISION
+                    record["status"] = status.value
+                    record["reason"] = "punch_die_tool_tool_collision:" + str(
+                        tool_pair.get("reason", ""),
+                    )
+                elif tool_pair["status"] != "SAMPLED_CLEAR":
+                    status = PhysicalEvidence.UNVERIFIED
+                    record["status"] = status.value
+                    record["reason"] = "punch_die_tool_tool_unverified:" + str(
+                        tool_pair.get("reason", ""),
+                    )
         except Exception as exc:
             # Errors, timeouts, OCC failures, or restoration problems are
             # missing evidence, NEVER successful clearance.
@@ -162,6 +299,7 @@ def check_manual_3d_sequence(
                 "angle_deg": float(independent.bends[bend_id].angle_deg),
                 "completed_before_step": list(previous),
                 "status": "UNVERIFIED",
+                "punch_die_pair": None,
                 "reason": "native_3d_exception:{}:{}".format(
                     type(exc).__name__, exc,
                 ),
