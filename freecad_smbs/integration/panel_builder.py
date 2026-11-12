@@ -50,6 +50,8 @@ class PanelBuildResult:
     bend_zones: tuple = ()
     bend_zone_faces: tuple = ()
     generation_token: int = 0
+    # Full unfolded outer boundary; retained independently of partition panels.
+    outline_vertices_xy: tuple = ()
 
 
 def _xy(p):
@@ -214,6 +216,15 @@ def build_panels(unfold_name="Body_Unfold", outline_name=None, bends_name=None,
         raise PanelBuildError("Expected exactly one closed outline wire")
     if len(outline_shape.Edges) < 3:
         raise PanelBuildError("Invalid outline")
+    # Sample the entire ordered wire (including arcs), rather than concatenating
+    # edge vertices whose individual orientations are not guaranteed.
+    try:
+        outline_points = outline_shape.Wires[0].discretize(Deflection=0.05)
+    except Exception as exc:
+        raise PanelBuildError("Cannot discretize unfolded outer outline") from exc
+    outline_vertices_xy = tuple((float(p.x), float(p.y)) for p in outline_points)
+    if len(outline_vertices_xy) < 3:
+        raise PanelBuildError("Unfolded outer outline has insufficient points")
     try:
         sheet = Part.Face(outline_shape.Wires[0])
     except Exception as exc:
@@ -305,4 +316,5 @@ def build_panels(unfold_name="Body_Unfold", outline_name=None, bends_name=None,
         rigid_faces_t,
         tuple(zones),
         tuple(zone_faces),
+        outline_vertices_xy=outline_vertices_xy,
     )
