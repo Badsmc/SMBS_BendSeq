@@ -967,7 +967,7 @@ class _PreviewPanel:
                 )
 
                 # Phase 5A: Tooling section (Import / Select / Align / Reset / Hide-Show / Library)
-                self.tooling_group = QtWidgets.QGroupBox("Tooling (PUNCH & DIE)")
+                self.tooling_group = QtWidgets.QGroupBox("Оснастка · пуансон и матрица")
                 t_layout = QtWidgets.QVBoxLayout(self.tooling_group)
                 t_layout.setContentsMargins(6, 6, 6, 6)
                 t_layout.setSpacing(4)
@@ -1008,7 +1008,7 @@ class _PreviewPanel:
 
                 # Development virtual tool length & controlled punch end-zone policy
                 self.virtual_tool_len_checkbox = QtWidgets.QCheckBox(
-                    "Разработка: длина инструмента равна длине гиба"
+                    "Виртуальная длина инструмента = длине гиба"
                 )
                 self.virtual_tool_len_checkbox.setChecked(False)
                 self.virtual_tool_len_checkbox.setToolTip(
@@ -1030,7 +1030,7 @@ class _PreviewPanel:
                 t_layout.addLayout(ez_row)
 
                 self.allow_end_zone_checkbox = QtWidgets.QCheckBox(
-                    "Условный допуск концевых зон пуансона (CONDITIONAL)"
+                    "Допуск концевых зон\nпуансона (CONDITIONAL)"
                 )
                 self.allow_end_zone_checkbox.setChecked(False)
                 self.allow_end_zone_checkbox.setToolTip(
@@ -1076,7 +1076,8 @@ class _PreviewPanel:
                 root.addWidget(self.tooling_group)
 
                 # Phase 5B: Press Cycle section (Bend Only / Full Cycle, Ram Position, Cycle Phase, Speed & Config)
-                self.press_cycle_group = QtWidgets.QGroupBox("Press Cycle (Phase 5B — KINEMATIC_PREVIEW)")
+                self.press_cycle_group = QtWidgets.QGroupBox("Цикл гибки")
+                self.press_cycle_group.setToolTip("Phase 5B — KINEMATIC_PREVIEW")
                 pc_layout = QtWidgets.QVBoxLayout(self.press_cycle_group)
                 pc_layout.setContentsMargins(6, 6, 6, 6)
                 pc_layout.setSpacing(4)
@@ -1107,6 +1108,8 @@ class _PreviewPanel:
                 self.ram_position_label = QtWidgets.QLabel(
                     "Ram Position: {:+.2f} mm (Stroke: 0.00 mm)".format(self.tooling_setup.ram_z_mm)
                 )
+                self.cycle_phase_label.setWordWrap(True)
+                self.ram_position_label.setWordWrap(True)
                 pc_row2.addWidget(self.cycle_phase_label, 1)
                 pc_row2.addWidget(self.ram_position_label, 1)
                 pc_layout.addLayout(pc_row2)
@@ -1173,6 +1176,8 @@ class _PreviewPanel:
                 self.operations = QtWidgets.QTreeWidget()
                 self.operations.setHeaderLabels(["Step", "Bend", "Target", "Current", "Status"])
                 self.operations.setRootIsDecorated(False)
+                self.operations.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
+                self.operations.header().setSectionResizeMode(QtWidgets.QHeaderView.Stretch)
                 self.operations.setMaximumHeight(110)
                 self.operations.currentItemChanged.connect(self._on_operation_selected)
                 root.addWidget(self.operations)
@@ -1183,6 +1188,13 @@ class _PreviewPanel:
                 self.check_result.setWordWrap(True)
                 root.addWidget(self.check_result)
 
+                # The existing layouts are reoriented on dock resize, never cloned.
+                self._responsive_rows = [
+                    (t_row1, 460), (t_row2, 365), (t_row3, 365),
+                    (t_row4, 475), (ez_row, 340), (pc_row1, 565),
+                    (pc_row2, 490), (row, 400), (bend_nav_row, 365),
+                    (order_row, 465),
+                ]
                 self._install_workspace_layout(root, QtCore, QtWidgets)
                 self.draw()
 
@@ -1243,14 +1255,14 @@ class _PreviewPanel:
                     # A minimum-size layout prevents Qt from compressing the
                     # controls into the viewport and overlapping them.
                     content.layout().setSizeConstraint(
-                        QtWidgets.QLayout.SetMinimumSize
+                        QtWidgets.QLayout.SetNoConstraint
                     )
                     page = QtWidgets.QScrollArea()
                     page.setObjectName(name)
                     page.setWidgetResizable(True)
                     page.setFrameShape(QtWidgets.QFrame.NoFrame)
                     page.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOn)
-                    page.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAsNeeded)
+                    page.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
                     page.setMinimumSize(0, 0)
                     page.setSizePolicy(QtWidgets.QSizePolicy.Preferred,
                                        QtWidgets.QSizePolicy.Expanding)
@@ -1285,7 +1297,7 @@ class _PreviewPanel:
                 manual_row.addWidget(self.manual_clear_btn)
                 manual_layout.addLayout(manual_row)
                 self.retract_warning_checkbox = QtWidgets.QCheckBox(
-                    "RETRACT: продолжать 2D-поиск с предупреждением"
+                    "RETRACT: 2D-поиск\nс предупреждением"
                 )
                 self.retract_warning_checkbox.setChecked(False)
                 self.retract_warning_checkbox.setToolTip(
@@ -1354,6 +1366,7 @@ class _PreviewPanel:
                 )
                 weights_box = QtWidgets.QGroupBox("Веса операций · 2D поиск")
                 weights_form = QtWidgets.QFormLayout(weights_box)
+                weights_form.setRowWrapPolicy(QtWidgets.QFormLayout.WrapLongRows)
                 self._weight_editors = {}
                 self._weight_preferences = QtCore.QSettings("SMBS", "BendSeq")
                 for weight_key, caption in weight_names:
@@ -1400,7 +1413,7 @@ class _PreviewPanel:
                 insert(settings_layout, entries[12])  # diagnostics output
 
                 self.trace_checkbox = QtWidgets.QCheckBox(
-                    "Автоматически записывать движения при Play All (JSONL)"
+                    "Автозапись движения при Play All (JSONL)"
                 )
                 self.trace_checkbox.setChecked(False)
                 self.trace_checkbox.setToolTip(
@@ -1431,6 +1444,7 @@ class _PreviewPanel:
                 )
                 trace_buttons.addWidget(self.trace_stop_button)
                 settings_layout.addLayout(trace_buttons)
+                self._responsive_rows.append((trace_buttons, 420))
 
                 self.trace_open_button = QtWidgets.QPushButton("Открыть папку записей")
                 self.trace_open_button.clicked.connect(
@@ -1453,6 +1467,10 @@ class _PreviewPanel:
                 root.addWidget(views, 1)
                 self._viewer_tabs = views
                 self._control_tabs = controls
+                self._control_tabs.setElideMode(QtCore.Qt.ElideRight)
+                self._control_tabs.tabBar().setExpanding(False)
+                self._control_tabs.installEventFilter(self)
+                self._update_responsive_controls(320, QtWidgets)
                 self._controls_dock = None
                 self.show_task_panel_btn = QtWidgets.QPushButton("Показать панель управления")
                 self.show_task_panel_btn.setObjectName("SMBS_ShowTaskPanel")
@@ -1461,6 +1479,28 @@ class _PreviewPanel:
                 )
                 root.addWidget(self.show_task_panel_btn)
                 self.show_task_panel_btn.hide()
+
+            def _update_responsive_controls(self, width, QtWidgets):
+                """Stack narrow-dock button rows; prevent horizontal overflow."""
+                width = max(1, int(width))
+                for layout, threshold in self._responsive_rows:
+                    direction = (
+                        QtWidgets.QBoxLayout.LeftToRight if width >= threshold
+                        else QtWidgets.QBoxLayout.TopToBottom
+                    )
+                    if layout.direction() != direction:
+                        layout.setDirection(direction)
+                # Step, Bend and Status remain legible on narrow panels.
+                # All five columns are available at larger dock widths.
+                narrow_table = width < 530
+                self.operations.setColumnHidden(2, narrow_table)
+                self.operations.setColumnHidden(3, narrow_table)
+
+            def eventFilter(self, watched, event):
+                if (getattr(self, "_control_tabs", None) is watched
+                        and event.type() == QtCore.QEvent.Resize):
+                    self._update_responsive_controls(event.size().width(), QtWidgets)
+                return super().eventFilter(watched, event)
 
             def _on_trace_checkbox_toggled(self, enabled):
                 if enabled:
@@ -3650,6 +3690,7 @@ class _PreviewPanel:
                     for idx, b in enumerate(self.session.ordered_bends, 1):
                         cols = self._format_operation_row(idx, b)
                         item = QtWidgets.QTreeWidgetItem(list(cols))
+                        item.setToolTip(0, " | ".join(cols))
                         self.operations.addTopLevelItem(item)
                     if self.operations.topLevelItemCount() > 0:
                         self.operations.setCurrentItem(
@@ -3673,6 +3714,7 @@ class _PreviewPanel:
                     for col_i, text in enumerate(cols):
                         if hasattr(item, "setText"):
                             item.setText(col_i, text)
+                    item.setToolTip(0, " | ".join(cols))
                 if 0 <= self.session.active_bend_index < count:
                     target_item = self.operations.topLevelItem(self.session.active_bend_index)
                     if target_item is not None and self.operations.currentItem() is not target_item:
