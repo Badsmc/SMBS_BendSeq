@@ -2927,6 +2927,8 @@ class _PreviewPanel:
                     return
                 self.planar_calculate.setEnabled(False)
                 self.calculate.setEnabled(False)
+                self._manual_preview_unverified = False
+                self._manual_preview_notice.hide()
                 self._set_task_busy(True)
                 # Real Part/OCC CAD gauge tests now cost ~0.8-1.6 s per
                 # evaluated bend on the 10-bend fixture. The previous 30 s
@@ -3447,6 +3449,8 @@ class _PreviewPanel:
                 self.calculate.setEnabled(False)
                 self.physical_check_btn.setEnabled(False)
                 self.full_physical_check_btn.setEnabled(False)
+                self._manual_preview_unverified = False
+                self._manual_preview_notice.hide()
                 self._highlighted_end_zone_info = None
                 self._set_task_busy(True)
                 self.status.setText(
