@@ -90,6 +90,28 @@ class ManualVerifyEmbeddedContractTests(unittest.TestCase):
                              SOURCE.read_text(encoding="utf-8"), fn
                          ))
 
+    def test_manual_native_budget_extended_without_relaxing_collisions(self):
+        fn = method("_validate_export_manual_order")
+        configs = [
+            call for call in ast.walk(fn)
+            if isinstance(call, ast.Call)
+            and isinstance(call.func, ast.Name)
+            and call.func.id == "AdaptiveSamplingConfig"
+        ]
+        self.assertEqual(len(configs), 1)
+        values = {
+            kw.arg: kw.value.value
+            for kw in configs[0].keywords
+            if isinstance(kw.value, ast.Constant)
+        }
+        self.assertEqual(values["max_phase_time_s"], 300.0)
+        self.assertEqual(values["max_evaluated_states_per_phase"], 64)
+        self.assertNotIn("volume_tolerance_mm3", values)
+        self.assertNotIn("near_tolerance_mm", values)
+        calls = called_names(fn)
+        self.assertIn("crosscheck_manual_planar_native_evidence", calls)
+        self.assertIn("check_manual_3d_sequence", calls)
+
     def test_manual_panel_has_inline_state_and_historical_restore(self):
         text = SOURCE.read_text(encoding="utf-8")
         self.assertIn("self.manual_check_summary = QtWidgets.QLabel(", text)
