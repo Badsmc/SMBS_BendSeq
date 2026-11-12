@@ -1342,12 +1342,10 @@ class _PreviewPanel:
                     "Пересечения APPROACH, BENDING, BOTTOM и упора блокируют поиск."
                 )
 
-                # Detached tooling window: "Основные" and "Импорт".
-                self._tooling_dialog = QtWidgets.QDialog(self)
-                self._tooling_dialog.setWindowTitle("SMBS — Оснастка")
-                self._tooling_dialog.setMinimumWidth(430)
-                td_layout = QtWidgets.QVBoxLayout(self._tooling_dialog)
-                tool_tabs = QtWidgets.QTabWidget(self._tooling_dialog)
+                # Embedded tooling page in the existing Task Panel.
+                tooling = QtWidgets.QWidget()
+                td_layout = QtWidgets.QVBoxLayout(tooling)
+                tool_tabs = QtWidgets.QTabWidget(tooling)
                 tool_main = QtWidgets.QWidget()
                 tool_main_layout = QtWidgets.QFormLayout(tool_main)
                 tool_main_layout.addRow("Punch:", self.select_punch_combo)
@@ -1362,11 +1360,13 @@ class _PreviewPanel:
                 tool_tabs.addTab(tool_main, "Основные")
                 tool_tabs.addTab(tool_import, "Импорт")
                 td_layout.addWidget(tool_tabs)
-                close_tooling = QtWidgets.QPushButton("Закрыть")
-                close_tooling.clicked.connect(self._tooling_dialog.hide)
-                td_layout.addWidget(close_tooling)
                 self._tooling_tabs = tool_tabs
-                # All functional widgets have been moved out of the obsolete group.
+                controls.addTab(
+                    scroll_task_page(tooling, "SMBS_ToolingScroll"),
+                    QtGui.QIcon(str(_ICON_ROOT / "gui_tooling.svg")),
+                    "Оснастка"
+                )
+                # Widgets above were reparented; obsolete group can be disposed.
                 self.tooling_group.deleteLater()
 
                 # Settings is a standalone window opened from the toolbar,
@@ -1508,16 +1508,11 @@ class _PreviewPanel:
                 )
                 settings_layout.addWidget(self.trace_choose_button)
                 settings_layout.addStretch(1)
-                self._settings_dialog = QtWidgets.QDialog(self)
-                self._settings_dialog.setWindowTitle("SMBS — Настройки")
-                self._settings_dialog.resize(550, 700)
-                sd_layout = QtWidgets.QVBoxLayout(self._settings_dialog)
-                sd_layout.addWidget(
-                    scroll_task_page(settings, "SMBS_SettingsScroll"), 1
+                controls.addTab(
+                    scroll_task_page(settings, "SMBS_SettingsScroll"),
+                    QtGui.QIcon(str(_ICON_ROOT / "gui_settings.svg")),
+                    "Настройки"
                 )
-                settings_close = QtWidgets.QPushButton("Закрыть")
-                settings_close.clicked.connect(self._settings_dialog.hide)
-                sd_layout.addWidget(settings_close)
 
                 root.addWidget(views, 1)
                 self._viewer_tabs = views
@@ -1533,16 +1528,12 @@ class _PreviewPanel:
                 self._apply_svg_button_icons()
 
             def open_tooling_settings_dialog(self):
-                """Open a single persistent tooling dialog with Basic/Import tabs."""
-                self._tooling_dialog.show()
-                self._tooling_dialog.raise_()
-                self._tooling_dialog.activateWindow()
+                """Show tooling Basic/Import within the shared Task Panel."""
+                show_workspace_controls(self, tab=2)
 
             def open_settings_dialog(self):
-                """Open all settings and diagnostic controls outside Task Panel."""
-                self._settings_dialog.show()
-                self._settings_dialog.raise_()
-                self._settings_dialog.activateWindow()
+                """Show all configuration controls within the shared Task Panel."""
+                show_workspace_controls(self, tab=3)
 
             def _apply_svg_button_icons(self):
                 """Use the same industrial SVG family in task controls.
