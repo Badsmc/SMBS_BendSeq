@@ -52,20 +52,21 @@ with tempfile.TemporaryDirectory(prefix="smbs_fcstd_acceptance_") as folder:
         assert obj.getTypeIdOfProperty("SessionJSON") == (
             "App::PropertyFileIncluded"
         )
+        expected_sha = str(obj.PayloadSHA256)
         document.saveAs(str(file_path))
         App.closeDocument(document.Name)
         document = None
 
-        # Verify real physical ZIP entry, not merely an XML property value.
+        # Verify an actual JSON payload inside ZIP, rather than relying
+        # on FreeCAD's internal name (it may uniquify the original filename).
         with zipfile.ZipFile(file_path) as archive:
-            names = archive.namelist()
-            embedded_files = [
-                n for n in names
-                if ATTACHMENT_NAME in n
-            ]
-            assert embedded_files, "smbs_session.json not found in FCStd ZIP"
-            source_data = archive.read(embedded_files[0])
-            assert json.loads(source_data.decode("utf-8"))["schema"] == SCHEMA
+            matched = []
+            for member in archive.infolist():
+                if 0 < member.file_size < 4 * 1024 * 1024:
+                    blob = archive.read(member)
+                    if hashlib.sha256(blob).hexdigest() == expected_sha:
+                        matched.append(member.filename)
+            assert matched, "SMBS JSON bytes not present in FCStd archive"
 
         document = App.openDocument(str(file_path))
         restored = read_included_json(document)
