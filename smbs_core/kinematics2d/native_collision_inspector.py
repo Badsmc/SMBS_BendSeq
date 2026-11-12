@@ -258,6 +258,8 @@ def open_exact_collision_document(
         context.Label = "Машинная установка — контекст (прозрачный)"
         contacts = doc.addObject("App::DocumentObjectGroup", "ExactCollisions")
         contacts.Label = "ТОЧНЫЕ пересечения OCC — красные тела"
+        affected = doc.addObject("App::DocumentObjectGroup", "AffectedComponents")
+        affected.Label = "Задетые панели и зоны — оранжевые тела"
 
         def add(group, object_name, label, shape, rgb, transparency=0):
             obj = doc.addObject("Part::Feature", object_name)
@@ -275,11 +277,11 @@ def open_exact_collision_document(
             return obj
 
         add(context, "Sheet", "Деталь — заданный угол", shapes["sheet"],
-            (0.55, 0.68, 0.77), 68)
+            (0.55, 0.68, 0.77), 85)
         add(context, "Punch", "Пуансон — действительная форма FCStd",
-            shapes["punch"], (0.19, 0.49, 0.85), 75)
+            shapes["punch"], (0.19, 0.49, 0.85), 82)
         add(context, "Die", "Матрица — действительная форма FCStd",
-            shapes["die"], (0.20, 0.68, 0.46), 70)
+            shapes["die"], (0.20, 0.68, 0.46), 82)
         contact_objects = []
         for kind, solid in shapes["common"].items():
             label = "КОЛЛИЗИЯ: деталь × {} — {:.6f} мм³".format(
@@ -292,6 +294,11 @@ def open_exact_collision_document(
             ))
         for i, entry in enumerate(shapes["components"]):
             tag = entry["component_id"]
+            add(
+                affected, "Affected{:02d}".format(i),
+                "ПАНЕЛЬ/ЗОНА: " + tag,
+                entry["component_shape"], (0.98, 0.63, 0.11), 40,
+            )
             label = "{} × {} — {:.6f} мм³".format(
                 tag, entry["tool"], entry["volume_mm3"],
             )
@@ -305,8 +312,8 @@ def open_exact_collision_document(
         doc.recompute()
         Gui.activeDocument().activeView().viewAxonometric()
         Gui.activeDocument().activeView().fitAll()
-        for obj in contact_objects:
-            Gui.Selection.addSelection(doc.Name, obj.Name)
+        # Preserve red OCC coloration. Selecting a shape here would cause
+        # FreeCAD to apply its global selection highlight and obscure it.
         return {
             "document_name": doc.Name,
             "bend_id": str(bend_id),
