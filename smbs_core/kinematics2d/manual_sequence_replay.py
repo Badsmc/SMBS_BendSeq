@@ -19,6 +19,49 @@ from .preliminary_screening import (
 from .sequence_search_2d import _classify_step, _setup_with_scored_tool_lengths
 
 
+def crosscheck_manual_planar_native_evidence(planar: dict, physical: dict) -> list[dict]:
+    """Identify per-bend 2D/native contradictions without certifying safety.
+
+    A sampled 3D clearance is not a continuous certificate. 2D section
+    interference likewise does not prove native full-span tool penetration.
+    Preserve both independent results in developer diagnostics.
+    """
+    planar_steps = {
+        str(s.get("bend_id")): s
+        for s in planar.get("steps", [])
+        if s.get("bend_id") is not None
+    }
+    discrepancies = []
+    for native in physical.get("steps", []):
+        bid = str(native.get("bend_id"))
+        planar_step = planar_steps.get(bid)
+        if planar_step is None:
+            continue
+        pstatus = str(planar_step.get("evidence", ""))
+        nstatus = str(native.get("status", ""))
+        if (pstatus == "2D_INTERFERENCE"
+                and nstatus == "SAMPLED_3D_CLEAR_NOT_CONTINUOUS"):
+            kind = "2D_SECTION_INTERFERENCE_NOT_REPRODUCED_IN_SAMPLED_NATIVE_3D"
+        elif (pstatus == "SAMPLED_2D_CLEAR_OR_TOUCH"
+                and nstatus == "COLLISION"):
+            kind = "NATIVE_COLLISION_NOT_DETECTED_BY_SAMPLED_2D"
+        else:
+            continue
+        discrepancies.append({
+            "bend_id": bid,
+            "kind": kind,
+            "planar_evidence": pstatus,
+            "planar_reason": planar_step.get("reason"),
+            "native_evidence": nstatus,
+            "native_reason": native.get("reason"),
+            "reverse_axis_2d": bool(planar_step.get("reverse_axis", False)),
+            "reverse_axis_3d": bool(native.get("reverse_axis", False)),
+            "continuous_clearance_certified": False,
+            "physical_verdict_unchanged": True,
+        })
+    return discrepancies
+
+
 def off_section_prior_fold_risk(fold_state: Any, completed_bends: Sequence[str]) -> dict:
     """Name previously folded panels invisible to center-plane 2D screening.
 
