@@ -58,6 +58,7 @@ def evaluate_manual_planar_order(
     allow_retract_warning: bool = False,
     weights: Optional[OperationWeights] = None,
     backgauge_model: Optional[BackgaugeModel2D] = None,
+    reverse_axis_by_bend: Optional[dict[str, bool]] = None,
 ) -> dict:
     """Replay the explicit sequence, stopping at the first non-clear Stage A/B.
 
@@ -85,6 +86,7 @@ def evaluate_manual_planar_order(
         raise ValueError("Backgauge targets belong to another part: " +
                          backgauge_model.part_label)
     accepted_setups = []
+    reverse_axis_by_bend = dict(reverse_axis_by_bend or {})
     cad_checker = None
     if backgauge_model is not None and backgauge_model.cad_geometry_enabled:
         from .backgauge_cad_3d import BackgaugeCAD3D
@@ -95,6 +97,7 @@ def evaluate_manual_planar_order(
     try:
         for bid in sequence:
             step_start = perf_counter()
+            reverse_axis = bool(reverse_axis_by_bend.get(bid, False))
             state.reset_all()
             for previous in accepted:
                 state.set_angle(previous, float(state.bends[previous].angle_deg))
@@ -102,6 +105,7 @@ def evaluate_manual_planar_order(
                 "step_number": len(accepted) + 1,
                 "bend_id": bid,
                 "angle_deg": float(state.bends[bid].angle_deg),
+                "reverse_axis": reverse_axis,
                 "completed_before_step": list(accepted),
                 "off_section_3d_risk": off_section_prior_fold_risk(
                     state, accepted,
@@ -111,6 +115,7 @@ def evaluate_manual_planar_order(
                 setup = _setup_with_scored_tool_lengths(
                     compute_workpiece_machine_setup(
                         state, bid,
+                        reverse_axis=reverse_axis,
                         rear_panel_vertices_xy=(
                             session.panel_vertices_xy
                             if backgauge_model is not None else None
@@ -163,6 +168,7 @@ def evaluate_manual_planar_order(
                         stroke_fractions=tuple(i / 8 for i in range(9)),
                         tolerance_mm=tolerance_mm,
                         allow_retract_warning=allow_retract_warning,
+                        reverse_axis=reverse_axis,
                         backgauge_polygon_machine=gauge_polygon,
                         backgauge_cad_checker=cad_checker,
                         backgauge_contact_s_mm=cad_contact_s,
@@ -294,6 +300,10 @@ def evaluate_manual_planar_order(
                    if warning_steps else "SAMPLED_2D_PREFIX_CLEAR_OR_TOUCH"),
         "physical_certification": "NOT_CERTIFIED_3D",
         "selected_sequence": list(sequence),
+        "reverse_axis_by_bend": {
+            bid: bool(reverse_axis_by_bend.get(bid, False))
+            for bid in sequence
+        },
         "allow_retract_warning": allow_retract_warning,
         "retract_warnings": warning_steps,
         "total_bends": len(known),
