@@ -265,8 +265,12 @@ class PressCycleController:
             self.pause()
         self.execution_mode = resolved
         if resolved == CycleExecutionMode.BEND_ONLY:
-            # Park punch safely at upper position when switching to BEND_ONLY
-            self._park_punch_at_upper_position()
+            # A user scrubbing an angle must not see the punch snap up while
+            # the sheet remains at the coupled die-penetration depth.
+            if self._manual_preview_active:
+                self.preview_punch_at_current_angle()
+            else:
+                self._park_punch_at_upper_position()
 
     def _current_cross_section(self) -> Optional[Dict[str, Any]]:
         if self._cross_section_provider is not None:
@@ -427,8 +431,11 @@ class PressCycleController:
         self.tooling.set_punch_ram_z(self.ram_z_mm, stroke_mm=self.ram_stroke_mm)
 
     def on_tooling_changed(self) -> None:
-        """Re-evaluate contact boundary and align tooling when user selects/aligns tools."""
+        """Recompute current tool bounds without desynchronizing slider preview."""
+        manual_scrub = self._manual_preview_active
         self._sync_bounds_and_orientation_for_active_bend(reposition_tools=True)
+        if manual_scrub:
+            self.preview_punch_at_current_angle()
 
     def reset(self) -> None:
         """Reset all bends to 0 deg, return punch to upper retracted position,
