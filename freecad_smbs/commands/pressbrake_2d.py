@@ -319,7 +319,6 @@ class LoadedPartSession:
     fixed_panel: str
     fold_state: FoldState
     active_bend_index: int = 0
-    gauge_distances_mm: dict = field(default_factory=dict)
     local_bend_dimensions_mm: dict = field(default_factory=dict)
     controller: BendSequenceController = field(init=False)
 
@@ -529,15 +528,12 @@ def build_part_session(doc, selection, fixed_panel: str | None = None) -> Loaded
             fixed_panel = panel_build.connections[0].panel_a
 
     fold_state = FoldState(graph, fixed_panel)
-    # Keep the absolute outer-edge reach used by the legacy gauge preview
-    # completely separate from the local dimensions in the bends table.
-    # A neighbouring bend is a flange boundary for the table, not the end
-    # of the physical blank for the gauge's visual machine placement.
+    # Local bend-line distance is independent of the visual machine setup.
+    # Flat development does not incorporate thickness or previous fold angles.
     from smbs_core.kinematics2d.gauge_preview import (
-        bend_to_blank_edge_mm, local_bend_dimension_mm,
+        local_bend_dimension_mm,
     )
     outline_xy = getattr(panel_build, "outline_vertices_xy", ())
-    gauge_distances_mm = {}
     local_bend_dimensions_mm = {}
     axes_xy = {
         bend.bend_id: tuple((p[0], p[1]) for p in bend.axis_xyz)
@@ -554,16 +550,6 @@ def build_part_session(doc, selection, fixed_panel: str | None = None) -> Loaded
             _warn("Local bend dimension unavailable for {}: {}".format(
                 bid, exc,
             ))
-        try:
-            gauge_distances_mm[bend.bend_id] = bend_to_blank_edge_mm(
-                tuple((p[0], p[1]) for p in bend.axis_xyz),
-                panel_vertices_xy[bend.fixed_panel],
-                outline_xy,
-            )
-        except (ValueError, TypeError, KeyError) as exc:
-            _warn("Gauge dimension unavailable for {}: {}".format(
-                bend.bend_id, exc,
-            ))
     sel_label = getattr(selection[0], "Label", getattr(selection[0], "Name", unfold_name))
     return LoadedPartSession(
         part_label=str(sel_label),
@@ -574,7 +560,6 @@ def build_part_session(doc, selection, fixed_panel: str | None = None) -> Loaded
         fixed_panel=fixed_panel,
         fold_state=fold_state,
         active_bend_index=0,
-        gauge_distances_mm=gauge_distances_mm,
         local_bend_dimensions_mm=local_bend_dimensions_mm,
     )
 
