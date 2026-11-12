@@ -46,6 +46,7 @@ def retract_evidence_from_trajectory(trajectory: Any) -> dict:
         "sample_count": 0,
         "sampled_start_z_mm": None,
         "sampled_end_z_mm": None,
+        "start_position_sampled": False,
         "end_position_sampled": False,
         "max_punch_overlap_mm3": None,
         "max_die_overlap_mm3": None,
@@ -76,6 +77,7 @@ def retract_evidence_from_trajectory(trajectory: Any) -> dict:
             last = max(states, key=lambda st: float(st.path_u))
             out["sampled_start_z_mm"] = round(float(first.ram_z_mm), 6)
             out["sampled_end_z_mm"] = round(float(last.ram_z_mm), 6)
+            out["start_position_sampled"] = abs(float(first.path_u)) < 1e-6
             out["end_position_sampled"] = abs(float(last.path_u) - 1.0) < 1e-6
         out["max_punch_overlap_mm3"] = round(
             float(getattr(phase, "max_punch_overlap_volume_mm3", 0.0)), 6,
@@ -98,24 +100,36 @@ def retract_evidence_from_trajectory(trajectory: Any) -> dict:
             getattr(phase, "unresolved_intervals", None)
             or getattr(phase, "uninspected_intervals", None)
             or getattr(phase, "discontinuities", None)
+            or getattr(phase, "is_safe", True) is False
+            or any(getattr(st, "is_safe", True) is False for st in states)
         )
         if any_observed_collision:
             out["status"] = "COLLISION"
         elif raw_status == "SAMPLED_INTERVAL_CONDITIONAL_END_ZONE":
-            out["status"] = "CONDITIONAL" if not unresolved else "UNVERIFIED"
+            out["status"] = (
+                "CONDITIONAL" if (
+                    out["start_position_sampled"]
+                    and out["end_position_sampled"] and not unresolved
+                ) else "UNVERIFIED"
+            )
         elif (raw_status in (
             "SAMPLED_INTERVAL_CONVERGED", "ADAPTIVE_SAMPLING_CONVERGED",
-        ) and out["end_position_sampled"] and not unresolved):
+        ) and out["start_position_sampled"]
+                and out["end_position_sampled"] and not unresolved):
             out["status"] = "SAMPLED_CLEAR"
         else:
             out["status"] = "UNVERIFIED"
         # A green phase must reach the SAME planned end position as the
         # simulated FULL_CYCLE retract; otherwise fail closed.
-        if out["status"] == "SAMPLED_CLEAR":
-            if (out["end_z_mm"] is None
+        if out["status"] in ("SAMPLED_CLEAR", "CONDITIONAL"):
+            if (out["start_z_mm"] is None or out["end_z_mm"] is None
+                    or abs(out["sampled_start_z_mm"] - out["start_z_mm"]) > 1e-4
                     or abs(out["sampled_end_z_mm"] - out["end_z_mm"]) > 1e-4):
                 out["status"] = "UNVERIFIED"
-                out["reason"] = "RETRACT sampled end does not match configured upper Z"
+                out["reason"] = (
+                    "RETRACT sampled start/end does not match "
+                    "configured bottom/upper Z"
+                )
         return out
     return out
 
