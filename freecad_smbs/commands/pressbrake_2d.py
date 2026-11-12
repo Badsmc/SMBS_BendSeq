@@ -2113,7 +2113,26 @@ class _PreviewPanel:
                 )
                 self.manual_show_collision_btn.setEnabled(False)
                 self.manual_show_collision_btn.hide()
+                self.manual_exact_occ_btn = style_action(
+                    QtWidgets.QPushButton("Открыть точное пересечение OCC"),
+                    compact=True,
+                )
+                self.manual_exact_occ_btn.setObjectName(
+                    "SMBS_OpenExactNativeOCCCollision"
+                )
+                self.manual_exact_occ_btn.setToolTip(
+                    "Открыть отдельный несохранённый документ FreeCAD с "
+                    "реальными FCStd-пуансоном и матрицей, деталью "
+                    "в момент столкновения и точным красным OCC Common. "
+                    "В дереве видимости можно скрывать любые объекты."
+                )
+                self.manual_exact_occ_btn.clicked.connect(
+                    self._open_exact_collision_inspector
+                )
+                self.manual_exact_occ_btn.setEnabled(False)
+                self.manual_exact_occ_btn.hide()
                 order_body.addWidget(self.manual_show_collision_btn)
+                order_body.addWidget(self.manual_exact_occ_btn)
                 self._manual_preview_help = QtWidgets.QLabel(
                     "Симулировать — просмотр без проверки коллизий. "
                     "Проверить — весь выбранный порядок: 2D + 3D пуансон/матрица. "
@@ -5039,6 +5058,9 @@ class _PreviewPanel:
                 if hasattr(self, "manual_show_collision_btn"):
                     self.manual_show_collision_btn.setEnabled(False)
                     self.manual_show_collision_btn.hide()
+                if hasattr(self, "manual_exact_occ_btn"):
+                    self.manual_exact_occ_btn.setEnabled(False)
+                    self.manual_exact_occ_btn.hide()
 
             def _show_manual_check_feedback(self, status, summary, steps=()):
                 """Show native check result in Manual, including the failed bend."""
@@ -5227,6 +5249,86 @@ class _PreviewPanel:
                     if self._collision_display_active else
                     "Возврат к обычному 3D-просмотру; коллизия остаётся "
                     "в диагностике Manual."
+                )
+
+            def _open_exact_collision_inspector(self):
+                """Open a separate native FreeCAD scene with actual OCC solids."""
+                inspection = self._collision_inspection
+                if self.session is None or inspection is None:
+                    self.status.setText(
+                        "Нет подтверждённого native 3D-пересечения для осмотра."
+                    )
+                    return
+                expected = inspection.get("tooling_identity") or {}
+                current = {
+                    "punch_id": getattr(
+                        getattr(self.tooling_setup, "punch", None),
+                        "tool_id", None,
+                    ),
+                    "die_id": getattr(
+                        getattr(self.tooling_setup, "die", None),
+                        "tool_id", None,
+                    ),
+                    "match_active_bend_length": bool(
+                        self.tooling_setup.match_active_bend_length
+                    ),
+                    "punch_sections": tuple(
+                        self.tooling_setup.punch_section_offsets_xm or ()
+                    ),
+                    "die_sections": tuple(
+                        self.tooling_setup.die_section_offsets_xm or ()
+                    ),
+                }
+                if not expected or current != expected:
+                    self.status.setText(
+                        "Оснастка изменилась после 3D-проверки. "
+                        "Запустите «Проверить 3D» повторно."
+                    )
+                    _desktop_debug_event(
+                        "MANUAL_EXACT_OCC_INSPECTION_STALE_TOOLING",
+                        bend_id=inspection.get("bend_id"),
+                        expected=expected, current=current,
+                    )
+                    return
+                self._stop_timer()
+                self.status.setText(
+                    "Создание точной OCC-сцены. Исходный FCStd не изменяется..."
+                )
+                QtWidgets.QApplication.processEvents()
+                try:
+                    from smbs_core.kinematics2d.native_collision_inspector import (
+                        open_exact_collision_document,
+                    )
+                    report = open_exact_collision_document(
+                        self.session, self.tooling_setup,
+                        inspection["bend_id"],
+                        inspection["first_blocker"],
+                    )
+                except Exception as exc:
+                    message = "{}: {}".format(type(exc).__name__, exc)
+                    self.status.setText(
+                        "Не удалось воспроизвести OCC-пересечение: "
+                        + message + ". Геометрические допуски не менялись."
+                    )
+                    _desktop_debug_event(
+                        "MANUAL_EXACT_OCC_INSPECTION_FAILED",
+                        bend_id=inspection.get("bend_id"), error=message,
+                    )
+                    _error(
+                        "Native OCC collision inspector failed: "
+                        + traceback.format_exc()
+                    )
+                    return
+                _desktop_debug_event(
+                    "MANUAL_EXACT_OCC_INSPECTION_OPENED",
+                    result=report,
+                )
+                self.status.setText(
+                    "Открыт документ {}. Красные тела — реальные OCC Common; "
+                    "пуансон, матрицу, деталь и отдельные зоны можно "
+                    "скрывать через дерево FreeCAD. "
+                    "Непрерывная безопасность не сертифицирована."
+                    .format(report["document_name"])
                 )
 
             def _record_manual_precheck_failure(self, selected, reason):
@@ -5568,6 +5670,9 @@ class _PreviewPanel:
                 if hasattr(self, "manual_show_collision_btn"):
                     self.manual_show_collision_btn.setEnabled(False)
                     self.manual_show_collision_btn.hide()
+                if hasattr(self, "manual_exact_occ_btn"):
+                    self.manual_exact_occ_btn.setEnabled(False)
+                    self.manual_exact_occ_btn.hide()
                     self.manual_show_collision_btn.setText(
                         "Показать коллизию в 3D"
                     )
@@ -6010,6 +6115,17 @@ class _PreviewPanel:
                     self.manual_show_collision_btn.setText(
                         "Показать коллизию в 3D"
                     )
+                    native_tooling_identity = {
+                        "punch_id": selected_punch.tool_id,
+                        "die_id": selected_die.tool_id,
+                        "match_active_bend_length": match_length,
+                        "punch_sections": tuple(
+                            self.tooling_setup.punch_section_offsets_xm or ()
+                        ),
+                        "die_sections": tuple(
+                            self.tooling_setup.die_section_offsets_xm or ()
+                        ),
+                    }
                     for step in physical["steps"]:
                         if (step.get("status") == "COLLISION"
                                 and (step.get("first_blocker") or {})
@@ -6017,6 +6133,7 @@ class _PreviewPanel:
                             self._collision_inspection = {
                                 "bend_id": step["bend_id"],
                                 "first_blocker": step["first_blocker"],
+                                "tooling_identity": native_tooling_identity,
                             }
                         self._manual_3d_verdicts[step["bend_id"]] = (
                             step["status"]
@@ -6029,9 +6146,13 @@ class _PreviewPanel:
                     if self._collision_inspection:
                         self.manual_show_collision_btn.setEnabled(True)
                         self.manual_show_collision_btn.show()
+                        self.manual_exact_occ_btn.setEnabled(True)
+                        self.manual_exact_occ_btn.show()
                     else:
                         self.manual_show_collision_btn.setEnabled(False)
                         self.manual_show_collision_btn.hide()
+                        self.manual_exact_occ_btn.setEnabled(False)
+                        self.manual_exact_occ_btn.hide()
                     self._populate_operations()
 
                     # Keep two independent geometric evidence streams and
