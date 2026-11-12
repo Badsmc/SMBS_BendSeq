@@ -618,11 +618,17 @@ class _SMBSNativeTaskPanel:
             return
         # Native FreeCAD owns self.form. Detach all *reusable* children
         # before the TaskDialogPython releases that Qt form.
+        # Hidden widgets do not auto-show when reparented on Tasks reopen.
+        # Explicitly remove them from the disposable FreeCAD form layout.
         for child in (
             workspace._task_stack, workspace.status,
             workspace.task_progress, workspace._task_status_chip,
             workspace._task_progress_caption,
         ):
+            old_parent = child.parentWidget()
+            old_layout = old_parent.layout() if old_parent is not None else None
+            if old_layout is not None:
+                old_layout.removeWidget(child)
             child.setParent(workspace)
             child.hide()
         if getattr(workspace, "_native_task_panel", None) is self:
@@ -745,6 +751,15 @@ def show_workspace_controls(workspace, tab=None):
     workspace.status.setMaximumHeight(38)
     footer_layout.addWidget(workspace.status)
     layout.addWidget(footer)
+
+    # Closing an earlier native task explicitly hid these live widgets.
+    # Qt does not reverse that state when they join a new layout.
+    for child in (
+        workspace._task_stack, workspace.status,
+        workspace.task_progress, workspace._task_status_chip,
+        workspace._task_progress_caption,
+    ):
+        child.show()
 
     panel = _SMBSNativeTaskPanel(workspace, form)
     workspace._native_task_panel = panel
