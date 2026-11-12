@@ -18,6 +18,7 @@ from freecad_smbs.integration.fcstd_session_store import (
     build_snapshot, decode_snapshot, geometry_manifest, read_included_json,
     validate_restore, write_included_json,
 )
+from smbs_core.kinematics2d.press_cycle import CycleConfig
 
 
 @dataclass
@@ -122,12 +123,7 @@ def _state():
         match_active_bend_length=False,
         allow_end_zone_collision=False, end_zone_length_mm=10.0,
     )
-    cfg = SimpleNamespace(
-        approach_speed_mm_s=25.0, retract_speed_mm_s=35.0,
-        bend_rate_deg_s=90.0, bend_duration_s=None,
-        initial_clearance_mm=15.0, preview_stroke_mm=4.0,
-        bottom_dwell_s=0.1, simulation_mode="KINEMATIC_PREVIEW",
-    )
+    cfg = CycleConfig()
     return session, tools, cfg
 
 
