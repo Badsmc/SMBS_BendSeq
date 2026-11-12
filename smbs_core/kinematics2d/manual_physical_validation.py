@@ -126,8 +126,19 @@ def concise_3d_blocker(trajectory: Any) -> dict:
             problem, "first_collision_bracket", None,
         ),
         "tool": tool,
+        # Peak overlap may be measured at the endpoint; the native XYZ
+        # intersection bbox below belongs to the *earliest sampled blocking*
+        # state. Keep them distinct in the forensic report.
         "punch_overlap_mm3": round(punch_overlap, 6),
         "die_overlap_mm3": round(die_overlap, 6),
+        "first_sample_punch_overlap_mm3": (
+            round(float(getattr(p, "overlap_volume_mm3", 0.0)), 6)
+            if candidate is not None else None
+        ),
+        "first_sample_die_overlap_mm3": (
+            round(float(getattr(d, "overlap_volume_mm3", 0.0)), 6)
+            if candidate is not None else None
+        ),
         "intersection_bbox_xyz_mm": {
             "punch": getattr(p, "overlap_bbox_xyz_mm", None),
             "die": getattr(d, "overlap_bbox_xyz_mm", None),
