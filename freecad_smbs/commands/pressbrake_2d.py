@@ -156,8 +156,14 @@ def _get_file_logger() -> logging.Logger:
 def _qt():
     """Return QtCore, QtGui, QtWidgets for FreeCAD-supported bindings."""
     try:
+        # FreeCAD 1.x exposes a PySide compatibility shim. On Qt6 it has
+        # QtWidgets separately; on older PySide/Qt4 widgets live in QtGui.
         from PySide import QtCore, QtGui
-        return QtCore, QtGui, QtGui
+        try:
+            from PySide import QtWidgets
+        except ImportError:
+            QtWidgets = QtGui
+        return QtCore, QtGui, QtWidgets
     except ImportError:
         try:
             from PySide2 import QtCore, QtGui, QtWidgets
