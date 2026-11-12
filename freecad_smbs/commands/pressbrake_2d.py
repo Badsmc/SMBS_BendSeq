@@ -2267,8 +2267,11 @@ class _PreviewPanel:
                 # The full five-column report is still available on a wide
                 # dock. On narrow ones show Step, Bend and Status; tooltips
                 # retain complete target/current readings.
-                self.operations.setColumnHidden(2, compact)
-                self.operations.setColumnHidden(3, compact)
+                # FreeCAD's standard Tasks pane is narrower than our
+                # former full-width custom dock: keep the core verdicts and
+                # RETRACT visible; complete dimensions remain in row tooltips.
+                for col in (2, 3, 4, 5):
+                    self.operations.setColumnHidden(col, compact)
                 self.operations.header().setSectionResizeMode(
                     QtWidgets.QHeaderView.Stretch
                 )
@@ -4642,15 +4645,49 @@ class _PreviewPanel:
                     phase_evidence = str(item.get("reason", ""))
                     tool_pair = item.get("punch_die_pair")
                     retract = item.get("retract") or {}
+                    blocker = item.get("first_blocker") or {}
+                    try:
+                        angle_text = "{:+.2f}".format(float(item.get("angle_deg", 0.0)))
+                    except (TypeError, ValueError):
+                        angle_text = "?"
                     lines.append(
                         "{}. {} | {} | угол {}°".format(
-                            index, bend_id, verdict, item.get("angle_deg", "?"),
+                            index, bend_id, verdict, angle_text,
                         )
                     )
-                    if phase_evidence:
-                        # The complete diagnostic stays in embedded FCStd;
-                        # the manual widget displays a readable excerpt.
-                        lines.append("  " + phase_evidence[:650])
+                    if blocker and blocker.get("phase") not in (
+                            None, "NONE", "UNKNOWN"):
+                        tool_label = {
+                            "PUNCH": "пуансон",
+                            "DIE": "матрица",
+                            "PUNCH_AND_DIE": "пуансон и матрица",
+                        }.get(blocker.get("tool"), "источник не установлен")
+                        lines.append(
+                            "  ПРОБЛЕМА: фаза {} | {} | Z={} мм | "
+                            "пуансон={:.6f} мм³, матрица={:.6f} мм³".format(
+                                blocker.get("phase", "?"), tool_label,
+                                blocker.get("ram_z_mm")
+                                if blocker.get("ram_z_mm") is not None else "—",
+                                float(blocker.get("punch_overlap_mm3") or 0.0),
+                                float(blocker.get("die_overlap_mm3") or 0.0),
+                            )
+                        )
+                        lines.append(
+                            "  Код: {} | {}".format(
+                                blocker.get("phase_status", "UNVERIFIED"),
+                                str(blocker.get("reason", ""))[:250],
+                            )
+                        )
+                    elif phase_evidence:
+                        # Do not show the first 650 bytes of timings from
+                        # APPROACH; they obscure later BENDING/BOTTOM failure.
+                        if phase_evidence.startswith("native_d634_rejected:"):
+                            lines.append(
+                                "  D6 отклонил траекторию — этап и причина "
+                                "не определены; подробности в FCStd."
+                            )
+                        else:
+                            lines.append("  " + phase_evidence[:240])
                     if isinstance(tool_pair, dict):
                         lines.append(
                             "  Пуансон/матрица: {} | {} позиций{}".format(
@@ -5665,6 +5702,13 @@ class _PreviewPanel:
                     for idx, b in enumerate(self.session.ordered_bends, 1):
                         cols = self._format_operation_row(idx, b)
                         item = QtWidgets.QTreeWidgetItem(list(cols))
+                        item.setToolTip(
+                            1, " | ".join(
+                                "{}: {}".format(
+                                    self.operations.headerItem().text(i), value
+                                ) for i, value in enumerate(cols)
+                            ),
+                        )
                         self.operations.addTopLevelItem(item)
                     if self.operations.topLevelItemCount() > 0:
                         self.operations.setCurrentItem(
@@ -5688,6 +5732,13 @@ class _PreviewPanel:
                     for col_i, text in enumerate(cols):
                         if hasattr(item, "setText"):
                             item.setText(col_i, text)
+                    item.setToolTip(
+                        1, " | ".join(
+                            "{}: {}".format(
+                                self.operations.headerItem().text(i), value
+                            ) for i, value in enumerate(cols)
+                        ),
+                    )
                 if 0 <= self.session.active_bend_index < count:
                     target_item = self.operations.topLevelItem(self.session.active_bend_index)
                     if target_item is not None and self.operations.currentItem() is not target_item:
