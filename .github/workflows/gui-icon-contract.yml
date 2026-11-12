@@ -18,6 +18,10 @@ jobs:
           python-version: '3.11'
       - name: Compile FreeCAD workbench code
         run: python -m compileall -q Init.py InitGui.py freecad_smbs smbs_core
+      - name: Test coupled punch motion during manual preview
+        env:
+          PYTHONPATH: .
+        run: python -m unittest discover -s tests -p 'test_press_cycle_manual_preview.py' -v
       - name: Check FreeCAD commands and SVG icon resources
         env:
           PYTHONPATH: .
@@ -197,7 +201,8 @@ jobs:
           assert 'toolbar.setToolButtonStyle(QtCore.Qt.ToolButtonTextBesideIcon)' in wb_source
           assert 'toolbar.setIconSize(QtCore.QSize(18, 18))' in wb_source
           assert 'QtCore.QTimer.singleShot(0, configure_native_toolbar)' in wb_source
-          assert "CMD_LOAD_PART, CMD_TOOLING_TAB, CMD_CALCULATE," in wb_source
+          assert "CMD_LOAD_PART, CMD_TOOLING_TAB, CMD_PRESSBRAKE_2D," in wb_source
+          assert "CMD_CALCULATE, CMD_SEQUENCE_CATALOG," in wb_source
           assert "CMD_PLANAR_CANDIDATES, CMD_MANUAL, CMD_SETTINGS," in wb_source
           # The single Simulation surface contains ONLY playback and slider,
           # no duplicated full-search and diagnostic buttons.
@@ -206,6 +211,14 @@ jobs:
           assert 'insert(sim_body, entries[6])' in gui_source
           assert 'self.calculate.hide()' in gui_source
           assert 'self.planar_calculate.hide()' in gui_source
+          assert 'self.manual_simulate_btn.clicked.connect(' in gui_source
+          assert 'self.simulate_manual_order_unverified' in gui_source
+          assert 'def simulate_manual_order_unverified(self):' in gui_source
+          assert 'self.set_cycle_mode(CycleExecutionMode.BEND_ONLY)' in gui_source
+          assert 'pc.set_manual_preview_angle(float(signed_angle_deg))' in gui_source
+          assert 'pc.preview_punch_at_current_angle()' in gui_source
+          assert 'self._manual_preview_notice.show()' in gui_source
+          assert 'workspace._viewer_tabs.setCurrentWidget(workspace.view)' in gui_source
           assert 'self.play_btn = _playback_button(' in gui_source
           assert 'QtCore, QtWidgets, "Play", self._toggle_play_pause, False' in gui_source
           assert '"Reset", "|<<", "Play / Pause", ">>|", "Fit"' in gui_source
