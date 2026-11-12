@@ -4695,7 +4695,21 @@ class _PreviewPanel:
                     selection = Gui.Selection.getSelection() if hasattr(Gui, "Selection") else []
 
                 # Early precondition check BEFORE touching timer, session, controls, or scene
+                _desktop_debug_event(
+                    "PART_LOAD_REQUEST",
+                    document_name=getattr(doc, "Name", None),
+                    document_path=getattr(doc, "FileName", None),
+                    selection=[
+                        {"name": getattr(item, "Name", None),
+                         "label": getattr(item, "Label", None),
+                         "type": getattr(item, "TypeId", None)}
+                        for item in selection
+                    ],
+                )
                 outcome, new_session, msg = execute_load_part(self.session, doc, selection)
+                _desktop_debug_event(
+                    "PART_LOAD_OUTCOME", outcome=outcome, message=msg,
+                )
                 if outcome == "warning":
                     self.status.setText(msg)
                     return
@@ -4716,6 +4730,30 @@ class _PreviewPanel:
                 self._machine_pose_fault = None
                 self._last_3d_frame_at = -1.0
                 self.session = new_session
+                _desktop_debug_event(
+                    "PART_GEOMETRY_LOADED",
+                    document_name=str(doc.Name),
+                    document_path=str(getattr(doc, "FileName", "") or ""),
+                    part_label=new_session.part_label,
+                    fixed_panel=new_session.fixed_panel,
+                    panel_vertices=new_session.panel_vertices_xy,
+                    bends=[
+                        {
+                            "id": bend.bend_id,
+                            "angle_deg": bend.angle_deg,
+                            "fixed_panel": bend.fixed_panel,
+                            "moving_panel": bend.moving_panel,
+                            "axis_xyz": bend.axis_xyz,
+                            "thickness_mm": bend.bend_zone.thickness_mm
+                            if bend.bend_zone else None,
+                            "inner_radius_mm": bend.bend_zone.inner_radius_mm
+                            if bend.bend_zone else None,
+                            "bend_allowance_mm": bend.bend_zone.bend_allowance_mm
+                            if bend.bend_zone else None,
+                        }
+                        for bend in new_session.ordered_bends
+                    ],
+                )
                 self._smbs_document_name = str(doc.Name)
                 self._smbs_allow_auto_embed = False
                 self.last_planar_search_report = None
@@ -4895,6 +4933,11 @@ class _PreviewPanel:
             def _record_manual_precheck_failure(self, selected, reason):
                 """Fail visibly and save the UNVERIFIED reason in FCStd as well."""
                 message = "UNVERIFIED: " + str(reason)
+                _desktop_debug_event(
+                    "MANUAL_PRECHECK_REJECTED",
+                    selected_order=list(selected), reason=str(reason),
+                    session=self._debug_session_context(),
+                )
                 self._last_manual_sequence_report = {
                     "schema_version": "smbs.manual_2d_and_native_3d.v2",
                     "status": "UNVERIFIED",
@@ -4932,12 +4975,30 @@ class _PreviewPanel:
                 snapshot = self._write_embedded_smbs_json(document)
                 self._smbs_allow_auto_embed = True
                 self._embedded_diagnostics_history = snapshot["diagnostics"]
+                _desktop_debug_event(
+                    "FCSTD_MANUAL_DIAGNOSTICS_STAGED",
+                    document_name=getattr(document, "Name", None),
+                    file_name=getattr(document, "FileName", None),
+                    manual_status=(
+                        self._last_manual_sequence_report or {}
+                    ).get("status"),
+                    stored_sections=list(snapshot.get("diagnostics", {}).keys()),
+                )
                 filename = str(getattr(document, "FileName", "") or "")
                 if filename:
                     # FreeCAD itself writes PropertyFileIncluded into the
                     # native FCStd archive, preserving all other objects.
                     document.save()
+                    _desktop_debug_event(
+                        "FCSTD_MANUAL_DIAGNOSTICS_SAVED",
+                        document_name=getattr(document, "Name", None),
+                        path=filename,
+                    )
                     return "Результат сохранён внутри FCStd: " + filename
+                _desktop_debug_event(
+                    "FCSTD_MANUAL_DIAGNOSTICS_PENDING_FIRST_SAVE",
+                    document_name=getattr(document, "Name", None),
+                )
                 return (
                     "Результат вложен в открытый документ. "
                     "Для записи на диск сохраните его как FCStd через Ctrl+S."
@@ -5223,6 +5284,12 @@ class _PreviewPanel:
                     )
                     return
                 self._stop_timer()
+                _desktop_debug_event(
+                    "MANUAL_VERIFY_REQUESTED",
+                    requested_bends=list(selected),
+                    all_bends=list(order),
+                    session=self._debug_session_context(),
+                )
                 # Qt event pumping keeps progress legible, but the operator
                 # must not change tool identity, options or order mid-check.
                 locked_controls = (
@@ -5331,6 +5398,11 @@ class _PreviewPanel:
                             },
                             "plan_cost": None,
                         }
+                    _desktop_debug_event(
+                        "MANUAL_STAGE_AB_PLANAR_RESULT",
+                        selected_order=list(selected),
+                        entire_2d_report=planar,
+                    )
                     self.status.setText(
                         "Предварительный 2D: {}. Проверка реальных FCStd в 3D..."
                         .format(planar["status"])
@@ -5418,6 +5490,13 @@ class _PreviewPanel:
                         else:
                             physical["reason"] += ";2d_advisory_disagreement_conditional_only"
                     physical["status"] = physical_status
+                    _desktop_debug_event(
+                        "MANUAL_VERIFY_FINAL_RESULT",
+                        verdict=physical_status,
+                        entire_native_report=physical,
+                        planar_status=planar.get("status"),
+                        disagreement=disagreement,
+                    )
                     complete_steps = physical["checked_bends"]
                     result = dict(planar)
                     result["schema_version"] = "smbs.manual_2d_and_native_3d.v2"
