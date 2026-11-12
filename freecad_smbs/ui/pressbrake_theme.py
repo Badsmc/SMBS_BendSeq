@@ -6,10 +6,10 @@ never modified. Layout constants are in physical Qt pixels.
 """
 from __future__ import annotations
 
-OUTER_MARGIN = 20
-SECTION_PADDING = 16
-SECTION_GAP = 16
-CORNER_RADIUS = 9
+OUTER_MARGIN = 10
+SECTION_PADDING = 9
+SECTION_GAP = 8
+CORNER_RADIUS = 3
 
 TASK_QSS = """
 QWidget#SMBS_TaskDockRoot,
@@ -19,7 +19,7 @@ QWidget#SMBS_TaskContent {
 QFrame#SMBS_SectionCard {
     background: palette(base);
     border: 1px solid palette(midlight);
-    border-radius: 9px;
+    border-radius: 3px;
 }
 QLabel#SMBS_SectionTitle {
     font-size: 13px;
@@ -67,9 +67,9 @@ QLabel#SMBS_StatusChip[state="error"] {
 }
 QPushButton#SMBS_ActionButton,
 QPushButton#SMBS_CompactButton {
-    min-height: 36px;
+    min-height: 30px;
     border: 1px solid palette(mid);
-    border-radius: 7px;
+    border-radius: 3px;
     background: palette(button);
     color: palette(button-text);
     padding: 4px 8px;
@@ -92,9 +92,9 @@ QPushButton#SMBS_CompactButton:disabled {
     color: palette(mid);
 }
 QPushButton#SMBS_PrimaryAction {
-    min-height: 36px;
+    min-height: 30px;
     padding: 4px 8px;
-    border-radius: 7px;
+    border-radius: 3px;
     border: 1px solid #327F78;
     background: #327F78;
     color: white;
@@ -129,15 +129,12 @@ QTreeWidget#SMBS_Operations {
     background: palette(base);
     alternate-background-color: palette(alternate-base);
 }
-QTabWidget#SMBS_ControlTabs::pane {
-    border: none;
-}
-QTabWidget#SMBS_ControlTabs QTabBar::tab {
-    padding: 9px 11px;
-    min-height: 24px;
-}
-QTabWidget#SMBS_ControlTabs QTabBar::tab:selected {
-    border-bottom: 2px solid #48A99C;
+QLabel#SMBS_TaskSectionTitle {
+    font-size: 12px;
+    font-weight: bold;
+    border-bottom: 1px solid palette(midlight);
+    background: palette(window);
+    color: palette(window-text);
 }
 """
 
@@ -163,7 +160,16 @@ def style_action(button, primary=False, compact=False):
         "SMBS_PrimaryAction" if primary else
         "SMBS_CompactButton" if compact else "SMBS_ActionButton"
     )
-    button.setMinimumHeight(36)
+    # Native FreeCAD-sized, content-width controls. Never stretch across
+    # the entire Tasks panel, including primary and embedded dialog buttons.
+    button.setMinimumHeight(30)
+    button.setMaximumHeight(36)
+    button.setMaximumWidth(250)
+    size_policy = button.sizePolicy()
+    size_policy.setHorizontalPolicy(type(size_policy).Maximum)
+    button.setSizePolicy(size_policy)
+    if not button.toolTip():
+        button.setToolTip(button.text())
     return button
 
 
