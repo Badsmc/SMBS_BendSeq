@@ -67,16 +67,20 @@ def concise_3d_blocker(trajectory: Any) -> dict:
                                "value", getattr(problem, "evidence_status", "")))
     rejected = [
         st for st in getattr(problem, "states", ()) or ()
-        if (
-            getattr(getattr(st, "collision_report", None),
-                    "status", None) is not None
-            and str(getattr(
-                getattr(st.collision_report, "status"), "value",
-                st.collision_report.status,
-            )) == "PENETRATION"
-        ) or (
-            getattr(st, "is_safe", True) is False
-            and not bool(getattr(st, "is_conditional_safe", False))
+        # A punch END_ZONE_ONLY sample may carry PENETRATION but is
+        # explicitly permitted as CONDITIONAL by the selected policy.
+        # It is NOT the first *blocking* hit. Keep the earliest strictly
+        # non-conditional rejected sample, matching native D6 onset.
+        if not bool(getattr(st, "is_conditional_safe", False))
+        and (
+            (
+                getattr(getattr(st, "collision_report", None),
+                        "status", None) is not None
+                and str(getattr(
+                    getattr(st.collision_report, "status"), "value",
+                    st.collision_report.status,
+                )) == "PENETRATION"
+            ) or getattr(st, "is_safe", True) is False
         )
     ]
     candidate = next(iter(rejected), None)
