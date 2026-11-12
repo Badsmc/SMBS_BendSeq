@@ -6,6 +6,7 @@ on:
       - GUI/v0.0.1
       - GUI/v0.0.1-context-panel
       - feature/fcstd-embedded-smbs-json
+      - feature/visual-only-fcstd-backgauge
   workflow_dispatch:
 
 jobs:
@@ -27,6 +28,10 @@ jobs:
         env:
           PYTHONPATH: .
         run: python -m unittest discover -s tests -p 'test_fcstd_embedded_session.py' -v
+      - name: Test visual-only FCStd gauge distances and positions
+        env:
+          PYTHONPATH: .
+        run: python -m unittest discover -s tests -p 'test_gauge_preview.py' -v
       - name: Check FreeCAD commands and SVG icon resources
         env:
           PYTHONPATH: .
