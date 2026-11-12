@@ -14,7 +14,12 @@ from smbs_core.kinematics2d.native_collision_3d import CollisionClass
 from smbs_core.kinematics2d.native_collision_attribution import (
     component_hits, collision_preview_boxes,
 )
-from smbs_core.kinematics2d.manual_sequence_replay import off_section_prior_fold_risk
+from smbs_core.kinematics2d.manual_sequence_replay import (
+    off_section_prior_fold_risk, evaluate_manual_planar_order,
+)
+from smbs_core.kinematics2d.preliminary_screening import (
+    PreliminaryScreeningReport, ScreeningDecision,
+)
 from smbs_core.kinematics2d.panel_graph import GraphEdge, PanelGraph
 from smbs_core.kinematics2d.panel_kinematics import FoldState
 
@@ -41,6 +46,56 @@ def mock_state(u, phase="BENDING", threshold=0.4):
         ),
         is_safe=not collides,
     )
+
+
+class ManualPlanarOrientationTests(unittest.TestCase):
+    def test_explicit_180_orientation_is_shared_by_stage_b_and_setup(self):
+        graph = PanelGraph(("P01", "P02", "P03"), (
+            GraphEdge("B01", "P01", "P02", 90.0,
+                      ((0, 0, 0), (0, 100, 0))),
+            GraphEdge("B02", "P02", "P03", 90.0,
+                      ((10, 0, 0), (10, 100, 0))),
+        ))
+        state = FoldState(graph, "P01")
+        session = SimpleNamespace(
+            fold_state=state, canonical_order=("B01", "B02"),
+            panel_vertices_xy={}, part_label="fixture",
+        )
+        setup = SimpleNamespace(to_dict=lambda: {})
+        screener = PreliminaryScreeningReport(
+            ScreeningDecision.CONTINUE_TO_3D, "STAGE_B", "sample_clear"
+        )
+        def fake_score(prefix, _setups, _weights):
+            return SimpleNamespace(
+                total=0.0,
+                steps=[SimpleNamespace(to_dict=lambda: {}) for _ in prefix],
+                to_dict=lambda: {"total": 0.0},
+            )
+        scope = "smbs_core.kinematics2d.manual_sequence_replay."
+        with patch(scope + "_setup_with_scored_tool_lengths",
+                   return_value=setup), patch(
+            scope + "compute_workpiece_machine_setup", return_value=setup,
+        ) as placements, patch(
+            scope + "screen_candidate_stage_a", return_value=screener,
+        ), patch(
+            scope + "screen_candidate_stage_b", return_value=screener,
+        ) as stage_b, patch(
+            scope + "_classify_step",
+            return_value="SAMPLED_2D_CLEAR_OR_TOUCH",
+        ), patch(scope + "score_sequence", side_effect=fake_score):
+            result = evaluate_manual_planar_order(
+                session, SimpleNamespace(), ("B01", "B02"),
+                reverse_axis_by_bend={"B01": True, "B02": False},
+            )
+        self.assertEqual(result["reverse_axis_by_bend"],
+                         {"B01": True, "B02": False})
+        self.assertEqual([s["reverse_axis"] for s in result["steps"]],
+                         [True, False])
+        self.assertTrue(placements.call_args_list[0].kwargs["reverse_axis"])
+        self.assertFalse(placements.call_args_list[1].kwargs["reverse_axis"])
+        self.assertTrue(stage_b.call_args_list[0].kwargs["reverse_axis"])
+        self.assertFalse(stage_b.call_args_list[1].kwargs["reverse_axis"])
+        self.assertEqual(state.angles, {"B01": 0.0, "B02": 0.0})
 
 
 class NativeOnsetTests(unittest.TestCase):
