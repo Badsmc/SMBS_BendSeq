@@ -576,6 +576,54 @@ def show_workspace_controls(workspace, tab=None):
     return dock
 
 
+def activate_task_dialog(workspace, key):
+    """Return to a dialog already embedded in this workspace's Task Panel."""
+    widgets = getattr(workspace, "_task_dialogs", {})
+    widget = widgets.get(key)
+    if widget is None:
+        return False
+    index = workspace._control_tabs.indexOf(widget)
+    if index < 0:
+        widgets.pop(key, None)
+        return False
+    show_workspace_controls(workspace, tab=index)
+    return True
+
+
+def embed_task_dialog(workspace, widget, title, key):
+    """Mount an existing QDialog UI inside the one persistent Task Panel.
+
+    Keeps existing dialog button signals/validation. Accepted/rejected
+    widgets are removed from the tab bar rather than opening a window.
+    """
+    QtCore, _QtGui, _QtWidgets = _qt()
+    if activate_task_dialog(workspace, key):
+        widget.deleteLater()
+        return
+    tabs = workspace._control_tabs
+    dialogs = getattr(workspace, "_task_dialogs", None)
+    if dialogs is None:
+        dialogs = {}
+        workspace._task_dialogs = dialogs
+    widget.setWindowFlags(QtCore.Qt.Widget)
+    widget.setParent(tabs)
+    widget.setMinimumWidth(0)
+    widget.setObjectName("SMBS_Task_" + key)
+    index = tabs.addTab(widget, title)
+    dialogs[key] = widget
+
+    def on_finished(_result):
+        i = tabs.indexOf(widget)
+        if i >= 0:
+            tabs.removeTab(i)
+        if dialogs.get(key) is widget:
+            del dialogs[key]
+        widget.deleteLater()
+
+    widget.finished.connect(on_finished)
+    show_workspace_controls(workspace, tab=index)
+
+
 def close_workspace_controls(workspace):
     """Remove owned dock without deleting controls prematurely."""
     dock = getattr(workspace, "_controls_dock", None)
