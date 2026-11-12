@@ -22,6 +22,7 @@ from pathlib import Path
 
 from smbs_core.kinematics2d.developer_debug_log import (
     debug_event as _desktop_debug_event,
+    desktop_directory as _debug_desktop_directory,
 )
 from smbs_core.kinematics2d.fold_sequence import (
     BendSequenceController,
@@ -2265,6 +2266,22 @@ class _PreviewPanel:
                     QtCore.Qt.TextSelectableByMouse
                 )
                 trace_body.addWidget(self.trace_status)
+                # Developer journal is ALWAYS on, independent of the
+                # optional legacy JSONL motion recording below.
+                self.desktop_debug_log_note = QtWidgets.QLabel(
+                    "Автоматический единый журнал разработки:\n" +
+                    str(_debug_desktop_directory() / "SMBS_debug_log.json") +
+                    "\nЗаписывается без включения кнопок. Может содержать "
+                    "названия деталей и локальные пути."
+                )
+                self.desktop_debug_log_note.setObjectName(
+                    "SMBS_DesktopDebugLogPath"
+                )
+                self.desktop_debug_log_note.setTextInteractionFlags(
+                    QtCore.Qt.TextSelectableByMouse
+                )
+                self.desktop_debug_log_note.setWordWrap(True)
+                trace_body.addWidget(self.desktop_debug_log_note)
 
                 trace_buttons = QtWidgets.QVBoxLayout()
                 self.trace_start_button = QtWidgets.QPushButton("Начать запись JSONL")
