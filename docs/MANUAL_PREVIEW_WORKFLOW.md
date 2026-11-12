@@ -235,3 +235,8 @@ and Python compilation.
   remain `CONDITIONAL`; die/tool-tool overlap is never waived.
 - Drag the 2.5D view in both directions with middle mouse or Ctrl+LMB,
   then check wheel zoom, Fit, and left-drag 3D orbit.
+
+
+## Always-on developer debug and Tasks reopen
+
+The native FreeCAD Tasks panels re-show preserved controls after Close/Reopen. All user actions, selected tooling, full Manual native 3D samples and OCC collision locations are recorded automatically in `~/Desktop/SMBS_debug_log.json` (Windows: actual Desktop including OneDrive). See [Developer Debug Journal](DEVELOPER_DEBUG_JOURNAL.md).
