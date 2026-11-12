@@ -300,7 +300,7 @@ def open_exact_collision_document(
                 entry["shape"], (1.0, 0.3, 0.05), 0,
             )
             # Avoid z-fighting with red full intersection solids by default.
-            obj.Visibility = False
+            obj.ViewObject.Visibility = False
 
         doc.recompute()
         Gui.activeDocument().activeView().viewAxonometric()
