@@ -92,6 +92,44 @@ def component_hits(
     }
 
 
+def collision_preview_boxes(blocker: dict) -> list[dict]:
+    """Return honest native-XYZ bounding boxes for an OCC collision preview.
+
+    Prefer complete per-component positive-common evidence when available.
+    The full-sheet common AABB is only a fallback, never a contact surface.
+    If even one attributed hit lacks a bounding box, fall back as a group:
+    drawing only some positives would falsely suggest complete localization.
+    """
+    attribution = blocker.get("component_attribution") or {}
+    hits = attribution.get("hits") or []
+    if (attribution.get("status") == "ATTRIBUTED"
+            and attribution.get("complete") is True
+            and hits
+            and all(isinstance(hit.get("overlap_bbox_xyz_mm"), dict)
+                    for hit in hits)):
+        return [
+            {
+                "tool": str(hit.get("tool", "UNKNOWN")),
+                "component_id": str(hit.get("component_id", "UNKNOWN")),
+                "bbox": hit["overlap_bbox_xyz_mm"],
+                "source": "NATIVE_COMPONENT_COMMON_AABB",
+            }
+            for hit in hits
+        ]
+    return [
+        {
+            "tool": str(kind).upper(),
+            "component_id": "whole_sheet",
+            "bbox": bound,
+            "source": "NATIVE_FULL_SHEET_COMMON_AABB",
+        }
+        for kind, bound in (
+            blocker.get("intersection_bbox_xyz_mm") or {}
+        ).items()
+        if isinstance(bound, dict)
+    ]
+
+
 def attribute_native_collision(
     session: Any,
     collision_state: Any,
