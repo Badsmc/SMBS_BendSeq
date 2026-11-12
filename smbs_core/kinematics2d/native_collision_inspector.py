@@ -311,9 +311,18 @@ def open_exact_collision_document(
 
         doc.recompute()
         Gui.activeDocument().activeView().viewAxonometric()
-        Gui.activeDocument().activeView().fitAll()
-        # Preserve red OCC coloration. Selecting a shape here would cause
-        # FreeCAD to apply its global selection highlight and obscure it.
+        # Fit to the ACTUAL contact solid, not to the ~500mm sheet.
+        # FreeCAD documents Std_ViewFitSelection / "ViewSelection".
+        # The initial selection is cleared so OCC red is visible again.
+        Gui.Selection.clearSelection()
+        try:
+            for obj in contact_objects:
+                Gui.Selection.addSelection(doc.Name, obj.Name)
+            Gui.SendMsgToActiveView("ViewSelection")
+        except Exception:
+            Gui.activeDocument().activeView().fitAll()
+        finally:
+            Gui.Selection.clearSelection()
         return {
             "document_name": doc.Name,
             "bend_id": str(bend_id),
