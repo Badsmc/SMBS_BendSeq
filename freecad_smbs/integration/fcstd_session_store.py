@@ -228,8 +228,13 @@ def decode_snapshot(raw):
         raise EmbeddedSessionError("Session payload must be UTF-8 bytes")
     if not raw or len(raw) > MAX_PAYLOAD_BYTES:
         raise EmbeddedSessionError("Missing or oversized embedded session")
+    def reject_nonfinite(value):
+        raise EmbeddedSessionError("Nonfinite JSON literal: " + str(value))
+
     try:
-        payload = json.loads(raw.decode("utf-8"))
+        payload = json.loads(
+            raw.decode("utf-8"), parse_constant=reject_nonfinite
+        )
     except (UnicodeError, ValueError) as exc:
         raise EmbeddedSessionError("Invalid embedded JSON") from exc
     if not isinstance(payload, dict):
@@ -258,10 +263,29 @@ def decode_snapshot(raw):
         raise EmbeddedSessionError("Stored order is not a bend permutation")
     if len(prefix) != len(set(prefix)) or order[:len(prefix)] != prefix:
         raise EmbeddedSessionError("Stored manual prefix is inconsistent")
-    if not isinstance(payload.get("simulation"), dict) or not isinstance(
-        payload.get("tooling"), dict
-    ):
+    simulation = payload.get("simulation")
+    tooling = payload.get("tooling")
+    if not isinstance(simulation, dict) or not isinstance(tooling, dict):
         raise EmbeddedSessionError("Missing configuration or tooling")
+    if not isinstance(payload.get("diagnostics"), dict):
+        raise EmbeddedSessionError("Missing diagnostic history")
+    if not isinstance(payload.get("validation"), dict):
+        raise EmbeddedSessionError("Missing verification metadata")
+    if not isinstance(simulation.get("cycle_config"), dict):
+        raise EmbeddedSessionError("Missing cycle configuration")
+    if not isinstance(simulation.get("operation_weights"), dict):
+        raise EmbeddedSessionError("Invalid operation weights")
+    if simulation.get("execution_mode") not in ("BEND_ONLY", "FULL_CYCLE"):
+        raise EmbeddedSessionError("Invalid execution mode")
+    for key in ("punch", "die"):
+        ref = tooling.get(key)
+        if ref is not None and (
+            not isinstance(ref, dict) or
+            not isinstance(ref.get("id"), str) or
+            not isinstance(ref.get("profile_sha256"), str) or
+            len(ref["profile_sha256"]) != 64
+        ):
+            raise EmbeddedSessionError("Invalid stored tool reference: " + key)
     return payload
 
 
