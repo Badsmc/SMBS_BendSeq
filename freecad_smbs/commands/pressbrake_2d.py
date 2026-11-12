@@ -541,7 +541,7 @@ def show_workspace_controls(workspace, tab=None):
     import FreeCADGui as Gui
     QtCore, _QtGui, QtWidgets = _qt()
     from freecad_smbs.ui.pressbrake_theme import (
-        TASK_QSS, OUTER_MARGIN, SECTION_GAP,
+        OUTER_MARGIN, SECTION_GAP,
     )
     if tab is not None:
         if 0 <= int(tab) < workspace._task_stack.count():
@@ -567,10 +567,10 @@ def show_workspace_controls(workspace, tab=None):
         QtWidgets.QDockWidget.DockWidgetMovable
     )  # Do not allow a floating window for the main Task Panel.
     dock.setAttribute(QtCore.Qt.WA_DeleteOnClose, False)
-    dock.setMinimumWidth(300)
+    dock.setMinimumWidth(265)
     form = QtWidgets.QWidget(dock)
     form.setObjectName("SMBS_TaskDockRoot")
-    form.setStyleSheet(TASK_QSS)
+    # No local stylesheet: inherit FreeCAD's native dark/light QStyle.
     layout = QtWidgets.QVBoxLayout(form)
     layout.setContentsMargins(0, 0, 0, 0)
     layout.setSpacing(0)
@@ -578,7 +578,10 @@ def show_workspace_controls(workspace, tab=None):
     header = QtWidgets.QLabel(form)
     header.setObjectName("SMBS_TaskSectionTitle")
     header.setText(caption)
-    header.setContentsMargins(12, 9, 12, 8)
+    header.setContentsMargins(8, 5, 8, 5)
+    native_font = header.font()
+    native_font.setBold(True)
+    header.setFont(native_font)
     workspace._task_section_label = header
     layout.addWidget(header, 0)
     layout.addWidget(workspace._task_stack, 1)
@@ -587,7 +590,7 @@ def show_workspace_controls(workspace, tab=None):
     footer.setObjectName("SMBS_TaskFooter")
     footer_layout = QtWidgets.QVBoxLayout(footer)
     footer_layout.setContentsMargins(
-        OUTER_MARGIN, 12, OUTER_MARGIN, 12
+        OUTER_MARGIN, 5, OUTER_MARGIN, 5
     )
     footer_layout.setSpacing(SECTION_GAP // 2)
     state_row = QtWidgets.QHBoxLayout()
@@ -598,12 +601,12 @@ def show_workspace_controls(workspace, tab=None):
     footer_layout.addWidget(workspace.task_progress)
     workspace.status.setObjectName("SMBS_StatusLabel")
     workspace.status.setWordWrap(True)
-    workspace.status.setMaximumHeight(52)
+    workspace.status.setMaximumHeight(38)
     footer_layout.addWidget(workspace.status)
     layout.addWidget(footer)
     dock.setWidget(form)
     main.addDockWidget(QtCore.Qt.LeftDockWidgetArea, dock)
-    dock.resize(410, dock.height())
+    dock.resize(330, dock.height())
     workspace._on_task_status_change(workspace.status.text())
     dock.visibilityChanged.connect(
         lambda visible: workspace.show_task_panel_btn.setVisible(not visible)
@@ -967,6 +970,17 @@ def _button(widgets, label, callback, enabled=True):
     return btn
 
 
+def _playback_button(QtCore, widgets, label, callback, enabled=True):
+    """FreeCAD-style compact toolbar control; keep existing signal handlers."""
+    btn = widgets.QToolButton()
+    btn.setAutoRaise(True)
+    btn.setToolButtonStyle(QtCore.Qt.ToolButtonTextOnly)
+    btn.setText(label)
+    btn.setEnabled(enabled)
+    btn.clicked.connect(callback)
+    return btn
+
+
 class _PreviewPanel:
     """Lazy Qt widget factory to keep headless command import possible."""
 
@@ -1157,16 +1171,8 @@ class _PreviewPanel:
                 self.timer.timeout.connect(self.advance)
                 self.setMinimumWidth(0)
                 self.setObjectName("SMBS_ViewerRoot")
-                self.setStyleSheet(
-                    "QWidget#SMBS_ViewerRoot { background: palette(window); }"
-                    "QTabWidget#SMBS_ViewerTabs::pane {"
-                    " border: 1px solid palette(midlight);"
-                    " border-radius: 9px; }"
-                    "QTabWidget#SMBS_ViewerTabs QTabBar::tab {"
-                    " padding: 9px 14px; min-height: 27px; }"
-                    "QTabWidget#SMBS_ViewerTabs QTabBar::tab:selected {"
-                    " border-bottom: 2px solid #48A99C; }"
-                )
+                # The host FreeCAD style paints the viewport and viewer tabs.
+                # No colored borders, background fills or pseudo-native QSS.
 
                 from freecad_smbs.ui.pressbrake_theme import (
                     OUTER_MARGIN, SECTION_GAP,
@@ -1178,7 +1184,10 @@ class _PreviewPanel:
                 )
                 root.setSpacing(SECTION_GAP)
                 title = QtWidgets.QLabel("PressBrakeSim 2.5D")
-                title.setStyleSheet("font-weight: 600; font-size: 14px;")
+                # Keep its layout slot (used by the original 11-item
+                # reparenting contract), but the MDI title already names
+                # the simulator. A second large heading wastes CAD space.
+                title.hide()
                 root.addWidget(title)
 
                 self.status = TaskStatusLabel(
@@ -1272,8 +1281,7 @@ class _PreviewPanel:
 
                 self.tooling_status = QtWidgets.QLabel(self.tooling_setup.status_line())
                 self.tooling_status.setWordWrap(True)
-                self.tooling_status.setStyleSheet("font-size: 11px; color: palette(window-text);")
-                t_layout.addWidget(self.tooling_status)
+                 t_layout.addWidget(self.tooling_status)
                 # Explicit, on-demand physical check: no expensive BRep
                 # booleans in the 25–40 Hz drawing/timer path.
                 self.physical_check_btn = _button(
@@ -1347,10 +1355,7 @@ class _PreviewPanel:
                 self.loading_orientation_status.setWordWrap(True)
                 self.cycle_phase_label.setWordWrap(True)
                 self.ram_position_label.setWordWrap(True)
-                self.loading_orientation_status.setStyleSheet(
-                    "font-size: 11px; color: #815a2a;"
-                )
-                pc_layout.addWidget(self.loading_orientation_status)
+                 pc_layout.addWidget(self.loading_orientation_status)
                 root.addWidget(self.press_cycle_group)
 
                 self._auto_select_default_tooling()
@@ -1366,20 +1371,20 @@ class _PreviewPanel:
                 row.setVerticalSpacing(3)
                 # One playback button owns Play, Pause and Resume, with step
                 # navigation immediately on either side.
-                self.reset_btn = _button(QtWidgets, "Reset", self.reset, False)
-                self.prev_step_btn = _button(QtWidgets, "|<<", self.previous_step, False)
-                self.play_btn = _button(
-                    QtWidgets, "Play", self._toggle_play_pause, False
+                self.reset_btn = _playback_button(QtCore, QtWidgets, "Reset", self.reset, False)
+                self.prev_step_btn = _playback_button(QtCore, QtWidgets, "|<<", self.previous_step, False)
+                self.play_btn = _playback_button(
+                    QtCore, QtWidgets, "Play", self._toggle_play_pause, False
                 )
                 self.play_btn.setToolTip("Play / Pause / Resume для выбранного режима")
-                self.next_step_btn = _button(QtWidgets, ">>|", self.next_step, False)
-                self.fit_btn = _button(QtWidgets, "Fit", self.fit, True)
+                self.next_step_btn = _playback_button(QtCore, QtWidgets, ">>|", self.next_step, False)
+                self.fit_btn = _playback_button(QtCore, QtWidgets, "Fit", self.fit, True)
                 buttons = (
                     self.reset_btn, self.prev_step_btn, self.play_btn,
                     self.next_step_btn, self.fit_btn,
                 )
                 captions = ("Reset", "|<<", "Play / Pause", ">>|", "Fit")
-                sizes = (48, 34, 90, 34, 38)
+                sizes = (48, 34, 64, 34, 36)
                 row.setColumnMinimumWidth(0, 0)
                 for col, (widget, caption, width) in enumerate(
                     zip(buttons, captions, sizes)
@@ -1388,7 +1393,7 @@ class _PreviewPanel:
                     # no duplicate Pause button. Text updates in the original
                     # _sync_playback_buttons() callback.
                     widget.setToolTip(caption)
-                    widget.setFixedSize(width, 34)
+                    widget.setFixedSize(width, 27)
                     row.addWidget(widget, 0, col)
                     row.setColumnStretch(col, 0)
                 root.addLayout(row)
@@ -1480,6 +1485,7 @@ class _PreviewPanel:
                 self.task_progress = QtWidgets.QProgressBar(self)
                 self.task_progress.setObjectName("SMBS_TaskProgress")
                 self.task_progress.setTextVisible(False)
+                self.task_progress.setFixedHeight(7)
                 self.task_progress.setRange(0, 100)
                 self.task_progress.setValue(0)
                 self._task_status_chip = QtWidgets.QLabel("Ready", self)
@@ -1487,10 +1493,15 @@ class _PreviewPanel:
                 self._task_status_chip.setProperty("state", "ready")
                 self._task_progress_caption = QtWidgets.QLabel("0%", self)
                 self._task_progress_caption.setObjectName("SMBS_SectionCaption")
+                status_font = self._task_status_chip.font()
+                status_font.setBold(True)
+                self._task_status_chip.setFont(status_font)
 
                 views = QtWidgets.QTabWidget(self)
                 views.setObjectName("SMBS_ViewerTabs")
                 views.setDocumentMode(True)
+                views.setIconSize(QtCore.QSize(16, 16))
+                views.tabBar().setExpanding(False)
                 views.addTab(self.view, QtGui.QIcon(str(
                     _ICON_ROOT / "gui_simulation.svg"
                 )), "2.5D · Гибка")
@@ -1560,7 +1571,7 @@ class _PreviewPanel:
                 part_page = QtWidgets.QWidget()
                 part_layout = QtWidgets.QVBoxLayout(part_page)
 
-                source_card, source_body = card("Источник / Деталь")
+                source_card, source_body = card("")
                 source_grid = QtWidgets.QGridLayout()
                 source_grid.setHorizontalSpacing(SECTION_GAP)
                 self._source_summary = QtWidgets.QLabel(
