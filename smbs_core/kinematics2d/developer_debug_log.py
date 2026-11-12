@@ -331,6 +331,28 @@ def summarize_native_trajectory(result):
                 "is_conditional_safe": getattr(
                     state, "is_conditional_safe", False
                 ),
+                "completed_angles": _jsonable(
+                    getattr(state, "completed_angles", None)
+                ),
+                "workpiece_transform": {
+                    "rotation": _jsonable(
+                        getattr(
+                            getattr(state, "workpiece_placement", None),
+                            "rotation", None,
+                        )
+                    ),
+                    "translation": _jsonable(
+                        getattr(
+                            getattr(state, "workpiece_placement", None),
+                            "translation", None,
+                        )
+                    ),
+                },
+                "punch_end_zone_analysis": (
+                    state.punch_end_zone_analysis.to_dict()
+                    if getattr(state, "punch_end_zone_analysis", None)
+                    is not None else None
+                ),
                 "collision_status": _jsonable(
                     getattr(collision, "status", None)
                 ),
