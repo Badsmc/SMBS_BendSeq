@@ -2800,6 +2800,7 @@ class _PreviewPanel:
 
             def _on_virtual_tool_length_toggled(self, enabled: bool):
                 self._manual_3d_verdicts.clear()
+                self._clear_manual_check_feedback()
                 bend_len = self._active_bend_length_mm()
                 if hasattr(self.tooling_setup, "set_match_active_bend_length"):
                     self.tooling_setup.set_match_active_bend_length(bool(enabled), bend_len)
@@ -2810,6 +2811,7 @@ class _PreviewPanel:
 
             def _on_end_zone_length_changed(self, val: float):
                 self._manual_3d_verdicts.clear()
+                self._clear_manual_check_feedback()
                 try:
                     fval = max(0.0, float(val))
                 except (TypeError, ValueError):
@@ -2819,6 +2821,7 @@ class _PreviewPanel:
 
             def _on_allow_end_zone_toggled(self, enabled: bool):
                 self._manual_3d_verdicts.clear()
+                self._clear_manual_check_feedback()
                 self.tooling_setup.allow_end_zone_collision = bool(enabled)
                 self._update_tooling_status_label()
 
@@ -4067,6 +4070,7 @@ class _PreviewPanel:
 
             def select_punch(self, punch: ToolProfile | None):
                 self._manual_3d_verdicts.clear()
+                self._clear_manual_check_feedback()
                 try:
                     self.tooling_setup.select_punch(punch)
                 except ToolingError as exc:
@@ -4092,6 +4096,7 @@ class _PreviewPanel:
 
             def select_die(self, die: ToolProfile | None):
                 self._manual_3d_verdicts.clear()
+                self._clear_manual_check_feedback()
                 try:
                     self.tooling_setup.select_die(die)
                 except ToolingError as exc:
@@ -4451,6 +4456,7 @@ class _PreviewPanel:
                 self.last_planar_search_report = None
                 self._last_manual_sequence_report = None
                 self._manual_3d_verdicts.clear()
+                self._clear_manual_check_feedback()
                 self._preview_only_planar_order = None
                 self._partial_preview_limit = 0
                 self._selected_planar_gauge_order = ()
@@ -4709,6 +4715,8 @@ class _PreviewPanel:
                 self.last_sequence_search_report = None
                 self.last_planar_search_report = None
                 self._last_manual_sequence_report = None
+                self._manual_3d_verdicts.clear()
+                self._clear_manual_check_feedback()
                 self._physical_check_signature = None
                 self._conditional_bends_status.clear()
                 self._embedded_diagnostics_history = payload["diagnostics"]
@@ -4822,6 +4830,22 @@ class _PreviewPanel:
                     "ИСТОРИЯ SMBS ИЗ FCStd: проверки НЕ ПОДТВЕРЖДЕНЫ "
                     "для новой сессии. Нужна повторная проверка."
                 )
+                historic_manual = payload["diagnostics"].get("manual")
+                if isinstance(historic_manual, dict):
+                    historic_3d = historic_manual.get("manual_3d_validation")
+                    historic_steps = (
+                        historic_3d.get("steps", ())
+                        if isinstance(historic_3d, dict) else ()
+                    )
+                    self._show_manual_check_feedback(
+                        "HISTORICAL / UNVERIFIED",
+                        "В FCStd сохранён прошлый результат {}. "
+                        "Для текущего сеанса нажмите «Проверить» заново."
+                        .format(historic_manual.get("status", "UNVERIFIED")),
+                        historic_steps,
+                    )
+                else:
+                    self._clear_manual_check_feedback()
                 note = (
                     "Восстановлены порядок и настройки из FCStd. "
                     "Проверки: ИСТОРИЧЕСКИЕ, UNVERIFIED."
@@ -4878,6 +4902,7 @@ class _PreviewPanel:
                     control.setEnabled(False)
                 self._set_task_busy(True)
                 self._manual_3d_verdicts.clear()
+                self._clear_manual_check_feedback()
                 self._last_manual_sequence_report = None
                 self.status.setText(
                     "Проверка выбранной оснастки и ручного порядка: {}/{} гибов..."
@@ -4885,7 +4910,6 @@ class _PreviewPanel:
                 )
                 QtWidgets.QApplication.processEvents()
                 try:
-                    import json
                     from smbs_core.kinematics2d.manual_sequence_replay import (
                         evaluate_manual_planar_order,
                     )
@@ -4966,13 +4990,19 @@ class _PreviewPanel:
                         "Предварительный 2D: {}. Проверка реальных FCStd в 3D..."
                         .format(planar["status"])
                     )
+                    self.manual_check_summary.setText(
+                        "2D: {}. Идёт независимая 3D-проверка..."
+                        .format(planar["status"])
+                    )
                     QtWidgets.QApplication.processEvents()
 
                     def on_progress(step_no, count, bend_id):
-                        self.status.setText(
-                            "Ручная 3D-проверка: гиб {}/{} ({}) — реальный "
-                            "пуансон + матрица".format(step_no, count, bend_id)
+                        label = (
+                            "Ручная 3D-проверка: гиб {}/{} ({}) — "
+                            "пуансон и матрица".format(step_no, count, bend_id)
                         )
+                        self.status.setText(label)
+                        self.manual_check_summary.setText(label)
                         QtWidgets.QApplication.processEvents()
 
                     physical = check_manual_3d_sequence(
@@ -4981,9 +5011,12 @@ class _PreviewPanel:
                         allow_end_zone_collision=allow_end_zone,
                         end_zone_length_mm=end_zone_mm,
                         progress_callback=on_progress,
-                        reverse_axis_by_bend=(
-                            self._effective_loading_orientation_map()
-                        ),
+                        # Manual 3D checks assume the actual operator's
+                        # unflipped machine setup. The rear-gauge ergonomic
+                        # preview may infer a reversal that was NEVER selected
+                        # or CAD verified; do not inject that suggestion into
+                        # native collision validation.
+                        reverse_axis_by_bend={},
                     )
                     for step in physical["steps"]:
                         self._manual_3d_verdicts[step["bend_id"]] = (
@@ -5093,24 +5126,28 @@ class _PreviewPanel:
                         virtual_length=match_length,
                         end_zone_conditional=allow_end_zone,
                     )
-                    suggested = str(
-                        Path.home() / "smbs_manual_sequence_diagnostics.json"
+                    self._show_manual_check_feedback(
+                        physical_status, summary, physical["steps"],
                     )
-                    target, _ = QtWidgets.QFileDialog.getSaveFileName(
-                        self, "Сохранить проверку ручного порядка",
-                        suggested, "JSON (*.json)",
-                    )
-                    if target:
-                        Path(target).write_text(
-                            json.dumps(
-                                result, ensure_ascii=False, indent=2,
-                                default=str,
-                            ), encoding="utf-8",
+                    try:
+                        saved_note = self._persist_manual_check_to_fcstd()
+                    except Exception as storage_exc:
+                        saved_note = (
+                            "НЕ СОХРАНЕНО В FCStd: " + str(storage_exc)
                         )
-                        self.status.setText("JSON: {} | {}".format(
-                            target, summary,
-                        ))
+                        _error(
+                            "Manual 3D report could not be embedded: "
+                            + traceback.format_exc()
+                        )
+                    self.manual_check_summary.setText(
+                        "{}\n{}".format(summary, saved_note)
+                    )
+                    self.status.setText(saved_note)
                 except Exception as exc:
+                    self._show_manual_check_feedback(
+                        "UNVERIFIED",
+                        "Ошибка проверки ручного порядка: " + str(exc),
+                    )
                     self.physical_check_result.setText(
                         "UNVERIFIED: ошибка проверки ручного порядка: "
                         + str(exc)
@@ -5156,6 +5193,7 @@ class _PreviewPanel:
                 self.last_sequence_search_report = None
                 self._last_manual_sequence_report = None
                 self._manual_3d_verdicts.clear()
+                self._clear_manual_check_feedback()
                 self._physical_check_signature = None
                 self._machine_pose_fault = None
                 self._highlighted_end_zone_info = None
@@ -5275,6 +5313,7 @@ class _PreviewPanel:
                 if self.session is None:
                     return
                 self._manual_3d_verdicts.clear()
+                self._clear_manual_check_feedback()
                 prefix = tuple(self._manual_sequence_prefix)
                 remainder = tuple(
                     bend_id for bend_id in self.session.canonical_order
@@ -5419,6 +5458,7 @@ class _PreviewPanel:
                 if self.session is None:
                     return
                 self._manual_3d_verdicts.clear()
+                self._clear_manual_check_feedback()
                 try:
                     action_fn()
                 except SequenceError as exc:
