@@ -60,10 +60,21 @@ class ToolingPanel:
                     self._load_library()
 
                 def _init_ui(self) -> None:
+                    from freecad_smbs.ui.pressbrake_theme import (
+                        OUTER_MARGIN, SECTION_PADDING,
+                        SECTION_GAP, style_action,
+                    )
                     layout = QtWidgets.QVBoxLayout(self)
+                    layout.setContentsMargins(
+                        OUTER_MARGIN, OUTER_MARGIN,
+                        OUTER_MARGIN, OUTER_MARGIN,
+                    )
+                    layout.setSpacing(SECTION_GAP)
 
                     # 5-tab widget (Punches, Dies, Machine Frame, Backgauge, Clamps)
                     self.tabs = QtWidgets.QTabWidget()
+                    self.tabs.tabBar().setUsesScrollButtons(True)
+                    self.tabs.setIconSize(QtCore.QSize(17, 17))
                     self.tabs.addTab(self._build_punch_tab(), "Пуансоны (0)")
                     self.tabs.addTab(self._build_die_tab(), "Матрицы (0)")
                     self.tabs.addTab(self._build_machine_frame_tab(), LIBRARY_TAB_TITLES[2])
@@ -73,8 +84,18 @@ class ToolingPanel:
                     layout.addWidget(self.tabs)
 
                     # Selected item details group box
-                    self.info_group = QtWidgets.QGroupBox("Сведения об инструменте")
+                    self.info_group = QtWidgets.QFrame()
+                    self.info_group.setObjectName("SMBS_SectionCard")
                     info_layout = QtWidgets.QVBoxLayout(self.info_group)
+                    info_layout.setContentsMargins(
+                        SECTION_PADDING, SECTION_PADDING,
+                        SECTION_PADDING, SECTION_PADDING
+                    )
+                    info_layout.setSpacing(SECTION_GAP)
+                    heading = QtWidgets.QLabel("Сведения об инструменте")
+                    heading.setObjectName("SMBS_SectionTitle")
+                    heading.setAlignment(QtCore.Qt.AlignLeft)
+                    info_layout.addWidget(heading)
                     self.lbl_selected_id = QtWidgets.QLabel("Выбрано: нет")
                     self.lbl_selected_meta = QtWidgets.QLabel("Метаданные: —")
                     self.lbl_selected_meta.setWordWrap(True)
@@ -82,8 +103,11 @@ class ToolingPanel:
                     info_layout.addWidget(self.lbl_selected_meta)
                     layout.addWidget(self.info_group)
 
-                    # Action buttons for catalog tools
-                    btn_layout = QtWidgets.QHBoxLayout()
+                    # Compact grid keeps library commands usable in the
+                    # narrow Task Panel without clipping or floating windows.
+                    btn_layout = QtWidgets.QGridLayout()
+                    btn_layout.setHorizontalSpacing(SECTION_GAP)
+                    btn_layout.setVerticalSpacing(SECTION_GAP)
                     btn_add = QtWidgets.QPushButton("Добавить инструмент...")
                     btn_add.clicked.connect(self._on_add_tool)
                     btn_remove = QtWidgets.QPushButton("Удалить")
@@ -93,23 +117,30 @@ class ToolingPanel:
                     btn_refresh = QtWidgets.QPushButton("Обновить")
                     btn_refresh.clicked.connect(self._on_refresh)
 
-                    btn_layout.addWidget(btn_add)
-                    btn_layout.addWidget(btn_remove)
-                    btn_layout.addWidget(btn_preview)
-                    btn_layout.addWidget(btn_refresh)
+                    for index, btn in enumerate((
+                        btn_add, btn_remove, btn_preview, btn_refresh,
+                    )):
+                        style_action(btn, primary=(index == 0))
+                        btn_layout.addWidget(btn, index // 2, index % 2)
+                    btn_layout.setColumnStretch(0, 1)
+                    btn_layout.setColumnStretch(1, 1)
                     layout.addLayout(btn_layout)
 
                     # Status bar label
                     self.status_label = QtWidgets.QLabel("Статус: Готово")
-                    self.status_label.setStyleSheet("color: gray;")
+                    self.status_label.setObjectName("SMBS_SectionCaption")
+                    self.status_label.setWordWrap(True)
                     layout.addWidget(self.status_label)
 
                 def _build_punch_tab(self) -> QtWidgets.QWidget:
                     widget = QtWidgets.QWidget()
                     vbox = QtWidgets.QVBoxLayout(widget)
+                    vbox.setContentsMargins(16, 16, 16, 16)
+                    vbox.setSpacing(16)
 
                     lbl_sections = QtWidgets.QLabel("Секции Q11: 10, 15, 20, 50, 100 мм (автоподбор в pipeline)")
-                    lbl_sections.setStyleSheet("color: #555; font-style: italic;")
+                    lbl_sections.setObjectName("SMBS_SectionCaption")
+                    lbl_sections.setWordWrap(True)
                     vbox.addWidget(lbl_sections)
 
                     self.punch_list = QtWidgets.QListWidget()
@@ -120,6 +151,8 @@ class ToolingPanel:
                 def _build_die_tab(self) -> QtWidgets.QWidget:
                     widget = QtWidgets.QWidget()
                     vbox = QtWidgets.QVBoxLayout(widget)
+                    vbox.setContentsMargins(16, 16, 16, 16)
+                    vbox.setSpacing(16)
 
                     self.die_list = QtWidgets.QListWidget()
                     self.die_list.itemSelectionChanged.connect(self._on_selection_changed)
@@ -129,6 +162,8 @@ class ToolingPanel:
                 def _build_machine_frame_tab(self) -> QtWidgets.QWidget:
                     widget = QtWidgets.QWidget()
                     vbox = QtWidgets.QVBoxLayout(widget)
+                    vbox.setContentsMargins(16, 16, 16, 16)
+                    vbox.setSpacing(16)
 
                     from freecad_smbs.resources.tooling_paths import resolve_machine_frame_fcstd
 
@@ -180,6 +215,8 @@ class ToolingPanel:
                 def _build_backgauge_tab(self) -> QtWidgets.QWidget:
                     widget = QtWidgets.QWidget()
                     vbox = QtWidgets.QVBoxLayout(widget)
+                    vbox.setContentsMargins(16, 16, 16, 16)
+                    vbox.setSpacing(16)
 
                     from freecad_smbs.ui.badges import BADGE_TOOLING_MISSING, get_badge_hex
                     from freecad_smbs.resources.tooling_paths import resolve_backgauge_fcstd
@@ -233,6 +270,8 @@ class ToolingPanel:
                 def _build_clamps_tab(self) -> QtWidgets.QWidget:
                     widget = QtWidgets.QWidget()
                     vbox = QtWidgets.QVBoxLayout(widget)
+                    vbox.setContentsMargins(16, 16, 16, 16)
+                    vbox.setSpacing(16)
 
                     from freecad_smbs.ui.badges import BADGE_TOOLING_MISSING, get_badge_hex
                     from freecad_smbs.resources.tooling_paths import resolve_clamp_fcstd
