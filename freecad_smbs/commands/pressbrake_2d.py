@@ -559,7 +559,7 @@ def show_workspace_controls(workspace, tab=None):
         return dock
 
     main = Gui.getMainWindow()
-    dock = QtWidgets.QDockWidget("PressBrakeSim — Task Panel", main)
+    dock = QtWidgets.QDockWidget("PressBrakeSim TaskPanel", main)
     dock.setObjectName(_CONTROLS_DOCK_NAME)
     dock.setAllowedAreas(QtCore.Qt.LeftDockWidgetArea | QtCore.Qt.RightDockWidgetArea)
     dock.setFeatures(
@@ -761,7 +761,7 @@ class PressBrake2DCommand:
             mdi.setActiveSubWindow(existing)
             existing.show()
             existing.raise_()
-            show_workspace_controls(existing.widget(), tab=0)
+            show_workspace_controls(existing.widget(), tab=2)
             return
 
         widget = _PreviewPanel()
@@ -774,7 +774,7 @@ class PressBrake2DCommand:
         window.resize(1000, 720)
         window.showMaximized()
         mdi.setActiveSubWindow(window)
-        show_workspace_controls(widget, tab=0)
+        show_workspace_controls(widget, tab=2)
         if doc is not None and selected:
             widget.load_part(selection=selected, document=doc)
         _log("Experimental PressBrakeSim GUI opened; original search engine retained")
@@ -895,7 +895,7 @@ class SequenceCatalogCommand:
 
 
 class ManualCommand:
-    """Start manual bend-line ordering on a loaded SheetMetal unfold."""
+    """Enable manual bend-line ordering only after SheetMetal loading."""
 
     def GetResources(self):
         return {
@@ -905,17 +905,14 @@ class ManualCommand:
         }
 
     def IsActive(self):
-        return True
+        workspace = get_workspace_widget()
+        return bool(workspace is not None and workspace.session is not None)
 
     def Activated(self):
         workspace = get_workspace_widget()
-        if workspace is None:
-            PressBrake2DCommand().Activated()
-            workspace = get_workspace_widget()
-        if workspace is not None:
-            show_workspace_controls(workspace, 4)
-            if workspace.session is not None:
-                workspace.activate_manual_mode()
+        if workspace is None or workspace.session is None:
+            return
+        workspace.activate_manual_mode()
 
 
 class SettingsCommand:
@@ -1365,8 +1362,8 @@ class _PreviewPanel:
                 root.addWidget(self.view, 1)
 
                 row = QtWidgets.QGridLayout()
-                row.setHorizontalSpacing(4)
-                row.setVerticalSpacing(6)
+                row.setHorizontalSpacing(3)
+                row.setVerticalSpacing(3)
                 # One playback button owns Play, Pause and Resume, with step
                 # navigation immediately on either side.
                 self.reset_btn = _button(QtWidgets, "Reset", self.reset, False)
@@ -1382,20 +1379,18 @@ class _PreviewPanel:
                     self.next_step_btn, self.fit_btn,
                 )
                 captions = ("Reset", "|<<", "Play / Pause", ">>|", "Fit")
-                for col, (widget, caption) in enumerate(zip(buttons, captions)):
-                    # A 400px Tasks dock cannot hold five icon+text buttons.
-                    # Keep actual connected QPushButtons, use icon surfaces
-                    # and concise captions underneath as in the design.
-                    if widget is not self.play_btn:
-                        widget.setText("")
+                sizes = (49, 35, 74, 35, 40)
+                row.setColumnMinimumWidth(0, 0)
+                for col, (widget, caption, width) in enumerate(
+                    zip(buttons, captions, sizes)
+                ):
+                    # Native compact controls: one row, no separate labels and
+                    # no duplicate Pause button. Text updates in the original
+                    # _sync_playback_buttons() callback.
                     widget.setToolTip(caption)
+                    widget.setFixedSize(width, 34)
                     row.addWidget(widget, 0, col)
-                    mini_label = QtWidgets.QLabel(caption)
-                    mini_label.setObjectName("SMBS_SectionCaption")
-                    mini_label.setAlignment(QtCore.Qt.AlignHCenter)
-                    mini_label.setWordWrap(True)
-                    row.addWidget(mini_label, 1, col)
-                    row.setColumnStretch(col, 1)
+                    row.setColumnStretch(col, 0)
                 root.addLayout(row)
 
                 self.slider = QtWidgets.QSlider(QtCore.Qt.Horizontal)
@@ -1594,57 +1589,24 @@ class _PreviewPanel:
                 part_layout.addStretch(1)
                 self._page_part = scroll_task_page(part_page, "SMBS_PartScroll")
 
-                sim_card, sim_body = card(
-                    "Режим симуляции и управление воспроизведением"
-                )
+                sim_card, sim_body = card("Симуляция")
                 for btn in (
                     self.reset_btn, self.prev_step_btn, self.next_step_btn,
                     self.fit_btn,
                 ):
                     style_action(btn, compact=True)
                 style_action(self.play_btn, primary=True)
-                for btn in (
-                    self.reset_btn, self.prev_step_btn, self.play_btn,
-                    self.next_step_btn, self.fit_btn,
-                ):
-                    btn.setFixedSize(40, 40)
-                # The dynamic Play/Pause/Resume caption is retained for
-                # accessibility; the SVG icon is the visible button content.
-                self.play_btn.setStyleSheet("font-size: 0px;")
-                insert(sim_body, entries[5])  # 5-column playback QGridLayout
+                insert(sim_body, entries[5])  # Reset / Prev / Play-Pause / Next / Fit
                 self.slider.setToolTip("Угол активного гиба")
                 insert(sim_body, entries[6])  # angle slider
                 sim_layout.addWidget(sim_card)
 
-                run_calc_row = QtWidgets.QHBoxLayout()
-                self.calculate.show()
-                style_action(self.calculate, primary=True)
-                self.calculate.setText("Запустить расчёт")
-                run_calc_row.addWidget(self.calculate)
-                run_calc_row.addStretch(1)
-                sim_layout.addLayout(run_calc_row)
-
-                sim_diag_card, sim_diag_body = card(
-                    "Результаты / Диагностика"
-                )
-                self._simulation_diagnostics_summary = QtWidgets.QLabel(
-                    "Unverified · физическая проверка ещё не выполнена"
-                )
-                self._simulation_diagnostics_summary.setObjectName(
-                    "SMBS_SectionCaption"
-                )
-                self._simulation_diagnostics_summary.setAlignment(
-                    QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter
-                )
-                self._simulation_diagnostics_summary.setWordWrap(True)
-                sim_diag_body.addWidget(self._simulation_diagnostics_summary)
-                self._on_physical_result_change(
-                    self.physical_check_result.text()
-                )
-                sim_layout.addWidget(sim_diag_card)
+                # Full search is initiated by the FreeCAD toolbar "Расчёт".
+                # Its enabled-state proxy remains a single hidden widget.
+                self.calculate.hide()
                 sim_layout.addStretch(1)
-                self._page_calculate = scroll_task_page(
-                    simulation, "SMBS_CalculateScroll"
+                self._page_simulation = scroll_task_page(
+                    simulation, "SMBS_SimulationScroll"
                 )
                 planar_page = QtWidgets.QWidget()
                 planar_layout = QtWidgets.QVBoxLayout(planar_page)
@@ -1656,13 +1618,9 @@ class _PreviewPanel:
                 )
                 planar_note.setWordWrap(True)
                 planar_body.addWidget(planar_note)
-                self.planar_calculate.show()
-                style_action(self.planar_calculate, primary=True)
-                self.planar_calculate.setText("Найти 2D варианты")
-                planar_run_row = QtWidgets.QHBoxLayout()
-                planar_run_row.addWidget(self.planar_calculate)
-                planar_run_row.addStretch(1)
-                planar_body.addLayout(planar_run_row)
+                # The native toolbar command runs the search; this section
+                # displays its description/results without a duplicate button.
+                self.planar_calculate.hide()
                 planar_layout.addWidget(planar_card)
                 planar_layout.addStretch(1)
                 self._page_planar = scroll_task_page(
@@ -1885,6 +1843,17 @@ class _PreviewPanel:
                 diagnostics_card, diagnostics_body = card(
                     "Результаты / Диагностика"
                 )
+                self._simulation_diagnostics_summary = QtWidgets.QLabel(
+                    "Unverified · физическая проверка ещё не выполнена"
+                )
+                self._simulation_diagnostics_summary.setObjectName(
+                    "SMBS_SectionCaption"
+                )
+                self._simulation_diagnostics_summary.setWordWrap(True)
+                diagnostics_body.addWidget(self._simulation_diagnostics_summary)
+                self._on_physical_result_change(
+                    self.physical_check_result.text()
+                )
                 style_action(gauge_settings_btn)
                 diagnostics_body.addWidget(gauge_settings_btn)
                 for check in (
@@ -1961,7 +1930,7 @@ class _PreviewPanel:
                 page_specs = (
                     ("Деталь", self._page_part),
                     ("Оснастка", self._page_tooling),
-                    ("Расчёт", self._page_calculate),
+                    ("Симуляция", self._page_simulation),
                     ("2D варианты", self._page_planar),
                     ("Manual", self._page_manual),
                     ("Настройки", self._page_settings),
