@@ -4796,6 +4796,13 @@ class _PreviewPanel:
                         )
                         return
 
+                    self._sync_tooling_to_active_bend()
+                    if not self.tooling_setup.aligned:
+                        self.physical_check_result.setText(
+                            "UNVERIFIED: выбранная оснастка не выровнена "
+                            "относительно текущей линии гиба."
+                        )
+                        return
                     match_length = bool(
                         self.tooling_setup.match_active_bend_length
                     )
@@ -4819,15 +4826,31 @@ class _PreviewPanel:
                     # 2D is only an advisory screening pass; its synthetic
                     # section can disagree with actual native FCStd 3D. Do
                     # not mark a bend physically blocked based on 2D alone.
-                    planar = evaluate_manual_planar_order(
-                        self.session,
-                        self.tooling_setup,
-                        selected,
-                        match_active_bend_length=match_length,
-                        allow_retract_warning=self.retract_warning_checkbox.isChecked(),
-                        weights=self._selected_operation_weights(),
-                        backgauge_model=None,
-                    )
+                    try:
+                        planar = evaluate_manual_planar_order(
+                            self.session,
+                            self.tooling_setup,
+                            selected,
+                            match_active_bend_length=match_length,
+                            allow_retract_warning=self.retract_warning_checkbox.isChecked(),
+                            weights=self._selected_operation_weights(),
+                            backgauge_model=None,
+                        )
+                    except Exception as planar_exc:
+                        # 2D diagnostics are advisory. Failure to build an
+                        # approximated section must not prevent independent
+                        # native 3D from checking the chosen tools.
+                        planar = {
+                            "schema_version": "smbs.manual_planar_replay.v1",
+                            "status": "UNVERIFIED_2D",
+                            "steps": [],
+                            "first_blocker": {
+                                "reason": "2d_exception:{}:{}".format(
+                                    type(planar_exc).__name__, planar_exc,
+                                ),
+                            },
+                            "plan_cost": None,
+                        }
                     self.status.setText(
                         "Предварительный 2D: {}. Проверка реальных FCStd в 3D..."
                         .format(planar["status"])
@@ -4847,6 +4870,9 @@ class _PreviewPanel:
                         allow_end_zone_collision=allow_end_zone,
                         end_zone_length_mm=end_zone_mm,
                         progress_callback=on_progress,
+                        reverse_axis_by_bend=(
+                            self._effective_loading_orientation_map()
+                        ),
                     )
                     for step in physical["steps"]:
                         self._manual_3d_verdicts[step["bend_id"]] = (
@@ -4868,9 +4894,25 @@ class _PreviewPanel:
                             == "SAMPLED_3D_CLEAR_NOT_CONTINUOUS"):
                         physical_status = "UNVERIFIED"
                         physical["reason"] += ";2d_3d_disagreement_requires_review"
-                    if (disagreement and physical_status == "CONDITIONAL"):
-                        physical_status = "UNVERIFIED"
-                        physical["reason"] += ";2d_3d_disagreement_requires_review"
+                    if disagreement and physical_status == "CONDITIONAL":
+                        # A certified native 3D END_ZONE_ONLY punch overlap
+                        # stays CONDITIONAL (never PASS). A conflicting die
+                        # interference cannot be waived by that exemption.
+                        flagged_die = any(
+                            str(finding[1]).upper() == "DIE"
+                            and str(finding[3]).upper() == "INTERFERENCE"
+                            for record in planar.get("steps", [])
+                            for finding in (
+                                (record.get("stage_b") or {})
+                                .get("diagnostic_findings", [])
+                            )
+                            if len(finding) >= 4
+                        )
+                        if flagged_die:
+                            physical_status = "UNVERIFIED"
+                            physical["reason"] += ";2d_die_interference_requires_review"
+                        else:
+                            physical["reason"] += ";2d_advisory_disagreement_conditional_only"
                     physical["status"] = physical_status
                     complete_steps = physical["checked_bends"]
                     result = dict(planar)
@@ -4921,8 +4963,9 @@ class _PreviewPanel:
                     self._last_manual_sequence_report = dict(result)
                     summary = (
                         "{}: проверено {}/{} гибов | "
-                        "{} | 2D={} | проверено только "
-                        "пуансон/матрица, не непрерывное движение"
+                        "{} | 2D={} | деталь/пуансон/матрица + "
+                        "пуансон/матрица: только выборочная 3D, "
+                        "не непрерывное движение"
                     ).format(
                         physical_status, complete_steps, len(selected),
                         physical["reason"], planar["status"],
