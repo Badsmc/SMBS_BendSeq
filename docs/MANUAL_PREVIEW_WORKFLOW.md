@@ -41,6 +41,17 @@ plays as the entire current order.
 - The manual slider invokes
   `PressCycleController.set_manual_preview_angle()`, which preserves
   the older park-at-upper behavior of `set_manual_angle()` for other clients.
+- **Sheet and punch now descend together:** the model computes one
+  `stroke_for_angle(abs(current_angle))`. The punch tip is positioned at
+  `contact_z - stroke`, and the active workpiece bend arc center is placed
+  at `BendZone.outer_radius_mm - stroke`. Both 2.5D and 3D consume the same
+  machine-space placement; the die is stationary.
+- A manual slider scrub is tracked explicitly by
+  `_manual_preview_active`. This prevents `Full Cycle / IDLE` from
+  returning the sheet to its flat support plane while the punch moves.
+  Reset, step navigation and automatic Full Cycle playback clear the flag.
+- In `Bend Only` the view uses the *same* shared support computation rather
+  than the old constant `BendZone.outer_radius_mm` that caused the bug.
 - In `Bend Only` automatic playback the GUI calls
   `preview_punch_at_current_angle()` after advancing the sequencer.
   The ram position is computed from the model's
