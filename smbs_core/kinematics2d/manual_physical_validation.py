@@ -122,6 +122,9 @@ def concise_3d_blocker(trajectory: Any) -> dict:
     return {
         "phase": name,
         "phase_status": phase_status,
+        "sampled_onset_bracket": getattr(
+            problem, "first_collision_bracket", None,
+        ),
         "tool": tool,
         "punch_overlap_mm3": round(punch_overlap, 6),
         "die_overlap_mm3": round(die_overlap, 6),
@@ -534,6 +537,52 @@ def check_manual_3d_sequence(
                 complete_d6 = {
                     "log_serialization_error": str(serialize_exc),
                 }
+            blocker = concise_3d_blocker(report.raw_report)
+            attribution = None
+            state_hit = getattr(
+                report.raw_report, "first_collision_state", None,
+            )
+            if (report.status is PhysicalEvidence.COLLISION
+                    and state_hit is not None
+                    and blocker.get("tool") in (
+                        "PUNCH", "DIE", "PUNCH_AND_DIE"
+                    )):
+                try:
+                    from .native_collision_attribution import (
+                        attribute_native_collision,
+                    )
+                    attribution = attribute_native_collision(
+                        pseudo_session, state_hit,
+                        punch_source=p_path, die_source=d_path,
+                        virtual_length=virtual,
+                        bend_length_mm=dist(
+                            *independent.bends[bend_id].axis_xyz
+                        ),
+                        tooling=tooling,
+                        segments=int(
+                            getattr(config, "arc_segments", 128)
+                        ),
+                        max_time_s=30.0,
+                    )
+                except Exception as diagnostic_exc:
+                    attribution = {
+                        "status": "UNVERIFIED",
+                        "hits": [], "errors": [
+                            "{}:{}".format(
+                                type(diagnostic_exc).__name__, diagnostic_exc
+                            )
+                        ],
+                        "complete": False,
+                    }
+                debug_event(
+                    "MANUAL_NATIVE_COMPONENT_ATTRIBUTION",
+                    bend_id=bend_id,
+                    phase=blocker.get("phase"),
+                    sampled_bracket=blocker.get("sampled_onset_bracket"),
+                    attribution=attribution,
+                )
+            if attribution is not None:
+                blocker["component_attribution"] = attribution
             debug_event(
                 "MANUAL_NATIVE_BEND_TRAJECTORY",
                 bend_id=bend_id,
@@ -541,7 +590,7 @@ def check_manual_3d_sequence(
                 reason=report.reason,
                 native_status=report.native_status,
                 tool_length_info=report.tool_length_info,
-                first_blocker=concise_3d_blocker(report.raw_report),
+                first_blocker=blocker,
                 native_d6_samples=complete_d6,
             )
             status = report.status
@@ -584,8 +633,7 @@ def check_manual_3d_sequence(
                 "punch_die_pair": tool_pair,
                 "retract": retract,
                 "first_blocker": (
-                    concise_3d_blocker(report.raw_report)
-                    if status in (
+                    blocker if status in (
                         PhysicalEvidence.COLLISION,
                         PhysicalEvidence.UNVERIFIED,
                     ) else None
