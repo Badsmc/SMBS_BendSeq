@@ -238,21 +238,48 @@ class ManualToolingTests(unittest.TestCase):
         self.assertEqual(report["status"], "UNVERIFIED")
         self.assertEqual(report["checked_bends"], 1)
 
-    def test_reverse_loaded_bend_is_not_falsely_certified(self):
+    def test_reverse_loaded_bend_is_natively_checked_with_exact_orientation(self):
+        seen = []
+
+        def fake(*args, **kwargs):
+            seen.append(kwargs["reverse_axis"])
+            return evidence(PhysicalEvidence.SAMPLED_3D_CLEAR_NOT_CONTINUOUS)
+
+        with patch(
+            "smbs_core.kinematics2d.manual_physical_validation"
+            ".check_active_25d_bend_trajectory", side_effect=fake,
+        ) as check:
+            report = check_manual_3d_sequence(
+                self.session, self.tooling, ("B01", "B02"),
+                reverse_axis_by_bend={"B01": True, "B02": False},
+            )
+        self.assertEqual(report["status"], "SAMPLED_3D_CLEAR_NOT_CONTINUOUS")
+        self.assertEqual(seen, [True, False])
+        self.assertEqual(check.call_count, 2)
+        self.assertEqual(report["steps"][0]["loading_orientation"],
+                         "REVERSE_MACHINE_Z_180")
+        self.assertEqual(report["steps"][1]["loading_orientation"],
+                         "STANDARD_MACHINE_Z_0")
+        self.assertEqual(report["loading_orientation_by_bend"], {
+            "B01": True, "B02": False,
+        })
+        self.assertFalse(report["transfer_clamps_frame_checked"])
+        self.assertFalse(report["continuous_motion_certified"])
+
+    def test_reverse_bend_collision_still_blocks_the_plan(self):
         with patch(
             "smbs_core.kinematics2d.manual_physical_validation"
             ".check_active_25d_bend_trajectory",
-            return_value=evidence(
-                PhysicalEvidence.SAMPLED_3D_CLEAR_NOT_CONTINUOUS
-            ),
+            return_value=evidence(PhysicalEvidence.COLLISION),
         ) as check:
             report = check_manual_3d_sequence(
                 self.session, self.tooling, ("B01", "B02"),
                 reverse_axis_by_bend={"B01": True},
             )
-        self.assertEqual(report["status"], "UNVERIFIED")
-        self.assertIn("reverse_axis", report["reason"])
-        check.assert_not_called()
+        self.assertEqual(report["status"], "COLLISION")
+        self.assertEqual(report["checked_bends"], 1)
+        self.assertTrue(check.call_args.kwargs["reverse_axis"])
+        self.assertTrue(report["steps"][0]["reverse_axis"])
 
     def test_tool_pair_checker_uses_every_distinct_sample_and_actual_source(self):
         class NativeStatus(Enum):
