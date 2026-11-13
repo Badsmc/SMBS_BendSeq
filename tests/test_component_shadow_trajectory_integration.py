@@ -249,6 +249,34 @@ class ComponentShadowIntegrationTests(unittest.TestCase):
         self.assertEqual(stats.component_rebuild_calls, 0)
         self.assertEqual(stats.probes, 1)
 
+    def test_native_oracle_accepts_validity_proof_only_for_exact_same_object(self):
+        from smbs_core.kinematics2d import native_collision_3d as native
+        part = FakeShape()
+        punch = FakeShape()
+        die = FakeShape()
+        known = (part, (True, "valid"))
+        with (
+            patch.object(native, "check_pair_clearance", return_value=fake_report().punch_result) as pair,
+            patch.object(native, "check_solid_validity", return_value=(True, "valid")) as check,
+        ):
+            report = native.validate_workpiece_tooling_pose(
+                part, punch, die, _validated_workpiece_shape=known)
+            self.assertTrue(report.is_safe)
+            check.assert_not_called()
+            self.assertEqual(pair.call_count, 2)
+            self.assertIs(pair.call_args_list[0].kwargs["_shared_shape_a_check"], known)
+            self.assertIs(pair.call_args_list[1].kwargs["_shared_shape_a_check"], known)
+        other_part = FakeShape()
+        with (
+            patch.object(native, "check_pair_clearance", return_value=fake_report().punch_result) as pair,
+            patch.object(native, "check_solid_validity", return_value=(True, "valid")) as check,
+        ):
+            report = native.validate_workpiece_tooling_pose(
+                other_part, punch, die, _validated_workpiece_shape=known)
+            self.assertTrue(report.is_safe)
+            check.assert_called_once_with(other_part, "shape_a")
+            self.assertIs(pair.call_args_list[0].kwargs["_shared_shape_a_check"][0], other_part)
+
     def test_opt_in_reuses_exact_same_machine_sheet_at_new_ram(self):
         validator = fake_validator(probes=0)
         base = FakeShape()
