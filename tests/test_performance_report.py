@@ -13,6 +13,7 @@ from types import SimpleNamespace
 from smbs_core.kinematics2d.developer_debug_log import (
     summarize_native_trajectory,
 )
+from tools.run_native_benchmark import MANUAL_ORDER, selected_bend_prefix
 from smbs_core.kinematics2d.native_kernel_metrics import (
     count_native_kernel_calls, measured_common, measured_distance,
 )
@@ -123,6 +124,30 @@ def sample_journal():
 
 
 class PerformanceReportTests(unittest.TestCase):
+    def test_real_benchmark_prefix_selection_never_claims_full_order(self):
+        self.assertEqual(selected_bend_prefix(), MANUAL_ORDER)
+        self.assertEqual(selected_bend_prefix(1), ("B07",))
+        self.assertEqual(selected_bend_prefix(2), ("B07", "B03"))
+        self.assertEqual(selected_bend_prefix(10), MANUAL_ORDER)
+        for invalid in (0, 11, -1, 1.0, True, "1", None if False else []):
+            with self.subTest(invalid=invalid):
+                with self.assertRaises(ValueError):
+                    selected_bend_prefix(invalid)
+
+    def test_machine_pose_reuse_counts_from_native_d6_remain_distinct(self):
+        sample = sample_journal()
+        d6 = sample["events"][3]["data"]["native_d6_samples"]
+        d6["total_machine_pose_reuse_hits"] = 7
+        d6["total_machine_pose_reuse_misses"] = 5
+        report = analyze_journal(sample)
+        good = report["runs"][0]
+        self.assertEqual(
+            good["bends"][0]["native_d6"]["total_machine_pose_reuse_hits"], 7)
+        self.assertEqual(good["totals"]["total_machine_pose_reuse_hits"], 7)
+        self.assertEqual(good["totals"]["total_machine_pose_reuse_misses"], 5)
+        self.assertIsNone(
+            report["runs"][1]["totals"]["total_machine_pose_reuse_hits"])
+
     def test_two_runs_one_interrupted_and_honest_kernel_counts(self):
         report = analyze_journal(sample_journal(), source="SMBS_debug_log.json")
         self.assertEqual(report["run_count"], 2)
