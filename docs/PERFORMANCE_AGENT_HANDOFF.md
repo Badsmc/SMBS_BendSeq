@@ -338,3 +338,47 @@ These are implemented improvements to exact-geometry reuse, **not** a measured s
 - The JSON output `SMBS_component_blocker_replay_Mac.json` has **not yet been uploaded**; do not assert precise per-hit replayed numbers or file hashes without inspecting it. Native result is user-reported console evidence, not a blanket physical/safety qualification.
 - It took **8.386426 s** for one known-pose replay including setup; this does not accelerate or replace the 1712s full ten-bend trajectory. Never promise 1–3 minutes based on this result.
 - Next real engineering: test a **Conditional-aware collision-positive-only prefilter** in the actual search pipeline. Only if a sampled pose's native exact component intersection is physically in non-waivable region, and the complete Conditional policy is respected, may the search reject early. Positive punch contacts subject to end-zone relief cannot be auto-rejected. Zero hits and missing/partial evidence always defer to the full oracle. Keep a diff benchmark; do not add unused stub modules or claim speedup until measured on full native FreeCAD.
+
+## 2026-11-13 — Reject-only component integration into native D6
+
+- Parent: `40833eb3b4395d9052dbd8565e4aaa7b63550c28`, branch
+  `experiment/component-collision-oracle`. Implementation commit is the commit
+  introducing this section (recorded by Git history; no self-referential SHA).
+- Status **IMPLEMENTED / HEADLESS_TESTED / NOT_BENCHMARKED**. Native FreeCAD/OCC
+  was unavailable here. No new native runtime or speedup is claimed.
+- `component_collision_oracle.py`: bounded exact machine-frame reject filter,
+  validated input solids, reused Common for existing end-zone classification,
+  no component CLEAR. Missing/invalid/budget-exhausted evidence falls back.
+- `motion_trajectory_3d.py`: live pre-fuse hook, early proven blocker report,
+  bounded component cache reused on RETRACT, no partial clearance-cache entries.
+  Disabled by default; `SMBS_COMPONENT_REJECT=1` enables comparison, `=0`
+  restores independent full validation. Config and benchmark argument also added.
+- `native_bend_solid_3d.py`: documents deliberate pre-fuse rejection control flow;
+  normal full union unchanged. `manual_physical_validation.py` logs effective flag.
+- `tests/test_component_reject_filter.py` covers true punch/die blockers,
+  Conditional/unknown/tiny central overlap fallback, invalid geometry, OCC error,
+  candidate/time exhaustion, full-oracle fallback, cached RETRACT, cache clearing,
+  disabled mode and skipped full union on a positive proof.
+- Validation: `python -m unittest discover -s tests -q` **237 passed**;
+  `python -m compileall -q Init.py InitGui.py freecad_smbs smbs_core tools` passed;
+  `git diff --check` passed. CI includes the new integration tests:
+  https://github.com/Badsmc/SMBS_BendSeq/actions/workflows/gui-icon-contract.yml
+  CI result must be checked for the published commit; local tests are not native acceptance.
+- Scope: proposed sequences' real D6 checks, NOT a new 3D DFS. The separate 2D
+  search remains section-only. Future automatic candidate orchestration remains
+  an explicit follow-up after native acceptance of the reject filter.
+- Attached `SMBS_debug_log(20261113-201114).json` inspected read-only: two runs,
+  Windows **1047.1784 s** with **10 mm** end zones, Mac **1712.3593 s** with
+  **20 mm** end zones. Both have B08/B04/B06 CONDITIONAL and B02 COLLISION.
+  These different hosts/settings are NOT a matched speed comparison.
+- Mac original attribution: B02 RETRACT, u=0.15625, ram Z=-1.9313275824 mm;
+  P09 **500.9264231432807 mm³**, P11 **500.9264231432535 mm³**, B09
+  **2.7517602744230665 mm³**, 21 components, complete=true, errors=[].
+  These are original full-run attribution values, NOT independently inspected
+  replay results. `SMBS_component_blocker_replay_Mac.json` is still missing;
+  its source hashes, individual OCC timings and replayed volumes cannot be
+  verified from the uploaded journal. No new full run requested.
+- Next: inspect the existing replay JSON when available; then a matched native
+  acceptance comparison of enabled/disabled reject mode, retaining Conditional
+  cases, B02 blocker and input hashes. Inspect saved union/Common counts and
+  screen fallback reasons before deciding whether default enablement is justified.

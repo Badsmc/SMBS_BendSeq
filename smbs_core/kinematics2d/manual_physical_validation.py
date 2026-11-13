@@ -10,6 +10,8 @@ not continuous clearance, transfers, clamps, frame, or manufacturing safety.
 """
 from __future__ import annotations
 
+import os
+
 from math import dist, isfinite
 from pathlib import Path
 from time import perf_counter
@@ -496,6 +498,10 @@ def check_manual_3d_sequence(
         },
         conditional_end_zone_allowed=bool(allow_end_zone_collision),
         end_zone_length_mm=end_len,
+        component_reject_enabled=(os.environ.get(
+            "SMBS_COMPONENT_REJECT",
+            "1" if getattr(config, "component_reject_enabled", False) else "0"
+        ) == "1"),
         adaptive_config=(
             vars(config) if config is not None else None
         ),

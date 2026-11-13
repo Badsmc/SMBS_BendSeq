@@ -63,6 +63,7 @@ from smbs_core.kinematics2d.native_bend_solid_3d import (
 from smbs_core.kinematics2d.component_collision_oracle import (
     screen_machine_component_overlap, record_component_shadow_probe,
     record_component_shadow_rebuild,
+    prove_machine_component_blocker, ComponentBlockerFound,
 )
 from smbs_core.kinematics2d.native_geometry_build_metrics import measure_native_geometry_region
 from smbs_core.kinematics2d.native_collision_3d import (
@@ -167,6 +168,10 @@ class AdaptiveSamplingConfig:
     # extra OCC calls in ordinary native validation. For manual Windows
     # testing, set SMBS_COMPONENT_SHADOW_SAMPLES=2 before starting a check.
     component_shadow_samples_per_bend: int = 0
+    # Opt-in reject-only experiment; disabled for independent full validation.
+    component_reject_enabled: bool = False
+    component_reject_max_candidates: int = 12
+    component_reject_max_s: float = 2.0
 
 
 @dataclass
@@ -575,6 +580,7 @@ class AdaptiveTrajectoryValidator3D:
         # Explicit per-Manual-run exact-BRep reuse; never global. The
         # default independent validator retains its previous local caches.
         # Tool-dependent collision results remain strictly per-validator.
+        self._component_reject_cache = OrderedDict()
         self._sequence_geometry_cache = sequence_geometry_cache
         if sequence_geometry_cache is None:
             self._solid_cache: OrderedDict[Tuple[Any, ...], Any] = OrderedDict()
@@ -601,6 +607,7 @@ class AdaptiveTrajectoryValidator3D:
             self._panel_prism_cache.clear()
             self._zone_shape_cache.clear()
         self._panel_prism_cache_identity = None
+        self._component_reject_cache.clear()
         self._component_shadow_bending_seen = 0
         self._component_shadow_blocker_seen = 0
         self._die_clearance_cache.clear()
@@ -696,6 +703,7 @@ class AdaptiveTrajectoryValidator3D:
             )),
         )
         if panel_prism_identity != self._panel_prism_cache_identity:
+            self._component_reject_cache.clear()
             if self._sequence_geometry_cache is not None:
                 # A changed source must invalidate every cached BRep,
                 # never silently borrow an old model's "clear" geometry.
@@ -719,8 +727,13 @@ class AdaptiveTrajectoryValidator3D:
         )
         cls_ez_len = float(self.classify_end_zone_length_mm) if self.classify_end_zone_length_mm is not None else 0.0
 
+        reject_enabled = os.environ.get(
+            "SMBS_COMPONENT_REJECT", "1" if self.config.component_reject_enabled else "0"
+        ) == "1"
+
         # Exact complete pose cache key
         pose_cache_key = (
+            reject_enabled,
             self.config.arc_segments,
             active_bend_id,
             float(ram_z),
@@ -830,41 +843,110 @@ class AdaptiveTrajectoryValidator3D:
                 )
                 shadow_results = {"PUNCH": error}
 
+        def reject_component_blocker(components):
+            # Bound BRep retention separately from the joined-sheet cache.
+            self._component_reject_cache[solid_cache_key] = components
+            self._component_reject_cache.move_to_end(solid_cache_key)
+            while len(self._component_reject_cache) > 8:
+                self._component_reject_cache.popitem(last=False)
+            try:
+                matrix = App.Matrix(
+                    tf.rotation[0][0], tf.rotation[0][1], tf.rotation[0][2], tf.translation[0],
+                    tf.rotation[1][0], tf.rotation[1][1], tf.rotation[1][2], tf.translation[1],
+                    tf.rotation[2][0], tf.rotation[2][1], tf.rotation[2][2], tf.translation[2],
+                    0.0, 0.0, 0.0, 1.0,
+                )
+                screen = prove_machine_component_blocker(
+                    components.named_shapes(), tf, matrix,
+                    set_punch_ram_z(self.punch_base, ram_z).machine_shape,
+                    self.die.machine_shape,
+                    volume_tolerance_mm3=self.config.volume_tolerance_mm3,
+                    end_zone_policy=self.end_zone_policy,
+                    max_exact_candidates=self.config.component_reject_max_candidates,
+                    max_screen_s=self.config.component_reject_max_s,
+                )
+            except Exception:
+                # Errors in the optional path must preserve the full oracle.
+                return
+            self.actual_common_queries += screen.evidence["common_calls"]
+            self.pair_collision_checks += screen.evidence["common_calls"]
+            try:
+                from .developer_debug_log import debug_event
+                debug_event("NATIVE_COMPONENT_REJECT_SCREEN", bend_id=active_bend_id,
+                            phase=phase, path_u=path_u, **screen.evidence)
+            except Exception:
+                pass
+            if screen.report is not None:
+                raise ComponentBlockerFound(screen)
+
         component_observer = None
         bending_budget = (
             max(1, self._component_shadow_limit - 1)
             if self._component_shadow_limit > 0 else 0
         )
         if (
-            not in_solid_cache
+            not reject_enabled
+            and not in_solid_cache
             and phase == "BENDING"
             and self._component_shadow_bending_seen < bending_budget
         ):
             self._component_shadow_bending_seen += 1
             component_observer = run_component_shadow
 
-        solid_cache_hit = False
-        if in_solid_cache:
-            solid_cache_hit = True
-            self.solid_cache_hits += 1
-        else:
-            t_s0 = time.perf_counter()
-            solid = build_multi_bend_sheet_solid(
-                self.fold_state,
-                self.panel_build,
-                segments=self.config.arc_segments,
-                panel_prism_cache=self._panel_prism_cache,
-                zone_shape_cache=self._zone_shape_cache,
-                **({"component_observer": component_observer}
-                   if component_observer is not None else {}),
+        try:
+            if reject_enabled:
+                component_observer = reject_component_blocker
+                if in_solid_cache:
+                    components = self._component_reject_cache.get(solid_cache_key)
+                    if components is None:
+                        try:
+                            components = build_multi_bend_sheet_components(
+                                self.fold_state, self.panel_build, segments=self.config.arc_segments,
+                                panel_prism_cache=self._panel_prism_cache,
+                                zone_shape_cache=self._zone_shape_cache)
+                        except Exception:
+                            components = None
+                    if components is not None:
+                        reject_component_blocker(components)
+            solid_cache_hit = False
+            if in_solid_cache:
+                solid_cache_hit = True
+                self.solid_cache_hits += 1
+            else:
+                t_s0 = time.perf_counter()
+                solid = build_multi_bend_sheet_solid(
+                    self.fold_state,
+                    self.panel_build,
+                    segments=self.config.arc_segments,
+                    panel_prism_cache=self._panel_prism_cache,
+                    zone_shape_cache=self._zone_shape_cache,
+                    **({"component_observer": component_observer}
+                       if component_observer is not None else {}),
+                )
+                self.solid_reconstruction_time_ms += (time.perf_counter() - t_s0) * 1000.0
+                _bounded_full_sheet_cache_put(
+                    self._solid_cache, solid_cache_key, solid,
+                    self._max_cached_full_sheets,
+                )
+                self.total_solid_reconstructions += 1
+                self.solid_cache_misses += 1
+
+        except ComponentBlockerFound as blocked:
+            # Deliberately no full-sheet or pair-result cache entry: the volume
+            # is a subset proof, not a complete full-sheet clearance report.
+            report = blocked.screen.report
+            return MotionState3D(
+                phase=phase, active_bend_id=active_bend_id,
+                signed_angle_deg=signed_angle, path_u=path_u,
+                ram_z_mm=ram_z, support_plane_zm=support_z,
+                workpiece_placement=tf, completed_angles=dict(prior_angles),
+                collision_report=report, is_safe=False,
+                conditional_status="PENETRATION",
+                punch_end_zone_analysis=report.punch_end_zone_analysis,
+                solid_cache_hit=in_solid_cache,
+                punch_actual_eval_ms=report.punch_result.elapsed_ms,
+                die_actual_eval_ms=report.die_result.elapsed_ms,
             )
-            self.solid_reconstruction_time_ms += (time.perf_counter() - t_s0) * 1000.0
-            _bounded_full_sheet_cache_put(
-                self._solid_cache, solid_cache_key, solid,
-                self._max_cached_full_sheets,
-            )
-            self.total_solid_reconstructions += 1
-            self.solid_cache_misses += 1
 
         # Check die and punch clearance caches (strictly timed as pure dict lookups)
         die_cache_key = (
@@ -951,7 +1033,8 @@ class AdaptiveTrajectoryValidator3D:
             punch_shape = None
             die_shape = None
 
-        # Oracle evaluation: still the *only* authoritative sampled result.
+        # Full oracle remains mandatory whenever the optional component path
+        # has not proved a non-waivable blocker.
         col_res = validate_workpiece_tooling_pose(
             wp_machine,
             punch_shape,
@@ -973,7 +1056,8 @@ class AdaptiveTrajectoryValidator3D:
         # Rebuilding 21 isolated BReps costs extra in shadow mode, but it
         # allows proof/rejection study at the actual first blocking sample.
         if (
-            shadow_results is None
+            not reject_enabled
+            and shadow_results is None
             and self._component_shadow_limit >= 2
             and self._component_shadow_blocker_seen < 1
             and phase == "RETRACT"

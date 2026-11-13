@@ -166,3 +166,60 @@ fallbacks, proven central B09/P09/P11 punch overlaps and disagreements.
 Use measured evidence to determine the proven-reject gating and topology
 validation strategy. Do **not** turn `FALLBACK_REQUIRED` into `CLEAR`
 to meet a speed target.
+
+## Reject-only D6 integration (2026-11-13)
+
+Status: **IMPLEMENTED / HEADLESS_TESTED / NOT_BENCHMARKED**.
+The opt-in path now runs inside `AdaptiveTrajectoryValidator3D.create_state_snapshot`,
+not just a standalone replay. It is used by native checking of a proposed sequence.
+The section-only DFS in `sequence_search_2d.py` remains 2D; this change does not
+implement a new automatic 3D search or a candidate-ranking loop.
+
+Enable before starting native validation in the FreeCAD Python console:
+
+```python
+import os
+os.environ["SMBS_COMPONENT_REJECT"] = "1"
+os.environ["SMBS_COMPONENT_SHADOW_SAMPLES"] = "0"
+```
+
+Disable for the independent full oracle (also the default):
+
+```python
+os.environ["SMBS_COMPONENT_REJECT"] = "0"
+```
+
+The benchmark runner also accepts `run(component_reject_enabled=True)`.
+An explicitly set environment flag takes precedence. No new full run is needed
+merely to inspect the existing replay JSON. Future performance qualification
+requires matched native runs, with the same OS, source hashes and end-zone policy.
+
+Mechanism:
+
+- Transform all eight corners of each authoritative component AABB into the
+  exact machine frame. Only overlapping pairs reach exact OCC Common.
+- Validate all component and tool solids before accepting a positive subset
+  proof. Invalid input, uncertain Common and missing classification fall back.
+- Reuse the same Common for the existing punch-zone classifier. With end-zone
+  relief enabled, only central/mixed non-waivable volume above the unchanged
+  tolerance can reject; end-only hits continue screening and ultimately defer
+  to the full validator. No sum of potentially overlapping component volumes.
+- A proven collision exits before full union and full-sheet tool checks.
+  Unchecked other tooling is `MISSING_EVIDENCE`, never fabricated CLEAR.
+  The hit volume is ONE COMPONENT's volume, not the full intersection volume.
+- All nonproofs invoke the old full validator. Thus no component-only CLEAR,
+  no topology certification and no continuous-motion claim are introduced.
+- Reuse up to eight component sets for the same folded geometry at changing ram
+  positions (including RETRACT). Invalidate with source/config/tool caches.
+  Component proofs do not populate full-sheet or tool-clearance caches.
+- Default budgets: 12 candidate pairs and 2 seconds per screen, configurable
+  through `AdaptiveSamplingConfig`. A budget expiry abandons the shortcut;
+  it cannot cancel an OCC call already in flight. Shadow probes are suppressed
+  while reject mode is enabled to avoid duplicate diagnostic work.
+- `NATIVE_COMPONENT_REJECT_SCREEN` in the existing desktop JSON records counts,
+  elapsed time, fallback reason, component identity and overlap bbox/volume.
+  Original native kernel instrumentation counts the actual OCC calls.
+
+Native speedup is **not measured**. Extra screening may slow clear candidates;
+use measured fallback/hit rates before changing defaults. Final independent
+acceptance must use `SMBS_COMPONENT_REJECT=0`.

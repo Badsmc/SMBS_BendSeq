@@ -110,7 +110,8 @@ def run(*, part: str | Path = DEFAULT_PART,
         reverse_axis: bool = True,
         max_phase_time_s: float = 300.0,
         max_states_per_phase: int = 64,
-        component_shadow_samples_per_bend: int = 0) -> dict[str, Any]:
+        component_shadow_samples_per_bend: int = 0,
+        component_reject_enabled: bool = False) -> dict[str, Any]:
     """Run the real native oracle on the specified FCStd with exact tool IDs.
 
     Executed in FreeCAD's Python interpreter, not ordinary system Python.
@@ -166,6 +167,8 @@ def run(*, part: str | Path = DEFAULT_PART,
         max_phase_time_s=float(max_phase_time_s),
         max_evaluated_states_per_phase=int(max_states_per_phase),
         component_shadow_samples_per_bend=shadow_requested,
+        component_reject_enabled=(os.environ.get("SMBS_COMPONENT_REJECT",
+            "1" if component_reject_enabled else "0") == "1"),
     )
     record = _snapshot(part_path, punch_path, die_path, cfg)
     record["match_active_bend_length"] = bool(match_active_bend_length)
