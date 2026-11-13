@@ -4,12 +4,16 @@ from __future__ import annotations
 import hashlib
 import tempfile
 import unittest
+import sys
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 from smbs_core.kinematics2d.runtime_build_identity import (
     NATIVE_SOURCE_PATHS,
     RUNTIME_FINGERPRINT_SCHEMA,
     runtime_source_fingerprint,
+    loaded_native_module_sources,
 )
 
 
@@ -51,6 +55,20 @@ class InstalledSourceFingerprintTests(unittest.TestCase):
                              set(NATIVE_SOURCE_PATHS))
             self.assertTrue(all(v is None for v in
                                 result["installed_source_sha256"].values()))
+
+    def test_runtime_uses_actual_python_module_origin_not_mod_assumption(self):
+        name = "smbs_core.kinematics2d.native_collision_3d"
+        with patch.dict(sys.modules, {
+            name: SimpleNamespace(__file__=__file__),
+        }):
+            origins = loaded_native_module_sources()
+            self.assertEqual(
+                origins[name]["path"], str(Path(__file__).resolve())
+            )
+            self.assertEqual(
+                origins[name]["sha256"],
+                hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+            )
 
     def test_repo_files_resolve_to_fingerprint_without_freecad_or_git(self):
         root = Path(__file__).resolve().parents[1]
