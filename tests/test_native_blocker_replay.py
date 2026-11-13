@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import copy
+import tempfile
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
 
 from tools.replay_native_component_blocker import (
@@ -10,6 +12,10 @@ from tools.replay_native_component_blocker import (
     select_blocker_evidence,
     verify_source_bends,
     verify_sample_pose,
+    summarize_native_journal,
+    inspect_journal,
+    resolve_replay_sources,
+    _original_basename,
 )
 
 
@@ -134,6 +140,79 @@ class BlockerReplayContractTests(unittest.TestCase):
         recorded = fixture()["events"][1]["data"]["bends"]
         with self.assertRaisesRegex(BlockerReplayError, "source_bend_axis_missing"):
             verify_source_bends(bends, recorded)
+
+    def test_inspector_distinguishes_undated_mac_log_from_real_collision(self):
+        ref = fixture()
+        good = summarize_native_journal(ref, bend_id="B02")
+        self.assertTrue(good["has_finished_target_collision"])
+        self.assertEqual(good["finished_runs"], 1)
+        self.assertEqual(good["observed_bend_statuses"], ["COLLISION"])
+        mac = {"schema_version": ref["schema_version"], "events": [
+            event("SMBS_SESSION_STARTED", {}),
+            event("PART_LOAD_REQUEST", {"document_path": "/Users/example/part.FCStd"}),
+        ]}
+        bad = summarize_native_journal(mac, bend_id="B02")
+        self.assertFalse(bad["has_finished_target_collision"])
+        self.assertEqual(bad["finished_runs"], 0)
+        with self.assertRaisesRegex(BlockerReplayError, "finished_runs=0"):
+            select_blocker_evidence(mac, "B02")
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "local.json"
+            path.write_text(__import__("json").dumps(ref), encoding="utf-8")
+            result = inspect_journal(path, bend_id="B02")
+            self.assertTrue(result["has_finished_target_collision"])
+            self.assertEqual(result["file"], str(path))
+
+    def test_original_windows_basename_on_posix(self):
+        self.assertEqual(_original_basename(
+            r"C:\\Users\\User\\AppData\\Roaming\\punch.FCStd"
+        ), "punch.FCStd")
+        self.assertEqual(_original_basename(
+            "C:/Users/User/Desktop/demo/part.FCStd"
+        ), "part.FCStd")
+
+    def test_windows_log_explicit_part_maps_tool_names_on_mac(self):
+        evidence = select_blocker_evidence(fixture())
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            part = root / "part_same_geometry.FCStd"
+            part.write_bytes(b"PATH_FIXTURE_ONLY")
+            punch = root / "toollibrary" / "punch" / "punch.FCStd"
+            die = root / "toollibrary" / "die" / "die.FCStd"
+            for path in (punch, die):
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(b"PATH_FIXTURE_ONLY")
+            evidence["part_path"] = r"C:\\Users\\User\\Desktop\\demo\\part.FCStd"
+            evidence["punch_path"] = r"C:\\Users\\User\\toollibrary\\punch\\punch.FCStd"
+            evidence["die_path"] = r"C:\\Users\\User\\toollibrary\\die\\die.FCStd"
+            got = resolve_replay_sources(
+                evidence, part=part, source_root=root,
+            )
+            self.assertEqual(got["part"], part.resolve())
+            self.assertEqual(got["punch"], punch.resolve())
+            self.assertEqual(got["die"], die.resolve())
+            self.assertEqual(got["mapping"]["part"], "explicit_override")
+            self.assertEqual(got["mapping"]["punch"], "same_named_local_toollibrary_source")
+            self.assertEqual(
+                got["logged_windows_paths"]["part"], evidence["part_path"]
+            )
+
+    def test_reject_unrelated_tool_name_even_if_file_exists(self):
+        evidence = select_blocker_evidence(fixture())
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            part = root / "part.FCStd"
+            punch = root / "wrong_punch.FCStd"
+            die = root / "die.FCStd"
+            for item in (part, punch, die):
+                item.write_bytes(b"PATH_FIXTURE_ONLY")
+            evidence["punch_path"] = r"C:\\Mod\\toollibrary\\punch\\punch.FCStd"
+            evidence["die_path"] = r"C:\\Mod\\toollibrary\\die\\die.FCStd"
+            with self.assertRaisesRegex(BlockerReplayError, "punch_tool_id_mismatch"):
+                resolve_replay_sources(
+                    evidence, part=part, punch=punch, die=die,
+                    source_root=root,
+                )
 
     def test_placement_must_match_native_recomputation(self):
         pose = {
