@@ -48,6 +48,7 @@ from __future__ import annotations
 import copy
 import math
 import time
+from collections import OrderedDict
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
@@ -526,7 +527,10 @@ class AdaptiveTrajectoryValidator3D:
         self.actual_distance_queries: int = 0
         self.actual_common_queries: int = 0
         self.total_cache_lookup_ms: float = 0.0
-        self._solid_cache: Dict[Tuple[Any, ...], Any] = {}
+        # Keep expensive joined Part.Shapes available for reused poses
+        # without retaining an unbounded set of large OCC solids in RAM.
+        self._solid_cache: OrderedDict[Tuple[Any, ...], Any] = OrderedDict()
+        self._max_cached_full_sheets: int = 64
         # Cache only source, untransformed panel prisms during a single
         # validator lifetime. Never cache moved panels or assembled solids.
         self._panel_prism_cache: Dict[str, Any] = {}
@@ -709,6 +713,7 @@ class AdaptiveTrajectoryValidator3D:
         in_solid_cache = solid_cache_key in self._solid_cache
         if in_solid_cache:
             solid = self._solid_cache[solid_cache_key]
+            self._solid_cache.move_to_end(solid_cache_key)
         solid_lookup_ms = (time.perf_counter() - t_solid_lookup0) * 1000.0
 
         solid_cache_hit = False
@@ -726,6 +731,8 @@ class AdaptiveTrajectoryValidator3D:
             )
             self.solid_reconstruction_time_ms += (time.perf_counter() - t_s0) * 1000.0
             self._solid_cache[solid_cache_key] = solid
+            while len(self._solid_cache) > self._max_cached_full_sheets:
+                self._solid_cache.popitem(last=False)
             self.total_solid_reconstructions += 1
             self.solid_cache_misses += 1
 
