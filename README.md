@@ -1,3 +1,20 @@
+# SMBS BendSeq — performance development branch
+
+**Branch: development/performance-optimization** (2026-11-13). This is a performance-development workspace based on `fix/conditional-endzone-volume-tolerance`, **not** the release/installable `smbs` branch.
+
+**For contributors and AI agents, start here:**
+- [AGENTS.md](AGENTS.md) — binding safety and implementation rules.
+- [Optimization master plan](docs/PERFORMANCE_OPTIMIZATION_MASTER_PLAN.md) — architecture, order of changes, proof requirements.
+- [Live agent handoff](docs/PERFORMANCE_AGENT_HANDOFF.md) — implemented vs unverified and the exact next task.
+- [Benchmark protocol](docs/PERFORMANCE_BENCHMARK_PROTOCOL.md) — native FreeCAD cold/warm measurement.
+- [Ready-to-use Antigravity prompt](docs/PERFORMANCE_AGENT_START_PROMPT.md).
+
+Phase A1/A2 provide a read-only Desktop JSON performance analyzer and per-bend native kernel measurements. Headless CI passing does **not** mean the live FreeCAD baseline has been measured or the 10-bend sequence is safe. The following historical handmode README is retained only as a record of the earlier distribution; its branch/status statements are not authoritative for this optimization branch.
+
+---
+
+## Historical handmode distribution notes (not this branch's runtime contract)
+
 # SMBS Handmode — PressBrakeSim 2.5D for FreeCAD
 
 **Branch:** `handmode` — clean, installable workbench distribution.
