@@ -178,3 +178,44 @@ These are implemented improvements to exact-geometry reuse, **not** a measured s
 - Implemented Phase X0 deeper opt-in timing instrumentation only (no geometry, collision verdict or sampling change): `native_geometry_build_metrics.py` new categories `pair_geometry_sanity`, `machine_workpiece_copy`, `machine_workpiece_transform`, `native_punch_pose`; `native_collision_3d.py` logs BRep validity before pair filtering; `motion_trajectory_3d.py` logs machine transforms and punch movement. Commits `f0a13b9`, `84f2d2e`, `a97eb0f`.
 - Added headless pure-Python regression tests `tests/test_native_unaccounted_timing.py` (`7f797e7`), CI registration (`7a520c4`), [GitHub Actions SUCCESS](https://github.com/Badsmc/SMBS_BendSeq/actions/runs/43410478115).
 - **FreeCAD runtime measurement of X0: NOT RUN.** Next exact task: install this development HEAD, check source fingerprint, repeat same manual ten-bend reference with real selected FCStd, and inspect `PERF_NATIVE_BEND_KERNEL.geometry_build.elapsed_s` new categories to explain missing time. Only then implement non-production `COMPONENT_SCREEN` differential prototype and count AABB candidate parts / exact pair booleans. Retain old full native oracle as control; no release merge until matched physical results, including B02 RETRACT and Conditional.
+
+## 2026-11-13 — Experimental child branch X1 native exact component rejection
+
+- **Branch:** `experiment/component-occ-broadphase`, created from
+  `development/performance-optimization` at `7de4f51d`. The original
+  development baseline and public `main`/`smbs` branches are untouched.
+- **Goal/scope:** an opt-in **component-based exact OCC rejection oracle**
+  before native full-sheet `multiFuse`. NOT mesh-based clearance, not a
+  continuous-motion guarantee, not a default production change.
+- **Source:** `native_bend_solid_3d.py` separates exactly the existing
+  panel/zone construction from full-sheet union and strict qualification
+  (`2ff2949`). New `native_component_collision_3d.py` rejects only
+  positive native Common with verified relevant central/end-zone policy,
+  otherwise defers to full sheet (`5b53614`). `motion_trajectory_3d.py`
+  integrates it behind `AdaptiveSamplingConfig.component_collision_rejection`
+  (default False), reuses already built components on fallback and logs
+  `PERF_COMPONENT_BROADPHASE` to the existing Desktop journal (`62082f5`).
+  No changed physical tolerances; no UI/SheetMetal source changes.
+- **Benchmark:** `tools/run_native_benchmark.py` accepts explicit True/False
+  switch (`26376a0`), fingerprints original model/tools and writes distinct
+  output paths; operator examples and safety gates in
+  [COMPONENT_OCC_X1.md](COMPONENT_OCC_X1.md).
+- **Headless tests:** `test_native_component_collision.py` (`04508e2`)
+  tests definite punch/die hits, Conditional end-only fallback, central-zone
+  blockers, invalid tool/shape/Common, volume thresholds, joined exact
+  qualification; `test_native_component_integration.py` (`fa44f0c`)
+  verifies D6 early exit vs mandatory full-OCC fallback. CI workflow
+  explicitly runs both test files in branch
+  (`b3a8132` and `7cc7dcb`).
+- **GitHub Actions:** [SUCCESS at `7cc7dcb`](https://github.com/Badsmc/SMBS_BendSeq/actions/runs/43418657298),
+  native-module compilation and current Linux headless contracts. **Native
+  FreeCAD 1.1 and model-tool SHA-matched comparison NOT RUN; speedup:
+  NOT_MEASURED; correctness: HEADLESS_TESTED only.**
+- **Next:** on user's local machine run real Manual D6 in both modes with
+  source fingerprint, actual 10-bend model and AP1017/AT3015 tooling. Compare
+  10/10 physical statuses and B02 RETRACT first central blocker. In
+  particular evaluate whether the extra per-component Common checks are
+  profitable and whether strict joined-sheet operations are actually skipped
+  for proven hits. If the behavior differs, leave this flag OFF and fix or
+  revert. Do not claim 60–180 s until measured; do not merge to `main`/
+  `smbs` without live acceptance.
