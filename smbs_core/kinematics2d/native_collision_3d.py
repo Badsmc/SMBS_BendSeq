@@ -234,6 +234,7 @@ def _evaluate_common_volume(
     shape_b: Any,
     *,
     include_bbox: bool = False,
+    include_shape: bool = False,
 ):
     """Compute exact intersection volume between shape_a and shape_b.
 
@@ -243,6 +244,8 @@ def _evaluate_common_volume(
     negative volume, or kernel evaluation error so the caller can fail closed with
     INVALID_GEOMETRY rather than falsifying CLEAR or TOUCHING.
     """
+    if include_shape and not include_bbox:
+        raise ValueError("include_shape_requires_include_bbox")
     try:
         common_shape = measured_common(shape_a, shape_b, label="pair_common")
     except Exception as exc:
@@ -254,7 +257,9 @@ def _evaluate_common_volume(
     # In OCC, if intersection is completely empty, it may be a null shape or an empty compound
     if hasattr(common_shape, "isNull") and common_shape.isNull():
         # Valid empty intersection shape
-        return (0.0, None) if include_bbox else 0.0
+        return (
+            (0.0, None, common_shape) if include_shape else (0.0, None)
+        ) if include_bbox else 0.0
 
     if hasattr(common_shape, "isValid") and not common_shape.isValid():
         raise ValueError("KERNEL_COMMON_SHAPE_INVALID")
@@ -275,12 +280,19 @@ def _evaluate_common_volume(
 
     if not include_bbox:
         return vol
+
+    def with_bbox(value, bound):
+        # Kept exclusively inside this single clearance evaluation. Never
+        # store a potentially huge Part.Shape in persistent PairClearanceResult
+        # or the trajectory's multi-state cache.
+        return (value, bound, common_shape) if include_shape else (value, bound)
+
     # Capture the EXACT common-solid location for developer diagnostics at
     # zero extra Common/OCC booleans. If the kernel cannot provide its bbox,
     # preserve the collision verdict but explicitly expose no location.
     bb = getattr(common_shape, "BoundBox", None)
     if bb is None or vol <= 0.0:
-        return vol, None
+        return with_bbox(vol, None)
     try:
         coords = {
             "xmin": float(bb.XMin), "xmax": float(bb.XMax),
@@ -288,14 +300,14 @@ def _evaluate_common_volume(
             "zmin": float(bb.ZMin), "zmax": float(bb.ZMax),
         }
         if not all(math.isfinite(v) for v in coords.values()):
-            return vol, None
+            return with_bbox(vol, None)
         if (coords["xmin"] > coords["xmax"]
                 or coords["ymin"] > coords["ymax"]
                 or coords["zmin"] > coords["zmax"]):
-            return vol, None
+            return with_bbox(vol, None)
     except (AttributeError, TypeError, ValueError):
-        return vol, None
-    return vol, coords
+        return with_bbox(vol, None)
+    return with_bbox(vol, coords)
 
 
 def _compute_exact_distance_with_pruning(
@@ -391,6 +403,7 @@ def check_pair_clearance(
     volume_tolerance_mm3: float = 1e-4,
     contact_distance_tolerance_mm: float = 1e-4,
     tool_label: str = "",
+    classify_end_zone_length_mm: Optional[float] = None,
 ) -> PairClearanceResult:
     """Evaluate exact clearance and overlap volume between two native FreeCAD Part solids.
 
@@ -425,7 +438,12 @@ def check_pair_clearance(
     t_bp_ms = (time.perf_counter() - t_bp0) * 1000.0
 
     # Conservative AABB early reject:
-    if aabb_gap is not None and aabb_gap > max(5.0, near_tolerance_mm * 2.0):
+    # AABB distance is a mathematically conservative lower bound of the
+    # exact separation. If the gap exceeds BOTH thresholds, neither contact
+    # nor penetration is possible. The former arbitrary 5 mm margin made
+    # numerous proven-clear poses pay for a costly exact distance call.
+    if (aabb_gap is not None and aabb_gap >
+            max(0.0, near_tolerance_mm, contact_distance_tolerance_mm) + 1e-8):
         dt = (time.perf_counter() - t0) * 1000.0
         return PairClearanceResult(
             CollisionClass.CLEAR,
@@ -443,7 +461,29 @@ def check_pair_clearance(
             tool_label=tool_label,
         )
 
-    # 3. Narrow Phase: distToShape & Common volume
+    # 3. Narrow Phase: distToShape & Common volume.
+    # When selected punch end-zone classification is requested, consume
+    # the SAME OCC Common solid once, then discard it. Previously this path
+    # ran the expensive Common boolean twice at every penetrating pose.
+    def intersect_once_with_zone():
+        if classify_end_zone_length_mm is None or tool_label != "PUNCH":
+            volume, bound = _evaluate_common_volume(
+                shape_a, shape_b, include_bbox=True,
+            )
+            return volume, bound, None
+        volume, bound, common = _evaluate_common_volume(
+            shape_a, shape_b, include_bbox=True, include_shape=True,
+        )
+        analysis = (
+            classify_punch_overlap_zones(
+                shape_a, shape_b, classify_end_zone_length_mm,
+                volume_tolerance_mm3=volume_tolerance_mm3,
+                _precomputed_common=common,
+            )
+            if volume > volume_tolerance_mm3 else None
+        )
+        return volume, bound, analysis
+
     try:
         t_dist0 = time.perf_counter()
         dist = _compute_exact_distance_with_pruning(shape_a, shape_b, box_a, box_b)
@@ -493,8 +533,8 @@ def check_pair_clearance(
 
             # Potential enclosure: verify common volume explicitly.
             t_comm0 = time.perf_counter()
-            vol, overlap_bbox = _evaluate_common_volume(
-                shape_a, shape_b, include_bbox=True,
+            vol, overlap_bbox, ez_from_same_common = (
+                intersect_once_with_zone()
             )
             t_comm_ms = (time.perf_counter() - t_comm0) * 1000.0
             dt = (time.perf_counter() - t0) * 1000.0
@@ -513,6 +553,7 @@ def check_pair_clearance(
                     common_time_ms=t_comm_ms,
                     tool_label=tool_label,
                     overlap_bbox_xyz_mm=overlap_bbox,
+                    end_zone_analysis=ez_from_same_common,
                 )
             return PairClearanceResult(
                 CollisionClass.CLEAR,
@@ -530,8 +571,8 @@ def check_pair_clearance(
             )
 
         t_comm0 = time.perf_counter()
-        vol, overlap_bbox = _evaluate_common_volume(
-            shape_a, shape_b, include_bbox=True,
+        vol, overlap_bbox, ez_from_same_common = (
+            intersect_once_with_zone()
         )
         t_comm_ms = (time.perf_counter() - t_comm0) * 1000.0
         dt = (time.perf_counter() - t0) * 1000.0
@@ -551,6 +592,7 @@ def check_pair_clearance(
                 common_time_ms=t_comm_ms,
                 tool_label=tool_label,
                 overlap_bbox_xyz_mm=overlap_bbox,
+                end_zone_analysis=ez_from_same_common,
             )
 
         if dist <= contact_distance_tolerance_mm:
@@ -608,6 +650,7 @@ def classify_punch_overlap_zones(
     end_zone_length_mm: float,
     *,
     volume_tolerance_mm3: float = 1e-4,
+    _precomputed_common: Any = None,
 ) -> PunchEndZoneAnalysis:
     """Classify every positive-volume intersection solid between workpiece and punch against configured end-zones.
 
@@ -674,7 +717,15 @@ def classify_punch_overlap_zones(
     right_zone = (p_xmax - ez_len, p_xmax)
 
     try:
-        common_shape = measured_common(workpiece_machine_shape, punch_machine_shape, label="punch_end_zone_common")
+        # _precomputed_common is only passed from the SAME local native
+        # punch/part pair check. Standalone callers continue to run OCC.
+        common_shape = (
+            _precomputed_common if _precomputed_common is not None
+            else measured_common(
+                workpiece_machine_shape, punch_machine_shape,
+                label="punch_end_zone_common",
+            )
+        )
     except Exception as exc:
         return _unclassified(f"common_evaluation_failed:{exc}", p_span=(p_xmin, p_xmax), ez_len=ez_len)
 
@@ -905,6 +956,18 @@ def validate_workpiece_tooling_pose(
     punch_cache_hit = cached_punch_result is not None
     die_cache_hit = cached_die_result is not None
 
+    # Select the exact end-zone length BEFORE the first punch Common, so
+    # the zone classifier can reuse its native OCC result. The cache key in
+    # AdaptiveTrajectoryValidator3D already includes this policy and length.
+    punch_ez_len = None
+    if (end_zone_policy is not None and
+            (end_zone_policy.allow_end_zone_collision or
+             end_zone_policy.end_zone_length_mm != 0.0)):
+        punch_ez_len = end_zone_policy.end_zone_length_mm
+    elif (classify_end_zone_length_mm is not None
+          and classify_end_zone_length_mm != 0.0):
+        punch_ez_len = float(classify_end_zone_length_mm)
+
     if punch_cache_hit:
         punch_res = cached_punch_result
     else:
@@ -915,6 +978,7 @@ def validate_workpiece_tooling_pose(
             volume_tolerance_mm3=volume_tolerance_mm3,
             contact_distance_tolerance_mm=contact_distance_tolerance_mm,
             tool_label="PUNCH",
+            classify_end_zone_length_mm=punch_ez_len,
         )
 
     if die_cache_hit:
@@ -971,7 +1035,8 @@ def validate_workpiece_tooling_pose(
         cached_ez = getattr(punch_res, "end_zone_analysis", None)
         if (
             cached_ez is not None
-            and cached_ez.classification != PunchCollisionZoneClassification.UNCLASSIFIED
+            # A properly computed UNCLASSIFIED is authoritative missing
+            # evidence too; do not retry the same failing Common needlessly.
             and math.isclose(cached_ez.end_zone_length_mm, ez_len_to_use, abs_tol=1e-5)
         ):
             ez_analysis = cached_ez
