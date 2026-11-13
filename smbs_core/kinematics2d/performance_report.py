@@ -22,6 +22,7 @@ _TOP_METRICS = (
     "total_distance_queries", "total_common_queries",
     "total_pose_cache_hits", "total_punch_cache_hits",
     "total_die_cache_hits", "total_solid_cache_hits",
+    "total_machine_pose_reuse_hits", "total_machine_pose_reuse_misses",
 )
 _PHASE_METRICS = (
     "collision_queries", "solid_reconstructions",
