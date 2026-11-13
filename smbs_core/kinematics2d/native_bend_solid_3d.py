@@ -378,7 +378,8 @@ def build_multi_bend_sheet_components(state: FoldState, panel_build, *,
 
 def build_multi_bend_sheet_solid(state: FoldState, panel_build, *,
                                  segments=64, panel_prism_cache=None,
-                                 zone_shape_cache=None) -> NativeMultiBendSheet:
+                                 zone_shape_cache=None,
+                                 component_observer=None) -> NativeMultiBendSheet:
     """Attempt full-sheet solid from authoritative N-panel, M-bend SheetMetal faces.
 
     Uses all rigid panel faces from panel_build transformed by their FoldState
@@ -399,6 +400,14 @@ def build_multi_bend_sheet_solid(state: FoldState, panel_build, *,
     panel_solids = [shape for _, shape in components.panels]
     zone_solids = [shape for _, shape in components.zones]
     zone_volumes = components.zone_volume_mm3
+
+    # An optional experimental read-only observer sees the EXACT isolated
+    # BReps being passed to this native multiFuse; no second geometry build.
+    # The default and every non-experimental caller retain identical behavior.
+    # The caller must catch its own diagnostic errors so production geometry
+    # qualification is never affected by a failed shadow probe.
+    if component_observer is not None:
+        component_observer(components)
 
     try:
         # Join all panel and zone solids together via OCC multiFuse
