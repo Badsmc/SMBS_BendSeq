@@ -47,6 +47,7 @@ from __future__ import annotations
 
 import copy
 import math
+import os
 import time
 from collections import OrderedDict
 from dataclasses import dataclass, field
@@ -57,6 +58,9 @@ from smbs_core.kinematics2d.coupled_kinematics_2d import CoupledAirBendingKinema
 from smbs_core.kinematics2d.ram_cycle_geometry import ram_cycle_positions
 from smbs_core.kinematics2d.tooling_25d import DEFAULT_INITIAL_PUNCH_CLEARANCE_MM
 from smbs_core.kinematics2d.native_bend_solid_3d import build_multi_bend_sheet_solid
+from smbs_core.kinematics2d.component_collision_oracle import (
+    screen_machine_component_overlap, record_component_shadow_probe,
+)
 from smbs_core.kinematics2d.native_geometry_build_metrics import measure_native_geometry_region
 from smbs_core.kinematics2d.native_collision_3d import (
     CollisionClass,
@@ -156,6 +160,10 @@ class AdaptiveSamplingConfig:
     onset_refinement_max_samples: int = 6
     onset_refinement_max_s: float = 30.0
     onset_refinement_min_angle_deg: float = 1.0
+    # Experimental read-only component screen. Zero by default to avoid
+    # extra OCC calls in ordinary native validation. For manual Windows
+    # testing, set SMBS_COMPONENT_SHADOW_SAMPLES=2 before starting a check.
+    component_shadow_samples_per_bend: int = 0
 
 
 @dataclass
@@ -549,6 +557,16 @@ class AdaptiveTrajectoryValidator3D:
         # expensive redundant boundary distToShape. A non-positive Common
         # falls back to the previous exact-distance oracle.
         self._prefer_punch_overlap_next: bool = False
+        # This flag changes diagnostics only, not any collision verdict.
+        try:
+            requested_shadow = int(os.environ.get(
+                "SMBS_COMPONENT_SHADOW_SAMPLES",
+                str(getattr(self.config, "component_shadow_samples_per_bend", 0)),
+            ))
+        except (TypeError, ValueError):
+            requested_shadow = 0
+        self._component_shadow_limit = max(0, min(8, requested_shadow))
+        self._component_shadow_seen = 0
 
         # Explicit per-Manual-run exact-BRep reuse; never global. The
         # default independent validator retains its previous local caches.
@@ -579,6 +597,7 @@ class AdaptiveTrajectoryValidator3D:
             self._panel_prism_cache.clear()
             self._zone_shape_cache.clear()
         self._panel_prism_cache_identity = None
+        self._component_shadow_seen = 0
         self._die_clearance_cache.clear()
         self._punch_clearance_cache.clear()
         self._pose_collision_cache.clear()
@@ -753,6 +772,55 @@ class AdaptiveTrajectoryValidator3D:
             self._solid_cache.move_to_end(solid_cache_key)
         solid_lookup_ms = (time.perf_counter() - t_solid_lookup0) * 1000.0
 
+        # SHADOW ONLY: inspect the very same native panels/zones that the
+        # joined-sheet constructor is about to fuse. The observer cannot
+        # affect the oracle; errors are represented as incomplete evidence.
+        # Do not rebuild the components or mutate any cached source shape.
+        shadow_results = None
+        component_observer = None
+        if (not in_solid_cache
+                and self._component_shadow_seen < self._component_shadow_limit):
+            self._component_shadow_seen += 1
+
+            def component_observer(components):
+                nonlocal shadow_results
+                from smbs_core.kinematics2d.component_collision_oracle import (
+                    ComponentVerdict, MachineComponentScreen,
+                )
+                started = time.perf_counter()
+                try:
+                    matrix = App.Matrix(
+                        tf.rotation[0][0], tf.rotation[0][1], tf.rotation[0][2], tf.translation[0],
+                        tf.rotation[1][0], tf.rotation[1][1], tf.rotation[1][2], tf.translation[1],
+                        tf.rotation[2][0], tf.rotation[2][1], tf.rotation[2][2], tf.translation[2],
+                        0.0, 0.0, 0.0, 1.0,
+                    )
+                    # Exactly the selected physical tooling; no substitute
+                    # approximation or display geometry is admissible.
+                    preview_punch = set_punch_ram_z(self.punch_base, ram_z).machine_shape
+                    actual_die = self.die.machine_shape
+                    named = components.named_shapes()
+                    shadow_results = {
+                        "PUNCH": screen_machine_component_overlap(
+                            named, tf, matrix, "PUNCH", preview_punch,
+                            volume_tolerance_mm3=self.config.volume_tolerance_mm3,
+                        ),
+                        "DIE": screen_machine_component_overlap(
+                            named, tf, matrix, "DIE", actual_die,
+                            volume_tolerance_mm3=self.config.volume_tolerance_mm3,
+                        ),
+                    }
+                except Exception as exc:
+                    # A broken optional probe MUST NOT interrupt or invalidate
+                    # the existing exact OCC multiFuse and native clearance.
+                    error = MachineComponentScreen(
+                        ComponentVerdict.FALLBACK_REQUIRED,
+                        "observer_exception:" + type(exc).__name__,
+                        "PUNCH", 0, 0, 0, 0, 0,
+                        (time.perf_counter() - started) * 1000.0,
+                    )
+                    shadow_results = {"PUNCH": error}
+
         solid_cache_hit = False
         if in_solid_cache:
             solid_cache_hit = True
@@ -765,6 +833,8 @@ class AdaptiveTrajectoryValidator3D:
                 segments=self.config.arc_segments,
                 panel_prism_cache=self._panel_prism_cache,
                 zone_shape_cache=self._zone_shape_cache,
+                **({"component_observer": component_observer}
+                   if component_observer is not None else {}),
             )
             self.solid_reconstruction_time_ms += (time.perf_counter() - t_s0) * 1000.0
             _bounded_full_sheet_cache_put(
@@ -859,7 +929,7 @@ class AdaptiveTrajectoryValidator3D:
             punch_shape = None
             die_shape = None
 
-        # Oracle evaluation
+        # Oracle evaluation: still the *only* authoritative sampled result.
         col_res = validate_workpiece_tooling_pose(
             wp_machine,
             punch_shape,
@@ -875,6 +945,10 @@ class AdaptiveTrajectoryValidator3D:
                 self._prefer_punch_overlap_next and not punch_cache_hit
             ),
         )
+        if shadow_results is not None:
+            record_component_shadow_probe(
+                shadow_results, col_res, active_bend_id, phase, path_u,
+            )
         if not punch_cache_hit:
             self._prefer_punch_overlap_next = (
                 col_res.punch_result.status == CollisionClass.PENETRATION
