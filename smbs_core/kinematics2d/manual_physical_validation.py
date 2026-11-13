@@ -502,6 +502,9 @@ def check_manual_3d_sequence(
             "SMBS_COMPONENT_REJECT",
             "1" if getattr(config, "component_reject_enabled", False) else "0"
         ) == "1"),
+        machine_pose_reuse_enabled=(
+            os.environ.get("SMBS_MACHINE_POSE_REUSE", "0") == "1"
+        ),
         adaptive_config=(
             vars(config) if config is not None else None
         ),
