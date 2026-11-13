@@ -18,6 +18,7 @@ on:
       - feature/native-occ-collision-inspector
       - fix/conditional-endzone-volume-tolerance
       - development/performance-optimization
+      - experiment/component-collision-oracle
   workflow_dispatch:
 
 jobs:
