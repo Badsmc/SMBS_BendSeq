@@ -8,11 +8,14 @@ No FreeCAD import until build is invoked. No document objects are created.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from math import isfinite, hypot
 
 from .panel_kinematics import FoldState
-from .native_geometry_build_metrics import measure_native_geometry_region
+from .native_geometry_build_metrics import (
+    measure_native_geometry_region,
+    record_native_geometry_cache_event,
+)
 
 
 class NativeBendSolidError(ValueError):
@@ -213,8 +216,57 @@ def _source_panel_prism(panel_id, face, thickness_mm, App, cache=None):
     return prism
 
 
+def _cached_zone_solid(
+    state: FoldState, bend, *, segments: int, zone_shape_cache=None,
+    max_cache_entries: int = 128,
+) -> NativeBendSolid:
+    """Reuse EXACT immutable bend-zone solids at identical native poses.
+
+    Unlike the active bend, adjacent bends are usually stationary throughout
+    its 30+ sampled poses. The zone's 3D shape depends ONLY on the immutable
+    BendZone, signed angle, orientation of its fixed panel, moving_left and
+    segment count. The key includes all of these; changing any one rebuilds.
+
+    Values are never returned directly from the cache: every hit supplies an
+    independent Part.Shape copy, and a miss stores an independent shape copy.
+    LRU is limited to protect FreeCAD memory during multi-bend validation.
+    The complete sheet multiFuse and its topology/volume qualification still
+    execute on EVERY un-cached full-sheet pose; no collision is skipped.
+    """
+    if zone_shape_cache is None:
+        return build_bend_zone_solid(
+            state, bend.bend_id, segments=segments,
+        )
+    zone = bend.bend_zone
+    transform = state.transforms[bend.fixed_panel]
+    key = (
+        zone, bend.bend_id, bool(bend.moving_left),
+        float(state.angles[bend.bend_id]), transform, int(segments),
+    )
+    if key in zone_shape_cache:
+        cached = zone_shape_cache.pop(key)
+        zone_shape_cache[key] = cached
+        record_native_geometry_cache_event("bend_zone_cache_hit")
+        return replace(cached, shape=cached.shape.copy())
+
+    record_native_geometry_cache_event("bend_zone_cache_miss")
+    built = build_bend_zone_solid(
+        state, bend.bend_id, segments=segments,
+    )
+    # Keep only private owned shapes inside the cache. FreeCAD OCCT booleans
+    # must never be handed the same mutable shape instance as the cached one.
+    zone_shape_cache[key] = replace(
+        built, shape=built.shape.copy(),
+    )
+    while len(zone_shape_cache) > max_cache_entries:
+        zone_shape_cache.pop(next(iter(zone_shape_cache)))
+        record_native_geometry_cache_event("bend_zone_cache_eviction")
+    return built
+
+
 def build_multi_bend_sheet_solid(state: FoldState, panel_build, *,
-                                 segments=64, panel_prism_cache=None) -> NativeMultiBendSheet:
+                                 segments=64, panel_prism_cache=None,
+                                 zone_shape_cache=None) -> NativeMultiBendSheet:
     """Attempt full-sheet solid from authoritative N-panel, M-bend SheetMetal faces.
 
     Uses all rigid panel faces from panel_build transformed by their FoldState
@@ -269,7 +321,10 @@ def build_multi_bend_sheet_solid(state: FoldState, panel_build, *,
         zone_volumes = 0.0
         for bend in state.ordered_bends:
             with measure_native_geometry_region("bend_zone_build"):
-                zone_res = build_bend_zone_solid(state, bend.bend_id, segments=segments)
+                zone_res = _cached_zone_solid(
+                    state, bend, segments=segments,
+                    zone_shape_cache=zone_shape_cache,
+                )
             zone_solids.append(zone_res.shape)
             zone_volumes += zone_res.volume_mm3
 
