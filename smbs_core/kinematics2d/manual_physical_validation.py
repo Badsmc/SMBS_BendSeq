@@ -17,6 +17,7 @@ from types import SimpleNamespace
 from typing import Any, Callable, Optional, Sequence
 
 from .developer_debug_log import debug_event, summarize_native_trajectory
+from .native_kernel_metrics import count_native_kernel_calls
 from .panel_kinematics import FoldState
 from .physical_validation_25d import (
     PhysicalEvidence,
@@ -554,11 +555,30 @@ def check_manual_3d_sequence(
         )
         started = perf_counter()
         try:
-            report = check_active_25d_bend_trajectory(
-                pseudo_session, tooling,
-                reverse_axis=bool(reverse_axis_by_bend.get(bend_id, False)),
-                **check_kwargs,
-            )
+            # Phase A: measure ONLY the native D6 validation call.
+            # Post-collision per-panel attribution and UI rendering are
+            # outside this scope and must be benchmarked separately.
+            # This context does not alter OCC shapes, tolerances or results.
+            with count_native_kernel_calls() as kernel_counts:
+                try:
+                    report = check_active_25d_bend_trajectory(
+                        pseudo_session, tooling,
+                        reverse_axis=bool(
+                            reverse_axis_by_bend.get(bend_id, False)
+                        ),
+                        **check_kwargs,
+                    )
+                finally:
+                    # Record failures/timeouts too; otherwise slow/error
+                    # cases disappear from the performance evidence.
+                    debug_event(
+                        "PERF_NATIVE_BEND_KERNEL",
+                        bend_id=bend_id,
+                        step_number=i + 1,
+                        elapsed_s=round(perf_counter() - started, 6),
+                        kernel=kernel_counts.to_dict(),
+                        scope="D6_VALIDATION_EXCLUDES_POST_COLLISION_FORENSICS",
+                    )
             try:
                 complete_d6 = summarize_native_trajectory(report.raw_report)
             except Exception as serialize_exc:
