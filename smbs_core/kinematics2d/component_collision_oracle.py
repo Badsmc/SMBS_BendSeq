@@ -386,3 +386,154 @@ def record_component_shadow_probe(results, oracle_report, bend_id, phase, path_u
             "results": details,
             "full_status": oracle_report.status.value,
         })
+
+
+@dataclass(frozen=True)
+class ComponentBlockerScreen:
+    """Positive-only proof; report=None always requires the full validator."""
+    report: Any
+    evidence: dict
+
+
+class ComponentBlockerFound(Exception):
+    """Internal pre-fuse control flow carrying an exact non-waivable hit."""
+    def __init__(self, screen):
+        super().__init__("proven_component_blocker")
+        self.screen = screen
+
+
+def prove_machine_component_blocker(
+    named_components, placement, machine_matrix, punch, die, *,
+    volume_tolerance_mm3, end_zone_policy=None,
+    max_exact_candidates=12, max_screen_s=2.0,
+):
+    """Reject only a validated positive subset of the canonical sheet union.
+
+    Never certifies union topology or CLEAR. End-only, unknown, exhausted
+    budget and non-hits defer to the old full-sheet validator. The reported
+    volume belongs to ONE component, not the full-sheet intersection.
+    A deadline bounds scheduling; an in-flight OCC operation cannot be killed.
+    """
+    from .native_collision_3d import (
+        check_solid_validity, classify_punch_overlap_zones,
+        CollisionClass, PairClearanceResult, ToolCollisionReport,
+        PunchCollisionZoneClassification,
+    )
+    started = time.perf_counter()
+    evidence = dict(scope="COMPONENT_REJECT_ONLY", reason="fallback",
+                    aabb_rejected=0, candidates=0, common_calls=0,
+                    transformed=0, hit=None)
+
+    def finish(reason, report=None):
+        evidence["reason"] = reason
+        evidence["elapsed_s"] = time.perf_counter() - started
+        return ComponentBlockerScreen(report, evidence)
+
+    def exhausted():
+        return time.perf_counter() - started >= max_screen_s
+
+    try:
+        if (not isfinite(volume_tolerance_mm3) or volume_tolerance_mm3 < 0
+                or not isfinite(max_screen_s) or max_screen_s <= 0
+                or not isinstance(max_exact_candidates, int) or max_exact_candidates < 1):
+            return finish("invalid_limits")
+        components = tuple(named_components)
+        if not components:
+            return finish("missing_components")
+        allow_ends = bool(getattr(end_zone_policy, "allow_end_zone_collision", False))
+        end_length = float(getattr(end_zone_policy, "end_zone_length_mm", 0.0))
+        if allow_ends and (not isfinite(end_length) or end_length <= 0):
+            return finish("invalid_end_zone_policy")
+        tools = (("DIE", die), ("PUNCH", punch))
+        candidates = []
+        seen = set()
+        for label, shape in components:
+            if not isinstance(label, str) or not label or label in seen:
+                return finish("invalid_component_identity")
+            seen.add(label)
+            box = _machine_box(shape.BoundBox, placement)
+            for tool_label, tool in tools:
+                # Validate box bounds as well as their gap (NaN must not pass).
+                _machine_box(tool.BoundBox, SimpleNamespace(
+                    rotation=((1, 0, 0), (0, 1, 0), (0, 0, 1)), translation=(0, 0, 0)))
+                gap = compute_aabb_gap(box, tool.BoundBox)
+                if gap is None or not isfinite(gap):
+                    return finish("invalid_aabb")
+                if gap > 0:
+                    evidence["aabb_rejected"] += 1
+                else:
+                    candidates.append((label, shape, tool_label, tool))
+        evidence["candidates"] = len(candidates)
+        if len(candidates) > max_exact_candidates:
+            return finish("candidate_budget_fallback")
+        if not candidates:
+            return finish("aabb_disjoint_topology_unverified")
+        # No positive proof from partially invalid input, including components
+        # encountered AFTER the potential hit. AABB runs before costly OCC.
+        for name, shape in (*components, *tools):
+            if exhausted():
+                return finish("time_budget_fallback")
+            if not check_solid_validity(shape, name)[0]:
+                return finish("invalid_input_geometry")
+        moved_components = {}
+        for label, shape, tool_label, tool in candidates:
+            if exhausted():
+                return finish("time_budget_fallback")
+            if label not in moved_components:
+                moved = shape.copy()
+                returned = moved.transformShape(machine_matrix)
+                moved = returned if returned is not None else moved
+                if not check_solid_validity(moved, label)[0]:
+                    return finish("invalid_transformed_component")
+                moved_components[label] = moved
+                evidence["transformed"] += 1
+            moved = moved_components[label]
+            evidence["common_calls"] += 1
+            volume, bbox, common = _evaluate_common_volume(
+                moved, tool, include_bbox=True, include_shape=True)
+            if exhausted():
+                return finish("time_budget_fallback")
+            if not isfinite(volume) or volume < 0:
+                return finish("invalid_common_volume")
+            if volume <= volume_tolerance_mm3:
+                continue
+            analysis = None
+            if tool_label == "PUNCH" and allow_ends:
+                analysis = classify_punch_overlap_zones(
+                    moved, tool, end_length,
+                    volume_tolerance_mm3=volume_tolerance_mm3,
+                    _precomputed_common=common)
+                if exhausted():
+                    return finish("time_budget_fallback")
+                if (not isfinite(analysis.central_zone_overlap_volume_mm3)
+                        or analysis.classification == PunchCollisionZoneClassification.UNCLASSIFIED):
+                    return finish("unclassified_end_zone")
+                if (analysis.classification not in (
+                        PunchCollisionZoneClassification.CENTRAL_ZONE,
+                        PunchCollisionZoneClassification.MIXED_CENTRAL_AND_END_ZONE)
+                        or analysis.central_zone_overlap_volume_mm3 <= volume_tolerance_mm3):
+                    # One allowed end hit cannot mask a later central hit.
+                    continue
+            elapsed_ms = (time.perf_counter() - started) * 1000
+            pair = PairClearanceResult(
+                CollisionClass.PENETRATION, "component_subset:" + label,
+                0.0, volume, 0.0, elapsed_ms,
+                end_zone_analysis=analysis, tool_label=tool_label,
+                common_queries_count=1,
+                overlap_bbox_xyz_mm=bbox)
+            other = PairClearanceResult(
+                CollisionClass.MISSING_EVIDENCE, "not_evaluated_after_component_blocker",
+                0.0, 0.0, None, 0.0)
+            evidence["hit"] = dict(component_id=label, tool=tool_label,
+                                   component_overlap_volume_mm3=volume,
+                                   overlap_bbox_xyz_mm=bbox)
+            report = ToolCollisionReport(
+                CollisionClass.PENETRATION,
+                pair if tool_label == "PUNCH" else other,
+                pair if tool_label == "DIE" else other,
+                False, ["COMPONENT_SUBSET_PROOF; FULL_UNION_NOT_EVALUATED"], elapsed_ms,
+                conditional_status="PENETRATION", punch_end_zone_analysis=analysis)
+            return finish("proven_nonwaivable_component_penetration", report)
+    except Exception as exc:
+        return finish("uncertain_component_screen:" + type(exc).__name__)
+    return finish("no_nonwaivable_component_proof")

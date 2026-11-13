@@ -401,11 +401,13 @@ def build_multi_bend_sheet_solid(state: FoldState, panel_build, *,
     zone_solids = [shape for _, shape in components.zones]
     zone_volumes = components.zone_volume_mm3
 
-    # An optional experimental read-only observer sees the EXACT isolated
+    # An optional experimental observer sees the EXACT isolated
     # BReps being passed to this native multiFuse; no second geometry build.
     # The default and every non-experimental caller retain identical behavior.
     # The caller must catch its own diagnostic errors so production geometry
-    # qualification is never affected by a failed shadow probe.
+    # qualification is never affected by a failed shadow probe. The opt-in
+    # reject-only D6 observer may deliberately raise ComponentBlockerFound
+    # BEFORE fusion; its caller handles that positive-only proof separately.
     if component_observer is not None:
         component_observer(components)
 

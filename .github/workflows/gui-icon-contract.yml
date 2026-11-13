@@ -30,6 +30,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+      - name: Test reject-only component integration and fallback
+        run: python -m unittest tests.test_component_reject_filter -v
       - name: Compile FreeCAD workbench code
         run: python -m compileall -q Init.py InitGui.py freecad_smbs smbs_core tools
       - name: Test coupled punch motion during manual preview
