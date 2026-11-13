@@ -25,17 +25,17 @@ The user's prime pain point is **very slow native 3D validation even for an expl
 | A0 branch and governance | IMPLEMENTED | `AGENTS.md`, master plan, this handoff, benchmark protocol |
 | A1 headless performance log analyzer | HEADLESS_TESTED | `performance_report.py` read-only CLI, multiple/partial runs, missing fields = null; unit tests green |
 | A2 per-phase OCC/caching instrumentation | HEADLESS_TESTED | `summarize_native_trajectory` reports existing counters; native Manual D6 wraps `count_native_kernel_calls` and emits `PERF_NATIVE_BEND_KERNEL`; no changes to collisions |
-| A3 live reference measurements | NOT_STARTED | Real FreeCAD, source SHA, cold/warm 3+3, matched settings, report |
-| B targeted reuse and duplicate OCC removal | NOT_STARTED | Only after baseline |
-| C conservative panel/zone broad phase | NOT_STARTED | Proof + independent native validation |
-| D persistent cross-state caching | NOT_STARTED | Bounded RAM and invalidation tests |
+| A3 live reference measurements | HISTORICAL_LOG_ANALYZED / NEW_RUNTIME_NOT_MEASURED | Historical 691.6417 s five-bend log6 documented; new branch needs FreeCAD runs |
+| B targeted reuse and duplicate OCC removal | HEADLESS_TESTED / NATIVE_NOT_VERIFIED | Single OCC Common for Conditional; conservative AABB-gap fast rejection, no changed physical tolerances |
+| C conservative panel/zone broad phase | ZONE_CACHE_HEADLESS_TESTED / BROAD_PHASE_NOT_STARTED | Bounded keyed native bend-zone cache added; component broad-phase still unimplemented, live FreeCAD comparison required |
+| D persistent cross-state caching | FULL_SHEET_LRU_HEADLESS_TESTED / CROSS_STATE_NOT_STARTED | Full-sheet local cache bounded to 64 poses; no shared cache across candidate/worker boundaries yet |
 | E process-based CPU parallelism | NOT_STARTED | 1/2/4 worker scaling, bounded RAM, isolation |
 | F multi-stage automatic search | NOT_STARTED | Deterministic candidates, conservative pruning |
 | G optional GPU/alternate engine | DEFERRED | Only if profiling proves need |
 
 ## Next agent's exact action
 
-1. **Start at Phase A3:** check out this branch, verify its HEAD and that the active FreeCAD Mod module actually points at it; confirm no duplicate installed SMBS addon.
+1. **Start at Phase A3 native validation:** this branch contains already committed Phase B/C fastpaths and geometry caching; do not make further geometry changes until a real FreeCAD regression run verifies them against baseline. Check out branch, verify HEAD, loaded `Mod` module, and no duplicate installed SMBS addon.
 2. Run the reference 10-bend manual native 3D sequence in FreeCAD at identical settings. One first run is sufficient to begin if it is prohibitively slow; collect further cold/warm runs when feasible.
 3. From repo root, run `python -m smbs_core.kinematics2d.performance_report "~/Desktop/SMBS_debug_log.json" --json --output "~/Desktop/SMBS_perf_baseline.json"` (adjust Windows Desktop path).
 4. Verify `PERF_NATIVE_BEND_KERNEL` and existing `MANUAL_NATIVE_BEND_TRAJECTORY` appear for each checked bend. If missing, report loaded runtime path/SHA instead of assuming new source was installed.
@@ -77,3 +77,26 @@ At the end of any work, edit this document to append a timestamped entry with: b
 - CI entry: `a0c49fd`, [successful GitHub Actions run](https://github.com/Badsmc/SMBS_BendSeq/actions/runs/43381662295), compile and test workflow (20 steps, all green).
 - Actual FreeCAD machine validation: **NOT RUN from this conversation**; numerical baseline and speedup: **NOT MEASURED**. No claim of acceleration or geometrical qualification.
 - Next step: Phase A3 real FreeCAD benchmark with confirmed runtime module and journal; then narrow Phase B to the measured hotspot.
+
+
+## 2026-11-13 — Historical hotspot analysis and native algorithm optimization (CURRENT)
+
+**Historical evidence:** `docs/PERFORMANCE_HISTORICAL_LOG6_BASELINE.md`.
+One prior manual native 3D run on an older branch recorded 691.6417s for 5 checked bends before B08 stopped (NOT a safe complete 10-bend sequence). Approximate subtotal breakdown: 259.047s full-sheet builds, 218.441s punch checks, 158.904s die checks; 607.259s in BENDING. Original user debug log was read-only and was not committed. **This is NOT a matched benchmark of the current optimization branch.**
+
+**Completed source changes on `development/performance-optimization`:**
+
+- `1cf1e84` — `native_collision_3d.py`: classifier reuses the **same exact OCC Common solid** from punch pair check; no second boolean for a normal penetrating/Conditional pose. Only existing volume tolerance; classifier still returns UNCLASSIFIED when evidence is missing.
+- `6239ca1` — safe AABB lower-bound reject above the actual near/contact threshold, replacing the arbitrary previous 5mm margin.
+- `19584eb` — additional conservative proof: when two AABBs have a strict positive gap but are close, evaluate their exact distance, **skip Common** (no shared volume possible).
+- `0187863`, `13ff5e8` — dedicated `test_native_collision_fastpath.py` regression suite, including one-Common counting, central blocker, enclosure, near/touching and unknown. An intermediate CI run failed due to test expecting the OLD redundant Common at the exact AABB threshold; test was corrected to assert the new proof condition, final headless CI green. No runtime collision tolerance relaxed.
+- `f525dba` — `manual_physical_validation.py` records exact breakdown of native build regions `panel_extrude`, `panel_transform`, `bend_zone_build`, `sheet_union`, `sheet_qualification` next to Part.common and distance; excludes post-collision inspection cost.
+- `f008142`, `dce369a`, `acfe27b` — bounded cache of `NativeBendSolid` keyed by immutable BendZone, angle, fixed-panel rigid transform, moving_left and segments. Each cached Part.Shape is copied before OCC use. Source geometry/config changes invalidate cache. **Full native union/topology/volume qualification is not skipped.**
+- `db1539b`, `9a85d8d` — tests and CI for zone cache hit/miss, invalidation, LRU, independent shapes.
+- `b44c375`, `87edc28` — performance JSON analyzer reports actual build-region timings and zone-cache statistics, preserving null for fields absent in older logs.
+- `a895a1e`, `cc22f46`, `64ab3cc` — per-validator full-sheet OCC cache bounded to **64 most recently used solids** to prevent unbounded RAM retention, tested with eviction semantics.
+- The last successful source test pipeline for these changes includes [CI at `64ab3cc`](https://github.com/Badsmc/SMBS_BendSeq/actions/runs/43386136252). Later documentation-only commits also run CI.
+
+**Current validation state:** HEADLESS_TESTED; actual optimized FreeCAD timing, B08 outcome, full 10-bend regression, peak RAM, and performance ratio **NOT_MEASURED**. No claim of 2× or 10× acceleration yet.
+
+**Exactly next:** install this branch in FreeCAD (single Mod copy), run manual native 3D on reference model with identical tool/Conditional settings, record log and analyzer output. Verify per-bend physical verdicts and inspect `geometry_build.elapsed_s.sheet_union` vs `bend_zone_build`, `kernel.common_calls` vs `distance_calls`. Test that first four sampled clear bends stay clear and B08 new Conditional classification behaves as on the corrected baseline. Investigate exceptions/UNVERIFIED immediately. Then benchmark before/after with baseline branch under matched source and model; only after success implement component broad phase or process workers.
