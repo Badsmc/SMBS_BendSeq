@@ -25,6 +25,62 @@ class BlockerReplayError(ValueError):
     """Journal or source cannot be matched to one authoritative native pose."""
 
 
+def summarize_native_journal(journal: dict, *, bend_id: str = "B02") -> dict:
+    """Read-only preflight that tells a local Mac journal from reference data.
+
+    This does NOT authorize physical replay. A completed collision with a
+    sampled pose and native attribution is required by select_blocker_evidence.
+    """
+    events = journal.get("events", []) if isinstance(journal, dict) else []
+    if not isinstance(events, list):
+        events = []
+    finished = []
+    bend_results = []
+    for item in events:
+        if not isinstance(item, dict):
+            continue
+        kind = item.get("event")
+        payload = item.get("data")
+        if not isinstance(payload, dict):
+            continue
+        if kind == "MANUAL_NATIVE_CHECK_FINISHED":
+            steps = payload.get("steps")
+            matches = [
+                x.get("status") for x in steps if isinstance(x, dict)
+                and x.get("bend_id") == bend_id
+            ] if isinstance(steps, list) else []
+            finished.append({
+                "status": str(payload.get("status", "UNKNOWN")),
+                "bend_status": matches[-1] if matches else "NOT_FOUND",
+            })
+        if kind == "MANUAL_NATIVE_BEND_RESULT":
+            bend = payload.get("bend")
+            if isinstance(bend, dict) and bend.get("bend_id") == bend_id:
+                bend_results.append(str(bend.get("status", "UNKNOWN")))
+    return {
+        "bend_id": bend_id,
+        "events": len(events),
+        "finished_runs": len(finished),
+        "final_run_statuses": [x["status"] for x in finished],
+        "observed_bend_statuses": [x["bend_status"] for x in finished],
+        "bend_results": bend_results,
+        "has_finished_target_collision": any(
+            x["status"] == "COLLISION" and x["bend_status"] == "COLLISION"
+            for x in finished
+        ),
+    }
+
+
+def inspect_journal(journal_path, *, bend_id: str = "B02") -> dict:
+    """Explain journal contents without FreeCAD, OCC, files modification."""
+    path = Path(journal_path).expanduser().resolve(strict=True)
+    data = json.loads(path.read_text(encoding="utf-8"))
+    summary = summarize_native_journal(data, bend_id=bend_id)
+    summary["file"] = str(path)
+    summary["size_bytes"] = path.stat().st_size
+    return summary
+
+
 def select_blocker_evidence(journal: dict, bend_id: str = "B02") -> dict:
     """Parse one completed Manual native run without trusting arbitrary JSON.
 
@@ -130,7 +186,18 @@ def select_blocker_evidence(journal: dict, bend_id: str = "B02") -> dict:
             "full_oracle_first_overlap_mm3": blocker.get("first_sample_punch_overlap_mm3"),
         }
     if last is None:
-        raise BlockerReplayError("no_completed_native_collision_for_requested_bend")
+        summary = summarize_native_journal(journal, bend_id=bend_id)
+        raise BlockerReplayError(
+            "no_completed_native_collision_for_requested_bend:"
+            + str(bend_id)
+            + "; finished_runs=" + str(summary["finished_runs"])
+            + "; recorded_bend_results=" + str(summary["bend_results"])
+            + "; final_run_statuses=" + str(summary["final_run_statuses"])
+            + "; observed_bend_statuses=" + str(summary["observed_bend_statuses"])
+            + "; expected a completed Manual 3D run with B02 COLLISION; "
+              "the current file may be a different Mac-local debug journal. "
+              "Select the original dated Windows debug JSON copied onto this Mac."
+        )
     for key in ("part_path", "unfold_name", "punch_path", "die_path"):
         if not isinstance(last.get(key), str) or not last[key]:
             raise BlockerReplayError("missing_" + key)
