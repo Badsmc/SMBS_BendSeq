@@ -28,7 +28,7 @@ The user's prime pain point is **very slow native 3D validation even for an expl
 | A3 live reference measurements | HISTORICAL_LOG_ANALYZED / NEW_RUNTIME_NOT_MEASURED | Historical 691.6417 s five-bend log6 documented; new branch needs FreeCAD runs |
 | B targeted reuse and duplicate OCC removal | HEADLESS_TESTED / NATIVE_NOT_VERIFIED | Single OCC Common for Conditional; conservative AABB-gap fast rejection, no changed physical tolerances |
 | C conservative panel/zone broad phase | ZONE_CACHE_HEADLESS_TESTED / BROAD_PHASE_NOT_STARTED | Bounded keyed native bend-zone cache added; component broad-phase still unimplemented, live FreeCAD comparison required |
-| D persistent cross-state caching | FULL_SHEET_LRU_HEADLESS_TESTED / CROSS_STATE_NOT_STARTED | Full-sheet local cache bounded to 64 poses; no shared cache across candidate/worker boundaries yet |
+| D persistent cross-state caching | MANUAL_ORDER_SHARED_CACHE_HEADLESS_TESTED / CROSS_CANDIDATE_NOT_STARTED | Manual D6 now reuses bounded exact sheet/panel/zone geometry across successive bends; tool verdict caches remain local; needs real FreeCAD acceptance |
 | E process-based CPU parallelism | NOT_STARTED | 1/2/4 worker scaling, bounded RAM, isolation |
 | F multi-stage automatic search | NOT_STARTED | Deterministic candidates, conservative pruning |
 | G optional GPU/alternate engine | DEFERRED | Only if profiling proves need |
@@ -100,3 +100,16 @@ One prior manual native 3D run on an older branch recorded 691.6417s for 5 check
 **Current validation state:** HEADLESS_TESTED; actual optimized FreeCAD timing, B08 outcome, full 10-bend regression, peak RAM, and performance ratio **NOT_MEASURED**. No claim of 2× or 10× acceleration yet.
 
 **Exactly next:** install this branch in FreeCAD (single Mod copy), run manual native 3D on reference model with identical tool/Conditional settings, record log and analyzer output. Verify per-bend physical verdicts and inspect `geometry_build.elapsed_s.sheet_union` vs `bend_zone_build`, `kernel.common_calls` vs `distance_calls`. Test that first four sampled clear bends stay clear and B08 new Conditional classification behaves as on the corrected baseline. Investigate exceptions/UNVERIFIED immediately. Then benchmark before/after with baseline branch under matched source and model; only after success implement component broad phase or process workers.
+
+
+## 2026-11-13 — Additional per-Manual-run geometric reuse checkpoint
+
+Source commits after the initial optimization series:
+
+- `d6beea2`: new `native_sequence_geometry_cache.py`, an explicit lifetime-bounded cache with source-binding invalidation, no global shapes/worker sharing, max 16 joined native sheet shapes per Manual check.
+- `e8de728`: `AdaptiveTrajectoryValidator3D` accepts this shared geometry cache, while per-bend punch/die collision verdict caches remain independent.
+- `61417f3`: optional cache flows through `check_active_25d_bend_trajectory`, preserving default call behavior.
+- `ed8bcd3`: `check_manual_3d_sequence` owns one cache for the entire checked order and records its use in `PERF_NATIVE_BEND_KERNEL` developer events.
+- `fbf0d88` and `8adfc66`: headless tests and CI contract for bounded shared cache and source/tool isolation. [CI run successful](https://github.com/Badsmc/SMBS_BendSeq/actions/runs/43386827759).
+
+These are implemented improvements to exact-geometry reuse, **not** a measured speedup. The local FreeCAD 1.1 native regression run is still missing, so Phase A3 and production qualification remain open. The next priority is to install this branch, confirm `module_file`, obtain an up-to-date debug log and compare exact native results/statuses with the reference `fix/conditional-endzone-volume-tolerance`. No CPU multiprocess or GPU code has been enabled.
