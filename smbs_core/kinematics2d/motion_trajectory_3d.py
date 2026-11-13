@@ -493,6 +493,7 @@ class AdaptiveTrajectoryValidator3D:
         reverse_axis: bool = False,
         end_zone_policy: Optional[EndZoneCollisionPolicy] = None,
         classify_end_zone_length_mm: Optional[float] = None,
+        sequence_geometry_cache: Any = None,
     ):
         self.fold_state = fold_state
         self.panel_build = panel_build
@@ -541,25 +542,34 @@ class AdaptiveTrajectoryValidator3D:
         self.total_cache_lookup_ms: float = 0.0
         # Keep expensive joined Part.Shapes available for reused poses
         # without retaining an unbounded set of large OCC solids in RAM.
-        self._solid_cache: OrderedDict[Tuple[Any, ...], Any] = OrderedDict()
-        self._max_cached_full_sheets: int = 64
-        # Cache only source, untransformed panel prisms during a single
-        # validator lifetime. Never cache moved panels or assembled solids.
-        self._panel_prism_cache: Dict[str, Any] = {}
-        # Bounded per-validator cache of exact small zone solids; this is
-        # separate from the full-sheet cache and is never shared across
-        # FreeCAD documents/processes or different source geometries.
-        self._zone_shape_cache: Dict[Tuple[Any, ...], Any] = {}
-        self._panel_prism_cache_identity: Any = None
+        # Explicit per-Manual-run exact-BRep reuse; never global. The
+        # default independent validator retains its previous local caches.
+        # Tool-dependent collision results remain strictly per-validator.
+        self._sequence_geometry_cache = sequence_geometry_cache
+        if sequence_geometry_cache is None:
+            self._solid_cache: OrderedDict[Tuple[Any, ...], Any] = OrderedDict()
+            self._max_cached_full_sheets: int = 64
+            self._panel_prism_cache: Dict[str, Any] = {}
+            self._zone_shape_cache: Dict[Tuple[Any, ...], Any] = {}
+            self._panel_prism_cache_identity: Any = None
+        else:
+            self._solid_cache = sequence_geometry_cache.full_sheets
+            self._max_cached_full_sheets = sequence_geometry_cache.max_full_sheets
+            self._panel_prism_cache = sequence_geometry_cache.panel_prisms
+            self._zone_shape_cache = sequence_geometry_cache.bend_zones
+            self._panel_prism_cache_identity = sequence_geometry_cache.source_identity
         self._die_clearance_cache: Dict[Tuple[Any, ...], Any] = {}
         self._punch_clearance_cache: Dict[Tuple[Any, ...], Any] = {}
         self._pose_collision_cache: Dict[Tuple[Any, ...], Any] = {}
 
     def clear_caches(self) -> None:
         """Clear Part Space solid cache, clearance caches, and pose collision cache."""
-        self._solid_cache.clear()
-        self._panel_prism_cache.clear()
-        self._zone_shape_cache.clear()
+        if self._sequence_geometry_cache is not None:
+            self._sequence_geometry_cache.clear()
+        else:
+            self._solid_cache.clear()
+            self._panel_prism_cache.clear()
+            self._zone_shape_cache.clear()
         self._panel_prism_cache_identity = None
         self._die_clearance_cache.clear()
         self._punch_clearance_cache.clear()
@@ -646,8 +656,15 @@ class AdaptiveTrajectoryValidator3D:
             )),
         )
         if panel_prism_identity != self._panel_prism_cache_identity:
-            self._panel_prism_cache.clear()
-            self._zone_shape_cache.clear()
+            if self._sequence_geometry_cache is not None:
+                # A changed source must invalidate every cached BRep,
+                # never silently borrow an old model's "clear" geometry.
+                self._sequence_geometry_cache.bind_source(
+                    panel_prism_identity
+                )
+            else:
+                self._panel_prism_cache.clear()
+                self._zone_shape_cache.clear()
             self._panel_prism_cache_identity = panel_prism_identity
         die_geom_sig = _die_geometry_signature(self.die)
         punch_geom_sig = _punch_geometry_signature(self.punch_base)
