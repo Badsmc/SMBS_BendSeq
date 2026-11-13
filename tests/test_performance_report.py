@@ -45,6 +45,12 @@ def sample_journal():
                shared_geometry_cache={"full_sheet_entries": 4,
                                       "source_resets": 1,
                                       "full_sheet_limit": 16},
+               loaded_native_modules={
+                   "smbs_core.kinematics2d.native_collision_3d": {
+                       "path": "C:/FreeCAD/Mod/SMBS/native_collision_3d.py",
+                       "sha256": "abc",
+                   }
+               },
                kernel={
                    "scope": "INSTRUMENTED_NATIVE_COLLISION_CALLS_ONLY",
                    "common_calls": 6, "distance_calls": 4,
@@ -152,6 +158,12 @@ class PerformanceReportTests(unittest.TestCase):
         self.assertEqual(
             finished["bends"][0]["shared_geometry_cache"]["full_sheet_limit"],
             16,
+        )
+        self.assertEqual(
+            finished["bends"][0]["loaded_native_modules"][
+                "smbs_core.kinematics2d.native_collision_3d"
+            ]["sha256"],
+            "abc",
         )
         self.assertEqual(interrupted["totals"]["observed_bend_count"], 1)
         self.assertIsNone(interrupted["totals"]["kernel_common_calls"])
