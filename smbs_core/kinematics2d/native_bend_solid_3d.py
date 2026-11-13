@@ -285,20 +285,32 @@ def _validated_joined_sheet_volume(joined) -> float:
     return volume
 
 
-def build_multi_bend_sheet_solid(state: FoldState, panel_build, *,
-                                 segments=64, panel_prism_cache=None,
-                                 zone_shape_cache=None) -> NativeMultiBendSheet:
-    """Attempt full-sheet solid from authoritative N-panel, M-bend SheetMetal faces.
+@dataclass(frozen=True)
+class NativeSheetComponents:
+    """The SAME native OCC panel and bend-zone solids as a full-sheet build.
 
-    Uses all rigid panel faces from panel_build transformed by their FoldState
-    transforms, builds every bend zone at its active angle via build_bend_zone_solid(),
-    and joins them into a single connected, closed OCC solid.
+    No geometry is omitted, no boolean union is performed here. A component
+    collision screen may inspect this immutable snapshot before the costly
+    full-sheet multiFuse. The joined-sheet oracle still owns topology checks.
+    """
+    angles_deg: dict[str, float]
+    panels: tuple[tuple[str, object], ...]
+    zones: tuple[tuple[str, object], ...]
+    expected_volume_mm3: float
 
-    Topological and volumetric integrity:
-    - Every panel and every bend zone must be present.
-    - Geometric union must be exactly 1 valid closed OCC solid.
-    - Total volume must match the sum of transformed panels and bend zones
-      within numerical tolerance (rejecting gaps or self-intersections).
+    @property
+    def labeled_shapes(self) -> tuple[tuple[str, object], ...]:
+        return self.panels + self.zones
+
+
+def build_multi_bend_sheet_components(state: FoldState, panel_build, *,
+                                      segments=64, panel_prism_cache=None,
+                                      zone_shape_cache=None) -> NativeSheetComponents:
+    """Build all authoritative components without joining them.
+
+    Uses precisely the source faces, transforms, bend zones, caches and signed
+    angles of build_multi_bend_sheet_solid. It does NOT certify that their
+    union is a valid sheet and MUST NOT by itself issue a CLEAR verdict.
     """
     if not isinstance(state, FoldState):
         raise NativeBendSolidError("missing_fold_state")
@@ -312,45 +324,65 @@ def build_multi_bend_sheet_solid(state: FoldState, panel_build, *,
         raise NativeBendSolidError("panel_build_graph_mismatch")
     if len(state.ordered_bends) < 1:
         raise NativeBendSolidError("no_bends_in_fold_state")
-
-    # Authoritative sheet thickness from first bend zone
     first_bend = state.ordered_bends[0]
     if first_bend.bend_zone is None:
         raise NativeBendSolidError("missing_bend_zone")
-    t = float(first_bend.bend_zone.thickness_mm)
+    thickness_mm = float(first_bend.bend_zone.thickness_mm)
 
     try:
         import FreeCAD as App
-        import Part
 
-        # Optional per-validator cache stores only UNTRANSFORMED panel prisms.
-        # The caller must invalidate it when source panel geometry changes.
-        # Every pose still receives an independent copy, rigid transform,
-        # complete OCC union and the original volume/topology qualification.
         if panel_prism_cache is not None and len(panel_prism_cache) != len(panels):
             panel_prism_cache.clear()
         panel_solids = []
         for panel, face in zip(panels, faces):
-            panel_solid = _source_panel_prism(
-                panel.panel_id, face, t, App, panel_prism_cache
+            source = _source_panel_prism(
+                panel.panel_id, face, thickness_mm, App, panel_prism_cache,
             )
-            tf = state.transforms[panel.panel_id]
+            transform = state.transforms[panel.panel_id]
             with measure_native_geometry_region("panel_transform"):
-                panel_solids.append(_apply_rigid_transform(panel_solid, tf, App))
+                placed = _apply_rigid_transform(source, transform, App)
+            panel_solids.append((panel.panel_id, placed))
 
         zone_solids = []
         zone_volumes = 0.0
         for bend in state.ordered_bends:
             with measure_native_geometry_region("bend_zone_build"):
-                zone_res = _cached_zone_solid(
+                zone = _cached_zone_solid(
                     state, bend, segments=segments,
                     zone_shape_cache=zone_shape_cache,
                 )
-            zone_solids.append(zone_res.shape)
-            zone_volumes += zone_res.volume_mm3
+            zone_solids.append(("bend_zone:" + bend.bend_id, zone.shape))
+            zone_volumes += float(zone.volume_mm3)
+        expected = sum(float(s.Volume) for _, s in panel_solids) + zone_volumes
+        if not isfinite(expected) or expected <= 0.0:
+            raise NativeBendSolidError("invalid_component_volume")
+    except NativeBendSolidError:
+        raise
+    except Exception as exc:
+        raise NativeBendSolidError(
+            "occ_multi_bend_assembly_failed: " + str(exc)
+        ) from exc
 
-        # Join all panel and zone solids together via OCC multiFuse
-        all_solids = panel_solids + zone_solids
+    return NativeSheetComponents(
+        angles_deg=dict(state.angles),
+        panels=tuple(panel_solids),
+        zones=tuple(zone_solids),
+        expected_volume_mm3=expected,
+    )
+
+
+def join_multi_bend_sheet_components(components: NativeSheetComponents) -> NativeMultiBendSheet:
+    """Existing strict multiFuse/topology/volume oracle on prebuilt components.
+
+    This is the required fallback for all inconclusive component screening
+    outcomes. It deliberately does not relax isValid/isClosed/one-solid or
+    the original material-volume conservation threshold.
+    """
+    try:
+        all_solids = [shape for _, shape in components.labeled_shapes]
+        if not all_solids:
+            raise NativeBendSolidError("empty_sheet_components")
         with measure_native_geometry_region("sheet_union"):
             if len(all_solids) == 1:
                 joined = all_solids[0]
@@ -358,30 +390,45 @@ def build_multi_bend_sheet_solid(state: FoldState, panel_build, *,
                 joined = all_solids[0].multiFuse(all_solids[1:])
             else:
                 joined = all_solids[0]
-                for s in all_solids[1:]:
-                    joined = joined.fuse(s)
+                for shape in all_solids[1:]:
+                    joined = joined.fuse(shape)
 
         with measure_native_geometry_region("sheet_qualification"):
-            # One OCC validity/closure/volume evaluation per new joined
-            # sheet. Do not repeat expensive BRep topology checking solely
-            # to populate an immutable report after validation succeeded.
             joined_volume = _validated_joined_sheet_volume(joined)
-            expected = sum(float(x.Volume) for x in panel_solids) + zone_volumes
+            expected = components.expected_volume_mm3
             if abs(joined_volume - expected) > max(1e-3, expected * 1e-5):
                 raise NativeBendSolidError("panel_zone_overlap_or_missing_material")
-
     except NativeBendSolidError:
         raise
     except Exception as exc:
-        raise NativeBendSolidError("occ_multi_bend_assembly_failed: " + str(exc)) from exc
+        raise NativeBendSolidError(
+            "occ_multi_bend_assembly_failed: " + str(exc)
+        ) from exc
 
     return NativeMultiBendSheet(
-        angles_deg=dict(state.angles),
+        angles_deg=dict(components.angles_deg),
         shape=joined,
         volume_mm3=joined_volume,
-        panels_count=len(panels),
-        bends_count=len(state.ordered_bends),
-        is_valid=True,  # exactly checked by _validated_joined_sheet_volume
-        is_closed=True,  # exactly checked by _validated_joined_sheet_volume
+        panels_count=len(components.panels),
+        bends_count=len(components.zones),
+        is_valid=True,
+        is_closed=True,
         physical_certified=False,
     )
+
+
+def build_multi_bend_sheet_solid(state: FoldState, panel_build, *,
+                                 segments=64, panel_prism_cache=None,
+                                 zone_shape_cache=None) -> NativeMultiBendSheet:
+    """Preserved production full-sheet exact OCC builder.
+
+    Both the traditional path and optional component prefilter now consume
+    the SAME all-components construction. This wrapper always performs the
+    full native join and strict qualification, never approximate screening.
+    """
+    components = build_multi_bend_sheet_components(
+        state, panel_build, segments=segments,
+        panel_prism_cache=panel_prism_cache,
+        zone_shape_cache=zone_shape_cache,
+    )
+    return join_multi_bend_sheet_components(components)

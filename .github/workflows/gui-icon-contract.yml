@@ -18,6 +18,7 @@ on:
       - feature/native-occ-collision-inspector
       - fix/conditional-endzone-volume-tolerance
       - development/performance-optimization
+      - experiment/component-occ-broadphase
   workflow_dispatch:
 
 jobs:
@@ -83,6 +84,14 @@ jobs:
         env:
           PYTHONPATH: .
         run: python -m unittest discover -s tests -p 'test_native_collision_fastpath.py' -v
+      - name: Test conservative native OCC component broadphase rejection
+        env:
+          PYTHONPATH: .
+        run: python -m unittest discover -s tests -p 'test_native_component_collision.py' -v
+      - name: Test X1 integration with native trajectory state snapshots
+        env:
+          PYTHONPATH: .
+        run: python -m unittest discover -s tests -p 'test_native_component_integration.py' -v
       - name: Test Conditional end-zone native OCC sliver tolerance
         env:
           PYTHONPATH: .

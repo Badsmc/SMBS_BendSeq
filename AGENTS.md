@@ -1,6 +1,13 @@
 # AGENTS.md — AI development instructions for SMBS performance branch
 
-This file applies to **development/performance-optimization**. Read it before modifying code. For full decisions and strict acceptance criteria, read:
+This file originates from **development/performance-optimization**; in this
+authorized child branch **experiment/component-occ-broadphase**, work
+ONLY on the child branch. Do not check out or commit to the parent branch.
+The rules and safety gates below remain binding. Read them before modifying code.
+
+Experimental X1 implementation and exact native acceptance instructions:
+[docs/COMPONENT_OCC_X1.md](docs/COMPONENT_OCC_X1.md). This is headless-tested,
+not native-FreeCAD-qualified and not merged into public release branches. For full decisions and strict acceptance criteria, read:
 
 1. [docs/PERFORMANCE_OPTIMIZATION_MASTER_PLAN.md](docs/PERFORMANCE_OPTIMIZATION_MASTER_PLAN.md)
 2. [docs/PERFORMANCE_AGENT_HANDOFF.md](docs/PERFORMANCE_AGENT_HANDOFF.md)
@@ -23,7 +30,7 @@ Accelerate SMBS FreeCAD native D6 sampled-3D trajectory validation and automatic
 
 ## Working instructions for an autonomous agent
 
-1. Check out **development/performance-optimization**. Confirm clean worktree and read the three docs above.
+1. Stay in **experiment/component-occ-broadphase** for X1; its parent is **development/performance-optimization**. Confirm clean worktree and read the three docs above plus COMPONENT_OCC_X1.md.
 2. Determine the first unfinished gate in the handoff document. Work on *one* focused change with tests and report exact scope.
 3. Run the relevant headless tests, compile check, available FreeCAD tests and CI. Record exact commands and results.
 4. Use the Desktop SMBS_debug_log.json journal and read-only performance analyzer for before/after metrics. Keep original logs untouched.
