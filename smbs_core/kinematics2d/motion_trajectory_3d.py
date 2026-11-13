@@ -620,6 +620,14 @@ class AdaptiveTrajectoryValidator3D:
     def set_config(self, config: AdaptiveSamplingConfig) -> None:
         """Update sampling config and invalidate caches."""
         self.config = config
+        try:
+            requested_shadow = int(os.environ.get(
+                "SMBS_COMPONENT_SHADOW_SAMPLES",
+                str(getattr(config, "component_shadow_samples_per_bend", 0)),
+            ))
+        except (TypeError, ValueError):
+            requested_shadow = 0
+        self._component_shadow_limit = max(0, min(8, requested_shadow))
         self.end_zone_policy = EndZoneCollisionPolicy(
             allow_end_zone_collision=bool(getattr(config, "allow_end_zone_collision", False)),
             end_zone_length_mm=float(getattr(config, "end_zone_length_mm", 0.0)),
@@ -946,9 +954,14 @@ class AdaptiveTrajectoryValidator3D:
             ),
         )
         if shadow_results is not None:
-            record_component_shadow_probe(
-                shadow_results, col_res, active_bend_id, phase, path_u,
-            )
+            try:
+                record_component_shadow_probe(
+                    shadow_results, col_res, active_bend_id, phase, path_u,
+                )
+            except Exception:
+                # Even a diagnostic serialization/accounting bug cannot
+                # change, suppress or misclassify a physical OCC result.
+                pass
         if not punch_cache_hit:
             self._prefer_punch_overlap_next = (
                 col_res.punch_result.status == CollisionClass.PENETRATION
