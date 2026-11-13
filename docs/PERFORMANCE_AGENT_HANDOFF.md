@@ -263,3 +263,13 @@ These are implemented improvements to exact-geometry reuse, **not** a measured s
   on ambiguous, Conditional, contact or topology-dependent cases. Do not
   declare component-only CLEAR without independently proven full-sheet
   integrity and exact all-components contact/distance semantics.
+
+
+## 2026-11-13 — Log 20261113-141036 proves broadphase works but shadow hit coverage inadequate
+
+- User native Windows log analyzed from the actual ZIP-installed `component_collision_oracle.py` (runtime fingerprint `a875c255ec2c3da07eea6b05b2b13b6cdc9f6da7342d58cd562b02a37aa8f93d`).
+- Ten-bend original manual D6 finished **1047.1784s**, compared with 1046.8586s without shadow (+0.3198s, effectively unchanged). All native statuses preserved: B02 PUNCH collision at RETRACT; B08/B04/B06 Conditional; remaining 6 sampled-clear-not-continuous. Full unions **297** again.
+- Native shadow 20 probes / 40 tool screens / 840 component-tool pairs. Conservative AABB rejected **603 (71.79%)**, candidates **237**; 29/40 screens had `candidate_budget_fallback` from four-candidate ceiling; other outcomes 10 uncertain-nonpenetrating and one separated. **0 proven hits / 0 disagreements**: NOT sufficient for equivalence because only BENDING samples were probed, while B02 true first blocker is RETRACT. Extra 30 exact measured Commons (native kernel 657 vs previous 627), 548 distance unchanged. Detailed source evidence: `docs/PERFORMANCE_LOG12_COMPONENT_SHADOW.md`.
+- Corrective commits on this branch: `cce4353` BENDING-first + reserve one for first non-Conditional RETRACT PENETRATION, even for a cached full-sheet pose, with diagnostic-only rebuild of isolated components and candidate cap **12**; `fb6c3ea` new regression; `0bc4f93` fix mock result to match real punch/retract/die outcome (CI success #43441205080); `2db4bae`, `d9d9078`, `33dc6d4`, `23dfb5b` add separate component rebuild timing and assertions.
+- **Critical:** before accepting a new proven-reject shortcut, rerun in real FreeCAD with `SMBS_COMPONENT_SHADOW_SAMPLES=2` and verify a B02 RETRACT component-positive exact punch hit. If none is proven, debug candidate placement/edge cases, not false-CLEAR the whole shape. Shadow mode may be slower, still makes 297 full-sheet unions, is NOT a production speedup.
+- Future test files: `tests/test_component_shadow_trajectory_integration.py`, `tests/test_component_machine_shadow.py`, `tests/test_performance_report.py`. All changes confined to child experiment, no main/smbs updates.
