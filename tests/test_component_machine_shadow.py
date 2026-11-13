@@ -141,7 +141,7 @@ class MachineComponentShadowTests(unittest.TestCase):
         screen = MachineComponentScreen(
             ComponentVerdict.PROVEN_PENETRATION, "exact_positive",
             "PUNCH", 21, 18, 3, 1, 1, 15.0,
-            hit=SimpleNamespace(component_id="P09"),
+            hit=SimpleNamespace(component_id="P09", volume_mm3=25.0),
         )
         oracle = SimpleNamespace(
             status=CollisionClass.CLEAR,
@@ -161,7 +161,7 @@ class MachineComponentShadowTests(unittest.TestCase):
         screen = MachineComponentScreen(
             ComponentVerdict.PROVEN_PENETRATION, "exact_positive",
             "PUNCH", 21, 20, 1, 1, 1, 5.0,
-            hit=SimpleNamespace(component_id="P07"),
+            hit=SimpleNamespace(component_id="P07", volume_mm3=11.5),
         )
         oracle = SimpleNamespace(
             status=CollisionClass.PENETRATION,
