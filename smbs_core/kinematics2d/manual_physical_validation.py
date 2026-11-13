@@ -21,6 +21,7 @@ from .native_kernel_metrics import count_native_kernel_calls
 from .native_sequence_geometry_cache import NativeSequenceGeometryCache
 from .runtime_build_identity import loaded_native_module_sources
 from .native_geometry_build_metrics import count_native_geometry_builds
+from .component_collision_oracle import count_component_shadow_checks
 from .panel_kinematics import FoldState
 from .physical_validation_25d import (
     PhysicalEvidence,
@@ -569,6 +570,7 @@ def check_manual_3d_sequence(
             with (
                 count_native_kernel_calls() as kernel_counts,
                 count_native_geometry_builds() as geometry_counts,
+                count_component_shadow_checks() as shadow_counts,
             ):
                 try:
                     report = check_active_25d_bend_trajectory(
@@ -588,6 +590,7 @@ def check_manual_3d_sequence(
                         elapsed_s=round(perf_counter() - started, 6),
                         kernel=kernel_counts.to_dict(),
                         geometry_build=geometry_counts.to_dict(),
+                        component_shadow=shadow_counts.to_dict(),
                         shared_geometry_cache=sequence_geometry_cache.statistics(),
                         loaded_native_modules=loaded_native_module_sources(),
                         scope="D6_VALIDATION_EXCLUDES_POST_COLLISION_FORENSICS",
