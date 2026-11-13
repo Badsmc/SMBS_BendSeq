@@ -205,6 +205,9 @@ def run(journal_path, *, bend_id="B02", output=None, part=None,
     )
     from smbs_core.kinematics2d.component_collision_oracle import screen_machine_component_overlap
     from tools.run_native_benchmark import sha256_file
+    from smbs_core.kinematics2d.runtime_build_identity import (
+        loaded_native_module_sources, runtime_source_fingerprint,
+    )
 
     started = perf_counter()
     journal_path = Path(journal_path).expanduser().resolve(strict=True)
@@ -233,6 +236,14 @@ def run(journal_path, *, bend_id="B02", output=None, part=None,
         },
         "sampled_blocking_u": evidence["first_sampled_blocking_u"],
         "components": [],
+        "runtime": {
+            "freecad_version": ".".join(map(str, App.Version())),
+            "occ_version": str(getattr(App, "OCC_VERSION", "NOT_RECORDED")),
+            "installed_source": runtime_source_fingerprint(
+                Path(__file__).resolve().parents[1]
+            ),
+            "loaded_native_module_sources": loaded_native_module_sources(),
+        },
     }
     existing = set(App.listDocuments())
     previous_name = getattr(getattr(App, "ActiveDocument", None), "Name", None)
