@@ -13,6 +13,7 @@ Example from FreeCAD Python console:
 
 Optional:
     run(part='/absolute/path/example.FCStd', output='/absolute/path/perf.json')
+    run(component_collision_rejection=True)  # experimental component OCC X1
 """
 from __future__ import annotations
 
@@ -109,7 +110,8 @@ def run(*, part: str | Path = DEFAULT_PART,
         end_zone_length_mm: float = 10.0,
         reverse_axis: bool = True,
         max_phase_time_s: float = 300.0,
-        max_states_per_phase: int = 64) -> dict[str, Any]:
+        max_states_per_phase: int = 64,
+        component_collision_rejection: bool = False) -> dict[str, Any]:
     """Run the real native oracle on the specified FCStd with exact tool IDs.
 
     Executed in FreeCAD's Python interpreter, not ordinary system Python.
@@ -152,6 +154,7 @@ def run(*, part: str | Path = DEFAULT_PART,
     cfg = AdaptiveSamplingConfig(
         max_phase_time_s=float(max_phase_time_s),
         max_evaluated_states_per_phase=int(max_states_per_phase),
+        component_collision_rejection=bool(component_collision_rejection),
     )
     record = _snapshot(part_path, punch_path, die_path, cfg)
     record["match_active_bend_length"] = bool(match_active_bend_length)
