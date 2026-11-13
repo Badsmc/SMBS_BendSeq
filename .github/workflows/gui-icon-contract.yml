@@ -30,7 +30,7 @@ jobs:
         with:
           python-version: '3.11'
       - name: Compile FreeCAD workbench code
-        run: python -m compileall -q Init.py InitGui.py freecad_smbs smbs_core
+        run: python -m compileall -q Init.py InitGui.py freecad_smbs smbs_core tools
       - name: Test coupled punch motion during manual preview
         env:
           PYTHONPATH: .
@@ -43,6 +43,10 @@ jobs:
         env:
           PYTHONPATH: .
         run: python -m unittest discover -s tests -p 'test_gauge_preview.py' -v
+      - name: Test actual FreeCAD native benchmark launcher contract
+        env:
+          PYTHONPATH: .
+        run: python -m unittest discover -s tests -p 'test_native_benchmark_runner.py' -v
       - name: Test shared bounded native BRep cache source invalidation
         env:
           PYTHONPATH: .
