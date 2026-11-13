@@ -363,6 +363,98 @@ def analyze_journal_file(path: str | Path) -> dict[str, Any]:
     return analyze_journal(parsed, source=file.name)
 
 
+def compare_native_reports(baseline: Mapping[str, Any],
+                           candidate: Mapping[str, Any]) -> dict[str, Any]:
+    """Compare latest completed manual runs, fail closed on mismatched evidence.
+
+    This is a *measurement aid*, not a substitute for native FreeCAD
+    acceptance. Runtime FreeCAD version/sha and input file hashes must still
+    be independently checked: an old Desktop JSON may omit these.
+    """
+    if (baseline.get("schema_version") != REPORT_SCHEMA
+            or candidate.get("schema_version") != REPORT_SCHEMA):
+        raise ValueError("Expected two SMBS performance reports")
+
+    def last_completed(report):
+        completed = [
+            run for run in report.get("runs", ())
+            if run.get("completed") is True
+        ]
+        return completed[-1] if completed else None
+
+    left, right = last_completed(baseline), last_completed(candidate)
+    issues: list[str] = []
+    if left is None or right is None:
+        issues.append("missing_complete_run_in_one_or_both_journals")
+    if left is not None and right is not None:
+        if left.get("requested_order") != right.get("requested_order"):
+            issues.append("requested_bend_order_mismatch")
+        if left.get("configuration") != right.get("configuration"):
+            issues.append("tooling_or_sampling_configuration_mismatch")
+        if left.get("final_status") != right.get("final_status"):
+            issues.append("overall_native_status_mismatch")
+        a = left.get("bends") or []
+        b = right.get("bends") or []
+        if len(a) != len(b):
+            issues.append("different_number_of_checked_bends")
+        for step, (x, y) in enumerate(zip(a, b), 1):
+            if x.get("bend_id") != y.get("bend_id"):
+                issues.append("bend_id_mismatch_at_step_{}".format(step))
+                continue
+            if x.get("status") != y.get("status"):
+                issues.append("physical_verdict_mismatch_at_step_{}:{}".format(
+                    step, x.get("bend_id")
+                ))
+            xd = x.get("native_d6") or {}
+            yd = y.get("native_d6") or {}
+            if xd.get("evidence_status") != yd.get("evidence_status"):
+                issues.append("native_d6_evidence_mismatch_at_step_{}:{}".format(
+                    step, x.get("bend_id")
+                ))
+            xx = x.get("first_blocker") or {}
+            yy = y.get("first_blocker") or {}
+            for key in ("tool", "phase"):
+                if xx.get(key) != yy.get(key):
+                    issues.append("collision_{}_mismatch_at_step_{}:{}".format(
+                        key, step, x.get("bend_id")
+                    ))
+            if xx.get("angle_deg") is not None or yy.get("angle_deg") is not None:
+                xv = _number(xx.get("angle_deg"))
+                yv = _number(yy.get("angle_deg"))
+                if xv is None or yv is None or abs(xv - yv) > 1e-4:
+                    issues.append("first_collision_angle_mismatch_at_step_{}:{}"
+                                  .format(step, x.get("bend_id")))
+
+    elapsed_left = (
+        _number(left.get("elapsed_s")) if left is not None else None
+    )
+    elapsed_right = (
+        _number(right.get("elapsed_s")) if right is not None else None
+    )
+    ratio = (
+        round(elapsed_left / elapsed_right, 4)
+        if not issues and elapsed_left is not None
+        and elapsed_right is not None and elapsed_right > 0
+        else None
+    )
+    return {
+        "schema_version": "smbs.performance_comparison.v1",
+        "baseline_source": baseline.get("source_journal"),
+        "candidate_source": candidate.get("source_journal"),
+        "matched_recorded_configuration_and_verdicts": not issues,
+        "issues": issues,
+        "elapsed_baseline_s": elapsed_left,
+        "elapsed_candidate_s": elapsed_right,
+        "observed_wall_speedup_x": ratio,
+        "native_freecad_input_hashes_verified": False,
+        "independent_native_collision_regression_qualified": False,
+        "scope": (
+            "LOG_LEVEL_COMPARISON_ONLY; matched input FCStd/tool SHA-256 "
+            "and native FreeCAD physical acceptance REQUIRED"
+        ),
+    }
+
+
 def _display(value: Any) -> str:
     if value is None:
         return "NOT_RECORDED"
@@ -435,20 +527,46 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--output", type=Path, help="Optionally write a separate JSON report"
     )
+    parser.add_argument(
+        "--compare", type=Path,
+        help="Compare with a second untouched Desktop journal; "
+             "refuse speedup ratio on mismatched native verdicts"
+    )
     args = parser.parse_args(argv)
     source = args.journal.expanduser()
     if args.output is not None:
         output = args.output.expanduser()
-        if output.resolve() == source.resolve():
-            parser.error("Output must NOT overwrite the source journal")
+        protected = [source.resolve()]
+        if args.compare is not None:
+            protected.append(args.compare.expanduser().resolve())
+        if output.resolve() in protected:
+            parser.error("Output must NOT overwrite a source journal")
     summary = analyze_journal_file(source)
+    if args.compare is not None:
+        summary = compare_native_reports(
+            summary, analyze_journal_file(args.compare.expanduser())
+        )
     rendered = json.dumps(summary, ensure_ascii=False, indent=2)
     if args.output is not None:
         args.output.expanduser().parent.mkdir(parents=True, exist_ok=True)
         args.output.expanduser().write_text(
             rendered + "\n", encoding="utf-8"
         )
-    print(rendered if args.json else report_text(summary))
+    if args.compare is not None:
+        print(rendered if args.json else (
+            "SMBS native comparison: {}\nBaseline: {} s; candidate: {} s; "
+            "recorded speedup: {}x\nMismatches: {}\n"
+            "CAUTION: input hashes and native FreeCAD qualification remain unverified"
+        ).format(
+            "MATCHED" if summary["matched_recorded_configuration_and_verdicts"]
+            else "NOT COMPARABLE",
+            _display(summary["elapsed_baseline_s"]),
+            _display(summary["elapsed_candidate_s"]),
+            _display(summary["observed_wall_speedup_x"]),
+            ", ".join(summary["issues"]) or "none",
+        ))
+    else:
+        print(rendered if args.json else report_text(summary))
     return 0
 
 
