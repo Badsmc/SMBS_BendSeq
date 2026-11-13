@@ -140,6 +140,14 @@ def _start_run(event: Mapping[str, Any], *, orphan: bool = False,
             ),
             "adaptive_config": data.get("adaptive_config"),
         },
+        "optimization": {
+            "machine_pose_reuse_enabled": data.get(
+                "machine_pose_reuse_enabled"
+            ),
+            "component_reject_enabled": data.get(
+                "component_reject_enabled"
+            ),
+        },
         "elapsed_s": None,
         "bends": [],
     }
