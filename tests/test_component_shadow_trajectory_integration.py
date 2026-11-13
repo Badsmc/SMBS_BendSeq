@@ -249,6 +249,96 @@ class ComponentShadowIntegrationTests(unittest.TestCase):
         self.assertEqual(stats.component_rebuild_calls, 0)
         self.assertEqual(stats.probes, 1)
 
+    def test_opt_in_reuses_exact_same_machine_sheet_at_new_ram(self):
+        validator = fake_validator(probes=0)
+        base = FakeShape()
+        mod = "smbs_core.kinematics2d.motion_trajectory_3d."
+        with (
+            patch.dict(os.environ, {
+                "SMBS_MACHINE_POSE_REUSE": "1",
+                "SMBS_COMPONENT_REJECT": "0",
+            }),
+            patch.dict(sys.modules, {"FreeCAD": SimpleNamespace(Matrix=lambda *v: object())}),
+            patch(mod + "_panel_build_geometry_signature", return_value=("panelA",)),
+            patch(mod + "_punch_geometry_signature", return_value=("punchA",)),
+            patch(mod + "_die_geometry_signature", return_value=("dieA",)),
+            patch(mod + "WorkpiecePlacement3D.compute_placement", return_value=actual_pose()),
+            patch(mod + "build_multi_bend_sheet_solid", return_value=SimpleNamespace(shape=base)) as builder,
+            patch.object(base, "copy", wraps=base.copy) as copies,
+            patch(mod + "check_solid_validity", return_value=(True, "valid")) as checks,
+            patch(mod + "set_punch_ram_z", return_value=SimpleNamespace(machine_shape=FakeShape())),
+            patch(mod + "validate_workpiece_tooling_pose", return_value=fake_report()) as full,
+        ):
+            a = validator.create_state_snapshot("B01", "BOTTOM", 1., 90., 1., 0., {})
+            b = validator.create_state_snapshot("B01", "RETRACT", 0.5, 90., 2., 0., {})
+            self.assertTrue(a.is_safe)
+            self.assertTrue(b.is_safe)
+            self.assertEqual(builder.call_count, 1)
+            self.assertEqual(copies.call_count, 1)
+            self.assertEqual(checks.call_count, 1)
+            self.assertEqual(full.call_count, 2)
+            self.assertIs(full.call_args_list[0].args[0], full.call_args_list[1].args[0])
+            self.assertIs(full.call_args_list[0].kwargs["_validated_workpiece_shape"][0],
+                          full.call_args_list[1].args[0])
+            self.assertEqual(validator.machine_pose_reuse_hits, 1)
+            self.assertEqual(validator.machine_pose_reuse_misses, 1)
+            validator.clear_caches()
+            self.assertIsNone(validator._machine_pose_cache)
+
+    def test_opt_in_does_not_reuse_after_placement_changes(self):
+        validator = fake_validator(probes=0)
+        base = FakeShape()
+        shifted = SimpleNamespace(
+            rotation=actual_pose().rotation, translation=(0., 2., 0.))
+        mod = "smbs_core.kinematics2d.motion_trajectory_3d."
+        with (
+            patch.dict(os.environ, {"SMBS_MACHINE_POSE_REUSE": "1",
+                                     "SMBS_COMPONENT_REJECT": "0"}),
+            patch.dict(sys.modules, {"FreeCAD": SimpleNamespace(Matrix=lambda *v: object())}),
+            patch(mod + "_panel_build_geometry_signature", return_value=("panelA",)),
+            patch(mod + "_punch_geometry_signature", return_value=("punchA",)),
+            patch(mod + "_die_geometry_signature", return_value=("dieA",)),
+            patch(mod + "WorkpiecePlacement3D.compute_placement",
+                  side_effect=[actual_pose(), shifted]),
+            patch(mod + "build_multi_bend_sheet_solid", return_value=SimpleNamespace(shape=base)),
+            patch.object(base, "copy", wraps=base.copy) as copies,
+            patch(mod + "check_solid_validity", return_value=(True, "valid")),
+            patch(mod + "set_punch_ram_z", return_value=SimpleNamespace(machine_shape=FakeShape())),
+            patch(mod + "validate_workpiece_tooling_pose", return_value=fake_report()) as full,
+        ):
+            validator.create_state_snapshot("B01", "BOTTOM", 1., 90., 1., 0., {})
+            validator.create_state_snapshot("B01", "RETRACT", 0.5, 90., 2., 0., {})
+            self.assertEqual(copies.call_count, 2)
+            self.assertIsNot(full.call_args_list[0].args[0],
+                             full.call_args_list[1].args[0])
+            self.assertEqual(validator.machine_pose_reuse_hits, 0)
+
+    def test_default_off_never_shares_machine_shape(self):
+        validator = fake_validator(probes=0)
+        base = FakeShape()
+        mod = "smbs_core.kinematics2d.motion_trajectory_3d."
+        with (
+            patch.dict(os.environ, {"SMBS_MACHINE_POSE_REUSE": "0",
+                                     "SMBS_COMPONENT_REJECT": "0"}),
+            patch.dict(sys.modules, {"FreeCAD": SimpleNamespace(Matrix=lambda *v: object())}),
+            patch(mod + "_panel_build_geometry_signature", return_value=("panelA",)),
+            patch(mod + "_punch_geometry_signature", return_value=("punchA",)),
+            patch(mod + "_die_geometry_signature", return_value=("dieA",)),
+            patch(mod + "WorkpiecePlacement3D.compute_placement", return_value=actual_pose()),
+            patch(mod + "build_multi_bend_sheet_solid", return_value=SimpleNamespace(shape=base)),
+            patch.object(base, "copy", wraps=base.copy) as copies,
+            patch(mod + "check_solid_validity", return_value=(True, "valid")) as checks,
+            patch(mod + "set_punch_ram_z", return_value=SimpleNamespace(machine_shape=FakeShape())),
+            patch(mod + "validate_workpiece_tooling_pose", return_value=fake_report()) as full,
+        ):
+            validator.create_state_snapshot("B01", "BOTTOM", 1., 90., 1., 0., {})
+            validator.create_state_snapshot("B01", "RETRACT", 0.5, 90., 2., 0., {})
+            self.assertEqual(copies.call_count, 2)
+            checks.assert_not_called()
+            self.assertNotIn("_validated_workpiece_shape",
+                             full.call_args_list[0].kwargs)
+            self.assertEqual(validator.machine_pose_reuse_hits, 0)
+
     def test_default_off_uses_original_native_builder_signature(self):
         st, cached, oracle, kwargs, screen, stats = self.evaluate(probes=0)
         self.assertIs(st.collision_report, oracle)
