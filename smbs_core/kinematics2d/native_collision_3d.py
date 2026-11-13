@@ -1019,6 +1019,7 @@ def validate_workpiece_tooling_pose(
     end_zone_policy: Optional[EndZoneCollisionPolicy] = None,
     classify_end_zone_length_mm: Optional[float] = None,
     prefer_punch_overlap_first: bool = False,
+    _validated_workpiece_shape: Optional[Tuple[Any, Tuple[bool, str]]] = None,
 ) -> ToolCollisionReport:
     """Validate 3D geometric collision status of a machine-placed workpiece against punch and die."""
     t0 = time.perf_counter()
@@ -1056,7 +1057,18 @@ def validate_workpiece_tooling_pose(
     # and die query. No result survives this ToolCollisionReport call, and
     # tools are still checked independently by check_pair_clearance.
     shared_workpiece_check = None
-    if not punch_cache_hit and not die_cache_hit:
+    # Optional same-object proof from the validator's ONE retained native
+    # machine shape. Refuse a different object or malformed tuple; never
+    # trust a validity result based only on equal coordinates/geometry keys.
+    if (_validated_workpiece_shape is not None
+            and isinstance(_validated_workpiece_shape, tuple)
+            and len(_validated_workpiece_shape) == 2
+            and _validated_workpiece_shape[0] is workpiece_machine_shape
+            and isinstance(_validated_workpiece_shape[1], tuple)
+            and len(_validated_workpiece_shape[1]) == 2
+            and isinstance(_validated_workpiece_shape[1][0], bool)):
+        shared_workpiece_check = _validated_workpiece_shape
+    elif not punch_cache_hit and not die_cache_hit:
         with measure_native_geometry_region("pair_geometry_sanity"):
             shared_workpiece_check = (
                 workpiece_machine_shape,
