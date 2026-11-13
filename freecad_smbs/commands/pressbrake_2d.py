@@ -188,11 +188,40 @@ def get_runtime_git_info() -> dict:
         ).strip()
     except Exception:
         pass
+    # ZIP installs lack .git, therefore git_commit=UNKNOWN is expected.
+    # Hash the actual Mod tree and record an unambiguous identity of the
+    # source implementation instead of guessing it matches GitHub HEAD.
+    try:
+        from smbs_core.kinematics2d.runtime_build_identity import (
+            runtime_source_fingerprint,
+        )
+        source_identity = runtime_source_fingerprint(repo_root)
+    except Exception as exc:
+        source_identity = {
+            "schema_version": "smbs.runtime_source_sha256.v1",
+            "error_type": type(exc).__name__,
+            "required_source_files_present": False,
+            "composite_source_sha256": None,
+        }
+    loaded_modules = {}
+    for name in (
+        "smbs_core.kinematics2d.manual_physical_validation",
+        "smbs_core.kinematics2d.native_collision_3d",
+        "smbs_core.kinematics2d.motion_trajectory_3d",
+    ):
+        module = sys.modules.get(name)
+        loaded_modules[name] = (
+            str(Path(module.__file__).resolve())
+            if module is not None and getattr(module, "__file__", None)
+            else None
+        )
     return {
         "module_file": str(mod_path),
         "repo_root": str(repo_root),
         "git_branch": branch,
         "git_commit": commit,
+        "installed_source_identity": source_identity,
+        "loaded_native_module_origins_at_start": loaded_modules,
     }
 
 
