@@ -271,6 +271,9 @@ class ComponentShadowMetrics:
     transformed_components: int = 0
     component_common_calls: int = 0
     measured_s: float = 0.0
+    # Separately timed rebuilds of isolated components for cached RETRACT.
+    component_rebuild_calls: int = 0
+    component_rebuild_s: float = 0.0
     proven_component_hits: int = 0
     disagreements: int = 0
     incomplete_probes: int = 0
@@ -290,6 +293,8 @@ class ComponentShadowMetrics:
             "transformed_components": self.transformed_components,
             "component_common_calls": self.component_common_calls,
             "measured_s": round(self.measured_s, 6),
+            "component_rebuild_calls": self.component_rebuild_calls,
+            "component_rebuild_s": round(self.component_rebuild_s, 6),
             "proven_component_hits": self.proven_component_hits,
             "disagreements": self.disagreements,
             "incomplete_probes": self.incomplete_probes,
@@ -310,6 +315,14 @@ def count_component_shadow_checks():
         yield stats
     finally:
         _shadow_metrics.reset(token)
+
+
+def record_component_shadow_rebuild(elapsed_s):
+    """Attribute diagnostic component-only rebuild cost, not legacy fusion."""
+    stats = _shadow_metrics.get()
+    if stats is not None:
+        stats.component_rebuild_calls += 1
+        stats.component_rebuild_s += max(0.0, float(elapsed_s))
 
 
 def record_component_shadow_probe(results, oracle_report, bend_id, phase, path_u):
