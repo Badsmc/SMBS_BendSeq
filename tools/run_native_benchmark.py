@@ -190,6 +190,9 @@ def run(*, part: str | Path = DEFAULT_PART,
         bend: bool(reverse_axis) for bend in chosen_order
     }
     record["manual_order"] = list(chosen_order)
+    record["machine_pose_reuse_enabled"] = (
+        os.environ.get("SMBS_MACHINE_POSE_REUSE", "0") == "1"
+    )
     record["benchmark_prefix_bends"] = len(chosen_order)
     record["complete_part_sequence_requested"] = (chosen_order == MANUAL_ORDER)
     record["warning"] = (
