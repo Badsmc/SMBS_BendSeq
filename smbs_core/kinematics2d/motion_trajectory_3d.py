@@ -56,7 +56,14 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 from smbs_core.kinematics2d.coupled_kinematics_2d import CoupledAirBendingKinematics
 from smbs_core.kinematics2d.ram_cycle_geometry import ram_cycle_positions
 from smbs_core.kinematics2d.tooling_25d import DEFAULT_INITIAL_PUNCH_CLEARANCE_MM
-from smbs_core.kinematics2d.native_bend_solid_3d import build_multi_bend_sheet_solid
+from smbs_core.kinematics2d.native_bend_solid_3d import (
+    build_multi_bend_sheet_solid,
+    build_multi_bend_sheet_components,
+    join_multi_bend_sheet_components,
+)
+from smbs_core.kinematics2d.native_component_collision_3d import (
+    proven_component_report, screen_native_sheet_components,
+)
 from smbs_core.kinematics2d.native_geometry_build_metrics import measure_native_geometry_region
 from smbs_core.kinematics2d.native_collision_3d import (
     CollisionClass,
@@ -148,6 +155,8 @@ class AdaptiveSamplingConfig:
     allow_end_zone_collision: bool = False
     end_zone_length_mm: float = 0.0
     early_stop_on_blocking_collision: bool = True
+    # Experimental: off by default until FreeCAD native differential tests.
+    component_collision_rejection: bool = False
     # Use the same *relative to contact* upper travel as PressCycleController.
     # Do not hard-code absolute +40/+50 mm in sampled D6 trajectories.
     initial_clearance_mm: float = DEFAULT_INITIAL_PUNCH_CLEARANCE_MM
@@ -702,6 +711,7 @@ class AdaptiveTrajectoryValidator3D:
             tolerances_sig,
             cls_ez_len,
             ez_policy_sig,
+            bool(self.config.component_collision_rejection),
         )
 
         t_lookup0 = time.perf_counter()
@@ -754,19 +764,109 @@ class AdaptiveTrajectoryValidator3D:
         solid_lookup_ms = (time.perf_counter() - t_solid_lookup0) * 1000.0
 
         solid_cache_hit = False
+        prebuilt_punch_shape = None
         if in_solid_cache:
             solid_cache_hit = True
             self.solid_cache_hits += 1
         else:
             t_s0 = time.perf_counter()
-            solid = build_multi_bend_sheet_solid(
-                self.fold_state,
-                self.panel_build,
-                segments=self.config.arc_segments,
-                panel_prism_cache=self._panel_prism_cache,
-                zone_shape_cache=self._zone_shape_cache,
-            )
-            self.solid_reconstruction_time_ms += (time.perf_counter() - t_s0) * 1000.0
+            components = None
+            if self.config.component_collision_rejection:
+                # X1: build EXACT same component solids as the full-sheet
+                # builder, without first performing expensive multiFuse.
+                components = build_multi_bend_sheet_components(
+                    self.fold_state, self.panel_build,
+                    segments=self.config.arc_segments,
+                    panel_prism_cache=self._panel_prism_cache,
+                    zone_shape_cache=self._zone_shape_cache,
+                )
+                machine_matrix = App.Matrix(
+                    tf.rotation[0][0], tf.rotation[0][1], tf.rotation[0][2], tf.translation[0],
+                    tf.rotation[1][0], tf.rotation[1][1], tf.rotation[1][2], tf.translation[1],
+                    tf.rotation[2][0], tf.rotation[2][1], tf.rotation[2][2], tf.translation[2],
+                    0.0, 0.0, 0.0, 1.0,
+                )
+                with measure_native_geometry_region("native_punch_pose"):
+                    prebuilt_punch_shape = set_punch_ram_z(
+                        self.punch_base, ram_z,
+                    ).machine_shape
+                component_screen = screen_native_sheet_components(
+                    components, machine_matrix, prebuilt_punch_shape,
+                    self.die.machine_shape,
+                    volume_tolerance_mm3=self.config.volume_tolerance_mm3,
+                    allow_end_zone_collision=bool(
+                        self.end_zone_policy.allow_end_zone_collision
+                    ),
+                    end_zone_length_mm=float(
+                        self.end_zone_policy.end_zone_length_mm
+                    ),
+                )
+                from .developer_debug_log import debug_event
+                debug_event(
+                    "PERF_COMPONENT_BROADPHASE",
+                    bend_id=active_bend_id, phase=phase,
+                    signed_angle_deg=float(signed_angle),
+                    ram_z_mm=float(ram_z), path_u=float(path_u),
+                    candidate_pairs=component_screen.candidate_pairs,
+                    aabb_rejected_pairs=component_screen.aabb_rejected_pairs,
+                    common_calls=component_screen.common_calls,
+                    elapsed_ms=component_screen.elapsed_ms,
+                    fallback_reason=component_screen.fallback_reason,
+                    hit_component=(component_screen.hit.component_id
+                                   if component_screen.hit else None),
+                    hit_tool=(component_screen.hit.tool_label
+                              if component_screen.hit else None),
+                )
+                if component_screen.has_proven_rejection:
+                    col_res = proven_component_report(component_screen)
+                    self.solid_reconstruction_time_ms += (
+                        time.perf_counter() - t_s0
+                    ) * 1000.0
+                    self.solid_cache_misses += 1
+                    self.pair_collision_checks += component_screen.candidate_pairs
+                    self.actual_common_queries += component_screen.common_calls
+                    self._pose_collision_cache[pose_cache_key] = col_res
+                    return MotionState3D(
+                        phase=phase,
+                        active_bend_id=active_bend_id,
+                        signed_angle_deg=signed_angle,
+                        path_u=path_u,
+                        ram_z_mm=ram_z,
+                        support_plane_zm=support_z,
+                        workpiece_placement=tf,
+                        completed_angles=dict(prior_angles),
+                        collision_report=col_res,
+                        is_safe=False,
+                        solid_cache_hit=False,
+                        cache_lookup_ms=pose_lookup_ms + solid_lookup_ms,
+                        punch_actual_eval_ms=(
+                            component_screen.elapsed_ms
+                            if component_screen.hit.tool_label == "PUNCH"
+                            else 0.0
+                        ),
+                        die_actual_eval_ms=(
+                            component_screen.elapsed_ms
+                            if component_screen.hit.tool_label == "DIE"
+                            else 0.0
+                        ),
+                        is_conditional_safe=False,
+                        conditional_status="REJECTED_CENTRAL_OR_DIE_COLLISION",
+                    )
+
+            # Any nonblocking or inconclusive screen uses the ORIGINAL
+            # exact union/topology/volume oracle; reuse prepared components.
+            if components is None:
+                solid = build_multi_bend_sheet_solid(
+                    self.fold_state, self.panel_build,
+                    segments=self.config.arc_segments,
+                    panel_prism_cache=self._panel_prism_cache,
+                    zone_shape_cache=self._zone_shape_cache,
+                )
+            else:
+                solid = join_multi_bend_sheet_components(components)
+            self.solid_reconstruction_time_ms += (
+                time.perf_counter() - t_s0
+            ) * 1000.0
             _bounded_full_sheet_cache_put(
                 self._solid_cache, solid_cache_key, solid,
                 self._max_cached_full_sheets,
@@ -850,9 +950,12 @@ class AdaptiveTrajectoryValidator3D:
                 wp_machine = solid.shape.copy()
             with measure_native_geometry_region("machine_workpiece_transform"):
                 wp_machine.transformShape(mat_wp)
-            with measure_native_geometry_region("native_punch_pose"):
-                punch_step = set_punch_ram_z(self.punch_base, ram_z)
-            punch_shape = punch_step.machine_shape
+            if prebuilt_punch_shape is None:
+                with measure_native_geometry_region("native_punch_pose"):
+                    prebuilt_punch_shape = set_punch_ram_z(
+                        self.punch_base, ram_z,
+                    ).machine_shape
+            punch_shape = prebuilt_punch_shape
             die_shape = self.die.machine_shape
         else:
             wp_machine = None
