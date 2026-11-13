@@ -135,6 +135,106 @@ class ComponentShadowIntegrationTests(unittest.TestCase):
         self.assertEqual(len(kwargs), 1)
         self.assertIn("component_observer", kwargs[0])
 
+    def test_real_retract_blocker_probed_even_if_sheet_is_cached(self):
+        validator = fake_validator(probes=2)
+        clear = fake_report()
+        penetration = PairClearanceResult(
+            CollisionClass.PENETRATION, "exact_positive",
+            0.0, 2.752, 0.0, 1.0,
+        )
+        blocked = ToolCollisionReport(
+            CollisionClass.PENETRATION, penetration, clear.die_result,
+            False, ["PUNCH_PENETRATION"], 1.0,
+        )
+        native_components = NativeSheetComponents(
+            (("P01", FakeShape()),),
+            (("bend_zone:B09", FakeShape()),), 1.0,
+        )
+        build_calls = []
+        def build(*args, **kwargs):
+            build_calls.append(True)
+            observer = kwargs.get("component_observer")
+            if observer:
+                observer(native_components)
+            return SimpleNamespace(shape=FakeShape())
+
+        probe = MachineComponentScreen(
+            ComponentVerdict.PROVEN_PENETRATION, "exact_positive",
+            "PUNCH", 2, 0, 2, 1, 1, 0.1,
+            hit=SimpleNamespace(component_id="bend_zone:B09"),
+        )
+        mat = lambda *v: SimpleNamespace(dx=v[3], dy=v[7])
+        mod = "smbs_core.kinematics2d.motion_trajectory_3d."
+        with (
+            patch.dict(sys.modules, {"FreeCAD": SimpleNamespace(Matrix=mat)}),
+            patch(mod + "_panel_build_geometry_signature", return_value=("panelA",)),
+            patch(mod + "_punch_geometry_signature", return_value=("punchA",)),
+            patch(mod + "_die_geometry_signature", return_value=("dieA",)),
+            patch(mod + "WorkpiecePlacement3D.compute_placement", return_value=actual_pose()),
+            patch(mod + "build_multi_bend_sheet_solid", side_effect=build),
+            patch(mod + "build_multi_bend_sheet_components", return_value=native_components) as rebuild,
+            patch(mod + "set_punch_ram_z", return_value=SimpleNamespace(machine_shape=FakeShape())),
+            patch(mod + "validate_workpiece_tooling_pose", side_effect=[clear, blocked]),
+            patch(mod + "screen_machine_component_overlap", return_value=probe) as screen,
+            count_component_shadow_checks() as stats,
+        ):
+            initial = validator.create_state_snapshot(
+                "B01", "BENDING", 1.0, 90.0, 1.0, 0.0, {},
+            )
+            retract = validator.create_state_snapshot(
+                "B01", "RETRACT", 0.2, 90.0, 1.3, 0.0, {},
+            )
+        self.assertTrue(initial.is_safe)
+        self.assertFalse(retract.is_safe)
+        self.assertIs(retract.collision_report, blocked)
+        self.assertEqual(len(build_calls), 1)  # no second multiFuse
+        rebuild.assert_called_once()
+        self.assertEqual(screen.call_count, 4)
+        self.assertEqual(stats.probes, 2)
+        self.assertEqual(stats.proven_component_hits, 4)  # fake probes for punch and die
+        self.assertEqual(stats.disagreements, 1)  # fake die-positive vs die-clear
+
+    def test_conditional_retract_does_not_trigger_blocker_screen(self):
+        validator = fake_validator(probes=2)
+        conditional = fake_report()
+        conditional = ToolCollisionReport(
+            CollisionClass.PENETRATION,
+            PairClearanceResult(CollisionClass.PENETRATION, "end_zone", 0, 50, 0, 0),
+            conditional.die_result, False, [], 0.0,
+            is_conditional_safe=True, conditional_status="CONDITIONAL",
+        )
+        native_components = NativeSheetComponents(
+            (("P01", FakeShape()),), (("bend_zone:B01", FakeShape()),), 1.0,
+        )
+        def build(*args, **kwargs):
+            if kwargs.get("component_observer"):
+                kwargs["component_observer"](native_components)
+            return SimpleNamespace(shape=FakeShape())
+        mod = "smbs_core.kinematics2d.motion_trajectory_3d."
+        mat = lambda *v: SimpleNamespace(dx=v[3], dy=v[7])
+        with (
+            patch.dict(sys.modules, {"FreeCAD": SimpleNamespace(Matrix=mat)}),
+            patch(mod + "_panel_build_geometry_signature", return_value=("panelA",)),
+            patch(mod + "_punch_geometry_signature", return_value=("punchA",)),
+            patch(mod + "_die_geometry_signature", return_value=("dieA",)),
+            patch(mod + "WorkpiecePlacement3D.compute_placement", return_value=actual_pose()),
+            patch(mod + "build_multi_bend_sheet_solid", side_effect=build),
+            patch(mod + "build_multi_bend_sheet_components") as rebuild,
+            patch(mod + "set_punch_ram_z", return_value=SimpleNamespace(machine_shape=FakeShape())),
+            patch(mod + "validate_workpiece_tooling_pose", side_effect=[fake_report(), conditional]),
+            patch(mod + "screen_machine_component_overlap",
+                  return_value=MachineComponentScreen(
+                      ComponentVerdict.FALLBACK_REQUIRED, "no_proof",
+                      "PUNCH", 2, 1, 1, 1, 1, 0.1)),
+            count_component_shadow_checks() as stats,
+        ):
+            validator.create_state_snapshot("B01", "BENDING", 1.0, 90.0, 1.0, 0.0, {})
+            retract = validator.create_state_snapshot("B01", "RETRACT", 0.2, 90.0, 1.3, 0.0, {})
+        self.assertFalse(retract.is_safe)
+        self.assertTrue(retract.is_conditional_safe)
+        rebuild.assert_not_called()
+        self.assertEqual(stats.probes, 1)
+
     def test_default_off_uses_original_native_builder_signature(self):
         st, cached, oracle, kwargs, screen, stats = self.evaluate(probes=0)
         self.assertIs(st.collision_report, oracle)
