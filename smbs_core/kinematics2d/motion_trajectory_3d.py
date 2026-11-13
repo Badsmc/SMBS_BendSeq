@@ -74,6 +74,7 @@ from smbs_core.kinematics2d.native_collision_3d import (
     PunchEndZoneAnalysis,
     ToolCollisionReport,
     validate_workpiece_tooling_pose,
+    check_solid_validity,
     qualify_tool_setup,
     SetupQualificationStatus,
 )
@@ -581,6 +582,12 @@ class AdaptiveTrajectoryValidator3D:
         # default independent validator retains its previous local caches.
         # Tool-dependent collision results remain strictly per-validator.
         self._component_reject_cache = OrderedDict()
+        # Retain only ONE machine-frame sheet whose exact source BRep object
+        # and rigid placement are unchanged across ram-only poses. Disabled
+        # by default until independently measured with native OCC.
+        self._machine_pose_cache = None
+        self.machine_pose_reuse_hits = 0
+        self.machine_pose_reuse_misses = 0
         self._sequence_geometry_cache = sequence_geometry_cache
         if sequence_geometry_cache is None:
             self._solid_cache: OrderedDict[Tuple[Any, ...], Any] = OrderedDict()
@@ -608,6 +615,7 @@ class AdaptiveTrajectoryValidator3D:
             self._zone_shape_cache.clear()
         self._panel_prism_cache_identity = None
         self._component_reject_cache.clear()
+        self._machine_pose_cache = None
         self._component_shadow_bending_seen = 0
         self._component_shadow_blocker_seen = 0
         self._die_clearance_cache.clear()
@@ -704,6 +712,7 @@ class AdaptiveTrajectoryValidator3D:
         )
         if panel_prism_identity != self._panel_prism_cache_identity:
             self._component_reject_cache.clear()
+            self._machine_pose_cache = None
             if self._sequence_geometry_cache is not None:
                 # A changed source must invalidate every cached BRep,
                 # never silently borrow an old model's "clear" geometry.
@@ -1013,17 +1022,51 @@ class AdaptiveTrajectoryValidator3D:
                 if c_ez is None or c_ez.classification == PunchCollisionZoneClassification.UNCLASSIFIED or not math.isclose(c_ez.end_zone_length_mm, req_ez_len, abs_tol=1e-5):
                     can_skip_shapes = False
 
+        # The existing full-sheet solid cache is keyed by ALL fold angles.
+        # Once transformed into machine coordinates, its BRep depends on the
+        # exact rigid workpiece placement, not on punch ram Z. In particular,
+        # BOTTOM/RETRACT often share a sheet and placement but differ in ram.
+        # Reuse is opt-in: the ONE retained shape is never modified here or
+        # shared with workers; tool Common and distToShape are read-only.
+        # Only exact source shape identity + exact placement equality qualifies.
+        machine_pose_reuse = os.environ.get("SMBS_MACHINE_POSE_REUSE", "0") == "1"
+        validated_machine_shape = None
         if not can_skip_shapes:
-            mat_wp = App.Matrix(
-                tf.rotation[0][0], tf.rotation[0][1], tf.rotation[0][2], tf.translation[0],
-                tf.rotation[1][0], tf.rotation[1][1], tf.rotation[1][2], tf.translation[1],
-                tf.rotation[2][0], tf.rotation[2][1], tf.rotation[2][2], tf.translation[2],
-                0.0, 0.0, 0.0, 1.0,
+            pose_key = (
+                solid_cache_key,
+                tuple(tuple(float(v) for v in row) for row in tf.rotation),
+                tuple(float(v) for v in tf.translation),
             )
-            with measure_native_geometry_region("machine_workpiece_copy"):
-                wp_machine = solid.shape.copy()
-            with measure_native_geometry_region("machine_workpiece_transform"):
-                wp_machine.transformShape(mat_wp)
+            retained = self._machine_pose_cache if machine_pose_reuse else None
+            if (retained is not None and retained[0] is solid.shape
+                    and retained[1] == pose_key):
+                wp_machine = retained[2]
+                validated_machine_shape = (wp_machine, retained[3])
+                self.machine_pose_reuse_hits += 1
+            else:
+                if machine_pose_reuse:
+                    self.machine_pose_reuse_misses += 1
+                mat_wp = App.Matrix(
+                    tf.rotation[0][0], tf.rotation[0][1], tf.rotation[0][2], tf.translation[0],
+                    tf.rotation[1][0], tf.rotation[1][1], tf.rotation[1][2], tf.translation[1],
+                    tf.rotation[2][0], tf.rotation[2][1], tf.rotation[2][2], tf.translation[2],
+                    0.0, 0.0, 0.0, 1.0,
+                )
+                with measure_native_geometry_region("machine_workpiece_copy"):
+                    wp_machine = solid.shape.copy()
+                with measure_native_geometry_region("machine_workpiece_transform"):
+                    wp_machine.transformShape(mat_wp)
+                if machine_pose_reuse:
+                    # The check normally happens in validate_workpiece_tooling_pose.
+                    # Move it here ONCE, before storing a nonmutable copy, and
+                    # pass the exact same-object proof through to both tool pairs.
+                    with measure_native_geometry_region("pair_geometry_sanity"):
+                        valid = check_solid_validity(wp_machine, "shape_a")
+                    validated_machine_shape = (wp_machine, valid)
+                    self._machine_pose_cache = (
+                        (solid.shape, pose_key, wp_machine, valid)
+                        if valid[0] else None
+                    )
             with measure_native_geometry_region("native_punch_pose"):
                 punch_step = set_punch_ram_z(self.punch_base, ram_z)
             punch_shape = punch_step.machine_shape
@@ -1049,6 +1092,8 @@ class AdaptiveTrajectoryValidator3D:
             prefer_punch_overlap_first=(
                 self._prefer_punch_overlap_next and not punch_cache_hit
             ),
+            **({"_validated_workpiece_shape": validated_machine_shape}
+               if machine_pose_reuse and validated_machine_shape is not None else {}),
         )
         # A geometric blocker discovered in RETRACT may share the exact
         # folded-sheet cache key with BOTTOM. Probe it AFTER the canonical
