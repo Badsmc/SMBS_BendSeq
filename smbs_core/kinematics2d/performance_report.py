@@ -419,8 +419,15 @@ def compare_native_reports(baseline: Mapping[str, Any],
                         key, step, x.get("bend_id")
                     ))
             if xx.get("angle_deg") is not None or yy.get("angle_deg") is not None:
-                xv = _number(xx.get("angle_deg"))
-                yv = _number(yy.get("angle_deg"))
+                def signed_angle(blocker):
+                    val = blocker.get("angle_deg")
+                    if isinstance(val, bool) or not isinstance(val, (float, int)):
+                        return None
+                    num = float(val)
+                    return num if math.isfinite(num) else None
+
+                xv = signed_angle(xx)
+                yv = signed_angle(yy)
                 if xv is None or yv is None or abs(xv - yv) > 1e-4:
                     issues.append("first_collision_angle_mismatch_at_step_{}:{}"
                                   .format(step, x.get("bend_id")))
