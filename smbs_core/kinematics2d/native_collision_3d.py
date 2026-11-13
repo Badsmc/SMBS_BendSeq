@@ -406,6 +406,7 @@ def check_pair_clearance(
     tool_label: str = "",
     classify_end_zone_length_mm: Optional[float] = None,
     prefer_overlap_first: bool = False,
+    _shared_shape_a_check: Optional[Tuple[Any, Tuple[bool, str]]] = None,
 ) -> PairClearanceResult:
     """Evaluate exact clearance and overlap volume between two native FreeCAD Part solids.
 
@@ -423,8 +424,20 @@ def check_pair_clearance(
     t0 = time.perf_counter()
 
     # 1. Geometry sanity check
-    with measure_native_geometry_region("pair_geometry_sanity"):
-        ok_a, reason_a = check_solid_validity(shape_a, "shape_a")
+    # The two tools of the SAME pose see the exact same workpiece object.
+    # Reuse its completed validity result only for this object identity;
+    # unknown/mismatched evidence must invoke the original strict check.
+    shared_is_current = (
+        _shared_shape_a_check is not None
+        and isinstance(_shared_shape_a_check, tuple)
+        and len(_shared_shape_a_check) == 2
+        and _shared_shape_a_check[0] is shape_a
+    )
+    if shared_is_current:
+        ok_a, reason_a = _shared_shape_a_check[1]
+    else:
+        with measure_native_geometry_region("pair_geometry_sanity"):
+            ok_a, reason_a = check_solid_validity(shape_a, "shape_a")
     if not ok_a:
         dt = (time.perf_counter() - t0) * 1000.0
         return PairClearanceResult(
@@ -1038,6 +1051,18 @@ def validate_workpiece_tooling_pose(
           and classify_end_zone_length_mm != 0.0):
         punch_ez_len = float(classify_end_zone_length_mm)
 
+    # Per-pose memo: when BOTH tool pairs are uncached, check the native
+    # machine-placed sheet ONCE, then share that exact verdict with the punch
+    # and die query. No result survives this ToolCollisionReport call, and
+    # tools are still checked independently by check_pair_clearance.
+    shared_workpiece_check = None
+    if not punch_cache_hit and not die_cache_hit:
+        with measure_native_geometry_region("pair_geometry_sanity"):
+            shared_workpiece_check = (
+                workpiece_machine_shape,
+                check_solid_validity(workpiece_machine_shape, "shape_a"),
+            )
+
     if punch_cache_hit:
         punch_res = cached_punch_result
     else:
@@ -1050,6 +1075,7 @@ def validate_workpiece_tooling_pose(
             tool_label="PUNCH",
             classify_end_zone_length_mm=punch_ez_len,
             prefer_overlap_first=bool(prefer_punch_overlap_first),
+            _shared_shape_a_check=shared_workpiece_check,
         )
 
     if die_cache_hit:
@@ -1062,6 +1088,7 @@ def validate_workpiece_tooling_pose(
             volume_tolerance_mm3=volume_tolerance_mm3,
             contact_distance_tolerance_mm=contact_distance_tolerance_mm,
             tool_label="DIE",
+            _shared_shape_a_check=shared_workpiece_check,
         )
 
     overall_status = CollisionClass.CLEAR
