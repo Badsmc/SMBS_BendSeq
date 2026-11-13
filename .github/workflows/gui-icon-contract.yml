@@ -16,6 +16,7 @@ on:
       - fix/unified-native-manual-pose-regression
       - fix/restore-legacy-manual-2d-check
       - feature/native-occ-collision-inspector
+      - fix/conditional-endzone-volume-tolerance
   workflow_dispatch:
 
 jobs:
@@ -41,6 +42,10 @@ jobs:
         env:
           PYTHONPATH: .
         run: python -m unittest discover -s tests -p 'test_gauge_preview.py' -v
+      - name: Test Conditional end-zone native OCC sliver tolerance
+        env:
+          PYTHONPATH: .
+        run: python -m unittest discover -s tests -p 'test_conditional_endzone_volume_tolerance.py' -v
       - name: Test Manual native 3D tool validation and true selected lengths
         env:
           PYTHONPATH: .
