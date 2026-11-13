@@ -91,6 +91,11 @@ jobs:
       - name: Shared native sheet components contract
         run: python -m unittest discover -s tests -p 'test_native_sheet_component_extraction.py' -v
 
+      - name: Experimental machine-frame component shadow contracts
+        env:
+          PYTHONPATH: .
+        run: python -m unittest discover -s tests -p 'test_component_machine_shadow.py' -v
+
       - name: Single-pose workpiece validity reuse contracts
         run: python -m unittest discover -s tests -p 'test_native_shared_workpiece_sanity.py' -v
       - name: Test Conditional end-zone native OCC sliver tolerance
