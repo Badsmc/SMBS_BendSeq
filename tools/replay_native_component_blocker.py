@@ -6,7 +6,7 @@ It deliberately DOES NOT call full-sheet multiFuse or D6 trajectory sampling.
 
 FreeCAD Python console:
     from tools.replay_native_component_blocker import run
-    result = run(r"C:\\Users\\User\\Desktop\\SMBS_debug_log.json", bend_id="B02")
+    result = run(r"C:/Users/User/Desktop/SMBS_debug_log.json", bend_id="B02")
 """
 from __future__ import annotations
 
