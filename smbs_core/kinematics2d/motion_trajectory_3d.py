@@ -530,6 +530,10 @@ class AdaptiveTrajectoryValidator3D:
         # Cache only source, untransformed panel prisms during a single
         # validator lifetime. Never cache moved panels or assembled solids.
         self._panel_prism_cache: Dict[str, Any] = {}
+        # Bounded per-validator cache of exact small zone solids; this is
+        # separate from the full-sheet cache and is never shared across
+        # FreeCAD documents/processes or different source geometries.
+        self._zone_shape_cache: Dict[Tuple[Any, ...], Any] = {}
         self._panel_prism_cache_identity: Any = None
         self._die_clearance_cache: Dict[Tuple[Any, ...], Any] = {}
         self._punch_clearance_cache: Dict[Tuple[Any, ...], Any] = {}
@@ -539,6 +543,7 @@ class AdaptiveTrajectoryValidator3D:
         """Clear Part Space solid cache, clearance caches, and pose collision cache."""
         self._solid_cache.clear()
         self._panel_prism_cache.clear()
+        self._zone_shape_cache.clear()
         self._panel_prism_cache_identity = None
         self._die_clearance_cache.clear()
         self._punch_clearance_cache.clear()
@@ -626,6 +631,7 @@ class AdaptiveTrajectoryValidator3D:
         )
         if panel_prism_identity != self._panel_prism_cache_identity:
             self._panel_prism_cache.clear()
+            self._zone_shape_cache.clear()
             self._panel_prism_cache_identity = panel_prism_identity
         die_geom_sig = _die_geometry_signature(self.die)
         punch_geom_sig = _punch_geometry_signature(self.punch_base)
@@ -716,6 +722,7 @@ class AdaptiveTrajectoryValidator3D:
                 self.panel_build,
                 segments=self.config.arc_segments,
                 panel_prism_cache=self._panel_prism_cache,
+                zone_shape_cache=self._zone_shape_cache,
             )
             self.solid_reconstruction_time_ms += (time.perf_counter() - t_s0) * 1000.0
             self._solid_cache[solid_cache_key] = solid
