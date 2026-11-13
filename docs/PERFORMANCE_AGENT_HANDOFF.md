@@ -191,3 +191,11 @@ These are implemented improvements to exact-geometry reuse, **not** a measured s
 
 - Subsequent child-branch source change `f60890b`: extracted shared `NativeSheetComponents` and `build_multi_bend_sheet_components` from existing `build_multi_bend_sheet_solid`. The production full union now consumes these exact component solids; original strict `multiFuse`, topology and volume checks remain. `tests/test_native_sheet_component_extraction.py` checks IDs, extraction reuse, invalid joined shapes and inconsistent volumes with headless mocks; CI workflow includes it.
 - Component tool comparison is still **not connected** to the production motion trajectory. This refactor is not a demonstrated performance improvement and needs native FreeCAD reference regression before merging.
+
+## 2026-11-13 — Supplied debug log (10), per-pose shape validity reuse
+
+- Sanitized native evidence: `docs/PERFORMANCE_LOG10_DIAGNOSTIC.md`; original user Desktop JSON **not committed**. Four complete 10-bend runs: 1321.3356, 1185.8569, 1182.6764, 1180.5304 seconds; different installed-source hashes, unchanged physical statuses, 297 full unions per run.
+- Latest enhanced X0 sample recorded 1322 `pair_geometry_sanity` invocations totaling 347.9817 s. It is the largest *measured* individual category, and missing timed work reduced to ~186.9 s. Existing 627 Common/548 distance operations are unchanged.
+- Child branch `5d65c1a` scopes one workpiece validity check to a single machine pose when both punch/die queries uncached, reusing the result only for the identical object and preserving per-tool validation; no cache across poses. `tests/test_native_shared_workpiece_sanity.py` and CI cover valid, invalid, direct-call, wrong-identity and partial-cache behavior. GitHub Actions run 43424795573: SUCCESS.
+- **Live FreeCAD acceptance after this code is NOT DONE; no measured speedup attributable to this optimization.** Component-only screen remains standalone and does NOT affect production native verdict yet.
+- Next: strict source-SHA-matched Windows native run, preserve B02 RETRACT PUNCH collision, Conditional, per-bend results; measure reduction in per-pose sanity and wall time, then integrate the component tool screen with a safe independent oracle comparison.
