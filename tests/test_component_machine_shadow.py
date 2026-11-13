@@ -173,6 +173,10 @@ class MachineComponentShadowTests(unittest.TestCase):
             record_component_shadow_probe({"PUNCH": screen}, oracle, "B08", "BENDING", 0.9)
         self.assertEqual(stats.disagreements, 0)
         self.assertEqual(stats.proven_component_hits, 1)
+        actual = stats.to_dict()["examples"][0]["results"][0]
+        self.assertTrue(actual["full_oracle_conditional"])
+        self.assertEqual(actual["full_oracle_tool_status"], "PENETRATION")
+        self.assertEqual(actual["hit_volume_mm3"], screen.hit.volume_mm3)
 
 
 if __name__ == "__main__":
