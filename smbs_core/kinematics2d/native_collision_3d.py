@@ -27,6 +27,7 @@ from enum import Enum
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from .native_kernel_metrics import measured_common, measured_distance
+from .native_geometry_build_metrics import measure_native_geometry_region
 
 
 try:
@@ -422,7 +423,8 @@ def check_pair_clearance(
     t0 = time.perf_counter()
 
     # 1. Geometry sanity check
-    ok_a, reason_a = check_solid_validity(shape_a, "shape_a")
+    with measure_native_geometry_region("pair_geometry_sanity"):
+        ok_a, reason_a = check_solid_validity(shape_a, "shape_a")
     if not ok_a:
         dt = (time.perf_counter() - t0) * 1000.0
         return PairClearanceResult(
@@ -430,7 +432,8 @@ def check_pair_clearance(
             tool_label=tool_label,
         )
 
-    ok_b, reason_b = check_solid_validity(shape_b, "shape_b")
+    with measure_native_geometry_region("pair_geometry_sanity"):
+        ok_b, reason_b = check_solid_validity(shape_b, "shape_b")
     if not ok_b:
         dt = (time.perf_counter() - t0) * 1000.0
         return PairClearanceResult(
