@@ -46,6 +46,20 @@ def sample_journal():
                    "common_calls": 6, "distance_calls": 4,
                    "common_elapsed_s": 2.0, "distance_elapsed_s": 1.0,
                    "failures": 0,
+               },
+               geometry_build={
+                   "scope": "INSTRUMENTED_NATIVE_SHEET_CONSTRUCTION_ONLY",
+                   "measured_total_s": 1.2,
+                   "elapsed_s": {
+                       "panel_extrude": 0.1, "panel_transform": 0.2,
+                       "bend_zone_build": 0.3, "sheet_union": 0.5,
+                       "sheet_qualification": 0.1,
+                   },
+                   "cache_events": {
+                       "bend_zone_cache_hit": 42,
+                       "bend_zone_cache_miss": 9,
+                       "bend_zone_cache_eviction": 0,
+                   },
                }),
             ev("MANUAL_NATIVE_BEND_TRAJECTORY", 4, bend_id="B07",
                status="SAMPLED_3D_CLEAR_NOT_CONTINUOUS",
@@ -114,6 +128,13 @@ class PerformanceReportTests(unittest.TestCase):
         self.assertEqual(finished["configuration"]["end_zone_length_mm"], 10.)
         self.assertEqual(finished["totals"]["kernel_common_calls"], 6)
         self.assertEqual(finished["totals"]["kernel_common_elapsed_s"], 2.)
+        self.assertAlmostEqual(
+            finished["totals"]["geometry_sheet_union_elapsed_s"], 0.5,
+        )
+        self.assertAlmostEqual(
+            finished["totals"]["geometry_bend_zone_build_elapsed_s"], 0.3,
+        )
+        self.assertEqual(finished["totals"]["geometry_bend_zone_cache_hit"], 42)
         self.assertEqual(finished["totals"]["total_common_queries"], 6)
         self.assertEqual(finished["totals"]["total_solid_reconstructions"], 3)
         self.assertEqual(finished["bends"][0]["native_d6"]["total_states"], 5)
@@ -122,6 +143,9 @@ class PerformanceReportTests(unittest.TestCase):
                          "D6_VALIDATION_EXCLUDES_POST_COLLISION_FORENSICS")
         self.assertEqual(interrupted["totals"]["observed_bend_count"], 1)
         self.assertIsNone(interrupted["totals"]["kernel_common_calls"])
+        self.assertIsNone(
+            interrupted["totals"]["geometry_sheet_union_elapsed_s"]
+        )
         self.assertIsNone(interrupted["totals"]["total_solid_reconstructions"])
         self.assertIn("NOT_RECORDED", report_text(report))
 
