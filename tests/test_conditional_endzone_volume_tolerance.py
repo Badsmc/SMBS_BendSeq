@@ -12,6 +12,8 @@ from unittest.mock import patch
 from smbs_core.kinematics2d.native_collision_3d import (
     classify_punch_overlap_zones,
     PunchCollisionZoneClassification as Zone,
+    validate_workpiece_tooling_pose, EndZoneCollisionPolicy,
+    CollisionClass, PairClearanceResult,
 )
 
 
@@ -108,6 +110,52 @@ class ConditionalEndZoneVolumeToleranceTests(unittest.TestCase):
         result = classify([])
         self.assertEqual(result.classification, Zone.END_ZONE_ONLY)
         self.assertEqual(result.central_zone_overlap_volume_mm3, 0.0)
+
+    def test_policy_enabled_means_conditional_not_clear_or_pass(self):
+        punch = SimpleNamespace(BoundBox=bbox(-148.177582, 148.177582))
+        sheet = object()
+        common_parts = [
+            solid(67.052432, -148.177582, -140.0),
+            solid(.0000005, -148.177582, 148.177582),
+            solid(.0000005, -148.177582, 148.177582),
+            solid(67.052432, 140.0, 148.177582),
+        ]
+        common = SimpleNamespace(
+            Solids=common_parts, Volume=sum(x.Volume for x in common_parts),
+            isNull=lambda: False, isValid=lambda: True,
+        )
+        punch_result = PairClearanceResult(
+            CollisionClass.PENETRATION, "confirmed_common",
+            0.0, common.Volume, 0.0, 1.0,
+        )
+        die_result = PairClearanceResult(
+            CollisionClass.CLEAR, "clear", 1.0, 0.0, 1.0, 1.0,
+        )
+        for allowed in (False, True):
+            with self.subTest(allowed=allowed), patch(
+                "smbs_core.kinematics2d.native_collision_3d.check_solid_validity",
+                return_value=(True, "valid"),
+            ), patch(
+                "smbs_core.kinematics2d.native_collision_3d.measured_common",
+                return_value=common,
+            ):
+                report = validate_workpiece_tooling_pose(
+                    sheet, punch, object(),
+                    cached_punch_result=punch_result,
+                    cached_die_result=die_result,
+                    end_zone_policy=EndZoneCollisionPolicy(
+                        allow_end_zone_collision=allowed,
+                        end_zone_length_mm=10.0,
+                    ),
+                )
+            # The tool remains the full physical punch: NEVER a real PASS.
+            self.assertEqual(report.status, CollisionClass.PENETRATION)
+            self.assertFalse(report.is_safe)
+            self.assertIs(report.is_conditional_safe, allowed)
+            self.assertEqual(
+                report.punch_end_zone_analysis.classification,
+                Zone.END_ZONE_ONLY,
+            )
 
     def test_central_above_tolerance_not_waived_by_end_zones(self):
         result = classify([0.005, 0.002])
