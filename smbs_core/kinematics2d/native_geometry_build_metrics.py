@@ -14,6 +14,10 @@ from typing import Iterator
 _ALLOWED = frozenset({
     "panel_extrude", "panel_transform", "bend_zone_build",
     "sheet_union", "sheet_qualification",
+    # Measured separately from OCC Common/distance and full-sheet union.
+    # These paths currently account for much of the uninstrumented wall time.
+    "machine_workpiece_copy", "machine_workpiece_transform",
+    "native_punch_pose", "pair_geometry_sanity",
 })
 _CACHE_EVENTS = frozenset({
     "bend_zone_cache_hit", "bend_zone_cache_miss",
@@ -31,7 +35,7 @@ class NativeGeometryBuildMetrics:
     def to_dict(self) -> dict:
         names = sorted(_ALLOWED)
         return {
-            "scope": "INSTRUMENTED_NATIVE_SHEET_CONSTRUCTION_ONLY",
+            "scope": "INSTRUMENTED_NATIVE_SHEET_AND_POSE_REGIONS_ONLY",
             "calls": {k: self.calls.get(k, 0) for k in names},
             "elapsed_s": {k: self.elapsed_s.get(k, 0.0) for k in names},
             "failures": {k: self.failures.get(k, 0) for k in names},
@@ -39,7 +43,7 @@ class NativeGeometryBuildMetrics:
                 k: self.cache_events.get(k, 0) for k in sorted(_CACHE_EVENTS)
             },
             "measured_total_s": sum(self.elapsed_s.values()),
-            "note": "Timed regions exclude outer bookkeeping, unrelated OCC work and collision validation.",
+            "note": "Nonoverlapping timed sheet-build/pose/sanity regions only; excludes exact OCC Common, distance and other validation.",
         }
 
 
