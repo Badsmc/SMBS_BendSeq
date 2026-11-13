@@ -835,7 +835,7 @@ def classify_punch_overlap_zones(
     if has_significant_central and has_significant_end_zone:
         cls_res = PunchCollisionZoneClassification.MIXED_CENTRAL_AND_END_ZONE
         reason = "significant_overlap_spans_both_central_and_end_zones"
-        elif has_significant_central:
+    elif has_significant_central:
         cls_res = PunchCollisionZoneClassification.CENTRAL_ZONE
         reason = "overlap_in_central_working_zone"
     elif has_significant_end_zone:
