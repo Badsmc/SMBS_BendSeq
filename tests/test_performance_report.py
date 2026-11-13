@@ -18,6 +18,7 @@ from smbs_core.kinematics2d.native_kernel_metrics import (
 )
 from smbs_core.kinematics2d.performance_report import (
     JOURNAL_SCHEMA, analyze_journal, analyze_journal_file, main, report_text,
+    compare_native_reports,
 )
 
 
@@ -159,6 +160,63 @@ class PerformanceReportTests(unittest.TestCase):
         )
         self.assertIsNone(interrupted["totals"]["total_solid_reconstructions"])
         self.assertIn("NOT_RECORDED", report_text(report))
+
+    def test_compare_same_report_allows_only_provisional_speedup(self):
+        baseline = analyze_journal(sample_journal())
+        newer = analyze_journal(sample_journal())
+        comparison = compare_native_reports(baseline, newer)
+        self.assertTrue(
+            comparison["matched_recorded_configuration_and_verdicts"]
+        )
+        self.assertEqual(comparison["observed_wall_speedup_x"], 1.0)
+        self.assertFalse(comparison["native_freecad_input_hashes_verified"])
+        self.assertFalse(
+            comparison["independent_native_collision_regression_qualified"]
+        )
+
+    def test_compare_refuses_any_reported_speedup_for_verdict_regression(self):
+        baseline = analyze_journal(sample_journal())
+        changed = analyze_journal(sample_journal())
+        changed["runs"][0]["bends"][0]["status"] = "COLLISION"
+        result = compare_native_reports(baseline, changed)
+        self.assertIsNone(result["observed_wall_speedup_x"])
+        self.assertFalse(
+            result["matched_recorded_configuration_and_verdicts"]
+        )
+        self.assertTrue(any(
+            "physical_verdict_mismatch" in s for s in result["issues"]
+        ))
+
+    def test_compare_refuses_sampling_or_tooling_change(self):
+        baseline = analyze_journal(sample_journal())
+        changed = analyze_journal(sample_journal())
+        changed["runs"][0]["configuration"]["end_zone_length_mm"] = 20.0
+        result = compare_native_reports(baseline, changed)
+        self.assertIsNone(result["observed_wall_speedup_x"])
+        self.assertIn(
+            "tooling_or_sampling_configuration_mismatch", result["issues"]
+        )
+
+    def test_compare_cli_does_not_overwrite_either_journal(self):
+        with tempfile.TemporaryDirectory() as temp:
+            source = Path(temp) / "baseline.json"
+            newer = Path(temp) / "candidate.json"
+            source.write_text(json.dumps(sample_journal()), encoding="utf-8")
+            newer.write_text(json.dumps(sample_journal()), encoding="utf-8")
+            old = (source.read_bytes(), newer.read_bytes())
+            with contextlib.redirect_stdout(io.StringIO()) as output:
+                self.assertEqual(
+                    main([str(source), "--compare", str(newer), "--json"]),
+                    0,
+                )
+            self.assertEqual(
+                json.loads(output.getvalue())["observed_wall_speedup_x"], 1.0
+            )
+            with contextlib.redirect_stderr(io.StringIO()):
+                with self.assertRaises(SystemExit):
+                    main([str(source), "--compare", str(newer),
+                          "--output", str(newer)])
+            self.assertEqual(old, (source.read_bytes(), newer.read_bytes()))
 
     def test_older_log_never_converts_missing_counter_to_zero(self):
         journal = {
