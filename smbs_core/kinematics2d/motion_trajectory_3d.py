@@ -246,6 +246,8 @@ class BendTrajectoryResult:
     total_common_queries: int = 0
     total_state_evaluation_requests: int = 0
     ram_cycle_positions_mm: Dict[str, float] = field(default_factory=dict)
+    total_machine_pose_reuse_hits: int = 0
+    total_machine_pose_reuse_misses: int = 0
 
 
 class FoldStateRestorationError(RuntimeError):
@@ -1688,6 +1690,8 @@ class AdaptiveTrajectoryValidator3D:
         """
         t_start = time.perf_counter()
         diags: List[str] = []
+        machine_reuse_hits_before = self.machine_pose_reuse_hits
+        machine_reuse_misses_before = self.machine_pose_reuse_misses
 
         # Deterministic FoldState snapshot: preserve original state
         saved_angles = dict(self.fold_state.angles)
@@ -1922,6 +1926,12 @@ class AdaptiveTrajectoryValidator3D:
                 total_common_queries=total_comm_queries,
                 total_state_evaluation_requests=total_requests,
                 ram_cycle_positions_mm=ram_cycle,
+                total_machine_pose_reuse_hits=(
+                    self.machine_pose_reuse_hits - machine_reuse_hits_before
+                ),
+                total_machine_pose_reuse_misses=(
+                    self.machine_pose_reuse_misses - machine_reuse_misses_before
+                ),
             )
 
         finally:
