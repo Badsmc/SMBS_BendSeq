@@ -275,6 +275,22 @@ def summarize_native_trajectory(result):
         ),
         "total_states": getattr(result, "total_states_evaluated", None),
         "total_collision_queries": getattr(result, "total_collision_queries", None),
+        "total_solid_reconstructions": getattr(
+            result, "total_solid_reconstructions", None),
+        "total_pair_collision_checks": getattr(
+            result, "total_pair_collision_checks", None),
+        "total_distance_queries": getattr(
+            result, "total_distance_queries", None),
+        "total_common_queries": getattr(
+            result, "total_common_queries", None),
+        "total_pose_cache_hits": getattr(
+            result, "total_pose_cache_hits", None),
+        "total_punch_cache_hits": getattr(
+            result, "total_punch_cache_hits", None),
+        "total_die_cache_hits": getattr(
+            result, "total_die_cache_hits", None),
+        "total_solid_cache_hits": getattr(
+            result, "total_solid_cache_hits", None),
         "elapsed_ms": getattr(result, "elapsed_ms", None),
         "diagnostics": _jsonable(getattr(result, "diagnostics", ())),
         "phases": [],
@@ -298,6 +314,28 @@ def summarize_native_trajectory(result):
                 getattr(phase, "discontinuities", ())
             ),
             "collision_queries": getattr(phase, "collision_queries_count", None),
+            "solid_reconstructions": getattr(
+                phase, "solid_reconstructions_count", None),
+            "pair_collision_checks": getattr(
+                phase, "pair_collision_checks", None),
+            "actual_distance_queries": getattr(
+                phase, "actual_distance_queries", None),
+            "actual_common_queries": getattr(
+                phase, "actual_common_queries", None),
+            "pose_cache_hits": getattr(phase, "pose_cache_hits", None),
+            "pose_cache_misses": getattr(phase, "pose_cache_misses", None),
+            "solid_cache_hits": getattr(phase, "solid_cache_hits", None),
+            "solid_cache_misses": getattr(phase, "solid_cache_misses", None),
+            "punch_cache_hits": getattr(phase, "punch_cache_hits", None),
+            "punch_cache_misses": getattr(phase, "punch_cache_misses", None),
+            "die_cache_hits": getattr(phase, "die_cache_hits", None),
+            "die_cache_misses": getattr(phase, "die_cache_misses", None),
+            "punch_eval_ms": getattr(phase, "total_punch_eval_ms", None),
+            "die_eval_ms": getattr(phase, "total_die_eval_ms", None),
+            "solid_reconstruction_ms": getattr(
+                phase, "phase_solid_reconstruction_ms", None),
+            "cache_lookup_ms": getattr(
+                phase, "total_cache_lookup_ms", None),
             "max_punch_overlap_mm3": getattr(
                 phase, "max_punch_overlap_volume_mm3", None
             ),
