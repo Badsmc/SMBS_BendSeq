@@ -40,9 +40,10 @@ From repository root with Python 3.11+:
 python -m smbs_core.kinematics2d.performance_report "PATH/TO/SMBS_debug_log.json"
 python -m smbs_core.kinematics2d.performance_report "PATH/TO/SMBS_debug_log.json" --json
 python -m smbs_core.kinematics2d.performance_report "PATH/TO/SMBS_debug_log.json" --json --output "PATH/TO/perf_summary.json"
+python -m smbs_core.kinematics2d.performance_report "PATH/TO/baseline_log.json" --compare "PATH/TO/optimized_log.json" --json --output "PATH/TO/perf_comparison.json"
 ```
 
-The analyzer MUST never alter the original journal or call FreeCAD. Older logs can lack new counters; show `null`/NOT_RECORDED instead of 0 when fields were not recorded. Support multiple Manual native runs in a single journal, including incomplete runs. Split by `MANUAL_NATIVE_CHECK_STARTED` / `MANUAL_NATIVE_CHECK_FINISHED` and correlate `MANUAL_NATIVE_BEND_TRAJECTORY`, `MANUAL_NATIVE_BEND_RESULT` and optional `PERF_NATIVE_BEND_KERNEL`. Do not sum phase + aggregate query counts together (double counting).
+The analyzer MUST never alter the original journal or call FreeCAD. The optional `--compare` mode reports a wall-time ratio ONLY when requested bend order, selected tool/configuration, per-bend verdicts, D6 evidence and first recorded tool/phase/angle agree. It is **provisional**: source FCStd/tool SHA hashes and live OCC acceptance still need independent validation; if they are not verified, never claim a qualified speedup. Older logs can lack new counters; show `null`/NOT_RECORDED instead of 0 when fields were not recorded. Support multiple Manual native runs in a single journal, including incomplete runs. Split by `MANUAL_NATIVE_CHECK_STARTED` / `MANUAL_NATIVE_CHECK_FINISHED` and correlate `MANUAL_NATIVE_BEND_TRAJECTORY`, `MANUAL_NATIVE_BEND_RESULT` and optional `PERF_NATIVE_BEND_KERNEL`. Do not sum phase + aggregate query counts together (double counting).
 
 ## E. Report schema
 
