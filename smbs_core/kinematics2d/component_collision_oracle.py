@@ -341,7 +341,7 @@ def record_component_shadow_probe(results, oracle_report, bend_id, phase, path_u
                     "full_oracle_status": observed.status.value,
                     "component": screen.hit.component_id if screen.hit else None,
                 })
-        elif screen.reason.startswith(("component_machine_screen_error", "uncertain_exact_component", "candidate_budget")):
+        elif screen.reason.startswith(("component_machine_screen_error", "uncertain_exact_component", "candidate_budget", "observer_exception")):
             stats.incomplete_probes += 1
         details.append({
             "tool": label,
