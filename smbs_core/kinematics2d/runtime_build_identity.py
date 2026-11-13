@@ -20,6 +20,42 @@ NATIVE_SOURCE_PATHS = (
 )
 
 
+NATIVE_MODULE_NAMES = (
+    "smbs_core.kinematics2d.manual_physical_validation",
+    "smbs_core.kinematics2d.physical_validation_25d",
+    "smbs_core.kinematics2d.motion_trajectory_3d",
+    "smbs_core.kinematics2d.native_collision_3d",
+    "smbs_core.kinematics2d.native_bend_solid_3d",
+)
+
+
+def loaded_native_module_sources() -> dict[str, dict | None]:
+    """Report which actual modules Python imported, even with duplicate Mods.
+
+    Inspects sys.modules without importing or modifying anything. Read
+    actual loaded files instead of assuming they came from the GUI's Mod.
+    """
+    import sys
+
+    origins = {}
+    for name in NATIVE_MODULE_NAMES:
+        module = sys.modules.get(name)
+        module_file = getattr(module, "__file__", None)
+        if not module_file:
+            origins[name] = None
+            continue
+        source = Path(module_file).resolve()
+        try:
+            digest = sha256(source.read_bytes()).hexdigest()
+            origins[name] = {"path": str(source), "sha256": digest}
+        except OSError as exc:
+            origins[name] = {
+                "path": str(source), "sha256": None,
+                "read_error_type": type(exc).__name__,
+            }
+    return origins
+
+
 def runtime_source_fingerprint(repo_root: str | Path) -> dict:
     """Hash installed files without relying on Git checkout metadata.
 
