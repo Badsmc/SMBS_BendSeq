@@ -15,6 +15,10 @@ _ALLOWED = frozenset({
     "panel_extrude", "panel_transform", "bend_zone_build",
     "sheet_union", "sheet_qualification",
 })
+_CACHE_EVENTS = frozenset({
+    "bend_zone_cache_hit", "bend_zone_cache_miss",
+    "bend_zone_cache_eviction",
+})
 
 
 @dataclass
@@ -22,6 +26,7 @@ class NativeGeometryBuildMetrics:
     calls: dict[str, int] = field(default_factory=dict)
     elapsed_s: dict[str, float] = field(default_factory=dict)
     failures: dict[str, int] = field(default_factory=dict)
+    cache_events: dict[str, int] = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         names = sorted(_ALLOWED)
@@ -30,6 +35,9 @@ class NativeGeometryBuildMetrics:
             "calls": {k: self.calls.get(k, 0) for k in names},
             "elapsed_s": {k: self.elapsed_s.get(k, 0.0) for k in names},
             "failures": {k: self.failures.get(k, 0) for k in names},
+            "cache_events": {
+                k: self.cache_events.get(k, 0) for k in sorted(_CACHE_EVENTS)
+            },
             "measured_total_s": sum(self.elapsed_s.values()),
             "note": "Timed regions exclude outer bookkeeping, unrelated OCC work and collision validation.",
         }
@@ -69,3 +77,12 @@ def measure_native_geometry_region(label: str) -> Iterator[None]:
     finally:
         data.calls[label] = data.calls.get(label, 0) + 1
         data.elapsed_s[label] = data.elapsed_s.get(label, 0.0) + (perf_counter() - start)
+
+
+def record_native_geometry_cache_event(label: str) -> None:
+    """Count cache operations only inside an active opt-in metrics scope."""
+    if label not in _CACHE_EVENTS:
+        raise ValueError("unknown geometry cache event: " + str(label))
+    data = _active.get()
+    if data is not None:
+        data.cache_events[label] = data.cache_events.get(label, 0) + 1
