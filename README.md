@@ -1,6 +1,6 @@
 # SMBS BendSeq — performance development branch
 
-**Branch: development/performance-optimization** (2026-11-13). This is a performance-development workspace based on `fix/conditional-endzone-volume-tolerance`, **not** the release/installable `smbs` branch.
+**Current branch: experiment/component-collision-oracle** (2026-11-14), a performance experiment **70+ commits ahead of** `development/performance-optimization`. Its component positive-reject and machine-pose reuse optimizations are **default OFF until native FreeCAD qualification**. This is **not** the release/installable `smbs` branch. The parent performance plan remains in `development/performance-optimization`; do not infer the installed FreeCAD checkout from GitHub HEAD. See `docs/PERFORMANCE_LOG15_MACHINE_POSE_REUSE.md` for the current native A/B gate.
 
 **For contributors and AI agents, start here:**
 - [AGENTS.md](AGENTS.md) — binding safety and implementation rules.
