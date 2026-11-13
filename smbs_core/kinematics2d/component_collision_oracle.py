@@ -364,7 +364,11 @@ def record_component_shadow_probe(results, oracle_report, bend_id, phase, path_u
             "common_calls": screen.common_calls,
             "hit": screen.hit.component_id if screen.hit else None,
             "hit_volume_mm3": (
-                float(screen.hit.volume_mm3) if screen.hit else None
+                float(screen.hit.volume_mm3)
+                if (screen.hit is not None
+                    and isinstance(getattr(screen.hit, "volume_mm3", None), (int, float))
+                    and isfinite(screen.hit.volume_mm3))
+                else None
             ),
             "full_oracle_tool_status": (
                 oracle_report.punch_result.status.value
