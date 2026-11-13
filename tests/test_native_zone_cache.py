@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import unittest
+from collections import OrderedDict
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -12,6 +13,9 @@ from smbs_core.kinematics2d.native_geometry_build_metrics import (
     count_native_geometry_builds,
 )
 from smbs_core.kinematics2d.panel_kinematics import RigidTransform
+from smbs_core.kinematics2d.motion_trajectory_3d import (
+    _bounded_full_sheet_cache_put,
+)
 
 
 class DummyShape:
@@ -125,6 +129,35 @@ class NativeZoneCacheTests(unittest.TestCase):
         self.assertEqual(builder.call_count, 4)
         self.assertEqual(len(cache), 2)
         self.assertEqual(metrics.to_dict()["cache_events"]["bend_zone_cache_eviction"], 2)
+
+    def test_bounded_full_sheet_lru_keeps_most_recent_and_never_mutates_shapes(self):
+        cache = OrderedDict()
+        original = [DummyShape(str(i)) for i in range(4)]
+        for i in range(3):
+            _bounded_full_sheet_cache_put(
+                cache, ("fold", i), original[i], limit=3,
+            )
+        # An actual read of the first shape moves it to the end.
+        cached = cache[("fold", 0)]
+        cache.move_to_end(("fold", 0))
+        self.assertIs(cached, original[0])
+        _bounded_full_sheet_cache_put(
+            cache, ("fold", 3), original[3], limit=3,
+        )
+        self.assertEqual(
+            list(cache),
+            [("fold", 2), ("fold", 0), ("fold", 3)],
+        )
+        self.assertEqual(len(cache), 3)
+        self.assertNotIn(("fold", 1), cache)
+        self.assertIs(cache[("fold", 0)], original[0])
+        self.assertEqual(original[0].label, "0")
+
+    def test_full_sheet_cache_nonpositive_limit_rejected(self):
+        with self.assertRaisesRegex(ValueError, "positive"):
+            _bounded_full_sheet_cache_put(
+                OrderedDict(), ("fold", 0), DummyShape("x"), limit=0,
+            )
 
     def test_disable_cache_keeps_existing_direct_builder_semantics(self):
         state, bend = state_with_bend()
