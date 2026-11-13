@@ -514,6 +514,7 @@ def check_active_25d_bend_trajectory(
     end_zone_length_mm: float | None = None,
     classify_end_zone_length_mm: float = 0.0,
     reverse_axis: bool = False,
+    sequence_geometry_cache=None,
 ):
     """Run the existing D6.3.4 adaptive 3D oracle for ONE active bend.
 
@@ -632,6 +633,7 @@ def check_active_25d_bend_trajectory(
                     reverse_axis=bool(reverse_axis),
                     end_zone_policy=ez_policy,
                     classify_end_zone_length_mm=eff_classify_end_zone_len,
+                    sequence_geometry_cache=sequence_geometry_cache,
                 )
             else:
                 validator = AdaptiveTrajectoryValidator3D(
@@ -642,6 +644,7 @@ def check_active_25d_bend_trajectory(
                     config=config,
                     desired_midpoint_xm=desired_midpoint_xm,
                     reverse_axis=bool(reverse_axis),
+                    sequence_geometry_cache=sequence_geometry_cache,
                 )
             report = validator.validate_bend_trajectory(active_id, prior)
         finally:
