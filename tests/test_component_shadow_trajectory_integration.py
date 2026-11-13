@@ -200,6 +200,8 @@ class ComponentShadowIntegrationTests(unittest.TestCase):
         self.assertIs(retract.collision_report, blocked)
         self.assertEqual(len(build_calls), 1)  # no second multiFuse
         rebuild.assert_called_once()
+        self.assertEqual(stats.component_rebuild_calls, 1)
+        self.assertGreaterEqual(stats.component_rebuild_s, 0.0)
         self.assertEqual(screen.call_count, 4)
         self.assertEqual(stats.probes, 2)
         self.assertEqual(stats.proven_component_hits, 1)
@@ -244,6 +246,7 @@ class ComponentShadowIntegrationTests(unittest.TestCase):
         self.assertFalse(retract.is_safe)
         self.assertTrue(retract.is_conditional_safe)
         rebuild.assert_not_called()
+        self.assertEqual(stats.component_rebuild_calls, 0)
         self.assertEqual(stats.probes, 1)
 
     def test_default_off_uses_original_native_builder_signature(self):
