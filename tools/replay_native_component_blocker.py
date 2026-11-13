@@ -20,6 +20,8 @@ from pathlib import Path, PureWindowsPath
 import os
 from time import perf_counter
 
+from smbs_core.kinematics2d.developer_debug_log import desktop_directory
+
 
 class BlockerReplayError(ValueError):
     """Journal or source cannot be matched to one authoritative native pose."""
@@ -280,8 +282,8 @@ def _require_local_source(candidate, *, label: str) -> Path:
     if not resolved.is_file():
         raise BlockerReplayError(
             f"missing_local_{label}: {resolved}. "
-            f"Provide local {label}=... (or part=...) for a Windows journal "
-            "replayed on macOS."
+            f"Provide local {label}=... (or part=...) when replaying a journal "
+            "on another computer."
         )
     return resolved.resolve(strict=True)
 
@@ -308,9 +310,9 @@ def resolve_replay_sources(
     else:
         local_part = None
         for candidate in (
-            Path(recorded_part),
-            Path.home() / "Desktop" / original_part_name,
-            Path.home() / "Desktop" / "demo" / original_part_name,
+            Path(recorded_part).expanduser(),
+            desktop_directory() / original_part_name,
+            desktop_directory() / "demo" / original_part_name,
             root / "demo" / "parts" / original_part_name,
         ):
             if candidate.is_file():
@@ -318,9 +320,9 @@ def resolve_replay_sources(
                 break
         if local_part is None:
             raise BlockerReplayError(
-                "missing_local_part: Windows journal references "
-                f"{recorded_part!r}. Supply part=r'/Users/.../part.FCStd' "
-                "or copy the exact original file to ~/Desktop/demo/."
+                "missing_local_part: journal references "
+                f"{recorded_part!r}. Supply part=<local FCStd path> "
+                "or copy the exact original file to the desktop demo folder."
             )
         part_choice = "matched_logged_basename"
 
@@ -338,7 +340,7 @@ def resolve_replay_sources(
                 )
             mapping[kind] = "explicit_override"
         else:
-            stored = Path(recorded)
+            stored = Path(recorded).expanduser()
             library = root / "toollibrary" / kind / expected_name
             if stored.is_file():
                 path = stored.resolve(strict=True)
@@ -348,9 +350,9 @@ def resolve_replay_sources(
                 mapping[kind] = "same_named_local_toollibrary_source"
             else:
                 raise BlockerReplayError(
-                    f"missing_local_{kind}: Windows journal references "
+                    f"missing_local_{kind}: journal references "
                     f"{recorded!r}; expected current addon tool library "
-                    f"{library}. Supply {kind}=r'/Users/.../{expected_name}'"
+                    f"{library}. Supply {kind}=<local path to {expected_name}>"
                 )
         sources[kind] = path
     sources["mapping"] = mapping

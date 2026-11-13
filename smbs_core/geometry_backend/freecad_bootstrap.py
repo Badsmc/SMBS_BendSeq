@@ -20,27 +20,29 @@ def get_freecad_lib_candidates() -> List[str]:
     if env_lib:
         candidates.append(env_lib)
 
-    # 2. Platform-specific standard installation directories
-    # macOS application bundle
-    candidates.extend([
-        "/Applications/FreeCAD.app/Contents/Resources/lib",
-        "/Applications/FreeCAD 1.1.app/Contents/Resources/lib",
-        "/Applications/FreeCAD 1.0.app/Contents/Resources/lib",
-    ])
-    # Linux distribution packages / containers
-    candidates.extend([
-        "/usr/lib/freecad/lib",
-        "/usr/lib/freecad-python3/lib",
-        "/usr/local/lib/freecad/lib",
-        "/usr/lib/freecad-daily/lib",
-    ])
-    # Windows standard paths
-    candidates.extend([
-        r"C:\Program Files\FreeCAD 1.1\bin",
-        r"C:\Program Files\FreeCAD 1.0\bin",
-        r"C:\Program Files\FreeCAD 0.21\bin",
-        r"C:\Program Files\FreeCAD\bin",
-    ])
+    # Discover versioned installations on the current host only. Explicit
+    # overrides also cover portable installations and extracted AppImages.
+    if sys.platform == "darwin":
+        for base in (Path("/Applications"), Path.home() / "Applications"):
+            for bundle in sorted(base.glob("FreeCAD*.app"), reverse=True):
+                candidates.extend(str(bundle / suffix) for suffix in (
+                    "Contents/Resources/lib", "Contents/lib"))
+    elif os.name == "nt":
+        bases = [os.environ.get(name) for name in
+                 ("ProgramW6432", "ProgramFiles", "ProgramFiles(x86)")]
+        bases.append(str(Path.home() / "AppData" / "Local" / "Programs"))
+        for base in filter(None, bases):
+            for install in sorted(Path(base).glob("FreeCAD*"), reverse=True):
+                candidates.extend(str(install / sub) for sub in ("bin", "lib"))
+    else:
+        candidates.extend([
+            "/usr/lib/freecad/lib", "/usr/lib/freecad-python3/lib",
+            "/usr/local/lib/freecad/lib", "/usr/lib/freecad-daily/lib",
+        ])
+        appdir = os.environ.get("APPDIR")
+        if appdir:
+            candidates.extend(str(Path(appdir) / sub) for sub in
+                              ("usr/lib", "usr/lib/freecad/lib"))
     # Conda environment prefix
     conda_prefix = os.environ.get("CONDA_PREFIX")
     if conda_prefix:
@@ -48,7 +50,8 @@ def get_freecad_lib_candidates() -> List[str]:
             os.path.join(conda_prefix, "lib"),
             os.path.join(conda_prefix, "Library", "bin"),
         ])
-    return candidates
+    return list(dict.fromkeys(os.path.expandvars(os.path.expanduser(p))
+                              for p in candidates))
 
 
 def get_sheetmetal_mod_candidates() -> List[str]:
@@ -85,24 +88,18 @@ def get_sheetmetal_mod_candidates() -> List[str]:
         home / "snap" / "freecad" / "common",
         home / ".var" / "app" / "org.freecad.FreeCAD" / "data" / "FreeCAD",
     ):
-        for version in version_dirs:
+        discovered = sorted((p.name for p in base.glob("v*")), reverse=True)
+        for version in dict.fromkeys([*discovered, *version_dirs]):
             candidates.extend(
                 str(base / version / "Mod" / name)
                 for name in ("sheetmetal", "SheetMetal")
             )
     candidates.extend([
-        # macOS FreeCAD 1.1 / 1.0
-        str(home / "Library/Application Support/FreeCAD/v1-1/Mod/sheetmetal"),
-        str(home / "Library/Application Support/FreeCAD/v1-0/Mod/sheetmetal"),
-        str(home / "Library/Application Support/FreeCAD/Mod/sheetmetal"),
-        # Linux standard XDG data home
-        str(home / ".local/share/FreeCAD/Mod/sheetmetal"),
-        str(home / ".FreeCAD/Mod/sheetmetal"),
         "/usr/share/freecad/Mod/sheetmetal",
-        # Windows %APPDATA%
-        os.path.expandvars(r"%APPDATA%\FreeCAD\Mod\sheetmetal"),
+        "/usr/share/freecad/Mod/SheetMetal",
     ])
-    return candidates
+    return list(dict.fromkeys(os.path.expandvars(os.path.expanduser(p))
+                              for p in candidates))
 
 
 def ensure_freecad_paths() -> bool:

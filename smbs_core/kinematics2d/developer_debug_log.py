@@ -15,6 +15,7 @@ import json
 import os
 from pathlib import Path
 import platform
+import re
 import sys
 import threading
 import time
@@ -28,7 +29,10 @@ _LOCK = threading.RLock()
 
 
 def desktop_directory(home=None, *, environ=None, windows=None):
-    """Resolve real Windows redirected Desktop (including OneDrive), or ~/Desktop."""
+    """Resolve redirected Windows and Linux XDG desktops, or ~/Desktop.
+
+    XDG configuration is parsed as data, never executed as shell code.
+    """
     home = Path.home() if home is None else Path(home)
     env = os.environ if environ is None else environ
     is_windows = os.name == "nt" if windows is None else bool(windows)
@@ -41,11 +45,11 @@ def desktop_directory(home=None, *, environ=None, windows=None):
             ) as key:
                 value, _ = winreg.QueryValueEx(key, "Desktop")
                 raw = str(value)
-                for name, val in env.items():
-                    raw = raw.replace("%" + name + "%", str(val))
-                    raw = raw.replace("%" + name.upper() + "%", str(val))
+                variables = {name.casefold(): str(val) for name, val in env.items()}
+                raw = re.sub(r"%([^%]+)%", lambda match: variables.get(
+                    match.group(1).casefold(), match.group(0)), raw)
                 result = Path(os.path.expandvars(raw)).expanduser()
-                if result.is_dir():
+                if result.is_absolute() and "%" not in str(result):
                     return result
         except (ImportError, OSError, ValueError, TypeError):
             pass
@@ -53,6 +57,19 @@ def desktop_directory(home=None, *, environ=None, windows=None):
                      env.get("OneDriveConsumer"), home):
             if base and (Path(base) / "Desktop").is_dir():
                 return Path(base) / "Desktop"
+    elif sys.platform != "darwin":
+        config = Path(env.get("XDG_CONFIG_HOME") or home / ".config")
+        try:
+            lines = (config / "user-dirs.dirs").read_text(encoding="utf-8").splitlines()
+        except (OSError, UnicodeError):
+            lines = ()
+        for line in lines:
+            match = re.fullmatch(r'\s*XDG_DESKTOP_DIR="(.*)"\s*(?:#.*)?', line)
+            if match:
+                raw = match.group(1).replace("${HOME}", str(home)).replace("$HOME", str(home))
+                candidate = Path(raw)
+                if candidate.is_absolute() and "$" not in raw and "`" not in raw:
+                    return candidate
     return home / "Desktop"
 
 

@@ -66,7 +66,7 @@ def show_sequence_catalog(workspace):
     entries = []
 
     def record_path(file_path):
-        path = str(Path(file_path).resolve())
+        path = str(Path(file_path).expanduser().resolve())
         if path not in paths:
             paths.append(path)
             settings.setValue("sequence_catalog/json_paths", paths)
