@@ -264,6 +264,27 @@ def _cached_zone_solid(
     return built
 
 
+def _validated_joined_sheet_volume(joined) -> float:
+    """Validate exact native OCC sheet topology once and retain its volume.
+
+    Called immediately after multiFuse, before any further shape mutation.
+    isValid()/isClosed() can be expensive on a multi-face native sheet;
+    the result is trusted only within this synchronous, immutable snapshot.
+    This is not a replacement for the original strict qualification.
+    """
+    if (joined.isNull() or not joined.isValid() or not joined.isClosed()
+            or len(joined.Solids) != 1):
+        raise NativeBendSolidError(
+            "zones_and_panels_not_one_valid_closed_solid"
+        )
+    volume = float(joined.Volume)
+    if not isfinite(volume) or volume <= 0:
+        raise NativeBendSolidError(
+            "zones_and_panels_not_one_valid_closed_solid"
+        )
+    return volume
+
+
 def build_multi_bend_sheet_solid(state: FoldState, panel_build, *,
                                  segments=64, panel_prism_cache=None,
                                  zone_shape_cache=None) -> NativeMultiBendSheet:
@@ -341,13 +362,12 @@ def build_multi_bend_sheet_solid(state: FoldState, panel_build, *,
                     joined = joined.fuse(s)
 
         with measure_native_geometry_region("sheet_qualification"):
-            if (joined.isNull() or not joined.isValid() or not joined.isClosed()
-                    or len(joined.Solids) != 1 or not isfinite(float(joined.Volume))
-                    or float(joined.Volume) <= 0):
-                raise NativeBendSolidError("zones_and_panels_not_one_valid_closed_solid")
-
+            # One OCC validity/closure/volume evaluation per new joined
+            # sheet. Do not repeat expensive BRep topology checking solely
+            # to populate an immutable report after validation succeeded.
+            joined_volume = _validated_joined_sheet_volume(joined)
             expected = sum(float(x.Volume) for x in panel_solids) + zone_volumes
-            if abs(float(joined.Volume) - expected) > max(1e-3, expected * 1e-5):
+            if abs(joined_volume - expected) > max(1e-3, expected * 1e-5):
                 raise NativeBendSolidError("panel_zone_overlap_or_missing_material")
 
     except NativeBendSolidError:
@@ -358,10 +378,10 @@ def build_multi_bend_sheet_solid(state: FoldState, panel_build, *,
     return NativeMultiBendSheet(
         angles_deg=dict(state.angles),
         shape=joined,
-        volume_mm3=float(joined.Volume),
+        volume_mm3=joined_volume,
         panels_count=len(panels),
         bends_count=len(state.ordered_bends),
-        is_valid=bool(joined.isValid()),
-        is_closed=bool(joined.isClosed()),
+        is_valid=True,  # exactly checked by _validated_joined_sheet_volume
+        is_closed=True,  # exactly checked by _validated_joined_sheet_volume
         physical_certified=False,
     )
