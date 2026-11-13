@@ -173,6 +173,32 @@ class PerformanceReportTests(unittest.TestCase):
         self.assertIsNone(interrupted["totals"]["total_solid_reconstructions"])
         self.assertIn("NOT_RECORDED", report_text(report))
 
+    def test_advisory_shadow_metrics_are_reported_but_not_merged_into_oracle_counts(self):
+        sample = sample_journal()
+        sample["events"][2]["data"]["component_shadow"] = {
+            "scope": "COMPONENT_SHADOW_ADVISORY_ONLY",
+            "probes": 2,
+            "exact_tool_screens": 4,
+            "aabb_rejected": 70,
+            "exact_candidates": 14,
+            "transformed_components": 3,
+            "component_common_calls": 3,
+            "proven_component_hits": 1,
+            "disagreements": 0,
+            "incomplete_probes": 2,
+            "measured_s": 0.153,
+        }
+        report = analyze_journal(sample)
+        first = report["runs"][0]
+        self.assertEqual(first["totals"]["component_shadow_probes"], 2)
+        self.assertEqual(first["totals"]["component_shadow_aabb_rejected"], 70)
+        self.assertEqual(first["totals"]["component_shadow_component_common_calls"], 3)
+        self.assertEqual(first["totals"]["kernel_common_calls"], 6)
+        self.assertEqual(first["totals"]["total_common_queries"], 6)
+        self.assertIsNone(
+            report["runs"][1]["totals"]["component_shadow_probes"]
+        )
+
     def test_compare_same_report_allows_only_provisional_speedup(self):
         baseline = analyze_journal(sample_journal())
         newer = analyze_journal(sample_journal())
