@@ -18,6 +18,7 @@ from typing import Any, Callable, Optional, Sequence
 
 from .developer_debug_log import debug_event, summarize_native_trajectory
 from .native_kernel_metrics import count_native_kernel_calls
+from .native_geometry_build_metrics import count_native_geometry_builds
 from .panel_kinematics import FoldState
 from .physical_validation_25d import (
     PhysicalEvidence,
@@ -559,7 +560,10 @@ def check_manual_3d_sequence(
             # Post-collision per-panel attribution and UI rendering are
             # outside this scope and must be benchmarked separately.
             # This context does not alter OCC shapes, tolerances or results.
-            with count_native_kernel_calls() as kernel_counts:
+            with (
+                count_native_kernel_calls() as kernel_counts,
+                count_native_geometry_builds() as geometry_counts,
+            ):
                 try:
                     report = check_active_25d_bend_trajectory(
                         pseudo_session, tooling,
@@ -577,6 +581,7 @@ def check_manual_3d_sequence(
                         step_number=i + 1,
                         elapsed_s=round(perf_counter() - started, 6),
                         kernel=kernel_counts.to_dict(),
+                        geometry_build=geometry_counts.to_dict(),
                         scope="D6_VALIDATION_EXCLUDES_POST_COLLISION_FORENSICS",
                     )
             try:
