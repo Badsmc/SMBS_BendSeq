@@ -222,6 +222,127 @@ def select_blocker_evidence(journal: dict, bend_id: str = "B02") -> dict:
     return last
 
 
+def inspect_source_bend_geometry(source_bends, logged_bends, *, tolerance_mm=1e-3):
+    """Compare source vs journal axes BEFORE refusing an unmatched model.
+
+    Read-only, independent of FreeCAD/OCC. A common translation or reversed
+    axis direction is diagnostic evidence, NEVER approval to bypass the
+    strict exact-source/placement gate or classify a collision.
+    """
+    expected = {b["id"]: b for b in logged_bends
+                if isinstance(b, dict) and isinstance(b.get("id"), str)}
+    source_ids = set(source_bends)
+    logged_ids = set(expected)
+    result = {
+        "status": "UNVERIFIED_GEOMETRY",
+        "source_bend_count": len(source_bends),
+        "recorded_bend_count": len(logged_bends),
+        "source_only_bend_ids": sorted(source_ids - logged_ids),
+        "journal_only_bend_ids": sorted(logged_ids - source_ids),
+        "axis_rows": [],
+        "exact_axis_count": 0,
+        "reversed_axis_count": 0,
+        "mismatched_axis_count": 0,
+        "max_endpoint_error_mm": None,
+        "all_lengths_equal_within_tolerance": False,
+        "uniform_translation_candidate_xyz_mm": None,
+        "translation_only_candidate": False,
+        "note": (
+            "DIAGNOSTIC_ONLY; coordinate-compatible under translation or "
+            "axis reversal is NOT proof of identical FCStd source or "
+            "valid collision replay"
+        ),
+    }
+    translations = []
+    length_equal = True
+    all_angle_equal = True
+    maximum_error = 0.0
+    for bid in sorted(source_ids & logged_ids):
+        row = {"bend_id": bid}
+        try:
+            raw_axis = source_bends[bid].axis_xyz
+            log_axis = expected[bid]["axis_xyz"]
+            if (len(raw_axis) != 2 or len(log_axis) != 2
+                    or any(len(x) != 3 for x in (*raw_axis, *log_axis))):
+                raise ValueError("invalid_axis_coordinates")
+            actual = tuple(tuple(float(x) for x in point) for point in raw_axis)
+            journal = tuple(tuple(float(x) for x in point) for point in log_axis)
+            if not all(math.isfinite(v) for point in (*actual, *journal) for v in point):
+                raise ValueError("nonfinite_axis_coordinates")
+            actual_angle = float(source_bends[bid].angle_deg)
+            recorded_angle = float(expected[bid]["angle_deg"])
+            if not all(map(math.isfinite, (actual_angle, recorded_angle))):
+                raise ValueError("nonfinite_angle")
+            angle_error = abs(actual_angle - recorded_angle)
+            all_angle_equal &= angle_error <= 1e-6
+            actual_len = math.dist(*actual)
+            journal_len = math.dist(*journal)
+            length_diff = abs(actual_len - journal_len)
+            length_equal &= length_diff <= tolerance_mm
+            direct = max(math.dist(actual[i], journal[i]) for i in (0, 1))
+            swapped = max(math.dist(actual[i], journal[1-i]) for i in (0, 1))
+            reversed_axis = swapped < direct
+            matched_journal = (journal[1], journal[0]) if reversed_axis else journal
+            # Keep the original source point order in the report. No
+            # reorientation is applied to the physical FoldState.
+            deltas = tuple(
+                tuple(actual[i][j] - matched_journal[i][j] for j in range(3))
+                for i in (0, 1)
+            )
+            endpoint_error = min(direct, swapped)
+            maximum_error = max(maximum_error, endpoint_error)
+            if endpoint_error <= tolerance_mm and angle_error <= 1e-6:
+                label = "REVERSED_MATCH" if reversed_axis else "EXACT_MATCH"
+                result["reversed_axis_count" if reversed_axis
+                       else "exact_axis_count"] += 1
+            else:
+                label = "MISMATCH"
+                result["mismatched_axis_count"] += 1
+            row.update({
+                "comparison": label,
+                "actual_axis_xyz_mm": [list(p) for p in actual],
+                "journal_axis_xyz_mm": [list(p) for p in journal],
+                "actual_angle_deg": actual_angle,
+                "journal_angle_deg": recorded_angle,
+                "angle_error_deg": angle_error,
+                "actual_length_mm": actual_len,
+                "journal_length_mm": journal_len,
+                "length_difference_mm": length_diff,
+                "endpoint_error_forward_mm": direct,
+                "endpoint_error_reversed_mm": swapped,
+                "best_endpoint_error_mm": endpoint_error,
+                "preferred_direction_reversed": reversed_axis,
+                "endpoint_deltas_xyz_mm": [list(p) for p in deltas],
+            })
+            if length_diff <= tolerance_mm and angle_error <= 1e-6:
+                translations.extend(deltas)
+        except (KeyError, ValueError, TypeError, AttributeError, OverflowError) as exc:
+            row.update({"comparison": "UNREADABLE",
+                        "reason": type(exc).__name__ + ":" + str(exc)[:100]})
+            length_equal = False
+            all_angle_equal = False
+        result["axis_rows"].append(row)
+    full_ids = source_ids == logged_ids and len(expected) == len(logged_bends)
+    result["max_endpoint_error_mm"] = maximum_error if full_ids else None
+    result["all_lengths_equal_within_tolerance"] = bool(
+        full_ids and length_equal and all_angle_equal
+    )
+    if full_ids and translations and length_equal and all_angle_equal:
+        sample = translations[0]
+        if all(math.dist(t, sample) <= tolerance_mm for t in translations):
+            result["uniform_translation_candidate_xyz_mm"] = list(sample)
+            result["translation_only_candidate"] = True
+    if (full_ids and result["mismatched_axis_count"] == 0
+            and result["reversed_axis_count"] == 0
+            and all_angle_equal and length_equal):
+        result["status"] = "EXACT_AXIS_MATCH"
+    elif result["translation_only_candidate"]:
+        result["status"] = "UNIFORM_TRANSLATION_CANDIDATE"
+    else:
+        result["status"] = "AXES_DIFFER"
+    return result
+
+
 def verify_source_bends(source_bends, logged_bends, *, tolerance_mm=1e-3):
     """Reject geometry changes with mismatched stable IDs, angles or axes."""
     expected = {b["id"]: b for b in logged_bends}
@@ -443,6 +564,9 @@ def run(journal_path, *, bend_id="B02", output=None, part=None,
         if selected is None:
             raise BlockerReplayError("unfold_not_found:" + name)
         session = build_part_session(opened, [selected])
+        record["source_geometry_comparison"] = inspect_source_bend_geometry(
+            session.fold_state.bends, evidence["geometry"]["bends"],
+        )
         verify_source_bends(
             session.fold_state.bends, evidence["geometry"]["bends"],
         )
