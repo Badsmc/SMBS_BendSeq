@@ -18,6 +18,7 @@ from typing import Any, Callable, Optional, Sequence
 
 from .developer_debug_log import debug_event, summarize_native_trajectory
 from .native_kernel_metrics import count_native_kernel_calls
+from .native_sequence_geometry_cache import NativeSequenceGeometryCache
 from .native_geometry_build_metrics import count_native_geometry_builds
 from .panel_kinematics import FoldState
 from .physical_validation_25d import (
@@ -519,6 +520,9 @@ def check_manual_3d_sequence(
     # Fully isolated state also protects against errors/early returns in D6.
     # Do not mutate session.active_bend_index or the original FoldState.
     independent = FoldState(state_in.graph, state_in.fixed_panel)
+    # Geometry is shared only inside this Manual validation call.
+    # All tool-specific collision verdict caches remain per validator.
+    sequence_geometry_cache = NativeSequenceGeometryCache(max_full_sheets=16)
     previous = []
     steps = []
     any_conditional = False
@@ -528,6 +532,7 @@ def check_manual_3d_sequence(
         "allow_end_zone_collision": bool(allow_end_zone_collision),
         "end_zone_length_mm": end_len,
         "classify_end_zone_length_mm": end_len if end_len > 0.0 else 10.0,
+        "sequence_geometry_cache": sequence_geometry_cache,
     }
     for i, bend_id in enumerate(order):
         if progress_callback is not None:
@@ -582,6 +587,7 @@ def check_manual_3d_sequence(
                         elapsed_s=round(perf_counter() - started, 6),
                         kernel=kernel_counts.to_dict(),
                         geometry_build=geometry_counts.to_dict(),
+                        shared_geometry_cache=sequence_geometry_cache.statistics(),
                         scope="D6_VALIDATION_EXCLUDES_POST_COLLISION_FORENSICS",
                     )
             try:
