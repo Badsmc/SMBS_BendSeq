@@ -158,6 +158,7 @@ def _bend(run: dict[str, Any], bend_id: str) -> dict[str, Any]:
         "phases": [],
         "kernel": None,
         "geometry_build": None,
+        "component_shadow": None,
         "shared_geometry_cache": None,
         "loaded_native_modules": None,
         "kernel_scope": None,
@@ -207,6 +208,8 @@ def _totals(run: dict[str, Any]) -> dict[str, Any]:
     region_names = (
         "panel_extrude", "panel_transform", "bend_zone_build",
         "sheet_union", "sheet_qualification",
+        "machine_workpiece_copy", "machine_workpiece_transform",
+        "native_punch_pose", "pair_geometry_sanity",
     )
     result["geometry_build_measured_total_s"] = _sum_complete([
         _mapping(x["geometry_build"]).get("measured_total_s")
@@ -217,6 +220,19 @@ def _totals(run: dict[str, Any]) -> dict[str, Any]:
         result["geometry_" + name + "_elapsed_s"] = _sum_complete([
             _mapping(_mapping(x["geometry_build"]).get("elapsed_s")).get(name)
             if isinstance(x["geometry_build"], dict) else None
+            for x in bends
+        ])
+    # Shadow observations are deliberately advisory; they NEVER add to
+    # authoritative native OCC/clearance counts or safety qualifications.
+    for name in (
+        "probes", "exact_tool_screens", "aabb_rejected",
+        "exact_candidates", "transformed_components",
+        "component_common_calls", "proven_component_hits",
+        "disagreements", "incomplete_probes", "measured_s",
+    ):
+        result["component_shadow_" + name] = _sum_complete([
+            _mapping(x["component_shadow"]).get(name)
+            if isinstance(x["component_shadow"], dict) else None
             for x in bends
         ])
     for name in (
@@ -297,6 +313,11 @@ def analyze_journal(data: Mapping[str, Any], *,
             record["geometry_build"] = (
                 dict(payload["geometry_build"])
                 if isinstance(payload.get("geometry_build"), dict)
+                else None
+            )
+            record["component_shadow"] = (
+                dict(payload["component_shadow"])
+                if isinstance(payload.get("component_shadow"), dict)
                 else None
             )
             record["shared_geometry_cache"] = (
