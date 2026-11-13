@@ -35,6 +35,11 @@ MANUAL_ORDER = (
 )
 
 
+def _desktop_dir() -> Path:
+    from smbs_core.kinematics2d.developer_debug_log import desktop_directory
+    return desktop_directory()
+
+
 def sha256_file(path: str | Path) -> str:
     h = hashlib.sha256()
     with Path(path).open("rb") as src:
@@ -135,10 +140,7 @@ def run(*, part: str | Path = DEFAULT_PART,
     result_path = (
         Path(output).expanduser().resolve()
         if output is not None
-        else __import__(
-            "smbs_core.kinematics2d.developer_debug_log",
-            fromlist=["desktop_directory"],
-        ).desktop_directory() / "SMBS_native_benchmark.json"
+        else _desktop_dir() / "SMBS_native_benchmark.json"
     )
     if result_path in (
         part_path, punch_path, die_path,
