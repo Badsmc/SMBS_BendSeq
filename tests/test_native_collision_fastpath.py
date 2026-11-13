@@ -66,9 +66,11 @@ class NativeCollisionFastPathTests(unittest.TestCase):
             result = check_pair_clearance(left, right, near_tolerance_mm=0.5)
         self.assertNotEqual(result.reason, "aabb_separated")
         self.assertEqual(result.distance_queries_count, 1)
-        self.assertEqual(result.common_queries_count, 1)
+        # A positive AABB gap proves no shared volume, even at the
+        # exact distance threshold. The new fastpath skips Common only.
+        self.assertEqual(result.common_queries_count, 0)
         measured_dist.assert_called_once()
-        measured_common.assert_called_once()
+        measured_common.assert_not_called()
 
     def test_small_positive_aabb_gap_needs_distance_but_not_common(self):
         # Previously every 0.2mm near-contact test paid for Part.common().
