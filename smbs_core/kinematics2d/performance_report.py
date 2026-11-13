@@ -229,6 +229,7 @@ def _totals(run: dict[str, Any]) -> dict[str, Any]:
         "exact_candidates", "transformed_components",
         "component_common_calls", "proven_component_hits",
         "disagreements", "incomplete_probes", "measured_s",
+        "component_rebuild_calls", "component_rebuild_s",
     ):
         result["component_shadow_" + name] = _sum_complete([
             _mapping(x["component_shadow"]).get(name)
