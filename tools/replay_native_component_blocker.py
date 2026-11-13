@@ -42,6 +42,8 @@ def select_blocker_evidence(journal: dict, bend_id: str = "B02") -> dict:
         if not isinstance(final, dict):
             continue
         steps = final.get("steps")
+        if final.get("status") != "COLLISION":
+            continue
         if not isinstance(steps, list):
             continue
         candidate = next((s for s in steps if isinstance(s, dict)
@@ -145,15 +147,23 @@ def verify_source_bends(source_bends, logged_bends, *, tolerance_mm=1e-3):
         raise BlockerReplayError("source_bend_ids_changed")
     for bid, source in source_bends.items():
         logged = expected[bid]
-        if abs(float(source.angle_deg) - float(logged["angle_deg"])) > 1e-6:
+        src_ang = float(source.angle_deg)
+        log_ang = float(logged["angle_deg"])
+        if (not math.isfinite(src_ang) or not math.isfinite(log_ang)
+                or abs(src_ang - log_ang) > 1e-6):
             raise BlockerReplayError("source_bend_angle_changed:" + bid)
         axis = source.axis_xyz
         recorded = logged["axis_xyz"]
-        if len(axis) != 2 or len(recorded) != 2:
+        if (len(axis) != 2 or len(recorded) != 2
+                or any(len(p) != 3 for p in axis)
+                or any(len(q) != 3 for q in recorded)):
             raise BlockerReplayError("source_bend_axis_missing:" + bid)
-        if any(abs(float(a) - float(b)) > tolerance_mm
-               for p, q in zip(axis, recorded) for a, b in zip(p, q)):
-            raise BlockerReplayError("source_bend_axis_changed:" + bid)
+        for p, q in zip(axis, recorded):
+            for a, b in zip(p, q):
+                actual, expected_coord = float(a), float(b)
+                if (not math.isfinite(actual) or not math.isfinite(expected_coord)
+                        or abs(actual - expected_coord) > tolerance_mm):
+                    raise BlockerReplayError("source_bend_axis_changed:" + bid)
 
 
 def verify_sample_pose(actual, recorded, *, tolerance_mm=1e-3, rotation_tolerance=1e-7):
