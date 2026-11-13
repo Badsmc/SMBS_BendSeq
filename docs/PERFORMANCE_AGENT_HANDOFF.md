@@ -382,3 +382,39 @@ These are implemented improvements to exact-geometry reuse, **not** a measured s
   acceptance comparison of enabled/disabled reject mode, retaining Conditional
   cases, B02 blocker and input hashes. Inspect saved union/Common counts and
   screen fallback reasons before deciding whether default enablement is justified.
+
+
+## 2026-11-14 — LOG15: one retained machine-frame BRep across ram-only D6 samples
+
+- Before: same folded sheet at BOTTOM/RETRACT could be copied and validated
+  again for each ram Z, despite identical source joined BRep and rigid pose.
+  Mac reference: 1712.3593s/10 bends, 325.064s measured pair sanity.
+  FIRST B07 ~74.73618s, 34 unions, 8.77130s pair sanity.
+- New default-OFF flag `SMBS_MACHINE_POSE_REUSE=1` retains **one**
+  machine-frame BRep only for exact same joined shape OBJECT identity and
+  exact same rigid rotation+translation (with same solid cache key). A cached
+  `check_solid_validity` result may only be injected with this same object;
+  otherwise the old independent validation executes.
+- New counters per `BendTrajectoryResult` / Desktop D6 JSON /
+  `performance_report`: `total_machine_pose_reuse_hits`,
+  `total_machine_pose_reuse_misses`. Env flag recorded separately from
+  physical model configuration. Opt-in path does not skip exact OCC Common,
+  distance, Conditional zoning, full multiFuse or topology qualifications
+  for new poses.
+- Source edits: `native_collision_3d.py`,
+  `motion_trajectory_3d.py`, `developer_debug_log.py`,
+  `performance_report.py`, `manual_physical_validation.py`,
+  `tools/run_native_benchmark.py`. Contract tests in
+  `tests/test_component_shadow_trajectory_integration.py` and
+  `tests/test_performance_report.py`.
+- `tools.run_native_benchmark.run(prefix_bends=1)` now checks only first
+  B07 as **explicitly incomplete** Manual prefix, with real FCStd/tools and
+  read-only SHA provenance. Fast matched A/B protocol in
+  `docs/PERFORMANCE_LOG15_MACHINE_POSE_REUSE.md`.
+- Status: **IMPLEMENTED / HEADLESS_TESTED (if latest CI passes) /
+  NATIVE_FREECAD_BENCHMARK PENDING**. Do not claim time savings or 1–3min.
+  The user has NOT yet run B07 baseline/ON experiment on the Mac. Next
+  required step: check latest GitHub Actions and obtain BOTH
+  `SMBS_B07_pose_baseline.json` and `SMBS_B07_pose_reuse.json`.
+  Compare same part SHA, tool SHA, first bend status, samples,
+  union/qualification/Common/distance calls and D6 reuse hits/misses.
