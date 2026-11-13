@@ -6,13 +6,18 @@ It deliberately DOES NOT call full-sheet multiFuse or D6 trajectory sampling.
 
 FreeCAD Python console:
     from tools.replay_native_component_blocker import run
-    result = run(r"C:/Users/User/Desktop/SMBS_debug_log.json", bend_id="B02")
+    result = run(
+        "~/Desktop/SMBS_debug_log(20261113-144507).json",
+        bend_id="B02",
+        part="~/Desktop/demo/2-1-3-4-(ok) (1).FCStd",
+    )
 """
 from __future__ import annotations
 
 import json
 import math
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
+import os
 from time import perf_counter
 
 
@@ -192,8 +197,106 @@ def verify_sample_pose(actual, recorded, *, tolerance_mm=1e-3, rotation_toleranc
     return {"rotation_max_abs_error": r_err, "translation_max_abs_error_mm": t_err}
 
 
+def _original_basename(raw: str) -> str:
+    """Recover a recorded Windows basename even when running under macOS."""
+    path = str(raw or "")
+    if len(path) >= 3 and path[1] == ":" and path[2] in "/\\":
+        return PureWindowsPath(path).name
+    if "\\" in path:
+        return PureWindowsPath(path).name
+    return Path(path).name
+
+
+def _require_local_source(candidate, *, label: str) -> Path:
+    """Never treat a foreign absolute path as valid native FreeCAD source."""
+    resolved = Path(candidate).expanduser()
+    if not resolved.is_file():
+        raise BlockerReplayError(
+            f"missing_local_{label}: {resolved}. "
+            f"Provide local {label}=... (or part=...) for a Windows journal "
+            "replayed on macOS."
+        )
+    return resolved.resolve(strict=True)
+
+
+def resolve_replay_sources(
+    evidence: dict, *,
+    part=None, punch=None, die=None, source_root=None,
+) -> dict:
+    """Map logged paths to local files without rewriting evidence.
+
+    An explicitly supplied tool MUST keep the recorded basename/Tool ID.
+    The original journal has no input-binary hashes: even matching names
+    and geometry cannot independently prove the source bytes are identical.
+    """
+    root = (Path(source_root).expanduser().resolve()
+            if source_root is not None
+            else Path(__file__).resolve().parents[1])
+    recorded_part = str(evidence["part_path"])
+    original_part_name = _original_basename(recorded_part)
+
+    if part is not None:
+        local_part = _require_local_source(part, label="part")
+        part_choice = "explicit_override"
+    else:
+        local_part = None
+        for candidate in (
+            Path(recorded_part),
+            Path.home() / "Desktop" / original_part_name,
+            Path.home() / "Desktop" / "demo" / original_part_name,
+            root / "demo" / "parts" / original_part_name,
+        ):
+            if candidate.is_file():
+                local_part = candidate.resolve(strict=True)
+                break
+        if local_part is None:
+            raise BlockerReplayError(
+                "missing_local_part: Windows journal references "
+                f"{recorded_part!r}. Supply part=r'/Users/.../part.FCStd' "
+                "or copy the exact original file to ~/Desktop/demo/."
+            )
+        part_choice = "matched_logged_basename"
+
+    sources = {"part": local_part}
+    mapping = {"part": part_choice}
+    for kind, override in (("punch", punch), ("die", die)):
+        recorded = str(evidence[kind + "_path"])
+        expected_name = _original_basename(recorded)
+        if override is not None:
+            path = _require_local_source(override, label=kind)
+            if path.name != expected_name:
+                raise BlockerReplayError(
+                    f"{kind}_tool_id_mismatch: expected {expected_name!r}, "
+                    f"supplied {path.name!r}"
+                )
+            mapping[kind] = "explicit_override"
+        else:
+            stored = Path(recorded)
+            library = root / "toollibrary" / kind / expected_name
+            if stored.is_file():
+                path = stored.resolve(strict=True)
+                mapping[kind] = "logged_native_path"
+            elif library.is_file():
+                path = library.resolve(strict=True)
+                mapping[kind] = "same_named_local_toollibrary_source"
+            else:
+                raise BlockerReplayError(
+                    f"missing_local_{kind}: Windows journal references "
+                    f"{recorded!r}; expected current addon tool library "
+                    f"{library}. Supply {kind}=r'/Users/.../{expected_name}'"
+                )
+        sources[kind] = path
+    sources["mapping"] = mapping
+    sources["logged_windows_paths"] = {
+        "part": recorded_part,
+        "punch": evidence["punch_path"],
+        "die": evidence["die_path"],
+    }
+    return sources
+
+
 def run(journal_path, *, bend_id="B02", output=None, part=None,
-        unfold_name=None) -> dict:
+        punch=None, die=None, unfold_name=None) -> dict:
     """Test recorded first-blocking pose only; no full joined sheet or search."""
     import FreeCAD as App
     from freecad_smbs.commands.pressbrake_2d import build_part_session
@@ -213,9 +316,15 @@ def run(journal_path, *, bend_id="B02", output=None, part=None,
     journal_path = Path(journal_path).expanduser().resolve(strict=True)
     src = json.loads(journal_path.read_text(encoding="utf-8"))
     evidence = select_blocker_evidence(src, bend_id=bend_id)
-    part_path = Path(part or evidence["part_path"]).expanduser().resolve(strict=True)
-    punch_path = Path(evidence["punch_path"]).expanduser().resolve(strict=True)
-    die_path = Path(evidence["die_path"]).expanduser().resolve(strict=True)
+    # A Windows journal may be replayed in macOS FreeCAD. Never resolve its
+    # C:/... absolute paths through POSIX pathlib (they become a fake C:
+    # relative directory); map source paths explicitly and verify geometry.
+    local_sources = resolve_replay_sources(
+        evidence, part=part, punch=punch, die=die,
+    )
+    part_path = local_sources["part"]
+    punch_path = local_sources["punch"]
+    die_path = local_sources["die"]
     name = unfold_name or evidence["unfold_name"]
     output_path = (Path(output).expanduser().resolve() if output else
                    journal_path.parent / "SMBS_component_blocker_replay.json")
@@ -233,6 +342,17 @@ def run(journal_path, *, bend_id="B02", output=None, part=None,
             "die_sha256": sha256_file(die_path),
             "source_hashes_present_in_original_journal": False,
             "matching_original_source_bytes": "NOT_PROVEN",
+        },
+        "source_path_mapping": {
+            "method": local_sources["mapping"],
+            "logged_paths": local_sources["logged_windows_paths"],
+            "resolved_paths": {
+                key: str(local_sources[key]) for key in ("part", "punch", "die")
+            },
+            "warning": (
+                "RECORDED_SOURCE_BINARY_HASHES_MISSING;"
+                "SAME_TOOL_ID_AND_GEOMETRY_NOT_BYTE_IDENTICAL_PROOF"
+            ),
         },
         "sampled_blocking_u": evidence["first_sampled_blocking_u"],
         "components": [],
