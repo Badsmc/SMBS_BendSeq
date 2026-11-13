@@ -506,6 +506,29 @@ def check_pair_clearance(
                 tool_label=tool_label,
             )
 
+        # A strictly positive AABB gap mathematically excludes ANY shared
+        # volume or enclosure. If the gap is smaller than the near-contact
+        # threshold, we still need one exact distance query to distinguish
+        # NEAR_CONTACT from TOUCHING, but no expensive OCC Common is needed.
+        # A tiny 1e-8 mm guard protects against bbox numerical roundoff.
+        if aabb_gap is not None and aabb_gap > 1e-8:
+            if dist > near_tolerance_mm:
+                status, reason = CollisionClass.CLEAR, "distance_separated"
+            elif dist <= contact_distance_tolerance_mm:
+                status, reason = CollisionClass.TOUCHING, "surface_touching"
+            else:
+                status, reason = CollisionClass.NEAR_CONTACT, "near_contact"
+            dt = (time.perf_counter() - t0) * 1000.0
+            return PairClearanceResult(
+                status, reason, dist, 0.0, aabb_gap, dt,
+                distance_queries_count=1,
+                common_queries_count=0,
+                broad_phase_time_ms=t_bp_ms,
+                distance_time_ms=t_dist_ms,
+                common_time_ms=0.0,
+                tool_label=tool_label,
+            )
+
         if dist > near_tolerance_mm:
             # Check for potential total volume enclosure:
             b_in_a = (box_a.XMin <= box_b.XMin and box_a.XMax >= box_b.XMax and
