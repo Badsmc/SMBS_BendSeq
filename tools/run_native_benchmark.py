@@ -135,7 +135,10 @@ def run(*, part: str | Path = DEFAULT_PART,
     result_path = (
         Path(output).expanduser().resolve()
         if output is not None
-        else Path.home() / "Desktop" / "SMBS_native_benchmark.json"
+        else __import__(
+            "smbs_core.kinematics2d.developer_debug_log",
+            fromlist=["desktop_directory"],
+        ).desktop_directory() / "SMBS_native_benchmark.json"
     )
     if result_path in (
         part_path, punch_path, die_path,
