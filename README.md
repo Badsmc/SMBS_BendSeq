@@ -129,3 +129,23 @@ repository. They must be run there before publishing a new handmode build.
 Keep `demo/parts/` and its validated manifest in this distribution.
 Do not copy `tests/`, `reports/`, `demo/SMBendTests/` or other
 non-runtime development artifacts into this branch as part of a normal release.
+
+### Пути на macOS, Windows и Linux
+
+- Ресурсы аддона и `toollibrary` определяются относительно установленного кода,
+  а не текущей рабочей папки или имени пользователя.
+- Папка данных берётся из `FreeCAD.getUserAppDataDir()`; вне FreeCAD используются
+  стандартные пользовательские каталоги соответствующей ОС.
+- `SMBS_debug_log.json` использует рабочий стол Windows из User Shell Folders
+  (включая OneDrive), Linux из `XDG_CONFIG_HOME/user-dirs.dirs`, macOS — `~/Desktop`.
+- Поиск FreeCAD учитывает системную и пользовательскую папки Applications на Mac,
+  Program Files из окружения Windows, Linux и Conda. Для нестандартной установки
+  задайте `FREECAD_LIB`; для SheetMetal — `FREECAD_MOD_SHEETMETAL`.
+- Публичные загрузчики оснастки поддерживают `~`, пробелы и Unicode в путях.
+- При переносе диагностического JSON на другой компьютер replay ищет одноимённую
+  деталь на местном рабочем столе / в его `demo`, а оснастку — в местной библиотеке.
+  Можно явно передать `part=`, `punch=`, `die=` с местными путями. Сам журнал не
+  изменяется. Совпадение имён не доказывает идентичность исходных файлов.
+
+Проверки путей запускаются в GitHub Actions на macOS, Windows и Linux
+(`Cross-platform filesystem paths`). Эти проверки не заменяют запуск FreeCAD/OCC.

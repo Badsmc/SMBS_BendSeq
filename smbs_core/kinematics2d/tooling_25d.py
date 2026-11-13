@@ -1811,7 +1811,7 @@ def import_tool_from_dxf(
     geometric datums.
     """
     t0 = time.perf_counter()
-    path = Path(file_path).resolve()
+    path = Path(file_path).expanduser().resolve()
     if not path.is_file():
         raise ToolingError(f"DXF file not found: {path}")
 
@@ -2198,7 +2198,7 @@ def import_tool_from_step(
 ) -> ToolProfile:
     """Import a 3D STEP/STP tool via FreeCAD/OpenCASCADE and extract its exact 2D cross-section."""
     t_start = time.perf_counter()
-    path = Path(file_path).resolve()
+    path = Path(file_path).expanduser().resolve()
     if not path.is_file():
         raise ToolingError(f"STEP file not found: {path}")
 
@@ -2824,7 +2824,7 @@ class ToolLibrary25D:
         if library_root is None:
             repo_root = Path(__file__).resolve().parent.parent.parent
             library_root = repo_root / "toollibrary"
-        self.library_root = Path(library_root).resolve()
+        self.library_root = Path(library_root).expanduser().resolve()
         self.punch_dir = self.library_root / "punch"
         self.die_dir = self.library_root / "die"
         self.punch_dir.mkdir(parents=True, exist_ok=True)

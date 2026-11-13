@@ -61,7 +61,7 @@ class BackgaugeCAD3D:
             if second_station_xm_mm is not None else None
         )
         directory = (
-            Path(library_dir).resolve() if library_dir is not None
+            Path(library_dir).expanduser().resolve() if library_dir is not None
             else Path(__file__).resolve().parents[2] / "toollibrary" / "Backgauge"
         )
         path = directory / "Backgauge.FCStd"

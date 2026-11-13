@@ -373,7 +373,7 @@ def load_native_die(
     `virtual_length_mm` while strictly preserving the 2D cross-section and leaving the
     source .FCStd file untouched.
     """
-    p = Path(file_path).resolve()
+    p = Path(file_path).expanduser().resolve()
     if not p.is_file():
         raise FileNotFoundError(f"Die CAD file not found: {p}")
     if not HAS_FREECAD:
@@ -403,7 +403,7 @@ def load_native_die(
     cache_key = (
         str(p),
         int(p.stat().st_mtime_ns),
-        str(Path(lib_dir).resolve()),
+        str(Path(lib_dir).expanduser().resolve()),
         tuple(float(x) for x in (section_offsets_xm or ())),
         v_len_key,
         str(resolved_mode),
@@ -564,7 +564,7 @@ def load_native_punch(
     `virtual_length_mm` while strictly preserving the 2D cross-section and leaving the
     source .FCStd file untouched.
     """
-    p = Path(file_path).resolve()
+    p = Path(file_path).expanduser().resolve()
     if not p.is_file():
         raise FileNotFoundError(f"Punch CAD file not found: {p}")
     if not HAS_FREECAD:
@@ -594,7 +594,7 @@ def load_native_punch(
     cache_key = (
         str(p),
         int(p.stat().st_mtime_ns),
-        str(Path(lib_dir).resolve()),
+        str(Path(lib_dir).expanduser().resolve()),
         tuple(float(x) for x in (section_offsets_xm or ())),
         v_len_key,
         str(resolved_mode),

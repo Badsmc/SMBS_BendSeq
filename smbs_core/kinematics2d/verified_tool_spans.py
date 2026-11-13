@@ -117,8 +117,8 @@ def verified_fixed_tool_spans(tooling: Any, *, ram_z_mm: float = 0.0) -> Verifie
     return VerifiedToolSpans(
         punch_span_xm=span_from_native_shape(punch, "PUNCH"),
         die_span_xm=span_from_native_shape(die, "DIE"),
-        punch_source=str(Path(punch_source).resolve()),
-        die_source=str(Path(die_source).resolve()),
+        punch_source=str(Path(punch_source).expanduser().resolve()),
+        die_source=str(Path(die_source).expanduser().resolve()),
         punch_sections_xm=_verified_sections(punch, "PUNCH", p_offsets),
         die_sections_xm=_verified_sections(die, "DIE", d_offsets),
     )

@@ -116,6 +116,14 @@ def _pressbrake_user_data_directory():
     FreeCAD installations may be under Program Files, a read-only AppImage,
     or a macOS .app bundle. Traces must never depend on repository permissions.
     """
+    runtime = sys.modules.get("FreeCAD")
+    if runtime is not None:
+        try:
+            directory = runtime.getUserAppDataDir()
+            if directory:
+                return Path(directory).expanduser()
+        except (AttributeError, OSError, RuntimeError, TypeError, ValueError):
+            pass
     if sys.platform == "darwin":
         base = Path.home() / "Library" / "Application Support"
     elif os.name == "nt":
@@ -127,7 +135,7 @@ def _pressbrake_user_data_directory():
     else:
         base = Path(os.environ.get("XDG_DATA_HOME") or
                     str(Path.home() / ".local" / "share"))
-    return base / "FreeCAD" / "v1-1"
+    return base / "FreeCAD"
 
 
 def _qt():
@@ -4052,7 +4060,7 @@ class _PreviewPanel:
                     import json
                     destination, _ = QtWidgets.QFileDialog.getSaveFileName(
                         dlg, "Сохранить 2D диагностику",
-                        str(Path.home() / "Desktop" / "smbs_2d_search_diagnostics.json"),
+                        str(_debug_desktop_directory() / "smbs_2d_search_diagnostics.json"),
                         "JSON (*.json)",
                     )
                     if not destination:
