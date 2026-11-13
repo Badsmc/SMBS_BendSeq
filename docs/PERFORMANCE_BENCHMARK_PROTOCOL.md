@@ -21,6 +21,37 @@ Version 1.0, 2026-11-13. Do not claim a speedup without matched native FreeCAD r
 SHA-256 example with standard Python:
 `python -c "import hashlib,sys;print(hashlib.sha256(open(sys.argv[1],'rb').read()).hexdigest())" <filename.FCStd>`
 
+## B2. One-command local native runner (real FreeCAD, optional)
+
+The branch includes `tools/run_native_benchmark.py`. It uses the **actual**
+SheetMetal Unfold, FreeCAD Part OCC and Manual D6 service. This is NOT a
+mock test. From FreeCAD 1.1.x's Python console, after opening the installed
+development checkout and ensuring the SheetMetal workbench is installed:
+
+```python
+import sys
+sys.path.insert(0, r"C:\\path\\to\\SMBS_BendSeq")
+from tools.run_native_benchmark import run
+result = run()
+```
+
+The script defaults to the repository reference file
+`demo/parts/2-1-3-4-(ok).FCStd`, the real
+`PUNCH_AP_1017_88°_H104,65_R0,8` and
+`T-DIE_AT_3015_88°_V12_H80` FCStd tool IDs, the ten-bend Manual order,
+180° reversal, virtual active-bend length and 10-mm Conditional end zones.
+It opens the source document hidden and **never saves it**; produces separate
+`~/Desktop/SMBS_native_benchmark.json` with hashes and verdicts and appends
+normal Desktop `SMBS_debug_log.json` profiling events. Use
+`run(part=..., output=..., unfold_name=...)` only for genuinely different
+test inputs and record all changed parameters.
+
+Requirements: run in FreeCAD Python/FreeCADCmd with FreeCAD 1.1.x and
+`SheetMetalNewUnfolder` installed; the shell's system Python is NOT suitable.
+This entry point is headless-tested for imports/arguments, but its actual
+native completion requires local FreeCAD acceptance and may stop at a proven
+collision or at an unresolved step. It is NOT a manufacturing approval.
+
 ## C. Measurement protocol
 
 1. Disable unrelated background CPU-heavy workloads where feasible; use the same machine power mode across runs.
