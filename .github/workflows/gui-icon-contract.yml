@@ -55,6 +55,10 @@ jobs:
         env:
           PYTHONPATH: .
         run: python -m unittest discover -s tests -p 'test_verify_installed_runtime.py' -v
+      - name: Test exact native OCC Common-first penetration fastpath
+        env:
+          PYTHONPATH: .
+        run: python -m unittest discover -s tests -p 'test_native_common_first_hint.py' -v
       - name: Verify ZIP runtime installed source fingerprint and invalidation
         env:
           PYTHONPATH: .
