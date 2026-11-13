@@ -328,3 +328,13 @@ These are implemented improvements to exact-geometry reuse, **not** a measured s
   `sys.modules` old imports. If part/ToolLibrary missing, supply the
   correct source files explicitly, never substitute sample tools. The
   replay remains fail-closed and writes its own output.
+
+
+## 2026-11-13 — User confirms native macOS replay of B02 FIRST blocker
+
+- User ran `replay.run(Path.home()/"Desktop"/"SMBS_debug_log.json", bend_id="B02", part="/Users/badmc/Desktop/Новая папка/2-1-3-4-(ok).FCStd", output=Path.home()/"Desktop"/"SMBS_component_blocker_replay_Mac.json")` in macOS FreeCAD.
+- FreeCAD console reports: `SMBS blocker component replay: RECORDED_COMPONENT_PENETRATIONS_REPRODUCED elapsed_s 8.386426`. `result["status"]` independently printed same result; `result.get("error")` yielded None (no console output).
+- Interpretation: script reports all original attributed positive component penetrations matched its local exact OCC checks, **at one known B02 RETRACT sampled pose**. Earlier LOG14 original attribution is P09, P11 and bend_zone:B09.
+- The JSON output `SMBS_component_blocker_replay_Mac.json` has **not yet been uploaded**; do not assert precise per-hit replayed numbers or file hashes without inspecting it. Native result is user-reported console evidence, not a blanket physical/safety qualification.
+- It took **8.386426 s** for one known-pose replay including setup; this does not accelerate or replace the 1712s full ten-bend trajectory. Never promise 1–3 minutes based on this result.
+- Next real engineering: test a **Conditional-aware collision-positive-only prefilter** in the actual search pipeline. Only if a sampled pose's native exact component intersection is physically in non-waivable region, and the complete Conditional policy is respected, may the search reject early. Positive punch contacts subject to end-zone relief cannot be auto-rejected. Zero hits and missing/partial evidence always defer to the full oracle. Keep a diff benchmark; do not add unused stub modules or claim speedup until measured on full native FreeCAD.
