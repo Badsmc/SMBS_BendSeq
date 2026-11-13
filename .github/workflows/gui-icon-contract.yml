@@ -47,6 +47,10 @@ jobs:
         env:
           PYTHONPATH: .
         run: python -m unittest discover -s tests -p 'test_performance_report.py' -v
+      - name: Test exact OCC fast paths and unchanged collision semantics
+        env:
+          PYTHONPATH: .
+        run: python -m unittest discover -s tests -p 'test_native_collision_fastpath.py' -v
       - name: Test Conditional end-zone native OCC sliver tolerance
         env:
           PYTHONPATH: .
