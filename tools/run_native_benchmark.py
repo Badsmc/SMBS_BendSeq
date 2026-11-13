@@ -35,6 +35,16 @@ MANUAL_ORDER = (
 )
 
 
+def selected_bend_prefix(prefix_bends: int | None = None) -> tuple[str, ...]:
+    """A bounded diagnostic prefix is NOT a qualified complete sequence."""
+    if prefix_bends is None:
+        return MANUAL_ORDER
+    if (isinstance(prefix_bends, bool) or not isinstance(prefix_bends, int)
+            or prefix_bends < 1 or prefix_bends > len(MANUAL_ORDER)):
+        raise ValueError("prefix_bends must be an integer from 1 to 10")
+    return MANUAL_ORDER[:prefix_bends]
+
+
 def _desktop_dir() -> Path:
     from smbs_core.kinematics2d.developer_debug_log import desktop_directory
     return desktop_directory()
@@ -111,7 +121,8 @@ def run(*, part: str | Path = DEFAULT_PART,
         max_phase_time_s: float = 300.0,
         max_states_per_phase: int = 64,
         component_shadow_samples_per_bend: int = 0,
-        component_reject_enabled: bool = False) -> dict[str, Any]:
+        component_reject_enabled: bool = False,
+        prefix_bends: int | None = None) -> dict[str, Any]:
     """Run the real native oracle on the specified FCStd with exact tool IDs.
 
     Executed in FreeCAD's Python interpreter, not ordinary system Python.
@@ -136,6 +147,7 @@ def run(*, part: str | Path = DEFAULT_PART,
         check_manual_3d_sequence,
     )
 
+    chosen_order = selected_bend_prefix(prefix_bends)
     part_path = Path(part).expanduser().resolve(strict=True)
     punch_path = _user_tool_source(ROOT, "punch", punch_id)
     die_path = _user_tool_source(ROOT, "die", die_id)
@@ -175,8 +187,15 @@ def run(*, part: str | Path = DEFAULT_PART,
     record["allow_end_zone_collision"] = bool(allow_end_zone_collision)
     record["end_zone_length_mm"] = float(end_zone_length_mm)
     record["reverse_axis_by_bend"] = {
-        bend: bool(reverse_axis) for bend in MANUAL_ORDER
+        bend: bool(reverse_axis) for bend in chosen_order
     }
+    record["manual_order"] = list(chosen_order)
+    record["benchmark_prefix_bends"] = len(chosen_order)
+    record["complete_part_sequence_requested"] = (chosen_order == MANUAL_ORDER)
+    record["warning"] = (
+        "PREFIX_IS_NOT_COMPLETE_PHYSICAL_3D_VERIFICATION"
+        if chosen_order != MANUAL_ORDER else None
+    )
 
     existing = set(App.listDocuments())
     previous = getattr(getattr(App, "ActiveDocument", None), "Name", None)
@@ -195,7 +214,7 @@ def run(*, part: str | Path = DEFAULT_PART,
             raise RuntimeError(
                 "Reference bend IDs do not match real SheetMetal Unfold"
             )
-        session.set_bend_order(MANUAL_ORDER)
+        session.set_bend_order(MANUAL_ORDER)  # retains full source ordering
 
         library = ToolLibrary25D(ROOT / "toollibrary")
         punch = library.load_tool(punch_id, ToolKind.PUNCH)
@@ -224,7 +243,7 @@ def run(*, part: str | Path = DEFAULT_PART,
             ].__file__).resolve()
         )
         result = check_manual_3d_sequence(
-            session, setup, MANUAL_ORDER,
+            session, setup, chosen_order,
             match_active_bend_length=bool(match_active_bend_length),
             allow_end_zone_collision=bool(allow_end_zone_collision),
             end_zone_length_mm=float(end_zone_length_mm),
