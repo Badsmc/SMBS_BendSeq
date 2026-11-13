@@ -2,7 +2,7 @@
 
 Date: **2026-11-13**. Branch: `experiment/component-collision-oracle`
 (forked from `development/performance-optimization` at `7de4f51d`).
-Status: **HEADLESS_TESTED / NATIVE_FREECAD_NOT_YET_RUN FOR SHADOW**.
+Status as of 2026-11-14: **SHADOW POSITIVE HITS VERIFIED ON WINDOWS; MAC FIRST-BLOCKER COMPONENT REPLAY VERIFIED; OPT-IN INTEGRATED REJECT / MACHINE-POSE-REUSE HEADLESS_TESTED ONLY, NATIVE A/B PENDING**. See LOG13, LOG14 and LOG15. The following sections preserve the original implementation chronology; older “not run” statements refer to their historical stage.
 
 ## Current canonical call graph
 
