@@ -36,9 +36,16 @@ no source FCStd/ToolLibrary/GUI/FCStd JSON state changed.
   AABB-separated, small/aggregate overlaps, missing inputs, nonrigid placement,
   invalid bounding boxes, OCC exceptions and candidate budget exhaustion
   all yield `FALLBACK_REQUIRED`. There is no fast `CLEAR` classification.
-- Limits optional probes to **0–8 new full-sheet poses per bend**, and up to
-  **4 exact candidates per tool per pose**. Excess candidates defer to the
-  reference oracle; there is no forced unsafe decision.
+- Limits optional probes to **0–8 per bend**; with the recommended
+  **2-probe setting**, one new BENDING pose is sampled and one slot is
+  reserved for the first real (non-Conditional) RETRACT blocker. When that
+  blocker reused a previously joined full sheet, the experiment rebuilds
+  only isolated panel/zone BReps for its diagnostic screen, without a new
+  multiFuse. A bend with no blocking RETRACT may therefore have only
+  **one** shadow probe.
+- Up to **12 exact AABB candidates per tool** may be tested. Additional
+  candidates defer to the full old oracle, never fabricate a CLEAR.
+  Shadow mode is an experiment and may be *slower* than standard validation.
 - Records per-bend counts, timings, candidate sets and comparison flags in
   `PERF_NATIVE_BEND_KERNEL.data.component_shadow` in the existing Desktop
   `SMBS_debug_log.json`. The read-only `performance_report` CLI also
@@ -64,8 +71,10 @@ run, or sum shadow Common twice into exact native query totals.
    os.environ["SMBS_COMPONENT_SHADOW_SAMPLES"] = "2"
    ```
 
-   This enables up to two pre-fuse shadow probes **per bend**, without changing
-   the original collision results. It adds work and may run slower than normal.
+   This enables up to one BENDING pre-fuse probe and, if present, one real
+   blocking RETRACT probe **per bend**. A cached RETRACT sheet may require a
+   diagnostic-only component reconstruction. The original collision result
+   remains authoritative; this may run slower than normal.
 3. Use the real reference FCStd with exact selected AP1017 punch, AT3015 V12
    die, Manual order `B07 B03 B05 B01 B08 B04 B09 B10 B06 B02`,
    180° orientation, virtual active-bend length and explicitly selected
@@ -138,16 +147,22 @@ python -m smbs_core.kinematics2d.performance_report "C:\Users\User\Desktop\SMBS_
 These are **headless mock regression tests** plus GitHub Actions syntax/
 compile/unit tests. They are **not native OCCT certification**.
 
-Current reference manual run without shadow was **1046.8586s** for ten bends
-(log 20261113-130304). It had 297 full-sheet fusions. No shadow-run wall
-time or candidate histogram has been provided yet; **no component-speedup
-percentage can be asserted**. The previous shared-pose workpiece validity
-optimization is separately verified on the single reference part.
+Reference manual run without shadow was **1046.8586s** for ten bends
+(log 20261113-130304). The first, older shadow run
+`20261113-141036` took **1047.1784s**, still 297 full-sheet fusions:
+20 probes, 603/840 disjoint AABB pairs, 29/40 candidate-budget fallbacks,
+zero proven component hits and zero meaningful positive comparisons.
+See `PERFORMANCE_LOG12_COMPONENT_SHADOW.md`. The new targeted RETRACT
+probing code has **NOT** been live-tested yet, and it is an experimental
+comparison, not a runtime speedup. The prior shared-pose workpiece validity
+optimization is independently verified on one reference part.
 
 ## Immediate next action
 
-Run the two-probe-per-bend native shadow comparison above and inspect
+Run the **updated** two-slot-per-bend shadow comparison above and confirm
+B02's real RETRACT blocker is among the newly examined poses. Inspect
 `PERF_NATIVE_BEND_KERNEL.component_shadow` for candidate counts,
-fallbacks and disagreements. Use that measured evidence to determine the
-proven-reject gating and topology validation strategy. Do **not** turn
-`FALLBACK_REQUIRED` into `CLEAR` to meet a speed target.
+fallbacks, proven central B09/P09/P11 punch overlaps and disagreements.
+Use measured evidence to determine the proven-reject gating and topology
+validation strategy. Do **not** turn `FALLBACK_REQUIRED` into `CLEAR`
+to meet a speed target.
