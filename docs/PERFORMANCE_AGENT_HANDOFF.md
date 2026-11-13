@@ -285,3 +285,46 @@ These are implemented improvements to exact-geometry reuse, **not** a measured s
 - Additive diagnostic commit `1c16f8a`: log component `hit_volume_mm3`, `full_oracle_tool_status`, `full_oracle_conditional` in bounded shadow examples, preserving original physical oracle. Two intermediate GitHub Actions failed because mock positive-hit fixtures omitted `volume_mm3`; fixed by optional-field hardening `b8d7e31` and realistic fixtures `bed171d`. **CI SUCCESS:** https://github.com/Badsmc/SMBS_BendSeq/actions/runs/43448366715.
 - Next native test is **one-pose replay, not another 17-minute manual run**: in FreeCAD Python console `from tools.replay_native_component_blocker import run; result=run(r"C:/Users/User/Desktop/SMBS_debug_log.json",bend_id="B02")`. Obtain `SMBS_component_blocker_replay.json`. Compare P09, P11 and B09 exact positive volumes, especially central 2.75mm³; inspect precise source geometry/placement mismatch if any. See full steps in LOG13.
 - Do NOT enable production no-fuse `CLEAR` or `CONDITIONAL` rejection. A validated positive physical central blocker may eventually prune a candidate after exact Conditional zoning; uncertain, topology-invalid, contact-only and unverified results require original native oracle. No user acceptance or measured whole-run component speedup yet.
+
+
+## 2026-11-13 — macOS replay preflight: distinguish local journal from uploaded Windows run
+
+- User attempted native single-pose replay in FreeCAD macOS from
+  `/Users/badmc/Library/Application Support/FreeCAD/v1-1/Mod/SMBS`.
+  First run used `C:/Users/User/Desktop/SMBS_debug_log.json` on macOS and
+  failed at pathlib `FileNotFoundError: C:`. The next attempt opened
+  `/Users/badmc/Desktop/SMBS_debug_log.json` but returned
+  `no_completed_native_collision_for_requested_bend`.
+- Source evidence: user-uploaded `SMBS_debug_log(20261113-144507).json`
+  **DOES** have `MANUAL_NATIVE_CHECK_FINISHED` `status=COLLISION`,
+  `steps[].bend_id=B02`, `steps[].status=COLLISION`, complete
+  `first_blocker.sampled_machine_pose` and attributed P09/P11/B09. The
+  **different named Mac desktop local log** is the likely reason for
+  missing B02 data. It has not been uploaded and its contents cannot be
+  independently certified. Copy the exact dated Windows log to Mac; do
+  not overwrite Mac's default developer journal.
+- Commit `756f256` maps Windows source paths to explicit
+  `part=/path/to/original.FCStd` and same-named tool library FCStd files
+  within the current Mac addon. Cross-host byte identity cannot be
+  proven without original Windows part/tool hashes; strict axes, angles,
+  poses and exact intersection volumes remain mandatory.
+- Commit `8928134` adds `inspect_journal(path)`, read-only native
+  run count/status diagnostics and self-explaining missing B02 error.
+  Commit `944cd84` adds headless regression of macOS local log vs
+  completed Windows reference, Windows-path tool resolution and wrong
+  tool filename rejection.
+- CI (latest): https://github.com/Badsmc/SMBS_BendSeq/actions/runs/43484744417
+  **SUCCESS**. No replay was actually executed inside native Mac FreeCAD.
+- Required Mac console:
+  ```python
+  from tools.replay_native_component_blocker import inspect_journal, run
+  path = "/Users/badmc/Desktop/SMBS_debug_log(20261113-144507).json"
+  print(inspect_journal(path))
+  result = run(path, bend_id="B02",
+      part="/absolute/path/to/the/same/reference/FCStd")
+  print(result["status"])
+  ```
+  Must use latest branch installed, restart FreeCAD to invalidate
+  `sys.modules` old imports. If part/ToolLibrary missing, supply the
+  correct source files explicitly, never substitute sample tools. The
+  replay remains fail-closed and writes its own output.
