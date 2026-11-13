@@ -43,6 +43,10 @@ jobs:
         env:
           PYTHONPATH: .
         run: python -m unittest discover -s tests -p 'test_gauge_preview.py' -v
+      - name: Test shared bounded native BRep cache source invalidation
+        env:
+          PYTHONPATH: .
+        run: python -m unittest discover -s tests -p 'test_native_sequence_geometry_cache.py' -v
       - name: Test native D6 profiling journal analyzer and call metrics
         env:
           PYTHONPATH: .
