@@ -109,7 +109,8 @@ def run(*, part: str | Path = DEFAULT_PART,
         end_zone_length_mm: float = 10.0,
         reverse_axis: bool = True,
         max_phase_time_s: float = 300.0,
-        max_states_per_phase: int = 64) -> dict[str, Any]:
+        max_states_per_phase: int = 64,
+        component_shadow_samples_per_bend: int = 0) -> dict[str, Any]:
     """Run the real native oracle on the specified FCStd with exact tool IDs.
 
     Executed in FreeCAD's Python interpreter, not ordinary system Python.
@@ -149,9 +150,22 @@ def run(*, part: str | Path = DEFAULT_PART,
         raise ValueError("Benchmark output cannot overwrite source geometry")
     if not (0.0 <= float(end_zone_length_mm) < 10000.0):
         raise ValueError("Invalid conditional end-zone length")
+    # Optional component pre-fuse shadow measurements cannot change the
+    # native verifier's verdict. Never enable expensive probes implicitly.
+    shadow_value = os.environ.get(
+        "SMBS_COMPONENT_SHADOW_SAMPLES",
+        str(component_shadow_samples_per_bend),
+    )
+    try:
+        shadow_requested = int(shadow_value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("component shadow sample count must be an integer") from exc
+    if not 0 <= shadow_requested <= 8:
+        raise ValueError("component shadow sample count must be 0..8")
     cfg = AdaptiveSamplingConfig(
         max_phase_time_s=float(max_phase_time_s),
         max_evaluated_states_per_phase=int(max_states_per_phase),
+        component_shadow_samples_per_bend=shadow_requested,
     )
     record = _snapshot(part_path, punch_path, die_path, cfg)
     record["match_active_bend_length"] = bool(match_active_bend_length)
