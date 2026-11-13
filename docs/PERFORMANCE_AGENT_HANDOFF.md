@@ -23,8 +23,8 @@ The user's prime pain point is **very slow native 3D validation even for an expl
 | Gate | Status | Evidence required / outcome |
 | --- | --- | --- |
 | A0 branch and governance | IMPLEMENTED | `AGENTS.md`, master plan, this handoff, benchmark protocol |
-| A1 headless performance log analyzer | PLANNED | Parse existing Desktop journal into run/bend/phase totals and honest missing-value fields |
-| A2 per-phase OCC/caching instrumentation | PLANNED | Extend existing summary only; no physical behavior changes |
+| A1 headless performance log analyzer | HEADLESS_TESTED | `performance_report.py` read-only CLI, multiple/partial runs, missing fields = null; unit tests green |
+| A2 per-phase OCC/caching instrumentation | HEADLESS_TESTED | `summarize_native_trajectory` reports existing counters; native Manual D6 wraps `count_native_kernel_calls` and emits `PERF_NATIVE_BEND_KERNEL`; no changes to collisions |
 | A3 live reference measurements | NOT_STARTED | Real FreeCAD, source SHA, cold/warm 3+3, matched settings, report |
 | B targeted reuse and duplicate OCC removal | NOT_STARTED | Only after baseline |
 | C conservative panel/zone broad phase | NOT_STARTED | Proof + independent native validation |
@@ -35,12 +35,13 @@ The user's prime pain point is **very slow native 3D validation even for an expl
 
 ## Next agent's exact action
 
-1. Verify branch HEAD, actual FreeCAD module source, CI green and new docs.
-2. Finish Phase A1/A2 by adding a **read-only** parser of `SMBS_debug_log.json` and instrumented native per-phase counts, without invoking OCC or changing search.
-3. Run `python -m compileall -q Init.py InitGui.py freecad_smbs smbs_core` and relevant unit tests, then GitHub Actions. Note versions/commit.
-4. On local FreeCAD (Windows or macOS), run the exact manual sequence twice (ideally 3 cold + 3 warm) and export a performance JSON report, keeping the original journal intact.
-5. Decide the FIRST optimization based on measured distribution of time across sheet construction, Part.common, distanceToShape and cache misses. If Common dominates, determine whether end-zone classification repeats it and profile before changing anything.
-6. After each implementation and native benchmark, UPDATE THIS FILE and master plan status, always show measured before/after with same settings.
+1. **Start at Phase A3:** check out this branch, verify its HEAD and that the active FreeCAD Mod module actually points at it; confirm no duplicate installed SMBS addon.
+2. Run the reference 10-bend manual native 3D sequence in FreeCAD at identical settings. One first run is sufficient to begin if it is prohibitively slow; collect further cold/warm runs when feasible.
+3. From repo root, run `python -m smbs_core.kinematics2d.performance_report "~/Desktop/SMBS_debug_log.json" --json --output "~/Desktop/SMBS_perf_baseline.json"` (adjust Windows Desktop path).
+4. Verify `PERF_NATIVE_BEND_KERNEL` and existing `MANUAL_NATIVE_BEND_TRAJECTORY` appear for each checked bend. If missing, report loaded runtime path/SHA instead of assuming new source was installed.
+5. Collect per-bend wall time, Common/distance calls and elapsed, full-solid reconstructions, phase samples, cache hits, and CPU/peak RAM. Record real FreeCAD/OCC version and hashes for model and tools. Never invent missing counters.
+6. Compare those metrics and physical statuses with the previous unchanged baseline where available; select the **first** optimisation experiment only after identifying the dominant cost (e.g. duplicated Common, multiFuse, or cross-state cache misses).
+7. Update this handoff with evidence and exact CI + native test information. Do not launch Phase C or multiprocess changes before Phase A3 is reported.
 
 ## Benchmark/report vocabulary
 
@@ -64,3 +65,15 @@ The user's prime pain point is **very slow native 3D validation even for an expl
 ## Completion protocol
 
 At the end of any work, edit this document to append a timestamped entry with: branch & commit, changed paths, hypothesis, unit/CI checks, real FreeCAD evidence (or explicitly unavailable), speedup ratio if measured (or NOT_MEASURED), safety regression result, next task. Leave no vague "everything works" claims.
+
+
+## 2026-11-13 — Phase A0/A1/A2 headless implementation
+
+- Branch: `development/performance-optimization`; source used: `fix/conditional-endzone-volume-tolerance` (working baseline retained).
+- Initial plan: `bc03d3c`; agent rules: `e8e9e80`; handoff: `08f44fc`; benchmark protocol: `31980ca`.
+- Native journal field extension: `cd70000` in `smbs_core/kinematics2d/developer_debug_log.py`, new counters only.
+- Native Part call timing: `a1569ab` in `manual_physical_validation.py` — context-scoped `common/distToShape` counts and durations, including failed D6 calls, excludes later collision forensics.
+- Read-only parser: `e944150` in `performance_report.py`; tests: `1b0fc15` in `test_performance_report.py`.
+- CI entry: `a0c49fd`, [successful GitHub Actions run](https://github.com/Badsmc/SMBS_BendSeq/actions/runs/43381662295), compile and test workflow (20 steps, all green).
+- Actual FreeCAD machine validation: **NOT RUN from this conversation**; numerical baseline and speedup: **NOT MEASURED**. No claim of acceleration or geometrical qualification.
+- Next step: Phase A3 real FreeCAD benchmark with confirmed runtime module and journal; then narrow Phase B to the measured hotspot.
