@@ -62,6 +62,7 @@ from smbs_core.kinematics2d.native_bend_solid_3d import (
 )
 from smbs_core.kinematics2d.component_collision_oracle import (
     screen_machine_component_overlap, record_component_shadow_probe,
+    record_component_shadow_rebuild,
 )
 from smbs_core.kinematics2d.native_geometry_build_metrics import measure_native_geometry_region
 from smbs_core.kinematics2d.native_collision_3d import (
@@ -980,6 +981,7 @@ class AdaptiveTrajectoryValidator3D:
             and not col_res.is_conditional_safe
         ):
             self._component_shadow_blocker_seen += 1
+            rebuild_started = time.perf_counter()
             try:
                 blocker_components = build_multi_bend_sheet_components(
                     self.fold_state,
@@ -988,7 +990,6 @@ class AdaptiveTrajectoryValidator3D:
                     panel_prism_cache=self._panel_prism_cache,
                     zone_shape_cache=self._zone_shape_cache,
                 )
-                run_component_shadow(blocker_components)
             except Exception as shadow_exc:
                 from smbs_core.kinematics2d.component_collision_oracle import (
                     ComponentVerdict, MachineComponentScreen,
@@ -1000,6 +1001,15 @@ class AdaptiveTrajectoryValidator3D:
                         "PUNCH", 0, 0, 0, 0, 0, 0.0,
                     ),
                 }
+            finally:
+                record_component_shadow_rebuild(
+                    time.perf_counter() - rebuild_started,
+                )
+            if shadow_results is None:
+                run_component_shadow(blocker_components)
+            # The physical report was already computed, unchanged.
+            # Diagnostics are never allowed to replace it.
+
 
         if shadow_results is not None:
             try:
