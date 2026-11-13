@@ -113,3 +113,15 @@ Source commits after the initial optimization series:
 - `fbf0d88` and `8adfc66`: headless tests and CI contract for bounded shared cache and source/tool isolation. [CI run successful](https://github.com/Badsmc/SMBS_BendSeq/actions/runs/43386827759).
 
 These are implemented improvements to exact-geometry reuse, **not** a measured speedup. The local FreeCAD 1.1 native regression run is still missing, so Phase A3 and production qualification remain open. The next priority is to install this branch, confirm `module_file`, obtain an up-to-date debug log and compare exact native results/statuses with the reference `fix/conditional-endzone-volume-tolerance`. No CPU multiprocess or GPU code has been enabled.
+
+
+## 2026-11-13 — Additional Phase B/D implementation and conservative comparison
+
+- Direct response to request to continue development in GitHub. Based on the earlier real historical user log, the native run to B08 required **691.6417 s** across five bends, with **607.259 s** in BENDING; these measurements are from a previous runtime, not this optimized branch.
+- New exact per-Manual-run `NativeSequenceGeometryCache` (commit `d6beea2`) holds **at most 16 joined sheet shapes**, immutable source-panel prisms and per-bend zone shapes during one Manual selected-order check. No persistent global cache, no cross-process shape sharing.
+- Native validators accept this explicitly scoped cache (`e8de728`); physical service passes through `sequence_geometry_cache` (`61417f3`); Manual orchestration instantiates once per selected sequence and logs occupancy/source invalidations (`ed8bcd3`).
+- Cache clearing rejects stale source identities, preserves tool-dependent collision verdicts per validator, still recomputes the exact full-sheet boolean and topology checks for new poses. Tests `fbf0d88`, workflow `8adfc66` passed in headless CI.
+- `performance_report.py` records per-bend shared cache snapshots (`3848aaf`; assertion `fdb9d5b`).
+- Added `--compare` CLI for **two untouched Desktop logs** (`1bf3012`), rejecting numeric speedup if order, selected tooling/sampling parameters, native evidence, first hit or statuses disagree. Tests `27d8578`, signed-angle fix `0683e0f` and protocol docs `993569d`. Even matching logs remain PROVISIONAL until identical input FCStd/tool hashes and real native FreeCAD are independently verified.
+- **Native FreeCAD availability in this tool environment:** unavailable (FreeCAD Python module not installed; direct access to the user's macOS/Windows GUI is not provided). No production geometry qualification or numerical speedup is claimed.
+- **Next exact action:** install THIS branch into a single FreeCAD Mod directory, execute `B07,B03,B05,B01,B08,...` at original 180°/tool/Conditional settings, inspect `PERF_NATIVE_BEND_KERNEL.geometry_build` and `shared_geometry_cache`, run comparison against matched baseline. If mismatch occurs, revert the geometry-sharing experiment; if matching and faster, qualify then proceed to component broad phase and separate-process CPU scheduling. Never merge into `main`/`smbs` until this native acceptance.
