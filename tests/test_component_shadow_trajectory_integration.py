@@ -1,0 +1,158 @@
+"""Integration contract for opt-in shadow inside actual create_state_snapshot.
+
+All FreeCAD BRep methods are mocked: this does NOT qualify physical CAD.
+"""
+from __future__ import annotations
+
+import os
+import sys
+import unittest
+from types import SimpleNamespace
+from unittest.mock import patch
+
+from smbs_core.kinematics2d.component_collision_oracle import (
+    ComponentVerdict, MachineComponentScreen, count_component_shadow_checks,
+)
+from smbs_core.kinematics2d.motion_trajectory_3d import (
+    AdaptiveSamplingConfig, AdaptiveTrajectoryValidator3D,
+)
+from smbs_core.kinematics2d.native_bend_solid_3d import NativeSheetComponents
+from smbs_core.kinematics2d.native_collision_3d import (
+    CollisionClass, PairClearanceResult, ToolCollisionReport,
+)
+
+
+class FakeShape:
+    def copy(self):
+        return FakeShape()
+
+    def transformShape(self, mat):
+        return None
+
+
+def fake_report():
+    punch = PairClearanceResult(
+        CollisionClass.CLEAR, "aabb_separated", 5.0, 0.0, 5.0, 0.0,
+    )
+    die = PairClearanceResult(
+        CollisionClass.CLEAR, "aabb_separated", 5.0, 0.0, 5.0, 0.0,
+    )
+    return ToolCollisionReport(
+        CollisionClass.CLEAR, punch, die, True, [], 0.0,
+    )
+
+
+def fake_validator(*, probes):
+    angles = {"B01": 0.0}
+    def set_angle(bend_id, angle):
+        angles[bend_id] = angle
+    fold = SimpleNamespace(
+        angles=angles,
+        set_angle=set_angle,
+        ordered_bends=[SimpleNamespace(
+            bend_id="B01",
+            bend_zone=SimpleNamespace(thickness_mm=1.5),
+        )],
+    )
+    panel = SimpleNamespace(
+        panels=[object()], panel_faces=[object()],
+    )
+    die = SimpleNamespace(
+        v_opening_mm=12.0,
+        effective_v_opening_mm=12.0,
+        machine_shape=FakeShape(),
+    )
+    with patch.dict(os.environ, {"SMBS_COMPONENT_SHADOW_SAMPLES": str(probes)}):
+        return AdaptiveTrajectoryValidator3D(
+            fold_state=fold, panel_build=panel,
+            punch_base=object(), die=die,
+            config=AdaptiveSamplingConfig(),
+        )
+
+
+def actual_pose():
+    return SimpleNamespace(
+        rotation=((1, 0, 0), (0, 1, 0), (0, 0, 1)),
+        translation=(0, 0, 0),
+    )
+
+
+class ComponentShadowIntegrationTests(unittest.TestCase):
+    def evaluate(self, *, probes=1, screen_fails=False):
+        validator = fake_validator(probes=probes)
+        observed_builder_kwargs = []
+        probe = MachineComponentScreen(
+            ComponentVerdict.FALLBACK_REQUIRED,
+            "all_aabbs_disjoint_but_topology_unverified",
+            "PUNCH", 2, 2, 0, 0, 0, 0.1,
+        )
+        components = NativeSheetComponents(
+            (("P01", FakeShape()),),
+            (("bend_zone:B01", FakeShape()),), 1.0,
+        )
+
+        def builder(*args, **kwargs):
+            observed_builder_kwargs.append(kwargs)
+            observer = kwargs.get("component_observer")
+            if observer is not None:
+                observer(components)
+            return SimpleNamespace(shape=FakeShape())
+
+        mat = lambda *v: SimpleNamespace(dx=v[3], dy=v[7])
+        mod = "smbs_core.kinematics2d.motion_trajectory_3d."
+        reporter = fake_report()
+        with (
+            patch.dict(sys.modules, {"FreeCAD": SimpleNamespace(Matrix=mat)}),
+            patch(mod + "_panel_build_geometry_signature", return_value=("panelA",)),
+            patch(mod + "_punch_geometry_signature", return_value=("punchA",)),
+            patch(mod + "_die_geometry_signature", return_value=("dieA",)),
+            patch(mod + "WorkpiecePlacement3D.compute_placement", return_value=actual_pose()),
+            patch(mod + "build_multi_bend_sheet_solid", side_effect=builder),
+            patch(mod + "set_punch_ram_z", return_value=SimpleNamespace(machine_shape=FakeShape())),
+            patch(mod + "validate_workpiece_tooling_pose", return_value=reporter),
+            patch(mod + "screen_machine_component_overlap",
+                  side_effect=(RuntimeError("diagnostic") if screen_fails else
+                               lambda *a, **kw: probe)) as screen,
+            count_component_shadow_checks() as stats,
+        ):
+            state = validator.create_state_snapshot(
+                "B01", "BENDING", 0.5, 45.0, 1.0, 0.0, {},
+            )
+            same_cached = validator.create_state_snapshot(
+                "B01", "BENDING", 0.5, 45.0, 1.0, 0.0, {},
+            )
+        return state, same_cached, reporter, observed_builder_kwargs, screen, stats
+
+    def test_shadow_runs_before_full_builder_and_never_overrides_original_result(self):
+        st, cached, oracle, kwargs, screen, stats = self.evaluate(probes=1)
+        self.assertIs(st.collision_report, oracle)
+        self.assertIs(cached.collision_report, oracle)
+        self.assertTrue(st.is_safe)
+        self.assertTrue(cached.is_safe)
+        self.assertEqual(stats.probes, 1)
+        self.assertEqual(stats.exact_tool_screens, 2)
+        self.assertEqual(screen.call_count, 2)
+        self.assertEqual(len(kwargs), 1)
+        self.assertIn("component_observer", kwargs[0])
+
+    def test_default_off_uses_original_native_builder_signature(self):
+        st, cached, oracle, kwargs, screen, stats = self.evaluate(probes=0)
+        self.assertIs(st.collision_report, oracle)
+        self.assertEqual(stats.probes, 0)
+        self.assertEqual(screen.call_count, 0)
+        self.assertEqual(len(kwargs), 1)
+        self.assertNotIn("component_observer", kwargs[0])
+
+    def test_shadow_exception_is_incomplete_not_a_physical_verdict(self):
+        st, cached, oracle, kwargs, screen, stats = self.evaluate(
+            probes=1, screen_fails=True,
+        )
+        self.assertTrue(st.is_safe)
+        self.assertIs(st.collision_report, oracle)
+        self.assertEqual(stats.probes, 1)
+        self.assertEqual(stats.incomplete_probes, 1)
+        self.assertEqual(stats.disagreements, 0)
+
+
+if __name__ == "__main__":
+    unittest.main()
