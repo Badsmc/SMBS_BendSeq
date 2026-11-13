@@ -111,6 +111,30 @@ class BlockerReplayContractTests(unittest.TestCase):
         with self.assertRaisesRegex(BlockerReplayError, "duplicate_hit"):
             select_blocker_evidence(d, "B02")
 
+    def test_noncolliding_finished_run_cannot_authorize_replay(self):
+        d = fixture()
+        d["events"][-1]["data"]["status"] = "UNVERIFIED"
+        with self.assertRaises(BlockerReplayError):
+            select_blocker_evidence(d, "B02")
+
+    def test_nan_bend_angle_is_never_verified(self):
+        bends = {"B02": SimpleNamespace(
+            angle_deg=float("nan"),
+            axis_xyz=((0., 0., 0.), (100., 0., 0.)),
+        )}
+        recorded = fixture()["events"][1]["data"]["bends"]
+        with self.assertRaisesRegex(BlockerReplayError, "source_bend_angle_changed"):
+            verify_source_bends(bends, recorded)
+
+    def test_missing_axis_coordinate_is_not_ignored_by_zip(self):
+        bends = {"B02": SimpleNamespace(
+            angle_deg=90.0,
+            axis_xyz=((0., 0.), (100., 0.)),
+        )}
+        recorded = fixture()["events"][1]["data"]["bends"]
+        with self.assertRaisesRegex(BlockerReplayError, "source_bend_axis_missing"):
+            verify_source_bends(bends, recorded)
+
     def test_placement_must_match_native_recomputation(self):
         pose = {
             "rotation": [[1., 0., 0.], [0., 1., 0.], [0., 0., 1.]],
