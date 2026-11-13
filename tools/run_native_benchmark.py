@@ -226,16 +226,21 @@ def run(*, part: str | Path = DEFAULT_PART,
         if previous and App.getDocument(previous) is not None:
             App.setActiveDocument(previous)
 
+    # The production Manual result may contain unexpected FreeCAD-native
+    # objects in error diagnostics. Serialize conservatively, exactly as the
+    # existing Desktop journal does, instead of crashing after the solver.
+    from smbs_core.kinematics2d.developer_debug_log import _jsonable
+    safe_record = _jsonable(record)
     result_path.parent.mkdir(parents=True, exist_ok=True)
     result_path.write_text(
-        json.dumps(record, ensure_ascii=False, indent=2) + "\n",
+        json.dumps(safe_record, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )
     print("SMBS native benchmark: {} ({:.3f} s)".format(
-        record["result"]["status"], record["wall_elapsed_s"],
+        safe_record["result"]["status"], safe_record["wall_elapsed_s"],
     ))
     print("Report: {}".format(result_path))
-    return record
+    return safe_record
 
 
 if __name__ == "__main__":
