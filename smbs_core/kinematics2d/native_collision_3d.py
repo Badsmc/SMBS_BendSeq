@@ -734,7 +734,7 @@ def classify_punch_overlap_zones(
     sides_set = set()
     has_end_zone_comp = False
     has_central_comp = False
-    has_mixed_comp = False
+    mixed_fragment_volume_mm3 = 0.0
     sum_comp_vol = 0.0
     boundary_eps = 1e-5
 
@@ -789,7 +789,7 @@ def classify_punch_overlap_zones(
             if xmax > right_zone[0]:
                 sides_set.add("RIGHT")
             sides_set.add("CENTRAL")
-            has_mixed_comp = True
+            mixed_fragment_volume_mm3 += svol
 
         comp_infos.append(
             PunchOverlapComponentInfo(
@@ -813,7 +813,8 @@ def classify_punch_overlap_zones(
             vol=total_vol,
         )
 
-    ordered_sides = tuple(s for s in ("LEFT", "CENTRAL", "RIGHT") if s in sides_set)
+    # Note: final affected_sides follows significance filtering below.
+    # Do not report CENTER as physically blocking for numerical slivers.
 
     # Classify based on cumulative volumes outside and inside allowed end-zones.
     # A set of small central bodies whose cumulative volume exceeds volume_tolerance_mm3
@@ -821,19 +822,41 @@ def classify_punch_overlap_zones(
     has_significant_central = central_vol > volume_tolerance_mm3
     has_significant_end_zone = end_zone_vol > volume_tolerance_mm3
 
-    if has_mixed_comp or (has_significant_central and has_significant_end_zone):
+    # Tiny OCC Common slivers may have an X bounding box across the full
+    # punch span, despite a COMBINED volume smaller than the existing
+    # geometric collision tolerance. A boolean "has any mixed solid"
+    # incorrectly rejects the entire end-zone allowance in that case.
+    # Aggregate ALL central/mixed component volumes before applying the
+    # SAME volume tolerance as the authoritative OCC collision oracle.
+    # Never discard significant central material, even when each separate
+    # sliver is individually below tolerance.
+    if not has_significant_central:
+        sides_set.discard("CENTRAL")
+    if has_significant_central and has_significant_end_zone:
         cls_res = PunchCollisionZoneClassification.MIXED_CENTRAL_AND_END_ZONE
-        reason = "overlap_spans_both_central_and_end_zones"
-    elif has_significant_central:
+        reason = "significant_overlap_spans_both_central_and_end_zones"
+        elif has_significant_central:
         cls_res = PunchCollisionZoneClassification.CENTRAL_ZONE
         reason = "overlap_in_central_working_zone"
     elif has_significant_end_zone:
         cls_res = PunchCollisionZoneClassification.END_ZONE_ONLY
-        reason = f"all_overlap_components_strictly_within_end_zones({','.join(ordered_sides)})"
+        reason = (
+            "end_zone_only_with_central_volume_within_tolerance:"
+            "central={:.9f}mm3,threshold={:.9f}mm3,"
+            "mixed_fragment={:.9f}mm3"
+            .format(central_vol, volume_tolerance_mm3,
+                    mixed_fragment_volume_mm3)
+            if central_vol > 0.0
+            else "all_overlap_components_strictly_within_end_zones"
+        )
     else:
         cls_res = PunchCollisionZoneClassification.NONE
         reason = "overlap_within_volume_tolerance"
 
+    ordered_sides = tuple(
+        side for side in ("LEFT", "CENTRAL", "RIGHT")
+        if side in sides_set
+    )
     return PunchEndZoneAnalysis(
         classification=cls_res,
         end_zone_length_mm=ez_len,
