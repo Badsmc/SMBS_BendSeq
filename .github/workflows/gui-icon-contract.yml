@@ -47,6 +47,10 @@ jobs:
         env:
           PYTHONPATH: .
         run: python -m unittest discover -s tests -p 'test_performance_report.py' -v
+      - name: Test bounded native bend-zone cache equivalence and invalidation
+        env:
+          PYTHONPATH: .
+        run: python -m unittest discover -s tests -p 'test_native_zone_cache.py' -v
       - name: Test exact OCC fast paths and unchanged collision semantics
         env:
           PYTHONPATH: .
