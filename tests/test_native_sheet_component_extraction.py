@@ -52,6 +52,27 @@ class ComponentSheetExtractionTests(unittest.TestCase):
         self.assertEqual(left.last_other_count, 1)
         extractor.assert_called_once()
 
+    def test_observer_gets_identical_breps_without_changing_full_union(self):
+        left = FakeSolid(1.0)
+        zone = FakeSolid(2.0)
+        joined = FakeSolid(3.0)
+        left.joined = joined
+        components = NativeSheetComponents(
+            (("P01", left),), (("bend_zone:B01", zone),), 2.0,
+        )
+        observed = []
+        state = SimpleNamespace(angles={"B01": 90.0}, ordered_bends=[object()])
+        with patch("smbs_core.kinematics2d.native_bend_solid_3d.build_multi_bend_sheet_components",
+                   return_value=components):
+            result = build_multi_bend_sheet_solid(
+                state, object(), component_observer=observed.append,
+            )
+        self.assertIs(result.shape, joined)
+        self.assertEqual(observed, [components])
+        self.assertIs(observed[0].panels[0][1], left)
+        self.assertIs(observed[0].zones[0][1], zone)
+        self.assertEqual(left.calls, 1)
+
     def test_invalid_full_union_still_rejected(self):
         left = FakeSolid(1.0)
         zone = FakeSolid(2.0)
