@@ -57,6 +57,7 @@ from smbs_core.kinematics2d.coupled_kinematics_2d import CoupledAirBendingKinema
 from smbs_core.kinematics2d.ram_cycle_geometry import ram_cycle_positions
 from smbs_core.kinematics2d.tooling_25d import DEFAULT_INITIAL_PUNCH_CLEARANCE_MM
 from smbs_core.kinematics2d.native_bend_solid_3d import build_multi_bend_sheet_solid
+from smbs_core.kinematics2d.native_geometry_build_metrics import measure_native_geometry_region
 from smbs_core.kinematics2d.native_collision_3d import (
     CollisionClass,
     EndZoneCollisionPolicy,
@@ -845,9 +846,12 @@ class AdaptiveTrajectoryValidator3D:
                 tf.rotation[2][0], tf.rotation[2][1], tf.rotation[2][2], tf.translation[2],
                 0.0, 0.0, 0.0, 1.0,
             )
-            wp_machine = solid.shape.copy()
-            wp_machine.transformShape(mat_wp)
-            punch_step = set_punch_ram_z(self.punch_base, ram_z)
+            with measure_native_geometry_region("machine_workpiece_copy"):
+                wp_machine = solid.shape.copy()
+            with measure_native_geometry_region("machine_workpiece_transform"):
+                wp_machine.transformShape(mat_wp)
+            with measure_native_geometry_region("native_punch_pose"):
+                punch_step = set_punch_ram_z(self.punch_base, ram_z)
             punch_shape = punch_step.machine_shape
             die_shape = self.die.machine_shape
         else:
