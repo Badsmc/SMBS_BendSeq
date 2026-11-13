@@ -404,12 +404,20 @@ def check_pair_clearance(
     contact_distance_tolerance_mm: float = 1e-4,
     tool_label: str = "",
     classify_end_zone_length_mm: Optional[float] = None,
+    prefer_overlap_first: bool = False,
 ) -> PairClearanceResult:
     """Evaluate exact clearance and overlap volume between two native FreeCAD Part solids.
 
     Fails closed on any invalid geometry or evaluation failure.
     Strictly preserves true surface contact vs positive-volume penetration.
     Guarantees that boundary distance measurements never miss internal volume enclosure.
+
+    When prefer_overlap_first=True, performs the SAME exact OCC Common first
+    (only for overlapping AABBs), and may skip costly distToShape ONLY if the
+    Common has already confirmed a positive-volume penetration. Otherwise
+    falls back to the original exact distance classification; no contact or
+    unknown is silently treated as clear. Intended only as a performance
+    hint from a previous sampled penetrating punch state.
     """
     t0 = time.perf_counter()
 
@@ -484,7 +492,44 @@ def check_pair_clearance(
         )
         return volume, bound, analysis
 
+    # A positive OCC Common establishes penetration exactly, without an
+    # additional exact boundary-distance operation. In all other situations,
+    # the previous distance-first oracle is preserved. The hint changes only
+    # evaluation ORDER, never physical collision thresholds or geometry.
+    _common_value = None
+    _common_time_ms = 0.0
+
+    def evaluate_common_once():
+        nonlocal _common_value, _common_time_ms
+        if _common_value is None:
+            started = time.perf_counter()
+            _common_value = intersect_once_with_zone()
+            _common_time_ms = (time.perf_counter() - started) * 1000.0
+        return _common_value
+
     try:
+        if (prefer_overlap_first and aabb_gap is not None
+                and aabb_gap <= 1e-8):
+            vol, overlap_bbox, ez_from_same_common = evaluate_common_once()
+            if vol > volume_tolerance_mm3:
+                dt = (time.perf_counter() - t0) * 1000.0
+                return PairClearanceResult(
+                    CollisionClass.PENETRATION,
+                    "positive_common_volume",
+                    0.0,  # Positive-volume overlap has zero solid distance.
+                    vol,
+                    aabb_gap,
+                    dt,
+                    distance_queries_count=0,
+                    common_queries_count=1,
+                    broad_phase_time_ms=t_bp_ms,
+                    distance_time_ms=0.0,
+                    common_time_ms=_common_time_ms,
+                    tool_label=tool_label,
+                    overlap_bbox_xyz_mm=overlap_bbox,
+                    end_zone_analysis=ez_from_same_common,
+                )
+
         t_dist0 = time.perf_counter()
         dist = _compute_exact_distance_with_pruning(shape_a, shape_b, box_a, box_b)
         t_dist_ms = (time.perf_counter() - t_dist0) * 1000.0
@@ -555,11 +600,10 @@ def check_pair_clearance(
                 )
 
             # Potential enclosure: verify common volume explicitly.
-            t_comm0 = time.perf_counter()
             vol, overlap_bbox, ez_from_same_common = (
-                intersect_once_with_zone()
+                evaluate_common_once()
             )
-            t_comm_ms = (time.perf_counter() - t_comm0) * 1000.0
+            t_comm_ms = _common_time_ms
             dt = (time.perf_counter() - t0) * 1000.0
             if vol > volume_tolerance_mm3:
                 return PairClearanceResult(
@@ -593,11 +637,10 @@ def check_pair_clearance(
                 tool_label=tool_label,
             )
 
-        t_comm0 = time.perf_counter()
         vol, overlap_bbox, ez_from_same_common = (
-            intersect_once_with_zone()
+            evaluate_common_once()
         )
-        t_comm_ms = (time.perf_counter() - t_comm0) * 1000.0
+        t_comm_ms = _common_time_ms
         dt = (time.perf_counter() - t0) * 1000.0
 
         if vol > volume_tolerance_mm3:
@@ -959,6 +1002,7 @@ def validate_workpiece_tooling_pose(
     cached_punch_result: Optional[PairClearanceResult] = None,
     end_zone_policy: Optional[EndZoneCollisionPolicy] = None,
     classify_end_zone_length_mm: Optional[float] = None,
+    prefer_punch_overlap_first: bool = False,
 ) -> ToolCollisionReport:
     """Validate 3D geometric collision status of a machine-placed workpiece against punch and die."""
     t0 = time.perf_counter()
@@ -1002,6 +1046,7 @@ def validate_workpiece_tooling_pose(
             contact_distance_tolerance_mm=contact_distance_tolerance_mm,
             tool_label="PUNCH",
             classify_end_zone_length_mm=punch_ez_len,
+            prefer_overlap_first=bool(prefer_punch_overlap_first),
         )
 
     if die_cache_hit:
