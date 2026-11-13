@@ -57,7 +57,9 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 from smbs_core.kinematics2d.coupled_kinematics_2d import CoupledAirBendingKinematics
 from smbs_core.kinematics2d.ram_cycle_geometry import ram_cycle_positions
 from smbs_core.kinematics2d.tooling_25d import DEFAULT_INITIAL_PUNCH_CLEARANCE_MM
-from smbs_core.kinematics2d.native_bend_solid_3d import build_multi_bend_sheet_solid
+from smbs_core.kinematics2d.native_bend_solid_3d import (
+    build_multi_bend_sheet_solid, build_multi_bend_sheet_components,
+)
 from smbs_core.kinematics2d.component_collision_oracle import (
     screen_machine_component_overlap, record_component_shadow_probe,
 )
@@ -566,7 +568,8 @@ class AdaptiveTrajectoryValidator3D:
         except (TypeError, ValueError):
             requested_shadow = 0
         self._component_shadow_limit = max(0, min(8, requested_shadow))
-        self._component_shadow_seen = 0
+        self._component_shadow_bending_seen = 0
+        self._component_shadow_blocker_seen = 0
 
         # Explicit per-Manual-run exact-BRep reuse; never global. The
         # default independent validator retains its previous local caches.
@@ -597,7 +600,8 @@ class AdaptiveTrajectoryValidator3D:
             self._panel_prism_cache.clear()
             self._zone_shape_cache.clear()
         self._panel_prism_cache_identity = None
-        self._component_shadow_seen = 0
+        self._component_shadow_bending_seen = 0
+        self._component_shadow_blocker_seen = 0
         self._die_clearance_cache.clear()
         self._punch_clearance_cache.clear()
         self._pose_collision_cache.clear()
@@ -780,54 +784,63 @@ class AdaptiveTrajectoryValidator3D:
             self._solid_cache.move_to_end(solid_cache_key)
         solid_lookup_ms = (time.perf_counter() - t_solid_lookup0) * 1000.0
 
-        # SHADOW ONLY: inspect the very same native panels/zones that the
-        # joined-sheet constructor is about to fuse. The observer cannot
-        # affect the oracle; errors are represented as incomplete evidence.
-        # Do not rebuild the components or mutate any cached source shape.
+        # The two-probe experiment prioritizes a representative BENDING
+        # sample and the *first real blocking RETRACT* pose. The latter can
+        # reuse a cached full sheet and therefore requires a diagnostic-only
+        # rebuild of its native components (NOT another multiFuse).
         shadow_results = None
-        component_observer = None
-        if (not in_solid_cache
-                and self._component_shadow_seen < self._component_shadow_limit):
-            self._component_shadow_seen += 1
 
-            def component_observer(components):
-                nonlocal shadow_results
-                from smbs_core.kinematics2d.component_collision_oracle import (
-                    ComponentVerdict, MachineComponentScreen,
+        def run_component_shadow(components):
+            nonlocal shadow_results
+            from smbs_core.kinematics2d.component_collision_oracle import (
+                ComponentVerdict, MachineComponentScreen,
+            )
+            started = time.perf_counter()
+            try:
+                matrix = App.Matrix(
+                    tf.rotation[0][0], tf.rotation[0][1], tf.rotation[0][2], tf.translation[0],
+                    tf.rotation[1][0], tf.rotation[1][1], tf.rotation[1][2], tf.translation[1],
+                    tf.rotation[2][0], tf.rotation[2][1], tf.rotation[2][2], tf.translation[2],
+                    0.0, 0.0, 0.0, 1.0,
                 )
-                started = time.perf_counter()
-                try:
-                    matrix = App.Matrix(
-                        tf.rotation[0][0], tf.rotation[0][1], tf.rotation[0][2], tf.translation[0],
-                        tf.rotation[1][0], tf.rotation[1][1], tf.rotation[1][2], tf.translation[1],
-                        tf.rotation[2][0], tf.rotation[2][1], tf.rotation[2][2], tf.translation[2],
-                        0.0, 0.0, 0.0, 1.0,
-                    )
-                    # Exactly the selected physical tooling; no substitute
-                    # approximation or display geometry is admissible.
-                    preview_punch = set_punch_ram_z(self.punch_base, ram_z).machine_shape
-                    actual_die = self.die.machine_shape
-                    named = components.named_shapes()
-                    shadow_results = {
-                        "PUNCH": screen_machine_component_overlap(
-                            named, tf, matrix, "PUNCH", preview_punch,
-                            volume_tolerance_mm3=self.config.volume_tolerance_mm3,
-                        ),
-                        "DIE": screen_machine_component_overlap(
-                            named, tf, matrix, "DIE", actual_die,
-                            volume_tolerance_mm3=self.config.volume_tolerance_mm3,
-                        ),
-                    }
-                except Exception as exc:
-                    # A broken optional probe MUST NOT interrupt or invalidate
-                    # the existing exact OCC multiFuse and native clearance.
-                    error = MachineComponentScreen(
-                        ComponentVerdict.FALLBACK_REQUIRED,
-                        "observer_exception:" + type(exc).__name__,
-                        "PUNCH", 0, 0, 0, 0, 0,
-                        (time.perf_counter() - started) * 1000.0,
-                    )
-                    shadow_results = {"PUNCH": error}
+                # Original selected FreeCAD tooling at this exact ram Z.
+                preview_punch = set_punch_ram_z(self.punch_base, ram_z).machine_shape
+                actual_die = self.die.machine_shape
+                named = components.named_shapes()
+                shadow_results = {
+                    "PUNCH": screen_machine_component_overlap(
+                        named, tf, matrix, "PUNCH", preview_punch,
+                        volume_tolerance_mm3=self.config.volume_tolerance_mm3,
+                        max_exact_candidates=12,
+                    ),
+                    "DIE": screen_machine_component_overlap(
+                        named, tf, matrix, "DIE", actual_die,
+                        volume_tolerance_mm3=self.config.volume_tolerance_mm3,
+                        max_exact_candidates=12,
+                    ),
+                }
+            except Exception as exc:
+                # Only advisory evidence is missing. Never alter old D6.
+                error = MachineComponentScreen(
+                    ComponentVerdict.FALLBACK_REQUIRED,
+                    "observer_exception:" + type(exc).__name__,
+                    "PUNCH", 0, 0, 0, 0, 0,
+                    (time.perf_counter() - started) * 1000.0,
+                )
+                shadow_results = {"PUNCH": error}
+
+        component_observer = None
+        bending_budget = (
+            max(1, self._component_shadow_limit - 1)
+            if self._component_shadow_limit > 0 else 0
+        )
+        if (
+            not in_solid_cache
+            and phase == "BENDING"
+            and self._component_shadow_bending_seen < bending_budget
+        ):
+            self._component_shadow_bending_seen += 1
+            component_observer = run_component_shadow
 
         solid_cache_hit = False
         if in_solid_cache:
@@ -953,6 +966,41 @@ class AdaptiveTrajectoryValidator3D:
                 self._prefer_punch_overlap_next and not punch_cache_hit
             ),
         )
+        # A geometric blocker discovered in RETRACT may share the exact
+        # folded-sheet cache key with BOTTOM. Probe it AFTER the canonical
+        # full-sheet verdict using only the optional diagnostics path.
+        # Rebuilding 21 isolated BReps costs extra in shadow mode, but it
+        # allows proof/rejection study at the actual first blocking sample.
+        if (
+            shadow_results is None
+            and self._component_shadow_limit >= 2
+            and self._component_shadow_blocker_seen < 1
+            and phase == "RETRACT"
+            and col_res.status == CollisionClass.PENETRATION
+            and not col_res.is_conditional_safe
+        ):
+            self._component_shadow_blocker_seen += 1
+            try:
+                blocker_components = build_multi_bend_sheet_components(
+                    self.fold_state,
+                    self.panel_build,
+                    segments=self.config.arc_segments,
+                    panel_prism_cache=self._panel_prism_cache,
+                    zone_shape_cache=self._zone_shape_cache,
+                )
+                run_component_shadow(blocker_components)
+            except Exception as shadow_exc:
+                from smbs_core.kinematics2d.component_collision_oracle import (
+                    ComponentVerdict, MachineComponentScreen,
+                )
+                shadow_results = {
+                    "PUNCH": MachineComponentScreen(
+                        ComponentVerdict.FALLBACK_REQUIRED,
+                        "blocker_components_unavailable:" + type(shadow_exc).__name__,
+                        "PUNCH", 0, 0, 0, 0, 0, 0.0,
+                    ),
+                }
+
         if shadow_results is not None:
             try:
                 record_component_shadow_probe(
