@@ -55,6 +55,10 @@ jobs:
         env:
           PYTHONPATH: .
         run: python -m unittest discover -s tests -p 'test_verify_installed_runtime.py' -v
+      - name: Test single native OCC joined-sheet qualification and safety
+        env:
+          PYTHONPATH: .
+        run: python -m unittest discover -s tests -p 'test_native_sheet_single_qualification.py' -v
       - name: Test exact native OCC Common-first penetration fastpath
         env:
           PYTHONPATH: .
