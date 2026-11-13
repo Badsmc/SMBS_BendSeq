@@ -308,6 +308,10 @@ def summarize_native_trajectory(result):
             result, "total_die_cache_hits", None),
         "total_solid_cache_hits": getattr(
             result, "total_solid_cache_hits", None),
+        "total_machine_pose_reuse_hits": getattr(
+            result, "total_machine_pose_reuse_hits", None),
+        "total_machine_pose_reuse_misses": getattr(
+            result, "total_machine_pose_reuse_misses", None),
         "elapsed_ms": getattr(result, "elapsed_ms", None),
         "diagnostics": _jsonable(getattr(result, "diagnostics", ())),
         "phases": [],
