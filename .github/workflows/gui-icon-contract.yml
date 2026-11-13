@@ -55,6 +55,10 @@ jobs:
         env:
           PYTHONPATH: .
         run: python -m unittest discover -s tests -p 'test_verify_installed_runtime.py' -v
+      - name: Test unaccounted native BRep/pose timing instrumentation
+        env:
+          PYTHONPATH: .
+        run: python -m unittest discover -s tests -p 'test_native_unaccounted_timing.py' -v
       - name: Test single native OCC joined-sheet qualification and safety
         env:
           PYTHONPATH: .
