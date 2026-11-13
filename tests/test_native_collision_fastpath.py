@@ -70,6 +70,43 @@ class NativeCollisionFastPathTests(unittest.TestCase):
         measured_dist.assert_called_once()
         measured_common.assert_called_once()
 
+    def test_small_positive_aabb_gap_needs_distance_but_not_common(self):
+        # Previously every 0.2mm near-contact test paid for Part.common().
+        left, right = shape(box(-5., 0.)), shape(box(0.2, 5.))
+        with patch(
+            "smbs_core.kinematics2d.native_collision_3d.check_solid_validity",
+            return_value=(True, "valid"),
+        ), patch(
+            "smbs_core.kinematics2d.native_collision_3d.measured_distance",
+            return_value=(0.2, None, None),
+        ) as distance, patch(
+            "smbs_core.kinematics2d.native_collision_3d.measured_common"
+        ) as common:
+            result = check_pair_clearance(left, right, near_tolerance_mm=0.5)
+        self.assertIs(result.status, CollisionClass.NEAR_CONTACT)
+        self.assertEqual(result.distance_mm, 0.2)
+        self.assertEqual(result.overlap_volume_mm3, 0.0)
+        self.assertEqual(result.distance_queries_count, 1)
+        self.assertEqual(result.common_queries_count, 0)
+        distance.assert_called_once()
+        common.assert_not_called()
+
+    def test_subcontact_gap_remains_touching_not_false_clear(self):
+        left, right = shape(box(-5., 0.)), shape(box(0.00005, 5.))
+        with patch(
+            "smbs_core.kinematics2d.native_collision_3d.check_solid_validity",
+            return_value=(True, "valid"),
+        ), patch(
+            "smbs_core.kinematics2d.native_collision_3d.measured_distance",
+            return_value=(0.00005, None, None),
+        ), patch(
+            "smbs_core.kinematics2d.native_collision_3d.measured_common"
+        ) as common:
+            result = check_pair_clearance(left, right)
+        self.assertIs(result.status, CollisionClass.TOUCHING)
+        self.assertEqual(result.distance_queries_count, 1)
+        common.assert_not_called()
+
     def test_conditional_native_uses_one_exact_common_not_two(self):
         sheet = shape(box(-20., 20.))
         punch = shape(box(-100., 100.))
