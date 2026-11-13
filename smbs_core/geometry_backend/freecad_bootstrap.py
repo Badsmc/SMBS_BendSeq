@@ -50,7 +50,7 @@ def get_freecad_lib_candidates() -> List[str]:
             os.path.join(conda_prefix, "lib"),
             os.path.join(conda_prefix, "Library", "bin"),
         ])
-    return list(dict.fromkeys(os.path.expandvars(os.path.expanduser(p))
+    return list(dict.fromkeys(os.path.normpath(os.path.expandvars(os.path.expanduser(p)))
                               for p in candidates))
 
 
@@ -98,7 +98,7 @@ def get_sheetmetal_mod_candidates() -> List[str]:
         "/usr/share/freecad/Mod/sheetmetal",
         "/usr/share/freecad/Mod/SheetMetal",
     ])
-    return list(dict.fromkeys(os.path.expandvars(os.path.expanduser(p))
+    return list(dict.fromkeys(os.path.normpath(os.path.expandvars(os.path.expanduser(p)))
                               for p in candidates))
 
 
