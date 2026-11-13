@@ -158,6 +158,7 @@ def _bend(run: dict[str, Any], bend_id: str) -> dict[str, Any]:
         "phases": [],
         "kernel": None,
         "geometry_build": None,
+        "shared_geometry_cache": None,
         "kernel_scope": None,
         "kernel_validation_elapsed_s": None,
         "first_blocker": None,
@@ -295,6 +296,11 @@ def analyze_journal(data: Mapping[str, Any], *,
             record["geometry_build"] = (
                 dict(payload["geometry_build"])
                 if isinstance(payload.get("geometry_build"), dict)
+                else None
+            )
+            record["shared_geometry_cache"] = (
+                dict(payload["shared_geometry_cache"])
+                if isinstance(payload.get("shared_geometry_cache"), dict)
                 else None
             )
             record["kernel_scope"] = payload.get("scope")
