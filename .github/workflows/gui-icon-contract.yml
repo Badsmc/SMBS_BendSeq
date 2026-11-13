@@ -96,6 +96,11 @@ jobs:
           PYTHONPATH: .
         run: python -m unittest discover -s tests -p 'test_component_machine_shadow.py' -v
 
+      - name: Shadow observer cannot override native D6 collision verdict
+        env:
+          PYTHONPATH: .
+        run: python -m unittest discover -s tests -p 'test_component_shadow_trajectory_integration.py' -v
+
       - name: Single-pose workpiece validity reuse contracts
         run: python -m unittest discover -s tests -p 'test_native_shared_workpiece_sanity.py' -v
       - name: Test Conditional end-zone native OCC sliver tolerance
