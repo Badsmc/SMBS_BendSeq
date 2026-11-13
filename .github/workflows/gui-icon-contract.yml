@@ -17,6 +17,7 @@ on:
       - fix/restore-legacy-manual-2d-check
       - feature/native-occ-collision-inspector
       - fix/conditional-endzone-volume-tolerance
+      - development/performance-optimization
   workflow_dispatch:
 
 jobs:
@@ -42,6 +43,10 @@ jobs:
         env:
           PYTHONPATH: .
         run: python -m unittest discover -s tests -p 'test_gauge_preview.py' -v
+      - name: Test native D6 profiling journal analyzer and call metrics
+        env:
+          PYTHONPATH: .
+        run: python -m unittest discover -s tests -p 'test_performance_report.py' -v
       - name: Test Conditional end-zone native OCC sliver tolerance
         env:
           PYTHONPATH: .
