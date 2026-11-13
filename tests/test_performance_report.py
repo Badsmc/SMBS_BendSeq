@@ -41,6 +41,9 @@ def sample_journal():
             ev("PERF_NATIVE_BEND_KERNEL", 3, bend_id="B07", step_number=1,
                elapsed_s=4.5,
                scope="D6_VALIDATION_EXCLUDES_POST_COLLISION_FORENSICS",
+               shared_geometry_cache={"full_sheet_entries": 4,
+                                      "source_resets": 1,
+                                      "full_sheet_limit": 16},
                kernel={
                    "scope": "INSTRUMENTED_NATIVE_COLLISION_CALLS_ONLY",
                    "common_calls": 6, "distance_calls": 4,
@@ -141,6 +144,14 @@ class PerformanceReportTests(unittest.TestCase):
         self.assertEqual(finished["bends"][0]["phases"][0]["sample_count"], 4)
         self.assertEqual(finished["bends"][0]["kernel_scope"],
                          "D6_VALIDATION_EXCLUDES_POST_COLLISION_FORENSICS")
+        self.assertEqual(
+            finished["bends"][0]["shared_geometry_cache"]["full_sheet_entries"],
+            4,
+        )
+        self.assertEqual(
+            finished["bends"][0]["shared_geometry_cache"]["full_sheet_limit"],
+            16,
+        )
         self.assertEqual(interrupted["totals"]["observed_bend_count"], 1)
         self.assertIsNone(interrupted["totals"]["kernel_common_calls"])
         self.assertIsNone(
