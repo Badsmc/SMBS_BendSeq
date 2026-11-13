@@ -161,7 +161,9 @@ class BlockerReplayContractTests(unittest.TestCase):
             path.write_text(__import__("json").dumps(ref), encoding="utf-8")
             result = inspect_journal(path, bend_id="B02")
             self.assertTrue(result["has_finished_target_collision"])
-            self.assertEqual(result["file"], str(path))
+            # macOS /var -> /private/var and Windows 8.3 temp names
+            # can resolve to one file while differing in spelling.
+            self.assertEqual(Path(result["file"]).resolve(), path.resolve())
 
     def test_original_windows_basename_on_posix(self):
         self.assertEqual(_original_basename(
