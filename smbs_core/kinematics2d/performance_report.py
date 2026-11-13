@@ -157,6 +157,7 @@ def _bend(run: dict[str, Any], bend_id: str) -> dict[str, Any]:
         "native_d6": None,
         "phases": [],
         "kernel": None,
+        "geometry_build": None,
         "kernel_scope": None,
         "kernel_validation_elapsed_s": None,
         "first_blocker": None,
@@ -198,6 +199,32 @@ def _totals(run: dict[str, Any]) -> dict[str, Any]:
         result["kernel_" + key] = _sum_complete([
             x["kernel"].get(key)
             if isinstance(x["kernel"], dict) else None for x in bends
+        ])
+    # Keep measured OCC union and zone construction separate from any
+    # uninstrumented/native time. Missing historical observations are null.
+    region_names = (
+        "panel_extrude", "panel_transform", "bend_zone_build",
+        "sheet_union", "sheet_qualification",
+    )
+    result["geometry_build_measured_total_s"] = _sum_complete([
+        _mapping(x["geometry_build"]).get("measured_total_s")
+        if isinstance(x["geometry_build"], dict) else None
+        for x in bends
+    ])
+    for name in region_names:
+        result["geometry_" + name + "_elapsed_s"] = _sum_complete([
+            _mapping(_mapping(x["geometry_build"]).get("elapsed_s")).get(name)
+            if isinstance(x["geometry_build"], dict) else None
+            for x in bends
+        ])
+    for name in (
+        "bend_zone_cache_hit", "bend_zone_cache_miss",
+        "bend_zone_cache_eviction",
+    ):
+        result["geometry_" + name] = _sum_complete([
+            _mapping(_mapping(x["geometry_build"]).get("cache_events")).get(name)
+            if isinstance(x["geometry_build"], dict) else None
+            for x in bends
         ])
     return result
 
@@ -264,6 +291,11 @@ def analyze_journal(data: Mapping[str, Any], *,
             record["kernel"] = (
                 dict(payload["kernel"])
                 if isinstance(payload.get("kernel"), dict) else None
+            )
+            record["geometry_build"] = (
+                dict(payload["geometry_build"])
+                if isinstance(payload.get("geometry_build"), dict)
+                else None
             )
             record["kernel_scope"] = payload.get("scope")
             record["kernel_validation_elapsed_s"] = _number(
@@ -355,6 +387,16 @@ def report_text(report: Mapping[str, Any]) -> str:
                 _display(totals["kernel_distance_calls"]),
                 _display(totals["kernel_distance_elapsed_s"]),
                 _display(totals["total_solid_reconstructions"]),
+            )
+        )
+        lines.append(
+            "  Native sheet build: union={} s, bend zones={} s, "
+            "panel transform={} s, zone cache hits={}"
+            .format(
+                _display(totals["geometry_sheet_union_elapsed_s"]),
+                _display(totals["geometry_bend_zone_build_elapsed_s"]),
+                _display(totals["geometry_panel_transform_elapsed_s"]),
+                _display(totals["geometry_bend_zone_cache_hit"]),
             )
         )
         for bend in run["bends"]:
