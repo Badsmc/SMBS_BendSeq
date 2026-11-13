@@ -199,3 +199,13 @@ These are implemented improvements to exact-geometry reuse, **not** a measured s
 - Child branch `5d65c1a` scopes one workpiece validity check to a single machine pose when both punch/die queries uncached, reusing the result only for the identical object and preserving per-tool validation; no cache across poses. `tests/test_native_shared_workpiece_sanity.py` and CI cover valid, invalid, direct-call, wrong-identity and partial-cache behavior. GitHub Actions run 43424795573: SUCCESS.
 - **Live FreeCAD acceptance after this code is NOT DONE; no measured speedup attributable to this optimization.** Component-only screen remains standalone and does NOT affect production native verdict yet.
 - Next: strict source-SHA-matched Windows native run, preserve B02 RETRACT PUNCH collision, Conditional, per-bend results; measure reduction in per-pose sanity and wall time, then integrate the component tool screen with a safe independent oracle comparison.
+
+
+## 2026-11-13 — Native log (20261113-130304): exact shared workpiece sanity verified
+
+- Reference evidence and quantified deltas: `docs/PERFORMANCE_LOG11_NATIVE_SHARED_SANITY.md`.
+- User's exact installed ZIP source for three key modules has SHA-256 byte-for-byte match against this child branch: `native_collision_3d.py`, `native_bend_solid_3d.py`, `motion_trajectory_3d.py`. Composite ZIP runtime hash `1be2bbb85511...`.
+- Manual native wall `1180.5304s → 1046.8586s` **(-133.6718s, -11.323%)** on matching recorded reference order, settings and physical statuses. Source model/tool binary hashes and additional matched trials not yet collected.
+- `pair_geometry_sanity` drops `1322→1024` calls and `347.9817→197.4414s`. Common `627→627`, distances `548→548`, full unions `297→297`. Exactly the expected target of duplicate per-pose workpiece validity checks.
+- B02 still blocks on RETRACT with exact positive central bend-zone B09 intersection ~2.752 mm³. B08/B04/B06 stay Conditional; no false CLEAR and continuous motion remains unverified.
+- Stage: **FREECAD_VERIFIED for one part, PROVISIONAL_BENCHMARK**; GUI/addon and full production union still operate. Next stage: non-authoritative component oracle shadow comparison with machine-frame placement and complete Conditional fallback, then gated integration after native evidence.
