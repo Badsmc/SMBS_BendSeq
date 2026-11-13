@@ -1489,8 +1489,13 @@ class _PreviewPanel:
                 )
                 self.allow_end_zone_checkbox.setChecked(False)
                 self.allow_end_zone_checkbox.setToolTip(
-                    "Разрешить условное продолжение (статус CONDITIONAL, не PASS), если пересечение детали "
-                    "с пуансоном находится строго в пределах заданных концевых зон пуансона."
+                    "Условный допуск столкновений в заданных концевых зонах "
+                    "пуансона (от каждого торца). Не обрезает 3D-геометрию "
+                    "инструмента и НЕ подтверждает наличие физического "
+                    "выреза. Если центральное пересечение превышает "
+                    "действующий объёмный допуск OCC, гиб блокируется. "
+                    "Результат CONDITIONAL — не физический PASS; требуется "
+                    "проверка реального пуансона с концевыми вырезами."
                 )
                 self.allow_end_zone_checkbox.toggled.connect(self._on_allow_end_zone_toggled)
                 t_layout.addWidget(self.allow_end_zone_checkbox)
