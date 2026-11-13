@@ -542,6 +542,13 @@ class AdaptiveTrajectoryValidator3D:
         self.total_cache_lookup_ms: float = 0.0
         # Keep expensive joined Part.Shapes available for reused poses
         # without retaining an unbounded set of large OCC solids in RAM.
+        # The native punch clearance oracle may start with exact Common
+        # after a preceding sampled pose had actual punch penetration.
+        # Positive Common proves the next state penetrating without the
+        # expensive redundant boundary distToShape. A non-positive Common
+        # falls back to the previous exact-distance oracle.
+        self._prefer_punch_overlap_next: bool = False
+
         # Explicit per-Manual-run exact-BRep reuse; never global. The
         # default independent validator retains its previous local caches.
         # Tool-dependent collision results remain strictly per-validator.
@@ -860,7 +867,16 @@ class AdaptiveTrajectoryValidator3D:
             cached_punch_result=cached_punch_res,
             end_zone_policy=self.end_zone_policy,
             classify_end_zone_length_mm=self.classify_end_zone_length_mm,
+            prefer_punch_overlap_first=(
+                self._prefer_punch_overlap_next and not punch_cache_hit
+            ),
         )
+        if not punch_cache_hit:
+            self._prefer_punch_overlap_next = (
+                col_res.punch_result.status == CollisionClass.PENETRATION
+                and col_res.punch_result.overlap_volume_mm3
+                > self.config.volume_tolerance_mm3
+            )
         if cached_die_res is None:
             self._die_clearance_cache[die_cache_key] = col_res.die_result
         if cached_punch_res is None:
