@@ -109,6 +109,7 @@ def select_blocker_evidence(journal: dict, bend_id: str = "B02") -> dict:
             "punch_path": started.get("punch_file"),
             "die_path": started.get("die_file"),
             "virtual_tool_length": started.get("virtual_tool_length"),
+            "tool_sections": started.get("tool_sections") or {},
             "reverse_axis": (
                 (final.get("reverse_axis_by_bend") or {}).get(bend_id)
             ),
@@ -132,6 +133,13 @@ def select_blocker_evidence(journal: dict, bend_id: str = "B02") -> dict:
         raise BlockerReplayError("missing_exact_reverse_axis")
     if not isinstance(last["virtual_tool_length"], bool):
         raise BlockerReplayError("missing_exact_virtual_tool_mode")
+    sections = last["tool_sections"]
+    if not isinstance(sections, dict) or any(
+        sections.get(kind) for kind in ("punch", "die")
+    ):
+        # Sectioned physical assemblies require the selected offsets and
+        # exact machine assembly, never silently replay one whole prism.
+        raise BlockerReplayError("sectioned_tool_assembly_not_supported_in_replay")
     if (not isinstance(last["requested_order"], list)
             or bend_id not in last["requested_order"]):
         raise BlockerReplayError("missing_manual_order")
