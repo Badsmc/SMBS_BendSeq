@@ -467,6 +467,18 @@ class AdaptiveIntervalOutcome(int):
         return obj
 
 
+def _bounded_full_sheet_cache_put(
+    cache: OrderedDict, key: tuple, value: Any, limit: int,
+) -> None:
+    """Bound only RAM retention; eviction changes no collision verdict."""
+    if limit < 1:
+        raise ValueError("full-sheet cache limit must be positive")
+    cache[key] = value
+    cache.move_to_end(key)
+    while len(cache) > limit:
+        cache.popitem(last=False)
+
+
 class AdaptiveTrajectoryValidator3D:
     """Adaptive 3D motion collision validator for press brake cycles."""
 
@@ -730,9 +742,10 @@ class AdaptiveTrajectoryValidator3D:
                 zone_shape_cache=self._zone_shape_cache,
             )
             self.solid_reconstruction_time_ms += (time.perf_counter() - t_s0) * 1000.0
-            self._solid_cache[solid_cache_key] = solid
-            while len(self._solid_cache) > self._max_cached_full_sheets:
-                self._solid_cache.popitem(last=False)
+            _bounded_full_sheet_cache_put(
+                self._solid_cache, solid_cache_key, solid,
+                self._max_cached_full_sheets,
+            )
             self.total_solid_reconstructions += 1
             self.solid_cache_misses += 1
 
