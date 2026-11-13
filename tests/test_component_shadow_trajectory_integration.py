@@ -175,7 +175,18 @@ class ComponentShadowIntegrationTests(unittest.TestCase):
             patch(mod + "build_multi_bend_sheet_components", return_value=native_components) as rebuild,
             patch(mod + "set_punch_ram_z", return_value=SimpleNamespace(machine_shape=FakeShape())),
             patch(mod + "validate_workpiece_tooling_pose", side_effect=[clear, blocked]),
-            patch(mod + "screen_machine_component_overlap", return_value=probe) as screen,
+            patch(
+                mod + "screen_machine_component_overlap",
+                side_effect=[
+                    MachineComponentScreen(ComponentVerdict.FALLBACK_REQUIRED, "no_hit",
+                                           "PUNCH", 2, 1, 1, 1, 1, 0.1),
+                    MachineComponentScreen(ComponentVerdict.FALLBACK_REQUIRED, "no_hit",
+                                           "DIE", 2, 1, 1, 1, 1, 0.1),
+                    probe,
+                    MachineComponentScreen(ComponentVerdict.FALLBACK_REQUIRED, "no_hit",
+                                           "DIE", 2, 1, 1, 1, 1, 0.1),
+                ],
+            ) as screen,
             count_component_shadow_checks() as stats,
         ):
             initial = validator.create_state_snapshot(
@@ -191,8 +202,8 @@ class ComponentShadowIntegrationTests(unittest.TestCase):
         rebuild.assert_called_once()
         self.assertEqual(screen.call_count, 4)
         self.assertEqual(stats.probes, 2)
-        self.assertEqual(stats.proven_component_hits, 4)  # fake probes for punch and die
-        self.assertEqual(stats.disagreements, 1)  # fake die-positive vs die-clear
+        self.assertEqual(stats.proven_component_hits, 1)
+        self.assertEqual(stats.disagreements, 0)
 
     def test_conditional_retract_does_not_trigger_blocker_screen(self):
         validator = fake_validator(probes=2)
