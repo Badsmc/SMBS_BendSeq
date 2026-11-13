@@ -363,6 +363,16 @@ def record_component_shadow_probe(results, oracle_report, bend_id, phase, path_u
             "candidates": screen.candidate_count,
             "common_calls": screen.common_calls,
             "hit": screen.hit.component_id if screen.hit else None,
+            "hit_volume_mm3": (
+                float(screen.hit.volume_mm3) if screen.hit else None
+            ),
+            "full_oracle_tool_status": (
+                oracle_report.punch_result.status.value
+                if label == "PUNCH" else oracle_report.die_result.status.value
+            ),
+            "full_oracle_conditional": bool(
+                getattr(oracle_report, "is_conditional_safe", False)
+            ),
         })
     if len(stats.examples) < 8:
         stats.examples.append({
