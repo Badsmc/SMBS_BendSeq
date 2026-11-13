@@ -209,3 +209,57 @@ These are implemented improvements to exact-geometry reuse, **not** a measured s
 - `pair_geometry_sanity` drops `1322→1024` calls and `347.9817→197.4414s`. Common `627→627`, distances `548→548`, full unions `297→297`. Exactly the expected target of duplicate per-pose workpiece validity checks.
 - B02 still blocks on RETRACT with exact positive central bend-zone B09 intersection ~2.752 mm³. B08/B04/B06 stay Conditional; no false CLEAR and continuous motion remains unverified.
 - Stage: **FREECAD_VERIFIED for one part, PROVISIONAL_BENCHMARK**; GUI/addon and full production union still operate. Next stage: non-authoritative component oracle shadow comparison with machine-frame placement and complete Conditional fallback, then gated integration after native evidence.
+
+
+## 2026-11-13 — Machine-frame component pre-fuse shadow comparison, child branch
+
+- Working branch: `experiment/component-collision-oracle`, based on native
+  workpiece-validity benchmark `docs/PERFORMANCE_LOG11_NATIVE_SHARED_SANITY.md`.
+  This does **NOT** change `main`, installable `smbs`, or the
+  `development/performance-optimization` parent.
+- Hypothesis: native machine-space AABB over canonical panel/zone BReps
+  may discard most pairs without a `Part.common`; later exact component
+  intersections may prove blockers early and reduce `multiFuse` use after
+  physical/topology acceptance.
+- Commits:
+  - `fcec4c9` adds `screen_machine_component_overlap`: rigid-frame 8-corner
+    AABB, fail-closed candidate limit (default 4), copied BRep and original
+    measured exact OCC Common for candidates, bounded contextvar shadow stats.
+  - `2d23d74` offers a synchronous read-only `component_observer`
+    on the exact solids about to be fused by original native builder.
+  - `425970c` wires optional pre-fuse probes into
+    `AdaptiveTrajectoryValidator3D.create_state_snapshot`, disabled by
+    default, max 8 samples per bend, no authoritative return-path changes.
+    `64ca1e9` isolates even observer bookkeeping exceptions.
+  - `9e4bd73` includes `component_shadow` evidence in
+    `PERF_NATIVE_BEND_KERNEL` / existing Desktop JSON; `4c8442b`
+    extends read-only `performance_report` with disjoint advisory totals.
+  - `09122a8` adds `component_shadow_samples_per_bend` to native benchmark,
+    `030ca39` adds component source to actual installed/loaded module SHA.
+  - `787e623`, `92ea123`, `aff400d`, `e7eac54`, and `6031291`:
+    headless tests, component observer equivalence and trajectory integration
+    (including observer failure not replacing original oracle).
+  - `63bbda3`: update canonical experiment documentation with run steps.
+- Exact CI latest for doc commit `63bbda3`:
+  https://github.com/Badsmc/SMBS_BendSeq/actions/runs/43435206092
+  (SUCCESS: compile and available headless tests).
+- Safety invariant: full native `multiFuse`, exact validity, closure/volume,
+  contact and end-zone classifications still run on every previously
+  uncached sample. No new `CLEAR`, no Conditional waiver, no skipped native
+  geometry certification, no continuous sweep claim.
+- **FreeCAD comparison of SHADOW MODE: NOT RUN** in this session.
+  Last independently measured native reference remains **1046.8586s**
+  without shadow; 297 full unions. Component speedup: **NOT MEASURED**.
+  Enabling shadow adds extra work and is NOT an acceleration benchmark.
+- Next REQUIRED action: in installed real FreeCAD Python console set
+  `os.environ["SMBS_COMPONENT_SHADOW_SAMPLES"]="2"` before an otherwise
+  unchanged Manual 3D check. Upload the saved Desktop JSON, inspect
+  `component_shadow` candidates/hits/disagreements, plus B02 RETRACT and
+  B08/B04/B06 Conditional. Disable env flag for base performance comparison.
+  See `docs/COMPONENT_COLLISION_EXPERIMENT.md` for exact commands and
+  fail-closed acceptance gates.
+- Next code gate after actual evidence: make a gated **proven-blocker-only**
+  no-fuse search filter, with old full native oracle as mandatory fallback
+  on ambiguous, Conditional, contact or topology-dependent cases. Do not
+  declare component-only CLEAR without independently proven full-sheet
+  integrity and exact all-components contact/distance semantics.
