@@ -129,10 +129,24 @@ class PerformanceReportTests(unittest.TestCase):
         self.assertEqual(selected_bend_prefix(1), ("B07",))
         self.assertEqual(selected_bend_prefix(2), ("B07", "B03"))
         self.assertEqual(selected_bend_prefix(10), MANUAL_ORDER)
-        for invalid in (0, 11, -1, 1.0, True, "1", None if False else []):
+        for invalid in (0, 11, -1, 1.0, True, "1", []):
             with self.subTest(invalid=invalid):
                 with self.assertRaises(ValueError):
                     selected_bend_prefix(invalid)
+
+    def test_optimization_toggle_is_recorded_but_not_a_physical_input_difference(self):
+        old = sample_journal()
+        new = sample_journal()
+        old["events"][1]["data"]["machine_pose_reuse_enabled"] = False
+        new["events"][1]["data"]["machine_pose_reuse_enabled"] = True
+        left = analyze_journal(old)
+        right = analyze_journal(new)
+        self.assertFalse(left["runs"][0]["optimization"]["machine_pose_reuse_enabled"])
+        self.assertTrue(right["runs"][0]["optimization"]["machine_pose_reuse_enabled"])
+        result = compare_native_reports(left, right)
+        self.assertTrue(result["matched_recorded_configuration_and_verdicts"])
+        self.assertEqual(result["observed_wall_speedup_x"], 1.0)
+        self.assertFalse(result["independent_native_collision_regression_qualified"])
 
     def test_machine_pose_reuse_counts_from_native_d6_remain_distinct(self):
         sample = sample_journal()
