@@ -1027,7 +1027,7 @@ class CalculateCommand:
         return {
             "Pixmap": str(_ICON_ROOT / "gui_calculate.svg"),
             "MenuText": "Автопоиск последовательности",
-            "ToolTip": "Быстрый 2D поиск; полная нативная D6-проверка включается галочкой на странице «2D варианты»",
+            "ToolTip": "Автоматический поиск с физической проверкой; обычно сначала выбирают «2D варианты»",
         }
 
     def IsActive(self):
@@ -2001,8 +2001,8 @@ class _PreviewPanel:
                 self._manual_preview_notice.hide()
                 sim_body.addWidget(self._manual_preview_notice)
 
-                # Full search is initiated by the FreeCAD toolbar "Расчёт".
-                # Its enabled-state proxy remains a single hidden widget.
+                # The operator starts with 2D candidates, then checks the
+                # chosen full order from Manual.
                 self.calculate.hide()
                 sim_layout.addStretch(1)
                 self._page_simulation = scroll_task_page(
@@ -2012,28 +2012,14 @@ class _PreviewPanel:
                 planar_layout = QtWidgets.QVBoxLayout(planar_page)
                 planar_card, planar_body = card("Предварительный 2D поиск")
                 planar_note = QtWidgets.QLabel(
-                    "Быстрый поиск вариантов порядка гибки. Результат не "
-                    "является подтверждением физической возможности или "
-                    "полноценной 3D-проверки."
+                    "1. Нажмите «2D варианты» на панели инструментов. "
+                    "2. Выберите полный порядок из списка: он откроется в Manual "
+                    "и появится с номерами гибов на развёртке. "
+                    "3. В Manual нажмите «Проверить 2D» (быстро) или "
+                    "«Проверить 3D» (долго). 2D не исключает 3D-коллизий."
                 )
                 planar_note.setWordWrap(True)
                 planar_body.addWidget(planar_note)
-                self.full_search_checkbox = QtWidgets.QCheckBox(
-                    "Полная проверка 3D при автопоиске (долго)"
-                )
-                self.full_search_checkbox.setChecked(False)
-                self.full_search_checkbox.setToolTip(
-                    "Без галочки «Расчёт» ищет 2D варианты до 30 секунд: возможны "
-                    "необнаруженные 3D-коллизии. С галочкой выполняется поиск "
-                    "с нативной адаптивной D6-проверкой кандидатов; он может "
-                    "занять много минут. Даже D6 проверяет выборку поз, а не "
-                    "непрерывное движение или все части станка."
-                )
-                planar_body.addWidget(self.full_search_checkbox)
-                self.calculate.setToolTip(
-                    "Без галочки — быстрые 2D варианты, возможна коллизия. "
-                    "С галочкой — длительный физический поиск с нативной D6."
-                )
                 # The native toolbar command runs the search; this section
                 # displays its description/results without a duplicate button.
                 self.planar_calculate.hide()
@@ -3647,13 +3633,8 @@ class _PreviewPanel:
                         weights=self._selected_operation_weights(),
                         backgauge_model=None,
                         backgauge_cad_trace_path=None,
-                        # Do not lose a six-step sampled prefix when the
-                        # 90s OCC budget expires during the seventh bend.
-                        # The solver itself now excludes unfinished/unverified
-                        # steps from any previewable partial sequence.
-                        min_partial_bends=(
-                            7 if len(self.session.bend_order) >= 10 else 0
-                        ),
+                        # This workflow offers complete sequences only.
+                        min_partial_bends=0,
                         # Alternative machine-Z loading trials are advisory:
                         # the live 2.5D cycle still uses its own active pose.
                         alternate_axis_bends=(
@@ -3710,7 +3691,20 @@ class _PreviewPanel:
                         limit_reason=report.limit_reason,
                         budget_seconds=search_budget_s,
                     )
-                    self._show_planar_candidates_dialog(report)
+                    complete = self._complete_planar_candidates(report)
+                    if complete:
+                        self._show_planar_candidates_dialog(report)
+                    else:
+                        limit = (
+                            " Поиск остановлен по лимиту: {}; это не доказательство "
+                            "отсутствия решения.".format(report.limit_reason)
+                            if report.limit_reason else ""
+                        )
+                        message = "Полных 2D вариантов не найдено." + limit
+                        self.status.setText(message)
+                        QtWidgets.QMessageBox.information(
+                            self, "2D варианты", message,
+                        )
                 except Exception as exc:
                     msg = "2D поиск не выполнен: {}".format(exc)
                     self.status.setText(msg)
@@ -3790,21 +3784,36 @@ class _PreviewPanel:
                     physical_status="UNVERIFIED",
                 )
 
+            def _complete_planar_candidates(self, report):
+                """Only full, unique orders can enter the Manual workflow."""
+                total = len(self.session.bend_order)
+                expected = set(self.session.bend_order)
+                seen = set()
+                complete = []
+                for candidate in report.candidates:
+                    sequence = tuple(candidate.sequence)
+                    if (len(sequence) != total or set(sequence) != expected
+                            or sequence in seen):
+                        continue
+                    seen.add(sequence)
+                    complete.append(candidate)
+                return complete
+
             def _show_planar_candidates_dialog(self, report):
-                """Choose a preview-only bend order; never present it as 3D approved."""
+                """Choose a complete 2D order for Manual verification."""
                 # A new search may replace a previous result; close the old tab
                 # explicitly rather than presenting a stale list.
                 previous = getattr(self, "_task_dialogs", {}).get("planar_candidates")
                 if previous is not None:
                     previous.reject()
                 dlg = QtWidgets.QDialog(self)
-                dlg.setWindowTitle("SMBS — предварительные 2D варианты")
+                dlg.setWindowTitle("SMBS — полные 2D варианты")
                 dlg.resize(700, 430)
                 layout = QtWidgets.QVBoxLayout(dlg)
                 heading = QtWidgets.QLabel(
-                    "ТОЛЬКО 2D-ПРОСМОТР. Проверка 3D-коллизий и физическая "
-                    "допустимость не подтверждены. Для производственного "
-                    "порядка требуется отдельная проверка."
+                    "Выберите полный порядок и откройте Manual. Там отдельно "
+                    "запустите быструю 2D или длительную 3D-проверку. "
+                    "3D-коллизии пока не проверены."
                 )
                 heading.setWordWrap(True)
                 layout.addWidget(heading)
@@ -3830,7 +3839,7 @@ class _PreviewPanel:
                 layout.addWidget(weights_caption)
                 details = QtWidgets.QLabel(
                     "Статус: {} | вариантов: {} | 2D проверок: {} | причина остановки: {}".format(
-                        report.status.value, len(report.candidates),
+                        report.status.value, len(self._complete_planar_candidates(report)),
                         report.evaluated_steps,
                         ("цель достигнута: найдено заданное количество вариантов"
                          if report.limit_reason == "MAX_COMPLETE_CANDIDATES_REACHED"
@@ -3868,20 +3877,6 @@ class _PreviewPanel:
                             )
                         )
                         layout.addWidget(open_trace_folder)
-                if report.partial_candidate is not None and not report.candidates:
-                    notice = QtWidgets.QLabel(
-                        "ЧАСТИЧНЫЙ РЕЗУЛЬТАТ: {} из {} гибов прошли "
-                        "предварительную проверку 2D. "
-                        "Это префикс без полного контрольного прогона; "
-                        "следующий незавершённый по тайм-ауту гиб не включён. "
-                        "Остальные гибы не будут анимироваться. "
-                        "Реальная безопасность станка не подтверждена.".format(
-                            len(report.partial_candidate.sequence),
-                            len(self.session.bend_order),
-                        )
-                    )
-                    notice.setWordWrap(True)
-                    layout.addWidget(notice)
                 if report.alternative_setup_trials:
                     tested = len(report.alternative_setup_trials)
                     clear = sum(
@@ -3942,9 +3937,7 @@ class _PreviewPanel:
                     pair_info.setWordWrap(True)
                     layout.addWidget(pair_info)
                 options = QtWidgets.QListWidget(dlg)
-                visible_candidates = list(report.candidates)
-                if not visible_candidates and report.partial_candidate is not None:
-                    visible_candidates.append(report.partial_candidate)
+                visible_candidates = self._complete_planar_candidates(report)
                 for index, candidate in enumerate(visible_candidates):
                     suffix = (" | штраф {:.2f}".format(candidate.cost)
                               if candidate.cost_complete else " | штраф не подтверждён")
@@ -3957,7 +3950,7 @@ class _PreviewPanel:
                     options.setCurrentRow(0)
                 layout.addWidget(options)
                 controls = QtWidgets.QHBoxLayout()
-                use = QtWidgets.QPushButton("Показать порядок в симуляции")
+                use = QtWidgets.QPushButton("Выбрать и открыть Manual")
                 use.setEnabled(bool(visible_candidates))
                 export_btn = QtWidgets.QPushButton("Сохранить диагностику JSON")
                 close = QtWidgets.QPushButton("Закрыть")
@@ -3972,104 +3965,34 @@ class _PreviewPanel:
                         return
                     candidate = visible_candidates[row]
                     try:
-                        if len(candidate.sequence) < len(self.session.bend_order):
-                            from smbs_core.kinematics2d.sequence_search_2d import (
-                                validate_partial_planar_prefix,
-                            )
-                            has_sections = bool(
-                                getattr(self.tooling_setup, "punch_section_offsets_xm", ())
-                                or getattr(self.tooling_setup, "die_section_offsets_xm", ())
-                            )
-                            valid, reason = validate_partial_planar_prefix(
-                                self.session, self.tooling_setup,
-                                candidate.sequence,
-                                match_active_bend_length=not has_sections,
-                                allow_retract_warning=self.retract_warning_checkbox.isChecked(),
-                                backgauge_model=None,
-                                # Match selected pose, but do not replay CAD
-                                # gauge contacts or alternative gauge fingers.
-                                loading_orientation_variants=tuple(
-                                    step.orientation_variant for step in candidate.steps
-                                ),
-                            )
-                            if not valid:
-                                self.status.setText(
-                                    "Частичный порядок не прошёл полную 2D-проверку: "
-                                    + reason
-                                )
-                                QtWidgets.QMessageBox.warning(
-                                    dlg, "2D-просмотр отклонён",
-                                    "Полная повторная 2D-проверка обнаружила "
-                                    "препятствие: " + reason,
-                                )
-                                return
+                        if candidate not in self._complete_planar_candidates(report):
+                            raise ValueError("Выбранный порядок не является полным")
                         self._stop_timer()
                         self.session.reset_all_bends()
-                        is_partial = len(candidate.sequence) < len(self.session.bend_order)
-                        remainder = [bid for bid in self.session.bend_order
-                                     if bid not in candidate.sequence]
-                        # Sequencer must keep ALL bends: only execute the
-                        # demonstrated prefix, leaving the remainder flat.
-                        self.session.set_bend_order(list(candidate.sequence) + remainder)
-                        self._partial_preview_limit = (
-                            len(candidate.sequence) if is_partial else 0
-                        )
-                        self._preview_only_planar_order = tuple(candidate.sequence)
-                        self._physical_check_signature = None
-                        self._selected_planar_gauge_order = tuple(candidate.sequence)
-                        self._selected_planar_gauge_model_id = id(self.backgauge_model)
-                        self._selected_planar_loading_orientation = {
-                            str(step.bend_id): step.orientation_variant.startswith(
-                                "REVERSE_MACHINE_Z_180"
-                            )
-                            for step in candidate.steps
-                        }
-                        self._selected_planar_gauge_positions = {
-                            i: (float(step.setup.backgauge_s_mm),
-                                float(step.setup.backgauge_z_mm))
-                            for i, step in enumerate(candidate.steps)
-                            if (step.setup is not None
-                                and step.setup.backgauge_s_mm is not None
-                                and step.setup.backgauge_z_mm is not None)
-                        }
-                        self._backgauge_preview_cache.clear()
-                        self._ensure_press_cycle_controller()
-                        if self.press_cycle is not None:
-                            self.press_cycle.loading_orientation_by_bend = dict(
-                                self._selected_planar_loading_orientation
-                            )
-                        # A previous strict validation does not apply to a
-                        # newly selected, independently ranked planar order.
-                        self.last_sequence_search_report = None
-                        self._conditional_bends_status.clear()
-                        self._populate_operations()
-                        self._configure_for_active_bend()
-                        self._sync_tooling_to_active_bend()
-                        self.draw()
+                        dlg.accept()
+                        self.activate_manual_mode()
+                        self._manual_sequence_prefix = list(candidate.sequence)
+                        self._apply_manual_order()
+                        self._viewer_tabs.setCurrentWidget(self._flat_view)
+                        self._draw_flat_pattern(reset_camera=True)
                         self.status.setText(
-                            ("ЧАСТИЧНЫЙ 2D-ПРОСМОТР {}/{} (остальные не проверены): ".format(
-                                len(candidate.sequence), len(self.session.bend_order)
-                            ) if is_partial else "2D-ПРОСМОТР (НЕ ПРОВЕРЕНО В 3D): ")
+                            "Manual: полный 2D порядок (3D НЕ ПРОВЕРЕН): "
                             + " → ".join(candidate.sequence)
                         )
                         self.physical_check_result.setText(
-                            "UNVERIFIED: {} "
-                            "Полная траектория, 3D-коллизии и незавершённые "
-                            "гибы не проверены.".format(
-                                "частичный 2D-префикс." if is_partial
-                                else "предварительный полный 2D-порядок."
-                            )
+                            "UNVERIFIED: выбран полный 2D порядок. "
+                            "В Manual выполните «Проверить 2D» или «Проверить 3D». "
+                            "Возможны коллизии."
                         )
                         self._trace_event(
-                            "PLANAR_2D_PREVIEW_ORDER_SELECTED",
+                            "PLANAR_2D_MANUAL_ORDER_SELECTED",
                             sequence=list(candidate.sequence),
                             evidence=candidate.evidence,
                             physical_status="UNVERIFIED",
                         )
-                        dlg.accept()
                     except Exception as exc:
-                        self.status.setText("Нельзя показать 2D порядок: " + str(exc))
-                        _error("Planar preview exception: " + traceback.format_exc())
+                        self.status.setText("Нельзя назначить 2D порядок: " + str(exc))
+                        _error("Planar manual selection exception: " + traceback.format_exc())
 
                 def on_export():
                     import json
@@ -4096,16 +4019,6 @@ class _PreviewPanel:
 
             def calculate_sequence(self):
                 """Run automatic 2.5D + D6 physical sequence search with backtracking and forward replay."""
-                # The normal toolbar action is a bounded 2D preview. Native
-                # D6 is an explicit operator choice and may take many minutes.
-                if not self.full_search_checkbox.isChecked():
-                    self._trace_event(
-                        "SEQUENCE_SEARCH_MODE_SELECTED",
-                        mode="FAST_2D_NOT_3D_VALIDATED",
-                        possible_3d_collision=True,
-                    )
-                    self.calculate_planar_candidates()
-                    return
                 self._trace_event(
                     "SEQUENCE_SEARCH_MODE_SELECTED",
                     mode="FULL_NATIVE_D6_SAMPLED",

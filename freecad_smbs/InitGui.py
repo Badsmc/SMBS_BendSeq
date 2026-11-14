@@ -76,14 +76,14 @@ class SMBSWorkbench(Workbench):
         # Six native FreeCAD toolbar commands. Other actions remain available
         # through the workbench menu, without duplicating the toolbar buttons.
         # Simulation is a viewer/action, not an implicit sequence search.
-        # Preserve the original physical automatic search in the workbench MENU
-        # under "Расчёт последовательности", separate from quick preview.
+        # Search begins with complete 2D candidates; the chosen order enters
+        # Manual for an explicit fast or full collision check.
         toolbar = [
             CMD_LOAD_PART, CMD_TOOLING_TAB, CMD_PRESSBRAKE_2D,
             CMD_PLANAR_CANDIDATES, CMD_MANUAL, CMD_SETTINGS,
         ]
         menu = [
-            *toolbar, CMD_CALCULATE, CMD_SEQUENCE_CATALOG,
+            *toolbar, CMD_SEQUENCE_CATALOG,
             CMD_BACKGAUGE, CMD_TOOLING,
         ]
         self.appendMenu("PressBrakeSim 2.5D", menu)
