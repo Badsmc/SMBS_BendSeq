@@ -80,6 +80,7 @@ class LoadedTool:
     source_length_mm: float = 100.0
     is_virtual_length: bool = False
     tool_length_mode: str = "LIBRARY_FIXED"
+    validity_proof: Optional[Tuple[Any, Tuple[bool, str]]] = None
 
 
 def _build_virtual_length_cad_prism(
@@ -335,12 +336,22 @@ def clear_native_tool_cache() -> None:
 
 
 def _clone_loaded_tool(tool: LoadedTool) -> LoadedTool:
+    cad_copy = tool.cad_shape.copy() if hasattr(tool.cad_shape, "copy") else tool.cad_shape
+    mach_copy = tool.machine_shape.copy() if hasattr(tool.machine_shape, "copy") else tool.machine_shape
+    proof = (
+        (mach_copy, tool.validity_proof[1])
+        if (tool.validity_proof is not None
+            and isinstance(tool.validity_proof, tuple)
+            and len(tool.validity_proof) == 2
+            and tool.validity_proof[0] is tool.machine_shape)
+        else None
+    )
     return LoadedTool(
         tool_id=tool.tool_id,
         kind=tool.kind,
         file_path=tool.file_path,
-        cad_shape=tool.cad_shape.copy() if hasattr(tool.cad_shape, "copy") else tool.cad_shape,
-        machine_shape=tool.machine_shape.copy() if hasattr(tool.machine_shape, "copy") else tool.machine_shape,
+        cad_shape=cad_copy,
+        machine_shape=mach_copy,
         tip_radius_mm=tool.tip_radius_mm,
         included_angle_deg=tool.included_angle_deg,
         v_opening_mm=tool.v_opening_mm,
@@ -355,6 +366,7 @@ def _clone_loaded_tool(tool: LoadedTool) -> LoadedTool:
         source_length_mm=tool.source_length_mm,
         is_virtual_length=tool.is_virtual_length,
         tool_length_mode=tool.tool_length_mode,
+        validity_proof=proof,
     )
 
 
@@ -518,6 +530,9 @@ def load_native_die(
 
         sh_radius = _to_float(profile.shoulder_radius_mm, getattr(datums, "shoulder_radius_mm", 0.0))
 
+        from smbs_core.kinematics2d.native_collision_3d import check_solid_validity
+        die_valid = check_solid_validity(machine_shape, "die_machine_shape")
+
         loaded_die = LoadedTool(
             tool_id=p.stem,
             kind="DIE",
@@ -538,6 +553,7 @@ def load_native_die(
             source_length_mm=source_sec_len,
             is_virtual_length=is_virtual,
             tool_length_mode=resolved_mode,
+            validity_proof=(machine_shape, die_valid),
         )
         _NATIVE_DIE_CACHE[cache_key] = _clone_loaded_tool(loaded_die)
         return loaded_die
@@ -691,6 +707,9 @@ def load_native_punch(
 
         tip_r = _to_float(profile.tip_radius_mm, getattr(datums, "tip_radius_mm", 0.0))
 
+        from smbs_core.kinematics2d.native_collision_3d import check_solid_validity
+        punch_valid = check_solid_validity(machine_shape, "punch_machine_shape")
+
         loaded_punch = LoadedTool(
             tool_id=p.stem,
             kind="PUNCH",
@@ -710,6 +729,7 @@ def load_native_punch(
             source_length_mm=source_sec_len,
             is_virtual_length=is_virtual,
             tool_length_mode=resolved_mode,
+            validity_proof=(machine_shape, punch_valid),
         )
         _NATIVE_PUNCH_BASE_CACHE[cache_key] = _clone_loaded_tool(loaded_punch)
         return loaded_punch
@@ -760,4 +780,8 @@ def set_punch_ram_z(punch: LoadedTool, ram_z_mm: float) -> LoadedTool:
         source_length_mm=getattr(punch, "source_length_mm", punch.length_mm),
         is_virtual_length=getattr(punch, "is_virtual_length", False),
         tool_length_mode=getattr(punch, "tool_length_mode", "LIBRARY_FIXED"),
+        validity_proof=((machine_shape, punch.validity_proof[1])
+                        if (getattr(punch, "validity_proof", None) is not None
+                            and len(punch.sections) <= 1)
+                        else None),
     )

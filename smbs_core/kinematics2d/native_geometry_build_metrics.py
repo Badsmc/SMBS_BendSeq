@@ -22,6 +22,8 @@ _ALLOWED = frozenset({
 _CACHE_EVENTS = frozenset({
     "bend_zone_cache_hit", "bend_zone_cache_miss",
     "bend_zone_cache_eviction",
+    "tool_validity_cache_hit", "tool_validity_cache_miss",
+    "workpiece_validity_cache_hit", "workpiece_validity_cache_miss",
 })
 
 

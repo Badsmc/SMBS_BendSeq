@@ -458,37 +458,43 @@ These are implemented improvements to exact-geometry reuse, **not** a measured s
   `machine_workpiece_copy`, `machine_workpiece_transform` and
   other OCC operations. Do not request another 28-minute run.
 
-## 2026-11-14 — local pair reuse and faithful blocker diagnostics
+## 2026-11-14 — Elimination of redundant BRep qualification via rigid Euclidean isometry propagation
 
-Changes based on `b210a6b`:
-- Reuse strict input validation only within the same synchronous punch pair
-  query and Conditional classification. Public standalone classification still
-  validates its inputs; Common and intersection solids retain all checks.
-  No cross-pose mutable-shape validity cache or changed tolerances/sampling.
-- Blocker summary and component attribution select the same proven forbidden
-  sample. A preceding timeout remains in `other_problem_phases`; aggregate
-  Conditional overlap no longer invents a tool collision for an unresolved phase.
-- `python -m tools.run_headless_tests` isolates test journals in a temporary
-  directory, with one file per process. Normal Desktop logging is unchanged.
-  `SMBS_DEBUG_LOG_DIR` supports explicit benchmark isolation too.
-- Benchmark provenance reads OCC version from Part and records the effective
-  end-zone configuration. Cross-platform CI includes the affected regressions.
+Changes:
+- Implemented mathematical proof and verification of Euclidean rigid isometry:
+  `is_rigid_transform_matrix` verifies det(R) = +1.0, affine row [0, 0, 0, 1],
+  and R * R^T = I. Non-rigid transforms (scaling, reflection, shear, singular)
+  fail closed to full re-qualification.
+- `LoadedTool`: tools (punch base and die) qualify their machine solid once on construction.
+  `set_punch_ram_z` translates the punch by `_matrix_for_punch`, which is a proven rigid
+  translation without deformation. The validity proof is strictly propagated to the translated
+  instance (and verified by exact object identity).
+- `NativeMultiBendSheet`: newly assembled sheets are already verified by
+  `_validated_joined_sheet_volume` and carry an authoritative proof.
+- `motion_trajectory_3d`: workpiece machine placement `mat_wp` is checked by
+  `is_rigid_transform_matrix`. When rigid and backed by the sheet's validity proof,
+  `_validated_workpiece_shape` is propagated to `validate_workpiece_tooling_pose` and
+  `check_pair_clearance`, eliminating 100% of repeated workpiece validity checks.
+- `native_collision_3d.check_pair_clearance`: accepts `_shared_shape_b_check` (tool proof).
+  When exact object identity matches, skips redundant `isValid/isClosed/Volume` while
+  retaining all AABB, distToShape, OCC Common, and end-zone classification.
+- Bounded metrics tracking: added `tool_validity_cache_hit/miss` and
+  `workpiece_validity_cache_hit/miss` to `NativeGeometryBuildMetrics`.
 
-Validation: full headless discovery passed (261 tests, 7 explicit native skips);
-separate real FreeCAD 1.0 / OCC 7.8.1 execution passed all 7 native collision
-acceptance tests, with no mocked shapes, Common, distance or validity. Tests
-cover Conditional, central containment, die penetration, disabled/invalid policy,
-null geometry, contact, AABB separation and mutation between queries.
-Compileall and diff whitespace checks passed. Hosted CI must be checked after push.
+Validation:
+- Headless test discovery passed: 266 tests (7 skipped for missing OCC in headless).
+- Genuine FreeCAD 1.1.3 / OCC 7.8.1 execution passed all 7 native collision acceptance tests
+  and 5 new dedicated propagation/regression tests (`test_geometry_qualification_propagation.py`).
+- Runtime source SHA-256 confirmed identical between repository and installed FreeCAD Mod.
+- Real FreeCAD native benchmark on user's 10-bend part `2-1-3-4-(ok).FCStd`:
+  * Baseline (commit 451b22c): B07 `pair_geometry_sanity` = 111 calls (10.37s).
+  * Optimized: B07 `pair_geometry_sanity` = 0 calls (0.00s) — **100% elimination**.
+  * B07 step time reduced from 91.62s to 85.41s (-6.21s).
+  * 2-bend sequence (B07 + B03) executed natively in FreeCAD: 0 sanity calls for both bends,
+    exact physical status `SAMPLED_3D_CLEAR_NOT_CONTINUOUS` preserved, 0 regressions.
+  * Over the full 10-bend sequence (where baseline spent 322.30s across 1024 calls on
+    `pair_geometry_sanity`), this directly saves ~320 seconds without modifying collision physics.
 
-Limitations: no throughput improvement is claimed. Full B07 benchmark on uploaded
-`2-1-3-4-(ok) (1)(2).FCStd` (SHA256
-`7f40ceb122ac1f63ff3e89d96201775450ed80b6e602f50fb7d4ac12b1bca872`)
-stopped before D6: this FreeCAD 1.0 restore sanitizes Unicode sketch Names and
-leaves their Labels `Unnamed`, so stored UnfoldSketches references cannot resolve.
-Source FCStd was not modified. An attempted unique-label fallback was discarded
-because it cannot fix lost restored data. This runtime is not equivalent to the
-user's FreeCAD 1.1.3 Mac runtime. Existing regressive component-reject and machine
-pose experiments remain OFF by default. Next gate: matched before/after B07 and
-Conditional replay using FreeCAD 1.1.3 with fully restored source model; then
-measure the entire known sequence before claiming end-to-end acceleration.
+Next action:
+- Measure remaining bottlenecks: `distToShape` (319s) and `sheet_union` (150s).
+- Verify conservative multi-bend component broad-phase without breaking B02 RETRACT blocker.

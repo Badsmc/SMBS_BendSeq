@@ -24,6 +24,7 @@ class NativeSequenceGeometryCache:
     full_sheets: OrderedDict = field(default_factory=OrderedDict)
     panel_prisms: dict = field(default_factory=dict)
     bend_zones: dict = field(default_factory=dict)
+    tool_validity: dict = field(default_factory=dict)
     source_identity: Any = None
     source_resets: int = 0
 
@@ -39,6 +40,7 @@ class NativeSequenceGeometryCache:
         self.full_sheets.clear()
         self.panel_prisms.clear()
         self.bend_zones.clear()
+        self.tool_validity.clear()
         self.source_identity = None
 
     def bind_source(self, identity: Any) -> bool:
@@ -60,5 +62,6 @@ class NativeSequenceGeometryCache:
             "full_sheet_entries": len(self.full_sheets),
             "panel_prism_entries": len(self.panel_prisms),
             "bend_zone_entries": len(self.bend_zones),
+            "tool_validity_entries": len(self.tool_validity),
             "full_sheet_limit": self.max_full_sheets,
         }

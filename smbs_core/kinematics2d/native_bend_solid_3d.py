@@ -22,6 +22,37 @@ class NativeBendSolidError(ValueError):
     pass
 
 
+def is_rigid_transform_matrix(mat: Any, tol: float = 1e-5) -> bool:
+    """Verify that a 4x4 matrix is a strictly rigid Euclidean isometry (det = +1.0).
+
+    Guarantees:
+    - Bottom row is [0, 0, 0, 1] (affine matrix)
+    - Determinant is strictly +1.0 (no scaling, no reflection/inversion)
+    - Upper-left 3x3 block is orthogonal: R * R^T = I within tolerance
+    Preserves exact shape topology, volume, closure, and validity.
+    """
+    if mat is None:
+        return False
+    try:
+        if (abs(getattr(mat, "A41", 0.0)) > tol
+                or abs(getattr(mat, "A42", 0.0)) > tol
+                or abs(getattr(mat, "A43", 0.0)) > tol
+                or abs(getattr(mat, "A44", 1.0) - 1.0) > tol):
+            return False
+        if abs(mat.determinant() - 1.0) > tol:
+            return False
+        R = [[getattr(mat, f"A{i+1}{j+1}") for j in range(3)] for i in range(3)]
+        for i in range(3):
+            for j in range(3):
+                dot = sum(R[i][k] * R[j][k] for k in range(3))
+                expected = 1.0 if i == j else 0.0
+                if abs(dot - expected) > tol:
+                    return False
+        return True
+    except Exception:
+        return False
+
+
 def zone_outline(zone, angle_deg, segments=64):
     """Ordered (s,z) perimeter with adjacent duplicate points removed.
 
@@ -154,6 +185,7 @@ class NativeMultiBendSheet:
     is_valid: bool = True
     is_closed: bool = True
     physical_certified: bool = False
+    validity_proof: tuple | None = None
 
 
 def _apply_rigid_transform(shape, transform, App):
@@ -447,4 +479,5 @@ def build_multi_bend_sheet_solid(state: FoldState, panel_build, *,
         is_valid=True,  # exactly checked by _validated_joined_sheet_volume
         is_closed=True,  # exactly checked by _validated_joined_sheet_volume
         physical_certified=False,
+        validity_proof=(joined, (True, "valid")),
     )
