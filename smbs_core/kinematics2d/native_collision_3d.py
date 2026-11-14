@@ -311,11 +311,39 @@ def _evaluate_common_volume(
     return with_bbox(vol, coords)
 
 
+def _extract_face_aabbs(
+    shape: Any,
+) -> Optional[Tuple[Tuple[Any, Optional[Tuple[float, float, float, float, float, float]]], ...]]:
+    """Extract (face, (xmin, xmax, ymin, ymax, zmin, zmax)) once per shape."""
+    faces = getattr(shape, "Faces", None)
+    if not faces:
+        return None
+    out = []
+    for f in faces:
+        fb = getattr(f, "BoundBox", None)
+        if fb is not None:
+            try:
+                out.append((
+                    f,
+                    (
+                        float(fb.XMin), float(fb.XMax),
+                        float(fb.YMin), float(fb.YMax),
+                        float(fb.ZMin), float(fb.ZMax),
+                    ),
+                ))
+                continue
+            except (AttributeError, TypeError, ValueError):
+                pass
+        out.append((f, None))
+    return tuple(out)
+
+
 def _compute_exact_distance_with_pruning(
     shape_a: Any,
     shape_b: Any,
     box_a: Any = None,
     box_b: Any = None,
+    face_aabbs_a: Optional[Sequence[Tuple[Any, Optional[Tuple[float, float, float, float, float, float]]]]] = None,
 ) -> float:
     """Compute exact Euclidean distance between two native FreeCAD Part solids with conservative face pruning.
 
@@ -340,16 +368,18 @@ def _compute_exact_distance_with_pruning(
     check_pair_clearance before returning CLEAR.
     """
     try:
-        faces_a = getattr(shape_a, "Faces", ())
+        faces_a = face_aabbs_a if face_aabbs_a is not None else getattr(shape_a, "Faces", ())
         faces_b = getattr(shape_b, "Faces", ())
         len_a = len(faces_a) if faces_a else 0
         len_b = len(faces_b) if faces_b else 0
 
         # Choose the shape with more faces to prune, provided it has > 12 faces
         if len_a >= len_b and len_a > 12 and box_b is not None and Part is not None:
-            s_many, s_other, b_other, faces_many = shape_a, shape_b, box_b, faces_a
+            s_other, b_other, faces_many = shape_b, box_b, faces_a
+            using_preextracted = face_aabbs_a is not None
         elif len_b > len_a and len_b > 12 and box_a is not None and Part is not None:
-            s_many, s_other, b_other, faces_many = shape_b, shape_a, box_a, faces_b
+            s_other, b_other, faces_many = shape_a, box_a, faces_b
+            using_preextracted = False
         else:
             res = measured_distance(shape_a, shape_b, label="full_shape_distance")
             if not res or len(res) == 0:
@@ -359,16 +389,41 @@ def _compute_exact_distance_with_pruning(
                 raise ValueError(f"KERNEL_NON_FINITE_DISTANCE:{d}")
             return d
 
+        bx_min = float(b_other.XMin)
+        bx_max = float(b_other.XMax)
+        by_min = float(b_other.YMin)
+        by_max = float(b_other.YMax)
+        bz_min = float(b_other.ZMin)
+        bz_max = float(b_other.ZMax)
+
         face_gaps = []
         min_g = 1e9
-        for f in faces_many:
-            fb = getattr(f, "BoundBox", None)
-            g = compute_aabb_gap(fb, b_other)
-            if g is None:
-                g = 0.0
-            face_gaps.append((f, g))
-            if g < min_g:
-                min_g = g
+        if using_preextracted:
+            for f, coords in faces_many:
+                if coords is None:
+                    g = 0.0
+                else:
+                    fx_min, fx_max, fy_min, fy_max, fz_min, fz_max = coords
+                    dx = (fx_min - bx_max) if fx_min > bx_max else ((bx_min - fx_max) if bx_min > fx_max else 0.0)
+                    dy = (fy_min - by_max) if fy_min > by_max else ((by_min - fy_max) if by_min > fy_max else 0.0)
+                    dz = (fz_min - bz_max) if fz_min > bz_max else ((bz_min - fz_max) if bz_min > fz_max else 0.0)
+                    g = math.sqrt(dx * dx + dy * dy + dz * dz)
+                face_gaps.append((f, g))
+                if g < min_g:
+                    min_g = g
+        else:
+            for f in faces_many:
+                fb = getattr(f, "BoundBox", None)
+                if fb is None:
+                    g = 0.0
+                else:
+                    dx = (fb.XMin - bx_max) if fb.XMin > bx_max else ((bx_min - fb.XMax) if bx_min > fb.XMax else 0.0)
+                    dy = (fb.YMin - by_max) if fb.YMin > by_max else ((by_min - fb.YMax) if by_min > fb.YMax else 0.0)
+                    dz = (fb.ZMin - bz_max) if fb.ZMin > bz_max else ((bz_min - fb.ZMax) if bz_min > fb.ZMax else 0.0)
+                    g = math.sqrt(dx * dx + dy * dy + dz * dz)
+                face_gaps.append((f, g))
+                if g < min_g:
+                    min_g = g
 
         margin = max(5.0, min_g + 5.0)
         cand_faces = [f for f, g in face_gaps if g <= margin]
@@ -408,6 +463,7 @@ def check_pair_clearance(
     prefer_overlap_first: bool = False,
     _shared_shape_a_check: Optional[Tuple[Any, Tuple[bool, str]]] = None,
     _shared_shape_b_check: Optional[Tuple[Any, Tuple[bool, str]]] = None,
+    _shape_a_face_aabbs_cache: Optional[List[Any]] = None,
 ) -> PairClearanceResult:
     """Evaluate exact clearance and overlap volume between two native FreeCAD Part solids.
 
@@ -560,7 +616,14 @@ def check_pair_clearance(
                 )
 
         t_dist0 = time.perf_counter()
-        dist = _compute_exact_distance_with_pruning(shape_a, shape_b, box_a, box_b)
+        face_aabbs_a = None
+        if _shape_a_face_aabbs_cache is not None and len(_shape_a_face_aabbs_cache) == 1:
+            if _shape_a_face_aabbs_cache[0] is None:
+                _shape_a_face_aabbs_cache[0] = _extract_face_aabbs(shape_a)
+            face_aabbs_a = _shape_a_face_aabbs_cache[0]
+        dist = _compute_exact_distance_with_pruning(
+            shape_a, shape_b, box_a, box_b, face_aabbs_a=face_aabbs_a,
+        )
         t_dist_ms = (time.perf_counter() - t_dist0) * 1000.0
 
         if not math.isfinite(dist) or dist < 0.0:
@@ -1110,6 +1173,8 @@ def validate_workpiece_tooling_pose(
                 check_solid_validity(workpiece_machine_shape, "shape_a"),
             )
 
+    wp_face_aabbs_cache = [None] if (not punch_cache_hit and not die_cache_hit) else None
+
     if punch_cache_hit:
         punch_res = cached_punch_result
     else:
@@ -1124,6 +1189,7 @@ def validate_workpiece_tooling_pose(
             prefer_overlap_first=bool(prefer_punch_overlap_first),
             _shared_shape_a_check=shared_workpiece_check,
             _shared_shape_b_check=_validated_punch_shape,
+            _shape_a_face_aabbs_cache=wp_face_aabbs_cache,
         )
 
     if die_cache_hit:
@@ -1138,6 +1204,7 @@ def validate_workpiece_tooling_pose(
             tool_label="DIE",
             _shared_shape_a_check=shared_workpiece_check,
             _shared_shape_b_check=_validated_die_shape,
+            _shape_a_face_aabbs_cache=wp_face_aabbs_cache,
         )
 
     overall_status = CollisionClass.CLEAR
