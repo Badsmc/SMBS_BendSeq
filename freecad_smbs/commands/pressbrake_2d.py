@@ -1027,7 +1027,7 @@ class CalculateCommand:
         return {
             "Pixmap": str(_ICON_ROOT / "gui_calculate.svg"),
             "MenuText": "Автопоиск последовательности",
-            "ToolTip": "Автоматический поиск с физической проверкой; обычно сначала выбирают «2D варианты»",
+            "ToolTip": "Служебный автоматический поиск; для выбора порядка начните с «Поиска 2D вариантов»",
         }
 
     def IsActive(self):
@@ -1092,8 +1092,8 @@ class ManualCommand:
     def GetResources(self):
         return {
             "Pixmap": str(_ICON_ROOT / "gui_manual.svg"),
-            "MenuText": "Manual",
-            "ToolTip": "Развёртка: выбрать ручную последовательность гибов",
+            "MenuText": "Порядок и проверка",
+            "ToolTip": "Выбрать порядок гибов или проверить найденный 2D вариант",
         }
 
     def IsActive(self):
@@ -1134,8 +1134,8 @@ class PlanarCandidatesCommand:
     def GetResources(self):
         return {
             "Pixmap": str(_ICON_ROOT / "gui_planar_candidates.svg"),
-            "MenuText": "2D варианты",
-            "ToolTip": "Предварительные 2D варианты; не являются 3D-допуском",
+            "MenuText": "Поиск 2D вариантов",
+            "ToolTip": "Найти полные последовательности гибов за ограниченное время; коллизии 3D ещё не проверены",
         }
 
     def IsActive(self):
@@ -1458,7 +1458,7 @@ class _PreviewPanel:
                 # relies on them, without duplicating on-screen buttons.
                 self.calculate = _button(QtWidgets, "Расчёт", self.calculate_sequence, False)
                 self.planar_calculate = _button(
-                    QtWidgets, "2D варианты", self.calculate_planar_candidates, False
+                    QtWidgets, "Поиск 2D вариантов", self.calculate_planar_candidates, False
                 )
                 self.calculate.setParent(self)
                 self.planar_calculate.setParent(self)
@@ -1547,7 +1547,7 @@ class _PreviewPanel:
                 # Explicit, on-demand physical check: no expensive BRep
                 # booleans in the 25–40 Hz drawing/timer path.
                 self.physical_check_btn = _button(
-                    QtWidgets, "Проверить текущую позу: 2D + 3D",
+                    QtWidgets, "Один кадр: диагностика 2D/3D",
                     self.check_current_physical_pose, True,
                 )
                 self.physical_check_btn.setToolTip(
@@ -1557,7 +1557,7 @@ class _PreviewPanel:
                 )
                 t_layout.addWidget(self.physical_check_btn)
                 self.full_physical_check_btn = _button(
-                    QtWidgets, "Проверить весь гиб: D6.3.4",
+                    QtWidgets, "Один гиб: 3D проверка D6",
                     self.check_active_bend_physical_trajectory, True,
                 )
                 self.full_physical_check_btn.setToolTip(
@@ -2012,13 +2012,13 @@ class _PreviewPanel:
                 )
                 planar_page = QtWidgets.QWidget()
                 planar_layout = QtWidgets.QVBoxLayout(planar_page)
-                planar_card, planar_body = card("Предварительный 2D поиск")
+                planar_card, planar_body = card("Шаг 1 — найти порядок гибов")
                 planar_note = QtWidgets.QLabel(
-                    "1. Нажмите «2D варианты» на панели инструментов. "
-                    "2. Выберите полный порядок из списка: он откроется в Manual "
-                    "и появится с номерами гибов на развёртке. "
-                    "3. В Manual нажмите «Проверить 2D» (быстро) или "
-                    "«Проверить 3D» (долго). 2D не исключает 3D-коллизий."
+                    "Нажмите «Поиск 2D вариантов» на панели инструментов. "
+                    "Программа ищет полные порядки гибов с быстрой 2D оценкой "
+                    "и ранжирует их по весам. Поиск ограничен 30 секундами: "
+                    "если ничего не найдено, это ещё не доказывает, что решения нет. "
+                    "Найденный порядок пока не проверен в 3D."
                 )
                 planar_note.setWordWrap(True)
                 planar_body.addWidget(planar_note)
@@ -2033,7 +2033,15 @@ class _PreviewPanel:
 
                 manual = QtWidgets.QWidget()
                 manual_layout = QtWidgets.QVBoxLayout(manual)
-                order_card, order_body = card("Порядок гибов")
+                order_card, order_body = card("Шаг 2 — выбрать и проверить порядок")
+                workflow_note = QtWidgets.QLabel(
+                    "Выберите полный вариант после «Поиска 2D вариантов» "
+                    "или задайте порядок нажатием линий на развёртке. "
+                    "Номера гибов показаны во вьювере и в списке ниже. "
+                    "Затем отдельно запустите быструю 2D или полную 3D проверку."
+                )
+                workflow_note.setWordWrap(True)
+                order_body.addWidget(workflow_note)
                 for btn in (
                     self.move_up_btn, self.move_down_btn, self.restore_order_btn,
                 ):
@@ -2062,7 +2070,7 @@ class _PreviewPanel:
                 )
                 insert(order_body, entries[8], 1)  # actual sequence table
                 self.manual_simulate_btn = style_action(
-                    QtWidgets.QPushButton("Симулировать"), primary=True
+                    QtWidgets.QPushButton("Симулировать без проверки"), primary=True
                 )
                 self.manual_simulate_btn.setToolTip(
                     "Сразу просмотреть выбранный ручной порядок: без расчёта "
@@ -2072,7 +2080,7 @@ class _PreviewPanel:
                     self.simulate_manual_order_unverified
                 )
                 self.manual_reverse_3d_checkbox = QtWidgets.QCheckBox(
-                    "Manual: развернуть заготовку на 180° для всех гибов"
+                    "Заменить 2D ориентации: развернуть все гибы на 180°"
                 )
                 self.manual_reverse_3d_checkbox.setObjectName(
                     "SMBS_ManualReverseNative3D"
@@ -2092,7 +2100,7 @@ class _PreviewPanel:
                 # native OCC as a DISTINCT opt-in action, not a silent upgrade
                 # of the original fast "Проверить" button.
                 self.manual_validate_btn = style_action(
-                    QtWidgets.QPushButton("Проверить 2D"), compact=True
+                    QtWidgets.QPushButton("Быстрая проверка (2D)"), compact=True
                 )
                 self.manual_validate_btn.setObjectName(
                     "SMBS_ManualLegacy2DCheck"
@@ -2106,30 +2114,32 @@ class _PreviewPanel:
                     self._validate_manual_planar_only
                 )
                 self.manual_validate_3d_btn = style_action(
-                    QtWidgets.QPushButton("Проверить 3D"), compact=True
+                    QtWidgets.QPushButton("Полная проверка (3D)"), compact=True
                 )
                 self.manual_validate_3d_btn.setObjectName(
                     "SMBS_ManualNative3DCheck"
                 )
                 self.manual_validate_3d_btn.setToolTip(
-                    "Строгая выборочная проверка реальных FCStd пуансона "
-                    "и матрицы через native OCC. Может занять несколько минут. "
-                    "Непрерывная безопасность и перемещения не сертифицируются."
+                    "Проверить весь выбранный порядок: реальные FCStd пуансон и "
+                    "матрица, адаптивная выборка поз каждой фазы через OCC. "
+                    "Может занять десятки минут. «Полная» относится ко всем "
+                    "выбранным гибам; непрерывное движение и весь станок не подтверждаются."
                 )
                 self.manual_validate_3d_btn.clicked.connect(
                     self._validate_export_manual_order
                 )
-                verify_row = QtWidgets.QHBoxLayout()
+                verify_row = QtWidgets.QVBoxLayout()
                 verify_row.addWidget(self.manual_simulate_btn)
                 verify_row.addWidget(self.manual_validate_btn)
                 verify_row.addWidget(self.manual_validate_3d_btn)
-                verify_row.addStretch(1)
                 order_body.addLayout(verify_row)
                 # Verification must have a visible result in the Manual
                 # workspace, not a file-save dialog as its only feedback.
                 self.manual_check_summary = QtWidgets.QLabel(
-                    "Выберите «Проверить 2D» для быстрой диагностики "
-                    "или «Проверить 3D» для native OCC."
+                    "Ещё не проверено. «Быстрая проверка (2D)» ищет явные "
+                    "препятствия, но может пропустить 3D коллизию. «Полная "
+                    "проверка (3D)» проверяет выбранные гибы и фазы на "
+                    "реальных инструментах; она намного дольше."
                 )
                 self.manual_check_summary.setWordWrap(True)
                 self.manual_check_summary.setObjectName("SMBS_ManualCheckSummary")
@@ -2180,10 +2190,11 @@ class _PreviewPanel:
                 order_body.addWidget(self.manual_show_collision_btn)
                 order_body.addWidget(self.manual_exact_occ_btn)
                 self._manual_preview_help = QtWidgets.QLabel(
-                    "Симулировать — просмотр без проверки коллизий. "
-                    "Проверить — весь выбранный порядок: 2D + 3D пуансон/матрица. "
-                    "Результат проверки выводится ниже и сохраняется внутри FCStd. "
-                    "Виртуальная длина и концевой условный допуск — из настроек оснастки."
+                    "Симуляция не проверяет коллизии. Быстрая 2D проверка "
+                    "возвращает предварительную диагностику. Полная 3D проверка "
+                    "идёт по всем выбранным гибам, но проверяет выборку поз, "
+                    "а не непрерывное движение. Результат выводится здесь и "
+                    "сохраняется в FCStd."
                 )
                 self._manual_preview_help.setWordWrap(True)
                 order_body.addWidget(self._manual_preview_help)
@@ -2369,6 +2380,13 @@ class _PreviewPanel:
                 )
                 self._simulation_diagnostics_summary.setWordWrap(True)
                 diagnostics_body.addWidget(self._simulation_diagnostics_summary)
+                extra_checks_note = QtWidgets.QLabel(
+                    "Ниже — отдельные проверки одного кадра или одного гиба. "
+                    "Для проверки найденной последовательности используйте "
+                    "«Порядок и проверка»."
+                )
+                extra_checks_note.setWordWrap(True)
+                diagnostics_body.addWidget(extra_checks_note)
                 self._on_physical_result_change(
                     self.physical_check_result.text()
                 )
@@ -2501,8 +2519,8 @@ class _PreviewPanel:
                     ("Деталь", self._page_part),
                     ("Оснастка", self._page_tooling),
                     ("Симуляция", self._page_simulation),
-                    ("2D варианты", self._page_planar),
-                    ("Manual", self._page_manual),
+                    ("Поиск 2D вариантов", self._page_planar),
+                    ("Порядок и проверка", self._page_manual),
                     ("Настройки", self._page_settings),
                 )
                 self._task_page_titles = {}
@@ -3698,14 +3716,18 @@ class _PreviewPanel:
                         self._show_planar_candidates_dialog(report)
                     else:
                         limit = (
-                            " Поиск остановлен по лимиту: {}; это не доказательство "
-                            "отсутствия решения.".format(report.limit_reason)
+                            " Достигнут предел поиска ({}). Это не доказывает, "
+                            "что решения нет; повторный запуск начинает поиск "
+                            "заново.".format(report.limit_reason)
                             if report.limit_reason else ""
                         )
-                        message = "Полных 2D вариантов не найдено." + limit
+                        message = (
+                            "За {:.0f} с полных 2D вариантов не найдено."
+                            .format(search_budget_s) + limit
+                        )
                         self.status.setText(message)
                         QtWidgets.QMessageBox.information(
-                            self, "2D варианты", message,
+                            self, "Поиск 2D вариантов", message,
                         )
                 except Exception as exc:
                     msg = "2D поиск не выполнен: {}".format(exc)
@@ -3809,13 +3831,14 @@ class _PreviewPanel:
                 if previous is not None:
                     previous.reject()
                 dlg = QtWidgets.QDialog(self)
-                dlg.setWindowTitle("SMBS — полные 2D варианты")
+                dlg.setWindowTitle("SMBS — найденные полные порядки")
                 dlg.resize(700, 430)
                 layout = QtWidgets.QVBoxLayout(dlg)
                 heading = QtWidgets.QLabel(
-                    "Выберите полный порядок и откройте Manual. Там отдельно "
-                    "запустите быструю 2D или длительную 3D-проверку. "
-                    "3D-коллизии пока не проверены."
+                    "Шаг 2: выберите один полный порядок и откройте раздел "
+                    "«Порядок и проверка». Номера появятся на развёртке. "
+                    "Затем отдельно нажмите «Быстрая проверка (2D)» или "
+                    "«Полная проверка (3D)». Пока 3D коллизии не проверены."
                 )
                 heading.setWordWrap(True)
                 layout.addWidget(heading)
@@ -3939,10 +3962,17 @@ class _PreviewPanel:
                     pair_info.setWordWrap(True)
                     layout.addWidget(pair_info)
                 options = QtWidgets.QListWidget(dlg)
+                options.setMinimumHeight(145)
                 visible_candidates = self._complete_planar_candidates(report)
                 for index, candidate in enumerate(visible_candidates):
                     suffix = (" | штраф {:.2f}".format(candidate.cost)
                               if candidate.cost_complete else " | штраф не подтверждён")
+                    evidence_label = {
+                        "SAMPLED_2D_CLEAR_OR_TOUCH":
+                            "в проверенных 2D сечениях препятствий не обнаружено",
+                        "CONDITIONAL_RETRACT_WARNING_NOT_3D_VALIDATED":
+                            "предупреждение при отводе пуансона (RETRACT)",
+                    }.get(candidate.evidence, "есть неопределённые 2D участки")
                     reversed_bends = [
                         step.bend_id for step in candidate.steps
                         if step.orientation_variant.startswith("REVERSE_MACHINE_Z_180")
@@ -3950,22 +3980,23 @@ class _PreviewPanel:
                     options.addItem(
                         "{}. {} | {}{} | разворот 180°: {}".format(
                             index + 1, " → ".join(candidate.sequence),
-                            candidate.evidence, suffix,
+                            evidence_label, suffix,
                             ", ".join(reversed_bends) or "нет",
                         )
                     )
                 if visible_candidates:
                     options.setCurrentRow(0)
-                layout.addWidget(options)
+                # Put the decision first. Long DFS diagnostics remain below.
+                layout.insertWidget(1, options)
                 controls = QtWidgets.QHBoxLayout()
-                use = QtWidgets.QPushButton("Выбрать и открыть Manual")
+                use = QtWidgets.QPushButton("Выбрать порядок → к проверке")
                 use.setEnabled(bool(visible_candidates))
                 export_btn = QtWidgets.QPushButton("Сохранить диагностику JSON")
                 close = QtWidgets.QPushButton("Закрыть")
                 controls.addWidget(use)
                 controls.addWidget(export_btn)
                 controls.addWidget(close)
-                layout.addLayout(controls)
+                layout.insertLayout(2, controls)
 
                 def on_preview():
                     row = options.currentRow()
@@ -4005,12 +4036,13 @@ class _PreviewPanel:
                         self._viewer_tabs.setCurrentWidget(self._flat_view)
                         self._draw_flat_pattern(reset_camera=True)
                         self.status.setText(
-                            "Manual: полный 2D порядок (3D НЕ ПРОВЕРЕН): "
+                            "Порядок выбран (3D НЕ ПРОВЕРЕН): "
                             + " → ".join(candidate.sequence)
                         )
                         self.physical_check_result.setText(
                             "UNVERIFIED: выбран полный 2D порядок. "
-                            "В Manual выполните «Проверить 2D» или «Проверить 3D». "
+                            "Запустите «Быстрая проверка (2D)» или "
+                            "«Полная проверка (3D)». "
                             "Возможны коллизии."
                         )
                         self._trace_event(
@@ -4022,7 +4054,7 @@ class _PreviewPanel:
                         )
                         if mixed_orientation:
                             self.status.setText(
-                                "Manual: ориентация каждого гиба перенесена из 2D; "
+                                "Ориентация каждого гиба перенесена из 2D; "
                                 "3D-проверка использует те же установки."
                             )
                     except Exception as exc:
@@ -4050,7 +4082,7 @@ class _PreviewPanel:
                 use.clicked.connect(on_preview)
                 export_btn.clicked.connect(on_export)
                 close.clicked.connect(dlg.reject)
-                embed_task_dialog(self, dlg, "2D варианты", "planar_candidates")
+                embed_task_dialog(self, dlg, "Выбор порядка", "planar_candidates")
 
             def calculate_sequence(self):
                 """Run automatic 2.5D + D6 physical sequence search with backtracking and forward replay."""
@@ -5085,7 +5117,7 @@ class _PreviewPanel:
                     return
                 self.manual_check_summary.setText(
                     "UNVERIFIED: параметры изменились; запустите "
-                    "«Проверить 2D» или «Проверить 3D» снова."
+                    "«Быстрая проверка (2D)» или «Полная проверка (3D)» снова."
                 )
                 self.manual_check_details.clear()
                 self.manual_check_details.hide()
@@ -5328,7 +5360,7 @@ class _PreviewPanel:
                 if not expected or current != expected:
                     self.status.setText(
                         "Оснастка изменилась после 3D-проверки. "
-                        "Запустите «Проверить 3D» повторно."
+                        "Запустите «Полная проверка (3D)» повторно."
                     )
                     _desktop_debug_event(
                         "MANUAL_EXACT_OCC_INSPECTION_STALE_TOOLING",
@@ -5704,7 +5736,7 @@ class _PreviewPanel:
                     self._show_manual_check_feedback(
                         "HISTORICAL / UNVERIFIED",
                         "В FCStd сохранён прошлый результат {}. "
-                        "Для текущего сеанса нажмите «Проверить» заново."
+                        "Для текущего сеанса запустите нужную проверку заново."
                         .format(historic_manual.get("status", "UNVERIFIED")),
                         historic_steps,
                     )
@@ -6519,7 +6551,7 @@ class _PreviewPanel:
                 if self._manual_selection_enabled:
                     prefix = self._manual_sequence_prefix
                     self.status.setText(
-                        "Manual: {}/{} | {} | физическая проверка не выполнена".format(
+                        "Порядок: {}/{} | {} | коллизии не проверены".format(
                             len(prefix),
                             len(self.session.bend_order) if self.session else 0,
                             " → ".join(prefix) or "порядок пуст",

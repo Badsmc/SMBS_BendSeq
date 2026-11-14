@@ -578,3 +578,17 @@ the shared `orientation_by_bend` map; no native D6 check ran in that journal.
 The selected ten-bend 2D candidate had a RETRACT warning and was explicitly
 `UNVERIFIED`; subsequent simulator playback was also unverified. No physical
 collision verdict can be inferred from that recording.
+
+## 2026-11-15 — operator workflow labels
+
+The toolbar now says `Поиск 2D вариантов` and `Порядок и проверка`.
+Manual has three distinct actions: `Симулировать без проверки`,
+`Быстрая проверка (2D)`, and `Полная проверка (3D)`. The 3D label refers
+to all selected bends using sampled native OCC poses; it does not claim
+continuous clearance or checks of the whole press. The ranked candidate
+list and selection button appear above the detailed DFS diagnostics. Search
+timeout feedback explicitly says that zero candidates within 30 seconds is
+not proof of no solution. The Settings checks are labelled as a single
+frame or single bend to distinguish them from the Manual sequence check.
+Headless UI contracts and test discovery passed; actual FreeCAD 1.1.x
+layout, label clipping and click flow still require Mac/Windows acceptance.
