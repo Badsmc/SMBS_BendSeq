@@ -414,6 +414,7 @@ def check_manual_3d_sequence(
     progress_callback: Optional[Callable[[int, int, str], None]] = None,
     config: Any = None,
     reverse_axis_by_bend: Optional[dict[str, bool]] = None,
+    include_benchmark_metrics: bool = False,
 ) -> dict:
     """Check a selected prefix (or complete order) with native FCStd tools.
 
@@ -713,6 +714,36 @@ def check_manual_3d_sequence(
                     ) else None
                 ),
             }
+            if include_benchmark_metrics:
+                # Optional compact output for stand-alone native A/B runs.
+                # The normal GUI response does NOT acquire a large copy of
+                # D6's per-sample records. The kernel counters are scoped
+                # exclusively to native D6 (not tool-pair/post-forensics).
+                stats_keys = (
+                    "total_states", "total_collision_queries",
+                    "total_solid_reconstructions", "total_common_queries",
+                    "total_distance_queries", "total_solid_cache_hits",
+                    "total_machine_pose_reuse_hits",
+                    "total_machine_pose_reuse_misses",
+                )
+                d6 = complete_d6 if isinstance(complete_d6, dict) else {}
+                record["benchmark_native_metrics"] = {
+                    "scope": "D6_ONLY_SAMPLED_NATIVE_KERNEL_NOT_CONTINUOUS",
+                    "d6": {key: d6.get(key) for key in stats_keys},
+                    "phases": [
+                        {
+                            key: phase.get(key)
+                            for key in ("phase", "elapsed_ms", "collision_queries",
+                                        "solid_reconstructions", "actual_common_queries",
+                                        "actual_distance_queries", "solid_cache_hits",
+                                        "solid_cache_misses")
+                        }
+                        for phase in d6.get("phases", ())
+                        if isinstance(phase, dict)
+                    ],
+                    "kernel": kernel_counts.to_dict(),
+                    "geometry_build": geometry_counts.to_dict(),
+                }
             if status is PhysicalEvidence.UNVERIFIED and report.status in (
                     CLEAR, PhysicalEvidence.CONDITIONAL):
                 record["status"] = status.value
