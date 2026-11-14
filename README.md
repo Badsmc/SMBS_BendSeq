@@ -1,6 +1,6 @@
-# SMBS — minimal FreeCAD installation (preview)
+# SMBS — FreeCAD installation (experimental)
 
-This branch contains only the FreeCAD runtime code and tooling models for the 2D/2.5D preview. **It is not yet a physically qualified production release and has not been merged from an accepted integrated `main` build.**
+This branch contains the installable FreeCAD runtime, real tooling models and reference parts. Its runtime was updated from `experiment/fast-search-lift-retract` at `0c6c0df` by explicit request. It remains an experimental preview, not a physically qualified production release.
 
 ## Branch roles
 
@@ -13,7 +13,7 @@ This branch contains only the FreeCAD runtime code and tooling models for the 2D
 | [core](https://github.com/Badsmc/SMBS_BendSeq/tree/core) | Headless calculation, solver contracts |
 | [smbs](https://github.com/Badsmc/SMBS_BendSeq/tree/smbs) | Runtime-only downloadable user installation |
 
-Shared code can appear in more than one development branch when required to keep its imports valid; branch ownership denotes where modifications should originate. Feature changes enter `main` by PR after tests and real FreeCAD checks; the `smbs` snapshot should be refreshed only from an approved `main` state.
+Shared code can appear in more than one development branch when required to keep its imports valid. This `smbs` snapshot incorporates the requested experimental runtime directly; development tests, benchmark runners and agent handoff documents remain on the development branch.
 
 ## Installation
 
@@ -29,10 +29,16 @@ SMBS/
   README.md
 ```
 
-Shared `toollibrary/` and `demo/SMBendTests/` plus `demo/parts/` reference assets are intentionally included in every primary branch. These are inert on-disk resources: FreeCAD must not automatically register or execute test runners. CI workflows and unrelated development scripts remain excluded. For a minimal release ZIP, use an explicit packaging allowlist rather than treating the entire branch checkout as the install payload.
+Shared `toollibrary/` and `demo/SMBendTests/` plus `demo/parts/` reference assets are intentionally included. These are inert on-disk resources: FreeCAD must not automatically register or execute test runners. CI workflows and unrelated development scripts remain excluded.
+
+## Sequence and collision workflow
+
+Run 2D search to list complete candidate orders. Select a candidate to carry its bend order and per-bend loading orientation into Manual and the 3D preview. Manual offers two separate checks: **Fast OCC (five bend angles)** samples the punch and die at five bend angles plus sparse approach/retract positions; **Full 3D** runs adaptive sampled D6. The fast result can prove a sampled collision, but a run without a proven collision is **UNVERIFIED**, not CLEAR. A detected collision can be opened in the exact 3D intersection inspector. The two modes retain the selected virtual tool length and Conditional end-zone settings.
+
+The fast mode currently checks the full native sheet and is not yet the proposed component-level AABB-before-union screening. In a recorded macOS run of the ten-bend reference part, a ten-step fast check took about 225 seconds. This measurement is for the development runtime on one machine; no matched performance acceptance of the installable snapshot has been recorded.
 
 ## Current limitations
 
-The workbench contains the 2.5D simulation and tooling UI. An animated sequence or section-level clearance does **not** prove a physically feasible sequence. Fresh FreeCAD GUI installation, real-part acceptance and full 3D machine/tool collision qualification remain outstanding. Do not use the preview as a certified press-brake plan.
+An animated sequence, 2D search result, or sparse 3D check does **not** prove a physically feasible sequence. Continuous motion, backgauge, clamps, frame and transfer are not certified by the fast check. The observed B02 RETRACT punch overlap requires separate physical interpretation of the lift behavior; the program currently reports a collision. Fresh installation and native acceptance of this `smbs` snapshot remain outstanding. Do not use the preview as a certified press-brake plan.
 
 See [integration and release policy](https://github.com/Badsmc/SMBS_BendSeq/blob/main/BRANCH_ARCHITECTURE.md).

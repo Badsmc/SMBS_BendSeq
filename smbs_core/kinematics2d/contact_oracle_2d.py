@@ -12,6 +12,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 from math import hypot, isfinite
+from time import perf_counter
 from typing import Iterable, Sequence
 
 Point = tuple[float, float]
@@ -64,6 +65,57 @@ def _validate_ring(points: Sequence[Point], tol: float) -> Ring:
     return result
 
 
+class PreparedRing2D:
+    """Validated polygon with a conservative Y-interval edge index.
+
+    Every edge potentially meeting query y (including boundary tolerance)
+    is indexed; no approximation or removal of polygon vertices occurs.
+    Prepared tool polygons are reused across all sheet components for one
+    machine pose. The index never changes winding or contact rules.
+    """
+
+    __slots__ = ("points", "_bins", "_min_y", "_max_y", "_tol", "_step", "_count")
+
+    def __init__(self, points: Ring, tolerance_mm: float, bins: int = 64):
+        self.points = points
+        self._min_y = min(p[1] for p in points)
+        hi_y = max(p[1] for p in points)
+        self._max_y = hi_y
+        self._tol = tolerance_mm
+        self._count = max(1, min(int(bins), len(points)))
+        self._step = max((hi_y - self._min_y) / self._count, 1e-9)
+        buckets = [[] for _ in range(self._count)]
+        for a, b in _segments(points):
+            # Populate every bucket which might contain a query whose
+            # tolerance-expanded horizontal scanline reaches this edge.
+            lo = min(a[1], b[1]) - tolerance_mm
+            hi = max(a[1], b[1]) + tolerance_mm
+            i0 = max(0, min(self._count - 1,
+                            int((lo - self._min_y) // self._step)))
+            i1 = max(0, min(self._count - 1,
+                            int((hi - self._min_y) // self._step)))
+            for idx in range(i0, i1 + 1):
+                buckets[idx].append((a, b))
+        self._bins = tuple(tuple(bucket) for bucket in buckets)
+
+    def __iter__(self):
+        return iter(self.points)
+
+    def __len__(self):
+        return len(self.points)
+
+    def __getitem__(self, index):
+        return self.points[index]
+
+    def edges_at(self, y: float):
+        index = int((y - self._min_y) // self._step)
+        if y < self._min_y - self._tol or y > self._max_y + self._tol:
+            return ()
+        if index < 0 or index >= self._count:
+            index = max(0, min(self._count - 1, index))
+        return self._bins[index]
+
+
 def _segments(ring: Ring):
     for index, point in enumerate(ring):
         yield point, ring[(index + 1) % len(ring)]
@@ -85,13 +137,21 @@ def _distance_segment(point, a, b) -> float:
 
 def _point_ring(point, ring, tol):
     """Return inside=1, boundary=0, outside=-1 (winding-independent)."""
-    if any(_distance_segment(point, a, b) <= tol for a, b in _segments(ring)):
-        return 0
     x, y = point
     inside = False
-    for a, b in _segments(ring):
-        if (a[1] > y) != (b[1] > y):
-            xi = a[0]+(y-a[1])*(b[0]-a[0])/(b[1]-a[1])
+    # Combined boundary/winding scan. The original ran all edges twice and
+    # projected the query onto even remote edges. A segment cannot be within
+    # tolerance when its AABB is farther than tolerance.
+    candidates = ring.edges_at(y) if isinstance(ring, PreparedRing2D) else _segments(ring)
+    for a, b in candidates:
+        ax, ay = a
+        bx, by = b
+        if (min(ax, bx) - tol <= x <= max(ax, bx) + tol
+                and min(ay, by) - tol <= y <= max(ay, by) + tol
+                and _distance_segment(point, a, b) <= tol):
+            return 0
+        if (ay > y) != (by > y):
+            xi = ax + (y-ay)*(bx-ax)/(by-ay)
             if xi > x:
                 inside = not inside
     return 1 if inside else -1
@@ -114,8 +174,12 @@ def _proper_cross(a, b, c, d, tol):
     """Strictly crossing edges, excluding tangents/endpoints/coincidences."""
     len_ab = hypot(b[0]-a[0], b[1]-a[1])
     len_cd = hypot(d[0]-c[0], d[1]-c[1])
-    if len_ab <= tol or len_cd <= tol:
-        raise ContactGeometryError("Degenerate polygon edge")
+    # Contact tolerance is NOT a minimum edge length. Curved bend zones
+    # routinely contain valid tessellation edges shorter than 0.02 mm.
+    # Normalized signed distances remain defined for every nonzero edge;
+    # only numerically zero-length edges make the orientation undefined.
+    if len_ab <= 1e-9 or len_cd <= 1e-9:
+        raise ContactGeometryError("Numerically zero-length polygon edge")
     o1, o2 = _cross(a,b,c)/len_ab, _cross(a,b,d)/len_ab
     o3, o4 = _cross(c,d,a)/len_cd, _cross(c,d,b)/len_cd
     return ((o1 > tol and o2 < -tol or o1 < -tol and o2 > tol)
@@ -147,7 +211,7 @@ def _edge_samples(ring):
         yield ((a[0]+b[0])/2.0,(a[1]+b[1])/2.0)
 
 
-def _interior_edge_samples(ring, tol):
+def _interior_edge_samples(ring, tol, target_bounds=None):
     """Interior witness near each simple-polygon edge (in either winding)."""
     twice_area = sum(
         a[0]*b[1]-b[0]*a[1] for a,b in _segments(ring)
@@ -163,6 +227,13 @@ def _interior_edge_samples(ring, tol):
             step=max(4.0*tol,length*fraction)
             candidate=(midpoint[0]-direction*dy/length*step,
                        midpoint[1]+direction*dx/length*step)
+            if target_bounds is not None and (
+                candidate[0] < target_bounds[0] or candidate[0] > target_bounds[2]
+                or candidate[1] < target_bounds[1] or candidate[1] > target_bounds[3]
+            ):
+                # Any witness outside the other polygon AABB cannot
+                # demonstrate overlap; avoid expensive point-in-ring.
+                continue
             if _point_ring(candidate,ring,tol)==1:
                 yield candidate
                 break
@@ -187,6 +258,16 @@ def classify_polygon_contact(
     a = _validate_ring(sheet,tol)
     b = _validate_ring(tool_outer,tol)
     holes = tuple(_validate_ring(h,tol) for h in tool_holes)
+    return _classify_validated_contact(a, b, holes, tol)
+
+
+def _classify_validated_contact(a: Ring, b: Ring, holes: tuple[Ring, ...],
+                                tol: float) -> tuple[ContactStatus, str]:
+    """Run exact predicates on previously validated immutable polygons.
+
+    The machine section path uses this for repeated sheet components against
+    a single tool, avoiding per-component tool polygon conversion and checks.
+    """
     if _bbox_disjoint(_bbox(a),_bbox(b),tol):
         return ContactStatus.CLEAR,"separated_bounding_boxes"
     touching = False
@@ -194,8 +275,29 @@ def classify_polygon_contact(
     for ring in (b, *holes):
         if _bbox_disjoint(_bbox(a),_bbox(ring),tol):
             continue
-        for pa,pb in _segments(a):
-            for qa,qb in _segments(ring):
+        # Broad-phase per edge. AABB separation is a necessary condition
+        # for either a proper crossing or a distance <= tolerance. Skip
+        # expensive exact geometry only when these cannot occur.
+        tool_edges = tuple(
+            (qa, qb, (min(qa[0], qb[0]), min(qa[1], qb[1]),
+                      max(qa[0], qb[0]), max(qa[1], qb[1])))
+            for qa, qb in _segments(ring)
+        )
+        # Clip tool edges once against the whole sheet AABB. Previously
+        # every sheet edge iterated across the entire tool profile even when
+        # 99% of its edges were far away. This is only a necessary-condition
+        # filter; exact segment predicates remain unchanged.
+        sheet_box = _bbox(a)
+        nearby_tool_edges = tuple(
+            edge for edge in tool_edges
+            if not _bbox_disjoint(sheet_box, edge[2], tol)
+        )
+        for pa, pb in _segments(a):
+            pbox = (min(pa[0], pb[0]), min(pa[1], pb[1]),
+                    max(pa[0], pb[0]), max(pa[1], pb[1]))
+            for qa, qb, qbox in nearby_tool_edges:
+                if _bbox_disjoint(pbox, qbox, tol):
+                    continue
                 if _proper_cross(pa,pb,qa,qb,tol):
                     return ContactStatus.INTERFERENCE,"proper_material_boundary_crossing"
                 if _segments_near(pa,pb,qa,qb,tol):
@@ -207,7 +309,8 @@ def classify_polygon_contact(
     for p in _interior_edge_samples(a,tol):
         if _in_material(p,b,holes,tol)==1:
             return ContactStatus.INTERFERENCE,"sheet_in_tool_material"
-    for p in _interior_edge_samples(b,tol):
+    sheet_bounds = _bbox(a)
+    for p in _interior_edge_samples(b,tol,target_bounds=sheet_bounds):
         if _point_ring(p,a,tol)==1 and _in_material(p,b,holes,tol)==1:
             return ContactStatus.INTERFERENCE,"tool_in_sheet_material"
 
@@ -220,7 +323,13 @@ def classify_polygon_contact(
             return ContactStatus.INTERFERENCE,"sheet_in_tool_material"
         if result == 0:
             near = True
+    # Tool boundary samples outside the sheet bounding rectangle cannot
+    # prove tool-in-sheet or boundary coincidence. The early exclusion is
+    # geometric, not a relaxed collision tolerance.
     for p in _edge_samples(b):
+        if (p[0] < sheet_bounds[0]-tol or p[0] > sheet_bounds[2]+tol
+                or p[1] < sheet_bounds[1]-tol or p[1] > sheet_bounds[3]+tol):
+            continue
         result = _point_ring(p,a,tol)
         if result == 1 and _in_material(p,b,holes,tol) >= 0:
             return ContactStatus.INTERFERENCE,"tool_in_sheet_material"
@@ -241,10 +350,14 @@ def check_machine_section(
     punch: tuple[Sequence[Point], Iterable[Sequence[Point]]] | None,
     die: tuple[Sequence[Point], Iterable[Sequence[Point]]] | None,
     tolerance_mm: float = 0.02,
+    *,
+    selected_tools: tuple[str, ...] = ("PUNCH", "DIE"),
 ) -> ContactReport:
-    """Report all sheet components, not just active bend, against both tools."""
+    """Report selected tools against all components in the same machine section."""
     findings = []
-    tools = (("PUNCH", punch), ("DIE",die))
+    if not selected_tools or any(name not in ("PUNCH", "DIE") for name in selected_tools):
+        raise ValueError("selected_tools must contain PUNCH and/or DIE")
+    tools = tuple((name, {"PUNCH": punch, "DIE": die}[name]) for name in selected_tools)
     components = tuple(sheet_polygons)
     for tool_name, shape in tools:
         if shape is None:
@@ -252,13 +365,28 @@ def check_machine_section(
                                            "missing_tool_geometry"))
             continue
         outer, holes = shape
+        try:
+            tol = float(tolerance_mm)
+            if not isfinite(tol) or not 1e-5 <= tol <= 1.0:
+                raise ContactGeometryError("tolerance_mm must be in [1e-5, 1] mm")
+            tool_ring = PreparedRing2D(_validate_ring(outer, tol), tol)
+            hole_rings = tuple(
+                PreparedRing2D(_validate_ring(h, tol), tol) for h in holes
+            )
+            invalid_tool = None
+        except ContactGeometryError as exc:
+            tool_ring, hole_rings, invalid_tool = None, (), str(exc)
         for identifier, polygon in components:
-            try:
-                status, reason = classify_polygon_contact(
-                    polygon,outer,holes,tolerance_mm
-                )
-            except ContactGeometryError as exc:
-                status, reason = ContactStatus.UNVERIFIED,str(exc)
+            if invalid_tool is not None:
+                status, reason = ContactStatus.UNVERIFIED, invalid_tool
+            else:
+                try:
+                    sheet_ring = _validate_ring(polygon, tol)
+                    status, reason = _classify_validated_contact(
+                        sheet_ring, tool_ring, hole_rings, tol
+                    )
+                except ContactGeometryError as exc:
+                    status, reason = ContactStatus.UNVERIFIED, str(exc)
             findings.append(ContactFinding(tool_name,str(identifier),status,reason))
     if not components:
         findings.append(ContactFinding("SHEET","*",ContactStatus.UNVERIFIED,
@@ -274,7 +402,7 @@ def check_machine_section(
     return ContactReport(worst,tuple(findings),float(tolerance_mm))
 
 
-def check_sheet_tooling_preview(section, tooling, tolerance_mm: float = 0.02) -> ContactReport:
+def check_sheet_tooling_preview(section, tooling, tolerance_mm: float = 0.02, *, timing_collector=None, cascade: bool = False) -> ContactReport:
     """Read-only adapter of current machine-space FoldState section and tooling.
 
     The section MUST already have a valid machine placement from Phase 5B.
@@ -299,9 +427,58 @@ def check_sheet_tooling_preview(section, tooling, tolerance_mm: float = 0.02) ->
     for key in ("other_panel_polygons","other_zone_polygons"):
         for name,poly in section.get(key,()):
             polygons.append((str(name),poly))
-    return check_machine_section(
-        polygons,
-        tooling.punch_polygons_machine(arc_segments=24),
-        tooling.die_polygons_machine(arc_segments=24),
-        tolerance_mm,
-    )
+    prep_start = perf_counter() if timing_collector is not None else 0.0
+    punch = tooling.punch_polygons_machine(arc_segments=24)
+    if cascade:
+        # Fast path: a confirmed punch intersection cannot be rescued by
+        # a later die or gauge test for the same sampled machine pose.
+        first = check_machine_section(
+            polygons, punch, None, tolerance_mm,
+            selected_tools=("PUNCH",),
+        )
+        if first.status is ContactStatus.INTERFERENCE:
+            if timing_collector is not None:
+                timing_collector["cascade_punch_rejections"] = (
+                    timing_collector.get("cascade_punch_rejections", 0) + 1
+                )
+                timing_collector["polygon_contact"] = (
+                    timing_collector.get("polygon_contact", 0.0)
+                    + 1000.0 * (perf_counter() - prep_start)
+                )
+            return first
+        die = tooling.die_polygons_machine(arc_segments=24)
+        second = check_machine_section(
+            polygons, None, die, tolerance_mm,
+            selected_tools=("DIE",),
+        )
+        findings = first.findings + second.findings
+        priority = (ContactStatus.INTERFERENCE, ContactStatus.UNVERIFIED,
+                    ContactStatus.TOUCH, ContactStatus.CLEAR)
+        worst = next((status for status in priority
+                      if any(f.status is status for f in findings)),
+                     ContactStatus.UNVERIFIED)
+        if timing_collector is not None:
+            timing_collector["cascade_die_rejections"] = (
+                timing_collector.get("cascade_die_rejections", 0)
+                + int(second.status is ContactStatus.INTERFERENCE)
+            )
+            timing_collector["polygon_contact"] = (
+                timing_collector.get("polygon_contact", 0.0)
+                + 1000.0 * (perf_counter() - prep_start)
+            )
+        return ContactReport(worst, findings, float(tolerance_mm))
+    die = tooling.die_polygons_machine(arc_segments=24)
+    if timing_collector is not None:
+        prep_end = perf_counter()
+        timing_collector["tool_polygon_build"] = (
+            timing_collector.get("tool_polygon_build", 0.0)
+            + 1000.0 * (prep_end - prep_start)
+        )
+    contact_start = perf_counter() if timing_collector is not None else 0.0
+    report = check_machine_section(polygons, punch, die, tolerance_mm)
+    if timing_collector is not None:
+        timing_collector["polygon_contact"] = (
+            timing_collector.get("polygon_contact", 0.0)
+            + 1000.0 * (perf_counter() - contact_start)
+        )
+    return report

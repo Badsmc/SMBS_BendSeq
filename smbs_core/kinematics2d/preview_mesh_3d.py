@@ -22,8 +22,17 @@ class PreviewMeshError(ValueError):
     pass
 
 
-def build_sheet_preview_faces(fold_state, panel_vertices_xy, active_bend_id, pose, segments=12):
-    """Build top/bottom/side sheet faces plus every actual bend-zone surface."""
+def build_sheet_preview_faces(
+    fold_state, panel_vertices_xy, active_bend_id, pose, segments=12,
+    *, machine_placement=None,
+):
+    """Build real panel/bend faces; optionally project the SAME machine pose.
+
+    machine_placement is a PlacementTransform3D from the press-cycle.
+    All sheet points are first evaluated in the authoritative FoldState
+    and then transformed into machine axes (s=-Y_m, depth=X_m, z=Z_m).
+    Never apply the legacy WorkpiecePose2D on top of machine placement.
+    """
     if active_bend_id not in fold_state.bends:
         raise PreviewMeshError("Unknown active bend")
     active = fold_state.bends[active_bend_id]
@@ -41,12 +50,21 @@ def build_sheet_preview_faces(fold_state, panel_vertices_xy, active_bend_id, pos
 
     def world_to_machine(p):
         x, y, z = (float(v) for v in p)
-        s = (x - ox) * ux + (y - oy) * uy
-        depth = (x - ox) * dx + (y - oy) * dy
-        sp, zp = pose.apply((s, z))
-        if not all(isfinite(v) for v in (sp, depth, zp)):
+        if machine_placement is not None:
+            machine_point = machine_placement.apply((x, y, z))
+            result = (
+                -float(machine_point[1]),
+                float(machine_point[0]),
+                float(machine_point[2]),
+            )
+        else:
+            s = (x - ox) * ux + (y - oy) * uy
+            depth = (x - ox) * dx + (y - oy) * dy
+            sp, zp = pose.apply((s, z))
+            result = (sp, depth, zp)
+        if not all(isfinite(v) for v in result):
             raise PreviewMeshError("Nonfinite projected sheet coordinates")
-        return (sp, depth, zp)
+        return result
 
     faces = []
     thickness = float(ref.thickness_mm)

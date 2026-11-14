@@ -8,16 +8,22 @@ Uses the existing 2.5D pipeline without introducing a second geometry engine:
 """
 from __future__ import annotations
 
+from freecad_smbs.ui.orbit_camera import orbit_project, clamp_pitch
+
 import hashlib
-import logging
 import math
 import os
 import sys
 import time
 import traceback
+import weakref
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from smbs_core.kinematics2d.developer_debug_log import (
+    debug_event as _desktop_debug_event,
+    desktop_directory as _debug_desktop_directory,
+)
 from smbs_core.kinematics2d.fold_sequence import (
     BendSequenceController,
     PlaybackStatus,
@@ -71,15 +77,53 @@ Z_LAYER_SHEET_ZONE = 35.0
 Z_LAYER_SHEET_SURFACES = 40.0
 Z_LAYER_SHEET_NEUTRAL_AND_TANGENTS = 50.0
 
-_DOCK = None
 _SLIDER_SCALE = 10  # 0.1 degree slider resolution
-_LOGGER: logging.Logger | None = None
+
+
+class _SMBSFCStdSaveObserver:
+    """Watch Ctrl+S on the bound document, without a second save path.
+
+    FreeCAD's slotStartSaveDocument runs before the native FCStd serializer.
+    This observer MUST NOT call document.save(), or it would recurse.
+    """
+
+    def __init__(self, workspace):
+        self._panel_ref = weakref.ref(workspace)
+
+    def slotStartSaveDocument(self, document, filename):
+        panel = self._panel_ref()
+        if panel is None or panel.session is None:
+            return
+        if not getattr(panel, "_smbs_allow_auto_embed", False):
+            return
+        if str(getattr(document, "Name", "")) != str(
+            getattr(panel, "_smbs_document_name", "")
+        ):
+            return
+        try:
+            panel._write_embedded_smbs_json(document)
+        except Exception as exc:
+            # Never corrupt or abort the user's CAD document save.
+            message = "SMBS JSON не вложен в FCStd: " + str(exc)
+            _error(message + "\n" + traceback.format_exc())
+            panel.status.setText(message)
+
+
+
 def _pressbrake_user_data_directory():
     """Platform-specific writable diagnostics home, not the plugin checkout.
 
     FreeCAD installations may be under Program Files, a read-only AppImage,
     or a macOS .app bundle. Traces must never depend on repository permissions.
     """
+    runtime = sys.modules.get("FreeCAD")
+    if runtime is not None:
+        try:
+            directory = runtime.getUserAppDataDir()
+            if directory:
+                return Path(directory).expanduser()
+        except (AttributeError, OSError, RuntimeError, TypeError, ValueError):
+            pass
     if sys.platform == "darwin":
         base = Path.home() / "Library" / "Application Support"
     elif os.name == "nt":
@@ -91,39 +135,20 @@ def _pressbrake_user_data_directory():
     else:
         base = Path(os.environ.get("XDG_DATA_HOME") or
                     str(Path.home() / ".local" / "share"))
-    return base / "FreeCAD" / "v1-1"
-
-
-_LOG_FILE_PATH = _pressbrake_user_data_directory() / "pressbrake_2d.log"
-
-
-def _get_file_logger() -> logging.Logger:
-    """Return a non-blocking file logger decoupled from FreeCAD.Console and Qt NotificationArea."""
-    global _LOGGER
-    if _LOGGER is not None:
-        return _LOGGER
-    logger = logging.getLogger("smbs.pressbrake_2d")
-    logger.setLevel(logging.INFO)
-    logger.propagate = False
-    if not logger.handlers:
-        try:
-            _LOG_FILE_PATH.parent.mkdir(parents=True, exist_ok=True)
-            handler = logging.FileHandler(str(_LOG_FILE_PATH), encoding="utf-8")
-            handler.setFormatter(
-                logging.Formatter("%(asctime)s [%(levelname)s] %(message)s")
-            )
-            logger.addHandler(handler)
-        except OSError:
-            logger.addHandler(logging.NullHandler())
-    _LOGGER = logger
-    return logger
+    return base / "FreeCAD"
 
 
 def _qt():
     """Return QtCore, QtGui, QtWidgets for FreeCAD-supported bindings."""
     try:
+        # FreeCAD 1.x exposes a PySide compatibility shim. On Qt6 it has
+        # QtWidgets separately; on older PySide/Qt4 widgets live in QtGui.
         from PySide import QtCore, QtGui
-        return QtCore, QtGui, QtGui
+        try:
+            from PySide import QtWidgets
+        except ImportError:
+            QtWidgets = QtGui
+        return QtCore, QtGui, QtWidgets
     except ImportError:
         try:
             from PySide2 import QtCore, QtGui, QtWidgets
@@ -134,27 +159,78 @@ def _qt():
 
 
 def _log(message):
-    """Write diagnostic message to file log without invoking FreeCAD.Console / NotificationArea."""
-    try:
-        _get_file_logger().info("%s", message)
-    except Exception:
-        pass
+    """Write normal diagnostics to the ONE Desktop JSON, not a second .log."""
+    _desktop_debug_event("FREECAD_INFO", message=str(message))
 
 
 def _warn(message):
-    """Write warning to file log without invoking FreeCAD.Console.PrintWarning (avoids NotificationArea deadlock)."""
-    try:
-        _get_file_logger().warning("%s", message)
-    except Exception:
-        pass
+    """Log warning without FreeCAD's potentially reentrant NotificationArea."""
+    _desktop_debug_event("FREECAD_WARNING", message=str(message))
 
 
 def _error(message):
-    """Write unexpected error to file log without triggering FreeCAD NotificationArea popup deadlock."""
+    """Log traceback or error in the ONE Desktop debug JSON."""
+    _desktop_debug_event("FREECAD_ERROR", message=str(message))
+
+
+def get_runtime_git_info() -> dict:
+    """Return actual module path, repository root, git branch, and git commit hash."""
+    import subprocess
+
+    mod_path = Path(__file__).resolve()
+    repo_root = mod_path.parents[2]
+    branch = "UNKNOWN"
+    commit = "UNKNOWN"
     try:
-        _get_file_logger().error("%s", message)
+        branch = subprocess.check_output(
+            ["git", "-C", str(repo_root), "rev-parse", "--abbrev-ref", "HEAD"],
+            stderr=subprocess.DEVNULL,
+            text=True,
+            timeout=2.0,
+        ).strip()
+        commit = subprocess.check_output(
+            ["git", "-C", str(repo_root), "rev-parse", "--short=12", "HEAD"],
+            stderr=subprocess.DEVNULL,
+            text=True,
+            timeout=2.0,
+        ).strip()
     except Exception:
         pass
+    # ZIP installs lack .git, therefore git_commit=UNKNOWN is expected.
+    # Hash the actual Mod tree and record an unambiguous identity of the
+    # source implementation instead of guessing it matches GitHub HEAD.
+    try:
+        from smbs_core.kinematics2d.runtime_build_identity import (
+            runtime_source_fingerprint,
+        )
+        source_identity = runtime_source_fingerprint(repo_root)
+    except Exception as exc:
+        source_identity = {
+            "schema_version": "smbs.runtime_source_sha256.v1",
+            "error_type": type(exc).__name__,
+            "required_source_files_present": False,
+            "composite_source_sha256": None,
+        }
+    loaded_modules = {}
+    for name in (
+        "smbs_core.kinematics2d.manual_physical_validation",
+        "smbs_core.kinematics2d.native_collision_3d",
+        "smbs_core.kinematics2d.motion_trajectory_3d",
+    ):
+        module = sys.modules.get(name)
+        loaded_modules[name] = (
+            str(Path(module.__file__).resolve())
+            if module is not None and getattr(module, "__file__", None)
+            else None
+        )
+    return {
+        "module_file": str(mod_path),
+        "repo_root": str(repo_root),
+        "git_branch": branch,
+        "git_commit": commit,
+        "installed_source_identity": source_identity,
+        "loaded_native_module_origins_at_start": loaded_modules,
+    }
 
 
 class SelectionWarning(RuntimeError):
@@ -254,6 +330,7 @@ class LoadedPartSession:
     fixed_panel: str
     fold_state: FoldState
     active_bend_index: int = 0
+    local_bend_dimensions_mm: dict = field(default_factory=dict)
     controller: BendSequenceController = field(init=False)
 
     def __post_init__(self) -> None:
@@ -462,6 +539,28 @@ def build_part_session(doc, selection, fixed_panel: str | None = None) -> Loaded
             fixed_panel = panel_build.connections[0].panel_a
 
     fold_state = FoldState(graph, fixed_panel)
+    # Local bend-line distance is independent of the visual machine setup.
+    # Flat development does not incorporate thickness or previous fold angles.
+    from smbs_core.kinematics2d.gauge_preview import (
+        local_bend_dimension_mm,
+    )
+    outline_xy = getattr(panel_build, "outline_vertices_xy", ())
+    local_bend_dimensions_mm = {}
+    axes_xy = {
+        bend.bend_id: tuple((p[0], p[1]) for p in bend.axis_xyz)
+        for bend in fold_state.bends.values()
+    }
+    for bend in fold_state.bends.values():
+        bid = bend.bend_id
+        try:
+            local_bend_dimensions_mm[bid] = local_bend_dimension_mm(
+                axes_xy[bid], outline_xy,
+                tuple(axis for other_id, axis in axes_xy.items() if other_id != bid),
+            )
+        except (ValueError, TypeError, KeyError) as exc:
+            _warn("Local bend dimension unavailable for {}: {}".format(
+                bid, exc,
+            ))
     sel_label = getattr(selection[0], "Label", getattr(selection[0], "Name", unfold_name))
     return LoadedPartSession(
         part_label=str(sel_label),
@@ -472,65 +571,585 @@ def build_part_session(doc, selection, fixed_panel: str | None = None) -> Loaded
         fixed_panel=fixed_panel,
         fold_state=fold_state,
         active_bend_index=0,
+        local_bend_dimensions_mm=local_bend_dimensions_mm,
     )
+
+
+_ICON_ROOT = Path(__file__).resolve().parents[1] / "resources" / "icons"
+class _SMBSNativeTaskPanel:
+    """FreeCAD-native Tasks adapter; NOT a custom QDockWidget.
+
+    The authoritative controls, signal connections and press-cycle timer are
+    owned by the MDI workspace. Every native Tasks activation gets a fresh
+    disposable form which temporarily hosts the *existing* control widgets.
+    When FreeCAD closes or replaces this task, we detach those widgets
+    BEFORE it can destroy the form; reopening cannot lose the simulation.
+    """
+
+    def __init__(self, workspace, form):
+        self.workspace = workspace
+        self.form = form
+        self._attached = True
+
+    def getStandardButtons(self):
+        # A task's standard Cancel closes only the controls, NOT the
+        # simulation workspace or the user's FCStd document.
+        _QtCore, _QtGui, QtWidgets = _qt()
+        return int(QtWidgets.QDialogButtonBox.Cancel)
+
+    def modifyStandardButtons(self, button_box):
+        _QtCore, _QtGui, QtWidgets = _qt()
+        button = button_box.button(QtWidgets.QDialogButtonBox.Cancel)
+        if button is not None:
+            button.setText("Закрыть")
+
+    def isAllowedAlterDocument(self):
+        return True
+
+    def isAllowedAlterSelection(self):
+        # SheetMetal's original unfold may be selected while Tasks is open.
+        return True
+
+    def isAllowedAlterView(self):
+        return True
+
+    def _detach(self):
+        if not self._attached:
+            return
+        _desktop_debug_event("TASKS_CLOSE_DETACH", panel="SMBS_NativeTasksRoot")
+        self._attached = False
+        workspace = self.workspace
+        self.workspace = None
+        if workspace is None:
+            return
+        # Native FreeCAD owns self.form. Detach all *reusable* children
+        # before the TaskDialogPython releases that Qt form.
+        # Hidden widgets do not auto-show when reparented on Tasks reopen.
+        # Explicitly remove them from the disposable FreeCAD form layout.
+        for child in (
+            workspace._task_stack, workspace.status,
+            workspace.task_progress, workspace._task_status_chip,
+            workspace._task_progress_caption,
+        ):
+            old_parent = child.parentWidget()
+            old_layout = old_parent.layout() if old_parent is not None else None
+            if old_layout is not None:
+                old_layout.removeWidget(child)
+            child.setParent(workspace)
+            child.hide()
+        if getattr(workspace, "_native_task_panel", None) is self:
+            workspace._native_task_panel = None
+            workspace._task_section_label = None
+            workspace.show_task_panel_btn.show()
+
+    def closed(self):
+        # FreeCAD can close Tasks externally when another edit begins.
+        self._detach()
+
+    def accept(self):
+        return self.reject()
+
+    def reject(self):
+        import FreeCADGui as Gui
+        self._detach()
+        Gui.Control.closeDialog()
+        return True
+
+
+def get_workspace_widget():
+    """Locate existing viewer; never create a second simulation session."""
+    import FreeCADGui as Gui
+    _QtCore, _QtGui, QtWidgets = _qt()
+    main = Gui.getMainWindow()
+    mdi = main.findChild(QtWidgets.QMdiArea)
+    if mdi is None:
+        return None
+    for subwindow in mdi.subWindowList():
+        if subwindow.objectName() == "SMBS_PressBrake2D_Workspace":
+            return subwindow.widget()
+    return None
+
+
+def _selection_snapshot():
+    """Capture active model selection before changing FreeCAD MDI focus."""
+    import FreeCAD as App
+    import FreeCADGui as Gui
+    return getattr(App, "ActiveDocument", None), list(Gui.Selection.getSelection())
+
+
+def show_workspace_controls(workspace, tab=None):
+    """Display ALL SMBS control pages inside the standard FreeCAD Tasks view.
+
+    One native Gui.Control.showDialog is active at a time. No independent dock
+    or floating addon-owned dock is created. The MDI only contains
+    2.5D/3D/flat graphics; the operator can still change the chosen page.
+    """
+    import FreeCADGui as Gui
+    QtCore, _QtGui, QtWidgets = _qt()
+    from freecad_smbs.ui.pressbrake_theme import OUTER_MARGIN, SECTION_GAP
+
+    if tab is not None and 0 <= int(tab) < workspace._task_stack.count():
+        workspace._task_stack.setCurrentIndex(int(tab))
+    section = workspace._task_stack.currentWidget()
+    # Explicit Manual orientation must update the same live viewer pose.
+    # Never borrow an unverified 2D heuristic for native 3D validation.
+    cycle = getattr(workspace, "press_cycle", None)
+    if (cycle is not None
+            and getattr(workspace, "session", None) is not None
+            and hasattr(workspace, "_effective_loading_orientation_map")):
+        cycle.loading_orientation_by_bend = (
+            workspace._effective_loading_orientation_map()
+        )
+        if hasattr(workspace, "_rear_frame_for_preview"):
+            cycle.rear_panel_vertices_xy = (
+                workspace._rear_frame_for_preview()
+            )
+    caption = workspace._task_page_titles.get(section, "Панель задач")
+    header = getattr(workspace, "_task_section_label", None)
+    if header is not None:
+        header.setText(caption)
+
+    active = bool(Gui.Control.activeDialog())
+    panel = getattr(workspace, "_native_task_panel", None)
+    if panel is not None and panel._attached and active:
+        _desktop_debug_event(
+            "TASKS_SWITCH_SECTION", section=str(caption), index=tab,
+        )
+        # FreeCAD Tasks already owns this form. Never call showDialog
+        # twice or create an extra Qt window simply to switch SMBS pages.
+        workspace.show_task_panel_btn.hide()
+        return panel
+    if panel is not None:
+        # The old native task disappeared (ESC, other command, Cancel).
+        # Drop only its disposable form; preserve the live controls.
+        panel.closed()
+
+    if active:
+        _desktop_debug_event(
+            "TASKS_OPEN_BLOCKED", reason="another_freecad_task_active",
+            requested_section=str(caption),
+        )
+        # Do not close an unrelated FreeCAD Sketcher/PartDesign task and
+        # lose its pending edits merely because an SMBS toolbar was clicked.
+        message = (
+            "Сначала завершите текущую задачу FreeCAD, "
+            "затем откройте раздел SMBS снова."
+        )
+        workspace.status.setText(message)
+        workspace.show_task_panel_btn.show()
+        _warn(message)
+        return None
+
+    form = QtWidgets.QWidget()
+    form.setObjectName("SMBS_NativeTasksRoot")
+    form.setWindowTitle("SMBS — " + caption)
+    layout = QtWidgets.QVBoxLayout(form)
+    layout.setContentsMargins(0, 0, 0, 0)
+    layout.setSpacing(0)
+
+    header = QtWidgets.QLabel(form)
+    header.setObjectName("SMBS_TaskSectionTitle")
+    header.setText(caption)
+    header.setContentsMargins(OUTER_MARGIN, 5, OUTER_MARGIN, 5)
+    font = header.font()
+    font.setBold(True)
+    header.setFont(font)
+    layout.addWidget(header, 0)
+    workspace._task_section_label = header
+
+    # Reuse the SAME stacked pages and their original handlers (Manual,
+    # Simulation, Tooling, Part, Candidates, Settings, specialist dialogs).
+    layout.addWidget(workspace._task_stack, 1)
+
+    footer = QtWidgets.QFrame(form)
+    footer.setObjectName("SMBS_TaskFooter")
+    footer_layout = QtWidgets.QVBoxLayout(footer)
+    footer_layout.setContentsMargins(OUTER_MARGIN, 5, OUTER_MARGIN, 5)
+    footer_layout.setSpacing(max(1, SECTION_GAP // 2))
+    row = QtWidgets.QHBoxLayout()
+    row.addWidget(workspace._task_status_chip)
+    row.addStretch(1)
+    row.addWidget(workspace._task_progress_caption)
+    footer_layout.addLayout(row)
+    footer_layout.addWidget(workspace.task_progress)
+    workspace.status.setObjectName("SMBS_StatusLabel")
+    workspace.status.setWordWrap(True)
+    workspace.status.setMaximumHeight(38)
+    footer_layout.addWidget(workspace.status)
+    layout.addWidget(footer)
+
+    # Closing an earlier native task explicitly hid these live widgets.
+    # Qt does not reverse that state when they join a new layout.
+    for child in (
+        workspace._task_stack, workspace.status,
+        workspace.task_progress, workspace._task_status_chip,
+        workspace._task_progress_caption,
+    ):
+        child.show()
+
+    panel = _SMBSNativeTaskPanel(workspace, form)
+    workspace._native_task_panel = panel
+    try:
+        # This opens the actual native FreeCAD Tasks tab, not a new dock.
+        Gui.Control.showDialog(panel)
+    except Exception:
+        panel.closed()
+        raise
+    workspace._on_task_status_change(workspace.status.text())
+    workspace.show_task_panel_btn.hide()
+    _desktop_debug_event(
+        "TASKS_OPENED", section=str(caption), selected_tab=tab,
+        stacked_pages=workspace._task_stack.count(),
+    )
+    return panel
+
+
+def activate_task_dialog(workspace, key):
+    """Select an existing specialist page, never spawn a second window."""
+    widgets = getattr(workspace, "_task_dialogs", {})
+    widget = widgets.get(key)
+    if widget is None:
+        return False
+    page = getattr(widget, "_smbs_task_page", widget)
+    index = workspace._task_stack.indexOf(page)
+    if index < 0:
+        widgets.pop(key, None)
+        return False
+    show_workspace_controls(workspace, tab=index)
+    return True
+
+
+def embed_task_dialog(workspace, widget, title, key):
+    """Rehost a real QDialog inside the *single* contextual Tasks surface.
+
+    No extra tabs or second simulation panel are created. QDialog signals,
+    callbacks and cleanup remain bound to the original controls.
+    """
+    QtCore, _QtGui, QtWidgets = _qt()
+    from freecad_smbs.ui.pressbrake_theme import (
+        OUTER_MARGIN, SECTION_GAP, style_action,
+    )
+    if activate_task_dialog(workspace, key):
+        widget.deleteLater()
+        return
+    stack = workspace._task_stack
+    return_page = stack.currentWidget()
+    dialogs = getattr(workspace, "_task_dialogs", None)
+    if dialogs is None:
+        dialogs = {}
+        workspace._task_dialogs = dialogs
+
+    widget.setWindowFlags(QtCore.Qt.Widget)
+    widget.setMinimumWidth(0)
+    widget.setObjectName("SMBS_Task_" + key)
+    original_layout = widget.layout()
+    if original_layout is not None:
+        original_layout.setContentsMargins(
+            OUTER_MARGIN, OUTER_MARGIN, OUTER_MARGIN, OUTER_MARGIN
+        )
+        original_layout.setSpacing(SECTION_GAP)
+
+    page = QtWidgets.QWidget(stack)
+    page.setObjectName("SMBS_EmbeddedPage_" + key)
+    page_layout = QtWidgets.QVBoxLayout(page)
+    page_layout.setContentsMargins(0, 0, 0, 0)
+    page_layout.setSpacing(0)
+    scroll = QtWidgets.QScrollArea(page)
+    scroll.setWidgetResizable(True)
+    scroll.setFrameShape(QtWidgets.QFrame.NoFrame)
+    scroll.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAsNeeded)
+    scroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
+    scroll.setWidget(widget)
+    page_layout.addWidget(scroll, 1)
+
+    bottom = QtWidgets.QWidget(page)
+    bottom_layout = QtWidgets.QHBoxLayout(bottom)
+    bottom_layout.setContentsMargins(
+        OUTER_MARGIN, SECTION_GAP // 2, OUTER_MARGIN, SECTION_GAP // 2
+    )
+    bottom_layout.addStretch(1)
+    close_btn = style_action(QtWidgets.QPushButton("Закрыть раздел"))
+    bottom_layout.addWidget(close_btn)
+    page_layout.addWidget(bottom, 0)
+
+    widget._smbs_task_page = page
+    index = stack.addWidget(page)
+    workspace._task_page_titles[page] = title
+    dialogs[key] = widget
+
+    def on_finished(_result):
+        i = stack.indexOf(page)
+        if i < 0:
+            return
+        was_current = (stack.currentWidget() is page)
+        stack.removeWidget(page)
+        workspace._task_page_titles.pop(page, None)
+        if dialogs.get(key) is widget:
+            del dialogs[key]
+        if was_current:
+            fallback = return_page if stack.indexOf(return_page) >= 0 else stack.widget(0)
+            if fallback is not None:
+                show_workspace_controls(workspace, tab=stack.indexOf(fallback))
+        page.deleteLater()
+
+    def on_close():
+        widget.close()  # honour QDialog.closeEvent (tool previews cleanup)
+        if stack.indexOf(page) >= 0:
+            on_finished(0)
+
+    widget.finished.connect(on_finished)
+    close_btn.clicked.connect(on_close)
+    workspace._install_automatic_debug_ui_signals(QtWidgets, root=widget)
+    _desktop_debug_event(
+        "SPECIALIST_TASK_OPENED", key=str(key), title=str(title),
+    )
+    show_workspace_controls(workspace, tab=index)
+
+
+def close_workspace_controls(workspace):
+    """Close only our native Tasks dialog; retain the FCStd and CAD viewer."""
+    import FreeCADGui as Gui
+    panel = getattr(workspace, "_native_task_panel", None)
+    if panel is None:
+        return
+    # FreeCAD may destroy a TaskPanel form when closing it. Reparent the
+    # persistent controls first. The closed() callback is idempotent.
+    panel.closed()
+    if bool(Gui.Control.activeDialog()):
+        Gui.Control.closeDialog()
+    _desktop_debug_event("TASKS_CLOSE_REQUESTED")
 
 
 class PressBrake2DCommand:
     def GetResources(self):
         return {
-            "MenuText": "PressBrakeSim — 2D интерфейс",
-            "ToolTip": "Открыть 2.5D симулятор гибки листовой детали SheetMetal",
+            "Pixmap": str(_ICON_ROOT / "gui_simulation.svg"),
+            "MenuText": "Симуляция",
+            "ToolTip": "Открыть просмотр 2.5D и штатную вкладку Задачи FreeCAD",
         }
 
     def IsActive(self):
         return True
 
     def Activated(self):
-        """Open a dedicated FreeCAD document-area workspace, never a side dock."""
         import FreeCADGui as Gui
-        global _DOCK
-        QtCore, QtGui, QtWidgets = _qt()
+        doc, selected = _selection_snapshot()
+        QtCore, _QtGui, QtWidgets = _qt()
         main = Gui.getMainWindow()
         mdi = main.findChild(QtWidgets.QMdiArea)
         if mdi is None:
-            raise RuntimeError("FreeCAD MDI area was not found; source document left unchanged.")
+            raise RuntimeError("FreeCAD MDI area was not found")
 
         name = "SMBS_PressBrake2D_Workspace"
         existing = next(
-            (win for win in mdi.subWindowList() if win.objectName() == name), None
+            (win for win in mdi.subWindowList() if win.objectName() == name),
+            None,
         )
         if existing is not None and existing.widget() is not None:
             mdi.setActiveSubWindow(existing)
             existing.show()
             existing.raise_()
+            workspace = existing.widget()
+            # Simulation is navigation only, not an automatic search. Leave
+            # the manual order, fold angles and playback state untouched.
+            workspace._viewer_tabs.setCurrentWidget(workspace.view)
+            show_workspace_controls(workspace, tab=2)
             return
-
-        # Retire only this addon's old dock. Never alter FreeCAD's document views.
-        old_dock = main.findChild(QtWidgets.QDockWidget, "SMBS_PressBrake2D_Dock")
-        if old_dock is not None:
-            old_widget = old_dock.widget()
-            if old_widget is not None and hasattr(old_widget, "_stop_timer"):
-                old_widget._stop_timer()
-            old_dock.hide()
-            old_dock.setWidget(None)
-            old_dock.deleteLater()
-        _DOCK = None
 
         widget = _PreviewPanel()
         window = QtWidgets.QMdiSubWindow()
         window.setObjectName(name)
-        window.setWindowTitle("PressBrakeSim 2.5D — рабочее пространство")
+        window.setWindowTitle("PressBrakeSim 2.5D — симуляция")
         window.setAttribute(QtCore.Qt.WA_DeleteOnClose, True)
         window.setWidget(widget)
         mdi.addSubWindow(window)
         window.resize(1000, 720)
         window.showMaximized()
         mdi.setActiveSubWindow(window)
+        show_workspace_controls(widget, tab=2)
+        if doc is not None and selected:
+            widget.load_part(selection=selected, document=doc)
+        _log("Experimental PressBrakeSim GUI opened; original search engine retained")
 
-        sel = Gui.Selection.getSelection() if hasattr(Gui, "Selection") else []
-        if sel:
-            widget.load_part()
-        _log("2.5D workspace opened in FreeCAD MDI area")
+
+class LoadPartCommand:
+    def GetResources(self):
+        return {
+            "Pixmap": str(_ICON_ROOT / "gui_part.svg"),
+            "MenuText": "Деталь",
+            "ToolTip": "Загрузить выбранную развёртку SheetMetal",
+        }
+
+    def IsActive(self):
+        # The Detail section must remain accessible before a part is selected.
+        return True
+
+    def Activated(self):
+        doc, selection = _selection_snapshot()
+        workspace = get_workspace_widget()
+        created = workspace is None
+        if created:
+            PressBrake2DCommand().Activated()
+            workspace = get_workspace_widget()
+        if workspace is None:
+            raise RuntimeError("PressBrakeSim viewer did not open")
+        if not created and doc is not None and selection:
+            try:
+                if resolve_selected_unfold(doc, selection):
+                    workspace.load_part(selection=selection, document=doc)
+            except (SelectionWarning, AttributeError, TypeError, ValueError, ImportError):
+                pass
+        show_workspace_controls(workspace, 0)
+
+
+class ToolingTabCommand:
+    def GetResources(self):
+        return {
+            "Pixmap": str(_ICON_ROOT / "gui_tooling.svg"),
+            "MenuText": "Оснастка",
+            "ToolTip": "Открыть оснастку симулятора",
+        }
+
+    def IsActive(self):
+        return True
+
+    def Activated(self):
+        workspace = get_workspace_widget()
+        if workspace is None:
+            PressBrake2DCommand().Activated()
+            workspace = get_workspace_widget()
+        if workspace is not None:
+            workspace.open_tooling_settings_dialog()
+
+
+class CalculateCommand:
+    def GetResources(self):
+        return {
+            "Pixmap": str(_ICON_ROOT / "gui_calculate.svg"),
+            "MenuText": "Автопоиск последовательности",
+            "ToolTip": "Служебный автоматический поиск; для выбора порядка начните с «Поиска 2D вариантов»",
+        }
+
+    def IsActive(self):
+        return True
+
+    def Activated(self):
+        workspace = get_workspace_widget()
+        if workspace is None:
+            PressBrake2DCommand().Activated()
+            workspace = get_workspace_widget()
+        if workspace is not None:
+            show_workspace_controls(workspace, 2)
+            if workspace.calculate.isEnabled():
+                workspace.calculate_sequence()
+
+
+class BackgaugeCommand:
+    """Configure explicit backgauge stop geometry and per-bend targets."""
+    def GetResources(self):
+        return {
+            "Pixmap": str(_ICON_ROOT / "gui_backgauge.svg"),
+            "MenuText": "Задний упор",
+            "ToolTip": "Визуальная FCStd-модель упора: позиция по контуру развёртки",
+        }
+
+    def IsActive(self):
+        return True
+
+    def Activated(self):
+        workspace = get_workspace_widget()
+        if workspace is None:
+            PressBrake2DCommand().Activated()
+            workspace = get_workspace_widget()
+        if workspace is not None:
+            workspace.open_backgauge_dialog()
+
+
+class SequenceCatalogCommand:
+    """Open saved sequence collection, without spawning a second simulator."""
+    def GetResources(self):
+        return {
+            "Pixmap": str(_ICON_ROOT / "gui_sequence_catalog.svg"),
+            "MenuText": "Последовательности",
+            "ToolTip": "JSON автоматических и ручных последовательностей; назначение симуляции",
+        }
+
+    def IsActive(self):
+        return True
+
+    def Activated(self):
+        workspace = get_workspace_widget()
+        if workspace is None:
+            PressBrake2DCommand().Activated()
+            workspace = get_workspace_widget()
+        if workspace is not None:
+            workspace.open_sequence_catalog_dialog()
+
+
+class ManualCommand:
+    """Enable manual bend-line ordering only after SheetMetal loading."""
+
+    def GetResources(self):
+        return {
+            "Pixmap": str(_ICON_ROOT / "gui_manual.svg"),
+            "MenuText": "Порядок и проверка",
+            "ToolTip": "Выбрать порядок гибов или проверить найденный 2D вариант",
+        }
+
+    def IsActive(self):
+        workspace = get_workspace_widget()
+        return bool(workspace is not None and workspace.session is not None)
+
+    def Activated(self):
+        workspace = get_workspace_widget()
+        if workspace is None or workspace.session is None:
+            return
+        workspace.activate_manual_mode()
+
+
+class SettingsCommand:
+    """Open all simulation, machine and diagnostic settings."""
+
+    def GetResources(self):
+        return {
+            "Pixmap": str(_ICON_ROOT / "gui_settings.svg"),
+            "MenuText": "Настройки",
+            "ToolTip": "Режим гибки, скорость, проверки, допуски и запись",
+        }
+
+    def IsActive(self):
+        return True
+
+    def Activated(self):
+        workspace = get_workspace_widget()
+        if workspace is None:
+            PressBrake2DCommand().Activated()
+            workspace = get_workspace_widget()
+        if workspace is not None:
+            workspace.open_settings_dialog()
+
+
+class PlanarCandidatesCommand:
+    """Preserve experiment's separate fast 2D candidate search."""
+    def GetResources(self):
+        return {
+            "Pixmap": str(_ICON_ROOT / "gui_planar_candidates.svg"),
+            "MenuText": "Поиск 2D вариантов",
+            "ToolTip": "Найти полные последовательности гибов за ограниченное время; коллизии 3D ещё не проверены",
+        }
+
+    def IsActive(self):
+        return True
+
+    def Activated(self):
+        workspace = get_workspace_widget()
+        if workspace is None:
+            PressBrake2DCommand().Activated()
+            workspace = get_workspace_widget()
+        if workspace is not None:
+            show_workspace_controls(workspace, 3)
+            if workspace.planar_calculate.isEnabled():
+                workspace.calculate_planar_candidates()
 
 
 def _button(widgets, label, callback, enabled=True):
@@ -540,25 +1159,177 @@ def _button(widgets, label, callback, enabled=True):
     return btn
 
 
+def _playback_button(QtCore, widgets, label, callback, enabled=True):
+    """FreeCAD-style compact toolbar control; keep existing signal handlers."""
+    btn = widgets.QToolButton()
+    btn.setAutoRaise(True)
+    btn.setToolButtonStyle(QtCore.Qt.ToolButtonTextOnly)
+    btn.setText(label)
+    btn.setEnabled(enabled)
+    btn.clicked.connect(callback)
+    return btn
+
+
 class _PreviewPanel:
     """Lazy Qt widget factory to keep headless command import possible."""
 
-    def __new__(cls):
+    def __new__(cls, library_root: Path | str | None = None):
         QtCore, QtGui, QtWidgets = _qt()
 
         class Canvas(QtWidgets.QGraphicsView):
-            def __init__(self, parent=None):
+            """2D/3D zoomable viewer; optional 3D orbit controlled by parent Panel."""
+
+            def __init__(self, parent=None, orbit_callback=None, bend_click_callback=None):
                 super().__init__(parent)
+                self._bend_click_callback = bend_click_callback
                 self.setRenderHint(QtGui.QPainter.Antialiasing, True)
                 self.setDragMode(QtWidgets.QGraphicsView.ScrollHandDrag)
+                self.setTransformationAnchor(QtWidgets.QGraphicsView.AnchorUnderMouse)
+                self.setResizeAnchor(QtWidgets.QGraphicsView.AnchorViewCenter)
                 self.setMinimumHeight(240)
                 self.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
                 self.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
+                self._user_camera_modified = False
+                self._zoom_steps = 0.0
+                self._orbit_callback = orbit_callback
+                self._last_drag_pos = None
+                self._pan_last_pos = None
+                self._pan_button = None
+                self.setToolTip(
+                    "Колесо мыши: масштаб; средняя кнопка или Ctrl+ЛКМ "
+                    "и перетаскивание: перемещение сцены по горизонтали "
+                    "и вертикали. Fit: восстановить масштаб и центр."
+                )
+
+            def reset_camera(self):
+                scene = self.scene()
+                if scene is None or scene.sceneRect().isEmpty():
+                    return
+                self._user_camera_modified = False
+                self._zoom_steps = 0.0
+                self.resetTransform()
+                self.fitInView(scene.sceneRect(), QtCore.Qt.KeepAspectRatio)
+
+            def wheelEvent(self, event):
+                delta = event.angleDelta().y()
+                if delta == 0:
+                    event.ignore()
+                    return
+                steps = delta / 120.0
+                next_steps = self._zoom_steps + steps
+                if not -35.0 <= next_steps <= 35.0:
+                    event.accept()
+                    return
+                self.scale(1.15 ** steps, 1.15 ** steps)
+                self._zoom_steps = next_steps
+                self._user_camera_modified = True
+                event.accept()
+
+            def mousePressEvent(self, event):
+                # Middle-drag is available in both 2.5D and 3D. Ctrl+LMB
+                # is a trackpad alternative; ordinary left drag continues
+                # to orbit 3D or select bend lines in the unfold.
+                pan_button = (
+                    event.button() == QtCore.Qt.MiddleButton
+                    or (
+                        event.button() == QtCore.Qt.LeftButton
+                        and bool(event.modifiers() & QtCore.Qt.ControlModifier)
+                    )
+                )
+                if pan_button:
+                    self._pan_last_pos = event.pos()
+                    self._pan_button = event.button()
+                    self.setCursor(QtCore.Qt.ClosedHandCursor)
+                    event.accept()
+                    return
+                if (self._bend_click_callback is not None
+                        and event.button() == QtCore.Qt.LeftButton):
+                    item = self.itemAt(event.pos())
+                    while item is not None:
+                        bend_id = item.data(0)
+                        if isinstance(bend_id, str) and bend_id.startswith("B"):
+                            self._bend_click_callback(bend_id)
+                            event.accept()
+                            return
+                        item = item.parentItem()
+                if self._orbit_callback is not None and event.button() == QtCore.Qt.LeftButton:
+                    self._last_drag_pos = event.pos()
+                    event.accept()
+                    return
+                super().mousePressEvent(event)
+
+            def mouseMoveEvent(self, event):
+                if self._pan_last_pos is not None:
+                    pos = event.pos()
+                    delta = pos - self._pan_last_pos
+                    self._pan_last_pos = pos
+                    if delta.x() or delta.y():
+                        tr = self.transform()
+                        # Viewer transforms only scale; convert viewport
+                        # pixels to scene units to make pan speed invariant
+                        # under mouse-wheel zoom, in both axes.
+                        sx, sy = float(tr.m11()), float(tr.m22())
+                        if abs(sx) > 1e-10 and abs(sy) > 1e-10:
+                            self.translate(delta.x() / sx, delta.y() / sy)
+                            self._user_camera_modified = True
+                    event.accept()
+                    return
+                if self._last_drag_pos is not None and self._orbit_callback is not None:
+                    pos = event.pos()
+                    delta = pos - self._last_drag_pos
+                    self._last_drag_pos = pos
+                    roll = bool(event.modifiers() & QtCore.Qt.ShiftModifier)
+                    if delta.x() or delta.y():
+                        self._orbit_callback(delta.x(), delta.y(), roll)
+                    event.accept()
+                    return
+                super().mouseMoveEvent(event)
+
+            def mouseReleaseEvent(self, event):
+                if (self._pan_last_pos is not None
+                        and event.button() == self._pan_button):
+                    self._pan_last_pos = None
+                    self._pan_button = None
+                    self.unsetCursor()
+                    event.accept()
+                    return
+                if self._last_drag_pos is not None and event.button() == QtCore.Qt.LeftButton:
+                    self._last_drag_pos = None
+                    event.accept()
+                    return
+                super().mouseReleaseEvent(event)
 
             def resizeEvent(self, event):
                 super().resizeEvent(event)
-                if self.scene() is not None and not self.scene().sceneRect().isEmpty():
-                    self.fitInView(self.scene().sceneRect(), QtCore.Qt.KeepAspectRatio)
+                if not self._user_camera_modified and self.scene() is not None:
+                    if not self.scene().sceneRect().isEmpty():
+                        self.fitInView(self.scene().sceneRect(), QtCore.Qt.KeepAspectRatio)
+
+        class TaskStatusLabel(QtWidgets.QLabel):
+            """Existing application status, observed without polling the GUI."""
+
+            def __init__(self, workspace, message):
+                super().__init__(message, workspace)
+                self._workspace = workspace
+
+            def setText(self, message):
+                super().setText(str(message))
+                self.setToolTip(str(message))
+                if hasattr(self, "_workspace"):
+                    self._workspace._on_task_status_change(str(message))
+
+        class TaskPhysicalResultLabel(QtWidgets.QLabel):
+            """Mirror the actual validator output into the compact simulation card."""
+
+            def __init__(self, workspace, message):
+                super().__init__(message, workspace)
+                self._workspace = workspace
+
+            def setText(self, message):
+                super().setText(str(message))
+                self.setToolTip(str(message))
+                if hasattr(self, "_workspace"):
+                    self._workspace._on_physical_result_change(str(message))
 
         class Panel(QtWidgets.QWidget):
             def __init__(self, library_root: Path | str | None = None):
@@ -579,44 +1350,133 @@ class _PreviewPanel:
                 self._last_valid_machine_bend = None
                 self._machine_pose_fault = None
                 self.motion_trace = None
+                self._physical_check_signature = None
                 self._trace_frame_dt = None
-                self._trace_directory = _LOG_FILE_PATH.parent / "pressbrake_traces"
+                self._trace_directory = (
+                    _pressbrake_user_data_directory() / "pressbrake_traces"
+                )
+                self.runtime_git_info = get_runtime_git_info()
+                self.last_sequence_search_report = None
+                self.last_planar_search_report = None
+                self._preview_only_planar_order = None
+                self._partial_preview_limit = 0
+                self._manual_sequence_prefix: list[str] = []
+                self._manual_orientation_order = ()
+                self._manual_orientation_by_bend = {}
+                self._last_manual_sequence_report = None
+                self._collision_inspection = None
+                self._collision_display_active = False
+                self._manual_3d_verdicts = {}
+                self._manual_retract_verdicts = {}
+                self._backgauge_settings = QtCore.QSettings("SMBS", "BendSeq")
+                self.backgauge_model = None
+                self._backgauge_preview_cache = {}
+                self._machine_gauge_envelope_cache = None
+                # Preserve the exact S/Z candidate accepted by the search.
+                # Otherwise a GUI redraw would recompute the primary gauge
+                # and depict a different setup from the chosen DFS branch.
+                self._selected_planar_gauge_order = ()
+                self._selected_planar_gauge_positions = {}
+                self._selected_planar_gauge_model_id = None
+                self._selected_planar_loading_orientation = {}
+                self._ergonomic_loading_cache_key = None
+                self._ergonomic_loading_cache = {}
+                self._ergonomic_loading_status = "NO_REAR_GAUGE"
+                if self._backgauge_settings.value(
+                    "backgauge/enabled", False, type=bool
+                ):
+                    from smbs_core.kinematics2d.backgauge_2d import BackgaugeModel2D
+                    import json
+                    raw_config = self._backgauge_settings.value(
+                        "backgauge/config_json", "", type=str)
+                    if raw_config:
+                        try:
+                            self.backgauge_model = BackgaugeModel2D.from_dict(
+                                json.loads(raw_config)
+                            )
+                        except (ValueError, TypeError, KeyError) as exc:
+                            _error("Backgauge configuration rejected: " + str(exc))
+                self._manual_selection_enabled = False
+                self._manual_preview_unverified = False
+                self._smbs_document_name = None
+                self._smbs_fcstd_observer = None
+                self._smbs_allow_auto_embed = False
+                self._embedded_diagnostics_history = None
+                self._conditional_bends_status: dict[str, str] = {}
+                self._highlighted_end_zone_info: dict | None = None
+                _log(
+                    "PressBrakeSim startup: module={} | branch={} | commit={}".format(
+                        self.runtime_git_info["module_file"],
+                        self.runtime_git_info["git_branch"],
+                        self.runtime_git_info["git_commit"],
+                    )
+                )
+                _desktop_debug_event(
+                    "SMBS_RUNTIME_READY",
+                    runtime=self.runtime_git_info,
+                    cycle_config={
+                        "initial_clearance_mm":
+                            self.cycle_config.initial_clearance_mm,
+                        "mode": self.execution_mode.value,
+                    },
+                )
                 self.angle = 0.0
                 self.playing = False
                 self._last_tick_monotonic: float | None = None
                 self.timer = QtCore.QTimer(self)
                 self.timer.setInterval(25)  # 40 Hz Qt playback; one timer only
                 self.timer.timeout.connect(self.advance)
-                self.setMinimumWidth(360)
+                self.setMinimumWidth(0)
+                self.setObjectName("SMBS_ViewerRoot")
+                # The host FreeCAD style paints the viewport and viewer tabs.
+                # No colored borders, background fills or pseudo-native QSS.
 
+                from freecad_smbs.ui.pressbrake_theme import (
+                    OUTER_MARGIN, SECTION_GAP,
+                )
                 root = QtWidgets.QVBoxLayout(self)
-                root.setContentsMargins(8, 8, 8, 8)
-                root.setSpacing(6)
-                title = QtWidgets.QLabel("PressBrakeSim 2.5D  |  Реальная геометрия гиба")
-                title.setStyleSheet("font-weight: bold; font-size: 13px")
+                root.setContentsMargins(
+                    OUTER_MARGIN, OUTER_MARGIN,
+                    OUTER_MARGIN, OUTER_MARGIN,
+                )
+                root.setSpacing(SECTION_GAP)
+                title = QtWidgets.QLabel("PressBrakeSim 2.5D")
+                # Keep its layout slot (used by the original 11-item
+                # reparenting contract), but the MDI title already names
+                # the simulator. A second large heading wastes CAD space.
+                title.hide()
                 root.addWidget(title)
 
-                self.status = QtWidgets.QLabel(
-                    "Выделите листовую деталь в FreeCAD и нажмите «Деталь»."
+                self.status = TaskStatusLabel(
+                    self, "Выделите листовую деталь в FreeCAD и нажмите «Деталь»."
                 )
                 self.status.setWordWrap(True)
                 root.addWidget(self.status)
 
-                row = QtWidgets.QHBoxLayout()
-                self.load = _button(QtWidgets, "Деталь", self.load_part, True)
-                self.tooling = _button(QtWidgets, "Оснастка", self.open_tool_library_dialog, True)
-                self.calculate = _button(QtWidgets, "Расчёт", self.unavailable, False)
-                self.tooling.setToolTip("Открыть библиотеку пользовательской оснастки (PUNCH / DIE)")
-                self.calculate.setToolTip("Автоматический поиск последовательности отключён на этапе Phase 3A")
-                for widget in (self.load, self.tooling, self.calculate):
-                    row.addWidget(widget)
-                root.addLayout(row)
+                # Toolbar owns main actions. Retain two original enabled-state
+                # proxies because experimental physical/planar search logic
+                # relies on them, without duplicating on-screen buttons.
+                self.calculate = _button(QtWidgets, "Расчёт", self.calculate_sequence, False)
+                self.planar_calculate = _button(
+                    QtWidgets, "Поиск 2D вариантов", self.calculate_planar_candidates, False
+                )
+                self.calculate.setParent(self)
+                self.planar_calculate.setParent(self)
+                self.calculate.hide()
+                self.planar_calculate.hide()
+                self.planar_calculate.setToolTip(
+                    "Быстрый 2D поиск вариантов для просмотра. Не подтверждает "
+                    "физическую возможность гибки и не отменяет 3D-валидацию."
+                )
+                self.calculate.setToolTip(
+                    "Автоматический поиск допустимой последовательности гибки с физической проверкой 2.5D + 3D (D6.3.4)"
+                )
 
                 # Phase 5A: Tooling section (Import / Select / Align / Reset / Hide-Show / Library)
                 self.tooling_group = QtWidgets.QGroupBox("Tooling (PUNCH & DIE)")
                 t_layout = QtWidgets.QVBoxLayout(self.tooling_group)
-                t_layout.setContentsMargins(6, 6, 6, 6)
-                t_layout.setSpacing(4)
+                t_layout.setContentsMargins(16, 16, 16, 16)
+                t_layout.setSpacing(16)
 
                 t_row1 = QtWidgets.QHBoxLayout()
                 self.import_punch_btn = _button(QtWidgets, "Import Punch", self.import_punch_dialog, True)
@@ -631,8 +1491,6 @@ class _PreviewPanel:
                 self.select_punch_combo = QtWidgets.QComboBox()
                 self.select_punch_combo.currentIndexChanged.connect(self._on_punch_combo_changed)
                 t_row2.addWidget(self.select_punch_combo, 1)
-                self.select_punch_btn = _button(QtWidgets, "Select Punch", self.select_punch_from_combo, True)
-                t_row2.addWidget(self.select_punch_btn)
                 t_layout.addLayout(t_row2)
 
                 t_row3 = QtWidgets.QHBoxLayout()
@@ -640,59 +1498,126 @@ class _PreviewPanel:
                 self.select_die_combo = QtWidgets.QComboBox()
                 self.select_die_combo.currentIndexChanged.connect(self._on_die_combo_changed)
                 t_row3.addWidget(self.select_die_combo, 1)
-                self.select_die_btn = _button(QtWidgets, "Select Die", self.select_die_from_combo, True)
-                t_row3.addWidget(self.select_die_btn)
                 t_layout.addLayout(t_row3)
 
-                t_row4 = QtWidgets.QHBoxLayout()
-                self.align_tooling_btn = _button(QtWidgets, "Align Tooling", self.align_tooling, True)
-                self.reset_tooling_btn = _button(QtWidgets, "Reset Tooling Position", self.reset_tooling_position, True)
-                self.toggle_tooling_btn = _button(QtWidgets, "Hide/Show Tooling", self.toggle_tooling_visibility, True)
-                for w in (self.align_tooling_btn, self.reset_tooling_btn, self.toggle_tooling_btn):
-                    t_row4.addWidget(w)
-                t_layout.addLayout(t_row4)
+                # Development virtual tool length & controlled punch end-zone policy
+                self.virtual_tool_len_checkbox = QtWidgets.QCheckBox(
+                    "Виртуальная длина инструмента\nравна длине гиба"
+                )
+                self.virtual_tool_len_checkbox.setChecked(False)
+                self.virtual_tool_len_checkbox.setToolTip(
+                    "Виртуальная длина пуансона и матрицы автоматически приравнивается к длине активной линии гиба "
+                    "с сохранением неизменного 2D-профиля сечения (исходные FCStd не изменяются)."
+                )
+                self.virtual_tool_len_checkbox.toggled.connect(self._on_virtual_tool_length_toggled)
+                t_layout.addWidget(self.virtual_tool_len_checkbox)
+
+                ez_row = QtWidgets.QHBoxLayout()
+                ez_row.addWidget(QtWidgets.QLabel("Концевая зона пуансона (мм):"))
+                self.end_zone_len_spin = QtWidgets.QDoubleSpinBox()
+                self.end_zone_len_spin.setRange(0.0, 200.0)
+                self.end_zone_len_spin.setDecimals(1)
+                self.end_zone_len_spin.setSingleStep(1.0)
+                self.end_zone_len_spin.setValue(10.0)
+                self.end_zone_len_spin.valueChanged.connect(self._on_end_zone_length_changed)
+                ez_row.addWidget(self.end_zone_len_spin)
+                t_layout.addLayout(ez_row)
+
+                self.allow_end_zone_checkbox = QtWidgets.QCheckBox(
+                    "Условный допуск концевых зон\nпуансона (CONDITIONAL)"
+                )
+                self.allow_end_zone_checkbox.setChecked(False)
+                self.allow_end_zone_checkbox.setToolTip(
+                    "Условный допуск столкновений в заданных концевых зонах "
+                    "пуансона (от каждого торца). Не обрезает 3D-геометрию "
+                    "инструмента и НЕ подтверждает наличие физического "
+                    "выреза. Если центральное пересечение превышает "
+                    "действующий объёмный допуск OCC, гиб блокируется. "
+                    "Результат CONDITIONAL — не физический PASS; требуется "
+                    "проверка реального пуансона с концевыми вырезами."
+                )
+                self.allow_end_zone_checkbox.toggled.connect(self._on_allow_end_zone_toggled)
+                t_layout.addWidget(self.allow_end_zone_checkbox)
+                self.tooling_setup.end_zone_length_mm = float(self.end_zone_len_spin.value())
+                self.tooling_setup.allow_end_zone_collision = bool(self.allow_end_zone_checkbox.isChecked())
 
                 self.tooling_status = QtWidgets.QLabel(self.tooling_setup.status_line())
                 self.tooling_status.setWordWrap(True)
-                self.tooling_status.setStyleSheet("font-size: 11px; color: #2c3e50;")
                 t_layout.addWidget(self.tooling_status)
+                # Explicit, on-demand physical check: no expensive BRep
+                # booleans in the 25–40 Hz drawing/timer path.
+                self.physical_check_btn = _button(
+                    QtWidgets, "Один кадр: диагностика 2D/3D",
+                    self.check_current_physical_pose, True,
+                )
+                self.physical_check_btn.setToolTip(
+                    "Проверка текущего кадра по 2D-сечению и, если имеются "
+                    "реальные FCStd пуансона и матрицы, по нативной 3D-геометрии. "
+                    "Не сертифицирует весь цикл или станок."
+                )
+                t_layout.addWidget(self.physical_check_btn)
+                self.full_physical_check_btn = _button(
+                    QtWidgets, "Один гиб: 3D проверка D6",
+                    self.check_active_bend_physical_trajectory, True,
+                )
+                self.full_physical_check_btn.setToolTip(
+                    "Ресурсоёмкая проверка выборки 3D-состояний текущего гиба. "
+                    "Во время выполнения анимация должна быть остановлена. "
+                    "Непрерывное движение и прочие компоненты станка не сертифицированы."
+                )
+                t_layout.addWidget(self.full_physical_check_btn)
+                self.physical_check_result = TaskPhysicalResultLabel(
+                    self, "UNVERIFIED: проверка коллизий не выполнена."
+                )
+                self.physical_check_result.setWordWrap(True)
+                t_layout.addWidget(self.physical_check_result)
                 root.addWidget(self.tooling_group)
 
                 # Phase 5B: Press Cycle section (Bend Only / Full Cycle, Ram Position, Cycle Phase, Speed & Config)
-                self.press_cycle_group = QtWidgets.QGroupBox("Press Cycle (Phase 5B — KINEMATIC_PREVIEW)")
+                self.press_cycle_group = QtWidgets.QGroupBox("Режим симуляции")
                 pc_layout = QtWidgets.QVBoxLayout(self.press_cycle_group)
-                pc_layout.setContentsMargins(6, 6, 6, 6)
-                pc_layout.setSpacing(4)
+                pc_layout.setContentsMargins(0, 0, 0, 0)
+                pc_layout.setSpacing(16)
 
-                pc_row1 = QtWidgets.QHBoxLayout()
-                pc_row1.addWidget(QtWidgets.QLabel("Mode:"))
+                pc_row1 = QtWidgets.QGridLayout()
+                pc_row1.setHorizontalSpacing(16)
+                pc_row1.setVerticalSpacing(16)
+                pc_row1.addWidget(QtWidgets.QLabel("Mode:"), 0, 0)
                 self.cycle_mode_combo = QtWidgets.QComboBox()
                 self.cycle_mode_combo.addItem("Bend Only", CycleExecutionMode.BEND_ONLY.value)
                 self.cycle_mode_combo.addItem("Full Cycle", CycleExecutionMode.FULL_CYCLE.value)
                 self.cycle_mode_combo.setCurrentIndex(1)
                 self.cycle_mode_combo.currentIndexChanged.connect(self._on_cycle_mode_combo_changed)
-                pc_row1.addWidget(self.cycle_mode_combo, 1)
-
-                pc_row1.addWidget(QtWidgets.QLabel("Speed (°/s):"))
+                pc_row1.addWidget(self.cycle_mode_combo, 0, 1)
+                pc_row1.addWidget(QtWidgets.QLabel("Speed (°/s):"), 1, 0)
                 self.cycle_speed_spin = QtWidgets.QDoubleSpinBox()
                 self.cycle_speed_spin.setRange(1.0, 720.0)
                 self.cycle_speed_spin.setValue(self.cycle_config.bend_rate_deg_s)
                 self.cycle_speed_spin.setSingleStep(15.0)
                 self.cycle_speed_spin.valueChanged.connect(self._on_cycle_speed_changed)
-                pc_row1.addWidget(self.cycle_speed_spin)
+                pc_row1.addWidget(self.cycle_speed_spin, 1, 1)
 
                 self.cycle_config_btn = _button(QtWidgets, "Cycle Config...", self.open_cycle_config_dialog, True)
-                pc_row1.addWidget(self.cycle_config_btn)
+                pc_row1.addWidget(self.cycle_config_btn, 2, 1)
+                pc_row1.setColumnStretch(0, 0)
+                pc_row1.setColumnStretch(1, 1)
                 pc_layout.addLayout(pc_row1)
 
-                pc_row2 = QtWidgets.QHBoxLayout()
+                pc_row2 = QtWidgets.QVBoxLayout()
                 self.cycle_phase_label = QtWidgets.QLabel("Cycle Phase: IDLE (KINEMATIC_PREVIEW)")
                 self.ram_position_label = QtWidgets.QLabel(
                     "Ram Position: {:+.2f} mm (Stroke: 0.00 mm)".format(self.tooling_setup.ram_z_mm)
                 )
-                pc_row2.addWidget(self.cycle_phase_label, 1)
-                pc_row2.addWidget(self.ram_position_label, 1)
+                pc_row2.addWidget(self.cycle_phase_label)
+                pc_row2.addWidget(self.ram_position_label)
                 pc_layout.addLayout(pc_row2)
+                self.loading_orientation_status = QtWidgets.QLabel(
+                    "Оператор ← | Упор → | Подача: пока не определена"
+                )
+                self.loading_orientation_status.setWordWrap(True)
+                self.cycle_phase_label.setWordWrap(True)
+                self.ram_position_label.setWordWrap(True)
+                pc_layout.addWidget(self.loading_orientation_status)
                 root.addWidget(self.press_cycle_group)
 
                 self._auto_select_default_tooling()
@@ -703,24 +1628,36 @@ class _PreviewPanel:
                 self.view.setScene(self.scene)
                 root.addWidget(self.view, 1)
 
-                row = QtWidgets.QHBoxLayout()
-                # Stable operator controls: Reset, Play All, Pause/Resume, Fit.
-                # Angle adjustment is via the slider; bend navigation uses
-                # explicit Previous/Next Step and the operation table.
-                self.reset_btn = _button(QtWidgets, "↺ Reset", self.reset, False)
-                self.play_btn = _button(QtWidgets, "▶ Play All", self.play_all, False)
-                self.play_btn.setToolTip(
-                    "Запуск автоматической симуляции в выбранном режиме: "
-                    "Bend Only или Full Cycle."
+                row = QtWidgets.QGridLayout()
+                row.setHorizontalSpacing(3)
+                row.setVerticalSpacing(3)
+                # One playback button owns Play, Pause and Resume, with step
+                # navigation immediately on either side.
+                self.reset_btn = _playback_button(QtCore, QtWidgets, "Reset", self.reset, False)
+                self.prev_step_btn = _playback_button(QtCore, QtWidgets, "|<<", self.previous_step, False)
+                self.play_btn = _playback_button(
+                    QtCore, QtWidgets, "Play", self._toggle_play_pause, False
                 )
-                self.pause_btn = _button(
-                    QtWidgets, "Ⅱ Pause", self.toggle_pause_resume, False
+                self.play_btn.setToolTip("Play / Pause / Resume для выбранного режима")
+                self.next_step_btn = _playback_button(QtCore, QtWidgets, ">>|", self.next_step, False)
+                self.fit_btn = _playback_button(QtCore, QtWidgets, "Fit", self.fit, True)
+                buttons = (
+                    self.reset_btn, self.prev_step_btn, self.play_btn,
+                    self.next_step_btn, self.fit_btn,
                 )
-                self.fit_btn = _button(QtWidgets, "Fit", self.fit, True)
-                for widget in (
-                    self.reset_btn, self.play_btn, self.pause_btn, self.fit_btn
+                captions = ("Reset", "|<<", "Play / Pause", ">>|", "Fit")
+                sizes = (48, 34, 64, 34, 36)
+                row.setColumnMinimumWidth(0, 0)
+                for col, (widget, caption, width) in enumerate(
+                    zip(buttons, captions, sizes)
                 ):
-                    row.addWidget(widget)
+                    # Native compact controls: one row, no separate labels and
+                    # no duplicate Pause button. Text updates in the original
+                    # _sync_playback_buttons() callback.
+                    widget.setToolTip(caption)
+                    widget.setFixedSize(width, 27)
+                    row.addWidget(widget, 0, col)
+                    row.setColumnStretch(col, 0)
                 root.addLayout(row)
 
                 self.slider = QtWidgets.QSlider(QtCore.Qt.Horizontal)
@@ -729,34 +1666,62 @@ class _PreviewPanel:
                 self.slider.valueChanged.connect(self._on_slider_changed)
                 root.addWidget(self.slider)
 
-                self.step = QtWidgets.QLabel("Активный гиб: — | Угол: — / —")
-                self.step.setWordWrap(True)
-                root.addWidget(self.step)
 
-                bend_nav_row = QtWidgets.QHBoxLayout()
-                bend_nav_row.addWidget(QtWidgets.QLabel("Шаги:"))
-                self.prev_step_btn = _button(QtWidgets, "⏮ Previous Step", self.previous_step, False)
-                self.next_step_btn = _button(QtWidgets, "Next Step ⏭", self.next_step, False)
-                for widget in (
-                    self.prev_step_btn,
-                    self.next_step_btn,
-                ):
-                    bend_nav_row.addWidget(widget)
-                root.addLayout(bend_nav_row)
-
-                order_row = QtWidgets.QHBoxLayout()
-                order_row.addWidget(QtWidgets.QLabel("Порядок:"))
+                order_row = QtWidgets.QGridLayout()
+                order_row.setHorizontalSpacing(6)
+                order_row.setVerticalSpacing(6)
                 self.move_up_btn = _button(QtWidgets, "↑ Move Up", self.move_selected_up, False)
                 self.move_down_btn = _button(QtWidgets, "↓ Move Down", self.move_selected_down, False)
                 self.restore_order_btn = _button(QtWidgets, "↺ Restore Order", self.restore_order, False)
-                for widget in (self.move_up_btn, self.move_down_btn, self.restore_order_btn):
-                    order_row.addWidget(widget)
+                order_row.addWidget(self.move_up_btn, 0, 0)
+                order_row.addWidget(self.move_down_btn, 0, 1)
+                order_row.addWidget(self.restore_order_btn, 1, 0, 1, 2)
+                order_row.setColumnStretch(0, 0)
+                order_row.setColumnStretch(1, 0)
+                order_row.setColumnStretch(2, 1)
                 root.addLayout(order_row)
 
                 self.operations = QtWidgets.QTreeWidget()
-                self.operations.setHeaderLabels(["Step", "Bend", "Target", "Current", "Status"])
+                self.operations.setHeaderLabels(["Step", "Bend", "Target", "Current", "До гиба, мм", "Упор S, мм", "Status", "RETRACT"])
                 self.operations.setRootIsDecorated(False)
-                self.operations.setMaximumHeight(110)
+                self.operations.setHorizontalScrollBarPolicy(
+                    QtCore.Qt.ScrollBarAsNeeded
+                )
+                self.operations.setObjectName("SMBS_Operations")
+                self.operations.setToolTip(
+                    "До гиба, мм: локальный размер по развёртке до ближайшей "
+                    "соседней линии гиба или края. Упор S, мм: визуальная "
+                    "установка от оси гиба до лицевой поверхности упора, "
+                    "рассчитанная по уже согнутой детали (с толщиной и радиусом); "
+                    "в ручном режиме отображается заданная позиция. "
+                    "Без проверки контакта или столкновений."
+                )
+                self.operations.setAlternatingRowColors(True)
+                self.operations.setMinimumHeight(220)
+                self.operations.header().setSectionResizeMode(
+                    0, QtWidgets.QHeaderView.ResizeToContents
+                )
+                self.operations.header().setSectionResizeMode(
+                    1, QtWidgets.QHeaderView.ResizeToContents
+                )
+                self.operations.header().setSectionResizeMode(
+                    2, QtWidgets.QHeaderView.Interactive
+                )
+                self.operations.header().setSectionResizeMode(
+                    3, QtWidgets.QHeaderView.Interactive
+                )
+                self.operations.header().setSectionResizeMode(
+                    4, QtWidgets.QHeaderView.ResizeToContents
+                )
+                self.operations.header().setSectionResizeMode(
+                    5, QtWidgets.QHeaderView.ResizeToContents
+                )
+                self.operations.header().setSectionResizeMode(
+                    6, QtWidgets.QHeaderView.ResizeToContents
+                )
+                self.operations.header().setSectionResizeMode(
+                    7, QtWidgets.QHeaderView.Stretch
+                )
                 self.operations.currentItemChanged.connect(self._on_operation_selected)
                 root.addWidget(self.operations)
 
@@ -767,7 +1732,108 @@ class _PreviewPanel:
                 root.addWidget(self.check_result)
 
                 self._install_workspace_layout(root, QtCore, QtWidgets)
+                self._install_automatic_debug_ui_signals(QtWidgets)
+                self._last_debug_frame_at = 0.0
+                self._last_debug_frame_signature = None
                 self.draw()
+
+            def _debug_session_context(self):
+                """Snapshot actual operator state, without Qt or OCC objects."""
+                session = self.session
+                tooling = self.tooling_setup
+                return {
+                    "part": session.part_label if session is not None else None,
+                    "document": self._smbs_document_name,
+                    "active_bend": session.active_bend_id if session is not None else None,
+                    "bend_order": list(session.bend_order) if session is not None else [],
+                    "manual_prefix": list(self._manual_sequence_prefix),
+                    "fold_angles_deg": dict(session.fold_state.angles)
+                    if session is not None else {},
+                    "punch": getattr(getattr(tooling, "punch", None), "tool_id", None),
+                    "die": getattr(getattr(tooling, "die", None), "tool_id", None),
+                    "tool_length_virtual": bool(getattr(
+                        tooling, "match_active_bend_length", False,
+                    )),
+                    "end_zone_allowed": bool(getattr(
+                        tooling, "allow_end_zone_collision", False,
+                    )),
+                    "end_zone_mm": getattr(tooling, "end_zone_length_mm", None),
+                    "cycle_mode": self.execution_mode.value,
+                    "initial_clearance_mm": self.cycle_config.initial_clearance_mm,
+                    "running": bool(self.timer.isActive()),
+                    "manual_orientation_by_bend": (
+                        self._manual_orientation_selection(session.bend_order)
+                        if session is not None else {}
+                    ),
+                }
+
+            def _debug_ui_action(self, widget, action, value=None):
+                try:
+                    widget_name = str(widget.objectName() or "")
+                    caption = (
+                        widget.text() if hasattr(widget, "text") and
+                        callable(widget.text) else ""
+                    )
+                    _desktop_debug_event(
+                        "OPERATOR_UI_ACTION",
+                        action=str(action),
+                        widget=widget_name or type(widget).__name__,
+                        widget_class=type(widget).__name__,
+                        label=str(caption)[:200],
+                        value=value,
+                        session=self._debug_session_context(),
+                    )
+                except Exception:
+                    # An unavailable UI log must never block input in FreeCAD.
+                    pass
+
+            def _install_automatic_debug_ui_signals(self, QtWidgets, root=None):
+                """Capture user actions automatically without duplicating handlers.
+
+                Includes controls inside the standard FreeCAD Tasks stack and
+                the MDI; newly embedded specialist settings are wired too.
+                No keyboard passwords or arbitrary document text is collected.
+                """
+                for widget in (root or self).findChildren(QtWidgets.QWidget):
+                    if widget.property("_smbs_debug_wired"):
+                        continue
+                    widget.setProperty("_smbs_debug_wired", True)
+                    if isinstance(widget, QtWidgets.QAbstractButton):
+                        widget.clicked.connect(
+                            lambda checked=False, w=widget:
+                                self._debug_ui_action(w, "CLICK", bool(checked))
+                        )
+                    elif isinstance(widget, QtWidgets.QComboBox):
+                        widget.currentIndexChanged.connect(
+                            lambda index, w=widget:
+                                self._debug_ui_action(
+                                    w, "SELECT", {
+                                        "index": int(index),
+                                        "text": str(w.currentText())[:200],
+                                    },
+                                )
+                        )
+                    elif isinstance(widget, QtWidgets.QAbstractSlider):
+                        widget.sliderReleased.connect(
+                            lambda w=widget:
+                                self._debug_ui_action(w, "SLIDER_RELEASE", w.value())
+                        )
+                    elif isinstance(widget, (
+                            QtWidgets.QDoubleSpinBox, QtWidgets.QSpinBox)):
+                        widget.valueChanged.connect(
+                            lambda val, w=widget:
+                                self._debug_ui_action(w, "VALUE", val)
+                        )
+                    elif isinstance(widget, QtWidgets.QLineEdit):
+                        widget.editingFinished.connect(
+                            lambda w=widget:
+                                self._debug_ui_action(w, "EDIT_FINISHED")
+                        )
+                    elif isinstance(widget, QtWidgets.QTabWidget):
+                        widget.currentChanged.connect(
+                            lambda index, w=widget:
+                                self._debug_ui_action(w, "VIEW_TAB", index)
+                        )
 
             def _install_workspace_layout(self, root, QtCore, QtWidgets):
                 """Rearrange existing controls without rebuilding the simulation engine.
@@ -776,7 +1842,7 @@ class _PreviewPanel:
                 """
                 # The existing constructor builds these items in a known order.
                 entries = [root.takeAt(0) for _ in range(root.count())]
-                if len(entries) != 14:
+                if len(entries) != 11:
                     raise RuntimeError(
                         "Unexpected PressBrakeSim layout: {} items".format(len(entries))
                     )
@@ -792,60 +1858,562 @@ class _PreviewPanel:
                         nested.setParent(None)
                         layout.addLayout(nested, stretch)
 
-                # Header: title, source selection, and working status.
-                for item in entries[:3]:
-                    insert(root, item)
+                # MDI contains only the heading and CAD views.
+                # The original status QLabel is reparented into FreeCAD Tasks.
+                insert(root, entries[0])
+                self._task_progress_busy = False
+                self.task_progress = QtWidgets.QProgressBar(self)
+                self.task_progress.setObjectName("SMBS_TaskProgress")
+                self.task_progress.setTextVisible(False)
+                self.task_progress.setFixedHeight(7)
+                self.task_progress.setRange(0, 100)
+                self.task_progress.setValue(0)
+                self._task_status_chip = QtWidgets.QLabel("Ready", self)
+                self._task_status_chip.setObjectName("SMBS_StatusChip")
+                self._task_status_chip.setProperty("state", "ready")
+                self._task_progress_caption = QtWidgets.QLabel("0%", self)
+                self._task_progress_caption.setObjectName("SMBS_SectionCaption")
+                status_font = self._task_status_chip.font()
+                status_font.setBold(True)
+                self._task_status_chip.setFont(status_font)
 
-                splitter = QtWidgets.QSplitter(QtCore.Qt.Horizontal, self)
-                views = QtWidgets.QTabWidget(splitter)
+                views = QtWidgets.QTabWidget(self)
                 views.setObjectName("SMBS_ViewerTabs")
-                views.addTab(self.view, "2.5D · Гибка")
-                self._preview_3d = QtWidgets.QGraphicsView()
+                views.setDocumentMode(True)
+                views.setIconSize(QtCore.QSize(16, 16))
+                views.tabBar().setExpanding(False)
+                views.addTab(self.view, QtGui.QIcon(str(
+                    _ICON_ROOT / "gui_simulation.svg"
+                )), "2.5D · Гибка")
+                self._preview_3d = Canvas(orbit_callback=self._orbit_3d)
+                self._orbit_yaw = 35.0
+                self._orbit_pitch = 25.0
+                self._orbit_roll = 0.0
                 self._last_3d_frame_at = -1.0
                 self._fixed_3d_view_rect = None
                 self._preview_3d.setObjectName("SMBS_3D_ReadOnly")
                 self._preview_3d_scene = QtWidgets.QGraphicsScene(self._preview_3d)
                 self._preview_3d.setScene(self._preview_3d_scene)
-                views.addTab(self._preview_3d, "3D · Просмотр")
+                views.addTab(self._preview_3d, QtGui.QIcon(str(
+                    _ICON_ROOT / "gui_part.svg"
+                )), "3D · Просмотр")
+                self._flat_view = Canvas(bend_click_callback=self._select_flat_bend)
+                self._flat_view.setObjectName("SMBS_FlatPattern_ManualOrder")
+                self._flat_scene = QtWidgets.QGraphicsScene(self._flat_view)
+                self._flat_view.setScene(self._flat_scene)
+                views.addTab(self._flat_view, QtGui.QIcon(str(
+                    _ICON_ROOT / "gui_sequence_catalog.svg"
+                )), "Развёртка · Порядок")
                 views.currentChanged.connect(self._on_view_changed)
 
-                controls = QtWidgets.QTabWidget(splitter)
-                controls.setObjectName("SMBS_ControlTabs")
+                controls = QtWidgets.QStackedWidget()
+                controls.setObjectName("SMBS_TaskStack")
+                controls.setSizePolicy(QtWidgets.QSizePolicy.Ignored,
+                                       QtWidgets.QSizePolicy.Expanding)
+
+                from freecad_smbs.ui.pressbrake_theme import (
+                    OUTER_MARGIN, SECTION_GAP, section_card, style_action,
+                )
+
+                def card(title):
+                    return section_card(QtCore, QtWidgets, title)
+
+                def scroll_task_page(content, name):
+                    # Scroll the CONTENT of each task tab (not the tab bar).
+                    # A minimum-size layout prevents Qt from compressing the
+                    # controls into the viewport and overlapping them.
+                    content.setObjectName("SMBS_TaskContent")
+                    content.layout().setContentsMargins(
+                        OUTER_MARGIN, OUTER_MARGIN,
+                        OUTER_MARGIN, OUTER_MARGIN,
+                    )
+                    content.layout().setSpacing(SECTION_GAP)
+                    # The page must be able to shrink with the FreeCAD dock.
+                    content.layout().setSizeConstraint(
+                        QtWidgets.QLayout.SetNoConstraint
+                    )
+                    page = QtWidgets.QScrollArea()
+                    page.setObjectName(name)
+                    page.setWidgetResizable(True)
+                    page.setFrameShape(QtWidgets.QFrame.NoFrame)
+                    page.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOn)
+                    page.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
+                    page.setMinimumSize(0, 0)
+                    page.setSizePolicy(QtWidgets.QSizePolicy.Preferred,
+                                       QtWidgets.QSizePolicy.Expanding)
+                    page.setWidget(content)
+                    return page
+
+                # Main Task Panel uses the same 20/16px engineering card grid
+                # as the preview design. No duplicate playback/controller widgets.
                 simulation = QtWidgets.QWidget()
                 sim_layout = QtWidgets.QVBoxLayout(simulation)
-                sim_layout.setSpacing(8)
-                # Mode selection belongs beside playback, not in diagnostic
-                # settings. One Play All operates whichever mode is selected.
-                insert(sim_layout, entries[4])  # mode / speed / cycle config
-                insert(sim_layout, entries[6])  # Reset / Play All / Pause / Fit
-                insert(sim_layout, entries[7])  # angle slider
-                insert(sim_layout, entries[8])  # active operation
-                insert(sim_layout, entries[9])  # next/previous step
-                insert(sim_layout, entries[10])  # move order
+                part_page = QtWidgets.QWidget()
+                part_layout = QtWidgets.QVBoxLayout(part_page)
+
+                source_card, source_body = card("")
+                source_grid = QtWidgets.QGridLayout()
+                source_grid.setHorizontalSpacing(SECTION_GAP)
+                self._source_summary = QtWidgets.QLabel(
+                    str(self.session.part_label) if self.session else
+                    "Деталь не загружена"
+                )
+                self._source_summary.setObjectName("SMBS_SectionCaption")
+                self._source_summary.setWordWrap(True)
+                self._source_summary.setAlignment(
+                    QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter
+                )
+                source_grid.addWidget(self._source_summary, 0, 0)
+                self._source_load_btn = style_action(
+                    QtWidgets.QPushButton("Загрузить"), compact=True
+                )
+                self._source_load_btn.setToolTip(
+                    "Загрузить выделенную в FreeCAD развёртку SheetMetal"
+                )
+                self._source_load_btn.clicked.connect(
+                    lambda _checked=False: self.load_part()
+                )
+                source_grid.addWidget(self._source_load_btn, 0, 1)
+                source_grid.setColumnStretch(0, 1)
+                source_grid.setColumnStretch(1, 0)
+                source_body.addLayout(source_grid)
+                part_layout.addWidget(source_card)
+                part_layout.addStretch(1)
+                self._page_part = scroll_task_page(part_page, "SMBS_PartScroll")
+
+                # The native Tasks header already says "Симуляция": no duplicate
+                # section title or large diagnostic card above playback.
+                sim_body = sim_layout
+                for btn in (
+                    self.reset_btn, self.prev_step_btn, self.next_step_btn,
+                    self.fit_btn,
+                ):
+                    style_action(btn, compact=True)
+                style_action(self.play_btn, primary=True)
+                insert(sim_body, entries[5])  # Reset / Prev / Play-Pause / Next / Fit
+                self.slider.setToolTip(
+                    "Перемещение угла и пуансона: кинематический просмотр, "
+                    "не проверка коллизий"
+                )
+                insert(sim_body, entries[6])  # angle slider
+                self._manual_preview_notice = QtWidgets.QLabel(
+                    "РУЧНОЙ ПРОСМОТР — коллизии не проверены"
+                )
+                self._manual_preview_notice.setWordWrap(True)
+                self._manual_preview_notice.hide()
+                sim_body.addWidget(self._manual_preview_notice)
+
+                # The operator starts with 2D candidates, then checks the
+                # chosen full order from Manual.
+                self.calculate.hide()
+                sim_layout.addStretch(1)
+                self._page_simulation = scroll_task_page(
+                    simulation, "SMBS_SimulationScroll"
+                )
+                planar_page = QtWidgets.QWidget()
+                planar_layout = QtWidgets.QVBoxLayout(planar_page)
+                planar_card, planar_body = card("Шаг 1 — найти порядок гибов")
+                planar_note = QtWidgets.QLabel(
+                    "Нажмите «Поиск 2D вариантов» на панели инструментов. "
+                    "Программа ищет полные порядки гибов с быстрой 2D оценкой "
+                    "и ранжирует их по весам. Поиск ограничен 30 секундами: "
+                    "если ничего не найдено, это ещё не доказывает, что решения нет. "
+                    "Найденный порядок пока не проверен в 3D."
+                )
+                planar_note.setWordWrap(True)
+                planar_body.addWidget(planar_note)
+                # The native toolbar command runs the search; this section
+                # displays its description/results without a duplicate button.
+                self.planar_calculate.hide()
+                planar_layout.addWidget(planar_card)
+                planar_layout.addStretch(1)
+                self._page_planar = scroll_task_page(
+                    planar_page, "SMBS_PlanarScroll"
+                )
+
+                manual = QtWidgets.QWidget()
+                manual_layout = QtWidgets.QVBoxLayout(manual)
+                order_card, order_body = card("Шаг 2 — выбрать и проверить порядок")
+                workflow_note = QtWidgets.QLabel(
+                    "Выберите полный вариант после «Поиска 2D вариантов» "
+                    "или задайте порядок нажатием линий на развёртке. "
+                    "Номера гибов показаны во вьювере и в списке ниже. "
+                    "Затем запустите быструю OCC проверку пяти углов или "
+                    "полную адаптивную 3D проверку."
+                )
+                workflow_note.setWordWrap(True)
+                order_body.addWidget(workflow_note)
+                for btn in (
+                    self.move_up_btn, self.move_down_btn, self.restore_order_btn,
+                ):
+                    style_action(btn, compact=True)
+                insert(order_body, entries[7])  # move up/down/restore grid
+
+                undo_row = QtWidgets.QVBoxLayout()
+                undo_row.setSpacing(SECTION_GAP)
+                self.manual_undo_btn = style_action(
+                    QtWidgets.QPushButton("Отменить линию")
+                )
+                self.manual_undo_btn.clicked.connect(self._undo_manual_bend)
+                self.manual_clear_btn = style_action(
+                    QtWidgets.QPushButton("Очистить")
+                )
+                self.manual_clear_btn.clicked.connect(self._clear_manual_order)
+                undo_row.addWidget(self.manual_undo_btn)
+                undo_row.addWidget(self.manual_clear_btn)
+                order_body.addLayout(undo_row)
+
+                self.operations.setMinimumHeight(220)
                 self.operations.setMaximumHeight(16777215)
-                insert(sim_layout, entries[11], 1)  # operation table
-                controls.addTab(simulation, "Симуляция")
+                self.operations.setSizePolicy(
+                    QtWidgets.QSizePolicy.Expanding,
+                    QtWidgets.QSizePolicy.Expanding,
+                )
+                insert(order_body, entries[8], 1)  # actual sequence table
+                self.manual_simulate_btn = style_action(
+                    QtWidgets.QPushButton("Симулировать без проверки"), primary=True
+                )
+                self.manual_simulate_btn.setToolTip(
+                    "Сразу просмотреть выбранный ручной порядок: без расчёта "
+                    "последовательности и без проверки столкновений"
+                )
+                self.manual_simulate_btn.clicked.connect(
+                    self.simulate_manual_order_unverified
+                )
+                self.manual_reverse_3d_checkbox = QtWidgets.QCheckBox(
+                    "Заменить 2D ориентации: развернуть все гибы на 180°"
+                )
+                self.manual_reverse_3d_checkbox.setObjectName(
+                    "SMBS_ManualReverseNative3D"
+                )
+                self.manual_reverse_3d_checkbox.setToolTip(
+                    "Меняет установку сразу для всех гибов и заменяет "
+                    "ориентации, перенесённые из 2D. Просмотр и обе проверки "
+                    "используют одни и те же значения по гибам."
+                )
+                self.manual_reverse_3d_checkbox.setChecked(False)
+                self.manual_reverse_3d_checkbox.toggled.connect(
+                    self._manual_native_orientation_changed
+                )
+                order_body.addWidget(self.manual_reverse_3d_checkbox)
+                # Restore the quick Stage A/B action from the
+                # integration/gui-2d-search-screening branch. Keep rigorous
+                # native OCC as a DISTINCT opt-in action, not a silent upgrade
+                # of the original fast "Проверить" button.
+                self.manual_validate_btn = style_action(
+                    QtWidgets.QPushButton("Быстрая проверка OCC (5 углов)"), compact=True
+                )
+                self.manual_validate_btn.setObjectName(
+                    "SMBS_ManualCoarseOCCCheck"
+                )
+                self.manual_validate_btn.setToolTip(
+                    "Реальные FCStd инструменты и OCC: 0, 25, 50, 75, 100% "
+                    "угла каждого гиба, а также выборка APPROACH/RETRACT. "
+                    "Точное проникновение отклоняет порядок сразу. Если его "
+                    "не найдено, непросмотренные положения остаются UNVERIFIED."
+                )
+                self.manual_validate_btn.clicked.connect(
+                    lambda: self._validate_export_manual_order(coarse_occ=True)
+                )
+                self.manual_validate_3d_btn = style_action(
+                    QtWidgets.QPushButton("Полная проверка (3D)"), compact=True
+                )
+                self.manual_validate_3d_btn.setObjectName(
+                    "SMBS_ManualNative3DCheck"
+                )
+                self.manual_validate_3d_btn.setToolTip(
+                    "Проверить весь выбранный порядок: реальные FCStd пуансон и "
+                    "матрица, адаптивная выборка поз каждой фазы через OCC. "
+                    "Может занять десятки минут. «Полная» относится ко всем "
+                    "выбранным гибам; непрерывное движение и весь станок не подтверждаются."
+                )
+                self.manual_validate_3d_btn.clicked.connect(
+                    self._validate_export_manual_order
+                )
+                verify_row = QtWidgets.QVBoxLayout()
+                verify_row.addWidget(self.manual_simulate_btn)
+                verify_row.addWidget(self.manual_validate_btn)
+                verify_row.addWidget(self.manual_validate_3d_btn)
+                order_body.addLayout(verify_row)
+                # Verification must have a visible result in the Manual
+                # workspace, not a file-save dialog as its only feedback.
+                self.manual_check_summary = QtWidgets.QLabel(
+                    "Ещё не проверено. «Быстрая проверка OCC (5 углов)» "
+                    "ищет точные 3D столкновения в отдельных позах. «Полная "
+                    "проверка (3D)» адаптивно проверяет больше поз и занимает дольше."
+                )
+                self.manual_check_summary.setWordWrap(True)
+                self.manual_check_summary.setObjectName("SMBS_ManualCheckSummary")
+                order_body.addWidget(self.manual_check_summary)
+                self.manual_check_details = QtWidgets.QPlainTextEdit()
+                self.manual_check_details.setObjectName("SMBS_ManualCheckDetails")
+                self.manual_check_details.setReadOnly(True)
+                self.manual_check_details.setMaximumHeight(160)
+                self.manual_check_details.setPlaceholderText(
+                    "Здесь появятся результаты по каждому проверенному гибу."
+                )
+                self.manual_check_details.hide()
+                order_body.addWidget(self.manual_check_details)
+                self.manual_show_collision_btn = style_action(
+                    QtWidgets.QPushButton("Показать коллизию в 3D")
+                )
+                self.manual_show_collision_btn.setObjectName(
+                    "SMBS_ShowNativeCollision"
+                )
+                self.manual_show_collision_btn.setToolTip(
+                    "Открыть 3D-вьювер с фактическим положением детали "
+                    "в момент найденного пересечения. Красные границы "
+                    "соответствуют объёму OCC Common."
+                )
+                self.manual_show_collision_btn.clicked.connect(
+                    self._show_first_collision_in_3d
+                )
+                self.manual_show_collision_btn.setEnabled(False)
+                self.manual_show_collision_btn.hide()
+                self.manual_exact_occ_btn = style_action(
+                    QtWidgets.QPushButton("Открыть точное пересечение OCC"),
+                    compact=True,
+                )
+                self.manual_exact_occ_btn.setObjectName(
+                    "SMBS_OpenExactNativeOCCCollision"
+                )
+                self.manual_exact_occ_btn.setToolTip(
+                    "Открыть отдельный несохранённый документ FreeCAD с "
+                    "реальными FCStd-пуансоном и матрицей, деталью "
+                    "в момент столкновения и точным красным OCC Common. "
+                    "В дереве видимости можно скрывать любые объекты."
+                )
+                self.manual_exact_occ_btn.clicked.connect(
+                    self._open_exact_collision_inspector
+                )
+                self.manual_exact_occ_btn.setEnabled(False)
+                self.manual_exact_occ_btn.hide()
+                order_body.addWidget(self.manual_show_collision_btn)
+                order_body.addWidget(self.manual_exact_occ_btn)
+                self._manual_preview_help = QtWidgets.QLabel(
+                    "Симуляция не проверяет коллизии. Быстрая OCC проверка "
+                    "ищет точное 3D пересечение в пяти углах. Полная 3D проверка "
+                    "идёт по всем выбранным гибам, но проверяет выборку поз, "
+                    "а не непрерывное движение. Результат выводится здесь и "
+                    "сохраняется в FCStd."
+                )
+                self._manual_preview_help.setWordWrap(True)
+                order_body.addWidget(self._manual_preview_help)
+                manual_layout.addWidget(order_card, 1)
+                self._page_manual = scroll_task_page(
+                    manual, "SMBS_ManualScroll"
+                )
+
+                # RETRACT warning belongs to Settings, not Simulation.
+                self.retract_warning_checkbox = QtWidgets.QCheckBox(
+                    "RETRACT: продолжать 2D-поиск\nс предупреждением"
+                )
+                self.retract_warning_checkbox.setChecked(False)
+                self.retract_warning_checkbox.setToolTip(
+                    "Диагностическое продолжение, а не физический допуск. "
+                    "Пересечения APPROACH, BENDING, BOTTOM и упора блокируют поиск."
+                )
 
                 tooling = QtWidgets.QWidget()
-                tool_layout = QtWidgets.QVBoxLayout(tooling)
-                insert(tool_layout, entries[3])  # tooling group
-                tool_layout.addStretch(1)
-                controls.addTab(tooling, "Оснастка")
+                td_layout = QtWidgets.QVBoxLayout(tooling)
+                tooling_card, tooling_body = card("Оснастка и станок")
+                # One tooling context from the native toolbar, with exactly
+                # two internal pages requested by the operator.
+                tool_tabs = QtWidgets.QTabWidget(tooling_card)
+                tool_tabs.setObjectName("SMBS_ToolingSubtabs")
+                tool_tabs.tabBar().setUsesScrollButtons(False)
+                tool_main = QtWidgets.QWidget()
+                tool_main_layout = QtWidgets.QFormLayout(tool_main)
+                tool_main_layout.setContentsMargins(
+                    SECTION_GAP, SECTION_GAP, SECTION_GAP, SECTION_GAP
+                )
+                tool_main_layout.setSpacing(SECTION_GAP)
+                tool_main_layout.setFieldGrowthPolicy(
+                    QtWidgets.QFormLayout.AllNonFixedFieldsGrow
+                )
+                tool_main_layout.setRowWrapPolicy(
+                    QtWidgets.QFormLayout.WrapLongRows
+                )
+                tool_main_layout.addRow("Punch:", self.select_punch_combo)
+                tool_main_layout.addRow("Die:", self.select_die_combo)
+                tool_main_layout.addRow(self.tooling_status)
+                tool_import = QtWidgets.QWidget()
+                tool_import_layout = QtWidgets.QVBoxLayout(tool_import)
+                tool_import_layout.setContentsMargins(
+                    SECTION_GAP, SECTION_GAP, SECTION_GAP, SECTION_GAP
+                )
+                tool_import_layout.setSpacing(SECTION_GAP)
+                for btn in (
+                    self.import_punch_btn, self.import_die_btn,
+                    self.tool_library_btn,
+                ):
+                    style_action(btn)
+                    tool_import_layout.addWidget(btn)
+                tool_import_layout.addStretch(1)
+                tool_tabs.addTab(tool_main, "Основные")
+                tool_tabs.addTab(tool_import, "Импорт")
+                tooling_body.addWidget(tool_tabs)
+                td_layout.addWidget(tooling_card)
+                td_layout.addStretch(1)
+                self._page_tooling = scroll_task_page(
+                    tooling, "SMBS_ToolingScroll"
+                )
+                self._tooling_tabs = tool_tabs
+                # All active tooling widgets have been reparented.
+                self.tooling_group.deleteLater()
 
                 settings = QtWidgets.QWidget()
                 settings_layout = QtWidgets.QVBoxLayout(settings)
-                insert(settings_layout, entries[12])  # diagnostics button
-                insert(settings_layout, entries[13])  # diagnostics output
 
+                cycle_card, cycle_body = card("Режим симуляции")
+                self.press_cycle_group.setTitle("")
+                self.press_cycle_group.setFlat(True)
+                style_action(self.cycle_config_btn)
+                insert(cycle_body, entries[3])  # Mode / Full Cycle / Speed
+                cycle_body.addWidget(self.retract_warning_checkbox)
+                settings_layout.addWidget(cycle_card)
+
+                tool_opts_card, tool_opts_layout = card("Оснастка — параметры")
+                tool_opts_layout.addWidget(self.virtual_tool_len_checkbox)
+                zone_row = QtWidgets.QGridLayout()
+                zone_row.setHorizontalSpacing(SECTION_GAP)
+                end_zone_caption = QtWidgets.QLabel(
+                    "Концевая зона пуансона (мм):"
+                )
+                end_zone_caption.setWordWrap(True)
+                zone_row.addWidget(end_zone_caption, 0, 0)
+                zone_row.addWidget(self.end_zone_len_spin, 0, 1)
+                zone_row.setColumnStretch(0, 1)
+                zone_row.setColumnStretch(1, 0)
+                tool_opts_layout.addLayout(zone_row)
+                tool_opts_layout.addWidget(self.allow_end_zone_checkbox)
+                settings_layout.addWidget(tool_opts_card)
+
+                # Cost weights affect ranking only, never collision decisions.
+                from smbs_core.kinematics2d.operation_cost import OperationWeights
+                weight_defaults = OperationWeights().to_dict()
+                weight_names = (
+                    ("turn_fixed", "Поворот: базовый штраф"),
+                    ("turn_per_90_deg", "Поворот: за 90°"),
+                    ("flip", "Переворот листа"),
+                    ("shift_fixed", "Сдвиг: базовый штраф"),
+                    ("shift_per_100_mm", "Сдвиг: за 100 мм"),
+                    ("length_change_fixed", "Смена длины: базовый штраф"),
+                    ("length_delta_per_100_mm", "Линия гиба: за 100 мм"),
+                    ("punch_length_change_fixed", "Пуансон: смена длины"),
+                    ("punch_length_delta_per_100_mm", "Пуансон: за 100 мм"),
+                    ("die_length_change_fixed", "Матрица: смена длины"),
+                    ("die_length_delta_per_100_mm", "Матрица: за 100 мм"),
+                    ("backgauge_move_fixed", "Задний упор: перемещение"),
+                    ("backgauge_move_per_100_mm", "Задний упор: за 100 мм"),
+                )
+                weights_card, weights_body = card("Веса операций / 2D поиск")
+                weights_box = QtWidgets.QWidget()
+                weights_form = QtWidgets.QFormLayout(weights_box)
+                weights_form.setContentsMargins(0, 0, 0, 0)
+                weights_form.setSpacing(SECTION_GAP)
+                weights_form.setRowWrapPolicy(
+                    QtWidgets.QFormLayout.WrapLongRows
+                )
+                weights_form.setFieldGrowthPolicy(
+                    QtWidgets.QFormLayout.AllNonFixedFieldsGrow
+                )
+                self._weight_editors = {}
+                self._weight_preferences = QtCore.QSettings("SMBS", "BendSeq")
+                for weight_key, caption in weight_names:
+                    editor = QtWidgets.QDoubleSpinBox(weights_box)
+                    editor.setRange(0.0, 100000.0)
+                    editor.setDecimals(2)
+                    editor.setSingleStep(0.5)
+                    editor.setValue(float(self._weight_preferences.value(
+                        "operation_weights/" + weight_key,
+                        weight_defaults[weight_key], type=float,
+                    )))
+                    editor.setToolTip(
+                        "Штрафные баллы для сортировки полных кандидатов. "
+                        "Нулевой вес не отключает проверку коллизий."
+                    )
+                    editor.valueChanged.connect(
+                        lambda value, key=weight_key:
+                        self._weight_preferences.setValue(
+                            "operation_weights/" + key, float(value)
+                        )
+                    )
+                    weights_form.addRow(caption, editor)
+                    self._weight_editors[weight_key] = editor
+                weights_note = QtWidgets.QLabel(
+                    "Меньший штраф = предпочтительнее. Первый гиб не штрафуется. "
+                    "При виртуальной подгонке штраф длины пуансона/матрицы — "
+                    "только оценка планируемой переналадки. При фиксированной "
+                    "оснастке длины не меняются. Это не проверка безопасности."
+                )
+                weights_note.setWordWrap(True)
+                weights_form.addRow(weights_note)
+                reset_weights_btn = QtWidgets.QPushButton("Стандартные веса")
+                reset_weights_btn.setIcon(QtGui.QIcon(str(
+                    _ICON_ROOT / "control_reset.svg"
+                )))
+                reset_weights_btn.clicked.connect(
+                    lambda _checked=False: [
+                        self._weight_editors[k].setValue(weight_defaults[k])
+                        for k in self._weight_editors
+                    ]
+                )
+                style_action(reset_weights_btn)
+                weights_form.addRow(reset_weights_btn)
+                weights_body.addWidget(weights_box)
+                settings_layout.addWidget(weights_card)
+
+                gauge_settings_btn = QtWidgets.QPushButton(
+                    "Задний упор — геометрия и позиции гибов…")
+                gauge_settings_btn.setIcon(QtGui.QIcon(str(
+                    _ICON_ROOT / "gui_backgauge.svg"
+                )))
+                gauge_settings_btn.clicked.connect(self.open_backgauge_dialog)
+                diagnostics_card, diagnostics_body = card(
+                    "Результаты / Диагностика"
+                )
+                self._simulation_diagnostics_summary = QtWidgets.QLabel(
+                    "Unverified · физическая проверка ещё не выполнена"
+                )
+                self._simulation_diagnostics_summary.setObjectName(
+                    "SMBS_SectionCaption"
+                )
+                self._simulation_diagnostics_summary.setWordWrap(True)
+                diagnostics_body.addWidget(self._simulation_diagnostics_summary)
+                extra_checks_note = QtWidgets.QLabel(
+                    "Ниже — отдельные проверки одного кадра или одного гиба. "
+                    "Для проверки найденной последовательности используйте "
+                    "«Порядок и проверка»."
+                )
+                extra_checks_note.setWordWrap(True)
+                diagnostics_body.addWidget(extra_checks_note)
+                self._on_physical_result_change(
+                    self.physical_check_result.text()
+                )
+                style_action(gauge_settings_btn)
+                diagnostics_body.addWidget(gauge_settings_btn)
+                for check in (
+                    self.physical_check_btn, self.full_physical_check_btn,
+                ):
+                    style_action(check)
+                    diagnostics_body.addWidget(check)
+                diagnostics_body.addWidget(self.physical_check_result)
+                style_action(self.check_btn)
+                insert(diagnostics_body, entries[9])  # diagnostic button
+                insert(diagnostics_body, entries[10])  # diagnostic result
+                settings_layout.addWidget(diagnostics_card)
+
+                trace_card, trace_body = card("Запись и файлы диагностики")
                 self.trace_checkbox = QtWidgets.QCheckBox(
-                    "Автоматически записывать движения при Play All (JSONL)"
+                    "Автоматическая запись движений\nпри Play All (JSONL)"
                 )
                 self.trace_checkbox.setChecked(False)
                 self.trace_checkbox.setToolTip(
                     "Создаёт папку при начале записи. После остановки сохраняет "
                     "кадры в *.jsonl и сводный отчёт в *.summary.json."
                 )
-                settings_layout.addWidget(self.trace_checkbox)
+                trace_body.addWidget(self.trace_checkbox)
                 self.trace_checkbox.toggled.connect(self._on_trace_checkbox_toggled)
 
                 self.trace_status = QtWidgets.QLabel(
@@ -855,9 +2423,25 @@ class _PreviewPanel:
                 self.trace_status.setTextInteractionFlags(
                     QtCore.Qt.TextSelectableByMouse
                 )
-                settings_layout.addWidget(self.trace_status)
+                trace_body.addWidget(self.trace_status)
+                # Developer journal is ALWAYS on, independent of the
+                # optional legacy JSONL motion recording below.
+                self.desktop_debug_log_note = QtWidgets.QLabel(
+                    "Автоматический единый журнал разработки:\n" +
+                    str(_debug_desktop_directory() / "SMBS_debug_log.json") +
+                    "\nЗаписывается без включения кнопок. Может содержать "
+                    "названия деталей и локальные пути."
+                )
+                self.desktop_debug_log_note.setObjectName(
+                    "SMBS_DesktopDebugLogPath"
+                )
+                self.desktop_debug_log_note.setTextInteractionFlags(
+                    QtCore.Qt.TextSelectableByMouse
+                )
+                self.desktop_debug_log_note.setWordWrap(True)
+                trace_body.addWidget(self.desktop_debug_log_note)
 
-                trace_buttons = QtWidgets.QHBoxLayout()
+                trace_buttons = QtWidgets.QVBoxLayout()
                 self.trace_start_button = QtWidgets.QPushButton("Начать запись JSONL")
                 self.trace_start_button.clicked.connect(
                     lambda _checked=False: self._start_motion_trace(manual=True)
@@ -868,31 +2452,229 @@ class _PreviewPanel:
                     lambda _checked=False: self._finish_motion_trace("USER_STOP")
                 )
                 trace_buttons.addWidget(self.trace_stop_button)
-                settings_layout.addLayout(trace_buttons)
+                trace_body.addLayout(trace_buttons)
 
                 self.trace_open_button = QtWidgets.QPushButton("Открыть папку записей")
                 self.trace_open_button.clicked.connect(
                     lambda _checked=False: self._open_trace_directory()
                 )
-                settings_layout.addWidget(self.trace_open_button)
+                trace_body.addWidget(self.trace_open_button)
                 self.trace_choose_button = QtWidgets.QPushButton(
                     "Выбрать папку для JSONL/JSON"
                 )
                 self.trace_choose_button.clicked.connect(
                     lambda _checked=False: self._choose_trace_directory()
                 )
-                settings_layout.addWidget(self.trace_choose_button)
-                settings_layout.addStretch(1)
-                controls.addTab(settings, "Настройки")
+                trace_body.addWidget(self.trace_choose_button)
+                for btn in (
+                    self.trace_start_button, self.trace_stop_button,
+                    self.trace_open_button, self.trace_choose_button,
+                ):
+                    style_action(btn)
+                settings_layout.addWidget(trace_card)
 
-                splitter.addWidget(views)
-                splitter.addWidget(controls)
-                splitter.setStretchFactor(0, 4)
-                splitter.setStretchFactor(1, 2)
-                splitter.setSizes([720, 370])
-                root.addWidget(splitter, 1)
+                # JSON is a genuine FCStd attachment, not a plaintext string
+                # masquerading as a file and not a second external archive.
+                fcstd_card, fcstd_body = card("Данные SMBS в документе FCStd")
+                self.fcstd_save_btn = style_action(
+                    QtWidgets.QPushButton("Сохранить в FCStd"), compact=True
+                )
+                self.fcstd_save_btn.setToolTip(
+                    "Вложить JSON с порядком гибов, настройками и историей "
+                    "проверок в этот документ и сохранить FCStd"
+                )
+                self.fcstd_save_btn.clicked.connect(
+                    self._save_embedded_smbs_json_clicked
+                )
+                self.fcstd_load_btn = style_action(
+                    QtWidgets.QPushButton("Восстановить из FCStd"), compact=True
+                )
+                self.fcstd_load_btn.setToolTip(
+                    "Восстановить сохранённый порядок и настройки. "
+                    "Исторические результаты не считаются проверенными."
+                )
+                self.fcstd_load_btn.clicked.connect(
+                    self._restore_embedded_smbs_json_clicked
+                )
+                fcstd_buttons = QtWidgets.QHBoxLayout()
+                fcstd_buttons.addWidget(self.fcstd_save_btn)
+                fcstd_buttons.addWidget(self.fcstd_load_btn)
+                fcstd_buttons.addStretch(1)
+                fcstd_body.addLayout(fcstd_buttons)
+                self.fcstd_note = QtWidgets.QLabel(
+                    "JSON автоматически вкладывается при Ctrl+S после загрузки "
+                    "детали. История проверки — только справочная."
+                )
+                self.fcstd_note.setWordWrap(True)
+                fcstd_body.addWidget(self.fcstd_note)
+                settings_layout.addWidget(fcstd_card)
+                settings_layout.addStretch(1)
+                self._page_settings = scroll_task_page(
+                    settings, "SMBS_SettingsScroll"
+                )
+
+                # Fixed contextual pages match the six operator toolbar actions.
+                # Only the selected page is shown. Specialist QDialogs may be
+                # temporarily added and removed without creating tabs.
+                page_specs = (
+                    ("Деталь", self._page_part),
+                    ("Оснастка", self._page_tooling),
+                    ("Симуляция", self._page_simulation),
+                    ("Поиск 2D вариантов", self._page_planar),
+                    ("Порядок и проверка", self._page_manual),
+                    ("Настройки", self._page_settings),
+                )
+                self._task_page_titles = {}
+                for name, page in page_specs:
+                    controls.addWidget(page)
+                    self._task_page_titles[page] = name
+                root.addWidget(views, 1)
                 self._viewer_tabs = views
-                self._control_tabs = controls
+                self._task_stack = controls
+                self._native_task_panel = None
+                self.show_task_panel_btn = QtWidgets.QPushButton("Показать панель управления")
+                self.show_task_panel_btn.setObjectName("SMBS_ShowTaskPanel")
+                self.show_task_panel_btn.clicked.connect(
+                    lambda: show_workspace_controls(self)
+                )
+                root.addWidget(self.show_task_panel_btn)
+                self.show_task_panel_btn.hide()
+                self._apply_svg_button_icons()
+                self._task_stack.installEventFilter(self)
+                self._apply_context_width(360)
+
+            def _apply_context_width(self, width):
+                """Keep operator information useful at narrow Tasks widths."""
+                compact = int(width) < 590
+                # The full five-column report is still available on a wide
+                # dock. On narrow ones show Step, Bend and Status; tooltips
+                # retain complete target/current readings.
+                # FreeCAD's standard Tasks pane is narrower than our
+                # former full-width custom dock: keep the core verdicts and
+                # RETRACT visible; complete dimensions remain in row tooltips.
+                for col in (2, 3, 4, 5):
+                    self.operations.setColumnHidden(col, compact)
+                self.operations.header().setSectionResizeMode(
+                    QtWidgets.QHeaderView.Stretch
+                )
+
+            def eventFilter(self, watched, event):
+                if (getattr(self, "_task_stack", None) is watched
+                        and event.type() == QtCore.QEvent.Resize):
+                    self._apply_context_width(event.size().width())
+                return super().eventFilter(watched, event)
+
+            def _on_task_status_change(self, message):
+                """Refresh native Tasks severity when handlers call status.setText."""
+                if not hasattr(self, "_task_status_chip"):
+                    return
+                from freecad_smbs.ui.pressbrake_theme import classify_status
+                state, caption = classify_status(message)
+                if getattr(self, "_task_progress_busy", False):
+                    state, caption = "running", "Running"
+                badge = self._task_status_chip
+                if badge.property("state") != state:
+                    badge.setProperty("state", state)
+                    badge.style().unpolish(badge)
+                    badge.style().polish(badge)
+                badge.setText(caption)
+
+            def _on_physical_result_change(self, message):
+                if hasattr(self, "_simulation_diagnostics_summary"):
+                    self._simulation_diagnostics_summary.setText(str(message))
+                    self._simulation_diagnostics_summary.setToolTip(str(message))
+                # Status-bar reports the last actual validation outcome,
+                # never a synthetic success badge.
+                if hasattr(self, "status") and not getattr(
+                    self, "_task_progress_busy", False
+                ):
+                    self.status.setText(str(message))
+
+            def _set_task_busy(self, busy):
+                """Use indeterminate progress for unbounded DFS/OCC searches."""
+                self._task_progress_busy = bool(busy)
+                if busy:
+                    self.task_progress.setRange(0, 0)
+                    self._task_progress_caption.setText("Расчёт…")
+                else:
+                    self.task_progress.setRange(0, 100)
+                    self._update_task_progress()
+                self._on_task_status_change(self.status.text())
+
+            def _update_task_progress(self):
+                """Known geometric bend progress, never DFS search percentage."""
+                if getattr(self, "_task_progress_busy", False):
+                    return
+                session = self.session
+                if session is None or not getattr(session, "bend_order", None):
+                    self.task_progress.setValue(0)
+                    self._task_progress_caption.setText("0%")
+                    return
+                n = len(session.bend_order)
+                idx = min(n, max(0, int(session.active_bend_index)))
+                try:
+                    angle = float(session.current_angle_deg)
+                    target = abs(float(session.target_angle_deg))
+                    fraction = (
+                        min(1.0, abs(angle) / target) if target > 1e-8 else 0.0
+                    )
+                except (ValueError, TypeError, AttributeError, ZeroDivisionError):
+                    fraction = 0.0
+                if session.playback_status == PlaybackStatus.COMPLETED:
+                    idx, fraction = n, 0.0
+                value = min(100, max(0, int(
+                    round(100.0 * (idx + fraction) / n)
+                )))
+                if self.task_progress.value() != value:
+                    self.task_progress.setValue(value)
+                caption = "Гибы · {}%".format(value)
+                if self._task_progress_caption.text() != caption:
+                    self._task_progress_caption.setText(caption)
+
+            def open_tooling_settings_dialog(self):
+                """Show the single tooling page, without nested tabs."""
+                show_workspace_controls(self, tab=1)
+
+            def open_settings_dialog(self):
+                """Show all configuration controls on one contextual page."""
+                show_workspace_controls(self, tab=5)
+
+            def _apply_svg_button_icons(self):
+                """Use the same industrial SVG family in task controls.
+
+                Only the visual presentation is modified. The existing
+                QPushButton instances, signals and enabled states are retained.
+                QtSvg renders the assets in FreeCAD's bundled Qt runtime.
+                """
+                icon_pairs = (
+                    # Playback buttons are intentionally text-sized. Only
+                    # Play/Pause retains a state-changing icon alongside text.
+                    (self.play_btn, "control_play.svg"),
+                    (self.restore_order_btn, "control_reset.svg"),
+                    (self.manual_undo_btn, "control_prev.svg"),
+                    (self.manual_clear_btn, "control_reset.svg"),
+                    (self.manual_validate_btn, "control_validate.svg"),
+                    (self.trace_start_button, "control_record.svg"),
+                    (self.trace_stop_button, "control_stop.svg"),
+                    (self.trace_open_button, "control_folder.svg"),
+                    (self.trace_choose_button, "control_folder.svg"),
+                    (self.show_task_panel_btn, "gui_simulation.svg"),
+                    (self.tool_library_btn, "tooling.svg"),
+                    (self.import_punch_btn, "gui_tooling.svg"),
+                    (self.import_die_btn, "gui_tooling.svg"),
+                    (self.physical_check_btn, "control_validate.svg"),
+                    (self.full_physical_check_btn, "control_validate.svg"),
+                    (self.cycle_config_btn, "gui_backgauge.svg"),
+                    (self.check_btn, "control_validate.svg"),
+                )
+                for widget, icon_name in icon_pairs:
+                    asset = _ICON_ROOT / icon_name
+                    if not asset.is_file():
+                        raise FileNotFoundError(
+                            "SMBS GUI icon is missing: " + str(asset)
+                        )
+                    widget.setIcon(QtGui.QIcon(str(asset)))
+                    widget.setIconSize(QtCore.QSize(19, 19))
 
             def _on_trace_checkbox_toggled(self, enabled):
                 if enabled:
@@ -1004,6 +2786,15 @@ class _PreviewPanel:
                         part_label=str(self.session.part_label),
                         mode=self.execution_mode.value,
                         bends_topology=bend_graph_data,
+                        loading_orientation_by_bend=(
+                            self._effective_loading_orientation_map()
+                        ),
+                        loading_orientation_status=(
+                            self._ergonomic_loading_status
+                        ),
+                        selected_planar_prefix=list(
+                            self._selected_planar_gauge_order
+                        ),
                     )
                     # Runtime evidence: distinguishes actual executed Python
                     # module from a checkout path, without guessing from the
@@ -1109,6 +2900,8 @@ class _PreviewPanel:
                     self.status.setText(message)
 
             def _trace_event(self, name, **fields):
+                # Always-on Desktop JSON, independent of optional JSONL.
+                _desktop_debug_event(str(name), **fields)
                 if self.motion_trace is not None and self.motion_trace.is_open:
                     try:
                         self.motion_trace.event(name, **fields)
@@ -1116,8 +2909,27 @@ class _PreviewPanel:
                         _warn("Motion trace event failed: {}".format(exc))
 
             def _trace_drawn_frame(self, sec, pose, warning, pc):
+                """Always capture sampled scene geometry in Desktop JSON.
+
+                Native D6 additionally records EVERY OCC-evaluated state.
+                GUI preview uses up to 5 frames/s to avoid turning a
+                long 40Hz playback into unbounded gigabytes of JSON.
+                """
+                if self.session is None:
+                    return
                 trace = self.motion_trace
-                if trace is None or not trace.is_open or self.session is None:
+                tracing = trace is not None and trace.is_open
+                now = time.monotonic()
+                signature = (
+                    self.session.active_bend_id,
+                    getattr(getattr(pc, "phase", None), "value", "NO_CYCLE"),
+                    str(warning),
+                )
+                full_debug = (
+                    signature != self._last_debug_frame_signature or
+                    now - self._last_debug_frame_at >= 0.2
+                )
+                if not tracing and not full_debug:
                     return
                 try:
                     frame = make_frame_record(
@@ -1131,16 +2943,41 @@ class _PreviewPanel:
                         scene_rect=self.scene.sceneRect(),
                         dt_s=self._trace_frame_dt,
                     )
-                    trace.record(frame)
-                    self._trace_frame_dt = None
+                    if full_debug:
+                        self._last_debug_frame_at = now
+                        self._last_debug_frame_signature = signature
+                        _desktop_debug_event("PREVIEW_GEOMETRY_FRAME", frame=frame)
+                    if tracing:
+                        trace.record(frame)
+                        self._trace_frame_dt = None
                 except Exception as exc:
-                    _warn("Motion trace frame failed: {}".format(exc))
-                    self.trace_status.setText("Ошибка трассы: {}".format(exc))
-                    self._finish_motion_trace("TRACE_FRAME_ERROR")
+                    _desktop_debug_event(
+                        "PREVIEW_FRAME_ERROR", error=str(exc),
+                        traceback=traceback.format_exc(),
+                        bend_id=self.session.active_bend_id,
+                    )
+                    if tracing:
+                        self.trace_status.setText("Ошибка трассы: {}".format(exc))
+                        self._finish_motion_trace("TRACE_FRAME_ERROR")
 
             def _on_view_changed(self, index):
                 if index == 1:
                     self._update_3d_preview(force=True)
+                elif index == 2:
+                    self._draw_flat_pattern()
+
+            def _orbit_3d(self, dx, dy, roll=False):
+                if roll:
+                    self._orbit_roll = (self._orbit_roll + dx * 0.45) % 360.0
+                else:
+                    self._orbit_yaw = (self._orbit_yaw + dx * 0.45) % 360.0
+                    self._orbit_pitch = clamp_pitch(self._orbit_pitch + dy * 0.45)
+                self._update_3d_preview(force=True)
+
+            def reset_3d_view(self):
+                self._orbit_yaw, self._orbit_pitch, self._orbit_roll = 35.0, 25.0, 0.0
+                self._update_3d_preview(force=True)
+                self._preview_3d.reset_camera()
 
             def _update_3d_preview(self, force=False):
                 """Live whole-workpiece isometric 3D projection, read-only.
@@ -1160,30 +2997,99 @@ class _PreviewPanel:
                 if self.session is None:
                     scene.addSimpleText("Загрузите листовую деталь в PressBrakeSim")
                     return
+                inspection = (
+                    self._collision_inspection
+                    if self._collision_display_active else None
+                )
+                inspected_components = set()
                 try:
-                    # Fixed isometric assembly view: only FoldState bends.
-                    # No machine-space pose, negative-bend flip or tooling.
+                    # A real D6 3D collision uses the tool-centric MACHINE
+                    # coordinate system, which can differ from the ergonomic
+                    # reverse-axis 2.5D preview. For inspection, reconstruct
+                    # a SEPARATE FoldState and use the exact logged rigid pose.
+                    if inspection:
+                        entry = inspection.get("first_blocker") or {}
+                        actual = entry.get("sampled_machine_pose") or {}
+                        if (actual.get("bend_id") != inspection.get("bend_id")
+                                or not actual.get("rotation")
+                                or not actual.get("translation")):
+                            raise ValueError(
+                                "missing_native_machine_frame_for_collision"
+                            )
+                        inspection_state = FoldState(
+                            self.session.fold_state.graph,
+                            self.session.fold_state.fixed_panel,
+                        )
+                        for bid, deg in actual.get(
+                                "completed_angles", {}).items():
+                            inspection_state.set_angle(bid, float(deg))
+                        inspection_state.set_angle(
+                            actual["bend_id"],
+                            float(actual["signed_angle_deg"]),
+                        )
+                        current_placement = PlacementTransform3D(
+                            rotation=tuple(
+                                tuple(float(x) for x in row)
+                                for row in actual["rotation"]
+                            ),
+                            translation=tuple(
+                                float(x) for x in actual["translation"]
+                            ),
+                        )
+                        attribution = entry.get("component_attribution") or {}
+                        inspected_components = {
+                            str(hit.get("component_id")).split(":", 1)[1]
+                            for hit in attribution.get("hits", ())
+                            if str(hit.get("component_id", "")).startswith(
+                                "panel:"
+                            )
+                        }
+                        fold_state = inspection_state
+                        bend_id = actual["bend_id"]
+                    else:
+                        # Normal 2.5D/3D interactive preview remains unchanged.
+                        current_placement = self._current_preview_machine_placement()
+                        fold_state = self.session.fold_state
+                        bend_id = self.session.active_bend_id
                     pose = WorkpiecePose2D()
                     faces = build_sheet_preview_faces(
-                        self.session.fold_state,
+                        fold_state,
                         self.session.panel_vertices_xy,
-                        self.session.controller.canonical_order[0],
+                        bend_id,
                         pose,
                         segments=12,
+                        machine_placement=current_placement,
                     )
-                except (PreviewMeshError, WorkpiecePoseError, KinematicsError) as exc:
+                except (PreviewMeshError, WorkpiecePoseError,
+                        KinematicsError, ValueError, KeyError) as exc:
                     _warn("3D whole-sheet preview unavailable: {}".format(exc))
                     scene.addSimpleText("3D: {}".format(str(exc)))
                     return
 
-                # Camera: machine s (horizontal), depth (bend axis), z (vertical).
-                # This is a projected 3D surface viewer, not an OCC solid viewport.
-                def project(p):
-                    s, depth, z = p
-                    return QtCore.QPointF(
-                        0.87 * s + 0.48 * depth,
-                        -0.83 * z + 0.36 * depth - 0.10 * s,
+                # Camera orbit is anchored at the PHYSICAL DIE ORIGIN.
+                # Recentering on the mesh centroid each frame hid long
+                # operator/rear feeds and produced false visual "jumps".
+                # Orbit the camera, never translate the machine or sheet.
+                all_vertices = [v for f in faces for v in f.vertices]
+                if not all_vertices:
+                    scene.addSimpleText("3D: no visible faces")
+                    return
+                center = (0.0, 0.0, 0.0)
+                radius = max(
+                    math.sqrt(sum((p[i] - center[i]) ** 2 for i in range(3)))
+                    for p in all_vertices
+                )
+                radius = max(radius, 1.0)
+
+                def camera_point(p):
+                    return orbit_project(
+                        tuple(p[i] - center[i] for i in range(3)),
+                        self._orbit_yaw, self._orbit_pitch, self._orbit_roll,
                     )
+
+                def project(p):
+                    x, y, _depth = camera_point(p)
+                    return QtCore.QPointF(x, y)
 
                 palette = {
                     "panel_top": ("#8bb9d4", "#37647e"),
@@ -1193,27 +3099,84 @@ class _PreviewPanel:
                     "zone_outer": ("#e0b967", "#9a7134"),
                     "zone_end": ("#bd9c65", "#9a7134"),
                 }
-                # Stable approximate painter ordering: view-depth, then height.
+                # Painter order must follow the currently rotated camera depth.
                 ordering = sorted(
                     faces,
-                    key=lambda face: (
-                        sum(pt[1] for pt in face.vertices)/len(face.vertices),
-                        sum(pt[2] for pt in face.vertices)/len(face.vertices),
-                    ),
+                    key=lambda face: sum(camera_point(pt)[2] for pt in face.vertices)
+                    / len(face.vertices),
+                    reverse=True,
                 )
                 for face in ordering:
                     poly = QtGui.QPolygonF([project(pt) for pt in face.vertices])
                     if len(poly) < 3:
                         continue
                     fill_hex, edge_hex = palette.get(face.kind, ("#91a5b3", "#4c6474"))
-                    pen = QtGui.QPen(QtGui.QColor(edge_hex), 0.65)
+                    if inspection and face.identifier in inspected_components:
+                        edge_hex, fill_hex = "#cf3030", "#e8a1a1"
+                    pen = QtGui.QPen(QtGui.QColor(edge_hex), 2.0 if (
+                        inspection and face.identifier in inspected_components
+                    ) else 0.65)
                     pen.setCosmetic(True)
                     brush = QtGui.QBrush(QtGui.QColor(fill_hex))
                     item = scene.addPolygon(poly, pen, brush)
                     item.setToolTip("{}: {}".format(face.kind, face.identifier))
 
+                if inspection:
+                    actual = (inspection.get("first_blocker") or {}).get(
+                        "sampled_machine_pose"
+                    ) or {}
+                    obstacle = inspection.get("first_blocker") or {}
+                    from smbs_core.kinematics2d.native_collision_attribution import (
+                        collision_preview_boxes,
+                    )
+                    for marker in collision_preview_boxes(obstacle):
+                        tool_kind = marker["tool"]
+                        bound = marker["bbox"]
+                        # 12 edges of a positive OCC common-solid AABB in
+                        # MACHINE coordinates. Use independently attributed
+                        # panel P09 bounds instead of the entire sheet when
+                        # complete diagnostics support that precision. This
+                        # wireframe is NEVER the actual contact surface.
+                        lo = (bound["xmin"], bound["ymin"], bound["zmin"])
+                        hi = (bound["xmax"], bound["ymax"], bound["zmax"])
+                        corners = [
+                            (x, y, z)
+                            for x in (lo[0], hi[0])
+                            for y in (lo[1], hi[1])
+                            for z in (lo[2], hi[2])
+                        ]
+                        red = QtGui.QPen(QtGui.QColor("#df2020"), 2.6)
+                        red.setCosmetic(True)
+                        for i in range(8):
+                            for j in range(i + 1, 8):
+                                if sum(
+                                    corners[i][axis] != corners[j][axis]
+                                    for axis in range(3)
+                                ) != 1:
+                                    continue
+                                a, b = project(corners[i]), project(corners[j])
+                                wire = scene.addLine(
+                                    a.x(), a.y(), b.x(), b.y(), red,
+                                )
+                                wire.setZValue(500.0)
+                        text_item = scene.addSimpleText(
+                            "OCC {} x {}: XYZ BBox / native D6".format(
+                                tool_kind.upper(), marker["component_id"],
+                            )
+                        )
+                        text_item.setBrush(QtGui.QBrush(
+                            QtGui.QColor("#ce1818")
+                        ))
+                        text_item.setPos(project(corners[0]))
+                        text_item.setZValue(501.0)
                 label = scene.addSimpleText(
-                    "3D FULL PART | {} | FIXED ISOMETRIC | {} | KINEMATIC_PREVIEW".format(
+                    ("3D КОЛЛИЗИЯ | гиб {} | фаза {} | угол {:.2f}° | "
+                     "native XYZ BBox, НЕ поверхность контакта".format(
+                        inspection["bend_id"],
+                        (inspection["first_blocker"] or {}).get("phase", "?"),
+                        float(actual.get("signed_angle_deg", 0.0)),
+                    )) if inspection else
+                    "3D MACHINE FRAME | {} | {} | NOT 3D CERTIFIED".format(
                         self.session.active_bend_id,
                         self.execution_mode.value,
                     )
@@ -1226,25 +3189,17 @@ class _PreviewPanel:
                 max_y = max(p.y() for p in sheet_points)
                 label.setPos(min_x, min_y - 25)
                 pad = max(10.0, 0.08 * max(max_x-min_x, max_y-min_y))
+                # Fixed viewport in camera-centered model coordinates prevents
+                # jump/auto-fit when switching bends or dragging the orbit camera.
                 if self._fixed_3d_view_rect is None:
-                    # Stable viewing frame across positive/negative operations:
-                    # the sheet deforms, but the isometric camera does not pan.
-                    width = max_x - min_x
-                    height = max_y - min_y
-                    extra = max(25.0, 0.65 * max(width, height))
+                    extent = radius * 1.8 + 25.0
                     self._fixed_3d_view_rect = QtCore.QRectF(
-                        min_x - extra, min_y - extra - 25,
-                        width + 2 * extra, height + 2 * extra + 25,
+                        -extent, -extent - 25.0, 2 * extent, 2 * extent + 25.0,
                     )
                     scene.setSceneRect(self._fixed_3d_view_rect)
-                    self._preview_3d.fitInView(
-                        self._fixed_3d_view_rect, QtCore.Qt.KeepAspectRatio
-                    )
+                    self._preview_3d.reset_camera()
                 else:
                     scene.setSceneRect(self._fixed_3d_view_rect)
-
-            def unavailable(self):
-                pass  # Disabled controls for Phase 5B/6 features.
 
             def _auto_select_default_tooling(self):
                 """Auto-select verified default tooling (puancon / matrica) if none selected."""
@@ -1252,13 +3207,23 @@ class _PreviewPanel:
                     return
                 try:
                     tools = self.tool_library.list_tools()
+                    # First priority: verified baseline tools "puancon" and "matrica"
                     for t in tools:
                         if t.validation_status != ValidationStatus.INVALID:
                             if self.tooling_setup.punch is None and t.kind == ToolKind.PUNCH:
-                                if "puancon" in t.tool_id.lower() or "punch" in t.tool_id.lower():
+                                if t.tool_id.lower() == "puancon":
                                     self.tooling_setup.select_punch(t)
                             if self.tooling_setup.die is None and t.kind == ToolKind.DIE:
-                                if "matrica" in t.tool_id.lower() or "die" in t.tool_id.lower():
+                                if t.tool_id.lower() == "matrica":
+                                    self.tooling_setup.select_die(t)
+                    # Second priority: any other matching punch / die
+                    for t in tools:
+                        if t.validation_status != ValidationStatus.INVALID:
+                            if self.tooling_setup.punch is None and t.kind == ToolKind.PUNCH:
+                                if "punch" in t.tool_id.lower():
+                                    self.tooling_setup.select_punch(t)
+                            if self.tooling_setup.die is None and t.kind == ToolKind.DIE:
+                                if "die" in t.tool_id.lower():
                                     self.tooling_setup.select_die(t)
                     if self.tooling_setup.punch is None:
                         for t in tools:
@@ -1303,55 +3268,1193 @@ class _PreviewPanel:
                         self.select_die_combo.setCurrentIndex(idx)
                 self.select_die_combo.blockSignals(False)
 
+            def _physical_pose_signature(self):
+                """Identity of the actual pose and selected tool set, not a GUI frame number."""
+                if self.session is None:
+                    return None
+                fs = self.session.fold_state
+                pc = self.press_cycle
+                return (
+                    id(fs),
+                    self.session.active_bend_id,
+                    tuple(sorted((str(k), float(v)) for k, v in fs.angles.items())),
+                    id(self.tooling_setup.punch),
+                    id(self.tooling_setup.die),
+                    getattr(self.tooling_setup, "aligned", False),
+                    bool(getattr(self.tooling_setup, "match_active_bend_length", False)),
+                    round(float(getattr(self.tooling_setup, "active_bend_length_mm", 0.0) or 0.0), 4),
+                    bool(getattr(self.tooling_setup, "allow_end_zone_collision", False)),
+                    round(float(getattr(self.tooling_setup, "end_zone_length_mm", 0.0) or 0.0), 4),
+                    getattr(getattr(self.tooling_setup, "punch_machine_transform", None), "to_matrix_tuple", lambda: ())(),
+                    getattr(getattr(self.tooling_setup, "die_machine_transform", None), "to_matrix_tuple", lambda: ())(),
+                    (getattr(getattr(pc, "phase", None), "value", getattr(pc, "phase", "")) if pc is not None else ""),
+                    (float(getattr(pc, "ram_z_mm", 0.0) or 0.0) if pc is not None and getattr(pc, "ram_z_mm", None) is not None else None),
+                    (float(getattr(pc, "transfer_progress", 0.0) or 0.0) if pc is not None and getattr(pc, "transfer_progress", None) is not None else None),
+                )
+
+            def _active_bend_length_mm(self) -> float:
+                if self.session is None or getattr(self.session, "fold_state", None) is None:
+                    return 0.0
+                try:
+                    bend = self.session.fold_state.bends[self.session.active_bend_id]
+                    axis = getattr(bend, "axis_xyz", None)
+                    if axis is not None:
+                        return float(math.dist(axis[0], axis[1]))
+                except Exception:
+                    pass
+                return 0.0
+
+            def _on_virtual_tool_length_toggled(self, enabled: bool):
+                self._manual_3d_verdicts.clear()
+                self._manual_retract_verdicts.clear()
+                self._clear_manual_check_feedback()
+                bend_len = self._active_bend_length_mm()
+                if hasattr(self.tooling_setup, "set_match_active_bend_length"):
+                    self.tooling_setup.set_match_active_bend_length(bool(enabled), bend_len)
+                if self.press_cycle is not None and hasattr(self.press_cycle, "set_match_active_bend_length"):
+                    self.press_cycle.set_match_active_bend_length(bool(enabled))
+                self._update_tooling_status_label()
+                self.draw()
+
+            def _on_end_zone_length_changed(self, val: float):
+                self._manual_3d_verdicts.clear()
+                self._manual_retract_verdicts.clear()
+                self._clear_manual_check_feedback()
+                try:
+                    fval = max(0.0, float(val))
+                except (TypeError, ValueError):
+                    return
+                self.tooling_setup.end_zone_length_mm = fval
+                self._update_tooling_status_label()
+
+            def _on_allow_end_zone_toggled(self, enabled: bool):
+                self._manual_3d_verdicts.clear()
+                self._manual_retract_verdicts.clear()
+                self._clear_manual_check_feedback()
+                self.tooling_setup.allow_end_zone_collision = bool(enabled)
+                self._update_tooling_status_label()
+
+            def _prompt_end_zone_conditional_dialog(self, bend_id: str, ez_analysis) -> bool:
+                """Show Russian confirmation dialog when an END_ZONE_ONLY punch collision is detected.
+                Returns True if operator chooses 'Продолжить с предупреждением', False if 'Отменить'.
+                """
+                side_str = str(getattr(ez_analysis, "affected_side", "UNKNOWN"))
+                vol_mm3 = float(getattr(ez_analysis, "total_overlap_volume_mm3", 0.0))
+                ez_mm = float(getattr(ez_analysis, "end_zone_length_mm", self.tooling_setup.end_zone_length_mm))
+
+                self._highlighted_end_zone_info = {
+                    "bend_id": str(bend_id),
+                    "affected_side": side_str,
+                    "overlap_volume_mm3": vol_mm3,
+                    "end_zone_length_mm": ez_mm,
+                }
+                self.draw()
+                QtWidgets.QApplication.processEvents()
+
+                custom_handler = getattr(self, "_end_zone_dialog_handler", None)
+                if callable(custom_handler):
+                    return bool(custom_handler(bend_id, ez_analysis))
+
+                msg_box = QtWidgets.QMessageBox(self)
+                msg_box.setIcon(QtWidgets.QMessageBox.Warning)
+                msg_box.setWindowTitle("Концевое пересечение с пуансоном (CONDITIONAL)")
+                msg_box.setText(
+                    "Обнаружено пересечение детали с концевой зоной пуансона.\n"
+                    "Для этой операции может потребоваться пуансон с вырезом на конце.\n"
+                    "Подходящая геометрия такого инструмента ещё не проверена.\n"
+                    "Продолжить проверку в условном режиме?"
+                )
+                msg_box.setInformativeText(
+                    "Операция/гиб: {}\n"
+                    "Сторона пуансона: {}\n"
+                    "Объём пересечения: {:.4f} мм³\n"
+                    "Концевая зона пуансона: {:.1f} мм".format(
+                        bend_id, side_str, vol_mm3, ez_mm
+                    )
+                )
+                btn_continue = msg_box.addButton(
+                    "Продолжить с предупреждением", QtWidgets.QMessageBox.AcceptRole
+                )
+                msg_box.addButton("Отменить", QtWidgets.QMessageBox.RejectRole)
+                msg_box.exec()
+                return msg_box.clickedButton() == btn_continue
+
+            def check_current_physical_pose(self):
+                """Read-only current-pose check; never modifies FoldState or GUI animation."""
+                if self.session is None:
+                    self.physical_check_result.setText("UNVERIFIED: деталь не загружена")
+                    return
+                if self.timer.isActive() or self.session.playback_status == PlaybackStatus.PLAYING:
+                    self.physical_check_result.setText(
+                        "UNVERIFIED: сначала Pause; проверяется только неподвижный кадр."
+                    )
+                    return
+                self.physical_check_btn.setEnabled(False)
+                self._highlighted_end_zone_info = None
+                self._set_task_busy(True)
+                try:
+                    from smbs_core.kinematics2d.physical_validation_25d import (
+                        PhysicalEvidence,
+                        check_current_25d_pose,
+                    )
+                    self._sync_tooling_to_active_bend()
+                    pc = self._ensure_press_cycle_controller()
+                    ez_len = float(getattr(self.tooling_setup, "end_zone_length_mm", 0.0) or 0.0)
+                    allow_ez = bool(getattr(self.tooling_setup, "allow_end_zone_collision", False))
+                    match_len = bool(getattr(self.tooling_setup, "match_active_bend_length", False))
+                    report = check_current_25d_pose(
+                        self.session,
+                        pc,
+                        self.tooling_setup,
+                        native_3d=True,
+                        match_active_bend_length=match_len,
+                        allow_end_zone_collision=allow_ez,
+                        end_zone_length_mm=ez_len,
+                        classify_end_zone_length_mm=ez_len if ez_len > 0.0 else 10.0,
+                    )
+                    ez = getattr(report, "end_zone_analysis", None)
+                    if (
+                        report.status is PhysicalEvidence.COLLISION
+                        and not allow_ez
+                        and ez is not None
+                        and getattr(getattr(ez, "classification", None), "value", "") == "END_ZONE_ONLY"
+                        and report.section_status != "INTERFERENCE"
+                    ):
+                        active_id = str(self.session.active_bend_id)
+                        if self._prompt_end_zone_conditional_dialog(active_id, ez):
+                            eff_ez = ez_len if ez_len > 0.0 else 10.0
+                            report = check_current_25d_pose(
+                                self.session,
+                                pc,
+                                self.tooling_setup,
+                                native_3d=True,
+                                match_active_bend_length=self.tooling_setup.match_active_bend_length,
+                                allow_end_zone_collision=True,
+                                end_zone_length_mm=eff_ez,
+                                classify_end_zone_length_mm=eff_ez,
+                            )
+                        else:
+                            self._highlighted_end_zone_info = None
+                            self.draw()
+
+                    if report.status is PhysicalEvidence.CONDITIONAL:
+                        active_id = str(self.session.active_bend_id)
+                        self._conditional_bends_status[active_id] = (
+                            "CONDITIONAL (требуется пуансон с вырезом на конце; геометрия не проверена)"
+                        )
+                        if ez is not None:
+                            self._highlighted_end_zone_info = {
+                                "bend_id": active_id,
+                                "affected_side": str(getattr(ez, "affected_side", "UNKNOWN")),
+                                "overlap_volume_mm3": float(getattr(ez, "total_overlap_volume_mm3", 0.0)),
+                                "end_zone_length_mm": float(getattr(ez, "end_zone_length_mm", ez_len)),
+                            }
+                        self._populate_operations()
+                        self.draw()
+
+                    detail = "{} | 2D={} | 3D={} | {} | scope={}".format(
+                        report.status.value, report.section_status,
+                        report.native_status, report.reason,
+                        ",".join(report.checked_scope),
+                    )
+                    self.physical_check_result.setText(detail)
+                    self._physical_check_signature = self._physical_pose_signature()
+                    self._trace_event(
+                        "PHYSICAL_POSE_CHECK",
+                        status=report.status.value,
+                        section_status=report.section_status,
+                        native_status=report.native_status,
+                        reason=report.reason,
+                        checked_scope=list(report.checked_scope),
+                        fully_qualified=report.is_fully_qualified,
+                        is_conditional=bool(getattr(report, "is_conditional", False)),
+                        tool_length_info=getattr(report, "tool_length_info", None),
+                    )
+                    _log("Physical pose check: " + detail)
+                except Exception as exc:
+                    self.physical_check_result.setText(
+                        "UNVERIFIED: ошибка физической проверки: {}".format(exc)
+                    )
+                    _error("Physical pose check exception: " + traceback.format_exc())
+                finally:
+                    self._set_task_busy(False)
+                    self.physical_check_btn.setEnabled(True)
+
+            def check_active_bend_physical_trajectory(self):
+                """D6.3.4 adaptive evaluation on demand; no timer-side OCC calls."""
+                if (self.session is not None
+                        and self._selected_planar_loading_orientation.get(
+                            str(self.session.active_bend_id), False
+                        )):
+                    self.physical_check_result.setText(
+                        "UNVERIFIED: нативный D6.3.4 проверяет только обычную "
+                        "ориентацию; обратная загрузка из 2D-поиска ещё не "
+                        "поддержана независимой 3D-проверкой траектории."
+                    )
+                    return
+                if self.session is None:
+                    self.physical_check_result.setText(
+                        "UNVERIFIED: деталь не загружена"
+                    )
+                    return
+                if self.timer.isActive() or self.session.playback_status == PlaybackStatus.PLAYING:
+                    self.physical_check_result.setText(
+                        "UNVERIFIED: Pause перед проверкой всей траектории."
+                    )
+                    return
+                self.full_physical_check_btn.setEnabled(False)
+                self.physical_check_btn.setEnabled(False)
+                self._highlighted_end_zone_info = None
+                self._set_task_busy(True)
+                self.physical_check_result.setText(
+                    "Проверяется нативная 3D-траектория D6.3.4; "
+                    "состояние FreeCAD будет сохранено."
+                )
+                QtWidgets.QApplication.processEvents()
+                try:
+                    from smbs_core.kinematics2d.physical_validation_25d import (
+                        PhysicalEvidence,
+                        check_active_25d_bend_trajectory,
+                    )
+                    self._sync_tooling_to_active_bend()
+                    ez_len = float(getattr(self.tooling_setup, "end_zone_length_mm", 0.0) or 0.0)
+                    allow_ez = bool(getattr(self.tooling_setup, "allow_end_zone_collision", False))
+                    match_len = bool(getattr(self.tooling_setup, "match_active_bend_length", False))
+                    report = check_active_25d_bend_trajectory(
+                        self.session,
+                        self.tooling_setup,
+                        match_active_bend_length=match_len,
+                        allow_end_zone_collision=allow_ez,
+                        end_zone_length_mm=ez_len,
+                        classify_end_zone_length_mm=ez_len if ez_len > 0.0 else 10.0,
+                    )
+                    ez = getattr(report, "end_zone_analysis", None)
+                    if (
+                        report.status is PhysicalEvidence.COLLISION
+                        and not allow_ez
+                        and ez is not None
+                        and getattr(getattr(ez, "classification", None), "value", "") == "END_ZONE_ONLY"
+                    ):
+                        active_id = str(self.session.active_bend_id)
+                        if self._prompt_end_zone_conditional_dialog(active_id, ez):
+                            eff_ez = ez_len if ez_len > 0.0 else 10.0
+                            report = check_active_25d_bend_trajectory(
+                                self.session,
+                                self.tooling_setup,
+                                match_active_bend_length=self.tooling_setup.match_active_bend_length,
+                                allow_end_zone_collision=True,
+                                end_zone_length_mm=eff_ez,
+                                classify_end_zone_length_mm=eff_ez,
+                            )
+                        else:
+                            self._highlighted_end_zone_info = None
+                            self.draw()
+
+                    if report.status is PhysicalEvidence.CONDITIONAL:
+                        active_id = str(self.session.active_bend_id)
+                        self._conditional_bends_status[active_id] = (
+                            "CONDITIONAL (требуется пуансон с вырезом на конце; геометрия не проверена)"
+                        )
+                        if ez is not None:
+                            self._highlighted_end_zone_info = {
+                                "bend_id": active_id,
+                                "affected_side": str(getattr(ez, "affected_side", "UNKNOWN")),
+                                "overlap_volume_mm3": float(getattr(ez, "total_overlap_volume_mm3", 0.0)),
+                                "end_zone_length_mm": float(getattr(ez, "end_zone_length_mm", ez_len)),
+                            }
+                        self._populate_operations()
+                        self.draw()
+
+                    detail = "D6.3.4 {} | {} | {}".format(
+                        report.status.value, report.native_status, report.reason,
+                    )
+                    self.physical_check_result.setText(detail)
+                    self._physical_check_signature = self._physical_pose_signature()
+                    self._trace_event(
+                        "D634_BEND_TRAJECTORY_CHECK",
+                        status=report.status.value,
+                        native_status=report.native_status,
+                        reason=report.reason,
+                        checked_scope=list(report.checked_scope),
+                        fully_qualified=report.is_fully_qualified,
+                        is_conditional=bool(getattr(report, "is_conditional", False)),
+                        tool_length_info=getattr(report, "tool_length_info", None),
+                    )
+                    _log("D6.3.4 trajectory: " + detail)
+                except Exception as exc:
+                    # A failed FoldState restoration is a hard stop, not a
+                    # warning the user can click through while still playing.
+                    self._machine_pose_fault = (
+                        "D634_VALIDATION_HALTED: " + str(exc)
+                    )
+                    self._stop_timer()
+                    self.physical_check_result.setText(
+                        "UNVERIFIED: " + self._machine_pose_fault
+                    )
+                    _error(traceback.format_exc())
+                finally:
+                    self._set_task_busy(False)
+                    self.full_physical_check_btn.setEnabled(True)
+                    self.physical_check_btn.setEnabled(True)
+
+            def open_backgauge_dialog(self):
+                from freecad_smbs.commands.backgauge_dialog import (
+                    show_backgauge_settings,
+                )
+                show_backgauge_settings(self)
+
+            def _selected_operation_weights(self):
+                from smbs_core.kinematics2d.operation_cost import OperationWeights
+                values = OperationWeights().to_dict()
+                for name, editor in self._weight_editors.items():
+                    values[name] = float(editor.value())
+                return OperationWeights(**values)
+
+            def calculate_planar_candidates(self):
+                """Show ranked sampled-2D candidate sequences, never mark them physically verified."""
+                if self.session is None:
+                    self.status.setText("Сначала загрузите деталь SheetMetal.")
+                    return
+                if self.timer.isActive() or self.session.playback_status == PlaybackStatus.PLAYING:
+                    self.status.setText("Остановите воспроизведение перед 2D-поиском.")
+                    return
+                self.planar_calculate.setEnabled(False)
+                self.calculate.setEnabled(False)
+                self._manual_preview_unverified = False
+                self._manual_preview_notice.hide()
+                self._set_task_busy(True)
+                # Rear gauge is visualization-only; never spend OCC search
+                # budget on collision, clearance, contact or CAD penetration.
+                search_budget_s = 30.0
+                self.status.setText(
+                    "Быстрый поиск (до {:.0f} с): 2D-сечения. Возможны 3D-коллизии; "
+                    "полная проверка отключена.".format(search_budget_s)
+                )
+                QtWidgets.QApplication.processEvents()
+                try:
+                    from smbs_core.kinematics2d.sequence_search_2d import (
+                        search_bend_sequences_2d,
+                    )
+                    # A 2D preview with virtual axial tool length is permitted
+                    # ONLY for exploration, never treated as production safety
+                    # evidence. Native multi-sections cannot be virtually extended.
+                    has_sections = bool(
+                        getattr(self.tooling_setup, "punch_section_offsets_xm", ())
+                        or getattr(self.tooling_setup, "die_section_offsets_xm", ())
+                    )
+                    # No CAD backgauge contact trace in visual-only mode.
+                    self._last_backgauge_cad_trace_path = None
+                    report = search_bend_sequences_2d(
+                        self.session, self.tooling_setup,
+                        # Collect multiple complete candidates for genuine
+                        # weight-based comparison, subject to the search budget.
+                        # The best found is not proof of global optimality.
+                        max_solutions=12,
+                        max_complete_candidates=12,
+                        weights=self._selected_operation_weights(),
+                        backgauge_model=None,
+                        backgauge_cad_trace_path=None,
+                        # This workflow offers complete sequences only.
+                        min_partial_bends=0,
+                        # Alternative machine-Z loading trials are advisory:
+                        # the live 2.5D cycle still uses its own active pose.
+                        alternate_axis_bends=(
+                            tuple(b for b in ("B09", "B10") if b in self.session.bend_order)
+                            if len(self.session.bend_order) >= 10 else ()
+                        ),
+                        allow_end_zone_collision=bool(self.tooling_setup.allow_end_zone_collision),
+                        end_zone_length_mm=float(self.tooling_setup.end_zone_length_mm),
+                        allow_retract_warning=self.retract_warning_checkbox.isChecked(),
+                        max_search_time_s=search_budget_s,
+                        max_nodes=5000,
+                        max_evaluations=10000,
+                        # For 10+ bends, distribute the first search pass
+                        # across different starting bends. Otherwise a large
+                        # doomed subtree under B10 may consume the 30s budget.
+                        root_probe_nodes=(65 if len(self.session.bend_order) >= 10 else 0),
+                        # Each root gets <=1.8 s, even when memoization
+                        # prevents reaching its node-count allowance.
+                        root_probe_seconds=(
+                            1.8 if len(self.session.bend_order) >= 10
+                            else 0.0
+                        ),
+                        # Long box-like parts can require bends late in CAD
+                        # construction order to be formed first. For >=6 bends
+                        # explore reverse construction order before considering
+                        # the legacy group-first order. This only affects
+                        # scheduling; all steps still use the exact same
+                        # contact oracle and detailed replay.
+                        preferred_bend_order=(
+                            tuple(reversed(self.session.bend_order))
+                            if len(self.session.bend_order) >= 6
+                            else tuple(self.session.bend_order)
+                        ),
+                        group_first=len(self.session.bend_order) < 6,
+                        # Preliminary fast screen; every returned full order is
+                        # replayed by the solver at its original 17/9 samples.
+                        exploration_fractions=(0.0, 0.25, 0.5, 0.75, 1.0),
+                        exploration_stroke_fractions=(0.0, 0.5, 1.0),
+                        match_active_bend_length=not has_sections,
+                    )
+                    self.last_planar_search_report = report
+                    if self._last_backgauge_cad_trace_path:
+                        _log(
+                            "BACKGAUGE_CAD_TRACE_PATH: "
+                            + self._last_backgauge_cad_trace_path
+                        )
+                    self._last_planar_weights = self._selected_operation_weights().to_dict()
+                    self._trace_event(
+                        "PLANAR_2D_SEARCH_COMPLETED",
+                        status=report.status.value,
+                        evaluated_steps=report.evaluated_steps,
+                        visited_nodes=report.visited_nodes,
+                        candidate_count=len(report.candidates),
+                        limit_reason=report.limit_reason,
+                        budget_seconds=search_budget_s,
+                    )
+                    complete = self._complete_planar_candidates(report)
+                    if complete:
+                        self._show_planar_candidates_dialog(report)
+                    else:
+                        limit = (
+                            " Достигнут предел поиска ({}). Это не доказывает, "
+                            "что решения нет; повторный запуск начинает поиск "
+                            "заново.".format(report.limit_reason)
+                            if report.limit_reason else ""
+                        )
+                        message = (
+                            "За {:.0f} с полных 2D вариантов не найдено."
+                            .format(search_budget_s) + limit
+                        )
+                        self.status.setText(message)
+                        QtWidgets.QMessageBox.information(
+                            self, "Поиск 2D вариантов", message,
+                        )
+                except Exception as exc:
+                    msg = "2D поиск не выполнен: {}".format(exc)
+                    self.status.setText(msg)
+                    _error("Planar search exception: " + traceback.format_exc())
+                finally:
+                    self._set_task_busy(False)
+                    self._sync_playback_buttons()
+
+            def open_sequence_catalog_dialog(self):
+                from freecad_smbs.commands.sequence_catalog_dialog import show_sequence_catalog
+                show_sequence_catalog(self)
+
+            def assign_catalog_sequence(self, entry):
+                """Replay an imported order and bind it to the existing simulator."""
+                from smbs_core.kinematics2d.sequence_search_2d import (
+                    validate_partial_planar_prefix,
+                )
+                if self.session is None:
+                    raise ValueError("Сначала загрузите деталь SheetMetal")
+                if self.timer.isActive() or self.session.playback_status == PlaybackStatus.PLAYING:
+                    raise ValueError("Остановите воспроизведение перед сменой порядка")
+                sequence = tuple(entry.sequence)
+                current = tuple(self.session.canonical_order)
+                if (not sequence or len(sequence) > len(current)
+                        or len(set(sequence)) != len(sequence)
+                        or any(b not in current for b in sequence)):
+                    raise ValueError("Гибы JSON не соответствуют текущей детали")
+                if (entry.origin == "MANUAL" and entry.model_label
+                        and entry.model_label != self.session.part_label):
+                    raise ValueError(
+                        "Ручной JSON относится к другой детали: " + entry.model_label
+                    )
+                has_sections = bool(
+                    getattr(self.tooling_setup, "punch_section_offsets_xm", ())
+                    or getattr(self.tooling_setup, "die_section_offsets_xm", ())
+                )
+                valid, reason = validate_partial_planar_prefix(
+                    self.session, self.tooling_setup, sequence,
+                    match_active_bend_length=not has_sections,
+                    allow_retract_warning=self.retract_warning_checkbox.isChecked(),
+                    backgauge_model=None,
+                )
+                if not valid:
+                    raise ValueError(
+                        "Повторная 2D-проверка не пройдена: " + reason
+                    )
+                self._stop_timer()
+                self.session.reset_all_bends()
+                remainder = [bend for bend in current if bend not in sequence]
+                self.session.set_bend_order(list(sequence) + remainder)
+                is_partial = len(sequence) < len(current)
+                self._partial_preview_limit = len(sequence) if is_partial else 0
+                self._preview_only_planar_order = sequence
+                self._selected_planar_gauge_order = ()
+                self._selected_planar_gauge_positions = {}
+                self._selected_planar_gauge_model_id = None
+                self._selected_planar_loading_orientation = {}
+                self._backgauge_preview_cache.clear()
+                self.last_sequence_search_report = None
+                self._conditional_bends_status.clear()
+                self._populate_operations()
+                self._configure_for_active_bend()
+                self._sync_tooling_to_active_bend()
+                self.draw()
+                self.status.setText(
+                    "Каталог → симуляция: {}/{} | {} | {}"
+                    .format(len(sequence), len(current), entry.origin, reason)
+                )
+                self.physical_check_result.setText(
+                    "UNVERIFIED: повторная 2D-проверка не является 3D-допуском. "
+                    + reason
+                )
+                self._trace_event(
+                    "CATALOG_SEQUENCE_SELECTED",
+                    sequence=list(sequence), source=entry.source,
+                    evidence=entry.evidence, recheck=reason,
+                    physical_status="UNVERIFIED",
+                )
+
+            def _complete_planar_candidates(self, report):
+                """Only full, unique orders can enter the Manual workflow."""
+                total = len(self.session.bend_order)
+                expected = set(self.session.bend_order)
+                seen = set()
+                complete = []
+                for candidate in report.candidates:
+                    sequence = tuple(candidate.sequence)
+                    if (len(sequence) != total or set(sequence) != expected
+                            or sequence in seen):
+                        continue
+                    seen.add(sequence)
+                    complete.append(candidate)
+                return complete
+
+            def _show_planar_candidates_dialog(self, report):
+                """Choose a complete 2D order for Manual verification."""
+                # A new search may replace a previous result; close the old tab
+                # explicitly rather than presenting a stale list.
+                previous = getattr(self, "_task_dialogs", {}).get("planar_candidates")
+                if previous is not None:
+                    previous.reject()
+                dlg = QtWidgets.QDialog(self)
+                dlg.setWindowTitle("SMBS — найденные полные порядки")
+                dlg.resize(700, 430)
+                layout = QtWidgets.QVBoxLayout(dlg)
+                heading = QtWidgets.QLabel(
+                    "Шаг 2: выберите один полный порядок и откройте раздел "
+                    "«Порядок и проверка». Номера появятся на развёртке. "
+                    "Затем отдельно нажмите «Быстрая проверка OCC (5 углов)» или "
+                    "«Полная проверка (3D)». Пока 3D коллизии не проверены."
+                )
+                heading.setWordWrap(True)
+                layout.addWidget(heading)
+                weights_caption = QtWidgets.QLabel(
+                    "Веса: поворот {:.2f} + {:.2f}/90°, переворот {:.2f}, "
+                    "сдвиг {:.2f} + {:.2f}/100 мм, "
+                    "линия гиба {:.2f} + {:.2f}/100 мм, "
+                    "пуансон {:.2f} + {:.2f}/100 мм, "
+                    "матрица {:.2f} + {:.2f}/100 мм, "
+                    "задний упор {:.2f} + {:.2f}/100 мм. "
+                    "Лучший из найденных планов не обязательно глобально оптимален.".format(
+                        *[self._last_planar_weights[k] for k in (
+                            "turn_fixed", "turn_per_90_deg", "flip",
+                            "shift_fixed", "shift_per_100_mm",
+                            "length_change_fixed", "length_delta_per_100_mm",
+                            "punch_length_change_fixed", "punch_length_delta_per_100_mm",
+                            "die_length_change_fixed", "die_length_delta_per_100_mm",
+                            "backgauge_move_fixed", "backgauge_move_per_100_mm",
+                        )]
+                    )
+                )
+                weights_caption.setWordWrap(True)
+                layout.addWidget(weights_caption)
+                details = QtWidgets.QLabel(
+                    "Статус: {} | вариантов: {} | 2D проверок: {} | причина остановки: {}".format(
+                        report.status.value, len(self._complete_planar_candidates(report)),
+                        report.evaluated_steps,
+                        ("цель достигнута: найдено заданное количество вариантов"
+                         if report.limit_reason == "MAX_COMPLETE_CANDIDATES_REACHED"
+                         else report.limit_reason or "нет"),
+                    )
+                )
+                details.setWordWrap(True)
+                layout.addWidget(details)
+                cad_trace_path = getattr(
+                    self, "_last_backgauge_cad_trace_path", None
+                )
+                if cad_trace_path:
+                    from pathlib import Path
+                    log_file = Path(cad_trace_path)
+                    trace_exists = log_file.is_file()
+                    trace_label = QtWidgets.QLabel(
+                        ("CAD-лог контакта: " if trace_exists else
+                         "CAD-лог не создан — проверьте исходную модель: ")
+                        + str(log_file)
+                    )
+                    trace_label.setWordWrap(True)
+                    trace_label.setTextInteractionFlags(
+                        QtCore.Qt.TextSelectableByMouse
+                    )
+                    layout.addWidget(trace_label)
+                    if trace_exists:
+                        open_trace_folder = QtWidgets.QPushButton(
+                            "Открыть папку CAD-лога"
+                        )
+                        open_trace_folder.clicked.connect(
+                            lambda: QtGui.QDesktopServices.openUrl(
+                                QtCore.QUrl.fromLocalFile(
+                                    str(log_file.parent)
+                                )
+                            )
+                        )
+                        layout.addWidget(open_trace_folder)
+                if report.alternative_setup_trials:
+                    tested = len(report.alternative_setup_trials)
+                    clear = sum(
+                        trial[3] == "SAMPLED_2D_CLEAR_OR_TOUCH"
+                        for trial in report.alternative_setup_trials
+                    )
+                    alternate_notice = QtWidgets.QLabel(
+                        "Альтернативная установка (разворот на 180°): "
+                        "проверено {}, без 2D-пересечений {}. "
+                        "Результат пока диагностический, анимация такой установки "
+                        "и путь перекладки отдельно не подтверждены.".format(
+                            tested, clear
+                        )
+                    )
+                    alternate_notice.setWordWrap(True)
+                    layout.addWidget(alternate_notice)
+                if report.conditional_end_zone_requested:
+                    conditional_notice = QtWidgets.QLabel(
+                        "CONDITIONAL запрошен. В быстром 2D-сечении нельзя "
+                        "подтвердить столкновение именно с концом пуансона; "
+                        "такие пересечения не разрешаются без 3D-классификации."
+                    )
+                    conditional_notice.setWordWrap(True)
+                    layout.addWidget(conditional_notice)
+                depth_info = QtWidgets.QLabel(
+                    "Максимальная глубина: {}/{} | путь: {}\n"
+                    "Классификация проверок: {}".format(
+                        report.max_depth_reached,
+                        len(self.session.bend_order) if self.session is not None else "?",
+                        " → ".join(report.deepest_prefix) or "(начало)",
+                        ", ".join("{}: {}".format(name, count)
+                                  for name, count in report.rejection_counts) or "нет",
+                    )
+                )
+                depth_info.setWordWrap(True)
+                layout.addWidget(depth_info)
+                cache_info = QtWidgets.QLabel(
+                    "DFS: тупиковых состояний {} | повторов отсечено {} | "
+                    "отложенных ветвей {}".format(
+                        report.dead_states_proven,
+                        report.dead_state_cache_hits,
+                        report.deferred_root_probes,
+                    )
+                )
+                cache_info.setWordWrap(True)
+                layout.addWidget(cache_info)
+                pair_lines = [
+                    "{} ↔ {}: оба порядка первых двух гибов отклонены в 2D".format(
+                        left, right
+                    )
+                    for left, right, _, _ in report.paired_first_step_obstructions
+                ]
+                if pair_lines:
+                    pair_info = QtWidgets.QLabel(
+                        "Диагностика пар (не доказательство невозможности гибки):\n"
+                        + "\n".join(pair_lines[:6])
+                    )
+                    pair_info.setWordWrap(True)
+                    layout.addWidget(pair_info)
+                options = QtWidgets.QListWidget(dlg)
+                options.setMinimumHeight(145)
+                visible_candidates = self._complete_planar_candidates(report)
+                for index, candidate in enumerate(visible_candidates):
+                    suffix = (" | штраф {:.2f}".format(candidate.cost)
+                              if candidate.cost_complete else " | штраф не подтверждён")
+                    evidence_label = {
+                        "SAMPLED_2D_CLEAR_OR_TOUCH":
+                            "в проверенных 2D сечениях препятствий не обнаружено",
+                        "CONDITIONAL_RETRACT_WARNING_NOT_3D_VALIDATED":
+                            "предупреждение при отводе пуансона (RETRACT)",
+                    }.get(candidate.evidence, "есть неопределённые 2D участки")
+                    reversed_bends = [
+                        step.bend_id for step in candidate.steps
+                        if step.orientation_variant.startswith("REVERSE_MACHINE_Z_180")
+                    ]
+                    options.addItem(
+                        "{}. {} | {}{} | разворот 180°: {}".format(
+                            index + 1, " → ".join(candidate.sequence),
+                            evidence_label, suffix,
+                            ", ".join(reversed_bends) or "нет",
+                        )
+                    )
+                if visible_candidates:
+                    options.setCurrentRow(0)
+                # Put the decision first. Long DFS diagnostics remain below.
+                layout.insertWidget(1, options)
+                controls = QtWidgets.QHBoxLayout()
+                use = QtWidgets.QPushButton("Выбрать порядок → к проверке")
+                use.setEnabled(bool(visible_candidates))
+                export_btn = QtWidgets.QPushButton("Сохранить диагностику JSON")
+                close = QtWidgets.QPushButton("Закрыть")
+                controls.addWidget(use)
+                controls.addWidget(export_btn)
+                controls.addWidget(close)
+                layout.insertLayout(2, controls)
+
+                def on_preview():
+                    row = options.currentRow()
+                    if row < 0 or row >= len(visible_candidates):
+                        return
+                    candidate = visible_candidates[row]
+                    try:
+                        if candidate not in self._complete_planar_candidates(report):
+                            raise ValueError("Выбранный порядок не является полным")
+                        self._stop_timer()
+                        self.session.reset_all_bends()
+                        dlg.accept()
+                        self.activate_manual_mode()
+                        self._manual_sequence_prefix = list(candidate.sequence)
+                        self._apply_manual_order()
+                        orientations = {
+                            step.bend_id: step.orientation_variant.startswith(
+                                "REVERSE_MACHINE_Z_180"
+                            ) for step in candidate.steps
+                        }
+                        if set(orientations) != set(candidate.sequence):
+                            raise ValueError("Ориентация 2D неполная; вариант не назначен")
+                        mixed_orientation = len(set(orientations.values())) > 1
+                        self.manual_reverse_3d_checkbox.setChecked(
+                            next(iter(orientations.values()))
+                            if not mixed_orientation else False
+                        )
+                        self._manual_orientation_order = tuple(candidate.sequence)
+                        self._manual_orientation_by_bend = orientations
+                        self._populate_operations()
+                        self._ensure_press_cycle_controller()
+                        if self.press_cycle is not None:
+                            self.press_cycle.loading_orientation_by_bend = (
+                                self._manual_orientation_selection(candidate.sequence)
+                            )
+                        self.draw()
+                        self._viewer_tabs.setCurrentWidget(self._flat_view)
+                        self._draw_flat_pattern(reset_camera=True)
+                        self.status.setText(
+                            "Порядок выбран (3D НЕ ПРОВЕРЕН): "
+                            + " → ".join(candidate.sequence)
+                        )
+                        self.physical_check_result.setText(
+                            "UNVERIFIED: выбран полный 2D порядок. "
+                            "Запустите «Быстрая проверка OCC (5 углов)» или "
+                            "«Полная проверка (3D)». "
+                            "Возможны коллизии."
+                        )
+                        self._trace_event(
+                            "PLANAR_2D_MANUAL_ORDER_SELECTED",
+                            sequence=list(candidate.sequence),
+                            evidence=candidate.evidence,
+                            mixed_orientation=mixed_orientation,
+                            physical_status="UNVERIFIED",
+                        )
+                        if mixed_orientation:
+                            self.status.setText(
+                                "Ориентация каждого гиба перенесена из 2D; "
+                                "3D-проверка использует те же установки."
+                            )
+                    except Exception as exc:
+                        self.status.setText("Нельзя назначить 2D порядок: " + str(exc))
+                        _error("Planar manual selection exception: " + traceback.format_exc())
+
+                def on_export():
+                    import json
+                    destination, _ = QtWidgets.QFileDialog.getSaveFileName(
+                        dlg, "Сохранить 2D диагностику",
+                        str(_debug_desktop_directory() / "smbs_2d_search_diagnostics.json"),
+                        "JSON (*.json)",
+                    )
+                    if not destination:
+                        return
+                    try:
+                        Path(destination).write_text(
+                            json.dumps(report.to_dict(), ensure_ascii=False, indent=2),
+                            encoding="utf-8",
+                        )
+                        self.status.setText("2D диагностика сохранена: " + destination)
+                    except Exception as exc:
+                        self.status.setText("Ошибка сохранения диагностики: " + str(exc))
+
+                use.clicked.connect(on_preview)
+                export_btn.clicked.connect(on_export)
+                close.clicked.connect(dlg.reject)
+                embed_task_dialog(self, dlg, "Выбор порядка", "planar_candidates")
+
+            def calculate_sequence(self):
+                """Run automatic 2.5D + D6 physical sequence search with backtracking and forward replay."""
+                self._trace_event(
+                    "SEQUENCE_SEARCH_MODE_SELECTED",
+                    mode="FULL_NATIVE_D6_SAMPLED",
+                    continuous_motion_certified=False,
+                )
+                if self.session is None:
+                    self.status.setText("UNVERIFIED: сначала загрузите листовую деталь.")
+                    return
+                if self.timer.isActive() or self.session.playback_status == PlaybackStatus.PLAYING:
+                    self.status.setText("Сначала остановите воспроизведение (Pause / Reset) перед расчётом последовательности.")
+                    return
+                self.calculate.setEnabled(False)
+                self.physical_check_btn.setEnabled(False)
+                self.full_physical_check_btn.setEnabled(False)
+                self._manual_preview_unverified = False
+                self._manual_preview_notice.hide()
+                self._highlighted_end_zone_info = None
+                self._set_task_busy(True)
+                self.status.setText(
+                    "Выполняется поиск последовательности гибки с физической проверкой 2.5D + D6 (backtracking)..."
+                )
+                self.physical_check_result.setText(
+                    "Идёт поиск последовательности (строгий проход → условный при необходимости → прямой прогон с нуля)..."
+                )
+                QtWidgets.QApplication.processEvents()
+                try:
+                    from smbs_core.kinematics2d.sequence_search import (
+                        SearchStatus,
+                        search_bend_sequence_25d,
+                    )
+                    from smbs_core.kinematics2d.operation_cost import OperationWeights
+
+                    def _search_progress(depth: int, total: int, partial_seq: Tuple[str, ...]) -> bool:
+                        seq_str = " -> ".join(partial_seq) if partial_seq else "корень"
+                        self.physical_check_result.setText(
+                            f"Поиск последовательности (глубина {depth}/{total}): {seq_str}..."
+                        )
+                        self._task_progress_caption.setText(
+                            f"Глубина {depth}/{total} · не %"
+                        )
+                        QtWidgets.QApplication.processEvents()
+                        return True
+
+                    self._sync_tooling_to_active_bend()
+                    pc = self._ensure_press_cycle_controller()
+                    search_rep = search_bend_sequence_25d(
+                        self.session,
+                        pc,
+                        self.tooling_setup,
+                        match_active_bend_length=self.tooling_setup.match_active_bend_length,
+                        allow_end_zone_collision=self.tooling_setup.allow_end_zone_collision,
+                        end_zone_length_mm=self.tooling_setup.end_zone_length_mm,
+                        weights=OperationWeights(),
+                        progress_callback=_search_progress,
+                    )
+                    self.last_sequence_search_report = search_rep
+                    self._preview_only_planar_order = None
+                    self._partial_preview_limit = 0
+                    self._selected_planar_gauge_order = ()
+                    self._selected_planar_gauge_positions = {}
+                    self._selected_planar_gauge_model_id = None
+                    self._selected_planar_loading_orientation = {}
+                    self._backgauge_preview_cache.clear()
+                    self._conditional_bends_status.clear()
+                    if search_rep.status is SearchStatus.CONDITIONAL_VALIDATED:
+                        for bid in search_rep.conditional_bends:
+                            self._conditional_bends_status[str(bid)] = (
+                                "CONDITIONAL (требуется пуансон с вырезом на конце; геометрия не проверена)"
+                            )
+                    self._populate_operations()
+                    self._configure_for_active_bend()
+                    self._sync_tooling_to_active_bend()
+                    self.draw()
+                    self.status.setText(search_rep.message_ru)
+                    cost_info = ""
+                    if search_rep.plan_cost:
+                        cost_val = search_rep.plan_cost.get("total", 0.0)
+                        cost_info = f" | штраф={cost_val:.1f}"
+                    self.physical_check_result.setText(
+                        "Поиск последовательности: {} | {} | 3D-проверок={} (отсев A={}, B={}) | глубина={}/{}{}".format(
+                            search_rep.status.value,
+                            search_rep.overall_evidence.value,
+                            search_rep.stage_c_native_evaluated,
+                            search_rep.stage_a_pruned,
+                            search_rep.stage_b_pruned,
+                            search_rep.max_depth_reached,
+                            search_rep.total_bends,
+                            cost_info,
+                        )
+                    )
+                    self._trace_event(
+                        "SEQUENCE_SEARCH_COMPLETED",
+                        status=search_rep.status.value,
+                        overall_evidence=search_rep.overall_evidence.value,
+                        found_sequence=list(search_rep.found_sequence) if search_rep.found_sequence else None,
+                        conditional_bends=list(search_rep.conditional_bends),
+                        states_visited=search_rep.states_visited,
+                        step_evaluations=search_rep.step_evaluations,
+                        stage_a_pruned=search_rep.stage_a_pruned,
+                        stage_b_pruned=search_rep.stage_b_pruned,
+                        stage_c_native_evaluated=search_rep.stage_c_native_evaluated,
+                        plan_cost=search_rep.plan_cost,
+                        elapsed_s=round(search_rep.elapsed_s, 3),
+                    )
+                    _log("Sequence search result: " + search_rep.message_ru)
+                except Exception as exc:
+                    msg = "UNVERIFIED: ошибка поиска последовательности: {}".format(exc)
+                    self.status.setText(msg)
+                    self.physical_check_result.setText(msg)
+                    _error("Sequence search exception: " + traceback.format_exc())
+                finally:
+                    self._set_task_busy(False)
+                    self.full_physical_check_btn.setEnabled(True)
+                    self.physical_check_btn.setEnabled(True)
+                    self._sync_playback_buttons()
+
             def _update_tooling_status_label(self):
                 self.tooling_status.setText(self.tooling_setup.status_line())
+                if (self._physical_check_signature is not None and
+                        self._physical_check_signature != self._physical_pose_signature()):
+                    self._physical_check_signature = None
+                    self.physical_check_result.setText(
+                        "УСТАРЕЛО: деталь, положение или оснастка изменились. "
+                        "Проверьте текущую позу повторно."
+                    )
                 self._update_press_cycle_labels()
 
             def _update_press_cycle_labels(self):
                 if self.press_cycle is not None:
+                    phase_val = getattr(getattr(self.press_cycle, "phase", None), "value", "IDLE")
+                    sim_val = getattr(getattr(self.press_cycle, "simulation_mode", None), "value", "NORMAL")
+                    contact_val = getattr(getattr(self.press_cycle, "contact_kind", None), "value", "SURFACE")
+                    ram_z = float(getattr(self.press_cycle, "ram_z_mm", 0.0) or 0.0)
+                    ram_stroke = float(getattr(self.press_cycle, "ram_stroke_mm", 0.0) or 0.0)
                     self.cycle_phase_label.setText(
-                        "Cycle Phase: {} ({} | {})".format(
-                            self.press_cycle.phase.value,
-                            self.press_cycle.simulation_mode.value,
-                            self.press_cycle.contact_kind.value,
-                        )
+                        f"Cycle Phase: {phase_val} ({sim_val} | {contact_val})"
                     )
                     self.ram_position_label.setText(
-                        "Ram Position: {:+.2f} mm (Stroke: {:.2f} mm)".format(
-                            self.press_cycle.ram_z_mm,
-                            self.press_cycle.ram_stroke_mm,
-                        )
+                        f"Ram Position: {ram_z:+.2f} mm (Stroke: {ram_stroke:.2f} mm)"
                     )
                 else:
+                    sim_val = getattr(getattr(self.cycle_config, "simulation_mode", None), "value", "NORMAL")
+                    ram_z = float(getattr(self.tooling_setup, "ram_z_mm", 0.0) or 0.0)
+                    ram_stroke = float(getattr(self.tooling_setup, "ram_stroke_mm", 0.0) or 0.0)
                     self.cycle_phase_label.setText(
-                        "Cycle Phase: IDLE ({})".format(self.cycle_config.simulation_mode.value)
+                        f"Cycle Phase: IDLE ({sim_val})"
                     )
                     self.ram_position_label.setText(
-                        "Ram Position: {:+.2f} mm (Stroke: {:.2f} mm)".format(
-                            self.tooling_setup.ram_z_mm,
-                            self.tooling_setup.ram_stroke_mm,
-                        )
+                        f"Ram Position: {ram_z:+.2f} mm (Stroke: {ram_stroke:.2f} mm)"
                     )
+
+            def _manual_operator_pose_active(self):
+                return (
+                    getattr(self, "_task_stack", None) is not None
+                    and self._task_stack.currentWidget()
+                    is getattr(self, "_page_manual", None)
+                )
+
+            def _rear_frame_for_preview(self):
+                # Manual uses the same explicit machine-frame placement as
+                # native D6. The rear-frame ergonomic auto-flip is NOT an
+                # operator loading choice or a physical 3D verification.
+                if self._manual_operator_pose_active():
+                    return None
+                return (
+                    self.session.panel_vertices_xy
+                    if self.session is not None and self.backgauge_model is not None
+                    else None
+                )
+
+            def _manual_orientation_selection(self, bend_ids):
+                """The exact per-bend pose shared by Manual 2D, native 3D and viewers."""
+                order = tuple(self.session.bend_order) if self.session else ()
+                selected = tuple(bend_ids)
+                if (self._manual_orientation_order == order
+                        and set(self._manual_orientation_by_bend) == set(order)):
+                    return {bid: bool(self._manual_orientation_by_bend[bid])
+                            for bid in selected}
+                reverse = bool(self.manual_reverse_3d_checkbox.isChecked())
+                return {bid: reverse for bid in selected}
+
+            def _effective_loading_orientation_map(self):
+                """One source of machine-facing orientation for every viewer.
+
+                Manual selection (including imported 2D per-bend poses) takes
+                precedence across all viewer pages. Otherwise a rear-gauge
+                ergonomic suggestion is preview-only, never CAD verified.
+                The FoldState of the running simulation is not modified.
+                """
+                if self.session is None:
+                    self._ergonomic_loading_status = "NO_PART"
+                    return {}
+                order = tuple(self.session.bend_order)
+                if (self._manual_orientation_order == order
+                        and set(self._manual_orientation_by_bend) == set(order)):
+                    self._ergonomic_loading_status = "MANUAL_ORIENTATION_BY_BEND"
+                    return self._manual_orientation_selection(order)
+                reverse_checkbox = getattr(
+                    self, "manual_reverse_3d_checkbox", None
+                )
+                manual_page_active = (
+                    reverse_checkbox is not None
+                    and self._manual_operator_pose_active()
+                )
+                if manual_page_active:
+                    self._ergonomic_loading_status = "MANUAL_ORIENTATION_BY_BEND"
+                    return self._manual_orientation_selection(order)
+                checked_prefix = tuple(self._selected_planar_gauge_order)
+                if (checked_prefix and order[:len(checked_prefix)] == checked_prefix
+                        and self._selected_planar_gauge_model_id
+                        == id(self.backgauge_model)):
+                    self._ergonomic_loading_status = (
+                        "SELECTED_2D_PREVIEW_UNVERIFIED"
+                    )
+                    return dict(self._selected_planar_loading_orientation)
+                if self.backgauge_model is None:
+                    self._ergonomic_loading_status = "NO_REAR_GAUGE"
+                    return {}
+                key = (
+                    id(self.session), order, id(self.backgauge_model),
+                )
+                if key == self._ergonomic_loading_cache_key:
+                    return dict(self._ergonomic_loading_cache)
+                from smbs_core.kinematics2d.loading_orientation_preview import (
+                    plan_preview_loading_orientations,
+                )
+                try:
+                    suggestions = plan_preview_loading_orientations(
+                        self.session.fold_state,
+                        self.session.panel_vertices_xy,
+                        order,
+                    )
+                    choices = {
+                        item.bend_id: item.reverse_axis
+                        for item in suggestions
+                        if item.status == "ERGONOMIC_ONLY_NOT_CAD_VALIDATED"
+                    }
+                    unavailable = [
+                        item.bend_id for item in suggestions
+                        if item.status != "ERGONOMIC_ONLY_NOT_CAD_VALIDATED"
+                    ]
+                    self._ergonomic_loading_status = (
+                        "ERGONOMIC_PREVIEW_UNVERIFIED"
+                        if not unavailable else
+                        "ERGONOMIC_PREVIEW_INCOMPLETE:" + ",".join(unavailable)
+                    )
+                except (ValueError, TypeError, KeyError, AttributeError) as exc:
+                    _warn(
+                        "Operator-side loading preview unavailable: "
+                        + type(exc).__name__ + ":" + str(exc)
+                    )
+                    self._ergonomic_loading_status = (
+                        "ERGONOMIC_PREVIEW_UNAVAILABLE:" + type(exc).__name__
+                    )
+                    choices = {}
+                self._ergonomic_loading_cache_key = key
+                self._ergonomic_loading_cache = dict(choices)
+                return choices
+
+            def _current_preview_machine_placement(self):
+                """Return common machine-space sheet pose for 2D and 3D views."""
+                if self.session is None:
+                    raise WorkpiecePoseError("No part loaded")
+                pc = self._ensure_press_cycle_controller()
+                if (pc is not None
+                        and self.execution_mode == CycleExecutionMode.FULL_CYCLE):
+                    return pc.current_workpiece_placement_3d()
+                from smbs_core.kinematics2d.workpiece_placement_3d import (
+                    WorkpiecePlacement3D,
+                )
+                fs = self.session.fold_state
+                bid = self.session.active_bend_id
+                zone = fs.bends[bid].bend_zone
+                if zone is None:
+                    raise WorkpiecePoseError(
+                        "BEND_ONLY_MACHINE_POSE_REQUIRES_BEND_ZONE:" + bid
+                    )
+                # Bend Only also uses the real coupled stroke. The previous
+                # constant outer_radius placement rotated the sheet in place
+                # while only the punch descended: visually impossible.
+                if pc is None:
+                    raise WorkpiecePoseError(
+                        "BEND_ONLY_REQUIRES_PRESS_CYCLE"
+                    )
+                try:
+                    sheet_support_z = pc.preview_workpiece_support_zm()
+                except (PressCycleError, ValueError, TypeError) as exc:
+                    raise WorkpiecePoseError(
+                        "BEND_ONLY_COUPLED_SHEET_PLACEMENT_FAILED:" + str(exc)
+                    ) from exc
+                orientations = self._effective_loading_orientation_map()
+                return WorkpiecePlacement3D.compute_placement(
+                    fs, bid,
+                    support_plane_zm=float(sheet_support_z),
+                    align_bisector=True,
+                    align_bend_arc_center=True,
+                    reverse_axis=bool(orientations.get(bid, False)),
+                    rear_panel_vertices_xy=self._rear_frame_for_preview(),
+                )
+
+            def _update_loading_orientation_label(self):
+                """Expose the actual machine direction, never CAD-certify a hint."""
+                if self.session is None:
+                    self.loading_orientation_status.setText(
+                        "Оператор ← | Упор → | Деталь не загружена"
+                    )
+                    return
+                choices = self._effective_loading_orientation_map()
+                bend_id = str(self.session.active_bend_id)
+                reversed_pose = bool(choices.get(bend_id, False))
+                source = self._ergonomic_loading_status
+                if source.startswith("SELECTED_2D"):
+                    evidence = "выбрано из 2D-поиска; 3D не проверено"
+                elif source.startswith("ERGONOMIC_PREVIEW"):
+                    evidence = "по длинам сторон; КОНТАКТ НЕ ПРОВЕРЕН"
+                else:
+                    evidence = source
+                self.loading_orientation_status.setText(
+                    "Оператор ← (-S)  |  Упор → (+S)  |  {}: {}  |  {}"
+                    .format(
+                        bend_id,
+                        "РАЗВОРОТ 180°" if reversed_pose else "обычно 0°",
+                        evidence,
+                    )
+                )
 
             def _ensure_press_cycle_controller(self) -> PressCycleController | None:
                 if self.session is None:
                     self.press_cycle = None
                     return None
-                if (
-                    self.press_cycle is None
-                    or self.press_cycle.sequence is not self.session.controller
-                ):
-                    self.press_cycle = PressCycleController(
-                        sequence_controller=self.session.controller,
-                        tooling_setup=self.tooling_setup,
-                        config=self.cycle_config,
-                        cross_section_provider=lambda: (
-                            self.session.cross_section(segments=16) if self.session is not None else None
-                        ),
-                        follow_sheet_contact_preview=True,
-                        animate_workpiece_transfer=True,
-                    )
-                    self.press_cycle.set_execution_mode(self.execution_mode)
+                if self.press_cycle is not None:
+                    ctrl = getattr(self.session, "controller", None)
+                    if ctrl is None or getattr(self.press_cycle, "sequence", None) is ctrl:
+                        self.press_cycle.rear_panel_vertices_xy = (
+                            self._rear_frame_for_preview()
+                        )
+                        self.press_cycle.loading_orientation_by_bend = (
+                            self._effective_loading_orientation_map()
+                        )
+                        self.press_cycle.initial_feed_preview_mm = (
+                            self.backgauge_model.initial_feed_preview_mm
+                            if self.backgauge_model is not None else 0.0
+                        )
+                        return self.press_cycle
+                ctrl = getattr(self.session, "controller", None)
+                if ctrl is None:
+                    return self.press_cycle
+                self.press_cycle = PressCycleController(
+                    sequence_controller=ctrl,
+                    tooling_setup=self.tooling_setup,
+                    config=self.cycle_config,
+                    cross_section_provider=lambda: (
+                        self.session.cross_section(segments=16) if self.session is not None and hasattr(self.session, "cross_section") else None
+                    ),
+                    follow_sheet_contact_preview=True,
+                    animate_workpiece_transfer=True,
+                )
+                self.press_cycle.rear_panel_vertices_xy = (
+                    self._rear_frame_for_preview()
+                )
+                self.press_cycle.loading_orientation_by_bend = (
+                    self._effective_loading_orientation_map()
+                )
+                self.press_cycle.initial_feed_preview_mm = (
+                    self.backgauge_model.initial_feed_preview_mm
+                    if self.backgauge_model is not None else 0.0
+                )
+                self.press_cycle.set_execution_mode(self.execution_mode)
                 return self.press_cycle
 
             def set_cycle_mode(self, mode: CycleExecutionMode | str) -> None:
@@ -1403,6 +4506,8 @@ class _PreviewPanel:
                 self.set_cycle_config(new_cfg)
 
             def open_cycle_config_dialog(self):
+                if activate_task_dialog(self, "cycle_config"):
+                    return
                 dlg = QtWidgets.QDialog(self)
                 dlg.setWindowTitle("Параметры кинематического цикла пресса (KINEMATIC_PREVIEW)")
                 vbox = QtWidgets.QVBoxLayout(dlg)
@@ -1474,15 +4579,20 @@ class _PreviewPanel:
 
                 btn_ok.clicked.connect(on_apply)
                 btn_cancel.clicked.connect(dlg.reject)
-                dlg.exec()
+                embed_task_dialog(self, dlg, "Параметры цикла", "cycle_config")
 
             def _sync_tooling_to_active_bend(self):
                 """Re-align static tooling to the active bend line if already aligned."""
                 if self.session is None:
                     return
-                if self.press_cycle is not None:
+                bend_len = self._active_bend_length_mm()
+                if hasattr(self.tooling_setup, "set_match_active_bend_length"):
+                    self.tooling_setup.set_match_active_bend_length(
+                        bool(getattr(self.tooling_setup, "match_active_bend_length", False)), bend_len
+                    )
+                if self.press_cycle is not None and hasattr(self.press_cycle, "on_tooling_changed"):
                     self.press_cycle.on_tooling_changed()
-                elif self.tooling_setup.punch is not None or self.tooling_setup.die is not None:
+                elif (getattr(self.tooling_setup, "punch", None) is not None or getattr(self.tooling_setup, "die", None) is not None) and hasattr(self.session, "cross_section"):
                     try:
                         self.tooling_setup.align_to_cross_section(
                             self.session.cross_section(segments=16),
@@ -1494,6 +4604,9 @@ class _PreviewPanel:
                 self._update_tooling_status_label()
 
             def select_punch(self, punch: ToolProfile | None):
+                self._manual_3d_verdicts.clear()
+                self._manual_retract_verdicts.clear()
+                self._clear_manual_check_feedback()
                 try:
                     self.tooling_setup.select_punch(punch)
                 except ToolingError as exc:
@@ -1518,6 +4631,9 @@ class _PreviewPanel:
                 QtCore.QTimer.singleShot(0, self.fit)
 
             def select_die(self, die: ToolProfile | None):
+                self._manual_3d_verdicts.clear()
+                self._manual_retract_verdicts.clear()
+                self._clear_manual_check_feedback()
                 try:
                     self.tooling_setup.select_die(die)
                 except ToolingError as exc:
@@ -1678,6 +4794,8 @@ class _PreviewPanel:
                     self.status.setText(msg)
 
             def open_tool_library_dialog(self):
+                if activate_task_dialog(self, "tool_profiles"):
+                    return
                 dlg = QtWidgets.QDialog(self)
                 dlg.setWindowTitle("Библиотека пользовательской оснастки 2.5D (PUNCH & DIE)")
                 dlg.resize(560, 420)
@@ -1777,7 +4895,7 @@ class _PreviewPanel:
                 for b in (btn_imp_p, btn_imp_d, btn_use, btn_del, btn_close):
                     btn_row.addWidget(b)
                 vbox.addLayout(btn_row)
-                dlg.exec()
+                embed_task_dialog(self, dlg, "Профили оснастки", "tool_profiles")
 
             def _stop_timer(self):
                 self.timer.stop()
@@ -1787,36 +4905,42 @@ class _PreviewPanel:
 
             def _sync_playback_buttons(self):
                 if self.session is None:
-                    self.play_btn.setText("▶ Play All")
-                    self.pause_btn.setText("Ⅱ Pause")
-                    self.pause_btn.setEnabled(False)
+                    self._update_task_progress()
+                    self.play_btn.setText("Play")
+                    self.play_btn.setIcon(QtGui.QIcon(str(_ICON_ROOT / "control_play.svg")))
                     self.move_up_btn.setEnabled(False)
                     self.move_down_btn.setEnabled(False)
                     self.restore_order_btn.setEnabled(False)
+                    self.calculate.setEnabled(False)
+                    self.planar_calculate.setEnabled(False)
                     return
                 st = self.session.playback_status
+                self._update_task_progress()
                 self.playing = st == PlaybackStatus.PLAYING
-                self.play_btn.setText(
-                    "▶ Play All (станок)" if self.execution_mode == CycleExecutionMode.FULL_CYCLE
-                    else "▶ Play All (геометрия)"
-                )
+                bend_order = getattr(self.session, "bend_order", [])
+                self.calculate.setEnabled(not self.playing and len(bend_order) > 1)
+                self.planar_calculate.setEnabled(not self.playing and len(bend_order) > 0)
                 if st == PlaybackStatus.PLAYING:
-                    self.pause_btn.setText("Ⅱ Pause")
-                    self.pause_btn.setEnabled(True)
+                    self.play_btn.setText("Pause")
+                    icon_name = "control_pause.svg"
                 elif st == PlaybackStatus.PAUSED:
-                    self.pause_btn.setText("▶ Resume")
-                    self.pause_btn.setEnabled(True)
+                    self.play_btn.setText("Resume")
+                    icon_name = "control_play.svg"
                 else:
-                    self.pause_btn.setText("Ⅱ Pause")
-                    self.pause_btn.setEnabled(False)
+                    self.play_btn.setText("Play")
+                    icon_name = "control_play.svg"
+                self.play_btn.setIcon(QtGui.QIcon(str(_ICON_ROOT / icon_name)))
 
-                can_edit_order = self.session.can_reorder() and len(self.session.bend_order) > 1
-                idx = self.session.active_bend_index
-                total = len(self.session.bend_order)
+                can_reorder_fn = getattr(self.session, "can_reorder", None)
+                can_reorder_val = can_reorder_fn() if callable(can_reorder_fn) else False
+                can_edit_order = can_reorder_val and len(bend_order) > 1
+                idx = getattr(self.session, "active_bend_index", 0)
+                total = len(bend_order)
+                canonical = getattr(self.session, "canonical_order", bend_order)
                 self.move_up_btn.setEnabled(can_edit_order and idx > 0)
                 self.move_down_btn.setEnabled(can_edit_order and 0 <= idx < total - 1)
                 self.restore_order_btn.setEnabled(
-                    can_edit_order and self.session.bend_order != self.session.canonical_order
+                    can_edit_order and bend_order != canonical
                 )
 
             def _set_playback_controls_enabled(self, enabled: bool):
@@ -1833,16 +4957,31 @@ class _PreviewPanel:
                 )
                 self._sync_playback_buttons()
 
-            def load_part(self):
-                """Load the currently selected SheetMetal part in FreeCAD."""
+            def load_part(self, selection=None, document=None):
+                """Load selected SheetMetal object captured before viewer focus."""
                 import FreeCAD as App
                 import FreeCADGui as Gui
 
-                doc = getattr(App, "ActiveDocument", None)
-                selection = Gui.Selection.getSelection() if hasattr(Gui, "Selection") else []
+                doc = document if document is not None else getattr(App, "ActiveDocument", None)
+                if selection is None:
+                    selection = Gui.Selection.getSelection() if hasattr(Gui, "Selection") else []
 
                 # Early precondition check BEFORE touching timer, session, controls, or scene
+                _desktop_debug_event(
+                    "PART_LOAD_REQUEST",
+                    document_name=getattr(doc, "Name", None),
+                    document_path=getattr(doc, "FileName", None),
+                    selection=[
+                        {"name": getattr(item, "Name", None),
+                         "label": getattr(item, "Label", None),
+                         "type": getattr(item, "TypeId", None)}
+                        for item in selection
+                    ],
+                )
                 outcome, new_session, msg = execute_load_part(self.session, doc, selection)
+                _desktop_debug_event(
+                    "PART_LOAD_OUTCOME", outcome=outcome, message=msg,
+                )
                 if outcome == "warning":
                     self.status.setText(msg)
                     return
@@ -1863,20 +5002,1522 @@ class _PreviewPanel:
                 self._machine_pose_fault = None
                 self._last_3d_frame_at = -1.0
                 self.session = new_session
+                _desktop_debug_event(
+                    "PART_GEOMETRY_LOADED",
+                    document_name=str(doc.Name),
+                    document_path=str(getattr(doc, "FileName", "") or ""),
+                    part_label=new_session.part_label,
+                    fixed_panel=new_session.fixed_panel,
+                    panel_vertices=new_session.panel_vertices_xy,
+                    bends=[
+                        {
+                            "id": bend.bend_id,
+                            "angle_deg": bend.angle_deg,
+                            "fixed_panel": bend.fixed_panel,
+                            "moving_panel": bend.moving_panel,
+                            "axis_xyz": bend.axis_xyz,
+                            "thickness_mm": bend.bend_zone.thickness_mm
+                            if bend.bend_zone else None,
+                            "inner_radius_mm": bend.bend_zone.inner_radius_mm
+                            if bend.bend_zone else None,
+                            "bend_allowance_mm": bend.bend_zone.bend_allowance_mm
+                            if bend.bend_zone else None,
+                        }
+                        for bend in new_session.ordered_bends
+                    ],
+                )
+                self._smbs_document_name = str(doc.Name)
+                self._smbs_allow_auto_embed = False
+                self.last_planar_search_report = None
+                self._last_manual_sequence_report = None
+                self._manual_3d_verdicts.clear()
+                self._manual_retract_verdicts.clear()
+                self._clear_manual_check_feedback()
+                self._preview_only_planar_order = None
+                self._partial_preview_limit = 0
+                self._selected_planar_gauge_order = ()
+                self._selected_planar_gauge_positions = {}
+                self._selected_planar_gauge_model_id = None
+                self._selected_planar_loading_orientation = {}
+                self._backgauge_preview_cache.clear()
+                self._manual_sequence_prefix = []
+                self._manual_orientation_order = ()
+                self._manual_orientation_by_bend = {}
+                self.manual_reverse_3d_checkbox.blockSignals(True)
+                self.manual_reverse_3d_checkbox.setChecked(False)
+                self.manual_reverse_3d_checkbox.blockSignals(False)
+                self._manual_preview_unverified = False
+                self._manual_selection_enabled = False
+                self._manual_preview_notice.hide()
+                self.last_sequence_search_report = None
                 self._ensure_press_cycle_controller()
                 self._sync_tooling_to_active_bend()
                 self._populate_operations()
                 self._configure_for_active_bend()
                 self._set_playback_controls_enabled(True)
                 self._update_tooling_status_label()
-                self.status.setText(msg)
+                restore_message = ""
+                try:
+                    restore_message = self._restore_embedded_smbs_json(doc)
+                except Exception as exc:
+                    # Changed geometry, wrong schema or damaged JSON must
+                    # never overwrite the successfully loaded live session.
+                    _warn("Embedded SMBS state not restored: " + str(exc))
+                    restore_message = (
+                        "SMBS JSON не восстановлен: " + str(exc) +
+                        " | Автозапись JSON отключена до явного сохранения,"
+                        " чтобы не уничтожить старые данные."
+                    )
+                    self._smbs_allow_auto_embed = False
+                    self.fcstd_note.setText(restore_message)
+                try:
+                    self._register_embedded_smbs_observer()
+                except Exception as exc:
+                    _warn("SMBS save observer not registered: " + str(exc))
+                    restore_message += (
+                        " | Автосохранение JSON недоступно: " + str(exc)
+                    )
+                self.status.setText(
+                    msg + (" | " + restore_message if restore_message else "")
+                )
                 self.check_result.setText(msg)
+                if hasattr(self, "_source_summary"):
+                    self._source_summary.setText(
+                        str(self.session.part_label or "SheetMetal")
+                    )
+                self._update_task_progress()
                 self.draw()
+                self._draw_flat_pattern(reset_camera=True)
                 if self._viewer_tabs.currentIndex() == 1:
                     self._update_3d_preview()
                 QtCore.QTimer.singleShot(0, self.fit)
 
-            def _format_operation_row(self, idx: int, b) -> tuple[str, str, str, str, str]:
+            def _bound_smbs_document(self):
+                """Never write SMBS data into a different active FCStd tab."""
+                import FreeCAD as App
+
+                if self.session is None or not self._smbs_document_name:
+                    raise RuntimeError("Сначала загрузите SheetMetal деталь")
+                document = App.getDocument(self._smbs_document_name)
+                if document is None:
+                    raise RuntimeError("Документ выбранной детали закрыт")
+                return document
+
+            def _register_embedded_smbs_observer(self):
+                import FreeCAD as App
+
+                if self._smbs_fcstd_observer is not None:
+                    return
+                observer = _SMBSFCStdSaveObserver(self)
+                App.addDocumentObserver(observer)
+                self._smbs_fcstd_observer = observer
+
+            def _clear_manual_check_feedback(self):
+                """Invalidate LIVE validation display; never present stale PASS."""
+                if not hasattr(self, "manual_check_summary"):
+                    return
+                self.manual_check_summary.setText(
+                    "UNVERIFIED: параметры изменились; запустите "
+                    "«Быстрая проверка OCC (5 углов)» или "
+                    "«Полная проверка (3D)» снова."
+                )
+                self.manual_check_details.clear()
+                self.manual_check_details.hide()
+                self._collision_inspection = None
+                self._collision_display_active = False
+                if hasattr(self, "manual_show_collision_btn"):
+                    self.manual_show_collision_btn.setEnabled(False)
+                    self.manual_show_collision_btn.hide()
+                if hasattr(self, "manual_exact_occ_btn"):
+                    self.manual_exact_occ_btn.setEnabled(False)
+                    self.manual_exact_occ_btn.hide()
+
+            def _show_manual_check_feedback(self, status, summary, steps=()):
+                """Show native check result in Manual, including the failed bend."""
+                if not hasattr(self, "manual_check_summary"):
+                    return
+                self.manual_check_summary.setText(str(summary))
+                lines = []
+                for item in steps or ():
+                    bend_id = str(item.get("bend_id", "?"))
+                    index = item.get("step_number", "?")
+                    verdict = str(item.get("status", "UNVERIFIED"))
+                    phase_evidence = str(item.get("reason", ""))
+                    tool_pair = item.get("punch_die_pair")
+                    retract = item.get("retract") or {}
+                    blocker = item.get("first_blocker") or {}
+                    try:
+                        angle_text = "{:+.2f}".format(float(item.get("angle_deg", 0.0)))
+                    except (TypeError, ValueError):
+                        angle_text = "?"
+                    lines.append(
+                        "{}. {} | {} | угол {}°".format(
+                            index, bend_id, verdict, angle_text,
+                        )
+                    )
+                    if blocker and blocker.get("phase") not in (
+                            None, "NONE", "UNKNOWN"):
+                        tool_label = {
+                            "PUNCH": "пуансон",
+                            "DIE": "матрица",
+                            "PUNCH_AND_DIE": "пуансон и матрица",
+                        }.get(blocker.get("tool"), "источник не установлен")
+                        lines.append(
+                            "  ПРОБЛЕМА: фаза {} | {} | Z={} мм | "
+                            "пуансон={:.6f} мм³, матрица={:.6f} мм³".format(
+                                blocker.get("phase", "?"), tool_label,
+                                blocker.get("ram_z_mm")
+                                if blocker.get("ram_z_mm") is not None else "—",
+                                float(
+                                    blocker.get("first_sample_punch_overlap_mm3")
+                                    if blocker.get("first_sample_punch_overlap_mm3")
+                                    is not None else
+                                    blocker.get("punch_overlap_mm3") or 0.0
+                                ),
+                                float(
+                                    blocker.get("first_sample_die_overlap_mm3")
+                                    if blocker.get("first_sample_die_overlap_mm3")
+                                    is not None else
+                                    blocker.get("die_overlap_mm3") or 0.0
+                                ),
+                            )
+                        )
+                        lines.append(
+                            "  МАКС. ПРОНИКНОВЕНИЕ за проверенные положения: "
+                            "пуансон={:.6f} мм³, матрица={:.6f} мм³".format(
+                                float(blocker.get("punch_overlap_mm3") or 0),
+                                float(blocker.get("die_overlap_mm3") or 0),
+                            )
+                        )
+                        bbox_dict = blocker.get("intersection_bbox_xyz_mm") or {}
+                        for kind, coords in bbox_dict.items():
+                            if isinstance(coords, dict):
+                                lines.append(
+                                    "  ОБЛАСТЬ {} (машинные XYZ, мм): "
+                                    "X [{:.3f}, {:.3f}], "
+                                    "Y [{:.3f}, {:.3f}], "
+                                    "Z [{:.3f}, {:.3f}]".format(
+                                        kind.upper(),
+                                        coords["xmin"], coords["xmax"],
+                                        coords["ymin"], coords["ymax"],
+                                        coords["zmin"], coords["zmax"],
+                                    )
+                                )
+                        bracket = blocker.get("sampled_onset_bracket") or {}
+                        if bracket:
+                            lines.append(
+                                "  НАЧАЛО СТОЛКНОВЕНИЯ (выборочно): "
+                                "{}° без блокирующей коллизии → "
+                                "{}° с коллизией, {} доп. проверок. "
+                                "Непроверенные углы не исключены.".format(
+                                    bracket.get(
+                                        "last_sampled_nonblocking_angle_deg"
+                                    ),
+                                    bracket.get(
+                                        "first_sampled_blocking_angle_deg"
+                                    ),
+                                    bracket.get("refinement_samples", 0),
+                                )
+                            )
+                        attribution = blocker.get("component_attribution") or {}
+                        if attribution:
+                            names = attribution.get(
+                                "hits", attribution.get("positive_overlap_components", [])
+                            )
+                            if names:
+                                lines.append(
+                                    "  ПЕРЕСЕКШИЕСЯ ЭЛЕМЕНТЫ (native OCC): " +
+                                    ", ".join(
+                                        "{} {:.3f} мм³".format(
+                                            hit.get("component_id", "?"),
+                                            float(hit.get("overlap_volume_mm3", 0.0)),
+                                        )
+                                        for hit in names[:8]
+                                    )
+                                )
+                            else:
+                                lines.append(
+                                    "  Конкретная панель не подтверждена: " +
+                                    str(attribution.get("status", "UNVERIFIED"))
+                                )
+                        lines.append(
+                            "  Код: {} | {}".format(
+                                blocker.get("phase_status", "UNVERIFIED"),
+                                str(blocker.get("reason", ""))[:250],
+                            )
+                        )
+                    elif phase_evidence:
+                        # Do not show the first 650 bytes of timings from
+                        # APPROACH; they obscure later BENDING/BOTTOM failure.
+                        if phase_evidence.startswith("native_d634_rejected:"):
+                            lines.append(
+                                "  D6 отклонил траекторию — этап и причина "
+                                "не определены; подробности в FCStd."
+                            )
+                        else:
+                            lines.append("  " + phase_evidence[:240])
+                    if isinstance(tool_pair, dict):
+                        lines.append(
+                            "  Пуансон/матрица: {} | {} позиций{}".format(
+                                tool_pair.get("status", "UNVERIFIED"),
+                                tool_pair.get("checked_ram_positions", 0),
+                                (" | " + str(tool_pair.get("reason", "")))
+                                if tool_pair.get("status") != "SAMPLED_CLEAR" else "",
+                            )
+                        )
+                    lines.append(
+                        "  RETRACT: {} | нач. Z={} мм → конеч. Z={} мм | "
+                        "выборок={} | {}".format(
+                            retract.get("status", "NOT_EVALUATED"),
+                            (retract.get("start_z_mm") if
+                             retract.get("start_z_mm") is not None else "—"),
+                            (retract.get("end_z_mm") if
+                             retract.get("end_z_mm") is not None else "—"),
+                            retract.get("sample_count", 0),
+                            str(retract.get("reason", ""))[:180],
+                        )
+                    )
+                if not lines:
+                    lines = [
+                        "Ни один гиб не подтверждён. Проверьте выбранные "
+                        "FCStd-инструменты, режим длины и журнал ошибок."
+                    ]
+                self.manual_check_details.setPlainText("\n".join(lines))
+                self.manual_check_details.show()
+
+            def _show_first_collision_in_3d(self):
+                """Visualize true OCC hit bounding box in the native machine frame.
+
+                A *separate* isolated FoldState recreates the native D6
+                collision pose. Do not project machine coordinates onto the
+                ergonomic 2.5D placement: its reverse axis may differ.
+                """
+                if not self._collision_inspection:
+                    self.status.setText("Нет сохранённой 3D-коллизии для показа.")
+                    return
+                self._stop_timer()
+                self._collision_display_active = not self._collision_display_active
+                if hasattr(self, "manual_show_collision_btn"):
+                    self.manual_show_collision_btn.setText(
+                        "Вернуться к обычному 3D"
+                        if self._collision_display_active else
+                        "Показать коллизию в 3D"
+                    )
+                self._viewer_tabs.setCurrentWidget(self._preview_3d)
+                self._last_3d_frame_at = -1.0
+                self._fixed_3d_view_rect = None
+                self._update_3d_preview(force=True)
+                self._trace_event(
+                    "MANUAL_COLLISION_3D_INSPECTION",
+                    bend_id=self._collision_inspection.get("bend_id"),
+                    blocker=self._collision_inspection.get("first_blocker"),
+                )
+                self.status.setText(
+                    "Показано место столкновения в машинных XYZ. "
+                    "Геометрия обзора приближённая, красная область — "
+                    "границы точного 3D-пересечения OCC."
+                    if self._collision_display_active else
+                    "Возврат к обычному 3D-просмотру; коллизия остаётся "
+                    "в диагностике Manual."
+                )
+
+            def _open_exact_collision_inspector(self):
+                """Open a separate native FreeCAD scene with actual OCC solids."""
+                inspection = self._collision_inspection
+                if self.session is None or inspection is None:
+                    self.status.setText(
+                        "Нет подтверждённого native 3D-пересечения для осмотра."
+                    )
+                    return False
+                expected = inspection.get("tooling_identity") or {}
+                current = {
+                    "punch_id": getattr(
+                        getattr(self.tooling_setup, "punch", None),
+                        "tool_id", None,
+                    ),
+                    "die_id": getattr(
+                        getattr(self.tooling_setup, "die", None),
+                        "tool_id", None,
+                    ),
+                    "match_active_bend_length": bool(
+                        self.tooling_setup.match_active_bend_length
+                    ),
+                    "punch_sections": tuple(
+                        self.tooling_setup.punch_section_offsets_xm or ()
+                    ),
+                    "die_sections": tuple(
+                        self.tooling_setup.die_section_offsets_xm or ()
+                    ),
+                    "end_zone_allow": bool(
+                        self.tooling_setup.allow_end_zone_collision
+                    ),
+                    "end_zone_mm": float(
+                        self.tooling_setup.end_zone_length_mm
+                    ),
+                    "orientation_by_bend": tuple(sorted(
+                        self._manual_orientation_selection(self.session.bend_order).items()
+                    )),
+                    "session_identity": id(self.session),
+                }
+                if not expected or current != expected:
+                    self.status.setText(
+                        "Оснастка изменилась после 3D-проверки. "
+                        "Запустите «Полная проверка (3D)» повторно."
+                    )
+                    _desktop_debug_event(
+                        "MANUAL_EXACT_OCC_INSPECTION_STALE_TOOLING",
+                        bend_id=inspection.get("bend_id"),
+                        expected=expected, current=current,
+                    )
+                    return False
+                self._stop_timer()
+                self.status.setText(
+                    "Создание точной OCC-сцены. Исходный FCStd не изменяется..."
+                )
+                QtWidgets.QApplication.processEvents()
+                try:
+                    from smbs_core.kinematics2d.native_collision_inspector import (
+                        open_exact_collision_document,
+                    )
+                    report = open_exact_collision_document(
+                        self.session, self.tooling_setup,
+                        inspection["bend_id"],
+                        inspection["first_blocker"],
+                    )
+                except Exception as exc:
+                    message = "{}: {}".format(type(exc).__name__, exc)
+                    self.status.setText(
+                        "Не удалось воспроизвести OCC-пересечение: "
+                        + message + ". Геометрические допуски не менялись."
+                    )
+                    _desktop_debug_event(
+                        "MANUAL_EXACT_OCC_INSPECTION_FAILED",
+                        bend_id=inspection.get("bend_id"), error=message,
+                    )
+                    _error(
+                        "Native OCC collision inspector failed: "
+                        + traceback.format_exc()
+                    )
+                    return False
+                _desktop_debug_event(
+                    "MANUAL_EXACT_OCC_INSPECTION_OPENED",
+                    result=report,
+                )
+                self.status.setText(
+                    "Открыт документ {}. Красные тела — реальные OCC Common; "
+                    "пуансон, матрицу, деталь и отдельные зоны можно "
+                    "скрывать через дерево FreeCAD. "
+                    "Непрерывная безопасность не сертифицирована."
+                    .format(report["document_name"])
+                )
+                return True
+
+            def _record_manual_precheck_failure(self, selected, reason):
+                """Fail visibly and save the UNVERIFIED reason in FCStd as well."""
+                message = "UNVERIFIED: " + str(reason)
+                _desktop_debug_event(
+                    "MANUAL_PRECHECK_REJECTED",
+                    selected_order=list(selected), reason=str(reason),
+                    session=self._debug_session_context(),
+                )
+                self._last_manual_sequence_report = {
+                    "schema_version": "smbs.manual_2d_and_native_3d.v2",
+                    "status": "UNVERIFIED",
+                    "planar_status": "NOT_RUN",
+                    "physical_certification": "NOT_CHECKED",
+                    "manual_3d_validation": {
+                        "status": "UNVERIFIED",
+                        "reason": str(reason),
+                        "requested_bends": list(selected),
+                        "checked_bends": 0,
+                        "steps": [],
+                    },
+                }
+                self._show_manual_check_feedback("UNVERIFIED", reason)
+                self.physical_check_result.setText(message)
+                try:
+                    note = self._persist_manual_check_to_fcstd()
+                except Exception as exc:
+                    note = "НЕ СОХРАНЕНО В FCStd: " + str(exc)
+                    _error(
+                        "Manual validation precheck could not be embedded: "
+                        + traceback.format_exc()
+                    )
+                self.manual_check_summary.setText(message + "\n" + note)
+                self.status.setText(message)
+
+            def _persist_manual_check_to_fcstd(self):
+                """Embed manual results, saving the SAME FCStd, never JSON.
+
+                No export dialog is allowed here. For an unsaved FreeCAD
+                document, stage the included attachment and rely on native
+                File → Save to choose the first FCStd filename.
+                """
+                document = self._bound_smbs_document()
+                snapshot = self._write_embedded_smbs_json(document)
+                self._smbs_allow_auto_embed = True
+                self._embedded_diagnostics_history = snapshot["diagnostics"]
+                _desktop_debug_event(
+                    "FCSTD_MANUAL_DIAGNOSTICS_STAGED",
+                    document_name=getattr(document, "Name", None),
+                    file_name=getattr(document, "FileName", None),
+                    manual_status=(
+                        self._last_manual_sequence_report or {}
+                    ).get("status"),
+                    stored_sections=list(snapshot.get("diagnostics", {}).keys()),
+                )
+                filename = str(getattr(document, "FileName", "") or "")
+                if filename:
+                    # FreeCAD itself writes PropertyFileIncluded into the
+                    # native FCStd archive, preserving all other objects.
+                    document.save()
+                    _desktop_debug_event(
+                        "FCSTD_MANUAL_DIAGNOSTICS_SAVED",
+                        document_name=getattr(document, "Name", None),
+                        path=filename,
+                    )
+                    return "Результат сохранён внутри FCStd: " + filename
+                _desktop_debug_event(
+                    "FCSTD_MANUAL_DIAGNOSTICS_PENDING_FIRST_SAVE",
+                    document_name=getattr(document, "Name", None),
+                )
+                return (
+                    "Результат вложен в открытый документ. "
+                    "Для записи на диск сохраните его как FCStd через Ctrl+S."
+                )
+
+            def _write_embedded_smbs_json(self, document):
+                """Stage a native included attachment without calling save()."""
+                from freecad_smbs.integration.fcstd_session_store import (
+                    build_snapshot, write_included_json,
+                )
+
+                if document is None or (
+                    str(getattr(document, "Name", ""))
+                    != str(self._smbs_document_name)
+                ):
+                    raise RuntimeError("Неверный документ для данных SMBS")
+                weights = self._selected_operation_weights()
+                snapshot = build_snapshot(
+                    session=self.session,
+                    document=document,
+                    tooling=self.tooling_setup,
+                    cycle_config=self.cycle_config,
+                    execution_mode=self.execution_mode,
+                    manual_prefix=tuple(self._manual_sequence_prefix),
+                    orientation_by_bend=self._manual_orientation_selection(
+                        self.session.bend_order
+                    ),
+                    manual_report=(
+                        self._last_manual_sequence_report
+                        if self._last_manual_sequence_report is not None
+                        else (self._embedded_diagnostics_history or {}).get("manual")
+                    ),
+                    search_report=self.last_sequence_search_report,
+                    planar_report=self.last_planar_search_report,
+                    operation_weights=weights.to_dict(),
+                    retract_warning=self.retract_warning_checkbox.isChecked(),
+                )
+                write_included_json(document, snapshot)
+                return snapshot
+
+            def _save_embedded_smbs_json_clicked(self):
+                try:
+                    document = self._bound_smbs_document()
+                    self._write_embedded_smbs_json(document)
+                    self._smbs_allow_auto_embed = True
+                    # An unsaved document has no target archive yet. Avoid
+                    # silently writing to a made-up default filename.
+                    if str(getattr(document, "FileName", "")):
+                        document.save()
+                    else:
+                        proposed = str(
+                            Path.home() /
+                            (str(document.Name) + ".FCStd")
+                        )
+                        target, _ = QtWidgets.QFileDialog.getSaveFileName(
+                            self, "Сохранить деталь с JSON SMBS",
+                            proposed, "FreeCAD (*.FCStd)",
+                        )
+                        if not target:
+                            self.status.setText(
+                                "JSON подготовлен в документе; "
+                                "FCStd не сохранён (отмена)."
+                            )
+                            return
+                        document.saveAs(str(target))
+                    self.fcstd_note.setText(
+                        "JSON вложен: SMBS_Data / SessionJSON. "
+                        "Сохранён в " + str(document.FileName)
+                    )
+                    self.status.setText(
+                        "SMBS JSON сохранён внутри FCStd; "
+                        "результаты проверок — исторические."
+                    )
+                except Exception as exc:
+                    _error("FCStd SMBS save failed: " + traceback.format_exc())
+                    self.status.setText("Ошибка вложения JSON: " + str(exc))
+
+            def _restore_embedded_smbs_json_clicked(self):
+                try:
+                    document = self._bound_smbs_document()
+                    message = self._restore_embedded_smbs_json(document)
+                    self.status.setText(message)
+                except Exception as exc:
+                    _error("FCStd SMBS load failed: " + traceback.format_exc())
+                    self.status.setText("Ошибка чтения JSON: " + str(exc))
+
+            def _restore_embedded_smbs_json(self, document):
+                """Only apply validated geometry/order; saved passes are history."""
+                from freecad_smbs.integration.fcstd_session_store import (
+                    EmbeddedSessionError, read_included_json,
+                    validate_restore, tool_reference,
+                )
+
+                payload = read_included_json(document)
+                if payload is None:
+                    self._smbs_allow_auto_embed = True
+                    self._embedded_diagnostics_history = None
+                    self.fcstd_note.setText(
+                        "В этом документе пока нет вложенного SMBS JSON."
+                    )
+                    return "В FCStd нет сохранённой сессии SMBS."
+                order, prefix = validate_restore(
+                    payload, self.session, document
+                )
+                self._smbs_allow_auto_embed = True
+                if self.timer.isActive() or self.playing:
+                    self._stop_timer()
+                # A loaded FoldState must be clean before reordering; neither
+                # recorded angles nor stale collision passes are replayed.
+                self.session.reset_all_bends()
+                self.session.set_bend_order(order)
+                self._manual_sequence_prefix = list(prefix)
+                saved_orientations = payload["order"].get("orientation_by_bend", {})
+                self._manual_orientation_order = tuple(order)
+                self._manual_orientation_by_bend = {
+                    bid: bool(saved_orientations.get(bid, False)) for bid in order
+                }
+                saved_values = set(self._manual_orientation_by_bend.values())
+                self.manual_reverse_3d_checkbox.blockSignals(True)
+                self.manual_reverse_3d_checkbox.setChecked(
+                    next(iter(saved_values)) if len(saved_values) == 1 else False
+                )
+                self.manual_reverse_3d_checkbox.blockSignals(False)
+                self._manual_preview_unverified = False
+                self._manual_selection_enabled = False
+                self._manual_preview_notice.hide()
+                self._partial_preview_limit = 0
+                self._preview_only_planar_order = None
+                self.last_sequence_search_report = None
+                self.last_planar_search_report = None
+                self._last_manual_sequence_report = None
+                self._manual_3d_verdicts.clear()
+                self._manual_retract_verdicts.clear()
+                self._clear_manual_check_feedback()
+                self._physical_check_signature = None
+                self._conditional_bends_status.clear()
+                self._embedded_diagnostics_history = payload["diagnostics"]
+
+                warnings = []
+                for key, kind in (
+                    ("punch", ToolKind.PUNCH), ("die", ToolKind.DIE)
+                ):
+                    ref = payload["tooling"].get(key)
+                    if ref is None:
+                        # The explicit saved selection of None is meaningful.
+                        profile = None
+                    else:
+                        try:
+                            profile = self.tool_library.load_tool(
+                                ref["id"], kind, use_cache=False
+                            )
+                            if tool_reference(profile) != ref:
+                                raise EmbeddedSessionError(
+                                    "Tool library profile changed: " + ref["id"]
+                                )
+                        except (ToolingError, EmbeddedSessionError,
+                                OSError, KeyError, TypeError, ValueError) as exc:
+                            # Never leave an automatically selected *different*
+                            # tool looking as if the saved tool was restored.
+                            if key == "punch":
+                                self.tooling_setup.select_punch(None)
+                            else:
+                                self.tooling_setup.select_die(None)
+                            warnings.append(
+                                "{} не восстановлен, выбор сброшен: {}"
+                                .format(key, exc)
+                            )
+                            continue
+                    try:
+                        if key == "punch":
+                            self.tooling_setup.select_punch(profile)
+                        else:
+                            self.tooling_setup.select_die(profile)
+                    except ToolingError as exc:
+                        warnings.append(
+                            "{} не восстановлен: {}".format(key, exc)
+                        )
+
+                config_dict = dict(
+                    payload["simulation"].get("cycle_config", {})
+                )
+                try:
+                    config_dict["simulation_mode"] = CycleSimulationMode(
+                        config_dict["simulation_mode"]
+                    )
+                    restored_config = CycleConfig(**config_dict)
+                    self.cycle_speed_spin.blockSignals(True)
+                    self.cycle_speed_spin.setValue(
+                        restored_config.bend_rate_deg_s
+                    )
+                    self.cycle_speed_spin.blockSignals(False)
+                    self.set_cycle_config(restored_config)
+                    self.set_cycle_mode(
+                        CycleExecutionMode(
+                            payload["simulation"]["execution_mode"]
+                        )
+                    )
+                except (KeyError, TypeError, ValueError, PressCycleError) as exc:
+                    warnings.append("Параметры цикла: " + str(exc))
+
+                opts = payload["tooling"]
+                try:
+                    self.tooling_setup.set_match_active_bend_length(
+                        bool(opts["match_active_bend_length"]),
+                        self._active_bend_length_mm(),
+                    )
+                    self.virtual_tool_len_checkbox.setChecked(
+                        bool(opts["match_active_bend_length"])
+                    )
+                    self.end_zone_len_spin.setValue(
+                        float(opts["end_zone_length_mm"])
+                    )
+                    self.allow_end_zone_checkbox.setChecked(
+                        bool(opts["allow_end_zone_collision"])
+                    )
+                    self.retract_warning_checkbox.setChecked(
+                        bool(payload["simulation"]["retract_warning"])
+                    )
+                except (KeyError, TypeError, ValueError, ToolingError) as exc:
+                    warnings.append("Допуски оснастки: " + str(exc))
+
+                for key, value in payload["simulation"].get(
+                    "operation_weights", {}
+                ).items():
+                    editor = self._weight_editors.get(key)
+                    if editor is not None:
+                        try:
+                            number = float(value)
+                            if math.isfinite(number) and 0.0 <= number <= 100000.0:
+                                editor.setValue(number)
+                        except (TypeError, ValueError):
+                            warnings.append("Вес операции " + str(key))
+
+                self._refresh_tooling_combos()
+                self._ensure_press_cycle_controller()
+                try:
+                    self._sync_tooling_to_active_bend()
+                except (ToolingError, PressCycleError, ValueError) as exc:
+                    warnings.append("Выравнивание оснастки: " + str(exc))
+                self._populate_operations()
+                self._configure_for_active_bend()
+                self._draw_flat_pattern(reset_camera=False)
+                self.draw()
+                self.physical_check_result.setText(
+                    "ИСТОРИЯ SMBS ИЗ FCStd: проверки НЕ ПОДТВЕРЖДЕНЫ "
+                    "для новой сессии. Нужна повторная проверка."
+                )
+                historic_manual = payload["diagnostics"].get("manual")
+                if isinstance(historic_manual, dict):
+                    historic_3d = historic_manual.get("manual_3d_validation")
+                    historic_steps = (
+                        historic_3d.get("steps", ())
+                        if isinstance(historic_3d, dict) else ()
+                    )
+                    self._show_manual_check_feedback(
+                        "HISTORICAL / UNVERIFIED",
+                        "В FCStd сохранён прошлый результат {}. "
+                        "Для текущего сеанса запустите нужную проверку заново."
+                        .format(historic_manual.get("status", "UNVERIFIED")),
+                        historic_steps,
+                    )
+                else:
+                    self._clear_manual_check_feedback()
+                note = (
+                    "Восстановлены порядок и настройки из FCStd. "
+                    "Проверки: ИСТОРИЧЕСКИЕ, UNVERIFIED."
+                )
+                if warnings:
+                    note += " Ограничения: " + "; ".join(warnings)
+                self.fcstd_note.setText(note)
+                return note
+
+            def _manual_native_orientation_changed(self, _enabled):
+                """A deliberate checkbox change replaces every per-bend 2D pose."""
+                if self.session is None:
+                    return
+                self._manual_orientation_order = tuple(self.session.bend_order)
+                self._manual_orientation_by_bend = {
+                    bid: bool(_enabled) for bid in self._manual_orientation_order
+                }
+                self._last_manual_sequence_report = None
+                self._manual_3d_verdicts.clear()
+                self._manual_retract_verdicts.clear()
+                self._collision_inspection = None
+                self._collision_display_active = False
+                if hasattr(self, "manual_show_collision_btn"):
+                    self.manual_show_collision_btn.setEnabled(False)
+                    self.manual_show_collision_btn.hide()
+                if hasattr(self, "manual_exact_occ_btn"):
+                    self.manual_exact_occ_btn.setEnabled(False)
+                    self.manual_exact_occ_btn.hide()
+                    self.manual_show_collision_btn.setText(
+                        "Показать коллизию в 3D"
+                    )
+                self._clear_manual_check_feedback()
+                self._physical_check_signature = None
+                self._ensure_press_cycle_controller()
+                if self.press_cycle is not None:
+                    self.press_cycle.loading_orientation_by_bend = (
+                        self._effective_loading_orientation_map()
+                    )
+                self._trace_event(
+                    "MANUAL_NATIVE_ORIENTATION_SELECTED",
+                    reverse_axis=bool(self.manual_reverse_3d_checkbox.isChecked()),
+                    orientation_by_bend=self._manual_orientation_selection(
+                        self.session.bend_order
+                    ),
+                    order=list(self.session.bend_order),
+                )
+                self.draw()
+
+            def _validate_export_manual_order(self, coarse_occ=False):
+                """Validate selected manual order: Stage A/B plus actual FCStd 3D.
+
+                The backgauge stays visual-only. Simulation/slider retain
+                their separate UNVERIFIED and nonblocking preview paths.
+                """
+                if self.session is None:
+                    self.status.setText("Сначала загрузите деталь.")
+                    return
+                prefix = tuple(self._manual_sequence_prefix)
+                order = tuple(self.session.bend_order)
+                if prefix and order[:len(prefix)] != prefix:
+                    self.status.setText(
+                        "Ручной порядок изменился: перенумеруйте линии."
+                    )
+                    return
+                selected = prefix or order  # Move Up/Down is a valid full order.
+                if not selected:
+                    self.status.setText("Нет выбранных гибов.")
+                    return
+                if (self.timer.isActive()
+                        or self.session.playback_status == PlaybackStatus.PLAYING):
+                    self.status.setText(
+                        "Остановите симуляцию перед проверкой ручного порядка."
+                    )
+                    return
+                open_collision = False
+                self._stop_timer()
+                _desktop_debug_event(
+                    "MANUAL_VERIFY_REQUESTED",
+                    requested_bends=list(selected),
+                    all_bends=list(order),
+                    session=self._debug_session_context(),
+                )
+                # Qt event pumping keeps progress legible, but the operator
+                # must not change tool identity, options or order mid-check.
+                locked_controls = (
+                    self.manual_validate_btn, self.manual_validate_3d_btn,
+                    self.manual_simulate_btn,
+                    self.select_punch_combo, self.select_die_combo,
+                    self.virtual_tool_len_checkbox,
+                    self.manual_reverse_3d_checkbox,
+                    self.allow_end_zone_checkbox, self.end_zone_len_spin,
+                    self.import_punch_btn, self.import_die_btn,
+                    self.tool_library_btn, self.move_up_btn,
+                    self.move_down_btn, self.restore_order_btn,
+                    self.manual_undo_btn, self.manual_clear_btn,
+                )
+                old_control_states = tuple(
+                    (control, control.isEnabled())
+                    for control in locked_controls
+                )
+                for control, _enabled in old_control_states:
+                    control.setEnabled(False)
+                self._set_task_busy(True)
+                self._manual_3d_verdicts.clear()
+                self._manual_retract_verdicts.clear()
+                self._clear_manual_check_feedback()
+                self._last_manual_sequence_report = None
+                self.status.setText(
+                    "{}: {}/{} гибов...".format(
+                        "Быстрая OCC проверка (5 углов)" if coarse_occ
+                        else "Полная адаптивная 3D проверка",
+                        len(selected), len(order),
+                    )
+                )
+                QtWidgets.QApplication.processEvents()
+                try:
+                    from smbs_core.kinematics2d.manual_sequence_replay import (
+                        evaluate_manual_planar_order,
+                    )
+                    from smbs_core.kinematics2d.manual_physical_validation import (
+                        check_manual_3d_sequence,
+                    )
+                    from smbs_core.kinematics2d.tooling_25d import ValidationStatus
+
+                    selected_punch = self.tooling_setup.punch
+                    selected_die = self.tooling_setup.die
+                    if (selected_punch is None or selected_die is None
+                            or selected_punch.validation_status
+                               != ValidationStatus.GEOMETRY_VERIFIED
+                            or selected_die.validation_status
+                               != ValidationStatus.GEOMETRY_VERIFIED):
+                        self._record_manual_precheck_failure(
+                            selected,
+                            "Выберите действительные пуансон и матрицу "
+                            "с проверенными геометрическими базами.",
+                        )
+                        return
+
+                    self._sync_tooling_to_active_bend()
+                    if not self.tooling_setup.aligned:
+                        self._record_manual_precheck_failure(
+                            selected,
+                            "Выбранная оснастка не выровнена "
+                            "относительно текущей линии гиба.",
+                        )
+                        return
+                    match_length = bool(
+                        self.tooling_setup.match_active_bend_length
+                    )
+                    allow_end_zone = bool(
+                        self.tooling_setup.allow_end_zone_collision
+                    )
+                    end_zone_mm = float(
+                        self.tooling_setup.end_zone_length_mm
+                    )
+                    has_sections = bool(
+                        self.tooling_setup.punch_section_offsets_xm
+                        or self.tooling_setup.die_section_offsets_xm
+                    )
+                    if has_sections and match_length:
+                        self._record_manual_precheck_failure(
+                            selected,
+                            "Виртуальная длина несовместима "
+                            "с реальными наборными секциями инструмента.",
+                        )
+                        return
+
+                    # Preview, 2D replay and native 3D consume one pose map.
+                    reverse_selection = self._manual_orientation_selection(selected)
+                    if coarse_occ:
+                        planar = {
+                            "status": "NOT_RUN_COARSE_OCC",
+                            "steps": [], "first_blocker": None,
+                        }
+                        self.status.setText("Проверка реальных FCStd инструментов в OCC...")
+                        QtWidgets.QApplication.processEvents()
+                    else:
+                        try:
+                            planar = evaluate_manual_planar_order(
+                                self.session,
+                                self.tooling_setup,
+                                selected,
+                                match_active_bend_length=match_length,
+                                allow_retract_warning=self.retract_warning_checkbox.isChecked(),
+                                weights=self._selected_operation_weights(),
+                                backgauge_model=None,
+                                reverse_axis_by_bend=reverse_selection,
+                            )
+                        except Exception as planar_exc:
+                            # 2D diagnostics are advisory. Failure to build an
+                            # approximated section must not prevent independent
+                            # native 3D from checking the chosen tools.
+                            planar = {
+                                "schema_version": "smbs.manual_planar_replay.v1",
+                                "status": "UNVERIFIED_2D",
+                                "steps": [],
+                                "first_blocker": {
+                                    "reason": "2d_exception:{}:{}".format(
+                                        type(planar_exc).__name__, planar_exc,
+                                    ),
+                                },
+                                "plan_cost": None,
+                            }
+                        _desktop_debug_event(
+                            "MANUAL_STAGE_AB_PLANAR_RESULT",
+                            selected_order=list(selected),
+                            entire_2d_report=planar,
+                        )
+                        self.status.setText(
+                            "Предварительный 2D: {}. Проверка реальных FCStd в 3D..."
+                            .format(planar["status"])
+                        )
+                        self.manual_check_summary.setText(
+                            "2D: {}. Идёт независимая 3D-проверка..."
+                            .format(planar["status"])
+                        )
+                        QtWidgets.QApplication.processEvents()
+
+                    def on_progress(step_no, count, bend_id):
+                        label = (
+                            "Ручная 3D-проверка: гиб {}/{} ({}) — "
+                            "пуансон и матрица".format(step_no, count, bend_id)
+                        )
+                        self.status.setText(label)
+                        self.manual_check_summary.setText(label)
+                        QtWidgets.QApplication.processEvents()
+
+                    from smbs_core.kinematics2d.motion_trajectory_3d import (
+                        AdaptiveSamplingConfig,
+                    )
+                    physical = check_manual_3d_sequence(
+                        self.session, self.tooling_setup, selected,
+                        match_active_bend_length=match_length,
+                        allow_end_zone_collision=allow_end_zone,
+                        end_zone_length_mm=end_zone_mm,
+                        # One clearance value controls both the FreeCAD
+                        # FULL_CYCLE and native 3D APPROACH/RETRACT path.
+                        config=AdaptiveSamplingConfig(
+                            coarse_occ_screen=coarse_occ,
+                            initial_clearance_mm=(
+                                float(self.cycle_config.initial_clearance_mm)
+                            ),
+                            # Manual validation must have sufficient budget
+                            # for expensive multi-fold native OCC trajectories.
+                            # B05 (after B07, B03) previously left 2 intervals
+                            # unresolved at 27 samples / 120s. A longer bound
+                            # cannot turn missing evidence into a PASS: D6
+                            # still reports INTERVAL_UNRESOLVED if exhausted.
+                            max_phase_time_s=300.0,
+                            max_evaluated_states_per_phase=64,
+                        ),
+                        progress_callback=on_progress,
+                        # Validate the EXPLICIT operator loading selection.
+                        # Do not silently substitute ergonomic 2D suggestions.
+                        reverse_axis_by_bend=reverse_selection,
+                    )
+                    self._collision_inspection = None
+                    self._collision_display_active = False
+                    self.manual_show_collision_btn.setText(
+                        "Показать коллизию в 3D"
+                    )
+                    native_tooling_identity = {
+                        "punch_id": selected_punch.tool_id,
+                        "die_id": selected_die.tool_id,
+                        "match_active_bend_length": match_length,
+                        "punch_sections": tuple(
+                            self.tooling_setup.punch_section_offsets_xm or ()
+                        ),
+                        "die_sections": tuple(
+                            self.tooling_setup.die_section_offsets_xm or ()
+                        ),
+                        "end_zone_allow": allow_end_zone,
+                        "end_zone_mm": end_zone_mm,
+                        "orientation_by_bend": tuple(sorted(
+                            self._manual_orientation_selection(self.session.bend_order).items()
+                        )),
+                        "session_identity": id(self.session),
+                    }
+                    for step in physical["steps"]:
+                        if (self._collision_inspection is None
+                                and step.get("status") == "COLLISION"
+                                and (step.get("first_blocker") or {})
+                                    .get("sampled_machine_pose")):
+                            self._collision_inspection = {
+                                "bend_id": step["bend_id"],
+                                "first_blocker": step["first_blocker"],
+                                "tooling_identity": native_tooling_identity,
+                            }
+                        self._manual_3d_verdicts[step["bend_id"]] = (
+                            step["status"]
+                        )
+                        self._manual_retract_verdicts[step["bend_id"]] = (
+                            (step.get("retract") or {}).get(
+                                "status", "NOT_EVALUATED"
+                            )
+                        )
+                    if self._collision_inspection:
+                        self.manual_show_collision_btn.setEnabled(True)
+                        self.manual_show_collision_btn.show()
+                        self.manual_exact_occ_btn.setEnabled(True)
+                        self.manual_exact_occ_btn.show()
+                    else:
+                        self.manual_show_collision_btn.setEnabled(False)
+                        self.manual_show_collision_btn.hide()
+                        self.manual_exact_occ_btn.setEnabled(False)
+                        self.manual_exact_occ_btn.hide()
+                    self._populate_operations()
+
+                    # Keep two independent geometric evidence streams and
+                    # explicitly record contradictions such as B03 at 180°:
+                    # 2D P09 interference while sampled native OCC is clear.
+                    from smbs_core.kinematics2d.manual_sequence_replay import (
+                        crosscheck_manual_planar_native_evidence,
+                    )
+                    crosscheck = (
+                        [] if coarse_occ else
+                        crosscheck_manual_planar_native_evidence(planar, physical)
+                    )
+                    physical["planar_native_discrepancies"] = crosscheck
+                    if crosscheck:
+                        _desktop_debug_event(
+                            "MANUAL_2D_NATIVE_EVIDENCE_DISAGREEMENT",
+                            evidence=crosscheck,
+                        )
+                    # A confirmed 2D section disagreement does not override
+                    # a native 3D collision, but prevents a falsely clean
+                    # overall verdict without further investigation.
+                    physical_status = physical["status"]
+                    disagreement = not coarse_occ and (
+                        planar.get("first_blocker") is not None
+                        or planar.get("status") not in (
+                            "SAMPLED_2D_PREFIX_CLEAR_OR_TOUCH",
+                        )
+                    )
+                    if (disagreement and physical_status
+                            == "SAMPLED_3D_CLEAR_NOT_CONTINUOUS"):
+                        physical_status = "UNVERIFIED"
+                        physical["reason"] += ";2d_3d_disagreement_requires_review"
+                    if disagreement and physical_status == "CONDITIONAL":
+                        # A certified native 3D END_ZONE_ONLY punch overlap
+                        # stays CONDITIONAL (never PASS). A conflicting die
+                        # interference cannot be waived by that exemption.
+                        flagged_die = any(
+                            isinstance(finding, dict)
+                            and str(finding.get("tool", "")).upper() == "DIE"
+                            and str(finding.get("status", "")).upper()
+                                == "INTERFERENCE"
+                            for record in planar.get("steps", [])
+                            for finding in (
+                                (record.get("stage_b") or {})
+                                .get("diagnostic_findings", [])
+                            )
+                        )
+                        if flagged_die:
+                            physical_status = "UNVERIFIED"
+                            physical["reason"] += ";2d_die_interference_requires_review"
+                        else:
+                            physical["reason"] += ";2d_advisory_disagreement_conditional_only"
+                    physical["status"] = physical_status
+                    _desktop_debug_event(
+                        "MANUAL_VERIFY_FINAL_RESULT",
+                        verdict=physical_status,
+                        entire_native_report=physical,
+                        planar_status=planar.get("status"),
+                        disagreement=disagreement,
+                        discrepancies=crosscheck,
+                    )
+                    complete_steps = physical["checked_bends"]
+                    result = dict(planar)
+                    result["schema_version"] = "smbs.manual_2d_and_native_3d.v2"
+                    result["planar_status"] = planar["status"]
+                    result["manual_3d_validation"] = physical
+                    result["planar_native_discrepancies"] = crosscheck
+                    result["status"] = physical_status
+                    result["physical_certification"] = "NOT_CONTINUOUSLY_CERTIFIED"
+                    result["tooling"] = {
+                        "punch": selected_punch.name,
+                        "punch_id": selected_punch.tool_id,
+                        "die": selected_die.name,
+                        "die_id": selected_die.tool_id,
+                        "match_active_bend_length": match_length,
+                        "allow_end_zone_collision_requested": allow_end_zone,
+                        "end_zone_length_mm": end_zone_mm,
+                        "end_zone_exemption_applied": any(
+                            x.get("is_conditional", False)
+                            for x in physical["steps"]
+                        ),
+                    }
+                    result["model"] = {
+                        "part_label": self.session.part_label,
+                        "unfold_object": getattr(self.session.unfold_data, "unfold_object", ""),
+                        "source_object": getattr(self.session.unfold_data, "source_object", ""),
+                        "source_face": getattr(self.session.unfold_data, "source_face", ""),
+                        "thickness_mm": getattr(self.session.unfold_data, "thickness_mm", None),
+                        "fixed_panel": self.session.fixed_panel,
+                    }
+                    result["runtime"] = dict(self.runtime_git_info)
+                    result["bend_geometry"] = [
+                        {
+                            "bend_id": b.bend_id,
+                            "angle_deg": float(b.angle_deg),
+                            "fixed_panel": b.fixed_panel,
+                            "moving_panel": b.moving_panel,
+                            "axis_xy": [
+                                [float(v) for v in pt]
+                                for pt in next(
+                                    conn.axis_xy for conn
+                                    in self.session.panel_build.connections
+                                    if conn.bend_id == b.bend_id
+                                )
+                            ],
+                        }
+                        for b in self.session.ordered_bends
+                    ]
+                    self._last_manual_sequence_report = dict(result)
+                    readable_verdict = {
+                        "SAMPLED_3D_CLEAR_NOT_CONTINUOUS":
+                            "ПРОВЕРКА ПРОЙДЕНА (выборочная 3D)",
+                        "COLLISION": "ОБНАРУЖЕНА КОЛЛИЗИЯ",
+                        "CONDITIONAL": "УСЛОВНО ДОПУСТИМО",
+                        "UNVERIFIED": "ПРОВЕРКА НЕ ПОДТВЕРЖДЕНА",
+                    }.get(physical_status, "НЕИЗВЕСТНЫЙ РЕЗУЛЬТАТ")
+                    if (coarse_occ and physical_status == "UNVERIFIED"
+                            and physical.get("reason") ==
+                                "coarse_OCC_samples_only_uninspected_intervals_and_tool_pair"
+                            and complete_steps == len(selected)):
+                        readable_verdict = (
+                            "ГРУБЫЙ OCC ПРОХОД: доказанная коллизия не найдена "
+                            "(промежутки НЕ ПРОВЕРЕНЫ)"
+                        )
+                    summary = (
+                        "{} — {}/{} гибов | режим={} | "
+                        "RETRACT в таблице | {} | "
+                        "Без сертификации непрерывного движения"
+                    ).format(
+                        readable_verdict, complete_steps, len(selected),
+                        physical["validation_mode"], physical["reason"],
+                    )
+                    if crosscheck:
+                        summary += (
+                            " | 2D/3D расхождение: {} (детали в SMBS_debug_log.json)"
+                            .format(", ".join(item["bend_id"] for item in crosscheck))
+                        )
+                    self.physical_check_result.setText(summary)
+                    self.status.setText(summary)
+                    self._trace_event(
+                        "MANUAL_3D_CHECK_COMPLETED",
+                        status=physical_status,
+                        mode=physical["validation_mode"],
+                        checked_bends=complete_steps,
+                        selected_bends=list(selected),
+                        punch_id=selected_punch.tool_id,
+                        die_id=selected_die.tool_id,
+                        virtual_length=match_length,
+                        end_zone_conditional=allow_end_zone,
+                    )
+                    self._show_manual_check_feedback(
+                        physical_status, summary, physical["steps"],
+                    )
+                    try:
+                        saved_note = self._persist_manual_check_to_fcstd()
+                    except Exception as storage_exc:
+                        saved_note = (
+                            "НЕ СОХРАНЕНО В FCStd: " + str(storage_exc)
+                        )
+                        _error(
+                            "Manual 3D report could not be embedded: "
+                            + traceback.format_exc()
+                        )
+                    self.manual_check_summary.setText(
+                        "{}\n{}".format(summary, saved_note)
+                    )
+                    self.status.setText(saved_note)
+                    open_collision = (physical_status == "COLLISION"
+                                      and self._collision_inspection is not None)
+                except Exception as exc:
+                    _error(
+                        "Manual 3D tooling validation exception: "
+                        + traceback.format_exc()
+                    )
+                    self._record_manual_precheck_failure(
+                        selected,
+                        "Ошибка проверки ручного порядка: " + str(exc),
+                    )
+                finally:
+                    self._set_task_busy(False)
+                    for control, enabled in old_control_states:
+                        control.setEnabled(enabled)
+
+                if open_collision and not self._open_exact_collision_inspector():
+                    self._show_first_collision_in_3d()
+
+            def simulate_manual_order_unverified(self):
+                """Preview current Manual order without ANY collision validation.
+
+                The existing BendSequenceController and playback timer are
+                reused. Only the angles are reset; the chosen order is retained.
+                A partial manually numbered prefix never silently certifies
+                or plays the unselected canonical remainder.
+                """
+                if self.session is None:
+                    self.status.setText("Сначала загрузите развёртку детали.")
+                    return
+                order = tuple(self.session.bend_order)
+                if not order:
+                    self.status.setText("Нет гибов для симуляции.")
+                    return
+                prefix = tuple(self._manual_sequence_prefix)
+                if prefix and order[:len(prefix)] != prefix:
+                    self.status.setText(
+                        "Ручной порядок изменился. Проверьте выбранные линии."
+                    )
+                    return
+                self._stop_timer()
+                self._manual_selection_enabled = False
+                self._manual_preview_unverified = True
+                self._partial_preview_limit = (
+                    len(prefix) if prefix and len(prefix) < len(order) else 0
+                )
+                self._preview_only_planar_order = None
+                self.last_planar_search_report = None
+                self.last_sequence_search_report = None
+                self._last_manual_sequence_report = None
+                self._manual_3d_verdicts.clear()
+                self._manual_retract_verdicts.clear()
+                self._clear_manual_check_feedback()
+                self._physical_check_signature = None
+                self._machine_pose_fault = None
+                self._highlighted_end_zone_info = None
+                self._conditional_bends_status.clear()
+                self._viewer_tabs.setCurrentWidget(self.view)
+                show_workspace_controls(self, tab=2)
+                try:
+                    self.set_cycle_mode(CycleExecutionMode.BEND_ONLY)
+                    pc = self._ensure_press_cycle_controller()
+                    if pc is not None:
+                        pc.reset()
+                        self.session.active_bend_index = (
+                            self.session.controller.active_index
+                        )
+                    else:
+                        self.session.reset_all_bends()
+                    if tuple(self.session.bend_order) != order:
+                        raise RuntimeError("Сброс изменил выбранный порядок гибов")
+                except Exception as exc:
+                    self._manual_preview_unverified = False
+                    self.status.setText(
+                        "Не удалось подготовить ручную симуляцию: " + str(exc)
+                    )
+                    return
+                self._configure_for_active_bend()
+                self._update_tooling_status_label()
+                self._manual_preview_notice.show()
+                self.physical_check_result.setText(
+                    "UNVERIFIED: ручная кинематическая симуляция; "
+                    "коллизии с пуансоном, матрицей, упором и станком не проверены."
+                )
+                self.draw()
+                QtCore.QTimer.singleShot(0, self.fit)
+                self.play_all()
+                if self.session.playback_status == PlaybackStatus.PLAYING:
+                    scope = (
+                        "первые {}/{} гибов".format(
+                            self._partial_preview_limit, len(order)
+                        ) if self._partial_preview_limit else
+                        "все {} гибов".format(len(order))
+                    )
+                    self.status.setText(
+                        "РУЧНАЯ СИМУЛЯЦИЯ: {} · БЕЗ ПРОВЕРКИ КОЛЛИЗИЙ"
+                        .format(scope)
+                    )
+                    self._trace_event(
+                        "MANUAL_UNVERIFIED_PREVIEW_STARTED",
+                        bend_order=list(order),
+                        explicit_prefix=list(prefix),
+                        preview_count=(
+                            self._partial_preview_limit or len(order)
+                        ),
+                        collision_validated=False,
+                        physical_status="UNVERIFIED",
+                    )
+
+            def activate_manual_mode(self):
+                """Toolbar Manual: open flat pattern without discarding order."""
+                if self.session is None:
+                    self.status.setText("Сначала загрузите развёртку SheetMetal.")
+                    return
+                if not self._manual_selection_enabled:
+                    self._toggle_manual_order(True)
+                else:
+                    self._viewer_tabs.setCurrentWidget(self._flat_view)
+                    self._draw_flat_pattern(reset_camera=False)
+                show_workspace_controls(self, tab=4)
+
+            def _toggle_manual_order(self, enabled):
+                if enabled and self.session is None:
+                    self._manual_selection_enabled = False
+                    self.status.setText("Сначала загрузите развёртку SheetMetal.")
+                    return
+                self._manual_selection_enabled = bool(enabled)
+                if enabled:
+                    self._manual_preview_unverified = False
+                    self._manual_preview_notice.hide()
+                    self._stop_timer()
+                    self.session.reset_all_bends()
+                    self._viewer_tabs.setCurrentWidget(self._flat_view)
+                    self._draw_flat_pattern(reset_camera=True)
+                self._update_manual_hint()
+
+            def _update_manual_hint(self):
+                """Compact status instead of an instructional text panel."""
+                if self._manual_selection_enabled:
+                    prefix = self._manual_sequence_prefix
+                    self.status.setText(
+                        "Порядок: {}/{} | {} | коллизии не проверены".format(
+                            len(prefix),
+                            len(self.session.bend_order) if self.session else 0,
+                            " → ".join(prefix) or "порядок пуст",
+                        )
+                    )
+
+            def _select_flat_bend(self, bend_id):
+                if self.session is None or not self._manual_selection_enabled:
+                    return
+                _desktop_debug_event(
+                    "MANUAL_FLAT_BEND_CLICK",
+                    bend_id=str(bend_id),
+                    accepted_before=list(self._manual_sequence_prefix),
+                    current_order=list(self.session.bend_order),
+                )
+                if bend_id in self._manual_sequence_prefix:
+                    self.status.setText(
+                        "Линия {} уже имеет номер {}.".format(
+                            bend_id, self._manual_sequence_prefix.index(bend_id) + 1)
+                    )
+                    return
+                if bend_id not in self.session.fold_state.bends:
+                    self.status.setText("Неизвестная линия: " + str(bend_id))
+                    return
+                if not self.session.can_reorder():
+                    self.status.setText(
+                        "Изменение порядка недоступно: остановите симуляцию и сделайте Reset."
+                    )
+                    return
+                self._manual_sequence_prefix.append(bend_id)
+                _desktop_debug_event(
+                    "MANUAL_FLAT_BEND_ACCEPTED",
+                    bend_id=str(bend_id),
+                    sequence=list(self._manual_sequence_prefix),
+                )
+                self._apply_manual_order()
+
+            def _apply_manual_order(self):
+                if self.session is None:
+                    return
+                self._manual_3d_verdicts.clear()
+                self._manual_retract_verdicts.clear()
+                self._clear_manual_check_feedback()
+                prefix = tuple(self._manual_sequence_prefix)
+                remainder = tuple(
+                    bend_id for bend_id in self.session.canonical_order
+                    if bend_id not in prefix
+                )
+                try:
+                    self.session.set_bend_order(prefix + remainder)
+                except SequenceError as exc:
+                    self.status.setText(str(exc))
+                    if prefix:
+                        self._manual_sequence_prefix.pop()
+                    return
+                if self._manual_orientation_order != tuple(self.session.bend_order):
+                    self._manual_orientation_order = tuple(self.session.bend_order)
+                    self._manual_orientation_by_bend = {
+                        bid: bool(self.manual_reverse_3d_checkbox.isChecked())
+                        for bid in self._manual_orientation_order
+                    }
+                if prefix:
+                    self.session.select_bend_index(len(prefix) - 1)
+                self._preview_only_planar_order = None
+                self._manual_preview_unverified = False
+                self._manual_preview_notice.hide()
+                self._partial_preview_limit = 0
+                self._selected_planar_gauge_order = ()
+                self._selected_planar_gauge_positions = {}
+                self._selected_planar_gauge_model_id = None
+                self._selected_planar_loading_orientation = {}
+                self._backgauge_preview_cache.clear()
+                self.last_sequence_search_report = None
+                self._conditional_bends_status.clear()
+                self._populate_operations()
+                self._configure_for_active_bend()
+                self._draw_flat_pattern()
+                self._update_manual_hint()
+                self.status.setText(
+                    "РУЧНОЙ ПОРЯДОК {}/{} (НЕ ПРОВЕРЕН): {}".format(
+                        len(prefix), len(self.session.bend_order),
+                        " → ".join(prefix)
+                    )
+                )
+
+            def _undo_manual_bend(self):
+                if self.session is None or not self.session.can_reorder():
+                    return
+                if self._manual_sequence_prefix:
+                    self._manual_sequence_prefix.pop()
+                    self._apply_manual_order()
+
+            def _clear_manual_order(self):
+                if self.session is None:
+                    return
+                self._stop_timer()
+                self.session.reset_all_bends()
+                self._manual_sequence_prefix = []
+                self._manual_orientation_order = ()
+                self._manual_orientation_by_bend = {}
+                self._apply_manual_order()
+
+            def _draw_flat_pattern(self, reset_camera=False):
+                if not hasattr(self, "_flat_scene"):
+                    return
+                scene = self._flat_scene
+                scene.clear()
+                if self.session is None:
+                    scene.addSimpleText("Развёртка не загружена")
+                    return
+                polygon_pen = QtGui.QPen(QtGui.QColor("#738194"))
+                polygon_pen.setWidthF(0.35)
+                fill = QtGui.QBrush(QtGui.QColor("#e7edf2"))
+                for vertices in self.session.panel_vertices_xy.values():
+                    if len(vertices) < 3:
+                        continue
+                    poly = QtGui.QPolygonF([
+                        QtCore.QPointF(float(x), -float(y))
+                        for x, y in vertices
+                    ])
+                    scene.addPolygon(poly, polygon_pen, fill).setZValue(0)
+                selected = set(self._manual_sequence_prefix)
+                for conn in self.session.panel_build.connections:
+                    bend_id = conn.bend_id
+                    (x1, y1), (x2, y2) = conn.axis_xy
+                    chosen = bend_id in selected
+                    active = (chosen and self._manual_sequence_prefix[-1] == bend_id)
+                    color = "#e67e22" if active else ("#219653" if chosen else "#2864ac")
+                    pen = QtGui.QPen(QtGui.QColor(color))
+                    pen.setWidthF(2.3 if active else 1.4)
+                    pen.setCosmetic(True)
+                    item = scene.addLine(float(x1), -float(y1),
+                                         float(x2), -float(y2), pen)
+                    item.setData(0, bend_id)
+                    item.setZValue(10)
+                    item.setToolTip("{} {:+.1f}°".format(bend_id, conn.angle_deg))
+                    hit_pen = QtGui.QPen(QtGui.QColor(0, 0, 0, 0))
+                    hit_pen.setWidth(13)
+                    hit_pen.setCosmetic(True)
+                    hit = scene.addLine(float(x1), -float(y1),
+                                        float(x2), -float(y2), hit_pen)
+                    hit.setZValue(12)
+                    hit.setData(0, bend_id)
+                    hit.setToolTip("{} {:+.1f}°".format(bend_id, conn.angle_deg))
+                    mx, my = (float(x1)+float(x2))/2, -(float(y1)+float(y2))/2
+                    number = (str(self._manual_sequence_prefix.index(bend_id)+1)
+                              if chosen else "{} {:+.0f}°".format(bend_id, conn.angle_deg))
+                    label = scene.addSimpleText(number)
+                    label.setBrush(QtGui.QBrush(QtGui.QColor(color)))
+                    label.setData(0, bend_id)
+                    label.setZValue(15)
+                    label.setFlag(QtWidgets.QGraphicsItem.ItemIgnoresTransformations)
+                    label.setPos(mx, my)
+                bounds = scene.itemsBoundingRect().adjusted(-10, -10, 10, 10)
+                scene.setSceneRect(bounds)
+                if reset_camera:
+                    self._flat_view.reset_camera()
+
+            def _format_operation_row(self, idx: int, b) -> tuple[str, str, str, str, str, str, str, str]:
                 cur = self.session.fold_state.angles[b.bend_id]
                 done = self.session.controller.is_bend_completed(b.bend_id)
                 is_active = (idx - 1) == self.session.active_bend_index
@@ -1886,24 +6527,60 @@ class _PreviewPanel:
                     status_str = "ACTIVE"
                 else:
                     status_str = "IDLE"
+                if b.bend_id in self._conditional_bends_status:
+                    status_str += " [CONDITIONAL]"
+                if self._manual_orientation_selection(
+                    self.session.bend_order
+                ).get(b.bend_id, False):
+                    status_str += " [180°]"
+                if b.bend_id in self._manual_3d_verdicts:
+                    status_str += " [3D:{}]".format(
+                        self._manual_3d_verdicts[b.bend_id]
+                    )
+                retract_status = self._manual_retract_verdicts.get(b.bend_id)
+                retract_label = {
+                    "SAMPLED_CLEAR": "ПРОЙДЕН",
+                    "CONDITIONAL": "УСЛОВНО",
+                    "COLLISION": "КОЛЛИЗИЯ",
+                    "NOT_EVALUATED": "НЕ ВЫПОЛНЕН",
+                    "UNVERIFIED": "НЕ ПРОВЕРЕН",
+                }.get(retract_status, "—")
+                flat_mm = self.session.local_bend_dimensions_mm.get(b.bend_id)
+                gauge = self._backgauge_preview_position(idx - 1)
+                face_s = (
+                    gauge[0].s_mm - self.backgauge_model.width_s_mm / 2.0
+                    if gauge is not None and self.backgauge_model is not None
+                    else None
+                )
                 return (
                     str(idx),
                     "{} ({} → {})".format(b.bend_id, b.fixed_panel, b.moving_panel),
                     "{:+.1f}°".format(b.angle_deg),
                     "{:+.1f}°".format(cur),
+                    "{:.2f}".format(flat_mm) if flat_mm is not None else "—",
+                    "{:.2f}".format(face_s) if face_s is not None else "—",
                     status_str,
+                    retract_label,
                 )
 
             def _apply_reorder(self, action_fn):
                 if self.session is None:
                     return
+                self._manual_3d_verdicts.clear()
+                self._manual_retract_verdicts.clear()
+                self._clear_manual_check_feedback()
                 try:
                     action_fn()
                 except SequenceError as exc:
                     self.status.setText(str(exc))
                     self._sync_playback_buttons()
                     return
-                # Synchronize table and slider without triggering geometry redraw in flat state
+                # Move Up/Down and Restore replace the manually numbered prefix.
+                self._manual_sequence_prefix = []
+                self._manual_preview_unverified = False
+                self._manual_preview_notice.hide()
+                self._draw_flat_pattern()
+                self._update_manual_hint()
                 self._configure_for_active_bend()
                 if self.tooling_setup.aligned:
                     self._sync_tooling_to_active_bend()
@@ -1936,6 +6613,13 @@ class _PreviewPanel:
                     for idx, b in enumerate(self.session.ordered_bends, 1):
                         cols = self._format_operation_row(idx, b)
                         item = QtWidgets.QTreeWidgetItem(list(cols))
+                        item.setToolTip(
+                            1, " | ".join(
+                                "{}: {}".format(
+                                    self.operations.headerItem().text(i), value
+                                ) for i, value in enumerate(cols)
+                            ),
+                        )
                         self.operations.addTopLevelItem(item)
                     if self.operations.topLevelItemCount() > 0:
                         self.operations.setCurrentItem(
@@ -1959,6 +6643,13 @@ class _PreviewPanel:
                     for col_i, text in enumerate(cols):
                         if hasattr(item, "setText"):
                             item.setText(col_i, text)
+                    item.setToolTip(
+                        1, " | ".join(
+                            "{}: {}".format(
+                                self.operations.headerItem().text(i), value
+                            ) for i, value in enumerate(cols)
+                        ),
+                    )
                 if 0 <= self.session.active_bend_index < count:
                     target_item = self.operations.topLevelItem(self.session.active_bend_index)
                     if target_item is not None and self.operations.currentItem() is not target_item:
@@ -2018,7 +6709,7 @@ class _PreviewPanel:
                 try:
                     pc = self._ensure_press_cycle_controller()
                     if pc is not None:
-                        pc.set_manual_angle(float(signed_angle_deg))
+                        pc.set_manual_preview_angle(float(signed_angle_deg))
                         self.session.active_bend_index = self.session.controller.active_index
                     else:
                         self.session.set_active_angle(float(signed_angle_deg))
@@ -2187,6 +6878,18 @@ class _PreviewPanel:
                 self.draw()
                 _log("Playback resumed at bend {}".format(self.session.active_bend_id))
 
+            def _toggle_play_pause(self):
+                """Single task-panel control for start, pause and resume."""
+                if self.session is None:
+                    return
+                st = self.session.playback_status
+                if st == PlaybackStatus.PLAYING:
+                    self.pause()
+                elif st == PlaybackStatus.PAUSED:
+                    self.resume()
+                else:
+                    self.play_all()
+
             def toggle_pause_resume(self):
                 if self.session is None:
                     return
@@ -2206,6 +6909,14 @@ class _PreviewPanel:
 
             def next_step(self):
                 if self.session is None:
+                    return
+                if (self._partial_preview_limit and all(
+                    self.session.controller.is_bend_completed(bid)
+                    for bid in self.session.bend_order[:self._partial_preview_limit]
+                )):
+                    self.status.setText(
+                        "Частичный 2D-просмотр завершён: следующие гибы не проверены."
+                    )
                     return
                 self._stop_timer()
                 self._machine_pose_fault = None
@@ -2249,6 +6960,38 @@ class _PreviewPanel:
                 if self.session is None:
                     self._stop_timer()
                     return
+                # A partial candidate must finish retracting the final
+                # punch before stopping. Otherwise the last sampled geometry
+                # freezes at BOTTOM/BENDING and looks like an illegal setup.
+                partial_prefix_done = bool(
+                    self._partial_preview_limit and all(
+                        self.session.controller.is_bend_completed(bid)
+                        for bid in self.session.bend_order[
+                            :self._partial_preview_limit
+                        ]
+                    )
+                )
+                partial_safe_to_stop = (
+                    self.execution_mode != CycleExecutionMode.FULL_CYCLE
+                    or self.press_cycle is None
+                    or self.press_cycle.phase in (
+                        CyclePhase.STEP_COMPLETE, CyclePhase.COMPLETED,
+                        CyclePhase.IDLE,
+                    )
+                )
+                if partial_prefix_done and partial_safe_to_stop:
+                    self.session.pause()
+                    if self.press_cycle is not None:
+                        self.press_cycle.pause()
+                    self._stop_timer()
+                    self._finish_motion_trace("PARTIAL_2D_PREVIEW_FINISHED")
+                    self.status.setText(
+                        "ЧАСТИЧНЫЙ ПРОСМОТР ЗАВЕРШЁН: {}/{} гибов; "
+                        "остальные не проверены и остаются плоскими.".format(
+                            self._partial_preview_limit, len(self.session.bend_order)
+                        )
+                    )
+                    return
                 if self.session.playback_status != PlaybackStatus.PLAYING:
                     self._stop_timer()
                     self.status.setText(
@@ -2281,6 +7024,11 @@ class _PreviewPanel:
                         if (self.session.active_bend_index != previous_bend
                                 and self.tooling_setup.aligned):
                             self._sync_tooling_to_active_bend()
+                        elif pc is not None:
+                            # Exactly the same coupled stroke model as the
+                            # manual slider. Do not leave the punch parked
+                            # while the sheet is bending in Bend Only mode.
+                            pc.preview_punch_at_current_angle()
                     self._configure_for_active_bend()
                     self._update_tooling_status_label()
                     self.draw()
@@ -2296,9 +7044,11 @@ class _PreviewPanel:
                         self.draw()
                         self._finish_motion_trace("PLAYBACK_COMPLETED")
                         self.status.setText(
-                            "AUTO PLAY завершён: {} | {} гибов".format(
+                            "AUTO PLAY завершён: {} | {} гибов{}".format(
                                 self.execution_mode.value,
                                 len(self.session.bend_order),
+                                " | РУЧНОЙ ПРОСМОТР БЕЗ ПРОВЕРКИ КОЛЛИЗИЙ"
+                                if self._manual_preview_unverified else "",
                             )
                         )
                         _log("Sequence playback completed")
@@ -2310,12 +7060,14 @@ class _PreviewPanel:
                             else "BEND_ONLY"
                         )
                         self.status.setText(
-                            "AUTO PLAY: {} | {} | гиб {} | угол {:+.1f}° | {} мс".format(
+                            "AUTO PLAY: {} | {} | гиб {} | угол {:+.1f}° | {} мс{}".format(
                                 self.execution_mode.value,
                                 phase,
                                 self.session.active_bend_id,
                                 self.session.current_angle_deg,
                                 self.timer.interval(),
+                                " | UNVERIFIED" if self._manual_preview_unverified
+                                else "",
                             )
                         )
                 except Exception as exc:
@@ -2348,13 +7100,9 @@ class _PreviewPanel:
                     # User may pause first; no camera jumps during playback.
                     return
                 if hasattr(self, "_viewer_tabs") and self._viewer_tabs.currentIndex() == 1:
-                    rect = self._preview_3d_scene.sceneRect()
-                    if not rect.isEmpty():
-                        self._preview_3d.fitInView(rect, QtCore.Qt.KeepAspectRatio)
+                    self._preview_3d.reset_camera()
                     return
-                rect = self.scene.sceneRect()
-                if not rect.isEmpty():
-                    self.view.fitInView(rect, QtCore.Qt.KeepAspectRatio)
+                self.view.reset_camera()
 
             def diagnostics(self):
                 has_part = self.session is not None
@@ -2366,7 +7114,7 @@ class _PreviewPanel:
                     "viewport_visible": self.view.viewport().width() > 0 and
                                         self.view.viewport().height() > 0,
                     "timer_consistency": self.timer.isActive() == self.playing,
-                    "unavailable_controls_disabled": not self.calculate.isEnabled(),
+                    "unavailable_controls_disabled": (not self.calculate.isEnabled()) if not has_part else True,
                 }
                 failures = [key for key, passed in checks.items() if not passed]
                 message = (
@@ -2380,9 +7128,28 @@ class _PreviewPanel:
                 return checks
 
             def closeEvent(self, event):
+                # A user may close the simulator first and press Ctrl+S in
+                # FreeCAD afterwards. Stage the final live JSON before losing
+                # this workspace's observer; the CAD file still requires a
+                # native document save. Never overwrite a stale attachment.
+                if self.session is not None and self._smbs_allow_auto_embed:
+                    try:
+                        self._write_embedded_smbs_json(
+                            self._bound_smbs_document()
+                        )
+                    except Exception as exc:
+                        _warn("FCStd SMBS stage on viewer close failed: " + str(exc))
+                if self._smbs_fcstd_observer is not None:
+                    try:
+                        import FreeCAD as App
+                        App.removeDocumentObserver(self._smbs_fcstd_observer)
+                    except Exception as exc:
+                        _warn("SMBS observer removal failed: " + str(exc))
+                    self._smbs_fcstd_observer = None
                 self._finish_motion_trace("WORKSPACE_CLOSED")
                 self.timer.stop()
                 self.playing = False
+                close_workspace_controls(self)
                 super().closeEvent(event)
 
             def _draw_tooling_items(
@@ -2443,6 +7210,14 @@ class _PreviewPanel:
                     punch_pen = QtGui.QPen(QtGui.QColor("#922b21"), 1.5)
                     punch_pen.setCosmetic(True)
                     punch_brush = QtGui.QBrush(QtGui.QColor(231, 76, 60, 145))
+                    if (
+                        self._highlighted_end_zone_info is not None
+                        and self.session is not None
+                        and str(self._highlighted_end_zone_info.get("bend_id")) == str(self.session.active_bend_id)
+                    ):
+                        punch_pen = QtGui.QPen(QtGui.QColor("#f39c12"), 3.0, QtCore.Qt.DashLine)
+                        punch_pen.setCosmetic(True)
+                        punch_brush = QtGui.QBrush(QtGui.QColor(243, 156, 18, 175))
                     punch_item = self.scene.addPath(punch_path, punch_pen, punch_brush)
                     punch_item.setZValue(Z_LAYER_PUNCH)
                     punch_item.setData(0, "punch")
@@ -2457,6 +7232,23 @@ class _PreviewPanel:
                         )
                         punch_axis_item.setZValue(Z_LAYER_AUXILIARY)
                         punch_axis_item.setData(0, "punch_axis")
+                        if (
+                            self._highlighted_end_zone_info is not None
+                            and self.session is not None
+                            and str(self._highlighted_end_zone_info.get("bend_id")) == str(self.session.active_bend_id)
+                        ):
+                            hz = self._highlighted_end_zone_info
+                            badge_txt = self.scene.addSimpleText(
+                                "КОНЦЕВАЯ ЗОНА ПУАНСОНА ({}) | {:.2f} мм³ | зона {:.1f} мм [CONDITIONAL]".format(
+                                    hz.get("affected_side", "?"),
+                                    float(hz.get("overlap_volume_mm3", 0.0)),
+                                    float(hz.get("end_zone_length_mm", 0.0)),
+                                )
+                            )
+                            badge_txt.setBrush(QtGui.QBrush(QtGui.QColor("#d35400")))
+                            badge_txt.setPos(tp.x() - 60.0, tp.y() - 35.0)
+                            badge_txt.setZValue(Z_LAYER_SHEET_NEUTRAL_AND_TANGENTS + 5.0)
+                            badge_txt.setData(0, "end_zone_highlight")
 
             def _halt_unsupported_machine_pose(self, reason):
                 """Stop unsafe 2.5D preview; retain last known machine picture.
@@ -2489,7 +7281,176 @@ class _PreviewPanel:
                     "станка выберите Bend Only и нажмите Play All.".format(reason)
                 )
 
+            def _sequenced_gauge_envelopes(self, orientations=None):
+                """Cached projected geometry from signed preceding bends."""
+                model, session = self.backgauge_model, self.session
+                if (model is None or session is None or
+                        not model.cad_geometry_enabled):
+                    return {}
+                if orientations is None:
+                    orientations = self._effective_loading_orientation_map()
+                key = (
+                    id(session), tuple(session.bend_order), id(model),
+                    float(model.cad_station_xm_mm),
+                    tuple(sorted(orientations.items())),
+                )
+                cached = self._machine_gauge_envelope_cache
+                if cached is not None and cached[0] == key:
+                    return cached[1]
+                from smbs_core.kinematics2d.gauge_preview import (
+                    sequenced_gauge_envelopes,
+                )
+                values, errors = sequenced_gauge_envelopes(
+                    session, station_xm_mm=model.cad_station_xm_mm,
+                    reverse_axis_by_bend=orientations,
+                )
+                self._machine_gauge_envelope_cache = (key, values)
+                for bend_id, reason in errors.items():
+                    _warn("Visual setup of CAD gauge for {} unavailable: {}"
+                          .format(bend_id, reason))
+                return values
+
+            def _backgauge_preview_position(self, index):
+                """Visual CAD target from fully formed preceding bend geometry.
+
+                Local flat-pattern pitch in the table is deliberately NOT used
+                as an S offset. This function never invokes collision tests.
+                """
+                model, session = self.backgauge_model, self.session
+                if (model is None or session is None or
+                        not model.cad_geometry_enabled):
+                    return None
+                order = tuple(session.bend_order)
+                if index < 0 or index >= len(order):
+                    return None
+                if model.part_label and model.part_label != session.part_label:
+                    return None
+                orientations = self._effective_loading_orientation_map()
+                key = (
+                    id(session), order, id(model), index,
+                    tuple(sorted(orientations.items())),
+                )
+                if key in self._backgauge_preview_cache:
+                    return self._backgauge_preview_cache[key]
+                bend_id = order[index]
+                try:
+                    from smbs_core.kinematics2d.gauge_preview import (
+                        visual_gauge_target,
+                    )
+                    # Manual S/Z does not need a geometrical calculation.
+                    envelope = (
+                        self._sequenced_gauge_envelopes(orientations).get(bend_id)
+                        if model.automatic else None
+                    )
+                    rear_s, rear_z = envelope if envelope is not None else (None, None)
+                    point, evidence = visual_gauge_target(
+                        model, session.fold_state.bends[bend_id],
+                        rear_s, rear_z,
+                    )
+                    result = (point, rear_s, evidence)
+                except (ValueError, TypeError, KeyError) as exc:
+                    _warn("Visual gauge target unavailable for {}: {}".format(
+                        bend_id, exc,
+                    ))
+                    result = None
+                self._backgauge_preview_cache[key] = result
+                return result
+
+            def _draw_backgauge_preview(self, QtCore, QtGui, make_poly):
+                """Show only genuine Backgauge.FCStd geometry at moving S/Z.
+
+                Render its real solid cross-section, interpolated on TRANSFER.
+                No stop contact, collision, body overlap or penetration checks.
+                No labels or diagnostic text are placed in the scene.
+                """
+                model, session = self.backgauge_model, self.session
+                if (model is None or session is None or
+                        not model.cad_geometry_enabled):
+                    return
+                idx = session.active_bend_index
+                start = self._backgauge_preview_position(idx)
+                if start is None:
+                    return
+                pos = start[0]
+                controller = self.press_cycle
+                phase = getattr(getattr(controller, "phase", None), "value", "")
+                if (phase == "TRANSFER" and controller is not None
+                        and self.execution_mode == CycleExecutionMode.FULL_CYCLE
+                        and idx + 1 < len(session.bend_order)):
+                    target = self._backgauge_preview_position(idx + 1)
+                    if target is not None:
+                        t = max(0.0, min(1.0, float(controller.transfer_progress)))
+                        from smbs_core.kinematics2d.backgauge_2d import (
+                            BackgaugePosition2D,
+                        )
+                        pos = BackgaugePosition2D(
+                            start[0].s_mm + (target[0].s_mm - start[0].s_mm) * t,
+                            start[0].z_mm + (target[0].z_mm - start[0].z_mm) * t,
+                        )
+                try:
+                    from smbs_core.kinematics2d.backgauge_cad_3d import (
+                        BackgaugeCAD3D,
+                    )
+                    cached = getattr(self, "_backgauge_cad_draw_cache", None)
+                    stations_key = (
+                        model.cad_station_xm_mm,
+                        model.cad_second_station_xm_mm,
+                    )
+                    if cached is None or cached[0] != stations_key:
+                        adapter = BackgaugeCAD3D(
+                            station_xm_mm=model.cad_station_xm_mm,
+                            second_station_xm_mm=model.cad_second_station_xm_mm,
+                        )
+                        self._backgauge_cad_draw_cache = (
+                            stations_key, adapter,
+                        )
+                    else:
+                        adapter = cached[1]
+                    # BackgaugePosition2D stores the historical rectangle
+                    # centre; the real CAD datum is its front working face.
+                    contact_s = pos.s_mm - model.width_s_mm / 2.0
+                    shapes = adapter.preview_positioned_shapes(
+                        contact_s, pos.z_mm,
+                    )
+                    from FreeCAD import Vector
+                    stations = [model.cad_station_xm_mm]
+                    if model.cad_second_station_xm_mm is not None:
+                        stations.append(model.cad_second_station_xm_mm)
+                    path = QtGui.QPainterPath()
+                    for station_xm, shape in zip(stations, shapes):
+                        wires = shape.slice(Vector(1, 0, 0), float(station_xm))
+                        for wire in wires:
+                            points = []
+                            for edge in wire.Edges:
+                                for pt in edge.discretize(Number=24):
+                                    qp = QtCore.QPointF(
+                                        -float(pt.y), -float(pt.z),
+                                    )
+                                    if not points or points[-1] != qp:
+                                        points.append(qp)
+                            if len(points) < 2:
+                                continue
+                            path.moveTo(points[0])
+                            for point in points[1:]:
+                                path.lineTo(point)
+                            if wire.isClosed():
+                                path.closeSubpath()
+                    if path.isEmpty():
+                        raise ValueError("Backgauge.FCStd: empty CAD section")
+                    pen = QtGui.QPen(QtGui.QColor("#b45524"), 1.8)
+                    pen.setCosmetic(True)
+                    item = self.scene.addPath(
+                        path, pen, QtGui.QBrush(QtGui.QColor(190, 106, 51, 80)),
+                    )
+                    item.setData(0, "backgauge_real_fcstd_cad_section")
+                    item.setZValue(Z_LAYER_AUXILIARY)
+                except Exception as exc:
+                    # Log failures without inserting viewer text or silently
+                    # substituting a fake rectangle.
+                    _warn("Cannot render real FCStd gauge: " + str(exc))
+
             def draw(self):
+                self._update_task_progress()
                 try:
                     t_draw_start = time.perf_counter()
                     self.scene.clear()
@@ -2514,7 +7475,7 @@ class _PreviewPanel:
                         text.setData(0, "placeholder")
                         rect = text.boundingRect()
                         text.setPos(-rect.width() / 2.0, -rect.height() / 2.0)
-                        self.step.setText("Активный гиб: — | Угол: — / —")
+
                         return
 
                     sheet_pts: list = []
@@ -2551,7 +7512,7 @@ class _PreviewPanel:
                                     raise WorkpiecePoseError("Press cycle is not initialized")
 
                                 # D3: True physical cutting-plane section at X_m = 0 in Machine Space
-                                current_placement = pc_for_pose.current_workpiece_placement_3d()
+                                current_placement = self._current_preview_machine_placement()
                                 sec = compute_machine_cutting_plane_section(
                                     fs,
                                     verts,
@@ -2567,6 +7528,12 @@ class _PreviewPanel:
                                     phase=pc_for_pose.phase.value,
                                     cutting_panels=[p[0] for p in sec.get("other_panel_polygons", [])],
                                     translation=list(current_placement.translation),
+                                    reverse_axis=bool(
+                                        self._effective_loading_orientation_map().get(
+                                            str(self.session.active_bend_id), False
+                                        )
+                                    ),
+                                    orientation_status=self._ergonomic_loading_status,
                                 )
 
                                 self._last_valid_machine_section = sec
@@ -2581,8 +7548,35 @@ class _PreviewPanel:
                                 else:
                                     sec = fs.cross_section_2d(reference_id, verts, segments=32)
                         else:
-                            # BEND_ONLY mode: use local active bend section
-                            sec = fs.cross_section_2d(self.session.active_bend_id, verts, segments=32)
+                            # Bend Only is a machine-side preview too. Using
+                            # source-local cross_section_2d silently ignored
+                            # the search-selected 180-degree loading pose.
+                            try:
+                                current_placement = (
+                                    self._current_preview_machine_placement()
+                                )
+                                sec = compute_machine_cutting_plane_section(
+                                    fs, verts, current_placement,
+                                    active_bend_id=self.session.active_bend_id,
+                                    segments=32,
+                                )
+                                self._last_valid_machine_section = sec
+                                self._last_valid_machine_pose = pose
+                                self._last_valid_machine_bend = (
+                                    self.session.active_bend_id
+                                )
+                            except (WorkpiecePoseError, PressCycleError,
+                                    ValueError, KeyError) as exc:
+                                pose_warning = (
+                                    "BEND_ONLY_MACHINE_POSE_UNVERIFIED:" + str(exc)
+                                )
+                                if self._last_valid_machine_section is not None:
+                                    sec = self._last_valid_machine_section
+                                    pose = self._last_valid_machine_pose
+                                else:
+                                    sec = fs.cross_section_2d(
+                                        reference_id, verts, segments=32
+                                    )
 
                         if pose_warning:
                             # Unsupported 2.5D placement must never look like
@@ -2613,7 +7607,7 @@ class _PreviewPanel:
                             # pose. If none was ever computed, suppress the
                             # workpiece entirely instead of drawing IDENTITY
                             # at a misleading punch/die location.
-                            self.step.setText(
+                            self.status.setText(
                                 "СТОП: невозможно расположить заготовку в 2.5D | "
                                 + pose_warning
                             )
@@ -2680,6 +7674,10 @@ class _PreviewPanel:
                         zone_item.setZValue(Z_LAYER_SHEET_ZONE)
                         zone_item.setData(0, "sheet_zone")
 
+                        # Gauge movement is a visual planning preview; Stage B
+                        # validates targets only, not its entire transfer path.
+                        self._draw_backgauge_preview(QtCore, QtGui, make_sheet_poly)
+
                         # 6. Both sheet surfaces (inner concave and outer convex)
                         inner_pen = QtGui.QPen(QtGui.QColor("#0e6251"), 2.0)
                         inner_pen.setCosmetic(True)
@@ -2735,25 +7733,12 @@ class _PreviewPanel:
                             tan_item.setZValue(Z_LAYER_SHEET_NEUTRAL_AND_TANGENTS)
                             tan_item.setData(0, "sheet_tangent")
 
-                        pc = self._ensure_press_cycle_controller()
-                        if pc is not None and self.execution_mode == CycleExecutionMode.FULL_CYCLE:
-                            status_str = pc.status_line()
-                        else:
-                            status_str = self.session.status_line()
-                        self.step.setText(
-                            "{} | R_вн={:.2f} мм, t={:.2f} мм".format(
-                                status_str + (" | LAST_VALID_FRAME at " +
-                                    str(self._last_valid_machine_bend)
-                                    if pose_warning else " | " + pose.mode)
-                                    + (" | " + pose_warning if pose_warning else ""),
-                                sec["inner_radius_mm"],
-                                sec["thickness_mm"],
-                            )
-                        )
                         self._update_press_cycle_labels()
+                        self._update_loading_orientation_label()
                     else:
-                        self.step.setText("Активный гиб: — | Угол: — / —")
+
                         self._update_press_cycle_labels()
+                        self._update_loading_orientation_label()
 
                     # Compute separated scene bounds (sheet_bounds, punch_bounds, die_bounds, combined_bounds)
                     self.last_scene_bounds = compute_scene_bounds_2d(
@@ -2783,4 +7768,4 @@ class _PreviewPanel:
                     _error(traceback.format_exc())
                     raise
 
-        return Panel()
+        return Panel(library_root=library_root)
