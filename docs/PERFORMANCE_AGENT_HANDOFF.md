@@ -418,3 +418,42 @@ These are implemented improvements to exact-geometry reuse, **not** a measured s
   `SMBS_B07_pose_baseline.json` and `SMBS_B07_pose_reuse.json`.
   Compare same part SHA, tool SHA, first bend status, samples,
   union/qualification/Common/distance calls and D6 reuse hits/misses.
+
+
+## 2026-11-14 — LOG16: native Mac B07 machine-pose reuse A/B is NOT a speedup
+
+- User supplied exactly `SMBS_B07_pose_baseline.json` and
+  `SMBS_B07_pose_reuse.json`. The same Mac FreeCAD 1.1.3, Intel
+  macOS 12.7.6, B07 90°/reverse, 20mm Conditional end-zone, 128 arc
+  segments, part/punch/die input SHA-256 and 47 samples were confirmed
+  from the actual files. Both B07 statuses
+  `SAMPLED_3D_CLEAR_NOT_CONTINUOUS`/RETRACT `SAMPLED_CLEAR`, no
+  continuous certification. Overall `UNVERIFIED` solely because
+  first-bend prefix was requested.
+- OFF: wall **85.852764s**, B07 step **81.1146s**, RETRACT
+  **4.0686s**. ON: wall **95.007942s**, B07 step **89.9393s**,
+  RETRACT **11.9029s**. **+9.155178s (+10.66%) slower** in one
+  consecutive OFF→ON pair. This is evidence *against* immediate
+  promotion, but NOT statistically proven causal slowdown.
+- RETRACT punch evaluation actually fell **3.4703→2.7204s**;
+  full RETRACT rose **4.0686→11.9029s**; the compact benchmark JSON
+  omitted region-level timings and machine-pose reuse cache hit/miss.
+  Cannot attribute the difference to the cache, OCC runtime jitter,
+  copies/transforms or isValid without full Desktop journal.
+- Keep `SMBS_MACHINE_POSE_REUSE=0` by default. No other settings
+  or algorithm changed; no full ten-bend rerun is required.
+- Added optional benchmark-only native stats directly to short JSON
+  via `check_manual_3d_sequence(include_benchmark_metrics=True)`
+  called by `tools.run_native_benchmark.run`. Includes actual scoped
+  D6 `NativeKernelCounters`, `NativeGeometryBuildMetrics`,
+  per-phase counters and reuse hits/misses. Default GUI Manual
+  report unchanged. Headless contract in
+  `tests/test_manual_physical_validation.py`. CI must be checked.
+- Detailed evidence/limitations in
+  `docs/PERFORMANCE_LOG16_B07_NATIVE_AB_RESULTS.md`.
+- Next FIRST step: inspect user's *existing*
+  `~/Desktop/SMBS_debug_log.json` and compare two corresponding
+  `PERF_NATIVE_BEND_KERNEL` and `MANUAL_NATIVE_BEND_TRAJECTORY`
+  entries to see actual cache hits, `pair_geometry_sanity`,
+  `machine_workpiece_copy`, `machine_workpiece_transform` and
+  other OCC operations. Do not request another 28-minute run.
