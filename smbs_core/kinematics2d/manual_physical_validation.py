@@ -424,6 +424,7 @@ def check_manual_3d_sequence(
     config: Any = None,
     reverse_axis_by_bend: Optional[dict[str, bool]] = None,
     include_benchmark_metrics: bool = False,
+    pre_completed_bends: Sequence[str] = (),
 ) -> dict:
     """Check a selected prefix (or complete order) with native FCStd tools.
 
@@ -544,7 +545,12 @@ def check_manual_3d_sequence(
     # Geometry is shared only inside this Manual validation call.
     # All tool-specific collision verdict caches remain per validator.
     sequence_geometry_cache = NativeSequenceGeometryCache(max_full_sheets=16)
-    previous = []
+    previous = list(pre_completed_bends or ())
+    for prev_bid in previous:
+        prev_bend = state_in.bends.get(prev_bid)
+        if prev_bend is None:
+            return final_result("UNVERIFIED", [], f"unknown_pre_completed_bend:{prev_bid}")
+        independent.set_angle(prev_bid, float(prev_bend.angle_deg))
     steps = []
     any_conditional = False
     check_kwargs = {
