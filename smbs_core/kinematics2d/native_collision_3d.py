@@ -1102,6 +1102,195 @@ def _classify_validated_punch_overlap_zones(
     )
 
 
+_COMPONENT_STATUS_RANK = {
+    CollisionClass.CLEAR: 0,
+    CollisionClass.NEAR_CONTACT: 1,
+    CollisionClass.TOUCHING: 2,
+    CollisionClass.PENETRATION: 3,
+    CollisionClass.INVALID_GEOMETRY: 4,
+    CollisionClass.MISSING_EVIDENCE: 5,
+    CollisionClass.INSUFFICIENT_TOOL_LENGTH: 6,
+}
+
+
+def _merge_component_end_zone_analyses(
+    analyses: Sequence[PunchEndZoneAnalysis],
+    *,
+    total_overlap_volume_mm3: float,
+    ez_len_mm: float,
+) -> Optional[PunchEndZoneAnalysis]:
+    if not analyses:
+        return None
+    if len(analyses) == 1:
+        return analyses[0]
+    first = analyses[0]
+    ez_vol = sum(float(a.end_zone_overlap_volume_mm3) for a in analyses)
+    central_vol = sum(float(a.central_zone_overlap_volume_mm3) for a in analyses)
+    sides: List[str] = []
+    comps: List[PunchOverlapComponentInfo] = []
+    has_unclassified = False
+    has_central = False
+    for a in analyses:
+        if a.classification == PunchCollisionZoneClassification.UNCLASSIFIED:
+            has_unclassified = True
+        elif a.classification == PunchCollisionZoneClassification.CENTRAL_OR_BOTH_COLLISION:
+            has_central = True
+        for s in a.affected_sides:
+            if s not in sides:
+                sides.append(s)
+        comps.extend(a.components)
+    if has_unclassified:
+        cls = PunchCollisionZoneClassification.UNCLASSIFIED
+        reason = "component_end_zone_unclassified"
+    elif has_central or central_vol > 0.0:
+        cls = PunchCollisionZoneClassification.CENTRAL_OR_BOTH_COLLISION
+        reason = "component_central_zone_overlap"
+    elif ez_vol > 0.0:
+        cls = PunchCollisionZoneClassification.END_ZONE_ONLY
+        reason = "component_end_zone_only_overlap"
+    else:
+        cls = PunchCollisionZoneClassification.NONE
+        reason = "no_overlap"
+    return PunchEndZoneAnalysis(
+        classification=cls,
+        end_zone_length_mm=float(ez_len_mm),
+        punch_span_xm=first.punch_span_xm,
+        left_end_zone_xm=first.left_end_zone_xm,
+        central_zone_xm=first.central_zone_xm,
+        right_end_zone_xm=first.right_end_zone_xm,
+        total_overlap_volume_mm3=float(total_overlap_volume_mm3),
+        end_zone_overlap_volume_mm3=float(ez_vol),
+        central_zone_overlap_volume_mm3=float(central_vol),
+        affected_sides=tuple(sides),
+        components=tuple(comps),
+        reason=reason,
+    )
+
+
+def check_components_clearance(
+    components: Sequence[Tuple[str, Any]],
+    tool_shape: Any,
+    *,
+    near_tolerance_mm: float = 0.5,
+    volume_tolerance_mm3: float = 1e-4,
+    contact_distance_tolerance_mm: float = 1e-4,
+    tool_label: str = "",
+    classify_end_zone_length_mm: Optional[float] = None,
+    prefer_overlap_first: bool = False,
+    _shared_tool_check: Optional[Tuple[Any, Tuple[bool, str]]] = None,
+) -> PairClearanceResult:
+    """Evaluate exact clearance and conservative overlap volume across isolated sheet components.
+
+    - distance(T, union(C_i)) = min_i distance(T, C_i)
+    - vol(T intersect union(C_i)) <= sum_i vol(T intersect C_i)
+    """
+    t0 = time.perf_counter()
+    if not components:
+        dt = (time.perf_counter() - t0) * 1000.0
+        return PairClearanceResult(
+            CollisionClass.MISSING_EVIDENCE, "no_components", 0.0, 0.0, None, dt,
+            tool_label=tool_label,
+        )
+
+    tool_box = getattr(tool_shape, "BoundBox", None)
+    aabb_thresh = max(0.0, near_tolerance_mm, contact_distance_tolerance_mm) + 1e-8
+
+    worst: Optional[PairClearanceResult] = None
+    total_vol = 0.0
+    min_dist = float("inf")
+    min_aabb_gap: Optional[float] = None
+    has_lower_bound = False
+    dist_queries = 0
+    comm_queries = 0
+    bp_ms = 0.0
+    dist_ms = 0.0
+    comm_ms = 0.0
+    ez_analyses: List[PunchEndZoneAnalysis] = []
+
+    for _cid, shp in components:
+        t_bp0 = time.perf_counter()
+        shp_box = getattr(shp, "BoundBox", None)
+        gap = compute_aabb_gap(shp_box, tool_box)
+        bp_ms += (time.perf_counter() - t_bp0) * 1000.0
+        if gap is not None:
+            min_aabb_gap = gap if min_aabb_gap is None else min(min_aabb_gap, gap)
+
+        if gap is not None and gap > aabb_thresh:
+            min_dist = min(min_dist, float(gap))
+            has_lower_bound = True
+            continue
+
+        r = check_pair_clearance(
+            shp,
+            tool_shape,
+            near_tolerance_mm=near_tolerance_mm,
+            volume_tolerance_mm3=volume_tolerance_mm3,
+            contact_distance_tolerance_mm=contact_distance_tolerance_mm,
+            tool_label=tool_label,
+            classify_end_zone_length_mm=classify_end_zone_length_mm,
+            prefer_overlap_first=prefer_overlap_first,
+            _shared_shape_a_check=(shp, (True, "valid")),
+            _shared_shape_b_check=_shared_tool_check,
+        )
+        dist_queries += r.distance_queries_count
+        comm_queries += r.common_queries_count
+        bp_ms += r.broad_phase_time_ms
+        dist_ms += r.distance_time_ms
+        comm_ms += r.common_time_ms
+        total_vol += float(r.overlap_volume_mm3)
+        min_dist = min(min_dist, float(r.distance_mm))
+        if r.is_lower_bound:
+            has_lower_bound = True
+        if r.end_zone_analysis is not None:
+            ez_analyses.append(r.end_zone_analysis)
+        if worst is None or _COMPONENT_STATUS_RANK.get(r.status, 99) > _COMPONENT_STATUS_RANK.get(worst.status, 99):
+            worst = r
+
+    dt = (time.perf_counter() - t0) * 1000.0
+    if worst is None:
+        return PairClearanceResult(
+            CollisionClass.CLEAR,
+            "aabb_separated",
+            float(min_dist if math.isfinite(min_dist) else 0.0),
+            0.0,
+            min_aabb_gap,
+            dt,
+            is_lower_bound=True,
+            distance_queries_count=0,
+            common_queries_count=0,
+            broad_phase_time_ms=bp_ms,
+            distance_time_ms=0.0,
+            common_time_ms=0.0,
+            tool_label=tool_label,
+        )
+
+    merged_ez = None
+    if ez_analyses and classify_end_zone_length_mm is not None:
+        merged_ez = _merge_component_end_zone_analyses(
+            ez_analyses,
+            total_overlap_volume_mm3=total_vol,
+            ez_len_mm=classify_end_zone_length_mm,
+        )
+
+    return PairClearanceResult(
+        status=worst.status,
+        reason=worst.reason,
+        distance_mm=float(min_dist if math.isfinite(min_dist) else worst.distance_mm),
+        overlap_volume_mm3=float(total_vol),
+        aabb_gap_mm=min_aabb_gap,
+        elapsed_ms=dt,
+        is_lower_bound=has_lower_bound and worst.status == CollisionClass.CLEAR,
+        end_zone_analysis=merged_ez,
+        distance_queries_count=dist_queries,
+        common_queries_count=comm_queries,
+        broad_phase_time_ms=bp_ms,
+        distance_time_ms=dist_ms,
+        common_time_ms=comm_ms,
+        tool_label=tool_label,
+        overlap_bbox_xyz_mm=worst.overlap_bbox_xyz_mm,
+    )
+
+
 def validate_workpiece_tooling_pose(
     workpiece_machine_shape: Any,
     punch_machine_shape: Any,
@@ -1118,12 +1307,13 @@ def validate_workpiece_tooling_pose(
     _validated_workpiece_shape: Optional[Tuple[Any, Tuple[bool, str]]] = None,
     _validated_punch_shape: Optional[Tuple[Any, Tuple[bool, str]]] = None,
     _validated_die_shape: Optional[Tuple[Any, Tuple[bool, str]]] = None,
+    _workpiece_components: Optional[Sequence[Tuple[str, Any]]] = None,
 ) -> ToolCollisionReport:
     """Validate 3D geometric collision status of a machine-placed workpiece against punch and die."""
     t0 = time.perf_counter()
     diags: List[str] = []
 
-    if workpiece_machine_shape is None and (cached_punch_result is None or cached_die_result is None):
+    if workpiece_machine_shape is None and _workpiece_components is None and (cached_punch_result is None or cached_die_result is None):
         diags.append("MISSING_WORKPIECE_SHAPE")
     if punch_machine_shape is None and cached_punch_result is None:
         diags.append("MISSING_PUNCH_SHAPE")
@@ -1173,10 +1363,25 @@ def validate_workpiece_tooling_pose(
                 check_solid_validity(workpiece_machine_shape, "shape_a"),
             )
 
-    wp_face_aabbs_cache = [None] if (not punch_cache_hit and not die_cache_hit) else None
+    if _workpiece_components is None:
+        wp_face_aabbs_cache = [None] if (not punch_cache_hit and not die_cache_hit) else None
+    else:
+        wp_face_aabbs_cache = None
 
     if punch_cache_hit:
         punch_res = cached_punch_result
+    elif _workpiece_components is not None:
+        punch_res = check_components_clearance(
+            _workpiece_components,
+            punch_machine_shape,
+            near_tolerance_mm=near_tolerance_mm,
+            volume_tolerance_mm3=volume_tolerance_mm3,
+            contact_distance_tolerance_mm=contact_distance_tolerance_mm,
+            tool_label="PUNCH",
+            classify_end_zone_length_mm=punch_ez_len,
+            prefer_overlap_first=bool(prefer_punch_overlap_first),
+            _shared_tool_check=_validated_punch_shape,
+        )
     else:
         punch_res = check_pair_clearance(
             workpiece_machine_shape,
@@ -1194,6 +1399,16 @@ def validate_workpiece_tooling_pose(
 
     if die_cache_hit:
         die_res = cached_die_result
+    elif _workpiece_components is not None:
+        die_res = check_components_clearance(
+            _workpiece_components,
+            die_machine_shape,
+            near_tolerance_mm=near_tolerance_mm,
+            volume_tolerance_mm3=volume_tolerance_mm3,
+            contact_distance_tolerance_mm=contact_distance_tolerance_mm,
+            tool_label="DIE",
+            _shared_tool_check=_validated_die_shape,
+        )
     else:
         die_res = check_pair_clearance(
             workpiece_machine_shape,

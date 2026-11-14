@@ -922,10 +922,31 @@ class AdaptiveTrajectoryValidator3D:
                             components = None
                     if components is not None:
                         reject_component_blocker(components)
+            use_component_oracle = (
+                os.environ.get("SMBS_COMPONENT_ORACLE", "0") == "1"
+                and not reject_enabled
+                and component_observer is None
+            )
             solid_cache_hit = False
             if in_solid_cache:
                 solid_cache_hit = True
                 self.solid_cache_hits += 1
+            elif use_component_oracle:
+                t_s0 = time.perf_counter()
+                solid = build_multi_bend_sheet_components(
+                    self.fold_state,
+                    self.panel_build,
+                    segments=self.config.arc_segments,
+                    panel_prism_cache=self._panel_prism_cache,
+                    zone_shape_cache=self._zone_shape_cache,
+                )
+                self.solid_reconstruction_time_ms += (time.perf_counter() - t_s0) * 1000.0
+                _bounded_full_sheet_cache_put(
+                    self._solid_cache, solid_cache_key, solid,
+                    self._max_cached_full_sheets,
+                )
+                self.total_solid_reconstructions += 1
+                self.solid_cache_misses += 1
             else:
                 t_s0 = time.perf_counter()
                 solid = build_multi_bend_sheet_solid(
@@ -1036,14 +1057,32 @@ class AdaptiveTrajectoryValidator3D:
         # Only exact source shape identity + exact placement equality qualifies.
         machine_pose_reuse = os.environ.get("SMBS_MACHINE_POSE_REUSE", "0") == "1"
         validated_machine_shape = None
+        machine_components = None
         if not can_skip_shapes:
-            pose_key = (
+            if hasattr(solid, "named_shapes") and not hasattr(solid, "shape"):
+                mat_wp = App.Matrix(
+                    tf.rotation[0][0], tf.rotation[0][1], tf.rotation[0][2], tf.translation[0],
+                    tf.rotation[1][0], tf.rotation[1][1], tf.rotation[1][2], tf.translation[1],
+                    tf.rotation[2][0], tf.rotation[2][1], tf.rotation[2][2], tf.translation[2],
+                    0.0, 0.0, 0.0, 1.0,
+                )
+                with measure_native_geometry_region("machine_workpiece_copy"):
+                    machine_components = []
+                    for cid, c_src in solid.named_shapes():
+                        c_copy = c_src.copy()
+                        c_copy.transformShape(mat_wp)
+                        machine_components.append((cid, c_copy))
+                wp_machine = None
+            if machine_components is None:
+                pose_key = (
                 solid_cache_key,
                 tuple(tuple(float(v) for v in row) for row in tf.rotation),
                 tuple(float(v) for v in tf.translation),
             )
-            retained = self._machine_pose_cache if machine_pose_reuse else None
-            if (retained is not None and retained[0] is solid.shape
+            retained = self._machine_pose_cache if (machine_pose_reuse and machine_components is None) else None
+            if machine_components is not None:
+                pass
+            elif (retained is not None and retained[0] is solid.shape
                     and retained[1] == pose_key):
                 wp_machine = retained[2]
                 validated_machine_shape = (wp_machine, retained[3])
@@ -1114,6 +1153,8 @@ class AdaptiveTrajectoryValidator3D:
             extra_validate_kwargs["_validated_punch_shape"] = validated_punch_shape
         if validated_die_shape is not None:
             extra_validate_kwargs["_validated_die_shape"] = validated_die_shape
+        if machine_components is not None:
+            extra_validate_kwargs["_workpiece_components"] = machine_components
 
         # Full oracle remains mandatory whenever the optional component path
         # has not proved a non-waivable blocker.
