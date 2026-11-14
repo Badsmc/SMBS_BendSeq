@@ -85,23 +85,18 @@ class ManualVerifyEmbeddedContractTests(unittest.TestCase):
         self.assertIn('"MenuText": "Поиск 2D вариантов"', source)
         self.assertIn('"MenuText": "Порядок и проверка"', source)
         self.assertIn('QPushButton("Симулировать без проверки")', source)
-        self.assertIn('QPushButton("Быстрая проверка (2D)")', source)
+        self.assertIn('QPushButton("Быстрая проверка OCC (5 углов)")', source)
         self.assertIn('QPushButton("Полная проверка (3D)")', source)
         self.assertIn('layout.insertWidget(1, options)', source)
         self.assertIn('layout.insertLayout(2, controls)', source)
 
     def test_manual_2d_and_native_3d_use_one_per_bend_orientation_map(self):
         source = SOURCE.read_text(encoding="utf-8")
-        quick = ast.get_source_segment(source, method("_validate_manual_planar_only"))
         full = ast.get_source_segment(source, method("_validate_export_manual_order"))
         viewer = ast.get_source_segment(source, method("_effective_loading_orientation_map"))
-        self.assertIn('orientations = self._manual_orientation_selection(selected)', quick)
-        self.assertIn('reverse_axis_by_bend=orientations', quick)
         self.assertIn('reverse_selection = self._manual_orientation_selection(selected)', full)
         self.assertEqual(full.count('reverse_axis_by_bend=reverse_selection'), 2)
         self.assertIn('return self._manual_orientation_selection(order)', viewer)
-        self.assertIn('orientation_by_bend=orientations,', quick)
-        self.assertNotIn('reverse_axis=reverse,', quick)
 
     def test_manual_orientation_selection_preserves_mixed_2d_values(self):
         node = method("_manual_orientation_selection")
@@ -125,21 +120,14 @@ class ManualVerifyEmbeddedContractTests(unittest.TestCase):
         self.assertEqual(select(panel, ["B02", "B03"]),
                          {"B02": True, "B03": True})
 
-    def test_manual_legacy_button_restores_fast_2d_stage_a_b(self):
+    def test_fast_button_runs_native_occ_screen_not_2d_replay(self):
         gui = SOURCE.read_text(encoding="utf-8")
-        fn = method("_validate_manual_planar_only")
-        source = ast.get_source_segment(gui, fn)
-        calls = called_names(fn)
-        self.assertIn("evaluate_manual_planar_order", calls)
-        self.assertNotIn("check_manual_3d_sequence", calls)
-        self.assertNotIn("AdaptiveTrajectoryValidator3D", source)
-        self.assertIn("LEGACY_STAGE_A_B_ONLY", source)
-        self.assertIn("NOT_CHECKED_3D", source)
-        self.assertIn("_persist_manual_check_to_fcstd", calls)
-        self.assertNotIn("getSaveFileName", calls)
-        self.assertNotIn("json.dumps", source)
-        self.assertIn("QPushButton(\"Быстрая проверка (2D)\")", gui)
-        self.assertIn("self._validate_manual_planar_only", gui)
+        full = ast.get_source_segment(gui, method("_validate_export_manual_order"))
+        self.assertIn('QPushButton("Быстрая проверка OCC (5 углов)")', gui)
+        self.assertIn('self._validate_export_manual_order(coarse_occ=True)', gui)
+        self.assertIn('coarse_occ_screen=coarse_occ', full)
+        self.assertIn('"status": "NOT_RUN_COARSE_OCC"', full)
+        self.assertNotIn('def _validate_manual_planar_only', gui)
 
     def test_separate_native_3d_button_retains_full_validator(self):
         gui = SOURCE.read_text(encoding="utf-8")
@@ -167,10 +155,8 @@ class ManualVerifyEmbeddedContractTests(unittest.TestCase):
         self.assertIn("self._open_exact_collision_inspector", source)
         self.assertIn("self.manual_exact_occ_btn.show()", source)
         self.assertIn("self.manual_exact_occ_btn.hide()", source)
-        # The restored fast 2D verifier must not invoke any native OCC.
-        quick = called_names(method("_validate_manual_planar_only"))
-        self.assertNotIn("open_exact_collision_document", quick)
-        self.assertNotIn("check_manual_3d_sequence", quick)
+        # Coarse OCC and full D6 share the existing collision inspector.
+        self.assertIn('coarse_occ_screen=coarse_occ', source)
 
     def test_native_fcstd_persistence_does_not_rename_or_export(self):
         calls = called_names(method("_persist_manual_check_to_fcstd"))

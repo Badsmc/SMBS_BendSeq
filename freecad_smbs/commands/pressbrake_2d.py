@@ -2038,7 +2038,8 @@ class _PreviewPanel:
                     "Выберите полный вариант после «Поиска 2D вариантов» "
                     "или задайте порядок нажатием линий на развёртке. "
                     "Номера гибов показаны во вьювере и в списке ниже. "
-                    "Затем отдельно запустите быструю 2D или полную 3D проверку."
+                    "Затем запустите быструю OCC проверку пяти углов или "
+                    "полную адаптивную 3D проверку."
                 )
                 workflow_note.setWordWrap(True)
                 order_body.addWidget(workflow_note)
@@ -2100,18 +2101,19 @@ class _PreviewPanel:
                 # native OCC as a DISTINCT opt-in action, not a silent upgrade
                 # of the original fast "Проверить" button.
                 self.manual_validate_btn = style_action(
-                    QtWidgets.QPushButton("Быстрая проверка (2D)"), compact=True
+                    QtWidgets.QPushButton("Быстрая проверка OCC (5 углов)"), compact=True
                 )
                 self.manual_validate_btn.setObjectName(
-                    "SMBS_ManualLegacy2DCheck"
+                    "SMBS_ManualCoarseOCCCheck"
                 )
                 self.manual_validate_btn.setToolTip(
-                    "Быстрая проверка выбранного порядка по Stage A/B: "
-                    "сечения, оснастка и геометрия. Без тяжёлого native 3D. "
-                    "Результат не является подтверждением безопасности."
+                    "Реальные FCStd инструменты и OCC: 0, 25, 50, 75, 100% "
+                    "угла каждого гиба, а также выборка APPROACH/RETRACT. "
+                    "Точное проникновение отклоняет порядок сразу. Если его "
+                    "не найдено, непросмотренные положения остаются UNVERIFIED."
                 )
                 self.manual_validate_btn.clicked.connect(
-                    self._validate_manual_planar_only
+                    lambda: self._validate_export_manual_order(coarse_occ=True)
                 )
                 self.manual_validate_3d_btn = style_action(
                     QtWidgets.QPushButton("Полная проверка (3D)"), compact=True
@@ -2136,10 +2138,9 @@ class _PreviewPanel:
                 # Verification must have a visible result in the Manual
                 # workspace, not a file-save dialog as its only feedback.
                 self.manual_check_summary = QtWidgets.QLabel(
-                    "Ещё не проверено. «Быстрая проверка (2D)» ищет явные "
-                    "препятствия, но может пропустить 3D коллизию. «Полная "
-                    "проверка (3D)» проверяет выбранные гибы и фазы на "
-                    "реальных инструментах; она намного дольше."
+                    "Ещё не проверено. «Быстрая проверка OCC (5 углов)» "
+                    "ищет точные 3D столкновения в отдельных позах. «Полная "
+                    "проверка (3D)» адаптивно проверяет больше поз и занимает дольше."
                 )
                 self.manual_check_summary.setWordWrap(True)
                 self.manual_check_summary.setObjectName("SMBS_ManualCheckSummary")
@@ -2190,8 +2191,8 @@ class _PreviewPanel:
                 order_body.addWidget(self.manual_show_collision_btn)
                 order_body.addWidget(self.manual_exact_occ_btn)
                 self._manual_preview_help = QtWidgets.QLabel(
-                    "Симуляция не проверяет коллизии. Быстрая 2D проверка "
-                    "возвращает предварительную диагностику. Полная 3D проверка "
+                    "Симуляция не проверяет коллизии. Быстрая OCC проверка "
+                    "ищет точное 3D пересечение в пяти углах. Полная 3D проверка "
                     "идёт по всем выбранным гибам, но проверяет выборку поз, "
                     "а не непрерывное движение. Результат выводится здесь и "
                     "сохраняется в FCStd."
@@ -3837,7 +3838,7 @@ class _PreviewPanel:
                 heading = QtWidgets.QLabel(
                     "Шаг 2: выберите один полный порядок и откройте раздел "
                     "«Порядок и проверка». Номера появятся на развёртке. "
-                    "Затем отдельно нажмите «Быстрая проверка (2D)» или "
+                    "Затем отдельно нажмите «Быстрая проверка OCC (5 углов)» или "
                     "«Полная проверка (3D)». Пока 3D коллизии не проверены."
                 )
                 heading.setWordWrap(True)
@@ -4041,7 +4042,7 @@ class _PreviewPanel:
                         )
                         self.physical_check_result.setText(
                             "UNVERIFIED: выбран полный 2D порядок. "
-                            "Запустите «Быстрая проверка (2D)» или "
+                            "Запустите «Быстрая проверка OCC (5 углов)» или "
                             "«Полная проверка (3D)». "
                             "Возможны коллизии."
                         )
@@ -5117,7 +5118,8 @@ class _PreviewPanel:
                     return
                 self.manual_check_summary.setText(
                     "UNVERIFIED: параметры изменились; запустите "
-                    "«Быстрая проверка (2D)» или «Полная проверка (3D)» снова."
+                    "«Быстрая проверка OCC (5 углов)» или "
+                    "«Полная проверка (3D)» снова."
                 )
                 self.manual_check_details.clear()
                 self.manual_check_details.hide()
@@ -5790,224 +5792,7 @@ class _PreviewPanel:
                 )
                 self.draw()
 
-            def _validate_manual_planar_only(self):
-                """Restore the historical FAST Manual Stage A/B check.
-
-                Reference: integration/gui-2d-search-screening.
-                This runs no native D6/OCC validation, and MUST NOT report
-                any physically certified 3D result. The full native verifier
-                remains available separately through "Проверить 3D".
-                """
-                if self.session is None:
-                    self.status.setText("Сначала загрузите деталь.")
-                    return
-                prefix = tuple(self._manual_sequence_prefix)
-                order = tuple(self.session.bend_order)
-                if prefix and order[:len(prefix)] != prefix:
-                    self.status.setText(
-                        "Ручной порядок изменился: перенумеруйте линии."
-                    )
-                    return
-                selected = prefix or order
-                if not selected:
-                    self.status.setText("Нет выбранных гибов.")
-                    return
-                if (self.timer.isActive()
-                        or self.session.playback_status == PlaybackStatus.PLAYING):
-                    self.status.setText(
-                        "Остановите симуляцию перед проверкой порядка."
-                    )
-                    return
-
-                self._stop_timer()
-                controls = (
-                    self.manual_validate_btn, self.manual_validate_3d_btn,
-                    self.manual_simulate_btn,
-                    self.select_punch_combo, self.select_die_combo,
-                    self.virtual_tool_len_checkbox,
-                    self.manual_reverse_3d_checkbox,
-                    self.allow_end_zone_checkbox, self.end_zone_len_spin,
-                    self.move_up_btn, self.move_down_btn,
-                    self.restore_order_btn, self.manual_undo_btn,
-                    self.manual_clear_btn,
-                )
-                previous_states = [
-                    (widget, widget.isEnabled()) for widget in controls
-                ]
-                for widget, _ in previous_states:
-                    widget.setEnabled(False)
-                self._set_task_busy(True)
-                self._manual_3d_verdicts.clear()
-                self._manual_retract_verdicts.clear()
-                self._clear_manual_check_feedback()
-                self._last_manual_sequence_report = None
-                self._physical_check_signature = None
-                self.status.setText(
-                    "Быстрая 2D Stage A/B: {}/{} гибов, без native 3D..."
-                    .format(len(selected), len(order))
-                )
-                QtWidgets.QApplication.processEvents()
-                try:
-                    from smbs_core.kinematics2d.manual_sequence_replay import (
-                        evaluate_manual_planar_order,
-                    )
-
-                    orientations = self._manual_orientation_selection(selected)
-                    report = evaluate_manual_planar_order(
-                        self.session, self.tooling_setup, selected,
-                        match_active_bend_length=bool(
-                            self.tooling_setup.match_active_bend_length
-                        ),
-                        allow_retract_warning=(
-                            self.retract_warning_checkbox.isChecked()
-                        ),
-                        weights=self._selected_operation_weights(),
-                        backgauge_model=None,
-                        reverse_axis_by_bend=orientations,
-                    )
-                    checked = len(report.get("steps", ()))
-                    accepted = len(report.get("accepted_prefix", ()))
-                    blocker = report.get("first_blocker")
-                    warnings = report.get("retract_warnings") or []
-                    if blocker:
-                        summary = (
-                            "2D: проверка остановлена на шаге {} ({}), {}. "
-                            "Это НЕ доказательство 3D-коллизии."
-                        ).format(
-                            blocker.get("step_number", "?"),
-                            blocker.get("bend_id", "?"),
-                            blocker.get("reason", "?"),
-                        )
-                    elif warnings:
-                        summary = (
-                            "2D: проверено {}/{} гибов, предупреждений "
-                            "RETRACT: {}. Native 3D не проверен."
-                        ).format(accepted, len(selected), len(warnings))
-                    else:
-                        summary = (
-                            "2D: нет обнаруженных препятствий в проверенных "
-                            "сечениях ({}/{} гибов). Native 3D не проверен."
-                        ).format(accepted, len(selected))
-                    if len(selected) < len(order):
-                        summary += " Остальные гибы не проверены."
-
-                    result = dict(report)
-                    result["schema_version"] = "smbs.manual_planar_legacy.v1"
-                    result["status"] = "UNVERIFIED"
-                    result["planar_status"] = report["status"]
-                    result["verification_mode"] = "LEGACY_STAGE_A_B_ONLY"
-                    result["physical_certification"] = "NOT_CHECKED_3D"
-                    result["manual_3d_validation"] = {
-                        "status": "NOT_RUN",
-                        "reason": "legacy_quick_2d_only",
-                        "requested_bends": list(selected),
-                        "checked_bends": 0,
-                        "steps": [],
-                    }
-                    result["runtime"] = dict(self.runtime_git_info)
-                    result["model"] = {
-                        "part_label": self.session.part_label,
-                        "unfold_object": getattr(
-                            self.session.unfold_data, "unfold_object", ""
-                        ),
-                        "source_object": getattr(
-                            self.session.unfold_data, "source_object", ""
-                        ),
-                        "source_face": getattr(
-                            self.session.unfold_data, "source_face", ""
-                        ),
-                        "fixed_panel": self.session.fixed_panel,
-                        "thickness_mm": getattr(
-                            self.session.unfold_data, "thickness_mm", None
-                        ),
-                    }
-                    result["tooling"] = {
-                        "punch_id": getattr(
-                            self.tooling_setup.punch, "tool_id", None
-                        ),
-                        "die_id": getattr(
-                            self.tooling_setup.die, "tool_id", None
-                        ),
-                        "match_active_bend_length": bool(
-                            self.tooling_setup.match_active_bend_length
-                        ),
-                        "allow_end_zone_collision_requested": bool(
-                            self.tooling_setup.allow_end_zone_collision
-                        ),
-                        "end_zone_length_mm": float(
-                            self.tooling_setup.end_zone_length_mm
-                        ),
-                        "end_zone_exemption_applied": False,
-                    }
-                    self._last_manual_sequence_report = result
-                    _desktop_debug_event(
-                        "MANUAL_LEGACY_2D_CHECK_COMPLETED",
-                        requested_bends=list(selected),
-                        checked_2d=checked,
-                        accepted_2d=accepted,
-                        orientation_by_bend=orientations,
-                        report=result,
-                    )
-                    self._trace_event(
-                        "MANUAL_LEGACY_2D_CHECK_COMPLETED",
-                        selected_bends=list(selected),
-                        checked_2d=checked,
-                        accepted_2d=accepted,
-                        orientation_by_bend=orientations,
-                        physical_status="UNVERIFIED",
-                        native_3d_checked=False,
-                    )
-                    details = [
-                        "{}. {} | {} | {:.3f} s | {}".format(
-                            step.get("step_number", "?"),
-                            step.get("bend_id", "?"),
-                            step.get("evidence", "UNVERIFIED_2D"),
-                            float(step.get("elapsed_s", 0.0)),
-                            str(step.get("reason", ""))[:250],
-                        )
-                        for step in report.get("steps", ())
-                    ]
-                    self.manual_check_details.setPlainText(
-                        "\n".join(details) if details else
-                        "Нет результатов 2D-проверки."
-                    )
-                    self.manual_check_details.show()
-                    self._populate_operations()
-                    self.physical_check_result.setText(summary)
-                    self.manual_check_summary.setText(summary)
-                    self.status.setText(summary)
-                    try:
-                        saved_note = self._persist_manual_check_to_fcstd()
-                    except Exception as store_exc:
-                        saved_note = (
-                            "НЕ СОХРАНЕНО В FCStd: " + str(store_exc)
-                        )
-                        _error(
-                            "Legacy Manual 2D report could not be embedded: "
-                            + traceback.format_exc()
-                        )
-                    self.manual_check_summary.setText(
-                        "{}\n{}".format(summary, saved_note)
-                    )
-                except Exception as exc:
-                    _desktop_debug_event(
-                        "MANUAL_LEGACY_2D_CHECK_FAILED",
-                        selected_bends=list(selected),
-                        error="{}:{}".format(type(exc).__name__, exc),
-                    )
-                    self._record_manual_precheck_failure(
-                        selected, "Ошибка 2D Stage A/B: " + str(exc),
-                    )
-                    _error(
-                        "Legacy Manual 2D check failed: "
-                        + traceback.format_exc()
-                    )
-                finally:
-                    self._set_task_busy(False)
-                    for widget, enabled in previous_states:
-                        widget.setEnabled(enabled)
-
-            def _validate_export_manual_order(self):
+            def _validate_export_manual_order(self, coarse_occ=False):
                 """Validate selected manual order: Stage A/B plus actual FCStd 3D.
 
                 The backgauge stays visual-only. Simulation/slider retain
@@ -6067,8 +5852,11 @@ class _PreviewPanel:
                 self._clear_manual_check_feedback()
                 self._last_manual_sequence_report = None
                 self.status.setText(
-                    "Проверка выбранной оснастки и ручного порядка: {}/{} гибов..."
-                    .format(len(selected), len(order))
+                    "{}: {}/{} гибов...".format(
+                        "Быстрая OCC проверка (5 углов)" if coarse_occ
+                        else "Полная адаптивная 3D проверка",
+                        len(selected), len(order),
+                    )
                 )
                 QtWidgets.QApplication.processEvents()
                 try:
@@ -6125,46 +5913,54 @@ class _PreviewPanel:
 
                     # Preview, 2D replay and native 3D consume one pose map.
                     reverse_selection = self._manual_orientation_selection(selected)
-                    try:
-                        planar = evaluate_manual_planar_order(
-                            self.session,
-                            self.tooling_setup,
-                            selected,
-                            match_active_bend_length=match_length,
-                            allow_retract_warning=self.retract_warning_checkbox.isChecked(),
-                            weights=self._selected_operation_weights(),
-                            backgauge_model=None,
-                            reverse_axis_by_bend=reverse_selection,
-                        )
-                    except Exception as planar_exc:
-                        # 2D diagnostics are advisory. Failure to build an
-                        # approximated section must not prevent independent
-                        # native 3D from checking the chosen tools.
+                    if coarse_occ:
                         planar = {
-                            "schema_version": "smbs.manual_planar_replay.v1",
-                            "status": "UNVERIFIED_2D",
-                            "steps": [],
-                            "first_blocker": {
-                                "reason": "2d_exception:{}:{}".format(
-                                    type(planar_exc).__name__, planar_exc,
-                                ),
-                            },
-                            "plan_cost": None,
+                            "status": "NOT_RUN_COARSE_OCC",
+                            "steps": [], "first_blocker": None,
                         }
-                    _desktop_debug_event(
-                        "MANUAL_STAGE_AB_PLANAR_RESULT",
-                        selected_order=list(selected),
-                        entire_2d_report=planar,
-                    )
-                    self.status.setText(
-                        "Предварительный 2D: {}. Проверка реальных FCStd в 3D..."
-                        .format(planar["status"])
-                    )
-                    self.manual_check_summary.setText(
-                        "2D: {}. Идёт независимая 3D-проверка..."
-                        .format(planar["status"])
-                    )
-                    QtWidgets.QApplication.processEvents()
+                        self.status.setText("Проверка реальных FCStd инструментов в OCC...")
+                        QtWidgets.QApplication.processEvents()
+                    else:
+                        try:
+                            planar = evaluate_manual_planar_order(
+                                self.session,
+                                self.tooling_setup,
+                                selected,
+                                match_active_bend_length=match_length,
+                                allow_retract_warning=self.retract_warning_checkbox.isChecked(),
+                                weights=self._selected_operation_weights(),
+                                backgauge_model=None,
+                                reverse_axis_by_bend=reverse_selection,
+                            )
+                        except Exception as planar_exc:
+                            # 2D diagnostics are advisory. Failure to build an
+                            # approximated section must not prevent independent
+                            # native 3D from checking the chosen tools.
+                            planar = {
+                                "schema_version": "smbs.manual_planar_replay.v1",
+                                "status": "UNVERIFIED_2D",
+                                "steps": [],
+                                "first_blocker": {
+                                    "reason": "2d_exception:{}:{}".format(
+                                        type(planar_exc).__name__, planar_exc,
+                                    ),
+                                },
+                                "plan_cost": None,
+                            }
+                        _desktop_debug_event(
+                            "MANUAL_STAGE_AB_PLANAR_RESULT",
+                            selected_order=list(selected),
+                            entire_2d_report=planar,
+                        )
+                        self.status.setText(
+                            "Предварительный 2D: {}. Проверка реальных FCStd в 3D..."
+                            .format(planar["status"])
+                        )
+                        self.manual_check_summary.setText(
+                            "2D: {}. Идёт независимая 3D-проверка..."
+                            .format(planar["status"])
+                        )
+                        QtWidgets.QApplication.processEvents()
 
                     def on_progress(step_no, count, bend_id):
                         label = (
@@ -6186,6 +5982,7 @@ class _PreviewPanel:
                         # One clearance value controls both the FreeCAD
                         # FULL_CYCLE and native 3D APPROACH/RETRACT path.
                         config=AdaptiveSamplingConfig(
+                            coarse_occ_screen=coarse_occ,
                             initial_clearance_mm=(
                                 float(self.cycle_config.initial_clearance_mm)
                             ),
@@ -6261,8 +6058,9 @@ class _PreviewPanel:
                     from smbs_core.kinematics2d.manual_sequence_replay import (
                         crosscheck_manual_planar_native_evidence,
                     )
-                    crosscheck = crosscheck_manual_planar_native_evidence(
-                        planar, physical,
+                    crosscheck = (
+                        [] if coarse_occ else
+                        crosscheck_manual_planar_native_evidence(planar, physical)
                     )
                     physical["planar_native_discrepancies"] = crosscheck
                     if crosscheck:
@@ -6274,7 +6072,7 @@ class _PreviewPanel:
                     # a native 3D collision, but prevents a falsely clean
                     # overall verdict without further investigation.
                     physical_status = physical["status"]
-                    disagreement = (
+                    disagreement = not coarse_occ and (
                         planar.get("first_blocker") is not None
                         or planar.get("status") not in (
                             "SAMPLED_2D_PREFIX_CLEAR_OR_TOUCH",
@@ -6368,13 +6166,21 @@ class _PreviewPanel:
                         "CONDITIONAL": "УСЛОВНО ДОПУСТИМО",
                         "UNVERIFIED": "ПРОВЕРКА НЕ ПОДТВЕРЖДЕНА",
                     }.get(physical_status, "НЕИЗВЕСТНЫЙ РЕЗУЛЬТАТ")
+                    if (coarse_occ and physical_status == "UNVERIFIED"
+                            and physical.get("reason") ==
+                                "coarse_OCC_samples_only_uninspected_intervals_and_tool_pair"
+                            and complete_steps == len(selected)):
+                        readable_verdict = (
+                            "ГРУБЫЙ OCC ПРОХОД: доказанная коллизия не найдена "
+                            "(промежутки НЕ ПРОВЕРЕНЫ)"
+                        )
                     summary = (
-                        "{} — {}/{} гибов | 2D={} | "
+                        "{} — {}/{} гибов | режим={} | "
                         "RETRACT в таблице | {} | "
                         "Без сертификации непрерывного движения"
                     ).format(
                         readable_verdict, complete_steps, len(selected),
-                        planar["status"], physical["reason"],
+                        physical["validation_mode"], physical["reason"],
                     )
                     if crosscheck:
                         summary += (
@@ -6386,6 +6192,7 @@ class _PreviewPanel:
                     self._trace_event(
                         "MANUAL_3D_CHECK_COMPLETED",
                         status=physical_status,
+                        mode=physical["validation_mode"],
                         checked_bends=complete_steps,
                         selected_bends=list(selected),
                         punch_id=selected_punch.tool_id,

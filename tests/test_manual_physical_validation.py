@@ -22,7 +22,11 @@ from smbs_core.kinematics2d.manual_physical_validation import (
     check_manual_3d_sequence, concise_3d_blocker,
 )
 from smbs_core.kinematics2d.physical_validation_25d import PhysicalEvidence
-from smbs_core.kinematics2d.motion_trajectory_3d import AdaptiveSamplingConfig
+from smbs_core.kinematics2d.motion_trajectory_3d import (
+    AdaptiveSamplingConfig, TrajectoryEvidenceStatus,
+    coarse_occ_phase_fractions,
+)
+from smbs_core.kinematics2d.native_collision_3d import CollisionClass
 from smbs_core.kinematics2d.panel_graph import GraphEdge, PanelGraph
 from smbs_core.kinematics2d.panel_kinematics import FoldState
 from smbs_core.kinematics2d.tooling_25d import ValidationStatus
@@ -123,6 +127,114 @@ class NativeOrientationPoseTests(unittest.TestCase):
 
 
 class ManualToolingTests(unittest.TestCase):
+    def test_coarse_fractions_include_five_angles_and_retract(self):
+        self.assertEqual(coarse_occ_phase_fractions("BENDING"),
+                         (0.0, 0.25, 0.5, 0.75, 1.0))
+        self.assertEqual(coarse_occ_phase_fractions("RETRACT"),
+                         (0.0, 0.5, 1.0))
+        self.assertEqual(coarse_occ_phase_fractions("APPROACH"),
+                         (0.0, 0.5, 1.0))
+
+    def test_coarse_occ_continues_all_bends_without_claiming_clear(self):
+        def fake(_session, _tooling, **kwargs):
+            self.assertTrue(kwargs["config"].coarse_occ_screen)
+            item = evidence(PhysicalEvidence.UNVERIFIED)
+            item.raw_report.tool_setup_status = SimpleNamespace(
+                value="TOOL_SETUP_QUALIFIED",
+            )
+            item.raw_report.phase_results = tuple(
+                SimpleNamespace(
+                    phase_name=name,
+                    evidence_status=TrajectoryEvidenceStatus.DISCRETE_SAMPLES_SAFE,
+                    states=(), uninspected_intervals=((0.0, 1.0),),
+                ) for name in (
+                    "APPROACH", "CONTACT", "BENDING", "BOTTOM", "RETRACT"
+                )
+            )
+            return item
+
+        with patch(
+            "smbs_core.kinematics2d.manual_physical_validation"
+            ".check_active_25d_bend_trajectory", side_effect=fake,
+        ) as check:
+            result = check_manual_3d_sequence(
+                self.session, self.tooling, ("B01", "B02"),
+                config=AdaptiveSamplingConfig(coarse_occ_screen=True),
+                reverse_axis_by_bend={"B01": False, "B02": True},
+            )
+        self.assertEqual(check.call_count, 2)
+        self.assertEqual(result["status"], "UNVERIFIED")
+        self.assertEqual(result["checked_bends"], 2)
+        self.assertEqual(result["validation_mode"], "COARSE_OCC_5_BEND_ANGLES")
+        self.assertTrue(all(step["status"] == "COARSE_3D_NO_PROVEN_COLLISION"
+                            for step in result["steps"]))
+        self.assertFalse(check.call_args_list[0].kwargs["reverse_axis"])
+        self.assertTrue(check.call_args_list[1].kwargs["reverse_axis"])
+
+    def test_coarse_occ_missing_tool_qualification_stops_unverified(self):
+        item = evidence(PhysicalEvidence.UNVERIFIED)
+        item.raw_report.tool_setup_status = SimpleNamespace(
+            value="INSUFFICIENT_DIE_COVERAGE",
+        )
+        item.raw_report.phase_results = tuple(
+            SimpleNamespace(
+                phase_name=name,
+                evidence_status=TrajectoryEvidenceStatus.DISCRETE_SAMPLES_SAFE,
+                states=(),
+            ) for name in ("APPROACH", "CONTACT", "BENDING", "BOTTOM", "RETRACT")
+        )
+        with patch(
+            "smbs_core.kinematics2d.manual_physical_validation"
+            ".check_active_25d_bend_trajectory", return_value=item,
+        ) as check:
+            result = check_manual_3d_sequence(
+                self.session, self.tooling, ("B01", "B02"),
+                config=AdaptiveSamplingConfig(coarse_occ_screen=True),
+            )
+        self.assertEqual(result["status"], "UNVERIFIED")
+        self.assertEqual(result["checked_bends"], 1)
+        check.assert_called_once()
+
+    def test_coarse_occ_rejects_proven_hit_and_stops_early(self):
+        item = evidence(PhysicalEvidence.COLLISION)
+        item.raw_report.first_collision_state = SimpleNamespace(
+            is_safe=False, is_conditional_safe=False,
+            collision_report=SimpleNamespace(
+                status=CollisionClass.PENETRATION,
+                punch_result=SimpleNamespace(
+                    status=CollisionClass.PENETRATION,
+                    overlap_volume_mm3=2.0,
+                ),
+                die_result=None,
+            ),
+        )
+        with patch(
+            "smbs_core.kinematics2d.manual_physical_validation"
+            ".check_active_25d_bend_trajectory", return_value=item,
+        ) as check:
+            result = check_manual_3d_sequence(
+                self.session, self.tooling, ("B01", "B02"),
+                config=AdaptiveSamplingConfig(coarse_occ_screen=True),
+            )
+        self.assertEqual(result["status"], "COLLISION")
+        self.assertEqual(result["checked_bends"], 1)
+        check.assert_called_once()
+
+    def test_coarse_occ_never_calls_uncertain_rejection_a_collision(self):
+        item = evidence(PhysicalEvidence.COLLISION)
+        item.raw_report.first_collision_state = None
+        with patch(
+            "smbs_core.kinematics2d.manual_physical_validation"
+            ".check_active_25d_bend_trajectory", return_value=item,
+        ) as check:
+            result = check_manual_3d_sequence(
+                self.session, self.tooling, ("B01", "B02"),
+                config=AdaptiveSamplingConfig(coarse_occ_screen=True),
+            )
+        self.assertEqual(result["status"], "UNVERIFIED")
+        self.assertEqual(result["checked_bends"], 1)
+        check.assert_called_once()
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)

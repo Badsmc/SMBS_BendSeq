@@ -592,3 +592,21 @@ not proof of no solution. The Settings checks are labelled as a single
 frame or single bend to distinguish them from the Manual sequence check.
 Headless UI contracts and test discovery passed; actual FreeCAD 1.1.x
 layout, label clipping and click flow still require Mac/Windows acceptance.
+
+## 2026-11-15 — experimental five-angle native OCC screen
+
+Operator correction: the Manual fast action is a native OCC collision screen,
+not the legacy 2D Stage A/B replay. `Быстрая проверка OCC (5 углов)` samples
+0%, 25%, 50%, 75%, 100% of each signed bend and sparse APPROACH/RETRACT
+ram positions using the same FCStd tools, placement, end-zone policy and
+native collision oracle as full D6. It stops on a proven blocking hit.
+Sampled end-zone-only overlaps remain marked conditional at the phase level;
+unknown geometry/coverage stops without skipping the bend. No clear verdict
+is issued by the fast mode: if all selected bends finish without a blocker,
+the overall status is `UNVERIFIED`, explicitly recording uninspected gaps and
+the unchecked tool/tool pair. The full adaptive 3D button still uses D6 and
+the existing Stage A/B crosscheck. Headless tests exercise fixed fractions,
+early blocking, unknown setup, shared per-bend orientation, and the absence
+of fabricated clearance. A Mac/Windows FreeCAD 1.1.x native run is needed
+to establish real wall time and compare B02 RETRACT, end-zone CONDITIONAL,
+and invalid geometry against the full validator. No speedup is claimed yet.

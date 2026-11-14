@@ -154,6 +154,54 @@ class NativeOnsetTests(unittest.TestCase):
         obj.create_state_snapshot = make_snapshot
         return obj
 
+    def test_coarse_occ_stops_at_first_exact_blocking_sample(self):
+        validator = self.make_validator(AdaptiveSamplingConfig(
+            coarse_occ_screen=True,
+        ))
+        result = validator.validate_phase(
+            "BENDING", "B03", {"B07": 90.0},
+            lambda u: (90*u, 1.5-5*u, 0.0),
+        )
+        self.assertEqual([s.path_u for s in result.states],
+                         [0.0, 0.25, 0.5])
+        self.assertEqual(result.evidence_status,
+                         TrajectoryEvidenceStatus.DISCRETE_SAMPLES_REJECTED)
+        self.assertTrue(result.uninspected_intervals)
+        self.assertEqual(result.subdivisions_count, 0)
+
+    def test_coarse_occ_no_collision_never_converges_intervals(self):
+        validator = self.make_validator(AdaptiveSamplingConfig(
+            coarse_occ_screen=True,
+        ))
+        validator.create_state_snapshot = lambda **kw: mock_state(
+            kw["path_u"], kw["phase"], threshold=2.0,
+        )
+        result = validator.validate_phase(
+            "BENDING", "B03", {"B07": 90.0},
+            lambda u: (90*u, 1.5-5*u, 0.0),
+        )
+        self.assertEqual([s.path_u for s in result.states],
+                         [0.0, 0.25, 0.5, 0.75, 1.0])
+        self.assertEqual(result.evidence_status,
+                         TrajectoryEvidenceStatus.DISCRETE_SAMPLES_SAFE)
+        self.assertFalse(result.is_safe)
+        self.assertEqual(len(result.uninspected_intervals), 4)
+
+    def test_coarse_occ_retract_samples_ram_path(self):
+        validator = self.make_validator(AdaptiveSamplingConfig(
+            coarse_occ_screen=True,
+        ))
+        validator.create_state_snapshot = lambda **kw: mock_state(
+            kw["path_u"], kw["phase"], threshold=2.0,
+        )
+        result = validator.validate_phase(
+            "RETRACT", "B03", {"B07": 90.0},
+            lambda u: (90.0, -4.0+9.0*u, 0.0),
+        )
+        self.assertEqual([s.path_u for s in result.states], [0.0, 0.5, 1.0])
+        self.assertEqual(result.evidence_status,
+                         TrajectoryEvidenceStatus.DISCRETE_SAMPLES_SAFE)
+
     def test_endpoint_hit_is_refined_not_assumed_at_90_degrees(self):
         validator = self.make_validator(AdaptiveSamplingConfig(
             onset_refinement_max_samples=6,
