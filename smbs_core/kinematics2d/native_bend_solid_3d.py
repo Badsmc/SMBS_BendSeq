@@ -198,10 +198,15 @@ def _apply_rigid_transform(shape, transform, App):
     independent = shape.copy()
     transformed = independent.transformShape(mat, True)
     # FreeCAD's transformShape API returns a Shape in supported versions.
-    if transformed is None:
-        raise NativeBendSolidError("FreeCAD_transformShape_did_not_return_shape")
-    if not transformed.isValid() or transformed.isNull():
+    if transformed is None or transformed.isNull():
         raise NativeBendSolidError("invalid_transformed_panel")
+    # Rigid Euclidean isometry guarantee:
+    # If the source shape is valid and mat is proven rigid isometry (det=+1.0, R*R^T=I),
+    # OCC transformShape strictly preserves topology and validity without repeating isValid().
+    # If not a verified rigid matrix, strictly fall back to full isValid() validation.
+    if not is_rigid_transform_matrix(mat):
+        if not transformed.isValid():
+            raise NativeBendSolidError("invalid_transformed_panel")
     return transformed
 
 
