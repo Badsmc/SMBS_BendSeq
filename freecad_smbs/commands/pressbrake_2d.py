@@ -1027,7 +1027,7 @@ class CalculateCommand:
         return {
             "Pixmap": str(_ICON_ROOT / "gui_calculate.svg"),
             "MenuText": "Автопоиск последовательности",
-            "ToolTip": "Отдельный физический поиск порядка гибки (не требуется для просмотра Manual)",
+            "ToolTip": "Быстрый 2D поиск; полная нативная D6-проверка включается галочкой на странице «2D варианты»",
         }
 
     def IsActive(self):
@@ -2018,6 +2018,22 @@ class _PreviewPanel:
                 )
                 planar_note.setWordWrap(True)
                 planar_body.addWidget(planar_note)
+                self.full_search_checkbox = QtWidgets.QCheckBox(
+                    "Полная проверка 3D при автопоиске (долго)"
+                )
+                self.full_search_checkbox.setChecked(False)
+                self.full_search_checkbox.setToolTip(
+                    "Без галочки «Расчёт» ищет 2D варианты до 30 секунд: возможны "
+                    "необнаруженные 3D-коллизии. С галочкой выполняется поиск "
+                    "с нативной адаптивной D6-проверкой кандидатов; он может "
+                    "занять много минут. Даже D6 проверяет выборку поз, а не "
+                    "непрерывное движение или все части станка."
+                )
+                planar_body.addWidget(self.full_search_checkbox)
+                self.calculate.setToolTip(
+                    "Без галочки — быстрые 2D варианты, возможна коллизия. "
+                    "С галочкой — длительный физический поиск с нативной D6."
+                )
                 # The native toolbar command runs the search; this section
                 # displays its description/results without a duplicate button.
                 self.planar_calculate.hide()
@@ -3604,9 +3620,8 @@ class _PreviewPanel:
                 # budget on collision, clearance, contact or CAD penetration.
                 search_budget_s = 30.0
                 self.status.setText(
-                    "Выполняется предварительный поиск в 2D "
-                    "(лимит {:.0f} с; 3D безопасность не подтверждена)..."
-                    .format(search_budget_s)
+                    "Быстрый поиск (до {:.0f} с): 2D-сечения. Возможны 3D-коллизии; "
+                    "полная проверка отключена.".format(search_budget_s)
                 )
                 QtWidgets.QApplication.processEvents()
                 try:
@@ -4081,6 +4096,21 @@ class _PreviewPanel:
 
             def calculate_sequence(self):
                 """Run automatic 2.5D + D6 physical sequence search with backtracking and forward replay."""
+                # The normal toolbar action is a bounded 2D preview. Native
+                # D6 is an explicit operator choice and may take many minutes.
+                if not self.full_search_checkbox.isChecked():
+                    self._trace_event(
+                        "SEQUENCE_SEARCH_MODE_SELECTED",
+                        mode="FAST_2D_NOT_3D_VALIDATED",
+                        possible_3d_collision=True,
+                    )
+                    self.calculate_planar_candidates()
+                    return
+                self._trace_event(
+                    "SEQUENCE_SEARCH_MODE_SELECTED",
+                    mode="FULL_NATIVE_D6_SAMPLED",
+                    continuous_motion_certified=False,
+                )
                 if self.session is None:
                     self.status.setText("UNVERIFIED: сначала загрузите листовую деталь.")
                     return

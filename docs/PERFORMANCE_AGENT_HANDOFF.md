@@ -524,3 +524,31 @@ Validation:
 Next action:
 - Optimize `distToShape` (319s in baseline) using AABB-gap and candidate face bounding box filtering in `_compute_exact_distance_with_pruning`.
 - Explore multiFuse clustering for stationary subtrees during bending.
+
+## 2026-11-14 — experimental automatic search mode selection
+
+Branch: `experiment/fast-search-lift-retract`, based on `63fa055` of
+`experiment/component-collision-oracle`. The existing toolbar automatic search
+now runs bounded Stage A/B planar candidate search by default. A new unchecked
+checkbox on the "2D варианты" page explicitly enables the existing full
+2.5D+D6 DFS and independent replay. The fast mode uses the existing five
+exploration bend fractions (0, .25, .5, .75, 1) and three stroke fractions,
+then replays any returned candidate at the original 17/9 sampled 2D density.
+Fast results remain preview-only, marked unverified for 3D and possibly
+colliding. The full D6 remains sampled, not continuous or whole-machine
+certification. Explicit Manual 3D and per-bend D6 commands remain separate.
+The selected mode is written to the developer journal.
+
+Headless discovery and compileall passed; no native FreeCAD GUI interaction or
+Mac benchmark has been performed for this UI change. This change reduces the
+*default automatic search workload* but does not accelerate the exact D6
+kernel and has no claimed measured speedup yet.
+
+The proposed punch-assisted workpiece lift during RETRACT is NOT implemented or
+accepted as safe here. Current D6 has a fixed sheet support height in RETRACT.
+Changing B02 from COLLISION requires a physically specified sheet-plus-punch
+lift, die clearance and release/withdrawal path, with continuous certification
+status kept explicit. Add a separate experimental pose/path mode, test it with
+actual FCStd and existing B02 forensic replay, then compare both withdrawal
+scenarios before exposing it to automatic candidate rejection. Never relabel
+stationary-sheet collision CLEAR based solely on an assumed following motion.
