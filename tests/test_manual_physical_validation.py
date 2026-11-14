@@ -196,6 +196,32 @@ class ManualToolingTests(unittest.TestCase):
         self.assertTrue(all(call[2]["match_active_bend_length"] for call in calls))
         self.assertEqual(self.session.fold_state.angles, original)
 
+    def test_opt_in_short_benchmark_captures_scoped_d6_metrics_only(self):
+        with patch(
+            "smbs_core.kinematics2d.manual_physical_validation"
+            ".check_active_25d_bend_trajectory",
+            return_value=evidence(
+                PhysicalEvidence.SAMPLED_3D_CLEAR_NOT_CONTINUOUS,
+            ),
+        ):
+            baseline = check_manual_3d_sequence(
+                self.session, self.tooling, ("B01",),
+            )
+            measured = check_manual_3d_sequence(
+                self.session, self.tooling, ("B01",),
+                include_benchmark_metrics=True,
+            )
+        self.assertNotIn("benchmark_native_metrics", baseline["steps"][0])
+        stats = measured["steps"][0]["benchmark_native_metrics"]
+        self.assertEqual(stats["scope"], "D6_ONLY_SAMPLED_NATIVE_KERNEL_NOT_CONTINUOUS")
+        self.assertIn("total_machine_pose_reuse_hits", stats["d6"])
+        self.assertIn("total_machine_pose_reuse_misses", stats["d6"])
+        self.assertEqual(stats["kernel"]["common_calls"], 0)
+        self.assertEqual(stats["geometry_build"]["calls"]["sheet_union"], 0)
+        self.assertEqual(stats["phases"][0]["phase"], "RETRACT")
+        self.assertEqual(measured["result"]["status"] if "result" in measured else
+                         measured["status"], "UNVERIFIED")
+
     def test_collision_stops_at_first_proven_hit(self):
         def fake(*args, **kwargs):
             return evidence(PhysicalEvidence.COLLISION)
