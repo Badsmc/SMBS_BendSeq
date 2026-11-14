@@ -59,13 +59,16 @@ from smbs_core.kinematics2d.ram_cycle_geometry import ram_cycle_positions
 from smbs_core.kinematics2d.tooling_25d import DEFAULT_INITIAL_PUNCH_CLEARANCE_MM
 from smbs_core.kinematics2d.native_bend_solid_3d import (
     build_multi_bend_sheet_solid, build_multi_bend_sheet_components,
+    is_rigid_transform_matrix,
 )
 from smbs_core.kinematics2d.component_collision_oracle import (
     screen_machine_component_overlap, record_component_shadow_probe,
     record_component_shadow_rebuild,
     prove_machine_component_blocker, ComponentBlockerFound,
 )
-from smbs_core.kinematics2d.native_geometry_build_metrics import measure_native_geometry_region
+from smbs_core.kinematics2d.native_geometry_build_metrics import (
+    measure_native_geometry_region, record_native_geometry_cache_event,
+)
 from smbs_core.kinematics2d.native_collision_3d import (
     CollisionClass,
     EndZoneCollisionPolicy,
@@ -1058,25 +1061,59 @@ class AdaptiveTrajectoryValidator3D:
                     wp_machine = solid.shape.copy()
                 with measure_native_geometry_region("machine_workpiece_transform"):
                     wp_machine.transformShape(mat_wp)
-                if machine_pose_reuse:
-                    # The check normally happens in validate_workpiece_tooling_pose.
-                    # Move it here ONCE, before storing a nonmutable copy, and
-                    # pass the exact same-object proof through to both tool pairs.
-                    with measure_native_geometry_region("pair_geometry_sanity"):
-                        valid = check_solid_validity(wp_machine, "shape_a")
-                    validated_machine_shape = (wp_machine, valid)
+
+                # Rigid-isometry validity propagation:
+                # When the source sheet solid is already certified valid/closed with
+                # positive volume (e.g. from NativeMultiBendSheet or check_solid_validity),
+                # and mat_wp is a proven Euclidean rigid isometry (det = +1.0, R*R^T = I),
+                # OCC is guaranteed not to change solid topology, volume, closure or validity.
+                sheet_proof = getattr(solid, "validity_proof", None)
+                if (sheet_proof is not None
+                        and sheet_proof[0] is solid.shape
+                        and sheet_proof[1][0] is True
+                        and is_rigid_transform_matrix(mat_wp)):
+                    validated_machine_shape = (wp_machine, sheet_proof[1])
+                    record_native_geometry_cache_event("workpiece_validity_cache_hit")
+                else:
+                    record_native_geometry_cache_event("workpiece_validity_cache_miss")
+                    if machine_pose_reuse:
+                        with measure_native_geometry_region("pair_geometry_sanity"):
+                            valid = check_solid_validity(wp_machine, "shape_a")
+                        validated_machine_shape = (wp_machine, valid)
+
+                if machine_pose_reuse and validated_machine_shape is not None:
                     self._machine_pose_cache = (
-                        (solid.shape, pose_key, wp_machine, valid)
-                        if valid[0] else None
+                        (solid.shape, pose_key, wp_machine, validated_machine_shape[1])
+                        if validated_machine_shape[1][0] else None
                     )
             with measure_native_geometry_region("native_punch_pose"):
                 punch_step = set_punch_ram_z(self.punch_base, ram_z)
             punch_shape = punch_step.machine_shape
             die_shape = self.die.machine_shape
+            validated_punch_shape = getattr(punch_step, "validity_proof", None)
+            validated_die_shape = getattr(self.die, "validity_proof", None)
+            if validated_punch_shape is not None and validated_punch_shape[0] is punch_shape:
+                record_native_geometry_cache_event("tool_validity_cache_hit")
+            else:
+                record_native_geometry_cache_event("tool_validity_cache_miss")
+            if validated_die_shape is not None and validated_die_shape[0] is die_shape:
+                record_native_geometry_cache_event("tool_validity_cache_hit")
+            else:
+                record_native_geometry_cache_event("tool_validity_cache_miss")
         else:
             wp_machine = None
             punch_shape = None
             die_shape = None
+            validated_punch_shape = None
+            validated_die_shape = None
+
+        extra_validate_kwargs = {}
+        if validated_machine_shape is not None:
+            extra_validate_kwargs["_validated_workpiece_shape"] = validated_machine_shape
+        if validated_punch_shape is not None:
+            extra_validate_kwargs["_validated_punch_shape"] = validated_punch_shape
+        if validated_die_shape is not None:
+            extra_validate_kwargs["_validated_die_shape"] = validated_die_shape
 
         # Full oracle remains mandatory whenever the optional component path
         # has not proved a non-waivable blocker.
@@ -1094,8 +1131,7 @@ class AdaptiveTrajectoryValidator3D:
             prefer_punch_overlap_first=(
                 self._prefer_punch_overlap_next and not punch_cache_hit
             ),
-            **({"_validated_workpiece_shape": validated_machine_shape}
-               if machine_pose_reuse and validated_machine_shape is not None else {}),
+            **extra_validate_kwargs,
         )
         # A geometric blocker discovered in RETRACT may share the exact
         # folded-sheet cache key with BOTTOM. Probe it AFTER the canonical
