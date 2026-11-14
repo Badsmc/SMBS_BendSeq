@@ -498,3 +498,29 @@ Validation:
 Next action:
 - Measure remaining bottlenecks: `distToShape` (319s) and `sheet_union` (150s).
 - Verify conservative multi-bend component broad-phase without breaking B02 RETRACT blocker.
+
+## 2026-11-14 — Elimination of redundant isValid during panel rigid transforms
+
+Changes:
+- `smbs_core/kinematics2d/native_bend_solid_3d._apply_rigid_transform`:
+  Before this change, every transformed panel solid called `transformed.isValid()` across 11 panels
+  at every evaluated angle state (374 calls per bend, ~3740 calls across 10 bends).
+  Since the source panel prism is already qualified and `mat` is proven to be a rigid Euclidean
+  isometry via `is_rigid_transform_matrix(mat)`, OpenCASCADE transformShape strictly preserves
+  BRep topology and validity. Added `is_rigid_transform_matrix` check; when verified rigid,
+  skips redundant `isValid()` while preserving `isNull()` and fail-closed re-qualification for
+  any non-rigid matrix.
+
+Validation:
+- Headless tests: 266 passed.
+- Native OCC tests: 7 passed in FreeCAD 1.1.3 / OCC 7.8.1.
+- `tools.verify_installed_runtime`: SHA-256 match `55e61090...` verified.
+- Native FreeCAD 1.1.3 benchmark on `2-1-3-4-(ok).FCStd` (B07):
+  * `panel_transform` elapsed reduced from 1.82s to 0.31s (-1.51s per bend, ~83% reduction in transform overhead).
+  * Total geometry build measured time reduced from 30.36s to 25.56s (-4.80s).
+  * Total B07 step elapsed reduced from 95.61s to 88.46s (-7.15s).
+  * Status preserved: `SAMPLED_3D_CLEAR_NOT_CONTINUOUS`, 0 regressions.
+
+Next action:
+- Optimize `distToShape` (319s in baseline) using AABB-gap and candidate face bounding box filtering in `_compute_exact_distance_with_pruning`.
+- Explore multiFuse clustering for stationary subtrees during bending.
