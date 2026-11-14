@@ -71,6 +71,8 @@ class ManualVerifyEmbeddedContractTests(unittest.TestCase):
         self.assertIn('self._manual_sequence_prefix = list(candidate.sequence)', dialog)
         self.assertIn('self._apply_manual_order()', dialog)
         self.assertIn('self._draw_flat_pattern(reset_camera=True)', dialog)
+        self.assertIn('self.manual_reverse_3d_checkbox.setChecked(', dialog)
+        self.assertIn('mixed_orientation', dialog)
         self.assertIn('self._complete_planar_candidates(report)', dialog)
         self.assertNotIn('report.partial_candidate', dialog)
         self.assertNotIn('check_manual_3d_sequence', dialog)
