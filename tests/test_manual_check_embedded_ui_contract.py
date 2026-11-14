@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import ast
 from pathlib import Path
+from types import SimpleNamespace
 import unittest
 
 
@@ -40,6 +41,43 @@ def called_names(node):
 
 
 class ManualVerifyEmbeddedContractTests(unittest.TestCase):
+    def test_planar_results_offer_only_complete_unique_manual_orders(self):
+        """Incomplete, duplicate and malformed orders must never enter Manual."""
+        node = method("_complete_planar_candidates")
+        namespace = {}
+        exec(compile(ast.fix_missing_locations(ast.Module(
+            body=[node], type_ignores=[],
+        )), str(SOURCE), "exec"), namespace)
+        candidate = lambda *ids: SimpleNamespace(sequence=ids)
+        full = candidate("B01", "B02", "B03")
+        same = candidate("B01", "B02", "B03")
+        reversed_order = candidate("B03", "B02", "B01")
+        report = SimpleNamespace(candidates=[
+            candidate("B01", "B02"), full, same,
+            candidate("B01", "B01", "B03"), reversed_order,
+        ])
+        workspace = SimpleNamespace(session=SimpleNamespace(
+            bend_order=["B01", "B02", "B03"],
+        ))
+        self.assertEqual(namespace["_complete_planar_candidates"](
+            workspace, report,
+        ), [full, reversed_order])
+
+    def test_selected_2d_order_enters_manual_before_any_collision_check(self):
+        source = SOURCE.read_text(encoding="utf-8")
+        dialog = ast.get_source_segment(source, method("_show_planar_candidates_dialog"))
+        search = ast.get_source_segment(source, method("calculate_planar_candidates"))
+        self.assertIn('self.activate_manual_mode()', dialog)
+        self.assertIn('self._manual_sequence_prefix = list(candidate.sequence)', dialog)
+        self.assertIn('self._apply_manual_order()', dialog)
+        self.assertIn('self._draw_flat_pattern(reset_camera=True)', dialog)
+        self.assertIn('self._complete_planar_candidates(report)', dialog)
+        self.assertNotIn('report.partial_candidate', dialog)
+        self.assertNotIn('check_manual_3d_sequence', dialog)
+        self.assertNotIn('evaluate_manual_planar_order', dialog)
+        self.assertIn('Полных 2D вариантов не найдено', search)
+        self.assertIn('min_partial_bends=0', search)
+
     def test_manual_legacy_button_restores_fast_2d_stage_a_b(self):
         gui = SOURCE.read_text(encoding="utf-8")
         fn = method("_validate_manual_planar_only")
