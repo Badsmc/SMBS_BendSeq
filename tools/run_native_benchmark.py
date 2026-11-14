@@ -252,6 +252,7 @@ def run(*, part: str | Path = DEFAULT_PART,
             end_zone_length_mm=float(end_zone_length_mm),
             reverse_axis_by_bend=record["reverse_axis_by_bend"],
             config=cfg,
+            include_benchmark_metrics=True,
         )
         record["result"] = result
     except Exception as exc:
