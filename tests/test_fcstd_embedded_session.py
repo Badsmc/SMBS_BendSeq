@@ -164,6 +164,26 @@ class EmbeddedStorageTests(unittest.TestCase):
         self.assertEqual(validate_restore(loaded, self.session, self.document),
                          (("B02", "B01"), ("B02",)))
 
+    def test_orientation_map_round_trip_and_rejects_invalid_bends(self):
+        snapshot = build_snapshot(
+            self.session, self.document, self.tooling, self.config,
+            "BEND_ONLY", manual_prefix=("B02",),
+            orientation_by_bend={"B02": True, "B01": False},
+        )
+        loaded = decode_snapshot(json.dumps(snapshot).encode("utf-8"))
+        self.assertEqual(loaded["order"]["orientation_by_bend"],
+                         {"B02": True, "B01": False})
+        loaded["order"]["orientation_by_bend"]["B99"] = True
+        with self.assertRaisesRegex(EmbeddedSessionError, "orientations"):
+            decode_snapshot(json.dumps(loaded).encode("utf-8"))
+
+    def test_orientation_map_rejects_non_boolean_values(self):
+        with self.assertRaisesRegex(EmbeddedSessionError, "orientation map"):
+            build_snapshot(
+                self.session, self.document, self.tooling, self.config,
+                "BEND_ONLY", orientation_by_bend={"B02": 1},
+            )
+
     def test_manual_native_3d_report_is_embedded_with_each_bend_and_pair(self):
         """No separate JSON: native D6 step evidence survives FCStd save/reload."""
         step = {

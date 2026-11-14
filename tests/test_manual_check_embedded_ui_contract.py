@@ -71,7 +71,7 @@ class ManualVerifyEmbeddedContractTests(unittest.TestCase):
         self.assertIn('self._manual_sequence_prefix = list(candidate.sequence)', dialog)
         self.assertIn('self._apply_manual_order()', dialog)
         self.assertIn('self._draw_flat_pattern(reset_camera=True)', dialog)
-        self.assertIn('self.manual_reverse_3d_checkbox.setChecked(', dialog)
+        self.assertIn('self._manual_orientation_by_bend = orientations', dialog)
         self.assertIn('mixed_orientation', dialog)
         self.assertIn('self._complete_planar_candidates(report)', dialog)
         self.assertNotIn('report.partial_candidate', dialog)
@@ -79,6 +79,39 @@ class ManualVerifyEmbeddedContractTests(unittest.TestCase):
         self.assertNotIn('evaluate_manual_planar_order', dialog)
         self.assertIn('Полных 2D вариантов не найдено', search)
         self.assertIn('min_partial_bends=0', search)
+
+    def test_manual_2d_and_native_3d_use_one_per_bend_orientation_map(self):
+        source = SOURCE.read_text(encoding="utf-8")
+        quick = ast.get_source_segment(source, method("_validate_manual_planar_only"))
+        full = ast.get_source_segment(source, method("_validate_export_manual_order"))
+        viewer = ast.get_source_segment(source, method("_effective_loading_orientation_map"))
+        self.assertIn('orientations = self._manual_orientation_selection(selected)', quick)
+        self.assertIn('reverse_axis_by_bend=orientations', quick)
+        self.assertIn('reverse_selection = self._manual_orientation_selection(selected)', full)
+        self.assertEqual(full.count('reverse_axis_by_bend=reverse_selection'), 2)
+        self.assertIn('return self._manual_orientation_selection(order)', viewer)
+
+    def test_manual_orientation_selection_preserves_mixed_2d_values(self):
+        node = method("_manual_orientation_selection")
+        namespace = {}
+        exec(compile(ast.fix_missing_locations(ast.Module(
+            body=[node], type_ignores=[],
+        )), str(SOURCE), "exec"), namespace)
+        panel = SimpleNamespace(
+            session=SimpleNamespace(bend_order=["B01", "B02", "B03"]),
+            _manual_orientation_order=("B01", "B02", "B03"),
+            _manual_orientation_by_bend={
+                "B01": False, "B02": True, "B03": False,
+            },
+            manual_reverse_3d_checkbox=SimpleNamespace(isChecked=lambda: False),
+        )
+        select = namespace["_manual_orientation_selection"]
+        self.assertEqual(select(panel, ["B02", "B03"]),
+                         {"B02": True, "B03": False})
+        panel._manual_orientation_order = ()
+        panel.manual_reverse_3d_checkbox.isChecked = lambda: True
+        self.assertEqual(select(panel, ["B02", "B03"]),
+                         {"B02": True, "B03": True})
 
     def test_manual_legacy_button_restores_fast_2d_stage_a_b(self):
         gui = SOURCE.read_text(encoding="utf-8")

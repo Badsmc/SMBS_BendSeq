@@ -209,7 +209,7 @@ def build_snapshot(
     session, document, tooling, cycle_config, execution_mode,
     manual_prefix=(), manual_report=None, search_report=None,
     planar_report=None, operation_weights=None,
-    retract_warning=False,
+    retract_warning=False, orientation_by_bend=None,
 ):
     """Create the portable, bounded snapshot without mutating the document."""
     if session is None or document is None:
@@ -222,6 +222,11 @@ def build_snapshot(
     prefix = [str(x) for x in manual_prefix]
     if len(prefix) != len(set(prefix)) or order[:len(prefix)] != prefix:
         raise EmbeddedSessionError("Manual prefix disagrees with the live order")
+    orientations = orientation_by_bend or {}
+    if (not isinstance(orientations, dict)
+            or any(k not in order or type(v) is not bool
+                   for k, v in orientations.items())):
+        raise EmbeddedSessionError("Invalid manual orientation map")
     config = {
         k: _enum_to_value(v)
         for k, v in asdict(cycle_config).items()
@@ -236,6 +241,8 @@ def build_snapshot(
         "order": {
             "bend_ids": order,
             "manual_prefix": prefix,
+            "orientation_by_bend": {bid: orientations[bid]
+                                    for bid in order if bid in orientations},
             "canonical_bend_ids": canonical,
         },
         "tooling": {
@@ -311,6 +318,11 @@ def decode_snapshot(raw):
         raise EmbeddedSessionError("Stored order is not a bend permutation")
     if len(prefix) != len(set(prefix)) or order[:len(prefix)] != prefix:
         raise EmbeddedSessionError("Stored manual prefix is inconsistent")
+    orientations = data.get("orientation_by_bend", {})
+    if (not isinstance(orientations, dict)
+            or any(k not in order or type(v) is not bool
+                   for k, v in orientations.items())):
+        raise EmbeddedSessionError("Stored manual orientations are inconsistent")
     simulation = payload.get("simulation")
     tooling = payload.get("tooling")
     if not isinstance(simulation, dict) or not isinstance(tooling, dict):

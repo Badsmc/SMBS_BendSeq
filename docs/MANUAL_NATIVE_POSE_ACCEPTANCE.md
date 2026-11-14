@@ -23,7 +23,7 @@ Use the same document `2-1-3-4-(ok).FCStd`, verified AP1017 punch and AT3015 V12
 
 ### Safety exclusions
 - Backgauge contact, physical support stability, clamps, press frame, and inter-bend TRANSFER path are not certified by this change.
-- Manual UI currently provides 0° or 180° for the entire checked order. The core APIs support a per-bend orientation dictionary, but selection of mixed per-step orientations in the UI remains follow-up work.
+- On `experiment/fast-search-lift-retract`, choosing a complete 2D candidate now transfers its per-bend 0°/180° orientations into Manual. The 2D replay, native 3D replay, viewer, and saved FCStd session read the same map. The checkbox still intentionally overrides all bends at once; after changing order or orientation, previous validation is invalidated. Mixed orientation still needs actual FreeCAD acceptance with the exact selected tools and model.
 - No actual FCStd/OCC run was executed by GitHub Actions. Preserve `UNVERIFIED` when requested machine setup or geometric evidence is missing.
 - Do not merge the branch into `main` or the installable `smbs` release solely on the basis of headless CI.
 

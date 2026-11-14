@@ -525,13 +525,13 @@ Next action:
 - Optimize `distToShape` (319s in baseline) using AABB-gap and candidate face bounding box filtering in `_compute_exact_distance_with_pruning`.
 - Explore multiFuse clustering for stationary subtrees during bending.
 
-## 2026-11-14 — experimental automatic search mode selection
+## 2026-11-14 — initial experimental automatic search mode selection (superseded below)
 
 Branch: `experiment/fast-search-lift-retract`, based on `63fa055` of
 `experiment/component-collision-oracle`. The existing toolbar automatic search
-now runs bounded Stage A/B planar candidate search by default. A new unchecked
-checkbox on the "2D варианты" page explicitly enables the existing full
-2.5D+D6 DFS and independent replay. The fast mode uses the existing five
+initially ran bounded Stage A/B planar candidate search by default with a
+checkbox for full automatic D6. The current workflow below replaces this
+checkbox. The fast mode uses the existing five
 exploration bend fractions (0, .25, .5, .75, 1) and three stroke fractions,
 then replays any returned candidate at the original 17/9 sampled 2D density.
 Fast results remain preview-only, marked unverified for 3D and possibly
@@ -552,3 +552,21 @@ status kept explicit. Add a separate experimental pose/path mode, test it with
 actual FCStd and existing B02 forensic replay, then compare both withdrawal
 scenarios before exposing it to automatic candidate rejection. Never relabel
 stationary-sheet collision CLEAR based solely on an assumed following motion.
+
+## 2026-11-14 — complete 2D selection and shared per-bend orientation
+
+Branch: `experiment/fast-search-lift-retract`. The old search-mode checkbox
+was removed from the operator flow: `2D варианты` lists complete orders,
+selection opens Manual, and Manual offers separate quick 2D and native 3D
+checks. The 2D candidate's orientation for every bend is now retained in one
+Manual pose map. Preview, Stage A/B replay and native D6 receive that map;
+the global Manual checkbox deliberately replaces it for all bends. The map is
+stored and validated in the optional FCStd `order.orientation_by_bend` field;
+older embedded sessions default to normal orientation and saved verdicts remain
+historical. Mixed orientation is visible in the candidate list and Manual
+operations. No collision tolerance, native geometry or D6 sampling policy was
+changed. Headless tests passed; FreeCAD 1.1.x GUI/OCC acceptance and the
+installed runtime SHA comparison are still pending. Next: load a complete
+candidate with mixed 0°/180° steps in FreeCAD, verify viewer and both replay
+logs show identical per-bend poses, change the checkbox to verify invalidation,
+save and reopen FCStd, then rerun B02 and CONDITIONAL regression scenarios.
