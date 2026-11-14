@@ -143,7 +143,16 @@ class DesktopDebugJournal:
     """Single writer for one valid JSON file; no background tasks or uploads."""
 
     def __init__(self, path=None):
-        self.path = Path(path) if path else desktop_directory() / "SMBS_debug_log.json"
+        # Test/benchmark subprocesses opt into an isolated directory. Each
+        # process gets its own file; they must not append to the operator's
+        # Desktop journal or race another writer. Normal FreeCAD is unchanged.
+        isolated = os.environ.get("SMBS_DEBUG_LOG_DIR")
+        if path is not None:
+            self.path = Path(path)
+        elif isolated:
+            self.path = Path(isolated).expanduser() / f"SMBS_debug_log_{os.getpid()}.json"
+        else:
+            self.path = desktop_directory() / "SMBS_debug_log.json"
         self._lock = threading.RLock()
         self.session_id = str(uuid.uuid4())
         self._next = 1

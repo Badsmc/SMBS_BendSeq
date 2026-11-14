@@ -78,7 +78,8 @@ def _snapshot(part: Path, punch: Path, die: Path,
     except Exception:
         freecad_version = "NOT_RECORDED"
     try:
-        occ_version = str(App.OCC_VERSION)
+        import Part
+        occ_version = str(Part.OCC_VERSION)
     except Exception:
         occ_version = "NOT_RECORDED"
     return {
@@ -178,6 +179,8 @@ def run(*, part: str | Path = DEFAULT_PART,
     cfg = AdaptiveSamplingConfig(
         max_phase_time_s=float(max_phase_time_s),
         max_evaluated_states_per_phase=int(max_states_per_phase),
+        allow_end_zone_collision=bool(allow_end_zone_collision),
+        end_zone_length_mm=float(end_zone_length_mm),
         component_shadow_samples_per_bend=shadow_requested,
         component_reject_enabled=(os.environ.get("SMBS_COMPONENT_REJECT",
             "1" if component_reject_enabled else "0") == "1"),

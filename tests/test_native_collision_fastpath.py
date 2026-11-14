@@ -148,6 +148,45 @@ class NativeCollisionFastPathTests(unittest.TestCase):
         )
         self.assertIsNotNone(result.punch_result.overlap_bbox_xyz_mm)
 
+    def test_pair_validates_each_input_once_and_standalone_revalidates(self):
+        from smbs_core.kinematics2d import native_collision_3d as native
+        sheet, punch = shape(box(-100., -95.)), shape(box(-100., 100.))
+        common_solid = shape(box(-100., -95.), vol=5.)
+        intersection = shape(box(-100., -95.), vol=5., parts=[common_solid])
+        with patch.object(native, "check_solid_validity",
+                          wraps=native.check_solid_validity) as validity, patch.object(
+            native, "measured_common", return_value=intersection,
+        ), patch.object(native, "measured_distance", return_value=(0., None, None)):
+            result = check_pair_clearance(sheet, punch, tool_label="PUNCH",
+                                          classify_end_zone_length_mm=10.)
+            self.assertEqual(validity.call_count, 2)
+            self.assertEqual(result.end_zone_analysis.classification,
+                             PunchCollisionZoneClassification.END_ZONE_ONLY)
+            # The same Python Shape may mutate between queries. No validity
+            # record from the previous query may be accepted for this call.
+            sheet.isValid = lambda: False
+            result = check_pair_clearance(sheet, punch, tool_label="PUNCH",
+                                          classify_end_zone_length_mm=10.)
+            self.assertIs(result.status, CollisionClass.INVALID_GEOMETRY)
+            standalone = native.classify_punch_overlap_zones(
+                sheet, punch, 10., _precomputed_common=intersection)
+            self.assertIs(standalone.classification,
+                          PunchCollisionZoneClassification.UNCLASSIFIED)
+            self.assertIn("invalid_workpiece", standalone.reason)
+
+    def test_invalid_common_does_not_become_conditional(self):
+        from smbs_core.kinematics2d import native_collision_3d as native
+        sheet, punch = shape(box(-100., -95.)), shape(box(-100., 100.))
+        invalid = shape(box(-100., -95.), parts=[shape(box(-100., -95.))])
+        invalid.isValid = lambda: False
+        with patch.object(native, "measured_common", return_value=invalid), patch.object(
+            native, "measured_distance", return_value=(0., None, None),
+        ):
+            result = check_pair_clearance(sheet, punch, tool_label="PUNCH",
+                                          classify_end_zone_length_mm=10.)
+        self.assertIs(result.status, CollisionClass.INVALID_GEOMETRY)
+        self.assertIsNone(result.end_zone_analysis)
+
     def test_significant_central_remains_physically_blocking(self):
         sheet = shape(box(-20., 20.))
         punch = shape(box(-100., 100.))

@@ -457,3 +457,38 @@ These are implemented improvements to exact-geometry reuse, **not** a measured s
   entries to see actual cache hits, `pair_geometry_sanity`,
   `machine_workpiece_copy`, `machine_workpiece_transform` and
   other OCC operations. Do not request another 28-minute run.
+
+## 2026-11-14 — local pair reuse and faithful blocker diagnostics
+
+Changes based on `b210a6b`:
+- Reuse strict input validation only within the same synchronous punch pair
+  query and Conditional classification. Public standalone classification still
+  validates its inputs; Common and intersection solids retain all checks.
+  No cross-pose mutable-shape validity cache or changed tolerances/sampling.
+- Blocker summary and component attribution select the same proven forbidden
+  sample. A preceding timeout remains in `other_problem_phases`; aggregate
+  Conditional overlap no longer invents a tool collision for an unresolved phase.
+- `python -m tools.run_headless_tests` isolates test journals in a temporary
+  directory, with one file per process. Normal Desktop logging is unchanged.
+  `SMBS_DEBUG_LOG_DIR` supports explicit benchmark isolation too.
+- Benchmark provenance reads OCC version from Part and records the effective
+  end-zone configuration. Cross-platform CI includes the affected regressions.
+
+Validation: full headless discovery passed (261 tests, 7 explicit native skips);
+separate real FreeCAD 1.0 / OCC 7.8.1 execution passed all 7 native collision
+acceptance tests, with no mocked shapes, Common, distance or validity. Tests
+cover Conditional, central containment, die penetration, disabled/invalid policy,
+null geometry, contact, AABB separation and mutation between queries.
+Compileall and diff whitespace checks passed. Hosted CI must be checked after push.
+
+Limitations: no throughput improvement is claimed. Full B07 benchmark on uploaded
+`2-1-3-4-(ok) (1)(2).FCStd` (SHA256
+`7f40ceb122ac1f63ff3e89d96201775450ed80b6e602f50fb7d4ac12b1bca872`)
+stopped before D6: this FreeCAD 1.0 restore sanitizes Unicode sketch Names and
+leaves their Labels `Unnamed`, so stored UnfoldSketches references cannot resolve.
+Source FCStd was not modified. An attempted unique-label fallback was discarded
+because it cannot fix lost restored data. This runtime is not equivalent to the
+user's FreeCAD 1.1.3 Mac runtime. Existing regressive component-reject and machine
+pose experiments remain OFF by default. Next gate: matched before/after B07 and
+Conditional replay using FreeCAD 1.1.3 with fully restored source model; then
+measure the entire known sequence before claiming end-to-end acceleration.

@@ -499,7 +499,10 @@ def check_pair_clearance(
             shape_a, shape_b, include_bbox=True, include_shape=True,
         )
         analysis = (
-            classify_punch_overlap_zones(
+            # Both inputs were checked above in this synchronous pair query.
+            # Share only this local evidence; never cache mutable Shape validity
+            # across calls, poses, tool selections or policy changes.
+            _classify_validated_punch_overlap_zones(
                 shape_a, shape_b, classify_end_zone_length_mm,
                 volume_tolerance_mm3=volume_tolerance_mm3,
                 _precomputed_common=common,
@@ -742,28 +745,48 @@ def classify_punch_overlap_zones(
     - Fails closed with `UNCLASSIFIED` if `end_zone_length_mm <= 0`, non-finite, or `2 * end_zone_length_mm >= punch_length`,
       or if intersection geometry is invalid / lacks solid components.
     """
-    def _unclassified(reason: str, p_span: Tuple[float, float] = (0.0, 0.0), ez_len: float = 0.0, vol: float = 0.0) -> PunchEndZoneAnalysis:
-        return PunchEndZoneAnalysis(
-            classification=PunchCollisionZoneClassification.UNCLASSIFIED,
-            end_zone_length_mm=ez_len,
-            punch_span_xm=p_span,
-            left_end_zone_xm=(p_span[0], p_span[0]),
-            central_zone_xm=p_span,
-            right_end_zone_xm=(p_span[1], p_span[1]),
-            total_overlap_volume_mm3=vol,
-            end_zone_overlap_volume_mm3=0.0,
-            central_zone_overlap_volume_mm3=vol,
-            affected_sides=(),
-            components=(),
-            reason=reason,
-        )
-
     ok_w, r_w = check_solid_validity(workpiece_machine_shape, "workpiece")
     if not ok_w:
-        return _unclassified(f"invalid_workpiece:{r_w}")
+        return _unclassified_punch_overlap(f"invalid_workpiece:{r_w}")
     ok_p, r_p = check_solid_validity(punch_machine_shape, "punch")
     if not ok_p:
-        return _unclassified(f"invalid_punch:{r_p}")
+        return _unclassified_punch_overlap(f"invalid_punch:{r_p}")
+
+    return _classify_validated_punch_overlap_zones(
+        workpiece_machine_shape, punch_machine_shape, end_zone_length_mm,
+        volume_tolerance_mm3=volume_tolerance_mm3,
+        _precomputed_common=_precomputed_common,
+    )
+
+
+def _unclassified_punch_overlap(reason, p_span=(0.0, 0.0), ez_len=0.0, vol=0.0):
+    return PunchEndZoneAnalysis(
+        classification=PunchCollisionZoneClassification.UNCLASSIFIED,
+        end_zone_length_mm=ez_len,
+        punch_span_xm=p_span,
+        left_end_zone_xm=(p_span[0], p_span[0]),
+        central_zone_xm=p_span,
+        right_end_zone_xm=(p_span[1], p_span[1]),
+        total_overlap_volume_mm3=vol,
+        end_zone_overlap_volume_mm3=0.0,
+        central_zone_overlap_volume_mm3=vol,
+        affected_sides=(),
+        components=(),
+        reason=reason,
+    )
+
+
+def _classify_validated_punch_overlap_zones(
+    workpiece_machine_shape, punch_machine_shape, end_zone_length_mm,
+    *, volume_tolerance_mm3=1e-4, _precomputed_common=None,
+):
+    """Local continuation after strict input validation, not a reusable cache.
+
+    Called only by the public classifier or the pair query that has just
+    validated these exact shapes. Common and every intersection solid still
+    undergo the full existing validation below. No shape escapes this call.
+    """
+    _unclassified = _unclassified_punch_overlap
 
     try:
         ez_len = float(end_zone_length_mm)

@@ -17,6 +17,13 @@ class DesktopDebugLogTests(unittest.TestCase):
         self.addCleanup(tmp.cleanup)
         self.path = Path(tmp.name) / "Desktop" / "SMBS_debug_log.json"
 
+    def test_explicit_path_wins_over_process_isolation(self):
+        import os
+        from unittest.mock import patch
+        with patch.dict(os.environ, {"SMBS_DEBUG_LOG_DIR": str(self.path.parent / "tests")}):
+            journal = debug.DesktopDebugJournal(self.path)
+        self.assertEqual(journal.path, self.path)
+
     def test_valid_single_json_after_every_append_and_process_restart(self):
         journal = debug.DesktopDebugJournal(self.path)
         snapshot = json.loads(self.path.read_text(encoding="utf-8"))

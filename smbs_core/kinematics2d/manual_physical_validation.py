@@ -35,8 +35,49 @@ from .physical_validation_25d import (
 CLEAR = PhysicalEvidence.SAMPLED_3D_CLEAR_NOT_CONTINUOUS
 
 
+_CONVERGED_PHASES = {
+    "SAMPLED_INTERVAL_CONVERGED",
+    "ADAPTIVE_SAMPLING_CONVERGED",
+    "SAMPLED_INTERVAL_CONDITIONAL_END_ZONE",
+}
+
+
+def _phase_status(phase):
+    status = getattr(phase, "evidence_status", "")
+    return str(getattr(status, "value", status))
+
+
+def _select_3d_blocker(trajectory):
+    """Prefer a proven forbidden hit, retaining uncertainty if none is known.
+
+    A phase timeout is evidence of incomplete validation, not a tool collision.
+    Use the same predicate as D6 early rejection and keep attribution attached
+    to the exact selected state, including when an earlier phase timed out.
+    """
+    from .motion_trajectory_3d import is_blocking_collision
+
+    phases = tuple(getattr(trajectory, "phase_results", ()) or ())
+    first = getattr(trajectory, "first_collision_state", None)
+    for phase in phases:
+        hits = [s for s in getattr(phase, "states", ()) or ()
+                if is_blocking_collision(s)]
+        if (is_blocking_collision(first)
+                and str(getattr(first, "phase", "")) == phase.phase_name
+                and not any(s is first for s in hits)):
+            hits.append(first)
+        if hits:
+            return phase, min(hits, key=lambda s: getattr(s, "path_u", float("inf")))
+    problem = next((p for p in phases
+                    if _phase_status(p) not in _CONVERGED_PHASES), None)
+    # Unknown or invalid states may supply a location but cannot name a tool.
+    rejected = (s for s in getattr(problem, "states", ()) or ()
+                if not getattr(s, "is_safe", True)
+                and not getattr(s, "is_conditional_safe", False))
+    return problem, next(rejected, None)
+
+
 def concise_3d_blocker(trajectory: Any) -> dict:
-    """Find the first native D6 rejected phase without a truncated reason.
+    """Locate the first proven native hit, or the first unresolved phase.
 
     Preserve actual phase, ram Z and individual punch/die overlap; never
     infer which tool penetrated merely from an aggregate COLLISION label.
@@ -49,18 +90,7 @@ def concise_3d_blocker(trajectory: Any) -> dict:
             "angle_deg": None, "phase_status": "UNVERIFIED",
         }
 
-    phase_results = tuple(getattr(trajectory, "phase_results", ()) or ())
-    allowed = {
-        "SAMPLED_INTERVAL_CONVERGED",
-        "ADAPTIVE_SAMPLING_CONVERGED",
-        "SAMPLED_INTERVAL_CONDITIONAL_END_ZONE",
-    }
-    problem = next((
-        phase for phase in phase_results
-        if str(getattr(getattr(phase, "evidence_status", None),
-                       "value", getattr(phase, "evidence_status", "")))
-        not in allowed
-    ), None)
+    problem, candidate = _select_3d_blocker(trajectory)
     if problem is None:
         return {
             "phase": "NONE", "reason": "no_rejected_native_phase",
@@ -72,30 +102,6 @@ def concise_3d_blocker(trajectory: Any) -> dict:
     name = str(getattr(problem, "phase_name", "UNKNOWN"))
     phase_status = str(getattr(getattr(problem, "evidence_status", None),
                                "value", getattr(problem, "evidence_status", "")))
-    rejected = [
-        st for st in getattr(problem, "states", ()) or ()
-        # A punch END_ZONE_ONLY sample may carry PENETRATION but is
-        # explicitly permitted as CONDITIONAL by the selected policy.
-        # It is NOT the first *blocking* hit. Keep the earliest strictly
-        # non-conditional rejected sample, matching native D6 onset.
-        if not bool(getattr(st, "is_conditional_safe", False))
-        and (
-            (
-                getattr(getattr(st, "collision_report", None),
-                        "status", None) is not None
-                and str(getattr(
-                    getattr(st.collision_report, "status"), "value",
-                    st.collision_report.status,
-                )) == "PENETRATION"
-            ) or getattr(st, "is_safe", True) is False
-        )
-    ]
-    candidate = next(iter(rejected), None)
-    if candidate is None:
-        first = getattr(trajectory, "first_collision_state", None)
-        if first is not None and str(getattr(first, "phase", "")) == name:
-            candidate = first
-
     punch_overlap = float(getattr(problem, "max_punch_overlap_volume_mm3", 0.0))
     die_overlap = float(getattr(problem, "max_die_overlap_volume_mm3", 0.0))
     cr = getattr(candidate, "collision_report", None) if candidate else None
@@ -105,17 +111,14 @@ def concise_3d_blocker(trajectory: Any) -> dict:
                                "value", getattr(p, "status", "")))
     die_status = str(getattr(getattr(d, "status", None),
                              "value", getattr(d, "status", "")))
-    if punch_status == "PENETRATION" and die_status == "PENETRATION":
+    from .motion_trajectory_3d import is_blocking_collision
+    if not is_blocking_collision(candidate):
+        tool = "UNKNOWN"
+    elif punch_status == "PENETRATION" and die_status == "PENETRATION":
         tool = "PUNCH_AND_DIE"
     elif punch_status == "PENETRATION":
         tool = "PUNCH"
     elif die_status == "PENETRATION":
-        tool = "DIE"
-    elif punch_overlap > 1e-4 and die_overlap > 1e-4:
-        tool = "PUNCH_AND_DIE"
-    elif punch_overlap > 1e-4:
-        tool = "PUNCH"
-    elif die_overlap > 1e-4:
         tool = "DIE"
     else:
         tool = "UNKNOWN"
@@ -133,6 +136,12 @@ def concise_3d_blocker(trajectory: Any) -> dict:
     return {
         "phase": name,
         "phase_status": phase_status,
+        "other_problem_phases": [
+            {"phase": str(getattr(p, "phase_name", "UNKNOWN")),
+             "phase_status": _phase_status(p)}
+            for p in getattr(trajectory, "phase_results", ()) or ()
+            if p is not problem and _phase_status(p) not in _CONVERGED_PHASES
+        ],
         "sampled_onset_bracket": getattr(
             problem, "first_collision_bracket", None,
         ),
@@ -613,9 +622,7 @@ def check_manual_3d_sequence(
                 }
             blocker = concise_3d_blocker(report.raw_report)
             attribution = None
-            state_hit = getattr(
-                report.raw_report, "first_collision_state", None,
-            )
+            _, state_hit = _select_3d_blocker(report.raw_report)
             if (report.status is PhysicalEvidence.COLLISION
                     and state_hit is not None
                     and blocker.get("tool") in (
