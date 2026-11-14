@@ -457,10 +457,14 @@ def check_manual_3d_sequence(
     # Normalize before early-return reporting: a failed precheck must
     # still be serializable without an AttributeError.
     reverse_axis_by_bend = dict(reverse_axis_by_bend or {})
+    coarse_occ = bool(getattr(config, "coarse_occ_screen", False))
     if not isfinite(end_len) or end_len < 0.0:
         raise ValueError("end_zone_length_mm must be finite and nonnegative")
 
     def final_result(status, steps, reason):
+        if coarse_occ and status not in ("COLLISION", "UNVERIFIED"):
+            status = "UNVERIFIED"
+            reason = "coarse_OCC_cannot_certify_clear_or_conditional:" + reason
         result = {
             "schema_version": "smbs.manual_native_tooling.v1",
             "status": str(status),
@@ -471,6 +475,9 @@ def check_manual_3d_sequence(
             "complete_part_order_requested": len(order) == len(known),
             "stopped_early": len(steps) < len(order),
             "sampled_3d_only": True,
+            "validation_mode": (
+                "COARSE_OCC_5_BEND_ANGLES" if coarse_occ else "FULL_ADAPTIVE_D6"
+            ),
             "continuous_motion_certified": False,
             "backgauge_collisions_checked": False,
             "transfer_clamps_frame_checked": False,
@@ -581,6 +588,7 @@ def check_manual_3d_sequence(
             reverse_axis=bool(reverse_axis_by_bend.get(bend_id, False)),
         )
         started = perf_counter()
+        report = None
         try:
             # Phase A: measure ONLY the native D6 validation call.
             # Post-collision per-panel attribution and UI rendering are
@@ -675,6 +683,14 @@ def check_manual_3d_sequence(
                 native_d6_samples=complete_d6,
             )
             status = report.status
+            if coarse_occ and status in (CLEAR, PhysicalEvidence.CONDITIONAL):
+                status = PhysicalEvidence.UNVERIFIED
+            if coarse_occ and status is PhysicalEvidence.COLLISION:
+                from .motion_trajectory_3d import is_blocking_collision
+                if not is_blocking_collision(
+                    getattr(report.raw_report, "first_collision_state", None)
+                ):
+                    status = PhysicalEvidence.UNVERIFIED
             retract = retract_evidence_from_trajectory(report.raw_report)
             # No sampled RETRACT -> no claim of a fully validated bend.
             # This is separate from any already proven earlier collision.
@@ -791,6 +807,33 @@ def check_manual_3d_sequence(
                 "tool_length_info": None,
                 "is_conditional": False,
             }
+        coarse_continue = False
+        if coarse_occ and status is PhysicalEvidence.UNVERIFIED:
+            from .motion_trajectory_3d import TrajectoryEvidenceStatus
+            raw = getattr(report, "raw_report", None)
+            phases = getattr(raw, "phase_results", ())
+            expected = ("APPROACH", "CONTACT", "BENDING", "BOTTOM", "RETRACT")
+            if (getattr(getattr(raw, "tool_setup_status", None), "value", None)
+                    == "TOOL_SETUP_QUALIFIED"
+                    and tuple(p.phase_name for p in phases) == expected
+                    and all(p.evidence_status in (
+                        TrajectoryEvidenceStatus.DISCRETE_SAMPLES_SAFE,
+                        TrajectoryEvidenceStatus.SAMPLED_INTERVAL_CONDITIONAL_END_ZONE,
+                    ) for p in phases)):
+                conditional = any(
+                    p.evidence_status is TrajectoryEvidenceStatus.SAMPLED_INTERVAL_CONDITIONAL_END_ZONE
+                    for p in phases
+                )
+                record["status"] = (
+                    "COARSE_3D_CONDITIONAL_END_ZONE"
+                    if conditional else "COARSE_3D_NO_PROVEN_COLLISION"
+                )
+                record["reason"] = (
+                    "discrete_OCC_samples_only;gaps_and_tool_pair_unverified"
+                )
+                record["is_conditional"] = conditional
+                record["first_blocker"] = None
+                coarse_continue = True
         record["elapsed_s"] = round(perf_counter() - started, 4)
         steps.append(record)
         debug_event(
@@ -799,6 +842,9 @@ def check_manual_3d_sequence(
         )
         if status is PhysicalEvidence.COLLISION:
             return final_result("COLLISION", steps, "punch_or_die_collision_at:" + bend_id)
+        if coarse_continue:
+            previous.append(bend_id)
+            continue
         if status is PhysicalEvidence.UNVERIFIED or status is PhysicalEvidence.SECTION_CLEAR_3D_UNVERIFIED:
             return final_result("UNVERIFIED", steps, "native_3d_not_verified_at:" + bend_id)
         if status is PhysicalEvidence.CONDITIONAL:
@@ -814,6 +860,11 @@ def check_manual_3d_sequence(
         return final_result(
             "UNVERIFIED", steps,
             "selected_manual_prefix_only_remaining_bends_not_checked",
+        )
+    if coarse_occ:
+        return final_result(
+            "UNVERIFIED", steps,
+            "coarse_OCC_samples_only_uninspected_intervals_and_tool_pair",
         )
     if any_conditional:
         return final_result(

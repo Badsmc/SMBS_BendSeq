@@ -176,6 +176,20 @@ class AdaptiveSamplingConfig:
     component_reject_enabled: bool = False
     component_reject_max_candidates: int = 12
     component_reject_max_s: float = 2.0
+    # Fast OCC screen: fixed samples only. Uninspected intervals are never
+    # considered converged; the full adaptive D6 remains a separate action.
+    coarse_occ_screen: bool = False
+
+
+def coarse_occ_phase_fractions(phase_name: str) -> Tuple[float, ...]:
+    """Five bend angles and sparse ram travel, including RETRACT."""
+    if phase_name == "BENDING":
+        return (0.0, 0.25, 0.5, 0.75, 1.0)
+    if phase_name in ("APPROACH", "RETRACT"):
+        return (0.0, 0.5, 1.0)
+    if phase_name in ("CONTACT", "BOTTOM"):
+        return (0.0,)
+    raise ValueError("Unknown trajectory phase: " + str(phase_name))
 
 
 @dataclass
@@ -1487,109 +1501,130 @@ class AdaptiveTrajectoryValidator3D:
             cache[u_key] = st
             return st
 
-        # 1. Coarse endpoint evaluation
-        s0 = sample_state(0.0)
-        initial_subdivisions = self.total_subdivisions
-
-        if getattr(self.config, "early_stop_on_blocking_collision", True) and is_blocking_collision(s0):
-            diags.append(f"EARLY_STOP_ON_BLOCKING_COLLISION_AT_PHASE_START: u=0.0, phase={phase_name}")
-            uninspected_intervals.append((0.0, 1.0))
-            dedup_states: List[MotionState3D] = [s0]
-            peak_depth = 1
+        if self.config.coarse_occ_screen:
+            initial_subdivisions = self.total_subdivisions
+            dedup_states = []
+            fractions = coarse_occ_phase_fractions(phase_name)
+            for u in fractions:
+                st = sample_state(u)
+                dedup_states.append(st)
+                if is_blocking_collision(st):
+                    if u < 1.0:
+                        uninspected_intervals.append((u, 1.0))
+                    break
+            # The gaps between discrete OCC samples remain uninspected even
+            # when all sampled states are nonblocking.
+            if len(dedup_states) > 1 and not uninspected_intervals:
+                uninspected_intervals.extend(
+                    (left.path_u, right.path_u)
+                    for left, right in zip(dedup_states, dedup_states[1:])
+                )
+            diags.append("COARSE_OCC_DISCRETE_SAMPLES_ONLY")
+            peak_depth = 0
         else:
-            s1 = sample_state(1.0)
-            phase_states: List[MotionState3D] = [s0]
+            # 1. Coarse endpoint evaluation
+            s0 = sample_state(0.0)
+            initial_subdivisions = self.total_subdivisions
 
-            if getattr(self.config, "early_stop_on_blocking_collision", True) and is_blocking_collision(s1):
-                # A collision at 90 degrees does NOT mean the first contact
-                # occurred at 90. Search between the last tested nonblocking
-                # point and the first blocking point, preserving full OCC
-                # validation, time/recursion limits and epistemic uncertainty.
-                phase_states.append(s1)
-                low, high = s0, s1
-                probes = 0
-                refinement_started = time.perf_counter()
-                for _ in range(max(0, int(self.config.onset_refinement_max_samples))):
-                    if (self.total_states_evaluated - initial_eval_count
-                            >= self.config.max_evaluated_states_per_phase):
-                        diags.append("ONSET_REFINEMENT_STATE_LIMIT")
-                        break
-                    if (time.perf_counter() - refinement_started
-                            >= self.config.onset_refinement_max_s
-                            or time.perf_counter() - t_start
-                            >= self.config.max_phase_time_s):
-                        diags.append("ONSET_REFINEMENT_TIME_LIMIT")
-                        break
-                    if abs(high.signed_angle_deg - low.signed_angle_deg) <= (
-                            self.config.onset_refinement_min_angle_deg
-                    ) and phase_name == "BENDING":
-                        break
-                    if high.path_u - low.path_u <= 1e-6:
-                        break
-                    middle = sample_state((low.path_u + high.path_u) * 0.5)
-                    phase_states.append(middle)
-                    probes += 1
-                    if is_blocking_collision(middle):
-                        high = middle
-                    elif (middle.collision_report is None
-                          or middle.collision_report.status in (
-                              CollisionClass.INVALID_GEOMETRY,
-                              CollisionClass.MISSING_EVIDENCE,
-                          )):
-                        diags.append("ONSET_REFINEMENT_UNVERIFIED_INTERMEDIATE")
-                        break
-                    elif getattr(middle, "is_conditional_safe", False) or middle.is_safe:
-                        low = middle
-                    else:
-                        diags.append("ONSET_REFINEMENT_AMBIGUOUS_INTERMEDIATE")
-                        break
-                first_collision_bracket = {
-                    "phase": phase_name,
-                    "last_sampled_nonblocking_u": round(low.path_u, 6),
-                    "first_sampled_blocking_u": round(high.path_u, 6),
-                    "last_sampled_nonblocking_angle_deg": round(
-                        low.signed_angle_deg, 6,
-                    ),
-                    "first_sampled_blocking_angle_deg": round(
-                        high.signed_angle_deg, 6,
-                    ),
-                    "last_nonblocking_ram_z_mm": round(low.ram_z_mm, 6),
-                    "first_blocking_ram_z_mm": round(high.ram_z_mm, 6),
-                    "refinement_samples": probes,
-                    "continuous_interval_certified": False,
-                    "nonmonotone_collision_not_excluded": True,
-                }
-                diags.append(
-                    "ONSET_BRACKET_SAMPLED: "
-                    "angle=[{:.3f},{:.3f}]deg u=[{:.6f},{:.6f}], "
-                    "probes={}".format(
-                        low.signed_angle_deg, high.signed_angle_deg,
-                        low.path_u, high.path_u, probes,
-                    )
-                )
-                # The rest of the path remains uninspected. Do NOT turn
-                # BENDING into a PASS from this diagnostic refinement.
+            if getattr(self.config, "early_stop_on_blocking_collision", True) and is_blocking_collision(s0):
+                diags.append(f"EARLY_STOP_ON_BLOCKING_COLLISION_AT_PHASE_START: u=0.0, phase={phase_name}")
                 uninspected_intervals.append((0.0, 1.0))
+                dedup_states: List[MotionState3D] = [s0]
                 peak_depth = 1
-            elif s0.path_u < s1.path_u:
-                peak_depth = self.validate_adaptive_interval(
-                    s0, s1, sample_state, depth=1, out_states=phase_states, unresolved=unresolved, diags=diags, start_time=t_start,
-                    uninspected=uninspected_intervals,
-                )
-                phase_states.append(s1)
             else:
-                peak_depth = 1
-                phase_states.append(s1)
+                s1 = sample_state(1.0)
+                phase_states: List[MotionState3D] = [s0]
 
-            # Deduplicate states by path_u and sort
-            seen_u = set()
-            dedup_states: List[MotionState3D] = []
-            for s in phase_states:
-                uk = round(float(s.path_u), 6)
-                if uk not in seen_u:
-                    seen_u.add(uk)
-                    dedup_states.append(s)
-            dedup_states.sort(key=lambda s: s.path_u)
+                if getattr(self.config, "early_stop_on_blocking_collision", True) and is_blocking_collision(s1):
+                    # A collision at 90 degrees does NOT mean the first contact
+                    # occurred at 90. Search between the last tested nonblocking
+                    # point and the first blocking point, preserving full OCC
+                    # validation, time/recursion limits and epistemic uncertainty.
+                    phase_states.append(s1)
+                    low, high = s0, s1
+                    probes = 0
+                    refinement_started = time.perf_counter()
+                    for _ in range(max(0, int(self.config.onset_refinement_max_samples))):
+                        if (self.total_states_evaluated - initial_eval_count
+                                >= self.config.max_evaluated_states_per_phase):
+                            diags.append("ONSET_REFINEMENT_STATE_LIMIT")
+                            break
+                        if (time.perf_counter() - refinement_started
+                                >= self.config.onset_refinement_max_s
+                                or time.perf_counter() - t_start
+                                >= self.config.max_phase_time_s):
+                            diags.append("ONSET_REFINEMENT_TIME_LIMIT")
+                            break
+                        if abs(high.signed_angle_deg - low.signed_angle_deg) <= (
+                                self.config.onset_refinement_min_angle_deg
+                        ) and phase_name == "BENDING":
+                            break
+                        if high.path_u - low.path_u <= 1e-6:
+                            break
+                        middle = sample_state((low.path_u + high.path_u) * 0.5)
+                        phase_states.append(middle)
+                        probes += 1
+                        if is_blocking_collision(middle):
+                            high = middle
+                        elif (middle.collision_report is None
+                              or middle.collision_report.status in (
+                                  CollisionClass.INVALID_GEOMETRY,
+                                  CollisionClass.MISSING_EVIDENCE,
+                              )):
+                            diags.append("ONSET_REFINEMENT_UNVERIFIED_INTERMEDIATE")
+                            break
+                        elif getattr(middle, "is_conditional_safe", False) or middle.is_safe:
+                            low = middle
+                        else:
+                            diags.append("ONSET_REFINEMENT_AMBIGUOUS_INTERMEDIATE")
+                            break
+                    first_collision_bracket = {
+                        "phase": phase_name,
+                        "last_sampled_nonblocking_u": round(low.path_u, 6),
+                        "first_sampled_blocking_u": round(high.path_u, 6),
+                        "last_sampled_nonblocking_angle_deg": round(
+                            low.signed_angle_deg, 6,
+                        ),
+                        "first_sampled_blocking_angle_deg": round(
+                            high.signed_angle_deg, 6,
+                        ),
+                        "last_nonblocking_ram_z_mm": round(low.ram_z_mm, 6),
+                        "first_blocking_ram_z_mm": round(high.ram_z_mm, 6),
+                        "refinement_samples": probes,
+                        "continuous_interval_certified": False,
+                        "nonmonotone_collision_not_excluded": True,
+                    }
+                    diags.append(
+                        "ONSET_BRACKET_SAMPLED: "
+                        "angle=[{:.3f},{:.3f}]deg u=[{:.6f},{:.6f}], "
+                        "probes={}".format(
+                            low.signed_angle_deg, high.signed_angle_deg,
+                            low.path_u, high.path_u, probes,
+                        )
+                    )
+                    # The rest of the path remains uninspected. Do NOT turn
+                    # BENDING into a PASS from this diagnostic refinement.
+                    uninspected_intervals.append((0.0, 1.0))
+                    peak_depth = 1
+                elif s0.path_u < s1.path_u:
+                    peak_depth = self.validate_adaptive_interval(
+                        s0, s1, sample_state, depth=1, out_states=phase_states, unresolved=unresolved, diags=diags, start_time=t_start,
+                        uninspected=uninspected_intervals,
+                    )
+                    phase_states.append(s1)
+                else:
+                    peak_depth = 1
+                    phase_states.append(s1)
+
+                # Deduplicate states by path_u and sort
+                seen_u = set()
+                dedup_states: List[MotionState3D] = []
+                for s in phase_states:
+                    uk = round(float(s.path_u), 6)
+                    if uk not in seen_u:
+                        seen_u.add(uk)
+                        dedup_states.append(s)
+                dedup_states.sort(key=lambda s: s.path_u)
 
         phase_subdivisions = self.total_subdivisions - initial_subdivisions
         phase_recons = self.total_solid_reconstructions - initial_recon_count
@@ -1632,7 +1667,11 @@ class AdaptiveTrajectoryValidator3D:
             for s in dedup_states
         )
         has_invalid_geom = any(
-            s.collision_report.status == CollisionClass.INVALID_GEOMETRY
+            (s.collision_report is None
+             or s.collision_report.status in (
+                 CollisionClass.INVALID_GEOMETRY,
+                 CollisionClass.MISSING_EVIDENCE,
+             ))
             for s in dedup_states
         ) or has_unclassified_end_zone
 
@@ -1658,6 +1697,9 @@ class AdaptiveTrajectoryValidator3D:
             evidence_status = TrajectoryEvidenceStatus.SAMPLED_INTERVAL_CONDITIONAL_END_ZONE
             is_safe = False
             is_conditional = True
+        elif self.config.coarse_occ_screen:
+            evidence_status = TrajectoryEvidenceStatus.DISCRETE_SAMPLES_SAFE
+            is_safe = False  # Uninspected intervals cannot be certified.
         else:
             # All adaptive samples and intervals converged without collision or unresolved gaps
             evidence_status = TrajectoryEvidenceStatus.SAMPLED_INTERVAL_CONVERGED
