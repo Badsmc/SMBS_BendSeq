@@ -5913,7 +5913,7 @@ class _PreviewPanel:
                         requested_bends=list(selected),
                         checked_2d=checked,
                         accepted_2d=accepted,
-                        reverse_axis=reverse,
+                        orientation_by_bend=orientations,
                         report=result,
                     )
                     self._trace_event(
@@ -5921,6 +5921,7 @@ class _PreviewPanel:
                         selected_bends=list(selected),
                         checked_2d=checked,
                         accepted_2d=accepted,
+                        orientation_by_bend=orientations,
                         physical_status="UNVERIFIED",
                         native_3d_checked=False,
                     )

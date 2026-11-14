@@ -570,3 +570,11 @@ installed runtime SHA comparison are still pending. Next: load a complete
 candidate with mixed 0°/180° steps in FreeCAD, verify viewer and both replay
 logs show identical per-bend poses, change the checkbox to verify invalidation,
 save and reopen FCStd, then rerun B02 and CONDITIONAL regression scenarios.
+
+Mac journal `SMBS_debug_log(20261114-213437).json` confirmed the installed
+runtime hashes matched this branch and exposed a quick Manual 2D post-replay
+`NameError: reverse` in the completion event (twice). The event now records
+the shared `orientation_by_bend` map; no native D6 check ran in that journal.
+The selected ten-bend 2D candidate had a RETRACT warning and was explicitly
+`UNVERIFIED`; subsequent simulator playback was also unverified. No physical
+collision verdict can be inferred from that recording.
