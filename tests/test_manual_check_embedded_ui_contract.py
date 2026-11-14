@@ -90,6 +90,8 @@ class ManualVerifyEmbeddedContractTests(unittest.TestCase):
         self.assertIn('reverse_selection = self._manual_orientation_selection(selected)', full)
         self.assertEqual(full.count('reverse_axis_by_bend=reverse_selection'), 2)
         self.assertIn('return self._manual_orientation_selection(order)', viewer)
+        self.assertIn('orientation_by_bend=orientations,', quick)
+        self.assertNotIn('reverse_axis=reverse,', quick)
 
     def test_manual_orientation_selection_preserves_mixed_2d_values(self):
         node = method("_manual_orientation_selection")
