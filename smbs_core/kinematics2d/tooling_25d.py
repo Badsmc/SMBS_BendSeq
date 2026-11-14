@@ -1811,7 +1811,7 @@ def import_tool_from_dxf(
     geometric datums.
     """
     t0 = time.perf_counter()
-    path = Path(file_path).resolve()
+    path = Path(file_path).expanduser().resolve()
     if not path.is_file():
         raise ToolingError(f"DXF file not found: {path}")
 
@@ -2198,7 +2198,7 @@ def import_tool_from_step(
 ) -> ToolProfile:
     """Import a 3D STEP/STP tool via FreeCAD/OpenCASCADE and extract its exact 2D cross-section."""
     t_start = time.perf_counter()
-    path = Path(file_path).resolve()
+    path = Path(file_path).expanduser().resolve()
     if not path.is_file():
         raise ToolingError(f"STEP file not found: {path}")
 
@@ -2358,10 +2358,74 @@ class ToolingSetup2D:
     die_machine_transform: Transform2D = field(default_factory=Transform2D.identity)
     alignment_anchor_sz: Point2D = (0.0, 0.0)
     sheet_top_z_mm: float = 1.0
-    sheet_bottom_z_mm: float = -1.0
+    sheet_bottom_z_mm: float = 0.0
     punch_clearance_mm: float = DEFAULT_INITIAL_PUNCH_CLEARANCE_MM
     ram_z_mm: float = 16.0
     ram_stroke_mm: float = 0.0
+    match_active_bend_length: bool = False
+    active_bend_length_mm: Optional[float] = None
+    allow_end_zone_collision: bool = False
+    end_zone_length_mm: float = 10.0
+    # Explicit physical machine-X station assembly; independent from virtual
+    # tool-length mode. Empty means a single native source-CAD section.
+    punch_section_offsets_xm: Tuple[float, ...] = ()
+    die_section_offsets_xm: Tuple[float, ...] = ()
+
+    def set_native_sections(self, punch_offsets_xm=(), die_offsets_xm=()) -> None:
+        """Select native FCStd sections; no catalog-length or virtual extrusion."""
+        def check(name, values):
+            offsets = tuple(float(v) for v in values)
+            if len(offsets) == 1:
+                raise ValueError(f"{name}: one offset is ambiguous; use no offsets or >=2")
+            if any(not math.isfinite(v) for v in offsets):
+                raise ValueError(f"{name}: non-finite section offset")
+            if len(set(round(v, 8) for v in offsets)) != len(offsets):
+                raise ValueError(f"{name}: duplicate machine-X section offset")
+            return offsets
+
+        if self.match_active_bend_length and (punch_offsets_xm or die_offsets_xm):
+            raise ValueError("physical multi-sections are incompatible with virtual tool length")
+        self.punch_section_offsets_xm = check("punch", punch_offsets_xm)
+        self.die_section_offsets_xm = check("die", die_offsets_xm)
+
+    def set_match_active_bend_length(
+        self,
+        enabled: bool,
+        active_bend_length_mm: Optional[float] = None,
+    ) -> None:
+        """Enable or disable development virtual tool length mode (`tool_length == active_bend_length`)."""
+        if enabled and (self.punch_section_offsets_xm or self.die_section_offsets_xm):
+            raise ValueError("physical multi-sections are incompatible with virtual tool length")
+        self.match_active_bend_length = bool(enabled)
+        if active_bend_length_mm is not None:
+            val = float(active_bend_length_mm)
+            self.active_bend_length_mm = val if (math.isfinite(val) and val > 0.0) else None
+        elif not self.match_active_bend_length:
+            self.active_bend_length_mm = None
+
+    def effective_punch_length_mm(self, fallback_bend_length_mm: Optional[float] = None) -> Optional[float]:
+        """Return effective punch length (mm) in current mode (virtual bend length or library fixed)."""
+        if self.match_active_bend_length:
+            if fallback_bend_length_mm is not None and math.isfinite(float(fallback_bend_length_mm)) and float(fallback_bend_length_mm) > 0.0:
+                return float(fallback_bend_length_mm)
+            if self.active_bend_length_mm is not None and math.isfinite(float(self.active_bend_length_mm)) and float(self.active_bend_length_mm) > 0.0:
+                return float(self.active_bend_length_mm)
+            return None
+        if self.punch is not None and isinstance(self.punch.length_mm, (int, float)):
+            return float(self.punch.length_mm)
+        return None
+
+    def effective_die_length_mm(self, fallback_bend_length_mm: Optional[float] = None) -> Optional[float]:
+        """Return effective die length (mm) in current mode (virtual bend length or library fixed)."""
+        if self.match_active_bend_length:
+            if fallback_bend_length_mm is not None and math.isfinite(float(fallback_bend_length_mm)) and float(fallback_bend_length_mm) > 0.0:
+                return float(fallback_bend_length_mm)
+            if self.active_bend_length_mm is not None and math.isfinite(float(self.active_bend_length_mm)) and float(self.active_bend_length_mm) > 0.0:
+                return float(self.active_bend_length_mm)
+            return None
+        if self.die is not None and isinstance(self.die.length_mm, (int, float)):
+            return float(self.die.length_mm)
+        return None
 
     def select_punch(self, punch: Optional[ToolProfile]) -> None:
         if punch is not None:
@@ -2399,6 +2463,8 @@ class ToolingSetup2D:
         cross_section: Optional[Dict[str, Any]] = None,
         clearance_mm: float = DEFAULT_INITIAL_PUNCH_CLEARANCE_MM,
         bend_id: Optional[str] = None,
+        bend_zone: Optional[Any] = None,
+        thickness_mm: Optional[float] = None,
     ) -> None:
         """Align PUNCH and DIE working axes and datums to the active bend in Machine `(s, z)` space.
 
@@ -2408,6 +2474,7 @@ class ToolingSetup2D:
         - Aligns the Punch working axis (`s`) coaxially with the Die V-groove center (`s_punch == s_die == anchor_s`).
         - Places the Punch working tip above the sheet top surface by explicit positive `clearance_mm`
           (`z_punch_tip = sheet_top_z + clearance_mm`), so the punch does not touch the sheet in initial state.
+        - Requires authoritative sheet thickness from SheetMetal / BendZone; silent 1.0mm defaults are prohibited.
         - Does NOT modify `PanelGraph`, `FoldState`, `BendZone`, or `BendSequenceController`.
         """
         if self.punch is None and self.die is None:
@@ -2437,20 +2504,50 @@ class ToolingSetup2D:
                     f"(status={self.die.validation_status.value}); assign datums before aligning tooling."
                 )
 
+        # 1. Authoritative sheet thickness derivation from SheetMetal / BendZone
+        sheet_thickness: Optional[float] = None
+        if thickness_mm is not None:
+            sheet_thickness = float(thickness_mm)
+        elif bend_zone is not None and getattr(bend_zone, "thickness_mm", None) is not None:
+            sheet_thickness = float(bend_zone.thickness_mm)
+        elif cross_section is not None and cross_section.get("thickness_mm") is not None:
+            sheet_thickness = float(cross_section["thickness_mm"])
+
+        if sheet_thickness is None or sheet_thickness <= 0.0 or not math.isfinite(sheet_thickness):
+            raise ToolingError(
+                "UNSUPPORTED: Sheet thickness must be derived from SheetMetal / BendZone; "
+                "missing authoritative thickness data (silent fallbacks are forbidden)."
+            )
+
         if cross_section is not None and cross_section.get("neutral_curve"):
             nc = cross_section["neutral_curve"]
             mid_idx = len(nc) // 2
             anchor_s = float(nc[mid_idx][0])
+            resolved_bend_id = bend_id or cross_section.get("bend_id")
+
+            # max(z) - min(z) is admissible ONLY as a verification for a known flat, properly oriented section
             zone_poly = cross_section.get("zone_polygon") or nc
             zs = [float(p[1]) for p in zone_poly]
-            sheet_bottom_z = min(zs)
-            sheet_top_z = max(zs)
-            resolved_bend_id = bend_id or cross_section.get("bend_id")
+            if zs:
+                cur_ang = abs(float(cross_section.get("angle_deg", 0.0)))
+                if cur_ang < 1e-3:
+                    z_span = max(zs) - min(zs)
+                    if abs(z_span - sheet_thickness) > 0.05:
+                        import logging
+                        logging.getLogger(__name__).warning(
+                            "Flat section z_span (%.3f mm) differs from authoritative thickness (%.3f mm)",
+                            z_span, sheet_thickness,
+                        )
         else:
             anchor_s = 0.0
-            sheet_bottom_z = -1.0
-            sheet_top_z = 1.0
             resolved_bend_id = bend_id
+
+        # Machine coordinate contract:
+        # Die top shoulder plane is at Z_m = 0.0.
+        # Flat sheet outer/bottom surface rests on die shoulders at Z_m = 0.0.
+        # Sheet inner/top surface is at Z_m = sheet_thickness.
+        sheet_bottom_z = 0.0
+        sheet_top_z = sheet_thickness
 
         self.alignment_anchor_sz = (anchor_s, sheet_bottom_z)
         self.sheet_top_z_mm = sheet_top_z
@@ -2458,12 +2555,25 @@ class ToolingSetup2D:
         self.punch_clearance_mm = float(clearance_mm)
         self.ram_z_mm = sheet_top_z + self.punch_clearance_mm
         self.ram_stroke_mm = 0.0
-        # Die V-groove center (local (0,0)) aligned at (anchor_s, sheet_bottom_z)
+        # Die V-groove center (local (0,0)) aligned at (anchor_s, sheet_bottom_z) where sheet_bottom_z = 0.0
         self.die_machine_transform = Transform2D.translation(anchor_s, sheet_bottom_z)
         # Punch working tip (local (0,0)) coaxially aligned at (anchor_s, sheet_top_z + clearance_mm)
         self.punch_machine_transform = Transform2D.translation(anchor_s, self.ram_z_mm)
         self.aligned = True
         self.aligned_bend_id = str(resolved_bend_id) if resolved_bend_id else None
+        if bend_zone is not None and getattr(bend_zone, "axis_xy", None) is not None:
+            ax = bend_zone.axis_xy
+            if len(ax) == 2:
+                blen = _dist(ax[0], ax[1])
+                if math.isfinite(blen) and blen > 0.0:
+                    self.active_bend_length_mm = float(blen)
+        elif cross_section is not None and cross_section.get("bend_length_mm") is not None:
+            try:
+                blen = float(cross_section["bend_length_mm"])
+                if math.isfinite(blen) and blen > 0.0:
+                    self.active_bend_length_mm = blen
+            except (TypeError, ValueError):
+                pass
 
     def set_punch_ram_z(self, ram_z_mm: float, stroke_mm: float = 0.0) -> None:
         """Move ONLY the punch vertically along its coaxial Machine `s` axis.
@@ -2546,7 +2656,11 @@ class ToolingSetup2D:
         p_name = self.punch.name if self.punch is not None else "—"
         d_name = self.die.name if self.die is not None else "—"
         g_status = self.geometry_status_summary()
-        return f"Punch: {p_name} | Die: {d_name} | Geometry: {g_status} | Collision: NOT CHECKED"
+        base = f"Punch: {p_name} | Die: {d_name} | Geometry: {g_status} | Collision: NOT CHECKED"
+        if self.match_active_bend_length:
+            len_str = f"{self.active_bend_length_mm:.1f} mm" if self.active_bend_length_mm else "ACTIVE_BEND"
+            return f"{base} | ToolLen: VIRTUAL={len_str}"
+        return base
 
 
 # ---------------------------------------------------------------------------
@@ -2710,7 +2824,7 @@ class ToolLibrary25D:
         if library_root is None:
             repo_root = Path(__file__).resolve().parent.parent.parent
             library_root = repo_root / "toollibrary"
-        self.library_root = Path(library_root).resolve()
+        self.library_root = Path(library_root).expanduser().resolve()
         self.punch_dir = self.library_root / "punch"
         self.die_dir = self.library_root / "die"
         self.punch_dir.mkdir(parents=True, exist_ok=True)

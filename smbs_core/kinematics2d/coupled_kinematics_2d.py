@@ -150,10 +150,16 @@ class CoupledAirBendingKinematics:
         return self.contact_z_mm - h
 
     def support_plane_zm(self, bend_angle_deg: float) -> float:
-        """Machine Z_m coordinate for active bend axis midpoint to maintain V-die contact."""
+        """Machine Z_m coordinate for active bend zone outer apex to maintain V-die contact."""
         mag = min(179.0, max(0.0, abs(float(bend_angle_deg))))
         h = self.stroke_for_angle(mag)
         return self.die_top_z_mm - h
+
+    def arc_center_zm(self, bend_angle_deg: float) -> float:
+        """Machine Z_m coordinate for active bend zone arc center to maintain V-die contact."""
+        mag = min(179.0, max(0.0, abs(float(bend_angle_deg))))
+        h = self.stroke_for_angle(mag)
+        return self.die_top_z_mm + self.outer_radius_mm - h
 
     def bend_zone_position(self, bend_angle_deg: float) -> Dict[str, Tuple[float, float]]:
         """Coordinates of inner apex, outer apex, and center of curvature in Machine (s, z)."""

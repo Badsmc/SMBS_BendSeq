@@ -148,6 +148,9 @@ class WorkpiecePlacement3D:
         desired_midpoint_xm: float = 0.0,
         support_plane_zm: float = 0.0,
         align_bisector: bool = False,
+        align_bend_arc_center: bool = False,
+        reverse_axis: bool = False,
+        rear_panel_vertices_xy=None,
     ) -> PlacementTransform3D:
         """Compute rigid 3D placement mapping Part Space -> Machine Space for `active_bend_id`.
 
@@ -157,6 +160,9 @@ class WorkpiecePlacement3D:
         - Active bend line rests at `Y_m = 0.0, Z_m = support_plane_zm`.
         - When `align_bisector=True`, the bend angle bisector aligns with Machine +Z_m
           for symmetric flange rotation during V-die air-bending.
+        - When `align_bend_arc_center=True`, aligns the geometric arc center of the active
+          bend zone with Machine `Y_m = 0.0, Z_m = support_plane_zm`, ensuring coaxial
+          contact alignment with the punch tip.
         - Proper right-handed rigid transform: det(R) = +1.0.
         """
         p0_world, p1_world, u_axis = WorkpiecePlacement3D.get_world_bend_axis(fold_state, active_bend_id)
@@ -233,14 +239,75 @@ class WorkpiecePlacement3D:
         if abs(det - 1.0) > 1e-4:
             raise ValueError(f"Placement rotation matrix has invalid determinant {det}")
 
-        # Translation: mid_world maps to (desired_midpoint_xm, 0.0, support_plane_zm)
-        mid_rot = _mat_vec(R, mid_world)
-        T: Point3D = (
-            desired_midpoint_xm - mid_rot[0],
-            -mid_rot[1],
-            support_plane_zm - mid_rot[2],
-        )
+        if align_bend_arc_center and getattr(bend, "bend_zone", None) is not None:
+            # Authoritative arc center translation in Part Space
+            bz = bend.bend_zone
+            cur_deg = fold_state.angles.get(active_bend_id, 0.0)
+            phi = bz._check_angle(cur_deg)
+            rest = (bz.bend_allowance_mm - bz.neutral_radius_mm * phi) / 2.0
+            s0 = -bz.half_width_mm + rest
+            zc, _ = bz.section_heights()
+            side = 1.0 if getattr(bend, "moving_left", False) else -1.0
+            lx, ly = bz.left_xy
+            ox, oy = bz.origin_xy
+            p_center_cad = (ox + lx * side * s0, oy + ly * side * s0, zc)
+            p_center_world = p_fixed.point(p_center_cad)
+            c_rot = _mat_vec(R, p_center_world)
+            mid_rot = _mat_vec(R, mid_world)
+            T: Point3D = (
+                desired_midpoint_xm - mid_rot[0],
+                -c_rot[1],
+                support_plane_zm - c_rot[2],
+            )
+        else:
+            # Translation: mid_world maps to (desired_midpoint_xm, 0.0, support_plane_zm)
+            mid_rot = _mat_vec(R, mid_world)
+            T: Point3D = (
+                desired_midpoint_xm - mid_rot[0],
+                -mid_rot[1],
+                support_plane_zm - mid_rot[2],
+            )
 
+        if rear_panel_vertices_xy is not None:
+            # Machine frame: screen +s = -Y_m = interior/right/rear gauge.
+            # Physically orient the sheet, NOT the tool or camera. A 180-degree
+            # Z rotation preserves the punch-over-die arrangement and all 3D
+            # contacts; screening and viewer must pass the same panel vertices.
+            verts = rear_panel_vertices_xy.get(bend.fixed_panel, ())
+            if len(verts) < 3:
+                raise ValueError(
+                    "rear_frame_missing_fixed_panel_vertices:" + bend.fixed_panel
+                )
+            fixed_tf = fold_state.transforms[bend.fixed_panel]
+            samples = [
+                fixed_tf.point((float(x), float(y), 0.0))
+                for x, y in verts
+            ]
+            # Evaluate each vertex relative to active bend axis, not global
+            # panel dimensions. A side must be identifiable (no guessing).
+            ss = [-(_mat_vec(R, p)[1] + T[1]) for p in samples]
+            smax, smin = max(ss), min(ss)
+            # The support panel may cross the bend line by a tiny thickness
+            # tolerance, but it must predominantly occupy one machine side.
+            if smax > 1.0 and smin < -1.0:
+                if min(smax, -smin) > 0.1 * max(smax, -smin):
+                    raise ValueError("rear_frame_ambiguous_support_on_both_sides")
+            rear_edge = smax if smax >= -smin else smin
+            if abs(rear_edge) <= 1.0:
+                raise ValueError("rear_frame_no_resolved_support_edge")
+            if rear_edge < 0.0:
+                R = (tuple(-v for v in R[0]),
+                     tuple(-v for v in R[1]), R[2])
+                T = (2.0 * desired_midpoint_xm - T[0], -T[1], T[2])
+
+        if reverse_axis:
+            # A physically distinct loading orientation: rotate the entire
+            # sheet 180 degrees around the machine vertical Z axis. Keep the
+            # active bend at the requested X_m station, and keep Z unchanged.
+            # This cannot be substituted for a 3D transfer-path check.
+            R = (tuple(-v for v in R[0]),
+                 tuple(-v for v in R[1]), R[2])
+            T = (2.0 * desired_midpoint_xm - T[0], -T[1], T[2])
         return PlacementTransform3D(rotation=R, translation=T)
 
     @staticmethod
