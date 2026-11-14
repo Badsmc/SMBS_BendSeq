@@ -5330,7 +5330,7 @@ class _PreviewPanel:
                     self.status.setText(
                         "Нет подтверждённого native 3D-пересечения для осмотра."
                     )
-                    return
+                    return False
                 expected = inspection.get("tooling_identity") or {}
                 current = {
                     "punch_id": getattr(
@@ -5371,7 +5371,7 @@ class _PreviewPanel:
                         bend_id=inspection.get("bend_id"),
                         expected=expected, current=current,
                     )
-                    return
+                    return False
                 self._stop_timer()
                 self.status.setText(
                     "Создание точной OCC-сцены. Исходный FCStd не изменяется..."
@@ -5400,7 +5400,7 @@ class _PreviewPanel:
                         "Native OCC collision inspector failed: "
                         + traceback.format_exc()
                     )
-                    return
+                    return False
                 _desktop_debug_event(
                     "MANUAL_EXACT_OCC_INSPECTION_OPENED",
                     result=report,
@@ -5412,6 +5412,7 @@ class _PreviewPanel:
                     "Непрерывная безопасность не сертифицирована."
                     .format(report["document_name"])
                 )
+                return True
 
             def _record_manual_precheck_failure(self, selected, reason):
                 """Fail visibly and save the UNVERIFIED reason in FCStd as well."""
@@ -6017,6 +6018,7 @@ class _PreviewPanel:
                         "Остановите симуляцию перед проверкой ручного порядка."
                     )
                     return
+                open_collision = False
                 self._stop_timer()
                 _desktop_debug_event(
                     "MANUAL_VERIFY_REQUESTED",
@@ -6213,7 +6215,8 @@ class _PreviewPanel:
                         "session_identity": id(self.session),
                     }
                     for step in physical["steps"]:
-                        if (step.get("status") == "COLLISION"
+                        if (self._collision_inspection is None
+                                and step.get("status") == "COLLISION"
                                 and (step.get("first_blocker") or {})
                                     .get("sampled_machine_pose")):
                             self._collision_inspection = {
@@ -6396,6 +6399,8 @@ class _PreviewPanel:
                         "{}\n{}".format(summary, saved_note)
                     )
                     self.status.setText(saved_note)
+                    open_collision = (physical_status == "COLLISION"
+                                      and self._collision_inspection is not None)
                 except Exception as exc:
                     _error(
                         "Manual 3D tooling validation exception: "
@@ -6409,6 +6414,9 @@ class _PreviewPanel:
                     self._set_task_busy(False)
                     for control, enabled in old_control_states:
                         control.setEnabled(enabled)
+
+                if open_collision and not self._open_exact_collision_inspector():
+                    self._show_first_collision_in_3d()
 
             def simulate_manual_order_unverified(self):
                 """Preview current Manual order without ANY collision validation.
