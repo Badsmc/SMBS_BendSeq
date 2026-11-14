@@ -77,8 +77,18 @@ class ManualVerifyEmbeddedContractTests(unittest.TestCase):
         self.assertNotIn('report.partial_candidate', dialog)
         self.assertNotIn('check_manual_3d_sequence', dialog)
         self.assertNotIn('evaluate_manual_planar_order', dialog)
-        self.assertIn('Полных 2D вариантов не найдено', search)
+        self.assertIn('полных 2D вариантов не найдено', search)
         self.assertIn('min_partial_bends=0', search)
+
+    def test_operator_labels_distinguish_search_preview_and_checks(self):
+        source = SOURCE.read_text(encoding="utf-8")
+        self.assertIn('"MenuText": "Поиск 2D вариантов"', source)
+        self.assertIn('"MenuText": "Порядок и проверка"', source)
+        self.assertIn('QPushButton("Симулировать без проверки")', source)
+        self.assertIn('QPushButton("Быстрая проверка (2D)")', source)
+        self.assertIn('QPushButton("Полная проверка (3D)")', source)
+        self.assertIn('layout.insertWidget(1, options)', source)
+        self.assertIn('layout.insertLayout(2, controls)', source)
 
     def test_manual_2d_and_native_3d_use_one_per_bend_orientation_map(self):
         source = SOURCE.read_text(encoding="utf-8")
@@ -128,7 +138,7 @@ class ManualVerifyEmbeddedContractTests(unittest.TestCase):
         self.assertIn("_persist_manual_check_to_fcstd", calls)
         self.assertNotIn("getSaveFileName", calls)
         self.assertNotIn("json.dumps", source)
-        self.assertIn("QPushButton(\"Проверить 2D\")", gui)
+        self.assertIn("QPushButton(\"Быстрая проверка (2D)\")", gui)
         self.assertIn("self._validate_manual_planar_only", gui)
 
     def test_separate_native_3d_button_retains_full_validator(self):
@@ -143,7 +153,7 @@ class ManualVerifyEmbeddedContractTests(unittest.TestCase):
         self.assertNotIn("getSaveFileName", calls)
         self.assertNotIn("write_text", calls)
         self.assertNotIn("json.dumps", source)
-        self.assertIn("QPushButton(\"Проверить 3D\")", gui)
+        self.assertIn("QPushButton(\"Полная проверка (3D)\")", gui)
         self.assertIn("self._validate_export_manual_order", gui)
         self.assertIn("self.manual_validate_3d_btn", source)
 
