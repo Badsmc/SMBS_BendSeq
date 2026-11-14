@@ -3973,6 +3973,15 @@ class _PreviewPanel:
                         self.activate_manual_mode()
                         self._manual_sequence_prefix = list(candidate.sequence)
                         self._apply_manual_order()
+                        orientations = {
+                            step.orientation_variant.startswith("REVERSE_MACHINE_Z_180")
+                            for step in candidate.steps
+                        }
+                        mixed_orientation = len(orientations) > 1
+                        self.manual_reverse_3d_checkbox.setChecked(
+                            next(iter(orientations))
+                            if not mixed_orientation and orientations else False
+                        )
                         self._viewer_tabs.setCurrentWidget(self._flat_view)
                         self._draw_flat_pattern(reset_camera=True)
                         self.status.setText(
@@ -3988,8 +3997,21 @@ class _PreviewPanel:
                             "PLANAR_2D_MANUAL_ORDER_SELECTED",
                             sequence=list(candidate.sequence),
                             evidence=candidate.evidence,
+                            mixed_orientation=mixed_orientation,
                             physical_status="UNVERIFIED",
                         )
+                        if mixed_orientation:
+                            warning = (
+                                "Порядок передан в Manual, но 2D вариант содержит "
+                                "разные ориентации установки по гибам. Manual "
+                                "проверяет одну ориентацию для всех гибов; "
+                                "выберите её переключателем и повторно проверьте "
+                                "весь порядок. Исходные 2D установки не перенесены."
+                            )
+                            self.status.setText(warning)
+                            QtWidgets.QMessageBox.warning(
+                                self, "Ориентация 2D варианта", warning,
+                            )
                     except Exception as exc:
                         self.status.setText("Нельзя назначить 2D порядок: " + str(exc))
                         _error("Planar manual selection exception: " + traceback.format_exc())
