@@ -507,9 +507,11 @@ class NativePhaseBlockerTests(unittest.TestCase):
                 status=SimpleNamespace(value="PENETRATION"),
                 punch_result=SimpleNamespace(
                     status=SimpleNamespace(value=punch_state),
+                    overlap_volume_mm3=3.2 if tool == "PUNCH" else 0.0,
                 ),
                 die_result=SimpleNamespace(
                     status=SimpleNamespace(value=die_state),
+                    overlap_volume_mm3=12.54321 if tool == "DIE" else 0.0,
                 ),
             ),
         )
@@ -587,6 +589,45 @@ class NativePhaseBlockerTests(unittest.TestCase):
         result = concise_3d_blocker(trajectory)
         self.assertEqual(result["tool"], "UNKNOWN")
         self.assertIn("machine_pose_jump", result["reason"])
+
+    def test_later_proven_collision_takes_precedence_over_earlier_timeout(self):
+        hit = self._state("PUNCH", -1.2, 90.0, "RETRACT")
+        timeout = self._phase("BENDING", "INTERVAL_UNRESOLVED", punch_overlap=99.)
+        timeout.unresolved_intervals = ((0.1, 0.2),)
+        trajectory = SimpleNamespace(
+            phase_results=(timeout, self._phase(
+                "RETRACT", "DISCRETE_SAMPLES_REJECTED", states=(hit,),
+                punch_overlap=3.2)), first_collision_state=hit,
+        )
+        result = concise_3d_blocker(trajectory)
+        self.assertEqual(result["phase"], "RETRACT")
+        self.assertEqual(result["tool"], "PUNCH")
+        self.assertEqual(result["ram_z_mm"], -1.2)
+        self.assertEqual(result["other_problem_phases"], [
+            {"phase": "BENDING", "phase_status": "INTERVAL_UNRESOLVED"},
+        ])
+        from smbs_core.kinematics2d.manual_physical_validation import _select_3d_blocker
+        self.assertIs(_select_3d_blocker(trajectory)[1], hit)
+
+    def test_timeout_with_conditional_peak_never_invents_tool_penetration(self):
+        allowed = self._state("PUNCH", -2., 70., "BENDING")
+        allowed.is_conditional_safe = True
+        phase = self._phase("BENDING", "INTERVAL_UNRESOLVED",
+                            states=(allowed,), punch_overlap=400.)
+        phase.unresolved_intervals = ((0.1, 0.2),)
+        result = concise_3d_blocker(SimpleNamespace(phase_results=(phase,)))
+        self.assertEqual(result["tool"], "UNKNOWN")
+        self.assertIsNone(result["ram_z_mm"])
+        self.assertEqual(result["reason"], "unresolved_native_interval")
+
+    def test_invalid_geometry_with_overlap_is_not_proven_collision(self):
+        invalid = self._state("PUNCH", -2., 70., "BENDING")
+        invalid.collision_report.status = SimpleNamespace(value="INVALID_GEOMETRY")
+        phase = self._phase("BENDING", "INVALID_GEOMETRY",
+                            states=(invalid,), punch_overlap=400.)
+        result = concise_3d_blocker(SimpleNamespace(phase_results=(phase,)))
+        self.assertEqual(result["tool"], "UNKNOWN")
+        self.assertEqual(result["phase_status"], "INVALID_GEOMETRY")
 
     def test_clear_trajectory_has_no_blocker(self):
         trajectory = SimpleNamespace(

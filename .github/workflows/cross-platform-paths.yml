@@ -19,5 +19,12 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - run: python -m unittest tests.test_cross_platform_paths tests.test_native_blocker_replay -v
+      - name: Isolated headless regressions (no OCC qualification)
+        run: >-
+          python -m tools.run_headless_tests
+          tests.test_cross_platform_paths tests.test_native_blocker_replay
+          tests.test_native_collision_fastpath tests.test_conditional_endzone_volume_tolerance
+          tests.test_component_reject_filter tests.test_component_shadow_trajectory_integration
+          tests.test_manual_physical_validation tests.test_desktop_debug_log
+          tests.test_native_benchmark_runner tests.test_headless_test_runner -v
       - run: python -m compileall -q Init.py InitGui.py freecad_smbs smbs_core tools
