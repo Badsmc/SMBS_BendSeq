@@ -47,7 +47,7 @@ See [integration and release policy](https://github.com/Badsmc/SMBS_BendSeq/blob
 
 `experiment/punch-assisted-retract` starts from the `smbs` installation
 snapshot. Following a **proven native PUNCH collision during RETRACT**, Manual
-offers `Исследовать подъём детали с пуансоном`. The diagnostic replays the
+offers `Проверить подъём OCC и показать движение`. The diagnostic replays the
 original exact FCStd collision, then tests nine OCC poses from BOTTOM to the
 configured upper RAM Z assuming the entire formed sheet follows the punch
 vertically one-to-one. It checks the entire sheet against both selected tools
@@ -66,6 +66,15 @@ no penetration is **UNVERIFIED**: the diagnostic cannot prove punch-to-sheet
 coupling or force, continuous motion between samples, release, lateral
 withdrawal, machine frame, clamps or backgauge clearance. A positive die or
 punch overlap on this hypothetical path is reported as a blocked sample.
+After a sampled path completes without a new blocker, Manual enables
+`Показать совместный подъём в симуляции`. This resets and plays the selected
+order in Full Cycle. For the probed bend only, RETRACT adds exactly the
+punch's rise from BOTTOM to the whole sheet rigid placement used by both
+2D and 3D previews; STEP_COMPLETE and the final frame retain that height.
+The next-bend transfer starts from the lifted pose. The simulation is an
+assumed kinematic illustration and retains the original COLLISION verdict.
+Changing inputs or starting another validation disables the experimental
+playback until the exact OCC probe is repeated.
 Testing the alternative path on the real B02 FCStd in FreeCAD remains necessary
 before any physical interpretation or integration into sequence search.
 The diagnostic has a 120-second per-path budget and never increases collision
