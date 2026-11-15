@@ -595,7 +595,10 @@ class _SMBSNativeTaskPanel:
         # A task's standard Cancel closes only the controls, NOT the
         # simulation workspace or the user's FCStd document.
         _QtCore, _QtGui, QtWidgets = _qt()
-        return int(QtWidgets.QDialogButtonBox.Cancel)
+        # PySide6 exposes a scoped enum which is not directly int()-castable
+        # on some FreeCAD/macOS Qt builds. FreeCAD's Tasks API expects a mask.
+        cancel = QtWidgets.QDialogButtonBox.StandardButton.Cancel
+        return int(getattr(cancel, "value", cancel))
 
     def modifyStandardButtons(self, button_box):
         _QtCore, _QtGui, QtWidgets = _qt()
