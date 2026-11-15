@@ -424,6 +424,7 @@ def check_manual_3d_sequence(
     config: Any = None,
     reverse_axis_by_bend: Optional[dict[str, bool]] = None,
     include_benchmark_metrics: bool = False,
+    include_collision_attribution: bool = True,
     sequence_geometry_cache: Optional[NativeSequenceGeometryCache] = None,
     deadline_at: Optional[float] = None,
 ) -> dict:
@@ -650,7 +651,8 @@ def check_manual_3d_sequence(
             blocker = concise_3d_blocker(report.raw_report)
             attribution = None
             _, state_hit = _select_3d_blocker(report.raw_report)
-            if (report.status is PhysicalEvidence.COLLISION
+            if (include_collision_attribution
+                    and report.status is PhysicalEvidence.COLLISION
                     and state_hit is not None
                     and blocker.get("tool") in (
                         "PUNCH", "DIE", "PUNCH_AND_DIE"
