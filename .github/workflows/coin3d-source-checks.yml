@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - development/coin3d-animation
+      - experiment/fast-feasible-sequence
       - smbs
   pull_request:
 
@@ -26,3 +27,4 @@ jobs:
           python -m unittest discover -s tests -p 'test_freecad_exec_scopes.py' -v
           python -m unittest discover -s tests -p 'test_coin3d_document_lookup.py' -v
           python -m unittest discover -s tests -p 'test_tool_cap_triangulation.py' -v
+          python -m unittest discover -s tests -p 'test_fast_feasible_search.py' -v
