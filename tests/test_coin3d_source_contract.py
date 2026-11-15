@@ -40,6 +40,18 @@ class Coin3DSourceContractTests(unittest.TestCase):
         self.assertIn("self._sheet_batches", source)
         self.assertIn("geometry.coordIndex.setValues(", source)
 
+    def test_native_view_does_not_create_redundant_gui_tab(self):
+        source = (ROOT / "freecad_smbs/commands/pressbrake_2d.py").read_text()
+        self.assertIn(
+            'if not getattr(self._preview_3d, "_native", False):', source
+        )
+        self.assertIn("views.addTab(self._preview_3d", source)
+        # When the native viewer is a separate document, 3D must keep
+        # updating without depending on the selected Qt tab number.
+        self.assertNotIn("_viewer_tabs.currentIndex() == 1", source)
+        self.assertNotIn("_viewer_tabs.currentIndex() != 1", source)
+        self.assertIn('getattr(self._preview_3d, "_native", False)', source)
+
     def test_native_view_uses_separate_temporary_document(self):
         source = (ROOT / "freecad_smbs/ui/coin3d_viewer.py").read_text()
         self.assertIn("App.newDocument(temporary_name)", source)
