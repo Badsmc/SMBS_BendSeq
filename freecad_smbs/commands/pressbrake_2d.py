@@ -3782,6 +3782,34 @@ class _PreviewPanel:
                     )
                     return
 
+                # Qt processes events between independent D6 bends. Keep
+                # the source/tool/setup fingerprint: never adopt a result
+                # if the operator changed the input during the search.
+                source_session = self.session
+
+                def input_identity():
+                    punch = self.tooling_setup.punch
+                    die = self.tooling_setup.die
+                    return (
+                        id(self.session),
+                        id(self.session.fold_state) if self.session else None,
+                        tuple(self.session.bend_order) if self.session else (),
+                        tuple(sorted(self.session.fold_state.angles.items()))
+                        if self.session else (),
+                        self._smbs_document_name,
+                        (id(punch), getattr(punch, "tool_id", None),
+                         getattr(punch, "length_mm", None)),
+                        (id(die), getattr(die, "tool_id", None),
+                         getattr(die, "length_mm", None)),
+                        tuple(self.tooling_setup.punch_section_offsets_xm or ()),
+                        tuple(self.tooling_setup.die_section_offsets_xm or ()),
+                        bool(self.tooling_setup.match_active_bend_length),
+                        bool(self.tooling_setup.allow_end_zone_collision),
+                        float(self.tooling_setup.end_zone_length_mm),
+                        float(self.cycle_config.initial_clearance_mm),
+                    )
+
+                original_identity = input_identity()
                 self._fast_search_running = True
                 self.fast_feasible_btn.setEnabled(False)
                 self.calculate.setEnabled(False)
@@ -3830,14 +3858,30 @@ class _PreviewPanel:
                             tuple(self.session.bend_order)
                         ),
                     )
+                    # State/selected tooling are part of the evidence.
+                    # Abandon findings if a nested Qt event replaced them.
+                    if (self.session is not source_session
+                            or input_identity() != original_identity):
+                        self._trace_event(
+                            "FAST_FEASIBLE_SEARCH_INPUT_CHANGED",
+                            outcome=report.to_dict(),
+                        )
+                        self.status.setText(
+                            "UNVERIFIED: деталь, порядок или оснастка изменились "
+                            "во время поиска. Результат не применяется."
+                        )
+                        self.fast_feasible_info.setText(
+                            "Исходные данные изменились; повторите поиск."
+                        )
+                        return
                     self._last_fast_search_report = report
                     self._trace_event(
                         "FAST_FEASIBLE_SEARCH_FINISHED",
                         report=report.to_dict(),
                     )
                     summary = (
-                        "{} | {:.1f} с | 2D кандидатов: {} | "
-                        "проверенных 3D порядков: {}"
+                        "{} | {:.1f} с | полных вариантов: {} | "
+                        "проверок 3D порядка: {}"
                     ).format(
                         report.status.value, report.elapsed_s,
                         len(report.planar_candidates), len(report.attempts),
@@ -5359,6 +5403,11 @@ class _PreviewPanel:
 
             def load_part(self, selection=None, document=None):
                 """Load selected SheetMetal object captured before viewer focus."""
+                if getattr(self, "_fast_search_running", False):
+                    self.status.setText(
+                        "Идёт 3D-поиск: смена детали недоступна до завершения."
+                    )
+                    return
                 import FreeCAD as App
                 import FreeCADGui as Gui
 
