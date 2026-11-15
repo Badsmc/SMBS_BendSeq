@@ -98,6 +98,7 @@ def create_coin_viewer(parent=None):
             self._initial_fit_done = False
             self._last_sheet_face_count = 0
             self._sheet_topology = None
+            self._last_faces = ()
 
         def clear_preview(self):
             self._sheet_root.removeAllChildren()
@@ -108,6 +109,7 @@ def create_coin_viewer(parent=None):
             self._tool_key = None
             self._punch_motion = None
             self._initial_fit_done = False
+            self._last_faces = ()
 
         def set_sheet_faces(self, faces, highlighted=()):
             """Update coordinates, not Qt polygons or a painter path."""
@@ -137,8 +139,9 @@ def create_coin_viewer(parent=None):
                        else COLORS.get(kind, (0.55, 0.65, 0.75)) )
                 )
             self._last_sheet_face_count = len(self._sheet_nodes)
+            self._last_faces = faces
             if not self._initial_fit_done and faces:
-                self.viewAll()
+                self.reset_camera()
                 self._initial_fit_done = True
 
         def update_tools(self, tooling, preview_length, ram_z, *, inspection=False):
@@ -230,6 +233,44 @@ def create_coin_viewer(parent=None):
                 self._collision_root.addChild(root)
 
         def reset_camera(self):
-            self.viewAll()
+            """Fit current sheet explicitly, independent of Quarter navigation.
+
+            Quarter.viewAll() can be a no-op if no navigation state machine
+            is registered. Fit once after initial mesh, then leave the camera
+            completely under user control until the next explicit Fit action.
+            """
+            points = [
+                p for face in self._last_faces for p in face.vertices
+            ]
+            if not points:
+                return
+            lo = [min(p[i] for p in points) for i in range(3)]
+            hi = [max(p[i] for p in points) for i in range(3)]
+            center = [(lo[i] + hi[i]) * 0.5 for i in range(3)]
+            radius = max(
+                ((hi[0]-lo[0])**2 + (hi[1]-lo[1])**2
+                 + (hi[2]-lo[2])**2)**0.5 / 2.0, 1.0
+            )
+            distance = 3.5 * radius
+            # Place the camera on a diagonal above the fixed machine origin,
+            # with its target at the visible sheet centre for initial Fit.
+            eye = (
+                center[0] + distance * 0.61,
+                center[1] - distance * 0.72,
+                center[2] + distance * 0.39,
+            )
+            self._camera.position.setValue(*eye)
+            self._camera.orientation.setValue(self._coin.SbRotation(
+                self._coin.SbVec3f(0.0, 0.0, -1.0),
+                self._coin.SbVec3f(
+                    center[0] - eye[0],
+                    center[1] - eye[1],
+                    center[2] - eye[2],
+                ),
+            ))
+            self._camera.focalDistance.setValue(distance)
+            self._camera.nearDistance.setValue(max(0.01, radius * 0.01))
+            self._camera.farDistance.setValue(max(1000.0, distance * 8.0))
+            self._initial_fit_done = True
 
     return CoinPreviewWidget(parent)
