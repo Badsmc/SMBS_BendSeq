@@ -24,7 +24,7 @@ class PreviewMeshError(ValueError):
 
 
 def build_tool_preview_faces(tooling, *, arc_segments=20,
-                             punch_ram_z_mm=None):
+                             punch_ram_z_mm=None, preview_punch_length_mm=None):
     """Extrude the selected 2D machine profiles along the fixed machine X axis.
 
     The 2D viewer and press cycle own both profile transforms. In particular,
@@ -38,6 +38,12 @@ def build_tool_preview_faces(tooling, *, arc_segments=20,
         punch_delta = float(punch_ram_z_mm) - float(tooling.ram_z_mm)
         if not isfinite(punch_delta):
             raise PreviewMeshError("nonfinite inspected punch position")
+    if preview_punch_length_mm is not None:
+        length_override = float(preview_punch_length_mm)
+        if not isfinite(length_override) or length_override <= 0.0:
+            raise PreviewMeshError("invalid display-only punch length")
+    else:
+        length_override = None
     faces = []
     for kind, profile, polygons, offsets in (
         ("punch", tooling.punch, tooling.punch_polygons_machine,
@@ -47,7 +53,8 @@ def build_tool_preview_faces(tooling, *, arc_segments=20,
     ):
         if profile is None:
             continue
-        length = (tooling.active_bend_length_mm
+        length = (length_override if kind == "punch" and length_override is not None
+                  else tooling.active_bend_length_mm
                   if tooling.match_active_bend_length else profile.length_mm)
         if (isinstance(length, bool) or not isinstance(length, (int, float))
                 or not isfinite(length) or length <= 0):
