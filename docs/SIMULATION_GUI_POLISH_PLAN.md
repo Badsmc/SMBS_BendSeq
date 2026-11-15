@@ -107,3 +107,11 @@ User confirmed that 3D remained slow and displayed punch length did not follow t
 - Pending: live FreeCAD 1.1.x test on macOS and Windows; inspect punch lengths across two different bend lengths, compare preview with actual tool selected in OCC and verify no accidental confusion between visual and physically validated tool.
 
 - Follow-up render optimization: 3D hole contours now use Qt OddEvenFill instead of a per-face per-frame QPainterPath.subtracted() boolean. Verify visually on parts with nested contours and perforations in FreeCAD; this is a rendering optimization only, not collision geometry.
+
+## Stable operator camera in 2.5D, 3D and flat pattern (2026-11-15)
+- Commit `10cb2ae`: remove 11 scheduled automatic Fit callbacks associated with bend navigation, playback, tool selection and reset. The one after initial model load remains conditional on a view that has never been framed manually.
+- Qt Canvas now marks manually fitted and orbited views as user-controlled, not only wheel zoom and pan.
+- `update_scene_bounds` retains and extends (never shrinks) a user-controlled view's scene rect, then restores its scene-space viewport centre to prevent QGraphicsView scrollbar clamping and unexpected recentering.
+- 2.5D normal/diagnostic drawing and flat-pattern drawing use this method. The 3D renderer no longer force-fits a user-controlled camera when its fixed bounds are invalidated.
+- Explicit Fit remains available for the operator to choose a new camera; no changes were made to machine/workpiece placements or controller geometry.
+- Pending in-app tests: camera stays put after 10 bend transitions, large TRANSFER, manual prev/next, changing tooling, tab switching, pan/zoom, orbit, resize and repeated reopen; ensure no content clipping beyond the initial fixed scene rect. Viewer camera stays put by design: a workpiece that physically moves away may leave the fixed viewport; use Fit or manually pan to follow it.
