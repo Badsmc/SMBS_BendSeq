@@ -8,8 +8,6 @@ Uses the existing 2.5D pipeline without introducing a second geometry engine:
 """
 from __future__ import annotations
 
-from freecad_smbs.ui.orbit_camera import orbit_project, clamp_pitch
-
 import hashlib
 import math
 import os
@@ -43,7 +41,7 @@ from smbs_core.kinematics2d.press_cycle import (
 )
 from smbs_core.kinematics2d.motion_trace import MotionTraceRecorder, make_frame_record
 from smbs_core.kinematics2d.preview_mesh_3d import (
-    build_sheet_preview_faces, build_tool_preview_faces, PreviewMeshError,
+    build_sheet_preview_faces, PreviewMeshError,
 )
 from smbs_core.kinematics2d.machine_section_3d import compute_machine_cutting_plane_section
 from smbs_core.kinematics2d.workpiece_placement_3d import PlacementTransform3D, WorkpiecePlacement3D
@@ -1944,7 +1942,6 @@ class _PreviewPanel:
                 self._last_3d_frame_at = -1.0
                 self._last_3d_rendered_bend = None
                 self._last_3d_debug_at = -1.0
-                self._fixed_3d_view_rect = None
                 self._preview_3d.setObjectName("SMBS_Coin3D_Viewer")
                 views.addTab(self._preview_3d, QtGui.QIcon(str(
                     _ICON_ROOT / "gui_part.svg"
@@ -2650,6 +2647,9 @@ class _PreviewPanel:
                     self._task_page_titles[page] = name
                 root.addWidget(views, 1)
                 self._viewer_tabs = views
+                # One renderer is active: the GPU view is the default.
+                # 2.5D is built only when explicitly selected or traced.
+                views.setCurrentIndex(1)
                 self._task_stack = controls
                 self._native_task_panel = None
                 self.show_task_panel_btn = QtWidgets.QPushButton("Показать панель управления")
@@ -3364,7 +3364,6 @@ class _PreviewPanel:
                 bend_len = self._active_bend_length_mm()
                 if hasattr(self.tooling_setup, "set_match_active_bend_length"):
                     self.tooling_setup.set_match_active_bend_length(bool(enabled), bend_len)
-                self._fixed_3d_view_rect = None
                 if self.press_cycle is not None and hasattr(self.press_cycle, "set_match_active_bend_length"):
                     self.press_cycle.set_match_active_bend_length(bool(enabled))
                 self._update_tooling_status_label()
@@ -4712,7 +4711,6 @@ class _PreviewPanel:
                 except ToolingError as exc:
                     self.status.setText(str(exc))
                     return
-                self._fixed_3d_view_rect = None
                 if self.session is not None and (
                     self.tooling_setup.punch is not None or self.tooling_setup.die is not None
                 ):
@@ -4740,7 +4738,6 @@ class _PreviewPanel:
                 except ToolingError as exc:
                     self.status.setText(str(exc))
                     return
-                self._fixed_3d_view_rect = None
                 if self.session is not None and (
                     self.tooling_setup.punch is not None or self.tooling_setup.die is not None
                 ):
@@ -5096,7 +5093,6 @@ class _PreviewPanel:
                 self._stop_timer()
                 # 3D surface preview uses this session's FoldState directly;
                 # never read or mutate the original source document again.
-                self._fixed_3d_view_rect = None
                 self._locked_25d_scene_rect = None
                 self._last_valid_machine_section = None
                 self._last_valid_machine_pose = None
@@ -5424,7 +5420,6 @@ class _PreviewPanel:
                     )
                 self._viewer_tabs.setCurrentWidget(self._preview_3d)
                 self._last_3d_frame_at = -1.0
-                self._fixed_3d_view_rect = None
                 self._update_3d_preview(force=True)
                 self._trace_event(
                     "MANUAL_COLLISION_3D_INSPECTION",
