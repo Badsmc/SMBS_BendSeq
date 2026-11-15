@@ -164,3 +164,18 @@ Runtime manual verification required: create, play, pause, scrub, rotate,
 zoom and close SMBS with an unsaved FCStd; confirm no unwanted save prompt,
 no changes to the source scenegraph, no stale temporary document, and
 that clicking a new document window does not redirect saved SMBS state.
+
+## Native macOS GUI simplification (2026-11-15)
+The original SMBS workspace no longer creates a redundant embedded
+`3D · Просмотр` tab when `pivy.quarter` is unavailable. The external
+`SMBS_Animation_NN` FreeCAD document window owns the 3D presentation.
+The SMBS workspace retains only `2.5D · Гибка` and
+`Развёртка · Порядок`. FreeCAD builds with a genuine Quarter Python
+widget may continue using the embedded 3D tab.
+
+All view routing now uses QWidget identity instead of hard-coded tab
+numbers. Native-mode 3D frames are driven even when there is no 3D tab,
+and collision-inspection / assisted-retract commands update the external
+window directly. Existing 2.5D rendering and physical OCC validation are
+not deleted. Before merging to `smbs`, manually check 2D interaction and
+whether background 3D plus 2D painting meets performance targets.
