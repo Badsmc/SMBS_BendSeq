@@ -1005,6 +1005,11 @@ class LoadPartCommand:
         except (SelectionWarning, AttributeError, TypeError, ValueError) as exc:
             message = "Выберите развёртку SheetMetal: " + str(exc)
             App.Console.PrintWarning(message + "\\n")
+            # Feedback must remain visible with FreeCAD's Report View hidden.
+            _QtCore, _QtGui, QtWidgets = _qt()
+            QtWidgets.QMessageBox.information(
+                Gui.getMainWindow(), "SMBS — Деталь", message
+            )
             workspace = get_workspace_widget()
             if workspace is not None:
                 workspace.status.setText(message)
