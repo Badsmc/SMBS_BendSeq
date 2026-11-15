@@ -4,6 +4,7 @@ App.getDocument(name) raises for unknown names in some FreeCAD builds;
 the Coin viewer must use the nonthrowing listDocuments mapping instead.
 """
 import unittest
+from pathlib import Path
 
 from freecad_smbs.ui.coin3d_viewer import _document_is_open
 
@@ -42,6 +43,13 @@ class TestCoinDocumentLookup(unittest.TestCase):
         app = _FreeCADMacOS()
         del app.documents["SMBS_Animation_01"]
         self.assertFalse(_document_is_open(app, "SMBS_Animation_01"))
+
+    def test_attachment_has_no_throwing_get_document_probe(self):
+        source = (Path(__file__).resolve().parents[1]
+                  / "freecad_smbs/ui/coin3d_viewer.py").read_text()
+        begin = source.index("        def attach_document(self, name):")
+        end = source.index("        def clear_preview(self):", begin)
+        self.assertNotIn("App.getDocument(", source[begin:end])
 
 
 if __name__ == "__main__":
