@@ -3135,25 +3135,29 @@ class _PreviewPanel:
                 # Recentering on the mesh centroid each frame hid long
                 # operator/rear feeds and produced false visual "jumps".
                 # Orbit the camera, never translate the machine or sheet.
-                all_vertices = [v for f in faces for v in f.vertices]
-                if not all_vertices:
+                if not faces:
                     scene.clear()
                     self._preview_3d_face_items = []
                     self._preview_3d_label_item = None
                     scene.addSimpleText("3D: no visible faces")
                     return False
-                center = (0.0, 0.0, 0.0)
-                radius = max(
-                    math.sqrt(sum((p[i] - center[i]) ** 2 for i in range(3)))
-                    for p in all_vertices
+                # Camera bounds are locked after the first frame. Avoid
+                # scanning and sqrt'ing every mesh vertex on every tick.
+                radius = 1.0
+                if self._fixed_3d_view_rect is None:
+                    radius_sq = max(
+                        x*x + y*y + z*z
+                        for face in faces for x, y, z in face.vertices
+                    )
+                    radius = max(math.sqrt(radius_sq), 1.0)
+
+                yaw, pitch, roll = (
+                    self._orbit_yaw, self._orbit_pitch, self._orbit_roll
                 )
-                radius = max(radius, 1.0)
 
                 def camera_point(p):
-                    return orbit_project(
-                        tuple(p[i] - center[i] for i in range(3)),
-                        self._orbit_yaw, self._orbit_pitch, self._orbit_roll,
-                    )
+                    # Physical die origin is (0,0,0) in machine coordinates.
+                    return orbit_project(p, yaw, pitch, roll)
 
                 def project(p):
                     x, y, _depth = camera_point(p)
@@ -3171,16 +3175,22 @@ class _PreviewPanel:
                     "die_cap": ("#607f98", "#2c3e50"),
                     "die_side": ("#3d5b72", "#2c3e50"),
                 }
-                # Painter order must follow the currently rotated camera depth.
-                ordering = sorted(
-                    faces,
-                    key=lambda face: sum(camera_point(pt)[2] for pt in face.vertices)
-                    / len(face.vertices),
-                    reverse=True,
-                )
+                # Project each outer vertex exactly once per frame. The
+                # original depth sort projected it, then projected it again
+                # when building QPainterPath (twice the orbit math).
+                projected_faces = []
+                for face in faces:
+                    camera_vertices = tuple(camera_point(pt) for pt in face.vertices)
+                    projected_faces.append((
+                        sum(pt[2] for pt in camera_vertices) / len(camera_vertices),
+                        face,
+                        QtGui.QPolygonF([
+                            QtCore.QPointF(pt[0], pt[1]) for pt in camera_vertices
+                        ]),
+                    ))
+                projected_faces.sort(key=lambda item: item[0], reverse=True)
                 drawn_faces = 0
-                for face in ordering:
-                    poly = QtGui.QPolygonF([project(pt) for pt in face.vertices])
+                for _depth, face, poly in projected_faces:
                     if len(poly) < 3:
                         continue
                     path = QtGui.QPainterPath()
