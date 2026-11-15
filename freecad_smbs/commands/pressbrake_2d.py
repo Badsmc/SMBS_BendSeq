@@ -980,6 +980,11 @@ class PressBrake2DCommand:
         if doc is not None and selected:
             widget.load_part(selection=selected, document=doc)
         show_workspace_controls(widget, tab=2)
+        if getattr(widget._preview_3d, "_native", False):
+            # Quarter's C++ viewer is the document MDI window on this
+            # platform. Both windows must remain visible for operation.
+            window.showNormal()
+            mdi.tileSubWindows()
         _log("Experimental PressBrakeSim GUI opened; original search engine retained")
 
 
@@ -3106,6 +3111,9 @@ class _PreviewPanel:
                 if self.session is None:
                     self._preview_3d.clear_preview()
                     return True
+                # macOS FreeCAD may not expose pivy.quarter; native mode
+                # inserts the Coin scene into the document's existing view.
+                self._preview_3d.attach_document(self._smbs_document_name)
                 if (not force and hasattr(self, "_viewer_tabs")
                         and self._viewer_tabs.currentIndex() != 1):
                     return True
@@ -7534,6 +7542,7 @@ class _PreviewPanel:
                         _warn("SMBS observer removal failed: " + str(exc))
                     self._smbs_fcstd_observer = None
                 self._finish_motion_trace("WORKSPACE_CLOSED")
+                self._preview_3d.release()
                 self.timer.stop()
                 self.playing = False
                 close_workspace_controls(self)
