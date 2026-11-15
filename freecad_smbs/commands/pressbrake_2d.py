@@ -1937,19 +1937,15 @@ class _PreviewPanel:
                 views.addTab(self.view, QtGui.QIcon(str(
                     _ICON_ROOT / "gui_simulation.svg"
                 )), "2.5D · Гибка")
-                self._preview_3d = Canvas(orbit_callback=self._orbit_3d)
-                self._orbit_yaw = 35.0
-                self._orbit_pitch = 25.0
-                self._orbit_roll = 0.0
+                from freecad_smbs.ui.coin3d_viewer import create_coin_viewer
+                # One native GPU-backed Quarter widget. No old Qt
+                # QGraphicsScene 3D renderer or parallel redraw callbacks.
+                self._preview_3d = create_coin_viewer()
                 self._last_3d_frame_at = -1.0
                 self._last_3d_rendered_bend = None
                 self._last_3d_debug_at = -1.0
                 self._fixed_3d_view_rect = None
-                self._preview_3d_face_items = []
-                self._preview_3d_label_item = None
-                self._preview_3d.setObjectName("SMBS_3D_ReadOnly")
-                self._preview_3d_scene = QtWidgets.QGraphicsScene(self._preview_3d)
-                self._preview_3d.setScene(self._preview_3d_scene)
+                self._preview_3d.setObjectName("SMBS_Coin3D_Viewer")
                 views.addTab(self._preview_3d, QtGui.QIcon(str(
                     _ICON_ROOT / "gui_part.svg"
                 )), "3D · Просмотр")
@@ -3094,378 +3090,168 @@ class _PreviewPanel:
                 elif index == 2:
                     self._draw_flat_pattern()
 
-            def _orbit_3d(self, dx, dy, roll=False):
-                if roll:
-                    self._orbit_roll = (self._orbit_roll + dx * 0.45) % 360.0
-                else:
-                    self._orbit_yaw = (self._orbit_yaw + dx * 0.45) % 360.0
-                    self._orbit_pitch = clamp_pitch(self._orbit_pitch + dy * 0.45)
-                self._update_3d_preview(force=True)
-
             def reset_3d_view(self):
-                self._orbit_yaw, self._orbit_pitch, self._orbit_roll = 35.0, 25.0, 0.0
-                self._update_3d_preview(force=True)
+                """Explicit user Fit; never auto-center on bend transitions."""
                 self._preview_3d.reset_camera()
 
             def _update_3d_preview(self, force=False):
-                """Live whole-workpiece isometric 3D projection, read-only.
+                """Coin3D mesh update; no QGraphicsScene or Qt path projection.
 
-                Consumes the same FoldState angles and machine pose as 2.5D.
-                No Part.Shape changes, duplicate bend simulation or OCC booleans.
+                Existing FoldState + machine placement remain authoritative.
+                Render updates are entirely independent of OCC checks.
                 """
-                # The existing 40 Hz Qt timer drives both state and 3D frames.
-                # Rendering an already advanced state should never be skipped
-                # because two timer callbacks happened close together.
+                if self.session is None:
+                    self._preview_3d.clear_preview()
+                    return True
+                if (not force and hasattr(self, "_viewer_tabs")
+                        and self._viewer_tabs.currentIndex() != 1):
+                    return True
                 now = time.perf_counter()
-                # Keep 40 Hz timeline/physical state progression independent
-                # from expensive QGraphicsScene rendering. Limit the live 3D
-                # viewport to 30 Hz while playing; never discard an active
-                # bend transition, camera interaction or explicit refresh.
-                active_bend = (
-                    self.session.active_bend_id
-                    if self.session is not None else None
-                )
+                bend_id = self.session.active_bend_id
                 if (not force and self.timer.isActive()
                         and not self._collision_display_active
-                        and active_bend == self._last_3d_rendered_bend
+                        and self._last_3d_rendered_bend == bend_id
                         and self._last_3d_frame_at >= 0.0
                         and now - self._last_3d_frame_at < 1.0 / 30.0):
-                    return True
-                previous_frame_at = self._last_3d_frame_at
-                self._last_3d_frame_at = now
-                self._last_3d_rendered_bend = active_bend
-                scene = self._preview_3d_scene
-                if self._collision_display_active or not self._preview_3d_face_items:
-                    scene.clear()
-                    self._preview_3d_face_items = []
-                    self._preview_3d_label_item = None
-                if self.session is None:
-                    scene.clear()
-                    self._preview_3d_face_items = []
-                    self._preview_3d_label_item = None
-                    scene.addSimpleText("Загрузите листовую деталь в PressBrakeSim")
                     return True
                 inspection = (
                     self._collision_inspection
                     if self._collision_display_active else None
                 )
-                inspected_components = set()
-                tool_warning = ""
-                inspected_ram_z = None
                 try:
-                    # A real D6 3D collision uses the tool-centric MACHINE
-                    # coordinate system, which can differ from the ergonomic
-                    # reverse-axis 2.5D preview. For inspection, reconstruct
-                    # a SEPARATE FoldState and use the exact logged rigid pose.
+                    inspected_ram_z = None
+                    highlighted = set()
+                    bounds = []
                     if inspection:
-                        entry = inspection.get("first_blocker") or {}
-                        actual = entry.get("sampled_machine_pose") or {}
+                        blocker = inspection.get("first_blocker") or {}
+                        actual = blocker.get("sampled_machine_pose") or {}
                         if (actual.get("bend_id") != inspection.get("bend_id")
                                 or not actual.get("rotation")
                                 or not actual.get("translation")):
-                            raise ValueError(
+                            raise PreviewMeshError(
                                 "missing_native_machine_frame_for_collision"
                             )
                         inspected_ram_z = actual.get("ram_z_mm")
-                        inspection_state = FoldState(
+                        if inspected_ram_z is None:
+                            raise PreviewMeshError(
+                                "native punch height unavailable"
+                            )
+                        fold_state = FoldState(
                             self.session.fold_state.graph,
                             self.session.fold_state.fixed_panel,
                         )
-                        for bid, deg in actual.get(
+                        for bid, angle in actual.get(
                                 "completed_angles", {}).items():
-                            inspection_state.set_angle(bid, float(deg))
-                        inspection_state.set_angle(
-                            actual["bend_id"],
-                            float(actual["signed_angle_deg"]),
+                            fold_state.set_angle(bid, float(angle))
+                        bend_id = str(actual["bend_id"])
+                        fold_state.set_angle(
+                            bend_id, float(actual["signed_angle_deg"])
                         )
                         current_placement = PlacementTransform3D(
                             rotation=tuple(
-                                tuple(float(x) for x in row)
+                                tuple(float(v) for v in row)
                                 for row in actual["rotation"]
                             ),
                             translation=tuple(
-                                float(x) for x in actual["translation"]
+                                float(v) for v in actual["translation"]
                             ),
                         )
-                        attribution = entry.get("component_attribution") or {}
-                        inspected_components = {
+                        attribution = blocker.get("component_attribution") or {}
+                        highlighted = {
                             str(hit.get("component_id")).split(":", 1)[1]
                             for hit in attribution.get("hits", ())
                             if str(hit.get("component_id", "")).startswith(
                                 "panel:"
                             )
                         }
-                        fold_state = inspection_state
-                        bend_id = actual["bend_id"]
+                        from smbs_core.kinematics2d.native_collision_attribution import (
+                            collision_preview_boxes,
+                        )
+                        bounds = [
+                            marker["bbox"]
+                            for marker in collision_preview_boxes(blocker)
+                        ]
                     else:
-                        # Normal 2.5D/3D interactive preview remains unchanged.
-                        current_placement = self._current_preview_machine_placement()
                         fold_state = self.session.fold_state
-                        bend_id = self.session.active_bend_id
-                    pose = WorkpiecePose2D()
+                        current_placement = (
+                            self._current_preview_machine_placement()
+                        )
                     faces = build_sheet_preview_faces(
                         fold_state,
                         self.session.panel_vertices_xy,
-                        bend_id,
-                        pose,
+                        bend_id, WorkpiecePose2D(),
                         segments=12,
                         machine_placement=current_placement,
                     )
-                    try:
-                        if inspection and inspected_ram_z is None:
-                            raise PreviewMeshError(
-                                "native punch height unavailable"
-                            )
-                        # Only the visual single-piece punch is trimmed
-                        # to the current bend line. Native collision tooling
-                        # stays untouched. Physical multi-section setups
-                        # retain their actual section lengths/positions.
-                        preview_length = None
-                        if (not inspection
-                                and self.tooling_setup.punch is not None
-                                and not self.tooling_setup.punch_section_offsets_xm):
-                            bend_length = self._active_bend_length_mm()
-                            if math.isfinite(bend_length) and bend_length > 0:
-                                preview_length = bend_length
-                        faces += build_tool_preview_faces(
-                            self.tooling_setup,
-                            punch_ram_z_mm=inspected_ram_z,
-                            preview_punch_length_mm=preview_length,
-                        )
-                        if (preview_length is not None
-                                and not self.tooling_setup.match_active_bend_length
-                                and self.tooling_setup.punch is not None
-                                and abs(float(self.tooling_setup.punch.length_mm)
-                                        - preview_length) > 0.001):
-                            tool_warning = (
-                                "Пуансон показан по длине гиба {:.1f} мм "
-                                "(только визуально; OCC использует {:.1f} мм)"
-                            ).format(
-                                preview_length,
-                                float(self.tooling_setup.punch.length_mm),
-                            )
-                    except PreviewMeshError as exc:
-                        tool_warning = str(exc)
-                except (PreviewMeshError, WorkpiecePoseError,
-                        KinematicsError, ValueError, KeyError) as exc:
-                    _warn("3D whole-sheet preview unavailable: {}".format(exc))
-                    scene.clear()
-                    self._preview_3d_face_items = []
-                    self._preview_3d_label_item = None
-                    scene.addSimpleText("3D: {}".format(str(exc)))
-                    return False
-
-                # Camera orbit is anchored at the PHYSICAL DIE ORIGIN.
-                # Recentering on the mesh centroid each frame hid long
-                # operator/rear feeds and produced false visual "jumps".
-                # Orbit the camera, never translate the machine or sheet.
-                if not faces:
-                    scene.clear()
-                    self._preview_3d_face_items = []
-                    self._preview_3d_label_item = None
-                    scene.addSimpleText("3D: no visible faces")
-                    return False
-                # Camera bounds are locked after the first frame. Avoid
-                # scanning and sqrt'ing every mesh vertex on every tick.
-                radius = 1.0
-                if self._fixed_3d_view_rect is None:
-                    radius_sq = max(
-                        x*x + y*y + z*z
-                        for face in faces for x, y, z in face.vertices
+                    self._preview_3d.set_sheet_faces(
+                        faces, highlighted=highlighted
                     )
-                    radius = max(math.sqrt(radius_sq), 1.0)
-
-                yaw, pitch, roll = (
-                    self._orbit_yaw, self._orbit_pitch, self._orbit_roll
-                )
-
-                def camera_point(p):
-                    # Physical die origin is (0,0,0) in machine coordinates.
-                    return orbit_project(p, yaw, pitch, roll)
-
-                def project(p):
-                    x, y, _depth = camera_point(p)
-                    return QtCore.QPointF(x, y)
-
-                palette = {
-                    "panel_top": ("#8bb9d4", "#37647e"),
-                    "panel_bottom": ("#718b9c", "#37647e"),
-                    "panel_edge": ("#587b90", "#37536a"),
-                    "zone_inner": ("#eac77b", "#9a7134"),
-                    "zone_outer": ("#e0b967", "#9a7134"),
-                    "zone_end": ("#bd9c65", "#9a7134"),
-                    "punch_cap": ("#e96959", "#922b21"),
-                    "punch_side": ("#c9463a", "#922b21"),
-                    "die_cap": ("#607f98", "#2c3e50"),
-                    "die_side": ("#3d5b72", "#2c3e50"),
-                }
-                # Project each outer vertex exactly once per frame. The
-                # original depth sort projected it, then projected it again
-                # when building QPainterPath (twice the orbit math).
-                projected_faces = []
-                for face in faces:
-                    camera_vertices = tuple(camera_point(pt) for pt in face.vertices)
-                    projected_faces.append((
-                        sum(pt[2] for pt in camera_vertices) / len(camera_vertices),
-                        face,
-                        QtGui.QPolygonF([
-                            QtCore.QPointF(pt[0], pt[1]) for pt in camera_vertices
-                        ]),
-                    ))
-                projected_faces.sort(key=lambda item: item[0], reverse=True)
-                drawn_faces = 0
-                for _depth, face, poly in projected_faces:
-                    if len(poly) < 3:
-                        continue
-                    path = QtGui.QPainterPath()
-                    # Avoid expensive QPainterPath boolean subtraction on
-                    # every 3D animation frame. Qt's odd-even fill rule cuts
-                    # holes without altering any source 3D geometry.
-                    path.setFillRule(QtCore.Qt.OddEvenFill)
-                    path.addPolygon(poly)
-                    path.closeSubpath()
-                    for hole in face.holes:
-                        path.addPolygon(
-                            QtGui.QPolygonF([project(pt) for pt in hole])
+                    # Tool geometry is cached by selected tool/configuration.
+                    # A single-piece displayed punch follows active bend length;
+                    # this does not alter OCC's actual physical tool length.
+                    visual_length = None
+                    if (not inspection
+                            and self.tooling_setup.punch is not None
+                            and not self.tooling_setup.punch_section_offsets_xm):
+                        length = self._active_bend_length_mm()
+                        if math.isfinite(length) and length > 0.0:
+                            visual_length = length
+                    ram_z = (
+                        float(inspected_ram_z) if inspection
+                        else float(self.tooling_setup.ram_z_mm)
+                    )
+                    self._preview_3d.update_tools(
+                        self.tooling_setup, visual_length, ram_z,
+                        inspection=bool(inspection),
+                    )
+                    self._preview_3d.set_collision_boxes(bounds)
+                    if inspection:
+                        self._preview_3d.setToolTip(
+                            "Коллизия OCC: красные объёмы — только BBox"
                         )
-                        path.closeSubpath()
-                    fill_hex, edge_hex = palette.get(face.kind, ("#91a5b3", "#4c6474"))
-                    if inspection and face.identifier in inspected_components:
-                        edge_hex, fill_hex = "#cf3030", "#e8a1a1"
-                    pen = QtGui.QPen(QtGui.QColor(edge_hex), 2.0 if (
-                        inspection and face.identifier in inspected_components
-                    ) else 0.65)
-                    pen.setCosmetic(True)
-                    brush = QtGui.QBrush(QtGui.QColor(fill_hex))
-                    if not inspection and drawn_faces < len(self._preview_3d_face_items):
-                        item = self._preview_3d_face_items[drawn_faces]
-                        item.setPath(path)
-                        item.setPen(pen)
-                        item.setBrush(brush)
+                    elif (visual_length is not None
+                          and not self.tooling_setup.match_active_bend_length):
+                        self._preview_3d.setToolTip(
+                            "Пуансон отображён по длине текущего гиба. "
+                            "Физическая проверка OCC использует реальную оснастку."
+                        )
                     else:
-                        item = scene.addPath(path, pen, brush)
-                        if not inspection:
-                            self._preview_3d_face_items.append(item)
-                    item.setToolTip("{}: {}".format(face.kind, face.identifier))
-                    item.setZValue(drawn_faces)
-                    drawn_faces += 1
-                if not inspection:
-                    for item in self._preview_3d_face_items[drawn_faces:]:
-                        scene.removeItem(item)
-                    del self._preview_3d_face_items[drawn_faces:]
-
-                if inspection:
-                    actual = (inspection.get("first_blocker") or {}).get(
-                        "sampled_machine_pose"
-                    ) or {}
-                    obstacle = inspection.get("first_blocker") or {}
-                    from smbs_core.kinematics2d.native_collision_attribution import (
-                        collision_preview_boxes,
-                    )
-                    for marker in collision_preview_boxes(obstacle):
-                        tool_kind = marker["tool"]
-                        bound = marker["bbox"]
-                        # 12 edges of a positive OCC common-solid AABB in
-                        # MACHINE coordinates. Use independently attributed
-                        # panel P09 bounds instead of the entire sheet when
-                        # complete diagnostics support that precision. This
-                        # wireframe is NEVER the actual contact surface.
-                        lo = (bound["xmin"], bound["ymin"], bound["zmin"])
-                        hi = (bound["xmax"], bound["ymax"], bound["zmax"])
-                        corners = [
-                            (x, y, z)
-                            for x in (lo[0], hi[0])
-                            for y in (lo[1], hi[1])
-                            for z in (lo[2], hi[2])
-                        ]
-                        red = QtGui.QPen(QtGui.QColor("#df2020"), 2.6)
-                        red.setCosmetic(True)
-                        for i in range(8):
-                            for j in range(i + 1, 8):
-                                if sum(
-                                    corners[i][axis] != corners[j][axis]
-                                    for axis in range(3)
-                                ) != 1:
-                                    continue
-                                a, b = project(corners[i]), project(corners[j])
-                                wire = scene.addLine(
-                                    a.x(), a.y(), b.x(), b.y(), red,
-                                )
-                                wire.setZValue(500.0)
-                        text_item = scene.addSimpleText(
-                            "OCC {} x {}: XYZ BBox / native D6".format(
-                                tool_kind.upper(), marker["component_id"],
-                            )
+                        self._preview_3d.setToolTip(
+                            "3D кинематика: не является подтверждением OCC"
                         )
-                        text_item.setBrush(QtGui.QBrush(
-                            QtGui.QColor("#ce1818")
-                        ))
-                        text_item.setPos(project(corners[0]))
-                        text_item.setZValue(501.0)
-                label_text = (
-                    ("3D КОЛЛИЗИЯ | гиб {} | фаза {} | угол {:.2f}° | "
-                     "native XYZ BBox, НЕ поверхность контакта".format(
-                        inspection["bend_id"],
-                        (inspection["first_blocker"] or {}).get("phase", "?"),
-                        float(actual.get("signed_angle_deg", 0.0)),
-                    )) if inspection else
-                    "3D MACHINE FRAME | {} | {} | NOT 3D CERTIFIED".format(
-                        self.session.active_bend_id,
-                        self.execution_mode.value,
-                    )
-                )
-                if tool_warning:
-                    label_text += " | ОСНАСТКА: " + tool_warning
-                if not inspection and self._preview_3d_label_item is not None:
-                    label = self._preview_3d_label_item
-                    label.setText(label_text)
-                else:
-                    label = scene.addSimpleText(label_text)
-                    if not inspection:
-                        self._preview_3d_label_item = label
-                label.setBrush(QtGui.QBrush(QtGui.QColor("#536b7f")))
-                label.setZValue(drawn_faces + 1)
-                sheet_points = [project(v) for f in faces for v in f.vertices]
-                min_x = min(p.x() for p in sheet_points)
-                min_y = min(p.y() for p in sheet_points)
-                max_x = max(p.x() for p in sheet_points)
-                max_y = max(p.y() for p in sheet_points)
-                label.setPos(min_x, min_y - 25)
-                pad = max(10.0, 0.08 * max(max_x-min_x, max_y-min_y))
-                # Fixed viewport in camera-centered model coordinates prevents
-                # jump/auto-fit when switching bends or dragging the orbit camera.
-                if self._fixed_3d_view_rect is None:
-                    extent = radius * 1.8 + 25.0
-                    self._fixed_3d_view_rect = QtCore.QRectF(
-                        -extent, -extent - 25.0, 2 * extent, 2 * extent + 25.0,
-                    )
-                    self._preview_3d.update_scene_bounds(
-                        self._fixed_3d_view_rect
-                    )
-                    if not self._preview_3d._user_camera_modified:
-                        self._preview_3d.reset_camera()
-                else:
-                    self._preview_3d.update_scene_bounds(
-                        self._fixed_3d_view_rect
-                    )
-                if (self.timer.isActive()
-                        and (self._last_3d_debug_at < 0.0
-                             or now - self._last_3d_debug_at >= 0.2)):
-                    self._last_3d_debug_at = now
+                    previous = self._last_3d_frame_at
+                    self._last_3d_frame_at = now
+                    self._last_3d_rendered_bend = bend_id
+                    if (self.timer.isActive()
+                            and (self._last_3d_debug_at < 0.0
+                                 or now - self._last_3d_debug_at >= 0.5)):
+                        self._last_3d_debug_at = now
+                        _desktop_debug_event(
+                            "COIN3D_FRAME",
+                            bend_id=bend_id,
+                            face_count=len(faces),
+                            frame_interval_ms=(
+                                round((now - previous) * 1000.0, 2)
+                                if previous >= 0 else None
+                            ),
+                            render_ms=round(
+                                (time.perf_counter() - now) * 1000.0, 2
+                            ),
+                            renderer="Coin3D/Quarter",
+                        )
+                    return True
+                except (PreviewMeshError, WorkpiecePoseError,
+                        KinematicsError, ValueError, KeyError,
+                        RuntimeError, TypeError) as exc:
+                    message = "Coin3D preview unavailable: {}".format(exc)
                     _desktop_debug_event(
-                        "PREVIEW_3D_FRAME",
+                        "COIN3D_PREVIEW_ERROR",
+                        message=message,
+                        traceback=traceback.format_exc(),
                         bend_id=bend_id,
-                        angle_deg=float(fold_state.angles[bend_id]),
-                        face_count=drawn_faces,
-                        frame_interval_ms=(
-                            round((now - previous_frame_at) * 1000.0, 2)
-                            if previous_frame_at >= 0.0 else None
-                        ),
-                        render_ms=round(
-                            (time.perf_counter() - now) * 1000.0, 2
-                        ),
                     )
-                return True
+                    self.status.setText(message)
+                    return False
 
             def _auto_select_default_tooling(self):
                 """Auto-select verified default tooling (puancon / matrica) if none selected."""
