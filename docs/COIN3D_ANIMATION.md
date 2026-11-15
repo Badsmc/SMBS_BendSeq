@@ -17,18 +17,23 @@ bend is physically possible, or what constitutes a collision.
 - `freecad_smbs/commands/pressbrake_2d.py`: the original controller owns the
   25ms playback timer. Its former 2D-projected 3D QGraphicsScene renderer was
   removed. The default selected graphics tab is the Coin3D widget.
-- Sheet panel and bend face topology is reused while its vertex-count and
-  part/bend identity remain consistent. Bending updates SoCoordinate3 arrays,
-  **not** QPainter polygons, painter-path subtraction, depth sorting or a new
-  scene graph every frame.
+- Sheet panel and bend faces are batched by material into a handful of
+  persistent SoIndexedFaceSet GPU nodes instead of one graphics item per
+  face. Bending updates a few SoCoordinate3 arrays, **not** QPainter polygons,
+  painter-path subtraction, software depth sorting or a new scene graph per
+  frame.
+- A cached, already-folded world-space surface mesh is reused across
+  APPROACH, RETRACT and TRANSFER when bend angles have not changed. Each
+  frame applies the current authoritative rigid machine placement once;
+  bending-angle changes correctly invalidate that mesh.
 - A punch and a die are cached by selected tool geometry, axial setup, and
   bend length. Punch Z movement modifies SoTranslation only. The die remains
   in a static Coin subgraph. Display-only punch length equals the active bend
   for a simple non-sectioned punch, and it does not alter OCC tool length.
-- A 30 Hz viewport ceiling is independent of the 40 Hz state timer.
-  Rendering still may be slower on complex models. The sheet
-  `build_sheet_preview_faces` calculation remains per displayed frame;
-  this is a known next optimization target.
+- The 25 ms timer targets 40 Hz for both state progression and the native
+  GPU view. Duplicate render requests within 15 ms are coalesced; no 33 ms
+  gate that inadvertently limits a 40 Hz timer to 20 FPS.
+  Rendering can still be slower than 40 FPS on complex models.
 - Native collision inspection uses an independent sampled machine placement
   and red **bounding-box wires**; these are not collision contact surfaces.
 - No invented geometry for unverified punch/die holes: end caps containing
@@ -84,8 +89,9 @@ verified in FreeCAD.
 
 - Confirm Quarter interactions/zoom and camera clipping in the target
   FreeCAD runtime. Ensure Pivy SWIG and Qt bindings agree.
-- Cache already-folded zone meshes and panel-local vertices by angle state
-  to reduce `build_sheet_preview_faces` CPU work.
+- For a subsequent optimization, update rigidly moving sheets using one
+  GPU scenegraph transform instead of reprojecting world faces to new arrays
+  on every machine transfer; verify the FreeCAD/Coin matrix convention first.
 - Add true triangulated end caps around holes if needed in the visual model.
 - Optional per-step frame-time percentile telemetry and adaptive GUI redraw
   cadence based on measured render time, without changing controller time.
