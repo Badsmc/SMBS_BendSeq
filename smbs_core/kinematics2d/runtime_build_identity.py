@@ -20,6 +20,8 @@ NATIVE_SOURCE_PATHS = (
     "smbs_core/kinematics2d/native_sequence_geometry_cache.py",
     "smbs_core/kinematics2d/native_collision_inspector.py",
     "smbs_core/kinematics2d/native_assisted_retract.py",
+    "smbs_core/kinematics2d/coupled_kinematics_2d.py",
+    "smbs_core/kinematics2d/press_cycle.py",
 )
 
 
@@ -31,6 +33,8 @@ NATIVE_MODULE_NAMES = (
     "smbs_core.kinematics2d.native_bend_solid_3d",
     "smbs_core.kinematics2d.component_collision_oracle",
     "smbs_core.kinematics2d.native_assisted_retract",
+    "smbs_core.kinematics2d.coupled_kinematics_2d",
+    "smbs_core.kinematics2d.press_cycle",
 )
 
 

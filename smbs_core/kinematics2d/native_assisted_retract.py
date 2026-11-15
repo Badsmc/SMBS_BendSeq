@@ -10,6 +10,23 @@ from time import perf_counter
 from typing import Any, Callable
 
 
+def compare_preview_lift_bounds(report: dict, coupled: Any, target_angle_deg: float,
+                                clearance_mm: float, tolerance_mm: float = 0.05) -> dict:
+    """Require the animated ram endpoints to match the exact OCC replay."""
+    try:
+        actual = (float(coupled.ram_z_for_angle(abs(target_angle_deg))),
+                  float(coupled.contact_z_mm) + float(clearance_mm))
+        expected = (float(report["bottom_ram_z_mm"]), float(report["upper_ram_z_mm"]))
+        if not all(isfinite(v) for v in (*actual, *expected)):
+            raise ValueError("nonfinite_ram_endpoint")
+        matched = all(abs(a - b) <= tolerance_mm for a, b in zip(actual, expected))
+        return {"matched": matched, "preview_bottom_z_mm": actual[0],
+                "preview_upper_z_mm": actual[1], "occ_bottom_z_mm": expected[0],
+                "occ_upper_z_mm": expected[1]}
+    except (KeyError, AttributeError, TypeError, ValueError) as exc:
+        return {"matched": False, "reason": "preview_bounds_unavailable:" + str(exc)}
+
+
 def eligible_assisted_retract(blocker: Any, retract: Any) -> bool:
     """Only expose the probe for a reproducible punch hit on RETRACT."""
     if (not isinstance(blocker, dict) or not isinstance(retract, dict)

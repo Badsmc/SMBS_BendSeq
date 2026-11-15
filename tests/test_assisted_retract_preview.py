@@ -6,9 +6,34 @@ from unittest.mock import patch
 from smbs_core.kinematics2d.press_cycle import (
     CycleExecutionMode, CyclePhase, PressCycleController,
 )
+from smbs_core.kinematics2d.coupled_kinematics_2d import effective_die_opening_from_profile
+from smbs_core.kinematics2d.native_assisted_retract import compare_preview_lift_bounds
+from smbs_core.kinematics2d.tooling_25d import ArcSegment2D
 
 
 class AssistedRetractPreviewTests(unittest.TestCase):
+    def test_real_die_fillet_centers_match_native_v_opening(self):
+        arcs = tuple(ArcSegment2D(
+            start=(x, 0.0), end=(x + (1 if x < 0 else -1), -1),
+            center=(x, -2.7499998286), radius=2.75,
+        ) for x in (-7.1673060812, 7.167305408))
+        # The imported profile has its top datum at zero. Its shoulder
+        # centers are exactly those measured from the native CAD BRep.
+        die = SimpleNamespace(
+            die_datums=SimpleNamespace(shoulder_radius_mm=2.75),
+            local_geometry=SimpleNamespace(outer_contour=SimpleNamespace(segments=arcs)),
+        )
+        self.assertAlmostEqual(effective_die_opening_from_profile(die, 12),
+                               14.3346114892, places=6)
+
+    def test_native_bounds_disagreement_disables_preview(self):
+        coupled = SimpleNamespace(ram_z_for_angle=lambda a: -2.325379,
+                                  contact_z_mm=1.5)
+        report = {"bottom_ram_z_mm": -3.492685, "upper_ram_z_mm": 6.5}
+        self.assertFalse(compare_preview_lift_bounds(report, coupled, 90, 5)["matched"])
+        coupled.ram_z_for_angle = lambda a: -3.492685
+        self.assertTrue(compare_preview_lift_bounds(report, coupled, 90, 5)["matched"])
+
     def setUp(self):
         self.pc = object.__new__(PressCycleController)
         self.pc.sequence = SimpleNamespace(
