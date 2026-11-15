@@ -2080,6 +2080,41 @@ class _PreviewPanel:
                 )
                 planar_note.setWordWrap(True)
                 planar_body.addWidget(planar_note)
+                # Experimental pipeline: Stage 2D -> full sampled native D6.
+                # Real FCStd tool geometry is mandatory. A soft time budget
+                # cannot interrupt a running OpenCASCADE kernel call.
+                self.fast_feasible_btn = style_action(
+                    QtWidgets.QPushButton(
+                        "Пробный поиск + 3D (бюджет 60 с)"
+                    ), primary=True
+                )
+                self.fast_feasible_btn.setObjectName(
+                    "SMBS_FastFeasibleSearch"
+                )
+                self.fast_feasible_btn.setToolTip(
+                    "Найдёт несколько полных 2D-порядков и проверит реальные "
+                    "пуансон и матрицу в независимом D6. Бюджет мягкий: "
+                    "отдельный вызов OpenCASCADE может выполняться дольше. "
+                    "Не сертифицирует непрерывность, упор, зажимы и раму."
+                )
+                self.fast_feasible_btn.setEnabled(False)
+                self.fast_feasible_btn.clicked.connect(
+                    self.calculate_fast_feasible_sequence
+                )
+                planar_body.addWidget(self.fast_feasible_btn)
+                self.fast_feasible_info = QtWidgets.QLabel(
+                    "Эксперимент: до 60 с на поиск и проверку. "
+                    "Только полный порядок с положительными 3D-результатами "
+                    "может быть выбран автоматически. "
+                    "Без проверки упора, рамы, зажимов и перекладок."
+                )
+                self.fast_feasible_info.setObjectName(
+                    "SMBS_FastFeasibleStatus"
+                )
+                self.fast_feasible_info.setWordWrap(True)
+                planar_body.addWidget(self.fast_feasible_info)
+                self._fast_search_running = False
+                self._last_fast_search_report = None
                 # The native toolbar command runs the search; this section
                 # displays its description/results without a duplicate button.
                 self.planar_calculate.hide()
@@ -3717,8 +3752,189 @@ class _PreviewPanel:
                     values[name] = float(editor.value())
                 return OperationWeights(**values)
 
+            def calculate_fast_feasible_sequence(self):
+                """Try bounded 2D search followed by real-tool sampled 3D.
+
+                This is never a factory-safe certificate. The result only
+                covers selected FCStd punch/die sampled trajectories and
+                their pairwise sampled clearance. No fake success on timeout,
+                partial candidate, missed stage or virtual tool length.
+                """
+                if self.session is None:
+                    self.status.setText("Сначала загрузите SheetMetal деталь.")
+                    return
+                if getattr(self, "_fast_search_running", False):
+                    return
+                if (self.timer.isActive()
+                        or self.session.playback_status == PlaybackStatus.PLAYING):
+                    self.status.setText("Остановите воспроизведение перед поиском.")
+                    return
+                if self.tooling_setup.punch is None or self.tooling_setup.die is None:
+                    self.status.setText(
+                        "Для реального 3D-поиска выберите пуансон и матрицу."
+                    )
+                    return
+                if self.virtual_tool_len_checkbox.isChecked():
+                    self.status.setText(
+                        "Отключите виртуальную длину оснастки: "
+                        "быстрый 3D-поиск проверяет только реальные FCStd-инструменты."
+                    )
+                    return
+
+                self._fast_search_running = True
+                self.fast_feasible_btn.setEnabled(False)
+                self.calculate.setEnabled(False)
+                self.planar_calculate.setEnabled(False)
+                self._set_task_busy(True)
+                self.status.setText(
+                    "Пробный подбор: 2D отбор → реальные FCStd инструменты в 3D..."
+                )
+                self.fast_feasible_info.setText(
+                    "Поиск выполняется. При нехватке времени результат "
+                    "останется UNVERIFIED, а порядок не будет заменён."
+                )
+                QtWidgets.QApplication.processEvents()
+
+                try:
+                    from smbs_core.kinematics2d.fast_feasible_search import (
+                        search_fast_feasible_sequence,
+                    )
+
+                    def progress(stage, done, total, bend):
+                        stage_label = {
+                            "PLANAR_2D": "Быстрый 2D отбор",
+                            "NATIVE_START": "3D проверка порядка",
+                            "NATIVE_BEND": "3D проверка гиба",
+                        }.get(stage, stage)
+                        label = "{} {}/{}{}".format(
+                            stage_label, done, total,
+                            " | " + bend if bend else "",
+                        )
+                        self.status.setText(label)
+                        self.fast_feasible_info.setText(label)
+                        QtWidgets.QApplication.processEvents()
+
+                    report = search_fast_feasible_sequence(
+                        self.session,
+                        self.tooling_setup,
+                        budget_s=60.0,
+                        max_candidates=8,
+                        initial_clearance_mm=float(
+                            self.cycle_config.initial_clearance_mm
+                        ),
+                        weights=self._selected_operation_weights(),
+                        progress_callback=progress,
+                    )
+                    self._last_fast_search_report = report
+                    self._trace_event(
+                        "FAST_FEASIBLE_SEARCH_FINISHED",
+                        report=report.to_dict(),
+                    )
+                    summary = (
+                        "{} | {:.1f} с | 2D кандидатов: {} | "
+                        "проверенных 3D порядков: {}"
+                    ).format(
+                        report.status.value, report.elapsed_s,
+                        len(report.planar_candidates), len(report.attempts),
+                    )
+                    if report.deadline_exceeded:
+                        summary += " | OCC превысил бюджет 60 с"
+                    self.fast_feasible_info.setText(
+                        summary + ". " + report.message_ru
+                    )
+                    if not report.sampled_tool_clear or not report.sequence:
+                        self.status.setText(
+                            "UNVERIFIED: " + report.message_ru
+                        )
+                        self.physical_check_result.setText(
+                            summary + " | Нет полного подтверждённого "
+                            "порядка: текущий порядок сохранён."
+                        )
+                        return
+
+                    # Commit ONLY the full order with all-bend real-tool D6
+                    # sampled clearance. The original operator's order is
+                    # deliberately untouched on all failures and timeouts.
+                    selected = tuple(report.sequence)
+                    directions = dict(report.orientation_by_bend)
+                    if (len(selected) != len(self.session.canonical_order)
+                            or set(selected) != set(self.session.canonical_order)
+                            or set(directions) != set(selected)):
+                        raise ValueError(
+                            "Отклонён неполный или несовместимый 3D порядок"
+                        )
+                    self._stop_timer()
+                    self.session.reset_all_bends()
+                    self.session.set_bend_order(list(selected))
+                    self._manual_orientation_order = selected
+                    self._manual_orientation_by_bend = directions
+                    self._ergonomic_loading_cache_key = None
+                    self._manual_sequence_prefix = list(selected)
+                    self._manual_preview_unverified = False
+                    self._manual_preview_notice.hide()
+                    self._manual_3d_verdicts.clear()
+                    self._manual_retract_verdicts.clear()
+                    self._clear_manual_check_feedback()
+                    self._preview_only_planar_order = None
+                    self._partial_preview_limit = 0
+                    self._selected_planar_gauge_order = ()
+                    self._selected_planar_gauge_positions = {}
+                    self._selected_planar_gauge_model_id = None
+                    self._backgauge_preview_cache.clear()
+                    self._conditional_bends_status.clear()
+                    self._ensure_press_cycle_controller()
+                    if self.press_cycle is not None:
+                        self.press_cycle.loading_orientation_by_bend = (
+                            dict(directions)
+                        )
+                    self._sync_tooling_to_active_bend()
+                    self._populate_operations()
+                    self._configure_for_active_bend()
+                    self.draw()
+                    self._viewer_tabs.setCurrentWidget(self._flat_view)
+                    self._draw_flat_pattern(reset_camera=True)
+                    show_workspace_controls(self, tab=4)
+                    entry = {
+                        "bend_ids": list(selected),
+                        "orientation_by_bend": directions,
+                        "origin": "FAST_FEASIBLE_EXPERIMENT",
+                        "evidence": report.status.value,
+                    }
+                    if entry not in self._saved_full_sequences:
+                        self._saved_full_sequences.append(entry)
+                        self._saved_full_sequences = self._saved_full_sequences[-32:]
+                    caution = (
+                        "SAMPLED_3D_TOOL_CLEAR: найден полный порядок "
+                        "для реальных пуансона и матрицы, но непрерывность "
+                        "траектории, задний упор, рама, зажимы и перекладки "
+                        "не проверены. Перед производством нужна полная проверка."
+                    )
+                    self.status.setText(
+                        "Порядок: {} | {}".format(" → ".join(selected), caution)
+                    )
+                    self.manual_check_summary.setText(caution)
+                    self.physical_check_result.setText(caution)
+                except Exception as exc:
+                    message = "UNVERIFIED: пробный поиск завершился ошибкой: {}".format(exc)
+                    self.status.setText(message)
+                    self.fast_feasible_info.setText(message)
+                    self.physical_check_result.setText(message)
+                    self._trace_event(
+                        "FAST_FEASIBLE_SEARCH_ERROR",
+                        message=str(exc),
+                        traceback=traceback.format_exc(),
+                    )
+                    _error("Fast 3D search failed: " + traceback.format_exc())
+                finally:
+                    self._fast_search_running = False
+                    self._set_task_busy(False)
+                    self._sync_playback_buttons()
+
             def calculate_planar_candidates(self):
                 """Show ranked sampled-2D candidate sequences, never mark them physically verified."""
+                if getattr(self, "_fast_search_running", False):
+                    self.status.setText("Быстрый поиск с 3D уже выполняется.")
+                    return
                 if self.session is None:
                     self.status.setText("Сначала загрузите деталь SheetMetal.")
                     return
@@ -5060,13 +5276,21 @@ class _PreviewPanel:
                     self.restore_order_btn.setEnabled(False)
                     self.calculate.setEnabled(False)
                     self.planar_calculate.setEnabled(False)
+                    self.fast_feasible_btn.setEnabled(False)
                     return
                 st = self.session.playback_status
                 self._update_task_progress()
                 self.playing = st == PlaybackStatus.PLAYING
                 bend_order = getattr(self.session, "bend_order", [])
                 self.calculate.setEnabled(not self.playing and len(bend_order) > 1)
-                self.planar_calculate.setEnabled(not self.playing and len(bend_order) > 0)
+                self.planar_calculate.setEnabled(
+                    not self.playing and len(bend_order) > 0
+                    and not self._fast_search_running
+                )
+                self.fast_feasible_btn.setEnabled(
+                    not self.playing and len(bend_order) > 0
+                    and not self._fast_search_running
+                )
                 if st == PlaybackStatus.PLAYING:
                     self.play_btn.setText("Pause")
                     icon_name = "control_pause.svg"
