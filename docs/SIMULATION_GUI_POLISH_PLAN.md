@@ -82,3 +82,10 @@ Make the existing FreeCAD SMBS add-on responsive, understandable and visually sm
 - Keep all geometry/animation data consistent in one source.
 - UI should allow immediate simulation of manually chosen order without collision checking.
 - Panel reopen and debug JSON have previously failed in some builds; explicitly regression-test.
+
+## P0/P1 first code inspection and patch (2026-11-15)
+- Inspected `freecad_smbs/commands/pressbrake_2d.py` from this branch. The task panel creates a single 25 ms Qt timer connected to `advance()`. The timer path already chooses 3D rather than calling the 2D `draw()` in normal non-recording playback.
+- Found unnecessary hidden 2D redraw at the start of `play_all()`, and on completion of regular 3D playback; also found a potential second 3D attempt when the first 3D render fails and calls `draw()`, which previously called `_update_3d_preview()` again.
+- Patched selected-view rendering at start and completion, and added `draw(update_3d=False)` for the failed-3D diagnostic fallback. No changes to physical validation, state progression, 2D cutting-plane calculation or bend geometry.
+- **Not yet measured in running FreeCAD**: frame p95, scene items, remaining geometry rebuild per 3D tick, effect of recording mode, and user-visible stutter. These remain open; do not claim FPS improvement without the measured baseline.
+- Remaining higher-cost path: `_update_3d_preview()` calls `build_sheet_preview_faces()` and `build_tool_preview_faces()` every visible 3D tick, then reprojects/rebuilds painter paths per face. Profile and cache immutable geometry before attempting a broader change.
