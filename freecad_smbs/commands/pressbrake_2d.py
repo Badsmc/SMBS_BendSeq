@@ -1400,6 +1400,7 @@ class _PreviewPanel:
                 self.runtime_git_info = get_runtime_git_info()
                 self.last_sequence_search_report = None
                 self.last_planar_search_report = None
+                self._saved_full_sequences = []
                 self._preview_only_planar_order = None
                 self._partial_preview_limit = 0
                 self._manual_sequence_prefix: list[str] = []
@@ -3934,6 +3935,24 @@ class _PreviewPanel:
                         match_active_bend_length=not has_sections,
                     )
                     self.last_planar_search_report = report
+                    # Store validated complete candidates with their preview
+                    # orientation, not merely the last solver status.
+                    for candidate in self._complete_planar_candidates(report):
+                        directions = {
+                            step.bend_id: step.orientation_variant.startswith(
+                                "REVERSE_MACHINE_Z_180"
+                            ) for step in candidate.steps
+                        }
+                        if len(directions) == len(candidate.sequence):
+                            entry = {
+                                "bend_ids": list(candidate.sequence),
+                                "orientation_by_bend": directions,
+                                "origin": "2D_SEARCH",
+                                "evidence": str(candidate.evidence),
+                            }
+                            if entry not in self._saved_full_sequences:
+                                self._saved_full_sequences.append(entry)
+                    self._saved_full_sequences = self._saved_full_sequences[-32:]
                     if self._last_backgauge_cad_trace_path:
                         _log(
                             "BACKGAUGE_CAD_TRACE_PATH: "
@@ -5229,6 +5248,7 @@ class _PreviewPanel:
                 self._smbs_document_name = str(doc.Name)
                 self._smbs_allow_auto_embed = False
                 self.last_planar_search_report = None
+                self._saved_full_sequences = []
                 self._last_manual_sequence_report = None
                 self._manual_3d_verdicts.clear()
                 self._manual_retract_verdicts.clear()
@@ -5903,6 +5923,7 @@ class _PreviewPanel:
                     planar_report=self.last_planar_search_report,
                     operation_weights=weights.to_dict(),
                     retract_warning=self.retract_warning_checkbox.isChecked(),
+                    saved_sequences=self._saved_full_sequences,
                 )
                 write_included_json(document, snapshot)
                 return snapshot
@@ -6006,6 +6027,9 @@ class _PreviewPanel:
                 self._physical_check_signature = None
                 self._conditional_bends_status.clear()
                 self._embedded_diagnostics_history = payload["diagnostics"]
+                self._saved_full_sequences = list(
+                    payload["order"].get("found_sequences", [])
+                )
 
                 warnings = []
                 for key, kind in (
