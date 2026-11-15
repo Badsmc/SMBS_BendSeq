@@ -1,0 +1,24 @@
+name: SMBS Python syntax and Coin3D source guard
+
+on:
+  push:
+    branches:
+      - development/coin3d-animation
+      - smbs
+  pull_request:
+
+jobs:
+  python-syntax:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Compile every Python source without FreeCAD
+        run: python -m compileall -q InitGui.py Init.py freecad_smbs smbs_core tests
+      - name: Test GUI syntax, embedded candidate JSON and Coin source
+        run: |
+          python -m unittest discover -s tests -p 'test_gui_source_syntax.py' -v
+          python -m unittest discover -s tests -p 'test_fcstd_saved_sequences.py' -v
+          python -m unittest discover -s tests -p 'test_coin3d_source_contract.py' -v
