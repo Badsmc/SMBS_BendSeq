@@ -1951,9 +1951,13 @@ class _PreviewPanel:
                 self._coin_fold_mesh_key = None
                 self._coin_fold_mesh_faces = ()
                 self._preview_3d.setObjectName("SMBS_Coin3D_Viewer")
-                views.addTab(self._preview_3d, QtGui.QIcon(str(
-                    _ICON_ROOT / "gui_part.svg"
-                )), "3D · Просмотр")
+                # macOS native Coin3D is rendered in its dedicated
+                # SMBS_Animation document window. Do not create a redundant
+                # empty 3D tab inside the SMBS controls workspace.
+                if not getattr(self._preview_3d, "_native", False):
+                    views.addTab(self._preview_3d, QtGui.QIcon(str(
+                        _ICON_ROOT / "gui_part.svg"
+                    )), "3D · Просмотр")
                 self._flat_view = Canvas(bend_click_callback=self._select_flat_bend)
                 self._flat_view.setObjectName("SMBS_FlatPattern_ManualOrder")
                 self._flat_scene = QtWidgets.QGraphicsScene(self._flat_view)
@@ -2655,11 +2659,16 @@ class _PreviewPanel:
                     self._task_page_titles[page] = name
                 root.addWidget(views, 1)
                 self._viewer_tabs = views
-                # GPU when Pivy is usable; otherwise preserve full 2D
-                # functionality without bringing back the old 3D painter.
+                # In native mode 3D is an independent FreeCAD document
+                # window, not another tab. Keep 2.5D and flat pattern here.
                 coin_available = getattr(self._preview_3d, "_available", True)
-                views.setTabEnabled(1, bool(coin_available))
-                views.setCurrentIndex(1 if coin_available else 0)
+                if self._preview_3d._native:
+                    views.setCurrentWidget(self.view)
+                else:
+                    views.setTabEnabled(1, bool(coin_available))
+                    views.setCurrentWidget(
+                        self._preview_3d if coin_available else self.view
+                    )
                 self._task_stack = controls
                 self._native_task_panel = None
                 self.show_task_panel_btn = QtWidgets.QPushButton("Показать панель управления")
@@ -3091,13 +3100,14 @@ class _PreviewPanel:
                         self._finish_motion_trace("TRACE_FRAME_ERROR")
 
             def _on_view_changed(self, index):
-                if index == 0:
-                    # The hidden 2D scene is intentionally not redrawn on
-                    # every 3D playback tick. Refresh it when it becomes visible.
+                # The native Coin3D animation has its own window, so tab
+                # numbers are not stable across FreeCAD/Pivy builds.
+                selected = self._viewer_tabs.widget(index)
+                if selected is self.view:
                     self.draw()
-                elif index == 1:
+                elif selected is self._preview_3d:
                     self._update_3d_preview(force=True)
-                elif index == 2:
+                elif selected is self._flat_view:
                     self._draw_flat_pattern()
 
             def reset_3d_view(self):
@@ -3113,8 +3123,10 @@ class _PreviewPanel:
                 if self.session is None:
                     self._preview_3d.clear_preview()
                     return True
-                if (not force and hasattr(self, "_viewer_tabs")
-                        and self._viewer_tabs.currentIndex() != 1):
+                if (not force
+                        and not getattr(self._preview_3d, "_native", False)
+                        and hasattr(self, "_viewer_tabs")
+                        and self._viewer_tabs.currentWidget() is not self._preview_3d):
                     return True
                 now = time.perf_counter()
                 bend_id = self.session.active_bend_id
@@ -5229,11 +5241,12 @@ class _PreviewPanel:
                 Gui.updateGui()
                 self.draw()
                 self._draw_flat_pattern(reset_camera=True)
-                if self._viewer_tabs.currentIndex() == 1:
+                if (getattr(self._preview_3d, "_native", False)
+                        or self._viewer_tabs.currentWidget() is self._preview_3d):
                     self._update_3d_preview()
                 # A newly loaded part may need a first framing, but never
                 # override manual pan/zoom/orbit in either viewer.
-                if (self._viewer_tabs.currentIndex() == 0
+                if (self._viewer_tabs.currentWidget() is self.view
                         and not self.view._user_camera_modified):
                     QtCore.QTimer.singleShot(0, self.fit)
                 # Coin3D fits once when the first sheet mesh is submitted;
@@ -5463,7 +5476,8 @@ class _PreviewPanel:
                         if self._collision_display_active else
                         "Показать коллизию в 3D"
                     )
-                self._viewer_tabs.setCurrentWidget(self._preview_3d)
+                if not self._preview_3d._native:
+                    self._viewer_tabs.setCurrentWidget(self._preview_3d)
                 self._last_3d_frame_at = -1.0
                 self._update_3d_preview(force=True)
                 self._trace_event(
@@ -5668,7 +5682,8 @@ class _PreviewPanel:
                     self._configure_for_active_bend()
                     self._collision_display_active = False
                     self.manual_show_collision_btn.setText("Показать коллизию в 3D")
-                    self._viewer_tabs.setCurrentWidget(self._preview_3d)
+                    if not self._preview_3d._native:
+                        self._viewer_tabs.setCurrentWidget(self._preview_3d)
                     self.play_all()
                 except (PressCycleError, SequenceError, ValueError) as exc:
                     self.status.setText("Симуляция подъёма недоступна: " + str(exc))
@@ -7176,8 +7191,8 @@ class _PreviewPanel:
                     self.timer.start()
                 # Initial frame: render only the selected view. In 3D mode
                 # do not rebuild the hidden 2D scene before the timer starts.
-                if (hasattr(self, "_viewer_tabs")
-                        and self._viewer_tabs.currentIndex() == 1):
+                if (getattr(self._preview_3d, "_native", False)
+                        or self._viewer_tabs.currentWidget() is self._preview_3d):
                     self._update_3d_preview()
                 else:
                     self.draw()
@@ -7413,8 +7428,9 @@ class _PreviewPanel:
                     self._configure_for_active_bend()
                     self._update_tooling_status_label()
                     showing_3d = (
-                        hasattr(self, "_viewer_tabs")
-                        and self._viewer_tabs.currentIndex() == 1
+                        getattr(self._preview_3d, "_native", False)
+                        or (hasattr(self, "_viewer_tabs")
+                            and self._viewer_tabs.currentWidget() is self._preview_3d)
                     )
                     recording = (
                         self.motion_trace is not None
@@ -7503,7 +7519,9 @@ class _PreviewPanel:
                 if self.playing and self.execution_mode == CycleExecutionMode.FULL_CYCLE:
                     # User may pause first; no camera jumps during playback.
                     return
-                if hasattr(self, "_viewer_tabs") and self._viewer_tabs.currentIndex() == 1:
+                if (getattr(self._preview_3d, "_native", False)
+                        or (hasattr(self, "_viewer_tabs")
+                            and self._viewer_tabs.currentWidget() is self._preview_3d)):
                     self._preview_3d.reset_camera()
                     return
                 self.view.reset_camera()
@@ -8173,8 +8191,11 @@ class _PreviewPanel:
                             sec, pose, pose_warning,
                             self.press_cycle,
                         )
-                    if (update_3d and hasattr(self, "_viewer_tabs")
-                            and self._viewer_tabs.currentIndex() == 1):
+                    if (update_3d
+                            and (getattr(self._preview_3d, "_native", False)
+                                 or (hasattr(self, "_viewer_tabs")
+                                     and self._viewer_tabs.currentWidget()
+                                     is self._preview_3d))):
                         self._update_3d_preview()
                     self.last_draw_time_ms = (time.perf_counter() - t_draw_start) * 1000.0
                 except Exception:
