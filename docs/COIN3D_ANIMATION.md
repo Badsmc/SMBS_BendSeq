@@ -95,3 +95,40 @@ verified in FreeCAD.
 - Add true triangulated end caps around holes if needed in the visual model.
 - Optional per-step frame-time percentile telemetry and adaptive GUI redraw
   cadence based on measured render time, without changing controller time.
+
+## macOS FreeCAD 1.1 fallback (2026-11-15)
+
+The user's macOS package imports the SMBS workbench, but `from pivy.quarter
+import QuarterWidget` raised ImportError when pressing Detail. FreeCAD's
+Quarter is compiled into its GUI and need not be exposed as Python Pivy.
+
+Fixes in this branch:
+- `pivy.coin` and `pivy.quarter` are tested separately. When `pivy.coin`
+  is present but Python Quarter is absent, SMBS uses the **existing FreeCAD
+  document Coin3D view** via `Gui.getDocument(name).activeView().getSceneGraph()`.
+  It attaches one temporary SoSeparator containing our cached GPU meshes,
+  without modifying the native FCStd objects or resuming the QPainter viewer.
+- The 3D tab becomes a navigation/status pane for the native document viewer.
+  The workspace MDI window and existing FreeCAD model view are tiled so the
+  latter is actually visible. Camera Fit operates on the native FreeCAD view.
+- If even `pivy.coin` is absent, the 3D tab is disabled; Detail, the main
+  workspace, 2.5D playback, search and FCStd storage still work. This is an
+  explicit degraded mode, **not** a silent substitute renderer.
+- The temporary Coin node is detached when the workspace closes. It is not
+  serialized in the FCStd file.
+- The unrelated startup `NameError: Path` was caused by FreeCAD `exec`
+  using separate globals and locals. `InitGui.py` and `Init.py`
+  now import `Path` and `sys` inside `_checkout_root`; a regression test
+  reproduces the split-namespace execution.
+
+Limitations: when running native mode, the FreeCAD document view may show
+its original part together with the simulation overlay; the operator can
+hide the original CAD object using FreeCAD's visibility control without
+changing the underlying geometry. Neither a guaranteed full GUI integration
+nor measured FPS on the user's machine has been established yet. Native
+scenegraph lifecycle, camera and tiling must be tested in FreeCAD.
+
+User acceptance: reboot FreeCAD after installing the branch, click Detail,
+verify both MDI windows appear, play a bend, confirm the scene updates in
+FreeCAD's original 3D window, then close SMBS and confirm the temporary mesh
+disappears without removing/altering the CAD part.
