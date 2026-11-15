@@ -359,6 +359,9 @@ def search_fast_feasible_sequence(
                 config=cfg,
                 progress_callback=native_progress,
                 sequence_geometry_cache=geometry_cache,
+                # Candidate rejection needs the D6 collision verdict, not
+                # up to 30s of optional panel-by-panel OCC attribution.
+                include_collision_attribution=False,
                 deadline_at=deadline,
             )
             if not isinstance(native, dict):
