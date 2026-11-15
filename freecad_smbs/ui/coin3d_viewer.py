@@ -57,31 +57,60 @@ def _face_node(coin, face):
 
 
 def create_coin_viewer(parent=None):
-    """Create a single native Quarter widget, no QGraphicsScene 3D fallback."""
+    """Use Python Quarter when available, otherwise native FreeCAD Coin view.
+
+    FreeCAD ships Quarter in C++ on some macOS builds without exporting
+    pivy.quarter to Python. That is not a missing Coin3D renderer.
+    """
     try:
         from pivy import coin
-        from pivy.quarter import QuarterWidget
     except ImportError as exc:
         raise RuntimeError(
-            "Для 3D SMBS требуется FreeCAD с Pivy/Quarter (Coin3D). "
-            "Проверьте установленную сборку FreeCAD."
+            "В FreeCAD недоступен pivy.coin; нельзя создать Coin3D сцену."
         ) from exc
+    try:
+        from pivy.quarter import QuarterWidget
+    except ImportError:
+        QuarterWidget = None
+    if QuarterWidget is None:
+        from freecad_smbs.commands.pressbrake_2d import _qt
+        _, _, QtWidgets = _qt()
+        base = QtWidgets.QWidget
+    else:
+        base = QuarterWidget
 
-    class CoinPreviewWidget(QuarterWidget):
+    class CoinPreviewWidget(base):
         def __init__(self, parent=None):
             super().__init__(parent=parent)
+            self._native = QuarterWidget is None
+            self._native_view = None
+            self._native_root = None
+            self._native_doc = None
+            self._native_notice = None
+            if self._native:
+                layout = QtWidgets.QVBoxLayout(self)
+                self._native_notice = QtWidgets.QLabel(
+                    "Coin3D работает в штатном 3D-окне FreeCAD. "
+                    "Это окно показывает состояние и управление симуляцией; "
+                    "вращение и масштабирование выполняются в 3D-окне детали."
+                )
+                self._native_notice.setWordWrap(True)
+                layout.addWidget(self._native_notice)
+                layout.addStretch(1)
             self.setObjectName("SMBS_Coin3D_Viewer")
             self.setMinimumHeight(240)
             self._coin = coin
             self._root = coin.SoSeparator()
             # An explicit camera is owned by this scene, not by the FCStd
             # document or a second FreeCAD 3D view.
-            self._camera = coin.SoPerspectiveCamera()
-            self._camera.orientation.setValue(coin.SbRotation(
-                coin.SbVec3f(0.0, 0.0, -1.0),
-                coin.SbVec3f(-1.0, 1.0, -0.7),
-            ))
-            self._root.addChild(self._camera)
+            self._camera = None
+            if not self._native:
+                self._camera = coin.SoPerspectiveCamera()
+                self._camera.orientation.setValue(coin.SbRotation(
+                    coin.SbVec3f(0.0, 0.0, -1.0),
+                    coin.SbVec3f(-1.0, 1.0, -0.7),
+                ))
+                self._root.addChild(self._camera)
             self._sheet_root = coin.SoSeparator()
             self._tool_root = coin.SoSeparator()
             self._collision_root = coin.SoSeparator()
@@ -89,7 +118,8 @@ def create_coin_viewer(parent=None):
             self._root.addChild(self._sheet_root)
             self._root.addChild(self._tool_root)
             self._root.addChild(self._collision_root)
-            self.setSceneGraph(self._root)
+            if not self._native:
+                self.setSceneGraph(self._root)
             self._sheet_batches = {}
             self._tool_key = None
             self._tool_base_ram_z = 0.0
@@ -99,6 +129,51 @@ def create_coin_viewer(parent=None):
             self._last_sheet_face_count = 0
             self._sheet_topology = None
             self._last_faces = ()
+
+        def attach_document(self, name):
+            """Attach ephemeral visualization to an existing FreeCAD 3D view.
+
+            Never mutate a Part Shape or add a document object. Keep the
+            scenegraph node independent from the FCStd serialization.
+            """
+            if not self._native:
+                return
+            if self._native_doc == name and self._native_view is not None:
+                return
+            self.detach_document()
+            import FreeCADGui as Gui
+            gui_doc = Gui.getDocument(str(name))
+            if gui_doc is None:
+                raise RuntimeError("Не найден 3D-документ FreeCAD: " + str(name))
+            view = gui_doc.activeView()
+            if view is None or not hasattr(view, "getSceneGraph"):
+                raise RuntimeError("В документе нет доступного Coin3D вида")
+            root = view.getSceneGraph()
+            if root is None:
+                raise RuntimeError("Coin3D scenegraph документа недоступен")
+            root.addChild(self._root)
+            self._native_doc = str(name)
+            self._native_view = view
+            self._native_root = root
+            self._initial_fit_done = False
+            self._native_notice.setText(
+                "3D-анимация: штатный вид FreeCAD документа «{}». "
+                "Рабочее окно с деталью должно быть видно рядом с SMBS."
+                .format(name)
+            )
+
+        def detach_document(self):
+            if self._native_root is not None:
+                try:
+                    self._native_root.removeChild(self._root)
+                except (RuntimeError, AttributeError, ValueError):
+                    pass
+            self._native_root = None
+            self._native_view = None
+            self._native_doc = None
+
+        def release(self):
+            self.detach_document()
 
         def clear_preview(self):
             self._sheet_root.removeAllChildren()
@@ -293,6 +368,13 @@ def create_coin_viewer(parent=None):
                 center[1] - distance * 0.72,
                 center[2] + distance * 0.39,
             )
+            if self._native:
+                # A document's FreeCAD viewer already owns its actual camera.
+                # Request Fit only once on model load or explicit user action.
+                if self._native_view is not None:
+                    self._native_view.fitAll()
+                    self._initial_fit_done = True
+                return
             self._camera.position.setValue(*eye)
             self._camera.orientation.setValue(self._coin.SbRotation(
                 self._coin.SbVec3f(0.0, 0.0, -1.0),
