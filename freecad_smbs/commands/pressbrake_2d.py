@@ -3234,15 +3234,17 @@ class _PreviewPanel:
                     if len(poly) < 3:
                         continue
                     path = QtGui.QPainterPath()
+                    # Avoid expensive QPainterPath boolean subtraction on
+                    # every 3D animation frame. Qt's odd-even fill rule cuts
+                    # holes without altering any source 3D geometry.
+                    path.setFillRule(QtCore.Qt.OddEvenFill)
                     path.addPolygon(poly)
                     path.closeSubpath()
                     for hole in face.holes:
-                        hole_path = QtGui.QPainterPath()
-                        hole_path.addPolygon(
+                        path.addPolygon(
                             QtGui.QPolygonF([project(pt) for pt in hole])
                         )
-                        hole_path.closeSubpath()
-                        path = path.subtracted(hole_path)
+                        path.closeSubpath()
                     fill_hex, edge_hex = palette.get(face.kind, ("#91a5b3", "#4c6474"))
                     if inspection and face.identifier in inspected_components:
                         edge_hex, fill_hex = "#cf3030", "#e8a1a1"
