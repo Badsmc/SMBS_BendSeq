@@ -46,6 +46,7 @@ def eligible_assisted_retract(blocker: Any, retract: Any) -> bool:
 def historic_lift_candidate(
     report: Any, *, order: Any, punch_id: str, die_id: str,
     virtual_length: bool, end_zone_allow: bool, end_zone_mm: float,
+    orientation_by_bend: Any = None,
 ) -> dict | None:
     """Offer an old FCStd blocker only for an identically selected setup.
 
@@ -72,6 +73,12 @@ def historic_lift_candidate(
         if not isinstance(step, dict) or step.get("status") != "COLLISION":
             continue
         blocker, retract = step.get("first_blocker"), step.get("retract")
+        if orientation_by_bend is not None and (
+                step.get("bend_id") not in orientation_by_bend
+                or "reverse_axis" not in step
+                or bool(step["reverse_axis"]) !=
+                bool(orientation_by_bend[step["bend_id"]])):
+            continue
         if eligible_assisted_retract(blocker, retract):
             return step
     return None

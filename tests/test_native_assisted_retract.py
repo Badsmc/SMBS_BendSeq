@@ -121,7 +121,7 @@ class AssistedRetractTests(unittest.TestCase):
             blocker, {"start_z_mm": -3.492685, "end_z_mm": float("nan")}))
 
     def test_historical_replay_requires_matching_tooling_and_order(self):
-        step = {"bend_id": "B02", "status": "COLLISION",
+        step = {"bend_id": "B02", "status": "COLLISION", "reverse_axis": True,
                 "first_blocker": {"phase": "RETRACT", "tool": "PUNCH",
                                   "sampled_machine_pose": {"ram_z_mm": 1.5036577289}},
                 "retract": {"start_z_mm": -3.492685, "end_z_mm": 6.5}}
@@ -133,6 +133,10 @@ class AssistedRetractTests(unittest.TestCase):
         setup = {"order": ("B01", "B02"), "punch_id": "AP1017", "die_id": "AT3015",
                  "virtual_length": True, "end_zone_allow": True, "end_zone_mm": 20.0}
         self.assertIs(historic_lift_candidate(report, **setup), step)
+        self.assertIs(historic_lift_candidate(
+            report, **setup, orientation_by_bend={"B02": True}), step)
+        self.assertIsNone(historic_lift_candidate(
+            report, **setup, orientation_by_bend={"B02": False}))
         self.assertIsNone(historic_lift_candidate(report, **{**setup, "die_id": "WRONG"}))
         self.assertIsNone(historic_lift_candidate(report, **{**setup, "order": ("B02", "B01")}))
         self.assertIsNone(historic_lift_candidate(report, **{**setup, "end_zone_mm": 10.0}))

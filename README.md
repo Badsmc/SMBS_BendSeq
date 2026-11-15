@@ -43,7 +43,25 @@ An animated sequence, 2D search result, or sparse 3D check does **not** prove a 
 
 See [integration and release policy](https://github.com/Badsmc/SMBS_BendSeq/blob/main/BRANCH_ARCHITECTURE.md).
 
-## Experimental punch-assisted RETRACT (this branch)
+## Automatic machine orientation (experiment/auto-short-side-orientation)
+
+The Manual 180° override checkbox is removed. For a hand-selected bend
+order, one deterministic per-bend map places the shorter projected side
+toward the rear gauge, using the formed state after preceding bends. A
+selected complete 2D search candidate retains the orientations actually
+evaluated by that search. Both 2D and 3D previews use the same machine
+placement; the Manual quick/full OCC checks and the single-bend native
+trajectory receive the same per-bend map. The previous second rear-frame
+auto-flip in the viewer is disabled.
+
+An unavailable geometric orientation is displayed as UNVERIFIED and blocks
+native checking of that bend instead of defaulting to 0°. Old FCStd snapshots
+with the manual checkbox are recalculated when loaded. New snapshots label
+whether the orientation came from an explicit 2D candidate or the short-side
+heuristic. This installation choice does not prove rear-gauge contact,
+collision clearance, or a safe bend sequence.
+
+## Experimental punch-assisted RETRACT (base branch)
 
 `experiment/punch-assisted-retract` starts from the `smbs` installation
 snapshot. Following a **proven native PUNCH collision during RETRACT**, Manual
