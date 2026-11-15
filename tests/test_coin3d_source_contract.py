@@ -40,6 +40,15 @@ class Coin3DSourceContractTests(unittest.TestCase):
         self.assertIn("self._sheet_batches", source)
         self.assertIn("geometry.coordIndex.setValues(", source)
 
+    def test_native_view_uses_separate_temporary_document(self):
+        source = (ROOT / "freecad_smbs/ui/coin3d_viewer.py").read_text()
+        self.assertIn("App.newDocument(temporary_name)", source)
+        self.assertIn("Gui.getDocument(temporary_name)", source)
+        self.assertIn("root.addChild(self._root)", source)
+        self.assertIn("App.setActiveDocument(source_name)", source)
+        self.assertIn("App.closeDocument(name)", source)
+        self.assertNotIn("Gui.getDocument(str(name))", source)
+
 
 if __name__ == "__main__":
     unittest.main()
