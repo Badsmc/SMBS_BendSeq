@@ -9,6 +9,16 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+
+def _document_is_open(app, name):
+    """Check FreeCAD documents without getDocument's missing-name exception.
+
+    FreeCAD 1.1 macOS raises on App.getDocument("nonexistent") rather
+    than returning None. listDocuments() is a mapping of *open* documents
+    and can be checked without triggering that exception.
+    """
+    return bool(name) and str(name) in app.listDocuments()
+
 # Lazily imported from the UI constructor: headless imports remain supported.
 COLORS = {
     "panel_top": (0.55, 0.72, 0.84),
@@ -179,12 +189,12 @@ def create_coin_viewer(parent=None):
             import FreeCAD as App
             import FreeCADGui as Gui
             source_name = str(name or "")
-            if not source_name or App.getDocument(source_name) is None:
+            if not _document_is_open(App, source_name):
                 raise RuntimeError("Исходный FCStd документ закрыт")
             if self._native_doc is not None:
-                existing = App.getDocument(self._native_doc)
+                existing = _document_is_open(App, self._native_doc)
                 if (self._native_source_doc == source_name
-                        and existing is not None
+                        and existing
                         and self._native_root is not None):
                     return
                 self.detach_document()
@@ -193,7 +203,7 @@ def create_coin_viewer(parent=None):
             # window; hidden documents cannot supply an interactive view.
             # Reserve the prefix and avoid overriding any user's document.
             number = 1
-            while App.getDocument("SMBS_Animation_{:02d}".format(number)):
+            while _document_is_open(App, "SMBS_Animation_{:02d}".format(number)):
                 number += 1
             temporary_name = "SMBS_Animation_{:02d}".format(number)
             created = None
@@ -243,7 +253,7 @@ def create_coin_viewer(parent=None):
                 # FreeCAD makes newly created documents active. Restore the
                 # actual source so subsequent commands and Ctrl+S target FCStd.
                 try:
-                    if App.getDocument(source_name) is not None:
+                    if _document_is_open(App, source_name):
                         App.setActiveDocument(source_name)
                 except (RuntimeError, AttributeError):
                     pass
@@ -266,10 +276,10 @@ def create_coin_viewer(parent=None):
                 import FreeCAD as App
                 try:
                     # Only close a document that we created, never source.
-                    if name != source_name and App.getDocument(name) is not None:
+                    if name != source_name and _document_is_open(App, name):
                         App.closeDocument(name)
                 finally:
-                    if source_name and App.getDocument(source_name) is not None:
+                    if _document_is_open(App, source_name):
                         App.setActiveDocument(source_name)
 
         def release(self):
