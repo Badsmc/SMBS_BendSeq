@@ -120,8 +120,8 @@ def _candidate_orientation(candidate, order):
     return tuple(sorted(orientation.items()))
 
 
-def _native_result_is_qualified(physical, sequence):
-    """Only a complete, non-coarse, real-tool sampled D6 replay qualifies."""
+def _native_result_is_qualified(physical, sequence, expected_orientation=None):
+    """Only a complete real-tool sampled D6 replay of the SAME poses qualifies."""
     if not isinstance(physical, dict):
         return False
     if physical.get("status") != "SAMPLED_3D_CLEAR_NOT_CONTINUOUS":
@@ -143,9 +143,19 @@ def _native_result_is_qualified(physical, sequence):
     steps = physical.get("steps") or ()
     if len(steps) != len(sequence):
         return False
+    if expected_orientation is not None:
+        if set(expected_orientation) != set(sequence):
+            return False
     for step, bend in zip(steps, sequence):
         if step.get("bend_id") != bend:
             return False
+        if expected_orientation is not None:
+            # A correct bend ID with the wrong 180-degree workpiece pose
+            # can be a collision in the actual machine. Never substitute.
+            if (step.get("reverse_axis") is None
+                    or bool(step["reverse_axis"])
+                    != bool(expected_orientation[bend])):
+                return False
         if step.get("status") != "SAMPLED_3D_CLEAR_NOT_CONTINUOUS":
             return False
         if (step.get("punch_die_pair") or {}).get("status") != "SAMPLED_CLEAR":
@@ -369,7 +379,9 @@ def search_fast_feasible_sequence(
             status = str(native.get("status", "UNVERIFIED"))
             reason = str(native.get("reason", ""))
             checked = int(native.get("checked_bends", 0))
-            qualified = _native_result_is_qualified(native, seq)
+            qualified = _native_result_is_qualified(
+                native, seq, dict(orientation)
+            )
         except Exception as exc:
             status = "UNVERIFIED"
             reason = "native_exception:{}:{}".format(type(exc).__name__, exc)
