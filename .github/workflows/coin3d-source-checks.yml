@@ -24,3 +24,4 @@ jobs:
           python -m unittest discover -s tests -p 'test_coin3d_source_contract.py' -v
           python -m unittest discover -s tests -p 'test_coin3d_pose_reuse.py' -v
           python -m unittest discover -s tests -p 'test_freecad_exec_scopes.py' -v
+          python -m unittest discover -s tests -p 'test_coin3d_document_lookup.py' -v
