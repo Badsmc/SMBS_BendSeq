@@ -45,6 +45,7 @@ def sample_synchronous_lift(
         raise ValueError("missing_native_assisted_retract_shape")
 
     records = []
+    conditional_count = 0
     started = perf_counter()
     for index in range(samples):
         if index and perf_counter() - started >= max_time_s:
@@ -68,19 +69,35 @@ def sample_synchronous_lift(
             "punch_overlap_mm3": float(result.punch_result.overlap_volume_mm3),
             "die_overlap_mm3": float(result.die_result.overlap_volume_mm3),
         }
+        zone = getattr(result, "punch_end_zone_analysis", None)
+        zone_kind = getattr(getattr(zone, "classification", None), "value", None)
+        conditional = (punch == "PENETRATION"
+                       and die_status in ("CLEAR", "NEAR_CONTACT", "TOUCHING")
+                       and getattr(result, "is_conditional_safe", False) is True
+                       and getattr(result, "conditional_status", None) == "CONDITIONAL"
+                       and zone_kind == "END_ZONE_ONLY")
+        record["conditional_end_zone"] = conditional
+        if conditional:
+            conditional_count += 1
+            record["central_overlap_mm3"] = float(
+                zone.central_zone_overlap_volume_mm3
+            )
         records.append(record)
-        if punch == "PENETRATION" or die_status == "PENETRATION":
+        if (punch == "PENETRATION" and not conditional) or die_status == "PENETRATION":
             return {"status": "SAMPLED_LIFT_BLOCKED", "samples": records,
                     "reason": "native_penetration_in_assumed_synchronous_lift",
                     "continuous_certification": False}
-        if punch not in ("CLEAR", "NEAR_CONTACT", "TOUCHING") or die_status not in (
+        if (punch not in ("CLEAR", "NEAR_CONTACT", "TOUCHING") and not conditional) or die_status not in (
                 "CLEAR", "NEAR_CONTACT", "TOUCHING"):
             return {"status": "UNVERIFIED", "samples": records,
                     "reason": "invalid_or_missing_native_pair_evidence",
                     "continuous_certification": False}
-    return {"status": "SAMPLED_LIFT_WITHOUT_PENETRATION_UNVERIFIED",
+    return {"status": ("SAMPLED_LIFT_CONDITIONAL_UNVERIFIED" if conditional_count
+                       else "SAMPLED_LIFT_WITHOUT_PENETRATION_UNVERIFIED"),
             "samples": records,
-            "reason": "coupling_and_release_not_proven;intervals_and_withdrawal_unchecked",
+            "reason": ("end_zone_overlap_requires_relief_punch;" if conditional_count else "")
+                      + "coupling_and_release_not_proven;intervals_and_withdrawal_unchecked",
+            "conditional_samples": conditional_count,
             "continuous_certification": False}
 
 
@@ -106,7 +123,9 @@ def inspect_punch_assisted_retract(
         upper = float(retract["end_z_mm"])
         hit = float((blocker.get("sampled_machine_pose") or {})["ram_z_mm"])
         from .native_collision_inspector import reconstruct_exact_collision
-        from .native_collision_3d import validate_workpiece_tooling_pose
+        from .native_collision_3d import (
+            validate_workpiece_tooling_pose, EndZoneCollisionPolicy,
+        )
         import FreeCAD as App
 
         scene = reconstruct_exact_collision(
@@ -123,11 +142,27 @@ def inspect_punch_assisted_retract(
             moved.translate(App.Vector(0, 0, dz))
             return moved
 
+        allow_end_zone = bool(getattr(tooling, "allow_end_zone_collision", False))
+        end_zone_mm = float(getattr(tooling, "end_zone_length_mm", 0.0))
+        if not isfinite(end_zone_mm) or end_zone_mm < 0.0:
+            raise ValueError("invalid_selected_end_zone_policy")
+        policy = EndZoneCollisionPolicy(allow_end_zone, end_zone_mm)
+
+        def check(sheet, punch, die):
+            return validate_workpiece_tooling_pose(
+                sheet, punch, die, end_zone_policy=policy,
+                classify_end_zone_length_mm=(end_zone_mm if end_zone_mm > 0 else 10.0),
+            )
+
+        base["selected_end_zone_policy"] = {
+            "allow": allow_end_zone, "length_mm": end_zone_mm,
+        }
+
         result = sample_synchronous_lift(
             scene["sheet"], scene["punch"], scene["die"],
             hit_ram_z_mm=hit, bottom_ram_z_mm=bottom,
             upper_ram_z_mm=upper, samples=samples, translate=translate,
-            check=validate_workpiece_tooling_pose,
+            check=check,
         )
         base.update(result)
     except Exception as exc:

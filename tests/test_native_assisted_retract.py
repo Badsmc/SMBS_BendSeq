@@ -8,10 +8,18 @@ from smbs_core.kinematics2d.native_assisted_retract import (
 )
 
 
-def result(punch="TOUCHING", die="CLEAR"):
+def result(punch="TOUCHING", die="CLEAR", conditional=False, zone="END_ZONE_ONLY"):
     def pair(status):
         return SimpleNamespace(status=status, overlap_volume_mm3=(2.0 if status == "PENETRATION" else 0.0))
-    return SimpleNamespace(punch_result=pair(punch), die_result=pair(die))
+    return SimpleNamespace(
+        punch_result=pair(punch), die_result=pair(die),
+        is_conditional_safe=conditional,
+        conditional_status="CONDITIONAL" if conditional else None,
+        punch_end_zone_analysis=SimpleNamespace(
+            classification=SimpleNamespace(value=zone),
+            central_zone_overlap_volume_mm3=0.0 if zone == "END_ZONE_ONLY" else 1.0,
+        ),
+    )
 
 
 class AssistedRetractTests(unittest.TestCase):
@@ -46,6 +54,20 @@ class AssistedRetractTests(unittest.TestCase):
     def test_unknown_never_becomes_clear(self):
         report = self.evaluate(lambda sheet, punch: result(punch="INVALID_GEOMETRY"))
         self.assertEqual(report["status"], "UNVERIFIED")
+        self.assertEqual(len(report["samples"]), 1)
+
+    def test_authoritative_end_zone_conditional_can_continue_lift(self):
+        report = self.evaluate(lambda sheet, punch: result(
+            punch="PENETRATION", die="TOUCHING", conditional=True))
+        self.assertEqual(report["status"], "SAMPLED_LIFT_CONDITIONAL_UNVERIFIED")
+        self.assertEqual(report["conditional_samples"], 5)
+        self.assertTrue(all(s["conditional_end_zone"] for s in report["samples"]))
+        self.assertFalse(report["continuous_certification"])
+
+    def test_central_punch_overlap_still_blocks_with_conditional_flag(self):
+        report = self.evaluate(lambda sheet, punch: result(
+            punch="PENETRATION", conditional=True, zone="CENTRAL_ZONE"))
+        self.assertEqual(report["status"], "SAMPLED_LIFT_BLOCKED")
         self.assertEqual(len(report["samples"]), 1)
 
     def test_rejects_invalid_kinematics(self):
