@@ -40,6 +40,12 @@ class Coin3DSourceContractTests(unittest.TestCase):
         self.assertIn("self._sheet_batches", source)
         self.assertIn("geometry.coordIndex.setValues(", source)
 
+    def test_native_freecad_windows_are_not_rearranged(self):
+        source = (ROOT / "freecad_smbs/commands/pressbrake_2d.py").read_text()
+        self.assertNotIn("mdi.tileSubWindows()", source)
+        self.assertNotIn("mdi.cascadeSubWindows()", source)
+        self.assertNotIn("window.showNormal()", source)
+
     def test_native_view_does_not_create_redundant_gui_tab(self):
         source = (ROOT / "freecad_smbs/commands/pressbrake_2d.py").read_text()
         self.assertIn(
