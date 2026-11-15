@@ -7116,7 +7116,13 @@ class _PreviewPanel:
                 self._sync_playback_buttons()
                 if not self.timer.isActive():
                     self.timer.start()
-                self.draw()
+                # Initial frame: render only the selected view. In 3D mode
+                # do not rebuild the hidden 2D scene before the timer starts.
+                if (hasattr(self, "_viewer_tabs")
+                        and self._viewer_tabs.currentIndex() == 1):
+                    self._update_3d_preview()
+                else:
+                    self.draw()
                 if self.session.playback_status == PlaybackStatus.PLAYING:
                     if not self.timer.isActive():
                         self.timer.start()
@@ -7361,7 +7367,9 @@ class _PreviewPanel:
                         # rebuilding the hidden 2D scene on every timer tick.
                         # A failed pose still runs the 2D diagnostic halt.
                         if not self._update_3d_preview():
-                            self.draw()
+                            # Display 2D diagnostics without recursively retrying
+                            # the failed 3D render on the same timer tick.
+                            self.draw(update_3d=False)
                         else:
                             self._update_loading_orientation_label()
                     else:
@@ -7376,7 +7384,12 @@ class _PreviewPanel:
                     if self.session.playback_status == PlaybackStatus.COMPLETED:
                         self._stop_timer()
                         self._last_3d_frame_at = -1.0
-                        self.draw()
+                        # Keep the inactive 2D view untouched on completion;
+                        # refresh it lazily when its tab becomes visible.
+                        if showing_3d and not recording:
+                            self._update_3d_preview(force=True)
+                        else:
+                            self.draw()
                         self._finish_motion_trace("PLAYBACK_COMPLETED")
                         self.status.setText(
                             "AUTO PLAY завершён: {} | {} гибов{}".format(
@@ -7785,7 +7798,7 @@ class _PreviewPanel:
                     # substituting a fake rectangle.
                     _warn("Cannot render real FCStd gauge: " + str(exc))
 
-            def draw(self):
+            def draw(self, update_3d=True):
                 self._update_task_progress()
                 try:
                     t_draw_start = time.perf_counter()
@@ -8097,7 +8110,8 @@ class _PreviewPanel:
                             sec, pose, pose_warning,
                             self.press_cycle,
                         )
-                    if hasattr(self, "_viewer_tabs") and self._viewer_tabs.currentIndex() == 1:
+                    if (update_3d and hasattr(self, "_viewer_tabs")
+                            and self._viewer_tabs.currentIndex() == 1):
                         self._update_3d_preview()
                     self.last_draw_time_ms = (time.perf_counter() - t_draw_start) * 1000.0
                 except Exception:
