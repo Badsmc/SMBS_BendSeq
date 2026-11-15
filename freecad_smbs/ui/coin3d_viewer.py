@@ -47,18 +47,39 @@ class _FaceNode:
 def _face_node(coin, face):
     if len(face.vertices) < 3:
         return None
-    # Tool end caps with inner contours must not be shown as solid-filled
-    # polygons. Their real inner/outer walls remain visible in this mesh.
-    # A later triangulated-cap implementation may fill the annular region.
+    # A cap is often a nonconvex punch/die cross-section. Coin's SoFaceSet
+    # may fill across the concavity (the dark end blocks reported on macOS).
+    # Use deterministic ear-clipping triangles derived from the REAL profile.
+    # Profiles with holes are not sealed: never falsely cover the openings.
     if face.holes:
         return None
+    triangles = None
+    if face.kind in ("punch_cap", "die_cap"):
+        from freecad_smbs.ui.tool_cap_triangulation import (
+            CapTriangulationError, triangulate_tool_cap,
+        )
+        try:
+            triangles = triangulate_tool_cap(face.vertices)
+        except CapTriangulationError:
+            # Refuse an inaccurate filled surface. The actual sidewalls
+            # and the OCC tooling stay unaffected and still display.
+            return None
+
     node = coin.SoSeparator()
     material = coin.SoMaterial()
     material.diffuseColor.setValue(*COLORS.get(face.kind, (0.55, 0.65, 0.75)))
     coordinates = coin.SoCoordinate3()
     coordinates.point.setValues(0, len(face.vertices), list(face.vertices))
-    facets = coin.SoFaceSet()
-    facets.numVertices.setValues(0, 1, [len(face.vertices)])
+    if triangles is not None:
+        facets = coin.SoIndexedFaceSet()
+        indices = []
+        for triangle in triangles:
+            indices.extend(triangle)
+            indices.append(-1)
+        facets.coordIndex.setValues(0, len(indices), indices)
+    else:
+        facets = coin.SoFaceSet()
+        facets.numVertices.setValues(0, 1, [len(face.vertices)])
     node.addChild(material)
     node.addChild(coordinates)
     node.addChild(facets)
