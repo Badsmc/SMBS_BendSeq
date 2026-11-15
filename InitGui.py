@@ -14,8 +14,15 @@ def _checkout_root() -> Path:
     # Normal Python execution (tests or manual imports).
     if "__file__" in globals():
         return Path(__file__).resolve().parent
-    # FreeCAD DirModGui uses exec(code), which does not define __file__.
-    # The FreeCAD loader adds Mod search directories to sys.path.
+    # FreeCAD may execute a compiled script without setting __file__.
+    # Its code object still carries the actual filename; prefer that
+    # specific checkout over the first unrelated SMBS copy on sys.path.
+    code_path = Path(sys._getframe(1).f_code.co_filename)
+    if code_path.is_absolute():
+        candidate = code_path.resolve().parent
+        if (candidate / "freecad_smbs" / "InitGui.py").is_file():
+            return candidate
+    # Fallback for loaders that use a synthetic code filename.
     for entry in sys.path:
         if not entry:
             continue
@@ -39,6 +46,17 @@ def _checkout_root() -> Path:
 
 
 _REPO_ROOT = _checkout_root()
+_loaded_package = sys.modules.get("freecad_smbs")
+if _loaded_package is not None:
+    _loaded_file = getattr(_loaded_package, "__file__", None)
+    if _loaded_file is not None:
+        _loaded_root = Path(_loaded_file).resolve().parent.parent
+        if _loaded_root != _REPO_ROOT:
+            raise ImportError(
+                "SMBS: FreeCAD already imported a different add-on copy: "
+                "{}; current checkout: {}. Keep one SMBS installation and "
+                "restart FreeCAD.".format(_loaded_root, _REPO_ROOT)
+            )
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
