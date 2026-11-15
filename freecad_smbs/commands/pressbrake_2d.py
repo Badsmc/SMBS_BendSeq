@@ -2655,9 +2655,11 @@ class _PreviewPanel:
                     self._task_page_titles[page] = name
                 root.addWidget(views, 1)
                 self._viewer_tabs = views
-                # One renderer is active: the GPU view is the default.
-                # 2.5D is built only when explicitly selected or traced.
-                views.setCurrentIndex(1)
+                # GPU when Pivy is usable; otherwise preserve full 2D
+                # functionality without bringing back the old 3D painter.
+                coin_available = getattr(self._preview_3d, "_available", True)
+                views.setTabEnabled(1, bool(coin_available))
+                views.setCurrentIndex(1 if coin_available else 0)
                 self._task_stack = controls
                 self._native_task_panel = None
                 self.show_task_panel_btn = QtWidgets.QPushButton("Показать панель управления")
