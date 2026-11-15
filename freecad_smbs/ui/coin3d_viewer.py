@@ -40,7 +40,6 @@ def _face_node(coin, face):
     node = coin.SoSeparator()
     material = coin.SoMaterial()
     material.diffuseColor.setValue(*COLORS.get(face.kind, (0.55, 0.65, 0.75)))
-    material.twoSided = True if hasattr(material, "twoSided") else False
     coordinates = coin.SoCoordinate3()
     coordinates.point.setValues(0, len(face.vertices), list(face.vertices))
     facets = coin.SoFaceSet()
@@ -83,12 +82,14 @@ def create_coin_viewer(parent=None):
             self._punch_motion = None
             self._initial_fit_done = False
             self._last_sheet_face_count = 0
+            self._sheet_topology = None
 
         def clear_preview(self):
             self._sheet_root.removeAllChildren()
             self._tool_root.removeAllChildren()
             self._collision_root.removeAllChildren()
             self._sheet_nodes.clear()
+            self._sheet_topology = None
             self._tool_key = None
             self._punch_motion = None
             self._initial_fit_done = False
