@@ -3115,7 +3115,10 @@ class _PreviewPanel:
                         and not self._collision_display_active
                         and self._last_3d_rendered_bend == bend_id
                         and self._last_3d_frame_at >= 0.0
-                        and now - self._last_3d_frame_at < 1.0 / 30.0):
+                        # Do not turn a 25 ms/40 Hz Qt timer into 20 FPS
+                        # by throttling it to 33 ms. Only coalesce duplicate
+                        # view updates within the same event-loop iteration.
+                        and now - self._last_3d_frame_at < 0.015):
                     return True
                 inspection = (
                     self._collision_inspection
