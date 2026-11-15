@@ -181,6 +181,8 @@ def search_fast_feasible_sequence(
     native_runner: Optional[Callable[..., dict]] = None,
     sampling_config_factory: Optional[Callable[[float, int, float], Any]] = None,
     progress_callback: Optional[Callable[[str, int, int, str], None]] = None,
+    seed_order: Optional[tuple[str, ...]] = None,
+    seed_orientations: Optional[dict[str, bool]] = None,
     clock: Callable[[], float] = perf_counter,
 ) -> FastSequenceResult:
     """Find a complete candidate with native sampled punch/die clearance.
@@ -284,6 +286,29 @@ def search_fast_feasible_sequence(
         float(getattr(x[2], "cost", 0.0) or 0.0),
         x[0], x[1],
     ))
+    # The operator's current order may be physically valid even when the
+    # cheap 2D cross-section model cannot recognize its 3D placement.
+    # Use it only as a fallback for native verification, NEVER as a pass.
+    # Native D6 checks every phase with the specified orientation.
+    if seed_order is not None and seed_orientations is not None:
+        seed = tuple(seed_order)
+        directions = tuple(sorted(
+            (str(bid), bool(value))
+            for bid, value in seed_orientations.items()
+        ))
+        if (len(seed) == len(order) and set(seed) == set(order)
+                and len(directions) == len(order)
+                and set(dict(directions)) == set(order)):
+            pair = (seed, directions)
+            if pair not in seen:
+                seen.add(pair)
+                candidates.append((
+                    seed, directions,
+                    SimpleNamespace(
+                        evidence="OPERATOR_SEED_NOT_PLANAR_VERIFIED",
+                        cost=float("inf"), cost_complete=False,
+                    ),
+                ))
     candidates = candidates[:max_candidates]
     available_sequences = tuple(x[0] for x in candidates)
     if not candidates:
