@@ -132,3 +132,35 @@ User acceptance: reboot FreeCAD after installing the branch, click Detail,
 verify both MDI windows appear, play a bend, confirm the scene updates in
 FreeCAD's original 3D window, then close SMBS and confirm the temporary mesh
 disappears without removing/altering the CAD part.
+
+## Dedicated native 3D simulation window (2026-11-15)
+
+On macOS FreeCAD without the Python `pivy.quarter` module, Coin3D now
+renders in a **separate, temporary FreeCAD document window** named
+`SMBS_Animation_NN`, rather than placing our scene graph on top of the
+source FCStd document's 3D view. The original FCStd geometry, view provider,
+visibility settings and saved archive are left alone. Simulation surface
+geometry remains an ephemeral Coin3D separator and creates no document
+objects. Source document identity is restored after opening the animation
+document so normal SMBS operations and FCStd persistence remain bound to it.
+
+- A new simulation window is created lazily on first 3D render, not on each
+  timer tick; the same window and mesh batches are reused through playback.
+- Loading another valid part clears old sheet/tool meshes and reapplies
+  first-frame Fit, but does not create an additional animation document
+  if the source document is unchanged.
+- When SMBS is closed the ephemeral Coin3D node is detached and **only**
+  the SMBS-owned animation document is closed. Closing/reopening the
+  animation document during playback should recreate it on the next render.
+- The native FreeCAD MDI layout initially tiles the animation and SMBS
+  controls with other open document windows. This is a separate FreeCAD
+  document/view, **not** an independent macOS top-level application window.
+- On systems exposing Python Quarter, the existing embedded Quarter widget
+  is still used; the macOS native fallback is the one changed here.
+- Source guard test added to CI for separate-document creation,
+  binding, active-document restoration and safe cleanup.
+
+Runtime manual verification required: create, play, pause, scrub, rotate,
+zoom and close SMBS with an unsaved FCStd; confirm no unwanted save prompt,
+no changes to the source scenegraph, no stale temporary document, and
+that clicking a new document window does not redirect saved SMBS state.
