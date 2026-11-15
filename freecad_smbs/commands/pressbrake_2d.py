@@ -1983,7 +1983,7 @@ class _PreviewPanel:
                     page.setObjectName(name)
                     page.setWidgetResizable(True)
                     page.setFrameShape(QtWidgets.QFrame.NoFrame)
-                    page.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOn)
+                    page.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAsNeeded)
                     page.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
                     page.setMinimumSize(0, 0)
                     page.setSizePolicy(QtWidgets.QSizePolicy.Preferred,
@@ -2081,15 +2081,8 @@ class _PreviewPanel:
                 manual = QtWidgets.QWidget()
                 manual_layout = QtWidgets.QVBoxLayout(manual)
                 order_card, order_body = card("Шаг 2 — выбрать и проверить порядок")
-                workflow_note = QtWidgets.QLabel(
-                    "Выберите полный вариант после «Поиска 2D вариантов» "
-                    "или задайте порядок нажатием линий на развёртке. "
-                    "Номера гибов показаны во вьювере и в списке ниже. "
-                    "Затем запустите быструю OCC проверку пяти углов или "
-                    "полную адаптивную 3D проверку."
-                )
-                workflow_note.setWordWrap(True)
-                order_body.addWidget(workflow_note)
+                # Sequence guidance belongs in tooltips, not a permanent
+                # multi-line paragraph above operator controls.
                 for btn in (
                     self.move_up_btn, self.move_down_btn, self.restore_order_btn,
                 ):
@@ -2127,12 +2120,7 @@ class _PreviewPanel:
                 self.manual_simulate_btn.clicked.connect(
                     self.simulate_manual_order_unverified
                 )
-                automatic_orientation_hint = QtWidgets.QLabel(
-                    "Установка автоматически: короткая сторона к заднему упору. "
-                    "2D, 3D и OCC используют одну ориентацию каждого гиба."
-                )
-                automatic_orientation_hint.setWordWrap(True)
-                order_body.addWidget(automatic_orientation_hint)
+                # Orientation evidence remains in the status and tooltips.
                 # Restore the quick Stage A/B action from the
                 # integration/gui-2d-search-screening branch. Keep rigorous
                 # native OCC as a DISTINCT opt-in action, not a silent upgrade
@@ -2216,7 +2204,7 @@ class _PreviewPanel:
                     "Проверка остаётся экспериментальной."
                 )
                 self.manual_lift_probe_hint.setWordWrap(True)
-                order_body.addWidget(self.manual_lift_probe_hint)
+                self.manual_lift_probe_hint.hide()
                 # Verification must have a visible result in the Manual
                 # workspace, not a file-save dialog as its only feedback.
                 self.manual_check_summary = QtWidgets.QLabel(
@@ -2280,7 +2268,7 @@ class _PreviewPanel:
                     "сохраняется в FCStd."
                 )
                 self._manual_preview_help.setWordWrap(True)
-                order_body.addWidget(self._manual_preview_help)
+                self._manual_preview_help.hide()
                 manual_layout.addWidget(order_card, 1)
                 self._page_manual = scroll_task_page(
                     manual, "SMBS_ManualScroll"
@@ -2313,12 +2301,27 @@ class _PreviewPanel:
                 tool_main_layout.setFieldGrowthPolicy(
                     QtWidgets.QFormLayout.AllNonFixedFieldsGrow
                 )
+                # Keep labels in a fixed left column, dropdowns on the
+                # right even when the Tasks dock is relatively narrow.
                 tool_main_layout.setRowWrapPolicy(
-                    QtWidgets.QFormLayout.WrapLongRows
+                    QtWidgets.QFormLayout.DontWrapRows
                 )
-                tool_main_layout.addRow("Punch:", self.select_punch_combo)
-                tool_main_layout.addRow("Die:", self.select_die_combo)
-                tool_main_layout.addRow(self.tooling_status)
+                tool_main_layout.setLabelAlignment(
+                    QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter
+                )
+                self.select_punch_combo.setMinimumWidth(0)
+                self.select_die_combo.setMinimumWidth(0)
+                self.select_punch_combo.setSizePolicy(
+                    QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed
+                )
+                self.select_die_combo.setSizePolicy(
+                    QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed
+                )
+                tool_main_layout.addRow("Punch", self.select_punch_combo)
+                tool_main_layout.addRow("Die", self.select_die_combo)
+                # Keep diagnostics in the shared task status area, not
+                # as an extra paragraph below the two selectors.
+                self.tooling_status.hide()
                 tool_import = QtWidgets.QWidget()
                 tool_import_layout = QtWidgets.QVBoxLayout(tool_import)
                 tool_import_layout.setContentsMargins(
@@ -2430,7 +2433,7 @@ class _PreviewPanel:
                     "оснастке длины не меняются. Это не проверка безопасности."
                 )
                 weights_note.setWordWrap(True)
-                weights_form.addRow(weights_note)
+                weights_note.hide()
                 reset_weights_btn = QtWidgets.QPushButton("Стандартные веса")
                 reset_weights_btn.setIcon(QtGui.QIcon(str(
                     _ICON_ROOT / "control_reset.svg"
@@ -2521,7 +2524,7 @@ class _PreviewPanel:
                     QtCore.Qt.TextSelectableByMouse
                 )
                 self.desktop_debug_log_note.setWordWrap(True)
-                trace_body.addWidget(self.desktop_debug_log_note)
+                self.desktop_debug_log_note.hide()
 
                 trace_buttons = QtWidgets.QVBoxLayout()
                 self.trace_start_button = QtWidgets.QPushButton("Начать запись JSONL")
@@ -2588,7 +2591,9 @@ class _PreviewPanel:
                     "детали. История проверки — только справочная."
                 )
                 self.fcstd_note.setWordWrap(True)
-                fcstd_body.addWidget(self.fcstd_note)
+                # Detailed save/restore feedback is already shown in the
+                # persistent task footer status; avoid a second paragraph.
+                self.fcstd_note.hide()
                 settings_layout.addWidget(fcstd_card)
                 settings_layout.addStretch(1)
                 self._page_settings = scroll_task_page(
