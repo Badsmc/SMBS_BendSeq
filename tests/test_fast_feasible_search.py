@@ -56,7 +56,8 @@ def setup():
     return sess, tools
 
 
-def native_clear(seq):
+def native_clear(seq, reverse=()):
+    reverse = set(reverse)
     return {
         "status": "SAMPLED_3D_CLEAR_NOT_CONTINUOUS",
         "reason": "sampled only",
@@ -71,6 +72,7 @@ def native_clear(seq):
         "steps": [
             {
                 "bend_id": b,
+                "reverse_axis": b in reverse,
                 "status": "SAMPLED_3D_CLEAR_NOT_CONTINUOUS",
                 "punch_die_pair": {"status": "SAMPLED_CLEAR"},
                 "retract": {"status": "SAMPLED_CLEAR"},
@@ -100,6 +102,18 @@ class TestFastFeasibleSearch(unittest.TestCase):
         bad["steps"][1]["punch_die_pair"] = None
         self.assertFalse(_native_result_is_qualified(bad, ORDER))
 
+    def test_native_replay_with_wrong_reverse_axis_cannot_qualify(self):
+        sess, tools = setup()
+        selected = candidate(ORDER, reverse=("B01",))
+        result = search_fast_feasible_sequence(
+            sess, tools,
+            planar_runner=lambda *a, **k: planar([selected]),
+            native_runner=lambda _s, _t, order, **kwargs: native_clear(order),
+        )
+        self.assertFalse(result.sampled_tool_clear)
+        self.assertIsNone(result.sequence)
+        self.assertEqual(result.status, FastSearchStatus.NATIVE_REJECTED)
+
     def test_rejected_first_candidate_backtracks_and_second_succeeds(self):
         sess, tools = setup()
         c1 = candidate(ORDER, reverse=("B02",))
@@ -121,7 +135,10 @@ class TestFastFeasibleSearch(unittest.TestCase):
                     "status": "COLLISION", "reason": "DIE",
                     "checked_bends": 1,
                 }
-            return native_clear(order)
+            return native_clear(order, reverse=(
+                bid for bid, value in kwargs["reverse_axis_by_bend"].items()
+                if value
+            ))
 
         result = search_fast_feasible_sequence(
             sess, tools, planar_runner=planar_runner,
@@ -158,7 +175,10 @@ class TestFastFeasibleSearch(unittest.TestCase):
 
         def replay(native_session, tools, order, **kwargs):
             calls.append(kwargs["reverse_axis_by_bend"])
-            return native_clear(order)
+            return native_clear(order, reverse=(
+                bid for bid, value in kwargs["reverse_axis_by_bend"].items()
+                if value
+            ))
 
         result = search_fast_feasible_sequence(
             sess, tools,
