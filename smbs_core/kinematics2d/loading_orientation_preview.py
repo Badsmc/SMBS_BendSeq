@@ -37,14 +37,15 @@ def plan_preview_loading_orientations(
 
     Computes each placement with previously completed bends *in an isolated
     FoldState*. The orientation maximising the operator-side projection
-    is preferred, provided it is more operator-friendly than the other by
-    the configured deadband. No geometric collision or rear stop is checked.
+    places the shorter projected side toward the rear gauge. A deadband can
+    suppress a gratuitous flip for nearly equal sides. No collision or
+    rear-stop contact is checked.
 
     The result should NEVER be interpreted as an approved setup. Only an
     explicit selected search candidate can supply checked 2D/CAD evidence.
     """
-    from .operation_cost import compute_workpiece_machine_setup
     from .panel_kinematics import FoldState
+    from .workpiece_placement_3d import WorkpiecePlacement3D
 
     if not isfinite(deadband_mm) or deadband_mm < 0:
         raise ValueError("nonnegative finite deadband required")
@@ -54,26 +55,47 @@ def plan_preview_loading_orientations(
         raise ValueError("unknown bend in playback order")
 
     isolated = FoldState(state.graph, state.fixed_panel)
+    complete_vertices = all(
+        len(panel_vertices_xy.get(panel_id, ())) >= 3
+        for panel_id in isolated.transforms
+    )
     result: list[LoadingOrientationPreview] = []
     for bend_id in order:
+        if not complete_vertices:
+            result.append(LoadingOrientationPreview(
+                bend_id, False, None, None, "UNVERIFIED_POSE_UNAVAILABLE",
+            ))
+            isolated.set_angle(bend_id, float(isolated.bends[bend_id].angle_deg))
+            continue
         zone = isolated.bends[bend_id].bend_zone
         z = float(zone.outer_radius_mm) if zone is not None else 0.0
         setups = []
         for reverse in (False, True):
             try:
-                setup = compute_workpiece_machine_setup(
+                # Match the actual 2D/3D playback pose. The operation-cost
+                # helper auto-orients the fixed panel toward the rear when
+                # passed vertices; that extra rotation changes the meaning
+                # of reverse_axis and can put the LONG side at +s/right.
+                placement = WorkpiecePlacement3D.compute_placement(
                     isolated, bend_id, support_plane_zm=z,
-                    align_bisector=False, reverse_axis=reverse,
-                    rear_panel_vertices_xy=panel_vertices_xy,
+                    align_bisector=True, align_bend_arc_center=True,
+                    reverse_axis=reverse,
                 )
             except (ValueError, TypeError, KeyError, AttributeError):
                 # An unavailable pose is NOT evidence that this orientation
                 # is physically obstructed. Keep the decision unverified.
                 continue
-            front, rear = setup.operator_reach_mm, setup.rear_reach_mm
-            if (setup.is_complete and front is not None and rear is not None
-                    and isfinite(front) and isfinite(rear)):
-                setups.append((reverse, float(front), float(rear)))
+            projected = [
+                -placement.apply(isolated.transforms[panel_id].point(
+                    (float(x), float(y), 0.0)
+                ))[1]
+                for panel_id, vertices in panel_vertices_xy.items()
+                if panel_id in isolated.transforms
+                for x, y in vertices
+            ]
+            if projected and all(isfinite(s) for s in projected):
+                setups.append((reverse, max(0.0, -min(projected)),
+                               max(0.0, max(projected))))
         if not setups:
             result.append(LoadingOrientationPreview(
                 bend_id, False, None, None, "UNVERIFIED_POSE_UNAVAILABLE",
@@ -90,7 +112,9 @@ def plan_preview_loading_orientations(
                 best = normal
             result.append(LoadingOrientationPreview(
                 bend_id, best[0], best[1], best[2],
-                "ERGONOMIC_ONLY_NOT_CAD_VALIDATED",
+                ("ERGONOMIC_ONLY_NOT_CAD_VALIDATED"
+                 if best[2] <= best[1] + 1e-4 else
+                 "UNVERIFIED_SHORT_REAR_POSE_UNAVAILABLE"),
             ))
         isolated.set_angle(bend_id, float(isolated.bends[bend_id].angle_deg))
     return tuple(result)

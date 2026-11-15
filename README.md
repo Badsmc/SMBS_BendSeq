@@ -1,6 +1,6 @@
 # SMBS — FreeCAD installation (experimental)
 
-This branch contains the installable FreeCAD runtime, real tooling models and reference parts. Its runtime was updated from `experiment/fast-search-lift-retract` at `0c6c0df` by explicit request. It remains an experimental preview, not a physically qualified production release.
+This branch contains the installable FreeCAD runtime, real tooling models and reference parts. It incorporates the tested runtime from `experiment/auto-short-side-orientation`, including the punch-assisted retract preview, shared 2D/3D loading orientation, and stationary 3D tooling. It remains an experimental preview, not a physically qualified production release.
 
 ## Branch roles
 
@@ -39,6 +39,12 @@ The fast mode currently checks the full native sheet and is not yet the proposed
 
 ## Current limitations
 
-An animated sequence, 2D search result, or sparse 3D check does **not** prove a physically feasible sequence. Continuous motion, backgauge, clamps, frame and transfer are not certified by the fast check. The observed B02 RETRACT punch overlap requires separate physical interpretation of the lift behavior; the program currently reports a collision. Fresh installation and native acceptance of this `smbs` snapshot remain outstanding. Do not use the preview as a certified press-brake plan.
+An animated sequence, 2D search result, or sparse 3D check does **not** prove a physically feasible sequence. Continuous motion, backgauge, clamps, frame and transfer are not certified by the fast check. The observed B02 RETRACT punch overlap remains a collision. Manual can inspect a sampled punch-assisted lift and display its assumed motion after the separate OCC probe, without changing that verdict. The 2D/3D viewer and stationary tooling have been checked in the experimental runtime on macOS; a full native acceptance run of this installable snapshot is still outstanding. Do not use the preview as a certified press-brake plan.
+
+## Shared machine preview
+
+The Manual 180° checkbox has been removed. Hand-selected orders automatically place the shorter projected side toward the rear gauge. A selected complete 2D search candidate retains the orientation actually evaluated by the search. Both 2D and 3D views and the Manual OCC checks use the same per-bend orientation. In the machine section, `+s` is the rear gauge on the right and `-s` is the operator on the left. Older FCStd snapshots with the checkbox recalculate their orientation when loaded.
+
+The 3D viewer displays the selected punch and die from the same machine-space profiles, positions, and configured lengths as the 2D tooling setup. The die stays on the machine bend axis at `s=0`, while the punch moves only vertically. The sheet placement brings each active bend to the tools. Multiple selected tool sections retain their machine-X offsets. This is a profile-extrusion preview; native collision checking uses the selected CAD solids.
 
 See [integration and release policy](https://github.com/Badsmc/SMBS_BendSeq/blob/main/BRANCH_ARCHITECTURE.md).

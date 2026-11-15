@@ -316,8 +316,13 @@ def machine_pose_for_cycle(
     pose = replace(pose, shift=(machine_s - pose.pivot[0], 0.0))
 
     shoulders = _die_shoulders_machine(tooling) if getattr(tooling, "aligned", False) else ()
+    lift = (cycle.assisted_retract_lift_mm()
+            if callable(getattr(cycle, "assisted_retract_lift_mm", None)) else 0.0)
     if shoulders:
-        return _two_shoulder_support(section, pose, shoulders)
+        supported = _two_shoulder_support(section, pose, shoulders)
+        return replace(supported,
+                       shift=(supported.shift[0], supported.shift[1] + lift),
+                       mode=supported.mode + ("_ASSUMED_PUNCH_LIFT_UNVERIFIED" if lift else ""))
 
     # No verified shoulders: preserve prior ram-only preview but explicitly
     # label missing real support. Never describe this as DIE_SUPPORTED.
@@ -329,8 +334,9 @@ def machine_pose_for_cycle(
         desired_top = contact_z
     zone_top = max(z for _s, z in pose.points(zone))
     return replace(
-        pose, shift=(pose.shift[0], desired_top - zone_top),
-        mode=pose.mode + "_DIE_SUPPORT_UNKNOWN_RAM_ONLY",
+        pose, shift=(pose.shift[0], desired_top - zone_top + lift),
+        mode=pose.mode + "_DIE_SUPPORT_UNKNOWN_RAM_ONLY"
+             + ("_ASSUMED_PUNCH_LIFT_UNVERIFIED" if lift else ""),
     )
 
 
