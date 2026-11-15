@@ -5430,7 +5430,7 @@ class _PreviewPanel:
                 self.status.setText("OCC: проверяется совместный подъём детали и пуансона...")
                 QtWidgets.QApplication.processEvents()
                 from smbs_core.kinematics2d.native_assisted_retract import (
-                    inspect_punch_assisted_retract,
+                    inspect_punch_assisted_retract, compare_preview_lift_bounds,
                 )
                 report = inspect_punch_assisted_retract(
                     self.session, self.tooling_setup, inspection["bend_id"],
@@ -5440,6 +5440,21 @@ class _PreviewPanel:
                     "SAMPLED_LIFT_CONDITIONAL_UNVERIFIED",
                     "SAMPLED_LIFT_WITHOUT_PENETRATION_UNVERIFIED",
                 )
+                if can_preview:
+                    from smbs_core.kinematics2d.coupled_kinematics_2d import (
+                        CoupledAirBendingKinematics,
+                    )
+                    bend_id = inspection["bend_id"]
+                    bend = self.session.fold_state.bends[bend_id]
+                    coupled = CoupledAirBendingKinematics.from_tooling_and_fold_state(
+                        self.tooling_setup, self.session.fold_state, bend_id,
+                    )
+                    alignment = compare_preview_lift_bounds(
+                        report, coupled, bend.angle_deg,
+                        self.cycle_config.initial_clearance_mm,
+                    )
+                    report["preview_alignment"] = alignment
+                    can_preview = alignment["matched"]
                 pc = self._ensure_press_cycle_controller()
                 if pc is not None:
                     pc.assisted_retract_preview_bends.discard(inspection["bend_id"])
@@ -5459,10 +5474,13 @@ class _PreviewPanel:
                     )
                 )
                 self.manual_lift_probe_hint.setText(
-                    "{} Показ условный: это предполагаемое сцепление, не "
+                    "{}{} Показ условный: это предполагаемое сцепление, не "
                     "подтверждение безопасности и не замена исходного COLLISION."
                     .format("Симуляция подъёма включена." if can_preview
-                            else "Симуляция подъёма отключена.")
+                            else "Симуляция подъёма отключена.",
+                            " Нижняя точка 2D и OCC не совпадает."
+                            if report.get("preview_alignment", {}).get("matched") is False
+                            else "")
                 )
                 self.manual_check_details.appendPlainText(
                     "\n{} — эксперимент подъёма: {}, {} поз; {}".format(
@@ -5937,6 +5955,10 @@ class _PreviewPanel:
                 """A deliberate checkbox change replaces every per-bend 2D pose."""
                 if self.session is None:
                     return
+                lift_was_active = bool(
+                    self.press_cycle is not None and
+                    self.press_cycle.assisted_retract_preview_bends
+                )
                 self._manual_orientation_order = tuple(self.session.bend_order)
                 self._manual_orientation_by_bend = {
                     bid: bool(_enabled) for bid in self._manual_orientation_order
@@ -5956,6 +5978,12 @@ class _PreviewPanel:
                         "Показать коллизию в 3D"
                     )
                 self._clear_manual_check_feedback()
+                if lift_was_active:
+                    self.status.setText(
+                        "Ориентация детали изменена: прежняя OCC-проверка "
+                        "подъёма больше не относится к этой установке. "
+                        "Подъём отключён; повторите проверку."
+                    )
                 self._physical_check_signature = None
                 self._ensure_press_cycle_controller()
                 if self.press_cycle is not None:

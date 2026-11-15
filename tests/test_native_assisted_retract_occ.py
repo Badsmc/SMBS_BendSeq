@@ -15,6 +15,32 @@ from smbs_core.kinematics2d.native_collision_3d import (
 
 @unittest.skipUnless(App is not None and Part is not None, "requires native FreeCAD")
 class NativeAssistedRetractTests(unittest.TestCase):
+    def test_selected_die_2d_stroke_matches_native_occ_kinematics(self):
+        from pathlib import Path
+        from types import SimpleNamespace
+        from smbs_core.kinematics2d.native_tool_loader import load_native_die
+        from smbs_core.kinematics2d.tooling_25d import ToolLibrary25D, ToolKind, ToolingSetup2D
+        from smbs_core.kinematics2d.coupled_kinematics_2d import CoupledAirBendingKinematics
+
+        library = Path(__file__).resolve().parents[1] / "toollibrary"
+        die_id = "T-DIE_AT_3015_88°_V12_H80"
+        punch_id = "PUNCH_AP_1017_88°_H104,65_R0,8"
+        native = load_native_die(library / "die" / (die_id + ".FCStd"),
+                                 virtual_length_mm=300)
+        profiles = ToolLibrary25D(library)
+        tooling = ToolingSetup2D()
+        tooling.die = profiles.load_tool(die_id, ToolKind.DIE)
+        tooling.punch = profiles.load_tool(punch_id, ToolKind.PUNCH)
+        state = SimpleNamespace(bends={"B02": SimpleNamespace(
+            angle_deg=90.0,
+            bend_zone=SimpleNamespace(thickness_mm=1.5, inner_radius_mm=1.0),
+        )})
+        coupled = CoupledAirBendingKinematics.from_tooling_and_fold_state(
+            tooling, state, "B02")
+        self.assertAlmostEqual(coupled.die_opening_v_mm,
+                               native.effective_v_opening_mm, places=5)
+        self.assertAlmostEqual(coupled.ram_z_for_angle(90), -3.492685, places=4)
+
     def test_exact_end_zone_overlap_remains_conditional(self):
         sheet = Part.makeBox(5, 2, 2, App.Vector(-50, 0, 0))
         punch = Part.makeBox(100, 2, 2, App.Vector(-50, 0, 0))

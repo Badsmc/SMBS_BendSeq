@@ -73,6 +73,12 @@ punch's rise from BOTTOM to the whole sheet rigid placement used by both
 2D and 3D previews; STEP_COMPLETE and the final frame retain that height.
 The next-bend transfer starts from the lifted pose. The simulation is an
 assumed kinematic illustration and retains the original COLLISION verdict.
+The 2D die kinematics now derives the effective opening from the same shoulder
+fillet centers measured by native OCC; for the selected AT3015 die the two
+paths both reach RAM BOTTOM near -3.492685 mm. Before enabling the animation,
+Manual also compares both RAM endpoints against the native replay within
+0.05 mm. A mismatch disables the preview and reports it instead of animating
+a different path.
 Changing inputs or starting another validation disables the experimental
 playback until the exact OCC probe is repeated.
 Testing the alternative path on the real B02 FCStd in FreeCAD remains necessary
