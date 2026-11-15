@@ -6,6 +6,7 @@ from smbs_core.kinematics2d.native_assisted_retract import (
     sample_synchronous_lift, inspect_punch_assisted_retract,
     eligible_assisted_retract,
     historic_lift_candidate,
+    sample_lateral_release,
 )
 
 
@@ -24,6 +25,31 @@ def result(punch="TOUCHING", die="CLEAR", conditional=False, zone="END_ZONE_ONLY
 
 
 class AssistedRetractTests(unittest.TestCase):
+    def test_release_samples_both_directions_and_never_certifies_clear(self):
+        box = lambda lo, hi: SimpleNamespace(YMin=lo, YMax=hi)
+        sheet = SimpleNamespace(BoundBox=box(0, 2), dy=0.0)
+        punch = SimpleNamespace(BoundBox=box(-2, 2))
+        die = SimpleNamespace(BoundBox=box(-2, 2))
+
+        def check(moved, _punch, _die):
+            if moved.dy < 0:
+                return result(punch="PENETRATION", zone="CENTRAL_ZONE")
+            if moved.dy == 0:
+                return result(punch="PENETRATION", conditional=True)
+            return result(punch="CLEAR" if moved.dy >= 2 else "TOUCHING")
+
+        report = sample_lateral_release(
+            sheet, punch, die,
+            translate_y=lambda shape, dy: SimpleNamespace(dy=dy),
+            check=check, samples=5,
+        )
+        self.assertEqual(report["status"], "SAMPLED_RELEASE_ROUTE_UNVERIFIED")
+        self.assertEqual(report["candidate_directions_y"], [1])
+        self.assertEqual(report["paths"][0]["status"], "SAMPLED_RELEASE_BLOCKED")
+        self.assertTrue(report["paths"][1]["samples"][0]["conditional_end_zone"])
+        self.assertFalse(report["continuous_certification"])
+        self.assertFalse(report["coupling_proven"])
+
     def setUp(self):
         self.calls = []
 

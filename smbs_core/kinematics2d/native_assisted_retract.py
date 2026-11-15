@@ -152,6 +152,91 @@ def sample_synchronous_lift(
             "continuous_certification": False}
 
 
+def sample_lateral_release(
+    raised_sheet: Any, raised_punch: Any, die: Any, *,
+    translate_y: Callable[[Any, float], Any],
+    check: Callable[[Any, Any, Any], Any],
+    samples: int = 5, max_time_s: float = 120.0,
+    margin_mm: float = 1.0,
+) -> dict:
+    """Explore both machine-Y withdrawal directions after the sampled lift.
+
+    Each endpoint separates the sheet's AABB from BOTH selected tools. The
+    intermediate exact OCC poses can reject a path, but never certify the
+    uninspected intervals or the operator's ability to hold the sheet.
+    """
+    if (not isinstance(samples, int) or samples < 2 or samples > 33
+            or not isfinite(max_time_s) or max_time_s <= 0
+            or not isfinite(margin_mm) or margin_mm <= 0):
+        raise ValueError("invalid_release_sampling_config")
+    boxes = [getattr(s, "BoundBox", None) for s in
+             (raised_sheet, raised_punch, die)]
+    if any(b is None for b in boxes):
+        raise ValueError("missing_release_bounding_box")
+    sheet_box, punch_box, die_box = boxes
+    started = perf_counter()
+    paths = []
+    for direction in (-1, 1):
+        distance = (sheet_box.YMax - min(punch_box.YMin, die_box.YMin) + margin_mm
+                    if direction == -1 else
+                    max(punch_box.YMax, die_box.YMax) - sheet_box.YMin + margin_mm)
+        if not isfinite(distance) or distance <= 0:
+            raise ValueError("invalid_release_distance")
+        records = []
+        status = "SAMPLED_RELEASE_ROUTE_UNVERIFIED"
+        for index in range(samples):
+            if index and perf_counter() - started >= max_time_s:
+                status = "UNVERIFIED_RELEASE_TIME_BUDGET"
+                break
+            fraction = index / (samples - 1)
+            offset = direction * distance * fraction
+            moved = translate_y(raised_sheet, offset)
+            result = check(moved, raised_punch, die)
+            punch = str(getattr(getattr(result.punch_result, "status", None),
+                                "value", getattr(result.punch_result, "status", "")))
+            lower = str(getattr(getattr(result.die_result, "status", None),
+                                "value", getattr(result.die_result, "status", "")))
+            zone = getattr(result, "punch_end_zone_analysis", None)
+            conditional = (
+                punch == "PENETRATION" and lower in ("CLEAR", "NEAR_CONTACT", "TOUCHING")
+                and getattr(result, "conditional_status", None) == "CONDITIONAL"
+                and getattr(result, "is_conditional_safe", False) is True
+                and getattr(getattr(zone, "classification", None), "value", None) == "END_ZONE_ONLY"
+            )
+            records.append({
+                "u": round(fraction, 6), "offset_y_mm": offset,
+                "punch": punch, "die": lower, "conditional_end_zone": conditional,
+                "punch_overlap_mm3": float(result.punch_result.overlap_volume_mm3),
+                "die_overlap_mm3": float(result.die_result.overlap_volume_mm3),
+            })
+            if (punch == "PENETRATION" and not conditional) or lower == "PENETRATION":
+                status = "SAMPLED_RELEASE_BLOCKED"
+                break
+            if (punch not in ("CLEAR", "NEAR_CONTACT", "TOUCHING") and not conditional
+                    or lower not in ("CLEAR", "NEAR_CONTACT", "TOUCHING")):
+                status = "UNVERIFIED_RELEASE_PAIR"
+                break
+        if status == "SAMPLED_RELEASE_ROUTE_UNVERIFIED" and (
+                len(records) != samples or records[-1]["punch"] != "CLEAR"
+                or records[-1]["die"] != "CLEAR"):
+            status = "UNVERIFIED_RELEASE_ENDPOINT"
+        paths.append({"direction_y": direction, "travel_mm": distance,
+                      "status": status, "samples": records})
+    viable = [p for p in paths if p["status"] == "SAMPLED_RELEASE_ROUTE_UNVERIFIED"]
+    return {
+        "status": ("SAMPLED_RELEASE_ROUTE_UNVERIFIED" if viable else
+                   "UNVERIFIED" if any(p["status"].startswith("UNVERIFIED") for p in paths)
+                   else "SAMPLED_RELEASE_BLOCKED_BOTH_DIRECTIONS"),
+        "candidate_directions_y": [p["direction_y"] for p in viable],
+        "paths": paths,
+        "withdrawal_checked": False,
+        "sampled_withdrawal_checked": all(len(p["samples"]) == samples for p in paths),
+        "continuous_certification": False,
+        "coupling_proven": False,
+        "reason": "discrete_OCC_positions_only;operator_grip_and_intervals_unverified",
+    }
+
+
 def inspect_punch_assisted_retract(
     session: Any, tooling: Any, bend_id: str, blocker: dict, retract: dict,
     *, samples: int = 9,
@@ -219,6 +304,76 @@ def inspect_punch_assisted_retract(
     except Exception as exc:
         base.update(status="UNVERIFIED", samples=[],
                     reason="assisted_retract_replay_failed:{}:{}".format(
+                        type(exc).__name__, str(exc)[:240]))
+    base["elapsed_s"] = round(perf_counter() - started, 4)
+    return base
+
+
+def inspect_lateral_release(
+    session: Any, tooling: Any, bend_id: str, blocker: dict,
+    lift_report: dict, *, samples: int = 5,
+) -> dict:
+    """Reconstruct the same native collision and sample release at upper RAM.
+
+    This does not change the original Manual COLLISION or prove a real grip.
+    """
+    started = perf_counter()
+    base = {"schema_version": "smbs.assisted_release_experiment.v1",
+            "bend_id": str(bend_id), "existing_verdict": "COLLISION",
+            "withdrawal_checked": False, "continuous_certification": False,
+            "coupling_proven": False}
+    try:
+        if (lift_report.get("bend_id") != str(bend_id) or
+                lift_report.get("status") not in (
+                    "SAMPLED_LIFT_CONDITIONAL_UNVERIFIED",
+                    "SAMPLED_LIFT_WITHOUT_PENETRATION_UNVERIFIED")):
+            raise ValueError("requires_current_sampled_lift")
+        import FreeCAD as App
+        from .native_collision_inspector import reconstruct_exact_collision
+        from .native_collision_3d import (
+            validate_workpiece_tooling_pose, EndZoneCollisionPolicy,
+        )
+        scene = reconstruct_exact_collision(
+            session, tooling, bend_id, blocker, include_components=False,
+        )
+        hit = float((blocker.get("sampled_machine_pose") or {})["ram_z_mm"])
+        upper = float(lift_report["upper_ram_z_mm"])
+        bottom = float(lift_report["bottom_ram_z_mm"])
+        if (abs(float(scene["pose"]["ram_z_mm"]) - hit) > 1e-6
+                or not all(isfinite(v) for v in (hit, upper, bottom))
+                or upper <= bottom):
+            raise ValueError("release_replay_pose_mismatch")
+
+        def translated(shape, dx=0.0, dy=0.0, dz=0.0):
+            copy = shape.copy()
+            copy.translate(App.Vector(dx, dy, dz))
+            return copy
+
+        raised_sheet = translated(scene["sheet"], dz=upper - bottom)
+        raised_punch = translated(scene["punch"], dz=upper - hit)
+        allow = bool(getattr(tooling, "allow_end_zone_collision", False))
+        length = float(getattr(tooling, "end_zone_length_mm", 0.0))
+        selected = lift_report.get("selected_end_zone_policy") or {}
+        if (not isfinite(length) or length < 0 or
+                selected.get("allow") != allow or
+                abs(float(selected["length_mm"]) - length) > 1e-6):
+            raise ValueError("release_end_zone_policy_changed")
+        policy = EndZoneCollisionPolicy(allow, length)
+
+        def check(sheet, punch, die):
+            return validate_workpiece_tooling_pose(
+                sheet, punch, die, end_zone_policy=policy,
+                classify_end_zone_length_mm=(length if length > 0 else 10.0),
+            )
+
+        base.update(sample_lateral_release(
+            raised_sheet, raised_punch, scene["die"],
+            translate_y=lambda shape, dy: translated(shape, dy=dy),
+            check=check, samples=samples,
+        ))
+    except Exception as exc:
+        base.update(status="UNVERIFIED", paths=[],
+                    reason="assisted_release_replay_failed:{}:{}".format(
                         type(exc).__name__, str(exc)[:240]))
     base["elapsed_s"] = round(perf_counter() - started, 4)
     return base
