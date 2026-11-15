@@ -981,8 +981,8 @@ class PressBrake2DCommand:
             widget.load_part(selection=selected, document=doc)
         show_workspace_controls(widget, tab=2)
         if getattr(widget._preview_3d, "_native", False):
-            # Quarter's C++ viewer is the document MDI window on this
-            # platform. Both windows must remain visible for operation.
+            # Native Coin3D is a separate temporary FreeCAD document
+            # window. Tile it beside SMBS controls for immediate access.
             window.showNormal()
             mdi.tileSubWindows()
         _log("Experimental PressBrakeSim GUI opened; original search engine retained")
@@ -5139,6 +5139,9 @@ class _PreviewPanel:
                 self._last_3d_frame_at = -1.0
                 self._coin_fold_mesh_key = None
                 self._coin_fold_mesh_faces = ()
+                # Reuse the dedicated simulation window, but discard every
+                # mesh and first-frame camera fit from the previous part.
+                self._preview_3d.clear_preview()
                 self.session = new_session
                 _desktop_debug_event(
                     "PART_GEOMETRY_LOADED",
