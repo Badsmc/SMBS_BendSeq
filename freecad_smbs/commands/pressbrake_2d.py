@@ -1891,6 +1891,7 @@ class _PreviewPanel:
                 self._orbit_pitch = 25.0
                 self._orbit_roll = 0.0
                 self._last_3d_frame_at = -1.0
+                self._last_3d_rendered_bend = None
                 self._last_3d_debug_at = -1.0
                 self._fixed_3d_view_rect = None
                 self._preview_3d_face_items = []
@@ -3032,8 +3033,23 @@ class _PreviewPanel:
                 # Rendering an already advanced state should never be skipped
                 # because two timer callbacks happened close together.
                 now = time.perf_counter()
+                # Keep 40 Hz timeline/physical state progression independent
+                # from expensive QGraphicsScene rendering. Limit the live 3D
+                # viewport to 30 Hz while playing; never discard an active
+                # bend transition, camera interaction or explicit refresh.
+                active_bend = (
+                    self.session.active_bend_id
+                    if self.session is not None else None
+                )
+                if (not force and self.timer.isActive()
+                        and not self._collision_display_active
+                        and active_bend == self._last_3d_rendered_bend
+                        and self._last_3d_frame_at >= 0.0
+                        and now - self._last_3d_frame_at < 1.0 / 30.0):
+                    return True
                 previous_frame_at = self._last_3d_frame_at
                 self._last_3d_frame_at = now
+                self._last_3d_rendered_bend = active_bend
                 scene = self._preview_3d_scene
                 if self._collision_display_active or not self._preview_3d_face_items:
                     scene.clear()
