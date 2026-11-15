@@ -23,6 +23,48 @@ class PreviewMeshError(ValueError):
     pass
 
 
+class _IdentityPlacement:
+    """World XYZ -> unchanged world XYZ (used for fold-mesh reuse)."""
+
+    def apply(self, point):
+        return point
+
+
+IDENTITY_PLACEMENT = _IdentityPlacement()
+
+
+def transform_preview_faces(faces, machine_placement):
+    """Apply one rigid placement to an already-folded sheet mesh.
+
+    Input geometry uses preview axes (-world Y, world X, world Z). Reconstruct
+    world XYZ, apply the authoritative machine placement exactly once, then
+    return preview axes (-machine Y, machine X, machine Z).
+
+    This allows APPROACH, RETRACT and TRANSFER to reuse local folded faces
+    while moving the entire workpiece. No geometry solver or OCC calls.
+    """
+    if machine_placement is None:
+        raise PreviewMeshError("machine placement is required")
+
+    def relocate(point):
+        s, depth, z = point
+        machine = machine_placement.apply(
+            (float(depth), -float(s), float(z))
+        )
+        out = (-float(machine[1]),
+               float(machine[0]),
+               float(machine[2]))
+        if not all(isfinite(value) for value in out):
+            raise PreviewMeshError("nonfinite transformed preview vertex")
+        return out
+
+    return tuple(PreviewFace3D(
+        tuple(relocate(v) for v in face.vertices),
+        face.kind, face.identifier,
+        tuple(tuple(relocate(v) for v in hole) for hole in face.holes),
+    ) for face in faces)
+
+
 def build_tool_preview_faces(tooling, *, arc_segments=20,
                              punch_ram_z_mm=None, preview_punch_length_mm=None):
     """Extrude the selected 2D machine profiles along the fixed machine X axis.
