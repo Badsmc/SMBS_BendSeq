@@ -1980,17 +1980,16 @@ class _PreviewPanel:
                     content.layout().setSizeConstraint(
                         QtWidgets.QLayout.SetNoConstraint
                     )
-                    page = QtWidgets.QScrollArea()
-                    page.setObjectName(name)
-                    page.setWidgetResizable(True)
-                    page.setFrameShape(QtWidgets.QFrame.NoFrame)
-                    page.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAsNeeded)
-                    page.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
-                    page.setMinimumSize(0, 0)
-                    page.setSizePolicy(QtWidgets.QSizePolicy.Preferred,
-                                       QtWidgets.QSizePolicy.Expanding)
-                    page.setWidget(content)
-                    return page
+                    # FreeCAD's native Tasks dock already provides its own
+                    # scrolling. A nested QScrollArea creates the unwanted
+                    # second scrollbar and steals wheel events from controls.
+                    content.setObjectName(name)
+                    content.setMinimumSize(0, 0)
+                    content.setSizePolicy(
+                        QtWidgets.QSizePolicy.Preferred,
+                        QtWidgets.QSizePolicy.Minimum
+                    )
+                    return content
 
                 # Main Task Panel uses the same 20/16px engineering card grid
                 # as the preview design. No duplicate playback/controller widgets.
@@ -2322,6 +2321,7 @@ class _PreviewPanel:
                 tool_main_layout.addRow("Die", self.select_die_combo)
                 # Keep diagnostics in the shared task status area, not
                 # as an extra paragraph below the two selectors.
+                self.tooling_status.setParent(self)
                 self.tooling_status.hide()
                 tool_import = QtWidgets.QWidget()
                 tool_import_layout = QtWidgets.QVBoxLayout(tool_import)
