@@ -113,7 +113,8 @@ def gauge_rear_envelope_from_section(section):
 
 
 def sequenced_gauge_envelopes(session, *, station_xm_mm=0.0,
-                              reverse_axis_by_bend=None):
+                              reverse_axis_by_bend=None,
+                              orientation_is_absolute=False):
     """Compute physical S/Z per bend before it is formed, in user bend order.
 
     Previous bends are at their final signed angles; the current and future
@@ -122,6 +123,9 @@ def sequenced_gauge_envelopes(session, *, station_xm_mm=0.0,
     This avoids mutating the playback, returning cumulative flat lengths,
     and hard-coding a thickness offset (which is wrong for +/-45 deg).
 
+    For shared viewer/OCC orientation maps set orientation_is_absolute=True:
+    that skips the older fixed-panel-to-rear normalization. The default
+    preserves older callers that use relative reverse_axis values.
     Returns (targets_by_bend, errors_by_bend) with values (S, Z) in mm.
     """
     from .panel_kinematics import FoldState
@@ -152,7 +156,10 @@ def sequenced_gauge_envelopes(session, *, station_xm_mm=0.0,
                 align_bisector=True,
                 align_bend_arc_center=True,
                 reverse_axis=bool(orientations.get(bend_id, False)),
-                rear_panel_vertices_xy=session.panel_vertices_xy,
+                rear_panel_vertices_xy=(
+                    None if orientation_is_absolute
+                    else session.panel_vertices_xy
+                ),
             )
             section = compute_machine_cutting_plane_section(
                 state, session.panel_vertices_xy, placement,

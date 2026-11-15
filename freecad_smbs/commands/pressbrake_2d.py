@@ -7528,6 +7528,7 @@ class _PreviewPanel:
                 values, errors = sequenced_gauge_envelopes(
                     session, station_xm_mm=model.cad_station_xm_mm,
                     reverse_axis_by_bend=orientations,
+                    orientation_is_absolute=True,
                 )
                 self._machine_gauge_envelope_cache = (key, values)
                 for bend_id, reason in errors.items():
