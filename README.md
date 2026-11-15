@@ -75,3 +75,10 @@ The first B02 macOS probe (before this Conditional fix) stopped at its BOTTOM
 pose on a 943.035 mm³ punch overlap, which the main validator had classified
 as Conditional end-zone contact. That first result did not test any rising
 pose. Repeat the probe with the updated runtime before interpreting B02 lift.
+If the original FCStd contains the saved B02 Manual report, reloading that
+document can enable just the experimental lift button without a new ten-bend
+run. Order, tool IDs, virtual length and end-zone settings must match the saved
+report. The diagnostic then rebuilds the current native sheet and tools and
+compares their exact collision Common to the saved B02 sample; any mismatch
+returns UNVERIFIED. Historical validation remains historical and cannot be
+promoted to a current full-check result by this replay.
