@@ -3880,6 +3880,30 @@ class _PreviewPanel:
                     self._manual_3d_verdicts.clear()
                     self._manual_retract_verdicts.clear()
                     self._clear_manual_check_feedback()
+                    native_step_lines = []
+                    for step in report.winning_steps:
+                        bid = str(step["bend_id"])
+                        self._manual_3d_verdicts[bid] = step["status"]
+                        retract = (step.get("retract") or {}).get(
+                            "status", "UNVERIFIED"
+                        )
+                        self._manual_retract_verdicts[bid] = retract
+                        native_step_lines.append(
+                            "{}. {} | {} | RETRACT: {} | punch/die: {}"
+                            .format(
+                                step.get("step_number", len(native_step_lines) + 1),
+                                bid,
+                                step["status"],
+                                retract,
+                                (step.get("punch_die_pair") or {}).get(
+                                    "status", "UNVERIFIED"
+                                ),
+                            )
+                        )
+                    self.manual_check_details.setPlainText(
+                        "\n".join(native_step_lines)
+                    )
+                    self.manual_check_details.show()
                     self._preview_only_planar_order = None
                     self._partial_preview_limit = 0
                     self._selected_planar_gauge_order = ()
