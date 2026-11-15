@@ -121,6 +121,7 @@ def create_coin_viewer(parent=None):
             self._native_view = None
             self._native_root = None
             self._native_doc = None
+            self._native_source_doc = None
             self._native_notice = None
             if self._native:
                 layout = QtWidgets.QVBoxLayout(self)
@@ -166,46 +167,110 @@ def create_coin_viewer(parent=None):
             self._last_faces = ()
 
         def attach_document(self, name):
-            """Attach ephemeral visualization to an existing FreeCAD 3D view.
+            """Create a dedicated temporary FreeCAD 3D document for animation.
 
-            Never mutate a Part Shape or add a document object. Keep the
-            scenegraph node independent from the FCStd serialization.
+            Do not insert Coin nodes into the source FCStd scenegraph. Each
+            simulation owns its separate native Inventor view and its single
+            ephemeral SoSeparator. This does not add model objects or save
+            anything to the source or temporary document.
             """
             if not self._native:
                 return
-            if self._native_doc == name and self._native_view is not None:
-                return
-            self.detach_document()
+            import FreeCAD as App
             import FreeCADGui as Gui
-            gui_doc = Gui.getDocument(str(name))
-            if gui_doc is None:
-                raise RuntimeError("Не найден 3D-документ FreeCAD: " + str(name))
-            view = gui_doc.activeView()
-            if view is None or not hasattr(view, "getSceneGraph"):
-                raise RuntimeError("В документе нет доступного Coin3D вида")
-            root = view.getSceneGraph()
-            if root is None:
-                raise RuntimeError("Coin3D scenegraph документа недоступен")
-            root.addChild(self._root)
-            self._native_doc = str(name)
-            self._native_view = view
-            self._native_root = root
-            self._initial_fit_done = False
-            self._native_notice.setText(
-                "3D-анимация: штатный вид FreeCAD документа «{}». "
-                "Рабочее окно с деталью должно быть видно рядом с SMBS."
-                .format(name)
-            )
+            source_name = str(name or "")
+            if not source_name or App.getDocument(source_name) is None:
+                raise RuntimeError("Исходный FCStd документ закрыт")
+            if self._native_doc is not None:
+                existing = App.getDocument(self._native_doc)
+                if (self._native_source_doc == source_name
+                        and existing is not None
+                        and self._native_root is not None):
+                    return
+                self.detach_document()
+
+            # A normal, empty document creates its own FreeCAD Coin3D MDI
+            # window; hidden documents cannot supply an interactive view.
+            # Reserve the prefix and avoid overriding any user's document.
+            number = 1
+            while App.getDocument("SMBS_Animation_{:02d}".format(number)):
+                number += 1
+            temporary_name = "SMBS_Animation_{:02d}".format(number)
+            created = None
+            root = None
+            try:
+                created = App.newDocument(temporary_name)
+                temporary_name = str(created.Name)
+                gui_doc = Gui.getDocument(temporary_name)
+                if gui_doc is None:
+                    raise RuntimeError(
+                        "FreeCAD не открыл временный 3D-документ"
+                    )
+                view = gui_doc.activeView()
+                if view is None or not hasattr(view, "getSceneGraph"):
+                    raise RuntimeError(
+                        "Временный документ не имеет Coin3D вида"
+                    )
+                root = view.getSceneGraph()
+                if root is None:
+                    raise RuntimeError(
+                        "Coin3D граф временного документа недоступен"
+                    )
+                root.addChild(self._root)
+                self._native_root = root
+                self._native_view = view
+                self._native_doc = temporary_name
+                self._native_source_doc = source_name
+                self._initial_fit_done = False
+                self._native_notice.setText(
+                    "3D-анимация открыта в отдельном окне FreeCAD: {}. "
+                    "Все движения и настройки остаются в SMBS; "
+                    "исходный FCStd не изменяется.".format(temporary_name)
+                )
+            except Exception:
+                if root is not None:
+                    try:
+                        root.removeChild(self._root)
+                    except (RuntimeError, AttributeError, ValueError):
+                        pass
+                if created is not None:
+                    try:
+                        App.closeDocument(temporary_name)
+                    except (RuntimeError, AttributeError):
+                        pass
+                raise
+            finally:
+                # FreeCAD makes newly created documents active. Restore the
+                # actual source so subsequent commands and Ctrl+S target FCStd.
+                try:
+                    if App.getDocument(source_name) is not None:
+                        App.setActiveDocument(source_name)
+                except (RuntimeError, AttributeError):
+                    pass
 
         def detach_document(self):
+            if not self._native:
+                return
             if self._native_root is not None:
                 try:
                     self._native_root.removeChild(self._root)
                 except (RuntimeError, AttributeError, ValueError):
                     pass
+            name = self._native_doc
+            source_name = self._native_source_doc
             self._native_root = None
             self._native_view = None
             self._native_doc = None
+            self._native_source_doc = None
+            if name:
+                import FreeCAD as App
+                try:
+                    # Only close a document that we created, never source.
+                    if name != source_name and App.getDocument(name) is not None:
+                        App.closeDocument(name)
+                finally:
+                    if source_name and App.getDocument(source_name) is not None:
+                        App.setActiveDocument(source_name)
 
         def release(self):
             self.detach_document()
