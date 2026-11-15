@@ -65,6 +65,14 @@ whether the orientation came from an explicit 2D candidate or the short-side
 heuristic. This installation choice does not prove rear-gauge contact,
 collision clearance, or a safe bend sequence.
 
+The 3D viewer draws the selected punch and die from the same machine-space
+profiles, transforms, and configured lengths used by the 2D tooling setup.
+Their transverse station is fixed at the machine bend axis (`s=0`), and the
+die remains at `z=0`; only the punch follows the ram's Z position. The sheet
+placement carries each bend to this stationary tooling. Multiple configured
+tool sections keep their machine-X offsets. These extruded profiles are a
+visual preview; native OCC collision checks still use the selected CAD solids.
+
 ## Experimental punch-assisted RETRACT (base branch)
 
 `experiment/punch-assisted-retract` starts from the `smbs` installation

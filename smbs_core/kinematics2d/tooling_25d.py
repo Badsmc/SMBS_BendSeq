@@ -2521,8 +2521,6 @@ class ToolingSetup2D:
 
         if cross_section is not None and cross_section.get("neutral_curve"):
             nc = cross_section["neutral_curve"]
-            mid_idx = len(nc) // 2
-            anchor_s = float(nc[mid_idx][0])
             resolved_bend_id = bend_id or cross_section.get("bend_id")
 
             # max(z) - min(z) is admissible ONLY as a verification for a known flat, properly oriented section
@@ -2539,8 +2537,12 @@ class ToolingSetup2D:
                             z_span, sheet_thickness,
                         )
         else:
-            anchor_s = 0.0
             resolved_bend_id = bend_id
+
+        # The placement moves each active bend line onto the stationary
+        # machine axis s=0. A midpoint sampled from the changing sheet arc
+        # is not a tooling station and can drift as the bend angle changes.
+        anchor_s = 0.0
 
         # Machine coordinate contract:
         # Die top shoulder plane is at Z_m = 0.0.

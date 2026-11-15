@@ -16,10 +16,81 @@ class PreviewFace3D:
     vertices: tuple
     kind: str
     identifier: str
+    holes: tuple = ()
 
 
 class PreviewMeshError(ValueError):
     pass
+
+
+def build_tool_preview_faces(tooling, *, arc_segments=20,
+                             punch_ram_z_mm=None):
+    """Extrude the selected 2D machine profiles along the fixed machine X axis.
+
+    The 2D viewer and press cycle own both profile transforms. In particular,
+    only set_punch_ram_z changes the punch's machine Z position. Coordinates
+    here use the sheet preview convention (s=-Y_m, depth=X_m, z=Z_m).
+    """
+    if not tooling.visible:
+        return ()
+    punch_delta = 0.0
+    if punch_ram_z_mm is not None:
+        punch_delta = float(punch_ram_z_mm) - float(tooling.ram_z_mm)
+        if not isfinite(punch_delta):
+            raise PreviewMeshError("nonfinite inspected punch position")
+    faces = []
+    for kind, profile, polygons, offsets in (
+        ("punch", tooling.punch, tooling.punch_polygons_machine,
+         tooling.punch_section_offsets_xm),
+        ("die", tooling.die, tooling.die_polygons_machine,
+         tooling.die_section_offsets_xm),
+    ):
+        if profile is None:
+            continue
+        length = (tooling.active_bend_length_mm
+                  if tooling.match_active_bend_length else profile.length_mm)
+        if (isinstance(length, bool) or not isinstance(length, (int, float))
+                or not isfinite(length) or length <= 0):
+            raise PreviewMeshError(kind + " has no verified preview length")
+        outline, holes = polygons(arc_segments=arc_segments)
+        if kind == "punch" and punch_delta:
+            outline = tuple((s, z + punch_delta) for s, z in outline)
+            holes = tuple(tuple((s, z + punch_delta) for s, z in hole)
+                          for hole in holes)
+        if len(outline) < 3:
+            raise PreviewMeshError(kind + " has no usable machine profile")
+        rings = (outline,) + tuple(holes)
+        if any(not all(isfinite(s) and isfinite(z) for s, z in ring)
+               for ring in rings):
+            raise PreviewMeshError(kind + " has nonfinite machine coordinates")
+        for offset in offsets or (0.0,):
+            near = float(offset) - float(length) / 2.0
+            far = float(offset) + float(length) / 2.0
+            if not isfinite(near) or not isfinite(far):
+                raise PreviewMeshError(kind + " has nonfinite machine station")
+
+            def at_depth(ring, depth):
+                return tuple((float(s), depth, float(z)) for s, z in ring)
+
+            for depth in (near, far):
+                faces.append(PreviewFace3D(
+                    at_depth(outline, depth), kind + "_cap",
+                    profile.tool_id,
+                    tuple(at_depth(hole, depth) for hole in holes),
+                ))
+            for ring in rings:
+                for index, point in enumerate(ring):
+                    following = ring[(index + 1) % len(ring)]
+                    if point == following:
+                        continue
+                    s0, z0 = point
+                    s1, z1 = following
+                    faces.append(PreviewFace3D(
+                        ((s0, near, z0), (s1, near, z1),
+                         (s1, far, z1), (s0, far, z0)),
+                        kind + "_side", profile.tool_id,
+                    ))
+    return tuple(faces)
 
 
 def build_sheet_preview_faces(
