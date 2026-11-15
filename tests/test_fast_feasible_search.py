@@ -152,6 +152,37 @@ class TestFastFeasibleSearch(unittest.TestCase):
             self.assertEqual(result.status, FastSearchStatus.NATIVE_REJECTED)
             self.assertIsNone(result.sequence)
 
+    def test_native_seed_can_override_incomplete_planar_screen(self):
+        sess, tools = setup()
+        calls = []
+
+        def replay(native_session, tools, order, **kwargs):
+            calls.append(kwargs["reverse_axis_by_bend"])
+            return native_clear(order)
+
+        result = search_fast_feasible_sequence(
+            sess, tools,
+            planar_runner=lambda *a, **k: planar(()),
+            native_runner=replay,
+            seed_order=ORDER,
+            seed_orientations={"B01": True, "B02": False, "B03": True},
+        )
+        self.assertTrue(result.sampled_tool_clear)
+        self.assertEqual(result.sequence, ORDER)
+        self.assertTrue(calls[0]["B01"])
+        self.assertFalse(result.machine_feasible_certified)
+
+    def test_incomplete_seed_cannot_enter_native_validation(self):
+        sess, tools = setup()
+        result = search_fast_feasible_sequence(
+            sess, tools,
+            planar_runner=lambda *a, **k: planar(()),
+            native_runner=lambda *a, **k: self.fail("bad seed must not replay"),
+            seed_order=ORDER,
+            seed_orientations={"B01": True},
+        )
+        self.assertEqual(result.status, FastSearchStatus.NO_2D_CANDIDATES)
+
     def test_no_2d_candidate_does_not_assert_impossibility(self):
         sess, tools = setup()
         result = search_fast_feasible_sequence(
