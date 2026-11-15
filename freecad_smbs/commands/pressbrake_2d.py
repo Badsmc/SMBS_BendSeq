@@ -3116,10 +3116,34 @@ class _PreviewPanel:
                             raise PreviewMeshError(
                                 "native punch height unavailable"
                             )
+                        # Only the visual single-piece punch is trimmed
+                        # to the current bend line. Native collision tooling
+                        # stays untouched. Physical multi-section setups
+                        # retain their actual section lengths/positions.
+                        preview_length = None
+                        if (not inspection
+                                and self.tooling_setup.punch is not None
+                                and not self.tooling_setup.punch_section_offsets_xm):
+                            bend_length = self._active_bend_length_mm()
+                            if math.isfinite(bend_length) and bend_length > 0:
+                                preview_length = bend_length
                         faces += build_tool_preview_faces(
                             self.tooling_setup,
                             punch_ram_z_mm=inspected_ram_z,
+                            preview_punch_length_mm=preview_length,
                         )
+                        if (preview_length is not None
+                                and not self.tooling_setup.match_active_bend_length
+                                and self.tooling_setup.punch is not None
+                                and abs(float(self.tooling_setup.punch.length_mm)
+                                        - preview_length) > 0.001):
+                            tool_warning = (
+                                "Пуансон показан по длине гиба {:.1f} мм "
+                                "(только визуально; OCC использует {:.1f} мм)"
+                            ).format(
+                                preview_length,
+                                float(self.tooling_setup.punch.length_mm),
+                            )
                     except PreviewMeshError as exc:
                         tool_warning = str(exc)
                 except (PreviewMeshError, WorkpiecePoseError,
