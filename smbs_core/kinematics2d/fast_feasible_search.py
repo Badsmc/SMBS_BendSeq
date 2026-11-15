@@ -57,6 +57,7 @@ class FastSequenceResult:
     orientation_by_bend: tuple[tuple[str, bool], ...]
     planar_candidates: tuple[tuple[str, ...], ...]
     attempts: tuple[FastNativeAttempt, ...]
+    winning_steps: tuple[dict, ...]
     elapsed_s: float
     budget_s: float
     planar_elapsed_s: float
@@ -87,6 +88,7 @@ class FastSequenceResult:
             "orientation_by_bend": dict(self.orientation_by_bend),
             "planar_candidates": [list(x) for x in self.planar_candidates],
             "attempts": [a.to_dict() for a in self.attempts],
+            "winning_steps": [dict(item) for item in self.winning_steps],
             "elapsed_s": round(self.elapsed_s, 4),
             "time_budget_s": self.budget_s,
             "deadline_exceeded": self.deadline_exceeded,
@@ -194,7 +196,8 @@ def search_fast_feasible_sequence(
     started = clock()
 
     def result(status, sequence=None, orientations=(), candidates=(),
-               attempts=(), planar_elapsed=0.0, planar_status="NOT_RUN",
+               attempts=(), winning_steps=(), planar_elapsed=0.0,
+               planar_status="NOT_RUN",
                planar_limit="", deepest=(), message=""):
         return FastSequenceResult(
             status=status,
@@ -202,6 +205,7 @@ def search_fast_feasible_sequence(
             orientation_by_bend=tuple(orientations),
             planar_candidates=tuple(candidates),
             attempts=tuple(attempts),
+            winning_steps=tuple(winning_steps),
             elapsed_s=max(0.0, clock() - started),
             budget_s=float(budget_s),
             planar_elapsed_s=float(planar_elapsed),
@@ -377,7 +381,8 @@ def search_fast_feasible_sequence(
             return result(
                 FastSearchStatus.SAMPLED_TOOL_CLEAR, sequence=seq,
                 orientations=orientation, candidates=available_sequences,
-                attempts=attempts, planar_elapsed=planar_elapsed,
+                attempts=attempts, winning_steps=tuple(native["steps"]),
+                planar_elapsed=planar_elapsed,
                 planar_status=planar_status, planar_limit=planar_limit,
                 deepest=deepest,
                 message="Найден полный порядок: проверены выборочные 3D траектории с реальными пуансоном и матрицей. Непрерывность, упор, рама, зажимы и перекладки не подтверждены.",
