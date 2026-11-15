@@ -923,6 +923,12 @@ def close_workspace_controls(workspace):
     _desktop_debug_event("TASKS_CLOSE_REQUESTED")
 
 
+def _has_loaded_part():
+    """Single prerequisite for commands following the Detail action."""
+    workspace = get_workspace_widget()
+    return bool(workspace is not None and workspace.session is not None)
+
+
 class PressBrake2DCommand:
     def GetResources(self):
         return {
@@ -932,7 +938,7 @@ class PressBrake2DCommand:
         }
 
     def IsActive(self):
-        return True
+        return _has_loaded_part()
 
     def Activated(self):
         import FreeCADGui as Gui
@@ -988,21 +994,32 @@ class LoadPartCommand:
         return True
 
     def Activated(self):
+        import FreeCAD as App
+        import FreeCADGui as Gui
         doc, selection = _selection_snapshot()
+        try:
+            resolve_selected_unfold(doc, selection)
+        except (SelectionWarning, AttributeError, TypeError, ValueError) as exc:
+            message = "Выберите развёртку SheetMetal: " + str(exc)
+            App.Console.PrintWarning(message + "\\n")
+            workspace = get_workspace_widget()
+            if workspace is not None:
+                workspace.status.setText(message)
+            return
+
         workspace = get_workspace_widget()
-        created = workspace is None
-        if created:
+        if workspace is None:
+            # Bootstrap the viewer only AFTER validating the selection.
+            # PressBrake2DCommand loads this same valid selection once.
             PressBrake2DCommand().Activated()
             workspace = get_workspace_widget()
-        if workspace is None:
-            raise RuntimeError("PressBrakeSim viewer did not open")
-        if not created and doc is not None and selection:
-            try:
-                if resolve_selected_unfold(doc, selection):
-                    workspace.load_part(selection=selection, document=doc)
-            except (SelectionWarning, AttributeError, TypeError, ValueError, ImportError):
-                pass
+        else:
+            workspace.load_part(selection=selection, document=doc)
+        if workspace is None or workspace.session is None:
+            App.Console.PrintWarning("SMBS: деталь не загружена.\\n")
+            return
         show_workspace_controls(workspace, 0)
+        Gui.updateGui()
 
 
 class ToolingTabCommand:
@@ -1014,7 +1031,7 @@ class ToolingTabCommand:
         }
 
     def IsActive(self):
-        return True
+        return _has_loaded_part()
 
     def Activated(self):
         workspace = get_workspace_widget()
@@ -1034,7 +1051,7 @@ class CalculateCommand:
         }
 
     def IsActive(self):
-        return True
+        return _has_loaded_part()
 
     def Activated(self):
         workspace = get_workspace_widget()
@@ -1057,7 +1074,7 @@ class BackgaugeCommand:
         }
 
     def IsActive(self):
-        return True
+        return _has_loaded_part()
 
     def Activated(self):
         workspace = get_workspace_widget()
@@ -1078,7 +1095,7 @@ class SequenceCatalogCommand:
         }
 
     def IsActive(self):
-        return True
+        return _has_loaded_part()
 
     def Activated(self):
         workspace = get_workspace_widget()
@@ -1121,7 +1138,7 @@ class SettingsCommand:
         }
 
     def IsActive(self):
-        return True
+        return _has_loaded_part()
 
     def Activated(self):
         workspace = get_workspace_widget()
@@ -1142,7 +1159,7 @@ class PlanarCandidatesCommand:
         }
 
     def IsActive(self):
-        return True
+        return _has_loaded_part()
 
     def Activated(self):
         workspace = get_workspace_widget()
@@ -5260,6 +5277,9 @@ class _PreviewPanel:
                         str(self.session.part_label or "SheetMetal")
                     )
                 self._update_task_progress()
+                # Refresh native FreeCAD command availability once a real
+                # SheetMetal part is committed, not on mere selection.
+                Gui.updateGui()
                 self.draw()
                 self._draw_flat_pattern(reset_camera=True)
                 if self._viewer_tabs.currentIndex() == 1:
