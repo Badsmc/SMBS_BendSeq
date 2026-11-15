@@ -3111,9 +3111,6 @@ class _PreviewPanel:
                 if self.session is None:
                     self._preview_3d.clear_preview()
                     return True
-                # macOS FreeCAD may not expose pivy.quarter; native mode
-                # inserts the Coin scene into the document's existing view.
-                self._preview_3d.attach_document(self._smbs_document_name)
                 if (not force and hasattr(self, "_viewer_tabs")
                         and self._viewer_tabs.currentIndex() != 1):
                     return True
@@ -3133,6 +3130,13 @@ class _PreviewPanel:
                     if self._collision_display_active else None
                 )
                 try:
+                    # macOS FreeCAD can expose Coin through the document's
+                    # C++ viewer without exposing pivy.quarter. Attach only
+                    # after a valid document is loaded; catch failures and
+                    # report a precise error instead of breaking Part Load.
+                    self._preview_3d.attach_document(
+                        self._smbs_document_name
+                    )
                     inspected_ram_z = None
                     highlighted = set()
                     bounds = []
