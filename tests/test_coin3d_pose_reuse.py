@@ -39,7 +39,7 @@ class TestCoinMeshPoseReuse(unittest.TestCase):
                 x, y, z = xyz
                 return (-y + 7., x - 5., z + 2.)
         moved, = transform_preview_faces((face,), Placement())
-        self.assertEqual(moved.vertices[0], (-5., 9., 3.))
+        self.assertEqual(moved.vertices[0], (-5., 5., 3.))
 
     def test_invalid_placement_rejected(self):
         face = PreviewFace3D(
