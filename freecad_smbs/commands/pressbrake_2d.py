@@ -1208,10 +1208,31 @@ class _PreviewPanel:
                 scene = self.scene()
                 if scene is None or scene.sceneRect().isEmpty():
                     return
-                self._user_camera_modified = False
                 self._zoom_steps = 0.0
                 self.resetTransform()
                 self.fitInView(scene.sceneRect(), QtCore.Qt.KeepAspectRatio)
+                # Explicit Fit establishes a new camera selected by the user.
+                # Never auto-fit it again during bending or a viewport resize.
+                self._user_camera_modified = True
+
+            def update_scene_bounds(self, bounds):
+                """Update content bounds without recentering an operator-set view.
+
+                QGraphicsView scroll ranges are derived from sceneRect; making
+                them smaller can silently clamp a panned camera. Preserve the
+                existing extent and viewport centre after manual navigation.
+                """
+                scene = self.scene()
+                if scene is None:
+                    return
+                if self._user_camera_modified:
+                    center = self.mapToScene(self.viewport().rect().center())
+                    previous = scene.sceneRect()
+                    scene.setSceneRect(previous.united(bounds) if
+                                       not previous.isEmpty() else bounds)
+                    self.centerOn(center)
+                else:
+                    scene.setSceneRect(bounds)
 
             def wheelEvent(self, event):
                 delta = event.angleDelta().y()
@@ -1283,6 +1304,7 @@ class _PreviewPanel:
                     self._last_drag_pos = pos
                     roll = bool(event.modifiers() & QtCore.Qt.ShiftModifier)
                     if delta.x() or delta.y():
+                        self._user_camera_modified = True
                         self._orbit_callback(delta.x(), delta.y(), roll)
                     event.accept()
                     return
@@ -3358,10 +3380,15 @@ class _PreviewPanel:
                     self._fixed_3d_view_rect = QtCore.QRectF(
                         -extent, -extent - 25.0, 2 * extent, 2 * extent + 25.0,
                     )
-                    scene.setSceneRect(self._fixed_3d_view_rect)
-                    self._preview_3d.reset_camera()
+                    self._preview_3d.update_scene_bounds(
+                        self._fixed_3d_view_rect
+                    )
+                    if not self._preview_3d._user_camera_modified:
+                        self._preview_3d.reset_camera()
                 else:
-                    scene.setSceneRect(self._fixed_3d_view_rect)
+                    self._preview_3d.update_scene_bounds(
+                        self._fixed_3d_view_rect
+                    )
                 if (self.timer.isActive()
                         and (self._last_3d_debug_at < 0.0
                              or now - self._last_3d_debug_at >= 0.2)):
@@ -4778,7 +4805,7 @@ class _PreviewPanel:
                 self._refresh_tooling_combos()
                 self._update_tooling_status_label()
                 self.draw()
-                QtCore.QTimer.singleShot(0, self.fit)
+                # Camera stays fixed; use the explicit Fit control to reframe.
 
             def select_die(self, die: ToolProfile | None):
                 self._manual_3d_verdicts.clear()
@@ -4806,7 +4833,7 @@ class _PreviewPanel:
                 self._refresh_tooling_combos()
                 self._update_tooling_status_label()
                 self.draw()
-                QtCore.QTimer.singleShot(0, self.fit)
+                # Camera stays fixed; use the explicit Fit control to reframe.
 
             def _on_punch_combo_changed(self, _index: int):
                 self.select_punch_from_combo()
@@ -4858,19 +4885,19 @@ class _PreviewPanel:
                     )
                 )
                 self.draw()
-                QtCore.QTimer.singleShot(0, self.fit)
+                # Camera stays fixed; use the explicit Fit control to reframe.
 
             def reset_tooling_position(self):
                 self.tooling_setup.reset_position()
                 self._update_tooling_status_label()
                 self.draw()
-                QtCore.QTimer.singleShot(0, self.fit)
+                # Camera stays fixed; use the explicit Fit control to reframe.
 
             def toggle_tooling_visibility(self):
                 self.tooling_setup.visible = not self.tooling_setup.visible
                 self._update_tooling_status_label()
                 self.draw()
-                QtCore.QTimer.singleShot(0, self.fit)
+                # Camera stays fixed; use the explicit Fit control to reframe.
 
             def import_tool_file(
                 self,
@@ -5237,7 +5264,11 @@ class _PreviewPanel:
                 self._draw_flat_pattern(reset_camera=True)
                 if self._viewer_tabs.currentIndex() == 1:
                     self._update_3d_preview()
-                QtCore.QTimer.singleShot(0, self.fit)
+                # A newly loaded part may need a first framing, but never
+                # override manual pan/zoom/orbit in either viewer.
+                if not (self._preview_3d if self._viewer_tabs.currentIndex() == 1
+                        else self.view)._user_camera_modified:
+                    QtCore.QTimer.singleShot(0, self.fit)
 
             def _bound_smbs_document(self):
                 """Never write SMBS data into a different active FCStd tab."""
@@ -6677,7 +6708,7 @@ class _PreviewPanel:
                     "коллизии с пуансоном, матрицей, упором и станком не проверены."
                 )
                 self.draw()
-                QtCore.QTimer.singleShot(0, self.fit)
+                # Camera stays fixed; use the explicit Fit control to reframe.
                 self.play_all()
                 if self.session.playback_status == PlaybackStatus.PLAYING:
                     scope = (
@@ -6885,8 +6916,8 @@ class _PreviewPanel:
                     label.setFlag(QtWidgets.QGraphicsItem.ItemIgnoresTransformations)
                     label.setPos(mx, my)
                 bounds = scene.itemsBoundingRect().adjusted(-10, -10, 10, 10)
-                scene.setSceneRect(bounds)
-                if reset_camera:
+                self._flat_view.update_scene_bounds(bounds)
+                if reset_camera and not self._flat_view._user_camera_modified:
                     self._flat_view.reset_camera()
 
             def _format_operation_row(self, idx: int, b) -> tuple[str, str, str, str, str, str, str, str]:
@@ -7060,7 +7091,7 @@ class _PreviewPanel:
                 self._configure_for_active_bend()
                 self._update_tooling_status_label()
                 self.draw()
-                QtCore.QTimer.singleShot(0, self.fit)
+                # Camera stays fixed; use the explicit Fit control to reframe.
 
             def _on_slider_changed(self, slider_val: int):
                 if self.session is None:
@@ -7311,7 +7342,7 @@ class _PreviewPanel:
                 self._configure_for_active_bend()
                 self._update_tooling_status_label()
                 self.draw()
-                QtCore.QTimer.singleShot(0, self.fit)
+                # Camera stays fixed; use the explicit Fit control to reframe.
 
             def previous_step(self):
                 if self.session is None:
@@ -7331,7 +7362,7 @@ class _PreviewPanel:
                 self._configure_for_active_bend()
                 self._update_tooling_status_label()
                 self.draw()
-                QtCore.QTimer.singleShot(0, self.fit)
+                # Camera stays fixed; use the explicit Fit control to reframe.
 
             def advance(self):
                 """One Qt tick drives exactly one sequencer/cycle advance."""
@@ -7435,7 +7466,7 @@ class _PreviewPanel:
                         return
                     if (self.execution_mode != CycleExecutionMode.FULL_CYCLE
                             and self.session.active_bend_index != previous_bend):
-                        QtCore.QTimer.singleShot(0, self.fit)
+                        # Camera stays fixed; use the explicit Fit control to reframe.
                     if self.session.playback_status == PlaybackStatus.COMPLETED:
                         self._stop_timer()
                         self._last_3d_frame_at = -1.0
@@ -8024,11 +8055,13 @@ class _PreviewPanel:
                             )
                             rx, ry, rw, rh = self.last_scene_bounds.view_rect
                             if self._locked_25d_scene_rect is not None:
-                                self.scene.setSceneRect(
+                                self.view.update_scene_bounds(
                                     self._locked_25d_scene_rect
                                 )
                             else:
-                                self.scene.setSceneRect(rx, ry, rw, rh)
+                                self.view.update_scene_bounds(
+                                    QtCore.QRectF(rx, ry, rw, rh)
+                                )
                             return
 
                         # sec is now in Machine Coordinates; do not apply the
@@ -8157,9 +8190,13 @@ class _PreviewPanel:
                     # to jump even when its world-space points were continuous.
                     if self._locked_25d_scene_rect is not None:
                         # Preserve bounds on the last frame after the timer stops.
-                        self.scene.setSceneRect(self._locked_25d_scene_rect)
+                        self.view.update_scene_bounds(
+                            self._locked_25d_scene_rect
+                        )
                     else:
-                        self.scene.setSceneRect(rx, ry, rw, rh)
+                        self.view.update_scene_bounds(
+                            QtCore.QRectF(rx, ry, rw, rh)
+                        )
                     if self.session is not None:
                         self._trace_drawn_frame(
                             sec, pose, pose_warning,
