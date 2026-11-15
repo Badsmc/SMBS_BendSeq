@@ -1,0 +1,23 @@
+name: Assisted retract experiment
+
+on:
+  push:
+    branches: [experiment/punch-assisted-retract]
+  pull_request:
+    paths:
+      - 'smbs_core/kinematics2d/native_assisted_retract.py'
+      - 'smbs_core/kinematics2d/native_collision_inspector.py'
+      - 'tests/test_native_assisted_retract*.py'
+
+jobs:
+  headless:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Test conservative lift reports
+        run: python -m unittest discover -s tests -q
+      - name: Compile runtime
+        run: python -m compileall -q Init.py InitGui.py freecad_smbs smbs_core

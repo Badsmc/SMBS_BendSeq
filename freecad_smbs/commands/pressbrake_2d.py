@@ -2188,8 +2188,22 @@ class _PreviewPanel:
                 )
                 self.manual_exact_occ_btn.setEnabled(False)
                 self.manual_exact_occ_btn.hide()
+                self.manual_lift_probe_btn = style_action(
+                    QtWidgets.QPushButton("Исследовать подъём детали с пуансоном"),
+                    compact=True,
+                )
+                self.manual_lift_probe_btn.setObjectName("SMBS_ManualAssistedRetractProbe")
+                self.manual_lift_probe_btn.setToolTip(
+                    "Эксперимент: проверяет несколько OCC-поз при совместном подъёме. "
+                    "Не доказывает зацепление, непрерывный путь или возможность вынуть деталь. "
+                    "Исходная коллизия остаётся в результате проверки."
+                )
+                self.manual_lift_probe_btn.clicked.connect(self._inspect_assisted_retract)
+                self.manual_lift_probe_btn.setEnabled(False)
+                self.manual_lift_probe_btn.hide()
                 order_body.addWidget(self.manual_show_collision_btn)
                 order_body.addWidget(self.manual_exact_occ_btn)
+                order_body.addWidget(self.manual_lift_probe_btn)
                 self._manual_preview_help = QtWidgets.QLabel(
                     "Симуляция не проверяет коллизии. Быстрая OCC проверка "
                     "ищет точное 3D пересечение в пяти углах. Полная 3D проверка "
@@ -5131,6 +5145,9 @@ class _PreviewPanel:
                 if hasattr(self, "manual_exact_occ_btn"):
                     self.manual_exact_occ_btn.setEnabled(False)
                     self.manual_exact_occ_btn.hide()
+                if hasattr(self, "manual_lift_probe_btn"):
+                    self.manual_lift_probe_btn.setEnabled(False)
+                    self.manual_lift_probe_btn.hide()
 
             def _show_manual_check_feedback(self, status, summary, steps=()):
                 """Show native check result in Manual, including the failed bend."""
@@ -5321,13 +5338,9 @@ class _PreviewPanel:
                     "в диагностике Manual."
                 )
 
-            def _open_exact_collision_inspector(self):
-                """Open a separate native FreeCAD scene with actual OCC solids."""
-                inspection = self._collision_inspection
+            def _native_collision_identity_matches(self, inspection):
+                """Refuse a stale native pose after any tooling/orientation edit."""
                 if self.session is None or inspection is None:
-                    self.status.setText(
-                        "Нет подтверждённого native 3D-пересечения для осмотра."
-                    )
                     return False
                 expected = inspection.get("tooling_identity") or {}
                 current = {
@@ -5368,6 +5381,50 @@ class _PreviewPanel:
                         "MANUAL_EXACT_OCC_INSPECTION_STALE_TOOLING",
                         bend_id=inspection.get("bend_id"),
                         expected=expected, current=current,
+                    )
+                    return False
+                return True
+
+            def _inspect_assisted_retract(self):
+                """Inspect an alternative lift path without changing validation."""
+                inspection = self._collision_inspection
+                if not self._native_collision_identity_matches(inspection):
+                    self.status.setText(
+                        "Оснастка или положение изменились. Повторите 3D-проверку."
+                    )
+                    return False
+                self._stop_timer()
+                self.status.setText("OCC: проверяется совместный подъём детали и пуансона...")
+                QtWidgets.QApplication.processEvents()
+                from smbs_core.kinematics2d.native_assisted_retract import (
+                    inspect_punch_assisted_retract,
+                )
+                report = inspect_punch_assisted_retract(
+                    self.session, self.tooling_setup, inspection["bend_id"],
+                    inspection["first_blocker"], inspection["retract"],
+                )
+                _desktop_debug_event("MANUAL_ASSISTED_RETRACT_EXPERIMENT", result=report)
+                self.status.setText(
+                    "Подъём: {}. Проверено поз: {}. Исходная коллизия сохраняется; "
+                    "зацепление и вывод детали не проверены.".format(
+                        report["status"], len(report["samples"])
+                    )
+                )
+                self.manual_check_details.appendPlainText(
+                    "\n{} — эксперимент подъёма: {}, {} поз; {}".format(
+                        inspection["bend_id"], report["status"],
+                        len(report["samples"]), report["reason"]
+                    )
+                )
+                self.manual_check_details.show()
+                return report
+
+            def _open_exact_collision_inspector(self):
+                """Open a separate native FreeCAD scene with actual OCC solids."""
+                inspection = self._collision_inspection
+                if not self._native_collision_identity_matches(inspection):
+                    self.status.setText(
+                        "Нет актуального native 3D-пересечения для осмотра."
                     )
                     return False
                 self._stop_timer()
@@ -6002,6 +6059,8 @@ class _PreviewPanel:
                     )
                     self._collision_inspection = None
                     self._collision_display_active = False
+                    self.manual_lift_probe_btn.setEnabled(False)
+                    self.manual_lift_probe_btn.hide()
                     self.manual_show_collision_btn.setText(
                         "Показать коллизию в 3D"
                     )
@@ -6030,6 +6089,7 @@ class _PreviewPanel:
                             self._collision_inspection = {
                                 "bend_id": step["bend_id"],
                                 "first_blocker": step["first_blocker"],
+                                "retract": step.get("retract") or {},
                                 "tooling_identity": native_tooling_identity,
                             }
                         self._manual_3d_verdicts[step["bend_id"]] = (
@@ -6045,11 +6105,18 @@ class _PreviewPanel:
                         self.manual_show_collision_btn.show()
                         self.manual_exact_occ_btn.setEnabled(True)
                         self.manual_exact_occ_btn.show()
+                        lift_hit = self._collision_inspection["first_blocker"]
+                        can_lift = (lift_hit.get("phase") == "RETRACT"
+                                    and lift_hit.get("tool") == "PUNCH")
+                        self.manual_lift_probe_btn.setEnabled(can_lift)
+                        self.manual_lift_probe_btn.setVisible(can_lift)
                     else:
                         self.manual_show_collision_btn.setEnabled(False)
                         self.manual_show_collision_btn.hide()
                         self.manual_exact_occ_btn.setEnabled(False)
                         self.manual_exact_occ_btn.hide()
+                        self.manual_lift_probe_btn.setEnabled(False)
+                        self.manual_lift_probe_btn.hide()
                     self._populate_operations()
 
                     # Keep two independent geometric evidence streams and
