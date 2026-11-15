@@ -135,3 +135,9 @@ Unverified/pending:
 - Full installed FreeCAD GUI acceptance (macOS 1.1 and Windows) especially disabled toolbar refresh after Detail, FreeCAD native Tasks form scrolling and reopen, long content layout, no destroyed tooling labels, Ctrl+S staging, source BRep checksum, restore and archived order selection.
 - Automated tests are authored but **not executed** here; neither the code checkout nor a FreeCAD/PySide runtime is available in this execution environment. GitHub did not report combined CI status checks for the inspected commit.
 - Extra items requested under 'all other necessary information' should be added through explicit schema migration after the core persistence round-trip is verified; do not serialize transient full geometry or assume stale validations are current.
+
+## Startup-blocking indentation regression — fixed (2026-11-15)
+- User-provided macOS traceback from installed `...simulation-gui-polish-5` resolves the import to `freecad_smbs/commands/pressbrake_2d.py` line 7613: a conditional was left containing only a comment when a scheduled camera Fit call was removed. Python ignores comments as executable block bodies, producing `IndentationError`.
+- Removed the empty conditional entirely, preserving the intended no-auto-fit behavior. Source module already imports `pathlib.Path`: the initial FreeCAD `name 'Path' is not defined` startup line did **not** identify this confirmed error, which is now diagnosed from the full traceback.
+- Added a headless `ast.parse` regression test for root GUI entrypoints and the 8k-line simulator module: `tests/test_gui_source_syntax.py`. Test authored but not executed here. Future changes MUST pass source compilation before committing; test imports should not depend on running FreeCAD.
+- Reinstall latest branch or pull code into the **actual installed folder** and restart FreeCAD before retesting. A new ZIP numbered -6 is not evidence of loading the new commit.
