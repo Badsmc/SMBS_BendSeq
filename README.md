@@ -53,6 +53,10 @@ evaluated by that search. Both 2D and 3D previews use the same machine
 placement; the Manual quick/full OCC checks and the single-bend native
 trajectory receive the same per-bend map. The previous second rear-frame
 auto-flip in the viewer is disabled.
+Machine section convention: `+s` is right/rear gauge, `-s` is left/operator.
+The short-side choice and visual gauge envelope now use the unmodified
+playback placement (including its explicit 180° choice); neither applies
+the older fixed-panel-to-rear rotation a second time.
 
 An unavailable geometric orientation is displayed as UNVERIFIED and blocks
 native checking of that bend instead of defaulting to 0°. Old FCStd snapshots
