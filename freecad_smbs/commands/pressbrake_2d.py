@@ -980,11 +980,9 @@ class PressBrake2DCommand:
         if doc is not None and selected:
             widget.load_part(selection=selected, document=doc)
         show_workspace_controls(widget, tab=2)
-        if getattr(widget._preview_3d, "_native", False):
-            # Native Coin3D is a separate temporary FreeCAD document
-            # window. Tile it beside SMBS controls for immediate access.
-            window.showNormal()
-            mdi.tileSubWindows()
+        # Respect FreeCAD's normal MDI tab/window layout. In native Coin3D
+        # mode the simulation is a regular temporary FreeCAD document tab;
+        # never tile, unmaximize or rearrange existing FCStd windows.
         _log("Experimental PressBrakeSim GUI opened; original search engine retained")
 
 
