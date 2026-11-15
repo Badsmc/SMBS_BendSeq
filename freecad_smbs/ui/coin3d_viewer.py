@@ -37,6 +37,11 @@ class _FaceNode:
 def _face_node(coin, face):
     if len(face.vertices) < 3:
         return None
+    # Tool end caps with inner contours must not be shown as solid-filled
+    # polygons. Their real inner/outer walls remain visible in this mesh.
+    # A later triangulated-cap implementation may fill the annular region.
+    if face.holes:
+        return None
     node = coin.SoSeparator()
     material = coin.SoMaterial()
     material.diffuseColor.setValue(*COLORS.get(face.kind, (0.55, 0.65, 0.75)))
@@ -72,14 +77,24 @@ def create_coin_viewer(parent=None):
             self._sheet_root = coin.SoSeparator()
             self._tool_root = coin.SoSeparator()
             self._collision_root = coin.SoSeparator()
+            self._collision_count = 0
             self._root.addChild(self._sheet_root)
             self._root.addChild(self._tool_root)
             self._root.addChild(self._collision_root)
             self.setSceneGraph(self._root)
+            # Set an initial machine-view orientation once. Quarter owns
+            # camera interaction after this point; never recenter on a bend.
+            camera = self.getSoRenderManager().getCamera()
+            if camera is not None:
+                camera.orientation.setValue(coin.SbRotation(
+                    coin.SbVec3f(0.0, 0.0, -1.0),
+                    coin.SbVec3f(-1.0, 1.0, -0.7),
+                ))
             self._sheet_nodes = []
             self._tool_key = None
             self._tool_base_ram_z = 0.0
             self._punch_motion = None
+            self._collision_count = 0
             self._initial_fit_done = False
             self._last_sheet_face_count = 0
             self._sheet_topology = None
@@ -178,7 +193,10 @@ def create_coin_viewer(parent=None):
             )
 
         def set_collision_boxes(self, boxes):
+            if not boxes and self._collision_count == 0:
+                return
             self._collision_root.removeAllChildren()
+            self._collision_count = len(boxes)
             if not boxes:
                 return
             for bound in boxes:
