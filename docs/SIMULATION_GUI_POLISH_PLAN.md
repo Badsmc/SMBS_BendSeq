@@ -20,6 +20,11 @@ Make the existing FreeCAD SMBS add-on responsive, understandable and visually sm
 
 ## Work packages, in order
 ### P0. Reproduce and measure
+- Diagnose 3D and 2D rendering independently; never enable both animation redraw loops simultaneously during baseline profiling or regular playback.
+- Default the visible animation mode to 3D; 2D section view is an optional alternative, not a second always-running animation.
+- One shared simulation controller/timeline and model state drives either renderer; a mode switch pauses or deactivates the old renderer, releases its active timer/subscription, then attaches the new renderer at the exact current simulation time.
+- Hidden/inactive views must not call scene redraw, geometry rebuild, frame callbacks or independent simulation ticking. Do not disable shared physical calculations or required validation as a side effect.
+- Compare 3D-only, 2D-only and idle GUI frame timings; measure whether any duplicated Qt timers or redraw observers remain.
 - Inventory real entry points for FreeCAD UI, task panel, scene update, press-cycle controller and simulation state.
 - Collect baseline on sample FCStd with at least 8–10 bends, including manually selected sequence.
 - Instrument: GUI frame durations (median/p95/max), scene updates, geometry/OCC calls during playback, Qt timer/slider events, allocation/mesh rebuilding, inter-bend pose delta and phase boundaries.
@@ -36,6 +41,7 @@ Make the existing FreeCAD SMBS add-on responsive, understandable and visually sm
 - Handle large models and 3D screen updates without hiding physical geometry or weakening collision tests.
 
 ### P2. Polished task-panel experience
+- Offer an explicit 3D / 2D view selector, with 3D selected by default. Exactly one renderer may update per frame. Preserve bend, phase, position and slider value when switching modes.
 - One clear entry point called “Симуляция”; open/reopen panel without losing document or settings.
 - Explicit modes: “Проверить последовательность” and “Симулировать без проверки” with an **unverified** marker, never misrepresented as safe.
 - Compact visible controls: Play/Pause, previous/next bend, reset, time slider, playback speed, bend number/angle, phase, current status.
@@ -53,6 +59,7 @@ Make the existing FreeCAD SMBS add-on responsive, understandable and visually sm
 
 ## Acceptance checklist
 - [ ] Actual code locations and baseline performance documented
+- [ ] Exactly one of the 2D/3D renderers is active; switching views does not restart playback or create a second timer
 - [ ] Smooth 3D playback without visible jumps or avoidable topology rebuilds
 - [ ] Workpiece moves to fixed punch/die; only punch moves vertically
 - [ ] Seeking/slider shows the same state as playback at a matching time
