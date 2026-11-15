@@ -115,3 +115,23 @@ User confirmed that 3D remained slow and displayed punch length did not follow t
 - 2.5D normal/diagnostic drawing and flat-pattern drawing use this method. The 3D renderer no longer force-fits a user-controlled camera when its fixed bounds are invalidated.
 - Explicit Fit remains available for the operator to choose a new camera; no changes were made to machine/workpiece placements or controller geometry.
 - Pending in-app tests: camera stays put after 10 bend transitions, large TRANSFER, manual prev/next, changing tooling, tab switching, pan/zoom, orbit, resize and repeated reopen; ensure no content clipping beyond the initial fixed scene rect. Viewer camera stays put by design: a workpiece that physically moves away may leave the fixed viewport; use Fit or manually pan to follow it.
+
+## GUI workflow and FCStd persistence iteration (2026-11-15)
+Operator request: Detail is the only enabled native command before a valid SheetMetal unfold is loaded. All other toolbar/menu SMBS commands require a committed session, not merely a selection. On an invalid Detail selection, show a QMessageBox warning and do not open a new workspace, change the simulation or mutate the FCStd. On valid selection, load the part before attaching the native Tasks panel, show the Detail page and refresh command availability.
+
+UI changes:
+- Replace nested scroll views on six main Tasks pages with content widgets. FreeCAD native Tasks provides the outer scroll (requires real macOS FreeCAD acceptance test).
+- Tooling main page: fixed two-row Punch/Die form with labels left and selectors right, no extra tooling-status paragraph; the hidden status QLabel is retained for existing update handlers.
+- Hide long manual guidance paragraphs, keep actions and evidence readouts; add 'Сохранённые варианты' for archived complete 2D orders.
+- Settings primary view: cycle and FCStd save/restore; existing advanced weights, tooling allowances, diagnostic checks, trace recording remain available under 'Дополнительно…' rather than duplicating prominent actions.
+- Explicit warning: an archived order is historical and UNVERIFIED; selecting it clears manual check evidence. No collision/search logic changed.
+
+FCStd JSON:
+- Existing schema already stores the **selected bend order**, punch/die profile IDs and full profile SHA-256 fingerprints, their selection mode, cycle settings, operation weights and diagnostic summaries.
+- Additional optional `order.found_sequences`: up to 32 unique **complete** bend orders with per-bend orientation, provenance and evidence. Must match the exact current bend inventory. Older v1 snapshots without this field remain readable. Do not infer a live 3D pass on restore.
+- Added headless regression tests `tests/test_fcstd_saved_sequences.py` for roundtrip, older snapshots and rejected invalid orders.
+
+Unverified/pending:
+- Full installed FreeCAD GUI acceptance (macOS 1.1 and Windows) especially disabled toolbar refresh after Detail, FreeCAD native Tasks form scrolling and reopen, long content layout, no destroyed tooling labels, Ctrl+S staging, source BRep checksum, restore and archived order selection.
+- Automated tests are authored but **not executed** here; neither the code checkout nor a FreeCAD/PySide runtime is available in this execution environment. GitHub did not report combined CI status checks for the inspected commit.
+- Extra items requested under 'all other necessary information' should be added through explicit schema migration after the core persistence round-trip is verified; do not serialize transient full geometry or assume stale validations are current.
