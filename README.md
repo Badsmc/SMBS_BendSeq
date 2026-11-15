@@ -52,6 +52,10 @@ original exact FCStd collision, then tests nine OCC poses from BOTTOM to the
 configured upper RAM Z assuming the entire formed sheet follows the punch
 vertically one-to-one. It checks the entire sheet against both selected tools
 at each pose and appends a separate result to the Desktop developer journal.
+The same selected Conditional end-zone policy is applied to this alternate
+path at every pose. An exact end-zone-only punch overlap remains labelled
+`SAMPLED_LIFT_CONDITIONAL_UNVERIFIED`; a central punch overlap or die
+penetration blocks the trial. A missing zone classification is UNVERIFIED.
 The button stays visible beside the Manual fast/full check actions; it is
 disabled with an explanation until an eligible native RETRACT punch hit has
 been observed in the current session. Opening an OCC inspection document is
@@ -67,3 +71,7 @@ before any physical interpretation or integration into sequence search.
 The diagnostic has a 120-second per-path budget and never increases collision
 tolerances. The Linux FreeCADCmd smoke test uses simple OCC box solids; it does
 not substitute for B02's actual source part, selected tools and Mac runtime.
+The first B02 macOS probe (before this Conditional fix) stopped at its BOTTOM
+pose on a 943.035 mm³ punch overlap, which the main validator had classified
+as Conditional end-zone contact. That first result did not test any rising
+pose. Repeat the probe with the updated runtime before interpreting B02 lift.
