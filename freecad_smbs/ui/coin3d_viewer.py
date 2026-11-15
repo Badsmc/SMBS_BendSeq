@@ -65,9 +65,43 @@ def create_coin_viewer(parent=None):
     try:
         from pivy import coin
     except ImportError as exc:
-        raise RuntimeError(
-            "В FreeCAD недоступен pivy.coin; нельзя создать Coin3D сцену."
-        ) from exc
+        # Keep the rest of the workbench operational. There is no software
+        # 3D fallback, only an explicit unavailable 3D surface.
+        from freecad_smbs.commands.pressbrake_2d import _qt
+        _, _, QtWidgets = _qt()
+        reason = str(exc)
+
+        class UnavailableCoinViewer(QtWidgets.QWidget):
+            _native = False
+            _available = False
+
+            def __init__(self, parent=None):
+                super().__init__(parent)
+                self.setObjectName("SMBS_Coin3D_Unavailable")
+                layout = QtWidgets.QVBoxLayout(self)
+                note = QtWidgets.QLabel(
+                    "3D Coin3D недоступен: pivy.coin не импортируется. "
+                    "2D-симуляция и поиск остаются рабочими. "
+                    "Диагностика: " + reason
+                )
+                note.setWordWrap(True)
+                layout.addWidget(note)
+
+            def release(self):
+                pass
+
+            def clear_preview(self):
+                pass
+
+            def attach_document(self, _name):
+                raise RuntimeError(
+                    "Coin3D отсутствует в Python FreeCAD: " + reason
+                )
+
+            def reset_camera(self):
+                pass
+
+        return UnavailableCoinViewer(parent)
     try:
         from pivy.quarter import QuarterWidget
     except ImportError:
@@ -83,6 +117,7 @@ def create_coin_viewer(parent=None):
         def __init__(self, parent=None):
             super().__init__(parent=parent)
             self._native = QuarterWidget is None
+            self._available = True
             self._native_view = None
             self._native_root = None
             self._native_doc = None
