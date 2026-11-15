@@ -5346,12 +5346,9 @@ class _PreviewPanel:
                     "в диагностике Manual."
                 )
 
-            def _native_collision_identity_matches(self, inspection):
-                """Refuse a stale native pose after any tooling/orientation edit."""
-                if self.session is None or inspection is None:
-                    return False
-                expected = inspection.get("tooling_identity") or {}
-                current = {
+            def _current_native_tooling_identity(self):
+                """Capture the exact current inputs for on-demand OCC replay."""
+                return {
                     "punch_id": getattr(
                         getattr(self.tooling_setup, "punch", None),
                         "tool_id", None,
@@ -5380,6 +5377,13 @@ class _PreviewPanel:
                     )),
                     "session_identity": id(self.session),
                 }
+
+            def _native_collision_identity_matches(self, inspection):
+                """Refuse a stale native pose after any tooling/orientation edit."""
+                if self.session is None or inspection is None:
+                    return False
+                expected = inspection.get("tooling_identity") or {}
+                current = self._current_native_tooling_identity()
                 if not expected or current != expected:
                     self.status.setText(
                         "Оснастка изменилась после 3D-проверки. "
@@ -5411,7 +5415,10 @@ class _PreviewPanel:
                     self.session, self.tooling_setup, inspection["bend_id"],
                     inspection["first_blocker"], inspection["retract"],
                 )
-                _desktop_debug_event("MANUAL_ASSISTED_RETRACT_EXPERIMENT", result=report)
+                _desktop_debug_event(
+                    "MANUAL_ASSISTED_RETRACT_EXPERIMENT", result=report,
+                    historical_replay=bool(inspection.get("historical", False)),
+                )
                 self.status.setText(
                     "Подъём: {}. Проверено поз: {}. Исходная коллизия сохраняется; "
                     "зацепление и вывод детали не проверены.".format(
@@ -5807,6 +5814,39 @@ class _PreviewPanel:
                         .format(historic_manual.get("status", "UNVERIFIED")),
                         historic_steps,
                     )
+                    from smbs_core.kinematics2d.native_assisted_retract import (
+                        historic_lift_candidate,
+                    )
+                    historic_hit = historic_lift_candidate(
+                        historic_3d,
+                        order=self.session.bend_order,
+                        punch_id=getattr(self.tooling_setup.punch, "tool_id", ""),
+                        die_id=getattr(self.tooling_setup.die, "tool_id", ""),
+                        virtual_length=bool(self.tooling_setup.match_active_bend_length),
+                        end_zone_allow=bool(self.tooling_setup.allow_end_zone_collision),
+                        end_zone_mm=float(self.tooling_setup.end_zone_length_mm),
+                    )
+                    if historic_hit is not None:
+                        self._collision_inspection = {
+                            "bend_id": historic_hit["bend_id"],
+                            "first_blocker": historic_hit["first_blocker"],
+                            "retract": historic_hit["retract"],
+                            "tooling_identity": self._current_native_tooling_identity(),
+                            "historical": True,
+                        }
+                        self.manual_lift_probe_btn.setEnabled(True)
+                        self.manual_lift_probe_hint.setText(
+                            "Исторический {} из FCStd: можно проверить только "
+                            "альтернативный подъём. Перед расчётом OCC повторно "
+                            "сверит точный объём исходной коллизии; вся "
+                            "последовательность остаётся UNVERIFIED."
+                            .format(historic_hit["bend_id"])
+                        )
+                        _desktop_debug_event(
+                            "MANUAL_ASSISTED_RETRACT_HISTORIC_REPLAY_READY",
+                            bend_id=historic_hit["bend_id"],
+                            source="EMBEDDED_FCSTD_UNVERIFIED_UNTIL_EXACT_OCC_REPLAY",
+                        )
                 else:
                     self._clear_manual_check_feedback()
                 note = (

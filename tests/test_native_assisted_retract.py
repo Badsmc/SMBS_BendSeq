@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from smbs_core.kinematics2d.native_assisted_retract import (
     sample_synchronous_lift, inspect_punch_assisted_retract,
     eligible_assisted_retract,
+    historic_lift_candidate,
 )
 
 
@@ -92,6 +93,24 @@ class AssistedRetractTests(unittest.TestCase):
             {**blocker, "phase": "BENDING"}, retract))
         self.assertFalse(eligible_assisted_retract(
             blocker, {"start_z_mm": -3.492685, "end_z_mm": float("nan")}))
+
+    def test_historical_replay_requires_matching_tooling_and_order(self):
+        step = {"bend_id": "B02", "status": "COLLISION",
+                "first_blocker": {"phase": "RETRACT", "tool": "PUNCH",
+                                  "sampled_machine_pose": {"ram_z_mm": 1.5036577289}},
+                "retract": {"start_z_mm": -3.492685, "end_z_mm": 6.5}}
+        report = {"status": "COLLISION", "requested_bends": ["B01", "B02"],
+                  "punch": "AP1017", "die": "AT3015",
+                  "tool_length_mode": "VIRTUAL_MATCH_BEND",
+                  "allow_end_zone_collision": True, "end_zone_length_mm": 20.0,
+                  "steps": [{"bend_id": "B01", "status": "SAMPLED_3D_CLEAR"}, step]}
+        setup = {"order": ("B01", "B02"), "punch_id": "AP1017", "die_id": "AT3015",
+                 "virtual_length": True, "end_zone_allow": True, "end_zone_mm": 20.0}
+        self.assertIs(historic_lift_candidate(report, **setup), step)
+        self.assertIsNone(historic_lift_candidate(report, **{**setup, "die_id": "WRONG"}))
+        self.assertIsNone(historic_lift_candidate(report, **{**setup, "order": ("B02", "B01")}))
+        self.assertIsNone(historic_lift_candidate(report, **{**setup, "end_zone_mm": 10.0}))
+        self.assertIsNone(historic_lift_candidate({**report, "status": "UNVERIFIED"}, **setup))
 
 
 if __name__ == "__main__":

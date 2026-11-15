@@ -26,6 +26,40 @@ def eligible_assisted_retract(blocker: Any, retract: Any) -> bool:
             and bottom <= hit <= upper and bottom < upper)
 
 
+def historic_lift_candidate(
+    report: Any, *, order: Any, punch_id: str, die_id: str,
+    virtual_length: bool, end_zone_allow: bool, end_zone_mm: float,
+) -> dict | None:
+    """Offer an old FCStd blocker only for an identically selected setup.
+
+    A matching historical record is *not* native evidence. The on-demand
+    inspector must still reconstruct exact source geometry and reproduce its
+    recorded Common volume before any hypothetical lift can be evaluated.
+    """
+    if not isinstance(report, dict) or report.get("status") != "COLLISION":
+        return None
+    if (tuple(report.get("requested_bends") or ()) != tuple(order)
+            or str(report.get("punch")) != str(punch_id)
+            or str(report.get("die")) != str(die_id)
+            or bool(report.get("allow_end_zone_collision")) != bool(end_zone_allow)):
+        return None
+    expected_length_mode = ("VIRTUAL_MATCH_BEND" if virtual_length
+                            else "SELECTED_FCSTD_REAL_LENGTH")
+    try:
+        if (report.get("tool_length_mode") != expected_length_mode
+                or abs(float(report["end_zone_length_mm"]) - float(end_zone_mm)) > 1e-6):
+            return None
+    except (TypeError, ValueError, KeyError):
+        return None
+    for step in report.get("steps") or ():
+        if not isinstance(step, dict) or step.get("status") != "COLLISION":
+            continue
+        blocker, retract = step.get("first_blocker"), step.get("retract")
+        if eligible_assisted_retract(blocker, retract):
+            return step
+    return None
+
+
 def sample_synchronous_lift(
     sheet: Any, punch_at_hit: Any, die: Any, *,
     hit_ram_z_mm: float, bottom_ram_z_mm: float, upper_ram_z_mm: float,
