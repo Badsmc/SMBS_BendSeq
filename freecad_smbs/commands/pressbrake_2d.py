@@ -7610,9 +7610,7 @@ class _PreviewPanel:
                         # draw() already paused, finalized the JSONL trace and
                         # displayed the exact geometric blocker.
                         return
-                    if (self.execution_mode != CycleExecutionMode.FULL_CYCLE
-                            and self.session.active_bend_index != previous_bend):
-                        # Camera stays fixed; use the explicit Fit control to reframe.
+                    # Bend transitions do not trigger an automatic camera Fit.
                     if self.session.playback_status == PlaybackStatus.COMPLETED:
                         self._stop_timer()
                         self._last_3d_frame_at = -1.0
