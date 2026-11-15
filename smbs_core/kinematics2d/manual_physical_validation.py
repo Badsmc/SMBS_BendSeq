@@ -424,6 +424,8 @@ def check_manual_3d_sequence(
     config: Any = None,
     reverse_axis_by_bend: Optional[dict[str, bool]] = None,
     include_benchmark_metrics: bool = False,
+    sequence_geometry_cache: Optional[NativeSequenceGeometryCache] = None,
+    deadline_at: Optional[float] = None,
 ) -> dict:
     """Check a selected prefix (or complete order) with native FCStd tools.
 
@@ -431,8 +433,19 @@ def check_manual_3d_sequence(
     *never* accept an incomplete prefix as a safe full sequence. CONDITIONAL
     remains conditional and never silently becomes a PASS. A successful
     result is SAMPLED_3D_CLEAR_NOT_CONTINUOUS, not a manufacturing certificate.
+
+    The optional geometry cache may be shared by candidates from ONE search
+    invocation with the same source part and selected tooling. Native geometry
+    identities invalidate cached shapes on source change. Verdicts are NEVER
+    cached or transferred between candidates.
+
+    deadline_at is a best-effort monotonic deadline checked between bends,
+    not a hard timeout for an in-flight OCC kernel call.
     """
     t0 = perf_counter()
+    if deadline_at is not None and (
+            not isfinite(float(deadline_at))):
+        raise ValueError("deadline_at must be finite")
     order = tuple(selected_order)
     known = tuple(session.bend_order)
     state_in = session.fold_state
@@ -550,7 +563,8 @@ def check_manual_3d_sequence(
     independent = FoldState(state_in.graph, state_in.fixed_panel)
     # Geometry is shared only inside this Manual validation call.
     # All tool-specific collision verdict caches remain per validator.
-    sequence_geometry_cache = NativeSequenceGeometryCache(max_full_sheets=16)
+    if sequence_geometry_cache is None:
+        sequence_geometry_cache = NativeSequenceGeometryCache(max_full_sheets=16)
     previous = []
     steps = []
     any_conditional = False
@@ -563,6 +577,11 @@ def check_manual_3d_sequence(
         "sequence_geometry_cache": sequence_geometry_cache,
     }
     for i, bend_id in enumerate(order):
+        if deadline_at is not None and perf_counter() >= deadline_at:
+            return final_result(
+                "UNVERIFIED", steps,
+                "native_search_time_budget_reached_before:" + bend_id,
+            )
         if progress_callback is not None:
             progress_callback(i + 1, len(order), bend_id)
         independent.reset_all()
