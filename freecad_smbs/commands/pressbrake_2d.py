@@ -41,7 +41,8 @@ from smbs_core.kinematics2d.press_cycle import (
 )
 from smbs_core.kinematics2d.motion_trace import MotionTraceRecorder, make_frame_record
 from smbs_core.kinematics2d.preview_mesh_3d import (
-    build_sheet_preview_faces, PreviewMeshError,
+    build_sheet_preview_faces, transform_preview_faces,
+    IDENTITY_PLACEMENT, PreviewMeshError,
 )
 from smbs_core.kinematics2d.machine_section_3d import compute_machine_cutting_plane_section
 from smbs_core.kinematics2d.workpiece_placement_3d import PlacementTransform3D, WorkpiecePlacement3D
@@ -1942,6 +1943,8 @@ class _PreviewPanel:
                 self._last_3d_frame_at = -1.0
                 self._last_3d_rendered_bend = None
                 self._last_3d_debug_at = -1.0
+                self._coin_fold_mesh_key = None
+                self._coin_fold_mesh_faces = ()
                 self._preview_3d.setObjectName("SMBS_Coin3D_Viewer")
                 views.addTab(self._preview_3d, QtGui.QIcon(str(
                     _ICON_ROOT / "gui_part.svg"
@@ -3176,12 +3179,29 @@ class _PreviewPanel:
                         current_placement = (
                             self._current_preview_machine_placement()
                         )
-                    faces = build_sheet_preview_faces(
-                        fold_state,
-                        self.session.panel_vertices_xy,
-                        bend_id, WorkpiecePose2D(),
-                        segments=12,
-                        machine_placement=current_placement,
+                    # Mesh in the unfolded document's world frame depends
+                    # only on bend angles, not ram stroke / transfer. Reuse
+                    # it while rigidly moving the workpiece at the machine.
+                    fold_signature = (
+                        id(fold_state), bend_id,
+                        tuple(sorted(
+                            (str(b), float(angle))
+                            for b, angle in fold_state.angles.items()
+                        )),
+                        id(self.session.panel_vertices_xy),
+                    )
+                    reused_fold_mesh = (
+                        fold_signature == self._coin_fold_mesh_key
+                    )
+                    if not reused_fold_mesh:
+                        self._coin_fold_mesh_faces = build_sheet_preview_faces(
+                            fold_state, self.session.panel_vertices_xy,
+                            bend_id, WorkpiecePose2D(), segments=12,
+                            machine_placement=IDENTITY_PLACEMENT,
+                        )
+                        self._coin_fold_mesh_key = fold_signature
+                    faces = transform_preview_faces(
+                        self._coin_fold_mesh_faces, current_placement
                     )
                     self._preview_3d.set_sheet_faces(
                         faces, highlighted=highlighted
@@ -3230,6 +3250,7 @@ class _PreviewPanel:
                             "COIN3D_FRAME",
                             bend_id=bend_id,
                             face_count=len(faces),
+                            fold_mesh_reused=reused_fold_mesh,
                             frame_interval_ms=(
                                 round((now - previous) * 1000.0, 2)
                                 if previous >= 0 else None
@@ -5099,6 +5120,8 @@ class _PreviewPanel:
                 self._last_valid_machine_bend = None
                 self._machine_pose_fault = None
                 self._last_3d_frame_at = -1.0
+                self._coin_fold_mesh_key = None
+                self._coin_fold_mesh_faces = ()
                 self.session = new_session
                 _desktop_debug_event(
                     "PART_GEOMETRY_LOADED",
