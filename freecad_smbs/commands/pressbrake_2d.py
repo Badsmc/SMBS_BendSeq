@@ -1365,6 +1365,7 @@ class _PreviewPanel:
                 self._manual_orientation_by_bend = {}
                 self._last_manual_sequence_report = None
                 self._collision_inspection = None
+                self._last_assisted_lift_report = None
                 self._collision_display_active = False
                 self._manual_3d_verdicts = {}
                 self._manual_retract_verdicts = {}
@@ -2155,12 +2156,24 @@ class _PreviewPanel:
                 )
                 self.manual_lift_preview_btn.clicked.connect(self._play_assisted_retract_preview)
                 self.manual_lift_preview_btn.setEnabled(False)
+                self.manual_release_probe_btn = style_action(
+                    QtWidgets.QPushButton("Проверить боковой вывод детали OCC"),
+                    compact=True,
+                )
+                self.manual_release_probe_btn.setObjectName("SMBS_ManualAssistedReleaseProbe")
+                self.manual_release_probe_btn.setToolTip(
+                    "После проверки подъёма исследовать вывод детали в обе "
+                    "стороны по машинной Y. Промежутки и удержание не доказаны."
+                )
+                self.manual_release_probe_btn.clicked.connect(self._inspect_assisted_release)
+                self.manual_release_probe_btn.setEnabled(False)
                 verify_row = QtWidgets.QVBoxLayout()
                 verify_row.addWidget(self.manual_simulate_btn)
                 verify_row.addWidget(self.manual_validate_btn)
                 verify_row.addWidget(self.manual_validate_3d_btn)
                 verify_row.addWidget(self.manual_lift_probe_btn)
                 verify_row.addWidget(self.manual_lift_preview_btn)
+                verify_row.addWidget(self.manual_release_probe_btn)
                 order_body.addLayout(verify_row)
                 self.manual_lift_probe_hint = QtWidgets.QLabel(
                     "Подъём детали: сначала найдите коллизию пуансона на RETRACT. "
@@ -5160,10 +5173,13 @@ class _PreviewPanel:
                 self.manual_check_details.clear()
                 self.manual_check_details.hide()
                 self._collision_inspection = None
+                self._last_assisted_lift_report = None
                 if self.press_cycle is not None:
                     self.press_cycle.assisted_retract_preview_bends.clear()
                 if hasattr(self, "manual_lift_preview_btn"):
                     self.manual_lift_preview_btn.setEnabled(False)
+                if hasattr(self, "manual_release_probe_btn"):
+                    self.manual_release_probe_btn.setEnabled(False)
                 self._collision_display_active = False
                 if hasattr(self, "manual_show_collision_btn"):
                     self.manual_show_collision_btn.setEnabled(False)
@@ -5461,6 +5477,8 @@ class _PreviewPanel:
                     if can_preview:
                         pc.assisted_retract_preview_bends.add(inspection["bend_id"])
                 self.manual_lift_preview_btn.setEnabled(can_preview and pc is not None)
+                self._last_assisted_lift_report = report if can_preview else None
+                self.manual_release_probe_btn.setEnabled(can_preview)
                 _desktop_debug_event(
                     "MANUAL_ASSISTED_RETRACT_EXPERIMENT", result=report,
                     historical_replay=bool(inspection.get("historical", False)),
@@ -5486,6 +5504,48 @@ class _PreviewPanel:
                     "\n{} — эксперимент подъёма: {}, {} поз; {}".format(
                         inspection["bend_id"], report["status"],
                         len(report["samples"]), report["reason"]
+                    )
+                )
+                self.manual_check_details.show()
+                return report
+
+            def _inspect_assisted_release(self):
+                """Explore sampled lateral exit without promoting Manual COLLISION."""
+                inspection = self._collision_inspection
+                lift = self._last_assisted_lift_report
+                if not self._native_collision_identity_matches(inspection) or not lift:
+                    self._clear_manual_check_feedback()
+                    return False
+                self._stop_timer()
+                self.status.setText("OCC: проверяется боковой вывод поднятой детали...")
+                QtWidgets.QApplication.processEvents()
+                from smbs_core.kinematics2d.native_assisted_retract import (
+                    inspect_lateral_release,
+                )
+                report = inspect_lateral_release(
+                    self.session, self.tooling_setup, inspection["bend_id"],
+                    inspection["first_blocker"], lift,
+                )
+                _desktop_debug_event(
+                    "MANUAL_ASSISTED_RELEASE_EXPERIMENT", result=report,
+                )
+                directions = report.get("candidate_directions_y") or []
+                message = (
+                    "Вывод OCC: {}. Проверенные направления Y: {}. "
+                    "Исходный COLLISION сохраняется; непрерывный путь, "
+                    "удержание детали и станок не подтверждены."
+                    .format(report["status"], directions or "нет")
+                )
+                self.status.setText(message)
+                self.manual_check_details.appendPlainText(
+                    "\n{} — {}\n{}".format(
+                        inspection["bend_id"], message,
+                        "; ".join(
+                            "Y{}: {}, {:.1f} мм, {} поз".format(
+                                p["direction_y"], p["status"], p["travel_mm"],
+                                len(p["samples"]),
+                            ) for p in report.get("paths", ())
+                        ) or report.get("reason", ""),
                     )
                 )
                 self.manual_check_details.show()

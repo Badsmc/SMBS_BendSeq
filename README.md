@@ -81,6 +81,14 @@ Manual also compares both RAM endpoints against the native replay within
 a different path.
 Changing inputs or starting another validation disables the experimental
 playback until the exact OCC probe is repeated.
+After a successful lift probe, `Проверить боковой вывод детали OCC` rebuilds
+the same native collision and explores straight release in both machine-Y
+directions at upper RAM. Each route ends beyond the punch and die AABBs and
+checks five exact OCC positions using the selected Conditional end-zone policy.
+Central punch or die penetration blocks that route. A possible route is
+`SAMPLED_RELEASE_ROUTE_UNVERIFIED`, never CLEAR: gaps between positions,
+backgauge/clamps/frame, operator grip, and physical end relief still require
+real evidence. This extra probe never changes the original Manual COLLISION.
 Testing the alternative path on the real B02 FCStd in FreeCAD remains necessary
 before any physical interpretation or integration into sequence search.
 The diagnostic has a 120-second per-path budget and never increases collision

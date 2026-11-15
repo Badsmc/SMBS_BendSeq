@@ -7,7 +7,9 @@ try:
 except ImportError:
     App = Part = None
 
-from smbs_core.kinematics2d.native_assisted_retract import sample_synchronous_lift
+from smbs_core.kinematics2d.native_assisted_retract import (
+    sample_synchronous_lift, sample_lateral_release,
+)
 from smbs_core.kinematics2d.native_collision_3d import (
     validate_workpiece_tooling_pose, EndZoneCollisionPolicy,
 )
@@ -15,6 +17,25 @@ from smbs_core.kinematics2d.native_collision_3d import (
 
 @unittest.skipUnless(App is not None and Part is not None, "requires native FreeCAD")
 class NativeAssistedRetractTests(unittest.TestCase):
+    def test_native_release_reaches_disjoint_endpoint_without_mutating_sheet(self):
+        sheet = Part.makeBox(2, 2, 1, App.Vector(0, 0, 1))
+        punch = Part.makeBox(2, 4, 1, App.Vector(0, -1, 2))
+        die = Part.makeBox(2, 4, 1, App.Vector(0, -1, -3))
+
+        def moved(shape, dy):
+            copy = shape.copy()
+            copy.translate(App.Vector(0, dy, 0))
+            return copy
+
+        report = sample_lateral_release(
+            sheet, punch, die, translate_y=moved,
+            check=validate_workpiece_tooling_pose, samples=5,
+        )
+        self.assertEqual(report["status"], "SAMPLED_RELEASE_ROUTE_UNVERIFIED")
+        self.assertEqual(set(report["candidate_directions_y"]), {-1, 1})
+        self.assertEqual(sheet.BoundBox.YMin, 0)
+        self.assertFalse(report["continuous_certification"])
+
     def test_selected_die_2d_stroke_matches_native_occ_kinematics(self):
         from pathlib import Path
         from types import SimpleNamespace
