@@ -3774,7 +3774,8 @@ class _PreviewPanel:
                         "Для реального 3D-поиска выберите пуансон и матрицу."
                     )
                     return
-                if self.virtual_tool_len_checkbox.isChecked():
+                if (self.virtual_tool_len_checkbox.isChecked()
+                        or self.tooling_setup.match_active_bend_length):
                     self.status.setText(
                         "Отключите виртуальную длину оснастки: "
                         "быстрый 3D-поиск проверяет только реальные FCStd-инструменты."
@@ -3824,6 +3825,10 @@ class _PreviewPanel:
                         ),
                         weights=self._selected_operation_weights(),
                         progress_callback=progress,
+                        seed_order=tuple(self.session.bend_order),
+                        seed_orientations=self._manual_orientation_selection(
+                            tuple(self.session.bend_order)
+                        ),
                     )
                     self._last_fast_search_report = report
                     self._trace_event(
