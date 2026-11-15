@@ -210,7 +210,7 @@ def build_snapshot(
     manual_prefix=(), manual_report=None, search_report=None,
     planar_report=None, operation_weights=None,
     retract_warning=False, orientation_by_bend=None,
-    orientation_source="AUTO_SHORT_REAR",
+    orientation_source="AUTO_SHORT_REAR", saved_sequences=(),
 ):
     """Create the portable, bounded snapshot without mutating the document."""
     if session is None or document is None:
@@ -236,6 +236,34 @@ def build_snapshot(
     }
     mode = _enum_to_value(execution_mode)
     weights = {str(k): _finite(v) for k, v in (operation_weights or {}).items()}
+    archived_sequences = []
+    seen_sequences = set()
+    for item in saved_sequences:
+        if not isinstance(item, dict):
+            raise EmbeddedSessionError("Invalid saved sequence entry")
+        sequence = item.get("bend_ids")
+        if (not isinstance(sequence, (list, tuple))
+                or len(sequence) != len(canonical)
+                or set(sequence) != set(canonical)
+                or len(set(sequence)) != len(sequence)):
+            raise EmbeddedSessionError("Saved candidate is not a full bend order")
+        key = tuple(sequence)
+        if key in seen_sequences:
+            continue
+        seen_sequences.add(key)
+        directions = item.get("orientation_by_bend", {})
+        if (not isinstance(directions, dict)
+                or any(bid not in key or type(value) is not bool
+                       for bid, value in directions.items())):
+            raise EmbeddedSessionError("Invalid saved candidate orientation")
+        archived_sequences.append({
+            "bend_ids": list(key),
+            "orientation_by_bend": dict(directions),
+            "origin": str(item.get("origin", "2D_SEARCH"))[:48],
+            "evidence": str(item.get("evidence", "UNVERIFIED"))[:120],
+        })
+        if len(archived_sequences) >= 32:
+            break
     snapshot = {
         "schema": SCHEMA,
         "schema_version": SCHEMA_VERSION,
@@ -248,6 +276,7 @@ def build_snapshot(
                                     for bid in order if bid in orientations},
             "orientation_source": orientation_source,
             "canonical_bend_ids": canonical,
+            "found_sequences": archived_sequences,
         },
         "tooling": {
             "punch": tool_reference(getattr(tooling, "punch", None)),
@@ -322,6 +351,22 @@ def decode_snapshot(raw):
         raise EmbeddedSessionError("Stored order is not a bend permutation")
     if len(prefix) != len(set(prefix)) or order[:len(prefix)] != prefix:
         raise EmbeddedSessionError("Stored manual prefix is inconsistent")
+    found_sequences = data.get("found_sequences", [])
+    if not isinstance(found_sequences, list) or len(found_sequences) > 32:
+        raise EmbeddedSessionError("Invalid saved candidate collection")
+    for item in found_sequences:
+        if not isinstance(item, dict):
+            raise EmbeddedSessionError("Invalid saved candidate")
+        sequence = item.get("bend_ids")
+        directions = item.get("orientation_by_bend", {})
+        if (not isinstance(sequence, list)
+                or len(sequence) != len(canonical)
+                or len(set(sequence)) != len(sequence)
+                or set(sequence) != set(canonical)
+                or not isinstance(directions, dict)
+                or any(bid not in sequence or type(value) is not bool
+                       for bid, value in directions.items())):
+            raise EmbeddedSessionError("Saved candidate does not match the model")
     orientations = data.get("orientation_by_bend", {})
     if (not isinstance(orientations, dict)
             or any(k not in order or type(v) is not bool
