@@ -36,6 +36,9 @@ class Coin3DSourceContractTests(unittest.TestCase):
         self.assertIn("if key != self._tool_key:", source)
         self.assertIn("coin.SoTranslation()", source)
         self.assertIn("self._punch_motion.translation.setValue(", source)
+        self.assertIn("coin.SoIndexedFaceSet()", source)
+        self.assertIn("self._sheet_batches", source)
+        self.assertIn("geometry.coordIndex.setValues(", source)
 
 
 if __name__ == "__main__":
