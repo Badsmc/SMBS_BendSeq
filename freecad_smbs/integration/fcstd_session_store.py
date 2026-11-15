@@ -210,6 +210,7 @@ def build_snapshot(
     manual_prefix=(), manual_report=None, search_report=None,
     planar_report=None, operation_weights=None,
     retract_warning=False, orientation_by_bend=None,
+    orientation_source="AUTO_SHORT_REAR",
 ):
     """Create the portable, bounded snapshot without mutating the document."""
     if session is None or document is None:
@@ -227,6 +228,8 @@ def build_snapshot(
             or any(k not in order or type(v) is not bool
                    for k, v in orientations.items())):
         raise EmbeddedSessionError("Invalid manual orientation map")
+    if orientation_source not in ("AUTO_SHORT_REAR", "SELECTED_2D_CANDIDATE"):
+        raise EmbeddedSessionError("Invalid orientation source")
     config = {
         k: _enum_to_value(v)
         for k, v in asdict(cycle_config).items()
@@ -243,6 +246,7 @@ def build_snapshot(
             "manual_prefix": prefix,
             "orientation_by_bend": {bid: orientations[bid]
                                     for bid in order if bid in orientations},
+            "orientation_source": orientation_source,
             "canonical_bend_ids": canonical,
         },
         "tooling": {
@@ -323,6 +327,9 @@ def decode_snapshot(raw):
             or any(k not in order or type(v) is not bool
                    for k, v in orientations.items())):
         raise EmbeddedSessionError("Stored manual orientations are inconsistent")
+    if data.get("orientation_source", "LEGACY_CHECKBOX") not in (
+            "AUTO_SHORT_REAR", "SELECTED_2D_CANDIDATE", "LEGACY_CHECKBOX"):
+        raise EmbeddedSessionError("Stored orientation source is invalid")
     simulation = payload.get("simulation")
     tooling = payload.get("tooling")
     if not isinstance(simulation, dict) or not isinstance(tooling, dict):

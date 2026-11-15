@@ -32,6 +32,41 @@ DEFAULT_SHEET_THICKNESS_MM = 1.5
 DEFAULT_INNER_RADIUS_MM = 1.0
 
 
+def effective_die_opening_from_profile(die: Any, nominal_mm: float) -> float:
+    """Match native OCC's shoulder-fillet-center opening when 2D arcs exist.
+
+    A nominal V width describes the extrapolated walls, not the centers
+    governing contact. Native D6 measures these centers from the CAD solid.
+    Fall back to the nominal width when the profile lacks a unique pair.
+    """
+    from .tooling_25d import ArcSegment2D, ToolingError
+
+    datums = getattr(die, "die_datums", None)
+    radius = getattr(datums, "shoulder_radius_mm", None)
+    try:
+        radius = float(radius)
+        if not math.isfinite(radius) or radius <= 0.0:
+            return float(nominal_mm)
+        profile = die.local_geometry
+        candidates = [
+            arc for arc in profile.outer_contour.segments
+            if isinstance(arc, ArcSegment2D)
+            and abs(arc.radius - radius) < 1e-3
+            and abs(arc.bbox()[3]) < 1e-3  # local die top is Z = 0
+        ]
+        left = [arc for arc in candidates if arc.center[0] < -1e-5]
+        right = [arc for arc in candidates if arc.center[0] > 1e-5]
+        if len(left) != 1 or len(right) != 1:
+            return float(nominal_mm)
+        a, b = left[0].center, right[0].center
+        if abs(a[0] + b[0]) > 0.05 or abs(a[1] - b[1]) > 0.05:
+            return float(nominal_mm)
+        opening = b[0] - a[0]
+        return opening if math.isfinite(opening) and opening > 0.0 else float(nominal_mm)
+    except (AttributeError, TypeError, ValueError, ToolingError):
+        return float(nominal_mm)
+
+
 @dataclass
 class CoupledAirBendingKinematics:
     """Coupled physical air-bending kinematics for a single active bend operation.
@@ -294,6 +329,7 @@ class CoupledAirBendingKinematics:
             dd = die.die_datums
             if isinstance(dd.v_opening_mm, (int, float)) and dd.v_opening_mm > 0.0:
                 v_opening = float(dd.v_opening_mm)
+            v_opening = effective_die_opening_from_profile(die, v_opening)
             if isinstance(dd.shoulder_radius_mm, (int, float)) and dd.shoulder_radius_mm > 0.0:
                 shoulder_r = float(dd.shoulder_radius_mm)
             if isinstance(dd.die_angle_deg, (int, float)) and dd.die_angle_deg > 0.0:

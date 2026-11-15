@@ -187,6 +187,9 @@ class PressCycleController:
         # Repositioning is opt-in and purely kinematic. One existing controller
         # and playback timer own every movement; no separate GUI animation.
         self.animate_workpiece_transfer = bool(animate_workpiece_transfer)
+        # Only an explicit, current OCC experiment may opt a bend into this
+        # kinematic preview. This never changes the collision validator verdict.
+        self.assisted_retract_preview_bends: set[str] = set()
         # Visual lead-in for the first operation; opt-in from gauge settings.
         # A real machine feed path/contact is NOT verified in this preview.
         self.initial_feed_preview_mm = 0.0
@@ -987,10 +990,11 @@ class PressCycleController:
                 support_z = self.preview_workpiece_support_zm()
                 align_bisector = True
                 align_arc_center = True
-            elif self.phase in (CyclePhase.BOTTOM, CyclePhase.RETRACT, CyclePhase.STEP_COMPLETE):
+            elif self.phase in (CyclePhase.BOTTOM, CyclePhase.RETRACT, CyclePhase.STEP_COMPLETE, CyclePhase.COMPLETED):
                 target_angle = abs(self.target_angle_deg)
                 stroke = self.coupled_kinematics.stroke_for_angle(target_angle)
                 support_z = outer_r - stroke
+                support_z += self.assisted_retract_lift_mm()
                 align_bisector = True
                 align_arc_center = True
             else:
@@ -1029,6 +1033,19 @@ class PressCycleController:
                 ),
             )
         return pose
+
+    def assisted_retract_lift_mm(self) -> float:
+        """Assumed one-to-one lift after BOTTOM, never a proof of grip/release.
+
+        This uses the same ram Z path as the native synchronous OCC probe.
+        TRANSFER already starts from the lifted 3D pose and owns its own path.
+        """
+        if (self.execution_mode != CycleExecutionMode.FULL_CYCLE
+                or self.active_bend_id not in self.assisted_retract_preview_bends
+                or self.phase not in (CyclePhase.RETRACT, CyclePhase.STEP_COMPLETE, CyclePhase.COMPLETED)):
+            return 0.0
+        return max(0.0, min(self.upper_z_mm - self.bottom_z_mm,
+                            self.ram_z_mm - self.bottom_z_mm))
 
     def coupled_telemetry(self) -> Dict[str, Any]:
         """Return coupled kinematics status and coordinates for JSONL tracing."""
