@@ -37,8 +37,9 @@ def plan_preview_loading_orientations(
 
     Computes each placement with previously completed bends *in an isolated
     FoldState*. The orientation maximising the operator-side projection
-    is preferred, provided it is more operator-friendly than the other by
-    the configured deadband. No geometric collision or rear stop is checked.
+    places the shorter projected side toward the rear gauge. A deadband can
+    suppress a gratuitous flip for nearly equal sides. No collision or
+    rear-stop contact is checked.
 
     The result should NEVER be interpreted as an approved setup. Only an
     explicit selected search candidate can supply checked 2D/CAD evidence.
@@ -90,7 +91,9 @@ def plan_preview_loading_orientations(
                 best = normal
             result.append(LoadingOrientationPreview(
                 bend_id, best[0], best[1], best[2],
-                "ERGONOMIC_ONLY_NOT_CAD_VALIDATED",
+                ("ERGONOMIC_ONLY_NOT_CAD_VALIDATED"
+                 if best[2] <= best[1] + 1e-4 else
+                 "UNVERIFIED_SHORT_REAR_POSE_UNAVAILABLE"),
             ))
         isolated.set_angle(bend_id, float(isolated.bends[bend_id].angle_deg))
     return tuple(result)

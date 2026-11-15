@@ -1379,9 +1379,9 @@ class _PreviewPanel:
                 self._selected_planar_gauge_order = ()
                 self._selected_planar_gauge_positions = {}
                 self._selected_planar_gauge_model_id = None
-                self._selected_planar_loading_orientation = {}
                 self._ergonomic_loading_cache_key = None
                 self._ergonomic_loading_cache = {}
+                self._ergonomic_loading_cache_status = "NO_PART"
                 self._ergonomic_loading_status = "NO_REAR_GAUGE"
                 if self._backgauge_settings.value(
                     "backgauge/enabled", False, type=bool
@@ -2081,22 +2081,12 @@ class _PreviewPanel:
                 self.manual_simulate_btn.clicked.connect(
                     self.simulate_manual_order_unverified
                 )
-                self.manual_reverse_3d_checkbox = QtWidgets.QCheckBox(
-                    "Заменить 2D ориентации: развернуть все гибы на 180°"
+                automatic_orientation_hint = QtWidgets.QLabel(
+                    "Установка автоматически: короткая сторона к заднему упору. "
+                    "2D, 3D и OCC используют одну ориентацию каждого гиба."
                 )
-                self.manual_reverse_3d_checkbox.setObjectName(
-                    "SMBS_ManualReverseNative3D"
-                )
-                self.manual_reverse_3d_checkbox.setToolTip(
-                    "Меняет установку сразу для всех гибов и заменяет "
-                    "ориентации, перенесённые из 2D. Просмотр и обе проверки "
-                    "используют одни и те же значения по гибам."
-                )
-                self.manual_reverse_3d_checkbox.setChecked(False)
-                self.manual_reverse_3d_checkbox.toggled.connect(
-                    self._manual_native_orientation_changed
-                )
-                order_body.addWidget(self.manual_reverse_3d_checkbox)
+                automatic_orientation_hint.setWordWrap(True)
+                order_body.addWidget(automatic_orientation_hint)
                 # Restore the quick Stage A/B action from the
                 # integration/gui-2d-search-screening branch. Keep rigorous
                 # native OCC as a DISTINCT opt-in action, not a silent upgrade
@@ -3336,6 +3326,7 @@ class _PreviewPanel:
                     (getattr(getattr(pc, "phase", None), "value", getattr(pc, "phase", "")) if pc is not None else ""),
                     (float(getattr(pc, "ram_z_mm", 0.0) or 0.0) if pc is not None and getattr(pc, "ram_z_mm", None) is not None else None),
                     (float(getattr(pc, "transfer_progress", 0.0) or 0.0) if pc is not None and getattr(pc, "transfer_progress", None) is not None else None),
+                    tuple(sorted(self._effective_loading_orientation_map().items())),
                 )
 
             def _active_bend_length_mm(self) -> float:
@@ -3429,6 +3420,12 @@ class _PreviewPanel:
                 """Read-only current-pose check; never modifies FoldState or GUI animation."""
                 if self.session is None:
                     self.physical_check_result.setText("UNVERIFIED: деталь не загружена")
+                    return
+                if self.session.active_bend_id not in self._effective_loading_orientation_map():
+                    self.physical_check_result.setText(
+                        "UNVERIFIED: автоматическая ориентация текущего гиба "
+                        "не определена."
+                    )
                     return
                 if self.timer.isActive() or self.session.playback_status == PlaybackStatus.PLAYING:
                     self.physical_check_result.setText(
@@ -3528,21 +3525,19 @@ class _PreviewPanel:
 
             def check_active_bend_physical_trajectory(self):
                 """D6.3.4 adaptive evaluation on demand; no timer-side OCC calls."""
-                if (self.session is not None
-                        and self._selected_planar_loading_orientation.get(
-                            str(self.session.active_bend_id), False
-                        )):
-                    self.physical_check_result.setText(
-                        "UNVERIFIED: нативный D6.3.4 проверяет только обычную "
-                        "ориентацию; обратная загрузка из 2D-поиска ещё не "
-                        "поддержана независимой 3D-проверкой траектории."
-                    )
-                    return
                 if self.session is None:
                     self.physical_check_result.setText(
                         "UNVERIFIED: деталь не загружена"
                     )
                     return
+                orientation = self._effective_loading_orientation_map()
+                if self.session.active_bend_id not in orientation:
+                    self.physical_check_result.setText(
+                        "UNVERIFIED: автоматическая ориентация текущего гиба "
+                        "не определена."
+                    )
+                    return
+                active_reverse = bool(orientation[self.session.active_bend_id])
                 if self.timer.isActive() or self.session.playback_status == PlaybackStatus.PLAYING:
                     self.physical_check_result.setText(
                         "UNVERIFIED: Pause перед проверкой всей траектории."
@@ -3573,6 +3568,7 @@ class _PreviewPanel:
                         allow_end_zone_collision=allow_ez,
                         end_zone_length_mm=ez_len,
                         classify_end_zone_length_mm=ez_len if ez_len > 0.0 else 10.0,
+                        reverse_axis=active_reverse,
                     )
                     ez = getattr(report, "end_zone_analysis", None)
                     if (
@@ -3591,6 +3587,7 @@ class _PreviewPanel:
                                 allow_end_zone_collision=True,
                                 end_zone_length_mm=eff_ez,
                                 classify_end_zone_length_mm=eff_ez,
+                                reverse_axis=active_reverse,
                             )
                         else:
                             self._highlighted_end_zone_info = None
@@ -3832,7 +3829,6 @@ class _PreviewPanel:
                 self._selected_planar_gauge_order = ()
                 self._selected_planar_gauge_positions = {}
                 self._selected_planar_gauge_model_id = None
-                self._selected_planar_loading_orientation = {}
                 self._backgauge_preview_cache.clear()
                 self.last_sequence_search_report = None
                 self._conditional_bends_status.clear()
@@ -4066,11 +4062,6 @@ class _PreviewPanel:
                         }
                         if set(orientations) != set(candidate.sequence):
                             raise ValueError("Ориентация 2D неполная; вариант не назначен")
-                        mixed_orientation = len(set(orientations.values())) > 1
-                        self.manual_reverse_3d_checkbox.setChecked(
-                            next(iter(orientations.values()))
-                            if not mixed_orientation else False
-                        )
                         self._manual_orientation_order = tuple(candidate.sequence)
                         self._manual_orientation_by_bend = orientations
                         self._populate_operations()
@@ -4194,7 +4185,6 @@ class _PreviewPanel:
                     self._selected_planar_gauge_order = ()
                     self._selected_planar_gauge_positions = {}
                     self._selected_planar_gauge_model_id = None
-                    self._selected_planar_loading_orientation = {}
                     self._backgauge_preview_cache.clear()
                     self._conditional_bends_status.clear()
                     if search_rep.status is SearchStatus.CONDITIONAL_VALIDATED:
@@ -4287,43 +4277,22 @@ class _PreviewPanel:
                         f"Ram Position: {ram_z:+.2f} mm (Stroke: {ram_stroke:.2f} mm)"
                     )
 
-            def _manual_operator_pose_active(self):
-                return (
-                    getattr(self, "_task_stack", None) is not None
-                    and self._task_stack.currentWidget()
-                    is getattr(self, "_page_manual", None)
-                )
-
             def _rear_frame_for_preview(self):
-                # Manual uses the same explicit machine-frame placement as
-                # native D6. The rear-frame ergonomic auto-flip is NOT an
-                # operator loading choice or a physical 3D verification.
-                if self._manual_operator_pose_active():
-                    return None
-                return (
-                    self.session.panel_vertices_xy
-                    if self.session is not None and self.backgauge_model is not None
-                    else None
-                )
+                # The per-bend orientation map owns the machine-facing side.
+                # Passing vertices here would apply a second independent flip.
+                return None
 
             def _manual_orientation_selection(self, bend_ids):
-                """The exact per-bend pose shared by Manual 2D, native 3D and viewers."""
-                order = tuple(self.session.bend_order) if self.session else ()
-                selected = tuple(bend_ids)
-                if (self._manual_orientation_order == order
-                        and set(self._manual_orientation_by_bend) == set(order)):
-                    return {bid: bool(self._manual_orientation_by_bend[bid])
-                            for bid in selected}
-                reverse = bool(self.manual_reverse_3d_checkbox.isChecked())
-                return {bid: reverse for bid in selected}
+                """Select from the single map used by both previews and OCC."""
+                choices = self._effective_loading_orientation_map()
+                return {bid: bool(choices[bid]) for bid in bend_ids if bid in choices}
 
             def _effective_loading_orientation_map(self):
-                """One source of machine-facing orientation for every viewer.
+                """One deterministic bend pose map for 2D, 3D, and OCC.
 
-                Manual selection (including imported 2D per-bend poses) takes
-                precedence across all viewer pages. Otherwise a rear-gauge
-                ergonomic suggestion is preview-only, never CAD verified.
-                The FoldState of the running simulation is not modified.
+                A selected 2D search candidate keeps its explicit per-bend
+                orientation. Otherwise the shorter reach faces the rear gauge.
+                This heuristic is not collision or gauge-contact evidence.
                 """
                 if self.session is None:
                     self._ergonomic_loading_status = "NO_PART"
@@ -4331,33 +4300,11 @@ class _PreviewPanel:
                 order = tuple(self.session.bend_order)
                 if (self._manual_orientation_order == order
                         and set(self._manual_orientation_by_bend) == set(order)):
-                    self._ergonomic_loading_status = "MANUAL_ORIENTATION_BY_BEND"
-                    return self._manual_orientation_selection(order)
-                reverse_checkbox = getattr(
-                    self, "manual_reverse_3d_checkbox", None
-                )
-                manual_page_active = (
-                    reverse_checkbox is not None
-                    and self._manual_operator_pose_active()
-                )
-                if manual_page_active:
-                    self._ergonomic_loading_status = "MANUAL_ORIENTATION_BY_BEND"
-                    return self._manual_orientation_selection(order)
-                checked_prefix = tuple(self._selected_planar_gauge_order)
-                if (checked_prefix and order[:len(checked_prefix)] == checked_prefix
-                        and self._selected_planar_gauge_model_id
-                        == id(self.backgauge_model)):
-                    self._ergonomic_loading_status = (
-                        "SELECTED_2D_PREVIEW_UNVERIFIED"
-                    )
-                    return dict(self._selected_planar_loading_orientation)
-                if self.backgauge_model is None:
-                    self._ergonomic_loading_status = "NO_REAR_GAUGE"
-                    return {}
-                key = (
-                    id(self.session), order, id(self.backgauge_model),
-                )
+                    self._ergonomic_loading_status = "SELECTED_2D_ORIENTATION_UNVERIFIED"
+                    return dict(self._manual_orientation_by_bend)
+                key = (id(self.session), id(self.session.fold_state), order)
                 if key == self._ergonomic_loading_cache_key:
+                    self._ergonomic_loading_status = self._ergonomic_loading_cache_status
                     return dict(self._ergonomic_loading_cache)
                 from smbs_core.kinematics2d.loading_orientation_preview import (
                     plan_preview_loading_orientations,
@@ -4367,6 +4314,7 @@ class _PreviewPanel:
                         self.session.fold_state,
                         self.session.panel_vertices_xy,
                         order,
+                        deadband_mm=0.0,
                     )
                     choices = {
                         item.bend_id: item.reverse_axis
@@ -4378,9 +4326,9 @@ class _PreviewPanel:
                         if item.status != "ERGONOMIC_ONLY_NOT_CAD_VALIDATED"
                     ]
                     self._ergonomic_loading_status = (
-                        "ERGONOMIC_PREVIEW_UNVERIFIED"
+                        "AUTO_SHORT_REAR_UNVERIFIED"
                         if not unavailable else
-                        "ERGONOMIC_PREVIEW_INCOMPLETE:" + ",".join(unavailable)
+                        "AUTO_SHORT_REAR_INCOMPLETE:" + ",".join(unavailable)
                     )
                 except (ValueError, TypeError, KeyError, AttributeError) as exc:
                     _warn(
@@ -4388,17 +4336,23 @@ class _PreviewPanel:
                         + type(exc).__name__ + ":" + str(exc)
                     )
                     self._ergonomic_loading_status = (
-                        "ERGONOMIC_PREVIEW_UNAVAILABLE:" + type(exc).__name__
+                        "AUTO_SHORT_REAR_UNAVAILABLE:" + type(exc).__name__
                     )
                     choices = {}
                 self._ergonomic_loading_cache_key = key
                 self._ergonomic_loading_cache = dict(choices)
+                self._ergonomic_loading_cache_status = self._ergonomic_loading_status
                 return choices
 
             def _current_preview_machine_placement(self):
                 """Return common machine-space sheet pose for 2D and 3D views."""
                 if self.session is None:
                     raise WorkpiecePoseError("No part loaded")
+                if self.session.active_bend_id not in self._effective_loading_orientation_map():
+                    raise WorkpiecePoseError(
+                        "AUTO_SHORT_REAR_ORIENTATION_UNVERIFIED:"
+                        + str(self.session.active_bend_id)
+                    )
                 pc = self._ensure_press_cycle_controller()
                 if (pc is not None
                         and self.execution_mode == CycleExecutionMode.FULL_CYCLE):
@@ -4449,15 +4403,16 @@ class _PreviewPanel:
                 source = self._ergonomic_loading_status
                 if source.startswith("SELECTED_2D"):
                     evidence = "выбрано из 2D-поиска; 3D не проверено"
-                elif source.startswith("ERGONOMIC_PREVIEW"):
-                    evidence = "по длинам сторон; КОНТАКТ НЕ ПРОВЕРЕН"
+                elif source == "AUTO_SHORT_REAR_UNVERIFIED":
+                    evidence = "короткая сторона к упору; КОНТАКТ НЕ ПРОВЕРЕН"
                 else:
                     evidence = source
                 self.loading_orientation_status.setText(
                     "Оператор ← (-S)  |  Упор → (+S)  |  {}: {}  |  {}"
                     .format(
                         bend_id,
-                        "РАЗВОРОТ 180°" if reversed_pose else "обычно 0°",
+                        ("НЕ ОПРЕДЕЛЕНА" if bend_id not in choices else
+                         "РАЗВОРОТ 180°" if reversed_pose else "обычно 0°"),
                         evidence,
                     )
                 )
@@ -5087,14 +5042,10 @@ class _PreviewPanel:
                 self._selected_planar_gauge_order = ()
                 self._selected_planar_gauge_positions = {}
                 self._selected_planar_gauge_model_id = None
-                self._selected_planar_loading_orientation = {}
                 self._backgauge_preview_cache.clear()
                 self._manual_sequence_prefix = []
                 self._manual_orientation_order = ()
                 self._manual_orientation_by_bend = {}
-                self.manual_reverse_3d_checkbox.blockSignals(True)
-                self.manual_reverse_3d_checkbox.setChecked(False)
-                self.manual_reverse_3d_checkbox.blockSignals(False)
                 self._manual_preview_unverified = False
                 self._manual_selection_enabled = False
                 self._manual_preview_notice.hide()
@@ -5733,6 +5684,13 @@ class _PreviewPanel:
                     orientation_by_bend=self._manual_orientation_selection(
                         self.session.bend_order
                     ),
+                    orientation_source=(
+                        "SELECTED_2D_CANDIDATE"
+                        if self._manual_orientation_order == tuple(self.session.bend_order)
+                        and set(self._manual_orientation_by_bend)
+                        == set(self.session.bend_order)
+                        else "AUTO_SHORT_REAR"
+                    ),
                     manual_report=(
                         self._last_manual_sequence_report
                         if self._last_manual_sequence_report is not None
@@ -5819,16 +5777,18 @@ class _PreviewPanel:
                 self.session.set_bend_order(order)
                 self._manual_sequence_prefix = list(prefix)
                 saved_orientations = payload["order"].get("orientation_by_bend", {})
-                self._manual_orientation_order = tuple(order)
-                self._manual_orientation_by_bend = {
-                    bid: bool(saved_orientations.get(bid, False)) for bid in order
-                }
-                saved_values = set(self._manual_orientation_by_bend.values())
-                self.manual_reverse_3d_checkbox.blockSignals(True)
-                self.manual_reverse_3d_checkbox.setChecked(
-                    next(iter(saved_values)) if len(saved_values) == 1 else False
+                # Old snapshots could contain an arbitrary checkbox override.
+                # Recompute those. Preserve only a complete selected 2D pose.
+                selected_pose = (
+                    payload["order"].get("orientation_source")
+                    == "SELECTED_2D_CANDIDATE"
+                    and set(saved_orientations) == set(order)
                 )
-                self.manual_reverse_3d_checkbox.blockSignals(False)
+                self._manual_orientation_order = tuple(order) if selected_pose else ()
+                self._manual_orientation_by_bend = (
+                    {bid: saved_orientations[bid] for bid in order}
+                    if selected_pose else {}
+                )
                 self._manual_preview_unverified = False
                 self._manual_selection_enabled = False
                 self._manual_preview_notice.hide()
@@ -5978,6 +5938,9 @@ class _PreviewPanel:
                         virtual_length=bool(self.tooling_setup.match_active_bend_length),
                         end_zone_allow=bool(self.tooling_setup.allow_end_zone_collision),
                         end_zone_mm=float(self.tooling_setup.end_zone_length_mm),
+                        orientation_by_bend=self._manual_orientation_selection(
+                            self.session.bend_order
+                        ),
                     )
                     if historic_hit is not None:
                         self._collision_inspection = {
@@ -6010,55 +5973,6 @@ class _PreviewPanel:
                     note += " Ограничения: " + "; ".join(warnings)
                 self.fcstd_note.setText(note)
                 return note
-
-            def _manual_native_orientation_changed(self, _enabled):
-                """A deliberate checkbox change replaces every per-bend 2D pose."""
-                if self.session is None:
-                    return
-                lift_was_active = bool(
-                    self.press_cycle is not None and
-                    self.press_cycle.assisted_retract_preview_bends
-                )
-                self._manual_orientation_order = tuple(self.session.bend_order)
-                self._manual_orientation_by_bend = {
-                    bid: bool(_enabled) for bid in self._manual_orientation_order
-                }
-                self._last_manual_sequence_report = None
-                self._manual_3d_verdicts.clear()
-                self._manual_retract_verdicts.clear()
-                self._collision_inspection = None
-                self._collision_display_active = False
-                if hasattr(self, "manual_show_collision_btn"):
-                    self.manual_show_collision_btn.setEnabled(False)
-                    self.manual_show_collision_btn.hide()
-                if hasattr(self, "manual_exact_occ_btn"):
-                    self.manual_exact_occ_btn.setEnabled(False)
-                    self.manual_exact_occ_btn.hide()
-                    self.manual_show_collision_btn.setText(
-                        "Показать коллизию в 3D"
-                    )
-                self._clear_manual_check_feedback()
-                if lift_was_active:
-                    self.status.setText(
-                        "Ориентация детали изменена: прежняя OCC-проверка "
-                        "подъёма больше не относится к этой установке. "
-                        "Подъём отключён; повторите проверку."
-                    )
-                self._physical_check_signature = None
-                self._ensure_press_cycle_controller()
-                if self.press_cycle is not None:
-                    self.press_cycle.loading_orientation_by_bend = (
-                        self._effective_loading_orientation_map()
-                    )
-                self._trace_event(
-                    "MANUAL_NATIVE_ORIENTATION_SELECTED",
-                    reverse_axis=bool(self.manual_reverse_3d_checkbox.isChecked()),
-                    orientation_by_bend=self._manual_orientation_selection(
-                        self.session.bend_order
-                    ),
-                    order=list(self.session.bend_order),
-                )
-                self.draw()
 
             def _validate_export_manual_order(self, coarse_occ=False):
                 """Validate selected manual order: Stage A/B plus actual FCStd 3D.
@@ -6101,7 +6015,6 @@ class _PreviewPanel:
                     self.manual_simulate_btn,
                     self.select_punch_combo, self.select_die_combo,
                     self.virtual_tool_len_checkbox,
-                    self.manual_reverse_3d_checkbox,
                     self.allow_end_zone_checkbox, self.end_zone_len_spin,
                     self.import_punch_btn, self.import_die_btn,
                     self.tool_library_btn, self.move_up_btn,
@@ -6181,6 +6094,19 @@ class _PreviewPanel:
 
                     # Preview, 2D replay and native 3D consume one pose map.
                     reverse_selection = self._manual_orientation_selection(selected)
+                    if set(reverse_selection) != set(selected):
+                        self._record_manual_precheck_failure(
+                            selected,
+                            "Не удалось определить короткую сторону к упору для: "
+                            + ", ".join(bid for bid in selected
+                                        if bid not in reverse_selection),
+                        )
+                        return
+                    _desktop_debug_event(
+                        "MANUAL_AUTO_ORIENTATION_SELECTED",
+                        source=self._ergonomic_loading_status,
+                        orientation_by_bend=reverse_selection,
+                    )
                     if coarse_occ:
                         planar = {
                             "status": "NOT_RUN_COARSE_OCC",
@@ -6717,11 +6643,9 @@ class _PreviewPanel:
                         self._manual_sequence_prefix.pop()
                     return
                 if self._manual_orientation_order != tuple(self.session.bend_order):
-                    self._manual_orientation_order = tuple(self.session.bend_order)
-                    self._manual_orientation_by_bend = {
-                        bid: bool(self.manual_reverse_3d_checkbox.isChecked())
-                        for bid in self._manual_orientation_order
-                    }
+                    self._manual_orientation_order = ()
+                    self._manual_orientation_by_bend = {}
+                    self._ergonomic_loading_cache_key = None
                 if prefix:
                     self.session.select_bend_index(len(prefix) - 1)
                 self._preview_only_planar_order = None
@@ -6731,7 +6655,6 @@ class _PreviewPanel:
                 self._selected_planar_gauge_order = ()
                 self._selected_planar_gauge_positions = {}
                 self._selected_planar_gauge_model_id = None
-                self._selected_planar_loading_orientation = {}
                 self._backgauge_preview_cache.clear()
                 self.last_sequence_search_report = None
                 self._conditional_bends_status.clear()
