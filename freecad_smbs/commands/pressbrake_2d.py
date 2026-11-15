@@ -1891,7 +1891,10 @@ class _PreviewPanel:
                 self._orbit_pitch = 25.0
                 self._orbit_roll = 0.0
                 self._last_3d_frame_at = -1.0
+                self._last_3d_debug_at = -1.0
                 self._fixed_3d_view_rect = None
+                self._preview_3d_face_items = []
+                self._preview_3d_label_item = None
                 self._preview_3d.setObjectName("SMBS_3D_ReadOnly")
                 self._preview_3d_scene = QtWidgets.QGraphicsScene(self._preview_3d)
                 self._preview_3d.setScene(self._preview_3d_scene)
@@ -2997,7 +3000,11 @@ class _PreviewPanel:
                         self._finish_motion_trace("TRACE_FRAME_ERROR")
 
             def _on_view_changed(self, index):
-                if index == 1:
+                if index == 0:
+                    # The hidden 2D scene is intentionally not redrawn on
+                    # every 3D playback tick. Refresh it when it becomes visible.
+                    self.draw()
+                elif index == 1:
                     self._update_3d_preview(force=True)
                 elif index == 2:
                     self._draw_flat_pattern()
@@ -3021,18 +3028,23 @@ class _PreviewPanel:
                 Consumes the same FoldState angles and machine pose as 2.5D.
                 No Part.Shape changes, duplicate bend simulation or OCC booleans.
                 """
-                # Keep the existing single playback timer; cap redraw cost
-                # of a complex whole-part mesh to about 12 frames/second.
+                # The existing 40 Hz Qt timer drives both state and 3D frames.
+                # Rendering an already advanced state should never be skipped
+                # because two timer callbacks happened close together.
                 now = time.perf_counter()
-                if not force and self._last_3d_frame_at >= 0.0:
-                    if now - self._last_3d_frame_at < 1.0 / 12.0:
-                        return
+                previous_frame_at = self._last_3d_frame_at
                 self._last_3d_frame_at = now
                 scene = self._preview_3d_scene
-                scene.clear()
+                if self._collision_display_active or not self._preview_3d_face_items:
+                    scene.clear()
+                    self._preview_3d_face_items = []
+                    self._preview_3d_label_item = None
                 if self.session is None:
+                    scene.clear()
+                    self._preview_3d_face_items = []
+                    self._preview_3d_label_item = None
                     scene.addSimpleText("Загрузите листовую деталь в PressBrakeSim")
-                    return
+                    return True
                 inspection = (
                     self._collision_inspection
                     if self._collision_display_active else None
@@ -3099,8 +3111,11 @@ class _PreviewPanel:
                 except (PreviewMeshError, WorkpiecePoseError,
                         KinematicsError, ValueError, KeyError) as exc:
                     _warn("3D whole-sheet preview unavailable: {}".format(exc))
+                    scene.clear()
+                    self._preview_3d_face_items = []
+                    self._preview_3d_label_item = None
                     scene.addSimpleText("3D: {}".format(str(exc)))
-                    return
+                    return False
 
                 # Camera orbit is anchored at the PHYSICAL DIE ORIGIN.
                 # Recentering on the mesh centroid each frame hid long
@@ -3108,8 +3123,11 @@ class _PreviewPanel:
                 # Orbit the camera, never translate the machine or sheet.
                 all_vertices = [v for f in faces for v in f.vertices]
                 if not all_vertices:
+                    scene.clear()
+                    self._preview_3d_face_items = []
+                    self._preview_3d_label_item = None
                     scene.addSimpleText("3D: no visible faces")
-                    return
+                    return False
                 center = (0.0, 0.0, 0.0)
                 radius = max(
                     math.sqrt(sum((p[i] - center[i]) ** 2 for i in range(3)))
@@ -3142,6 +3160,7 @@ class _PreviewPanel:
                     / len(face.vertices),
                     reverse=True,
                 )
+                drawn_faces = 0
                 for face in ordering:
                     poly = QtGui.QPolygonF([project(pt) for pt in face.vertices])
                     if len(poly) < 3:
@@ -3154,8 +3173,22 @@ class _PreviewPanel:
                     ) else 0.65)
                     pen.setCosmetic(True)
                     brush = QtGui.QBrush(QtGui.QColor(fill_hex))
-                    item = scene.addPolygon(poly, pen, brush)
+                    if not inspection and drawn_faces < len(self._preview_3d_face_items):
+                        item = self._preview_3d_face_items[drawn_faces]
+                        item.setPolygon(poly)
+                        item.setPen(pen)
+                        item.setBrush(brush)
+                    else:
+                        item = scene.addPolygon(poly, pen, brush)
+                        if not inspection:
+                            self._preview_3d_face_items.append(item)
                     item.setToolTip("{}: {}".format(face.kind, face.identifier))
+                    item.setZValue(drawn_faces)
+                    drawn_faces += 1
+                if not inspection:
+                    for item in self._preview_3d_face_items[drawn_faces:]:
+                        scene.removeItem(item)
+                    del self._preview_3d_face_items[drawn_faces:]
 
                 if inspection:
                     actual = (inspection.get("first_blocker") or {}).get(
@@ -3205,7 +3238,7 @@ class _PreviewPanel:
                         ))
                         text_item.setPos(project(corners[0]))
                         text_item.setZValue(501.0)
-                label = scene.addSimpleText(
+                label_text = (
                     ("3D КОЛЛИЗИЯ | гиб {} | фаза {} | угол {:.2f}° | "
                      "native XYZ BBox, НЕ поверхность контакта".format(
                         inspection["bend_id"],
@@ -3217,7 +3250,15 @@ class _PreviewPanel:
                         self.execution_mode.value,
                     )
                 )
+                if not inspection and self._preview_3d_label_item is not None:
+                    label = self._preview_3d_label_item
+                    label.setText(label_text)
+                else:
+                    label = scene.addSimpleText(label_text)
+                    if not inspection:
+                        self._preview_3d_label_item = label
                 label.setBrush(QtGui.QBrush(QtGui.QColor("#536b7f")))
+                label.setZValue(drawn_faces + 1)
                 sheet_points = [project(v) for f in faces for v in f.vertices]
                 min_x = min(p.x() for p in sheet_points)
                 min_y = min(p.y() for p in sheet_points)
@@ -3236,6 +3277,24 @@ class _PreviewPanel:
                     self._preview_3d.reset_camera()
                 else:
                     scene.setSceneRect(self._fixed_3d_view_rect)
+                if (self.timer.isActive()
+                        and (self._last_3d_debug_at < 0.0
+                             or now - self._last_3d_debug_at >= 0.2)):
+                    self._last_3d_debug_at = now
+                    _desktop_debug_event(
+                        "PREVIEW_3D_FRAME",
+                        bend_id=bend_id,
+                        angle_deg=float(fold_state.angles[bend_id]),
+                        face_count=drawn_faces,
+                        frame_interval_ms=(
+                            round((now - previous_frame_at) * 1000.0, 2)
+                            if previous_frame_at >= 0.0 else None
+                        ),
+                        render_ms=round(
+                            (time.perf_counter() - now) * 1000.0, 2
+                        ),
+                    )
+                return True
 
             def _auto_select_default_tooling(self):
                 """Auto-select verified default tooling (puancon / matrica) if none selected."""
@@ -7256,7 +7315,24 @@ class _PreviewPanel:
                             pc.preview_punch_at_current_angle()
                     self._configure_for_active_bend()
                     self._update_tooling_status_label()
-                    self.draw()
+                    showing_3d = (
+                        hasattr(self, "_viewer_tabs")
+                        and self._viewer_tabs.currentIndex() == 1
+                    )
+                    recording = (
+                        self.motion_trace is not None
+                        and self.motion_trace.is_open
+                    )
+                    if showing_3d and not recording:
+                        # The active 3D view has its own renderer. Avoid
+                        # rebuilding the hidden 2D scene on every timer tick.
+                        # A failed pose still runs the 2D diagnostic halt.
+                        if not self._update_3d_preview():
+                            self.draw()
+                        else:
+                            self._update_loading_orientation_label()
+                    else:
+                        self.draw()
                     if self._machine_pose_fault:
                         # draw() already paused, finalized the JSONL trace and
                         # displayed the exact geometric blocker.
@@ -7266,6 +7342,7 @@ class _PreviewPanel:
                         QtCore.QTimer.singleShot(0, self.fit)
                     if self.session.playback_status == PlaybackStatus.COMPLETED:
                         self._stop_timer()
+                        self._last_3d_frame_at = -1.0
                         self.draw()
                         self._finish_motion_trace("PLAYBACK_COMPLETED")
                         self.status.setText(
