@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 from smbs_core.kinematics2d.native_assisted_retract import (
     sample_synchronous_lift, inspect_punch_assisted_retract,
+    eligible_assisted_retract,
 )
 
 
@@ -59,6 +60,16 @@ class AssistedRetractTests(unittest.TestCase):
                                                 {"start_z_mm": -2, "end_z_mm": 6})
         self.assertEqual(report["status"], "UNVERIFIED")
         self.assertIn("requires_proven_retract_punch_collision", report["reason"])
+
+    def test_logged_b02_retract_hit_enables_probe(self):
+        blocker = {"phase": "RETRACT", "tool": "PUNCH",
+                   "sampled_machine_pose": {"ram_z_mm": 1.5036577289}}
+        retract = {"start_z_mm": -3.492685, "end_z_mm": 6.5}
+        self.assertTrue(eligible_assisted_retract(blocker, retract))
+        self.assertFalse(eligible_assisted_retract(
+            {**blocker, "phase": "BENDING"}, retract))
+        self.assertFalse(eligible_assisted_retract(
+            blocker, {"start_z_mm": -3.492685, "end_z_mm": float("nan")}))
 
 
 if __name__ == "__main__":
