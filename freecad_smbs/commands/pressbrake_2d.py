@@ -975,9 +975,12 @@ class PressBrake2DCommand:
         window.resize(1000, 720)
         window.showMaximized()
         mdi.setActiveSubWindow(window)
-        show_workspace_controls(widget, tab=2)
+        # A valid selected part must be loaded BEFORE handing the control
+        # widgets to the native Tasks pane. Previously the empty-state
+        # panel could appear first and remain visually blank on macOS.
         if doc is not None and selected:
             widget.load_part(selection=selected, document=doc)
+        show_workspace_controls(widget, tab=2)
         _log("Experimental PressBrakeSim GUI opened; original search engine retained")
 
 
