@@ -43,7 +43,7 @@ from smbs_core.kinematics2d.press_cycle import (
 )
 from smbs_core.kinematics2d.motion_trace import MotionTraceRecorder, make_frame_record
 from smbs_core.kinematics2d.preview_mesh_3d import (
-    build_sheet_preview_faces, PreviewMeshError,
+    build_sheet_preview_faces, build_tool_preview_faces, PreviewMeshError,
 )
 from smbs_core.kinematics2d.machine_section_3d import compute_machine_cutting_plane_section
 from smbs_core.kinematics2d.workpiece_placement_3d import PlacementTransform3D, WorkpiecePlacement3D
@@ -3050,6 +3050,8 @@ class _PreviewPanel:
                     if self._collision_display_active else None
                 )
                 inspected_components = set()
+                tool_warning = ""
+                inspected_ram_z = None
                 try:
                     # A real D6 3D collision uses the tool-centric MACHINE
                     # coordinate system, which can differ from the ergonomic
@@ -3064,6 +3066,7 @@ class _PreviewPanel:
                             raise ValueError(
                                 "missing_native_machine_frame_for_collision"
                             )
+                        inspected_ram_z = actual.get("ram_z_mm")
                         inspection_state = FoldState(
                             self.session.fold_state.graph,
                             self.session.fold_state.fixed_panel,
@@ -3108,6 +3111,17 @@ class _PreviewPanel:
                         segments=12,
                         machine_placement=current_placement,
                     )
+                    try:
+                        if inspection and inspected_ram_z is None:
+                            raise PreviewMeshError(
+                                "native punch height unavailable"
+                            )
+                        faces += build_tool_preview_faces(
+                            self.tooling_setup,
+                            punch_ram_z_mm=inspected_ram_z,
+                        )
+                    except PreviewMeshError as exc:
+                        tool_warning = str(exc)
                 except (PreviewMeshError, WorkpiecePoseError,
                         KinematicsError, ValueError, KeyError) as exc:
                     _warn("3D whole-sheet preview unavailable: {}".format(exc))
@@ -3152,6 +3166,10 @@ class _PreviewPanel:
                     "zone_inner": ("#eac77b", "#9a7134"),
                     "zone_outer": ("#e0b967", "#9a7134"),
                     "zone_end": ("#bd9c65", "#9a7134"),
+                    "punch_cap": ("#e96959", "#922b21"),
+                    "punch_side": ("#c9463a", "#922b21"),
+                    "die_cap": ("#607f98", "#2c3e50"),
+                    "die_side": ("#3d5b72", "#2c3e50"),
                 }
                 # Painter order must follow the currently rotated camera depth.
                 ordering = sorted(
@@ -3165,6 +3183,16 @@ class _PreviewPanel:
                     poly = QtGui.QPolygonF([project(pt) for pt in face.vertices])
                     if len(poly) < 3:
                         continue
+                    path = QtGui.QPainterPath()
+                    path.addPolygon(poly)
+                    path.closeSubpath()
+                    for hole in face.holes:
+                        hole_path = QtGui.QPainterPath()
+                        hole_path.addPolygon(
+                            QtGui.QPolygonF([project(pt) for pt in hole])
+                        )
+                        hole_path.closeSubpath()
+                        path = path.subtracted(hole_path)
                     fill_hex, edge_hex = palette.get(face.kind, ("#91a5b3", "#4c6474"))
                     if inspection and face.identifier in inspected_components:
                         edge_hex, fill_hex = "#cf3030", "#e8a1a1"
@@ -3175,11 +3203,11 @@ class _PreviewPanel:
                     brush = QtGui.QBrush(QtGui.QColor(fill_hex))
                     if not inspection and drawn_faces < len(self._preview_3d_face_items):
                         item = self._preview_3d_face_items[drawn_faces]
-                        item.setPolygon(poly)
+                        item.setPath(path)
                         item.setPen(pen)
                         item.setBrush(brush)
                     else:
-                        item = scene.addPolygon(poly, pen, brush)
+                        item = scene.addPath(path, pen, brush)
                         if not inspection:
                             self._preview_3d_face_items.append(item)
                     item.setToolTip("{}: {}".format(face.kind, face.identifier))
@@ -3250,6 +3278,8 @@ class _PreviewPanel:
                         self.execution_mode.value,
                     )
                 )
+                if tool_warning:
+                    label_text += " | ОСНАСТКА: " + tool_warning
                 if not inspection and self._preview_3d_label_item is not None:
                     label = self._preview_3d_label_item
                     label.setText(label_text)
@@ -3407,6 +3437,7 @@ class _PreviewPanel:
                 bend_len = self._active_bend_length_mm()
                 if hasattr(self.tooling_setup, "set_match_active_bend_length"):
                     self.tooling_setup.set_match_active_bend_length(bool(enabled), bend_len)
+                self._fixed_3d_view_rect = None
                 if self.press_cycle is not None and hasattr(self.press_cycle, "set_match_active_bend_length"):
                     self.press_cycle.set_match_active_bend_length(bool(enabled))
                 self._update_tooling_status_label()
@@ -4675,6 +4706,7 @@ class _PreviewPanel:
                 except ToolingError as exc:
                     self.status.setText(str(exc))
                     return
+                self._fixed_3d_view_rect = None
                 if self.session is not None and (
                     self.tooling_setup.punch is not None or self.tooling_setup.die is not None
                 ):
@@ -4702,6 +4734,7 @@ class _PreviewPanel:
                 except ToolingError as exc:
                     self.status.setText(str(exc))
                     return
+                self._fixed_3d_view_rect = None
                 if self.session is not None and (
                     self.tooling_setup.punch is not None or self.tooling_setup.die is not None
                 ):
