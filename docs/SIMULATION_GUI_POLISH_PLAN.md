@@ -89,3 +89,10 @@ Make the existing FreeCAD SMBS add-on responsive, understandable and visually sm
 - Patched selected-view rendering at start and completion, and added `draw(update_3d=False)` for the failed-3D diagnostic fallback. No changes to physical validation, state progression, 2D cutting-plane calculation or bend geometry.
 - **Not yet measured in running FreeCAD**: frame p95, scene items, remaining geometry rebuild per 3D tick, effect of recording mode, and user-visible stutter. These remain open; do not claim FPS improvement without the measured baseline.
 - Remaining higher-cost path: `_update_3d_preview()` calls `build_sheet_preview_faces()` and `build_tool_preview_faces()` every visible 3D tick, then reprojects/rebuilds painter paths per face. Profile and cache immutable geometry before attempting a broader change.
+
+## P1 preview projection optimization (2026-11-15)
+- Commit `1b0db2a`: in the live 3D preview, project each outer face vertex only once per frame and reuse the projected 2D polygon and depth for painter ordering. Previously sorting by depth and building the path each projected the same vertex independently.
+- The camera remains anchored at physical die origin; camera angle, hole outlines, scene item reuse, original painter order and physical face generation remain unchanged.
+- Bounds radius is now computed only when initializing a fixed 3D view rectangle, not on every frame. It still uses every face vertex for initial sizing.
+- This optimization removes redundant camera projection work but **does not yet cache** `build_sheet_preview_faces` or `build_tool_preview_faces`. Do not claim to have eliminated face/geometry rebuilding.
+- Verification still required: syntax smoke check in installed FreeCAD, headless preview regression tests, and real FPS / p95 timing comparison including view rotation, tool changes, switching bends, recording mode and repeated panel reopen.
