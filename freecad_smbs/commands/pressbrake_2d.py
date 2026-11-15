@@ -2102,6 +2102,17 @@ class _PreviewPanel:
                 undo_row.addWidget(self.manual_undo_btn)
                 undo_row.addWidget(self.manual_clear_btn)
                 order_body.addLayout(undo_row)
+                self.saved_sequences_btn = style_action(
+                    QtWidgets.QPushButton("Сохранённые варианты"), compact=True
+                )
+                self.saved_sequences_btn.setToolTip(
+                    "Выбрать один из найденных порядков, сохранённых "
+                    "в JSON текущего FCStd. Результат требует повторной проверки."
+                )
+                self.saved_sequences_btn.clicked.connect(
+                    self._select_saved_sequence
+                )
+                order_body.addWidget(self.saved_sequences_btn)
 
                 self.operations.setMinimumHeight(220)
                 self.operations.setMaximumHeight(16777215)
@@ -4062,6 +4073,67 @@ class _PreviewPanel:
                     sequence=list(sequence), source=entry.source,
                     evidence=entry.evidence, recheck=reason,
                     physical_status="UNVERIFIED",
+                )
+
+            def _select_saved_sequence(self):
+                """Use an archived order as UNVERIFIED, never as a collision pass."""
+                if self.session is None:
+                    self.status.setText("Сначала загрузите деталь.")
+                    return
+                saved = tuple(self._saved_full_sequences)
+                if not saved:
+                    self.status.setText(
+                        "Сохранённых полных 2D вариантов пока нет."
+                    )
+                    return
+                labels = [
+                    "{}. {}".format(i + 1, " → ".join(item["bend_ids"]))
+                    for i, item in enumerate(saved)
+                ]
+                label, accepted = QtWidgets.QInputDialog.getItem(
+                    self, "Сохранённые варианты", "Последовательность:",
+                    labels, 0, False
+                )
+                if not accepted or label not in labels:
+                    return
+                item = saved[labels.index(label)]
+                order = tuple(item["bend_ids"])
+                if (len(order) != len(self.session.canonical_order)
+                        or set(order) != set(self.session.canonical_order)):
+                    self.status.setText(
+                        "Вариант не соответствует текущей детали."
+                    )
+                    return
+                self._stop_timer()
+                self.session.reset_all_bends()
+                self.session.set_bend_order(order)
+                orientations = item.get("orientation_by_bend", {})
+                if set(orientations) == set(order):
+                    self._manual_orientation_order = order
+                    self._manual_orientation_by_bend = dict(orientations)
+                else:
+                    self._manual_orientation_order = ()
+                    self._manual_orientation_by_bend = {}
+                self._manual_sequence_prefix = list(order)
+                self._manual_preview_unverified = True
+                self._manual_preview_notice.show()
+                self._manual_3d_verdicts.clear()
+                self._manual_retract_verdicts.clear()
+                self._clear_manual_check_feedback()
+                self._last_manual_sequence_report = None
+                self._ensure_press_cycle_controller()
+                self._sync_tooling_to_active_bend()
+                self._populate_operations()
+                self._configure_for_active_bend()
+                self.draw()
+                self._draw_flat_pattern(reset_camera=False)
+                self.physical_check_result.setText(
+                    "UNVERIFIED: исторический вариант из FCStd. "
+                    "Повторите проверку коллизий."
+                )
+                self.status.setText(
+                    "Сохранённый порядок выбран: {} | UNVERIFIED"
+                    .format(" → ".join(order))
                 )
 
             def _complete_planar_candidates(self, report):
