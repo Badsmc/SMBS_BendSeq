@@ -5190,9 +5190,11 @@ class _PreviewPanel:
                     self._update_3d_preview()
                 # A newly loaded part may need a first framing, but never
                 # override manual pan/zoom/orbit in either viewer.
-                if not (self._preview_3d if self._viewer_tabs.currentIndex() == 1
-                        else self.view)._user_camera_modified:
+                if (self._viewer_tabs.currentIndex() == 0
+                        and not self.view._user_camera_modified):
                     QtCore.QTimer.singleShot(0, self.fit)
+                # Coin3D fits once when the first sheet mesh is submitted;
+                # Quarter owns its camera afterwards. No Qt Canvas flags.
 
             def _bound_smbs_document(self):
                 """Never write SMBS data into a different active FCStd tab."""
