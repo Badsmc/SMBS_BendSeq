@@ -22,3 +22,4 @@ jobs:
           python -m unittest discover -s tests -p 'test_gui_source_syntax.py' -v
           python -m unittest discover -s tests -p 'test_fcstd_saved_sequences.py' -v
           python -m unittest discover -s tests -p 'test_coin3d_source_contract.py' -v
+          python -m unittest discover -s tests -p 'test_coin3d_pose_reuse.py' -v
