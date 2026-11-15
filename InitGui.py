@@ -42,4 +42,24 @@ _REPO_ROOT = _checkout_root()
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
-from freecad_smbs.InitGui import *  # noqa: F401,F403
+try:
+    from freecad_smbs.InitGui import *  # noqa: F401,F403
+except Exception:
+    # FreeCAD normally reports only the last exception line during startup.
+    # Print the complete chain (including a nested module's actual file/line)
+    # to distinguish a broken import from a similarly named old SMBS checkout.
+    import traceback
+    message = (
+        "SMBS InitGui import failed; checkout={!s}; "
+        "loaded freecad_smbs={!s}\\n{}".format(
+            _REPO_ROOT,
+            getattr(sys.modules.get("freecad_smbs"), "__file__", "<not loaded>"),
+            traceback.format_exc(),
+        )
+    )
+    try:
+        import FreeCAD as App
+        App.Console.PrintError(message + "\\n")
+    except (ImportError, AttributeError):
+        print(message, file=sys.stderr)
+    raise
