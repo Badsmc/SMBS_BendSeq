@@ -97,6 +97,7 @@ def reconstruct_exact_collision(
     blocker: dict,
     *,
     segments: int = 128,
+    include_components: bool = True,
 ) -> dict:
     """Recreate exact native D6 sheet/tool OCC Common at the logged pose.
 
@@ -176,7 +177,7 @@ def reconstruct_exact_collision(
     attribution = blocker.get("component_attribution") or {}
     hit_list = attribution.get("hits") or ()
     relevant_ids = {str(hit.get("component_id")) for hit in hit_list}
-    if hit_list:
+    if hit_list and include_components:
         first = state.ordered_bends[0].bend_zone
         if first is None:
             raise NativeCollisionInspectionError("missing_sheet_thickness")

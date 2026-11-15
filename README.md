@@ -42,3 +42,24 @@ The fast mode currently checks the full native sheet and is not yet the proposed
 An animated sequence, 2D search result, or sparse 3D check does **not** prove a physically feasible sequence. Continuous motion, backgauge, clamps, frame and transfer are not certified by the fast check. The observed B02 RETRACT punch overlap requires separate physical interpretation of the lift behavior; the program currently reports a collision. Fresh installation and native acceptance of this `smbs` snapshot remain outstanding. Do not use the preview as a certified press-brake plan.
 
 See [integration and release policy](https://github.com/Badsmc/SMBS_BendSeq/blob/main/BRANCH_ARCHITECTURE.md).
+
+## Experimental punch-assisted RETRACT (this branch)
+
+`experiment/punch-assisted-retract` starts from the `smbs` installation
+snapshot. Following a **proven native PUNCH collision during RETRACT**, Manual
+offers `Исследовать подъём детали с пуансоном`. The diagnostic replays the
+original exact FCStd collision, then tests nine OCC poses from BOTTOM to the
+configured upper RAM Z assuming the entire formed sheet follows the punch
+vertically one-to-one. It checks the entire sheet against both selected tools
+at each pose and appends a separate result to the Desktop developer journal.
+
+The existing Manual collision verdict is never replaced. A sampled path with
+no penetration is **UNVERIFIED**: the diagnostic cannot prove punch-to-sheet
+coupling or force, continuous motion between samples, release, lateral
+withdrawal, machine frame, clamps or backgauge clearance. A positive die or
+punch overlap on this hypothetical path is reported as a blocked sample.
+Testing the alternative path on the real B02 FCStd in FreeCAD remains necessary
+before any physical interpretation or integration into sequence search.
+The diagnostic has a 120-second per-path budget and never increases collision
+tolerances. The Linux FreeCADCmd smoke test uses simple OCC box solids; it does
+not substitute for B02's actual source part, selected tools and Mac runtime.
