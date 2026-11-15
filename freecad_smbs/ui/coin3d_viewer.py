@@ -74,6 +74,14 @@ def create_coin_viewer(parent=None):
             self.setMinimumHeight(240)
             self._coin = coin
             self._root = coin.SoSeparator()
+            # An explicit camera is owned by this scene, not by the FCStd
+            # document or a second FreeCAD 3D view.
+            self._camera = coin.SoPerspectiveCamera()
+            self._camera.orientation.setValue(coin.SbRotation(
+                coin.SbVec3f(0.0, 0.0, -1.0),
+                coin.SbVec3f(-1.0, 1.0, -0.7),
+            ))
+            self._root.addChild(self._camera)
             self._sheet_root = coin.SoSeparator()
             self._tool_root = coin.SoSeparator()
             self._collision_root = coin.SoSeparator()
@@ -82,14 +90,6 @@ def create_coin_viewer(parent=None):
             self._root.addChild(self._tool_root)
             self._root.addChild(self._collision_root)
             self.setSceneGraph(self._root)
-            # Set an initial machine-view orientation once. Quarter owns
-            # camera interaction after this point; never recenter on a bend.
-            camera = self.getSoRenderManager().getCamera()
-            if camera is not None:
-                camera.orientation.setValue(coin.SbRotation(
-                    coin.SbVec3f(0.0, 0.0, -1.0),
-                    coin.SbVec3f(-1.0, 1.0, -0.7),
-                ))
             self._sheet_nodes = []
             self._tool_key = None
             self._tool_base_ram_z = 0.0
