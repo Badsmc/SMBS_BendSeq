@@ -6,6 +6,11 @@ from pathlib import Path
 
 
 def _checkout_root() -> Path:
+    # FreeCAD executes Mod entrypoints with separate globals/locals.
+    # Resolve both names locally; globals imported at exec scope may not
+    # be visible inside a defined function on this macOS build.
+    import sys
+    from pathlib import Path
     if "__file__" in globals():
         return Path(__file__).resolve().parent
     for entry in sys.path:
