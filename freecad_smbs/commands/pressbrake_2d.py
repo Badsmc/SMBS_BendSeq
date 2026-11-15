@@ -2130,11 +2130,30 @@ class _PreviewPanel:
                 self.manual_validate_3d_btn.clicked.connect(
                     self._validate_export_manual_order
                 )
+                self.manual_lift_probe_btn = style_action(
+                    QtWidgets.QPushButton("Исследовать подъём детали с пуансоном"),
+                    compact=True,
+                )
+                self.manual_lift_probe_btn.setObjectName("SMBS_ManualAssistedRetractProbe")
+                self.manual_lift_probe_btn.setToolTip(
+                    "Доступно после подтверждённой коллизии с пуансоном при его "
+                    "подъёме (RETRACT). Проверяет альтернативные OCC-позы, "
+                    "не отменяя исходный COLLISION."
+                )
+                self.manual_lift_probe_btn.clicked.connect(self._inspect_assisted_retract)
+                self.manual_lift_probe_btn.setEnabled(False)
                 verify_row = QtWidgets.QVBoxLayout()
                 verify_row.addWidget(self.manual_simulate_btn)
                 verify_row.addWidget(self.manual_validate_btn)
                 verify_row.addWidget(self.manual_validate_3d_btn)
+                verify_row.addWidget(self.manual_lift_probe_btn)
                 order_body.addLayout(verify_row)
+                self.manual_lift_probe_hint = QtWidgets.QLabel(
+                    "Подъём детали: сначала найдите коллизию пуансона на RETRACT. "
+                    "Проверка остаётся экспериментальной."
+                )
+                self.manual_lift_probe_hint.setWordWrap(True)
+                order_body.addWidget(self.manual_lift_probe_hint)
                 # Verification must have a visible result in the Manual
                 # workspace, not a file-save dialog as its only feedback.
                 self.manual_check_summary = QtWidgets.QLabel(
@@ -2188,22 +2207,8 @@ class _PreviewPanel:
                 )
                 self.manual_exact_occ_btn.setEnabled(False)
                 self.manual_exact_occ_btn.hide()
-                self.manual_lift_probe_btn = style_action(
-                    QtWidgets.QPushButton("Исследовать подъём детали с пуансоном"),
-                    compact=True,
-                )
-                self.manual_lift_probe_btn.setObjectName("SMBS_ManualAssistedRetractProbe")
-                self.manual_lift_probe_btn.setToolTip(
-                    "Эксперимент: проверяет несколько OCC-поз при совместном подъёме. "
-                    "Не доказывает зацепление, непрерывный путь или возможность вынуть деталь. "
-                    "Исходная коллизия остаётся в результате проверки."
-                )
-                self.manual_lift_probe_btn.clicked.connect(self._inspect_assisted_retract)
-                self.manual_lift_probe_btn.setEnabled(False)
-                self.manual_lift_probe_btn.hide()
                 order_body.addWidget(self.manual_show_collision_btn)
                 order_body.addWidget(self.manual_exact_occ_btn)
-                order_body.addWidget(self.manual_lift_probe_btn)
                 self._manual_preview_help = QtWidgets.QLabel(
                     "Симуляция не проверяет коллизии. Быстрая OCC проверка "
                     "ищет точное 3D пересечение в пяти углах. Полная 3D проверка "
@@ -5147,7 +5152,10 @@ class _PreviewPanel:
                     self.manual_exact_occ_btn.hide()
                 if hasattr(self, "manual_lift_probe_btn"):
                     self.manual_lift_probe_btn.setEnabled(False)
-                    self.manual_lift_probe_btn.hide()
+                    self.manual_lift_probe_hint.setText(
+                        "Подъём детали: сначала найдите коллизию пуансона на "
+                        "RETRACT. Проверка остаётся экспериментальной."
+                    )
 
             def _show_manual_check_feedback(self, status, summary, steps=()):
                 """Show native check result in Manual, including the failed bend."""
@@ -6060,7 +6068,10 @@ class _PreviewPanel:
                     self._collision_inspection = None
                     self._collision_display_active = False
                     self.manual_lift_probe_btn.setEnabled(False)
-                    self.manual_lift_probe_btn.hide()
+                    self.manual_lift_probe_hint.setText(
+                        "Идёт проверка; режим подъёма станет доступен, если "
+                        "подтвердится столкновение с пуансоном на RETRACT."
+                    )
                     self.manual_show_collision_btn.setText(
                         "Показать коллизию в 3D"
                     )
@@ -6106,17 +6117,38 @@ class _PreviewPanel:
                         self.manual_exact_occ_btn.setEnabled(True)
                         self.manual_exact_occ_btn.show()
                         lift_hit = self._collision_inspection["first_blocker"]
-                        can_lift = (lift_hit.get("phase") == "RETRACT"
-                                    and lift_hit.get("tool") == "PUNCH")
+                        from smbs_core.kinematics2d.native_assisted_retract import (
+                            eligible_assisted_retract,
+                        )
+                        can_lift = eligible_assisted_retract(
+                            lift_hit, self._collision_inspection["retract"],
+                        )
                         self.manual_lift_probe_btn.setEnabled(can_lift)
-                        self.manual_lift_probe_btn.setVisible(can_lift)
+                        self.manual_lift_probe_hint.setText(
+                            ("B{}: обнаружена коллизия при подъёме пуансона. "
+                             "Кнопка выше проверит альтернативный подъём детали; "
+                             "исходный COLLISION сохранится.").format(
+                                self._collision_inspection["bend_id"]
+                            ) if can_lift else
+                            "Найденная коллизия не относится к отдельному "
+                            "эксперименту подъёма детали с пуансоном."
+                        )
+                        _desktop_debug_event(
+                            "MANUAL_ASSISTED_RETRACT_AVAILABILITY",
+                            bend_id=self._collision_inspection["bend_id"],
+                            phase=lift_hit.get("phase"), tool=lift_hit.get("tool"),
+                            enabled=can_lift,
+                        )
                     else:
                         self.manual_show_collision_btn.setEnabled(False)
                         self.manual_show_collision_btn.hide()
                         self.manual_exact_occ_btn.setEnabled(False)
                         self.manual_exact_occ_btn.hide()
                         self.manual_lift_probe_btn.setEnabled(False)
-                        self.manual_lift_probe_btn.hide()
+                        self.manual_lift_probe_hint.setText(
+                            "Подъём детали: подтверждённой коллизии с пуансоном "
+                            "на RETRACT пока нет."
+                        )
                     self._populate_operations()
 
                     # Keep two independent geometric evidence streams and

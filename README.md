@@ -52,6 +52,10 @@ original exact FCStd collision, then tests nine OCC poses from BOTTOM to the
 configured upper RAM Z assuming the entire formed sheet follows the punch
 vertically one-to-one. It checks the entire sheet against both selected tools
 at each pose and appends a separate result to the Desktop developer journal.
+The button stays visible beside the Manual fast/full check actions; it is
+disabled with an explanation until an eligible native RETRACT punch hit has
+been observed in the current session. Opening an OCC inspection document is
+separate from running the lift probe.
 
 The existing Manual collision verdict is never replaced. A sampled path with
 no penetration is **UNVERIFIED**: the diagnostic cannot prove punch-to-sheet

@@ -10,6 +10,22 @@ from time import perf_counter
 from typing import Any, Callable
 
 
+def eligible_assisted_retract(blocker: Any, retract: Any) -> bool:
+    """Only expose the probe for a reproducible punch hit on RETRACT."""
+    if (not isinstance(blocker, dict) or not isinstance(retract, dict)
+            or blocker.get("phase") != "RETRACT" or blocker.get("tool") != "PUNCH"):
+        return False
+    pose = blocker.get("sampled_machine_pose") or {}
+    try:
+        hit = float(pose["ram_z_mm"])
+        bottom = float(retract["start_z_mm"])
+        upper = float(retract["end_z_mm"])
+    except (KeyError, TypeError, ValueError):
+        return False
+    return (all(isfinite(v) for v in (hit, bottom, upper))
+            and bottom <= hit <= upper and bottom < upper)
+
+
 def sample_synchronous_lift(
     sheet: Any, punch_at_hit: Any, die: Any, *,
     hit_ram_z_mm: float, bottom_ram_z_mm: float, upper_ram_z_mm: float,
@@ -84,11 +100,8 @@ def inspect_punch_assisted_retract(
             "withdrawal_checked": False, "coupling_proven": False,
             "continuous_certification": False}
     try:
-        if (not isinstance(blocker, dict) or blocker.get("phase") != "RETRACT"
-                or blocker.get("tool") != "PUNCH"):
+        if not eligible_assisted_retract(blocker, retract):
             raise ValueError("requires_proven_retract_punch_collision")
-        if not isinstance(retract, dict) or retract.get("start_z_mm") is None:
-            raise ValueError("missing_retract_endpoints")
         bottom = float(retract["start_z_mm"])
         upper = float(retract["end_z_mm"])
         hit = float((blocker.get("sampled_machine_pose") or {})["ram_z_mm"])
