@@ -2131,22 +2131,36 @@ class _PreviewPanel:
                     self._validate_export_manual_order
                 )
                 self.manual_lift_probe_btn = style_action(
-                    QtWidgets.QPushButton("Исследовать подъём детали с пуансоном"),
+                    QtWidgets.QPushButton("Проверить подъём OCC и показать движение"),
                     compact=True,
                 )
                 self.manual_lift_probe_btn.setObjectName("SMBS_ManualAssistedRetractProbe")
                 self.manual_lift_probe_btn.setToolTip(
                     "Доступно после подтверждённой коллизии с пуансоном при его "
-                    "подъёме (RETRACT). Проверяет альтернативные OCC-позы, "
-                    "не отменяя исходный COLLISION."
+                    "подъёме (RETRACT). Проверяет альтернативные OCC-позы и "
+                    "включает синхронный подъём в симуляции только при отсутствии "
+                    "нового блокера. Исходный COLLISION остаётся."
                 )
                 self.manual_lift_probe_btn.clicked.connect(self._inspect_assisted_retract)
                 self.manual_lift_probe_btn.setEnabled(False)
+                self.manual_lift_preview_btn = style_action(
+                    QtWidgets.QPushButton("Показать совместный подъём в симуляции"),
+                    compact=True,
+                )
+                self.manual_lift_preview_btn.setObjectName("SMBS_ManualAssistedRetractPreview")
+                self.manual_lift_preview_btn.setToolTip(
+                    "Запустить весь выбранный порядок в режиме Full Cycle; "
+                    "на отмеченном гибе показать предполагаемый подъём детали "
+                    "вместе с пуансоном. Исходная коллизия остаётся."
+                )
+                self.manual_lift_preview_btn.clicked.connect(self._play_assisted_retract_preview)
+                self.manual_lift_preview_btn.setEnabled(False)
                 verify_row = QtWidgets.QVBoxLayout()
                 verify_row.addWidget(self.manual_simulate_btn)
                 verify_row.addWidget(self.manual_validate_btn)
                 verify_row.addWidget(self.manual_validate_3d_btn)
                 verify_row.addWidget(self.manual_lift_probe_btn)
+                verify_row.addWidget(self.manual_lift_preview_btn)
                 order_body.addLayout(verify_row)
                 self.manual_lift_probe_hint = QtWidgets.QLabel(
                     "Подъём детали: сначала найдите коллизию пуансона на RETRACT. "
@@ -4240,8 +4254,11 @@ class _PreviewPanel:
                     contact_val = getattr(getattr(self.press_cycle, "contact_kind", None), "value", "SURFACE")
                     ram_z = float(getattr(self.press_cycle, "ram_z_mm", 0.0) or 0.0)
                     ram_stroke = float(getattr(self.press_cycle, "ram_stroke_mm", 0.0) or 0.0)
+                    lift = self.press_cycle.assisted_retract_lift_mm()
                     self.cycle_phase_label.setText(
                         f"Cycle Phase: {phase_val} ({sim_val} | {contact_val})"
+                        + (f" | предполагаемый подъём +{lift:.2f} мм, UNVERIFIED"
+                           if lift > 0.0 else "")
                     )
                     self.ram_position_label.setText(
                         f"Ram Position: {ram_z:+.2f} mm (Stroke: {ram_stroke:.2f} mm)"
@@ -5143,6 +5160,10 @@ class _PreviewPanel:
                 self.manual_check_details.clear()
                 self.manual_check_details.hide()
                 self._collision_inspection = None
+                if self.press_cycle is not None:
+                    self.press_cycle.assisted_retract_preview_bends.clear()
+                if hasattr(self, "manual_lift_preview_btn"):
+                    self.manual_lift_preview_btn.setEnabled(False)
                 self._collision_display_active = False
                 if hasattr(self, "manual_show_collision_btn"):
                     self.manual_show_collision_btn.setEnabled(False)
@@ -5398,7 +5419,7 @@ class _PreviewPanel:
                 return True
 
             def _inspect_assisted_retract(self):
-                """Inspect an alternative lift path without changing validation."""
+                """Probe an alternative lift and opt into its unverified preview."""
                 inspection = self._collision_inspection
                 if not self._native_collision_identity_matches(inspection):
                     self.status.setText(
@@ -5415,15 +5436,33 @@ class _PreviewPanel:
                     self.session, self.tooling_setup, inspection["bend_id"],
                     inspection["first_blocker"], inspection["retract"],
                 )
+                can_preview = report["status"] in (
+                    "SAMPLED_LIFT_CONDITIONAL_UNVERIFIED",
+                    "SAMPLED_LIFT_WITHOUT_PENETRATION_UNVERIFIED",
+                )
+                pc = self._ensure_press_cycle_controller()
+                if pc is not None:
+                    pc.assisted_retract_preview_bends.discard(inspection["bend_id"])
+                    if can_preview:
+                        pc.assisted_retract_preview_bends.add(inspection["bend_id"])
+                self.manual_lift_preview_btn.setEnabled(can_preview and pc is not None)
                 _desktop_debug_event(
                     "MANUAL_ASSISTED_RETRACT_EXPERIMENT", result=report,
                     historical_replay=bool(inspection.get("historical", False)),
                 )
                 self.status.setText(
-                    "Подъём: {}. Проверено поз: {}. Исходная коллизия сохраняется; "
-                    "зацепление и вывод детали не проверены.".format(
-                        report["status"], len(report["samples"])
+                    "Подъём: {}. Проверено поз: {}. {} Исходная коллизия "
+                    "сохраняется; зацепление и вывод детали не проверены.".format(
+                        report["status"], len(report["samples"]),
+                        "В полной симуляции показано совместное движение."
+                        if can_preview else "Совместное движение отключено."
                     )
+                )
+                self.manual_lift_probe_hint.setText(
+                    "{} Показ условный: это предполагаемое сцепление, не "
+                    "подтверждение безопасности и не замена исходного COLLISION."
+                    .format("Симуляция подъёма включена." if can_preview
+                            else "Симуляция подъёма отключена.")
                 )
                 self.manual_check_details.appendPlainText(
                     "\n{} — эксперимент подъёма: {}, {} поз; {}".format(
@@ -5433,6 +5472,42 @@ class _PreviewPanel:
                 )
                 self.manual_check_details.show()
                 return report
+
+            def _play_assisted_retract_preview(self):
+                """Replay the entire selected order with the sampled lift assumption."""
+                inspection = self._collision_inspection
+                if not self._native_collision_identity_matches(inspection):
+                    self._clear_manual_check_feedback()
+                    return
+                pc = self._ensure_press_cycle_controller()
+                bend_id = inspection["bend_id"]
+                if pc is None or bend_id not in pc.assisted_retract_preview_bends:
+                    self.status.setText("Сначала проверьте подъём в OCC.")
+                    return
+                self._stop_timer()
+                self._machine_pose_fault = None
+                try:
+                    self.set_cycle_mode(CycleExecutionMode.FULL_CYCLE)
+                    pc.reset()
+                    self.session.active_bend_index = pc.sequence.active_index
+                    self._configure_for_active_bend()
+                    self._collision_display_active = False
+                    self.manual_show_collision_btn.setText("Показать коллизию в 3D")
+                    self._viewer_tabs.setCurrentWidget(self._preview_3d)
+                    self.play_all()
+                except (PressCycleError, SequenceError, ValueError) as exc:
+                    self.status.setText("Симуляция подъёма недоступна: " + str(exc))
+                    return
+                _desktop_debug_event(
+                    "MANUAL_ASSISTED_RETRACT_PREVIEW_STARTED",
+                    bend_id=bend_id, existing_verdict="COLLISION",
+                    physical_certification="UNVERIFIED",
+                )
+                self.status.setText(
+                    "Симуляция {}: предполагаемый совместный подъём на RETRACT; "
+                    "исходный COLLISION сохраняется, вывод детали не проверен."
+                    .format(bend_id)
+                )
 
             def _open_exact_collision_inspector(self):
                 """Open a separate native FreeCAD scene with actual OCC solids."""
