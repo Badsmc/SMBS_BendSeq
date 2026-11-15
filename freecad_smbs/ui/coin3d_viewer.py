@@ -90,7 +90,7 @@ def create_coin_viewer(parent=None):
             self._root.addChild(self._tool_root)
             self._root.addChild(self._collision_root)
             self.setSceneGraph(self._root)
-            self._sheet_nodes = []
+            self._sheet_batches = {}
             self._tool_key = None
             self._tool_base_ram_z = 0.0
             self._punch_motion = None
@@ -104,7 +104,7 @@ def create_coin_viewer(parent=None):
             self._sheet_root.removeAllChildren()
             self._tool_root.removeAllChildren()
             self._collision_root.removeAllChildren()
-            self._sheet_nodes.clear()
+            self._sheet_batches.clear()
             self._sheet_topology = None
             self._tool_key = None
             self._punch_motion = None
@@ -112,33 +112,67 @@ def create_coin_viewer(parent=None):
             self._last_faces = ()
 
         def set_sheet_faces(self, faces, highlighted=()):
-            """Update coordinates, not Qt polygons or a painter path."""
+            """Batch persistent panel/bend meshes by material, not by face.
+
+            In a 10-bend model this reduces per-frame Python/Pivy calls
+            from one coordinate write per polygon to roughly one write per
+            material kind. SoIndexedFaceSet stores multiple polygons in
+            one GPU mesh, with -1 marking the end of each polygon.
+            """
             highlighted = set(highlighted)
-            # Keep Coin nodes and their topology until the bend mesh structure
-            # changes (for example when a different source model is loaded).
-            topology = tuple((f.kind, f.identifier, len(f.vertices))
-                             for f in faces if len(f.vertices) >= 3)
-            if getattr(self, "_sheet_topology", None) != topology:
+            groups = {}
+            drawable_faces = 0
+            for face in faces:
+                # No invented filled surface across hole-bearing polygons.
+                if len(face.vertices) < 3 or face.holes:
+                    continue
+                key = (face.kind, face.identifier in highlighted)
+                groups.setdefault(key, []).append(face)
+                drawable_faces += 1
+
+            keys = sorted(groups)
+            topology = tuple(
+                (key, tuple(len(face.vertices) for face in groups[key]))
+                for key in keys
+            )
+            if self._sheet_topology != topology:
                 self._sheet_root.removeAllChildren()
-                self._sheet_nodes = []
-                for face in faces:
-                    node = _face_node(coin, face)
-                    if node is not None:
-                        self._sheet_root.addChild(node.root)
-                        self._sheet_nodes.append(node)
-                self._sheet_topology = topology
-            else:
-                for node, face in zip(self._sheet_nodes,
-                                      (f for f in faces if len(f.vertices) >= 3)):
-                    node.coordinates.point.setValues(
-                        0, len(face.vertices), list(face.vertices)
+                self._sheet_batches = {}
+                for key, lengths in topology:
+                    kind, is_highlighted = key
+                    node = coin.SoSeparator()
+                    material = coin.SoMaterial()
+                    material.diffuseColor.setValue(*(
+                        (0.91, 0.14, 0.12) if is_highlighted
+                        else COLORS.get(kind, (0.55, 0.65, 0.75))
+                    ))
+                    coordinates = coin.SoCoordinate3()
+                    geometry = coin.SoIndexedFaceSet()
+                    indices = []
+                    cursor = 0
+                    for count in lengths:
+                        indices.extend(range(cursor, cursor + count))
+                        indices.append(-1)
+                        cursor += count
+                    geometry.coordIndex.setValues(
+                        0, len(indices), indices
                     )
-            for node, (kind, ident, _count) in zip(self._sheet_nodes, topology):
-                node.material.diffuseColor.setValue(
-                    *( (0.91, 0.14, 0.12) if ident in highlighted
-                       else COLORS.get(kind, (0.55, 0.65, 0.75)) )
+                    node.addChild(material)
+                    node.addChild(coordinates)
+                    node.addChild(geometry)
+                    self._sheet_root.addChild(node)
+                    self._sheet_batches[key] = coordinates
+                self._sheet_topology = topology
+
+            for key in keys:
+                points = [
+                    vertex for face in groups[key] for vertex in face.vertices
+                ]
+                self._sheet_batches[key].point.setValues(
+                    0, len(points), points
                 )
-            self._last_sheet_face_count = len(self._sheet_nodes)
+
+            self._last_sheet_face_count = drawable_faces
             self._last_faces = faces
             if not self._initial_fit_done and faces:
                 self.reset_camera()
