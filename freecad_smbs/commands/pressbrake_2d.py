@@ -2361,6 +2361,10 @@ class _PreviewPanel:
 
                 settings = QtWidgets.QWidget()
                 settings_layout = QtWidgets.QVBoxLayout(settings)
+                advanced = QtWidgets.QWidget(settings)
+                advanced_layout = QtWidgets.QVBoxLayout(advanced)
+                advanced_layout.setContentsMargins(0, 0, 0, 0)
+                advanced_layout.setSpacing(SECTION_GAP)
 
                 cycle_card, cycle_body = card("Режим симуляции")
                 self.press_cycle_group.setTitle("")
@@ -2384,7 +2388,7 @@ class _PreviewPanel:
                 zone_row.setColumnStretch(1, 0)
                 tool_opts_layout.addLayout(zone_row)
                 tool_opts_layout.addWidget(self.allow_end_zone_checkbox)
-                settings_layout.addWidget(tool_opts_card)
+                advanced_layout.addWidget(tool_opts_card)
 
                 # Cost weights affect ranking only, never collision decisions.
                 from smbs_core.kinematics2d.operation_cost import OperationWeights
@@ -2459,7 +2463,7 @@ class _PreviewPanel:
                 style_action(reset_weights_btn)
                 weights_form.addRow(reset_weights_btn)
                 weights_body.addWidget(weights_box)
-                settings_layout.addWidget(weights_card)
+                advanced_layout.addWidget(weights_card)
 
                 gauge_settings_btn = QtWidgets.QPushButton(
                     "Задний упор — геометрия и позиции гибов…")
@@ -2484,7 +2488,7 @@ class _PreviewPanel:
                     "«Порядок и проверка»."
                 )
                 extra_checks_note.setWordWrap(True)
-                diagnostics_body.addWidget(extra_checks_note)
+                extra_checks_note.hide()
                 self._on_physical_result_change(
                     self.physical_check_result.text()
                 )
@@ -2499,7 +2503,7 @@ class _PreviewPanel:
                 style_action(self.check_btn)
                 insert(diagnostics_body, entries[9])  # diagnostic button
                 insert(diagnostics_body, entries[10])  # diagnostic result
-                settings_layout.addWidget(diagnostics_card)
+                advanced_layout.addWidget(diagnostics_card)
 
                 trace_card, trace_body = card("Запись и файлы диагностики")
                 self.trace_checkbox = QtWidgets.QCheckBox(
@@ -2568,7 +2572,7 @@ class _PreviewPanel:
                     self.trace_open_button, self.trace_choose_button,
                 ):
                     style_action(btn)
-                settings_layout.addWidget(trace_card)
+                advanced_layout.addWidget(trace_card)
 
                 # JSON is a genuine FCStd attachment, not a plaintext string
                 # masquerading as a file and not a second external archive.
@@ -2607,6 +2611,19 @@ class _PreviewPanel:
                 # persistent task footer status; avoid a second paragraph.
                 self.fcstd_note.hide()
                 settings_layout.addWidget(fcstd_card)
+                advanced_toggle = style_action(
+                    QtWidgets.QPushButton("Дополнительно…"), compact=True
+                )
+                advanced_toggle.setCheckable(True)
+                advanced_toggle.setChecked(False)
+                advanced_toggle.setToolTip(
+                    "Веса 2D-поиска, ограничения оснастки, дополнительные "
+                    "OCC проверки и диагностические записи"
+                )
+                advanced_toggle.toggled.connect(advanced.setVisible)
+                settings_layout.addWidget(advanced_toggle)
+                settings_layout.addWidget(advanced)
+                advanced.hide()
                 settings_layout.addStretch(1)
                 self._page_settings = scroll_task_page(
                     settings, "SMBS_SettingsScroll"
