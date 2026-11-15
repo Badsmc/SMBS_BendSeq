@@ -96,3 +96,12 @@ Make the existing FreeCAD SMBS add-on responsive, understandable and visually sm
 - Bounds radius is now computed only when initializing a fixed 3D view rectangle, not on every frame. It still uses every face vertex for initial sizing.
 - This optimization removes redundant camera projection work but **does not yet cache** `build_sheet_preview_faces` or `build_tool_preview_faces`. Do not claim to have eliminated face/geometry rebuilding.
 - Verification still required: syntax smoke check in installed FreeCAD, headless preview regression tests, and real FPS / p95 timing comparison including view rotation, tool changes, switching bends, recording mode and repeated panel reopen.
+
+## User regression report and targeted fixes (2026-11-15)
+User confirmed that 3D remained slow and displayed punch length did not follow the active bend.
+
+- Inspected `smbs_core/kinematics2d/preview_mesh_3d.py` and `freecad_smbs/commands/pressbrake_2d.py`. The 3D renderer uses `build_tool_preview_faces`; its length came from the `match_active_bend_length` toggle, which defaults to False, so it displayed profile length when the toggle was disabled.
+- Core renderer now accepts optional `preview_punch_length_mm`. Normal 3D view passes the active bend's `axis_xyz` length for a single-piece punch. An explicit on-screen warning states when this display-only length differs from the physical profile used by OCC. Native collision inspection and multi-section tools still show their actual lengths. The persistent tooling settings, collision geometry and solver are not modified.
+- Live 3D viewport redraw is throttled to **at most 30 Hz** while the authoritative state controller continues at its 25 ms Qt tick. Force refresh, camera orbit and transition to a different active bend are not throttled; 2D playback remains unchanged. This reduces avoidable GUI updates but is not proof of an FPS improvement on large parts.
+- Current expensive path still reconstructs entire `build_sheet_preview_faces` + `build_tool_preview_faces` per 3D render. Profile in FreeCAD before moving to a more invasive cached-topology renderer; measure wall time and verify geometry continuity.
+- Pending: live FreeCAD 1.1.x test on macOS and Windows; inspect punch lengths across two different bend lengths, compare preview with actual tool selected in OCC and verify no accidental confusion between visual and physically validated tool.
