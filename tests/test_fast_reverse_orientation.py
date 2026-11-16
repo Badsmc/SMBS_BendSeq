@@ -334,6 +334,122 @@ class ReverseOrientationTests(unittest.TestCase):
         bad = dict(physical, validation_mode="FULL_ADAPTIVE_D6")
         self.assertFalse(_coarse_endpoint_candidate(bad, order, poses))
 
+    def test_conditional_punch_end_zones_require_explicit_permission(self):
+        from smbs_core.kinematics2d.fast_feasible_search import (
+            _coarse_endpoint_candidate,
+        )
+        order = ("B01", "B02")
+        poses = {"B01": False, "B02": True}
+        report = {
+            "status": "UNVERIFIED",
+            "validation_mode": "COARSE_OCC_2_BEND_ENDPOINTS",
+            "complete_part_order_requested": True,
+            "stopped_early": False,
+            "checked_bends": 2,
+            "requested_bends": list(order),
+            "tool_length_mode": "VIRTUAL_MATCH_BEND",
+            "punch_fcstd_source": "selected.FCStd",
+            "die_fcstd_source": "die.FCStd",
+            "steps": [
+                {"bend_id": "B01", "reverse_axis": False,
+                 "status": "COARSE_3D_NO_PROVEN_COLLISION",
+                 "is_conditional": False},
+                {"bend_id": "B02", "reverse_axis": True,
+                 "status": "COARSE_3D_CONDITIONAL_END_ZONE",
+                 "is_conditional": True},
+            ],
+        }
+        self.assertIsNone(_coarse_endpoint_candidate(report, order, poses))
+        self.assertIsNone(_coarse_endpoint_candidate(
+            report, order, poses, conditional_allowed=True,
+            end_zone_length_mm=0.0,
+        ))
+        self.assertEqual(_coarse_endpoint_candidate(
+            report, order, poses, conditional_allowed=True,
+            end_zone_length_mm=10.0,
+        ), "CONDITIONAL_END_ZONES")
+        wrong_zone = dict(report, steps=[
+            report["steps"][0], dict(
+                report["steps"][1], status="COLLISION",
+            ),
+        ])
+        self.assertIsNone(_coarse_endpoint_candidate(
+            wrong_zone, order, poses, conditional_allowed=True,
+            end_zone_length_mm=10.0,
+        ))
+        wrong_pose = dict(report, steps=[
+            report["steps"][0], dict(report["steps"][1], reverse_axis=False),
+        ])
+        self.assertIsNone(_coarse_endpoint_candidate(
+            wrong_pose, order, poses, conditional_allowed=True,
+            end_zone_length_mm=10.0,
+        ))
+
+    def test_auto_search_forwards_conditional_both_end_parameters(self):
+        order = ("B01", "B02")
+        state = SimpleNamespace(bends={bid: object() for bid in order})
+        session = SimpleNamespace(
+            bend_order=order, fold_state=state, panel_build=object(),
+            part_label="synthetic",
+        )
+        tooling = SimpleNamespace(
+            punch=SimpleNamespace(tool_id="p", length_mm=100),
+            die=SimpleNamespace(tool_id="d", length_mm=100),
+            match_active_bend_length=False,
+            punch_section_offsets_xm=(), die_section_offsets_xm=(),
+            allow_end_zone_collision=True, end_zone_length_mm=12.0,
+        )
+        candidate = SimpleNamespace(
+            sequence=order, evidence="SAMPLED_2D_CLEAR_OR_TOUCH",
+            cost=0.0, cost_complete=True,
+            steps=tuple(SimpleNamespace(
+                bend_id=b, orientation_variant="NORMAL",
+            ) for b in order),
+        )
+        planar_report = SimpleNamespace(
+            status=SimpleNamespace(value="SAMPLED_2D_CANDIDATES"),
+            limit_reason="", deepest_prefix=order,
+            candidates=(candidate,),
+        )
+        received = []
+        def planar_runner(_session, _tooling, **kwargs):
+            received.append(("planar", kwargs))
+            return planar_report
+        def native_runner(_session, _tooling, sequence, **kwargs):
+            received.append(("native", kwargs))
+            return {
+                "status": "UNVERIFIED",
+                "validation_mode": "COARSE_OCC_2_BEND_ENDPOINTS",
+                "complete_part_order_requested": True,
+                "stopped_early": False,
+                "checked_bends": len(sequence),
+                "requested_bends": list(sequence),
+                "tool_length_mode": "VIRTUAL_MATCH_BEND",
+                "punch_fcstd_source": "p.FCStd",
+                "die_fcstd_source": "d.FCStd",
+                "steps": [
+                    {"bend_id": b, "reverse_axis": False,
+                     "status": "COARSE_3D_CONDITIONAL_END_ZONE",
+                     "is_conditional": True}
+                    for b in sequence
+                ],
+            }
+        result = search_fast_feasible_sequence(
+            session, tooling, budget_s=1000.0, max_candidates=1,
+            planar_runner=planar_runner, native_runner=native_runner,
+        )
+        self.assertEqual(
+            result.status, FastSearchStatus.TWO_POINT_CONDITIONAL_END_ZONES
+        )
+        self.assertTrue(result.two_point_candidate_accepted)
+        self.assertFalse(result.machine_feasible_certified)
+        self.assertEqual(result.sequence, order)
+        for stage, settings in received:
+            self.assertTrue(settings["allow_end_zone_collision"])
+            self.assertEqual(settings["end_zone_length_mm"], 12.0)
+        self.assertTrue(tooling.allow_end_zone_collision)
+        self.assertFalse(tooling.match_active_bend_length)
+
     def test_phase_budget_spreads_bounded_search_across_orders(self):
         from smbs_core.kinematics2d.fast_feasible_search import (
             _default_sampling_config,
