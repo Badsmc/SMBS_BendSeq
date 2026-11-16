@@ -29,3 +29,4 @@ jobs:
           python -m unittest discover -s tests -p 'test_tool_cap_triangulation.py' -v
           python -m unittest discover -s tests -p 'test_fast_feasible_search.py' -v
           python -m unittest discover -s tests -p 'test_planar_candidate_selection_source.py' -v
+          python -m unittest discover -s tests -p 'test_search_command_routing.py' -v
