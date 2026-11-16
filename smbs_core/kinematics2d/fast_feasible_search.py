@@ -654,7 +654,7 @@ def search_fast_feasible_sequence(
         ))
         # The next physically different loading must target the actual
         # unresolved bend. Never treat a timeout as a collision or proof
-        # of clearance. Revalidate the whole modified candidate with D6.
+        # of clearance. Recheck all five sampled angles in the modified order.
         if (not qualified and status == "UNVERIFIED"
                 and isinstance(native, dict)
                 and len(candidates) < max_candidates
@@ -662,6 +662,7 @@ def search_fast_feasible_sequence(
             failed_bend = None
             for step in native.get("steps") or ():
                 if str(step.get("status", "")) not in (
+                    "COARSE_3D_NO_PROVEN_COLLISION",
                     "SAMPLED_3D_CLEAR_NOT_CONTINUOUS", "SAMPLED_CLEAR",
                 ):
                     failed_bend = step.get("bend_id")
@@ -669,7 +670,7 @@ def search_fast_feasible_sequence(
             if failed_bend not in seq and "native_3d_not_verified_at:" in reason:
                 failed_bend = reason.split("native_3d_not_verified_at:", 1)[1].split()[0]
             if failed_bend in seq:
-                # A timeout is not a geometric rejection: try a different
+                # An unknown sampled state is not a collision: try a different
                 # *ordering* before spending another full phase budget on
                 # the same orientation at the identical prefix. Move the
                 # unresolved bend two places later (if possible). Each
@@ -683,14 +684,14 @@ def search_fast_feasible_sequence(
                                    failed_bend)
                     new_variants.append((
                         tuple(shifted), orientation,
-                        "D6_UNRESOLVED_BEND_DELAYED_UNVERIFIED",
+                        "FIVE_POINT_UNRESOLVED_BEND_DELAYED_UNVERIFIED",
                         "NATIVE_ORDER_VARIANT",
                     ))
                 flipped = dict(orientation)
                 flipped[failed_bend] = not flipped.get(failed_bend, False)
                 new_variants.append((
                     seq, tuple(sorted(flipped.items())),
-                    "D6_UNRESOLVED_BEND_POSE_RETRY_UNVERIFIED",
+                    "FIVE_POINT_UNRESOLVED_POSE_RETRY_UNVERIFIED",
                     "NATIVE_POSE_VARIANT",
                 ))
                 added = []
