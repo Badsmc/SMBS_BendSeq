@@ -228,6 +228,68 @@ class ReverseOrientationTests(unittest.TestCase):
         self.assertIsNone(result.sequence)
         self.assertFalse(result.machine_feasible_certified)
 
+    def test_five_angle_occ_success_is_separate_from_machine_certification(self):
+        order = ("B01", "B02")
+        session = SimpleNamespace(
+            bend_order=order,
+            fold_state=SimpleNamespace(bends={bid: object() for bid in order}),
+            panel_build=object(), part_label="synthetic",
+        )
+        tooling = SimpleNamespace(
+            punch=SimpleNamespace(tool_id="p", length_mm=100),
+            die=SimpleNamespace(tool_id="d", length_mm=100),
+            match_active_bend_length=False,
+            punch_section_offsets_xm=(),
+            die_section_offsets_xm=(),
+        )
+        cand = SimpleNamespace(
+            sequence=order, evidence="SAMPLED_2D_CLEAR_OR_TOUCH",
+            cost=1.0, cost_complete=True,
+            steps=tuple(SimpleNamespace(
+                bend_id=b, orientation_variant="NORMAL",
+            ) for b in order),
+        )
+        planar = SimpleNamespace(
+            status=SimpleNamespace(value="SAMPLED_2D_CANDIDATES"),
+            limit_reason="", deepest_prefix=order, candidates=(cand,),
+        )
+        configurations = []
+        def five_angle_runner(_session, _tooling, sequence, **kwargs):
+            configurations.append(kwargs["config"])
+            return {
+                "status": "UNVERIFIED",
+                "validation_mode": "COARSE_OCC_5_BEND_ANGLES",
+                "complete_part_order_requested": True,
+                "stopped_early": False,
+                "checked_bends": len(sequence),
+                "requested_bends": list(sequence),
+                "tool_length_mode": "VIRTUAL_MATCH_BEND",
+                "punch_fcstd_source": "punch.FCStd",
+                "die_fcstd_source": "die.FCStd",
+                "steps": [
+                    {
+                        "bend_id": b, "reverse_axis": False,
+                        "status": "COARSE_3D_NO_PROVEN_COLLISION",
+                        "is_conditional": False,
+                    } for b in sequence
+                ],
+                "reason": "sampled five angles only",
+            }
+        result = search_fast_feasible_sequence(
+            session, tooling, budget_s=120, max_candidates=1,
+            planar_runner=lambda *args, **kwargs: planar,
+            native_runner=five_angle_runner,
+        )
+        self.assertTrue(configurations[0].coarse_occ_screen)
+        self.assertEqual(
+            result.status, FastSearchStatus.FIVE_POINT_NO_DETECTED_COLLISION
+        )
+        self.assertEqual(result.sequence, order)
+        self.assertTrue(result.five_point_no_detected_collision)
+        self.assertFalse(result.virtual_tool_clear)
+        self.assertFalse(result.machine_feasible_certified)
+        self.assertFalse(result.to_dict()["continuous_motion_certified"])
+
     def test_complete_five_angle_occ_screen_is_reported_as_preliminary(self):
         from smbs_core.kinematics2d.fast_feasible_search import (
             _coarse_five_point_candidate,
