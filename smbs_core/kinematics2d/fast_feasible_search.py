@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from math import isfinite
+from math import dist, isfinite
 from time import perf_counter
 from types import SimpleNamespace
 from typing import Any, Callable, Optional
@@ -180,6 +180,51 @@ def _default_sampling_config(remaining_s, bend_count, clearance_mm):
     )
 
 
+def _real_tool_length_issue(session, tooling) -> str:
+    """Reject impossible single-hit axial coverage before any expensive DFS.
+
+    Only applies to *one real unsectioned FCStd tool*. If multi-section
+    assemblies are configured, native D6 owns their actual span/overlap.
+    Missing or unknown catalog lengths are left to native qualification.
+    """
+    state = getattr(session, "fold_state", None)
+    if state is None:
+        return ""
+    lengths = []
+    for bend_id in getattr(session, "bend_order", ()) or ():
+        bend = getattr(state, "bends", {}).get(bend_id)
+        axis = getattr(bend, "axis_xyz", None)
+        try:
+            if axis is not None:
+                length = float(dist(axis[0], axis[1]))
+                if isfinite(length) and length > 0:
+                    lengths.append((str(bend_id), length))
+        except (TypeError, ValueError, IndexError, OverflowError):
+            continue
+    if not lengths:
+        return ""
+    largest_id, largest_mm = max(lengths, key=lambda x: x[1])
+    for label, attr, sections_attr in (
+        ("пуансон", "punch", "punch_section_offsets_xm"),
+        ("матрица", "die", "die_section_offsets_xm"),
+    ):
+        if getattr(tooling, sections_attr, ()):
+            continue
+        source = getattr(tooling, attr, None)
+        raw_length = getattr(source, "length_mm", None)
+        if isinstance(raw_length, bool) or not isinstance(raw_length, (int, float)):
+            continue
+        length = float(raw_length)
+        if isfinite(length) and length > 0 and length + 0.02 < largest_mm:
+            return (
+                "Реальный {} имеет длину {:.2f} мм, но гиб {} требует "
+                "{:.2f} мм в одном ходе. Выберите достаточно длинный "
+                "FCStd-инструмент или настройте реальные секции оснастки. "
+                "Виртуальное удлинение не подтверждает физическую возможность."
+            ).format(label, length, largest_id, largest_mm)
+    return ""
+
+
 def search_fast_feasible_sequence(
     session: Any,
     tooling: Any,
@@ -238,6 +283,10 @@ def search_fast_feasible_sequence(
             or not isfinite(initial_clearance_mm) or initial_clearance_mm <= 0):
         return result(FastSearchStatus.INVALID_INPUT,
                       message="Недостаточно данных для поиска: проверьте деталь и реальные пуансон/матрицу.")
+
+    length_issue = _real_tool_length_issue(session, tooling)
+    if length_issue:
+        return result(FastSearchStatus.INVALID_INPUT, message=length_issue)
 
     if planar_runner is None:
         from .sequence_search_2d import search_bend_sequences_2d
