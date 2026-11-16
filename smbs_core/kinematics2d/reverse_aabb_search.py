@@ -36,6 +36,10 @@ class ReverseSearchReport:
     mesh_panels: int = 0
     mesh_overlap_tests: int = 0
     search_mode: str = "ASTAR_BEST_FIRST"
+    machine_screen_status: str = "NOT_RUN"
+    machine_screen_pairs: int = 0
+    machine_screen_overlaps: int = 0
+    machine_screen_candidates: int = 0
 
     def to_dict(self) -> dict:
         return {
@@ -57,6 +61,10 @@ class ReverseSearchReport:
             "mesh_panels": self.mesh_panels,
             "mesh_overlap_tests": self.mesh_overlap_tests,
             "search_mode": self.search_mode,
+            "machine_screen_status": self.machine_screen_status,
+            "machine_screen_pairs": self.machine_screen_pairs,
+            "machine_screen_overlaps": self.machine_screen_overlaps,
+            "machine_screen_candidates": self.machine_screen_candidates,
         }
 
 
@@ -146,6 +154,7 @@ def search_reverse_aabb(
     session: Any, *, budget_s: float = 90.0, max_candidates: int = 12,
     progress: Callable[[int, int, str], None] | None = None,
     clock: Callable[[], float] = perf_counter,
+    tooling: Any = None,
 ) -> ReverseSearchReport:
     """Find reverse unbend permutations; prioritize lower swept AABB overlap.
 
@@ -285,7 +294,8 @@ def search_reverse_aabb(
     serial = 0
     heappush(heap, (len(order), 0.0, serial, 0, (), None))
     max_nodes = 12000
-    while heap and clock() < deadline and len(candidates) < max_candidates:
+    discovery_target = min(len(order), max(max_candidates * 3, max_candidates))
+    while heap and clock() < deadline and len(candidates) < discovery_target:
         _, penalty, _, mask, path, root = heappop(heap)
         cache_key = (root, mask)
         count = visit_counts.get(cache_key, 0)
@@ -334,10 +344,49 @@ def search_reverse_aabb(
             h = len(order) - len(new_path)
             heappush(heap, (g+h, new_penalty, serial, new_mask, new_path, new_root))
 
+    # Rank complete permutations with genuine native tool envelopes at
+    # machine-space placements. It remains a heuristic; never a rejection.
+    machine_status = "NO_CANDIDATES"
+    machine_pairs = 0
+    machine_overlaps = 0
+    machine_checked = 0
+    if candidates and tooling is not None and clock() < deadline:
+        from .reverse_machine_screen import (
+            load_tool_boxes, score_candidate_machine,
+        )
+        tools_by_bend, machine_status = load_tool_boxes(
+            tooling, source.bends, deadline=deadline, clock=clock,
+        )
+        if tools_by_bend:
+            ranked = []
+            for original in candidates:
+                if clock() >= deadline:
+                    machine_status = "MACHINE_SCREEN_PARTIAL_TIMEOUT"
+                    break
+                try:
+                    risk, pose, pairs, overlaps = score_candidate_machine(
+                        original.sequence, source, polygons, thickness,
+                        tools_by_bend, deadline=deadline, clock=clock,
+                    )
+                    machine_pairs += pairs
+                    machine_overlaps += overlaps
+                    machine_checked += 1
+                    ranked.append(ReverseCandidate(
+                        original.sequence, pose,
+                        original.bbox_overlap_score + risk,
+                        "REVERSE_ASTAR_MACHINE_AABB_RANKED_UNVERIFIED",
+                    ))
+                except (ValueError, ArithmeticError, KeyError) as exc:
+                    machine_status = "MACHINE_SCREEN_PARTIAL_ERROR:" + type(exc).__name__
+                    ranked.append(original)
+            known = {c.sequence for c in ranked}
+            ranked.extend(c for c in candidates if c.sequence not in known)
+            candidates = ranked
+    candidates = sorted(candidates, key=lambda c: (
+        c.bbox_overlap_score, c.sequence
+    ))[:max_candidates]
     return ReverseSearchReport(
-        candidates=tuple(sorted(candidates, key=lambda c: (
-            c.bbox_overlap_score, c.sequence
-        ))),
+        candidates=tuple(candidates),
         deepest_unbent=deepest,
         visited_states=len(visit_counts),
         evaluated_transitions=transitions,
@@ -348,4 +397,8 @@ def search_reverse_aabb(
         mesh_triangles=mesh_triangles,
         mesh_panels=len(panel_meshes),
         mesh_overlap_tests=mesh_tests,
+        machine_screen_status=machine_status,
+        machine_screen_pairs=machine_pairs,
+        machine_screen_overlaps=machine_overlaps,
+        machine_screen_candidates=machine_checked,
     )
