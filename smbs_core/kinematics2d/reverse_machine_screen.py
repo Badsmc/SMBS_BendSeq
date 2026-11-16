@@ -11,7 +11,7 @@ machine clearance proof. It never rejects a candidate.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from math import isfinite, log1p
+from math import isfinite, log1p, sqrt
 from typing import Any
 
 
@@ -98,6 +98,14 @@ def _box_overlap(a, b) -> float:
     )
 
 
+def _box_gap(a, b) -> float:
+    """Conservative separation of two finite machine AABBs."""
+    return sqrt(sum(
+        max(0.0, a[k] - b[k + 3], b[k] - a[k + 3]) ** 2
+        for k in range(3)
+    ))
+
+
 def _shift_z(box, dz):
     return (box[0], box[1], box[2] + dz,
             box[3], box[4], box[5] + dz)
@@ -181,6 +189,11 @@ def score_candidate_machine(
                         if vol > 0:
                             hits += 1
                             score += weight * log1p(vol)
+                        else:
+                            # Small separation makes a future tool clash
+                            # more plausible, but NEVER proves collision.
+                            gap = _box_gap(machine_box, box)
+                            score += weight * 0.25 * max(0.0, 5.0 - gap)
             scores.append((score, reversed_axis, checks, hits))
         best = min(scores, key=lambda item: (item[0], item[1]))
         total_penalty += best[0]
