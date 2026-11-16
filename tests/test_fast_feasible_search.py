@@ -11,7 +11,7 @@ import unittest
 
 from smbs_core.kinematics2d.fast_feasible_search import (
     FastSearchStatus, _native_result_is_qualified,
-    search_fast_feasible_sequence,
+    _real_tool_length_issue, search_fast_feasible_sequence,
 )
 
 
@@ -82,6 +82,35 @@ def native_clear(seq, reverse=()):
 
 
 class TestFastFeasibleSearch(unittest.TestCase):
+    def test_real_single_tool_shorter_than_bend_rejects_before_dfs(self):
+        sess, tools = setup()
+        sess.fold_state.bends["B01"] = SimpleNamespace(
+            axis_xyz=((0, 0, 0), (498.17758, 0, 0))
+        )
+        tools.punch = SimpleNamespace(length_mm=100.0)
+        tools.die = SimpleNamespace(length_mm=100.0)
+        result = search_fast_feasible_sequence(
+            sess, tools,
+            planar_runner=lambda *args, **kwargs: self.fail(
+                "Impossible real tool coverage must not start DFS"
+            ),
+        )
+        self.assertEqual(result.status, FastSearchStatus.INVALID_INPUT)
+        self.assertIn("498.18", result.message_ru)
+        self.assertIn("100.00", result.message_ru)
+        self.assertIsNone(result.sequence)
+
+    def test_real_multi_section_assembly_defers_to_native(self):
+        sess, tools = setup()
+        sess.fold_state.bends["B01"] = SimpleNamespace(
+            axis_xyz=((0, 0, 0), (498.17758, 0, 0))
+        )
+        tools.punch = SimpleNamespace(length_mm=100.0)
+        tools.die = SimpleNamespace(length_mm=100.0)
+        tools.punch_section_offsets_xm = (-200, -100, 0, 100, 200)
+        tools.die_section_offsets_xm = (-200, -100, 0, 100, 200)
+        self.assertEqual(_real_tool_length_issue(sess, tools), "")
+
     def test_native_qualification_guards_each_scope(self):
         good = native_clear(ORDER)
         self.assertTrue(_native_result_is_qualified(good, ORDER))
