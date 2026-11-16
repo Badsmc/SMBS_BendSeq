@@ -35,7 +35,7 @@ def _box(shape: Any) -> tuple[float, ...]:
 
 
 def load_tool_boxes(tooling: Any, bends: dict, *, deadline=None,
-                    clock=None) -> tuple[dict, str]:
+                    clock=None, force_virtual_length=False) -> tuple[dict, str]:
     """Load native FCStd envelopes using exactly the same tool loader as D6.
 
     A failed/missing tool means UNKNOWN screening; never substitute a
@@ -52,7 +52,7 @@ def load_tool_boxes(tooling: Any, bends: dict, *, deadline=None,
         d_path = _source_path(getattr(tooling, "die", None))
         if p_path is None or d_path is None:
             return {}, "NATIVE_SELECTED_TOOL_PATHS_UNAVAILABLE"
-        virtual = bool(getattr(tooling, "match_active_bend_length", False))
+        virtual = bool(force_virtual_length or getattr(tooling, "match_active_bend_length", False))
         p_sections = tuple(getattr(tooling, "punch_section_offsets_xm", ()) or ())
         d_sections = tuple(getattr(tooling, "die_section_offsets_xm", ()) or ())
         if virtual and (p_sections or d_sections):
@@ -80,7 +80,8 @@ def load_tool_boxes(tooling: Any, bends: dict, *, deadline=None,
                     die=_box(die.machine_shape),
                 )
             result[bid] = cached[key]
-        return result, "NATIVE_TOOL_ENVELOPES_LOADED"
+        return result, ("NATIVE_TOOL_PROFILE_VIRTUAL_LENGTH_LOADED" if virtual
+                        else "NATIVE_TOOL_ENVELOPES_LOADED")
     except Exception as exc:
         # Failure is explicit and does not affect candidate generation.
         return {}, "NATIVE_TOOL_SCREEN_UNAVAILABLE:{}:{}".format(
