@@ -581,27 +581,51 @@ def search_fast_feasible_sequence(
             if failed_bend not in seq and "native_3d_not_verified_at:" in reason:
                 failed_bend = reason.split("native_3d_not_verified_at:", 1)[1].split()[0]
             if failed_bend in seq:
+                # A timeout is not a geometric rejection: try a different
+                # *ordering* before spending another full phase budget on
+                # the same orientation at the identical prefix. Move the
+                # unresolved bend two places later (if possible). Each
+                # permutation is independently replayed from the start.
+                new_variants = []
+                failed_index = seq.index(failed_bend)
+                if failed_index < len(seq) - 1:
+                    shifted = list(seq)
+                    shifted.pop(failed_index)
+                    shifted.insert(min(failed_index + 2, len(shifted)),
+                                   failed_bend)
+                    new_variants.append((
+                        tuple(shifted), orientation,
+                        "D6_UNRESOLVED_BEND_DELAYED_UNVERIFIED",
+                        "NATIVE_ORDER_VARIANT",
+                    ))
                 flipped = dict(orientation)
                 flipped[failed_bend] = not flipped.get(failed_bend, False)
-                variant = tuple(sorted(flipped.items()))
-                key = (seq, variant)
-                if key not in seen:
+                new_variants.append((
+                    seq, tuple(sorted(flipped.items())),
+                    "D6_UNRESOLVED_BEND_POSE_RETRY_UNVERIFIED",
+                    "NATIVE_POSE_VARIANT",
+                ))
+                added = []
+                for next_seq, next_orientation, evidence, event_name in new_variants:
+                    if len(candidates) + len(added) >= max_candidates:
+                        break
+                    key = (next_seq, next_orientation)
+                    if key in seen:
+                        continue
                     seen.add(key)
-                    candidates.insert(
-                        i + 1, (
-                            seq, variant,
-                            SimpleNamespace(
-                                evidence="D6_UNRESOLVED_BEND_POSE_RETRY_UNVERIFIED",
-                                cost=0.0, cost_complete=False,
-                            ),
-                        ),
-                    )
-                    available_sequences = tuple(x[0] for x in candidates)
+                    added.append((
+                        next_seq, next_orientation,
+                        SimpleNamespace(evidence=evidence,
+                                        cost=0.0, cost_complete=False),
+                    ))
                     if progress_callback is not None:
                         progress_callback(
-                            "NATIVE_POSE_VARIANT", i + 2, len(candidates),
-                            str(failed_bend),
+                            event_name, i + 2 + len(added) - 1,
+                            len(candidates) + len(added), str(failed_bend),
                         )
+                if added:
+                    candidates[i + 1:i + 1] = added
+                    available_sequences = tuple(x[0] for x in candidates)
         if qualified:
             return result(
                 (FastSearchStatus.VIRTUAL_SAMPLED_CLEAR if virtual_length
