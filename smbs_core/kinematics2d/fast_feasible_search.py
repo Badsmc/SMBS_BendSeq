@@ -5,7 +5,7 @@ Existing engines are authoritative:
   - native D6 manual replay: selected actual FCStd punch and die, all bends.
 
 No second geometry engine, fake clearance or approval by coarse sampling.
-The 60-second budget is BEST EFFORT: an in-flight OpenCASCADE operation may
+The 600-second experimental budget is BEST EFFORT: an in-flight OpenCASCADE operation may
 run beyond a Python deadline, and no safe hard interruption is available.
 
 Even a successful report means sampled punch/die clearance ONLY; backgauge,
@@ -68,6 +68,7 @@ class FastSequenceResult:
     message_ru: str
     preview_sequence: Optional[tuple[str, ...]] = None
     preview_orientations: tuple[tuple[str, bool], ...] = ()
+    reverse_search: Optional[dict] = None
 
     @property
     def sampled_tool_clear(self) -> bool:
@@ -111,6 +112,7 @@ class FastSequenceResult:
             "message_ru": self.message_ru,
             "preview_sequence": list(self.preview_sequence) if self.preview_sequence else None,
             "preview_orientations": dict(self.preview_orientations),
+            "reverse_search": self.reverse_search,
         }
 
 
@@ -242,7 +244,7 @@ def search_fast_feasible_sequence(
     session: Any,
     tooling: Any,
     *,
-    budget_s: float = 60.0,
+    budget_s: float = 600.0,
     max_candidates: int = 8,
     planar_budget_fraction: float = 0.45,
     initial_clearance_mm: float = 40.0,
@@ -262,6 +264,7 @@ def search_fast_feasible_sequence(
     verdict promotion, no mutation of the operator's session order/angles.
     """
     started = clock()
+    reverse_data = None
 
     def result(status, sequence=None, orientations=(), candidates=(),
                attempts=(), winning_steps=(), planar_elapsed=0.0,
@@ -285,6 +288,7 @@ def search_fast_feasible_sequence(
             preview_sequence=(tuple(preview_sequence)
                               if preview_sequence is not None else None),
             preview_orientations=tuple(preview_orientations),
+            reverse_search=reverse_data,
         )
 
     order = tuple(getattr(session, "bend_order", ()) or ())
@@ -316,53 +320,82 @@ def search_fast_feasible_sequence(
         sampling_config_factory = _default_sampling_config
 
     deadline = started + float(budget_s)
-    # Keep enough remaining budget for native evidence; do not let the 2D
-    # DFS consume the entire search timeout.
-    planar_budget = min(float(budget_s) * planar_budget_fraction,
-                        max(0.001, deadline - clock()))
-    if progress_callback is not None:
-        progress_callback("PLANAR_2D", 0, len(order), "")
-
-    report = planar_runner(
-        session, tooling,
-        max_solutions=max_candidates,
-        max_complete_candidates=max_candidates * 3,
-        max_nodes=4000,
-        max_evaluations=10000,
-        max_search_time_s=planar_budget,
-        root_probe_nodes=40 if len(order) >= 10 else 0,
-        root_probe_seconds=0.6 if len(order) >= 10 else 0.0,
-        preferred_bend_order=tuple(reversed(order)) if len(order) >= 6 else order,
-        group_first=len(order) < 6,
-        exploration_fractions=(0.0, 0.25, 0.5, 0.75, 1.0),
-        exploration_stroke_fractions=(0.0, 0.5, 1.0),
-        match_active_bend_length=virtual_length,
-        allow_end_zone_collision=False,
-        allow_retract_warning=False,
-        backgauge_model=None,
-        weights=weights,
+    # First generate orders by reverse-unbending, ranking 3D AABB overlap.
+    # AABB is never treated as verified clearance.
+    from .reverse_aabb_search import search_reverse_aabb
+    reverse_budget = min(90.0, max(0.0, deadline - clock()) * 0.2)
+    reverse = search_reverse_aabb(
+        session, budget_s=reverse_budget, max_candidates=max_candidates,
+        progress=(lambda done, total, bend:
+                  progress_callback("REVERSE_AABB", done, total, bend))
+                 if progress_callback else None,
+        clock=clock,
     )
-    planar_elapsed = max(0.0, clock() - started)
-    planar_status = getattr(getattr(report, "status", None), "value",
-                            str(getattr(report, "status", "UNKNOWN")))
-    planar_limit = str(getattr(report, "limit_reason", "") or "")
-    deepest = tuple(getattr(report, "deepest_prefix", ()) or ())
+    reverse_data = reverse.to_dict()
     seen = set()
     candidates = []
-    for candidate in getattr(report, "candidates", ()):
-        seq = tuple(getattr(candidate, "sequence", ()))
+    for item in reverse.candidates:
+        seq = tuple(item.sequence)
+        orientation = tuple(sorted(item.orientation_by_bend))
         if len(seq) != len(order) or set(seq) != set(order):
             continue
-        orientation = _candidate_orientation(candidate, seq)
-        if orientation is None:
-            continue
-        key = (seq, orientation)
-        if key in seen:
-            continue
-        seen.add(key)
-        candidates.append((seq, orientation, candidate))
+        pair = (seq, orientation)
+        if pair not in seen:
+            seen.add(pair)
+            candidates.append((
+                seq, orientation,
+                SimpleNamespace(evidence="REVERSE_AABB_RANKED_UNVERIFIED",
+                                cost=item.bbox_overlap_score,
+                                cost_complete=False),
+            ))
+    if candidates:
+        planar_status = "SKIPPED_REVERSE_AABB_CANDIDATES_AVAILABLE"
+        planar_limit = ""
+        deepest = tuple(reversed(reverse.deepest_unbent))
+    else:
+        # Existing 2D search remains an isolated fallback.
+        planar_budget = min(float(budget_s) * 0.25,
+                            max(0.001, deadline - clock()))
+        if progress_callback is not None:
+            progress_callback("PLANAR_2D", 0, len(order), "")
+        report = planar_runner(
+            session, tooling,
+            max_solutions=max_candidates,
+            max_complete_candidates=max_candidates * 3,
+            max_nodes=4000,
+            max_evaluations=10000,
+            max_search_time_s=planar_budget,
+            root_probe_nodes=40 if len(order) >= 10 else 0,
+            root_probe_seconds=0.6 if len(order) >= 10 else 0.0,
+            preferred_bend_order=tuple(reversed(order)) if len(order) >= 6 else order,
+            group_first=len(order) < 6,
+            exploration_fractions=(0.0, 0.25, 0.5, 0.75, 1.0),
+            exploration_stroke_fractions=(0.0, 0.5, 1.0),
+            match_active_bend_length=virtual_length,
+            allow_end_zone_collision=False,
+            allow_retract_warning=False,
+            backgauge_model=None,
+            weights=weights,
+        )
+        planar_status = getattr(getattr(report, "status", None), "value",
+                                str(getattr(report, "status", "UNKNOWN")))
+        planar_limit = str(getattr(report, "limit_reason", "") or "")
+        deepest = tuple(getattr(report, "deepest_prefix", ()) or ())
+        for candidate in getattr(report, "candidates", ()):
+            seq = tuple(getattr(candidate, "sequence", ()))
+            if len(seq) != len(order) or set(seq) != set(order):
+                continue
+            orientation = _candidate_orientation(candidate, seq)
+            if orientation is None:
+                continue
+            pair = (seq, orientation)
+            if pair not in seen:
+                seen.add(pair)
+                candidates.append((seq, orientation, candidate))
+    planar_elapsed = max(0.0, clock() - started)
     candidates.sort(key=lambda x: (
-        getattr(x[2], "evidence", "") != "SAMPLED_2D_CLEAR_OR_TOUCH",
+        getattr(x[2], "evidence", "") not in (
+            "SAMPLED_2D_CLEAR_OR_TOUCH", "REVERSE_AABB_RANKED_UNVERIFIED"),
         not bool(getattr(x[2], "cost_complete", False)),
         float(getattr(x[2], "cost", 0.0) or 0.0),
         x[0], x[1],
@@ -544,7 +577,7 @@ def search_fast_feasible_sequence(
         ).format(len(deepest), len(order))
     else:
         detail = (
-            "Полный 2D-кандидат доступен для предварительной симуляции "
+            "Кандидат обратного AABB-поиска или 2D доступен для предварительной симуляции "
             "(UNVERIFIED). Точная 3D-проверка не завершена или "
             "обнаружила препятствие; другие варианты могут существовать."
         )
