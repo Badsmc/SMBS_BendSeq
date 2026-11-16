@@ -3803,7 +3803,7 @@ class _PreviewPanel:
                             "length_mm", None
                         ),
                     },
-                    budget_s=60.0,
+                    budget_s=600.0,
                 )
                 def reject_precheck(reason):
                     message = "FAST_FEASIBLE_SEARCH не запущен: " + reason
@@ -3866,7 +3866,7 @@ class _PreviewPanel:
                 self.planar_calculate.setEnabled(False)
                 self._set_task_busy(True)
                 self.status.setText(
-                    "Пробный подбор: 2D отбор → реальные FCStd инструменты в 3D..."
+                    "Обратный 3D AABB/DFS → прямая проверка D6 (600 с)..."
                 )
                 self.fast_feasible_info.setText(
                     "Поиск выполняется. При нехватке времени результат "
@@ -3882,8 +3882,10 @@ class _PreviewPanel:
                     def progress(stage, done, total, bend):
                         stage_label = {
                             "PLANAR_2D": "Быстрый 2D отбор",
+                            "REVERSE_AABB": "Обратный 3D AABB поиск",
                             "NATIVE_START": "3D проверка порядка",
                             "NATIVE_BEND": "3D проверка гиба",
+                            "NATIVE_RETRY": "Повторная 3D проверка",
                         }.get(stage, stage)
                         label = "{} {}/{}{}".format(
                             stage_label, done, total,
@@ -3896,7 +3898,7 @@ class _PreviewPanel:
                     report = search_fast_feasible_sequence(
                         self.session,
                         self.tooling_setup,
-                        budget_s=60.0,
+                        budget_s=600.0,
                         max_candidates=8,
                         initial_clearance_mm=float(
                             self.cycle_config.initial_clearance_mm
@@ -3937,7 +3939,7 @@ class _PreviewPanel:
                         len(report.planar_candidates), len(report.attempts),
                     )
                     if report.deadline_exceeded:
-                        summary += " | OCC превысил бюджет 60 с"
+                        summary += " | OCC превысил бюджет 600 с"
                     self.fast_feasible_info.setText(
                         summary + ". " + report.message_ru
                     )
