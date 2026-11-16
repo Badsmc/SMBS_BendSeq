@@ -19,6 +19,7 @@ jobs:
           python -m py_compile \
             smbs_core/kinematics2d/reverse_mesh_screen.py \
             smbs_core/kinematics2d/reverse_aabb_search.py \
+            smbs_core/kinematics2d/reverse_machine_screen.py \
             smbs_core/kinematics2d/fast_feasible_search.py \
             smbs_core/kinematics2d/manual_physical_validation.py \
             freecad_smbs/commands/pressbrake_2d.py
@@ -30,4 +31,5 @@ jobs:
             tests.test_reverse_mesh_screen \
             tests.test_reverse_aabb_search \
             tests.test_fast_reverse_orientation \
-            tests.test_native_verified_cache_key
+            tests.test_native_verified_cache_key \
+            tests.test_reverse_machine_screen
