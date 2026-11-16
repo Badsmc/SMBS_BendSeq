@@ -1160,12 +1160,12 @@ class SettingsCommand:
 
 
 class PlanarCandidatesCommand:
-    """Preserve experiment's separate fast 2D candidate search."""
+    """Open search settings; never launch 2D or OCC from the toolbar click."""
     def GetResources(self):
         return {
             "Pixmap": str(_ICON_ROOT / "gui_planar_candidates.svg"),
-            "MenuText": "Поиск 2D вариантов",
-            "ToolTip": "Найти полные последовательности гибов за ограниченное время; коллизии 3D ещё не проверены",
+            "MenuText": "Поиск последовательности",
+            "ToolTip": "Открыть выбор: пробный поиск с 3D (60 с) или только 2D (30 с)",
         }
 
     def IsActive(self):
@@ -1177,9 +1177,14 @@ class PlanarCandidatesCommand:
             PressBrake2DCommand().Activated()
             workspace = get_workspace_widget()
         if workspace is not None:
+            # The toolbar is navigation only. A hidden 30-second 2D
+            # search must never run before the operator can choose
+            # the primary FAST_FEASIBLE_SEARCH action in Tasks.
             show_workspace_controls(workspace, 3)
-            if workspace.planar_calculate.isEnabled():
-                workspace.calculate_planar_candidates()
+            workspace._trace_event(
+                "SEQUENCE_SEARCH_PAGE_OPENED",
+                available_modes=("FAST_FEASIBLE_SEARCH", "PLANAR_2D_ONLY"),
+            )
 
 
 def _button(widgets, label, callback, enabled=True):
@@ -2070,13 +2075,11 @@ class _PreviewPanel:
                 )
                 planar_page = QtWidgets.QWidget()
                 planar_layout = QtWidgets.QVBoxLayout(planar_page)
-                planar_card, planar_body = card("Шаг 1 — найти порядок гибов")
+                planar_card, planar_body = card("Поиск последовательности гибов")
                 planar_note = QtWidgets.QLabel(
-                    "Нажмите «Поиск 2D вариантов» на панели инструментов. "
-                    "Программа ищет полные порядки гибов с быстрой 2D оценкой "
-                    "и ранжирует их по весам. Поиск ограничен 30 секундами: "
-                    "если ничего не найдено, это ещё не доказывает, что решения нет. "
-                    "Найденный порядок пока не проверен в 3D."
+                    "Выберите режим ниже. Основной режим сначала отбирает "
+                    "порядки в 2D, затем проверяет реальные инструменты в 3D. "
+                    "Отдельный 2D-поиск — только для предварительного просмотра."
                 )
                 planar_note.setWordWrap(True)
                 planar_body.addWidget(planar_note)
@@ -2085,7 +2088,7 @@ class _PreviewPanel:
                 # cannot interrupt a running OpenCASCADE kernel call.
                 self.fast_feasible_btn = style_action(
                     QtWidgets.QPushButton(
-                        "Пробный поиск + 3D (бюджет 60 с)"
+                        "Поиск + 3D-проверка (60 с)"
                     ), primary=True
                 )
                 self.fast_feasible_btn.setObjectName(
@@ -2114,9 +2117,24 @@ class _PreviewPanel:
                 self.fast_feasible_info.setWordWrap(True)
                 planar_body.addWidget(self.fast_feasible_info)
                 self._fast_search_running = False
+                self._planar_search_running = False
                 self._last_fast_search_report = None
-                # The native toolbar command runs the search; this section
-                # displays its description/results without a duplicate button.
+                self.planar_only_btn = style_action(
+                    QtWidgets.QPushButton("Только 2D — без проверки (30 с)"),
+                    compact=True,
+                )
+                self.planar_only_btn.setObjectName("SMBS_PlanarOnlySearch")
+                self.planar_only_btn.setToolTip(
+                    "Только предварительный поиск: 2D-геометрия НЕ "
+                    "подтверждает отсутствие столкновений в 3D."
+                )
+                self.planar_only_btn.setEnabled(False)
+                self.planar_only_btn.clicked.connect(
+                    self.calculate_planar_candidates
+                )
+                planar_body.addWidget(self.planar_only_btn)
+                # Legacy hidden proxy is retained for existing enabled-state
+                # and command contracts; it is not clicked by the toolbar.
                 self.planar_calculate.hide()
                 planar_layout.addWidget(planar_card)
                 planar_layout.addStretch(1)
@@ -2682,7 +2700,7 @@ class _PreviewPanel:
                     ("Деталь", self._page_part),
                     ("Оснастка", self._page_tooling),
                     ("Симуляция", self._page_simulation),
-                    ("Поиск 2D вариантов", self._page_planar),
+                    ("Поиск последовательности", self._page_planar),
                     ("Порядок и проверка", self._page_manual),
                     ("Настройки", self._page_settings),
                 )
@@ -3790,7 +3808,9 @@ class _PreviewPanel:
                 if self.session is None:
                     self.status.setText("Сначала загрузите SheetMetal деталь.")
                     return
-                if getattr(self, "_fast_search_running", False):
+                if (getattr(self, "_fast_search_running", False)
+                        or getattr(self, "_planar_search_running", False)):
+                    self.status.setText("Другой поиск уже выполняется.")
                     return
                 if (self.timer.isActive()
                         or self.session.playback_status == PlaybackStatus.PLAYING):
@@ -3839,6 +3859,7 @@ class _PreviewPanel:
                 original_identity = input_identity()
                 self._fast_search_running = True
                 self.fast_feasible_btn.setEnabled(False)
+                self.planar_only_btn.setEnabled(False)
                 self.calculate.setEnabled(False)
                 self.planar_calculate.setEnabled(False)
                 self._set_task_busy(True)
@@ -4031,9 +4052,10 @@ class _PreviewPanel:
                     self._sync_playback_buttons()
 
             def calculate_planar_candidates(self):
-                """Show ranked sampled-2D candidate sequences, never mark them physically verified."""
-                if getattr(self, "_fast_search_running", False):
-                    self.status.setText("Быстрый поиск с 3D уже выполняется.")
+                """Explicit 2D-only preview, NEVER automatic toolbar action."""
+                if (getattr(self, "_fast_search_running", False)
+                        or getattr(self, "_planar_search_running", False)):
+                    self.status.setText("Другой поиск уже выполняется.")
                     return
                 if self.session is None:
                     self.status.setText("Сначала загрузите деталь SheetMetal.")
@@ -4041,11 +4063,18 @@ class _PreviewPanel:
                 if self.timer.isActive() or self.session.playback_status == PlaybackStatus.PLAYING:
                     self.status.setText("Остановите воспроизведение перед 2D-поиском.")
                     return
+                self._planar_search_running = True
                 self.planar_calculate.setEnabled(False)
+                self.planar_only_btn.setEnabled(False)
+                self.fast_feasible_btn.setEnabled(False)
                 self.calculate.setEnabled(False)
                 self._manual_preview_unverified = False
                 self._manual_preview_notice.hide()
                 self._set_task_busy(True)
+                self._trace_event(
+                    "PLANAR_2D_ONLY_SEARCH_REQUESTED",
+                    budget_s=30.0,
+                )
                 # Rear gauge is visualization-only; never spend OCC search
                 # budget on collision, clearance, contact or CAD penetration.
                 search_budget_s = 30.0
@@ -4176,6 +4205,7 @@ class _PreviewPanel:
                     self.status.setText(msg)
                     _error("Planar search exception: " + traceback.format_exc())
                 finally:
+                    self._planar_search_running = False
                     self._set_task_busy(False)
                     self._sync_playback_buttons()
 
@@ -5381,20 +5411,27 @@ class _PreviewPanel:
                     self.calculate.setEnabled(False)
                     self.planar_calculate.setEnabled(False)
                     self.fast_feasible_btn.setEnabled(False)
+                    self.planar_only_btn.setEnabled(False)
                     return
                 st = self.session.playback_status
                 self._update_task_progress()
                 self.playing = st == PlaybackStatus.PLAYING
                 bend_order = getattr(self.session, "bend_order", [])
-                self.calculate.setEnabled(not self.playing and len(bend_order) > 1)
-                self.planar_calculate.setEnabled(
-                    not self.playing and len(bend_order) > 0
-                    and not self._fast_search_running
+                search_running = (
+                    getattr(self, "_fast_search_running", False)
+                    or getattr(self, "_planar_search_running", False)
                 )
-                self.fast_feasible_btn.setEnabled(
-                    not self.playing and len(bend_order) > 0
-                    and not self._fast_search_running
+                self.calculate.setEnabled(
+                    not self.playing and len(bend_order) > 1
+                    and not search_running
                 )
+                can_search = (
+                    not self.playing and len(bend_order) > 0
+                    and not search_running
+                )
+                self.planar_calculate.setEnabled(can_search)
+                self.fast_feasible_btn.setEnabled(can_search)
+                self.planar_only_btn.setEnabled(can_search)
                 if st == PlaybackStatus.PLAYING:
                     self.play_btn.setText("Pause")
                     icon_name = "control_pause.svg"
