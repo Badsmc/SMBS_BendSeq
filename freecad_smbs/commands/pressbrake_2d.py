@@ -2107,7 +2107,7 @@ class _PreviewPanel:
                 planar_body.addWidget(self.fast_feasible_btn)
                 self.geometry_order_btn = style_action(
                     QtWidgets.QPushButton(
-                        "Геометрический порядок — без оснастки (120 с)"
+                        "Поиск порядка — профиль оснастки (120 с)"
                     ),
                     compact=True,
                 )
@@ -2115,10 +2115,10 @@ class _PreviewPanel:
                     "SMBS_GeometryOnlySearch"
                 )
                 self.geometry_order_btn.setToolTip(
-                    "Ищет полный порядок обратным A*/Mesh/BVH, "
-                    "учитывая только геометрию детали. Не проверяет "
-                    "пуансон, матрицу, упоры или физическую траекторию. "
-                    "Найденный порядок является предварительным."
+                    "Ищет полный порядок обратным A*/Mesh/BVH с реальными "
+                    "профилями выбранных пуансона и матрицы. Их длина "
+                    "виртуально подгоняется под каждый гиб. Непрерывная "
+                    "траектория и физическая выполнимость не подтверждены."
                 )
                 self.geometry_order_btn.setEnabled(False)
                 self.geometry_order_btn.clicked.connect(
@@ -4145,7 +4145,7 @@ class _PreviewPanel:
                     self._sync_playback_buttons()
 
             def calculate_geometry_sequence(self):
-                """Search a *geometric* order; actual machine validation is separate."""
+                """Search with selected native tool profiles at virtual bend lengths."""
                 if self.session is None:
                     self.status.setText("Сначала загрузите деталь SheetMetal.")
                     return
@@ -4162,12 +4162,21 @@ class _PreviewPanel:
                 self._set_task_busy(True)
                 self._sync_playback_buttons()
                 source_session = self.session
-                self.status.setText("Обратный A*/Mesh/BVH без оснастки (120 с)...")
+                if (self.tooling_setup.punch is None
+                        or self.tooling_setup.die is None):
+                    self.status.setText(
+                        "Сначала выберите пуансон и матрицу: их профиль важен."
+                    )
+                    return
+                self.status.setText(
+                    "Обратный A*/Mesh/BVH с профилем оснастки (120 с)..."
+                )
                 self._trace_event(
                     "GEOMETRY_ONLY_SEARCH_REQUESTED",
                     part_label=str(getattr(self.session, "part_label", "")),
                     budget_s=120.0,
-                    machine_tooling_ignored=True,
+                    tool_profile_preserved=True,
+                    tool_length_mode="VIRTUAL_MATCH_BEND",
                 )
                 try:
                     from smbs_core.kinematics2d.reverse_aabb_search import (
@@ -4178,7 +4187,7 @@ class _PreviewPanel:
 
                     def progress(depth, total, bend):
                         self.fast_feasible_info.setText(
-                            "Геометрический поиск: {}/{} гибов | {}".format(
+                            "Поиск с профилем оснастки: {}/{} гибов | {}".format(
                                 depth, total, bend
                             )
                         )
@@ -4187,7 +4196,8 @@ class _PreviewPanel:
                     report = search_reverse_aabb(
                         source_session, budget_s=120.0,
                         max_candidates=16, progress=progress,
-                        tooling=None,
+                        tooling=self.tooling_setup,
+                        virtual_tool_length=True,
                     )
                     self._trace_event(
                         "GEOMETRY_ONLY_SEARCH_FINISHED",
@@ -4204,6 +4214,14 @@ class _PreviewPanel:
                         self.status.setText(
                             "Полный геометрический порядок не найден в бюджете. "
                             "Невозможность гибки не доказана."
+                        )
+                        self.fast_feasible_info.setText(self.status.text())
+                        return
+                    if report.machine_screen_candidates == 0:
+                        self.status.setText(
+                            "Не удалось проверить профиль выбранной оснастки: "
+                            + str(report.machine_screen_status)
+                            + ". Порядок без учёта оснастки не применён."
                         )
                         self.fast_feasible_info.setText(self.status.text())
                         return
@@ -4230,9 +4248,10 @@ class _PreviewPanel:
                     self._manual_retract_verdicts.clear()
                     self._clear_manual_check_feedback()
                     self._manual_preview_notice.setText(
-                        "ГЕОМЕТРИЧЕСКИЙ КАНДИДАТ: порядок найден без оснастки. "
-                        "Коллизии во время непрерывной гибки и возможность "
-                        "установки на станке НЕ подтверждены."
+                        "КАНДИДАТ С ПРОФИЛЕМ ОСНАСТКИ: выбраны реальные "
+                        "поперечные профили пуансона и матрицы с виртуальной "
+                        "длиной под каждый гиб. Непрерывные столкновения "
+                        "и возможность установки НЕ подтверждены."
                     )
                     self._manual_preview_notice.show()
                     self._ensure_press_cycle_controller()
@@ -4247,9 +4266,9 @@ class _PreviewPanel:
                     self._viewer_tabs.setCurrentWidget(self._flat_view)
                     self._draw_flat_pattern(reset_camera=True)
                     message = (
-                        "Геометрический кандидат {}/{} гибов за {:.1f} с | "
+                        "Кандидат с профилем оснастки {}/{} гибов за {:.1f} с | "
                         "оценка {:.4f} | вариантов {} | "
-                        "проверка оснастки отложена | НЕ ПОДТВЕРЖДЁН"
+                        "длина виртуальная | НЕ ПОДТВЕРЖДЁН"
                     ).format(
                         len(selected), len(canonical),
                         report.elapsed_s, best.bbox_overlap_score,
@@ -4263,7 +4282,7 @@ class _PreviewPanel:
                         sequence=list(selected),
                         orientations=orientations,
                         score=best.bbox_overlap_score,
-                        validation="GEOMETRY_ONLY_UNVERIFIED",
+                        validation="TOOL_PROFILE_VIRTUAL_LENGTH_AABB_UNVERIFIED",
                     )
                 except Exception as exc:
                     import traceback
