@@ -69,6 +69,8 @@ class FastSequenceResult:
     preview_sequence: Optional[tuple[str, ...]] = None
     preview_orientations: tuple[tuple[str, bool], ...] = ()
     reverse_search: Optional[dict] = None
+    preview_checked_bends: int = 0
+    preview_origin: str = "NONE"
 
     @property
     def sampled_tool_clear(self) -> bool:
@@ -113,7 +115,48 @@ class FastSequenceResult:
             "preview_sequence": list(self.preview_sequence) if self.preview_sequence else None,
             "preview_orientations": dict(self.preview_orientations),
             "reverse_search": self.reverse_search,
+            "preview_checked_bends": self.preview_checked_bends,
+            "preview_origin": self.preview_origin,
         }
+
+
+def _best_unverified_preview(order, initial_sequence, initial_orientations,
+                             attempts):
+    """Select best *displayable* order, not a false machine clearance.
+
+    Native attempts contain richer evidence than a cheap initial order.
+    Prefer a greater checked prefix, then UNVERIFIED to a reported
+    rejection, retaining stable first-attempt ordering on ties.
+    The checked_bends count is *not* proof of physical clearance.
+    """
+    target = set(order)
+    def valid(sequence, orientations):
+        seq = tuple(sequence or ())
+        poses = dict(orientations or ())
+        return (len(seq) == len(order) and set(seq) == target
+                and set(poses) == target)
+
+    chosen = None
+    if valid(initial_sequence, initial_orientations):
+        chosen = (tuple(initial_sequence),
+                  tuple(sorted(dict(initial_orientations).items())),
+                  0, "REVERSE_RANKED_UNVERIFIED")
+    best_rank = (-1, -1)
+    for attempt in attempts:
+        if not valid(attempt.sequence, attempt.orientation_by_bend):
+            continue
+        checked = max(0, min(int(attempt.checked_bends), len(order)))
+        not_rejected = int(attempt.status == "UNVERIFIED")
+        rank = (checked, not_rejected)
+        if rank > best_rank:
+            best_rank = rank
+            chosen = (
+                tuple(attempt.sequence),
+                tuple(sorted(attempt.orientation_by_bend)),
+                checked,
+                "NATIVE_ATTEMPT_UNVERIFIED",
+            )
+    return chosen
 
 
 def _candidate_orientation(candidate, order):
@@ -278,7 +321,8 @@ def search_fast_feasible_sequence(
                attempts=(), winning_steps=(), planar_elapsed=0.0,
                planar_status="NOT_RUN",
                planar_limit="", deepest=(), message="",
-               preview_sequence=None, preview_orientations=()):
+               preview_sequence=None, preview_orientations=(),
+               preview_checked_bends=0, preview_origin="NONE"):
         return FastSequenceResult(
             status=status,
             sequence=tuple(sequence) if sequence is not None else None,
@@ -297,6 +341,8 @@ def search_fast_feasible_sequence(
                               if preview_sequence is not None else None),
             preview_orientations=tuple(preview_orientations),
             reverse_search=reverse_data,
+            preview_checked_bends=int(preview_checked_bends),
+            preview_origin=str(preview_origin),
         )
 
     order = tuple(getattr(session, "bend_order", ()) or ())
@@ -665,6 +711,15 @@ def search_fast_feasible_sequence(
                 ),
             )
 
+    display_candidate = _best_unverified_preview(
+        order, preview_sequence, preview_orientations, attempts,
+    )
+    preview_checked_bends = 0
+    preview_origin = "NONE"
+    if display_candidate is not None:
+        (preview_sequence, preview_orientations,
+         preview_checked_bends, preview_origin) = display_candidate
+
     time_out = clock() >= deadline
     code = (FastSearchStatus.TIME_BUDGET_REACHED if time_out
             else FastSearchStatus.NATIVE_REJECTED if attempts
@@ -686,6 +741,8 @@ def search_fast_feasible_sequence(
         code, candidates=available_sequences, attempts=attempts,
         preview_sequence=preview_sequence,
         preview_orientations=preview_orientations,
+        preview_checked_bends=preview_checked_bends,
+        preview_origin=preview_origin,
         planar_elapsed=planar_elapsed, planar_status=planar_status,
         planar_limit=planar_limit, deepest=deepest,
         message=("Общий лимит времени исчерпан. " if time_out else "") + detail,
