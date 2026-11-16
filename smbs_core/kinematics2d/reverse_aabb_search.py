@@ -180,6 +180,8 @@ def search_reverse_aabb(
     visit_counts = {}
     candidates = []
     candidate_orders = set()
+    first_bends_seen = set()
+    root_candidate_counts = {}
     deepest = ()
     transitions = 0
 
@@ -221,24 +223,32 @@ def search_reverse_aabb(
         transition_cache[key] = score
         return score
 
-    def dfs(mask, path, score):
+    def dfs(mask, path, score, root):
         nonlocal deepest, transitions
         if clock() >= deadline or len(candidates) >= max_candidates:
             return
         # Allow a few different paths to the same geometric mask;
         # BBox ranking alone cannot justify discarding all alternatives.
-        count = visit_counts.get(mask, 0)
+        # Keep separate traversal histories for different root unbends.
+        # The prior global mask cache suppressed all but three variants.
+        cache_key = (root, mask)
+        count = visit_counts.get(cache_key, 0)
         if count >= 3:
             return
-        visit_counts[mask] = count + 1
+        visit_counts[cache_key] = count + 1
         if len(path) > len(deepest):
             deepest = path
             if progress is not None:
                 progress(len(path), len(order), path[-1] if path else "")
         if mask == all_mask:
             seq = tuple(reversed(path))
-            if seq not in candidate_orders:
+            # Spend exact OCC on different first forward bends rather than
+            # on many permutations whose first step is identical.
+            if (seq not in candidate_orders and seq[0] not in first_bends_seen
+                    and root_candidate_counts.get(root, 0) < 2):
                 candidate_orders.add(seq)
+                first_bends_seen.add(seq[0])
+                root_candidate_counts[root] = root_candidate_counts.get(root, 0) + 1
                 candidates.append(ReverseCandidate(
                     sequence=seq,
                     orientation_by_bend=tuple((bid, False) for bid in seq),
@@ -261,9 +271,12 @@ def search_reverse_aabb(
         for metric, bid, bit in sorted(ranking):
             if clock() >= deadline or len(candidates) >= max_candidates:
                 break
-            dfs(mask | bit, path + (bid,), score + metric)
+            next_root = root if root is not None else bid
+            if root_candidate_counts.get(next_root, 0) >= 2:
+                continue
+            dfs(mask | bit, path + (bid,), score + metric, next_root)
 
-    dfs(0, (), 0.0)
+    dfs(0, (), 0.0, None)
     return ReverseSearchReport(
         candidates=tuple(sorted(candidates, key=lambda c: (
             c.bbox_overlap_score, c.sequence
