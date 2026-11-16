@@ -582,13 +582,14 @@ def check_manual_3d_sequence(
     # complete input and adaptive configuration. No uncertain or collided
     # result can be promoted to CLEAR. Scoped to one search invocation.
     config_signature = (
-        tuple(sorted(vars(config).items())) if config is not None else None
+        repr(sorted(vars(config).items())) if config is not None else None
     )
     cache_context = (
         id(state_in.graph), id(session.panel_build),
         p_path, d_path, punch_id, die_id,
-        tuple(getattr(tooling, "punch_section_offsets_xm", ()) or ()),
-        tuple(getattr(tooling, "die_section_offsets_xm", ()) or ()),
+        id(punch), id(die),
+        repr(getattr(tooling, "punch_section_offsets_xm", ()) or ()),
+        repr(getattr(tooling, "die_section_offsets_xm", ()) or ()),
         virtual, bool(allow_end_zone_collision), end_len,
         config_signature,
     )
