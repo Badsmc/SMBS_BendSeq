@@ -356,3 +356,43 @@ order rather than only a generic `NATIVE_REJECTED_OR_UNVERIFIED` status:
 
 These changes require a real FreeCAD GUI run before confirming playback
 works in the target Windows installation.
+
+## Windows run 2026-11-16 10:20-10:25, user-uploaded log
+
+The runtime was installed from a copy with `git_branch=UNKNOWN`,
+`git_commit=UNKNOWN` and GUI event
+`GEOMETRY_ONLY_SEARCH_REQUESTED`. This is an **older UI generation**
+than the one-button GUI commits. Do not interpret its missing simulation
+result card as evidence that the latest GUI was tested.
+
+- Source FreeCAD unfold: 11 panels, 10 bends.
+- Reverse search generated 3 complete ten-bend orders with selected
+  punch/die section and virtual length. The lowest approximate score
+  order was
+  `B10 B09 B08 B07 B06 B05 B04 B03 B02 B01`
+  (score ~530.94; UNVERIFIED).
+- Reverse A* time ~15.3 s; one-click native search ~193.44 s.
+- 8 native D6 attempts: **all eight stopped at the very first bend**.
+  D6 reported `BENDING=INTERVAL_UNRESOLVED` and a per-phase timeout
+  at ~18-19s. Peak reported punch overlap was tiny (~0.000007 mm3);
+  this is *not* a certified no-collision result.
+- Both `GEOMETRY_ONLY_PREVIEW_ADOPTED` and
+  `FAST_FEASIBLE_PREVIEW_ADOPTED` were emitted. However the older UI
+  changed the view to flat pattern and did not provide an obvious
+  persistent numbered result in Simulation.
+
+Corrections committed after this log:
+1. On one-button search completion, show a numbered 10-bend order,
+   orientations, and native-D6 status persistently on the search page.
+2. Switch to the Simulation native Tasks page and install that order
+   and orientation for playback; label all unqualified motion UNVERIFIED.
+3. Keep preview orders in saved-sequence choices, and prefer the
+   highest reached unresolved native attempt over the initial A* order.
+   An actual native rejection cannot displace an unverified order.
+4. Restore 40-second initial D6 phase allowance after the 18-second
+   experiment repeatedly stopped *before* the second bend.
+5. Distinguish `D6 reached step N` from `N bends physically verified`.
+
+These changes are not yet validated in the running Windows FreeCAD
+instance. The search algorithm does not guarantee a globally optimal
+or manufacturing-qualified sequence.
