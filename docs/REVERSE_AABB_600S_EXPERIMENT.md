@@ -57,3 +57,26 @@ Add actual moving punch/die tool AABB and OBB broadphase in machine coordinates,
 followed by swept-path conservative screening, pose/turn alternatives, and
 selective exact OCC narrowphase. Only safe-proven exclusions may prune;
 ambiguous contacts must remain UNKNOWN or defer to D6.
+
+## Results from 2026-11-16 Windows debug log
+
+Two 600-second test invocations took 104.21 and 103.35 seconds. AABB DFS
+explored 1024 states / 14800 transitions in about 14 seconds and produced
+three full permutations with overlap scores of zero. Each 3D candidate
+stopped at its first bend (B09, B10, or B01): BENDING intervals exceeded
+the old 6-second phase limit; one bounded retry with a ~9-second cap
+also exhausted. Recorded sampled punch overlaps were <= 0.000098 mm³;
+these are **not proof of a blocker**. No sequence was physically validated.
+
+Follow-up changes on this experimental branch:
+- Raise D6 per-phase allowance to 24 seconds and timeout retry up to 40s
+  while respecting the overall deadline and preserving UNVERIFIED.
+- Diversify reverse search by first forward bend and root-unbend path,
+  rather than testing multiple almost identical first operations.
+- Exclude unnecessary fallback operator seed when reverse candidates exist.
+- Label simulator preview as AABB/DFS UNVERIFIED (never 2D-cleared).
+- Continue to treat zero AABB-overlap score as a weak ranking result, not
+  evidence of actual 3D machine clearance.
+
+The new tuning requires physical FreeCAD tests; elapsed performance is
+not established by static code changes.
