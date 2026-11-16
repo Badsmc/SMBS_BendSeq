@@ -539,6 +539,66 @@ class ReverseOrientationTests(unittest.TestCase):
             ), "2D_INTERFERENCE",
         )
 
+    def test_native_collision_prefix_skips_equivalent_suffixes(self):
+        order = ("B01", "B02", "B03", "B04")
+        session = SimpleNamespace(
+            bend_order=order,
+            fold_state=SimpleNamespace(bends={x: object() for x in order}),
+            panel_build=object(), part_label="test",
+        )
+        tooling = SimpleNamespace(
+            punch=SimpleNamespace(tool_id="p", length_mm=100),
+            die=SimpleNamespace(tool_id="d", length_mm=100),
+            match_active_bend_length=False,
+            punch_section_offsets_xm=(), die_section_offsets_xm=(),
+        )
+        one = ("B01", "B02", "B03", "B04")
+        two = ("B01", "B02", "B04", "B03")
+        three = ("B02", "B01", "B03", "B04")
+        def cand(seq):
+            return SimpleNamespace(
+                sequence=seq,
+                evidence="SAMPLED_2D_CLEAR_OR_TOUCH",
+                cost=1.0, cost_complete=True,
+                steps=tuple(SimpleNamespace(
+                    bend_id=b, orientation_variant="NORMAL",
+                ) for b in seq),
+            )
+        plan = SimpleNamespace(
+            status=SimpleNamespace(value="SAMPLED_2D_CANDIDATES"),
+            limit_reason="", deepest_prefix=one,
+            candidates=(cand(one),cand(two),cand(three)),
+        )
+        native_calls = []
+        def native(_session, _tooling, sequence, **kwargs):
+            native_calls.append(tuple(sequence))
+            return {
+                "status": "COLLISION",
+                "reason": "punch_or_die_collision_at:" + sequence[1],
+                "checked_bends": 2,
+                "requested_bends": list(sequence),
+                "steps": [
+                    {"bend_id": sequence[0], "status": "COARSE_3D_NO_PROVEN_COLLISION"},
+                    {"bend_id": sequence[1], "status": "COLLISION"},
+                ],
+            }
+        result = search_fast_feasible_sequence(
+            session, tooling, budget_s=1000,
+            max_candidates=3,
+            planar_runner=lambda *args,**kwargs: plan,
+            native_runner=native,
+        )
+        self.assertEqual(len(native_calls), 2)
+        self.assertEqual(
+            [a.status for a in result.attempts],
+            ["COLLISION", "COLLISION", "COLLISION"],
+        )
+        self.assertTrue(any(
+            a.reason.startswith("reused_proven_colliding_prefix:")
+            for a in result.attempts
+        ))
+        self.assertIsNone(result.sequence)
+
     def test_phase_budget_spreads_bounded_search_across_orders(self):
         from smbs_core.kinematics2d.fast_feasible_search import (
             _default_sampling_config,
