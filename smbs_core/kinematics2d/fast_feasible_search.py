@@ -407,7 +407,7 @@ def search_fast_feasible_sequence(
     # cheap 2D cross-section model cannot recognize its 3D placement.
     # Use it only as a fallback for native verification, NEVER as a pass.
     # Native D6 checks every phase with the specified orientation.
-    if seed_order is not None and seed_orientations is not None:
+    if not reverse.candidates and seed_order is not None and seed_orientations is not None:
         seed = tuple(seed_order)
         directions = tuple(sorted(
             (str(bid), bool(value))
