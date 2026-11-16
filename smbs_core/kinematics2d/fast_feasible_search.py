@@ -392,53 +392,37 @@ def search_fast_feasible_sequence(
         sampling_config_factory = _default_sampling_config
 
     deadline = started + float(budget_s)
-    # First generate orders by reverse-unbending, ranking 3D AABB overlap.
-    # AABB is never treated as verified clearance.
-    from .reverse_aabb_search import search_reverse_aabb
-    reverse_budget = min(90.0, max(0.0, deadline - clock()) * 0.2)
-    reverse = search_reverse_aabb(
-        session, budget_s=reverse_budget,
-        max_candidates=max(1, (max_candidates + 1) // 2),
-        progress=(lambda done, total, bend:
-                  progress_callback("REVERSE_AABB", done, total, bend))
-                 if progress_callback else None,
-        clock=clock,
-        tooling=search_tooling,
-        virtual_tool_length=True,
+    # Primary engine: the existing 2D physical section search. The A*
+    # broadphase cannot certify even a *single* physical bend and must
+    # never bypass this much stronger sampled step-level geometry gate.
+    from .reverse_aabb_search import search_reverse_aabb, ReverseSearchReport
+    reverse = ReverseSearchReport(
+        candidates=(), deepest_unbent=(), visited_states=0,
+        evaluated_transitions=0, elapsed_s=0.0, timed_out=False,
+        geometry_available=False, reason="SKIPPED_PLANAR_PRIMARY",
     )
-    reverse_data = reverse.to_dict()
     seen = set()
     candidates = []
-    for item in reverse.candidates:
-        seq = tuple(item.sequence)
-        orientation = tuple(sorted(item.orientation_by_bend))
-        if len(seq) != len(order) or set(seq) != set(order):
-            continue
-        pair = (seq, orientation)
-        if pair not in seen:
-            seen.add(pair)
-            candidates.append((
-                seq, orientation,
-                SimpleNamespace(evidence=item.evidence,
-                                cost=item.bbox_overlap_score,
-                                cost_complete=False),
-            ))
-    if candidates:
-        planar_status = "SKIPPED_REVERSE_AABB_CANDIDATES_AVAILABLE"
-        planar_limit = ""
-        deepest = tuple(reversed(reverse.deepest_unbent))
-    else:
-        # Existing 2D search remains an isolated fallback.
-        planar_budget = min(float(budget_s) * 0.25,
-                            max(0.001, deadline - clock()))
-        if progress_callback is not None:
-            progress_callback("PLANAR_2D", 0, len(order), "")
+    planar_status = "NOT_RUN"
+    planar_limit = ""
+    deepest = ()
+    # Allocate search time before the expensive native D6. Preserve enough
+    # room for actual collision checking, but give the principal 2D engine
+    # far more than the obsolete 30-second diagnostic button allowed.
+    planar_budget = min(
+        max(10.0, float(budget_s) * 0.35),
+        max(0.001, deadline - clock()),
+        210.0,
+    )
+    if progress_callback is not None:
+        progress_callback("PLANAR_2D", 0, len(order), "")
+    try:
         report = planar_runner(
             session, search_tooling,
             max_solutions=max_candidates,
             max_complete_candidates=max_candidates * 3,
-            max_nodes=4000,
-            max_evaluations=10000,
+            max_nodes=max(4000, len(order) * 800),
+            max_evaluations=max(10000, len(order) * 2200),
             max_search_time_s=planar_budget,
             root_probe_nodes=40 if len(order) >= 10 else 0,
             root_probe_seconds=0.6 if len(order) >= 10 else 0.0,
@@ -467,6 +451,45 @@ def search_fast_feasible_sequence(
             if pair not in seen:
                 seen.add(pair)
                 candidates.append((seq, orientation, candidate))
+    except Exception as exc:
+        # Explicitly report primary 2D failures. A* is a fallback for
+        # diagnostic candidate discovery, not evidence of physical fit.
+        planar_status = "PLANAR_PRIMARY_ERROR"
+        planar_limit = "{}:{}".format(type(exc).__name__, exc)
+
+    if not candidates and clock() < deadline:
+        if progress_callback is not None:
+            progress_callback("REVERSE_AABB", 0, len(order), "")
+        reverse_budget = min(
+            60.0, max(0.001, deadline - clock()) * 0.20
+        )
+        reverse = search_reverse_aabb(
+            session, budget_s=reverse_budget,
+            max_candidates=max(1, (max_candidates + 1) // 2),
+            progress=(lambda done, total, bend:
+                      progress_callback("REVERSE_AABB", done, total, bend))
+                     if progress_callback else None,
+            clock=clock, tooling=search_tooling, virtual_tool_length=True,
+        )
+        for item in reverse.candidates:
+            seq = tuple(item.sequence)
+            orientation = tuple(sorted(item.orientation_by_bend))
+            if len(seq) != len(order) or set(seq) != set(order):
+                continue
+            pair = (seq, orientation)
+            if pair not in seen:
+                seen.add(pair)
+                candidates.append((
+                    seq, orientation,
+                    SimpleNamespace(
+                        evidence=item.evidence,
+                        cost=item.bbox_overlap_score,
+                        cost_complete=False,
+                    ),
+                ))
+        if not deepest:
+            deepest = tuple(reversed(reverse.deepest_unbent))
+    reverse_data = reverse.to_dict()
     planar_elapsed = max(0.0, clock() - started)
     candidates.sort(key=lambda x: (
         getattr(x[2], "evidence", "") not in (
