@@ -761,3 +761,51 @@ The new collision-targeted trials are a code change, not a proven
 working physical order. Test the new source in Windows FreeCAD,
 check whether B03 is attempted with `reverse_axis=True`, and
 whether it avoids the previously measured obstacle.
+
+## macOS 2026-11-16 15:57 log — ninth-bend B02 blocker and disabled retry capacity
+
+Input `SMBS_debug_log(20261116-155726).json` has two distinct
+macOS FreeCAD sessions. The earlier one is a DIFFERENT add-on checkout
+(`experiment-restore-virtual-length-fast-search`) with a 60-second
+request and adaptive native D6, so it is not a benchmark for the
+1000-second endpoint-only experiment. Both sessions load the part
+with **K=0.40** (unlike prior K=0.31 Windows runs).
+
+Later session from `experiment-reverse-aabb-search-600s`:
+- 1000.0-second configured limit; ~1005.8732 seconds actual wall time
+  (synchronous OCC calls can overrun the soft deadline).
+- 210.1884 seconds primary 2D stage, ended
+  `SEARCH_LIMIT_REACHED/MAX_SEARCH_TIME_REACHED`.
+- 20 shortlisted complete sequence hypotheses, 15 tried before
+  deadline, 2 colliding-prefix cache rejects and 13 real OCC calls.
+- 14 attempted results `COLLISION` (including those 2 cache rejects),
+  1 `UNVERIFIED` on deadline, 0 qualified complete orders.
+- Particularly promising order
+  `B07 B10 B09 B08 B06 B05 B04 B03 B02 B01` reached B03
+  at step 8 in reversed orientation with native status
+  `COARSE_3D_CONDITIONAL_END_ZONE`: explicit preliminary acceptance
+  **only** under the operator-enabled punch end-zone allowance.
+  Step 9 B02 with normal orientation had a proven punch collision
+  during APPROACH, ~388.966 mm^3. The sequence is NOT feasible in
+  that pose. B01 step 10 was never reached.
+- Because initial `candidates = candidates[:max_candidates]` always
+  filled the 20 available slots, the collision-triggered opposite
+  loading for B02 was not added. This is a concrete bug, distinct
+  from whether the geometry admits any solution.
+
+Correction: for automatic OCC searches with `max_candidates >= 8`,
+reserve `max(2, max_candidates // 5)` slots (4 of 20) for genuine
+collision/unknown repair trials. On a proven native blocked bend,
+insert the **opposite loading of that bend** immediately after the
+current candidate; postpone the shift-two-positions hypothesis behind
+preselected diverse candidates. Changed poses still require
+independent native replay, no stale proof or approval is transferred.
+Small max-candidate regression searches retain unchanged limits.
+Added regression proving a full initial shortlist can actually
+execute the targeted flipped blocker next.
+
+The specific B02 flipped candidate has not yet been tested in actual
+FreeCAD following this code change. Inspect the next run for
+`NATIVE_POSE_VARIANT B02`, actual OCC attempts and eventual terminal
+status. The two-endpoint screen cannot certify continuous motion,
+backgauge, clamps or full tool clearance.
