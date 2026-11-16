@@ -66,6 +66,8 @@ class FastSequenceResult:
     planar_limit_reason: str
     planar_deepest_prefix: tuple[str, ...]
     message_ru: str
+    preview_sequence: Optional[tuple[str, ...]] = None
+    preview_orientations: tuple[tuple[str, bool], ...] = ()
 
     @property
     def sampled_tool_clear(self) -> bool:
@@ -107,6 +109,8 @@ class FastSequenceResult:
             "continuous_motion_certified": False,
             "backgauge_frame_clamps_transfer_checked": False,
             "message_ru": self.message_ru,
+            "preview_sequence": list(self.preview_sequence) if self.preview_sequence else None,
+            "preview_orientations": dict(self.preview_orientations),
         }
 
 
@@ -176,12 +180,13 @@ def _native_result_is_qualified(physical, sequence, expected_orientation=None, *
 def _default_sampling_config(remaining_s, bend_count, clearance_mm):
     from .motion_trajectory_3d import AdaptiveSamplingConfig
 
-    # A limit is per phase, not a hard wall on OCC. Restrict each phase's
-    # sampling effort conservatively; exhausted intervals become UNVERIFIED.
-    phase_share = remaining_s / max(1, 5 * bend_count)
+    # Each phase may borrow time from the shared deadline. Dividing by
+    # 5*bend_count previously gave ~0.9s per phase on ten-bend parts.
+    # Incomplete trajectories remain UNVERIFIED, never silently cleared.
+    phase_limit = max(2.0, min(6.0, remaining_s * 0.12))
     return AdaptiveSamplingConfig(
         initial_clearance_mm=clearance_mm,
-        max_phase_time_s=max(0.5, min(8.0, phase_share)),
+        max_phase_time_s=phase_limit,
         max_evaluated_states_per_phase=48,
         component_reject_enabled=True,  # reject only: never certifies clear
         coarse_occ_screen=False,
@@ -261,7 +266,8 @@ def search_fast_feasible_sequence(
     def result(status, sequence=None, orientations=(), candidates=(),
                attempts=(), winning_steps=(), planar_elapsed=0.0,
                planar_status="NOT_RUN",
-               planar_limit="", deepest=(), message=""):
+               planar_limit="", deepest=(), message="",
+               preview_sequence=None, preview_orientations=()):
         return FastSequenceResult(
             status=status,
             sequence=tuple(sequence) if sequence is not None else None,
@@ -276,6 +282,9 @@ def search_fast_feasible_sequence(
             planar_limit_reason=str(planar_limit),
             planar_deepest_prefix=tuple(deepest),
             message_ru=str(message),
+            preview_sequence=(tuple(preview_sequence)
+                              if preview_sequence is not None else None),
+            preview_orientations=tuple(preview_orientations),
         )
 
     order = tuple(getattr(session, "bend_order", ()) or ())
@@ -383,6 +392,9 @@ def search_fast_feasible_sequence(
                 ))
     candidates = candidates[:max_candidates]
     available_sequences = tuple(x[0] for x in candidates)
+    # Preview only: preserve corresponding 2D orientation choices.
+    preview_sequence = candidates[0][0] if candidates else None
+    preview_orientations = candidates[0][1] if candidates else ()
     if not candidates:
         code = (FastSearchStatus.TIME_BUDGET_REACHED
                 if clock() >= deadline else FastSearchStatus.NO_2D_CANDIDATES)
@@ -476,11 +488,15 @@ def search_fast_feasible_sequence(
             else FastSearchStatus.PLANAR_ONLY)
     return result(
         code, candidates=available_sequences, attempts=attempts,
+        preview_sequence=preview_sequence,
+        preview_orientations=preview_orientations,
         planar_elapsed=planar_elapsed, planar_status=planar_status,
         planar_limit=planar_limit, deepest=deepest,
         message=(
             "Время поиска исчерпано; полного 3D подтверждения пока нет."
             if time_out else
-            "Полные 2D варианты получены, но физическая проверка выбранной оснастки не прошла. Другие ориентации и варианты могут существовать."
+            "Полные 2D варианты сохранены для предварительной симуляции "
+            "(UNVERIFIED). Физическая 3D-проверка не завершена или "
+            "обнаружила препятствие; другие варианты могут существовать."
         ),
     )
