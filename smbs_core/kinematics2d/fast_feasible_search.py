@@ -724,79 +724,84 @@ def search_fast_feasible_sequence(
             seq, orientation, status, reason, checked,
             max(0.0, clock() - trial_started),
         ))
+        # A native terminal COLLISION at the exact checked bend is
+        # evidence for this oriented prefix, not for other loadings.
+        # Retain the same proof requirement for safe prefix pruning and
+        # for targeting a different loading of the physically blocked bend.
+        proven_collision_bend = None
         if (status == "COLLISION" and isinstance(native, dict)
                 and 1 <= checked <= len(seq)):
-            # Reuse only when the native trajectory proves collision
-            # on the exact terminal bend of the complete checked prefix.
             native_steps = native.get("steps") or ()
             if (len(native_steps) == checked
                     and native_steps[-1].get("status") == "COLLISION"
                     and tuple(step.get("bend_id") for step in native_steps)
                     == seq[:checked]):
                 proven_bad_prefixes.add(oriented[:checked])
-        # The next physically different loading must target the actual
-        # unresolved bend. Never treat a timeout as a collision or proof
-        # of clearance. Recheck all five sampled angles in the modified order.
-        if (not qualified and status == "UNVERIFIED"
+                proven_collision_bend = seq[checked - 1]
+
+        # Instead of abandoning the entire sequence on a true punch/die
+        # collision, try a DIFFERENT pose of the offending bend and then
+        # delaying it. These are new unverified hypotheses that MUST pass
+        # the complete native 0/100 replay; no previous clearance is reused
+        # across the changed pose or altered order.
+        if (not qualified and status in ("COLLISION", "UNVERIFIED")
                 and isinstance(native, dict)
                 and len(candidates) < max_candidates
                 and deadline - clock() >= 45.0):
-            failed_bend = None
-            for step in native.get("steps") or ():
-                if str(step.get("status", "")) not in (
-                    "COARSE_3D_NO_PROVEN_COLLISION",
-                    "SAMPLED_3D_CLEAR_NOT_CONTINUOUS", "SAMPLED_CLEAR",
-                ):
-                    failed_bend = step.get("bend_id")
-                    break
-            if failed_bend not in seq and "native_3d_not_verified_at:" in reason:
-                failed_bend = reason.split("native_3d_not_verified_at:", 1)[1].split()[0]
+            failed_bend = proven_collision_bend
+            if status == "UNVERIFIED":
+                for step in native.get("steps") or ():
+                    if str(step.get("status", "")) not in (
+                        "COARSE_3D_NO_PROVEN_COLLISION",
+                        "COARSE_3D_CONDITIONAL_END_ZONE",
+                        "SAMPLED_3D_CLEAR_NOT_CONTINUOUS", "SAMPLED_CLEAR",
+                    ):
+                        failed_bend = step.get("bend_id")
+                        break
+                if (failed_bend not in seq
+                        and "native_3d_not_verified_at:" in reason):
+                    failed_bend = reason.split(
+                        "native_3d_not_verified_at:", 1
+                    )[1].split()[0]
             if failed_bend in seq:
-                # An unknown sampled state is not a collision: try a different
-                # *ordering* before spending another full phase budget on
-                # the same orientation at the identical prefix. Move the
-                # unresolved bend two places later (if possible). Each
-                # permutation is independently replayed from the start.
-                new_variants = []
                 failed_index = seq.index(failed_bend)
+                changed = dict(orientation)
+                changed[failed_bend] = not changed.get(failed_bend, False)
+                variants = [(
+                    seq, tuple(sorted(changed.items())),
+                    "TWO_ENDPOINT_BLOCKED_BEND_FLIPPED_UNVERIFIED",
+                    "NATIVE_POSE_VARIANT",
+                )]
                 if failed_index < len(seq) - 1:
-                    shifted = list(seq)
-                    shifted.pop(failed_index)
-                    shifted.insert(min(failed_index + 2, len(shifted)),
+                    delayed = list(seq)
+                    delayed.pop(failed_index)
+                    delayed.insert(min(failed_index + 2, len(delayed)),
                                    failed_bend)
-                    new_variants.append((
-                        tuple(shifted), orientation,
-                        "TWO_ENDPOINT_UNRESOLVED_BEND_DELAYED_UNVERIFIED",
+                    variants.append((
+                        tuple(delayed), orientation,
+                        "TWO_ENDPOINT_BLOCKED_BEND_DELAYED_UNVERIFIED",
                         "NATIVE_ORDER_VARIANT",
                     ))
-                flipped = dict(orientation)
-                flipped[failed_bend] = not flipped.get(failed_bend, False)
-                new_variants.append((
-                    seq, tuple(sorted(flipped.items())),
-                    "TWO_ENDPOINT_UNRESOLVED_POSE_RETRY_UNVERIFIED",
-                    "NATIVE_POSE_VARIANT",
-                ))
-                added = []
-                for next_seq, next_orientation, evidence, event_name in new_variants:
-                    if len(candidates) + len(added) >= max_candidates:
+                for new_seq, new_pose, evidence, event_name in variants:
+                    if len(candidates) >= max_candidates:
                         break
-                    key = (next_seq, next_orientation)
+                    key = (new_seq, new_pose)
                     if key in seen:
                         continue
                     seen.add(key)
-                    added.append((
-                        next_seq, next_orientation,
-                        SimpleNamespace(evidence=evidence,
-                                        cost=0.0, cost_complete=False),
+                    # Append, not insert: preserve every already selected
+                    # 2D-diverse candidate ahead of new OCC-only variants.
+                    candidates.append((
+                        new_seq, new_pose,
+                        SimpleNamespace(evidence=evidence, cost=0.0,
+                                        cost_complete=False),
                     ))
                     if progress_callback is not None:
                         progress_callback(
-                            event_name, i + 2 + len(added) - 1,
-                            len(candidates) + len(added), str(failed_bend),
+                            event_name, len(candidates), len(candidates),
+                            str(failed_bend),
                         )
-                if added:
-                    candidates[i + 1:i + 1] = added
-                    available_sequences = tuple(x[0] for x in candidates)
+                available_sequences = tuple(x[0] for x in candidates)
         if qualified:
             return result(
                 (FastSearchStatus.TWO_POINT_CONDITIONAL_END_ZONES
