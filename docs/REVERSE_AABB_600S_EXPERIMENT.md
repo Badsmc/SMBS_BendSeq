@@ -144,3 +144,53 @@ The 600-second overall experiment budget and 90-second reverse candidate
 generation soft limit remain unchanged. The next debug log will include
 `reverse_search.mesh_panels`, `mesh_triangles`, `mesh_overlap_tests`,
 and `search_mode` for confirming that actual FreeCAD triangulation ran.
+
+## Machine-space native punch/die AABB candidate ranking
+
+Following the 08:37 log, self-collision panel BVH narrowphase was invoked
+zero times because all candidate panel AABBs were separated. The native D6
+could verify some first three bends but repeatedly left B07's BENDING
+interval UNVERIFIED. This is missing evidence, not a proven collision.
+
+The updated 600-second experiment now also includes
+`reverse_machine_screen.py`:
+
+- A* generates up to ten distinct first-bend candidates using the
+  existing lightweight 3D panel representation. It reserves a bounded
+  tail of the **90-second reverse search budget** for tool ranking.
+- The source of the punch/die is the *selected verified FCStd profile*
+  through `physical_validation_25d._source_path`, then the **same**
+  `native_tool_loader.load_native_punch/load_native_die` used by D6.
+  Virtual tool lengths and explicit section offsets retain their
+  existing semantics. Loaded tool envelopes are reused by length.
+- For each complete candidate, `WorkpiecePlacement3D.compute_placement`
+  aligns the active fold axis in actual machine coordinates. Both
+  `reverse_axis=False` and `True` are sampled at 0%, 50%, and 100%
+  active fold. BBox overlap and short-range clearance of each panel
+  relative to both tools give a **noncertifying** cost for sorting.
+- Machine AABB is a conservative *broadphase*, and the sampled punch
+  heights (tip at 6.5 and 1.5 mm) are **representative only**. This is
+  NOT a continuous press stroke, NOT proof of loading/transfer and
+  NOT a machine-tool mesh intersection implementation. A candidate
+  with score zero remains UNVERIFIED and must pass D6.
+- Failure to obtain an actual selected tool envelope or compute a pose
+  is recorded explicitly and leaves the candidate eligible for D6.
+  Nothing substitutes a fictitious tool.
+- D6 is still required to assess the actual selected punch/die geometry
+  during forward BENDING and other phases. Sampling remains
+  noncontinuous and excludes complete frame/backgauge/clamp proof.
+
+New debug report keys are
+`reverse_search.machine_screen_status`,
+`machine_screen_pairs`, `machine_screen_overlaps`, and
+`machine_screen_candidates`. A meaningful experimental run should
+show `machine_screen_status=NATIVE_TOOL_ENVELOPES_LOADED` and
+`machine_screen_pairs>0`; otherwise the new tool stage was inactive.
+
+To validate properly, run the updated install in FreeCAD with the
+ten-bend fixture and selected punch/die. Inspect the full JSON,
+compare the actual 600s search wall time, number of *completed D6*
+bends, cache HIT counters and machine-screen diagnostics.
+Do not call the search manufacturing-ready unless a complete
+forward sequence with physically required setup/transfer constraints
+has been verified.
