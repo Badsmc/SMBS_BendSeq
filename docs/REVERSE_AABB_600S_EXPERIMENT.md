@@ -594,3 +594,17 @@ angles and real installed tool length remain separately unverified.
 The conditional status is visible in Simulation and logged for each
 bend. Regression tests explicitly cover both end zones, a central hit,
 missing permission, missing length and wrong orientation.
+
+### Conditional and the 2D-only ambiguity (follow-up)
+
+The existing `STAGE_B_SECTION_REQUIRES_3D` was previously converted
+unconditionally into `2D_INTERFERENCE`, and that branch was pruned.
+When punch conditional relief is enabled, 2D cross-sectional geometry
+cannot localize this collision to the axial LEFT/RIGHT ends, so it
+cannot prove an exclusion. The main DFS now treats a **PUNCH-only**
+`STAGE_B_SECTION_REQUIRES_3D` finding as `UNVERIFIED_2D` *only when*
+the operator explicitly enabled conditional ends. Such a candidate
+must still pass the native OCC 0/100 classifier to be reported as
+`CONDITIONAL_END_ZONES`; it is NOT promoted to `SAMPLED_2D_CLEAR`.
+DIE, BACKGAUGE, missing finding evidence and other interference
+remain rejected by the existing 2D classifier.
