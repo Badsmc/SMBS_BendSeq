@@ -80,3 +80,34 @@ Follow-up changes on this experimental branch:
 
 The new tuning requires physical FreeCAD tests; elapsed performance is
 not established by static code changes.
+
+## Follow-up: B08 adaptive validation and pose diversity
+
+After the third Windows log (`SMBS_debug_log(20261116-074414).json`):
+- Reverse DFS evaluated 4,620 unique states and 58,538 transitions,
+  producing three full 10-bend **candidates**, not validated production orders.
+- Native D6 advanced through B09 and B10 but B08 remained UNVERIFIED during
+  BENDING. The third search invocation ended after ~410 seconds out of 600.
+- The exact per-pose native collision oracle already uses FreeCAD BoundBox
+  conservative gap as an early CLEAR reject before expensive OCC common/
+  distance queries (`native_collision_3d.py`). No parallel, competing
+  punch/die broadphase has been added.
+
+This patch:
+1. Shares a bounded-invocation **fully sampled-clear bend-step cache** across
+   candidates. Keys include underlying graph/panel identities, actual tool
+   sources and object identities, assembly offsets, every adaptive setting,
+   completed fold set, active bend and workpiece orientation. Reuses ONLY
+   accepted native steps with sampled-clear retract and punch/die-tool pair;
+   never caches timeout, conditional, or collision as success.
+2. Adds explicit 180-degree orientation alternatives for B08 and candidate
+   first operations. Every variant still goes through exact native D6.
+3. Raises experimental phase limits to 40 seconds, 72 states, recursion
+   depth 7, with at most one bounded 60-second recheck, remaining subject to
+   the overall 600-second soft deadline.
+4. Adds `tests/test_fast_reverse_orientation.py` for noncertifying pose
+   expansion. Native FreeCAD/OCCT benchmark has NOT been run in this chat.
+
+Remaining work: measured production-quality swept BBox/OBB against the
+machine and an independent continuous collision/transfer proof. This
+experiment reports sampled-tool clearance at best, not machine approval.
