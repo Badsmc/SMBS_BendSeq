@@ -372,6 +372,11 @@ def search_reverse_aabb(
                         original.sequence, source, polygons, thickness,
                         tools_by_bend, deadline=deadline, clock=clock,
                     )
+                    if (len(pose) != len(original.sequence)
+                            or set(dict(pose)) != set(original.sequence)):
+                        machine_status = "MACHINE_SCREEN_PARTIAL_POSES_UNVERIFIED"
+                        ranked.append(original)
+                        continue
                     machine_pairs += pairs
                     machine_overlaps += overlaps
                     machine_checked += 1
@@ -380,7 +385,8 @@ def search_reverse_aabb(
                         original.bbox_overlap_score + risk,
                         "REVERSE_ASTAR_MACHINE_AABB_RANKED_UNVERIFIED",
                     ))
-                except (ValueError, ArithmeticError, KeyError) as exc:
+                except Exception as exc:
+                    # A failed fast heuristic must not abort exact D6 search.
                     machine_status = "MACHINE_SCREEN_PARTIAL_ERROR:" + type(exc).__name__
                     ranked.append(original)
             known = {c.sequence for c in ranked}
