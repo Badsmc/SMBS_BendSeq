@@ -159,7 +159,10 @@ def search_reverse_aabb(
     if not order:
         return ReverseSearchReport((), (), 0, 0, clock()-started, False,
                                    False, "NO_BENDS")
-    thickness = float(getattr(panel_build, "thickness_mm", 1.5) or 1.5)
+    first_zone = next((getattr(b, "bend_zone", None)
+                       for b in source.bends.values()
+                       if getattr(b, "bend_zone", None) is not None), None)
+    thickness = float(getattr(first_zone, "thickness_mm", 1.5) or 1.5)
     if not isfinite(thickness) or thickness <= 0:
         return ReverseSearchReport((), (), 0, 0, clock()-started, False,
                                    False, "INVALID_THICKNESS")
@@ -174,8 +177,9 @@ def search_reverse_aabb(
     }
     extent_cache = {}
     transition_cache = {}
-    visited = set()
+    visit_counts = {}
     candidates = []
+    candidate_orders = set()
     deepest = ()
     transitions = 0
 
@@ -221,20 +225,25 @@ def search_reverse_aabb(
         nonlocal deepest, transitions
         if clock() >= deadline or len(candidates) >= max_candidates:
             return
-        if mask in visited:
+        # Allow a few different paths to the same geometric mask;
+        # BBox ranking alone cannot justify discarding all alternatives.
+        count = visit_counts.get(mask, 0)
+        if count >= 3:
             return
-        visited.add(mask)
+        visit_counts[mask] = count + 1
         if len(path) > len(deepest):
             deepest = path
             if progress is not None:
                 progress(len(path), len(order), path[-1] if path else "")
         if mask == all_mask:
             seq = tuple(reversed(path))
-            candidates.append(ReverseCandidate(
-                sequence=seq,
-                orientation_by_bend=tuple((bid, False) for bid in seq),
-                bbox_overlap_score=score,
-            ))
+            if seq not in candidate_orders:
+                candidate_orders.add(seq)
+                candidates.append(ReverseCandidate(
+                    sequence=seq,
+                    orientation_by_bend=tuple((bid, False) for bid in seq),
+                    bbox_overlap_score=score,
+                ))
             return
         ranking = []
         for bid in order:
@@ -260,7 +269,7 @@ def search_reverse_aabb(
             c.bbox_overlap_score, c.sequence
         ))),
         deepest_unbent=deepest,
-        visited_states=len(visited),
+        visited_states=len(visit_counts),
         evaluated_transitions=transitions,
         elapsed_s=max(0., clock()-started),
         timed_out=clock() >= deadline,
