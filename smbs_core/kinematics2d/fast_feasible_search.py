@@ -316,6 +316,7 @@ def search_fast_feasible_sequence(
     if planar_runner is None:
         from .sequence_search_2d import search_bend_sequences_2d
         planar_runner = search_bend_sequences_2d
+    supports_verified_step_cache = native_runner is None
     if native_runner is None:
         from .manual_physical_validation import check_manual_3d_sequence
         native_runner = check_manual_3d_sequence
@@ -426,7 +427,36 @@ def search_fast_feasible_sequence(
                         cost=float("inf"), cost_complete=False,
                     ),
                 ))
-    candidates = candidates[:max_candidates]
+    # Test distinct 180-degree workpiece orientations without treating
+    # a flip as intrinsically valid. Try B08 (the recurrent unresolved bend)
+    # first where present, then each candidate's first operation. The exact
+    # orientation is subsequently checked by native forward D6.
+    expanded = list(candidates)
+    if reverse.candidates:
+        for seq, orientation, evidence in candidates:
+            for bend in tuple(dict.fromkeys(
+                (("B08",) if "B08" in seq else ()) + tuple(seq[:2])
+            )):
+                if len(expanded) >= max_candidates:
+                    break
+                flipped = dict(orientation)
+                flipped[bend] = not flipped[bend]
+                variant = tuple(sorted(flipped.items()))
+                key = (seq, variant)
+                if key in seen:
+                    continue
+                seen.add(key)
+                expanded.append((
+                    seq, variant,
+                    SimpleNamespace(
+                        evidence="REVERSE_AABB_ORIENTATION_UNVERIFIED",
+                        cost=getattr(evidence, "cost", 0.0),
+                        cost_complete=False,
+                    ),
+                ))
+            if len(expanded) >= max_candidates:
+                break
+    candidates = expanded[:max_candidates]
     available_sequences = tuple(x[0] for x in candidates)
     # Preview only: preserve corresponding 2D orientation choices.
     preview_candidates = [
@@ -449,6 +479,7 @@ def search_fast_feasible_sequence(
     # replays. All collision decisions still come from fresh D6 checking.
     from .native_sequence_geometry_cache import NativeSequenceGeometryCache
     geometry_cache = NativeSequenceGeometryCache(max_full_sheets=16)
+    verified_step_cache = {}
     attempts = []
     for i, (seq, orientation, _) in enumerate(candidates):
         remaining = deadline - clock()
@@ -483,6 +514,8 @@ def search_fast_feasible_sequence(
                 # up to 30s of optional panel-by-panel OCC attribution.
                 include_collision_attribution=False,
                 deadline_at=deadline,
+                **({"verified_step_cache": verified_step_cache}
+                   if supports_verified_step_cache else {}),
             )
             if not isinstance(native, dict):
                 raise TypeError("native validator must return a dict")
@@ -528,6 +561,8 @@ def search_fast_feasible_sequence(
                     sequence_geometry_cache=geometry_cache,
                     include_collision_attribution=False,
                     deadline_at=deadline,
+                    **({"verified_step_cache": verified_step_cache}
+                       if supports_verified_step_cache else {}),
                 )
                 if not isinstance(native, dict):
                     raise TypeError("native retry validator must return a dict")
