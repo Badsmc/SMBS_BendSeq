@@ -315,24 +315,24 @@ class ReverseOrientationTests(unittest.TestCase):
                  "is_conditional": False},
             ],
         }
-        self.assertTrue(_coarse_endpoint_candidate(
+        self.assertEqual(_coarse_endpoint_candidate(
             physical, order, poses,
-        ))
+        ), "NO_DETECTED_COLLISION")
         # Never accept a skipped bend, an alternate pose, or a collision.
         bad = dict(physical, checked_bends=1)
-        self.assertFalse(_coarse_endpoint_candidate(bad, order, poses))
+        self.assertIsNone(_coarse_endpoint_candidate(bad, order, poses))
         bad = dict(physical, steps=[
             physical["steps"][0],
             dict(physical["steps"][1], status="COLLISION"),
         ])
-        self.assertFalse(_coarse_endpoint_candidate(bad, order, poses))
+        self.assertIsNone(_coarse_endpoint_candidate(bad, order, poses))
         bad = dict(physical, steps=[
             physical["steps"][0],
             dict(physical["steps"][1], reverse_axis=False),
         ])
-        self.assertFalse(_coarse_endpoint_candidate(bad, order, poses))
+        self.assertIsNone(_coarse_endpoint_candidate(bad, order, poses))
         bad = dict(physical, validation_mode="FULL_ADAPTIVE_D6")
-        self.assertFalse(_coarse_endpoint_candidate(bad, order, poses))
+        self.assertIsNone(_coarse_endpoint_candidate(bad, order, poses))
 
     def test_conditional_punch_end_zones_require_explicit_permission(self):
         from smbs_core.kinematics2d.fast_feasible_search import (
