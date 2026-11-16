@@ -3934,7 +3934,11 @@ class _PreviewPanel:
                         self.session,
                         self.tooling_setup,
                         budget_s=1000.0,
-                        max_candidates=8,
+                        # The 12:52 log exhausted eight trials in 389 s,
+                        # leaving most of the requested 1000 s unused.
+                        # Admit more independent 2D orders; the global
+                        # deadline still bounds this experimental search.
+                        max_candidates=20,
                         initial_clearance_mm=float(
                             self.cycle_config.initial_clearance_mm
                         ),
