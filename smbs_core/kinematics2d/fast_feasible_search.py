@@ -479,11 +479,12 @@ def search_fast_feasible_sequence(
         float(getattr(x[2], "cost", 0.0) or 0.0),
         x[0], x[1],
     ))
-    # The operator's current order may be physically valid even when the
-    # cheap 2D cross-section model cannot recognize its 3D placement.
-    # Use it only as a fallback for native verification, NEVER as a pass.
-    # Native D6 checks every phase with the specified orientation.
-    if not reverse.candidates and seed_order is not None and seed_orientations is not None:
+    # Preserve the explicitly selected operator order as an independent
+    # native D6 candidate even when reverse A* returns speculative orders.
+    # The current UI used to ignore that known real-world alternative
+    # whenever its fast A* returned any three complete permutations.
+    # It is NEVER certified merely for being the operator's order.
+    if seed_order is not None and seed_orientations is not None:
         seed = tuple(seed_order)
         directions = tuple(sorted(
             (str(bid), bool(value))
@@ -495,7 +496,7 @@ def search_fast_feasible_sequence(
             pair = (seed, directions)
             if pair not in seen:
                 seen.add(pair)
-                candidates.append((
+                candidates.insert(min(1, len(candidates)), (
                     seed, directions,
                     SimpleNamespace(
                         evidence="OPERATOR_SEED_NOT_PLANAR_VERIFIED",
