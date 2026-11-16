@@ -88,11 +88,17 @@ def load_tool_boxes(tooling: Any, bends: dict, *, deadline=None,
                     except (AttributeError, TypeError, ValueError):
                         return ()
 
+                p_profile = _section(tooling.punch)
+                d_profile = _section(tooling.die)
+                if force_virtual_length and (
+                    len(p_profile) < 3 or len(d_profile) < 3
+                ):
+                    return {}, "SELECTED_TOOL_SECTION_GEOMETRY_UNAVAILABLE"
                 cached[key] = ToolAABB(
                     punch=_box(punch.machine_shape),
                     die=_box(die.machine_shape),
-                    punch_profile_sz=_section(tooling.punch),
-                    die_profile_sz=_section(tooling.die),
+                    punch_profile_sz=p_profile,
+                    die_profile_sz=d_profile,
                 )
             result[bid] = cached[key]
         return result, ("NATIVE_TOOL_PROFILE_VIRTUAL_LENGTH_LOADED" if virtual
