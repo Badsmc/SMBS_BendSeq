@@ -244,7 +244,7 @@ def search_fast_feasible_sequence(
     *,
     budget_s: float = 60.0,
     max_candidates: int = 8,
-    planar_budget_fraction: float = 0.25,
+    planar_budget_fraction: float = 0.45,
     initial_clearance_mm: float = 40.0,
     weights: Any = None,
     planar_runner: Optional[Callable[..., Any]] = None,
@@ -535,17 +535,24 @@ def search_fast_feasible_sequence(
     code = (FastSearchStatus.TIME_BUDGET_REACHED if time_out
             else FastSearchStatus.NATIVE_REJECTED if attempts
             else FastSearchStatus.PLANAR_ONLY)
+    if preview_sequence is None:
+        detail = (
+            "Полных новых 2D-кандидатов не найдено. Глубина поиска: "
+            "{}/{} гибов. Для 3D использовался только исходный "
+            "порядок оператора без 2D-подтверждения; он не прошёл "
+            "3D-проверку. Предварительный 2D-порядок не создан."
+        ).format(len(deepest), len(order))
+    else:
+        detail = (
+            "Полный 2D-кандидат доступен для предварительной симуляции "
+            "(UNVERIFIED). Точная 3D-проверка не завершена или "
+            "обнаружила препятствие; другие варианты могут существовать."
+        )
     return result(
         code, candidates=available_sequences, attempts=attempts,
         preview_sequence=preview_sequence,
         preview_orientations=preview_orientations,
         planar_elapsed=planar_elapsed, planar_status=planar_status,
         planar_limit=planar_limit, deepest=deepest,
-        message=(
-            "Время поиска исчерпано; полного 3D подтверждения пока нет."
-            if time_out else
-            "Полные 2D варианты сохранены для предварительной симуляции "
-            "(UNVERIFIED). Физическая 3D-проверка не завершена или "
-            "обнаружила препятствие; другие варианты могут существовать."
-        ),
+        message=("Общий лимит времени исчерпан. " if time_out else "") + detail,
     )
