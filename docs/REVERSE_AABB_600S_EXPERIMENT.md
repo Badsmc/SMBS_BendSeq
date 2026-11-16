@@ -809,3 +809,55 @@ FreeCAD following this code change. Inspect the next run for
 `NATIVE_POSE_VARIANT B02`, actual OCC attempts and eventual terminal
 status. The two-endpoint screen cannot certify continuous motion,
 backgauge, clamps or full tool clearance.
+
+## macOS 2026-11-16 17:39:35 — B02 opposite loading confirmed to collide, OCC sampled-step cache
+
+User log `SMBS_debug_log(20261116-173935).json`, loaded on
+macOS 12.7.6 x86_64 with K=0.40, 10 bends, true selected FCStd
+punch/die cross sections, virtual tool length and CONDITIONAL punch
+end allowance. The automatic one-click request uses a 1000-second
+soft deadline, bend 0/100 and ram 0/50/100 sampling.
+
+- 1008.8388 seconds actual elapsed (soft deadline can be exceeded
+  by in-progress synchronous OCC calls).
+- 210.1481 seconds primary 2D screen, status SEARCH_LIMIT_REACHED,
+  then native shortlist trials.
+- 15 attempts counted: 13 true native OCC runs and 2 prefix reuse
+  decisions. 14 COLLISION statuses (including reuse), 1 UNVERIFIED
+  on deadline; zero complete orders accepted.
+- B04 normal failed at step 7; B04 reverse allowed step 8 where B03
+  normal failed; B03 reverse allowed step 9 where B02 normal failed.
+  **B02 was then explicitly tested reverse=True** in the same order
+  and ALSO failed at step 9. Thus the targeted opposite-pose trial
+  mechanism actually executed, but did not resolve the obstruction.
+- The record contains 61 completed sampled-clear bend results,
+  two conditional-end sampled bend results and 12 terminal collision
+  step results. Many early steps have identical folded-set state,
+  active bend and physical loading across attempted full orders.
+
+Confirmed algorithmic waste: in `manual_physical_validation`,
+`verified_step_cache` was populated only for fully adaptive D6,
+never for `coarse_occ_screen=True`. Hence the automatic 0/100 mode
+always replayed expensive full OCC checks for identical earlier
+sampled-clear bends, despite already passing the shared cache dict.
+
+Change:
+- `manual_physical_validation` now caches **completed** native
+  coarse sampled-clear or explicitly permitted CONDITIONAL_END_ZONE
+  step records with the existing same-source, same-geometry,
+  same-completed-bend-set, same-active-bend, same-reverse-axis,
+  same-tool, same-configuration context.
+- The cache cannot store COLLISION, UNVERIFIED or partial/timeouts.
+  A cached coarse record retains its original discrete-only
+  evidence/status and separate `is_conditional` flag; it is never
+  converted to full D6 CLEAR or safety-certification evidence.
+- Existing distinct debug events
+  `MANUAL_NATIVE_COARSE_STEP_CACHE_STORE` and
+  `MANUAL_NATIVE_COARSE_STEP_CACHE_HIT` allow measuring benefit.
+- The cache is scoped to one search invocation; source/config/pose
+  changes invalidate the relevant key.
+- Added helper regression for allowed/rejected cache statuses.
+
+No actual runtime improvement is claimed until the next FreeCAD
+run verifies cache hits and measures time; this does not prove
+physical feasibility or continuous collision-free motion.
