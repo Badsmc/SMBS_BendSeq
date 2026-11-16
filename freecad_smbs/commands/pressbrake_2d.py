@@ -2105,6 +2105,26 @@ class _PreviewPanel:
                     self.calculate_fast_feasible_sequence
                 )
                 planar_body.addWidget(self.fast_feasible_btn)
+                self.geometry_order_btn = style_action(
+                    QtWidgets.QPushButton(
+                        "Геометрический порядок — без оснастки (120 с)"
+                    ),
+                    compact=True,
+                )
+                self.geometry_order_btn.setObjectName(
+                    "SMBS_GeometryOnlySearch"
+                )
+                self.geometry_order_btn.setToolTip(
+                    "Ищет полный порядок обратным A*/Mesh/BVH, "
+                    "учитывая только геометрию детали. Не проверяет "
+                    "пуансон, матрицу, упоры или физическую траекторию. "
+                    "Найденный порядок является предварительным."
+                )
+                self.geometry_order_btn.setEnabled(False)
+                self.geometry_order_btn.clicked.connect(
+                    self.calculate_geometry_sequence
+                )
+                planar_body.addWidget(self.geometry_order_btn)
                 self.fast_feasible_info = QtWidgets.QLabel(
                     "Эксперимент: до 60 с на поиск и проверку. "
                     "Только полный порядок с положительными 3D-результатами "
@@ -2117,6 +2137,7 @@ class _PreviewPanel:
                 self.fast_feasible_info.setWordWrap(True)
                 planar_body.addWidget(self.fast_feasible_info)
                 self._fast_search_running = False
+                self._geometry_search_running = False
                 self._planar_search_running = False
                 self._last_fast_search_report = None
                 self.planar_only_btn = style_action(
@@ -4123,6 +4144,142 @@ class _PreviewPanel:
                     self._set_task_busy(False)
                     self._sync_playback_buttons()
 
+            def calculate_geometry_sequence(self):
+                """Search a *geometric* order; actual machine validation is separate."""
+                if self.session is None:
+                    self.status.setText("Сначала загрузите деталь SheetMetal.")
+                    return
+                if (getattr(self, "_fast_search_running", False)
+                        or getattr(self, "_planar_search_running", False)
+                        or getattr(self, "_geometry_search_running", False)):
+                    self.status.setText("Другой поиск уже выполняется.")
+                    return
+                if (self.timer.isActive()
+                        or self.session.playback_status == PlaybackStatus.PLAYING):
+                    self.status.setText("Остановите воспроизведение перед поиском.")
+                    return
+                self._geometry_search_running = True
+                self._set_task_busy(True)
+                self._sync_playback_buttons()
+                source_session = self.session
+                self.status.setText("Обратный A*/Mesh/BVH без оснастки (120 с)...")
+                self._trace_event(
+                    "GEOMETRY_ONLY_SEARCH_REQUESTED",
+                    part_label=str(getattr(self.session, "part_label", "")),
+                    budget_s=120.0,
+                    machine_tooling_ignored=True,
+                )
+                try:
+                    from smbs_core.kinematics2d.reverse_aabb_search import (
+                        search_reverse_aabb,
+                    )
+                    from time import perf_counter
+                    start = perf_counter()
+
+                    def progress(depth, total, bend):
+                        self.fast_feasible_info.setText(
+                            "Геометрический поиск: {}/{} гибов | {}".format(
+                                depth, total, bend
+                            )
+                        )
+                        QtWidgets.QApplication.processEvents()
+
+                    report = search_reverse_aabb(
+                        source_session, budget_s=120.0,
+                        max_candidates=16, progress=progress,
+                        tooling=None,
+                    )
+                    self._trace_event(
+                        "GEOMETRY_ONLY_SEARCH_FINISHED",
+                        elapsed_s=perf_counter() - start,
+                        report=report.to_dict(),
+                        physical_clearance_certified=False,
+                    )
+                    if self.session is not source_session:
+                        self.status.setText(
+                            "Исходная деталь изменилась: результат не применён."
+                        )
+                        return
+                    if not report.candidates:
+                        self.status.setText(
+                            "Полный геометрический порядок не найден в бюджете. "
+                            "Невозможность гибки не доказана."
+                        )
+                        self.fast_feasible_info.setText(self.status.text())
+                        return
+                    best = report.candidates[0]
+                    selected = tuple(best.sequence)
+                    orientations = dict(best.orientation_by_bend)
+                    canonical = tuple(self.session.canonical_order)
+                    if (len(selected) != len(canonical)
+                            or set(selected) != set(canonical)
+                            or set(orientations) != set(selected)):
+                        raise ValueError(
+                            "Геометрический поиск вернул неполный порядок"
+                        )
+                    self._stop_timer()
+                    self.session.reset_all_bends()
+                    self.session.set_bend_order(list(selected))
+                    self._manual_orientation_order = selected
+                    self._manual_orientation_by_bend = orientations
+                    self._ergonomic_loading_cache_key = None
+                    self._manual_sequence_prefix = list(selected)
+                    self._preview_only_planar_order = selected
+                    self._manual_preview_unverified = True
+                    self._manual_3d_verdicts.clear()
+                    self._manual_retract_verdicts.clear()
+                    self._clear_manual_check_feedback()
+                    self._manual_preview_notice.setText(
+                        "ГЕОМЕТРИЧЕСКИЙ КАНДИДАТ: порядок найден без оснастки. "
+                        "Коллизии во время непрерывной гибки и возможность "
+                        "установки на станке НЕ подтверждены."
+                    )
+                    self._manual_preview_notice.show()
+                    self._ensure_press_cycle_controller()
+                    if self.press_cycle is not None:
+                        self.press_cycle.loading_orientation_by_bend = dict(
+                            orientations
+                        )
+                    self._sync_tooling_to_active_bend()
+                    self._populate_operations()
+                    self._configure_for_active_bend()
+                    self.draw()
+                    self._viewer_tabs.setCurrentWidget(self._flat_view)
+                    self._draw_flat_pattern(reset_camera=True)
+                    message = (
+                        "Геометрический кандидат {}/{} гибов за {:.1f} с | "
+                        "оценка {:.4f} | вариантов {} | "
+                        "проверка оснастки отложена | НЕ ПОДТВЕРЖДЁН"
+                    ).format(
+                        len(selected), len(canonical),
+                        report.elapsed_s, best.bbox_overlap_score,
+                        len(report.candidates),
+                    )
+                    self.status.setText(message)
+                    self.fast_feasible_info.setText(message)
+                    self.physical_check_result.setText(message)
+                    self._trace_event(
+                        "GEOMETRY_ONLY_PREVIEW_ADOPTED",
+                        sequence=list(selected),
+                        orientations=orientations,
+                        score=best.bbox_overlap_score,
+                        validation="GEOMETRY_ONLY_UNVERIFIED",
+                    )
+                except Exception as exc:
+                    import traceback
+                    self.status.setText(
+                        "Ошибка геометрического поиска: " + str(exc)
+                    )
+                    self._trace_event(
+                        "GEOMETRY_ONLY_SEARCH_ERROR",
+                        message=str(exc),
+                        traceback=traceback.format_exc(),
+                    )
+                finally:
+                    self._geometry_search_running = False
+                    self._set_task_busy(False)
+                    self._sync_playback_buttons()
+
             def calculate_planar_candidates(self):
                 """Explicit 2D-only preview, NEVER automatic toolbar action."""
                 if (getattr(self, "_fast_search_running", False)
@@ -5483,6 +5640,7 @@ class _PreviewPanel:
                     self.calculate.setEnabled(False)
                     self.planar_calculate.setEnabled(False)
                     self.fast_feasible_btn.setEnabled(False)
+                    self.geometry_order_btn.setEnabled(False)
                     self.planar_only_btn.setEnabled(False)
                     return
                 st = self.session.playback_status
@@ -5492,6 +5650,7 @@ class _PreviewPanel:
                 search_running = (
                     getattr(self, "_fast_search_running", False)
                     or getattr(self, "_planar_search_running", False)
+                    or getattr(self, "_geometry_search_running", False)
                 )
                 self.calculate.setEnabled(
                     not self.playing and len(bend_order) > 1
@@ -5503,6 +5662,7 @@ class _PreviewPanel:
                 )
                 self.planar_calculate.setEnabled(can_search)
                 self.fast_feasible_btn.setEnabled(can_search)
+                self.geometry_order_btn.setEnabled(can_search)
                 self.planar_only_btn.setEnabled(can_search)
                 if st == PlaybackStatus.PLAYING:
                     self.play_btn.setText("Pause")
