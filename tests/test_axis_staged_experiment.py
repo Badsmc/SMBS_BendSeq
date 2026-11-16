@@ -120,6 +120,32 @@ class AxisStagedSearchTests(unittest.TestCase):
         self.assertEqual(risk["possible_overlap_pairs"], 1)
         self.assertEqual(risk["possible_components"][0], ("P01", "punch_side"))
 
+    def test_individual_weight_affects_incoming_and_outgoing_cost(self):
+        from smbs_core.kinematics2d.axis_staged_experiment import (
+            _weighted_transition_cost,
+        )
+        from smbs_core.kinematics2d.operation_cost import (
+            WorkpieceMachineSetup, OperationWeights,
+        )
+        setup = lambda bid, rot: WorkpieceMachineSetup(
+            bend_id=bid, rotation_deg=rot, flipped=False,
+            shift_xm_mm=0.0, bend_length_mm=100.0,
+        )
+        a = setup("B01", 0.0)
+        b = setup("B02", 90.0)
+        c = setup("B03", 180.0)
+        nominal = {"B01": 0.0, "B02": 0.0, "B03": 0.0}
+        b_heavy = {"B01": 0.0, "B02": 10.0, "B03": 0.0}
+        weights = OperationWeights()
+        self.assertGreater(
+            _weighted_transition_cost("B01", "B02", a, b, weights, b_heavy),
+            _weighted_transition_cost("B01", "B02", a, b, weights, nominal),
+        )
+        self.assertGreater(
+            _weighted_transition_cost("B02", "B03", b, c, weights, b_heavy),
+            _weighted_transition_cost("B02", "B03", b, c, weights, nominal),
+        )
+
     def test_invalid_weights_or_deadline_rejected(self):
         session, tooling = fixture()
         with self.assertRaises(ValueError):
