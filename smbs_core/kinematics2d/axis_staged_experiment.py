@@ -46,6 +46,7 @@ class AxisStagedResult:
     cache_hits: int
     rejected: int
     exhausted_budget: bool
+    transition_trace: tuple[dict, ...] = ()
 
     def to_dict(self) -> dict:
         return {
@@ -61,6 +62,7 @@ class AxisStagedResult:
             "cache_hits": self.cache_hits,
             "rejected_2d_hypotheses": self.rejected,
             "exhausted_budget": self.exhausted_budget,
+            "transition_trace": list(self.transition_trace),
             "safety": "UNVERIFIED_2D_AND_3D_PREVIEW_NOT_A_MACHINE_CERTIFICATE",
             "planar": self.planar_report.to_dict(),
         }
@@ -85,7 +87,8 @@ def _build_transition_evaluator(
     state = session.fold_state
     panels = session.panel_vertices_xy
     cache = {}
-    metrics = {"evaluated": 0, "hits": 0, "rejected": 0}
+    metrics = {"evaluated": 0, "hits": 0, "rejected": 0,
+               "trace": [], "max_depth": 0, "rejection_counts": {}}
 
     def evaluate(prefix: tuple[str, ...], bend_id: str, reverse: bool):
         key = (frozenset(prefix), bend_id, bool(reverse))
@@ -156,6 +159,19 @@ def _build_transition_evaluator(
             ):
                 metrics["rejected"] += 1
             cache[key] = step
+            metrics["max_depth"] = max(metrics["max_depth"], len(prefix) + 1)
+            if len(metrics["trace"]) < 500:
+                metrics["trace"].append({
+                    "completed_before": list(prefix), "bend_id": bend_id,
+                    "reverse_axis": bool(reverse), "evidence": step.evidence,
+                    "reason": step.reason,
+                    "sampled_phases": list(step.sampled_phases),
+                    "contact_statuses": list(step.contact_statuses),
+                })
+            if step.evidence != "SAMPLED_2D_CLEAR_OR_TOUCH":
+                label = step.evidence + ":" + step.reason[:96]
+                counts = metrics["rejection_counts"]
+                counts[label] = counts.get(label, 0) + 1
             return step
         except Exception as exc:
             # An exception is not a proven obstacle. Explicitly mark unknown.
@@ -168,6 +184,12 @@ def _build_transition_evaluator(
             )
             cache[key] = step
             metrics["evaluated"] += 1
+            if len(metrics["trace"]) < 500:
+                metrics["trace"].append({
+                    "completed_before": list(prefix), "bend_id": bend_id,
+                    "reverse_axis": bool(reverse), "evidence": step.evidence,
+                    "reason": step.reason,
+                })
             return step
         finally:
             state.angles, state.transforms = originals
@@ -501,6 +523,18 @@ def search_axis_staged_experiment(
         complete_candidates_examined=len(merged),
         operation_weights=weights.to_dict(),
         conditional_end_zone_requested=allow_end_zone_collision,
+        max_depth_reached=(
+            len(order) if candidates else counts["max_depth"]
+        ),
+        deepest_prefix=(
+            winning[0].order if candidates else
+            tuple(max((p.order for _, paths in axis_paths for p in paths),
+                      key=len, default=()))
+        ),
+        rejection_counts=tuple(sorted(
+            counts["rejection_counts"].items(),
+            key=lambda item: (-item[1], item[0]),
+        )[:30]),
     )
     return AxisStagedResult(
         planar_report=report,
@@ -514,4 +548,5 @@ def search_axis_staged_experiment(
         cache_hits=counts["hits"],
         rejected=counts["rejected"],
         exhausted_budget=clock() >= deadline,
+        transition_trace=tuple(counts["trace"]),
     )
