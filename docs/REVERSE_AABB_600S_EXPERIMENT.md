@@ -473,3 +473,45 @@ No performance improvement or full 10-bend physical result is yet
 confirmed in Windows FreeCAD. Regression test
 `test_sampled_2d_candidate_is_primary_and_skips_reverse_a_star`
 requires that valid 2D candidates bypass fallback A*.
+
+## Five-angle native OCC replacing adaptive D6 inside automatic search
+
+The user explicitly requested that the expensive adaptive native D6
+candidate replay be replaced by the already implemented *five-angle*
+OCC screen. The one-button sequence pipeline now operates:
+
+1. The existing Stage A/B 2D DFS is primary; sampled 2D full candidates
+   are prioritized. If none are found, reverse A* generates unverified
+   alternatives.
+2. A shortlist is independently replayed with the actual selected
+   FCStd punch/die cross sections, and axial tool length is virtualized
+   to the active bend.
+3. Each bend uses `AdaptiveSamplingConfig(coarse_occ_screen=True)`.
+   In BENDING the engine checks precisely the fixed fractions
+   **0, 0.25, 0.50, 0.75, 1.00** of the target bend angle. APPROACH and
+   RETRACT use 0, 0.5, 1.0; CONTACT/BOTTOM use the designated endpoint.
+   No recursive interval subdivision is performed for this screen.
+4. A complete candidate is accepted as
+   `FIVE_POINT_NATIVE_OCC_CLEARANCE_UNVERIFIED` only when the existing
+   native validator returns **one step for every bend**, in the exact
+   proposed order and orientation, with the verified status
+   `COARSE_3D_NO_PROVEN_COLLISION` on every bend and no conditional
+   end-zone warning, and tool sources and length mode match.
+5. Collision, unknown pose, error, missing source geometry, timeout,
+   incomplete report or partial result is **not** promoted to a pass.
+   The previous same-order adaptive retry has been removed from the
+   automatic workflow. The slower independent full D6 remains available
+   as an explicit manual diagnostic if needed.
+
+CRITICAL INTERPRETATION: five discrete bend angles do not prove
+clearance between those angles, especially for a long flange sweeping
+past a gooseneck punch. Five-angle `no detected collision` means only
+that the sampled positions had no proven blocking collision. The
+interface marks this as a preliminary, unverified manufacturing plan
+and never sets `continuous_motion_certified` or
+`machine_feasible_certified`.
+
+The change is committed and covered by the five-angle classification
+and integration regression tests, but not yet measured with the user's
+FreeCAD/Windows OCC runtime. Therefore a <1–3 minute total runtime is
+a target, not a benchmarked result.
