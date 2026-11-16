@@ -554,3 +554,43 @@ operation), and the fifth was stopped by budget. This is a
 baseline, NOT evidence that endpoint-only sampling resolves B03.
 Re-run under the new source identity and compare evaluated OCC
 states, time and failures before claiming improvement.
+
+## Operator punch CONDITIONAL: independent LEFT and RIGHT end zones
+
+The one-button automatic Stage A/B -> OCC 0/100 search now **respects the
+existing GUI selection** `allow_end_zone_collision` and its configured
+`end_zone_length_mm`. Previously both stages explicitly overrode
+these to `False` / `0.0`, so conditional clearance was ignored.
+
+The existing native CAD classifier already treats the user-entered
+length **per axial end**, in machine coordinates:
+
+- LEFT: `[punch_xmin, punch_xmin + L]`
+- RIGHT: `[punch_xmax - L, punch_xmax]`
+- CENTRAL (strictly blocking): `(punch_xmin + L, punch_xmax - L)`
+
+For a virtual 500mm punch and L=10mm, these are
+[-250,-240] and [240,250], NOT 5mm at each end. An intersection
+qualifies as `END_ZONE_ONLY` only if the native full 3D OCC
+classification locates the entire significant punch collision volume
+within one or both zones. Significant central and mixed collisions,
+die collisions, invalid geometry, and ambiguous classification are
+NOT granted an exception. A nonpositive zone width is invalid when
+the permission is enabled; two zones covering the entire punch are
+unclassified and cannot be approved.
+
+The native 0/100 result can now be either:
+- `TWO_ENDPOINT_NATIVE_OCC_CLEARANCE_UNVERIFIED`: no proven collision
+  in sampled states;
+- `TWO_ENDPOINT_OCC_CONDITIONAL_PUNCH_END_ZONES_UNVERIFIED`: only
+  explicitly permitted punch END_ZONE_ONLY collision occurred in sampled
+  states (all bends checked, orientations matched, no unknown or
+  central/matrix hit).
+
+Both are PRELIMINARY and NOT machine-feasibility certifications.
+A permitted end-zone overlap is NOT a physical relief cut in the actual
+punch model. Actual punched tool relief, continuous motion, uninspected
+angles and real installed tool length remain separately unverified.
+The conditional status is visible in Simulation and logged for each
+bend. Regression tests explicitly cover both end zones, a central hit,
+missing permission, missing length and wrong orientation.
