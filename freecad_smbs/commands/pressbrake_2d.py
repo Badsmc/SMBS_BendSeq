@@ -1408,6 +1408,7 @@ class _PreviewPanel:
                 self.runtime_git_info = get_runtime_git_info()
                 self.last_sequence_search_report = None
                 self.last_planar_search_report = None
+                self._axis_experiment_bend_weights = {}
                 self._saved_full_sequences = []
                 self._preview_only_planar_order = None
                 self._partial_preview_limit = 0
@@ -2094,6 +2095,19 @@ class _PreviewPanel:
                     self.calculate_axis_staged_experiment
                 )
                 planar_layout.addWidget(self.axis_staged_experiment_btn)
+                self.axis_staged_weights_btn = style_action(
+                    QtWidgets.QPushButton("Индивидуальные веса гибов…"),
+                    compact=True,
+                )
+                self.axis_staged_weights_btn.setToolTip(
+                    "Настроить собственный вес B01, B02 и каждого "
+                    "другого гиба. Стоимость перехода от предыдущей "
+                    "операции считается отдельно."
+                )
+                self.axis_staged_weights_btn.clicked.connect(
+                    self.edit_axis_staged_bend_weights
+                )
+                planar_layout.addWidget(self.axis_staged_weights_btn)
                 planar_layout.addStretch(1)
                 self._page_planar = scroll_task_page(
                     planar_page, "SMBS_PlanarScroll"
@@ -4043,6 +4057,63 @@ class _PreviewPanel:
                     self._set_task_busy(False)
                     self._sync_playback_buttons()
 
+            def edit_axis_staged_bend_weights(self):
+                """Editable per-bend baseline cost, separate from transition cost."""
+                if self.session is None:
+                    self.status.setText("Сначала загрузите деталь SheetMetal.")
+                    return
+                from smbs_core.kinematics2d.axis_staged_experiment import (
+                    _bend_weight,
+                )
+                dlg = QtWidgets.QDialog(self)
+                dlg.setWindowTitle("Эксперимент A/B — веса гибов")
+                layout = QtWidgets.QVBoxLayout(dlg)
+                hint = QtWidgets.QLabel(
+                    "Вес каждого гиба учитывается отдельно. Переориентация, "
+                    "перемещение и переход от предыдущей операции имеют "
+                    "дополнительную стоимость. Вес не отменяет коллизии."
+                )
+                hint.setWordWrap(True)
+                layout.addWidget(hint)
+                grid = QtWidgets.QFormLayout()
+                editors = {}
+                original = getattr(self, "_axis_experiment_bend_weights", {})
+                for bid in self.session.bend_order:
+                    bend = self.session.fold_state.bends[bid]
+                    spin = QtWidgets.QDoubleSpinBox()
+                    spin.setDecimals(3)
+                    spin.setRange(0.0, 100000.0)
+                    spin.setSingleStep(0.5)
+                    spin.setValue(float(original.get(
+                        bid, _bend_weight(bend)
+                    )))
+                    grid.addRow(
+                        "{} ({:+.1f}°)".format(bid, float(bend.angle_deg)),
+                        spin,
+                    )
+                    editors[bid] = spin
+                layout.addLayout(grid)
+                buttons = QtWidgets.QDialogButtonBox(
+                    QtWidgets.QDialogButtonBox.Ok
+                    | QtWidgets.QDialogButtonBox.Cancel
+                )
+                buttons.accepted.connect(dlg.accept)
+                buttons.rejected.connect(dlg.reject)
+                layout.addWidget(buttons)
+                if dlg.exec_() == QtWidgets.QDialog.Accepted:
+                    self._axis_experiment_bend_weights = {
+                        bid: float(spin.value())
+                        for bid, spin in editors.items()
+                    }
+                    self._trace_event(
+                        "AXIS_STAGED_BEND_WEIGHTS_CHANGED",
+                        weights=dict(self._axis_experiment_bend_weights),
+                    )
+                    self.status.setText(
+                        "Индивидуальные веса гибов сохранены "
+                        "для текущей сессии эксперимента."
+                    )
+
             def calculate_axis_staged_experiment(self):
                 """Run an isolated axis/interleaving 2D experiment, not the old engine."""
                 if self.session is None:
@@ -4076,6 +4147,9 @@ class _PreviewPanel:
                     experiment = search_axis_staged_experiment(
                         self.session, self.tooling_setup,
                         weights=selected_weights,
+                        bend_weights=dict(
+                            getattr(self, "_axis_experiment_bend_weights", {})
+                        ),
                         max_time_s=90.0,
                         beam_width=10,
                         per_axis_limit=5,
