@@ -57,7 +57,12 @@ def load_tool_boxes(tooling: Any, bends: dict, *, deadline=None,
         virtual = bool(force_virtual_length or getattr(tooling, "match_active_bend_length", False))
         p_sections = tuple(getattr(tooling, "punch_section_offsets_xm", ()) or ())
         d_sections = tuple(getattr(tooling, "die_section_offsets_xm", ()) or ())
-        if virtual and (p_sections or d_sections):
+        if force_virtual_length:
+            # Search uses only the selected section *profiles*, not the
+            # physical layout/length of their installed tool segments.
+            p_sections = ()
+            d_sections = ()
+        elif virtual and (p_sections or d_sections):
             return {}, "VIRTUAL_TOOL_LENGTH_INCOMPATIBLE_WITH_SECTIONS"
         cached = {}
         result = {}
