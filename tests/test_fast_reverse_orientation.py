@@ -1,4 +1,4 @@
-"""Reverse AABB candidate expansion must not certify unverified orientations."""
+"""D6 unresolved bending requests a targeted pose retry without certifying clearance."""
 import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -44,9 +44,13 @@ class ReverseOrientationTests(unittest.TestCase):
             checks.append((tuple(args[2]), dict(kwargs["reverse_axis_by_bend"])))
             return {
                 "status": "UNVERIFIED",
-                "reason": "synthetic_no_physical_evidence",
-                "checked_bends": 0,
-                "steps": (),
+                "reason": "native_3d_not_verified_at:B08",
+                "checked_bends": 3,
+                "steps": (
+                    {"bend_id": "B09", "status": "SAMPLED_3D_CLEAR_NOT_CONTINUOUS"},
+                    {"bend_id": "B10", "status": "SAMPLED_3D_CLEAR_NOT_CONTINUOUS"},
+                    {"bend_id": "B08", "status": "UNVERIFIED"},
+                ),
             }
 
         with patch(
@@ -64,7 +68,7 @@ class ReverseOrientationTests(unittest.TestCase):
         self.assertTrue(checks)
         self.assertTrue(any(orientation.get("B08") is True
                             for _, orientation in checks))
-        self.assertTrue(any(orientation.get("B09") is True
+        self.assertTrue(all(orientation.get("B09") is False
                             for _, orientation in checks))
         self.assertEqual(result.status, FastSearchStatus.NATIVE_REJECTED)
         self.assertIsNone(result.sequence)
