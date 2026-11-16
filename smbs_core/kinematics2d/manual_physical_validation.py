@@ -487,6 +487,10 @@ def check_manual_3d_sequence(
     # still be serializable without an AttributeError.
     reverse_axis_by_bend = dict(reverse_axis_by_bend or {})
     coarse_occ = bool(getattr(config, "coarse_occ_screen", False))
+    endpoint_only_occ = bool(coarse_occ and tuple(getattr(
+        config, "coarse_occ_bending_fractions",
+        (0.0, 0.25, 0.5, 0.75, 1.0),
+    )) == (0.0, 1.0))
     if not isfinite(end_len) or end_len < 0.0:
         raise ValueError("end_zone_length_mm must be finite and nonnegative")
 
@@ -505,7 +509,9 @@ def check_manual_3d_sequence(
             "stopped_early": len(steps) < len(order),
             "sampled_3d_only": True,
             "validation_mode": (
-                "COARSE_OCC_5_BEND_ANGLES" if coarse_occ else "FULL_ADAPTIVE_D6"
+                "COARSE_OCC_2_BEND_ENDPOINTS" if endpoint_only_occ
+                else "COARSE_OCC_5_BEND_ANGLES" if coarse_occ
+                else "FULL_ADAPTIVE_D6"
             ),
             "continuous_motion_certified": False,
             "backgauge_collisions_checked": False,
