@@ -270,6 +270,9 @@ def search_axis_staged_experiment(
         raise ValueError("invalid axis-staged search budgets")
     started = clock()
     deadline = started + max_time_s
+    # Preserve the final 30% for the 3D preview-risk stage instead of
+    # exhausting the entire soft budget on 2D axis/interleaving expansion.
+    search_deadline = started + max_time_s * 0.70
     weights = weights or OperationWeights()
     bend_weights = dict(bend_weights or {})
     state = session.fold_state
@@ -288,7 +291,7 @@ def search_axis_staged_experiment(
     axes = group_parallel_bends(axes_from_fold_state(state))
     evaluate, counts = _build_transition_evaluator(
         session, tooling, weights=weights, bend_weights=bend_weights,
-        deadline=deadline, tolerance=tolerance_mm,
+        deadline=search_deadline, tolerance=tolerance_mm,
         bend_fractions=(0.0, 0.25, 0.5, 0.75, 1.0),
         stroke_fractions=(0.0, 0.5, 1.0),
         allow_end_zone_collision=allow_end_zone_collision,
@@ -299,12 +302,12 @@ def search_axis_staged_experiment(
     )
     axis_paths = []
     for group in axes:
-        if clock() >= deadline:
+        if clock() >= search_deadline:
             break
         bends = tuple(group.bend_ids)
         beam = [_Path()]
         for _ in bends:
-            if clock() >= deadline:
+            if clock() >= search_deadline:
                 break
             expanded = []
             for path in beam:
@@ -346,12 +349,12 @@ def search_axis_staged_experiment(
         # geometry. Every interleaved operation is freshly screened with
         # the entire previously folded set.
         for choices in product(*(paths for _, paths in axis_paths)):
-            if clock() >= deadline:
+            if clock() >= search_deadline:
                 break
             positions_start = tuple(0 for _ in choices)
             frontier = [(_Path(), positions_start)]
             for depth in range(len(order)):
-                if clock() >= deadline:
+                if clock() >= search_deadline:
                     break
                 expanded = []
                 for path, pos in frontier:
@@ -484,6 +487,8 @@ def search_axis_staged_experiment(
         rejected_2d_interferences=counts["rejected"],
         unverified_steps=sum(p.unknown for p in winning),
         limit_reason=("MAX_SEARCH_TIME_REACHED" if clock() >= deadline
+                      else "NO_COMPLETE_INTERLEAVING_WITHIN_2D_BUDGET"
+                      if not candidates and clock() >= search_deadline
                       else "NO_COMPLETE_INTERLEAVING" if not candidates
                       else "FINALISTS_PRELIMINARY_ONLY"),
         warnings=(
