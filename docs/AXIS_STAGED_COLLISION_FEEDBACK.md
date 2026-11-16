@@ -32,8 +32,19 @@ the part, tooling, tolerances, virtual lengths or collision policy changes.**
 ## NOT implemented / acceptance blockers
 
 - `search_with_native_feedback(planner, native_verifier, max_attempts=5)` now provides a bounded retry loop with exact-blocker feedback, duplicate-candidate prevention and explicit UNVERIFIED status. The caller must supply a genuine native checker; this helper makes no geometric safety claims on its own.
-- The GUI does not yet automatically capture the native OCC replay result,
-  translate it to this feedback contract, and rerun the candidate search.
+- The GUI now provides a separate **«Автопоиск A/B + OCC (до 5 попыток)»**
+  action under **«Поиск 2D вариантов»**. It runs bounded staged search
+  and the existing independent native `check_manual_3d_sequence`, extracts
+  the exact collision step and replans with `blocked_transitions`. It writes
+  `AXIS_NATIVE_FEEDBACK_SEARCH_ROUND`, `AXIS_NATIVE_FEEDBACK_OCC_ATTEMPT`,
+  `AXIS_NATIVE_FEEDBACK_BLOCKER_ADDED`, and
+  `AXIS_NATIVE_FEEDBACK_COMPLETED` to the Desktop JSON log.
+- The action is synchronous and has a **600-second soft deadline**.
+  A single native OCC call may exceed this deadline; it does not provide
+  a hard wall-clock cap. Native phase caps (45 seconds / 32 states)
+  may cause UNVERIFIED rather than a false PASS.
+- A reported `SAMPLED_3D_CLEAR_NOT_CONTINUOUS` is a sampled punch/die
+  clearance only; it is **not** continuous-motion or whole-machine approval.
 - Native end-zone conditional contacts, 3D setup alternatives beyond the
   two existing 2D loadings, triangle-mesh narrowphase and continuous
   swept collision are not certified or completed here.
@@ -43,10 +54,10 @@ the part, tooling, tolerances, virtual lengths or collision policy changes.**
 
 ## Required next steps
 
-1. Wire the Full D6 replay diagnostic to the exact transition contract,
-   with all context keys (part/tool/config) for cache invalidation.
-2. Add a bounded automatic loop to rerank and retry unverified finalists
-   on the same machine setup.
+1. Validate the new FreeCAD button against the real ten-bend FCStd,
+   including loading flips, and inspect all returned JSON events.
+2. Add durable geometry/tool/config fingerprints if blockers are ever
+   persisted outside one invocation. Current blockers are invocation-local.
 3. Validate on the known 10-bend FCStd example, including both 180-degree
    orientations of B10 and actual contact of punch against panel P05.
 4. Profile mesh BVH narrowphase against OCC; never use AABB intersections
