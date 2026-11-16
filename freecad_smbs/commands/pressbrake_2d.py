@@ -3805,27 +3805,36 @@ class _PreviewPanel:
                     },
                     budget_s=60.0,
                 )
+                def reject_precheck(reason):
+                    message = "FAST_FEASIBLE_SEARCH не запущен: " + reason
+                    self.status.setText(message)
+                    self.fast_feasible_info.setText(message)
+                    self._trace_event(
+                        "FAST_FEASIBLE_SEARCH_PRECHECK_REJECTED",
+                        reason=reason,
+                    )
+
                 if self.session is None:
-                    self.status.setText("Сначала загрузите SheetMetal деталь.")
+                    reject_precheck("Сначала загрузите SheetMetal деталь.")
                     return
                 if (getattr(self, "_fast_search_running", False)
                         or getattr(self, "_planar_search_running", False)):
-                    self.status.setText("Другой поиск уже выполняется.")
+                    reject_precheck("Другой поиск уже выполняется.")
                     return
                 if (self.timer.isActive()
                         or self.session.playback_status == PlaybackStatus.PLAYING):
-                    self.status.setText("Остановите воспроизведение перед поиском.")
+                    reject_precheck("Остановите воспроизведение перед поиском.")
                     return
                 if self.tooling_setup.punch is None or self.tooling_setup.die is None:
-                    self.status.setText(
-                        "Для реального 3D-поиска выберите пуансон и матрицу."
+                    reject_precheck(
+                        "Выберите реальные FCStd-пуансон и матрицу в разделе «Оснастка»."
                     )
                     return
                 if (self.virtual_tool_len_checkbox.isChecked()
                         or self.tooling_setup.match_active_bend_length):
-                    self.status.setText(
-                        "Отключите виртуальную длину оснастки: "
-                        "быстрый 3D-поиск проверяет только реальные FCStd-инструменты."
+                    reject_precheck(
+                        "Отключите виртуальную длину оснастки в настройках. "
+                        "3D-поиск проверяет реальные FCStd-инструменты."
                     )
                     return
 
