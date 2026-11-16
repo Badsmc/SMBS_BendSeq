@@ -4,7 +4,7 @@ Existing engines are authoritative:
   - section-only DFS: fast candidate generator, never certifies the machine;
   - native D6 manual replay: selected actual FCStd punch and die, all bends.
 
-No second geometry engine, fake clearance or approval by coarse sampling.
+Five-angle screening never certifies continuous motion or machine feasibility.
 The 600-second experimental budget is BEST EFFORT: an in-flight OpenCASCADE operation may
 run beyond a Python deadline, and no safe hard interruption is available.
 
@@ -361,7 +361,7 @@ def search_fast_feasible_sequence(
     seed_orientations: Optional[dict[str, bool]] = None,
     clock: Callable[[], float] = perf_counter,
 ) -> FastSequenceResult:
-    """Find a complete candidate with native sampled punch/die clearance.
+    """Run 2D-first search and a fixed five-angle native OCC screen.
 
     Search is bounded by a monotonic *soft* deadline and runs synchronously
     in FreeCAD's own Python thread. No OCC calls in workers, no approximate
@@ -642,60 +642,6 @@ def search_fast_feasible_sequence(
             qualified = _coarse_five_point_candidate(
                 native, seq, dict(orientation)
             )
-            # One bounded retry on a sampling-timeout, with the SAME
-            # geometry, sequence and poses. Re-run full D6 rather than
-            # promoting incomplete intervals to a pass.
-            timed_out_phase = any(
-                "MAX_TIME_BUDGET_EXCEEDED" in str(step.get("reason", ""))
-                for step in (native.get("steps") or ())
-            )
-            # Do not immediately recheck the identical unresolved prefix
-            # when other geometric orders remain unexplored. A longer
-            # native retry is useful only after all queued variants were
-            # tried and the remaining budget can support it.
-            if (not qualified and status == "UNVERIFIED"
-                    and timed_out_phase
-                    and i == len(candidates) - 1
-                    and checked >= len(seq) - 1
-                    and deadline - clock() >= 95.0):
-                from dataclasses import replace
-                retry_remaining = deadline - clock()
-                retry_cfg = sampling_config_factory(
-                    retry_remaining, len(seq), initial_clearance_mm
-                )
-                retry_cfg = replace(
-                    retry_cfg,
-                    max_phase_time_s=min(
-                        60.0, max(
-                            retry_cfg.max_phase_time_s,
-                            float(cfg.max_phase_time_s) * 1.5,
-                        ),
-                    ),
-                )
-                if progress_callback is not None:
-                    progress_callback("NATIVE_RETRY", i + 1, len(candidates), seq[0])
-                native = native_runner(
-                    native_session, search_tooling, seq,
-                    match_active_bend_length=virtual_length,
-                    allow_end_zone_collision=False,
-                    end_zone_length_mm=0.0,
-                    reverse_axis_by_bend=dict(orientation),
-                    config=retry_cfg,
-                    progress_callback=native_progress,
-                    sequence_geometry_cache=geometry_cache,
-                    include_collision_attribution=False,
-                    deadline_at=deadline,
-                    **({"verified_step_cache": verified_step_cache}
-                       if supports_verified_step_cache else {}),
-                )
-                if not isinstance(native, dict):
-                    raise TypeError("native retry validator must return a dict")
-                status = str(native.get("status", "UNVERIFIED"))
-                reason = str(native.get("reason", ""))
-                checked = int(native.get("checked_bends", 0))
-                qualified = _coarse_five_point_candidate(
-                    native, seq, dict(orientation)
-                )
         except Exception as exc:
             status = "UNVERIFIED"
             reason = "native_exception:{}:{}".format(type(exc).__name__, exc)
