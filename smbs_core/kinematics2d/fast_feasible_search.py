@@ -434,36 +434,10 @@ def search_fast_feasible_sequence(
                         cost=float("inf"), cost_complete=False,
                     ),
                 ))
-    # Test distinct 180-degree workpiece orientations without treating
-    # a flip as intrinsically valid. Try B08 (the recurrent unresolved bend)
-    # first where present, then each candidate's first operation. The exact
-    # orientation is subsequently checked by native forward D6.
-    expanded = list(candidates)
-    if reverse.candidates:
-        for seq, orientation, evidence in candidates:
-            for bend in tuple(dict.fromkeys(
-                (("B08",) if "B08" in seq else ()) + tuple(seq[:2])
-            )):
-                if len(expanded) >= max_candidates:
-                    break
-                flipped = dict(orientation)
-                flipped[bend] = not flipped[bend]
-                variant = tuple(sorted(flipped.items()))
-                key = (seq, variant)
-                if key in seen:
-                    continue
-                seen.add(key)
-                expanded.append((
-                    seq, variant,
-                    SimpleNamespace(
-                        evidence="REVERSE_AABB_ORIENTATION_UNVERIFIED",
-                        cost=getattr(evidence, "cost", 0.0),
-                        cost_complete=False,
-                    ),
-                ))
-            if len(expanded) >= max_candidates:
-                break
-    candidates = expanded[:max_candidates]
+    # Reserve remaining slots for a pose flip at the *actual* unresolved
+    # bend reported by native D6. Preflipping B08/first bends consumed the
+    # whole budget before reaching later blockers (e.g. B07).
+    candidates = candidates[:max_candidates]
     available_sequences = tuple(x[0] for x in candidates)
     # Preview only: preserve corresponding 2D orientation choices.
     preview_candidates = [
@@ -503,6 +477,7 @@ def search_fast_feasible_sequence(
         )
         cfg = sampling_config_factory(remaining, len(seq), initial_clearance_mm)
         trial_started = clock()
+        native = None
         try:
             def native_progress(position, total, bend):
                 if progress_callback is not None:
@@ -589,6 +564,44 @@ def search_fast_feasible_sequence(
             seq, orientation, status, reason, checked,
             max(0.0, clock() - trial_started),
         ))
+        # The next physically different loading must target the actual
+        # unresolved bend. Never treat a timeout as a collision or proof
+        # of clearance. Revalidate the whole modified candidate with D6.
+        if (not qualified and status == "UNVERIFIED"
+                and isinstance(native, dict)
+                and len(candidates) < max_candidates
+                and deadline - clock() >= 45.0):
+            failed_bend = None
+            for step in native.get("steps") or ():
+                if str(step.get("status", "")) not in (
+                    "SAMPLED_3D_CLEAR_NOT_CONTINUOUS", "SAMPLED_CLEAR",
+                ):
+                    failed_bend = step.get("bend_id")
+                    break
+            if failed_bend not in seq and "native_3d_not_verified_at:" in reason:
+                failed_bend = reason.split("native_3d_not_verified_at:", 1)[1].split()[0]
+            if failed_bend in seq:
+                flipped = dict(orientation)
+                flipped[failed_bend] = not flipped.get(failed_bend, False)
+                variant = tuple(sorted(flipped.items()))
+                key = (seq, variant)
+                if key not in seen:
+                    seen.add(key)
+                    candidates.insert(
+                        i + 1, (
+                            seq, variant,
+                            SimpleNamespace(
+                                evidence="D6_UNRESOLVED_BEND_POSE_RETRY_UNVERIFIED",
+                                cost=0.0, cost_complete=False,
+                            ),
+                        ),
+                    )
+                    available_sequences = tuple(x[0] for x in candidates)
+                    if progress_callback is not None:
+                        progress_callback(
+                            "NATIVE_POSE_VARIANT", i + 2, len(candidates),
+                            str(failed_bend),
+                        )
         if qualified:
             return result(
                 (FastSearchStatus.VIRTUAL_SAMPLED_CLEAR if virtual_length
