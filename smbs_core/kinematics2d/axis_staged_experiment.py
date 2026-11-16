@@ -100,11 +100,12 @@ def _build_transition_evaluator(
     session, tooling, *, weights, bend_weights, deadline, tolerance,
     bend_fractions, stroke_fractions, allow_end_zone_collision,
     end_zone_length_mm, allow_retract_warning, match_active_bend_length,
-    transition_screen=None, clock=perf_counter,
+    transition_screen=None, blocked_transitions=None, clock=perf_counter,
 ):
     state = session.fold_state
     panels = session.panel_vertices_xy
     cache = {}
+    blocked_transitions = blocked_transitions or {}
     metrics = {"evaluated": 0, "hits": 0, "rejected": 0,
                "trace": [], "max_depth": 0, "rejection_counts": {}}
 
@@ -115,6 +116,26 @@ def _build_transition_evaluator(
             return cache[key]
         if clock() >= deadline:
             return None
+        # Native feedback is scoped to the EXACT already-folded set, bend
+        # and loading. Never blacklist a bend globally after one collision.
+        blocker = blocked_transitions.get(key)
+        if blocker is not None:
+            step = PlanarStep(
+                bend_id, "CAD_3D_INTERFERENCE",
+                "NATIVE_FEEDBACK:" + str(blocker), (), (),
+                orientation_variant=(
+                    "REVERSE_MACHINE_Z_180" if reverse else "NORMAL"
+                ),
+            )
+            cache[key] = step
+            metrics["evaluated"] += 1
+            metrics["rejected"] += 1
+            metrics["rejection_counts"]["CAD_3D_INTERFERENCE:NATIVE_FEEDBACK"] = (
+                metrics["rejection_counts"].get(
+                    "CAD_3D_INTERFERENCE:NATIVE_FEEDBACK", 0
+                ) + 1
+            )
+            return step
         originals = (dict(state.angles), dict(state.transforms))
         try:
             state.reset_all()
@@ -304,6 +325,7 @@ def search_axis_staged_experiment(
     tolerance_mm: float = 0.02,
     transition_screen: Callable | None = None,
     broadphase_runner: Callable | None = None,
+    blocked_transitions: Mapping[tuple[frozenset[str], str, bool], str] | None = None,
     clock: Callable = perf_counter,
 ) -> AxisStagedResult:
     """Group by parallel axes, merge interleavings, recheck all bent states.
@@ -332,6 +354,16 @@ def search_axis_staged_experiment(
         raise ValueError("selected SheetMetal part and punch/die required")
     if any(b not in state.bends for b in bend_weights):
         raise ValueError("bend weight refers to an unknown bend")
+    blocked_transitions = dict(blocked_transitions or {})
+    for key in blocked_transitions:
+        if (not isinstance(key, tuple) or len(key) != 3
+                or not isinstance(key[0], frozenset)
+                or not isinstance(key[1], str)
+                or type(key[2]) is not bool
+                or key[1] not in state.bends
+                or not key[0].issubset(state.bends.keys())
+                or key[1] in key[0]):
+            raise ValueError("invalid native collision feedback key")
     cost_for = {
         bid: _bend_weight(state.bends[bid], bend_weights.get(bid))
         for bid in order
@@ -346,7 +378,8 @@ def search_axis_staged_experiment(
         end_zone_length_mm=end_zone_length_mm,
         allow_retract_warning=allow_retract_warning,
         match_active_bend_length=match_active_bend_length,
-        transition_screen=transition_screen, clock=clock,
+        transition_screen=transition_screen,
+        blocked_transitions=blocked_transitions, clock=clock,
     )
     axis_paths = []
     for group in axes:
@@ -544,6 +577,7 @@ def search_axis_staged_experiment(
             "2D sampled collision rejects only the tested pose and state.",
             "3D preview AABB overlapping faces is ranking only; no physical proof.",
             "No native continuous 3D or backgauge/frame/clamp clearance certified.",
+            "Native collision feedback excludes only exact folded-set/bend/loading hypotheses.",
         ),
         axis_groups=tuple((a.group_id, a.bend_ids) for a in axes),
         complete_candidates_examined=len(merged),
