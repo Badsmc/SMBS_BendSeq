@@ -4654,7 +4654,13 @@ class _PreviewPanel:
                         return
                     try:
                         Path(destination).write_text(
-                            json.dumps(report.to_dict(), ensure_ascii=False, indent=2),
+                            json.dumps(
+                                axis_experiment.to_dict()
+                                if (axis_experiment is not None
+                                    and self.last_planar_search_report is report)
+                                else report.to_dict(),
+                                ensure_ascii=False, indent=2,
+                            ),
                             encoding="utf-8",
                         )
                         self.status.setText("2D диагностика сохранена: " + destination)
