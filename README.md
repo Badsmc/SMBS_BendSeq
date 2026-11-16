@@ -1,3 +1,5 @@
+> **Experimental branch only (2026-11-16):** This checkout includes an opt-in axis-staged 2D + 3D-preview-BBox search. In FreeCAD's «Поиск 2D вариантов» task page, use «Эксперимент: оси A/B → 3D BBox → топ-5». The original 2D and OCC buttons remain unchanged. The top-five results are preliminary candidates, not physically qualified bend plans. See [the experiment specification](docs/AXIS_STAGED_2D_EXPERIMENT.md) and its precise limits. The stable `smbs` branch is unchanged.
+
 # SMBS — FreeCAD installation (experimental)
 
 This branch contains the installable FreeCAD runtime, real tooling models and reference parts. It incorporates the tested runtime from `experiment/auto-short-side-orientation`, including the punch-assisted retract preview, shared 2D/3D loading orientation, and stationary 3D tooling. It remains an experimental preview, not a physically qualified production release.
