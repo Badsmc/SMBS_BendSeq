@@ -212,3 +212,29 @@ The machine envelope phase is only a cheap preliminary ranking. A
 zero-overlap result says nothing about uninspected swept trajectories or
 transfer/loading. Production-grade qualification also requires verified
 backgauge, ram/frame and clamp clearance and real tool length.
+
+## Test log 2026-11-16 09:34:31 and evidence-driven order retry
+
+The supplied Windows log reports 565.1058 seconds overall (600s budget),
+17.5835 seconds reverse A*, 11 panels / 38 triangles, 5,121 visited
+reverse states and 64,990 explored reverse transitions. The selected-tool
+machine screen succeeded (`NATIVE_TOOL_ENVELOPES_LOADED`), with 2,970
+machine-space AABB comparisons, 521 box intersections and 3 evaluated
+full orders. The native strict per-step reuse was effective: 16
+`MANUAL_NATIVE_VERIFIED_STEP_CACHE_HIT` events and five stores.
+
+All nine native attempts remained UNVERIFIED, generally at B07 BENDING
+(`MAX_TIME_BUDGET_EXCEEDED`), not because a forbidden collision was
+proven. Sample punch overlap peaked at 0.000098 mm³, die overlap at 0.
+Per-phase B07 solids were reconstructed ~15-22 times in the slowest
+attempts. These facts locate the bottleneck in native OCC validation
+rather than coarse candidate generation. Panel mesh narrow-phase remained
+unused (`mesh_overlap_tests=0`) because candidate panel AABBs did not
+overlap; this alone is not a code fault.
+
+A new D6-feedback retry now proposes delaying the unresolved bend by two
+positions within the forward sequence before rechecking the same prefix
+with a 180-degree flipped workpiece. Both remain independently
+UNVERIFIED until an entire D6 forward replay succeeds. A regression test
+checks the alternative order. This is experimental code, untested here in
+a FreeCAD process, and does not establish a manufacturing-ready route.
