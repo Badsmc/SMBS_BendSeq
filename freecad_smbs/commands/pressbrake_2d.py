@@ -3942,13 +3942,63 @@ class _PreviewPanel:
                         summary + ". " + report.message_ru
                     )
                     if not (report.sampled_tool_clear or report.virtual_tool_clear) or not report.sequence:
-                        self.status.setText(
-                            "UNVERIFIED: " + report.message_ru
-                        )
-                        self.physical_check_result.setText(
-                            summary + " | Нет полного подтверждённого "
-                            "порядка: текущий порядок сохранён."
-                        )
+                        # A complete 2D candidate is still useful for a
+                        # clearly UNVERIFIED simulation, even after native D6
+                        # exhausts its budget. Preserve the exact orientation
+                        # chosen in 2D. Never label this as collision-clear.
+                        preview = tuple(report.preview_sequence or ())
+                        orientations = dict(report.preview_orientations)
+                        canonical = tuple(self.session.canonical_order)
+                        if (len(preview) == len(canonical)
+                                and set(preview) == set(canonical)
+                                and set(orientations) == set(preview)):
+                            self._stop_timer()
+                            self.session.reset_all_bends()
+                            self.session.set_bend_order(list(preview))
+                            self._manual_orientation_order = preview
+                            self._manual_orientation_by_bend = orientations
+                            self._ergonomic_loading_cache_key = None
+                            self._manual_sequence_prefix = list(preview)
+                            self._preview_only_planar_order = preview
+                            self._manual_preview_unverified = True
+                            self._manual_3d_verdicts.clear()
+                            self._manual_retract_verdicts.clear()
+                            self._clear_manual_check_feedback()
+                            self._manual_preview_notice.setText(
+                                "UNVERIFIED: предварительная 2D-последовательность. "
+                                "3D-проверка не закончена или отклонила вариант. "
+                                "Не использовать для производства без проверки."
+                            )
+                            self._manual_preview_notice.show()
+                            self._ensure_press_cycle_controller()
+                            if self.press_cycle is not None:
+                                self.press_cycle.loading_orientation_by_bend = dict(orientations)
+                            self._sync_tooling_to_active_bend()
+                            self._populate_operations()
+                            self._configure_for_active_bend()
+                            self.draw()
+                            self._viewer_tabs.setCurrentWidget(self._flat_view)
+                            self._draw_flat_pattern(reset_camera=True)
+                            self._trace_event(
+                                "FAST_FEASIBLE_PREVIEW_ADOPTED",
+                                sequence=list(preview),
+                                orientation_by_bend=orientations,
+                                validation="UNVERIFIED_2D_ONLY",
+                                native_attempts=[a.to_dict() for a in report.attempts],
+                            )
+                            self.status.setText(
+                                "UNVERIFIED 2D → симуляция: " + " → ".join(preview)
+                            )
+                            self.physical_check_result.setText(
+                                summary + " | 2D-порядок доступен в симуляции, "
+                                "но физическая выполнимость НЕ подтверждена."
+                            )
+                        else:
+                            self.status.setText("UNVERIFIED: " + report.message_ru)
+                            self.physical_check_result.setText(
+                                summary + " | Нет полного кандидата: исходный "
+                                "порядок сохранён."
+                            )
                         return
 
                     # Adopt ONLY a full all-bend D6 sampled order. Virtual
