@@ -3793,7 +3793,7 @@ class _PreviewPanel:
                 return OperationWeights(**values)
 
             def calculate_fast_feasible_sequence(self):
-                """Try bounded 2D search followed by sampled 3D.
+                """Run bounded 2D search, then fixed five-angle native OCC.
 
                 This is never a factory-safe certificate. The result only
                 covers selected FCStd punch/die sampled trajectories and
@@ -3890,7 +3890,7 @@ class _PreviewPanel:
                 )
                 self.fast_feasible_info.setText(
                     "Поиск выполняется. Найденные полные порядки "
-                    "показываются ниже до запуска D6."
+                    "показываются ниже до запуска OCC (5 углов)."
                 )
                 self.fast_search_result_details.setPlainText(
                     "Поиск запущен. Полных кандидатов пока нет."
@@ -3921,7 +3921,7 @@ class _PreviewPanel:
                         self.fast_feasible_info.setText(label)
                         if stage == "NATIVE_START":
                             self.fast_search_result_details.setPlainText(
-                                "НАЙДЕН ПОЛНЫЙ КАНДИДАТ — ПРОВЕРЯЕТСЯ D6\n"
+                                "НАЙДЕН ПОЛНЫЙ КАНДИДАТ — ПРОВЕРЯЕТСЯ OCC (5 УГЛОВ)\n"
                                 + str(bend).replace(" → ", " → ")
                                 + "\nПроверка ещё не завершена."
                             )
@@ -3965,7 +3965,7 @@ class _PreviewPanel:
                     )
                     summary = (
                         "{} | {:.1f} с | полных вариантов: {} | "
-                        "проверок 3D порядка: {}"
+                        "проверок OCC 5 углов: {}"
                     ).format(
                         report.status.value, report.elapsed_s,
                         len(report.planar_candidates), len(report.attempts),
@@ -4080,7 +4080,7 @@ class _PreviewPanel:
                         )
                         return
 
-                    # Adopt ONLY a full all-bend D6 sampled order. Virtual
+                    # Adopt only a full all-bend five-angle sampled order. Virtual
                     # length is a preview, never a physical tool certificate.
                     # The original operator's order is
                     # deliberately untouched on all failures and timeouts.
@@ -4090,7 +4090,7 @@ class _PreviewPanel:
                             or set(selected) != set(self.session.canonical_order)
                             or set(directions) != set(selected)):
                         raise ValueError(
-                            "Отклонён неполный или несовместимый 3D порядок"
+                            "Отклонён неполный или несовместимый OCC-порядок"
                         )
                     self._stop_timer()
                     self.session.reset_all_bends()
