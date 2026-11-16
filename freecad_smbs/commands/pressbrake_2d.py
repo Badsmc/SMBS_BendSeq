@@ -3967,8 +3967,9 @@ class _PreviewPanel:
                             self._manual_retract_verdicts.clear()
                             self._clear_manual_check_feedback()
                             self._manual_preview_notice.setText(
-                                "UNVERIFIED: предварительная 2D-последовательность. "
-                                "3D-проверка не закончена или отклонила вариант. "
+                                ("UNVERIFIED: предварительная последовательность обратного "
+                                 "AABB/DFS либо 2D-поиска. ")
+                                + "3D-проверка не закончена или отклонила вариант. "
                                 "Не использовать для производства без проверки."
                             )
                             self._manual_preview_notice.show()
@@ -3985,14 +3986,17 @@ class _PreviewPanel:
                                 "FAST_FEASIBLE_PREVIEW_ADOPTED",
                                 sequence=list(preview),
                                 orientation_by_bend=orientations,
-                                validation="UNVERIFIED_2D_ONLY",
+                                validation=("UNVERIFIED_REVERSE_AABB_ONLY"
+                                            if report.reverse_search and
+                                            report.reverse_search.get("candidates")
+                                            else "UNVERIFIED_2D_ONLY"),
                                 native_attempts=[a.to_dict() for a in report.attempts],
                             )
                             self.status.setText(
-                                "UNVERIFIED 2D → симуляция: " + " → ".join(preview)
+                                "UNVERIFIED AABB/2D → симуляция: " + " → ".join(preview)
                             )
                             self.physical_check_result.setText(
-                                summary + " | 2D-порядок доступен в симуляции, "
+                                summary + " | Предварительный порядок доступен в симуляции, "
                                 "но физическая выполнимость НЕ подтверждена."
                             )
                         else:
