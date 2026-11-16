@@ -4073,6 +4073,9 @@ class _PreviewPanel:
                 from math import isfinite
                 bend_ids = tuple(self.session.bend_order)
                 stored_bends = dict(getattr(self, "_axis_staged_bend_costs", {}))
+                stored_multipliers = dict(
+                    getattr(self, "_axis_staged_transition_multipliers", {})
+                )
                 stored_pairs = dict(getattr(self, "_axis_staged_pair_costs", {}))
                 dialog = QtWidgets.QDialog(self)
                 dialog.setWindowTitle("SMBS — веса гибов и переходов")
@@ -4081,17 +4084,18 @@ class _PreviewPanel:
                 help_text = QtWidgets.QLabel(
                     "Веса не разрешают коллизии. Вклад каждого гиба прибавляется "
                     "к штрафу перехода от предыдущего гиба и далее учитывается "
-                    "при выборе следующего. Все значения — неотрицательные "
-                    "условные баллы."
+                    "при выборе следующего. Базовый вес постоянен, "
+                    "а индивидуальный множитель влияет на переустановку "
+                    "именно перед этим гибом. Все значения неотрицательны."
                 )
                 help_text.setWordWrap(True)
                 layout.addWidget(help_text)
                 tabs = QtWidgets.QTabWidget(dialog)
                 bends_page = QtWidgets.QWidget()
                 bends_layout = QtWidgets.QVBoxLayout(bends_page)
-                bends_table = QtWidgets.QTableWidget(len(bend_ids), 2)
+                bends_table = QtWidgets.QTableWidget(len(bend_ids), 3)
                 bends_table.setHorizontalHeaderLabels(
-                    ["Гиб", "Базовый штраф"]
+                    ["Гиб", "Базовый штраф", "Множитель перехода"]
                 )
                 for i, bend_id in enumerate(bend_ids):
                     name = QtWidgets.QTableWidgetItem(str(bend_id))
@@ -4099,6 +4103,9 @@ class _PreviewPanel:
                     bends_table.setItem(i, 0, name)
                     bends_table.setItem(i, 1, QtWidgets.QTableWidgetItem(
                         str(stored_bends.get(bend_id, 0.0))
+                    ))
+                    bends_table.setItem(i, 2, QtWidgets.QTableWidgetItem(
+                        str(stored_multipliers.get(bend_id, 1.0))
                     ))
                 bends_table.horizontalHeader().setStretchLastSection(True)
                 bends_layout.addWidget(bends_table)
@@ -4129,6 +4136,17 @@ class _PreviewPanel:
                 pairs_layout.addWidget(pairs_table)
                 tabs.addTab(pairs_page, "Переход предыдущий → следующий")
                 layout.addWidget(tabs)
+                axis_row = QtWidgets.QHBoxLayout()
+                axis_row.addWidget(QtWidgets.QLabel("Штраф смены оси:"))
+                axis_cost = QtWidgets.QDoubleSpinBox()
+                axis_cost.setRange(0.0, 10000.0)
+                axis_cost.setDecimals(2)
+                axis_cost.setValue(float(getattr(
+                    self, "_axis_staged_axis_change_cost", 0.0
+                )))
+                axis_row.addWidget(axis_cost)
+                axis_row.addStretch(1)
+                layout.addLayout(axis_row)
                 buttons = QtWidgets.QDialogButtonBox(
                     QtWidgets.QDialogButtonBox.Ok |
                     QtWidgets.QDialogButtonBox.Cancel
@@ -4144,11 +4162,16 @@ class _PreviewPanel:
 
                 def accept_costs():
                     try:
-                        new_bends, new_pairs = {}, {}
+                        new_bends, new_pairs, new_multipliers = {}, {}, {}
                         for i, bend_id in enumerate(bend_ids):
                             value = parse_cost(bends_table.item(i, 1).text())
                             if value:
                                 new_bends[bend_id] = value
+                            multiplier = parse_cost(
+                                bends_table.item(i, 2).text()
+                            )
+                            if multiplier != 1.0:
+                                new_multipliers[bend_id] = multiplier
                         for i, prev in enumerate(bend_ids):
                             for j, next_bend in enumerate(bend_ids):
                                 if prev == next_bend:
@@ -4159,10 +4182,16 @@ class _PreviewPanel:
                                 if value:
                                     new_pairs[(prev, next_bend)] = value
                         self._axis_staged_bend_costs = new_bends
+                        self._axis_staged_transition_multipliers = new_multipliers
                         self._axis_staged_pair_costs = new_pairs
+                        self._axis_staged_axis_change_cost = float(
+                            axis_cost.value()
+                        )
                         self._trace_event(
                             "AXIS_STAGED_WEIGHTS_CHANGED",
                             per_bend_costs=new_bends,
+                            per_bend_transition_multipliers=new_multipliers,
+                            axis_change_cost=self._axis_staged_axis_change_cost,
                             pair_costs=[
                                 {"previous": a, "next": b, "weight": v}
                                 for (a, b), v in sorted(new_pairs.items())
@@ -4241,6 +4270,12 @@ class _PreviewPanel:
                         pair_cost=dict(
                             getattr(self, "_axis_staged_pair_costs", {})
                         ),
+                        per_bend_transition_multiplier=dict(
+                            getattr(self, "_axis_staged_transition_multipliers", {})
+                        ),
+                        axis_change_cost=float(getattr(
+                            self, "_axis_staged_axis_change_cost", 0.0
+                        )),
                         run_occ=run_occ, progress_callback=progress,
                     )
                     self.last_axis_staged_search_report = report
