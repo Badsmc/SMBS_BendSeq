@@ -3771,12 +3771,12 @@ class _PreviewPanel:
                 return OperationWeights(**values)
 
             def calculate_fast_feasible_sequence(self):
-                """Try bounded 2D search followed by real-tool sampled 3D.
+                """Try bounded 2D search followed by sampled 3D.
 
                 This is never a factory-safe certificate. The result only
                 covers selected FCStd punch/die sampled trajectories and
                 their pairwise sampled clearance. No fake success on timeout,
-                partial candidate, missed stage or virtual tool length.
+                partial candidate or missed stage; virtual length stays unverified.
                 """
                 # Log the button press even when the preconditions reject
                 # it. Otherwise a debug file cannot distinguish an old 2D
@@ -3828,13 +3828,6 @@ class _PreviewPanel:
                 if self.tooling_setup.punch is None or self.tooling_setup.die is None:
                     reject_precheck(
                         "Выберите реальные FCStd-пуансон и матрицу в разделе «Оснастка»."
-                    )
-                    return
-                if (self.virtual_tool_len_checkbox.isChecked()
-                        or self.tooling_setup.match_active_bend_length):
-                    reject_precheck(
-                        "Отключите виртуальную длину оснастки в настройках. "
-                        "3D-поиск проверяет реальные FCStd-инструменты."
                     )
                     return
 
@@ -3948,7 +3941,7 @@ class _PreviewPanel:
                     self.fast_feasible_info.setText(
                         summary + ". " + report.message_ru
                     )
-                    if not report.sampled_tool_clear or not report.sequence:
+                    if not (report.sampled_tool_clear or report.virtual_tool_clear) or not report.sequence:
                         self.status.setText(
                             "UNVERIFIED: " + report.message_ru
                         )
@@ -3958,8 +3951,9 @@ class _PreviewPanel:
                         )
                         return
 
-                    # Commit ONLY the full order with all-bend real-tool D6
-                    # sampled clearance. The original operator's order is
+                    # Adopt ONLY a full all-bend D6 sampled order. Virtual
+                    # length is a preview, never a physical tool certificate.
+                    # The original operator's order is
                     # deliberately untouched on all failures and timeouts.
                     selected = tuple(report.sequence)
                     directions = dict(report.orientation_by_bend)
@@ -3976,8 +3970,15 @@ class _PreviewPanel:
                     self._manual_orientation_by_bend = directions
                     self._ergonomic_loading_cache_key = None
                     self._manual_sequence_prefix = list(selected)
-                    self._manual_preview_unverified = False
-                    self._manual_preview_notice.hide()
+                    self._manual_preview_unverified = bool(report.virtual_tool_clear)
+                    if report.virtual_tool_clear:
+                        self._manual_preview_notice.setText(
+                            "ВИРТУАЛЬНАЯ ДЛИНА: порядок предварительный. "
+                            "Реальная оснастка и физическая выполнимость не подтверждены."
+                        )
+                        self._manual_preview_notice.show()
+                    else:
+                        self._manual_preview_notice.hide()
                     self._manual_3d_verdicts.clear()
                     self._manual_retract_verdicts.clear()
                     self._clear_manual_check_feedback()
@@ -4034,10 +4035,16 @@ class _PreviewPanel:
                         self._saved_full_sequences.append(entry)
                         self._saved_full_sequences = self._saved_full_sequences[-32:]
                     caution = (
-                        "SAMPLED_3D_TOOL_CLEAR: найден полный порядок "
-                        "для реальных пуансона и матрицы, но непрерывность "
-                        "траектории, задний упор, рама, зажимы и перекладки "
-                        "не проверены. Перед производством нужна полная проверка."
+                        ("VIRTUAL_LENGTH_UNVERIFIED: найден полный порядок "
+                         "для виртуальной длины пуансона и матрицы. "
+                         "Реальная длина инструментов и физическая "
+                         "выполнимость НЕ подтверждены. "
+                         "Нужна отдельная проверка реальной оснастки.")
+                        if report.virtual_tool_clear else
+                        ("SAMPLED_3D_TOOL_CLEAR: найден полный порядок "
+                         "для реальных пуансона и матрицы, но непрерывность "
+                         "траектории, задний упор, рама, зажимы и перекладки "
+                         "не проверены. Перед производством нужна полная проверка.")
                     )
                     self.status.setText(
                         "Порядок: {} | {}".format(" → ".join(selected), caution)
