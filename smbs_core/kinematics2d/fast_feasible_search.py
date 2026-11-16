@@ -393,8 +393,12 @@ def search_fast_feasible_sequence(
     candidates = candidates[:max_candidates]
     available_sequences = tuple(x[0] for x in candidates)
     # Preview only: preserve corresponding 2D orientation choices.
-    preview_sequence = candidates[0][0] if candidates else None
-    preview_orientations = candidates[0][1] if candidates else ()
+    preview_candidates = [
+        item for item in candidates
+        if getattr(item[2], "evidence", "") != "OPERATOR_SEED_NOT_PLANAR_VERIFIED"
+    ]
+    preview_sequence = preview_candidates[0][0] if preview_candidates else None
+    preview_orientations = preview_candidates[0][1] if preview_candidates else ()
     if not candidates:
         code = (FastSearchStatus.TIME_BUDGET_REACHED
                 if clock() >= deadline else FastSearchStatus.NO_2D_CANDIDATES)
@@ -452,6 +456,51 @@ def search_fast_feasible_sequence(
             qualified = _native_result_is_qualified(
                 native, seq, dict(orientation), virtual_length=virtual_length
             )
+            # One bounded retry on a sampling-timeout, with the SAME
+            # geometry, sequence and poses. Re-run full D6 rather than
+            # promoting incomplete intervals to a pass.
+            timed_out_phase = any(
+                "MAX_TIME_BUDGET_EXCEEDED" in str(step.get("reason", ""))
+                for step in (native.get("steps") or ())
+            )
+            if (not qualified and status == "UNVERIFIED"
+                    and timed_out_phase and deadline - clock() >= 12.0):
+                from dataclasses import replace
+                retry_remaining = deadline - clock()
+                retry_cfg = sampling_config_factory(
+                    retry_remaining, len(seq), initial_clearance_mm
+                )
+                retry_cfg = replace(
+                    retry_cfg,
+                    max_phase_time_s=min(
+                        12.0, max(
+                            retry_cfg.max_phase_time_s,
+                            float(cfg.max_phase_time_s) * 1.5,
+                        ),
+                    ),
+                )
+                if progress_callback is not None:
+                    progress_callback("NATIVE_RETRY", i + 1, len(candidates), seq[0])
+                native = native_runner(
+                    native_session, tooling, seq,
+                    match_active_bend_length=virtual_length,
+                    allow_end_zone_collision=False,
+                    end_zone_length_mm=0.0,
+                    reverse_axis_by_bend=dict(orientation),
+                    config=retry_cfg,
+                    progress_callback=native_progress,
+                    sequence_geometry_cache=geometry_cache,
+                    include_collision_attribution=False,
+                    deadline_at=deadline,
+                )
+                if not isinstance(native, dict):
+                    raise TypeError("native retry validator must return a dict")
+                status = str(native.get("status", "UNVERIFIED"))
+                reason = str(native.get("reason", ""))
+                checked = int(native.get("checked_bends", 0))
+                qualified = _native_result_is_qualified(
+                    native, seq, dict(orientation), virtual_length=virtual_length
+                )
         except Exception as exc:
             status = "UNVERIFIED"
             reason = "native_exception:{}:{}".format(type(exc).__name__, exc)
