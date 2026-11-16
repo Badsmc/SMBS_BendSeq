@@ -684,3 +684,37 @@ an orthogonal optimization.
 The updated source has not yet been run in FreeCAD; confirm first
 and second bend prefix diversity, native trial counts, time and whether
 any full sequence qualifies under the preliminary OCC 0/100 screen.
+
+## Windows benchmark 2026-11-16 14:31:11 — orientation-search gap
+
+Uploaded `SMBS_debug_log(20261116-143111).json`:
+- one 1000s-budget search, 393.2707s total, 210.1167s planar,
+  15 full candidate permutations, 9 actual OCC calls and 6 reused
+  colliding-prefix skips; zero accepted full 10-bend orders.
+- The first bends now diversify across B10 (5), B09 (5),
+  B04 (4), B07 (1), and 9 distinct first-two-bend prefixes.
+  The first-bend/pair diversity quotas are effective.
+- Native terminal collision at B06 in seven fresh attempts,
+  B03 in one, B02 in one. A large collision remains an obstruction
+  for the tested pose/prefix; it does not prove other loadings fail.
+- **Root cause of missing loading diversity in source**:
+  `ordered_loading_orientations` returned only `(False,)` when
+  `cad_checker is None`. No CAD backgauge is supplied by the unified
+  search, so primary sampled 2D DFS never considered reverse loading
+  180 degrees. Most native attempts had all-false orientations.
+
+Correction in the same experiment:
+- Add opt-in `explore_both_orientations_without_gauge=False` to the
+  2D engine; automatic search enables it, so every candidate bend
+  can be explored in both normal and 180-degree reverse machine
+  placements even without modeled CAD backgauge.
+- Every loading option still requires the normal Stage A/B checks
+  and independent native OCC start/end clearance. No actual gauge
+  or transfer clearance is claimed, and two sampled angles do not
+  prove continuous motion. Other callers retain normal-only default.
+- Added test that automatic search explicitly forwards the opt-in.
+  Actual FreeCAD native and 2D test runs still pending.
+
+Observe whether the next run returns candidates with
+`orientation_by_bend` containing true for some bends, whether
+B06 can pass in those poses, native collision causes, and CPU time.
