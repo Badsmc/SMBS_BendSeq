@@ -186,7 +186,7 @@ def search_reverse_aabb(
     }
     from .reverse_mesh_screen import (
         extract_panel_triangles, transformed_prisms,
-        approximate_overlap_count,
+        approximate_overlap_count, build_bvh,
     )
     # Bound one-time triangulation memory for FreeCAD's UI process.
     panel_meshes = extract_panel_triangles(
@@ -236,10 +236,10 @@ def search_reverse_aabb(
                 for name in order
             }
             transforms = state._compute_transforms(angles)
-            mesh_scene_cache[key] = {
-                pid: transformed_prisms(tris, transforms[pid], thickness)
-                for pid, tris in panel_meshes.items()
-            }
+            mesh_scene_cache[key] = {}
+            for pid, tris in panel_meshes.items():
+                prisms = transformed_prisms(tris, transforms[pid], thickness)
+                mesh_scene_cache[key][pid] = (prisms, build_bvh(prisms))
             if len(mesh_scene_cache) > 48:
                 mesh_scene_cache.popitem(last=False)
         return mesh_scene_cache[key]
@@ -271,8 +271,9 @@ def search_reverse_aabb(
                     mesh_tests += 1
                     # The SAT hit is an approximate ranking penalty only.
                     score += 50.0 * approximate_overlap_count(
-                        fine[p], fine[q], limit=20,
+                        fine[p][0], fine[q][0], limit=20,
                         deadline=deadline, clock=clock,
+                        bvh_a=fine[p][1], bvh_b=fine[q][1],
                     )
         transition_cache[key] = score
         return score
