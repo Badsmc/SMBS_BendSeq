@@ -122,7 +122,8 @@ class ReverseOrientationTests(unittest.TestCase):
             _default_sampling_config,
         )
         cfg = _default_sampling_config(600.0, 10, 40.0)
-        self.assertLessEqual(cfg.max_phase_time_s, 18.0)
+        self.assertLessEqual(cfg.max_phase_time_s, 40.0)
+        self.assertGreaterEqual(cfg.max_phase_time_s, 35.0)
         self.assertGreaterEqual(cfg.max_phase_time_s, 2.0)
         self.assertFalse(cfg.coarse_occ_screen)
 
