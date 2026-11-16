@@ -63,7 +63,7 @@ def load_tool_boxes(tooling: Any, bends: dict, *, deadline=None,
             if deadline is not None and clock is not None and clock() >= deadline:
                 return result, "TOOL_LOADING_TIME_BUDGET_REACHED"
             length = float(dist(*bend.axis_xyz))
-            key = (round(length, 5) if virtual else None)
+            key = (length if virtual else None)
             if key not in cached:
                 effective = length if virtual else None
                 punch = load_native_punch(
@@ -140,9 +140,10 @@ def score_candidate_machine(
         if deadline is not None and clock is not None and clock() >= deadline:
             return total_penalty, tuple(sorted(orientation.items())), pairs, overlaps
         tool = tool_boxes.get(bid)
-        if tool is None:
-            continue
         remaining.remove(bid)
+        if tool is None:
+            orientation[bid] = False
+            continue
         bend = source.bends[bid]
         contact_panels = {bend.fixed_panel, bend.moving_panel}
         scores = []
