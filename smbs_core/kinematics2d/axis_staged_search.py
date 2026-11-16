@@ -183,7 +183,9 @@ def _bbox_of_points(points):
                   max(p[i] for p in points)) for i in range(3))
 
 
-def _proxy_bbox_risk(session, tooling, candidate) -> dict:
+def _proxy_bbox_risk(
+    session, tooling, candidate, *, match_active_bend_length: bool,
+) -> dict:
     """Conservative ranking-only 3D proxy from machine-placed panel vertices.
 
     Does NOT include curved bend-zone solids, exact ram trajectory, tool
@@ -224,7 +226,7 @@ def _proxy_bbox_risk(session, tooling, candidate) -> dict:
                     raise ValueError("unavailable tool polygon")
                 # The effective axial length can be virtual; record this
                 # as a proxy, NEVER evidence of a real fitted tool station.
-                effective = length if getattr(tooling, "match_active_bend_length", False) \
+                effective = length if match_active_bend_length \
                     else float(getattr(getattr(tooling, kind), "length_mm", length) or length)
                 pts = [(-effective / 2, -s, z) for s, z in polys[0]]
                 pts += [(effective / 2, -s, z) for s, z in polys[0]]
@@ -622,7 +624,10 @@ def search_axis_staged(
     ranked = []
     for candidate in all_candidates:
         detail = (bbox_checker(candidate) if bbox_checker is not None
-                  else _proxy_bbox_risk(session, tooling, candidate))
+                  else _proxy_bbox_risk(
+                      session, tooling, candidate,
+                      match_active_bend_length=config.match_active_bend_length,
+                  ))
         if not isinstance(detail, dict):
             raise TypeError("bbox_checker must return a dict")
         detail = {**detail, "sequence": list(candidate.sequence)}
