@@ -143,11 +143,13 @@ def _best_unverified_preview(order, initial_sequence, initial_orientations,
                   0, "REVERSE_RANKED_UNVERIFIED")
     best_rank = (-1, -1)
     for attempt in attempts:
-        if not valid(attempt.sequence, attempt.orientation_by_bend):
+        if (attempt.status != "UNVERIFIED"
+                or not valid(attempt.sequence, attempt.orientation_by_bend)):
+            # An actually rejected physical order must never win the
+            # preview merely because it reached many checked positions.
             continue
         checked = max(0, min(int(attempt.checked_bends), len(order)))
-        not_rejected = int(attempt.status == "UNVERIFIED")
-        rank = (checked, not_rejected)
+        rank = (checked, 1)
         if rank > best_rank:
             best_rank = rank
             chosen = (
