@@ -34,8 +34,11 @@ Full D6 and all existing 2.5D/3D views remain unchanged and available.
 5. Apply operation-specific weights
    `C_bend(B_i)` and adjacent transition penalties from the existing
    `operation_cost.transition_penalty(previous_setup, current_setup)`.
-   Each interior operation influences both incoming and outgoing
-   transition costs. Default per-bend cost uses bend angle and length,
+   Each adjacent transition is multiplied by `1 + (weight_previous +
+   weight_current)/2` (the first transition uses the current weight).
+   Each interior bend therefore influences **both** the incoming and
+   outgoing transition costs. Simple additive per-bend weights alone
+   would be constant over all permutations and are insufficient. Default per-bend cost uses bend angle and length,
    or the operator can override each bend separately through the
    `Индивидуальные веса гибов…` dialog. Collisions never become legal
    due to a favorable weight.
@@ -69,8 +72,9 @@ unfold and punch/die from the existing library.
   finalists, candidate loading orientations and BBox preview risk.
 
 The experiment is synchronous in FreeCAD, capped at **90 seconds soft
-budget** in the GUI. A currently running underlying geometric operation
-may exceed the deadline. Internal caps are beam width 10, per-axis
+budget** in the GUI, with **70% for staged 2D** and **30% reserved for
+3D preview AABB ranking**. A currently running underlying geometric
+operation may exceed the deadline. Internal caps are beam width 10, per-axis
 candidate limit 5, merged 2D pool 15 and output finalist count 5.
 The limits are parameters and not correctness guarantees.
 
