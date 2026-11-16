@@ -4093,13 +4093,16 @@ class _PreviewPanel:
                 tabs = QtWidgets.QTabWidget(dialog)
                 bends_page = QtWidgets.QWidget()
                 bends_layout = QtWidgets.QVBoxLayout(bends_page)
+                editable_flag = getattr(QtCore.Qt, "ItemIsEditable", None)
+                if editable_flag is None:
+                    editable_flag = QtCore.Qt.ItemFlag.ItemIsEditable
                 bends_table = QtWidgets.QTableWidget(len(bend_ids), 3)
                 bends_table.setHorizontalHeaderLabels(
                     ["Гиб", "Базовый штраф", "Множитель перехода"]
                 )
                 for i, bend_id in enumerate(bend_ids):
                     name = QtWidgets.QTableWidgetItem(str(bend_id))
-                    name.setFlags(name.flags() & ~QtCore.Qt.ItemIsEditable)
+                    name.setFlags(name.flags() & ~editable_flag)
                     bends_table.setItem(i, 0, name)
                     bends_table.setItem(i, 1, QtWidgets.QTableWidgetItem(
                         str(stored_bends.get(bend_id, 0.0))
@@ -4131,7 +4134,7 @@ class _PreviewPanel:
                         )
                         if prev == following:
                             item.setText("—")
-                            item.setFlags(item.flags() & ~QtCore.Qt.ItemIsEditable)
+                            item.setFlags(item.flags() & ~editable_flag)
                         pairs_table.setItem(i, j, item)
                 pairs_layout.addWidget(pairs_table)
                 tabs.addTab(pairs_page, "Переход предыдущий → следующий")
@@ -4147,9 +4150,12 @@ class _PreviewPanel:
                 axis_row.addWidget(axis_cost)
                 axis_row.addStretch(1)
                 layout.addLayout(axis_row)
+                buttons_enum = getattr(
+                    QtWidgets.QDialogButtonBox, "StandardButton",
+                    QtWidgets.QDialogButtonBox,
+                )
                 buttons = QtWidgets.QDialogButtonBox(
-                    QtWidgets.QDialogButtonBox.Ok |
-                    QtWidgets.QDialogButtonBox.Cancel
+                    buttons_enum.Ok | buttons_enum.Cancel
                 )
                 layout.addWidget(buttons)
                 buttons.rejected.connect(dialog.reject)
@@ -4203,7 +4209,8 @@ class _PreviewPanel:
                             dialog, "Ошибка веса", str(exc),
                         )
                 buttons.accepted.connect(accept_costs)
-                dialog.exec_()
+                (dialog.exec if hasattr(dialog, "exec")
+                 else dialog.exec_)()
 
             def calculate_axis_staged_candidates(self):
                 """Opt-in axis-staged 2D search; no changes to legacy commands."""
