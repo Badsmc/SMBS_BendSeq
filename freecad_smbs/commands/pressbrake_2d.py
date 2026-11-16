@@ -3911,6 +3911,7 @@ class _PreviewPanel:
                             "PLANAR_2D": "Быстрый 2D отбор",
                             "REVERSE_AABB": "Обратный A*/Mesh/BVH поиск",
                             "NATIVE_START": "OCC 0/100: проверка порядка",
+                            "NATIVE_PREFIX_REJECTED": "OCC: ранее доказанное столкновение",
                             "NATIVE_BEND": "OCC 0/100: гиб",
                             "NATIVE_RETRY": "Повторная OCC проверка",
                             "NATIVE_ORDER_VARIANT": "OCC: новая последовательность",
