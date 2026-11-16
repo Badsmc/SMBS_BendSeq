@@ -45,6 +45,30 @@ class MachineScreenTests(unittest.TestCase):
         self.assertGreaterEqual(hits, 0)
         self.assertEqual(angles_before, source.angles)
 
+        # The ranking transform must use exactly the D6 placement flags.
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        seen_kwargs = []
+        def fake_placement(*args, **kwargs):
+            seen_kwargs.append(kwargs)
+            return SimpleNamespace(apply=lambda p: p)
+        with patch(
+            "smbs_core.kinematics2d.workpiece_placement_3d."
+            "WorkpiecePlacement3D.compute_placement",
+            side_effect=fake_placement,
+        ):
+            score_candidate_machine(
+                ("B1",), source, polygons, 1.5, {"B1": tool}
+            )
+        self.assertTrue(seen_kwargs)
+        self.assertTrue(all(
+            x["align_bisector"] and x["align_bend_arc_center"]
+            for x in seen_kwargs
+        ))
+        self.assertEqual(
+            {x["reverse_axis"] for x in seen_kwargs}, {False, True}
+        )
+
     def test_unknown_tool_is_not_called_safe(self):
         graph = PanelGraph(
             ("P1", "P2"),
