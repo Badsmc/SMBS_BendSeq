@@ -70,6 +70,40 @@ class ReverseOrientationTests(unittest.TestCase):
         self.assertEqual(tooling.punch_section_offsets_xm, (0.0, 100.0))
         self.assertFalse(result.machine_feasible_certified)
 
+    def test_preview_prefers_deepest_native_order_not_original_a_star(self):
+        from smbs_core.kinematics2d.fast_feasible_search import (
+            FastNativeAttempt, _best_unverified_preview,
+        )
+        original = ("B09", "B10", "B08", "B07", "B06")
+        delayed = ("B09", "B10", "B08", "B06", "B07")
+        positions = tuple((bid, False) for bid in original)
+        attempts = (
+            FastNativeAttempt(original, positions, "UNVERIFIED",
+                              "B07 timeout", 3, 40.0),
+            FastNativeAttempt(delayed, positions, "UNVERIFIED",
+                              "B06 timeout", 4, 30.0),
+        )
+        selected = _best_unverified_preview(
+            original, original, positions, attempts,
+        )
+        self.assertEqual(selected[0], delayed)
+        self.assertEqual(selected[2], 4)
+        self.assertEqual(selected[3], "NATIVE_ATTEMPT_UNVERIFIED")
+
+    def test_preview_preserves_full_a_star_order_when_no_native_attempt(self):
+        from smbs_core.kinematics2d.fast_feasible_search import (
+            _best_unverified_preview,
+        )
+        order = ("B01", "B02")
+        poses = (("B01", False), ("B02", True))
+        self.assertEqual(
+            _best_unverified_preview(order, order, poses, ()),
+            (order, poses, 0, "REVERSE_RANKED_UNVERIFIED"),
+        )
+        self.assertIsNone(
+            _best_unverified_preview(order, ("B01",), (), ()),
+        )
+
     def test_phase_budget_spreads_bounded_search_across_orders(self):
         from smbs_core.kinematics2d.fast_feasible_search import (
             _default_sampling_config,
