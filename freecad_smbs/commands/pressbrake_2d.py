@@ -4040,92 +4040,45 @@ class _PreviewPanel:
                     self.fast_feasible_info.setText(
                         summary + ". " + report.message_ru
                     )
-                    if not (report.sampled_tool_clear or report.virtual_tool_clear) or not report.sequence:
-                        # A complete 2D candidate is still useful for a
-                        # clearly UNVERIFIED simulation, even after native D6
-                        # exhausts its budget. Preserve the exact orientation
-                        # chosen in 2D. Never label this as collision-clear.
-                        preview = tuple(report.preview_sequence or ())
-                        orientations = dict(report.preview_orientations)
-                        canonical = tuple(self.session.canonical_order)
-                        if (len(preview) == len(canonical)
-                                and set(preview) == set(canonical)
-                                and set(orientations) == set(preview)):
-                            self._stop_timer()
-                            self.session.reset_all_bends()
-                            self.session.set_bend_order(list(preview))
-                            self._manual_orientation_order = preview
-                            self._manual_orientation_by_bend = orientations
-                            self._ergonomic_loading_cache_key = None
-                            self._manual_sequence_prefix = list(preview)
-                            self._preview_only_planar_order = preview
-                            self._manual_preview_unverified = True
-                            self._manual_3d_verdicts.clear()
-                            self._manual_retract_verdicts.clear()
-                            self._clear_manual_check_feedback()
-                            self.manual_check_details.setPlainText(
-                                self.fast_search_result_details.toPlainText()
-                            )
-                            self.manual_check_details.show()
-                            self._manual_preview_notice.setText(
-                                ("UNVERIFIED: предварительная последовательность обратного "
-                                 "A*/Mesh/BVH либо 2D-поиска. ")
-                                + "3D-проверка не закончена или отклонила вариант. "
-                                "Не использовать для производства без проверки."
-                            )
-                            self._manual_preview_notice.show()
-                            self._ensure_press_cycle_controller()
-                            if self.press_cycle is not None:
-                                self.press_cycle.loading_orientation_by_bend = dict(orientations)
-                            self._sync_tooling_to_active_bend()
-                            self._populate_operations()
-                            self._configure_for_active_bend()
-                            self.draw()
-                            self._viewer_tabs.setCurrentWidget(self.view)
-                            show_workspace_controls(self, tab=2)
-                            stored_preview = {
-                                "bend_ids": list(preview),
-                                "orientation_by_bend": dict(orientations),
-                                "origin": "FAST_FEASIBLE_PREVIEW",
-                                "evidence": "UNVERIFIED_D6_INCOMPLETE",
-                            }
-                            if stored_preview not in self._saved_full_sequences:
-                                self._saved_full_sequences.append(stored_preview)
-                                self._saved_full_sequences = (
-                                    self._saved_full_sequences[-32:]
-                                )
-                            self._trace_event(
-                                "FAST_FEASIBLE_PREVIEW_ADOPTED",
-                                sequence=list(preview),
-                                orientation_by_bend=orientations,
-                                validation=("UNVERIFIED_REVERSE_AABB_ONLY"
-                                            if report.reverse_search and
-                                            report.reverse_search.get("candidates")
-                                            else "UNVERIFIED_2D_ONLY"),
-                                native_attempts=[a.to_dict() for a in report.attempts],
-                                display_origin=getattr(report, "preview_origin", "UNKNOWN"),
-                                checked_bends=getattr(report, "preview_checked_bends", 0),
-                                simulation_view_opened=True,
-                            )
+                    if (not (report.sampled_tool_clear
+                             or report.virtual_tool_clear)
+                            or not report.sequence):
+                        # Do not apply or autoplay a speculative order.
+                        # Prior behavior automatically installed an A* rank
+                        # even when no bend was physically validated. Such
+                        # sequences can be impossible with the chosen tools.
+                        # Keep source order, session and simulation intact.
+                        if display_sequence:
                             self.status.setText(
-                                "Предварительный порядок загружен в симуляцию: "
-                                + " → ".join(preview) + " | D6: UNVERIFIED"
+                                "Рабочая последовательность НЕ НАЙДЕНА: "
+                                "D6 не подтвердил все гибы. "
+                                "Кандидаты и причины см. на странице поиска."
                             )
-                            self.physical_check_result.setText(
-                                summary + " | Порядок отображён в симуляции; "
-                                "физическая выполнимость НЕ подтверждена."
+                            self.fast_feasible_info.setText(
+                                "Кандидаты найдены, но пригодность для гибки "
+                                "НЕ ПОДТВЕРЖДЕНА. Текущий порядок не изменён. "
+                                + summary
                             )
-                            self.manual_check_summary.setText(
-                                "Найден полный кандидат: "
-                                + " → ".join(preview)
-                                + " | D6: UNVERIFIED"
+                            self._trace_event(
+                                "FAST_FEASIBLE_CANDIDATES_NOT_ADOPTED",
+                                candidate_sequence=list(display_sequence),
+                                reached_bends=int(getattr(
+                                    report, "preview_checked_bends", 0
+                                )),
+                                reason="NO_COMPLETE_NATIVE_D6_EVIDENCE",
+                                auto_simulation_blocked=True,
                             )
                         else:
-                            self.status.setText("UNVERIFIED: " + report.message_ru)
-                            self.physical_check_result.setText(
-                                summary + " | Нет полного кандидата: исходный "
-                                "порядок сохранён."
+                            self.status.setText(
+                                "Рабочая последовательность НЕ НАЙДЕНА: "
+                                "полных кандидатов не получено."
                             )
+                        # Remove stale preview from prior speculative runs.
+                        self._simulation_sequence_result.hide()
+                        self.physical_check_result.setText(
+                            "Порядок не принят: нет полного D6-подтверждения. "
+                            "Показанные кандидаты нельзя считать рабочими."
+                        )
                         return
 
                     # Adopt ONLY a full all-bend D6 sampled order. Virtual
