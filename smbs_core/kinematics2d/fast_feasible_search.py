@@ -317,6 +317,13 @@ def search_fast_feasible_sequence(
     # but their installed axial lengths are deliberately out of scope.
     # Force per-bend virtual extrusion WITHOUT mutating user tooling.
     virtual_length = True
+    from copy import copy
+    # All pipeline stages see identical virtual-length tool settings.
+    # Preserve original selected profiles; do not mutate the operator UI.
+    search_tooling = copy(tooling)
+    search_tooling.match_active_bend_length = True
+    search_tooling.punch_section_offsets_xm = ()
+    search_tooling.die_section_offsets_xm = ()
 
     if planar_runner is None:
         from .sequence_search_2d import search_bend_sequences_2d
@@ -340,7 +347,7 @@ def search_fast_feasible_sequence(
                   progress_callback("REVERSE_AABB", done, total, bend))
                  if progress_callback else None,
         clock=clock,
-        tooling=tooling,
+        tooling=search_tooling,
         virtual_tool_length=True,
     )
     reverse_data = reverse.to_dict()
@@ -371,7 +378,7 @@ def search_fast_feasible_sequence(
         if progress_callback is not None:
             progress_callback("PLANAR_2D", 0, len(order), "")
         report = planar_runner(
-            session, tooling,
+            session, search_tooling,
             max_solutions=max_candidates,
             max_complete_candidates=max_candidates * 3,
             max_nodes=4000,
@@ -489,7 +496,7 @@ def search_fast_feasible_sequence(
                     progress_callback("NATIVE_BEND", position, total, bend)
 
             native = native_runner(
-                native_session, tooling, seq,
+                native_session, search_tooling, seq,
                 match_active_bend_length=virtual_length,
                 allow_end_zone_collision=False,
                 end_zone_length_mm=0.0,
@@ -545,7 +552,7 @@ def search_fast_feasible_sequence(
                 if progress_callback is not None:
                     progress_callback("NATIVE_RETRY", i + 1, len(candidates), seq[0])
                 native = native_runner(
-                    native_session, tooling, seq,
+                    native_session, search_tooling, seq,
                     match_active_bend_length=virtual_length,
                     allow_end_zone_collision=False,
                     end_zone_length_mm=0.0,
