@@ -29,7 +29,7 @@ class MeshScreenStats:
             "panel_meshes": self.panel_meshes,
             "triangles": self.triangles,
             "missing_panels": list(self.missing_panels),
-            "method": "TESSSELLATED_FACE_TRIANGULAR_PRISMS_SAT_RANKING_ONLY",
+            "method": "TESSELLATED_FACE_BVH_PRISM_SAT_RANKING_ONLY",
         }
 
 
@@ -153,21 +153,71 @@ def transformed_prisms(mesh, transform, thickness):
     return tuple(result)
 
 
-def approximate_overlap_count(prisms_a, prisms_b, *, limit=40,
-                              deadline=None, clock=None):
-    """Count probable triangle-prism intersections; capped for bounded work.
+def build_bvh(prisms, *, leaf_size=8):
+    """Build a balanced AABB hierarchy from an already transformed mesh."""
+    if not prisms:
+        return None
 
-    The output is a ranking penalty, NOT a collision/no-collision verdict.
-    """
+    def _make(indices):
+        extents = tuple(
+            min(prisms[i][0][k] for i in indices) for k in range(3)
+        ) + tuple(
+            max(prisms[i][0][k] for i in indices) for k in range(3)
+        )
+        if len(indices) <= leaf_size:
+            return (extents, None, None, tuple(indices))
+        widths = [extents[k+3] - extents[k] for k in range(3)]
+        split_axis = max(range(3), key=lambda k: widths[k])
+        sorted_indices = sorted(
+            indices,
+            key=lambda i: prisms[i][0][split_axis]
+                          + prisms[i][0][split_axis+3],
+        )
+        middle = len(sorted_indices)//2
+        return (extents,
+                _make(sorted_indices[:middle]),
+                _make(sorted_indices[middle:]),
+                ())
+
+    return _make(tuple(range(len(prisms))))
+
+
+def approximate_overlap_count(prisms_a, prisms_b, *, limit=40,
+                              deadline=None, clock=None,
+                              bvh_a=None, bvh_b=None):
+    """BVH -> triangle-prism SAT ranking; never a physical verdict."""
+    if not prisms_a or not prisms_b:
+        return 0
+    a = bvh_a if bvh_a is not None else build_bvh(prisms_a)
+    b = bvh_b if bvh_b is not None else build_bvh(prisms_b)
+    stack = [(a, b)]
     count = 0
-    for box_a, tri_a in prisms_a:
-        for box_b, tri_b in prisms_b:
-            if deadline is not None and clock is not None and clock() >= deadline:
-                return count
-            if not _aabb_overlap(box_a, box_b):
-                continue
-            if prisms_intersect(tri_a, tri_b):
-                count += 1
-                if count >= limit:
-                    return count
+    while stack:
+        if deadline is not None and clock is not None and clock() >= deadline:
+            return count
+        node_a, node_b = stack.pop()
+        if not _aabb_overlap(node_a[0], node_b[0]):
+            continue
+        left_a, right_a, indices_a = node_a[1:]
+        left_b, right_b, indices_b = node_b[1:]
+        if indices_a and indices_b:
+            for i in indices_a:
+                box_a, tri_a = prisms_a[i]
+                for j in indices_b:
+                    box_b, tri_b = prisms_b[j]
+                    if not _aabb_overlap(box_a, box_b):
+                        continue
+                    if prisms_intersect(tri_a, tri_b):
+                        count += 1
+                        if count >= limit:
+                            return count
+        elif indices_a:
+            stack.extend((node_a, x) for x in (left_b, right_b) if x)
+        elif indices_b:
+            stack.extend((x, node_b) for x in (left_a, right_a) if x)
+        else:
+            stack.extend(
+                (x, y) for x in (left_a, right_a) if x
+                for y in (left_b, right_b) if y
+            )
     return count
