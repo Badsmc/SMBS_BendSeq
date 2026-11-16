@@ -1,0 +1,28 @@
+name: Axis staged experimental unit tests
+
+on:
+  push:
+    branches:
+      - experiment/axis-staged-2d-mesh-20261116
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pure-python:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Compile experimental search and GUI source
+        run: |
+          python -m py_compile smbs_core/kinematics2d/axis_staged_experiment.py
+          python -m py_compile smbs_core/kinematics2d/axis_staged_broadphase_3d.py
+          python -m py_compile freecad_smbs/commands/pressbrake_2d.py
+          python -m py_compile tests/test_axis_staged_experiment.py
+      - name: Run isolated axis staged tests
+        run: PYTHONPATH=. python -m unittest discover -s tests -p test_axis_staged_experiment.py -v
