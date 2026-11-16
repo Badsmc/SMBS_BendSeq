@@ -120,14 +120,23 @@ class AxisStagedReport:
     def as_planar_report(self):
         """Existing sequence-selection UI accepts the standard 2D report."""
         from .sequence_search_2d import PlanarSearchReport, PlanarSearchStatus
+        blocked = {
+            tuple(item.get("sequence", ()))
+            for item in self.occ_results
+            if item.get("status") == "COLLISION"
+        }
+        selectable = tuple(
+            c for c in self.finalists
+            if tuple(c.sequence) not in blocked
+        )
         status = (PlanarSearchStatus.SAMPLED_2D_CANDIDATES
                   if any(c.evidence == "SAMPLED_2D_CLEAR_OR_TOUCH"
-                         for c in self.finalists)
+                         for c in selectable)
                   else PlanarSearchStatus.UNVERIFIED_CANDIDATES
-                  if self.finalists else PlanarSearchStatus.LIMIT_REACHED
+                  if selectable else PlanarSearchStatus.LIMIT_REACHED
                   if self.limit_reason else PlanarSearchStatus.EXHAUSTED)
         return PlanarSearchReport(
-            status=status, candidates=self.finalists,
+            status=status, candidates=selectable,
             evaluated_steps=self.evaluated_steps, visited_nodes=0,
             elapsed_s=self.elapsed_s,
             rejected_2d_interferences=self.blocked_2d,
@@ -367,8 +376,22 @@ def search_axis_staged(
                                           else config.exploratory_strokes),
                         deadline_monotonic=deadline,
                     )
+                    evidence = _classify_step(b)
+                    # A punch-only planar overlap may live exclusively
+                    # inside operator-enabled axial end relief, which this
+                    # 2D plane cannot decide. Defer ONLY that case to OCC.
+                    if (evidence == "2D_INTERFERENCE"
+                            and config.allow_end_zone_collision):
+                        overlaps = [
+                            finding for finding in b.diagnostic_findings
+                            if str(finding[3]).upper() == "INTERFERENCE"
+                        ]
+                        if overlaps and all(
+                                str(finding[1]).upper() == "PUNCH"
+                                for finding in overlaps):
+                            evidence = "UNVERIFIED_2D_PUNCH_ENDS_NEEDS_3D"
                     step = PlanarStep(
-                        bid, _classify_step(b), b.reason,
+                        bid, evidence, b.reason,
                         tuple(b.sampled_phases), tuple(b.contact_statuses),
                         setup=setup, backgauge_checked=b.backgauge_checked,
                         diagnostic_findings=b.diagnostic_findings,
@@ -457,7 +480,7 @@ def search_axis_staged(
                     tuple(i.sequence for i in items),
                 ),
             )[:config.axis_combinations]
-            seen_orders = set()
+            seen_orders = set()  # include loading orientation, not order alone
             for selected_index, selected in enumerate(selections):
                 if limit or len(all_candidates) >= config.full_candidates:
                     break
@@ -503,7 +526,10 @@ def search_axis_staged(
                     if not frontier or limit:
                         break
                 for positions, seq, steps, _cost in frontier:
-                    if len(seq) != len(bend_ids) or seq in seen_orders:
+                    identity = (
+                        seq, tuple(s.orientation_variant for s in steps)
+                    )
+                    if len(seq) != len(bend_ids) or identity in seen_orders:
                         continue
                     # Full-density replay is required before a candidate
                     # may be offered to the 3D stage.
@@ -518,7 +544,7 @@ def search_axis_staged(
                         replay.append(check)
                     if len(replay) != len(seq):
                         continue
-                    seen_orders.add(seq)
+                    seen_orders.add(identity)
                     unverified = sum(
                         s.evidence != "SAMPLED_2D_CLEAR_OR_TOUCH"
                         for s in replay
