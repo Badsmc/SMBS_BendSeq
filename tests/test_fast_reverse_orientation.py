@@ -12,6 +12,15 @@ from smbs_core.kinematics2d.reverse_aabb_search import (
 
 
 class ReverseOrientationTests(unittest.TestCase):
+    def test_phase_budget_spreads_bounded_search_across_orders(self):
+        from smbs_core.kinematics2d.fast_feasible_search import (
+            _default_sampling_config,
+        )
+        cfg = _default_sampling_config(600.0, 10, 40.0)
+        self.assertLessEqual(cfg.max_phase_time_s, 18.0)
+        self.assertGreaterEqual(cfg.max_phase_time_s, 2.0)
+        self.assertFalse(cfg.coarse_occ_screen)
+
     def test_unverified_middle_bend_is_moved_later_before_pose_retry(self):
         order = ("B09", "B10", "B08", "B07", "B06", "B05")
         state = SimpleNamespace(bends={bid: object() for bid in order})
