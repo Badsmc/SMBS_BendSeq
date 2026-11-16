@@ -295,7 +295,11 @@ def search_reverse_aabb(
     heappush(heap, (len(order), 0.0, serial, 0, (), None))
     max_nodes = 12000
     discovery_target = min(len(order), max(max_candidates * 3, max_candidates))
-    while heap and clock() < deadline and len(candidates) < discovery_target:
+    # Preserve up to 30s for loading/ranking selected machine tooling.
+    discovery_deadline = (deadline - min(30.0, float(budget_s) * 0.35)
+                          if tooling is not None else deadline)
+    while (heap and clock() < discovery_deadline
+           and len(candidates) < discovery_target):
         _, penalty, _, mask, path, root = heappop(heap)
         cache_key = (root, mask)
         count = visit_counts.get(cache_key, 0)
@@ -323,7 +327,7 @@ def search_reverse_aabb(
         if len(visit_counts) >= max_nodes:
             break
         for bid in order:
-            if clock() >= deadline:
+            if clock() >= discovery_deadline:
                 break
             bit = 1 << indexed[bid]
             if mask & bit:
