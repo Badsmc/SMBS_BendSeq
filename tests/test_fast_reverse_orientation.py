@@ -450,6 +450,54 @@ class ReverseOrientationTests(unittest.TestCase):
         self.assertTrue(tooling.allow_end_zone_collision)
         self.assertFalse(tooling.match_active_bend_length)
 
+    def test_left_and_right_punch_end_zones_are_separate_10mm_each(self):
+        from smbs_core.kinematics2d.native_collision_3d import (
+            _classify_validated_punch_overlap_zones,
+            PunchCollisionZoneClassification,
+        )
+        def bb(x0, x1):
+            return SimpleNamespace(
+                XMin=x0, XMax=x1, YMin=-1.0, YMax=1.0,
+                ZMin=0.0, ZMax=2.0,
+            )
+        punch = SimpleNamespace(BoundBox=bb(-250.0, 250.0))
+        sheet = SimpleNamespace()
+        def common(solids):
+            return SimpleNamespace(
+                Volume=sum(sol.Volume for sol in solids),
+                Solids=solids,
+            )
+        left = SimpleNamespace(Volume=3.0, BoundBox=bb(-245.0, -243.0))
+        right = SimpleNamespace(Volume=4.0, BoundBox=bb(243.0, 245.0))
+        both = _classify_validated_punch_overlap_zones(
+            sheet, punch, 10.0, _precomputed_common=common([left, right]),
+        )
+        self.assertEqual(
+            both.classification,
+            PunchCollisionZoneClassification.END_ZONE_ONLY,
+        )
+        self.assertEqual(both.left_end_zone_xm, (-250.0, -240.0))
+        self.assertEqual(both.right_end_zone_xm, (240.0, 250.0))
+        self.assertEqual(both.central_zone_xm, (-240.0, 240.0))
+        self.assertEqual(set(both.affected_sides), {"LEFT", "RIGHT"})
+        center = SimpleNamespace(Volume=5.0, BoundBox=bb(-2.0, 2.0))
+        forbidden = _classify_validated_punch_overlap_zones(
+            sheet, punch, 10.0,
+            _precomputed_common=common([left, center, right]),
+        )
+        self.assertEqual(
+            forbidden.classification,
+            PunchCollisionZoneClassification.MIXED_CENTRAL_AND_END_ZONE,
+        )
+        too_short = _classify_validated_punch_overlap_zones(
+            sheet, punch, 250.0,
+            _precomputed_common=common([left, right]),
+        )
+        self.assertEqual(
+            too_short.classification,
+            PunchCollisionZoneClassification.UNCLASSIFIED,
+        )
+
     def test_phase_budget_spreads_bounded_search_across_orders(self):
         from smbs_core.kinematics2d.fast_feasible_search import (
             _default_sampling_config,
