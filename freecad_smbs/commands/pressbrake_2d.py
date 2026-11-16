@@ -2080,6 +2080,30 @@ class _PreviewPanel:
                 # The native toolbar command runs the search; this section
                 # displays its description/results without a duplicate button.
                 self.planar_calculate.hide()
+                # Opt-in research workflow. The established toolbar 2D
+                # search stays intact. BBox is only a ranking prefilter;
+                # the checkbox makes adaptive OCC explicit and optional.
+                self.axis_staged_button = _button(
+                    QtWidgets, "Эксперимент: поиск по осям (2D → 3D)",
+                    self.calculate_axis_staged_candidates, False,
+                )
+                self.axis_staged_button.setToolTip(
+                    "Отдельные группы осей → варианты с разворотами и весами "
+                    "→ объединение и повторная 2D-проверка всего листа "
+                    "→ консервативный 3D BBox → пять кандидатов для OCC. "
+                    "Не заменяет проверку на реальном станке."
+                )
+                planar_body.addWidget(self.axis_staged_button)
+                self.axis_staged_occ_checkbox = QtWidgets.QCheckBox(
+                    "Проверить до 5 финалистов полным 3D OCC (медленно)"
+                )
+                self.axis_staged_occ_checkbox.setChecked(False)
+                self.axis_staged_occ_checkbox.setToolTip(
+                    "Адаптивная дискретная D6-проверка для пяти 2D кандидатов. "
+                    "Может быть очень медленной. Даже полный набор успешных "
+                    "выборок НЕ сертифицирует непрерывное движение или станок."
+                )
+                planar_body.addWidget(self.axis_staged_occ_checkbox)
                 planar_layout.addWidget(planar_card)
                 planar_layout.addStretch(1)
                 self._page_planar = scroll_task_page(
@@ -4030,6 +4054,143 @@ class _PreviewPanel:
                     self._set_task_busy(False)
                     self._sync_playback_buttons()
 
+            def calculate_axis_staged_candidates(self):
+                """Opt-in axis-staged 2D search; no changes to legacy commands."""
+                if self.session is None or not self.session.bend_order:
+                    self.status.setText("Сначала загрузите деталь.")
+                    return
+                if (self.timer.isActive()
+                        or self.session.playback_status == PlaybackStatus.PLAYING):
+                    self.status.setText("Перед поиском остановите симуляцию.")
+                    return
+                if (self.tooling_setup.punch is None
+                        or self.tooling_setup.die is None):
+                    self.status.setText(
+                        "Для поиска по осям нужны реальные профили пуансона и матрицы."
+                    )
+                    return
+                self.axis_staged_button.setEnabled(False)
+                self._set_task_busy(True)
+                try:
+                    import json
+                    from datetime import datetime
+                    from smbs_core.kinematics2d.axis_staged_search import (
+                        AxisStageConfig, search_axis_staged,
+                    )
+                    has_sections = bool(
+                        getattr(self.tooling_setup, "punch_section_offsets_xm", ())
+                        or getattr(self.tooling_setup, "die_section_offsets_xm", ())
+                    )
+                    cfg = AxisStageConfig(
+                        planar_budget_s=180.0, finalists=5,
+                        match_active_bend_length=not has_sections,
+                        allow_end_zone_collision=bool(
+                            self.tooling_setup.allow_end_zone_collision
+                        ),
+                        end_zone_length_mm=float(
+                            self.tooling_setup.end_zone_length_mm
+                        ),
+                        allow_retract_warning=bool(
+                            self.retract_warning_checkbox.isChecked()
+                        ),
+                    )
+                    run_occ = bool(self.axis_staged_occ_checkbox.isChecked())
+                    self._trace_event(
+                        "AXIS_STAGED_SEARCH_REQUESTED",
+                        bend_order=list(self.session.bend_order),
+                        run_occ=run_occ,
+                        config=vars(cfg),
+                    )
+
+                    def progress(stage, count, total, detail):
+                        self.status.setText(
+                            "Оси/2D/3D: {} ({}/{}) {}".format(
+                                stage, count, total, detail
+                            )
+                        )
+                        QtWidgets.QApplication.processEvents()
+
+                    report = search_axis_staged(
+                        self.session, self.tooling_setup, config=cfg,
+                        weights=self._selected_operation_weights(),
+                        run_occ=run_occ, progress_callback=progress,
+                    )
+                    self.last_axis_staged_search_report = report
+                    self._last_planar_weights = (
+                        self._selected_operation_weights().to_dict()
+                    )
+                    preview = report.as_planar_report()
+                    self.last_planar_search_report = preview
+                    output_path = None
+                    try:
+                        output_path = (
+                            _debug_desktop_directory()
+                            / ("SMBS_axis_staged_search_"
+                               + datetime.now().strftime("%Y%m%d-%H%M%S")
+                               + ".json")
+                        )
+                        output_path.write_text(
+                            json.dumps(report.to_dict(), ensure_ascii=False,
+                                       indent=2, default=str),
+                            encoding="utf-8",
+                        )
+                    except Exception as write_exc:
+                        self._trace_event(
+                            "AXIS_STAGED_JSON_SAVE_FAILED",
+                            error=str(write_exc),
+                        )
+                    self._trace_event(
+                        "AXIS_STAGED_SEARCH_COMPLETED",
+                        **report.to_dict(),
+                        diagnostic_path=(
+                            str(output_path) if output_path is not None
+                            and output_path.is_file() else None
+                        ),
+                    )
+                    for candidate in self._complete_planar_candidates(preview):
+                        directions = {
+                            item.bend_id: item.orientation_variant.startswith(
+                                "REVERSE_MACHINE_Z_180"
+                            ) for item in candidate.steps
+                        }
+                        if set(directions) != set(candidate.sequence):
+                            continue
+                        entry = {
+                            "bend_ids": list(candidate.sequence),
+                            "orientation_by_bend": directions,
+                            "origin": "AXIS_STAGED_EXPERIMENT",
+                            "evidence": str(candidate.evidence),
+                        }
+                        if entry not in self._saved_full_sequences:
+                            self._saved_full_sequences.append(entry)
+                    self._saved_full_sequences = self._saved_full_sequences[-32:]
+                    self.status.setText(
+                        "Поиск по осям: {} полных 2D вариантов, "
+                        "{} лучших для OCC; 3D результаты: {}. "
+                        "Это НЕ сертификат безопасной гибки.".format(
+                            len(report.candidates), len(report.finalists),
+                            len(report.occ_results),
+                        )
+                    )
+                    if self._complete_planar_candidates(preview):
+                        self._show_planar_candidates_dialog(preview)
+                    else:
+                        QtWidgets.QMessageBox.information(
+                            self, "SMBS — поиск по осям",
+                            "Ни один полный вариант не доступен для выбора. "
+                            "Причины и промежуточные последовательности "
+                            "сохранены в JSON на рабочем столе. "
+                            "Проверка не доказывает невозможность гибки.",
+                        )
+                except Exception as exc:
+                    self.status.setText(
+                        "Экспериментальный поиск не выполнен: " + str(exc)
+                    )
+                    _error("Axis staged search: " + traceback.format_exc())
+                finally:
+                    self._set_task_busy(False)
+                    self._sync_playback_buttons()
+
             def open_sequence_catalog_dialog(self):
                 from freecad_smbs.commands.sequence_catalog_dialog import show_sequence_catalog
                 show_sequence_catalog(self)
@@ -5229,6 +5390,7 @@ class _PreviewPanel:
                     self.restore_order_btn.setEnabled(False)
                     self.calculate.setEnabled(False)
                     self.planar_calculate.setEnabled(False)
+                    self.axis_staged_button.setEnabled(False)
                     return
                 st = self.session.playback_status
                 self._update_task_progress()
@@ -5236,6 +5398,7 @@ class _PreviewPanel:
                 bend_order = getattr(self.session, "bend_order", [])
                 self.calculate.setEnabled(not self.playing and len(bend_order) > 1)
                 self.planar_calculate.setEnabled(not self.playing and len(bend_order) > 0)
+                self.axis_staged_button.setEnabled(not self.playing and len(bend_order) > 0)
                 if st == PlaybackStatus.PLAYING:
                     self.play_btn.setText("Pause")
                     icon_name = "control_pause.svg"
