@@ -24,7 +24,7 @@ from typing import Any, Callable, Optional
 class FastSearchStatus(str, Enum):
     SAMPLED_TOOL_CLEAR = "SAMPLED_3D_TOOL_CLEAR_MACHINE_UNVERIFIED"
     VIRTUAL_SAMPLED_CLEAR = "VIRTUAL_SAMPLED_3D_CLEAR_PHYSICAL_TOOL_LENGTH_UNVERIFIED"
-    FIVE_POINT_NO_DETECTED_COLLISION = "FIVE_POINT_NATIVE_OCC_CLEARANCE_UNVERIFIED"
+    TWO_POINT_NO_DETECTED_COLLISION = "TWO_ENDPOINT_NATIVE_OCC_CLEARANCE_UNVERIFIED"
     TIME_BUDGET_REACHED = "TIME_BUDGET_REACHED_UNVERIFIED"
     PLANAR_ONLY = "PLANAR_CANDIDATES_NOT_NATIVE_VALIDATED"
     NATIVE_REJECTED = "NATIVE_CANDIDATES_REJECTED_OR_UNVERIFIED"
@@ -82,8 +82,8 @@ class FastSequenceResult:
         return self.status is FastSearchStatus.VIRTUAL_SAMPLED_CLEAR
 
     @property
-    def five_point_no_detected_collision(self) -> bool:
-        return self.status is FastSearchStatus.FIVE_POINT_NO_DETECTED_COLLISION
+    def two_point_no_detected_collision(self) -> bool:
+        return self.status is FastSearchStatus.TWO_POINT_NO_DETECTED_COLLISION
 
     @property
     def machine_feasible_certified(self) -> bool:
@@ -113,7 +113,7 @@ class FastSequenceResult:
             "planar_deepest_prefix": list(self.planar_deepest_prefix),
             "sampled_tool_clear": self.sampled_tool_clear,
             "virtual_tool_clear": self.virtual_tool_clear,
-            "five_point_no_detected_collision": self.five_point_no_detected_collision,
+            "two_point_no_detected_collision": self.two_point_no_detected_collision,
             "machine_feasible_certified": self.machine_feasible_certified,
             "continuous_motion_certified": False,
             "backgauge_frame_clamps_transfer_checked": False,
@@ -238,15 +238,15 @@ def _native_result_is_qualified(physical, sequence, expected_orientation=None, *
     return True
 
 
-def _coarse_five_point_candidate(physical, sequence, orientation):
-    """Five-angle OCC precheck: no proven collision at sampled states.
+def _coarse_endpoint_candidate(physical, sequence, orientation):
+    """Two-endpoint OCC precheck: no proven collision at sampled states.
 
     Explicitly UNVERIFIED between samples. A native top-level UNVERIFIED
     is expected, never interpreted as full D6 convergence.
     """
     if not isinstance(physical, dict):
         return False
-    if physical.get("validation_mode") != "COARSE_OCC_5_BEND_ANGLES":
+    if physical.get("validation_mode") != "COARSE_OCC_2_BEND_ENDPOINTS":
         return False
     if not physical.get("complete_part_order_requested"):
         return False
@@ -280,13 +280,13 @@ def _coarse_five_point_candidate(physical, sequence, orientation):
 def _default_sampling_config(remaining_s, bend_count, clearance_mm):
     from .motion_trajectory_3d import AdaptiveSamplingConfig
 
-    # Five-angle OCC mode uses fixed discrete samples. Dividing by
+    # Two-endpoint OCC mode uses fixed discrete samples. Dividing by
     # 5*bend_count previously gave ~0.9s per phase on ten-bend parts.
     # Incomplete trajectories remain UNVERIFIED, never silently cleared.
     # The 600s experimental mode must not keep the old 6s cap: BENDING
     # repeatedly needed more than 9s even for the first bend. Bound the
     # per-phase allowance by the global deadline, never certify timeout.
-    # The 5-point approach avoids adaptive recursive interval subdivision.
+    # The two-endpoint mode avoids recursive interval subdivision.
     # Keep phase limits bounded: an OCC kernel call itself cannot be interrupted.
     phase_limit = max(2.0, min(40.0, remaining_s * 0.10))
     return AdaptiveSamplingConfig(
@@ -296,6 +296,7 @@ def _default_sampling_config(remaining_s, bend_count, clearance_mm):
         max_recursion_depth=2,
         component_reject_enabled=True,  # reject only: never certifies clear
         coarse_occ_screen=True,
+        coarse_occ_bending_fractions=(0.0, 1.0),
     )
 
 
@@ -591,8 +592,8 @@ def search_fast_feasible_sequence(
             message="Полный порядок за бюджет 2D-поиска не найден. Это не доказывает невозможность гибки.",
         )
 
-    # Native geometry reused across independent five-angle OCC replays.
-    # This stage is only a sampled collision screen, not full D6.
+    # Native geometry reused across independent endpoint OCC replays.
+    # This stage is only an endpoint collision screen, not full D6.
     from .native_sequence_geometry_cache import NativeSequenceGeometryCache
     geometry_cache = NativeSequenceGeometryCache(max_full_sheets=16)
     verified_step_cache = {}
@@ -639,7 +640,7 @@ def search_fast_feasible_sequence(
             status = str(native.get("status", "UNVERIFIED"))
             reason = str(native.get("reason", ""))
             checked = int(native.get("checked_bends", 0))
-            qualified = _coarse_five_point_candidate(
+            qualified = _coarse_endpoint_candidate(
                 native, seq, dict(orientation)
             )
         except Exception as exc:
@@ -684,14 +685,14 @@ def search_fast_feasible_sequence(
                                    failed_bend)
                     new_variants.append((
                         tuple(shifted), orientation,
-                        "FIVE_POINT_UNRESOLVED_BEND_DELAYED_UNVERIFIED",
+                        "TWO_ENDPOINT_UNRESOLVED_BEND_DELAYED_UNVERIFIED",
                         "NATIVE_ORDER_VARIANT",
                     ))
                 flipped = dict(orientation)
                 flipped[failed_bend] = not flipped.get(failed_bend, False)
                 new_variants.append((
                     seq, tuple(sorted(flipped.items())),
-                    "FIVE_POINT_UNRESOLVED_POSE_RETRY_UNVERIFIED",
+                    "TWO_ENDPOINT_UNRESOLVED_POSE_RETRY_UNVERIFIED",
                     "NATIVE_POSE_VARIANT",
                 ))
                 added = []
@@ -717,16 +718,16 @@ def search_fast_feasible_sequence(
                     available_sequences = tuple(x[0] for x in candidates)
         if qualified:
             return result(
-                FastSearchStatus.FIVE_POINT_NO_DETECTED_COLLISION, sequence=seq,
+                FastSearchStatus.TWO_POINT_NO_DETECTED_COLLISION, sequence=seq,
                 orientations=orientation, candidates=available_sequences,
                 attempts=attempts, winning_steps=tuple(native["steps"]),
                 planar_elapsed=planar_elapsed,
                 planar_status=planar_status, planar_limit=planar_limit,
                 deepest=deepest,
                 message=(
-                    "Полный порядок прошёл OCC в пяти углах каждого гиба "
-                    "(0/25/50/75/100%). В проверенных точках коллизий "
-                    "не обнаружено. ПРОМЕЖУТКИ МЕЖДУ ТОЧКАМИ НЕ ПРОВЕРЕНЫ. "
+                    "Полный порядок прошёл OCC в двух углах каждого гиба "
+                    "(0/100%). В проверенных точках коллизий "
+                    "не обнаружено. ПРОМЕЖУТОК 0–100% НЕ ПРОВЕРЕН. "
                     "Реальные профили с виртуальной длиной; упоры и рама "
                     "не проверялись."
                 ),
