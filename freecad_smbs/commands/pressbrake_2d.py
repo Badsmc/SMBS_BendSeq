@@ -4100,7 +4100,7 @@ class _PreviewPanel:
                 buttons.accepted.connect(dlg.accept)
                 buttons.rejected.connect(dlg.reject)
                 layout.addWidget(buttons)
-                if dlg.exec_() == QtWidgets.QDialog.Accepted:
+                if dlg.exec() == QtWidgets.QDialog.Accepted:
                     self._axis_experiment_bend_weights = {
                         bid: float(spin.value())
                         for bid, spin in editors.items()
