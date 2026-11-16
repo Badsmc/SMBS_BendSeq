@@ -168,8 +168,16 @@ def score_candidate_machine(
                 }
                 state.angles = angles
                 state.transforms = state._compute_transforms(angles)
+                zone = getattr(bend, "bend_zone", None)
+                support_z = float(getattr(zone, "outer_radius_mm", 0.0) or 0.0)
+                # Match the authoritative D6 placement contract:
+                # bisector and actual curved bend-center alignment.
                 placement = WorkpiecePlacement3D.compute_placement(
-                    state, bid, reverse_axis=reversed_axis,
+                    state, bid,
+                    support_plane_zm=support_z,
+                    align_bisector=True,
+                    align_bend_arc_center=True,
+                    reverse_axis=reversed_axis,
                 )
                 # Tool envelope follows the fixed punch/die machine axes.
                 machine_tools = (
