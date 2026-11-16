@@ -396,3 +396,43 @@ Corrections committed after this log:
 These changes are not yet validated in the running Windows FreeCAD
 instance. The search algorithm does not guarantee a globally optimal
 or manufacturing-qualified sequence.
+
+## 2026-11-16 11:16:38: invalid operator-facing sequence report
+
+User rejected the returned sequence as unworkable. The attached log is
+`SMBS_debug_log(20261116-111638).json`, loaded at 11:07 UTC.
+
+FACTS from this log:
+
+- Reverse A* considered 5,121 visited subset states, 64,990 transitions,
+  scored 3 full sequences. `machine_screen_pairs=2970` and
+  `mesh_overlap_tests=0`. AABB / tool-profile scores are
+  **noncertifying** and were misleading as an "optimal" result.
+- Fast search took 441.8425 s and performed 8 independent D6 attempts.
+  Every D6 result was UNVERIFIED. No complete all-bend native clearance
+  existed; maximum reached step was 3/10.
+- D6 converged B10 and B09 for the top-ranked sequence, then failed to
+  converge B08 BENDING (no PROVEN_BLOCKING collision). Other attempts
+  moved the unresolved point to B07 or B06, or failed on B10/B08 early.
+- Nevertheless the old UI emitted `FAST_FEASIBLE_PREVIEW_ADOPTED`
+  with `B10 B09 B08 B07 B06 B05 B04 B03 B02 B01`. User verified this
+  sequence was unworkable.
+
+Corrections:
+
+1. **Never** automatically replace the current bend order / play / save
+   an unverified A*-only sequence. It stays a visibly labeled candidate
+   in the search panel. The GUI emits
+   `FAST_FEASIBLE_CANDIDATES_NOT_ADOPTED`.
+2. Search generates more forward-prefix-diverse A* full-order
+   candidates, rather than one per first bend.
+3. An existing operator-selected complete order is also run through
+   D6 as a distinct candidate even when A* returned others.
+4. Add regression tests for the operator seed and for the explicit
+   separation between incomplete native evidence and qualified results.
+
+The above is a correctness/UX safeguard and a broader candidate search,
+NOT a newly proved feasible 10-bend order. The real solution still
+requires per-bend geometry-valid successor transitions and a runtime
+3D verification strategy that does not repeatedly hit OCC BENDING
+timeouts. Any false implication of optimality must be rejected.
