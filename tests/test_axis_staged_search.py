@@ -129,6 +129,40 @@ class AxisStagedTests(unittest.TestCase):
         self.assertTrue(all(c.cost >= 14.0 for c in with_pair))
         self.assertTrue(all(c.cost >= 3.0 for c in result.candidates))
 
+    def test_bend_transition_multiplier_changes_full_order_cost(self):
+        session, tooling = fixture()
+        bbox = lambda c: {"overlapping_pairs": 0}
+        original = search_axis_staged(
+            session, tooling, config=config(),
+            step_checker=mock_step, bbox_checker=bbox,
+        )
+        weighted = search_axis_staged(
+            session, tooling, config=config(),
+            step_checker=mock_step, bbox_checker=bbox,
+            per_bend_transition_multiplier={"B2": 4.0},
+            axis_change_cost=3.0,
+        )
+        self.assertTrue(weighted.candidates)
+        self.assertEqual(
+            weighted.to_dict()["cost_weights"]["transition_multiplier"],
+            {"B2": 4.0},
+        )
+        self.assertEqual(
+            weighted.to_dict()["cost_weights"]["axis_change_cost"], 3.0
+        )
+        self.assertTrue(any(
+            step["bend_id"] == "B2"
+            and step["transition_multiplier"] == 4.0
+            for c in weighted.candidates
+            for step in c.cost_breakdown
+        ))
+        for candidate in weighted.candidates:
+            self.assertAlmostEqual(
+                candidate.cost,
+                sum(item["step_total"] for item in candidate.cost_breakdown),
+            )
+        self.assertTrue(original.candidates)
+
     def test_one_loading_collision_does_not_ban_other_orientations(self):
         session, tooling = fixture()
         result = search_axis_staged(
