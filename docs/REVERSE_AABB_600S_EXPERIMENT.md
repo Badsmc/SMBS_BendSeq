@@ -515,3 +515,42 @@ The change is committed and covered by the five-angle classification
 and integration regression tests, but not yet measured with the user's
 FreeCAD/Windows OCC runtime. Therefore a <1–3 minute total runtime is
 a target, not a benchmarked result.
+
+## Automatic endpoint-only OCC experiment, 1000-second budget (2026-11-16)
+
+Requested change: replace five bend-angle samples
+`(0.0, 0.25, 0.5, 0.75, 1.0)` in the automatic search with
+**`(0.0, 1.0)`** (start and target angle), and increase the
+one-click total search time budget from **600 s to 1000 s**.
+
+Implementation:
+- `AdaptiveSamplingConfig.coarse_occ_bending_fractions` is now
+  explicit; default remains the existing five-angle sampling for
+  independent manual diagnostics.
+- Automatic `fast_feasible_search` sets
+  `coarse_occ_screen=True` with
+  `coarse_occ_bending_fractions=(0.0, 1.0)`.
+- APPROACH and RETRACT retain their existing
+  `(0.0, 0.5, 1.0)` ram-position samples; CONTACT and BOTTOM
+  retain their existing single sample.
+- The native result's `validation_mode` is
+  `COARSE_OCC_2_BEND_ENDPOINTS`. Only a complete report matching
+  the selected bend order and orientations, with
+  `COARSE_3D_NO_PROVEN_COLLISION` for each step, qualifies for
+  **`TWO_ENDPOINT_NATIVE_OCC_CLEARANCE_UNVERIFIED`**.
+- The FreeCAD search button, progress text, serialized request log,
+  and timeout message reflect the 1000-second and two-endpoint mode.
+  No other 600-second benchmark mode is modified.
+- Existing discrete-only caution still applies. A collision may
+  occur at an untested bend angle or ram position. The returned
+  sequence remains a **preliminary preview, not physically certified**.
+
+Source benchmark (new user log
+`SMBS_debug_log(20261116-115208).json`): previous 600 s
+run consumed 603.15 s total, including 229.80 s 2D search.
+Five native OCC order attempts were made. Four produced explicit
+`COLLISION` on B03 (two attempts reached B03 as their eighth
+operation), and the fifth was stopped by budget. This is a
+baseline, NOT evidence that endpoint-only sampling resolves B03.
+Re-run under the new source identity and compare evaluated OCC
+states, time and failures before claiming improvement.
