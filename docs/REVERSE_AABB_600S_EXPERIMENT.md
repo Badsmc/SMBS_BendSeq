@@ -111,3 +111,36 @@ This patch:
 Remaining work: measured production-quality swept BBox/OBB against the
 machine and an independent continuous collision/transfer proof. This
 experiment reports sampled-tool clearance at best, not machine approval.
+
+## A* + reusable mesh / BVH implementation (2026-11-16)
+
+- `reverse_mesh_screen.py`: triangulates each available FreeCAD panel
+  `Part.Face` once via `tessellate()`, with a per-panel triangle cap and
+  explicit fallback to AABB when triangulation is unavailable.
+- Retains local triangles; for sampled reverse-unbend intermediate poses,
+  uses the existing deterministic `FoldState` rigid transforms to construct
+  thin triangular prisms without OCC Booleans or shape transformations.
+- Each transformed pose has a bounded 48-entry LRU cache of triangle prisms
+  and binary AABB volume hierarchies (BVH).
+- Narrowphase uses convex triangular-prism separating-axis tests after BVH
+  overlap checks. Approximate interference **only affects ranking**;
+  it never rejects a transition or produces a physical CLEAR certificate.
+- Replaced the first-found reverse DFS with bounded A* queue exploration,
+  `g = number_of_unbends + nonnegative_interference_penalty` and
+  `h = remaining_bends`. Its heuristic is an admissible count lower bound
+  for this ranking cost, NOT a claim of machine-optimal manufacturability.
+- The native forward D6 validator still checks original FCStd punch/die
+  geometry and all sampled phases. The existing native `BoundBox` broadphase
+  remains the tool-pair filter; machine-space **mesh** collision screening,
+  continuous swept paths, clamp/frame/backgauge verification, and STEP import
+  are **not yet implemented** in this experiment.
+- Candidate slots now reserve capacity for explicit 180-degree flipped
+  loading alternatives instead of filling all slots with normal orientations.
+- CI workflow `.github/workflows/reverse-mesh-experiment.yml`
+  runs syntax compilation and pure-Python search/mesh tests on this branch.
+  Real FreeCAD tests and speedup benchmarks are still required.
+
+The 600-second overall experiment budget and 90-second reverse candidate
+generation soft limit remain unchanged. The next debug log will include
+`reverse_search.mesh_panels`, `mesh_triangles`, `mesh_overlap_tests`,
+and `search_mode` for confirming that actual FreeCAD triangulation ran.
