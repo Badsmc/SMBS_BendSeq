@@ -241,11 +241,11 @@ def _default_sampling_config(remaining_s, bend_count, clearance_mm):
     # The 600s experimental mode must not keep the old 6s cap: BENDING
     # repeatedly needed more than 9s even for the first bend. Bound the
     # per-phase allowance by the global deadline, never certify timeout.
-    # First pass is breadth-oriented. The 09:43 benchmark spent 260s
-    # on one candidate, while other permutations failed at a different
-    # fourth bend. Keep more of the 600s budget for genuinely distinct
-    # orders. This affects UNKNOWN verdicts only, not correctness.
-    phase_limit = max(2.0, min(18.0, remaining_s * 0.045))
+    # A hard 18-second per-phase cap made every D6 attempt stop at
+    # its FIRST BENDING in the 10:26 Windows benchmark. Restore a
+    # usable 40-second bound; preserve the separate candidate budget
+    # and avoid automatically repeating the same timed-out prefix.
+    phase_limit = max(2.0, min(40.0, remaining_s * 0.10))
     return AdaptiveSamplingConfig(
         initial_clearance_mm=clearance_mm,
         max_phase_time_s=phase_limit,
