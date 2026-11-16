@@ -194,3 +194,21 @@ bends, cache HIT counters and machine-screen diagnostics.
 Do not call the search manufacturing-ready unless a complete
 forward sequence with physically required setup/transfer constraints
 has been verified.
+
+## Adaptive pose retry following native D6 evidence
+
+The earlier candidate expansion hardcoded B08 and the first two bends. In
+the 08:37 Windows run it consumed limited 600s capacity on unrelated
+early-fold flips while B07 was the actual blocking/unresolved operation.
+The experiment now reserves D6 slots for *on-demand* pose alternatives:
+after a full candidate fails with UNVERIFIED, it identifies the first
+non-clear step by native D6 output, toggles ONLY that bend's 180-degree
+orientation, and schedules an independent replay. The modified variant
+is never auto-accepted; proven sampled clearance still requires every
+step plus tool-tool/retract evidence. The 600s budget and deduplication
+limit still apply.
+
+The machine envelope phase is only a cheap preliminary ranking. A
+zero-overlap result says nothing about uninspected swept trajectories or
+transfer/loading. Production-grade qualification also requires verified
+backgauge, ram/frame and clamp clearance and real tool length.
