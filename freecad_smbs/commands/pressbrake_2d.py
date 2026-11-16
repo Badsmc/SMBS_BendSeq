@@ -2086,7 +2086,7 @@ class _PreviewPanel:
                 planar_note = QtWidgets.QLabel(
                     "Нажмите «Найти последовательность»: программа автоматически "
                     "проверит геометрию детали, профиль пуансона и матрицы, "
-                    "ориентации и наиболее перспективные варианты в D6. "
+                    "ориентации и варианты через OCC по пяти углам на гиб. "
                     "Длина оснастки временно считается виртуальной."
                 )
                 planar_note.setWordWrap(True)
@@ -2103,9 +2103,9 @@ class _PreviewPanel:
                     "SMBS_FastFeasibleSearch"
                 )
                 self.fast_feasible_btn.setToolTip(
-                    "Автоматически: обратный A*/Mesh/BVH → реальный профиль "
+                    "Автоматически: 2D Stage A/B → реальные профили "
                     "выбранных пуансона и матрицы с виртуальной длиной "
-                    "под гиб → подбор ориентаций → D6 для кандидатов. "
+                    "под гиб → пять углов OCC на гиб (0/25/50/75/100%). "
                     "Бюджет мягкий; непрерывность, упоры и рама не подтверждаются."
                 )
                 self.fast_feasible_btn.setEnabled(False)
@@ -2114,8 +2114,8 @@ class _PreviewPanel:
                 )
                 planar_body.addWidget(self.fast_feasible_btn)
                 self.fast_feasible_info = QtWidgets.QLabel(
-                    "Единый поиск: быстрый отбор с формой оснастки, "
-                    "затем автоматическая выборочная 3D-проверка. "
+                    "Единый поиск: быстрый 2D Stage A/B с профилем оснастки, "
+                    "затем OCC по пяти точкам каждого гиба. "
                     "Длина виртуальная; непроверенные этапы явно обозначаются."
                 )
                 self.fast_feasible_info.setObjectName(
@@ -3886,7 +3886,7 @@ class _PreviewPanel:
                 self.planar_calculate.setEnabled(False)
                 self._set_task_busy(True)
                 self.status.setText(
-                    "A*/Mesh/BVH → профиль оснастки (виртуальная длина) → D6 (600 с)..."
+                    "2D Stage A/B → OCC (5 углов на гиб, виртуальная длина) (600 с)..."
                 )
                 self.fast_feasible_info.setText(
                     "Поиск выполняется. Найденные полные порядки "
@@ -3907,11 +3907,11 @@ class _PreviewPanel:
                         stage_label = {
                             "PLANAR_2D": "Быстрый 2D отбор",
                             "REVERSE_AABB": "Обратный A*/Mesh/BVH поиск",
-                            "NATIVE_START": "D6: проверка порядка",
-                            "NATIVE_BEND": "3D проверка гиба",
-                            "NATIVE_RETRY": "Уточняющая D6 проверка",
-                            "NATIVE_ORDER_VARIANT": "D6: новая последовательность",
-                            "NATIVE_POSE_VARIANT": "D6: разворот проблемного гиба",
+                            "NATIVE_START": "OCC 5 точек: проверка порядка",
+                            "NATIVE_BEND": "OCC 5 точек: гиб",
+                            "NATIVE_RETRY": "Повторная OCC проверка",
+                            "NATIVE_ORDER_VARIANT": "OCC: новая последовательность",
+                            "NATIVE_POSE_VARIANT": "OCC: разворот проблемного гиба",
                         }.get(stage, stage)
                         label = "{} {}/{}{}".format(
                             stage_label, done, total,
@@ -3982,12 +3982,12 @@ class _PreviewPanel:
                     )
                     if display_sequence:
                         complete_d6 = bool(
-                            report.sampled_tool_clear or report.virtual_tool_clear
+                            report.five_point_no_detected_collision
                         )
                         result_label = (
-                            "ВСЕ ГИБЫ ПРОШЛИ ВЫБОРОЧНЫЙ D6"
+                            "OCC: 5 УГЛОВ КАЖДОГО ГИБА БЕЗ НАЙДЕННЫХ КОЛЛИЗИЙ"
                             if complete_d6 else
-                            "НАЙДЕН ПОЛНЫЙ КАНДИДАТ — D6 НЕ ЗАВЕРШЁН"
+                            "КАНДИДАТ — OCC ПО ПЯТИ ТОЧКАМ НЕ ЗАВЕРШЁН"
                         )
                         result_lines = [
                             result_label,
@@ -4005,15 +4005,15 @@ class _PreviewPanel:
                             )
                         result_lines.extend([
                             "",
-                            ("Выборочный D6 прошёл все {} гибов."
+                            ("Пять углов OCC проверены для всех {} гибов."
                              .format(len(display_sequence)) if complete_d6
                              else
-                             "D6 дошёл до шага {} из {}; подтверждённость "
+                             "OCC дошёл до шага {} из {}; подтверждённость "
                              "этого шага НЕ установлена.".format(
                                 int(getattr(report, "preview_checked_bends", 0)),
                                 len(display_sequence),
                              )),
-                            "Попыток D6: {}. Время: {:.1f} с.".format(
+                            "Попыток OCC (5 точек): {}. Время: {:.1f} с.".format(
                                 len(report.attempts), report.elapsed_s
                             ),
                             ("Форма выбранной оснастки учитывается; "
@@ -4040,8 +4040,7 @@ class _PreviewPanel:
                     self.fast_feasible_info.setText(
                         summary + ". " + report.message_ru
                     )
-                    if (not (report.sampled_tool_clear
-                             or report.virtual_tool_clear)
+                    if (not report.five_point_no_detected_collision
                             or not report.sequence):
                         # Do not apply or autoplay a speculative order.
                         # Prior behavior automatically installed an A* rank
@@ -4051,7 +4050,7 @@ class _PreviewPanel:
                         if display_sequence:
                             self.status.setText(
                                 "Рабочая последовательность НЕ НАЙДЕНА: "
-                                "D6 не подтвердил все гибы. "
+                                "OCC не проверил все пять точек каждого гиба. "
                                 "Кандидаты и причины см. на странице поиска."
                             )
                             self.fast_feasible_info.setText(
@@ -4065,7 +4064,7 @@ class _PreviewPanel:
                                 reached_bends=int(getattr(
                                     report, "preview_checked_bends", 0
                                 )),
-                                reason="NO_COMPLETE_NATIVE_D6_EVIDENCE",
+                                reason="NO_COMPLETE_FIVE_POINT_OCC_EVIDENCE",
                                 auto_simulation_blocked=True,
                             )
                         else:
@@ -4076,7 +4075,7 @@ class _PreviewPanel:
                         # Remove stale preview from prior speculative runs.
                         self._simulation_sequence_result.hide()
                         self.physical_check_result.setText(
-                            "Порядок не принят: нет полного D6-подтверждения. "
+                            "Порядок не принят: нет полной проверки OCC в 5 точках. "
                             "Показанные кандидаты нельзя считать рабочими."
                         )
                         return
@@ -4100,11 +4099,12 @@ class _PreviewPanel:
                     self._manual_orientation_by_bend = directions
                     self._ergonomic_loading_cache_key = None
                     self._manual_sequence_prefix = list(selected)
-                    self._manual_preview_unverified = bool(report.virtual_tool_clear)
-                    if report.virtual_tool_clear:
+                    self._manual_preview_unverified = True
+                    if report.five_point_no_detected_collision:
                         self._manual_preview_notice.setText(
-                            "ВИРТУАЛЬНАЯ ДЛИНА: порядок предварительный. "
-                            "Реальная оснастка и физическая выполнимость не подтверждены."
+                            "OCC (5 углов): в проверенных точках коллизий не найдено. "
+                            "Длина оснастки виртуальная, непрерывные перемещения "
+                            "и физическая выполнимость НЕ подтверждены."
                         )
                         self._manual_preview_notice.show()
                     else:
@@ -4164,16 +4164,10 @@ class _PreviewPanel:
                         self._saved_full_sequences.append(entry)
                         self._saved_full_sequences = self._saved_full_sequences[-32:]
                     caution = (
-                        ("VIRTUAL_LENGTH_UNVERIFIED: найден полный порядок "
-                         "для виртуальной длины пуансона и матрицы. "
-                         "Реальная длина инструментов и физическая "
-                         "выполнимость НЕ подтверждены. "
-                         "Нужна отдельная проверка реальной оснастки.")
-                        if report.virtual_tool_clear else
-                        ("SAMPLED_3D_TOOL_CLEAR: найден полный порядок "
-                         "для реальных пуансона и матрицы, но непрерывность "
-                         "траектории, задний упор, рама, зажимы и перекладки "
-                         "не проверены. Перед производством нужна полная проверка.")
+                        "OCC 5 ТОЧЕК: ни в одном из пяти углов гибов "
+                        "не выявлена коллизия. Длина оснастки виртуальная. "
+                        "Это ПРЕДВАРИТЕЛЬНЫЙ порядок, НЕ сертификат "
+                        "непрерывной траектории или пригодности станка."
                     )
                     self.status.setText(
                         "Порядок: {} | {}".format(" → ".join(selected), caution)
