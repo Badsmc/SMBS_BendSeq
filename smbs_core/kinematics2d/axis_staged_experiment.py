@@ -175,8 +175,26 @@ def _build_transition_evaluator(
     return evaluate, metrics
 
 
+def _weighted_transition_cost(previous_id, bend_id, previous_setup,
+                              current_setup, weights, per_bend_weights) -> float:
+    """Charge BOTH neighboring operation weights on each adjacent transition.
+
+    The additive sum of fixed per-bend weights is constant over complete
+    permutations, so it cannot by itself rank bend orders. Weight each edge
+    by the mean importance of its two endpoints. The outgoing edge of a
+    bend is accounted for when the NEXT operation is appended.
+    """
+    penalty = transition_penalty(previous_setup, current_setup, weights).total
+    if previous_id is None:
+        return penalty * (1.0 + per_bend_weights[bend_id])
+    importance = 0.5 * (
+        per_bend_weights[previous_id] + per_bend_weights[bend_id]
+    )
+    return penalty * (1.0 + importance)
+
+
 def _advance(path: _Path, bend: str, reverse: bool, step: PlanarStep,
-             *, weights, bend_weight) -> _Path | None:
+             *, weights, bend_weight, all_bend_weights) -> _Path | None:
     if step.evidence in (
         "2D_INTERFERENCE", "2D_TOOLING_CONSTRAINT",
         "CAD_3D_INTERFERENCE", "INVALID_INPUT",
@@ -185,7 +203,10 @@ def _advance(path: _Path, bend: str, reverse: bool, step: PlanarStep,
     prev = path.steps[-1].setup if path.steps else None
     cost = float(bend_weight)
     if step.setup is not None:
-        cost += transition_penalty(prev, step.setup, weights).total
+        cost += _weighted_transition_cost(
+            path.order[-1] if path.order else None,
+            bend, prev, step.setup, weights, all_bend_weights,
+        )
     else:
         cost += 25.0
     unknown = step.evidence != "SAMPLED_2D_CLEAR_OR_TOUCH"
@@ -297,6 +318,7 @@ def search_axis_staged_experiment(
                         nxt = _advance(
                             path, bid, reverse, step, weights=weights,
                             bend_weight=cost_for[bid],
+                            all_bend_weights=cost_for,
                         )
                         if nxt is not None:
                             expanded.append(nxt)
@@ -344,6 +366,7 @@ def search_axis_staged_experiment(
                             nxt = _advance(
                                 path, bend, reverse, step,
                                 weights=weights, bend_weight=cost_for[bend],
+                                all_bend_weights=cost_for,
                             )
                             if nxt is not None:
                                 newpos = list(pos)
@@ -434,7 +457,17 @@ def search_axis_staged_experiment(
                 (i+1, bid, group_of[bid]) for i, bid in enumerate(p.order)
             ),
             cost_breakdown=tuple(
-                part.to_dict() for part in scored.steps
+                {
+                    **part.to_dict(),
+                    "individual_bend_weight": cost_for[p.order[i]],
+                    "weighted_transition_cost": _weighted_transition_cost(
+                        p.order[i - 1] if i else None,
+                        p.order[i],
+                        p.steps[i - 1].setup if i else None,
+                        p.steps[i].setup, weights, cost_for,
+                    ),
+                }
+                for i, part in enumerate(scored.steps)
             ) if scored else (),
         ))
     elapsed = clock() - started
