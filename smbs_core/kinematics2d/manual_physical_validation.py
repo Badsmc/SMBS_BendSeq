@@ -426,6 +426,22 @@ def _native_step_cache_config_signature(config: Any) -> Any:
     return repr(sorted(items.items()))
 
 
+def _cacheable_coarse_occ_step(record: dict, *, conditional_allowed: bool) -> bool:
+    """Cache ONLY completed sampled OCC outcomes, never collisions/unknowns.
+
+    This is a replay of the same discrete evidence, not a promotion to
+    continuous clearance or a machine-feasible certificate. The caller
+    must also require coarse_continue (all sampled phases completed).
+    """
+    status = record.get("status")
+    conditional = bool(record.get("is_conditional"))
+    if status == "COARSE_3D_NO_PROVEN_COLLISION":
+        return not conditional
+    if status == "COARSE_3D_CONDITIONAL_END_ZONE":
+        return conditional and bool(conditional_allowed)
+    return False
+
+
 def check_manual_3d_sequence(
     session: Any,
     tooling: Any,
@@ -452,8 +468,9 @@ def check_manual_3d_sequence(
 
     The optional geometry cache may be shared by candidates from ONE search
     invocation with the same source part and selected tooling. Native geometry
-    identities invalidate cached shapes on source change. Verdicts are NEVER
-    cached or transferred between candidates.
+    identities invalidate cached shapes on source change. Only fully
+    completed native evidence for identical sampled state/pose/config is
+    reused; collision/unknown verdicts are never promoted to clearance.
 
     deadline_at is a best-effort monotonic deadline checked between bends,
     not a hard timeout for an in-flight OCC kernel call.
@@ -598,9 +615,11 @@ def check_manual_3d_sequence(
         "classify_end_zone_length_mm": end_len if end_len > 0.0 else 10.0,
         "sequence_geometry_cache": sequence_geometry_cache,
     }
-    # Cache *only fully checked, sampled-clear* native bends with identical
-    # complete input and adaptive configuration. No uncertain or collided
-    # result can be promoted to CLEAR. Scoped to one search invocation.
+    # Cache only completed sampled native bends with identical input
+    # and configuration. Coarse 0/100 evidence is stored DISTINCTLY from
+    # adaptive D6 and never promoted to continuous or certified CLEAR.
+    # Collision, timeout and partially sampled results are never stored.
+    # All cache entries are scoped to one search invocation.
     # Operational time ceilings do not change geometry, tolerances,
     # sample positions or the meaning of an already CONVERGED native step.
     # Their per-attempt values vary with the remaining 600s budget, which
@@ -639,9 +658,13 @@ def check_manual_3d_sequence(
             record["reused_verified_step"] = True
             steps.append(record)
             debug_event(
-                "MANUAL_NATIVE_VERIFIED_STEP_CACHE_HIT",
+                ("MANUAL_NATIVE_COARSE_STEP_CACHE_HIT" if coarse_occ
+                 else "MANUAL_NATIVE_VERIFIED_STEP_CACHE_HIT"),
                 bend_id=bend_id, completed_before_step=list(previous),
                 reverse_axis=bool(reverse_axis_by_bend.get(bend_id, False)),
+                evidence=record.get("status"),
+                scope=("SAMPLED_OCC_ONLY_NOT_CONTINUOUS" if coarse_occ
+                       else "ADAPTIVE_D6"),
             )
             previous.append(bend_id)
             continue
@@ -924,6 +947,20 @@ def check_manual_3d_sequence(
         if status is PhysicalEvidence.COLLISION:
             return final_result("COLLISION", steps, "punch_or_die_collision_at:" + bend_id)
         if coarse_continue:
+            if (verified_step_cache is not None and coarse_occ
+                    and _cacheable_coarse_occ_step(
+                        record, conditional_allowed=allow_end_zone_collision
+                    )):
+                from copy import deepcopy
+                verified_step_cache[cache_key] = deepcopy(record)
+                debug_event(
+                    "MANUAL_NATIVE_COARSE_STEP_CACHE_STORE",
+                    bend_id=bend_id,
+                    completed_before_step=list(previous),
+                    reverse_axis=bool(reverse_axis_by_bend.get(bend_id, False)),
+                    evidence=record.get("status"),
+                    scope="SAMPLED_OCC_ONLY_NOT_CONTINUOUS",
+                )
             previous.append(bend_id)
             continue
         if status is PhysicalEvidence.UNVERIFIED or status is PhysicalEvidence.SECTION_CLEAR_3D_UNVERIFIED:
