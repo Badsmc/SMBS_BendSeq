@@ -120,6 +120,25 @@ class AxisStagedSearchTests(unittest.TestCase):
         self.assertEqual(risk["possible_overlap_pairs"], 1)
         self.assertEqual(risk["possible_components"][0], ("P01", "punch_side"))
 
+    def test_conditional_punch_section_is_not_a_proven_native_collision(self):
+        from smbs_core.kinematics2d.axis_staged_experiment import (
+            _punch_only_section_interference,
+        )
+        def report(*tools):
+            return SimpleNamespace(
+                stage="STAGE_B_SECTION_REQUIRES_3D",
+                diagnostic_findings=tuple(
+                    ("BENDING", tool, "P01", "INTERFERENCE", "overlap")
+                    for tool in tools
+                ),
+            )
+        self.assertTrue(_punch_only_section_interference(report("PUNCH")))
+        self.assertFalse(_punch_only_section_interference(report("DIE")))
+        self.assertFalse(_punch_only_section_interference(
+            report("PUNCH", "DIE")
+        ))
+        self.assertFalse(_punch_only_section_interference(report()))
+
     def test_individual_weight_affects_incoming_and_outgoing_cost(self):
         from smbs_core.kinematics2d.axis_staged_experiment import (
             _weighted_transition_cost,
