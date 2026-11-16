@@ -165,6 +165,68 @@ class AxisStagedSearchTests(unittest.TestCase):
             _weighted_transition_cost("B02", "B03", b, c, weights, nominal),
         )
 
+    def test_native_feedback_blocks_only_exact_pose_and_keeps_alternatives(self):
+        from smbs_core.kinematics2d.native_collision_feedback import (
+            NativeCollisionFeedback, add_native_blocker,
+        )
+        session, tooling = fixture()
+        feedback = NativeCollisionFeedback(
+            sequence=("B01", "B02", "B03", "B04"),
+            failing_index=0,
+            orientation_by_bend={
+                "B01": False, "B02": False, "B03": False, "B04": False,
+            },
+            evidence="CAD_3D_INTERFERENCE",
+            reason="PUNCH:P05:BENDING",
+        )
+        blocks = add_native_blocker({}, feedback)
+        self.assertEqual(
+            blocks[(frozenset(), "B01", False)], "PUNCH:P05:BENDING"
+        )
+        result = search_axis_staged_experiment(
+            session, tooling,
+            transition_screen=lambda prefix, bid, reverse: (
+                "SAMPLED_2D_CLEAR_OR_TOUCH", "synthetic"
+            ),
+            broadphase_runner=lambda *a, **kw: {
+                "status": "SAMPLED_PREVIEW_BBOX_SEPARATED",
+                "possible_overlap_samples": 0,
+            },
+            blocked_transitions=blocks, max_time_s=20, beam_width=12,
+            finalists=5,
+        )
+        self.assertGreater(result.rejected, 0)
+        self.assertTrue(result.planar_report.candidates)
+        self.assertFalse(any(
+            c.sequence[0] == "B01"
+            and c.steps[0].orientation_variant == "NORMAL"
+            for c in result.planar_report.candidates
+        ))
+        self.assertTrue(any(
+            c.sequence[0] == "B01"
+            and c.steps[0].orientation_variant == "REVERSE_MACHINE_Z_180"
+            for c in result.planar_report.candidates
+        ) or any(c.sequence[0] != "B01" for c in result.planar_report.candidates))
+
+    def test_ambiguous_native_evidence_never_blocks(self):
+        from smbs_core.kinematics2d.native_collision_feedback import (
+            NativeCollisionFeedback,
+        )
+        with self.assertRaises(ValueError):
+            NativeCollisionFeedback(
+                sequence=("B01",), failing_index=0,
+                orientation_by_bend={"B01": False},
+                evidence="SAMPLED_PREVIEW_BBOX_POSSIBLE_OVERLAP",
+                reason="bbox overlap",
+            ).blocked_transition()
+        with self.assertRaises(ValueError):
+            NativeCollisionFeedback(
+                sequence=("B01",), failing_index=0,
+                orientation_by_bend={},
+                evidence="CAD_3D_INTERFERENCE",
+                reason="missing orientation",
+            ).blocked_transition()
+
     def test_invalid_weights_or_deadline_rejected(self):
         session, tooling = fixture()
         with self.assertRaises(ValueError):
