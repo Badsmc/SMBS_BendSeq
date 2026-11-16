@@ -78,6 +78,8 @@ class SearchToolbarRoutingTests(unittest.TestCase):
         self.assertIn("self._planar_search_running = False", source)
         self.assertIn('self._trace_event(\n                    "PLANAR_2D_ONLY_SEARCH_REQUESTED"', source)
         self.assertIn('"FAST_FEASIBLE_SEARCH_REQUESTED"', source)
+        self.assertIn('"FAST_FEASIBLE_SEARCH_PRECHECK_REJECTED"', source)
+        self.assertIn("self.fast_feasible_info.setText(message)", source)
 
     def test_prevents_search_reentry_and_disables_both_buttons(self):
         source = SOURCE_FILE.read_text(encoding="utf-8")
