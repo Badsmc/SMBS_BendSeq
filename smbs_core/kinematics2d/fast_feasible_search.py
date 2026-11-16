@@ -386,7 +386,7 @@ def search_fast_feasible_sequence(
     seed_orientations: Optional[dict[str, bool]] = None,
     clock: Callable[[], float] = perf_counter,
 ) -> FastSequenceResult:
-    """Run 2D-first search and a fixed five-angle native OCC screen.
+    """Run 2D-first search and a fixed two-endpoint native OCC screen.
 
     Search is bounded by a monotonic *soft* deadline and runs synchronously
     in FreeCAD's own Python thread. No OCC calls in workers, no approximate
@@ -617,10 +617,14 @@ def search_fast_feasible_sequence(
                         cost=float("inf"), cost_complete=False,
                     ),
                 ))
-    # Reserve remaining slots for a pose flip at the *actual* unresolved
-    # bend reported by native D6. Preflipping B08/first bends consumed the
-    # whole budget before reaching later blockers (e.g. B07).
-    candidates = candidates[:max_candidates]
+    # Keep a bounded portion of the OCC shortlist vacant for targeted
+    # repairs after a real collision. Previously slicing to max_candidates
+    # made len(candidates) < max_candidates false, so collision-triggered
+    # flip/delay hypotheses were silently disabled on a full shortlist.
+    # Small test searches retain their full existing initial shortlist.
+    repair_slots = max(2, max_candidates // 5) if max_candidates >= 8 else 0
+    initial_candidate_limit = max_candidates - repair_slots
+    candidates = candidates[:initial_candidate_limit]
     available_sequences = tuple(x[0] for x in candidates)
     # Preview only: preserve corresponding 2D orientation choices.
     preview_candidates = [
@@ -789,13 +793,20 @@ def search_fast_feasible_sequence(
                     if key in seen:
                         continue
                     seen.add(key)
-                    # Append, not insert: preserve every already selected
-                    # 2D-diverse candidate ahead of new OCC-only variants.
-                    candidates.append((
+                    repaired = (
                         new_seq, new_pose,
                         SimpleNamespace(evidence=evidence, cost=0.0,
                                         cost_complete=False),
-                    ))
+                    )
+                    if event_name == "NATIVE_POSE_VARIANT":
+                        # Check a reversed offending bend while the proven
+                        # clear prefix remains available and budget remains.
+                        # The changed pose cannot inherit collision results.
+                        candidates.insert(i + 1, repaired)
+                    else:
+                        # Delayed-bend alternatives wait behind the already
+                        # selected 2D-diverse trials.
+                        candidates.append(repaired)
                     if progress_callback is not None:
                         progress_callback(
                             event_name, len(candidates), len(candidates),
