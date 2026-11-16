@@ -2065,6 +2065,13 @@ class _PreviewPanel:
                 self._manual_preview_notice.setWordWrap(True)
                 self._manual_preview_notice.hide()
                 sim_body.addWidget(self._manual_preview_notice)
+                self._simulation_sequence_result = QtWidgets.QLabel()
+                self._simulation_sequence_result.setObjectName(
+                    "SMBS_SimulationSequenceResult"
+                )
+                self._simulation_sequence_result.setWordWrap(True)
+                self._simulation_sequence_result.hide()
+                sim_body.addWidget(self._simulation_sequence_result)
 
                 # The operator starts with 2D candidates, then checks the
                 # chosen full order from Manual.
@@ -2116,6 +2123,17 @@ class _PreviewPanel:
                 )
                 self.fast_feasible_info.setWordWrap(True)
                 planar_body.addWidget(self.fast_feasible_info)
+                self.fast_search_result_details = QtWidgets.QPlainTextEdit()
+                self.fast_search_result_details.setObjectName(
+                    "SMBS_SearchResultSequence"
+                )
+                self.fast_search_result_details.setReadOnly(True)
+                self.fast_search_result_details.setMinimumHeight(170)
+                self.fast_search_result_details.setPlainText(
+                    "Результата пока нет. После поиска здесь появятся "
+                    "порядок гибов, ориентации и результат проверки."
+                )
+                planar_body.addWidget(self.fast_search_result_details)
                 self._fast_search_running = False
                 self._planar_search_running = False
                 self._last_fast_search_report = None
@@ -3944,6 +3962,67 @@ class _PreviewPanel:
                     )
                     if report.deadline_exceeded:
                         summary += " | OCC превысил бюджет 600 с"
+                    # Always show the order even when D6 did not finish.
+                    display_sequence = tuple(
+                        report.sequence or report.preview_sequence or ()
+                    )
+                    display_orientation = dict(
+                        report.orientation_by_bend if report.sequence
+                        else report.preview_orientations
+                    )
+                    if display_sequence:
+                        complete_d6 = bool(
+                            report.sampled_tool_clear or report.virtual_tool_clear
+                        )
+                        result_label = (
+                            "ВСЕ ГИБЫ ПРОШЛИ ВЫБОРОЧНЫЙ D6"
+                            if complete_d6 else
+                            "НАЙДЕН ПОЛНЫЙ КАНДИДАТ — D6 НЕ ЗАВЕРШЁН"
+                        )
+                        result_lines = [
+                            result_label,
+                            "Последовательность ({} гибов):".format(
+                                len(display_sequence)
+                            ),
+                        ]
+                        for index, bend in enumerate(display_sequence, 1):
+                            result_lines.append(
+                                "{:02d}. {}  |  положение: {}".format(
+                                    index, bend,
+                                    "180°" if display_orientation.get(bend)
+                                    else "0°",
+                                )
+                            )
+                        result_lines.extend([
+                            "",
+                            "Проверено D6: {} из {} шагов по отчёту.".format(
+                                len(display_sequence) if complete_d6 else
+                                int(getattr(report, "preview_checked_bends", 0)),
+                                len(display_sequence),
+                            ),
+                            "Попыток D6: {}. Время: {:.1f} с.".format(
+                                len(report.attempts), report.elapsed_s
+                            ),
+                            ("Форма выбранной оснастки учитывается; "
+                             "длина виртуальная."),
+                            ("Непрерывная траектория и весь станок "
+                             "не сертифицированы."),
+                        ])
+                        self.fast_search_result_details.setPlainText(
+                            "\n".join(result_lines)
+                        )
+                        self._simulation_sequence_result.setText(
+                            result_label + "\n" +
+                            " → ".join(display_sequence) +
+                            "\nПросмотр доступен через Play и ползунок."
+                        )
+                        self._simulation_sequence_result.show()
+                    else:
+                        self.fast_search_result_details.setPlainText(
+                            "Полный порядок не найден в отведённое время. "
+                            "Невозможность гибки не доказана.\n" + summary
+                        )
+                        self._simulation_sequence_result.hide()
                     self.fast_feasible_info.setText(
                         summary + ". " + report.message_ru
                     )
@@ -3970,6 +4049,10 @@ class _PreviewPanel:
                             self._manual_3d_verdicts.clear()
                             self._manual_retract_verdicts.clear()
                             self._clear_manual_check_feedback()
+                            self.manual_check_details.setPlainText(
+                                self.fast_search_result_details.toPlainText()
+                            )
+                            self.manual_check_details.show()
                             self._manual_preview_notice.setText(
                                 ("UNVERIFIED: предварительная последовательность обратного "
                                  "A*/Mesh/BVH либо 2D-поиска. ")
@@ -3984,8 +4067,8 @@ class _PreviewPanel:
                             self._populate_operations()
                             self._configure_for_active_bend()
                             self.draw()
-                            self._viewer_tabs.setCurrentWidget(self._flat_view)
-                            self._draw_flat_pattern(reset_camera=True)
+                            self._viewer_tabs.setCurrentWidget(self.view)
+                            show_workspace_controls(self, tab=2)
                             self._trace_event(
                                 "FAST_FEASIBLE_PREVIEW_ADOPTED",
                                 sequence=list(preview),
@@ -3995,9 +4078,13 @@ class _PreviewPanel:
                                             report.reverse_search.get("candidates")
                                             else "UNVERIFIED_2D_ONLY"),
                                 native_attempts=[a.to_dict() for a in report.attempts],
+                                display_origin=getattr(report, "preview_origin", "UNKNOWN"),
+                                checked_bends=getattr(report, "preview_checked_bends", 0),
+                                simulation_view_opened=True,
                             )
                             self.status.setText(
-                                "UNVERIFIED A*/2D → симуляция: " + " → ".join(preview)
+                                "Порядок найден (D6 НЕ ЗАВЕРШЁН): "
+                                + " → ".join(preview)
                             )
                             self.physical_check_result.setText(
                                 summary + " | Предварительный порядок доступен в симуляции, "
@@ -4082,9 +4169,8 @@ class _PreviewPanel:
                     self._populate_operations()
                     self._configure_for_active_bend()
                     self.draw()
-                    self._viewer_tabs.setCurrentWidget(self._flat_view)
-                    self._draw_flat_pattern(reset_camera=True)
-                    show_workspace_controls(self, tab=4)
+                    self._viewer_tabs.setCurrentWidget(self.view)
+                    show_workspace_controls(self, tab=2)
                     entry = {
                         "bend_ids": list(selected),
                         "orientation_by_bend": directions,
