@@ -179,6 +179,9 @@ class AdaptiveSamplingConfig:
     # Fast OCC screen: fixed samples only. Uninspected intervals are never
     # considered converged; the full adaptive D6 remains a separate action.
     coarse_occ_screen: bool = False
+    # Override BENDING only for the automatic endpoint-only screen.
+    # The independent manual five-angle OCC diagnostic remains unchanged.
+    coarse_occ_bending_fractions: Tuple[float, ...] = (0.0, 0.25, 0.5, 0.75, 1.0)
 
 
 def coarse_occ_phase_fractions(phase_name: str) -> Tuple[float, ...]:
@@ -1504,7 +1507,14 @@ class AdaptiveTrajectoryValidator3D:
         if self.config.coarse_occ_screen:
             initial_subdivisions = self.total_subdivisions
             dedup_states = []
-            fractions = coarse_occ_phase_fractions(phase_name)
+            fractions = (tuple(self.config.coarse_occ_bending_fractions)
+                         if phase_name == "BENDING"
+                         else coarse_occ_phase_fractions(phase_name))
+            if (not fractions or fractions[0] != 0.0
+                    or fractions[-1] != 1.0
+                    or any(not 0.0 <= u <= 1.0 for u in fractions)
+                    or tuple(sorted(set(fractions))) != fractions):
+                raise ValueError("Invalid fixed OCC sampling fractions")
             for u in fractions:
                 st = sample_state(u)
                 dedup_states.append(st)
