@@ -507,6 +507,7 @@ def search_fast_feasible_sequence(
             session, search_tooling,
             max_solutions=max_candidates,
             max_complete_candidates=max_candidates * 3,
+            max_candidates_per_prefix=2 if len(order) >= 6 else 0,
             max_nodes=max(4000, len(order) * 800),
             max_evaluations=max(10000, len(order) * 2200),
             max_search_time_s=planar_budget,
@@ -641,7 +642,28 @@ def search_fast_feasible_sequence(
     geometry_cache = NativeSequenceGeometryCache(max_full_sheets=16)
     verified_step_cache = {}
     attempts = []
+    proven_bad_prefixes = set()
     for i, (seq, orientation, _) in enumerate(candidates):
+        # Proof requires the same ordered, oriented prefix. Suffix bends
+        # cannot change a collision already found at this prefix.
+        oriented = tuple((bid, bool(dict(orientation)[bid])) for bid in seq)
+        blocked_prefix = next((
+            key for key in proven_bad_prefixes
+            if len(key) <= len(oriented) and oriented[:len(key)] == key
+        ), None)
+        if blocked_prefix is not None:
+            attempts.append(FastNativeAttempt(
+                seq, orientation, "COLLISION",
+                "reused_proven_colliding_prefix:" +
+                "->".join(bid for bid, _ in blocked_prefix),
+                len(blocked_prefix), 0.0,
+            ))
+            if progress_callback:
+                progress_callback(
+                    "NATIVE_PREFIX_REJECTED", i + 1, len(candidates),
+                    " → ".join(bid for bid, _ in blocked_prefix),
+                )
+            continue
         remaining = deadline - clock()
         if remaining <= 0:
             break
@@ -699,6 +721,16 @@ def search_fast_feasible_sequence(
             seq, orientation, status, reason, checked,
             max(0.0, clock() - trial_started),
         ))
+        if (status == "COLLISION" and isinstance(native, dict)
+                and 1 <= checked <= len(seq)):
+            # Reuse only when the native trajectory proves collision
+            # on the exact terminal bend of the complete checked prefix.
+            native_steps = native.get("steps") or ()
+            if (len(native_steps) == checked
+                    and native_steps[-1].get("status") == "COLLISION"
+                    and tuple(step.get("bend_id") for step in native_steps)
+                    == seq[:checked]):
+                proven_bad_prefixes.add(oriented[:checked])
         # The next physically different loading must target the actual
         # unresolved bend. Never treat a timeout as a collision or proof
         # of clearance. Recheck all five sampled angles in the modified order.
