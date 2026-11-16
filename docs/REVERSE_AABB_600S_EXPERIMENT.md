@@ -436,3 +436,40 @@ NOT a newly proved feasible 10-bend order. The real solution still
 requires per-bend geometry-valid successor transitions and a runtime
 3D verification strategy that does not repeatedly hit OCC BENDING
 timeouts. Any false implication of optimality must be rejected.
+
+## Architectural correction: sampled 2D search restored as primary (2026-11-16)
+
+The user reported that the original 2D engine already generated nearly
+usable bend sequences. Inspection confirmed a regression: the experimental
+fast search executed `search_reverse_aabb` first and set
+`SKIPPED_REVERSE_AABB_CANDIDATES_AVAILABLE` when any A* permutations
+were returned, so the stronger legacy Stage A/B 2D kinematic checks
+were never run on those orders.
+
+The one-button search now executes **`search_bend_sequences_2d`
+first**, with the selected real punch and die cross-sectional geometry
+and virtual lengths at each bend, with a bounded search budget of up
+to 210 seconds or 35% of total budget. It uses cheap Stage A screening,
+sampled Stage B collision checks, then the original full-density
+candidate replay before returning complete 2D orders. Existing
+memoization, grouped search, source-state restoration, and
+operator-selected scoring weights are retained.
+
+Only if no complete 2D candidate survives does the system use A* as a
+**fallback** source of unverified orders. Complete 2D candidates are
+passed to independent native D6 physical validation with the same
+virtual-length tooling. A D6 timeout is UNKNOWN, never proof of
+collision or clearance. An unverified full order is reported but cannot
+be auto-applied to playback as a proven feasible sequence.
+
+Performance improvements should now target:
+1. Stage A/B transition timing and caching for state + bend + orientation;
+2. cheap polygon/section rejection and correct tool profile projection;
+3. limiting expensive OCC to a small shortlist of full 2D candidates;
+4. measured replay accuracy on this 10-bend test, rather than faster
+   A* enumeration alone.
+
+No performance improvement or full 10-bend physical result is yet
+confirmed in Windows FreeCAD. Regression test
+`test_sampled_2d_candidate_is_primary_and_skips_reverse_a_star`
+requires that valid 2D candidates bypass fallback A*.
