@@ -471,6 +471,8 @@ def search_bend_sequences_2d(
     max_solutions: int = 10,
     max_complete_candidates: int = 1000,
     max_candidates_per_prefix: int = 0,
+    diversity_prefix_length: int = 4,
+    max_candidates_per_first_bend: int = 0,
     group_first: bool = True,
     preferred_bend_order: Optional[Sequence[str]] = None,
     root_probe_nodes: int = 0,
@@ -536,7 +538,11 @@ def search_bend_sequences_2d(
         if (max_solutions < 1 or max_complete_candidates < 1 or max_nodes < 1
                 or max_evaluations < 1 or root_probe_nodes < 0
                 or not isinstance(max_candidates_per_prefix, int)
-                or max_candidates_per_prefix < 0):
+                or max_candidates_per_prefix < 0
+                or not isinstance(diversity_prefix_length, int)
+                or diversity_prefix_length < 1
+                or not isinstance(max_candidates_per_first_bend, int)
+                or max_candidates_per_first_bend < 0):
             raise ValueError("positive solution and search limits required")
         if any(bid not in order for bid in alternate_axis_bends):
             raise ValueError("alternate_axis_bends contains unknown bend")
@@ -616,7 +622,8 @@ def search_bend_sequences_2d(
     stopped = ""
     candidates: list[PlanarCandidate] = []
     full_prefix_counts: dict[tuple[str, ...], int] = {}
-    diversity_prefix_length = min(4, len(order))
+    first_bend_counts: dict[str, int] = {}
+    diversity_prefix_length = min(diversity_prefix_length, len(order))
     complete_candidates_examined = 0
     step_cache: dict[tuple[frozenset[str], str, bool, int, bool], PlanarStep] = {}
     # Resolved gauge alternatives are CAD-checked at the setup state once;
@@ -1038,14 +1045,19 @@ def search_bend_sequences_2d(
         nonlocal probe_cutoffs, best_partial_steps, best_partial_prefix
         if len(prefix) > len(deepest_prefix):
             deepest_prefix = prefix
-        if (max_candidates_per_prefix > 0
-                and len(prefix) >= diversity_prefix_length
-                and full_prefix_counts.get(
-                    prefix[:diversity_prefix_length], 0
-                ) >= max_candidates_per_prefix):
-            # Exploration quota, NOT proof that the remaining subtree is
-            # physically blocked. Avoid spending all native candidates on
-            # permutations of the same first four bend operations.
+        if ((max_candidates_per_prefix > 0
+                 and len(prefix) >= diversity_prefix_length
+                 and full_prefix_counts.get(
+                     prefix[:diversity_prefix_length], 0
+                 ) >= max_candidates_per_prefix)
+                or (max_candidates_per_first_bend > 0
+                    and prefix
+                    and first_bend_counts.get(prefix[0], 0)
+                    >= max_candidates_per_first_bend)):
+            # Discovery quota, NOT collision or proof of an impossible
+            # subtree. Prevent false dead-state cache entries for a quota
+            # curtailed subtree: the rest has not been evaluated.
+            probe_cutoffs += 1
             return
         # "Deepest explored" is not synonymous with "longest previewable":
         # after a speculative unknown branch reaches depth 7, a different,
@@ -1139,6 +1151,7 @@ def search_bend_sequences_2d(
             ))
             key = prefix[:diversity_prefix_length]
             full_prefix_counts[key] = full_prefix_counts.get(key, 0) + 1
+            first_bend_counts[prefix[0]] = first_bend_counts.get(prefix[0], 0) + 1
             complete_candidates_examined += 1
             # Stop immediately after reaching the requested number of
             # complete candidates: do not screen another sibling first.
