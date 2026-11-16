@@ -275,6 +275,7 @@ class ReverseOrientationTests(unittest.TestCase):
         self.assertEqual(captured["max_candidates_per_prefix"], 2)
         self.assertEqual(captured["diversity_prefix_length"], 2)
         self.assertEqual(captured["max_candidates_per_first_bend"], 5)
+        self.assertTrue(captured["explore_both_orientations_without_gauge"])
         self.assertIsNone(result.sequence)
 
     def test_two_endpoint_occ_success_is_separate_from_machine_certification(self):
