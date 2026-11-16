@@ -589,6 +589,66 @@ class ReverseOrientationTests(unittest.TestCase):
             ), "2D_INTERFERENCE",
         )
 
+    def test_proven_collision_triggers_opposite_loading_before_abandonment(self):
+        order = ("B01", "B02", "B03")
+        session = SimpleNamespace(
+            bend_order=order,
+            fold_state=SimpleNamespace(bends={x: object() for x in order}),
+            panel_build=object(), part_label="test",
+        )
+        tooling = SimpleNamespace(
+            punch=SimpleNamespace(tool_id="p", length_mm=100),
+            die=SimpleNamespace(tool_id="d", length_mm=100),
+            match_active_bend_length=False,
+            punch_section_offsets_xm=(), die_section_offsets_xm=(),
+        )
+        candidate = SimpleNamespace(
+            sequence=order, evidence="SAMPLED_2D_CLEAR_OR_TOUCH",
+            cost=0.0, cost_complete=True,
+            steps=tuple(SimpleNamespace(
+                bend_id=x, orientation_variant="NORMAL",
+            ) for x in order),
+        )
+        planar = SimpleNamespace(
+            status=SimpleNamespace(value="SAMPLED_2D_CANDIDATES"),
+            limit_reason="", deepest_prefix=order,
+            candidates=(candidate,),
+        )
+        tried = []
+        def native(_session, _tooling, sequence, **kwargs):
+            poses = kwargs["reverse_axis_by_bend"]
+            tried.append((tuple(sequence), dict(poses)))
+            # A true native obstacle at the second bend is only valid
+            # for the unflipped loading of B02.
+            if not poses["B02"]:
+                return {
+                    "status": "COLLISION",
+                    "reason": "punch_or_die_collision_at:B02",
+                    "checked_bends": 2,
+                    "steps": [
+                        {"bend_id": sequence[0],
+                         "status": "COARSE_3D_NO_PROVEN_COLLISION"},
+                        {"bend_id": sequence[1], "status": "COLLISION"},
+                    ],
+                }
+            return {
+                "status": "UNVERIFIED", "checked_bends": 0,
+                "steps": [], "reason": "synthetic_unknown",
+            }
+        result = search_fast_feasible_sequence(
+            session, tooling, budget_s=1000, max_candidates=3,
+            planar_runner=lambda *args,**kwargs: planar,
+            native_runner=native,
+        )
+        self.assertGreaterEqual(len(tried), 2)
+        self.assertTrue(any(
+            sequence == order and poses["B02"]
+            for sequence, poses in tried
+        ))
+        self.assertEqual(result.attempts[0].status, "COLLISION")
+        self.assertIsNone(result.sequence)
+        self.assertFalse(result.machine_feasible_certified)
+
     def test_native_collision_prefix_skips_equivalent_suffixes(self):
         order = ("B01", "B02", "B03", "B04")
         session = SimpleNamespace(
