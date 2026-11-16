@@ -718,3 +718,46 @@ Correction in the same experiment:
 Observe whether the next run returns candidates with
 `orientation_by_bend` containing true for some bends, whether
 B06 can pass in those poses, native collision causes, and CPU time.
+
+## Windows 2026-11-16 14:55:37 — 180-degree orientations validated, targeted collision repair
+
+This uploaded debug file contains two searches in separate sessions:
+- First: 393.2707s, 210.1167s 2D, 15 automatic OCC trials,
+  all rejected; previous all-normal results dominate.
+- Second: 530.3724s, 228.3921s primary 2D,
+  **zero complete planar candidates** under that time limit;
+  reverse A*/machine-AABB fallback supplied speculative orderings.
+  Nine automatic OCC trials: 7 actual native runs + 2 reused proven
+  collision-prefix rejections. 0 full candidates without detected collision.
+- The second run's A* candidates had `reverse_axis=True` for B02,
+  B04 and B09 (and some variants B10). This proves the pipeline
+  is capable of passing true reversal data to native OCC. It does
+  **not** prove that the primary 2D DFS successfully generated
+  flipped complete solutions: the fallback was active.
+- Four OCC orders reached bend B03 as their eighth operation, then
+  collided there; another B03 collision happened at bend two.
+  Other native terminal collisions occurred at B02 and B06.
+  `CONDITIONAL` was enabled, with 10 mm per axial punch end.
+
+Previously the fast search only created targeted different-order /
+different-loading candidates in response to native `UNVERIFIED`.
+A true `COLLISION` immediately discarded the entire candidate,
+even when the obstacle was pose-dependent and a 180-degree physical
+loading might avoid it. This is particularly wasteful for B03
+after seven already sampled-clear bends.
+
+Fix: when native reports `COLLISION` with a complete, correctly
+ordered per-bend `steps` prefix ending at the confirmed obstructed
+bend, generate (within remaining candidate/time limits) a new
+hypothesis that **flips that specific bend**, and another that delays
+that bend two positions when possible. Both are appended behind
+preexisting 2D-diverse shortlist candidates and independently
+replayed with OCC 0/100, conditional ends, and their own loading.
+No collision clearance is inherited across a changed orientation
+or ordering. `UNVERIFIED` still has separate targeted variants,
+never counted as geometrically proven obstruction.
+
+The new collision-targeted trials are a code change, not a proven
+working physical order. Test the new source in Windows FreeCAD,
+check whether B03 is attempted with `reverse_axis=True`, and
+whether it avoids the previously measured obstacle.
