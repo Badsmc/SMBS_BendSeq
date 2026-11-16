@@ -4079,6 +4079,17 @@ class _PreviewPanel:
                             self.draw()
                             self._viewer_tabs.setCurrentWidget(self.view)
                             show_workspace_controls(self, tab=2)
+                            stored_preview = {
+                                "bend_ids": list(preview),
+                                "orientation_by_bend": dict(orientations),
+                                "origin": "FAST_FEASIBLE_PREVIEW",
+                                "evidence": "UNVERIFIED_D6_INCOMPLETE",
+                            }
+                            if stored_preview not in self._saved_full_sequences:
+                                self._saved_full_sequences.append(stored_preview)
+                                self._saved_full_sequences = (
+                                    self._saved_full_sequences[-32:]
+                                )
                             self._trace_event(
                                 "FAST_FEASIBLE_PREVIEW_ADOPTED",
                                 sequence=list(preview),
