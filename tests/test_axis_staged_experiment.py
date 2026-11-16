@@ -208,6 +208,46 @@ class AxisStagedSearchTests(unittest.TestCase):
             for c in result.planar_report.candidates
         ) or any(c.sequence[0] != "B01" for c in result.planar_report.candidates))
 
+    def test_bounded_native_replan_tries_new_loading_after_collision(self):
+        from smbs_core.kinematics2d.native_collision_feedback import (
+            NativeCollisionFeedback, search_with_native_feedback,
+        )
+        session, tooling = fixture()
+        calls = []
+        def planner(blockers):
+            calls.append(len(blockers))
+            return search_axis_staged_experiment(
+                session, tooling,
+                transition_screen=lambda prefix, bid, reverse: (
+                    "SAMPLED_2D_CLEAR_OR_TOUCH", "synthetic"
+                ),
+                broadphase_runner=lambda *a, **kw: {
+                    "status": "SAMPLED_PREVIEW_BBOX_SEPARATED",
+                    "possible_overlap_samples": 0,
+                },
+                blocked_transitions=blockers,
+                max_time_s=10, beam_width=10, finalists=3,
+            ).planar_report.candidates
+        native_calls = []
+        def verifier(candidate):
+            native_calls.append(candidate.sequence)
+            if len(native_calls) == 1:
+                return NativeCollisionFeedback(
+                    candidate.sequence, 0,
+                    {step.bend_id: step.orientation_variant.startswith(
+                        "REVERSE_MACHINE_Z_180"
+                    ) for step in candidate.steps},
+                    "CAD_3D_INTERFERENCE", "PUNCH:P05",
+                )
+            return None
+        result = search_with_native_feedback(
+            planner, verifier, max_attempts=4,
+        )
+        self.assertEqual(result.status, "NATIVE_VERIFIED")
+        self.assertEqual(result.attempts, 2)
+        self.assertEqual(calls, [0, 1])
+        self.assertEqual(len(result.blockers), 1)
+
     def test_ambiguous_native_evidence_never_blocks(self):
         from smbs_core.kinematics2d.native_collision_feedback import (
             NativeCollisionFeedback,
