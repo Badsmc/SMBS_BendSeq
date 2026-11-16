@@ -136,8 +136,16 @@ def _best_unverified_preview(order, initial_sequence, initial_orientations,
         return (len(seq) == len(order) and set(seq) == target
                 and set(poses) == target)
 
+    rejected = {
+        (tuple(a.sequence), tuple(sorted(a.orientation_by_bend)))
+        for a in attempts
+        if a.status not in ("UNVERIFIED",)
+    }
     chosen = None
-    if valid(initial_sequence, initial_orientations):
+    if (valid(initial_sequence, initial_orientations)
+            and (tuple(initial_sequence),
+                 tuple(sorted(dict(initial_orientations).items())))
+            not in rejected):
         chosen = (tuple(initial_sequence),
                   tuple(sorted(dict(initial_orientations).items())),
                   0, "REVERSE_RANKED_UNVERIFIED")
