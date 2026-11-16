@@ -188,9 +188,13 @@ def search_reverse_aabb(
         extract_panel_triangles, transformed_prisms,
         approximate_overlap_count,
     )
-    panel_meshes = extract_panel_triangles(panel_build)
+    # Bound one-time triangulation memory for FreeCAD's UI process.
+    panel_meshes = extract_panel_triangles(
+        panel_build, max_triangles_per_panel=256,
+    )
     mesh_triangles = sum(len(tris) for tris in panel_meshes.values())
-    mesh_scene_cache = {}
+    from collections import OrderedDict
+    mesh_scene_cache = OrderedDict()
     mesh_tests = 0
     extent_cache = {}
     transition_cache = {}
@@ -222,7 +226,9 @@ def search_reverse_aabb(
 
     def mesh_scene(mask, active, fraction):
         key = (mask, active, fraction)
-        if key not in mesh_scene_cache:
+        if key in mesh_scene_cache:
+            mesh_scene_cache.move_to_end(key)
+        else:
             angles = {
                 name: (0.0 if mask & (1 << indexed[name])
                        else (source.bends[name].angle_deg * fraction
@@ -234,6 +240,8 @@ def search_reverse_aabb(
                 pid: transformed_prisms(tris, transforms[pid], thickness)
                 for pid, tris in panel_meshes.items()
             }
+            if len(mesh_scene_cache) > 48:
+                mesh_scene_cache.popitem(last=False)
         return mesh_scene_cache[key]
 
     def transition_score(mask, bid):
