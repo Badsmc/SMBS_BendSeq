@@ -25,6 +25,7 @@ class FastSearchStatus(str, Enum):
     SAMPLED_TOOL_CLEAR = "SAMPLED_3D_TOOL_CLEAR_MACHINE_UNVERIFIED"
     VIRTUAL_SAMPLED_CLEAR = "VIRTUAL_SAMPLED_3D_CLEAR_PHYSICAL_TOOL_LENGTH_UNVERIFIED"
     TWO_POINT_NO_DETECTED_COLLISION = "TWO_ENDPOINT_NATIVE_OCC_CLEARANCE_UNVERIFIED"
+    TWO_POINT_CONDITIONAL_END_ZONES = "TWO_ENDPOINT_OCC_CONDITIONAL_PUNCH_END_ZONES_UNVERIFIED"
     TIME_BUDGET_REACHED = "TIME_BUDGET_REACHED_UNVERIFIED"
     PLANAR_ONLY = "PLANAR_CANDIDATES_NOT_NATIVE_VALIDATED"
     NATIVE_REJECTED = "NATIVE_CANDIDATES_REJECTED_OR_UNVERIFIED"
@@ -86,6 +87,15 @@ class FastSequenceResult:
         return self.status is FastSearchStatus.TWO_POINT_NO_DETECTED_COLLISION
 
     @property
+    def two_point_conditional_end_zones(self) -> bool:
+        return self.status is FastSearchStatus.TWO_POINT_CONDITIONAL_END_ZONES
+
+    @property
+    def two_point_candidate_accepted(self) -> bool:
+        return (self.two_point_no_detected_collision
+                or self.two_point_conditional_end_zones)
+
+    @property
     def machine_feasible_certified(self) -> bool:
         # The existing physical validator excludes frame, clamps, backgauge
         # travel and continuous collision certification.
@@ -114,6 +124,8 @@ class FastSequenceResult:
             "sampled_tool_clear": self.sampled_tool_clear,
             "virtual_tool_clear": self.virtual_tool_clear,
             "two_point_no_detected_collision": self.two_point_no_detected_collision,
+            "two_point_conditional_end_zones": self.two_point_conditional_end_zones,
+            "two_point_candidate_accepted": self.two_point_candidate_accepted,
             "machine_feasible_certified": self.machine_feasible_certified,
             "continuous_motion_certified": False,
             "backgauge_frame_clamps_transfer_checked": False,
@@ -238,43 +250,55 @@ def _native_result_is_qualified(physical, sequence, expected_orientation=None, *
     return True
 
 
-def _coarse_endpoint_candidate(physical, sequence, orientation):
+def _coarse_endpoint_candidate(physical, sequence, orientation, *,
+                               conditional_allowed=False,
+                               end_zone_length_mm=0.0):
     """Two-endpoint OCC precheck: no proven collision at sampled states.
 
     Explicitly UNVERIFIED between samples. A native top-level UNVERIFIED
     is expected, never interpreted as full D6 convergence.
     """
     if not isinstance(physical, dict):
-        return False
+        return None
     if physical.get("validation_mode") != "COARSE_OCC_2_BEND_ENDPOINTS":
-        return False
+        return None
     if not physical.get("complete_part_order_requested"):
-        return False
+        return None
     if physical.get("stopped_early", True):
-        return False
+        return None
     if tuple(physical.get("requested_bends") or ()) != tuple(sequence):
-        return False
+        return None
     if physical.get("checked_bends") != len(sequence):
-        return False
+        return None
     if physical.get("tool_length_mode") != "VIRTUAL_MATCH_BEND":
-        return False
+        return None
     if not physical.get("punch_fcstd_source") or not physical.get("die_fcstd_source"):
-        return False
+        return None
     if set(orientation) != set(sequence):
-        return False
+        return None
     steps = physical.get("steps") or ()
     if len(steps) != len(sequence):
-        return False
+        return None
+    conditional_found = False
     for bend, step in zip(sequence, steps):
         if step.get("bend_id") != bend:
-            return False
+            return None
         if bool(step.get("reverse_axis")) != bool(orientation[bend]):
-            return False
-        if step.get("status") != "COARSE_3D_NO_PROVEN_COLLISION":
-            return False
-        if step.get("is_conditional"):
-            return False
-    return True
+            return None
+        status = step.get("status")
+        is_conditional = bool(step.get("is_conditional"))
+        if status == "COARSE_3D_NO_PROVEN_COLLISION":
+            if is_conditional:
+                return None
+        elif status == "COARSE_3D_CONDITIONAL_END_ZONE":
+            if (not is_conditional or not conditional_allowed
+                    or not 0.0 < end_zone_length_mm):
+                return None
+            conditional_found = True
+        else:
+            return None
+    return ("CONDITIONAL_END_ZONES" if conditional_found
+            else "NO_DETECTED_COLLISION")
 
 
 def _default_sampling_config(remaining_s, bend_count, clearance_mm):
@@ -424,6 +448,24 @@ def search_fast_feasible_sequence(
     search_tooling.match_active_bend_length = True
     search_tooling.punch_section_offsets_xm = ()
     search_tooling.die_section_offsets_xm = ()
+    # Respect the user's explicit conditional punch-end permission.
+    # Symmetrical end zones are measured independently from LEFT and
+    # RIGHT axial ends of each virtual-length punch.
+    conditional_allowed = bool(getattr(
+        tooling, "allow_end_zone_collision", False
+    ))
+    end_zone_length_mm = float(getattr(
+        tooling, "end_zone_length_mm", 0.0
+    ) or 0.0)
+    if conditional_allowed and not (
+        isfinite(end_zone_length_mm) and end_zone_length_mm > 0.0
+    ):
+        return result(
+            FastSearchStatus.INVALID_INPUT,
+            message="Для CONDITIONAL задайте положительную длину концевой зоны пуансона.",
+        )
+    search_tooling.allow_end_zone_collision = conditional_allowed
+    search_tooling.end_zone_length_mm = end_zone_length_mm
 
     if planar_runner is None:
         from .sequence_search_2d import search_bend_sequences_2d
@@ -475,7 +517,8 @@ def search_fast_feasible_sequence(
             exploration_fractions=(0.0, 0.25, 0.5, 0.75, 1.0),
             exploration_stroke_fractions=(0.0, 0.5, 1.0),
             match_active_bend_length=virtual_length,
-            allow_end_zone_collision=False,
+            allow_end_zone_collision=conditional_allowed,
+            end_zone_length_mm=end_zone_length_mm,
             allow_retract_warning=False,
             backgauge_model=None,
             weights=weights,
@@ -622,8 +665,8 @@ def search_fast_feasible_sequence(
             native = native_runner(
                 native_session, search_tooling, seq,
                 match_active_bend_length=virtual_length,
-                allow_end_zone_collision=False,
-                end_zone_length_mm=0.0,
+                allow_end_zone_collision=conditional_allowed,
+                end_zone_length_mm=end_zone_length_mm,
                 reverse_axis_by_bend=dict(orientation),
                 config=cfg,
                 progress_callback=native_progress,
@@ -640,9 +683,12 @@ def search_fast_feasible_sequence(
             status = str(native.get("status", "UNVERIFIED"))
             reason = str(native.get("reason", ""))
             checked = int(native.get("checked_bends", 0))
-            qualified = _coarse_endpoint_candidate(
-                native, seq, dict(orientation)
+            candidate_classification = _coarse_endpoint_candidate(
+                native, seq, dict(orientation),
+                conditional_allowed=conditional_allowed,
+                end_zone_length_mm=end_zone_length_mm,
             )
+            qualified = candidate_classification is not None
         except Exception as exc:
             status = "UNVERIFIED"
             reason = "native_exception:{}:{}".format(type(exc).__name__, exc)
@@ -718,7 +764,9 @@ def search_fast_feasible_sequence(
                     available_sequences = tuple(x[0] for x in candidates)
         if qualified:
             return result(
-                FastSearchStatus.TWO_POINT_NO_DETECTED_COLLISION, sequence=seq,
+                (FastSearchStatus.TWO_POINT_CONDITIONAL_END_ZONES
+                 if candidate_classification == "CONDITIONAL_END_ZONES"
+                 else FastSearchStatus.TWO_POINT_NO_DETECTED_COLLISION), sequence=seq,
                 orientations=orientation, candidates=available_sequences,
                 attempts=attempts, winning_steps=tuple(native["steps"]),
                 planar_elapsed=planar_elapsed,
@@ -728,6 +776,9 @@ def search_fast_feasible_sequence(
                     "Полный порядок прошёл OCC в двух углах каждого гиба "
                     "(0/100%). В проверенных точках коллизий "
                     "не обнаружено. ПРОМЕЖУТОК 0–100% НЕ ПРОВЕРЕН. "
+                    "При разрешённом CONDITIONAL пересечения допускаются "
+                    "только в концевых зонах пуансона С ОБОИХ ТОРЦОВ; "
+                    "не являются физически проверенными вырезами. "
                     "Реальные профили с виртуальной длиной; упоры и рама "
                     "не проверялись."
                 ),
