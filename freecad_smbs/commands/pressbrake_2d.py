@@ -2094,6 +2094,17 @@ class _PreviewPanel:
                     "Не заменяет проверку на реальном станке."
                 )
                 planar_body.addWidget(self.axis_staged_button)
+                self.axis_staged_weights_button = _button(
+                    QtWidgets, "Индивидуальные веса гибов и переходов",
+                    self.edit_axis_staged_weights, False,
+                )
+                self.axis_staged_weights_button.setToolTip(
+                    "Штраф каждого гиба и отдельный штраф для каждой пары "
+                    "«предыдущий гиб → следующий гиб». Они прибавляются "
+                    "к существующим весам поворота, переворота, "
+                    "смены оси и перемещения детали."
+                )
+                planar_body.addWidget(self.axis_staged_weights_button)
                 self.axis_staged_occ_checkbox = QtWidgets.QCheckBox(
                     "Проверить до 5 финалистов полным 3D OCC (медленно)"
                 )
@@ -4054,6 +4065,117 @@ class _PreviewPanel:
                     self._set_task_busy(False)
                     self._sync_playback_buttons()
 
+            def edit_axis_staged_weights(self):
+                """Per-bend and ordered predecessor-to-successor penalties."""
+                if self.session is None:
+                    self.status.setText("Сначала загрузите деталь.")
+                    return
+                from math import isfinite
+                bend_ids = tuple(self.session.bend_order)
+                stored_bends = dict(getattr(self, "_axis_staged_bend_costs", {}))
+                stored_pairs = dict(getattr(self, "_axis_staged_pair_costs", {}))
+                dialog = QtWidgets.QDialog(self)
+                dialog.setWindowTitle("SMBS — веса гибов и переходов")
+                dialog.resize(750, 540)
+                layout = QtWidgets.QVBoxLayout(dialog)
+                help_text = QtWidgets.QLabel(
+                    "Веса не разрешают коллизии. Вклад каждого гиба прибавляется "
+                    "к штрафу перехода от предыдущего гиба и далее учитывается "
+                    "при выборе следующего. Все значения — неотрицательные "
+                    "условные баллы."
+                )
+                help_text.setWordWrap(True)
+                layout.addWidget(help_text)
+                tabs = QtWidgets.QTabWidget(dialog)
+                bends_page = QtWidgets.QWidget()
+                bends_layout = QtWidgets.QVBoxLayout(bends_page)
+                bends_table = QtWidgets.QTableWidget(len(bend_ids), 2)
+                bends_table.setHorizontalHeaderLabels(
+                    ["Гиб", "Базовый штраф"]
+                )
+                for i, bend_id in enumerate(bend_ids):
+                    name = QtWidgets.QTableWidgetItem(str(bend_id))
+                    name.setFlags(name.flags() & ~QtCore.Qt.ItemIsEditable)
+                    bends_table.setItem(i, 0, name)
+                    bends_table.setItem(i, 1, QtWidgets.QTableWidgetItem(
+                        str(stored_bends.get(bend_id, 0.0))
+                    ))
+                bends_table.horizontalHeader().setStretchLastSection(True)
+                bends_layout.addWidget(bends_table)
+                tabs.addTab(bends_page, "Каждый гиб")
+                pairs_page = QtWidgets.QWidget()
+                pairs_layout = QtWidgets.QVBoxLayout(pairs_page)
+                pairs_note = QtWidgets.QLabel(
+                    "Строка — предыдущий гиб, столбец — следующий. "
+                    "Например, B02 → B06 задаётся в строке B02 "
+                    "и столбце B06."
+                )
+                pairs_note.setWordWrap(True)
+                pairs_layout.addWidget(pairs_note)
+                pairs_table = QtWidgets.QTableWidget(
+                    len(bend_ids), len(bend_ids)
+                )
+                pairs_table.setVerticalHeaderLabels(list(bend_ids))
+                pairs_table.setHorizontalHeaderLabels(list(bend_ids))
+                for i, prev in enumerate(bend_ids):
+                    for j, following in enumerate(bend_ids):
+                        item = QtWidgets.QTableWidgetItem(
+                            str(stored_pairs.get((prev, following), 0.0))
+                        )
+                        if prev == following:
+                            item.setText("—")
+                            item.setFlags(item.flags() & ~QtCore.Qt.ItemIsEditable)
+                        pairs_table.setItem(i, j, item)
+                pairs_layout.addWidget(pairs_table)
+                tabs.addTab(pairs_page, "Переход предыдущий → следующий")
+                layout.addWidget(tabs)
+                buttons = QtWidgets.QDialogButtonBox(
+                    QtWidgets.QDialogButtonBox.Ok |
+                    QtWidgets.QDialogButtonBox.Cancel
+                )
+                layout.addWidget(buttons)
+                buttons.rejected.connect(dialog.reject)
+
+                def parse_cost(text):
+                    value = float((text or "0").replace(",", "."))
+                    if not isfinite(value) or value < 0:
+                        raise ValueError("Веса должны быть конечными и >= 0")
+                    return value
+
+                def accept_costs():
+                    try:
+                        new_bends, new_pairs = {}, {}
+                        for i, bend_id in enumerate(bend_ids):
+                            value = parse_cost(bends_table.item(i, 1).text())
+                            if value:
+                                new_bends[bend_id] = value
+                        for i, prev in enumerate(bend_ids):
+                            for j, next_bend in enumerate(bend_ids):
+                                if prev == next_bend:
+                                    continue
+                                value = parse_cost(
+                                    pairs_table.item(i, j).text()
+                                )
+                                if value:
+                                    new_pairs[(prev, next_bend)] = value
+                        self._axis_staged_bend_costs = new_bends
+                        self._axis_staged_pair_costs = new_pairs
+                        self._trace_event(
+                            "AXIS_STAGED_WEIGHTS_CHANGED",
+                            per_bend_costs=new_bends,
+                            pair_costs=[
+                                {"previous": a, "next": b, "weight": v}
+                                for (a, b), v in sorted(new_pairs.items())
+                            ],
+                        )
+                        dialog.accept()
+                    except Exception as exc:
+                        QtWidgets.QMessageBox.warning(
+                            dialog, "Ошибка веса", str(exc),
+                        )
+                buttons.accepted.connect(accept_costs)
+                dialog.exec_()
+
             def calculate_axis_staged_candidates(self):
                 """Opt-in axis-staged 2D search; no changes to legacy commands."""
                 if self.session is None or not self.session.bend_order:
@@ -4113,6 +4235,12 @@ class _PreviewPanel:
                     report = search_axis_staged(
                         self.session, self.tooling_setup, config=cfg,
                         weights=self._selected_operation_weights(),
+                        per_bend_cost=dict(
+                            getattr(self, "_axis_staged_bend_costs", {})
+                        ),
+                        pair_cost=dict(
+                            getattr(self, "_axis_staged_pair_costs", {})
+                        ),
                         run_occ=run_occ, progress_callback=progress,
                     )
                     self.last_axis_staged_search_report = report
@@ -5391,6 +5519,7 @@ class _PreviewPanel:
                     self.calculate.setEnabled(False)
                     self.planar_calculate.setEnabled(False)
                     self.axis_staged_button.setEnabled(False)
+                    self.axis_staged_weights_button.setEnabled(False)
                     return
                 st = self.session.playback_status
                 self._update_task_progress()
@@ -5399,6 +5528,7 @@ class _PreviewPanel:
                 self.calculate.setEnabled(not self.playing and len(bend_order) > 1)
                 self.planar_calculate.setEnabled(not self.playing and len(bend_order) > 0)
                 self.axis_staged_button.setEnabled(not self.playing and len(bend_order) > 0)
+                self.axis_staged_weights_button.setEnabled(not self.playing and len(bend_order) > 0)
                 if st == PlaybackStatus.PLAYING:
                     self.play_btn.setText("Pause")
                     icon_name = "control_pause.svg"
