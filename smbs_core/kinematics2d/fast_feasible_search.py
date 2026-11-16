@@ -510,6 +510,7 @@ def search_fast_feasible_sequence(
             max_candidates_per_prefix=2 if len(order) >= 6 else 0,
             diversity_prefix_length=2 if len(order) >= 6 else 4,
             max_candidates_per_first_bend=5 if len(order) >= 6 else 0,
+            explore_both_orientations_without_gauge=True,
             max_nodes=max(4000, len(order) * 800),
             max_evaluations=max(10000, len(order) * 2200),
             max_search_time_s=planar_budget,
