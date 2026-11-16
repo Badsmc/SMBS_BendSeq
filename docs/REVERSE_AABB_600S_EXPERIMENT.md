@@ -269,3 +269,31 @@ machine tool assemblies or sufficiently long real FCStd tools before
 manufacturing readiness claims.
 
 No native Windows FreeCAD test of the revised budgets has yet been run.
+
+## User scope clarification: tool SECTION is mandatory, tool LENGTH deferred
+
+The primary objective is now to rank complete bend orders on parts of
+varying complexity with actual *selected punch/die cross-sectional*
+geometry. The physical assembled tool length is intentionally NOT a
+constraint during candidate search: the experimental UI exposes
+`Поиск порядка — профиль оснастки (120 с)` and calls reverse A*
+with `virtual_tool_length=True`. This loads native FCStd punch and die
+using the same profile source as D6, with effective length equal to each
+active bend, while leaving operator tooling settings unchanged.
+
+The 120-second candidate stage scores panel intersections via cached
+AABB / BVH and selected punch/die envelope. It additionally samples
+the selected tool's 2D contour (including convex/concave silhouette)
+against projected panel YZ envelopes. Thus a gooseneck recess need not
+incur the same scoring penalty as a solid rectangular tool.
+This is still APPROXIMATE candidate ranking, not exact 3D collision
+proof. A candidate is marked
+`TOOL_PROFILE_VIRTUAL_LENGTH_AABB_UNVERIFIED` in the UI/log.
+No silent fallback to generic rectangular tooling is permitted in this
+specific mode; when either tool section is unavailable the UI leaves
+the existing sequence unchanged and reports the failed source.
+
+Existing `Поиск + 3D-проверка` and manual D6 remain independent
+and are deliberately not replaced. Their native physical tool-length
+mode remains operator-controlled. No statement of global optimality or
+machine feasibility is justified solely by the 120-second ranking.
