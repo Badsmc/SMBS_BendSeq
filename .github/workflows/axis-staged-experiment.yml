@@ -1,0 +1,28 @@
+name: Axis-staged search experiment
+
+on:
+  push:
+    branches:
+      - experiment/axis-staged-2d-search
+  workflow_dispatch:
+
+jobs:
+  pure-python-regressions:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Compile experimental core, GUI and regressions
+        run: |
+          python -m py_compile \
+            smbs_core/kinematics2d/axis_staged_search.py \
+            freecad_smbs/commands/pressbrake_2d.py \
+            tests/test_axis_staged_search.py
+      - name: Run core tests (no FreeCAD runtime required)
+        env:
+          PYTHONPATH: .
+        run: python -m unittest discover -s tests -p 'test_axis_staged_search.py' -v
