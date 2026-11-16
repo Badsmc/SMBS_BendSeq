@@ -589,6 +589,62 @@ class ReverseOrientationTests(unittest.TestCase):
             ), "2D_INTERFERENCE",
         )
 
+    def test_full_initial_shortlist_reserves_and_prioritizes_native_pose_retry(self):
+        order = tuple("B%02d" % i for i in range(1, 11))
+        session = SimpleNamespace(
+            bend_order=order,
+            fold_state=SimpleNamespace(bends={x: object() for x in order}),
+            panel_build=object(), part_label="test",
+        )
+        tooling = SimpleNamespace(
+            punch=SimpleNamespace(tool_id="p", length_mm=100),
+            die=SimpleNamespace(tool_id="d", length_mm=100),
+            match_active_bend_length=False,
+            punch_section_offsets_xm=(), die_section_offsets_xm=(),
+        )
+        rotations = [order[i:] + order[:i] for i in range(8)]
+        candidates = tuple(SimpleNamespace(
+            sequence=seq, evidence="SAMPLED_2D_CLEAR_OR_TOUCH",
+            cost=float(i), cost_complete=True,
+            steps=tuple(SimpleNamespace(
+                bend_id=x, orientation_variant="NORMAL",
+            ) for x in seq),
+        ) for i, seq in enumerate(rotations))
+        planar = SimpleNamespace(
+            status=SimpleNamespace(value="SAMPLED_2D_CANDIDATES"),
+            limit_reason="", deepest_prefix=order, candidates=candidates,
+        )
+        tried = []
+        def native(_session, _tooling, sequence, **kwargs):
+            pose = kwargs["reverse_axis_by_bend"]
+            tried.append((tuple(sequence), dict(pose)))
+            if pose[sequence[1]]:
+                return {
+                    "status": "UNVERIFIED", "reason": "unknown",
+                    "checked_bends": 0, "steps": [],
+                }
+            return {
+                "status": "COLLISION", "reason": "blocked",
+                "checked_bends": 2,
+                "steps": [
+                    {"bend_id": sequence[0],
+                     "status": "COARSE_3D_NO_PROVEN_COLLISION"},
+                    {"bend_id": sequence[1], "status": "COLLISION"},
+                ],
+            }
+        result = search_fast_feasible_sequence(
+            session, tooling, budget_s=1000, max_candidates=8,
+            planar_runner=lambda *args, **kwargs: planar,
+            native_runner=native,
+        )
+        self.assertGreaterEqual(len(tried), 2)
+        self.assertEqual(tried[0][0], order)
+        self.assertEqual(tried[1][0], order)
+        self.assertTrue(tried[1][1]["B02"])
+        self.assertLessEqual(len(result.attempts), 8)
+        self.assertIsNone(result.sequence)
+        self.assertFalse(result.machine_feasible_certified)
+
     def test_proven_collision_triggers_opposite_loading_before_abandonment(self):
         order = ("B01", "B02", "B03")
         session = SimpleNamespace(
