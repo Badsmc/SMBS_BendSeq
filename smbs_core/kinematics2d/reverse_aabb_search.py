@@ -211,7 +211,7 @@ def search_reverse_aabb(
     visit_counts = {}
     candidates = []
     candidate_orders = set()
-    first_bends_seen = set()
+    first_bend_counts = {}
     root_candidate_counts = {}
     deepest = ()
     transitions = 0
@@ -295,7 +295,7 @@ def search_reverse_aabb(
     serial = 0
     heappush(heap, (len(order), 0.0, serial, 0, (), None))
     max_nodes = 12000
-    discovery_target = min(len(order), max(max_candidates * 3, max_candidates))
+    discovery_target = max(max_candidates * 3, max_candidates)
     # Preserve up to 30s for loading/ranking selected machine tooling.
     discovery_deadline = (deadline - min(30.0, float(budget_s) * 0.35)
                           if tooling is not None else deadline)
@@ -313,9 +313,10 @@ def search_reverse_aabb(
                 progress(len(path), len(order), path[-1] if path else "")
         if mask == all_mask:
             seq = tuple(reversed(path))
-            if seq not in candidate_orders and seq[0] not in first_bends_seen:
+            if (seq not in candidate_orders
+                    and first_bend_counts.get(seq[0], 0) < 3):
                 candidate_orders.add(seq)
-                first_bends_seen.add(seq[0])
+                first_bend_counts[seq[0]] = first_bend_counts.get(seq[0], 0) + 1
                 candidates.append(ReverseCandidate(
                     sequence=seq,
                     orientation_by_bend=tuple((bid, False) for bid in seq),
@@ -394,9 +395,23 @@ def search_reverse_aabb(
             known = {c.sequence for c in ranked}
             ranked.extend(c for c in candidates if c.sequence not in known)
             candidates = ranked
-    candidates = sorted(candidates, key=lambda c: (
+    # Prefer multiple genuinely different forward prefixes rather than
+    # three sorted near-clones. The cost is heuristic, not a feasibility
+    # certificate. Prefer the cheapest score in each first-two-bend group.
+    ranked_candidates = sorted(candidates, key=lambda c: (
         c.bbox_overlap_score, c.sequence
-    ))[:max_candidates]
+    ))
+    seen_prefixes = set()
+    diverse_candidates = []
+    overflow_candidates = []
+    for candidate in ranked_candidates:
+        prefix = candidate.sequence[:min(2, len(candidate.sequence))]
+        if prefix in seen_prefixes:
+            overflow_candidates.append(candidate)
+        else:
+            diverse_candidates.append(candidate)
+            seen_prefixes.add(prefix)
+    candidates = (diverse_candidates + overflow_candidates)[:max_candidates]
     return ReverseSearchReport(
         candidates=tuple(candidates),
         deepest_unbent=deepest,
