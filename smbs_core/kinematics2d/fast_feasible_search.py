@@ -188,11 +188,12 @@ def _default_sampling_config(remaining_s, bend_count, clearance_mm):
     # The 600s experimental mode must not keep the old 6s cap: BENDING
     # repeatedly needed more than 9s even for the first bend. Bound the
     # per-phase allowance by the global deadline, never certify timeout.
-    phase_limit = max(2.0, min(24.0, remaining_s * 0.10))
+    phase_limit = max(2.0, min(40.0, remaining_s * 0.10))
     return AdaptiveSamplingConfig(
         initial_clearance_mm=clearance_mm,
         max_phase_time_s=phase_limit,
-        max_evaluated_states_per_phase=48,
+        max_evaluated_states_per_phase=72,
+        max_recursion_depth=7,
         component_reject_enabled=True,  # reject only: never certifies clear
         coarse_occ_screen=False,
     )
@@ -533,7 +534,7 @@ def search_fast_feasible_sequence(
                 for step in (native.get("steps") or ())
             )
             if (not qualified and status == "UNVERIFIED"
-                    and timed_out_phase and deadline - clock() >= 45.0):
+                    and timed_out_phase and deadline - clock() >= 65.0):
                 from dataclasses import replace
                 retry_remaining = deadline - clock()
                 retry_cfg = sampling_config_factory(
@@ -542,7 +543,7 @@ def search_fast_feasible_sequence(
                 retry_cfg = replace(
                     retry_cfg,
                     max_phase_time_s=min(
-                        40.0, max(
+                        60.0, max(
                             retry_cfg.max_phase_time_s,
                             float(cfg.max_phase_time_s) * 1.5,
                         ),
