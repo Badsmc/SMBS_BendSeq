@@ -1511,7 +1511,7 @@ class AdaptiveTrajectoryValidator3D:
                          if phase_name == "BENDING"
                          else coarse_occ_phase_fractions(phase_name))
             if (not fractions or fractions[0] != 0.0
-                    or fractions[-1] != 1.0
+                    or (len(fractions) > 1 and fractions[-1] != 1.0)
                     or any(not 0.0 <= u <= 1.0 for u in fractions)
                     or tuple(sorted(set(fractions))) != fractions):
                 raise ValueError("Invalid fixed OCC sampling fractions")
