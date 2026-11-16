@@ -427,6 +427,7 @@ def check_manual_3d_sequence(
     include_collision_attribution: bool = True,
     sequence_geometry_cache: Optional[NativeSequenceGeometryCache] = None,
     deadline_at: Optional[float] = None,
+    verified_step_cache: Optional[dict] = None,
 ) -> dict:
     """Check a selected prefix (or complete order) with native FCStd tools.
 
@@ -577,6 +578,20 @@ def check_manual_3d_sequence(
         "classify_end_zone_length_mm": end_len if end_len > 0.0 else 10.0,
         "sequence_geometry_cache": sequence_geometry_cache,
     }
+    # Cache *only fully checked, sampled-clear* native bends with identical
+    # complete input and adaptive configuration. No uncertain or collided
+    # result can be promoted to CLEAR. Scoped to one search invocation.
+    config_signature = (
+        tuple(sorted(vars(config).items())) if config is not None else None
+    )
+    cache_context = (
+        id(state_in.graph), id(session.panel_build),
+        p_path, d_path, punch_id, die_id,
+        tuple(getattr(tooling, "punch_section_offsets_xm", ()) or ()),
+        tuple(getattr(tooling, "die_section_offsets_xm", ()) or ()),
+        virtual, bool(allow_end_zone_collision), end_len,
+        config_signature,
+    )
     for i, bend_id in enumerate(order):
         if deadline_at is not None and perf_counter() >= deadline_at:
             return final_result(
@@ -585,6 +600,27 @@ def check_manual_3d_sequence(
             )
         if progress_callback is not None:
             progress_callback(i + 1, len(order), bend_id)
+        cache_key = (
+            cache_context, frozenset(previous), bend_id,
+            bool(reverse_axis_by_bend.get(bend_id, False)),
+        )
+        cached = (verified_step_cache.get(cache_key)
+                  if verified_step_cache is not None else None)
+        if cached is not None:
+            from copy import deepcopy
+            record = deepcopy(cached)
+            record["step_number"] = i + 1
+            record["completed_before_step"] = list(previous)
+            record["elapsed_s"] = 0.0
+            record["reused_verified_step"] = True
+            steps.append(record)
+            debug_event(
+                "MANUAL_NATIVE_VERIFIED_STEP_CACHE_HIT",
+                bend_id=bend_id, completed_before_step=list(previous),
+                reverse_axis=bool(reverse_axis_by_bend.get(bend_id, False)),
+            )
+            previous.append(bend_id)
+            continue
         independent.reset_all()
         for prev in previous:
             independent.set_angle(
@@ -874,6 +910,21 @@ def check_manual_3d_sequence(
                 return final_result("UNVERIFIED", steps, "conditional_end_zone_not_enabled_at:" + bend_id)
         elif status is not CLEAR:
             return final_result("UNVERIFIED", steps, "unsupported_3d_status_at:" + bend_id)
+        # Native step reuse is permitted only with complete identical inputs
+        # and all strict downstream punch/die/retract evidence present.
+        if (verified_step_cache is not None
+                and status is CLEAR
+                and record.get("status") == CLEAR.value
+                and (record.get("punch_die_pair") or {}).get("status") == "SAMPLED_CLEAR"
+                and (record.get("retract") or {}).get("status") == "SAMPLED_CLEAR"
+                and not record.get("is_conditional")
+                and not coarse_occ):
+            from copy import deepcopy
+            verified_step_cache[cache_key] = deepcopy(record)
+            debug_event(
+                "MANUAL_NATIVE_VERIFIED_STEP_CACHE_STORE",
+                bend_id=bend_id, completed_before_step=list(previous),
+            )
         # Advance signed history only AFTER this step has been assessed;
         # the active bend was flat at the start of its own trajectory.
         previous.append(bend_id)
