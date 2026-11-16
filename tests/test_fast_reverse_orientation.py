@@ -172,6 +172,62 @@ class ReverseOrientationTests(unittest.TestCase):
         self.assertIsNone(result.sequence)
         self.assertFalse(result.machine_feasible_certified)
 
+    def test_sampled_2d_candidate_is_primary_and_skips_reverse_a_star(self):
+        order = ("B01", "B02", "B03")
+        desired = ("B03", "B02", "B01")
+        session = SimpleNamespace(
+            bend_order=order,
+            fold_state=SimpleNamespace(bends={bid: object() for bid in order}),
+            panel_build=object(), part_label="synthetic",
+        )
+        tooling = SimpleNamespace(
+            punch=SimpleNamespace(tool_id="p", length_mm=100),
+            die=SimpleNamespace(tool_id="d", length_mm=100),
+            match_active_bend_length=False,
+            punch_section_offsets_xm=(),
+            die_section_offsets_xm=(),
+        )
+        sampled_candidate = SimpleNamespace(
+            sequence=desired,
+            steps=tuple(SimpleNamespace(
+                bend_id=bid, orientation_variant="NORMAL",
+            ) for bid in desired),
+            evidence="SAMPLED_2D_CLEAR_OR_TOUCH", cost=5.0,
+            cost_complete=True,
+        )
+        planar = SimpleNamespace(
+            status=SimpleNamespace(value="SAMPLED_2D_CANDIDATES"),
+            limit_reason="", deepest_prefix=desired,
+            candidates=(sampled_candidate,),
+        )
+        validated = []
+        def native_runner(_session, _tooling, seq, **kwargs):
+            validated.append(tuple(seq))
+            return {
+                "status": "UNVERIFIED",
+                "checked_bends": 0, "steps": (),
+                "reason": "simulated_native_budget",
+            }
+
+        with patch(
+            "smbs_core.kinematics2d.reverse_aabb_search.search_reverse_aabb",
+            side_effect=AssertionError("A* must not bypass 2D primary"),
+        ):
+            result = search_fast_feasible_sequence(
+                session, tooling, budget_s=120.0,
+                planar_runner=lambda *a, **kw: planar,
+                native_runner=native_runner,
+                max_candidates=1,
+                sampling_config_factory=lambda *_: SimpleNamespace(
+                    max_phase_time_s=40.0,
+                ),
+            )
+        self.assertEqual(validated, [desired])
+        self.assertEqual(result.planar_status, "SAMPLED_2D_CANDIDATES")
+        self.assertEqual(result.preview_sequence, desired)
+        self.assertIsNone(result.sequence)
+        self.assertFalse(result.machine_feasible_certified)
+
     def test_phase_budget_spreads_bounded_search_across_orders(self):
         from smbs_core.kinematics2d.fast_feasible_search import (
             _default_sampling_config,
