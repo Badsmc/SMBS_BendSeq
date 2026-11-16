@@ -12,6 +12,24 @@ from smbs_core.kinematics2d.reverse_machine_screen import (
 
 
 class MachineScreenTests(unittest.TestCase):
+    def test_profile_contour_distinguishes_gooseneck_clearance_from_bbox(self):
+        from smbs_core.kinematics2d.reverse_machine_screen import (
+            _profile_overlaps_panel_box,
+        )
+        # L-shaped punch section. The upper-right empty quadrant is
+        # inside its rectangular AABB but outside its actual contour.
+        section = ((0, 0), (2, 0), (2, 8), (8, 8),
+                   (8, 10), (0, 10))
+        empty_upper_right = (4, 4, 0, 6, 6, 1)
+        material_left = (0.5, 0.5, 0, 1.5, 1.5, 1)
+        self.assertFalse(
+            _profile_overlaps_panel_box(section, empty_upper_right)
+        )
+        self.assertTrue(
+            _profile_overlaps_panel_box(section, material_left)
+        )
+        self.assertTrue(_profile_overlaps_panel_box((), empty_upper_right))
+
     def test_axis_aligned_boxes_and_punch_z_motion(self):
         a = (0, 0, 0, 2, 2, 2)
         b = (1, 1, 1, 3, 3, 3)
