@@ -29,4 +29,5 @@ jobs:
           python -m unittest -v \
             tests.test_reverse_mesh_screen \
             tests.test_reverse_aabb_search \
-            tests.test_fast_reverse_orientation
+            tests.test_fast_reverse_orientation \
+            tests.test_native_verified_cache_key
