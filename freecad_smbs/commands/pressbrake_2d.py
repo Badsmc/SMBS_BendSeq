@@ -5543,6 +5543,7 @@ class _PreviewPanel:
                 self._smbs_document_name = str(doc.Name)
                 self._smbs_allow_auto_embed = False
                 self.last_planar_search_report = None
+                self._axis_experiment_bend_weights = {}
                 self._saved_full_sequences = []
                 self._last_manual_sequence_report = None
                 self._manual_3d_verdicts.clear()
