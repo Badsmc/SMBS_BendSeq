@@ -227,13 +227,26 @@ class PlanarSearchReport:
         }
 
 
-def _classify_step(report: PreliminaryScreeningReport) -> str:
+def _classify_step(report: PreliminaryScreeningReport, *,
+                   conditional_punch_ends_allowed=False) -> str:
     """Interpret Stage B as planar evidence, not as its 3D-search decision."""
     if report.stage == "STAGE_B_RETRACT_WARNING":
         return "2D_RETRACT_WARNING_NOT_3D_VALIDATED"
     if report.stage == "STAGE_B_LOADING_ROUTE_UNVERIFIED":
         return "UNVERIFIED_2D"
     if report.stage == "STAGE_B_SECTION_REQUIRES_3D":
+        if conditional_punch_ends_allowed:
+            # A 2D section cannot locate a punch collision along its X
+            # span. A PUNCH-only interference might be inside the
+            # LEFT/RIGHT conditional ends. Defer to 3D OCC and mark
+            # UNKNOWN, never sampled-clear. Die and gauge stay rejected.
+            findings = tuple(
+                (tool, status)
+                for _, tool, _, status, _ in report.diagnostic_findings
+                if status == ContactStatus.INTERFERENCE.value
+            )
+            if findings and all(tool == "PUNCH" for tool, _ in findings):
+                return "UNVERIFIED_2D"
         return "2D_INTERFERENCE"
     if report.decision is ScreeningDecision.PROVEN_BLOCKING:
         return "INVALID_INPUT"
@@ -685,7 +698,10 @@ def search_bend_sequences_2d(
                         deadline_monotonic=start + max_search_time_s,
                     )
                     tooling_prefilter_cache[prefilter_key] = fast_report
-                if _classify_step(fast_report) == "2D_INTERFERENCE":
+                if _classify_step(
+                        fast_report,
+                        conditional_punch_ends_allowed=allow_end_zone_collision,
+                ) == "2D_INTERFERENCE":
                     early_tool_collision = fast_report
             if (stage_a.decision is not ScreeningDecision.PROVEN_BLOCKING
                     and early_tool_collision is None):
@@ -804,7 +820,10 @@ def search_bend_sequences_2d(
                     verified_punch_span_xm=verified_punch_span_xm,
                     verified_die_span_xm=verified_die_span_xm,
                 )
-                evidence = _classify_step(stage_b)
+                evidence = _classify_step(
+                    stage_b,
+                    conditional_punch_ends_allowed=allow_end_zone_collision,
+                )
                 orientation_variant = (
                     ("REVERSE_MACHINE_Z_180" if reverse_axis else "NORMAL")
                     + ("_GAUGE_ALTERNATIVE_" + str(gauge_variant)
@@ -842,7 +861,10 @@ def search_bend_sequences_2d(
                         verified_punch_span_xm=verified_punch_span_xm,
                         verified_die_span_xm=verified_die_span_xm,
                     )
-                    alt_evidence = _classify_step(alt)
+                    alt_evidence = _classify_step(
+                        alt,
+                        conditional_punch_ends_allowed=allow_end_zone_collision,
+                    )
                     if not detailed:
                         alternative_setup_trials.append((
                             tuple(prefix), bend_id, "REVERSE_MACHINE_Z_180",
