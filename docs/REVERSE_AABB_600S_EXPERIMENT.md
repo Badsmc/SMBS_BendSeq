@@ -238,3 +238,34 @@ with a 180-degree flipped workpiece. Both remain independently
 UNVERIFIED until an entire D6 forward replay succeeds. A regression test
 checks the alternative order. This is experimental code, untested here in
 a FreeCAD process, and does not establish a manufacturing-ready route.
+
+## Desktop benchmark 2026-11-16 10:00:28
+
+One FAST_FEASIBLE request completed with status
+`NATIVE_CANDIDATES_REJECTED_OR_UNVERIFIED` in 575.4006 s, under the
+600-second soft budget. The reverse A* took 17.5902 s, identified three
+full machine-ranked orders (11 panel meshes, 38 triangles, 2,970 tool
+AABB comparisons, 521 intersections). Eight D6 candidates were attempted;
+26 strict verified-step cache hits and 3 stores occurred. The deepest
+independently verified prefix remained three bends: B10, B09, B08.
+Order feedback correctly tried B07 later; instead B06 or B05 became the
+first unresolved BENDING step. This is not proof of a physical obstruction.
+
+The first attempt consumed 260.2232 s through repeated verification
+of the same order despite `BENDING=INTERVAL_UNRESOLVED`, mostly within
+native OCC geometry and collision calculations. The next two reorders
+cost 112.1355 s and 75.4199 s, respectively. The fast search now limits
+initial D6 phase allowance to at most 18 s (previously 40 s) and
+does not immediately invoke the extended same-order retry while other
+candidate permutations remain. A deep retry requires the prior run to
+reach at least the penultimate bend and sufficient remaining time.
+
+CRITICAL PHYSICAL SCOPE: The selected source tools are only 100 mm
+long, while B07 is approximately 498.18 mm long. The experiment had
+`match_active_bend_length=True`, creating virtual tools as long as
+the active bend. Even completing the virtual search would NOT certify
+physical execution with the selected 100 mm tools. Use verified actual
+machine tool assemblies or sufficiently long real FCStd tools before
+manufacturing readiness claims.
+
+No native Windows FreeCAD test of the revised budgets has yet been run.
