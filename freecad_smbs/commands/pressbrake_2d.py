@@ -3823,7 +3823,10 @@ class _PreviewPanel:
                             "length_mm", None
                         ),
                     },
-                    budget_s=600.0,
+                    budget_s=1000.0,
+                    bend_occ_fractions=[0.0, 1.0],
+                    ram_approach_retract_fractions=[0.0, 0.5, 1.0],
+                    validation_scope="DISCRETE_ENDPOINTS_ONLY_NOT_CONTINUOUS",
                 )
                 def reject_precheck(reason):
                     message = "FAST_FEASIBLE_SEARCH не запущен: " + reason
