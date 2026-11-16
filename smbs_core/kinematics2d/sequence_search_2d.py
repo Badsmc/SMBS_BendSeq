@@ -473,6 +473,7 @@ def search_bend_sequences_2d(
     max_candidates_per_prefix: int = 0,
     diversity_prefix_length: int = 4,
     max_candidates_per_first_bend: int = 0,
+    explore_both_orientations_without_gauge: bool = False,
     group_first: bool = True,
     preferred_bend_order: Optional[Sequence[str]] = None,
     root_probe_nodes: int = 0,
@@ -977,7 +978,13 @@ def search_bend_sequences_2d(
         awkward orientation if the preferred one is obstructed.
         """
         if cad_checker is None:
-            return (False,)
+            # Without a modeled backgauge the normal pose is not the only
+            # candidate. Explicit automatic-search mode explores both
+            # physical 180-degree loadings. Each is independently subjected
+            # to Stage B and then native OCC; no clearance is inferred here.
+            return ((False, True)
+                    if explore_both_orientations_without_gauge
+                    else (False,))
         ranking = []
         for reverse in (False, True):
             try:
