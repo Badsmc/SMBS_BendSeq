@@ -3985,9 +3985,11 @@ class _PreviewPanel:
                     )
                     if display_sequence:
                         complete_d6 = bool(
-                            report.two_point_no_detected_collision
+                            report.two_point_candidate_accepted
                         )
                         result_label = (
+                            "CONDITIONAL: ТОЛЬКО ТОРЦЫ ПУАНСОНА; OCC 0/100"
+                            if report.two_point_conditional_end_zones else
                             "OCC: 0% И 100% КАЖДОГО ГИБА БЕЗ НАЙДЕННЫХ КОЛЛИЗИЙ"
                             if complete_d6 else
                             "КАНДИДАТ — OCC 0/100 НЕ ЗАВЕРШЁН"
@@ -4021,6 +4023,9 @@ class _PreviewPanel:
                             ),
                             ("Форма выбранной оснастки учитывается; "
                              "длина виртуальная."),
+                            ("CONDITIONAL: {} мм от КАЖДОГО торца; включён: {}"
+                             .format(self.tooling_setup.end_zone_length_mm,
+                                     bool(self.tooling_setup.allow_end_zone_collision))),
                             ("Непрерывная траектория и весь станок "
                              "не сертифицированы."),
                         ])
@@ -4043,7 +4048,7 @@ class _PreviewPanel:
                     self.fast_feasible_info.setText(
                         summary + ". " + report.message_ru
                     )
-                    if (not report.two_point_no_detected_collision
+                    if (not report.two_point_candidate_accepted
                             or not report.sequence):
                         # Do not apply or autoplay a speculative order.
                         # Prior behavior automatically installed an A* rank
@@ -4103,11 +4108,16 @@ class _PreviewPanel:
                     self._ergonomic_loading_cache_key = None
                     self._manual_sequence_prefix = list(selected)
                     self._manual_preview_unverified = True
-                    if report.two_point_no_detected_collision:
+                    if report.two_point_candidate_accepted:
                         self._manual_preview_notice.setText(
-                             "OCC (0/100): в проверенных точках коллизий не найдено. "
-                            "Длина оснастки виртуальная, непрерывные перемещения "
-                            "и физическая выполнимость НЕ подтверждены."
+                            ("CONDITIONAL: встречены условно допустимые "
+                             "пересечения по левому/правому торцу пуансона. "
+                             if report.two_point_conditional_end_zones else
+                             "OCC (0/100): в проверенных точках коллизий "
+                             "не найдено. ")
+                            + "Длина оснастки виртуальная; физические вырезы "
+                              "на торцах, промежуточные углы и весь станок "
+                              "НЕ подтверждены."
                         )
                         self._manual_preview_notice.show()
                     else:
@@ -4146,6 +4156,12 @@ class _PreviewPanel:
                     self._selected_planar_gauge_model_id = None
                     self._backgauge_preview_cache.clear()
                     self._conditional_bends_status.clear()
+                    if report.two_point_conditional_end_zones:
+                        for step in report.winning_steps:
+                            if step.get("is_conditional"):
+                                self._conditional_bends_status[
+                                    str(step["bend_id"])
+                                ] = "CONDITIONAL_END_ZONE_ONLY"
                     self._ensure_press_cycle_controller()
                     if self.press_cycle is not None:
                         self.press_cycle.loading_orientation_by_bend = (
@@ -4162,15 +4178,24 @@ class _PreviewPanel:
                         "orientation_by_bend": directions,
                         "origin": "FAST_FEASIBLE_EXPERIMENT",
                         "evidence": report.status.value,
+                        "conditional_end_zone_allowed": bool(
+                            self.tooling_setup.allow_end_zone_collision
+                        ),
+                        "conditional_end_zone_mm_each_side": float(
+                            self.tooling_setup.end_zone_length_mm
+                        ),
                     }
                     if entry not in self._saved_full_sequences:
                         self._saved_full_sequences.append(entry)
                         self._saved_full_sequences = self._saved_full_sequences[-32:]
                     caution = (
-                        "OCC 0/100: в начале и конце гибов "
-                        "не выявлена коллизия. Длина оснастки виртуальная. "
-                        "Это ПРЕДВАРИТЕЛЬНЫЙ порядок, НЕ сертификат "
-                        "непрерывной траектории или пригодности станка."
+                        ("CONDITIONAL: только концевые зоны пуансона С ОБОИХ "
+                         "ТОРЦОВ; требуется реальный вырез инструмента. "
+                         if report.two_point_conditional_end_zones else
+                         "OCC 0/100: в проверенных точках коллизий не выявлено. ")
+                        + "Длина оснастки виртуальная. Это ПРЕДВАРИТЕЛЬНЫЙ "
+                          "порядок, НЕ сертификат непрерывной траектории "
+                          "или пригодности станка."
                     )
                     self.status.setText(
                         "Порядок: {} | {}".format(" → ".join(selected), caution)
