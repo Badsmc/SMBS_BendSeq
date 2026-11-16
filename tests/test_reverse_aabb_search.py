@@ -52,6 +52,40 @@ class ReverseAABBTests(unittest.TestCase):
             self.assertIn("UNVERIFIED", candidate.evidence)
         self.assertFalse(report.to_dict().get("machine_feasible_certified", False))
 
+    def test_machine_envelopes_rerank_complete_orders(self):
+        from unittest.mock import patch
+        from smbs_core.kinematics2d.reverse_machine_screen import ToolAABB
+        session = self.make_session()
+        envelopes = {
+            bid: ToolAABB(
+                punch=(-50, -50, 35, 50, 50, 55),
+                die=(-50, -50, -10, 50, 50, 0),
+            )
+            for bid in session.fold_state.bends
+        }
+        with patch(
+            "smbs_core.kinematics2d.reverse_machine_screen.load_tool_boxes",
+            return_value=(envelopes, "NATIVE_TOOL_ENVELOPES_LOADED"),
+        ) as loaded:
+            report = search_reverse_aabb(
+                session, tooling=object(), budget_s=10,
+                max_candidates=2,
+            )
+        self.assertEqual(loaded.call_count, 1)
+        self.assertTrue(report.candidates)
+        self.assertGreater(report.machine_screen_pairs, 0)
+        self.assertGreater(report.machine_screen_candidates, 0)
+        self.assertEqual(report.machine_screen_status,
+                         "NATIVE_TOOL_ENVELOPES_LOADED")
+        self.assertTrue(all(
+            item.evidence == "REVERSE_ASTAR_MACHINE_AABB_RANKED_UNVERIFIED"
+            for item in report.candidates
+        ))
+        self.assertEqual(
+            set(dict(report.candidates[0].orientation_by_bend)),
+            set(session.fold_state.bends),
+        )
+
     def test_missing_face_geometry_fails_closed(self):
         session = self.make_session()
         session.panel_build.panel_faces = ()
