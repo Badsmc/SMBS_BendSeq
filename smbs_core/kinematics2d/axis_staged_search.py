@@ -89,6 +89,7 @@ class AxisStagedReport:
     blocked_2d: int
     elapsed_s: float
     limit_reason: str = ""
+    cost_weights: dict = field(default_factory=dict)
     warnings: tuple[str, ...] = (
         "Section intersections reject only that sampled 2D loading, not the bend in every 3D setup.",
         "The BBox proxy ranks possible interference; overlap alone never proves penetration.",
@@ -113,6 +114,7 @@ class AxisStagedReport:
             "blocked_2d": self.blocked_2d,
             "elapsed_s": round(self.elapsed_s, 4),
             "limit_reason": self.limit_reason,
+            "cost_weights": self.cost_weights,
             "warnings": list(self.warnings),
             "physically_certified": False,
         }
@@ -272,6 +274,7 @@ def search_axis_staged(
     config: AxisStageConfig = AxisStageConfig(),
     weights: Any = None,
     per_bend_cost: Optional[Mapping[str, float]] = None,
+    per_bend_transition_multiplier: Optional[Mapping[str, float]] = None,
     pair_cost: Optional[Mapping[tuple[str, str], float]] = None,
     axis_change_cost: float = 0.0,
     step_checker: Optional[Callable[[tuple[str, ...], str, bool, bool], Any]] = None,
@@ -313,9 +316,11 @@ def search_axis_staged(
     bend_group = {bid: gid for gid, bids in groups for bid in bids}
     w = weights if weights is not None else OperationWeights()
     singles, pairs = dict(per_bend_cost or {}), dict(pair_cost or {})
+    multipliers = dict(per_bend_transition_multiplier or {})
     _valid_costs(singles, "bend")
+    _valid_costs(multipliers, "transition multiplier")
     _valid_costs(pairs, "pair")
-    if not set(singles) <= set(bend_ids):
+    if not set(singles) <= set(bend_ids) or not set(multipliers) <= set(bend_ids):
         raise ValueError("unknown per-bend weight ID")
     if any(a not in bend_ids or b not in bend_ids for a, b in pairs):
         raise ValueError("unknown pair cost ID")
@@ -424,7 +429,12 @@ def search_axis_staged(
             else 0.0
         )
         prior_id = prev_step.bend_id if prev_step is not None else None
-        return (measured + float(singles.get(step.bend_id, 0.0))
+        # A fixed per-bend base cost alone sums to the same constant for
+        # every full order. Multiplying the actual, history-dependent
+        # changeover cost is what lets an individual bend weight affect
+        # optimal sequencing.
+        return (measured * float(multipliers.get(step.bend_id, 1.0))
+                + float(singles.get(step.bend_id, 0.0))
                 + float(pairs.get((prior_id, step.bend_id), 0.0))
                 + (axis_change_cost if prior_id is not None
                    and bend_group[prior_id] != bend_group[step.bend_id]
@@ -575,6 +585,25 @@ def search_axis_staged(
                             (i + 1, bid, bend_group[bid])
                             for i, bid in enumerate(seq)
                         ),
+                        cost_breakdown=tuple({
+                            "bend_id": step.bend_id,
+                            "previous_bend_id": (
+                                replay[i - 1].bend_id if i else None
+                            ),
+                            "intrinsic_weight": float(
+                                singles.get(step.bend_id, 0.0)
+                            ),
+                            "transition_multiplier": float(
+                                multipliers.get(step.bend_id, 1.0)
+                            ),
+                            "pair_weight": float(pairs.get((
+                                replay[i - 1].bend_id if i else None,
+                                step.bend_id,
+                            ), 0.0)),
+                            "step_total": extension_cost(
+                                replay[i - 1] if i else None, step
+                            ),
+                        } for i, step in enumerate(replay)),
                     ))
                     if len(all_candidates) >= config.full_candidates:
                         break
@@ -668,4 +697,14 @@ def search_axis_staged(
         evaluated_steps=evals, step_cache_hits=hits,
         blocked_2d=blocks, elapsed_s=perf_counter() - started,
         limit_reason=limit,
+        cost_weights={
+            "operation_weights": w.to_dict(),
+            "per_bend_cost": singles,
+            "transition_multiplier": multipliers,
+            "pair_cost": [
+                {"previous": a, "next": b, "weight": v}
+                for (a, b), v in sorted(pairs.items())
+            ],
+            "axis_change_cost": float(axis_change_cost),
+        },
     )
