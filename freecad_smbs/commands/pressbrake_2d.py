@@ -2086,7 +2086,7 @@ class _PreviewPanel:
                 planar_note = QtWidgets.QLabel(
                     "Нажмите «Найти последовательность»: программа автоматически "
                     "проверит геометрию детали, профиль пуансона и матрицы, "
-                    "ориентации и варианты через OCC по пяти углам на гиб. "
+                    "ориентации и варианты через OCC по двум углам на гиб (0 и 100%). "
                     "Длина оснастки временно считается виртуальной."
                 )
                 planar_note.setWordWrap(True)
@@ -2096,7 +2096,7 @@ class _PreviewPanel:
                 # cannot interrupt a running OpenCASCADE kernel call.
                 self.fast_feasible_btn = style_action(
                     QtWidgets.QPushButton(
-                        "Найти последовательность (до 600 с)"
+                        "Найти последовательность (до 1000 с)"
                     ), primary=True
                 )
                 self.fast_feasible_btn.setObjectName(
@@ -2105,7 +2105,7 @@ class _PreviewPanel:
                 self.fast_feasible_btn.setToolTip(
                     "Автоматически: 2D Stage A/B → реальные профили "
                     "выбранных пуансона и матрицы с виртуальной длиной "
-                    "под гиб → пять углов OCC на гиб (0/25/50/75/100%). "
+                    "под гиб → OCC при 0% и 100% каждого гиба. "
                     "Бюджет мягкий; непрерывность, упоры и рама не подтверждаются."
                 )
                 self.fast_feasible_btn.setEnabled(False)
@@ -2115,7 +2115,7 @@ class _PreviewPanel:
                 planar_body.addWidget(self.fast_feasible_btn)
                 self.fast_feasible_info = QtWidgets.QLabel(
                     "Единый поиск: быстрый 2D Stage A/B с профилем оснастки, "
-                    "затем OCC по пяти точкам каждого гиба. "
+                    "затем OCC в начале и конце каждого гиба. "
                     "Длина виртуальная; непроверенные этапы явно обозначаются."
                 )
                 self.fast_feasible_info.setObjectName(
@@ -3886,11 +3886,11 @@ class _PreviewPanel:
                 self.planar_calculate.setEnabled(False)
                 self._set_task_busy(True)
                 self.status.setText(
-                    "2D Stage A/B → OCC (5 углов на гиб, виртуальная длина) (600 с)..."
+                    "2D Stage A/B → OCC (0% и 100%, виртуальная длина) (1000 с)..."
                 )
                 self.fast_feasible_info.setText(
                     "Поиск выполняется. Найденные полные порядки "
-                    "показываются ниже до запуска OCC (5 углов)."
+                    "показываются ниже до запуска OCC (0% и 100%)."
                 )
                 self.fast_search_result_details.setPlainText(
                     "Поиск запущен. Полных кандидатов пока нет."
@@ -3907,8 +3907,8 @@ class _PreviewPanel:
                         stage_label = {
                             "PLANAR_2D": "Быстрый 2D отбор",
                             "REVERSE_AABB": "Обратный A*/Mesh/BVH поиск",
-                            "NATIVE_START": "OCC 5 точек: проверка порядка",
-                            "NATIVE_BEND": "OCC 5 точек: гиб",
+                            "NATIVE_START": "OCC 0/100: проверка порядка",
+                            "NATIVE_BEND": "OCC 0/100: гиб",
                             "NATIVE_RETRY": "Повторная OCC проверка",
                             "NATIVE_ORDER_VARIANT": "OCC: новая последовательность",
                             "NATIVE_POSE_VARIANT": "OCC: разворот проблемного гиба",
@@ -3921,7 +3921,7 @@ class _PreviewPanel:
                         self.fast_feasible_info.setText(label)
                         if stage == "NATIVE_START":
                             self.fast_search_result_details.setPlainText(
-                                "НАЙДЕН ПОЛНЫЙ КАНДИДАТ — ПРОВЕРЯЕТСЯ OCC (5 УГЛОВ)\n"
+                                "НАЙДЕН ПОЛНЫЙ КАНДИДАТ — ПРОВЕРЯЕТСЯ OCC (0/100)\n"
                                 + str(bend).replace(" → ", " → ")
                                 + "\nПроверка ещё не завершена."
                             )
@@ -3930,7 +3930,7 @@ class _PreviewPanel:
                     report = search_fast_feasible_sequence(
                         self.session,
                         self.tooling_setup,
-                        budget_s=600.0,
+                        budget_s=1000.0,
                         max_candidates=8,
                         initial_clearance_mm=float(
                             self.cycle_config.initial_clearance_mm
@@ -3965,13 +3965,13 @@ class _PreviewPanel:
                     )
                     summary = (
                         "{} | {:.1f} с | полных вариантов: {} | "
-                        "проверок OCC 5 углов: {}"
+                        "проверок OCC 0/100: {}"
                     ).format(
                         report.status.value, report.elapsed_s,
                         len(report.planar_candidates), len(report.attempts),
                     )
                     if report.deadline_exceeded:
-                        summary += " | OCC превысил бюджет 600 с"
+                        summary += " | OCC превысил бюджет 1000 с"
                     # Always show the order even when D6 did not finish.
                     display_sequence = tuple(
                         report.sequence or report.preview_sequence or ()
@@ -3982,12 +3982,12 @@ class _PreviewPanel:
                     )
                     if display_sequence:
                         complete_d6 = bool(
-                            report.five_point_no_detected_collision
+                            report.two_point_no_detected_collision
                         )
                         result_label = (
-                            "OCC: 5 УГЛОВ КАЖДОГО ГИБА БЕЗ НАЙДЕННЫХ КОЛЛИЗИЙ"
+                            "OCC: 0% И 100% КАЖДОГО ГИБА БЕЗ НАЙДЕННЫХ КОЛЛИЗИЙ"
                             if complete_d6 else
-                            "КАНДИДАТ — OCC ПО ПЯТИ ТОЧКАМ НЕ ЗАВЕРШЁН"
+                            "КАНДИДАТ — OCC 0/100 НЕ ЗАВЕРШЁН"
                         )
                         result_lines = [
                             result_label,
@@ -4005,7 +4005,7 @@ class _PreviewPanel:
                             )
                         result_lines.extend([
                             "",
-                            ("Пять углов OCC проверены для всех {} гибов."
+                            ("Две точки OCC проверены для всех {} гибов."
                              .format(len(display_sequence)) if complete_d6
                              else
                              "OCC дошёл до шага {} из {}; подтверждённость "
@@ -4013,7 +4013,7 @@ class _PreviewPanel:
                                 int(getattr(report, "preview_checked_bends", 0)),
                                 len(display_sequence),
                              )),
-                            "Попыток OCC (5 точек): {}. Время: {:.1f} с.".format(
+                            "Попыток OCC (0/100): {}. Время: {:.1f} с.".format(
                                 len(report.attempts), report.elapsed_s
                             ),
                             ("Форма выбранной оснастки учитывается; "
@@ -4040,7 +4040,7 @@ class _PreviewPanel:
                     self.fast_feasible_info.setText(
                         summary + ". " + report.message_ru
                     )
-                    if (not report.five_point_no_detected_collision
+                    if (not report.two_point_no_detected_collision
                             or not report.sequence):
                         # Do not apply or autoplay a speculative order.
                         # Prior behavior automatically installed an A* rank
@@ -4050,7 +4050,7 @@ class _PreviewPanel:
                         if display_sequence:
                             self.status.setText(
                                 "Рабочая последовательность НЕ НАЙДЕНА: "
-                                "OCC не проверил все пять точек каждого гиба. "
+                                 "OCC не проверил обе точки каждого гиба. "
                                 "Кандидаты и причины см. на странице поиска."
                             )
                             self.fast_feasible_info.setText(
@@ -4075,7 +4075,7 @@ class _PreviewPanel:
                         # Remove stale preview from prior speculative runs.
                         self._simulation_sequence_result.hide()
                         self.physical_check_result.setText(
-                            "Порядок не принят: нет полной проверки OCC в 5 точках. "
+                             "Порядок не принят: нет полной проверки OCC 0/100. "
                             "Показанные кандидаты нельзя считать рабочими."
                         )
                         return
@@ -4100,9 +4100,9 @@ class _PreviewPanel:
                     self._ergonomic_loading_cache_key = None
                     self._manual_sequence_prefix = list(selected)
                     self._manual_preview_unverified = True
-                    if report.five_point_no_detected_collision:
+                    if report.two_point_no_detected_collision:
                         self._manual_preview_notice.setText(
-                            "OCC (5 углов): в проверенных точках коллизий не найдено. "
+                             "OCC (0/100): в проверенных точках коллизий не найдено. "
                             "Длина оснастки виртуальная, непрерывные перемещения "
                             "и физическая выполнимость НЕ подтверждены."
                         )
@@ -4164,7 +4164,7 @@ class _PreviewPanel:
                         self._saved_full_sequences.append(entry)
                         self._saved_full_sequences = self._saved_full_sequences[-32:]
                     caution = (
-                        "OCC 5 ТОЧЕК: ни в одном из пяти углов гибов "
+                        "OCC 0/100: в начале и конце гибов "
                         "не выявлена коллизия. Длина оснастки виртуальная. "
                         "Это ПРЕДВАРИТЕЛЬНЫЙ порядок, НЕ сертификат "
                         "непрерывной траектории или пригодности станка."
