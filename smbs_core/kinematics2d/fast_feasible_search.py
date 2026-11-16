@@ -188,7 +188,11 @@ def _default_sampling_config(remaining_s, bend_count, clearance_mm):
     # The 600s experimental mode must not keep the old 6s cap: BENDING
     # repeatedly needed more than 9s even for the first bend. Bound the
     # per-phase allowance by the global deadline, never certify timeout.
-    phase_limit = max(2.0, min(40.0, remaining_s * 0.10))
+    # First pass is breadth-oriented. The 09:43 benchmark spent 260s
+    # on one candidate, while other permutations failed at a different
+    # fourth bend. Keep more of the 600s budget for genuinely distinct
+    # orders. This affects UNKNOWN verdicts only, not correctness.
+    phase_limit = max(2.0, min(18.0, remaining_s * 0.045))
     return AdaptiveSamplingConfig(
         initial_clearance_mm=clearance_mm,
         max_phase_time_s=phase_limit,
@@ -514,8 +518,15 @@ def search_fast_feasible_sequence(
                 "MAX_TIME_BUDGET_EXCEEDED" in str(step.get("reason", ""))
                 for step in (native.get("steps") or ())
             )
+            # Do not immediately recheck the identical unresolved prefix
+            # when other geometric orders remain unexplored. A longer
+            # native retry is useful only after all queued variants were
+            # tried and the remaining budget can support it.
             if (not qualified and status == "UNVERIFIED"
-                    and timed_out_phase and deadline - clock() >= 65.0):
+                    and timed_out_phase
+                    and i == len(candidates) - 1
+                    and checked >= len(seq) - 1
+                    and deadline - clock() >= 95.0):
                 from dataclasses import replace
                 retry_remaining = deadline - clock()
                 retry_cfg = sampling_config_factory(
