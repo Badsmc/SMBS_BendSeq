@@ -4005,11 +4005,14 @@ class _PreviewPanel:
                             )
                         result_lines.extend([
                             "",
-                            "Проверено D6: {} из {} шагов по отчёту.".format(
-                                len(display_sequence) if complete_d6 else
+                            ("Выборочный D6 прошёл все {} гибов."
+                             .format(len(display_sequence)) if complete_d6
+                             else
+                             "D6 дошёл до шага {} из {}; подтверждённость "
+                             "этого шага НЕ установлена.".format(
                                 int(getattr(report, "preview_checked_bends", 0)),
                                 len(display_sequence),
-                            ),
+                             )),
                             "Попыток D6: {}. Время: {:.1f} с.".format(
                                 len(report.attempts), report.elapsed_s
                             ),
@@ -4024,7 +4027,8 @@ class _PreviewPanel:
                         self._simulation_sequence_result.setText(
                             result_label + "\n" +
                             " → ".join(display_sequence) +
-                            "\nПросмотр доступен через Play и ползунок."
+                            "\nPlay и ползунок показывают предварительную "
+                            "кинематику, не подтверждённую траекторию."
                         )
                         self._simulation_sequence_result.show()
                     else:
@@ -4104,8 +4108,8 @@ class _PreviewPanel:
                                 simulation_view_opened=True,
                             )
                             self.status.setText(
-                                "Порядок найден (D6 НЕ ЗАВЕРШЁН): "
-                                + " → ".join(preview)
+                                "Предварительный порядок загружен в симуляцию: "
+                                + " → ".join(preview) + " | D6: UNVERIFIED"
                             )
                             self.physical_check_result.setText(
                                 summary + " | Порядок отображён в симуляции; "
