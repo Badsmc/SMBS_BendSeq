@@ -121,13 +121,18 @@ class AxisStagedReport:
         """Existing sequence-selection UI accepts the standard 2D report."""
         from .sequence_search_2d import PlanarSearchReport, PlanarSearchStatus
         blocked = {
-            tuple(item.get("sequence", ()))
+            (tuple(item.get("sequence", ())),
+             tuple(sorted(item.get("orientation_by_bend", {}).items())))
             for item in self.occ_results
             if item.get("status") == "COLLISION"
         }
         selectable = tuple(
             c for c in self.finalists
-            if tuple(c.sequence) not in blocked
+            if (tuple(c.sequence), tuple(sorted(
+                (step.bend_id,
+                 step.orientation_variant.startswith("REVERSE_MACHINE_Z_180"))
+                for step in c.steps
+            ))) not in blocked
         )
         status = (PlanarSearchStatus.SAMPLED_2D_CANDIDATES
                   if any(c.evidence == "SAMPLED_2D_CLEAR_OR_TOUCH"
@@ -639,6 +644,7 @@ def search_axis_staged(
                     raise TypeError("native validator must return dict")
                 native_results.append({
                     "sequence": list(candidate.sequence),
+                    "orientation_by_bend": orientation,
                     "status": str(result.get("status", "UNVERIFIED")),
                     "checked_bends": int(result.get("checked_bends", 0)),
                     "reason": str(result.get("reason", "")),
@@ -647,6 +653,7 @@ def search_axis_staged(
             except Exception as exc:
                 native_results.append({
                     "sequence": list(candidate.sequence),
+                    "orientation_by_bend": orientation,
                     "status": "UNVERIFIED",
                     "checked_bends": 0,
                     "reason": type(exc).__name__ + ":" + str(exc),
