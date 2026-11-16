@@ -336,6 +336,7 @@ def search_fast_feasible_sequence(
                   progress_callback("REVERSE_AABB", done, total, bend))
                  if progress_callback else None,
         clock=clock,
+        tooling=tooling,
     )
     reverse_data = reverse.to_dict()
     seen = set()
@@ -404,7 +405,8 @@ def search_fast_feasible_sequence(
             "SAMPLED_2D_CLEAR_OR_TOUCH",
             "REVERSE_AABB_RANKED_UNVERIFIED",
             "REVERSE_ASTAR_MESH_RANKED_UNVERIFIED",
-            "REVERSE_ASTAR_AABB_RANKED_UNVERIFIED"),
+            "REVERSE_ASTAR_AABB_RANKED_UNVERIFIED",
+            "REVERSE_ASTAR_MACHINE_AABB_RANKED_UNVERIFIED"),
         not bool(getattr(x[2], "cost_complete", False)),
         float(getattr(x[2], "cost", 0.0) or 0.0),
         x[0], x[1],
