@@ -267,6 +267,27 @@ class AxisStagedSearchTests(unittest.TestCase):
                 reason="missing orientation",
             ).blocked_transition()
 
+    def test_freecad_native_feedback_entrypoint_compiles_and_is_wired(self):
+        import ast
+        from pathlib import Path
+        source = Path("freecad_smbs/commands/pressbrake_2d.py").read_text(
+            encoding="utf-8"
+        )
+        ast.parse(source)
+        self.assertIn("def calculate_axis_staged_native_feedback(self):", source)
+        self.assertIn(
+            "self.axis_native_feedback_btn.clicked.connect(", source
+        )
+        self.assertIn(
+            'blocked_transitions=blocked,', source
+        )
+        self.assertIn(
+            '"AXIS_NATIVE_FEEDBACK_COMPLETED"', source
+        )
+        self.assertIn(
+            'reverse_axis_by_bend=orientations,', source
+        )
+
     def test_invalid_weights_or_deadline_rejected(self):
         session, tooling = fixture()
         with self.assertRaises(ValueError):
