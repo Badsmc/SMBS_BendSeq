@@ -4458,10 +4458,14 @@ class _PreviewPanel:
                 complete = []
                 for candidate in report.candidates:
                     sequence = tuple(candidate.sequence)
+                    pose = tuple(
+                        step.orientation_variant for step in candidate.steps
+                    )
+                    key = (sequence, pose)
                     if (len(sequence) != total or set(sequence) != expected
-                            or sequence in seen):
+                            or len(pose) != total or key in seen):
                         continue
-                    seen.add(sequence)
+                    seen.add(key)
                     complete.append(candidate)
                 return complete
 
