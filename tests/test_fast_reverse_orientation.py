@@ -228,6 +228,50 @@ class ReverseOrientationTests(unittest.TestCase):
         self.assertIsNone(result.sequence)
         self.assertFalse(result.machine_feasible_certified)
 
+    def test_complete_five_angle_occ_screen_is_reported_as_preliminary(self):
+        from smbs_core.kinematics2d.fast_feasible_search import (
+            _coarse_five_point_candidate,
+        )
+        order = ("B01", "B02")
+        poses = {"B01": False, "B02": True}
+        physical = {
+            "validation_mode": "COARSE_OCC_5_BEND_ANGLES",
+            "status": "UNVERIFIED",
+            "complete_part_order_requested": True,
+            "stopped_early": False,
+            "checked_bends": 2,
+            "requested_bends": list(order),
+            "tool_length_mode": "VIRTUAL_MATCH_BEND",
+            "punch_fcstd_source": "/fake/punch.FCStd",
+            "die_fcstd_source": "/fake/die.FCStd",
+            "steps": [
+                {"bend_id": "B01", "reverse_axis": False,
+                 "status": "COARSE_3D_NO_PROVEN_COLLISION",
+                 "is_conditional": False},
+                {"bend_id": "B02", "reverse_axis": True,
+                 "status": "COARSE_3D_NO_PROVEN_COLLISION",
+                 "is_conditional": False},
+            ],
+        }
+        self.assertTrue(_coarse_five_point_candidate(
+            physical, order, poses,
+        ))
+        # Never accept a skipped bend, an alternate pose, or a collision.
+        bad = dict(physical, checked_bends=1)
+        self.assertFalse(_coarse_five_point_candidate(bad, order, poses))
+        bad = dict(physical, steps=[
+            physical["steps"][0],
+            dict(physical["steps"][1], status="COLLISION"),
+        ])
+        self.assertFalse(_coarse_five_point_candidate(bad, order, poses))
+        bad = dict(physical, steps=[
+            physical["steps"][0],
+            dict(physical["steps"][1], reverse_axis=False),
+        ])
+        self.assertFalse(_coarse_five_point_candidate(bad, order, poses))
+        bad = dict(physical, validation_mode="FULL_ADAPTIVE_D6")
+        self.assertFalse(_coarse_five_point_candidate(bad, order, poses))
+
     def test_phase_budget_spreads_bounded_search_across_orders(self):
         from smbs_core.kinematics2d.fast_feasible_search import (
             _default_sampling_config,
@@ -236,7 +280,8 @@ class ReverseOrientationTests(unittest.TestCase):
         self.assertLessEqual(cfg.max_phase_time_s, 40.0)
         self.assertGreaterEqual(cfg.max_phase_time_s, 35.0)
         self.assertGreaterEqual(cfg.max_phase_time_s, 2.0)
-        self.assertFalse(cfg.coarse_occ_screen)
+        self.assertTrue(cfg.coarse_occ_screen)
+        self.assertEqual(cfg.max_evaluated_states_per_phase, 32)
 
     def test_unverified_middle_bend_is_moved_later_before_pose_retry(self):
         order = ("B09", "B10", "B08", "B07", "B06", "B05")
