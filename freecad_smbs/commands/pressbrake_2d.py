@@ -2096,6 +2096,22 @@ class _PreviewPanel:
                     self.calculate_axis_staged_experiment
                 )
                 planar_layout.addWidget(self.axis_staged_experiment_btn)
+                self.axis_native_feedback_btn = style_action(
+                    QtWidgets.QPushButton(
+                        "Автопоиск A/B + OCC (до 5 попыток)"
+                    ), primary=False,
+                )
+                self.axis_native_feedback_btn.setToolTip(
+                    "Эксперимент: искать A/B варианты, проверять их независимой "
+                    "адаптивной 3D OCC, при подтверждённой коллизии "
+                    "исключать только конкретную установку и перестраивать "
+                    "поиск. До 5 попыток; OCC может выполняться долго. "
+                    "Полная непрерывная безопасность не сертифицируется."
+                )
+                self.axis_native_feedback_btn.clicked.connect(
+                    self.calculate_axis_staged_native_feedback
+                )
+                planar_layout.addWidget(self.axis_native_feedback_btn)
                 self.axis_staged_weights_btn = style_action(
                     QtWidgets.QPushButton("Индивидуальные веса гибов…"),
                     compact=True,
@@ -4224,6 +4240,300 @@ class _PreviewPanel:
                     self._set_task_busy(False)
                     self.axis_staged_experiment_btn.setEnabled(True)
                     self._sync_playback_buttons()
+
+
+            def calculate_axis_staged_native_feedback(self):
+                """Isolated 2D->native OCC->exact collision->replan experiment.
+
+                Never treats sampled clearance, CONDITIONAL or UNKNOWN as
+                continuously certified. Preserve the operator's original order
+                and loading unless a complete sampled-clear candidate wins.
+                """
+                if self.session is None:
+                    self.status.setText("Сначала загрузите деталь SheetMetal.")
+                    return
+                if (self.timer.isActive()
+                        or self.session.playback_status == PlaybackStatus.PLAYING):
+                    self.status.setText("Остановите симуляцию перед расчётом.")
+                    return
+                from smbs_core.kinematics2d.tooling_25d import ValidationStatus
+                punch, die = self.tooling_setup.punch, self.tooling_setup.die
+                if (punch is None or die is None
+                        or punch.validation_status != ValidationStatus.GEOMETRY_VERIFIED
+                        or die.validation_status != ValidationStatus.GEOMETRY_VERIFIED):
+                    self.status.setText(
+                        "Нужны проверенные геометрии пуансона и матрицы."
+                    )
+                    return
+                if (self.tooling_setup.match_active_bend_length
+                        and (self.tooling_setup.punch_section_offsets_xm
+                             or self.tooling_setup.die_section_offsets_xm)):
+                    self.status.setText(
+                        "Виртуальная длина несовместима с наборными секциями."
+                    )
+                    return
+                from time import monotonic
+                from smbs_core.kinematics2d.axis_staged_experiment import (
+                    search_axis_staged_experiment,
+                )
+                from smbs_core.kinematics2d.native_collision_feedback import (
+                    NativeCollisionFeedback, add_native_blocker,
+                )
+                from smbs_core.kinematics2d.manual_physical_validation import (
+                    check_manual_3d_sequence,
+                )
+                from smbs_core.kinematics2d.motion_trajectory_3d import (
+                    AdaptiveSamplingConfig,
+                )
+                original_order = tuple(self.session.bend_order)
+                original_orientation_order = tuple(
+                    getattr(self, "_manual_orientation_order", ())
+                )
+                original_orientations = dict(
+                    getattr(self, "_manual_orientation_by_bend", {}) or {}
+                )
+                original_prefix = list(self._manual_sequence_prefix)
+                previous_busy = self.axis_native_feedback_btn.isEnabled()
+                self.axis_native_feedback_btn.setEnabled(False)
+                self.axis_staged_experiment_btn.setEnabled(False)
+                self._set_task_busy(True)
+                deadline = monotonic() + 600.0  # Soft: native OCC may overrun.
+                blocked = {}
+                attempted = set()
+                history = []
+                winner = None
+                winner_orientations = None
+                final_status = "ATTEMPT_LIMIT_REACHED"
+                try:
+                    self._stop_timer()
+                    for round_number in range(1, 6):
+                        remaining = deadline - monotonic()
+                        if remaining <= 0:
+                            final_status = "SOFT_TIME_LIMIT_REACHED"
+                            break
+                        self.status.setText(
+                            "A/B → OCC: поиск, попытка {}/5".format(round_number)
+                        )
+                        QtWidgets.QApplication.processEvents()
+                        has_sections = bool(
+                            self.tooling_setup.punch_section_offsets_xm
+                            or self.tooling_setup.die_section_offsets_xm
+                        )
+                        # Restore the canonical search state before each run.
+                        self.session.set_bend_order(list(original_order))
+                        self.session.reset_all_bends()
+                        experiment = search_axis_staged_experiment(
+                            self.session, self.tooling_setup,
+                            weights=self._selected_operation_weights(),
+                            bend_weights=dict(getattr(
+                                self, "_axis_experiment_bend_weights", {}
+                            )),
+                            max_time_s=min(45.0, remaining),
+                            beam_width=12, per_axis_limit=5,
+                            combined_pool=20, finalists=5,
+                            allow_end_zone_collision=bool(
+                                self.tooling_setup.allow_end_zone_collision
+                            ),
+                            end_zone_length_mm=float(
+                                self.tooling_setup.end_zone_length_mm
+                            ),
+                            allow_retract_warning=(
+                                self.retract_warning_checkbox.isChecked()
+                            ),
+                            match_active_bend_length=not has_sections,
+                            blocked_transitions=blocked,
+                        )
+                        self._last_axis_experiment_result = experiment
+                        self.last_planar_search_report = experiment.planar_report
+                        self._trace_event(
+                            "AXIS_NATIVE_FEEDBACK_SEARCH_ROUND",
+                            round=round_number,
+                            blocker_count=len(blocked),
+                            result=experiment.to_dict(),
+                        )
+                        candidates = self._complete_planar_candidates(
+                            experiment.planar_report
+                        )
+                        fresh = []
+                        for candidate in candidates:
+                            sequence = tuple(candidate.sequence)
+                            orientations = {
+                                step.bend_id:
+                                    step.orientation_variant.startswith(
+                                        "REVERSE_MACHINE_Z_180"
+                                    )
+                                for step in candidate.steps
+                            }
+                            if set(orientations) != set(sequence):
+                                continue
+                            identity = (
+                                sequence, tuple(sorted(orientations.items()))
+                            )
+                            if identity not in attempted:
+                                fresh.append((candidate, identity, orientations))
+                        if not fresh:
+                            final_status = "NO_NEW_COMPLETE_CANDIDATE"
+                            break
+                        candidate, identity, orientations = fresh[0]
+                        attempted.add(identity)
+                        sequence = tuple(candidate.sequence)
+                        self.session.set_bend_order(list(sequence))
+                        self.session.reset_all_bends()
+                        self._sync_tooling_to_active_bend()
+                        if not self.tooling_setup.aligned:
+                            final_status = "TOOLING_ALIGNMENT_UNVERIFIED"
+                            break
+
+                        def on_progress(index, total, bend_id):
+                            self.status.setText(
+                                "OCC попытка {}/5: гиб {}/{} ({})".format(
+                                    round_number, index, total, bend_id
+                                )
+                            )
+                            QtWidgets.QApplication.processEvents()
+
+                        native = check_manual_3d_sequence(
+                            self.session, self.tooling_setup, sequence,
+                            match_active_bend_length=bool(
+                                self.tooling_setup.match_active_bend_length
+                            ),
+                            allow_end_zone_collision=bool(
+                                self.tooling_setup.allow_end_zone_collision
+                            ),
+                            end_zone_length_mm=float(
+                                self.tooling_setup.end_zone_length_mm
+                            ),
+                            config=AdaptiveSamplingConfig(
+                                coarse_occ_screen=False,
+                                initial_clearance_mm=float(
+                                    self.cycle_config.initial_clearance_mm
+                                ),
+                                max_phase_time_s=45.0,
+                                max_evaluated_states_per_phase=32,
+                            ),
+                            progress_callback=on_progress,
+                            reverse_axis_by_bend=orientations,
+                        )
+                        outcome = str(native.get("status", "UNVERIFIED"))
+                        record = {
+                            "round": round_number,
+                            "sequence": list(sequence),
+                            "orientation_by_bend": dict(orientations),
+                            "native_status": outcome,
+                            "reason": native.get("reason"),
+                            "checked_bends": native.get("checked_bends"),
+                            "elapsed_s": native.get("elapsed_s"),
+                        }
+                        history.append(record)
+                        self._trace_event(
+                            "AXIS_NATIVE_FEEDBACK_OCC_ATTEMPT",
+                            **record,
+                            native_report=native,
+                        )
+                        # Sampled success is a preview, not continuous clearance.
+                        if (outcome == "SAMPLED_3D_CLEAR_NOT_CONTINUOUS"
+                                and native.get("checked_bends") == len(sequence)
+                                and not native.get("stopped_early")):
+                            winner = sequence
+                            winner_orientations = orientations
+                            final_status = "SAMPLED_3D_CLEAR_NOT_CONTINUOUS"
+                            break
+                        if outcome == "COLLISION":
+                            steps = tuple(native.get("steps") or ())
+                            collisions = [
+                                (i, step) for i, step in enumerate(steps)
+                                if step.get("status") == "COLLISION"
+                            ]
+                            if not collisions:
+                                final_status = "COLLISION_WITHOUT_STEP_EVIDENCE"
+                                break
+                            i, step = collisions[0]
+                            if step.get("bend_id") != sequence[i]:
+                                final_status = "NATIVE_STEP_ID_MISMATCH"
+                                break
+                            feedback = NativeCollisionFeedback(
+                                sequence=sequence, failing_index=i,
+                                orientation_by_bend=orientations,
+                                evidence="CAD_3D_INTERFERENCE",
+                                reason=str(step.get("reason") or
+                                           native.get("reason") or "collision"),
+                            )
+                            blocked = add_native_blocker(blocked, feedback)
+                            self._trace_event(
+                                "AXIS_NATIVE_FEEDBACK_BLOCKER_ADDED",
+                                completed_before=list(sequence[:i]),
+                                bend_id=sequence[i],
+                                reverse_axis=bool(orientations[sequence[i]]),
+                                reason=feedback.reason,
+                                total_blockers=len(blocked),
+                            )
+                            continue
+                        # No global blacklist based on missing evidence.
+                        # Try a distinct candidate in the next round.
+                        final_status = "UNVERIFIED_NATIVE_RESULT"
+                    else:
+                        final_status = "ATTEMPT_LIMIT_REACHED"
+                except Exception as exc:
+                    final_status = "EXCEPTION:" + type(exc).__name__
+                    _error(
+                        "Axis native feedback experiment exception: "
+                        + traceback.format_exc()
+                    )
+                    self.status.setText(
+                        "A/B + OCC: ошибка {}".format(exc)
+                    )
+                finally:
+                    # Native checks may change fold state and active setup.
+                    self.session.set_bend_order(list(
+                        winner if winner is not None else original_order
+                    ))
+                    self.session.reset_all_bends()
+                    self._manual_orientation_order = (
+                        tuple(winner) if winner is not None
+                        else original_orientation_order
+                    )
+                    self._manual_orientation_by_bend = (
+                        dict(winner_orientations) if winner is not None
+                        else original_orientations
+                    )
+                    self._manual_sequence_prefix = (
+                        list(winner) if winner is not None
+                        else original_prefix
+                    )
+                    self._populate_operations()
+                    self._configure_for_active_bend()
+                    self._ensure_press_cycle_controller()
+                    self.draw()
+                    self.axis_native_feedback_btn.setEnabled(previous_busy)
+                    self.axis_staged_experiment_btn.setEnabled(True)
+                    self._set_task_busy(False)
+                    self._trace_event(
+                        "AXIS_NATIVE_FEEDBACK_COMPLETED",
+                        status=final_status, attempts=len(history),
+                        blockers=[
+                            {
+                                "completed_before": sorted(key[0]),
+                                "bend_id": key[1],
+                                "reverse_axis": key[2], "reason": reason,
+                            }
+                            for key, reason in blocked.items()
+                        ],
+                        history=history,
+                        winner=list(winner) if winner else None,
+                        continuous_motion_certified=False,
+                    )
+                if winner is not None:
+                    self.status.setText(
+                        "OCC выборочно без коллизий: {}/{} гибов. "
+                        "Непрерывная проверка, упор и станина НЕ подтверждены."
+                        .format(len(winner), len(winner))
+                    )
+                elif not final_status.startswith("EXCEPTION"):
+                    self.status.setText(
+                        "A/B + OCC: {}. Проверено {} вариантов, "
+                        "подтверждённые коллизии {}. Решение не доказано."
+                        .format(final_status, len(history), len(blocked))
+                    )
 
             def open_sequence_catalog_dialog(self):
                 from freecad_smbs.commands.sequence_catalog_dialog import show_sequence_catalog
