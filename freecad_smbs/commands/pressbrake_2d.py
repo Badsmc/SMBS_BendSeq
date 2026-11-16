@@ -4483,7 +4483,6 @@ class _PreviewPanel:
                             raise ValueError("Выбранный порядок не является полным")
                         self._stop_timer()
                         self.session.reset_all_bends()
-                        dlg.accept()
                         self.activate_manual_mode()
                         self._manual_sequence_prefix = list(candidate.sequence)
                         self._apply_manual_order()
@@ -4494,6 +4493,10 @@ class _PreviewPanel:
                         }
                         if set(orientations) != set(candidate.sequence):
                             raise ValueError("Ориентация 2D неполная; вариант не назначен")
+                        # Must be defined before writing the audit event.
+                        # The previous undefined local caused four
+                        # NameError failures after selecting 2D candidates.
+                        mixed_orientation = len(set(orientations.values())) > 1
                         self._manual_orientation_order = tuple(candidate.sequence)
                         self._manual_orientation_by_bend = orientations
                         self._populate_operations()
@@ -4524,9 +4527,10 @@ class _PreviewPanel:
                         )
                         if mixed_orientation:
                             self.status.setText(
-                                "Ориентация каждого гиба перенесена из 2D; "
-                                "3D-проверка использует те же установки."
+                                "Смешанные установки: ориентации всех гибов "
+                                "перенесены из 2D. Нужна независимая 3D-проверка."
                             )
+                        dlg.accept()
                     except Exception as exc:
                         self.status.setText("Нельзя назначить 2D порядок: " + str(exc))
                         _error("Planar manual selection exception: " + traceback.format_exc())
