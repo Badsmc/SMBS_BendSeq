@@ -3866,7 +3866,7 @@ class _PreviewPanel:
                 self.planar_calculate.setEnabled(False)
                 self._set_task_busy(True)
                 self.status.setText(
-                    "Обратный 3D AABB/DFS → прямая проверка D6 (600 с)..."
+                    "Обратный A*/Mesh/BVH + оснастка → D6 (600 с)..."
                 )
                 self.fast_feasible_info.setText(
                     "Поиск выполняется. При нехватке времени результат "
@@ -3882,7 +3882,7 @@ class _PreviewPanel:
                     def progress(stage, done, total, bend):
                         stage_label = {
                             "PLANAR_2D": "Быстрый 2D отбор",
-                            "REVERSE_AABB": "Обратный 3D AABB поиск",
+                            "REVERSE_AABB": "Обратный A*/Mesh/BVH поиск",
                             "NATIVE_START": "3D проверка порядка",
                             "NATIVE_BEND": "3D проверка гиба",
                             "NATIVE_RETRY": "Повторная 3D проверка",
@@ -3968,7 +3968,7 @@ class _PreviewPanel:
                             self._clear_manual_check_feedback()
                             self._manual_preview_notice.setText(
                                 ("UNVERIFIED: предварительная последовательность обратного "
-                                 "AABB/DFS либо 2D-поиска. ")
+                                 "A*/Mesh/BVH либо 2D-поиска. ")
                                 + "3D-проверка не закончена или отклонила вариант. "
                                 "Не использовать для производства без проверки."
                             )
@@ -3993,7 +3993,7 @@ class _PreviewPanel:
                                 native_attempts=[a.to_dict() for a in report.attempts],
                             )
                             self.status.setText(
-                                "UNVERIFIED AABB/2D → симуляция: " + " → ".join(preview)
+                                "UNVERIFIED A*/2D → симуляция: " + " → ".join(preview)
                             )
                             self.physical_check_result.setText(
                                 summary + " | Предварительный порядок доступен в симуляции, "
