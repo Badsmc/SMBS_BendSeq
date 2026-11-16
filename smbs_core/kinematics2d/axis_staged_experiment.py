@@ -47,6 +47,7 @@ class AxisStagedResult:
     rejected: int
     exhausted_budget: bool
     transition_trace: tuple[dict, ...] = ()
+    combined_orders: tuple[dict, ...] = ()
 
     def to_dict(self) -> dict:
         return {
@@ -63,6 +64,7 @@ class AxisStagedResult:
             "rejected_2d_hypotheses": self.rejected,
             "exhausted_budget": self.exhausted_budget,
             "transition_trace": list(self.transition_trace),
+            "combined_orders": list(self.combined_orders),
             "safety": "UNVERIFIED_2D_AND_3D_PREVIEW_NOT_A_MACHINE_CERTIFICATE",
             "planar": self.planar_report.to_dict(),
         }
@@ -549,4 +551,10 @@ def search_axis_staged_experiment(
         rejected=counts["rejected"],
         exhausted_budget=clock() >= deadline,
         transition_trace=tuple(counts["trace"]),
+        combined_orders=tuple({
+            "sequence": list(p.order),
+            "orientation_by_bend": dict(zip(p.order, p.orientations)),
+            "heuristic_cost": p.cost,
+            "unverified_2d_steps": p.unknown,
+        } for p in merged),
     )
