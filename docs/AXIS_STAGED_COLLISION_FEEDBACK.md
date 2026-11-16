@@ -31,6 +31,7 @@ the part, tooling, tolerances, virtual lengths or collision policy changes.**
 
 ## NOT implemented / acceptance blockers
 
+- `search_with_native_feedback(planner, native_verifier, max_attempts=5)` now provides a bounded retry loop with exact-blocker feedback, duplicate-candidate prevention and explicit UNVERIFIED status. The caller must supply a genuine native checker; this helper makes no geometric safety claims on its own.
 - The GUI does not yet automatically capture the native OCC replay result,
   translate it to this feedback contract, and rerun the candidate search.
 - Native end-zone conditional contacts, 3D setup alternatives beyond the
