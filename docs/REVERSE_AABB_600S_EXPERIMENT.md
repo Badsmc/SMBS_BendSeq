@@ -297,3 +297,32 @@ Existing `Поиск + 3D-проверка` and manual D6 remain independent
 and are deliberately not replaced. Their native physical tool-length
 mode remains operator-controlled. No statement of global optimality or
 machine feasibility is justified solely by the 120-second ranking.
+
+## One-click integrated workflow (2026-11-16)
+
+Operator sequence search is now a **single** visible primary FreeCAD
+action: `Найти последовательность (до 600 с)`. The short-lived
+`Поиск порядка — профиль оснастки` action has been removed. The
+legacy 2D-only entry remains hidden for developer diagnostics only.
+
+On clicking the primary action, the program automatically:
+
+1. Checks the selected SheetMetal geometry and punch/die profiles.
+2. Creates an isolated search-time tooling setup: actual selected tool
+   cross sections but virtual tool length equal to the active bend.
+   Physical tool section offsets are ignored; user UI settings are not
+   mutated.
+3. Generates reverse A*/Mesh/BVH order candidates, ranks them using the
+   selected tool CAD envelope and sampled 2D contour, and selects
+   180-degree placements.
+4. Runs native D6 on ranked candidate orders with **the identical
+   virtual-length tooling mode**. D6 feedback can queue alternative
+   bend order/placement trials within the shared 600s soft budget.
+5. Adopts a winning complete sampled candidate where qualified; otherwise
+   offers an explicitly UNVERIFIED full-order preview and logs reasons.
+
+This pipeline does NOT give continuous collision certification or prove
+gauge/frame/clamp/transfer feasibility. Machine-length checks remain
+separate for eventual production use. The integrated pipeline is
+implemented in GitHub but requires a new Windows FreeCAD run before
+performance or correctness claims.
