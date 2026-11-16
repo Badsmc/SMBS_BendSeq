@@ -24,6 +24,7 @@ from typing import Any, Callable, Optional
 class FastSearchStatus(str, Enum):
     SAMPLED_TOOL_CLEAR = "SAMPLED_3D_TOOL_CLEAR_MACHINE_UNVERIFIED"
     VIRTUAL_SAMPLED_CLEAR = "VIRTUAL_SAMPLED_3D_CLEAR_PHYSICAL_TOOL_LENGTH_UNVERIFIED"
+    FIVE_POINT_NO_DETECTED_COLLISION = "FIVE_POINT_NATIVE_OCC_CLEARANCE_UNVERIFIED"
     TIME_BUDGET_REACHED = "TIME_BUDGET_REACHED_UNVERIFIED"
     PLANAR_ONLY = "PLANAR_CANDIDATES_NOT_NATIVE_VALIDATED"
     NATIVE_REJECTED = "NATIVE_CANDIDATES_REJECTED_OR_UNVERIFIED"
@@ -81,6 +82,10 @@ class FastSequenceResult:
         return self.status is FastSearchStatus.VIRTUAL_SAMPLED_CLEAR
 
     @property
+    def five_point_no_detected_collision(self) -> bool:
+        return self.status is FastSearchStatus.FIVE_POINT_NO_DETECTED_COLLISION
+
+    @property
     def machine_feasible_certified(self) -> bool:
         # The existing physical validator excludes frame, clamps, backgauge
         # travel and continuous collision certification.
@@ -108,6 +113,7 @@ class FastSequenceResult:
             "planar_deepest_prefix": list(self.planar_deepest_prefix),
             "sampled_tool_clear": self.sampled_tool_clear,
             "virtual_tool_clear": self.virtual_tool_clear,
+            "five_point_no_detected_collision": self.five_point_no_detected_collision,
             "machine_feasible_certified": self.machine_feasible_certified,
             "continuous_motion_certified": False,
             "backgauge_frame_clamps_transfer_checked": False,
@@ -232,27 +238,64 @@ def _native_result_is_qualified(physical, sequence, expected_orientation=None, *
     return True
 
 
+def _coarse_five_point_candidate(physical, sequence, orientation):
+    """Five-angle OCC precheck: no proven collision at sampled states.
+
+    Explicitly UNVERIFIED between samples. A native top-level UNVERIFIED
+    is expected, never interpreted as full D6 convergence.
+    """
+    if not isinstance(physical, dict):
+        return False
+    if physical.get("validation_mode") != "COARSE_OCC_5_BEND_ANGLES":
+        return False
+    if not physical.get("complete_part_order_requested"):
+        return False
+    if physical.get("stopped_early", True):
+        return False
+    if tuple(physical.get("requested_bends") or ()) != tuple(sequence):
+        return False
+    if physical.get("checked_bends") != len(sequence):
+        return False
+    if physical.get("tool_length_mode") != "VIRTUAL_MATCH_BEND":
+        return False
+    if not physical.get("punch_fcstd_source") or not physical.get("die_fcstd_source"):
+        return False
+    if set(orientation) != set(sequence):
+        return False
+    steps = physical.get("steps") or ()
+    if len(steps) != len(sequence):
+        return False
+    for bend, step in zip(sequence, steps):
+        if step.get("bend_id") != bend:
+            return False
+        if bool(step.get("reverse_axis")) != bool(orientation[bend]):
+            return False
+        if step.get("status") != "COARSE_3D_NO_PROVEN_COLLISION":
+            return False
+        if step.get("is_conditional"):
+            return False
+    return True
+
+
 def _default_sampling_config(remaining_s, bend_count, clearance_mm):
     from .motion_trajectory_3d import AdaptiveSamplingConfig
 
-    # Each phase may borrow time from the shared deadline. Dividing by
+    # Five-angle OCC mode uses fixed discrete samples. Dividing by
     # 5*bend_count previously gave ~0.9s per phase on ten-bend parts.
     # Incomplete trajectories remain UNVERIFIED, never silently cleared.
     # The 600s experimental mode must not keep the old 6s cap: BENDING
     # repeatedly needed more than 9s even for the first bend. Bound the
     # per-phase allowance by the global deadline, never certify timeout.
-    # A hard 18-second per-phase cap made every D6 attempt stop at
-    # its FIRST BENDING in the 10:26 Windows benchmark. Restore a
-    # usable 40-second bound; preserve the separate candidate budget
-    # and avoid automatically repeating the same timed-out prefix.
+    # The 5-point approach avoids adaptive recursive interval subdivision.
+    # Keep phase limits bounded: an OCC kernel call itself cannot be interrupted.
     phase_limit = max(2.0, min(40.0, remaining_s * 0.10))
     return AdaptiveSamplingConfig(
         initial_clearance_mm=clearance_mm,
         max_phase_time_s=phase_limit,
-        max_evaluated_states_per_phase=72,
-        max_recursion_depth=7,
+        max_evaluated_states_per_phase=32,
+        max_recursion_depth=2,
         component_reject_enabled=True,  # reject only: never certifies clear
-        coarse_occ_screen=False,
+        coarse_occ_screen=True,
     )
 
 
@@ -548,8 +591,8 @@ def search_fast_feasible_sequence(
             message="Полный порядок за бюджет 2D-поиска не найден. Это не доказывает невозможность гибки.",
         )
 
-    # Per-invocation cache shares immutable OCC geometry across native
-    # replays. All collision decisions still come from fresh D6 checking.
+    # Native geometry reused across independent five-angle OCC replays.
+    # This stage is only a sampled collision screen, not full D6.
     from .native_sequence_geometry_cache import NativeSequenceGeometryCache
     geometry_cache = NativeSequenceGeometryCache(max_full_sheets=16)
     verified_step_cache = {}
@@ -596,8 +639,8 @@ def search_fast_feasible_sequence(
             status = str(native.get("status", "UNVERIFIED"))
             reason = str(native.get("reason", ""))
             checked = int(native.get("checked_bends", 0))
-            qualified = _native_result_is_qualified(
-                native, seq, dict(orientation), virtual_length=virtual_length
+            qualified = _coarse_five_point_candidate(
+                native, seq, dict(orientation)
             )
             # One bounded retry on a sampling-timeout, with the SAME
             # geometry, sequence and poses. Re-run full D6 rather than
@@ -650,8 +693,8 @@ def search_fast_feasible_sequence(
                 status = str(native.get("status", "UNVERIFIED"))
                 reason = str(native.get("reason", ""))
                 checked = int(native.get("checked_bends", 0))
-                qualified = _native_result_is_qualified(
-                    native, seq, dict(orientation), virtual_length=virtual_length
+                qualified = _coarse_five_point_candidate(
+                    native, seq, dict(orientation)
                 )
         except Exception as exc:
             status = "UNVERIFIED"
@@ -727,21 +770,18 @@ def search_fast_feasible_sequence(
                     available_sequences = tuple(x[0] for x in candidates)
         if qualified:
             return result(
-                (FastSearchStatus.VIRTUAL_SAMPLED_CLEAR if virtual_length
-                 else FastSearchStatus.SAMPLED_TOOL_CLEAR), sequence=seq,
+                FastSearchStatus.FIVE_POINT_NO_DETECTED_COLLISION, sequence=seq,
                 orientations=orientation, candidates=available_sequences,
                 attempts=attempts, winning_steps=tuple(native["steps"]),
                 planar_elapsed=planar_elapsed,
                 planar_status=planar_status, planar_limit=planar_limit,
                 deepest=deepest,
                 message=(
-                    "Найден полный порядок с ВИРТУАЛЬНОЙ длиной оснастки: "
-                    "выборочные 3D траектории не подтверждают реальную длину "
-                    "инструментов. Непрерывность, упор, рама, зажимы и перекладки "
-                    "не проверены." if virtual_length else
-                    "Найден полный порядок: проверены выборочные 3D траектории "
-                    "с реальными пуансоном и матрицей. Непрерывность, упор, "
-                    "рама, зажимы и перекладки не подтверждены."
+                    "Полный порядок прошёл OCC в пяти углах каждого гиба "
+                    "(0/25/50/75/100%). В проверенных точках коллизий "
+                    "не обнаружено. ПРОМЕЖУТКИ МЕЖДУ ТОЧКАМИ НЕ ПРОВЕРЕНЫ. "
+                    "Реальные профили с виртуальной длиной; упоры и рама "
+                    "не проверялись."
                 ),
             )
 
