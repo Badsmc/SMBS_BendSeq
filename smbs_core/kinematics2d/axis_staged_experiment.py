@@ -390,16 +390,24 @@ def search_axis_staged_experiment(
                     "reason": type(exc).__name__ + ":" + str(exc),
                     "possible_overlap_samples": 0,
                 }
-        broadphase.append({"sequence": list(p.order), **evaluation})
+        broadphase.append({
+            "sequence": list(p.order),
+            "orientation_by_bend": dict(zip(p.order, p.orientations)),
+            **evaluation,
+        })
     risks = {
-        tuple(x["sequence"]): x for x in broadphase
+        (tuple(x["sequence"]),
+         tuple(bool(x["orientation_by_bend"][bid]) for bid in x["sequence"])): x
+        for x in broadphase
     }
     # Unchecked 3D preview is *not* silently preferable to checked risk.
     merged.sort(key=lambda p: (
         p.unknown,
-        1 if tuple(p.order) not in risks
-        or risks[tuple(p.order)].get("status") == "UNVERIFIED" else 0,
-        risks.get(tuple(p.order), {}).get("possible_overlap_samples", 0),
+        1 if (p.order, p.orientations) not in risks
+        or risks[(p.order, p.orientations)].get("status") == "UNVERIFIED" else 0,
+        risks.get((p.order, p.orientations), {}).get(
+            "possible_overlap_samples", 0
+        ),
         p.cost, p.order, p.orientations,
     ))
     winning = merged[:finalists]
