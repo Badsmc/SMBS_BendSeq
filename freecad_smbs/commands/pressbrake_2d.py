@@ -2132,7 +2132,11 @@ class _PreviewPanel:
                 self.planar_only_btn.clicked.connect(
                     self.calculate_planar_candidates
                 )
+                # Diagnostic-only runner retained for developer tests.
+                # The operator sees ONE sequence-search action; the primary
+                # pipeline performs all candidate and D6 stages itself.
                 planar_body.addWidget(self.planar_only_btn)
+                self.planar_only_btn.hide()
                 # Legacy hidden proxy is retained for existing enabled-state
                 # and command contracts; it is not clicked by the toolbar.
                 self.planar_calculate.hide()
