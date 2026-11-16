@@ -90,6 +90,19 @@ class ReverseOrientationTests(unittest.TestCase):
         self.assertEqual(selected[2], 4)
         self.assertEqual(selected[3], "NATIVE_ATTEMPT_UNVERIFIED")
 
+    def test_rejected_order_must_not_be_shown_as_safe_preview(self):
+        from smbs_core.kinematics2d.fast_feasible_search import (
+            FastNativeAttempt, _best_unverified_preview,
+        )
+        order = ("B01", "B02")
+        positions = (("B01", False), ("B02", False))
+        rejected = FastNativeAttempt(
+            order, positions, "COLLISION", "punch penetration", 2, 5.0
+        )
+        self.assertIsNone(_best_unverified_preview(
+            order, order, positions, (rejected,),
+        ))
+
     def test_preview_preserves_full_a_star_order_when_no_native_attempt(self):
         from smbs_core.kinematics2d.fast_feasible_search import (
             _best_unverified_preview,
