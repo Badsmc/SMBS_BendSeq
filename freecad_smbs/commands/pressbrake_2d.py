@@ -3889,9 +3889,13 @@ class _PreviewPanel:
                     "A*/Mesh/BVH → профиль оснастки (виртуальная длина) → D6 (600 с)..."
                 )
                 self.fast_feasible_info.setText(
-                    "Поиск выполняется. При нехватке времени результат "
-                    "останется UNVERIFIED, а порядок не будет заменён."
+                    "Поиск выполняется. Найденные полные порядки "
+                    "показываются ниже до запуска D6."
                 )
+                self.fast_search_result_details.setPlainText(
+                    "Поиск запущен. Полных кандидатов пока нет."
+                )
+                self._simulation_sequence_result.hide()
                 QtWidgets.QApplication.processEvents()
 
                 try:
@@ -3915,6 +3919,12 @@ class _PreviewPanel:
                         )
                         self.status.setText(label)
                         self.fast_feasible_info.setText(label)
+                        if stage == "NATIVE_START":
+                            self.fast_search_result_details.setPlainText(
+                                "НАЙДЕН ПОЛНЫЙ КАНДИДАТ — ПРОВЕРЯЕТСЯ D6\n"
+                                + str(bend).replace(" → ", " → ")
+                                + "\nПроверка ещё не завершена."
+                            )
                         QtWidgets.QApplication.processEvents()
 
                     report = search_fast_feasible_sequence(
@@ -4087,8 +4097,13 @@ class _PreviewPanel:
                                 + " → ".join(preview)
                             )
                             self.physical_check_result.setText(
-                                summary + " | Предварительный порядок доступен в симуляции, "
-                                "но физическая выполнимость НЕ подтверждена."
+                                summary + " | Порядок отображён в симуляции; "
+                                "физическая выполнимость НЕ подтверждена."
+                            )
+                            self.manual_check_summary.setText(
+                                "Найден полный кандидат: "
+                                + " → ".join(preview)
+                                + " | D6: UNVERIFIED"
                             )
                         else:
                             self.status.setText("UNVERIFIED: " + report.message_ru)
@@ -4195,7 +4210,10 @@ class _PreviewPanel:
                     self.status.setText(
                         "Порядок: {} | {}".format(" → ".join(selected), caution)
                     )
-                    self.manual_check_summary.setText(caution)
+                    self.manual_check_summary.setText(
+                        "Последовательность: "
+                        + " → ".join(selected) + " | " + caution
+                    )
                     self.physical_check_result.setText(caution)
                 except Exception as exc:
                     message = "UNVERIFIED: пробный поиск завершился ошибкой: {}".format(exc)
