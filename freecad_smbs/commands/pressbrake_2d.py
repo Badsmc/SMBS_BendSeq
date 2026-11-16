@@ -3760,6 +3760,33 @@ class _PreviewPanel:
                 their pairwise sampled clearance. No fake success on timeout,
                 partial candidate, missed stage or virtual tool length.
                 """
+                # Log the button press even when the preconditions reject
+                # it. Otherwise a debug file cannot distinguish an old 2D
+                # search from an attempted fast 3D workflow.
+                self._trace_event(
+                    "FAST_FEASIBLE_SEARCH_REQUESTED",
+                    part=getattr(self.session, "part_label", None),
+                    punch=getattr(
+                        getattr(self.tooling_setup, "punch", None), "tool_id", None
+                    ),
+                    die=getattr(
+                        getattr(self.tooling_setup, "die", None), "tool_id", None
+                    ),
+                    virtual_length=bool(
+                        self.tooling_setup.match_active_bend_length
+                    ),
+                    selected_tool_lengths_mm={
+                        "punch": getattr(
+                            getattr(self.tooling_setup, "punch", None),
+                            "length_mm", None
+                        ),
+                        "die": getattr(
+                            getattr(self.tooling_setup, "die", None),
+                            "length_mm", None
+                        ),
+                    },
+                    budget_s=60.0,
+                )
                 if self.session is None:
                     self.status.setText("Сначала загрузите SheetMetal деталь.")
                     return
