@@ -23,6 +23,7 @@ from typing import Any, Callable, Optional
 
 class FastSearchStatus(str, Enum):
     SAMPLED_TOOL_CLEAR = "SAMPLED_3D_TOOL_CLEAR_MACHINE_UNVERIFIED"
+    VIRTUAL_SAMPLED_CLEAR = "VIRTUAL_SAMPLED_3D_CLEAR_PHYSICAL_TOOL_LENGTH_UNVERIFIED"
     TIME_BUDGET_REACHED = "TIME_BUDGET_REACHED_UNVERIFIED"
     PLANAR_ONLY = "PLANAR_CANDIDATES_NOT_NATIVE_VALIDATED"
     NATIVE_REJECTED = "NATIVE_CANDIDATES_REJECTED_OR_UNVERIFIED"
@@ -71,6 +72,10 @@ class FastSequenceResult:
         return self.status is FastSearchStatus.SAMPLED_TOOL_CLEAR
 
     @property
+    def virtual_tool_clear(self) -> bool:
+        return self.status is FastSearchStatus.VIRTUAL_SAMPLED_CLEAR
+
+    @property
     def machine_feasible_certified(self) -> bool:
         # The existing physical validator excludes frame, clamps, backgauge
         # travel and continuous collision certification.
@@ -97,6 +102,7 @@ class FastSequenceResult:
             "planar_limit_reason": self.planar_limit_reason,
             "planar_deepest_prefix": list(self.planar_deepest_prefix),
             "sampled_tool_clear": self.sampled_tool_clear,
+            "virtual_tool_clear": self.virtual_tool_clear,
             "machine_feasible_certified": self.machine_feasible_certified,
             "continuous_motion_certified": False,
             "backgauge_frame_clamps_transfer_checked": False,
@@ -120,7 +126,7 @@ def _candidate_orientation(candidate, order):
     return tuple(sorted(orientation.items()))
 
 
-def _native_result_is_qualified(physical, sequence, expected_orientation=None):
+def _native_result_is_qualified(physical, sequence, expected_orientation=None, *, virtual_length=False):
     """Only a complete real-tool sampled D6 replay of the SAME poses qualifies."""
     if not isinstance(physical, dict):
         return False
@@ -136,7 +142,9 @@ def _native_result_is_qualified(physical, sequence, expected_orientation=None):
         return False
     if physical.get("validation_mode") != "FULL_ADAPTIVE_D6":
         return False
-    if physical.get("tool_length_mode") != "SELECTED_FCSTD_REAL_LENGTH":
+    expected_length_mode = ("VIRTUAL_MATCH_BEND" if virtual_length
+                            else "SELECTED_FCSTD_REAL_LENGTH")
+    if physical.get("tool_length_mode") != expected_length_mode:
         return False
     if not physical.get("punch_fcstd_source") or not physical.get("die_fcstd_source"):
         return False
@@ -284,7 +292,8 @@ def search_fast_feasible_sequence(
         return result(FastSearchStatus.INVALID_INPUT,
                       message="Недостаточно данных для поиска: проверьте деталь и реальные пуансон/матрицу.")
 
-    length_issue = _real_tool_length_issue(session, tooling)
+    virtual_length = bool(getattr(tooling, "match_active_bend_length", False))
+    length_issue = "" if virtual_length else _real_tool_length_issue(session, tooling)
     if length_issue:
         return result(FastSearchStatus.INVALID_INPUT, message=length_issue)
 
@@ -318,7 +327,7 @@ def search_fast_feasible_sequence(
         group_first=len(order) < 6,
         exploration_fractions=(0.0, 0.25, 0.5, 0.75, 1.0),
         exploration_stroke_fractions=(0.0, 0.5, 1.0),
-        match_active_bend_length=False,
+        match_active_bend_length=virtual_length,
         allow_end_zone_collision=False,
         allow_retract_warning=False,
         backgauge_model=None,
@@ -411,7 +420,7 @@ def search_fast_feasible_sequence(
 
             native = native_runner(
                 native_session, tooling, seq,
-                match_active_bend_length=False,
+                match_active_bend_length=virtual_length,
                 allow_end_zone_collision=False,
                 end_zone_length_mm=0.0,
                 reverse_axis_by_bend=dict(orientation),
@@ -429,7 +438,7 @@ def search_fast_feasible_sequence(
             reason = str(native.get("reason", ""))
             checked = int(native.get("checked_bends", 0))
             qualified = _native_result_is_qualified(
-                native, seq, dict(orientation)
+                native, seq, dict(orientation), virtual_length=virtual_length
             )
         except Exception as exc:
             status = "UNVERIFIED"
@@ -443,13 +452,22 @@ def search_fast_feasible_sequence(
         ))
         if qualified:
             return result(
-                FastSearchStatus.SAMPLED_TOOL_CLEAR, sequence=seq,
+                (FastSearchStatus.VIRTUAL_SAMPLED_CLEAR if virtual_length
+                 else FastSearchStatus.SAMPLED_TOOL_CLEAR), sequence=seq,
                 orientations=orientation, candidates=available_sequences,
                 attempts=attempts, winning_steps=tuple(native["steps"]),
                 planar_elapsed=planar_elapsed,
                 planar_status=planar_status, planar_limit=planar_limit,
                 deepest=deepest,
-                message="Найден полный порядок: проверены выборочные 3D траектории с реальными пуансоном и матрицей. Непрерывность, упор, рама, зажимы и перекладки не подтверждены.",
+                message=(
+                    "Найден полный порядок с ВИРТУАЛЬНОЙ длиной оснастки: "
+                    "выборочные 3D траектории не подтверждают реальную длину "
+                    "инструментов. Непрерывность, упор, рама, зажимы и перекладки "
+                    "не проверены." if virtual_length else
+                    "Найден полный порядок: проверены выборочные 3D траектории "
+                    "с реальными пуансоном и матрицей. Непрерывность, упор, "
+                    "рама, зажимы и перекладки не подтверждены."
+                ),
             )
 
     time_out = clock() >= deadline
