@@ -647,3 +647,40 @@ Corrections:
 
 This is not a new certified 10-bend solution. Actual performance and
 benefit should be measured with the next FreeCAD run.
+
+## Windows 2026-11-16 13:52:50: collision-prefix cache improves time, but root diversity remains low
+
+The attached `SMBS_debug_log(20261116-135250).json` contains two
+one-click searches, not a single run. Respect their distinct timestamps:
+
+- 12:57–13:07 UTC: 597.8318s total, 197.9563s planar,
+  20 OCC attempts, 19 collided at B06 after
+  `B10 B09 B02 B06`, 1 at B03. No reuse.
+- 13:25–13:33 UTC (post-prefix-cache code): 484.6053s total,
+  210.1164s planar, 20 listed trials. Nine
+  `reused_proven_colliding_prefix` results cost 0.0 seconds OCC.
+  There were 11 actual OCC attempts, each terminally COLLISION;
+  no complete candidate qualified.
+- Second-run full candidate prefixes diversified at depth 4:
+  multiple different third/fourth bends after B10/B09,
+  but 19 of 20 still began with the **same two** B10/B09.
+  Therefore the previously added depth-4 quota was too weak.
+
+Correction: extend the existing *opt-in* 2D full-candidate discovery
+quota with `diversity_prefix_length` (default 4) and
+`max_candidates_per_first_bend` (default 0). Automatic 10-bend
+search now requests up to **2** complete candidate sequences per
+first-two-bend prefix and up to **5** per first bend, allowing DFS
+to explore other second bends and other root bends instead of
+spending the shortlist on near-duplicates. The independent 2D
+engine's default behavior remains unchanged.
+
+IMPORTANT: quota-induced return increments `probe_cutoffs` so
+DFS cannot misclassify the unexplored subtree as proven dead.
+Discovery quotas do not indicate geometric collision or prove
+infeasibility. Same-orientation proven prefix COLLISION reuse remains
+an orthogonal optimization.
+
+The updated source has not yet been run in FreeCAD; confirm first
+and second bend prefix diversity, native trial counts, time and whether
+any full sequence qualifies under the preliminary OCC 0/100 screen.
