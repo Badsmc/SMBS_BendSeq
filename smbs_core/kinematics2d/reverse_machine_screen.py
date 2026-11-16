@@ -19,6 +19,8 @@ from typing import Any
 class ToolAABB:
     punch: tuple[float, ...]  # xmin,ymin,zmin,xmax,ymax,zmax, tip at z=50
     die: tuple[float, ...]
+    punch_profile_sz: tuple[tuple[float, float], ...] = ()
+    die_profile_sz: tuple[tuple[float, float], ...] = ()
 
 
 def _box(shape: Any) -> tuple[float, ...]:
@@ -75,9 +77,22 @@ def load_tool_boxes(tooling: Any, bends: dict, *, deadline=None,
                     d_path, section_offsets_xm=d_sections or None,
                     virtual_length_mm=effective,
                 )
+                def _section(profile):
+                    # Exact selected 2D contour (arc tessellation), never
+                    # a substitute rectangular punch for a gooseneck.
+                    try:
+                        outer, _holes = profile.local_polygons(
+                            arc_segments=32
+                        )
+                        return tuple((float(x), float(z)) for x, z in outer)
+                    except (AttributeError, TypeError, ValueError):
+                        return ()
+
                 cached[key] = ToolAABB(
                     punch=_box(punch.machine_shape),
                     die=_box(die.machine_shape),
+                    punch_profile_sz=_section(tooling.punch),
+                    die_profile_sz=_section(tooling.die),
                 )
             result[bid] = cached[key]
         return result, ("NATIVE_TOOL_PROFILE_VIRTUAL_LENGTH_LOADED" if virtual
@@ -96,6 +111,50 @@ def _box_overlap(a, b) -> float:
     ]
     return 0.0 if any(n <= 0.0 for n in lengths) else (
         lengths[0] * lengths[1] * lengths[2]
+    )
+
+
+def _profile_overlaps_panel_box(profile, panel_box, *, z_shift=0.0):
+    """Approximate tool-section vs panel YZ envelope overlap.
+
+    Profile coordinates are local machine (s,z). This is a *ranking*
+    refinement only and can neither certify a trajectory nor reject one.
+    """
+    if len(profile) < 3:
+        return True  # unknown section -> retain conservative AABB risk
+
+    ymin, ymax = panel_box[1], panel_box[4]
+    zmin, zmax = panel_box[2], panel_box[5]
+    poly = tuple((float(s), float(z) + z_shift) for s, z in profile)
+    rect = ((ymin, zmin), (ymax, zmin),
+            (ymax, zmax), (ymin, zmax))
+
+    def _inside(pt, ring):
+        x, y = pt
+        inside = False
+        for a, b in zip(ring, ring[1:] + ring[:1]):
+            if (a[1] > y) != (b[1] > y):
+                cross_x = a[0] + (y-a[1])*(b[0]-a[0])/(b[1]-a[1])
+                if x < cross_x:
+                    inside = not inside
+        return inside
+
+    def _orient(a, b, c):
+        return ((b[0]-a[0])*(c[1]-a[1])
+                - (b[1]-a[1])*(c[0]-a[0]))
+
+    def _intersects(a,b,c,d):
+        return (_orient(a,b,c)*_orient(a,b,d) < 0
+                and _orient(c,d,a)*_orient(c,d,b) < 0)
+
+    if any(_inside(p, rect) for p in poly):
+        return True
+    if any(_inside(p, poly) for p in rect):
+        return True
+    return any(
+        _intersects(a, b, c, d)
+        for a, b in zip(poly, poly[1:] + poly[:1])
+        for c, d in zip(rect, rect[1:] + rect[:1])
     )
 
 
@@ -182,9 +241,9 @@ def score_candidate_machine(
                 )
                 # Tool envelope follows the fixed punch/die machine axes.
                 machine_tools = (
-                    _shift_z(tool.punch, -43.5),  # tip at z=6.5
-                    _shift_z(tool.punch, -48.5),  # tip at z=1.5
-                    tool.die,
+                    (_shift_z(tool.punch, -43.5), tool.punch_profile_sz, 6.5),
+                    (_shift_z(tool.punch, -48.5), tool.punch_profile_sz, 1.5),
+                    (tool.die, tool.die_profile_sz, 0.0),
                 )
                 for panel_id, vertices in polygons.items():
                     panel_tf = state.transforms[panel_id]
@@ -192,15 +251,21 @@ def score_candidate_machine(
                         vertices, panel_tf, placement, thickness,
                     )
                     weight = (0.08 if panel_id in contact_panels else 1.0)
-                    for box in machine_tools:
+                    for box, profile, z_tip in machine_tools:
                         checks += 1
                         vol = _box_overlap(machine_box, box)
                         if vol > 0:
-                            hits += 1
-                            score += weight * log1p(vol)
+                            if _profile_overlaps_panel_box(
+                                profile, machine_box, z_shift=z_tip,
+                            ):
+                                hits += 1
+                                score += weight * log1p(vol)
+                            else:
+                                # The real selected cross-section clears
+                                # this sample's YZ envelope. This remains
+                                # a heuristic (not a continuous proof).
+                                score += weight * 0.05 * log1p(vol)
                         else:
-                            # Small separation makes a future tool clash
-                            # more plausible, but NEVER proves collision.
                             gap = _box_gap(machine_box, box)
                             score += weight * 0.25 * max(0.0, 5.0 - gap)
             scores.append((score, reversed_axis, checks, hits))
