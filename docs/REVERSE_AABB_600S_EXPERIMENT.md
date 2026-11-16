@@ -608,3 +608,42 @@ must still pass the native OCC 0/100 classifier to be reported as
 `CONDITIONAL_END_ZONES`; it is NOT promoted to `SAMPLED_2D_CLEAR`.
 DIE, BACKGAUGE, missing finding evidence and other interference
 remain rejected by the existing 2D classifier.
+
+## Windows benchmark 2026-11-16 13:08:33: repeated B06 collision
+
+From `SMBS_debug_log(20261116-130833).json`:
+- 1000s configured; 597.83s elapsed, of which 197.96s planar 2D
+  and ~399.6s across 20 native OCC trials.
+- Zero fully accepted orders. All 20 attempts are COLLISION.
+- 19 of 20 full candidates share prefix
+  `B10 B09 B02 B06`, and all 19 fail on bend `B06` at
+  step four; the other seed trial fails on B03.
+- Representative B06 BENDING punch-part overlap is 29659.7 mm3;
+  the collision is not a minor 0.0001 mm3 numerical tolerance.
+- Explicit effective CONDITIONAL=on, end-zone length=10mm per end,
+  virtual tool length=true, bend sampling (0,1).
+- This means increasing N from 8 to 20 mostly repeated the *same
+  physical transition* while rediscovering different untested suffixes.
+  No evidence says the 10-bend part itself is impossible.
+
+Corrections:
+- `search_bend_sequences_2d` accepts opt-in
+  `max_candidates_per_prefix`. The one-click fast search sets 2
+  for 6+ bends, suppressing further complete permutations with the
+  same first four bend IDs and allowing DFS to explore different roots.
+  The default 2D search remains unchanged. Quota is a diversity
+  heuristic, NOT a proof of collision or impossibility.
+- The 0/100 OCC shortlist tracks **proven native colliding ordered
+  and oriented prefixes** within a single search invocation. When a
+  later order begins with an identical prefix (same IDs and orientation
+  for every bend), it is marked COLLISION with an explicit
+  `reused_proven_colliding_prefix` reason without rerunning OCC.
+  Unknown, conditional, timeout and exception results are *never*
+  stored as proven collisions; a different prefix or orientation is
+  checked afresh.
+- Search progress explicitly reports `NATIVE_PREFIX_REJECTED`.
+  Regression tests exercise reuse and unchanged alternate-prefix
+  checking.
+
+This is not a new certified 10-bend solution. Actual performance and
+benefit should be measured with the next FreeCAD run.
