@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - experiment/axis-staged-2d-mesh-20261116
+      - experiment/axis-2d-collision-feedback-20261116
   workflow_dispatch:
 
 permissions:
@@ -21,6 +22,7 @@ jobs:
       - name: Compile experimental search and GUI source
         run: |
           python -m py_compile smbs_core/kinematics2d/axis_staged_experiment.py
+          python -m py_compile smbs_core/kinematics2d/native_collision_feedback.py
           python -m py_compile smbs_core/kinematics2d/axis_staged_broadphase_3d.py
           python -m py_compile freecad_smbs/commands/pressbrake_2d.py
           python -m py_compile tests/test_axis_staged_experiment.py
