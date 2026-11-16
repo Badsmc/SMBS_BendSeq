@@ -70,6 +70,22 @@ class AxisStagedResult:
         }
 
 
+def _punch_only_section_interference(report: Any) -> bool:
+    """A 2D punch-only interference cannot resolve axial CONDITIONAL ends.
+
+    Never classify DIE/BACKGAUGE/mixed findings as conditional. Return
+    UNKNOWN for possible end relief; exact native 3D must decide.
+    """
+    if getattr(report, "stage", "") != "STAGE_B_SECTION_REQUIRES_3D":
+        return False
+    interfering = [
+        tool for _phase, tool, _component, status, _reason
+        in getattr(report, "diagnostic_findings", ())
+        if status == "INTERFERENCE"
+    ]
+    return bool(interfering) and all(tool == "PUNCH" for tool in interfering)
+
+
 def _bend_weight(bend: Any, override: float | None = None) -> float:
     if override is not None:
         if isinstance(override, bool) or not isfinite(float(override)) or override < 0:
@@ -146,6 +162,14 @@ def _build_transition_evaluator(
                         deadline_monotonic=deadline,
                     )
                     evidence, reason = _classify_step(b), b.reason
+                    if (evidence == "2D_INTERFERENCE"
+                            and allow_end_zone_collision
+                            and _punch_only_section_interference(b)):
+                        evidence = "UNVERIFIED_2D"
+                        reason = (
+                            "PUNCH_SECTION_END_ZONE_NEEDS_NATIVE_3D:"
+                            + str(b.reason)
+                        )
                     phases, statuses = b.sampled_phases, b.contact_statuses
             step = PlanarStep(
                 bend_id, str(evidence), str(reason), tuple(phases),
