@@ -313,10 +313,10 @@ def search_fast_feasible_sequence(
         return result(FastSearchStatus.INVALID_INPUT,
                       message="Недостаточно данных для поиска: проверьте деталь и реальные пуансон/матрицу.")
 
-    virtual_length = bool(getattr(tooling, "match_active_bend_length", False))
-    length_issue = "" if virtual_length else _real_tool_length_issue(session, tooling)
-    if length_issue:
-        return result(FastSearchStatus.INVALID_INPUT, message=length_issue)
+    # Unified sequencing mode: real punch/die cross sections matter,
+    # but their installed axial lengths are deliberately out of scope.
+    # Force per-bend virtual extrusion WITHOUT mutating user tooling.
+    virtual_length = True
 
     if planar_runner is None:
         from .sequence_search_2d import search_bend_sequences_2d
@@ -341,6 +341,7 @@ def search_fast_feasible_sequence(
                  if progress_callback else None,
         clock=clock,
         tooling=tooling,
+        virtual_tool_length=True,
     )
     reverse_data = reverse.to_dict()
     seen = set()
