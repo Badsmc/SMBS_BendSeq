@@ -8,6 +8,7 @@ independent native D6 validator in the forward sequence.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from heapq import heappop, heappush
 from math import isfinite
 from time import perf_counter
 from typing import Any, Callable
@@ -31,6 +32,10 @@ class ReverseSearchReport:
     timed_out: bool
     geometry_available: bool
     reason: str
+    mesh_triangles: int = 0
+    mesh_panels: int = 0
+    mesh_overlap_tests: int = 0
+    search_mode: str = "ASTAR_BEST_FIRST"
 
     def to_dict(self) -> dict:
         return {
@@ -48,6 +53,10 @@ class ReverseSearchReport:
             "timed_out": self.timed_out,
             "geometry_available": self.geometry_available,
             "reason": self.reason,
+            "mesh_triangles": self.mesh_triangles,
+            "mesh_panels": self.mesh_panels,
+            "mesh_overlap_tests": self.mesh_overlap_tests,
+            "search_mode": self.search_mode,
         }
 
 
@@ -175,6 +184,14 @@ def search_reverse_aabb(
         frozenset((b.fixed_panel, b.moving_panel))
         for b in source.bends.values()
     }
+    from .reverse_mesh_screen import (
+        extract_panel_triangles, transformed_prisms,
+        approximate_overlap_count,
+    )
+    panel_meshes = extract_panel_triangles(panel_build)
+    mesh_triangles = sum(len(tris) for tris in panel_meshes.values())
+    mesh_scene_cache = {}
+    mesh_tests = 0
     extent_cache = {}
     transition_cache = {}
     visit_counts = {}
@@ -203,7 +220,24 @@ def search_reverse_aabb(
             }
         return extent_cache[key]
 
+    def mesh_scene(mask, active, fraction):
+        key = (mask, active, fraction)
+        if key not in mesh_scene_cache:
+            angles = {
+                name: (0.0 if mask & (1 << indexed[name])
+                       else (source.bends[name].angle_deg * fraction
+                             if name == active else source.bends[name].angle_deg))
+                for name in order
+            }
+            transforms = state._compute_transforms(angles)
+            mesh_scene_cache[key] = {
+                pid: transformed_prisms(tris, transforms[pid], thickness)
+                for pid, tris in panel_meshes.items()
+            }
+        return mesh_scene_cache[key]
+
     def transition_score(mask, bid):
+        nonlocal mesh_tests
         key = (mask, bid)
         if key in transition_cache:
             return transition_cache[key]
@@ -219,22 +253,35 @@ def search_reverse_aabb(
                 for q in other:
                     if frozenset((p, q)) in adjacency:
                         continue
-                    score += _overlap(scene[p], scene[q])
+                    volume = _overlap(scene[p], scene[q])
+                    if volume <= 0.0:
+                        continue
+                    score += volume
+                    if p not in panel_meshes or q not in panel_meshes:
+                        continue
+                    fine = mesh_scene(mask, bid, fraction)
+                    mesh_tests += 1
+                    # The SAT hit is an approximate ranking penalty only.
+                    score += 50.0 * approximate_overlap_count(
+                        fine[p], fine[q], limit=20,
+                        deadline=deadline, clock=clock,
+                    )
         transition_cache[key] = score
         return score
 
-    def dfs(mask, path, score, root):
-        nonlocal deepest, transitions
-        if clock() >= deadline or len(candidates) >= max_candidates:
-            return
-        # Allow a few different paths to the same geometric mask;
-        # BBox ranking alone cannot justify discarding all alternatives.
-        # Keep separate traversal histories for different root unbends.
-        # The prior global mask cache suppressed all but three variants.
+    # Bounded A* with admissible h = number of remaining bends.
+    # Each edge costs 1 + nonnegative coarse-interference penalty.
+    # h is a lower bound; rankings are NOT physical feasibility verdicts.
+    heap = []
+    serial = 0
+    heappush(heap, (len(order), 0.0, serial, 0, (), None))
+    max_nodes = 12000
+    while heap and clock() < deadline and len(candidates) < max_candidates:
+        _, penalty, _, mask, path, root = heappop(heap)
         cache_key = (root, mask)
         count = visit_counts.get(cache_key, 0)
         if count >= 3:
-            return
+            continue
         visit_counts[cache_key] = count + 1
         if len(path) > len(deepest):
             deepest = path
@@ -242,41 +289,42 @@ def search_reverse_aabb(
                 progress(len(path), len(order), path[-1] if path else "")
         if mask == all_mask:
             seq = tuple(reversed(path))
-            # Spend exact OCC on different first forward bends rather than
-            # on many permutations whose first step is identical.
-            if (seq not in candidate_orders and seq[0] not in first_bends_seen
-                    and root_candidate_counts.get(root, 0) < 2):
+            if seq not in candidate_orders and seq[0] not in first_bends_seen:
                 candidate_orders.add(seq)
                 first_bends_seen.add(seq[0])
-                root_candidate_counts[root] = root_candidate_counts.get(root, 0) + 1
                 candidates.append(ReverseCandidate(
                     sequence=seq,
                     orientation_by_bend=tuple((bid, False) for bid in seq),
-                    bbox_overlap_score=score,
+                    bbox_overlap_score=penalty,
+                    evidence=("REVERSE_ASTAR_MESH_RANKED_UNVERIFIED"
+                              if panel_meshes
+                              else "REVERSE_ASTAR_AABB_RANKED_UNVERIFIED"),
                 ))
-            return
-        ranking = []
+            continue
+        if len(visit_counts) >= max_nodes:
+            break
         for bid in order:
+            if clock() >= deadline:
+                break
             bit = 1 << indexed[bid]
             if mask & bit:
                 continue
-            if clock() >= deadline:
-                break
             try:
-                metric = transition_score(mask, bid)
+                increment = transition_score(mask, bid)
             except (ValueError, ArithmeticError, KeyError):
                 continue
             transitions += 1
-            ranking.append((metric, bid, bit))
-        for metric, bid, bit in sorted(ranking):
-            if clock() >= deadline or len(candidates) >= max_candidates:
-                break
-            next_root = root if root is not None else bid
-            if root_candidate_counts.get(next_root, 0) >= 2:
+            new_path = path + (bid,)
+            new_mask = mask | bit
+            new_root = root if root is not None else bid
+            if visit_counts.get((new_root, new_mask), 0) >= 3:
                 continue
-            dfs(mask | bit, path + (bid,), score + metric, next_root)
+            new_penalty = penalty + increment
+            serial += 1
+            g = len(new_path) + new_penalty
+            h = len(order) - len(new_path)
+            heappush(heap, (g+h, new_penalty, serial, new_mask, new_path, new_root))
 
-    dfs(0, (), 0.0, None)
     return ReverseSearchReport(
         candidates=tuple(sorted(candidates, key=lambda c: (
             c.bbox_overlap_score, c.sequence
@@ -287,5 +335,8 @@ def search_reverse_aabb(
         elapsed_s=max(0., clock()-started),
         timed_out=clock() >= deadline,
         geometry_available=True,
-        reason="AABB_RANKING_ONLY_REQUIRES_FORWARD_NATIVE_D6",
+        reason="MESH_AABB_RANKING_ONLY_REQUIRES_FORWARD_NATIVE_D6",
+        mesh_triangles=mesh_triangles,
+        mesh_panels=len(panel_meshes),
+        mesh_overlap_tests=mesh_tests,
     )
