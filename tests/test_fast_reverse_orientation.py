@@ -228,6 +228,55 @@ class ReverseOrientationTests(unittest.TestCase):
         self.assertIsNone(result.sequence)
         self.assertFalse(result.machine_feasible_certified)
 
+    def test_automatic_ten_bend_search_requests_diverse_first_two_bends(self):
+        order = tuple("B%02d" % i for i in range(1, 11))
+        session = SimpleNamespace(
+            bend_order=order,
+            fold_state=SimpleNamespace(
+                bends={bend_id: object() for bend_id in order},
+            ),
+            panel_build=object(), part_label="test",
+        )
+        tooling = SimpleNamespace(
+            punch=SimpleNamespace(tool_id="p", length_mm=100),
+            die=SimpleNamespace(tool_id="d", length_mm=100),
+            match_active_bend_length=False,
+            punch_section_offsets_xm=(), die_section_offsets_xm=(),
+        )
+        candidate = SimpleNamespace(
+            sequence=order,
+            steps=tuple(SimpleNamespace(
+                bend_id=bend_id, orientation_variant="NORMAL",
+            ) for bend_id in order),
+            evidence="SAMPLED_2D_CLEAR_OR_TOUCH",
+            cost=0.0, cost_complete=True,
+        )
+        planar_report = SimpleNamespace(
+            status=SimpleNamespace(value="SAMPLED_2D_CANDIDATES"),
+            limit_reason="", deepest_prefix=order,
+            candidates=(candidate,),
+        )
+        captured = {}
+        def fake_planar(_session, _tooling, **kwargs):
+            captured.update(kwargs)
+            return planar_report
+        with patch(
+            "smbs_core.kinematics2d.reverse_aabb_search.search_reverse_aabb",
+            side_effect=AssertionError("Do not replace the 2D primary search"),
+        ):
+            result = search_fast_feasible_sequence(
+                session, tooling, budget_s=1000.0, max_candidates=20,
+                planar_runner=fake_planar,
+                native_runner=lambda *args, **kwargs: {
+                    "status": "UNVERIFIED", "checked_bends": 0,
+                    "steps": (), "reason": "synthetic",
+                },
+            )
+        self.assertEqual(captured["max_candidates_per_prefix"], 2)
+        self.assertEqual(captured["diversity_prefix_length"], 2)
+        self.assertEqual(captured["max_candidates_per_first_bend"], 5)
+        self.assertIsNone(result.sequence)
+
     def test_two_endpoint_occ_success_is_separate_from_machine_certification(self):
         order = ("B01", "B02")
         session = SimpleNamespace(
