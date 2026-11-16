@@ -1409,6 +1409,7 @@ class _PreviewPanel:
                 self.last_sequence_search_report = None
                 self.last_planar_search_report = None
                 self._axis_experiment_bend_weights = {}
+                self._last_axis_experiment_result = None
                 self._saved_full_sequences = []
                 self._preview_only_planar_order = None
                 self._partial_preview_limit = 0
@@ -3998,6 +3999,7 @@ class _PreviewPanel:
                         match_active_bend_length=not has_sections,
                     )
                     self.last_planar_search_report = report
+                    self._last_axis_experiment_result = None
                     # Store validated complete candidates with their preview
                     # orientation, not merely the last solver status.
                     for candidate in self._complete_planar_candidates(report):
@@ -4168,6 +4170,7 @@ class _PreviewPanel:
                     )
                     report = experiment.planar_report
                     self.last_planar_search_report = report
+                    self._last_axis_experiment_result = experiment
                     self._last_planar_weights = selected_weights.to_dict()
                     for candidate in self._complete_planar_candidates(report):
                         orientations = {
@@ -4515,9 +4518,41 @@ class _PreviewPanel:
                 options = QtWidgets.QListWidget(dlg)
                 options.setMinimumHeight(145)
                 visible_candidates = self._complete_planar_candidates(report)
+                axis_experiment = getattr(
+                    self, "_last_axis_experiment_result", None
+                )
+                bbox_map = {}
+                if (axis_experiment is not None
+                        and self.last_planar_search_report is report):
+                    for item in axis_experiment.broadphase:
+                        key = (
+                            tuple(item["sequence"]),
+                            tuple(bool(item["orientation_by_bend"][bid])
+                                  for bid in item["sequence"]),
+                        )
+                        bbox_map[key] = item
                 for index, candidate in enumerate(visible_candidates):
                     suffix = (" | штраф {:.2f}".format(candidate.cost)
                               if candidate.cost_complete else " | штраф не подтверждён")
+                    if axis_experiment is not None:
+                        suffix = " | эвристический штраф {:.2f}".format(
+                            candidate.cost
+                        )
+                    key = (
+                        tuple(candidate.sequence),
+                        tuple(step.orientation_variant.startswith(
+                            "REVERSE_MACHINE_Z_180"
+                        ) for step in candidate.steps),
+                    )
+                    risk = bbox_map.get(key)
+                    if risk:
+                        suffix += " | 3D BBox: {}".format(
+                            risk.get("possible_overlap_samples", 0)
+                            if risk.get("status", "").startswith("SAMPLED")
+                            else "UNVERIFIED"
+                        )
+                    elif axis_experiment is not None:
+                        suffix += " | 3D BBox: не проверено"
                     evidence_label = {
                         "SAMPLED_2D_CLEAR_OR_TOUCH":
                             "в проверенных 2D сечениях препятствий не обнаружено",
@@ -4570,6 +4605,7 @@ class _PreviewPanel:
                         }
                         if set(orientations) != set(candidate.sequence):
                             raise ValueError("Ориентация 2D неполная; вариант не назначен")
+                        mixed_orientation = any(orientations.values())
                         self._manual_orientation_order = tuple(candidate.sequence)
                         self._manual_orientation_by_bend = orientations
                         self._populate_operations()
@@ -5544,6 +5580,7 @@ class _PreviewPanel:
                 self._smbs_allow_auto_embed = False
                 self.last_planar_search_report = None
                 self._axis_experiment_bend_weights = {}
+                self._last_axis_experiment_result = None
                 self._saved_full_sequences = []
                 self._last_manual_sequence_report = None
                 self._manual_3d_verdicts.clear()
