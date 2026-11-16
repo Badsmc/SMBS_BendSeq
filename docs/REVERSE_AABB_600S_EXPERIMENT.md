@@ -326,3 +326,33 @@ gauge/frame/clamp/transfer feasibility. Machine-length checks remain
 separate for eventual production use. The integrated pipeline is
 implemented in GitHub but requires a new Windows FreeCAD run before
 performance or correctness claims.
+
+## Visible operator sequence result and simulation handoff
+
+The 600-second single-button search now explicitly displays the ranked
+order rather than only a generic `NATIVE_REJECTED_OR_UNVERIFIED` status:
+
+- During D6, the Search page displays the current complete candidate.
+- At finish, `SMBS_SearchResultSequence` lists every bend in order,
+  its 0/180-degree placement, D6 checked-step count, number of attempts,
+  and the virtual-length/physical-validation limitations.
+- The best displayable unresolved order is chosen from actual D6
+  attempts by the highest checked-step count; this can be an
+  evidence-driven reorder, not the first reverse A* candidate. Explicit
+  physical rejections are excluded. A complete A* order remains a
+  fallback only when it was not physically rejected.
+- If a complete order is available, the search applies it to the
+  session, configures the existing PressCycle controller, switches
+  the native Tasks page to **Симуляция**, selects the 2.5D viewer,
+  displays the order above Play/slider, and retains it as
+  `UNVERIFIED_D6_INCOMPLETE` in saved choices when necessary.
+- If no complete order is found, the GUI must say so and keep the
+  operator's existing sequence; a partial prefix is NOT masqueraded
+  as a ten-bend solution.
+- JSON results expose `preview_sequence`,
+  `preview_orientations`, `preview_checked_bends`,
+  `preview_origin`, plus `FAST_FEASIBLE_PREVIEW_ADOPTED`
+  events. No D6 safety or global optimality claim is made.
+
+These changes require a real FreeCAD GUI run before confirming playback
+works in the target Windows installation.
