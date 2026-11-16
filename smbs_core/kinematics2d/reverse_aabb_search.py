@@ -155,6 +155,7 @@ def search_reverse_aabb(
     progress: Callable[[int, int, str], None] | None = None,
     clock: Callable[[], float] = perf_counter,
     tooling: Any = None,
+    virtual_tool_length: bool = False,
 ) -> ReverseSearchReport:
     """Find reverse unbend permutations; prioritize lower swept AABB overlap.
 
@@ -360,6 +361,7 @@ def search_reverse_aabb(
         )
         tools_by_bend, machine_status = load_tool_boxes(
             tooling, source.bends, deadline=deadline, clock=clock,
+            force_virtual_length=virtual_tool_length,
         )
         if tools_by_bend:
             ranked = []
