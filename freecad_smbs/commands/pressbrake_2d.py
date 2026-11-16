@@ -2081,6 +2081,19 @@ class _PreviewPanel:
                 # displays its description/results without a duplicate button.
                 self.planar_calculate.hide()
                 planar_layout.addWidget(planar_card)
+                self.axis_staged_experiment_btn = style_action(
+                    QtWidgets.QPushButton("Эксперимент: оси A/B → 3D BBox → топ-5"),
+                    primary=False,
+                )
+                self.axis_staged_experiment_btn.setToolTip(
+                    "Отдельный поэтапный 2D-поиск: геометрия реальных профилей, "
+                    "развороты, веса переходов, объединение осей. "
+                    "3D Preview BBox только ранжирует риск, OCC после выбора."
+                )
+                self.axis_staged_experiment_btn.clicked.connect(
+                    self.calculate_axis_staged_experiment
+                )
+                planar_layout.addWidget(self.axis_staged_experiment_btn)
                 planar_layout.addStretch(1)
                 self._page_planar = scroll_task_page(
                     planar_page, "SMBS_PlanarScroll"
@@ -4030,6 +4043,111 @@ class _PreviewPanel:
                     self._set_task_busy(False)
                     self._sync_playback_buttons()
 
+            def calculate_axis_staged_experiment(self):
+                """Run an isolated axis/interleaving 2D experiment, not the old engine."""
+                if self.session is None:
+                    self.status.setText("Сначала загрузите деталь SheetMetal.")
+                    return
+                if (self.timer.isActive()
+                        or self.session.playback_status == PlaybackStatus.PLAYING):
+                    self.status.setText("Остановите воспроизведение перед поиском.")
+                    return
+                if (self.tooling_setup.punch is None
+                        or self.tooling_setup.die is None):
+                    self.status.setText("Выберите пуансон и матрицу.")
+                    return
+                self.axis_staged_experiment_btn.setEnabled(False)
+                self._set_task_busy(True)
+                self.status.setText(
+                    "Эксперимент A/B: оси, развороты, объединение и "
+                    "3D BBox-проверка риска. Без сертификата OCC."
+                )
+                QtWidgets.QApplication.processEvents()
+                try:
+                    from smbs_core.kinematics2d.axis_staged_experiment import (
+                        search_axis_staged_experiment,
+                    )
+                    has_sections = bool(
+                        getattr(self.tooling_setup, "punch_section_offsets_xm", ())
+                        or getattr(self.tooling_setup, "die_section_offsets_xm", ())
+                    )
+                    self._last_backgauge_cad_trace_path = None
+                    selected_weights = self._selected_operation_weights()
+                    experiment = search_axis_staged_experiment(
+                        self.session, self.tooling_setup,
+                        weights=selected_weights,
+                        max_time_s=90.0,
+                        beam_width=10,
+                        per_axis_limit=5,
+                        combined_pool=15,
+                        finalists=5,
+                        allow_end_zone_collision=bool(
+                            self.tooling_setup.allow_end_zone_collision
+                        ),
+                        end_zone_length_mm=float(
+                            self.tooling_setup.end_zone_length_mm
+                        ),
+                        allow_retract_warning=(
+                            self.retract_warning_checkbox.isChecked()
+                        ),
+                        match_active_bend_length=not has_sections,
+                    )
+                    report = experiment.planar_report
+                    self.last_planar_search_report = report
+                    self._last_planar_weights = selected_weights.to_dict()
+                    for candidate in self._complete_planar_candidates(report):
+                        orientations = {
+                            step.bend_id: step.orientation_variant.startswith(
+                                "REVERSE_MACHINE_Z_180"
+                            ) for step in candidate.steps
+                        }
+                        entry = {
+                            "bend_ids": list(candidate.sequence),
+                            "orientation_by_bend": orientations,
+                            "origin": "AXIS_STAGED_2D_EXPERIMENT",
+                            "evidence": str(candidate.evidence),
+                        }
+                        if entry not in self._saved_full_sequences:
+                            self._saved_full_sequences.append(entry)
+                    self._saved_full_sequences = self._saved_full_sequences[-32:]
+                    self._trace_event(
+                        "AXIS_STAGED_EXPERIMENT_COMPLETED",
+                        **experiment.to_dict(),
+                    )
+                    if report.candidates:
+                        self.status.setText(
+                            "Эксперимент A/B: {} вариантов; 2D проверок {}, "
+                            "попаданий в кэш {}. 3D BBox — только риск; "
+                            "требуется OCC.".format(
+                                len(report.candidates), experiment.evaluations,
+                                experiment.cache_hits,
+                            )
+                        )
+                        self._show_planar_candidates_dialog(report)
+                    else:
+                        message = (
+                            "За 90 с полный кандидат не найден. "
+                            "Это НЕ доказывает невозможность гибки. "
+                            "Причина: {}".format(report.limit_reason)
+                        )
+                        self.status.setText(message)
+                        QtWidgets.QMessageBox.information(
+                            self, "Эксперимент A/B", message,
+                        )
+                except Exception as exc:
+                    self.status.setText(
+                        "Эксперимент A/B: ошибка расчёта {}".format(exc)
+                    )
+                    self._trace_event(
+                        "AXIS_STAGED_EXPERIMENT_EXCEPTION",
+                        error=type(exc).__name__ + ":" + str(exc),
+                    )
+                    _error("Axis staged search: " + traceback.format_exc())
+                finally:
+                    self._set_task_busy(False)
+                    self.axis_staged_experiment_btn.setEnabled(True)
+                    self._sync_playback_buttons()
+
             def open_sequence_catalog_dialog(self):
                 from freecad_smbs.commands.sequence_catalog_dialog import show_sequence_catalog
                 show_sequence_catalog(self)
@@ -4169,10 +4287,16 @@ class _PreviewPanel:
                 complete = []
                 for candidate in report.candidates:
                     sequence = tuple(candidate.sequence)
+                    orientations = tuple(
+                        step.orientation_variant.startswith(
+                            "REVERSE_MACHINE_Z_180"
+                        ) for step in candidate.steps
+                    )
+                    key = (sequence, orientations)
                     if (len(sequence) != total or set(sequence) != expected
-                            or sequence in seen):
+                            or key in seen):
                         continue
-                    seen.add(sequence)
+                    seen.add(key)
                     complete.append(candidate)
                 return complete
 
