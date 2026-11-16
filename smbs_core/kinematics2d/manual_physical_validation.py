@@ -412,6 +412,20 @@ def _check_selected_tool_pair_at_sampled_rams(
             App.setActiveDocument(original)
 
 
+def _native_step_cache_config_signature(config: Any) -> Any:
+    """Fingerprint physical and sampling semantics, excluding clock limits.
+
+    A previously converged native step is independent of the wall-clock
+    allowance it took to converge. Never exclude geometric tolerances,
+    recursion/state budgets, collision screening settings or tool poses.
+    """
+    if config is None:
+        return None
+    items = vars(config).copy()
+    items.pop("max_phase_time_s", None)
+    return repr(sorted(items.items()))
+
+
 def check_manual_3d_sequence(
     session: Any,
     tooling: Any,
@@ -581,9 +595,12 @@ def check_manual_3d_sequence(
     # Cache *only fully checked, sampled-clear* native bends with identical
     # complete input and adaptive configuration. No uncertain or collided
     # result can be promoted to CLEAR. Scoped to one search invocation.
-    config_signature = (
-        repr(sorted(vars(config).items())) if config is not None else None
-    )
+    # Operational time ceilings do not change geometry, tolerances,
+    # sample positions or the meaning of an already CONVERGED native step.
+    # Their per-attempt values vary with the remaining 600s budget, which
+    # previously made all strict cache entries unreachable. Reuse remains
+    # limited to fully sampled CLEAR steps (including tool pair/retract).
+    config_signature = _native_step_cache_config_signature(config)
     cache_context = (
         id(state_in.graph), id(session.panel_build),
         p_path, d_path, punch_id, die_id,
