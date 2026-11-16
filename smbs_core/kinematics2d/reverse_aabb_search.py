@@ -83,6 +83,27 @@ def _panel_polygons(panel_build: Any, graph: Any) -> dict:
                 )
             except (TypeError, ValueError):
                 continue
+    # FreeCAD PanelBuildResult stores exact panel outlines in panel_faces,
+    # rather than in its Panel objects. Use the same vertices as GUI loader.
+    for panel, face in zip(
+        getattr(panel_build, "panels", ()) or (),
+        getattr(panel_build, "panel_faces", ()) or (),
+    ):
+        pid = str(getattr(panel, "panel_id", ""))
+        if not pid or pid in result:
+            continue
+        try:
+            wire = getattr(face, "OuterWire", None)
+            verts = getattr(wire, "OrderedVertexes", None) or face.Vertexes
+            points = tuple(
+                (float(v.Point.x), float(v.Point.y)) for v in verts
+            )
+            if len(points) >= 3 and all(
+                isfinite(v) for point in points for v in point
+            ):
+                result[pid] = points
+        except (AttributeError, TypeError, ValueError):
+            continue
     for panel in getattr(panel_build, "panels", ()) or ():
         pid = str(getattr(panel, "panel_id", ""))
         if pid and pid not in result:
