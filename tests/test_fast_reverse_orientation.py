@@ -498,6 +498,47 @@ class ReverseOrientationTests(unittest.TestCase):
             PunchCollisionZoneClassification.UNCLASSIFIED,
         )
 
+    def test_conditional_punch_only_2d_needs_native_not_pruned(self):
+        from smbs_core.kinematics2d.sequence_search_2d import _classify_step
+        from smbs_core.kinematics2d.preliminary_screening import (
+            PreliminaryScreeningReport, ScreeningDecision,
+        )
+        def report(tool):
+            return PreliminaryScreeningReport(
+                decision=ScreeningDecision.CONTINUE_TO_3D,
+                stage="STAGE_B_SECTION_REQUIRES_3D",
+                reason="section_requires_3d",
+                diagnostic_findings=(
+                    ("BENDING", tool, "panel:P09", "INTERFERENCE", "overlap"),
+                ),
+            )
+        self.assertEqual(_classify_step(report("PUNCH")), "2D_INTERFERENCE")
+        self.assertEqual(
+            _classify_step(
+                report("PUNCH"), conditional_punch_ends_allowed=True,
+            ), "UNVERIFIED_2D",
+        )
+        self.assertEqual(
+            _classify_step(
+                report("DIE"), conditional_punch_ends_allowed=True,
+            ), "2D_INTERFERENCE",
+        )
+        self.assertEqual(
+            _classify_step(
+                report("BACKGAUGE"), conditional_punch_ends_allowed=True,
+            ), "2D_INTERFERENCE",
+        )
+        ambiguous = PreliminaryScreeningReport(
+            decision=ScreeningDecision.CONTINUE_TO_3D,
+            stage="STAGE_B_SECTION_REQUIRES_3D",
+            reason="no evidence",
+        )
+        self.assertEqual(
+            _classify_step(
+                ambiguous, conditional_punch_ends_allowed=True,
+            ), "2D_INTERFERENCE",
+        )
+
     def test_phase_budget_spreads_bounded_search_across_orders(self):
         from smbs_core.kinematics2d.fast_feasible_search import (
             _default_sampling_config,
