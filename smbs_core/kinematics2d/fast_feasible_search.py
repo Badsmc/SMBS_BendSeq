@@ -185,7 +185,10 @@ def _default_sampling_config(remaining_s, bend_count, clearance_mm):
     # Each phase may borrow time from the shared deadline. Dividing by
     # 5*bend_count previously gave ~0.9s per phase on ten-bend parts.
     # Incomplete trajectories remain UNVERIFIED, never silently cleared.
-    phase_limit = max(2.0, min(6.0, remaining_s * 0.12))
+    # The 600s experimental mode must not keep the old 6s cap: BENDING
+    # repeatedly needed more than 9s even for the first bend. Bound the
+    # per-phase allowance by the global deadline, never certify timeout.
+    phase_limit = max(2.0, min(24.0, remaining_s * 0.10))
     return AdaptiveSamplingConfig(
         initial_clearance_mm=clearance_mm,
         max_phase_time_s=phase_limit,
@@ -497,7 +500,7 @@ def search_fast_feasible_sequence(
                 for step in (native.get("steps") or ())
             )
             if (not qualified and status == "UNVERIFIED"
-                    and timed_out_phase and deadline - clock() >= 12.0):
+                    and timed_out_phase and deadline - clock() >= 45.0):
                 from dataclasses import replace
                 retry_remaining = deadline - clock()
                 retry_cfg = sampling_config_factory(
@@ -506,7 +509,7 @@ def search_fast_feasible_sequence(
                 retry_cfg = replace(
                     retry_cfg,
                     max_phase_time_s=min(
-                        12.0, max(
+                        40.0, max(
                             retry_cfg.max_phase_time_s,
                             float(cfg.max_phase_time_s) * 1.5,
                         ),
