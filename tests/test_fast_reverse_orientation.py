@@ -589,6 +589,37 @@ class ReverseOrientationTests(unittest.TestCase):
             ), "2D_INTERFERENCE",
         )
 
+    def test_coarse_occ_cache_distinguishes_clear_conditional_and_collision(self):
+        from smbs_core.kinematics2d.manual_physical_validation import (
+            _cacheable_coarse_occ_step,
+        )
+        self.assertTrue(_cacheable_coarse_occ_step(
+            {"status": "COARSE_3D_NO_PROVEN_COLLISION",
+             "is_conditional": False},
+            conditional_allowed=False,
+        ))
+        self.assertFalse(_cacheable_coarse_occ_step(
+            {"status": "COARSE_3D_NO_PROVEN_COLLISION",
+             "is_conditional": True},
+            conditional_allowed=True,
+        ))
+        conditional = {
+            "status": "COARSE_3D_CONDITIONAL_END_ZONE",
+            "is_conditional": True,
+        }
+        self.assertTrue(_cacheable_coarse_occ_step(
+            conditional, conditional_allowed=True,
+        ))
+        self.assertFalse(_cacheable_coarse_occ_step(
+            conditional, conditional_allowed=False,
+        ))
+        for status in ("COLLISION", "UNVERIFIED",
+                       "SAMPLED_3D_CLEAR_NOT_CONTINUOUS"):
+            self.assertFalse(_cacheable_coarse_occ_step(
+                {"status": status, "is_conditional": False},
+                conditional_allowed=True,
+            ))
+
     def test_full_initial_shortlist_reserves_and_prioritizes_native_pose_retry(self):
         order = tuple("B%02d" % i for i in range(1, 11))
         session = SimpleNamespace(
