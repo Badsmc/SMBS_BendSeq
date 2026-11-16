@@ -330,7 +330,8 @@ def search_fast_feasible_sequence(
     from .reverse_aabb_search import search_reverse_aabb
     reverse_budget = min(90.0, max(0.0, deadline - clock()) * 0.2)
     reverse = search_reverse_aabb(
-        session, budget_s=reverse_budget, max_candidates=max_candidates,
+        session, budget_s=reverse_budget,
+        max_candidates=max(1, (max_candidates + 1) // 2),
         progress=(lambda done, total, bend:
                   progress_callback("REVERSE_AABB", done, total, bend))
                  if progress_callback else None,
@@ -349,7 +350,7 @@ def search_fast_feasible_sequence(
             seen.add(pair)
             candidates.append((
                 seq, orientation,
-                SimpleNamespace(evidence="REVERSE_AABB_RANKED_UNVERIFIED",
+                SimpleNamespace(evidence=item.evidence,
                                 cost=item.bbox_overlap_score,
                                 cost_complete=False),
             ))
@@ -400,7 +401,10 @@ def search_fast_feasible_sequence(
     planar_elapsed = max(0.0, clock() - started)
     candidates.sort(key=lambda x: (
         getattr(x[2], "evidence", "") not in (
-            "SAMPLED_2D_CLEAR_OR_TOUCH", "REVERSE_AABB_RANKED_UNVERIFIED"),
+            "SAMPLED_2D_CLEAR_OR_TOUCH",
+            "REVERSE_AABB_RANKED_UNVERIFIED",
+            "REVERSE_ASTAR_MESH_RANKED_UNVERIFIED",
+            "REVERSE_ASTAR_AABB_RANKED_UNVERIFIED"),
         not bool(getattr(x[2], "cost_complete", False)),
         float(getattr(x[2], "cost", 0.0) or 0.0),
         x[0], x[1],
