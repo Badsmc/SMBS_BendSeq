@@ -68,8 +68,15 @@ unfold and punch/die from the existing library.
 - Native 3D is NOT executed automatically for all five candidates yet.
   The manual OCC verifier is still the authoritative next stage.
 - Every experiment emits `AXIS_STAGED_EXPERIMENT_COMPLETED` to the
-  existing Desktop JSON log, including axis orders, cost-ranked
-  finalists, candidate loading orientations and BBox preview risk.
+  existing Desktop JSON log, including axis orders, the bounded
+  merged candidate pool (not only five displayed finalists), per-bend
+  orientations, weighted transition costs, up to 500 individual
+  2D transition findings, and 3D BBox preview risk. The existing
+  `Сохранить диагностику JSON` button exports this full record.
+- Under operator-enabled CONDITIONAL, a punch-only 2D overlap stays
+  UNVERIFIED until native 3D can determine whether it lies strictly
+  in an authorized axial end zone; DIE and mixed interferences are
+  not implicitly allowed.
 
 The experiment is synchronous in FreeCAD, capped at **90 seconds soft
 budget** in the GUI, with **70% for staged 2D** and **30% reserved for
