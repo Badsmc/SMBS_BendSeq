@@ -2099,6 +2099,19 @@ class _PreviewPanel:
                     self._select_saved_sequence
                 )
                 order_body.addWidget(self.saved_sequences_btn)
+                self.manual_flip_btn = style_action(
+                    QtWidgets.QPushButton("Развернуть выбранный гиб на 180°"),
+                    compact=True,
+                )
+                self.manual_flip_btn.setObjectName("SMBS_ManualFlipLoading180")
+                self.manual_flip_btn.setToolTip(
+                    "Повернуть заготовку на 180° вокруг вертикальной оси "
+                    "для выделенного гиба. Оператор слева (-s), задний упор "
+                    "справа (+s). Изменяет реальную позу симуляции и OCC, "
+                    "но не гарантирует отсутствие коллизий."
+                )
+                self.manual_flip_btn.clicked.connect(self._flip_manual_loading)
+                order_body.addWidget(self.manual_flip_btn)
 
                 self.operations.setMinimumHeight(220)
                 self.operations.setMaximumHeight(16777215)
@@ -4571,6 +4584,66 @@ class _PreviewPanel:
                 # Passing vertices here would apply a second independent flip.
                 return None
 
+            def _flip_manual_loading(self):
+                """Override one bend's machine-Z loading, not its bend direction.
+
+                Operator = -s (left); rear gauge = +s (right). This changes
+                the complete sheet pose around the machine vertical axis,
+                including previously folded panels, never the bend angle.
+                """
+                if self.session is None:
+                    return
+                if (self.timer.isActive()
+                        or self.session.playback_status == PlaybackStatus.PLAYING):
+                    self.status.setText(
+                        "Остановите симуляцию перед разворотом заготовки."
+                    )
+                    return
+                bend_id = self.session.active_bend_id
+                order = tuple(self.session.bend_order)
+                choices = self._effective_loading_orientation_map()
+                if bend_id not in choices or set(choices) != set(order):
+                    self.status.setText(
+                        "UNVERIFIED: ориентация для гиба {} недоступна."
+                        .format(bend_id)
+                    )
+                    return
+                choices[bend_id] = not bool(choices[bend_id])
+                self._manual_orientation_order = order
+                self._manual_orientation_by_bend = dict(choices)
+                self._ergonomic_loading_status = "MANUAL_180_OVERRIDE_UNVERIFIED"
+                self._machine_pose_fault = None
+                self._physical_check_signature = None
+                self._collision_inspection = None
+                self._collision_display_active = False
+                self._manual_3d_verdicts.clear()
+                self._manual_retract_verdicts.clear()
+                self._last_manual_sequence_report = None
+                self._clear_manual_check_feedback()
+                self._last_valid_machine_section = None
+                self._last_valid_machine_pose = None
+                self._last_valid_machine_bend = None
+                self._ensure_press_cycle_controller()
+                self._populate_operations()
+                self.draw()
+                _desktop_debug_event(
+                    "MANUAL_LOADING_180_CHANGED",
+                    bend_id=bend_id,
+                    operator_side="-s_LEFT",
+                    machine_rear_side="+s_RIGHT",
+                    reverse_axis=bool(choices[bend_id]),
+                    selected_order=list(order),
+                    orientation_by_bend=dict(choices),
+                    physical_status="UNVERIFIED",
+                )
+                self.status.setText(
+                    "{}: разворот 180° {}. Перепроверьте коллизии OCC."
+                    .format(
+                        bend_id,
+                        "включён" if choices[bend_id] else "выключен",
+                    )
+                )
+
             def _manual_orientation_selection(self, bend_ids):
                 """Select from the single map used by both previews and OCC."""
                 choices = self._effective_loading_orientation_map()
@@ -4589,7 +4662,9 @@ class _PreviewPanel:
                 order = tuple(self.session.bend_order)
                 if (self._manual_orientation_order == order
                         and set(self._manual_orientation_by_bend) == set(order)):
-                    self._ergonomic_loading_status = "SELECTED_2D_ORIENTATION_UNVERIFIED"
+                    self._ergonomic_loading_status = (
+                        "MANUAL_180_OVERRIDE_UNVERIFIED"
+                    )
                     return dict(self._manual_orientation_by_bend)
                 key = (id(self.session), id(self.session.fold_state), order)
                 if key == self._ergonomic_loading_cache_key:
