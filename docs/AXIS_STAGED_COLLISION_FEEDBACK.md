@@ -4,6 +4,45 @@ Branch: `experiment/axis-2d-collision-feedback-20261116`.
 Base: `experiment/axis-staged-2d-mesh-20261116`.
 Do not merge into `smbs` until real FreeCAD acceptance.
 
+## Update: 180-degree loading is checked before any new order (2026-11-17)
+
+This experimental branch is `experiment/native-flip-first-20261117`,
+based on `experiment/axis-2d-collision-feedback-20261116`.
+
+When native OCC confirms a collision at a bend (for example B01 against
+P11), the FreeCAD **Автопоиск A/B + OCC** action now:
+
+1. Records the exact native rejection with completed-bend set, bend ID
+   and machine loading.
+2. Queues the **same ten-bend order**, with only the blocked bend's
+   `reverse_axis` switched to its opposite (180-degree machine loading).
+   All earlier and later bend loading choices are left unchanged.
+3. On the *next native attempt*, runs `check_manual_3d_sequence` directly
+   with this orientation. An `UNVERIFIED_2D` warning cannot deprioritize
+   this OCC retry; no 2D approval is assumed.
+4. If the opposite loading also collides, records that exact blocked
+   orientation and resumes normal staged 2D candidate generation.
+5. Stops with an explicit UNVERIFIED outcome on unresolved native
+   evidence; a sampled OCC clear remains
+   `SAMPLED_3D_CLEAR_NOT_CONTINUOUS`, never continuous certification.
+
+New Desktop events:
+`AXIS_NATIVE_FEEDBACK_FLIP_QUEUED` and
+`AXIS_NATIVE_FEEDBACK_FLIP_TRIAL_STARTED`, plus
+`trial_kind=OPPOSITE_LOADING_AFTER_NATIVE_COLLISION` in
+`AXIS_NATIVE_FEEDBACK_OCC_ATTEMPT`.
+
+The native feedback run respects the selected virtual-tool-length
+setting for both 2D planning and OCC. It allows at most five native
+attempts and a 600-second **soft** budget; a blocking OCC operation
+may exceed the deadline. Existing manual buttons and stable `smbs`
+branch remain unchanged.
+
+**Unverified until real FreeCAD acceptance:** 3D result of the flipped
+B01 pose, real transfer/backgauge/clamp/frame feasibility, and
+continuous motion clearance. Synthetic unit tests alone cannot prove a
+physical bending sequence.
+
 ## Implemented
 
 - `axis_staged_experiment.search_axis_staged_experiment(..., blocked_transitions=...)`
