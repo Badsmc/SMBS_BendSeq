@@ -35,3 +35,46 @@ GUI search entry points and search-only controls removed from operator interface
 ## Fixed viewport during Manual simulation
 
 The 2.5D and 3D QGraphicsView cameras retain the operator's chosen zoom, pan and orbit while rendering, moving between bends, and replaying the manual sequence. Scene bounds no longer cause a per-frame `centerOn()` call after the user has set the camera. **Fit** explicitly sets a new framing; wheel/mouse navigation changes the camera only on user input. The sheet and ram still move physically in machine coordinates. This change does not freeze the workpiece or disable collision detection.
+
+
+## ManualMode: one OCC pose for verification and replay (2026-11-17)
+
+The manual bend order is never changed by this feature. The selected per-bend
+loading orientation, FoldState history and native punch/die remain the input.
+
+- **Physical tooling display:** the 3D viewer no longer silently clips the
+  punch to the active bend length when the actual OCC run checks the full tool.
+  Displayed profile geometry is still a preview; positive overlap is established
+  only by native FreeCAD OCC.
+- **Manual replay:** a fresh, matching OCC report is retained across the
+  Simulate action. The matching check includes selected order, active FreeCAD
+  session, punch/die IDs, physical section setup, virtual-length setting,
+  conditional end-zone settings and the full per-bend 0/180-degree map.
+  Restored historical embedded reports are not accepted as current runtime
+  clearance evidence.
+- **Physical phase alignment:** when fresh native evidence exists, manual
+  playback uses `FULL_CYCLE`, not `BEND_ONLY`. On reaching a native-confirmed
+  blocking phase it pauses and displays the exact saved sampled native machine
+  placement in the integrated 3D viewer. The exact OCC document remains an
+  optional separate inspection command.
+- **Fail-closed pose comparison:** the recorded native 3x3 rotation and XYZ
+  translation are compared with an independently reconstructed
+  `WorkpiecePlacement3D.compute_placement` for the saved FoldState angles,
+  support plane and current loading orientation. The visualization reports
+  `NATIVE_PREVIEW_POSE_MISMATCH` instead of drawing inconsistent geometry.
+  The check tolerances are 1e-8 for matrix entries and 1e-5 mm for XYZ.
+- **Evidence:** `COLLISION` is never changed into `CLEAR`; `CONDITIONAL`
+  remains conditional end-zone evidence; `UNVERIFIED` and coarse OCC cannot
+  certify a safe full path. Operator/rear-gauge, transfer, frame and clamping
+  collisions remain unverified unless checked separately.
+- **Tests:** `tests/test_manual_native_replay_contract.py` covers matrix
+  mismatches and GUI wiring; GitHub Actions job
+  `manualmode-replay.yml` runs it alongside syntax and FCStd persistence.
+  Final validation still requires a Windows FreeCAD test with the selected
+  native punch/die and the sample part.
+
+For manual QA, run **5-angle OCC**, repeat with **Full 3D** as appropriate,
+then press **Simulate** without changing tool identity or orientation. On
+B02, the integrated 3D viewport must stop on the first native blocker, with
+the correct sampled pose and punch height. Changing a loading orientation or
+tool setup invalidates the old evidence and requires a new OCC run.
