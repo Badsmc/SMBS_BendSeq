@@ -5763,6 +5763,9 @@ class _PreviewPanel:
                     "end_zone_mm": float(
                         self.tooling_setup.end_zone_length_mm
                     ),
+                    "initial_clearance_mm": float(
+                        self.cycle_config.initial_clearance_mm
+                    ),
                     "orientation_by_bend": tuple(sorted(
                         self._manual_orientation_selection(self.session.bend_order).items()
                     )),
@@ -6761,6 +6764,9 @@ class _PreviewPanel:
                         ),
                         "end_zone_allow": allow_end_zone,
                         "end_zone_mm": end_zone_mm,
+                        "initial_clearance_mm": float(
+                            self.cycle_config.initial_clearance_mm
+                        ),
                         "orientation_by_bend": tuple(sorted(
                             self._manual_orientation_selection(self.session.bend_order).items()
                         )),
