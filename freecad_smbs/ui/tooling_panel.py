@@ -317,13 +317,13 @@ class ToolingPanel:
                     self.spin_clamp_width.setRange(0.1, 500.0)
                     self.spin_clamp_width.setSingleStep(1.0)
                     self.spin_clamp_width.setSuffix(" мм")
-                    form.addRow("Ширина лапки (width_mm):", self.spin_clamp_width)
+                    form.addRow("Длина лапки вдоль оси X (width_mm):", self.spin_clamp_width)
 
                     self.spin_clamp_gap = QtWidgets.QDoubleSpinBox()
                     self.spin_clamp_gap.setRange(0.0, 200.0)
                     self.spin_clamp_gap.setSingleStep(1.0)
                     self.spin_clamp_gap.setSuffix(" мм")
-                    form.addRow("Зазор между лапками (gap_between_mm):", self.spin_clamp_gap)
+                    form.addRow("Мин. зазор между лапками (gap_between_mm):", self.spin_clamp_gap)
 
                     self.spin_clamp_overhang = QtWidgets.QDoubleSpinBox()
                     self.spin_clamp_overhang.setRange(0.0, 1.0)
