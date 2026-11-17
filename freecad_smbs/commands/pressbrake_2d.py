@@ -4278,6 +4278,7 @@ class _PreviewPanel:
                 )
                 from smbs_core.kinematics2d.native_collision_feedback import (
                     NativeCollisionFeedback, add_native_blocker,
+                    propose_opposite_loading,
                 )
                 from smbs_core.kinematics2d.manual_physical_validation import (
                     check_manual_3d_sequence,
@@ -4300,6 +4301,7 @@ class _PreviewPanel:
                 deadline = monotonic() + 600.0  # Soft: native OCC may overrun.
                 blocked = {}
                 attempted = set()
+                pending_flip = None
                 history = []
                 winner = None
                 winner_orientations = None
@@ -4315,68 +4317,97 @@ class _PreviewPanel:
                             "A/B → OCC: поиск, попытка {}/5".format(round_number)
                         )
                         QtWidgets.QApplication.processEvents()
-                        has_sections = bool(
-                            self.tooling_setup.punch_section_offsets_xm
-                            or self.tooling_setup.die_section_offsets_xm
-                        )
-                        # Restore the canonical search state before each run.
+                        # A native failure has higher priority than any 2D
+                        # ranking. Test the same order with JUST the failed
+                        # bend turned 180 degrees before searching a new order.
+                        # This trial intentionally bypasses 2D UNVERIFIED
+                        # ranking; native OCC supplies the physical evidence.
                         self.session.set_bend_order(list(original_order))
                         self.session.reset_all_bends()
-                        experiment = search_axis_staged_experiment(
-                            self.session, self.tooling_setup,
-                            weights=self._selected_operation_weights(),
-                            bend_weights=dict(getattr(
-                                self, "_axis_experiment_bend_weights", {}
-                            )),
-                            max_time_s=min(45.0, remaining),
-                            beam_width=12, per_axis_limit=5,
-                            combined_pool=20, finalists=5,
-                            allow_end_zone_collision=bool(
-                                self.tooling_setup.allow_end_zone_collision
-                            ),
-                            end_zone_length_mm=float(
-                                self.tooling_setup.end_zone_length_mm
-                            ),
-                            allow_retract_warning=(
-                                self.retract_warning_checkbox.isChecked()
-                            ),
-                            match_active_bend_length=not has_sections,
-                            blocked_transitions=blocked,
-                        )
-                        self._last_axis_experiment_result = experiment
-                        self.last_planar_search_report = experiment.planar_report
-                        self._trace_event(
-                            "AXIS_NATIVE_FEEDBACK_SEARCH_ROUND",
-                            round=round_number,
-                            blocker_count=len(blocked),
-                            result=experiment.to_dict(),
-                        )
-                        candidates = self._complete_planar_candidates(
-                            experiment.planar_report
-                        )
-                        fresh = []
-                        for candidate in candidates:
-                            sequence = tuple(candidate.sequence)
-                            orientations = {
-                                step.bend_id:
-                                    step.orientation_variant.startswith(
-                                        "REVERSE_MACHINE_Z_180"
-                                    )
-                                for step in candidate.steps
-                            }
-                            if set(orientations) != set(sequence):
-                                continue
+                        if pending_flip is not None:
+                            sequence, orientations, failed_bend = pending_flip
+                            pending_flip = None
+                            trial_kind = "OPPOSITE_LOADING_AFTER_NATIVE_COLLISION"
                             identity = (
                                 sequence, tuple(sorted(orientations.items()))
                             )
-                            if identity not in attempted:
-                                fresh.append((candidate, identity, orientations))
-                        if not fresh:
-                            final_status = "NO_NEW_COMPLETE_CANDIDATE"
-                            break
-                        candidate, identity, orientations = fresh[0]
+                            if identity in attempted:
+                                final_status = "REPEATED_OPPOSITE_LOADING"
+                                break
+                            self._trace_event(
+                                "AXIS_NATIVE_FEEDBACK_FLIP_TRIAL_STARTED",
+                                round=round_number,
+                                sequence=list(sequence),
+                                failed_bend=failed_bend,
+                                orientation_by_bend=dict(orientations),
+                                source="CONFIRMED_NATIVE_COLLISION",
+                                planar_evidence="NOT_ASSUMED_CLEAR",
+                                physical_status="UNVERIFIED",
+                            )
+                        else:
+                            trial_kind = "RANKED_2D"
+                            has_sections = bool(
+                                self.tooling_setup.punch_section_offsets_xm
+                                or self.tooling_setup.die_section_offsets_xm
+                            )
+                            experiment = search_axis_staged_experiment(
+                                self.session, self.tooling_setup,
+                                weights=self._selected_operation_weights(),
+                                bend_weights=dict(getattr(
+                                    self, "_axis_experiment_bend_weights", {}
+                                )),
+                                max_time_s=min(45.0, remaining),
+                                beam_width=12, per_axis_limit=5,
+                                combined_pool=20, finalists=5,
+                                allow_end_zone_collision=bool(
+                                    self.tooling_setup.allow_end_zone_collision
+                                ),
+                                end_zone_length_mm=float(
+                                    self.tooling_setup.end_zone_length_mm
+                                ),
+                                allow_retract_warning=(
+                                    self.retract_warning_checkbox.isChecked()
+                                ),
+                                match_active_bend_length=not has_sections,
+                                blocked_transitions=blocked,
+                            )
+                            self._last_axis_experiment_result = experiment
+                            self.last_planar_search_report = experiment.planar_report
+                            self._trace_event(
+                                "AXIS_NATIVE_FEEDBACK_SEARCH_ROUND",
+                                round=round_number,
+                                blocker_count=len(blocked),
+                                result=experiment.to_dict(),
+                            )
+                            candidates = self._complete_planar_candidates(
+                                experiment.planar_report
+                            )
+                            fresh = []
+                            for candidate in candidates:
+                                candidate_sequence = tuple(candidate.sequence)
+                                candidate_orientations = {
+                                    step.bend_id:
+                                        step.orientation_variant.startswith(
+                                            "REVERSE_MACHINE_Z_180"
+                                        )
+                                    for step in candidate.steps
+                                }
+                                if set(candidate_orientations) != set(candidate_sequence):
+                                    continue
+                                candidate_identity = (
+                                    candidate_sequence,
+                                    tuple(sorted(candidate_orientations.items()))
+                                )
+                                if candidate_identity not in attempted:
+                                    fresh.append((
+                                        candidate_sequence, candidate_identity,
+                                        candidate_orientations
+                                    ))
+                            if not fresh:
+                                final_status = "NO_NEW_COMPLETE_CANDIDATE"
+                                break
+                            sequence, identity, orientations = fresh[0]
                         attempted.add(identity)
-                        sequence = tuple(candidate.sequence)
                         self.session.set_bend_order(list(sequence))
                         self.session.reset_all_bends()
                         self._sync_tooling_to_active_bend()
@@ -4417,6 +4448,7 @@ class _PreviewPanel:
                         outcome = str(native.get("status", "UNVERIFIED"))
                         record = {
                             "round": round_number,
+                            "trial_kind": trial_kind,
                             "sequence": list(sequence),
                             "orientation_by_bend": dict(orientations),
                             "native_status": outcome,
@@ -4459,6 +4491,40 @@ class _PreviewPanel:
                                            native.get("reason") or "collision"),
                             )
                             blocked = add_native_blocker(blocked, feedback)
+                            # Try the opposite loading at the SAME fold
+                            # history before accepting a different bend order.
+                            # Do not assume 2D warnings mean real 3D contact.
+                            flipped_sequence, flipped_orientation = (
+                                propose_opposite_loading(feedback)
+                            )
+                            flip_identity = (
+                                flipped_sequence,
+                                tuple(sorted(flipped_orientation.items())),
+                            )
+                            opposite_key = (
+                                frozenset(sequence[:i]), sequence[i],
+                                flipped_orientation[sequence[i]],
+                            )
+                            if (flip_identity not in attempted
+                                    and opposite_key not in blocked):
+                                pending_flip = (
+                                    flipped_sequence, flipped_orientation,
+                                    sequence[i],
+                                )
+                                self._trace_event(
+                                    "AXIS_NATIVE_FEEDBACK_FLIP_QUEUED",
+                                    round=round_number,
+                                    bend_id=sequence[i],
+                                    completed_before=list(sequence[:i]),
+                                    rejected_reverse_axis=bool(
+                                        orientations[sequence[i]]
+                                    ),
+                                    proposed_reverse_axis=bool(
+                                        flipped_orientation[sequence[i]]
+                                    ),
+                                    reason="TRY_180_DEGREE_LOADING_BEFORE_REORDER",
+                                    physical_status="UNVERIFIED",
+                                )
                             self._trace_event(
                                 "AXIS_NATIVE_FEEDBACK_BLOCKER_ADDED",
                                 completed_before=list(sequence[:i]),
