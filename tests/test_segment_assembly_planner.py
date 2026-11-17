@@ -102,6 +102,23 @@ class SegmentPlannerTests(unittest.TestCase):
         plan = plan_pair_for_bend(PUNCH, DIE, 315., clamps())
         self.assertEqual(plan["status"], "NO_INVENTORY_COMBINATION")
 
+    def test_punch_prefers_exact_then_short_and_caps_shortfall(self):
+        config = replace(clamps(gap=0, positions=(0,)), width_mm=120,
+                         min_clamps_under_punch=1)
+        die = [{"length_mm": 100, "quantity": 1}]
+        exact = {"length_mm": 100, "quantity": 1}
+        short = {"length_mm": 85, "quantity": 1}
+        long = {"length_mm": 108, "quantity": 1}
+        plan = plan_pair_for_bend([short, long, exact], die, 100, config)
+        self.assertEqual(plan["punch_total_mm"], 100)
+        plan = plan_pair_for_bend([short, long], die, 100, config)
+        self.assertEqual(plan["punch_total_mm"], 85)
+        self.assertEqual(plan["punch_shortfall_mm"], 15)
+        self.assertEqual(ToolAssembly.from_plan(plan).punch_spans_xm, ((-42.5, 42.5),))
+        too_short = {"length_mm": 84.99, "quantity": 1}
+        plan = plan_pair_for_bend([too_short], die, 100, config)
+        self.assertEqual(plan["status"], "NO_INVENTORY_COMBINATION")
+
     def test_count_generates_a_fixed_clamp_row_after_reload(self):
         config = replace(clamps(gap=40, positions=()), clamp_count=3)
         with tempfile.TemporaryDirectory() as folder:

@@ -144,14 +144,17 @@ Review `MANUAL_ASSISTED_RETRACT_EXPERIMENT` and
    The inventory is reused between successive bends.
 4. Use **Применить общий набор** inside the report to use one fixed
    layout for the selected bends. It covers the longest selected bend.
-   Coin3D and OCC use the same segment intervals from verified FCStd
-   tool models. **Снять общий набор** returns to the original tools.
+   Coin3D shows adjacent sections with alternating shades and displays
+   the configured CAD clamps with the ram. Coin3D and OCC use the same
+   segment intervals from verified FCStd tool models. **Снять общий набор** returns to the original tools.
    Opening a saved FCStd recalculates the active layout using the current
    inventory and clamp configuration.
 
-The planner tries stock lengths, different section orders and punch
-offsets along X within the 15 mm length allowance. Both tools still cover
-the centred bend line. Each punch segment needs positive overlap with a
+The planner prefers an exact punch length and then a punch up to 15 mm
+shorter. The existing overlength option is also available when these
+combinations do not fit. The die covers the full bend line. The report
+shows the punch shortfall and OCC retains its full-coverage requirement.
+The planner tries different section orders and punch offsets along X. Each punch segment needs positive overlap with a
 clamp. For segments short enough to fit in a clamp gap, the planner
 prefers full support under a clamp. The planner uses the configured
 clamp positions. If no positions are specified

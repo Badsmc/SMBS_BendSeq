@@ -7,6 +7,7 @@ from pathlib import Path
 
 from freecad_smbs.resources.tooling_paths import (
     resolve_backgauge_fcstd,
+    resolve_clamp_fcstd,
     resolve_machine_frame_fcstd,
 )
 
@@ -120,16 +121,63 @@ def _load_gauge(coin, library_root):
                       (0.83, 0.49, 0.19))
 
 
+def _load_clamp(coin, library_root, spans):
+    path = resolve_clamp_fcstd(library_root)
+    if path is None:
+        raise FileNotFoundError("Clamp.FCStd")
+    sidecar = json.loads(path.with_suffix(".tooling.json").read_text(encoding="utf-8"))
+    x, y, z = sidecar["datums"]["working_plane"]["origin"]
+    with _machine_document(path) as doc:
+        bodies = [_global_shape(item) for item in doc.Objects
+                  if item.TypeId == "PartDesign::Body" and not item.Shape.isNull()]
+        if not bodies:
+            raise ValueError("CAD-модель лапки пуста")
+        width = max(s.BoundBox.XMax for s in bodies) - min(s.BoundBox.XMin for s in bodies)
+        if width <= 0:
+            raise ValueError("CAD-модель лапки имеет нулевую длину")
+        height = max(s.BoundBox.ZMax for s in bodies) - z
+        if height <= 0:
+            raise ValueError("CAD-модель лапки расположена ниже рабочей плоскости")
+        meshes = {}
+        row = coin.SoSeparator()
+        for left, right in spans:
+            length = right - left
+            if length not in meshes:
+                meshes[length] = _mesh_node(
+                    coin, bodies, lambda p: (y - p.y, (p.x - x) * length / width, p.z - z),
+                    (0.64, 0.68, 0.76),
+                )
+            block = coin.SoSeparator()
+            placement = coin.SoTranslation()
+            placement.translation.setValue(0.0, (left + right) / 2.0, 0.0)
+            block.addChild(placement)
+            block.addChild(meshes[length])
+            row.addChild(block)
+    return row, height
+
+
 class CoinMachineScene:
     def __init__(self, coin):
         self.coin = coin
         self.root = coin.SoSeparator()
         self.frame = coin.SoSwitch()
         self.gauges = coin.SoSwitch()
+        self.clamps = coin.SoSwitch()
+        self.clamps.setName("SMBS_Clamps")
+        self.clamp_motion = coin.SoTranslation()
+        self.clamp_key = None
+        self.clamp_config_key = None
+        self.clamp_spans = ()
+        self.clamp_config_error = ""
+        self.clamp_error = ""
+        self.clamp_height = 0.0
+        self.clamp_top_offset = None
+        self.active_clamp_height = 0.0
         self.frame.setName("SMBS_MachineFrame")
         self.gauges.setName("SMBS_Backgauges")
         self.root.addChild(self.frame)
         self.root.addChild(self.gauges)
+        self.root.addChild(self.clamps)
         self.frame_mount = coin.SoTranslation()
         self.ram_motion = coin.SoTranslation()
         self.frame_key = None
@@ -147,6 +195,63 @@ class CoinMachineScene:
     def clear(self):
         self.frame.whichChild.setValue(self.coin.SO_SWITCH_NONE)
         self.gauges.whichChild.setValue(self.coin.SO_SWITCH_NONE)
+        self.clamps.whichChild.setValue(self.coin.SO_SWITCH_NONE)
+
+    def update_clamps(self, library_root, tooling, ram_z):
+        from smbs_core.geometry_backend.io.clamp_validator import ClampValidatorError, load_clamp_config
+        from smbs_core.kinematics2d.tooling_assembly import clamp_spans_for_centres
+
+        self.active_clamp_height = 0.0
+        if not tooling.visible or tooling.punch is None:
+            self.clamps.whichChild.setValue(self.coin.SO_SWITCH_NONE)
+            return ""
+        assembly = tooling.tool_assembly
+        if assembly is not None:
+            spans = assembly.clamp_spans_xm
+        else:
+            config_path = library_root / "config.json"
+            try:
+                try:
+                    stamp = config_path.stat().st_mtime_ns
+                except FileNotFoundError:
+                    stamp = None
+                key = (library_root, stamp)
+                if key != self.clamp_config_key:
+                    self.clamp_config_key = key
+                    self.clamp_spans = ()
+                    self.clamp_config_error = ""
+                    config = load_clamp_config(library_root)
+                    self.clamp_spans = clamp_spans_for_centres(config.centres_mm, config.width_mm)
+            except (OSError, ClampValidatorError) as exc:
+                self.clamp_config_error = f"Лапки: {exc}"
+            spans = self.clamp_spans if not self.clamp_config_error else ()
+        if not spans:
+            self.clamps.whichChild.setValue(self.coin.SO_SWITCH_NONE)
+            return self.clamp_config_error if assembly is None else ""
+        key = (library_root, spans)
+        if key != self.clamp_key:
+            self.clamp_key = key
+            self.clamps.removeAllChildren()
+            self.clamp_error = ""
+            try:
+                row, self.clamp_height = _load_clamp(self.coin, library_root, spans)
+                mounted = self.coin.SoSeparator()
+                mounted.addChild(self.clamp_motion)
+                mounted.addChild(row)
+                self.clamps.addChild(mounted)
+            except (OSError, ValueError, RuntimeError, TypeError, AttributeError, KeyError) as exc:
+                self.clamp_error = f"Лапки: {exc}"
+        if self.clamp_error:
+            return self.clamp_error
+        punch_key = (id(tooling.punch), tooling.aligned)
+        if self.clamp_top_offset != punch_key:
+            outline, _ = tooling.punch_polygons_machine()
+            self.clamp_punch_top = max(z for _, z in outline) - tooling.ram_z_mm
+            self.clamp_top_offset = punch_key
+        self.clamp_motion.translation.setValue(0.0, 0.0, float(ram_z) + self.clamp_punch_top)
+        self.clamps.whichChild.setValue(self.coin.SO_SWITCH_ALL)
+        self.active_clamp_height = self.clamp_height
+        return ""
 
     def update_frame(self, library_root, tooling, ram_z, visible):
         if not visible:
@@ -184,7 +289,7 @@ class CoinMachineScene:
             self.mount_key = key
         beam_z = (self.bed_z + self.rest_z if self.punch_top is None
                   else float(ram_z) + self.punch_top)
-        self.ram_motion.translation.setValue(0.0, 0.0, beam_z)
+        self.ram_motion.translation.setValue(0.0, 0.0, beam_z + self.active_clamp_height)
         return ""
 
     def update_gauges(self, library_root, stations, contact):

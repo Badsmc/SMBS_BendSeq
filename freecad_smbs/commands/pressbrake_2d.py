@@ -3445,6 +3445,12 @@ class _PreviewPanel:
                         lines.append(entry)
                     return lines
 
+                def describe_shortfall(required, punch_length):
+                    missing = required - punch_length
+                    if missing > 1e-6:
+                        return [f"  Пуансон короче линии гиба на {missing:.3f} мм. OCC требует полного перекрытия."]
+                    return []
+
                 def describe(plan):
                     if plan["status"] == "NO_INVENTORY_COMBINATION":
                         return ["  Пуансон или матрицу нужной длины не собрать из имеющихся сегментов."]
@@ -3459,6 +3465,7 @@ class _PreviewPanel:
                         spans = tuple((item["start_x_mm"], item["end_x_mm"])
                                       for item in plan[kind + "_segments"])
                         lines.extend(describe_sections(label, spans, zones if kind == "punch" else ()))
+                    lines.extend(describe_shortfall(plan["required_mm"], plan["punch_total_mm"]))
                     centres = ", ".join(f"{x:+.3f}" for x in clamps["centers_mm"])
                     lines.append(f"  Центры зажимов по X, мм · {centres}")
                     if clamps["proposed_reposition"]:
@@ -3505,6 +3512,10 @@ class _PreviewPanel:
                             "Пуансон", assembly.punch_spans_xm, assembly.clamp_spans_xm,
                         ))
                         header.extend(describe_sections("Матрица", assembly.die_spans_xm))
+                        header.extend(describe_shortfall(
+                            assembly.bend_length_mm,
+                            sum(hi - lo for lo, hi in assembly.punch_spans_xm),
+                        ))
                         centres = ", ".join(f"{(lo + hi) / 2:+.3f}" for lo, hi in assembly.clamp_spans_xm)
                         header.append(f"  Центры зажимов по X, мм · {centres}")
                     edit.setPlainText("\n".join(header) + "\n\n" + per_bend)

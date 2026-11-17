@@ -8,6 +8,7 @@ from math import isfinite
 
 SectionSpans = tuple[tuple[float, float], ...]
 CONTACT_EPS_MM = 1e-6
+MAX_PUNCH_SHORTFALL_MM = 15.0
 
 
 @dataclass(frozen=True)
