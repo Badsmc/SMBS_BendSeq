@@ -78,3 +78,44 @@ then press **Simulate** without changing tool identity or orientation. On
 B02, the integrated 3D viewport must stop on the first native blocker, with
 the correct sampled pose and punch height. Changing a loading orientation or
 tool setup invalidates the old evidence and requires a new OCC run.
+
+
+## ManualMode — B02 tooling and retract diagnosis (2026-11-17)
+
+The tested sample bend B02 is 293 mm long. With **virtual tool length**
+enabled, the native punch AND die are modelled as 293 mm-long solid tools;
+the 100 mm source FCStd punch does not physically cover the 293 mm bend.
+Do not reduce the virtual OCC length to 100 mm merely to suppress an overlap.
+
+The selected B02 pose (0 degrees loading orientation) has a **proven
+APPROACH punch collision**; its 180-degree retry passes the early phases
+but hits the punch during **RETRACT**. Manual auto-orientation now retains
+both collision reports, so the original APPROACH blockage no longer hides
+the eligible 180-degree retract experiment.
+
+- In **Manual > native check**, the report shows source/effective punch
+  lengths and separates central from end-zone-attributed XYZ intersections.
+  Bounding-box classification is diagnostic and is NOT a physical proof of
+  actual end relief. A central collision is never accepted as CONDITIONAL.
+- **Check assisted lift** is enabled if either the original or the separately
+  captured 180-degree pose has a native-confirmed punch RETRACT collision.
+  This calls the existing exact OCC replay of a hypothetical sheet/punch lift,
+  preserving the selected tool geometry and physical COLLISION result.
+- When that sampled lift finds no blocking penetration, the existing
+  **check lateral release** button can evaluate candidate withdrawal
+  directions in native OCC. The program does NOT silently change the
+  operator's 0/180 selection, nor start the 180-degree assisted animation
+  for an unrelated selected pose.
+- A sampled lift or sampled lateral withdrawal is still **UNVERIFIED** as a
+  complete real movement: mechanical sheet grip, continuous collision
+  freedom, clamps, backgauge, frame and handling remain unproven.
+  The standard Manual result remains **COLLISION** until an independently
+  verified end-to-end motion is available.
+
+For QA: select the same ten-bend order and actual punch/die,
+retain virtual-length mode for a full-length bend, run **5-position OCC**
+with auto 180-degree retry enabled, verify log event
+`MANUAL_ALTERNATIVE_COLLISION_RETAINED` for B02/RETRACT, then press the
+assisted lift probe and (if a sampled candidate is reported) lateral release.
+Review `MANUAL_ASSISTED_RETRACT_EXPERIMENT` and
+`MANUAL_ASSISTED_RELEASE_EXPERIMENT` in the desktop diagnostic JSON.
