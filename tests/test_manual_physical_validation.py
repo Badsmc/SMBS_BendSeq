@@ -256,11 +256,11 @@ class ManualToolingTests(unittest.TestCase):
         self.assertEqual(report["status"], "SAMPLED_3D_CLEAR_NOT_CONTINUOUS")
         self.assertEqual(seen, [True, False])
         self.assertEqual(check.call_count, 2)
-        self.assertEqual(report["steps"][0]["loading_orientation"],
-                         "REVERSE_MACHINE_Z_180")
-        self.assertEqual(report["steps"][1]["loading_orientation"],
-                         "STANDARD_MACHINE_Z_0")
-        self.assertEqual(report["loading_orientation_by_bend"], {
+        # Current canonical wire contract: a boolean reverse_axis, not
+        # an old duplicated human-readable loading_orientation field.
+        self.assertTrue(report["steps"][0]["reverse_axis"])
+        self.assertFalse(report["steps"][1]["reverse_axis"])
+        self.assertEqual(report["reverse_axis_by_bend"], {
             "B01": True, "B02": False,
         })
         self.assertFalse(report["transfer_clamps_frame_checked"])
@@ -442,9 +442,11 @@ class NativePhaseBlockerTests(unittest.TestCase):
                 status=SimpleNamespace(value="PENETRATION"),
                 punch_result=SimpleNamespace(
                     status=SimpleNamespace(value=punch_state),
+                    overlap_volume_mm3=1.0 if tool == "PUNCH" else 0.0,
                 ),
                 die_result=SimpleNamespace(
                     status=SimpleNamespace(value=die_state),
+                    overlap_volume_mm3=1.0 if tool == "DIE" else 0.0,
                 ),
             ),
         )
