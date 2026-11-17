@@ -7,6 +7,7 @@ from math import isfinite
 
 
 SectionSpans = tuple[tuple[float, float], ...]
+CONTACT_EPS_MM = 1e-6
 
 
 @dataclass(frozen=True)
@@ -18,6 +19,8 @@ class ToolAssembly:
 
     @classmethod
     def from_plan(cls, plan):
+        if plan["status"] == "ASSEMBLY_SEARCH_LIMIT":
+            raise ValueError("Подбор остановился до проверки всех вариантов раскладки.")
         if plan["status"] != "ASSEMBLY_CANDIDATE_UNVERIFIED":
             raise ValueError("Не удалось подобрать общий набор для самой длинной линии гиба.")
         clamps = plan["clamps"]
@@ -29,11 +32,28 @@ class ToolAssembly:
                 (item["start_x_mm"], item["end_x_mm"]) for item in plan[kind + "_segments"]
             )
 
-        half = clamps["width_mm"] / 2.0
         return cls(
             plan["required_mm"], spans("punch"), spans("die"),
-            tuple((x - half, x + half) for x in clamps["centers_mm"]),
+            clamp_spans_for_centres(clamps["centers_mm"], clamps["width_mm"]),
         )
+
+
+def clamp_spans_for_centres(centres_mm, width_mm) -> SectionSpans:
+    half = width_mm / 2.0
+    return tuple((centre - half, centre + half) for centre in centres_mm)
+
+
+def punch_segment_supports(punch_spans, clamp_spans):
+    """Clamp numbers and positive axial overlap for every punch segment."""
+    supports = []
+    for left, right in punch_spans:
+        contacts = []
+        for number, (clamp_left, clamp_right) in enumerate(clamp_spans, 1):
+            overlap = min(right, clamp_right) - max(left, clamp_left)
+            if overlap > CONTACT_EPS_MM:
+                contacts.append((number, overlap))
+        supports.append(tuple(contacts))
+    return tuple(supports)
 
 
 def normalize_section_spans(spans) -> SectionSpans:
