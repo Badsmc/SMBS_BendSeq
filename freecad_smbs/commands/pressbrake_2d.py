@@ -2474,7 +2474,12 @@ class _PreviewPanel:
                 style_action(reset_weights_btn)
                 weights_form.addRow(reset_weights_btn)
                 weights_body.addWidget(weights_box)
-                # Weights are search-only controls, retained internally but not shown.
+                # Keep a Qt parent for the hidden search-weight editors. Their
+                # values remain referenced by FCStd save/restore and diagnostics.
+                # Without addWidget(), Python releases this unparented card and
+                # its QDoubleSpinBoxes, causing "Internal C++ object already deleted".
+                # ManualMode must not show search-only controls to the operator.
+                advanced_layout.addWidget(weights_card)
                 weights_card.hide()
 
                 gauge_settings_btn = QtWidgets.QPushButton(
