@@ -355,6 +355,83 @@ class AxisStagedSearchTests(unittest.TestCase):
             'reverse_axis_by_bend=orientations,', source
         )
 
+    def test_provisional_complete_candidate_when_axis_merge_budget_expires(self):
+        from smbs_core.kinematics2d.axis_staged_experiment import (
+            _provisional_full_paths, _Path,
+        )
+        order = ("B01", "B02", "B03", "B04")
+        axes = [
+            ("AXIS_01", [_Path(order=("B01", "B02"))]),
+            ("AXIS_02", [_Path(order=("B03", "B04"))]),
+        ]
+        candidates = _provisional_full_paths(
+            axes, order, {}, {}, {bid: 1.0 for bid in order}, 6,
+        )
+        self.assertTrue(candidates)
+        for candidate in candidates:
+            self.assertEqual(set(candidate.order), set(order))
+            self.assertEqual(len(candidate.steps), len(order))
+            self.assertEqual(candidate.unknown, len(order))
+            self.assertTrue(all(
+                step.evidence == "UNVERIFIED_2D"
+                for step in candidate.steps
+            ))
+
+    def test_provisional_avoids_native_blocker_and_2d_proven_obstacle(self):
+        from smbs_core.kinematics2d.axis_staged_experiment import (
+            _provisional_full_paths, _Path,
+        )
+        from smbs_core.kinematics2d.sequence_search_2d import PlanarStep
+        axes = [
+            ("AXIS_01", [_Path(order=("B01",))]),
+            ("AXIS_02", [_Path(order=("B02",))]),
+        ]
+        blocked = {(frozenset(), "B01", False): "native punch hit"}
+        cache = {
+            (frozenset(), "B01", True):
+                PlanarStep("B01", "2D_INTERFERENCE", "definite section",
+                           (), ()),
+        }
+        candidates = _provisional_full_paths(
+            axes, ("B01", "B02"), blocked, cache,
+            {"B01": 1.0, "B02": 1.0}, 5,
+        )
+        self.assertTrue(candidates)
+        self.assertTrue(all(p.order[0] == "B02" for p in candidates))
+
+    def test_top_toolbar_search_is_navigation_only(self):
+        import ast
+        from pathlib import Path
+        source = Path("freecad_smbs/commands/pressbrake_2d.py").read_text(
+            encoding="utf-8"
+        )
+        tree = ast.parse(source)
+        for cls_name, forbidden in (
+            ("CalculateCommand", "calculate_sequence"),
+            ("PlanarCandidatesCommand", "calculate_planar_candidates"),
+        ):
+            cls = next(
+                n for n in ast.walk(tree)
+                if isinstance(n, ast.ClassDef) and n.name == cls_name
+            )
+            method = next(
+                n for n in cls.body
+                if isinstance(n, ast.FunctionDef) and n.name == "Activated"
+            )
+            calls = [
+                n.func.attr for n in ast.walk(method)
+                if isinstance(n, ast.Call)
+                and isinstance(n.func, ast.Attribute)
+            ]
+            self.assertNotIn(forbidden, calls)
+            self.assertIn("show_workspace_controls", [
+                n.func.id for n in ast.walk(method)
+                if isinstance(n, ast.Call)
+                and isinstance(n.func, ast.Name)
+            ])
+        self.assertIn('self.planar_start_btn.clicked.connect(', source)
+        self.assertIn('self.legacy_d6_search_btn.clicked.connect(', source)
+
     def test_invalid_weights_or_deadline_rejected(self):
         session, tooling = fixture()
         with self.assertRaises(ValueError):
