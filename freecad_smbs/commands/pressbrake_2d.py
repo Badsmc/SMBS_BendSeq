@@ -2066,6 +2066,19 @@ class _PreviewPanel:
                     self._select_saved_sequence
                 )
                 order_body.addWidget(self.saved_sequences_btn)
+                self.manual_tooling_assembly_btn = style_action(
+                    QtWidgets.QPushButton("Набрать оснастку — расчёт сегментов"),
+                    compact=True,
+                )
+                self.manual_tooling_assembly_btn.setToolTip(
+                    "Рассчитать по каждому гибу количество и расположение "
+                    "сегментов выбранного пуансона и матрицы, с учётом "
+                    "размеров, зазоров и позиций clamps из библиотеки."
+                )
+                self.manual_tooling_assembly_btn.clicked.connect(
+                    self._show_manual_tooling_assembly
+                )
+                order_body.addWidget(self.manual_tooling_assembly_btn)
                 self.auto_orientation_checkbox = QtWidgets.QCheckBox(
                     "Подбирать положение заготовки (0° / 180°)"
                 )
@@ -3269,6 +3282,134 @@ class _PreviewPanel:
                     (float(getattr(pc, "transfer_progress", 0.0) or 0.0) if pc is not None and getattr(pc, "transfer_progress", None) is not None else None),
                     tuple(sorted(self._effective_loading_orientation_map().items())),
                 )
+
+            def _show_manual_tooling_assembly(self):
+                """Show finite-inventory assembly for every manually selected bend.
+
+                This reports actionable segment lengths and machine-X positions.
+                It never changes selected native OCC tooling or bend order.
+                """
+                from freecad_smbs.resources.tooling_paths import TOOL_LIBRARY_ROOT
+                from smbs_core.geometry_backend.io.tooling_library import (
+                    ToolingLibrary,
+                )
+                from smbs_core.kinematics2d.segment_assembly_planner import (
+                    plan_pair_for_bend, read_inventory,
+                )
+                if self.session is None:
+                    self.status.setText("Загрузите деталь перед подбором набора.")
+                    return
+                punch = self.tooling_setup.punch
+                die = self.tooling_setup.die
+                if punch is None or die is None:
+                    self.status.setText("Сначала выберите пуансон и матрицу.")
+                    return
+                try:
+                    p_path = Path(punch.source_file)
+                    d_path = Path(die.source_file)
+                    if not p_path.is_file() or not d_path.is_file():
+                        raise ValueError("Выбранная оснастка не имеет FCStd файла")
+                    p_inventory = read_inventory(p_path)
+                    d_inventory = read_inventory(d_path)
+                    if not p_inventory or not d_inventory:
+                        raise ValueError(
+                            "Не заданы складские сегменты: откройте "
+                            "«Библиотека оснастки» → выберите пуансон "
+                            "и матрицу → «Сегменты и количество»."
+                        )
+                    cfg = ToolingLibrary(
+                        TOOL_LIBRARY_ROOT
+                    ).get_clamp_config()
+                    reports = []
+                    order = (tuple(self._manual_sequence_prefix)
+                             or tuple(self.session.bend_order))
+                    for bend_id in order:
+                        bend = self.session.fold_state.bends[bend_id]
+                        length = math.dist(
+                            bend.axis_xyz[0], bend.axis_xyz[1]
+                        )
+                        plan = plan_pair_for_bend(
+                            p_inventory, d_inventory, length, cfg
+                        )
+                        reports.append((bend_id, plan))
+                except (OSError, ValueError, KeyError) as exc:
+                    QtWidgets.QMessageBox.warning(
+                        self, "Набор оснастки", str(exc)
+                    )
+                    return
+                lines = [
+                    "ПУАНСОН: " + punch.tool_id,
+                    "МАТРИЦА: " + die.tool_id,
+                    "ЛАПКИ: ширина {:.1f} мм, мин. промежуток {:.1f} мм".format(
+                        cfg.width_mm, cfg.gap_between_mm
+                    ),
+                    "План на каждый гиб (секции переставляются между гибами).",
+                    "Это схема сборки, НЕ OCC-проверка коллизий.",
+                    "",
+                ]
+                for bend_id, plan in reports:
+                    lines.append(
+                        "{} · длина гиба {:.2f} мм · {}".format(
+                            bend_id, plan["required_mm"], plan["status"]
+                        )
+                    )
+                    if plan["status"] != "ASSEMBLY_CANDIDATE_UNVERIFIED":
+                        lines.append(
+                            "  Набор из имеющихся сегментов с допустимыми "
+                            "лапками подобрать не удалось."
+                        )
+                        lines.append("")
+                        continue
+                    lines.append(
+                        "  Пуансон {:.2f} мм: {}".format(
+                            plan["punch_total_mm"],
+                            " + ".join(
+                                "{:g}".format(item["length_mm"])
+                                for item in plan["punch_segments"]
+                            ) + " мм"
+                        )
+                    )
+                    for i, seg in enumerate(plan["punch_segments"], 1):
+                        lines.append(
+                            "    P{}: {:g} мм · X {:.2f}…{:.2f}".format(
+                                i, seg["length_mm"],
+                                seg["start_x_mm"], seg["end_x_mm"],
+                            )
+                        )
+                    lines.append(
+                        "  Матрица {:.2f} мм: {}".format(
+                            plan["die_total_mm"],
+                            " + ".join(
+                                "{:g}×{}".format(
+                                    item["length_mm"], item["quantity"]
+                                ) for item in plan["die_segments"]
+                            ) + " мм"
+                        )
+                    )
+                    clamp_plan = plan["clamps"]
+                    lines.append(
+                        "  Clamps: {} · центры X={} мм; ширина={:.1f} мм; "
+                        "мин. зазор={:.1f} мм".format(
+                            clamp_plan["status"],
+                            ", ".join("{:.2f}".format(x) for x in
+                                      clamp_plan["centers_mm"]),
+                            clamp_plan["width_mm"],
+                            clamp_plan["gap_between_mm"],
+                        )
+                    )
+                    lines.append("")
+                dialog = QtWidgets.QDialog(self)
+                dialog.setWindowTitle("SMBS — карта набора сегментов и clamps")
+                dialog.resize(710, 540)
+                layout = QtWidgets.QVBoxLayout(dialog)
+                edit = QtWidgets.QPlainTextEdit(dialog)
+                edit.setReadOnly(True)
+                edit.setPlainText("\n".join(lines))
+                layout.addWidget(edit)
+                close = QtWidgets.QPushButton("Закрыть")
+                close.clicked.connect(dialog.accept)
+                layout.addWidget(close)
+                dialog.exec()
 
             def _active_bend_length_mm(self) -> float:
                 if self.session is None or getattr(self.session, "fold_state", None) is None:
