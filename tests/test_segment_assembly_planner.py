@@ -99,5 +99,23 @@ class SegmentPlannerTests(unittest.TestCase):
         self.assertEqual(plan["status"], "NO_INVENTORY_COMBINATION")
 
 
+class ToolingLibraryUIContracts(unittest.TestCase):
+    def test_sidecars_are_not_reported_as_invalid_tools(self):
+        source = (
+            Path(__file__).resolve().parents[1] /
+            "smbs_core/geometry_backend/io/tooling_catalog.py"
+        ).read_text(encoding="utf-8")
+        self.assertNotIn("skipping non-FCStd file", source)
+
+    def test_refresh_keeps_selected_segment_tool(self):
+        source = (
+            Path(__file__).resolve().parents[1] /
+            "freecad_smbs/ui/tooling_panel.py"
+        ).read_text(encoding="utf-8")
+        self.assertIn("selected_key = (", source)
+        self.assertIn("widget.setCurrentRow(index)", source)
+        self.assertIn("self._refresh_lists()", source)
+
+
 if __name__ == "__main__":
     unittest.main()
