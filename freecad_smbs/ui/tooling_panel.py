@@ -489,6 +489,15 @@ class ToolingPanel:
                     if not self.library:
                         return
 
+                    # Retain the operator's exact tool selection through
+                    # catalog refresh (notably after saving 13 segment types).
+                    # Clearing the list previously selected the first item,
+                    # so Preview could open 'puancon' instead of AP_1017.
+                    selected = self._current_descriptor()
+                    selected_key = (
+                        (selected.kind, selected.tool_id)
+                        if selected is not None else None
+                    )
                     self.punch_list.clear()
                     self.die_list.clear()
 
@@ -514,6 +523,16 @@ class ToolingPanel:
 
                     self.tabs.setTabText(0, f"Пуансоны ({len(catalog.punches)})")
                     self.tabs.setTabText(1, f"Матрицы ({len(catalog.dies)})")
+                    if selected_key is not None:
+                        widget = (
+                            self.punch_list if selected_key[0] == "punch"
+                            else self.die_list
+                        )
+                        for index in range(widget.count()):
+                            desc = widget.item(index).data(QtCore.Qt.UserRole)
+                            if (desc.kind, desc.tool_id) == selected_key:
+                                widget.setCurrentRow(index)
+                                break
                     self._on_selection_changed()
                     self._set_status("Список инструментов обновлён.")
 
