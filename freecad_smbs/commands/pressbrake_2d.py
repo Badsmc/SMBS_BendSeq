@@ -1417,6 +1417,8 @@ class _PreviewPanel:
                 self._manual_orientation_by_bend = {}
                 self._last_manual_sequence_report = None
                 self._collision_inspection = None
+                self._alternate_retract_inspection = None
+                self._last_assisted_lift_inspection = None
                 self._last_assisted_lift_report = None
                 self._collision_display_active = False
                 self._manual_3d_verdicts = {}
@@ -5536,6 +5538,8 @@ class _PreviewPanel:
                 self.manual_check_details.clear()
                 self.manual_check_details.hide()
                 self._collision_inspection = None
+                self._alternate_retract_inspection = None
+                self._last_assisted_lift_inspection = None
                 self._last_assisted_lift_report = None
                 if self.press_cycle is not None:
                     self.press_cycle.assisted_retract_preview_bends.clear()
