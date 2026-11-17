@@ -16,7 +16,7 @@ from math import dist, isfinite
 from pathlib import Path
 from time import perf_counter
 from types import SimpleNamespace
-from typing import Any, Callable, Optional, Sequence
+from typing import Any, Callable, Iterable, Optional, Sequence
 
 from .developer_debug_log import debug_event, summarize_native_trajectory
 from .native_kernel_metrics import count_native_kernel_calls
@@ -435,14 +435,15 @@ def check_manual_3d_sequence(
     config: Any = None,
     reverse_axis_by_bend: Optional[dict[str, bool]] = None,
     auto_orientation: bool = False,
+    locked_orientation_bends: Iterable[str] = (),
     orientation_retry_callback: Optional[Callable[[str, bool], None]] = None,
     include_benchmark_metrics: bool = False,
 ) -> dict:
     """Check a selected prefix (or complete order) with native FCStd tools.
 
-    With auto_orientation, try the opposite loading pose when the preferred
-    pose is blocked, conditional, or unresolved. Both trials use the same
-    signed fold history. Stop at the first bend without a usable pose.
+    With auto_orientation, try the opposite loading pose on unlocked bends
+    when the preferred pose is blocked, conditional, or unresolved. Both
+    trials use the same signed fold history. Stop at the first bend without a usable pose.
     """
     t0 = perf_counter()
     order = tuple(selected_order)
@@ -469,6 +470,7 @@ def check_manual_3d_sequence(
     # Normalize before early-return reporting: a failed precheck must
     # still be serializable without an AttributeError.
     reverse_axis_by_bend = dict(reverse_axis_by_bend or {})
+    locked_orientation_bends = frozenset(locked_orientation_bends)
     orientation_attempts = []
     alternative_orientation_blockers = []
     coarse_occ = bool(getattr(config, "coarse_occ_screen", False))
@@ -532,6 +534,7 @@ def check_manual_3d_sequence(
         conditional_end_zone_allowed=bool(allow_end_zone_collision),
         end_zone_length_mm=end_len,
         auto_orientation=bool(auto_orientation),
+        locked_orientation_bends=[bid for bid in order if bid in locked_orientation_bends],
         component_reject_enabled=(os.environ.get(
             "SMBS_COMPONENT_REJECT",
             "1" if getattr(config, "component_reject_enabled", False) else "0"
@@ -868,7 +871,8 @@ def check_manual_3d_sequence(
         pair = record.get("punch_die_pair") or {}
         # Contact between the punch and die at this ram height is independent
         # of sheet orientation. The same stroke is used for either loading.
-        if (auto_orientation and rank < 3 and pair.get("status") != "COLLISION"
+        if (auto_orientation and bend_id not in locked_orientation_bends
+                and rank < 3 and pair.get("status") != "COLLISION"
                 and not record.get("tool_setup_status")):
             if orientation_retry_callback is not None:
                 orientation_retry_callback(bend_id, not preferred_axis)

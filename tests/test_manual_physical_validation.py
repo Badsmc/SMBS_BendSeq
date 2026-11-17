@@ -211,6 +211,30 @@ class ManualToolingTests(unittest.TestCase):
         self.assertEqual(report["orientation_attempts"][0]["bend_id"], "B01")
         self.assertEqual(self.session.fold_state.angles, {"B01": 0.0, "B02": 0.0})
 
+    def test_manual_checkbox_locks_only_its_bend_during_automatic_selection(self):
+        for locked_pose in (False, True):
+            with self.subTest(locked_pose=locked_pose), patch(
+                "smbs_core.kinematics2d.manual_physical_validation"
+                ".check_active_25d_bend_trajectory", side_effect=[
+                    evidence(PhysicalEvidence.COLLISION),
+                    evidence(PhysicalEvidence.SAMPLED_3D_CLEAR_NOT_CONTINUOUS),
+                    evidence(PhysicalEvidence.COLLISION),
+                ],
+            ) as check:
+                report = check_manual_3d_sequence(
+                    self.session, self.tooling, self.session.bend_order,
+                    reverse_axis_by_bend={"B01": False, "B02": locked_pose},
+                    auto_orientation=True, locked_orientation_bends={"B02"},
+                )
+                self.assertEqual(
+                    [call.kwargs["reverse_axis"] for call in check.call_args_list],
+                    [False, True, locked_pose],
+                )
+                self.assertEqual(report["status"], "COLLISION")
+                self.assertEqual(report["reverse_axis_by_bend"], {"B01": True, "B02": locked_pose})
+                self.assertEqual([step["bend_id"] for step in report["orientation_attempts"]],
+                                 ["B01"])
+
     def test_unresolved_and_conditional_poses_search_for_a_clear_alternative(self):
         for primary in (PhysicalEvidence.UNVERIFIED, PhysicalEvidence.CONDITIONAL):
             with self.subTest(primary=primary), patch(

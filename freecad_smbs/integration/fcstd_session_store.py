@@ -52,7 +52,7 @@ def _coords(values):
     return [_finite(x) for x in values]
 
 
-def geometry_manifest(session, document):
+def geometry_manifest(session, document, *, legacy_brep=False):
     """Fingerprint authoritative SheetMetal bends AND the source CAD BRep.
 
     The source solid hash captures holes and geometry changes invisible in the
@@ -77,6 +77,16 @@ def geometry_manifest(session, document):
     brep_bytes = brep.encode("utf-8") if isinstance(brep, str) else brep
     if len(brep_bytes) > MAX_SOURCE_BREP_BYTES:
         raise EmbeddedSessionError("Source CAD BRep exceeds the safe snapshot limit")
+    if not legacy_brep:
+        # FreeCAD can change serialization flags and signed zero on save.
+        # Round-trip through the CAD reader before fingerprinting the shape.
+        import Part
+
+        roundtrip_shape = Part.Shape()
+        roundtrip_shape.importBrepFromString(brep_bytes.decode("utf-8"))
+        if roundtrip_shape.isNull():
+            raise EmbeddedSessionError("Source CAD BRep could not be re-read")
+        brep_bytes = roundtrip_shape.exportBrepToString().encode("utf-8")
 
     bends = []
     for b in sorted(source.bends, key=lambda item: str(item.bend_id)):
@@ -211,6 +221,7 @@ def build_snapshot(
     planar_report=None, operation_weights=None,
     retract_warning=False, orientation_by_bend=None,
     orientation_source="AUTO_SHORT_REAR", saved_sequences=(),
+    manual_orientation_overrides=None,
 ):
     """Create the portable, bounded snapshot without mutating the document."""
     if session is None or document is None:
@@ -230,6 +241,10 @@ def build_snapshot(
         raise EmbeddedSessionError("Invalid manual orientation map")
     if orientation_source not in ("AUTO_SHORT_REAR", "SELECTED_2D_CANDIDATE"):
         raise EmbeddedSessionError("Invalid orientation source")
+    overrides = {} if manual_orientation_overrides is None else manual_orientation_overrides
+    if (not isinstance(overrides, dict)
+            or any(k not in order or type(v) is not bool for k, v in overrides.items())):
+        raise EmbeddedSessionError("Invalid manual orientation overrides")
     config = {
         k: _enum_to_value(v)
         for k, v in asdict(cycle_config).items()
@@ -275,6 +290,7 @@ def build_snapshot(
             "orientation_by_bend": {bid: orientations[bid]
                                     for bid in order if bid in orientations},
             "orientation_source": orientation_source,
+            "manual_orientation_overrides": dict(overrides),
             "canonical_bend_ids": canonical,
             "found_sequences": archived_sequences,
         },
@@ -375,6 +391,10 @@ def decode_snapshot(raw):
     if data.get("orientation_source", "LEGACY_CHECKBOX") not in (
             "AUTO_SHORT_REAR", "SELECTED_2D_CANDIDATE", "LEGACY_CHECKBOX"):
         raise EmbeddedSessionError("Stored orientation source is invalid")
+    overrides = data.get("manual_orientation_overrides", {})
+    if (not isinstance(overrides, dict)
+            or any(k not in order or type(v) is not bool for k, v in overrides.items())):
+        raise EmbeddedSessionError("Stored manual orientation overrides are inconsistent")
     simulation = payload.get("simulation")
     tooling = payload.get("tooling")
     if not isinstance(simulation, dict) or not isinstance(tooling, dict):
@@ -403,7 +423,9 @@ def decode_snapshot(raw):
 
 def validate_restore(snapshot, session, document):
     """Return validated order and prefix, or fail before any live mutation."""
-    if snapshot["geometry"]["sha256"] != geometry_manifest(session, document)["sha256"]:
+    saved_hash = snapshot["geometry"]["sha256"]
+    if (saved_hash != geometry_manifest(session, document)["sha256"]
+            and saved_hash != geometry_manifest(session, document, legacy_brep=True)["sha256"]):
         raise EmbeddedSessionError(
             "STALE_GEOMETRY: source model or SheetMetal bend data changed"
         )
