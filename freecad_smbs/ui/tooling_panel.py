@@ -114,6 +114,8 @@ class ToolingPanel:
                     btn_remove.clicked.connect(self._on_remove_tool)
                     btn_preview = QtWidgets.QPushButton("Просмотр")
                     btn_preview.clicked.connect(self._on_preview_tool)
+                    btn_segments = QtWidgets.QPushButton("Сегменты и количество")
+                    btn_segments.clicked.connect(self._on_edit_segments)
                     btn_refresh = QtWidgets.QPushButton("Обновить")
                     btn_refresh.clicked.connect(self._on_refresh)
 
@@ -125,6 +127,8 @@ class ToolingPanel:
                     btn_layout.setColumnStretch(0, 1)
                     btn_layout.setColumnStretch(1, 1)
                     layout.addLayout(btn_layout)
+                    style_action(btn_segments)
+                    layout.addWidget(btn_segments)
 
                     # Status bar label
                     self.status_label = QtWidgets.QLabel("Статус: Готово")
@@ -138,7 +142,10 @@ class ToolingPanel:
                     vbox.setContentsMargins(16, 16, 16, 16)
                     vbox.setSpacing(16)
 
-                    lbl_sections = QtWidgets.QLabel("Секции Q11: 10, 15, 20, 50, 100 мм (автоподбор в pipeline)")
+                    lbl_sections = QtWidgets.QLabel(
+                        "Назначьте длину и количество имеющихся сегментов "
+                        "для каждого конкретного пуансона."
+                    )
                     lbl_sections.setObjectName("SMBS_SectionCaption")
                     lbl_sections.setWordWrap(True)
                     vbox.addWidget(lbl_sections)
@@ -536,7 +543,18 @@ class ToolingPanel:
                         if desc.metadata
                         else "нет"
                     )
-                    self.lbl_selected_meta.setText(f"Метаданные: {meta_str}\nПуть: {desc.fcstd_path}")
+                    segments = desc.metadata.get("segments") or []
+                    inventory_text = ", ".join(
+                        "{:g} мм × {}".format(
+                            float(seg.get("length_mm", 0)),
+                            int(seg.get("quantity", 0)),
+                        )
+                        for seg in segments if isinstance(seg, dict)
+                    ) or "не заданы"
+                    self.lbl_selected_meta.setText(
+                        f"Метаданные: {meta_str}\n"
+                        f"Сегменты: {inventory_text}\nПуть: {desc.fcstd_path}"
+                    )
 
                 def _on_add_tool(self) -> None:
                     if not self.library:
@@ -602,6 +620,99 @@ class ToolingPanel:
                     except ToolingLibraryError as e:
                         self._set_status(f"Ошибка удаления: {e}", is_error=True)
                         QtWidgets.QMessageBox.warning(self, "Ошибка удаления", str(e))
+
+                def _on_edit_segments(self) -> None:
+                    """Edit inventory for the selected punch/die, not global stock."""
+                    desc = self._current_descriptor()
+                    if desc is None:
+                        QtWidgets.QMessageBox.information(
+                            self, "Сегменты", "Выберите пуансон или матрицу."
+                        )
+                        return
+                    from smbs_core.kinematics2d.segment_assembly_planner import (
+                        read_inventory, write_inventory,
+                    )
+                    try:
+                        existing = read_inventory(desc.fcstd_path)
+                    except (ValueError, OSError) as exc:
+                        QtWidgets.QMessageBox.warning(
+                            self, "Сегменты", str(exc)
+                        )
+                        return
+                    dialog = QtWidgets.QDialog(self)
+                    dialog.setWindowTitle("Сегменты: " + desc.tool_id)
+                    dialog.resize(470, 400)
+                    layout = QtWidgets.QVBoxLayout(dialog)
+                    explanation = QtWidgets.QLabel(
+                        "Фактический складской набор для выбранной модели. "
+                        "Длина в мм, количество — число имеющихся секций. "
+                        "Данные хранятся в .tooling.json."
+                    )
+                    explanation.setWordWrap(True)
+                    layout.addWidget(explanation)
+                    table = QtWidgets.QTableWidget(0, 2, dialog)
+                    table.setHorizontalHeaderLabels(
+                        ["Длина сегмента, мм", "Количество, шт."]
+                    )
+                    table.horizontalHeader().setStretchLastSection(True)
+                    layout.addWidget(table)
+
+                    def add_row(length=100.0, count=1):
+                        row = table.rowCount()
+                        table.insertRow(row)
+                        spin_length = QtWidgets.QDoubleSpinBox(table)
+                        spin_length.setRange(0.01, 10000.)
+                        spin_length.setDecimals(2)
+                        spin_length.setValue(float(length))
+                        spin_count = QtWidgets.QSpinBox(table)
+                        spin_count.setRange(0, 10000)
+                        spin_count.setValue(int(count))
+                        table.setCellWidget(row, 0, spin_length)
+                        table.setCellWidget(row, 1, spin_count)
+
+                    for segment in existing:
+                        add_row(segment["length_mm"], segment["quantity"])
+                    controls = QtWidgets.QHBoxLayout()
+                    add_button = QtWidgets.QPushButton("Добавить")
+                    remove_button = QtWidgets.QPushButton("Удалить строку")
+                    add_button.clicked.connect(lambda: add_row())
+                    remove_button.clicked.connect(
+                        lambda: table.removeRow(table.currentRow())
+                        if table.currentRow() >= 0 else None
+                    )
+                    controls.addWidget(add_button)
+                    controls.addWidget(remove_button)
+                    layout.addLayout(controls)
+                    buttons = QtWidgets.QDialogButtonBox(
+                        QtWidgets.QDialogButtonBox.Save |
+                        QtWidgets.QDialogButtonBox.Cancel,
+                        parent=dialog,
+                    )
+                    buttons.accepted.connect(dialog.accept)
+                    buttons.rejected.connect(dialog.reject)
+                    layout.addWidget(buttons)
+                    if dialog.exec() != QtWidgets.QDialog.Accepted:
+                        return
+                    rows = [
+                        {
+                            "length_mm": table.cellWidget(i, 0).value(),
+                            "quantity": table.cellWidget(i, 1).value(),
+                        }
+                        for i in range(table.rowCount())
+                    ]
+                    try:
+                        saved = write_inventory(desc.fcstd_path, rows)
+                    except (ValueError, OSError) as exc:
+                        QtWidgets.QMessageBox.warning(
+                            self, "Сегменты", str(exc)
+                        )
+                        return
+                    self._refresh_lists()
+                    self._set_status(
+                        "{}: сохранено {} видов сегментов".format(
+                            desc.tool_id, len(saved)
+                        )
+                    )
 
                 def _on_preview_tool(self) -> None:
                     desc = self._current_descriptor()
