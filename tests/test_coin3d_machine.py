@@ -55,7 +55,7 @@ class TestCoinMachine(unittest.TestCase):
               patch("freecad_smbs.ui.coin3d_machine._load_frame",
                     return_value=(Mock(), Mock(), 900, 1965)),
               patch("freecad_smbs.ui.coin3d_machine._load_clamp",
-                    return_value=(Mock(), 40)) as load):
+                    return_value=(Mock(), 20, -55)) as load):
             library = Path(directory)
             save_clamp_config(library, ClampConfig.from_defaults((-200, 0, 200)))
             self.scene.update_frame(library, tooling, 8, True)
@@ -63,7 +63,7 @@ class TestCoinMachine(unittest.TestCase):
             expected = ((-275, -125), (-75, 75), (125, 275))
             self.assertEqual(self.scene.clamp_spans, expected)
             self.scene.clamp_motion.translation.setValue.assert_called_with(0.0, 0.0, 108)
-            self.scene.ram_motion.translation.setValue.assert_called_with(0.0, 0.0, 148)
+            self.scene.ram_motion.translation.setValue.assert_called_with(-55, 0.0, 128)
 
             tooling.punch = None
             tooling.visible = False
@@ -71,7 +71,7 @@ class TestCoinMachine(unittest.TestCase):
             self.scene.update_clamps(library)
             load.assert_called_once_with(self.coin, library, expected)
             self.scene.clamps.whichChild.setValue.assert_called_with(self.coin.SO_SWITCH_ALL)
-            self.scene.clamp_motion.translation.setValue.assert_called_with(0.0, 0.0, 860)
+            self.scene.clamp_motion.translation.setValue.assert_called_with(0.0, 0.0, 880)
 
             (library / "config.json").unlink()
             self.scene.update_clamps(library)

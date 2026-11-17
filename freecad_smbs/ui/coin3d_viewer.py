@@ -68,7 +68,10 @@ def _face_node(coin, face):
     node = coin.SoSeparator()
     material = coin.SoMaterial()
     color = COLORS.get(face.kind, (0.55, 0.65, 0.75))
-    if face.section_index % 2:
+    if face.kind.endswith("_seam"):
+        color = (0.18, 0.12, 0.12)
+        material.emissiveColor.setValue(*color)
+    elif face.section_index % 2:
         color = tuple(0.70 * component + 0.30 for component in color)
     material.diffuseColor.setValue(*color)
     coordinates = coin.SoCoordinate3()
@@ -81,7 +84,7 @@ def _face_node(coin, face):
             indices.append(-1)
         facets.coordIndex.setValues(0, len(indices), indices)
     else:
-        facets = coin.SoFaceSet()
+        facets = coin.SoLineSet() if face.kind.endswith("_seam") else coin.SoFaceSet()
         facets.numVertices.setValues(0, 1, [len(face.vertices)])
     node.addChild(material)
     node.addChild(coordinates)
@@ -398,7 +401,7 @@ def create_coin_viewer(parent=None):
                 self.reset_camera()
                 self._initial_fit_done = True
 
-        def update_tools(self, tooling, ram_z, *, active_bend_length_mm=None):
+        def update_tools(self, tooling, ram_z, *, active_bend_length_mm=None, section_preview=None):
             from smbs_core.kinematics2d.preview_mesh_3d import (
                 build_tool_preview_faces,
             )
@@ -418,6 +421,7 @@ def create_coin_viewer(parent=None):
                 tuple(tooling.die_section_offsets_xm),
                 tooling.punch_section_spans_xm,
                 tooling.die_section_spans_xm,
+                tuple((section_preview or {}).items()),
                 round(float(punch_transform.tx), 5),
                 tuple(die_transform.to_matrix_tuple()),
             )
@@ -425,6 +429,7 @@ def create_coin_viewer(parent=None):
                 tool_faces = build_tool_preview_faces(
                     tooling,
                     active_bend_length_mm=active_bend_length_mm,
+                    section_preview=section_preview,
                 )
                 self._tool_root.removeAllChildren()
                 self._punch_motion = coin.SoTranslation()
