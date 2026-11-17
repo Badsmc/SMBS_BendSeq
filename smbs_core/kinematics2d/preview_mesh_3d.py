@@ -17,6 +17,7 @@ class PreviewFace3D:
     kind: str
     identifier: str
     holes: tuple = ()
+    section_index: int = 0
 
 
 class PreviewMeshError(ValueError):
@@ -118,18 +119,25 @@ def build_tool_preview_faces(tooling, *, arc_segments=20,
         if any(not all(isfinite(s) and isfinite(z) for s, z in ring)
                for ring in rings):
             raise PreviewMeshError(kind + " has nonfinite machine coordinates")
-        for near, far in spans:
+        for section_index, (near, far) in enumerate(spans):
             if not isfinite(near) or not isfinite(far):
                 raise PreviewMeshError(kind + " has nonfinite machine station")
 
             def at_depth(ring, depth):
                 return tuple((float(s), depth, float(z)) for s, z in ring)
 
-            for depth in (near, far):
+            for at_start, depth in ((True, near), (False, far)):
+                neighbor = section_index - 1 if at_start else section_index + 1
+                if 0 <= neighbor < len(spans):
+                    edge = spans[neighbor][1 if at_start else 0]
+                    if abs(edge - depth) <= 1e-6:
+                        # At a touching seam the two internal caps coincide.
+                        continue
                 faces.append(PreviewFace3D(
                     at_depth(outline, depth), kind + "_cap",
                     profile.tool_id,
                     tuple(at_depth(hole, depth) for hole in holes),
+                    section_index,
                 ))
             for ring in rings:
                 for index, point in enumerate(ring):
@@ -141,7 +149,7 @@ def build_tool_preview_faces(tooling, *, arc_segments=20,
                     faces.append(PreviewFace3D(
                         ((s0, near, z0), (s1, near, z1),
                          (s1, far, z1), (s0, far, z0)),
-                        kind + "_side", profile.tool_id,
+                        kind + "_side", profile.tool_id, section_index=section_index,
                     ))
     return tuple(faces)
 

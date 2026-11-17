@@ -18,7 +18,7 @@ from smbs_core.geometry_backend.io.clamp_validator import (
     ClampConfig, PunchSegment, validate_punch_chain,
 )
 from .tooling_assembly import (
-    CONTACT_EPS_MM, clamp_spans_for_centres, punch_segment_supports,
+    CONTACT_EPS_MM, MAX_PUNCH_SHORTFALL_MM, clamp_spans_for_centres, punch_segment_supports,
 )
 
 
@@ -99,7 +99,7 @@ def write_inventory(fcstd_path, rows):
     return rows
 
 
-def _segment_combinations(rows, required, allowance, max_states=120000):
+def _segment_combinations(rows, required, allowance, max_states=120000, *, shortfall_mm=0.0):
     """Find combinations throughout the allowed length window."""
     rows = validate_inventory(rows)
     if not rows:
@@ -111,6 +111,7 @@ def _segment_combinations(rows, required, allowance, max_states=120000):
     solutions = []
     visited = 0
     limited = False
+    lower = required - shortfall_mm
     upper = required + allowance
     stock_remaining = [0.0] * (len(rows) + 1)
     for index in reversed(range(len(rows))):
@@ -123,10 +124,10 @@ def _segment_combinations(rows, required, allowance, max_states=120000):
             limited = True
             return
         visited += 1
-        if total + stock_remaining[index] < required - 1e-6:
+        if total + stock_remaining[index] < lower - 1e-6:
             return
         if index == len(rows):
-            if required - 1e-6 <= total <= upper + 1e-6:
+            if selected and lower - 1e-6 <= total <= upper + 1e-6:
                 solutions.append((round(total, 6), tuple(selected)))
             return
         item = rows[index]
@@ -224,8 +225,11 @@ def _punch_shifts(chain, bend_length_mm, zones, config):
     """Test endpoints and intervals where contact, joints or overhang change."""
     yield 0.0
     first, last = chain[0], chain[-1]
-    lo = min(0.0, bend_length_mm / 2.0 - last.end_mm)
-    hi = max(0.0, -bend_length_mm / 2.0 - first.start_mm)
+    # Keep the shorter span inside the longer one. No lateral shift adds
+    # unsupported length beyond the shortfall already selected from stock.
+    lo, hi = sorted((bend_length_mm / 2.0 - last.end_mm,
+                     -bend_length_mm / 2.0 - first.start_mm))
+    lo, hi = min(lo, 0.0), max(hi, 0.0)
     if not zones or hi - lo <= 1e-9:
         return
 
@@ -302,12 +306,21 @@ def plan_pair_for_bend(punch_inventory, die_inventory, bend_length_mm,
                        clamps: ClampConfig, allowance_mm=15.0):
     """Find a stock-bounded assembled punch+die for a single bend.
 
-    Try stock combinations and machine-X positions that cover the centred
-    bend. Prefer full support for sections short enough to fit in a gap.
+    Prefer an exact punch, then a shorter one within the end shortfall
+    allowance, then an overlength set. The die must cover the centred bend.
     """
     if not isinstance(clamps, ClampConfig):
         raise AssemblyPlanningError("clamp configuration required")
-    p_solutions, p_limited = _segment_combinations(punch_inventory, bend_length_mm, allowance_mm)
+    p_solutions, p_limited = _segment_combinations(
+        punch_inventory, bend_length_mm, allowance_mm,
+        shortfall_mm=min(MAX_PUNCH_SHORTFALL_MM, allowance_mm),
+    )
+
+    def fit(total):
+        delta = total - bend_length_mm
+        return (0, 0.0) if abs(delta) <= CONTACT_EPS_MM else (1 if delta < 0 else 2, abs(delta))
+
+    p_solutions.sort(key=lambda item: fit(item[0]))
     d_solutions, d_limited = _segment_combinations(die_inventory, bend_length_mm, allowance_mm)
     if not p_solutions or not d_solutions:
         missing = ((p_solutions, p_limited), (d_solutions, d_limited))
@@ -323,6 +336,8 @@ def plan_pair_for_bend(punch_inventory, die_inventory, bend_length_mm,
     search_limited = p_limited or len(p_solutions) > _MAX_STOCK_COMBINATIONS
     selected = None
     for p_total, p_counts in p_solutions[:_MAX_STOCK_COMBINATIONS]:
+        if selected is not None and fit(p_total) != fit(selected[0]):
+            break
         expanded = [length for length, count in p_counts
                     for _ in range(count)]
         best = None
@@ -361,6 +376,7 @@ def plan_pair_for_bend(punch_inventory, die_inventory, bend_length_mm,
         "required_mm": float(bend_length_mm),
         "punch_total_mm": p_total,
         "punch_center_x_mm": best.shift_mm,
+        "punch_shortfall_mm": max(0.0, bend_length_mm - p_total),
         "die_total_mm": d_total,
         "punch_segments": [
             {"length_mm": round(seg.length_mm, 6), "start_x_mm": seg.start_mm,

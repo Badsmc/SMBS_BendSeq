@@ -67,7 +67,10 @@ def _face_node(coin, face):
 
     node = coin.SoSeparator()
     material = coin.SoMaterial()
-    material.diffuseColor.setValue(*COLORS.get(face.kind, (0.55, 0.65, 0.75)))
+    color = COLORS.get(face.kind, (0.55, 0.65, 0.75))
+    if face.section_index % 2:
+        color = tuple(0.70 * component + 0.30 for component in color)
+    material.diffuseColor.setValue(*color)
     coordinates = coin.SoCoordinate3()
     coordinates.point.setValues(0, len(face.vertices), list(face.vertices))
     if triangles is not None:
@@ -446,9 +449,10 @@ def create_coin_viewer(parent=None):
 
         def update_machine(self, library_root, tooling, ram_z, *, frame_visible,
                            gauge_stations, gauge_contact):
+            clamp_error = self._machine.update_clamps(library_root, tooling, ram_z)
             frame_error = self._machine.update_frame(library_root, tooling, ram_z, frame_visible)
             gauge_error = self._machine.update_gauges(library_root, gauge_stations, gauge_contact)
-            return tuple(error for error in (frame_error, gauge_error) if error)
+            return tuple(error for error in (frame_error, clamp_error, gauge_error) if error)
 
         def set_collision_boxes(self, boxes):
             if not boxes and self._collision_count == 0:
