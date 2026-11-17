@@ -384,3 +384,70 @@ def inspect_lateral_release(
                         type(exc).__name__, str(exc)[:240]))
     base["elapsed_s"] = round(perf_counter() - started, 4)
     return base
+
+
+def select_assisted_retract_inspection(primary: Any, alternative: Any) -> dict | None:
+    """Choose an eligible *diagnostic* RETRACT pose, never a sequence PASS.
+
+    The normal Manual OCC result may fail on APPROACH in the operator's
+    orientation, while its real 180-degree retry reaches RETRACT. The latter
+    is useful for a sampled lift experiment, but must remain a separate
+    COLLISION result and must not replace the primary checked orientation.
+    """
+    for inspected in (primary, alternative):
+        if not isinstance(inspected, dict):
+            continue
+        blocker = inspected.get("first_blocker")
+        retract = inspected.get("retract")
+        if eligible_assisted_retract(blocker, retract):
+            return inspected
+    return None
+
+
+def classify_punch_intersection_span(blocker: Any, length_info: Any,
+                                     end_zone_length_mm: float) -> dict:
+    """Distinguish central vs end-section tool interference from native XYZ.
+
+    Bounding boxes are an advisory diagnostic; no bbox is proof of a relief
+    geometry or of the absence of intersection volume.
+    """
+    result = {"status": "UNVERIFIED", "central_hits": [],
+              "end_zone_hits": [], "unknown_hits": [],
+              "basis": "native_attributed_positive_common_bbox"}
+    try:
+        span = length_info["punch_span_xm"]
+        lo, hi = float(span[0]), float(span[1])
+        margin = float(end_zone_length_mm)
+        if (not all(isfinite(x) for x in (lo, hi, margin))
+                or lo >= hi or margin < 0 or 2 * margin >= hi - lo):
+            return result
+        hits = (blocker["component_attribution"] or {})["hits"]
+    except (KeyError, TypeError, ValueError):
+        return result
+    for hit in hits:
+        if str(hit.get("tool")) != "PUNCH":
+            continue
+        name = str(hit.get("component_id", "UNKNOWN"))
+        bbox = hit.get("overlap_bbox_xyz_mm") or {}
+        try:
+            left, right = float(bbox["xmin"]), float(bbox["xmax"])
+        except (KeyError, TypeError, ValueError):
+            result["unknown_hits"].append(name)
+            continue
+        if not (isfinite(left) and isfinite(right) and right >= left):
+            result["unknown_hits"].append(name)
+        elif left < hi - margin and right > lo + margin:
+            result["central_hits"].append(name)
+        elif left >= lo and right <= hi:
+            result["end_zone_hits"].append(name)
+        else:
+            result["unknown_hits"].append(name)
+    if result["central_hits"]:
+        result["status"] = "CENTRAL_PUNCH_INTERFERENCE"
+    elif result["end_zone_hits"] and not result["unknown_hits"]:
+        result["status"] = "END_ZONE_ONLY_BBOX_UNVERIFIED"
+    else:
+        result["status"] = "UNVERIFIED"
+    result["punch_length_mm"] = hi - lo
+    result["end_zone_mm"] = margin
+    return result
