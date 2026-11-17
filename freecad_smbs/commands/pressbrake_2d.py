@@ -4368,7 +4368,9 @@ class _PreviewPanel:
                                 allow_retract_warning=(
                                     self.retract_warning_checkbox.isChecked()
                                 ),
-                                match_active_bend_length=not has_sections,
+                                match_active_bend_length=bool(
+                                    self.tooling_setup.match_active_bend_length
+                                ),
                                 blocked_transitions=blocked,
                             )
                             self._last_axis_experiment_result = experiment
