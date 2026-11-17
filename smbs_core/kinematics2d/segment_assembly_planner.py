@@ -172,6 +172,33 @@ def _validate_clamps(chain, config):
     return None
 
 
+def _unique_segment_orders(lengths, max_orders=2000):
+    """Yield multiset permutations without factorial duplicate exploration."""
+    counts = {}
+    for length in lengths:
+        counts[length] = counts.get(length, 0) + 1
+    order = []
+    yielded = 0
+
+    def visit():
+        nonlocal yielded
+        if yielded >= max_orders:
+            return
+        if len(order) == len(lengths):
+            yielded += 1
+            yield tuple(order)
+            return
+        for length in sorted(counts, reverse=True):
+            if counts[length] <= 0:
+                continue
+            counts[length] -= 1
+            order.append(length)
+            yield from visit()
+            order.pop()
+            counts[length] += 1
+    yield from visit()
+
+
 def plan_pair_for_bend(punch_inventory, die_inventory, bend_length_mm,
                        clamps: ClampConfig, allowance_mm=15.0):
     """Find a stock-bounded assembled punch+die for a single bend.
@@ -187,20 +214,13 @@ def plan_pair_for_bend(punch_inventory, die_inventory, bend_length_mm,
         return {"status": "NO_INVENTORY_COMBINATION",
                 "required_mm": bend_length_mm}
     for p_total, p_counts in p_solutions:
-        # Try segment ordering with joints under clamp blocks; same-length
-        # pieces interchangeable. Limit permutations for predictable runtime.
-        from itertools import permutations
+        # Explore distinct orders only; duplicate segment lengths may
+        # otherwise explode to factorial-sized iterators.
         expanded = [length for length, count in p_counts
                     for _ in range(count)]
         if len(expanded) > 12:
             continue
-        seen_orders = set()
-        for lengths in permutations(expanded):
-            if lengths in seen_orders:
-                continue
-            seen_orders.add(lengths)
-            if len(seen_orders) > 2000:
-                break
+        for lengths in _unique_segment_orders(expanded):
             cursor = -p_total / 2.
             chain = []
             for length in lengths:
@@ -210,6 +230,16 @@ def plan_pair_for_bend(punch_inventory, die_inventory, bend_length_mm,
             if clamp_plan is None:
                 continue
             d_total, d_counts = d_solutions[0]
+            die_cursor = -d_total / 2.
+            die_positions = []
+            for length, count in d_counts:
+                for _ in range(count):
+                    die_positions.append({
+                        "length_mm": length,
+                        "start_x_mm": die_cursor,
+                        "end_x_mm": die_cursor + length,
+                    })
+                    die_cursor += length
             return {
                 "status": "ASSEMBLY_CANDIDATE_UNVERIFIED",
                 "required_mm": float(bend_length_mm),
@@ -219,9 +249,7 @@ def plan_pair_for_bend(punch_inventory, die_inventory, bend_length_mm,
                     {"length_mm": length, "start_x_mm": seg.start_mm,
                      "end_x_mm": seg.end_mm}
                     for length, seg in zip(lengths, chain)],
-                "die_segments": [
-                    {"length_mm": length, "quantity": count}
-                    for length, count in d_counts],
+                "die_segments": die_positions,
                 "clamps": clamp_plan,
                 "limitations": ("No native OCC collision certification; "
                                 "movable clamp travel and mounting unverified"),
