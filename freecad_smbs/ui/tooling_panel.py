@@ -41,9 +41,10 @@ class ToolingPanel:
     def __new__(cls, library: Any, parent: Any = None) -> Any:
         global _PanelClass
         if _PanelClass is None:
-            from PySide6 import QtCore, QtWidgets
+            from freecad_smbs.commands.pressbrake_2d import _qt
             import FreeCAD as App
             import FreeCADGui as Gui
+            QtCore, _QtGui, QtWidgets = _qt()
 
             class _Dialog(QtWidgets.QDialog):
                 def __init__(self, library: Any, parent: Any = None) -> None:
@@ -52,6 +53,7 @@ class ToolingPanel:
                     self.resize(650, 560)
 
                     self.library = library
+                    self._workspace = parent if hasattr(parent, "_task_stack") else None
                     self.library_path = getattr(library, "library_root", None)
                     self._backgauge_fcstd = None
                     self._clamp_fcstd = None
@@ -303,9 +305,8 @@ class ToolingPanel:
                     vbox.addWidget(lbl_badge)
 
                     lbl_info = QtWidgets.QLabel(
-                        "Лапки крепления инструмента (Clamps Config):\n"
-                        "Параметры ниже сохраняются в config.json библиотеки и используются "
-                        "валидатором цепочки пуансонов (Q2)."
+                        "Укажите центры зажимов по X или число зажимов для симметричного ряда. "
+                        "Ноль X в середине станка. Шаг ряда равен длине зажима плюс зазор."
                     )
                     lbl_info.setWordWrap(True)
                     vbox.addWidget(lbl_info)
@@ -323,7 +324,13 @@ class ToolingPanel:
                     self.spin_clamp_gap.setRange(0.0, 200.0)
                     self.spin_clamp_gap.setSingleStep(1.0)
                     self.spin_clamp_gap.setSuffix(" мм")
+                    self.spin_clamp_gap.setToolTip("Расстояние между краями соседних зажимов.")
                     form.addRow("Мин. зазор между лапками (gap_between_mm):", self.spin_clamp_gap)
+
+                    self.spin_clamp_count = QtWidgets.QSpinBox()
+                    self.spin_clamp_count.setRange(0, 1000)
+                    self.spin_clamp_count.setSpecialValueText("По координатам")
+                    form.addRow("Число зажимов", self.spin_clamp_count)
 
                     self.spin_clamp_overhang = QtWidgets.QDoubleSpinBox()
                     self.spin_clamp_overhang.setRange(0.0, 1.0)
@@ -339,12 +346,12 @@ class ToolingPanel:
                     form.addRow("Допуск стыка (joint_tolerance_mm):", self.spin_clamp_joint_tol)
 
                     self.spin_clamp_min_under = QtWidgets.QSpinBox()
-                    self.spin_clamp_min_under.setRange(0, 10)
+                    self.spin_clamp_min_under.setRange(1, 1000)
                     form.addRow("Мин. лапок под секцией (min_clamps_under_punch):", self.spin_clamp_min_under)
 
                     self.edit_clamp_positions = QtWidgets.QLineEdit()
-                    self.edit_clamp_positions.setPlaceholderText("например: 50.0, 150.0, 250.0")
-                    form.addRow("Позиции лапок (positions_mm):", self.edit_clamp_positions)
+                    self.edit_clamp_positions.setPlaceholderText("-300, -100, 100, 300")
+                    form.addRow("Центры зажимов X, мм", self.edit_clamp_positions)
 
                     self.chk_clamp_repositionable = QtWidgets.QCheckBox("Лапки подвижные (repositionable)")
                     form.addRow("", self.chk_clamp_repositionable)
@@ -388,6 +395,7 @@ class ToolingPanel:
 
                     self.spin_clamp_width.setValue(float(cfg.width_mm))
                     self.spin_clamp_gap.setValue(float(cfg.gap_between_mm))
+                    self.spin_clamp_count.setValue(cfg.clamp_count)
                     self.spin_clamp_overhang.setValue(float(cfg.overhang_ratio))
                     self.spin_clamp_joint_tol.setValue(float(cfg.joint_tolerance_mm))
                     self.spin_clamp_min_under.setValue(int(cfg.min_clamps_under_punch))
@@ -414,6 +422,7 @@ class ToolingPanel:
                     fields = {
                         "width_mm": self.spin_clamp_width.value(),
                         "gap_between_mm": self.spin_clamp_gap.value(),
+                        "clamp_count": self.spin_clamp_count.value(),
                         "overhang_ratio": self.spin_clamp_overhang.value(),
                         "joint_tolerance_mm": self.spin_clamp_joint_tol.value(),
                         "min_clamps_under_punch": self.spin_clamp_min_under.value(),
@@ -427,6 +436,8 @@ class ToolingPanel:
                         cfg = self.library.get_clamp_config()
                         new_cfg = _apply_clamp_config_fields(cfg, fields)
                         self.library.set_clamp_config(new_cfg)
+                        if new_cfg != cfg and self._workspace is not None:
+                            self._workspace._on_tool_inventory_changed()
                         self._set_status("Конфигурация лапок успешно сохранена.")
                         QtWidgets.QMessageBox.information(
                             self, "Оснастка", "Конфигурация лапок сохранена в библиотеку."
@@ -634,6 +645,8 @@ class ToolingPanel:
 
                     try:
                         self.library.remove_tool(desc.tool_id, kind=desc.kind)
+                        if self._workspace is not None:
+                            self._workspace._on_tool_inventory_changed(desc.kind, desc.tool_id)
                         self._set_status(f"Удалён '{desc.tool_id}' из {desc.kind}")
                         self._refresh_lists()
                     except ToolingLibraryError as e:
@@ -651,6 +664,14 @@ class ToolingPanel:
                     from smbs_core.kinematics2d.segment_assembly_planner import (
                         read_inventory, write_inventory,
                     )
+                    from freecad_smbs.commands.pressbrake_2d import (
+                        activate_task_dialog, embed_task_dialog,
+                    )
+
+                    workspace = self._workspace
+                    key = f"tool_stock_{desc.kind}_{desc.tool_id}"
+                    if workspace is not None and activate_task_dialog(workspace, key):
+                        return
                     try:
                         existing = read_inventory(desc.fcstd_path)
                     except (ValueError, OSError) as exc:
@@ -670,6 +691,7 @@ class ToolingPanel:
                     explanation.setWordWrap(True)
                     layout.addWidget(explanation)
                     table = QtWidgets.QTableWidget(0, 2, dialog)
+                    table.setObjectName("SMBS_SegmentStock")
                     table.setHorizontalHeaderLabels(
                         ["Длина сегмента, мм", "Количество, шт."]
                     )
@@ -681,7 +703,7 @@ class ToolingPanel:
                         table.insertRow(row)
                         spin_length = QtWidgets.QDoubleSpinBox(table)
                         spin_length.setRange(0.01, 10000.)
-                        spin_length.setDecimals(2)
+                        spin_length.setDecimals(3)
                         spin_length.setValue(float(length))
                         spin_count = QtWidgets.QSpinBox(table)
                         spin_count.setRange(0, 10000)
@@ -707,31 +729,39 @@ class ToolingPanel:
                         QtWidgets.QDialogButtonBox.Cancel,
                         parent=dialog,
                     )
-                    buttons.accepted.connect(dialog.accept)
-                    buttons.rejected.connect(dialog.reject)
                     layout.addWidget(buttons)
-                    if dialog.exec() != QtWidgets.QDialog.Accepted:
-                        return
-                    rows = [
-                        {
-                            "length_mm": table.cellWidget(i, 0).value(),
-                            "quantity": table.cellWidget(i, 1).value(),
-                        }
-                        for i in range(table.rowCount())
-                    ]
-                    try:
-                        saved = write_inventory(desc.fcstd_path, rows)
-                    except (ValueError, OSError) as exc:
-                        QtWidgets.QMessageBox.warning(
-                            self, "Сегменты", str(exc)
+                    error = QtWidgets.QLabel()
+                    error.setWordWrap(True)
+                    layout.addWidget(error)
+
+                    def save():
+                        rows = [
+                            {
+                                "length_mm": table.cellWidget(i, 0).value(),
+                                "quantity": table.cellWidget(i, 1).value(),
+                            }
+                            for i in range(table.rowCount())
+                        ]
+                        try:
+                            saved = write_inventory(desc.fcstd_path, rows)
+                        except (ValueError, OSError) as exc:
+                            error.setText(str(exc))
+                            return
+                        if workspace is not None and saved != existing:
+                            workspace._on_tool_inventory_changed(desc.kind, desc.tool_id)
+                        self._refresh_lists()
+                        self._set_status(
+                            "{}: сохранено {} видов сегментов".format(desc.tool_id, len(saved))
                         )
-                        return
-                    self._refresh_lists()
-                    self._set_status(
-                        "{}: сохранено {} видов сегментов".format(
-                            desc.tool_id, len(saved)
-                        )
-                    )
+                        dialog.accept()
+
+                    buttons.accepted.connect(save)
+                    buttons.rejected.connect(dialog.reject)
+                    if workspace is not None:
+                        embed_task_dialog(workspace, dialog, "Сегменты оснастки", key)
+                    else:
+                        run_dialog = getattr(dialog, "exec", None) or dialog.exec_
+                        run_dialog()
 
                 def _on_preview_tool(self) -> None:
                     desc = self._current_descriptor()
@@ -801,6 +831,15 @@ class ToolingPanel:
                         return
                     try:
                         positions = _parse_positions_mm(self.edit_clamp_positions.text())
+                        if not positions:
+                            from smbs_core.geometry_backend.io.clamp_validator import ClampConfig
+
+                            config = _apply_clamp_config_fields(ClampConfig.from_defaults(), {
+                                "width_mm": self.spin_clamp_width.value(),
+                                "gap_between_mm": self.spin_clamp_gap.value(),
+                                "clamp_count": self.spin_clamp_count.value(),
+                            })
+                            positions = config.centres_mm
                     except ValueError as e:
                         QtWidgets.QMessageBox.warning(
                             self, "Ошибка позиций", f"Некорректные positions_mm:\n{e}"

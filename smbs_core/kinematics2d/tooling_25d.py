@@ -31,6 +31,8 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple, Union
 
+from .tooling_assembly import SectionSpans, ToolAssembly, has_native_sections
+
 
 @dataclass(frozen=True)
 class Transform2D:
@@ -2370,6 +2372,23 @@ class ToolingSetup2D:
     # tool-length mode. Empty means a single native source-CAD section.
     punch_section_offsets_xm: Tuple[float, ...] = ()
     die_section_offsets_xm: Tuple[float, ...] = ()
+    tool_assembly: ToolAssembly | None = None
+
+    @property
+    def punch_section_spans_xm(self) -> SectionSpans:
+        return self.tool_assembly.punch_spans_xm if self.tool_assembly else ()
+
+    @property
+    def die_section_spans_xm(self) -> SectionSpans:
+        return self.tool_assembly.die_spans_xm if self.tool_assembly else ()
+
+    def set_tool_assembly(self, assembly: ToolAssembly | None) -> None:
+        if assembly is not None:
+            if self.match_active_bend_length:
+                raise ValueError("Отключи виртуальную длину перед применением набора.")
+            self.punch_section_offsets_xm = ()
+            self.die_section_offsets_xm = ()
+        self.tool_assembly = assembly
 
     def set_native_sections(self, punch_offsets_xm=(), die_offsets_xm=()) -> None:
         """Select native FCStd sections; no catalog-length or virtual extrusion."""
@@ -2385,8 +2404,11 @@ class ToolingSetup2D:
 
         if self.match_active_bend_length and (punch_offsets_xm or die_offsets_xm):
             raise ValueError("physical multi-sections are incompatible with virtual tool length")
-        self.punch_section_offsets_xm = check("punch", punch_offsets_xm)
-        self.die_section_offsets_xm = check("die", die_offsets_xm)
+        punch = check("punch", punch_offsets_xm)
+        die = check("die", die_offsets_xm)
+        self.tool_assembly = None
+        self.punch_section_offsets_xm = punch
+        self.die_section_offsets_xm = die
 
     def set_match_active_bend_length(
         self,
@@ -2394,7 +2416,7 @@ class ToolingSetup2D:
         active_bend_length_mm: Optional[float] = None,
     ) -> None:
         """Enable or disable development virtual tool length mode (`tool_length == active_bend_length`)."""
-        if enabled and (self.punch_section_offsets_xm or self.die_section_offsets_xm):
+        if enabled and has_native_sections(self):
             raise ValueError("physical multi-sections are incompatible with virtual tool length")
         self.match_active_bend_length = bool(enabled)
         if active_bend_length_mm is not None:
@@ -2405,6 +2427,8 @@ class ToolingSetup2D:
 
     def effective_punch_length_mm(self, fallback_bend_length_mm: Optional[float] = None) -> Optional[float]:
         """Return effective punch length (mm) in current mode (virtual bend length or library fixed)."""
+        if self.tool_assembly is not None:
+            return sum(hi - lo for lo, hi in self.tool_assembly.punch_spans_xm)
         if self.match_active_bend_length:
             if fallback_bend_length_mm is not None and math.isfinite(float(fallback_bend_length_mm)) and float(fallback_bend_length_mm) > 0.0:
                 return float(fallback_bend_length_mm)
@@ -2417,6 +2441,8 @@ class ToolingSetup2D:
 
     def effective_die_length_mm(self, fallback_bend_length_mm: Optional[float] = None) -> Optional[float]:
         """Return effective die length (mm) in current mode (virtual bend length or library fixed)."""
+        if self.tool_assembly is not None:
+            return sum(hi - lo for lo, hi in self.tool_assembly.die_spans_xm)
         if self.match_active_bend_length:
             if fallback_bend_length_mm is not None and math.isfinite(float(fallback_bend_length_mm)) and float(fallback_bend_length_mm) > 0.0:
                 return float(fallback_bend_length_mm)
@@ -2433,6 +2459,8 @@ class ToolingSetup2D:
                 raise ToolingError(f"Expected PUNCH tool, got {punch.kind}")
             if punch.validation_status == ValidationStatus.INVALID:
                 raise ToolingError(f"Cannot select INVALID punch '{punch.name}'")
+        if punch is not self.punch:
+            self.tool_assembly = None
         self.punch = punch
         self.reset_position()
 
@@ -2442,6 +2470,8 @@ class ToolingSetup2D:
                 raise ToolingError(f"Expected DIE tool, got {die.kind}")
             if die.validation_status == ValidationStatus.INVALID:
                 raise ToolingError(f"Cannot select INVALID die '{die.name}'")
+        if die is not self.die:
+            self.tool_assembly = None
         self.die = die
         self.reset_position()
 

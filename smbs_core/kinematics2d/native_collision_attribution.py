@@ -8,6 +8,8 @@ empty fakes, or claims of verified clearance on partial diagnostic runs.
 """
 from __future__ import annotations
 
+from .tooling_assembly import native_section_options
+
 from math import isfinite
 from pathlib import Path
 from time import perf_counter
@@ -236,13 +238,11 @@ def attribute_native_collision(
             record["errors"].append("no_confirmed_native_tool_penetration")
             return record
         requested_length = float(bend_length_mm) if virtual_length else None
-        p_sections = getattr(tooling, "punch_section_offsets_xm", ()) or ()
-        d_sections = getattr(tooling, "die_section_offsets_xm", ()) or ()
         tools = {}
         if "PUNCH" in target_kinds:
             punch = load_native_punch(
                 punch_source, virtual_length_mm=requested_length,
-                section_offsets_xm=p_sections or None,
+                **native_section_options(tooling, "punch"),
             )
             tools["PUNCH"] = set_punch_ram_z(
                 punch, collision_state.ram_z_mm,
@@ -250,7 +250,7 @@ def attribute_native_collision(
         if "DIE" in target_kinds:
             tools["DIE"] = load_native_die(
                 die_source, virtual_length_mm=requested_length,
-                section_offsets_xm=d_sections or None,
+                **native_section_options(tooling, "die"),
             ).machine_shape
         for i, (kind, tool_shape) in enumerate(tools.items()):
             left_s = max_time_s - (perf_counter() - start)

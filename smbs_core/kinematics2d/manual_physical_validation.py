@@ -19,6 +19,7 @@ from types import SimpleNamespace
 from typing import Any, Callable, Iterable, Optional, Sequence
 
 from .developer_debug_log import debug_event, summarize_native_trajectory
+from .tooling_assembly import has_native_sections, native_section_options
 from .native_kernel_metrics import count_native_kernel_calls
 from .native_sequence_geometry_cache import NativeSequenceGeometryCache
 from .runtime_build_identity import loaded_native_module_sources
@@ -358,17 +359,15 @@ def _check_selected_tool_pair_at_sampled_rams(
         }
 
     v_len = float(bend_length_mm) if virtual_length else None
-    p_sections = tuple(getattr(tooling, "punch_section_offsets_xm", ()) or ())
-    d_sections = tuple(getattr(tooling, "die_section_offsets_xm", ()) or ())
     original = getattr(getattr(App, "ActiveDocument", None), "Name", None)
     try:
         punch = load_native_punch(
             punch_file, ram_z_mm=0.0, virtual_length_mm=v_len,
-            section_offsets_xm=p_sections or None,
+            **native_section_options(tooling, "punch"),
         )
         die = load_native_die(
             die_file, virtual_length_mm=v_len,
-            section_offsets_xm=d_sections or None,
+            **native_section_options(tooling, "die"),
         )
         for i, ram_z in enumerate(sorted(positions)):
             moved = set_punch_ram_z(punch, ram_z)
@@ -461,10 +460,7 @@ def check_manual_3d_sequence(
     die_id = str(getattr(die, "tool_id", "")) if die is not None else ""
     p_path = _source_path(punch)
     d_path = _source_path(die)
-    sections = bool(
-        getattr(tooling, "punch_section_offsets_xm", ())
-        or getattr(tooling, "die_section_offsets_xm", ())
-    )
+    sections = has_native_sections(tooling)
     virtual = bool(match_active_bend_length)
     end_len = float(end_zone_length_mm)
     # Normalize before early-return reporting: a failed precheck must
@@ -505,7 +501,9 @@ def check_manual_3d_sequence(
             "punch_fcstd_source": str(p_path) if p_path else None,
             "die_fcstd_source": str(d_path) if d_path else None,
             "tool_length_mode": (
-                "VIRTUAL_MATCH_BEND" if virtual else "SELECTED_FCSTD_REAL_LENGTH"
+                "VIRTUAL_MATCH_BEND" if virtual else
+                "SEGMENT_ASSEMBLY" if getattr(tooling, "tool_assembly", None) is not None else
+                "SELECTED_FCSTD_REAL_LENGTH"
             ),
             "allow_end_zone_collision": bool(allow_end_zone_collision),
             "end_zone_length_mm": end_len,
@@ -530,6 +528,8 @@ def check_manual_3d_sequence(
         tool_sections={
             "punch": getattr(tooling, "punch_section_offsets_xm", ()),
             "die": getattr(tooling, "die_section_offsets_xm", ()),
+            "punch_spans_xm": getattr(tooling, "punch_section_spans_xm", ()),
+            "die_spans_xm": getattr(tooling, "die_section_spans_xm", ()),
         },
         conditional_end_zone_allowed=bool(allow_end_zone_collision),
         end_zone_length_mm=end_len,

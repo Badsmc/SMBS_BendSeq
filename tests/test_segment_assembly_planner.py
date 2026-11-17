@@ -4,14 +4,18 @@ from __future__ import annotations
 import json
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 
-from smbs_core.geometry_backend.io.clamp_validator import ClampConfig
+from smbs_core.geometry_backend.io.clamp_validator import (
+    ClampConfig, load_clamp_config, save_clamp_config,
+)
 from smbs_core.kinematics2d.segment_assembly_planner import (
     AssemblyPlanningError,
     read_inventory, write_inventory, validate_inventory,
     plan_pair_for_bend, _unique_segment_orders,
 )
+from smbs_core.kinematics2d.tooling_assembly import ToolAssembly
 
 PUNCH = [{"length_mm": 150.0, "quantity": 2}]
 DIE = [{"length_mm": 100.0, "quantity": 3}]
@@ -97,6 +101,36 @@ class SegmentPlannerTests(unittest.TestCase):
     def test_no_silent_short_punch(self):
         plan = plan_pair_for_bend(PUNCH, DIE, 315., clamps())
         self.assertEqual(plan["status"], "NO_INVENTORY_COMBINATION")
+
+    def test_count_generates_a_fixed_clamp_row_after_reload(self):
+        config = replace(clamps(gap=40, positions=()), clamp_count=3)
+        with tempfile.TemporaryDirectory() as folder:
+            save_clamp_config(Path(folder), config)
+            config = load_clamp_config(Path(folder))
+        self.assertEqual(config.centres_mm, (-120, 0, 120))
+        plan = plan_pair_for_bend(PUNCH, DIE, 293., config)
+        assembly = ToolAssembly.from_plan(plan)
+        self.assertEqual(assembly.punch_spans_xm, ((-150, 0), (0, 150)))
+        self.assertEqual(assembly.die_spans_xm, ((-150, -50), (-50, 50), (50, 150)))
+        self.assertEqual(assembly.clamp_spans_xm, ((-160, -80), (-40, 40), (80, 160)))
+        plan["clamps"]["proposed_reposition"] = True
+        with self.assertRaises(ValueError):
+            ToolAssembly.from_plan(plan)
+
+    def test_every_punch_segment_needs_some_overlap_with_a_clamp(self):
+        config = replace(
+            clamps(gap=80, positions=(-65, 65)), width_mm=50, joints_must_be_on_clamps=False
+        )
+        segments = [{"length_mm": 40, "quantity": 3}]
+        plan = plan_pair_for_bend(segments, segments, 120, config, allowance_mm=0)
+        self.assertEqual(plan["status"], "NO_CLAMP_COMPATIBLE_ASSEMBLY")
+
+    def test_assembly_can_use_more_than_twelve_stock_segments(self):
+        config = replace(clamps(gap=0, positions=()), clamp_count=7, width_mm=150)
+        segments = [{"length_mm": 75, "quantity": 13}]
+        plan = plan_pair_for_bend(segments, segments, 975, config, allowance_mm=0)
+        self.assertEqual(plan["status"], "ASSEMBLY_CANDIDATE_UNVERIFIED")
+        self.assertEqual(len(plan["punch_segments"]), 13)
 
 
 class ToolingLibraryUIContracts(unittest.TestCase):

@@ -86,6 +86,15 @@ class EmbeddedCandidatesTests(unittest.TestCase):
             with self.assertRaisesRegex(store.EmbeddedSessionError, "STALE_GEOMETRY"):
                 store.validate_restore(snap, self.session, object())
 
+    def test_tool_reference_depends_on_geometry_and_skips_import_timings(self):
+        data = {"tip_radius_mm": 0.8, "metrics": {"import_time_ms": 1.0}}
+        profile = SimpleNamespace(tool_id="punch", name="Punch", to_dict=lambda: data)
+        reference = store.tool_reference(profile)
+        data["metrics"]["import_time_ms"] = 5.0
+        self.assertEqual(store.tool_reference(profile), reference)
+        data["tip_radius_mm"] = 1.0
+        self.assertNotEqual(store.tool_reference(profile), reference)
+
     def test_foreign_candidate_rejected_before_save(self):
         with self.assertRaises(store.EmbeddedSessionError):
             self.snapshot([{"bend_ids": ["B01", "OTHER"]}])

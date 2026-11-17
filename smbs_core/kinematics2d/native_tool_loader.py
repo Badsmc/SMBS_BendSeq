@@ -34,7 +34,7 @@ Deterministic, verified mappings from native CAD files & Tooling Library datums:
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, List, Optional, Sequence, Tuple
 
@@ -48,6 +48,7 @@ except ImportError:
     HAS_FREECAD = False
 
 from smbs_core.kinematics2d.tooling_25d import ToolLibrary25D, ToolKind
+from .tooling_assembly import SectionSpans, normalize_section_spans
 
 
 @dataclass(frozen=True)
@@ -81,6 +82,7 @@ class LoadedTool:
     is_virtual_length: bool = False
     tool_length_mode: str = "LIBRARY_FIXED"
     validity_proof: Optional[Tuple[Any, Tuple[bool, str]]] = None
+    ram_z_mm: float = 0.0
 
 
 def _build_virtual_length_cad_prism(
@@ -325,6 +327,34 @@ def _matrix_for_punch(origin_cad: Tuple[float, float], length_mm: float, ram_z_m
     )
 
 
+def _assemble_stock_sections(raw_cad_shape, tool_id, spans, placement_matrix):
+    """Build each inventoried length from the verified source cross-section."""
+    source_length = float(raw_cad_shape.BoundBox.ZLength)
+    shapes = []
+    sections = []
+    templates = {}
+    for index, (left, right) in enumerate(spans, 1):
+        length = round(right - left, 6)
+        if length not in templates:
+            cad_shape = (raw_cad_shape if abs(length - source_length) <= 1e-6
+                         else _build_virtual_length_cad_prism(raw_cad_shape, length, tool_id))
+            template = cad_shape.copy()
+            template.transformShape(placement_matrix(length))
+            templates[length] = template
+        shape = templates[length].copy()
+        shape.translate(App.Vector(left - float(shape.BoundBox.XMin), 0.0, 0.0))
+        if abs(float(shape.BoundBox.XMax) - right) > 1e-3:
+            raise ValueError(f"{tool_id}: CAD segment does not match its configured X span")
+        shapes.append(shape)
+        sections.append(ToolSectionConfig(
+            f"{tool_id}_{index}", tool_id, length, (left, right), (left + right) / 2.0,
+        ))
+    assembly = shapes[0].multiFuse(shapes[1:]) if len(shapes) > 1 else shapes[0]
+    if not assembly.isValid() or assembly.Volume <= 0:
+        raise ValueError(f"{tool_id}: invalid CAD segment assembly")
+    return assembly, tuple(sections)
+
+
 _NATIVE_DIE_CACHE: Dict[Tuple[Any, ...], LoadedTool] = {}
 _NATIVE_PUNCH_BASE_CACHE: Dict[Tuple[Any, ...], LoadedTool] = {}
 
@@ -367,6 +397,7 @@ def _clone_loaded_tool(tool: LoadedTool) -> LoadedTool:
         is_virtual_length=tool.is_virtual_length,
         tool_length_mode=tool.tool_length_mode,
         validity_proof=proof,
+        ram_z_mm=tool.ram_z_mm,
     )
 
 
@@ -376,6 +407,7 @@ def load_native_die(
     section_offsets_xm: Optional[Sequence[float]] = None,
     virtual_length_mm: Optional[float] = None,
     tool_length_mode: Optional[str] = None,
+    section_spans_xm: SectionSpans = (),
 ) -> LoadedTool:
     """Load native FreeCAD die CAD model and transform into Machine Space (Z_top = 0.0).
 
@@ -392,10 +424,14 @@ def load_native_die(
         raise RuntimeError("FreeCAD runtime is required to load native CAD die")
 
     is_virtual = virtual_length_mm is not None
+    section_spans_xm = normalize_section_spans(section_spans_xm)
+    if section_spans_xm and (is_virtual or section_offsets_xm):
+        raise ValueError("stock sections cannot use virtual length or legacy offsets")
     resolved_mode = (
         tool_length_mode
         if tool_length_mode is not None
-        else ("ACTIVE_BEND_LENGTH" if is_virtual else "LIBRARY_FIXED")
+        else ("SEGMENT_ASSEMBLY" if section_spans_xm else
+              "ACTIVE_BEND_LENGTH" if is_virtual else "LIBRARY_FIXED")
     )
     v_len_key: Optional[float] = None
     if is_virtual:
@@ -417,6 +453,7 @@ def load_native_die(
         int(p.stat().st_mtime_ns),
         str(Path(lib_dir).expanduser().resolve()),
         tuple(float(x) for x in (section_offsets_xm or ())),
+        section_spans_xm,
         v_len_key,
         str(resolved_mode),
     )
@@ -465,7 +502,14 @@ def load_native_die(
             raise ValueError(f"Transformed die shape is invalid or non-solid: {p}")
 
         # Multiple sections assembly if offsets provided
-        if section_offsets_xm and len(section_offsets_xm) > 1:
+        if section_spans_xm:
+            machine_shape, sections = _assemble_stock_sections(
+                cad_shape, p.stem, section_spans_xm,
+                lambda length: _matrix_for_die(origin_cad, length),
+            )
+            span_xm = (section_spans_xm[0][0], section_spans_xm[-1][1])
+            total_len = sum(section.length_mm for section in sections)
+        elif section_offsets_xm and len(section_offsets_xm) > 1:
             sections_list = []
             fused_shape = None
             for idx, off_x in enumerate(section_offsets_xm):
@@ -571,6 +615,7 @@ def load_native_punch(
     section_offsets_xm: Optional[Sequence[float]] = None,
     virtual_length_mm: Optional[float] = None,
     tool_length_mode: Optional[str] = None,
+    section_spans_xm: SectionSpans = (),
 ) -> LoadedTool:
     """Load native FreeCAD punch CAD model and transform into Machine Space (tip at ram_z_mm).
 
@@ -587,10 +632,14 @@ def load_native_punch(
         raise RuntimeError("FreeCAD runtime is required to load native CAD punch")
 
     is_virtual = virtual_length_mm is not None
+    section_spans_xm = normalize_section_spans(section_spans_xm)
+    if section_spans_xm and (is_virtual or section_offsets_xm):
+        raise ValueError("stock sections cannot use virtual length or legacy offsets")
     resolved_mode = (
         tool_length_mode
         if tool_length_mode is not None
-        else ("ACTIVE_BEND_LENGTH" if is_virtual else "LIBRARY_FIXED")
+        else ("SEGMENT_ASSEMBLY" if section_spans_xm else
+              "ACTIVE_BEND_LENGTH" if is_virtual else "LIBRARY_FIXED")
     )
     v_len_key: Optional[float] = None
     if is_virtual:
@@ -612,6 +661,7 @@ def load_native_punch(
         int(p.stat().st_mtime_ns),
         str(Path(lib_dir).expanduser().resolve()),
         tuple(float(x) for x in (section_offsets_xm or ())),
+        section_spans_xm,
         v_len_key,
         str(resolved_mode),
     )
@@ -660,7 +710,14 @@ def load_native_punch(
             raise ValueError(f"Transformed punch shape is invalid or non-solid: {p}")
 
         # Multiple sections assembly if offsets provided
-        if section_offsets_xm and len(section_offsets_xm) > 1:
+        if section_spans_xm:
+            machine_shape, sections = _assemble_stock_sections(
+                cad_shape, p.stem, section_spans_xm,
+                lambda length: _matrix_for_punch(origin_cad, length, ram_z_mm),
+            )
+            span_xm = (section_spans_xm[0][0], section_spans_xm[-1][1])
+            total_len = sum(section.length_mm for section in sections)
+        elif section_offsets_xm and len(section_offsets_xm) > 1:
             sections_list = []
             fused_shape = None
             for idx, off_x in enumerate(section_offsets_xm):
@@ -730,6 +787,7 @@ def load_native_punch(
             is_virtual_length=is_virtual,
             tool_length_mode=resolved_mode,
             validity_proof=(machine_shape, punch_valid),
+            ram_z_mm=float(ram_z_mm),
         )
         _NATIVE_PUNCH_BASE_CACHE[cache_key] = _clone_loaded_tool(loaded_punch)
         return loaded_punch
@@ -741,47 +799,15 @@ def load_native_punch(
 
 
 def set_punch_ram_z(punch: LoadedTool, ram_z_mm: float) -> LoadedTool:
-    """Create a new LoadedTool punch instance with updated ram_z_mm coordinate."""
+    """Move the previously assembled CAD solid as a rigid body along the ram."""
     if punch.kind != "PUNCH":
         raise ValueError("Can only set ram_z for PUNCH tool")
-
-    sec_len = punch.sections[0].length_mm if punch.sections else punch.length_mm
-    base_mat = _matrix_for_punch(punch.origin_cad, sec_len, ram_z_mm)
-    base_machine_shape = punch.cad_shape.copy()
-    base_machine_shape.transformShape(base_mat)
-
-    if punch.sections and len(punch.sections) > 1:
-        fused_shape = None
-        for sec in punch.sections:
-            sec_shape = base_machine_shape.copy()
-            sec_mat = App.Matrix(1, 0, 0, sec.offset_xm, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1)
-            sec_shape.transformShape(sec_mat)
-            fused_shape = sec_shape if fused_shape is None else fused_shape.fuse(sec_shape)
-        machine_shape = fused_shape
-    else:
-        machine_shape = base_machine_shape
-
-    return LoadedTool(
-        tool_id=punch.tool_id,
-        kind=punch.kind,
-        file_path=punch.file_path,
-        cad_shape=punch.cad_shape,
-        machine_shape=machine_shape,
-        tip_radius_mm=punch.tip_radius_mm,
-        included_angle_deg=punch.included_angle_deg,
-        v_opening_mm=punch.v_opening_mm,
-        shoulder_radius_mm=punch.shoulder_radius_mm,
-        v_depth_mm=punch.v_depth_mm,
-        height_mm=punch.height_mm,
-        length_mm=punch.length_mm,
-        span_xm=punch.span_xm,
-        origin_cad=punch.origin_cad,
-        sections=punch.sections,
-        source_length_mm=getattr(punch, "source_length_mm", punch.length_mm),
-        is_virtual_length=getattr(punch, "is_virtual_length", False),
-        tool_length_mode=getattr(punch, "tool_length_mode", "LIBRARY_FIXED"),
-        validity_proof=((machine_shape, punch.validity_proof[1])
-                        if (getattr(punch, "validity_proof", None) is not None
-                            and len(punch.sections) <= 1)
-                        else None),
-    )
+    z = float(ram_z_mm)
+    if not math.isfinite(z):
+        raise ValueError("Punch ram height is not finite")
+    machine_shape = punch.machine_shape.copy()
+    machine_shape.translate(App.Vector(0.0, 0.0, z - punch.ram_z_mm))
+    proof = punch.validity_proof
+    return replace(punch, machine_shape=machine_shape, ram_z_mm=z,
+                   validity_proof=((machine_shape, proof[1]) if proof is not None
+                                   and proof[0] is punch.machine_shape else None))

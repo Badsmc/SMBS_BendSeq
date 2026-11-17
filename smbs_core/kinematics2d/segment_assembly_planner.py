@@ -12,6 +12,7 @@ import os
 from dataclasses import replace
 from itertools import combinations
 from pathlib import Path
+from tempfile import NamedTemporaryFile
 
 from smbs_core.geometry_backend.io.clamp_validator import (
     ClampConfig, PunchSegment, validate_punch_chain,
@@ -55,7 +56,10 @@ def read_inventory(fcstd_path):
     if not sidecar.is_file():
         return []
     data = json.loads(sidecar.read_text(encoding="utf-8"))
-    return validate_inventory((data.get("metadata") or {}).get("segments", []))
+    metadata = data.get("metadata") if isinstance(data, dict) else None
+    if metadata is not None and not isinstance(metadata, dict):
+        raise AssemblyPlanningError("metadata must be an object")
+    return validate_inventory((metadata or {}).get("segments", []))
 
 
 def write_inventory(fcstd_path, rows):
@@ -67,20 +71,24 @@ def write_inventory(fcstd_path, rows):
     if not sidecar.is_file():
         raise AssemblyPlanningError("tooling sidecar missing: " + str(sidecar))
     data = json.loads(sidecar.read_text(encoding="utf-8"))
-    if data.get("kind") not in ("punch", "die") or data.get("id") != fcstd_path.stem:
+    if (not isinstance(data, dict) or data.get("kind") not in ("punch", "die")
+            or data.get("id") != fcstd_path.stem):
         raise AssemblyPlanningError("sidecar tool identity mismatch")
     metadata = data.get("metadata")
     if not isinstance(metadata, dict):
         raise AssemblyPlanningError("metadata must be an object")
     metadata["segments"] = rows
-    tmp = sidecar.with_suffix(".tooling.json.tmp")
+    tmp = None
     try:
-        tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n",
-                       encoding="utf-8")
+        with NamedTemporaryFile(mode="w", encoding="utf-8", dir=sidecar.parent,
+                                suffix=".tmp", delete=False) as output:
+            tmp = Path(output.name)
+            json.dump(data, output, ensure_ascii=False, indent=2, allow_nan=False)
+            output.write("\n")
         os.replace(tmp, sidecar)
     finally:
-        if tmp.exists():
-            tmp.unlink()
+        if tmp is not None:
+            tmp.unlink(missing_ok=True)
     return rows
 
 
@@ -124,8 +132,8 @@ def _clamp_candidates(chain, config):
     A proposed movable placement is labeled as such, not claimed as verified
     machine mounting. Respect width + minimum edge gap for every pair.
     """
-    if config.positions_mm:
-        return [(tuple(config.positions_mm), False)]
+    if config.centres_mm:
+        return [(config.centres_mm, False)]
     if not config.repositionable:
         return []
     start, end = chain[0].start_mm, chain[-1].end_mm
@@ -160,6 +168,16 @@ def _validate_clamps(chain, config):
                config.width_mm + config.gap_between_mm - 1e-6
                for i in range(len(centers)-1)):
             continue
+        half = config.width_mm / 2.0
+
+        def has_contact(left, right, center):
+            return min(right, center + half) - max(left, center - half) > 1e-6
+
+        supported = sum(has_contact(chain[0].start_mm, chain[-1].end_mm, x) for x in centers)
+        if supported < config.min_clamps_under_punch or any(
+            not any(has_contact(seg.start_mm, seg.end_mm, x) for x in centers) for seg in chain
+        ):
+            continue
         candidate = replace(config, positions_mm=tuple(centers))
         validity = validate_punch_chain(chain, candidate)
         if validity.valid:
@@ -173,30 +191,20 @@ def _validate_clamps(chain, config):
 
 
 def _unique_segment_orders(lengths, max_orders=2000):
-    """Yield multiset permutations without factorial duplicate exploration."""
-    counts = {}
-    for length in lengths:
-        counts[length] = counts.get(length, 0) + 1
-    order = []
-    yielded = 0
-
-    def visit():
-        nonlocal yielded
-        if yielded >= max_orders:
+    """Visit descending lexicographic orders of the multiset once each."""
+    order = sorted(lengths, reverse=True)
+    for _ in range(max_orders):
+        yield tuple(order)
+        pivot = len(order) - 2
+        while pivot >= 0 and order[pivot] <= order[pivot + 1]:
+            pivot -= 1
+        if pivot < 0:
             return
-        if len(order) == len(lengths):
-            yielded += 1
-            yield tuple(order)
-            return
-        for length in sorted(counts, reverse=True):
-            if counts[length] <= 0:
-                continue
-            counts[length] -= 1
-            order.append(length)
-            yield from visit()
-            order.pop()
-            counts[length] += 1
-    yield from visit()
+        swap = len(order) - 1
+        while order[swap] >= order[pivot]:
+            swap -= 1
+        order[pivot], order[swap] = order[swap], order[pivot]
+        order[pivot + 1:] = reversed(order[pivot + 1:])
 
 
 def plan_pair_for_bend(punch_inventory, die_inventory, bend_length_mm,
@@ -218,8 +226,6 @@ def plan_pair_for_bend(punch_inventory, die_inventory, bend_length_mm,
         # otherwise explode to factorial-sized iterators.
         expanded = [length for length, count in p_counts
                     for _ in range(count)]
-        if len(expanded) > 12:
-            continue
         for lengths in _unique_segment_orders(expanded):
             cursor = -p_total / 2.
             chain = []
