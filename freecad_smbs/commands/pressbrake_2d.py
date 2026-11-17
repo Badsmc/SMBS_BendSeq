@@ -3377,15 +3377,21 @@ class _PreviewPanel:
                             )
                         )
                     lines.append(
-                        "  Матрица {:.2f} мм: {}".format(
+                        "  Матрица {:.2f} мм: {} мм".format(
                             plan["die_total_mm"],
                             " + ".join(
-                                "{:g}×{}".format(
-                                    item["length_mm"], item["quantity"]
-                                ) for item in plan["die_segments"]
-                            ) + " мм"
+                                "{:g}".format(item["length_mm"])
+                                for item in plan["die_segments"]
+                            )
                         )
                     )
+                    for i, seg in enumerate(plan["die_segments"], 1):
+                        lines.append(
+                            "    D{}: {:g} мм · X {:.2f}…{:.2f}".format(
+                                i, seg["length_mm"],
+                                seg["start_x_mm"], seg["end_x_mm"],
+                            )
+                        )
                     clamp_plan = plan["clamps"]
                     lines.append(
                         "  Clamps: {} · центры X={} мм; ширина={:.1f} мм; "
