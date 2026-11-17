@@ -96,3 +96,46 @@ def validate_workpiece_placement(
             raise PlacementValidationError("Invalid machine-space vertex")
         total += len(verts)
     return PlacementReport3D(bend_id, axis_error, midpoint_error, len(state.graph.panels), total)
+
+
+def compare_native_placement_matrices(
+    preview_pose, native_pose, *,
+    translation_tolerance_mm=1e-5,
+    rotation_tolerance=1e-8,
+):
+    """Compare *machine* placements, never camera-relative 2D coordinates.
+
+    This is a mathematical consistency check, not evidence of clearance.
+    The native pose must carry its real 3x3 rotation and XYZ translation.
+    Missing, malformed or nonfinite numbers return UNVERIFIED, never MATCH.
+    """
+    if translation_tolerance_mm <= 0 or rotation_tolerance <= 0:
+        raise ValueError("positive finite tolerances required")
+    if not (math.isfinite(translation_tolerance_mm)
+            and math.isfinite(rotation_tolerance)):
+        raise ValueError("finite tolerances required")
+    try:
+        expected_R = preview_pose.rotation
+        expected_t = preview_pose.translation
+        actual_R = native_pose["rotation"]
+        actual_t = native_pose["translation"]
+        if (len(expected_R) != 3 or len(actual_R) != 3
+                or any(len(row) != 3 for row in expected_R)
+                or any(len(row) != 3 for row in actual_R)
+                or len(expected_t) != 3 or len(actual_t) != 3):
+            raise ValueError("invalid matrix dimensions")
+        r_delta = max(abs(float(expected_R[i][j])-float(actual_R[i][j]))
+                      for i in range(3) for j in range(3))
+        t_delta = max(abs(float(expected_t[i])-float(actual_t[i]))
+                      for i in range(3))
+        if not (math.isfinite(r_delta) and math.isfinite(t_delta)):
+            raise ValueError("nonfinite values")
+    except (TypeError, ValueError, KeyError, IndexError, AttributeError) as exc:
+        return {"status": "UNVERIFIED", "reason": str(exc)}
+    return {
+        "status": ("MATCH" if r_delta <= rotation_tolerance
+                   and t_delta <= translation_tolerance_mm
+                   else "POSE_MISMATCH"),
+        "max_rotation_delta": r_delta,
+        "max_translation_delta_mm": t_delta,
+    }
