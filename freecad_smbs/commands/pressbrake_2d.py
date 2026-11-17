@@ -2112,6 +2112,17 @@ class _PreviewPanel:
                 )
                 self.manual_flip_btn.clicked.connect(self._flip_manual_loading)
                 order_body.addWidget(self.manual_flip_btn)
+                self.auto_orientation_checkbox = QtWidgets.QCheckBox(
+                    "Автоматически проверять разворот 180° при коллизии"
+                )
+                self.auto_orientation_checkbox.setChecked(True)
+                self.auto_orientation_checkbox.setToolTip(
+                    "Сохраняет ручной порядок. При подтверждённом столкновении "
+                    "проверяет противоположное положение этого же гиба через OCC. "
+                    "Может увеличить время проверки. Не скрывает ошибки или "
+                    "неподтверждённые результаты."
+                )
+                order_body.addWidget(self.auto_orientation_checkbox)
 
                 self.operations.setMinimumHeight(220)
                 self.operations.setMaximumHeight(16777215)
@@ -6398,6 +6409,7 @@ class _PreviewPanel:
                     self.tool_library_btn, self.move_up_btn,
                     self.move_down_btn, self.restore_order_btn,
                     self.manual_undo_btn, self.manual_clear_btn,
+                    self.manual_flip_btn, self.auto_orientation_checkbox,
                 )
                 old_control_states = tuple(
                     (control, control.isEnabled())
@@ -6485,6 +6497,113 @@ class _PreviewPanel:
                         source=self._ergonomic_loading_status,
                         orientation_by_bend=reverse_selection,
                     )
+                    def on_progress(step_no, count, bend_id):
+                        label = (
+                            "Ручная 3D-проверка: гиб {}/{} ({}) — "
+                            "пуансон и матрица".format(step_no, count, bend_id)
+                        )
+                        self.status.setText(label)
+                        self.manual_check_summary.setText(label)
+                        QtWidgets.QApplication.processEvents()
+
+                    from smbs_core.kinematics2d.motion_trajectory_3d import (
+                        AdaptiveSamplingConfig,
+                    )
+                    # Manual order stays fixed. A confirmed OCC collision triggers
+                    # one retry with the entire sheet rotated 180 degrees about
+                    # machine Z for that bend, including all previous folds.
+                    # No alternate retry on UNVERIFIED, timeouts or exceptions.
+                    auto_orient = self.auto_orientation_checkbox.isChecked()
+                    tried_reverse = set()
+                    first_collision_reports = {}
+                    orientation_attempts = []
+                    while True:
+                        candidate_report = check_manual_3d_sequence(
+                            self.session, self.tooling_setup, selected,
+                            match_active_bend_length=match_length,
+                            allow_end_zone_collision=allow_end_zone,
+                            end_zone_length_mm=end_zone_mm,
+                            # One clearance value controls both the FreeCAD
+                            # FULL_CYCLE and native 3D APPROACH/RETRACT path.
+                            config=AdaptiveSamplingConfig(
+                                coarse_occ_screen=coarse_occ,
+                                initial_clearance_mm=(
+                                    float(self.cycle_config.initial_clearance_mm)
+                                ),
+                                # Manual validation must have sufficient budget
+                                # for expensive multi-fold native OCC trajectories.
+                                # B05 (after B07, B03) previously left 2 intervals
+                                # unresolved at 27 samples / 120s. A longer bound
+                                # cannot turn missing evidence into a PASS: D6
+                                # still reports INTERVAL_UNRESOLVED if exhausted.
+                                max_phase_time_s=300.0,
+                                max_evaluated_states_per_phase=64,
+                            ),
+                            progress_callback=on_progress,
+                            # Validate the EXPLICIT operator loading selection.
+                            # Do not silently substitute ergonomic 2D suggestions.
+                            reverse_axis_by_bend=reverse_selection,
+                        )
+                        physical = candidate_report
+                        blocked = next((
+                            step for step in physical.get("steps", ())
+                            if step.get("status") == "COLLISION"
+                        ), None)
+                        if not auto_orient or blocked is None:
+                            break
+                        blocked_id = blocked["bend_id"]
+                        if blocked_id in tried_reverse:
+                            # Both poses had proven collisions. Restore the
+                            # first pose AND its matching blocker report.
+                            reverse_selection[blocked_id] = (
+                                not bool(reverse_selection[blocked_id])
+                            )
+                            physical = first_collision_reports[blocked_id]
+                            orientation_attempts.append({
+                                "bend_id": blocked_id,
+                                "result": "BOTH_ORIENTATIONS_COLLIDE",
+                                "selected_reverse_axis": bool(
+                                    reverse_selection[blocked_id]
+                                ),
+                            })
+                            break
+                        tried_reverse.add(blocked_id)
+                        first_collision_reports[blocked_id] = physical
+                        old_reverse = bool(reverse_selection[blocked_id])
+                        reverse_selection[blocked_id] = not old_reverse
+                        orientation_attempts.append({
+                            "bend_id": blocked_id,
+                            "result": "RETRY_OPPOSITE_180_AFTER_COLLISION",
+                            "first_reverse_axis": old_reverse,
+                            "retry_reverse_axis": not old_reverse,
+                        })
+                        _desktop_debug_event(
+                            "MANUAL_AUTO_ORIENTATION_RETRY",
+                            bend_id=blocked_id,
+                            first_reverse_axis=old_reverse,
+                            retry_reverse_axis=not old_reverse,
+                            original_blocker=blocked.get("first_blocker"),
+                        )
+                        self.status.setText(
+                            "{}: проверка разворота на 180° через OCC..."
+                            .format(blocked_id)
+                        )
+                        QtWidgets.QApplication.processEvents()
+                    physical["orientation_attempts"] = orientation_attempts
+                    # Commit only orientations actually assessed in native
+                    # OCC; the viewer and subsequent inspections use this map.
+                    self._manual_orientation_order = tuple(self.session.bend_order)
+                    self._manual_orientation_by_bend = dict(
+                        self._effective_loading_orientation_map(),
+                        **reverse_selection,
+                    )
+                    self._ergonomic_loading_status = (
+                        "MANUAL_OCC_ORIENTATION_ATTEMPTED"
+                        if orientation_attempts else
+                        self._ergonomic_loading_status
+                    )
+                    self._ensure_press_cycle_controller()
+                    # 2D diagnostics must use the final same pose map as OCC.
                     if coarse_occ:
                         planar = {
                             "status": "NOT_RUN_COARSE_OCC",
@@ -6534,44 +6653,7 @@ class _PreviewPanel:
                         )
                         QtWidgets.QApplication.processEvents()
 
-                    def on_progress(step_no, count, bend_id):
-                        label = (
-                            "Ручная 3D-проверка: гиб {}/{} ({}) — "
-                            "пуансон и матрица".format(step_no, count, bend_id)
-                        )
-                        self.status.setText(label)
-                        self.manual_check_summary.setText(label)
-                        QtWidgets.QApplication.processEvents()
 
-                    from smbs_core.kinematics2d.motion_trajectory_3d import (
-                        AdaptiveSamplingConfig,
-                    )
-                    physical = check_manual_3d_sequence(
-                        self.session, self.tooling_setup, selected,
-                        match_active_bend_length=match_length,
-                        allow_end_zone_collision=allow_end_zone,
-                        end_zone_length_mm=end_zone_mm,
-                        # One clearance value controls both the FreeCAD
-                        # FULL_CYCLE and native 3D APPROACH/RETRACT path.
-                        config=AdaptiveSamplingConfig(
-                            coarse_occ_screen=coarse_occ,
-                            initial_clearance_mm=(
-                                float(self.cycle_config.initial_clearance_mm)
-                            ),
-                            # Manual validation must have sufficient budget
-                            # for expensive multi-fold native OCC trajectories.
-                            # B05 (after B07, B03) previously left 2 intervals
-                            # unresolved at 27 samples / 120s. A longer bound
-                            # cannot turn missing evidence into a PASS: D6
-                            # still reports INTERVAL_UNRESOLVED if exhausted.
-                            max_phase_time_s=300.0,
-                            max_evaluated_states_per_phase=64,
-                        ),
-                        progress_callback=on_progress,
-                        # Validate the EXPLICIT operator loading selection.
-                        # Do not silently substitute ergonomic 2D suggestions.
-                        reverse_axis_by_bend=reverse_selection,
-                    )
                     self._collision_inspection = None
                     self._collision_display_active = False
                     self.manual_lift_probe_btn.setEnabled(False)
