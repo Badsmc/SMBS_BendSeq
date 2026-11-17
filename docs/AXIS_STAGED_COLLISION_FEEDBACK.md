@@ -1,3 +1,33 @@
+## Update: time-budget fallback and toolbar navigation (2026-11-17)
+
+Branch: `experiment/axis-budget-fallback-menu-20261117`.
+
+- Axis-local search budget: first **30%** of the 2D search time.
+  Cross-axis merge: up to **80%** total. Final **20%** reserved for
+  sampled AABB preview ranking (all are soft budgets).
+- The **Автопоиск A/B + OCC** UI now allocates up to **90 seconds**
+  per staged candidate generation instead of 45. Five native OCC
+  attempts and the 600-second soft overall limit remain.
+- If bounded interleaving cannot produce a complete candidate, the
+  algorithm constructs a limited number of full **provisional** orders
+  from the original order, axis-major orders and A/B interleavings.
+  They are labeled **UNVERIFIED_2D** and go ONLY to independent native
+  OCC. No unsampled transition is reported as collision-free.
+  Known exact native blockers and cached proven 2D obstacles are
+  respected; the fallback is not proof that a collision-free order exists.
+- Top FreeCAD toolbar commands **Поиск 2D вариантов** and
+  **Автопоиск последовательности** open the search task page WITHOUT
+  executing a search. Explicit buttons inside the page start
+  the legacy 2D search, the original full D6 search, staged A/B preview,
+  and staged A/B+OCC independently.
+- Added synthetic regression tests for provisional candidates, exclusion
+  of exact blockers, and toolbar command side effects.
+
+**Acceptance in FreeCAD is still pending**: confirm first native OCC
+attempt is reached with the actual ten-bend FCStd sample, that a native
+collision queues a 180° opposite loading, and that no unresolved
+or conditional result is marked physically approved.
+
 # Axis-staged search: native collision feedback (experimental)
 
 Branch: `experiment/axis-2d-collision-feedback-20261116`.
