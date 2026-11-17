@@ -4,6 +4,7 @@ Rooted traversal is a visualization order, not a manufacturing plan.
 Each seek recomputes the pose from flat to avoid state drift.
 """
 from __future__ import annotations
+import re
 from dataclasses import dataclass
 from enum import Enum
 from math import isfinite
@@ -15,6 +16,32 @@ ANGLE_EPS = 1e-6
 
 class SequenceError(ValueError):
     pass
+
+
+def parse_manual_bend_order(text: str, bend_ids: Sequence[str]) -> tuple[str, ...]:
+    """Resolve IDs or their numeric labels into a unique manual order/prefix."""
+    tokens = tuple(filter(None, re.split(r"[\s,;→–—-]+", text.replace("->", " "))))
+    if not tokens:
+        raise SequenceError("Введите номера гибов или выберите линии на развёртке.")
+    by_id = {bend_id.upper(): bend_id for bend_id in bend_ids}
+    by_number = {}
+    for bend_id in bend_ids:
+        if match := re.fullmatch(r"B([0-9]+)", bend_id, flags=re.IGNORECASE):
+            by_number.setdefault(match[1].lstrip("0"), []).append(bend_id)
+
+    order = []
+    for token in tokens:
+        bend_id = by_id.get(token.upper())
+        if bend_id is None and (match := re.fullmatch(r"B?([0-9]+)", token.upper())):
+            matches = by_number.get(match[1].lstrip("0"), ())
+            if len(matches) == 1:
+                bend_id = matches[0]
+        if bend_id is None:
+            raise SequenceError(f"Неизвестный гиб «{token}». Используйте номера с развёртки.")
+        if bend_id in order:
+            raise SequenceError(f"Гиб {bend_id} указан несколько раз.")
+        order.append(bend_id)
+    return tuple(order)
 
 
 class PlaybackStatus(str, Enum):

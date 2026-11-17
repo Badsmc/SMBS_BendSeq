@@ -2,12 +2,18 @@
 from __future__ import annotations
 
 import sys
-from pathlib import Path
 
 
-def _checkout_root() -> Path:
-    if "__file__" in globals():
-        return Path(__file__).resolve().parent
+def _checkout_root(script_file):
+    # FreeCAD can execute this script with separate globals and locals.
+    import sys
+    from pathlib import Path
+
+    code_path = Path(script_file)
+    if code_path.is_absolute():
+        candidate = code_path.resolve().parent
+        if (candidate / "freecad_smbs" / "Init.py").is_file():
+            return candidate
     for entry in sys.path:
         if not entry:
             continue
@@ -30,7 +36,7 @@ def _checkout_root() -> Path:
     )
 
 
-_REPO_ROOT = _checkout_root()
+_REPO_ROOT = _checkout_root(sys._getframe().f_code.co_filename)
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 

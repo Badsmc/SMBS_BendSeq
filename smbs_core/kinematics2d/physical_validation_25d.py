@@ -584,7 +584,7 @@ def check_active_25d_bend_trajectory(
         from .native_tool_loader import load_native_die, load_native_punch
         from .native_collision_3d import EndZoneCollisionPolicy
         from .motion_trajectory_3d import (
-            AdaptiveTrajectoryValidator3D, TrajectoryEvidenceStatus,
+            AdaptiveTrajectoryValidator3D, TrajectoryEvidenceStatus, is_blocking_collision,
         )
         active = state.bends[active_id]
         axis = getattr(active, "axis_xyz", None)
@@ -711,7 +711,7 @@ def check_active_25d_bend_trajectory(
     phase_evidence = "; ".join(phase_details)
     if report.evidence_status is TrajectoryEvidenceStatus.DISCRETE_SAMPLES_REJECTED:
         return CurrentPosePhysicalReport(
-            PhysicalEvidence.COLLISION if report.first_collision_state is not None
+            PhysicalEvidence.COLLISION if is_blocking_collision(report.first_collision_state)
             else PhysicalEvidence.UNVERIFIED,
             "NOT_APPLICABLE", native,
             "native_d634_rejected:" + phase_evidence,

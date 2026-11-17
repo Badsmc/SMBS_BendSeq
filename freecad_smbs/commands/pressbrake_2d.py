@@ -28,6 +28,7 @@ from smbs_core.kinematics2d.fold_sequence import (
     BendSequenceController,
     PlaybackStatus,
     SequenceError,
+    parse_manual_bend_order,
 )
 from smbs_core.kinematics2d.panel_graph import PanelGraph, graph_from_panel_build
 from smbs_core.kinematics2d.panel_kinematics import FoldState, KinematicsError
@@ -1411,7 +1412,7 @@ class _PreviewPanel:
                 self.last_planar_search_report = None
                 self._saved_full_sequences = []
                 self._preview_only_planar_order = None
-                self._partial_preview_limit = 0
+                self._partial_preview_limit = None
                 self._manual_sequence_prefix: list[str] = []
                 self._manual_orientation_order = ()
                 self._manual_orientation_by_bend = {}
@@ -2070,6 +2071,16 @@ class _PreviewPanel:
                 manual = QtWidgets.QWidget()
                 manual_layout = QtWidgets.QVBoxLayout(manual)
                 order_card, order_body = card("Ручной порядок гибов и проверка")
+                self.manual_order_input = QtWidgets.QLineEdit()
+                self.manual_order_input.setObjectName("SMBS_ManualOrderInput")
+                self.manual_order_input.setAccessibleName("Последовательность гибов")
+                self.manual_order_input.setPlaceholderText("Порядок, например 2-1-3-4")
+                self.manual_order_input.setToolTip(
+                    "Введите номера линий с развёртки, например 2-1-3-4 "
+                    "или B02 B01 B03 B04. Enter применяет введённый порядок."
+                )
+                self.manual_order_input.returnPressed.connect(self._apply_typed_manual_order)
+                order_body.addWidget(self.manual_order_input)
                 # Sequence guidance belongs in tooltips, not a permanent
                 # multi-line paragraph above operator controls.
                 for btn in (
@@ -2116,14 +2127,13 @@ class _PreviewPanel:
                 self.manual_flip_btn.clicked.connect(self._flip_manual_loading)
                 order_body.addWidget(self.manual_flip_btn)
                 self.auto_orientation_checkbox = QtWidgets.QCheckBox(
-                    "Автоматически проверять разворот 180° при коллизии"
+                    "Подбирать положение заготовки (0° / 180°)"
                 )
                 self.auto_orientation_checkbox.setChecked(True)
                 self.auto_orientation_checkbox.setToolTip(
-                    "Сохраняет ручной порядок. При подтверждённом столкновении "
-                    "проверяет противоположное положение этого же гиба через OCC. "
-                    "Может увеличить время проверки. Не скрывает ошибки или "
-                    "неподтверждённые результаты."
+                    "Если первый вариант сталкивается с оснасткой, условен или "
+                    "проверка не завершена, проверяет положение с разворотом на 180°. "
+                    "Сохраняет порядок и угол гибов."
                 )
                 order_body.addWidget(self.auto_orientation_checkbox)
 
@@ -2135,14 +2145,14 @@ class _PreviewPanel:
                 )
                 insert(order_body, entries[8], 1)  # actual sequence table
                 self.manual_simulate_btn = style_action(
-                    QtWidgets.QPushButton("Симулировать без проверки"), primary=True
+                    QtWidgets.QPushButton("Симулировать без проверки"), compact=True
                 )
                 self.manual_simulate_btn.setToolTip(
-                    "Сразу просмотреть выбранный ручной порядок: без расчёта "
-                    "последовательности и без проверки столкновений"
+                    "Просмотреть ручной порядок. Если есть актуальный 3D-результат, "
+                    "симуляция использует положения из этой проверки."
                 )
                 self.manual_simulate_btn.clicked.connect(
-                    self.simulate_manual_order_unverified
+                    lambda: self.simulate_manual_order_unverified()
                 )
                 # Orientation evidence remains in the status and tooltips.
                 # Restore the quick Stage A/B action from the
@@ -2165,19 +2175,18 @@ class _PreviewPanel:
                     lambda: self._validate_export_manual_order(coarse_occ=True)
                 )
                 self.manual_validate_3d_btn = style_action(
-                    QtWidgets.QPushButton("Полная проверка (3D)"), compact=True
+                    QtWidgets.QPushButton("Проверить и показать"), primary=True
                 )
                 self.manual_validate_3d_btn.setObjectName(
                     "SMBS_ManualNative3DCheck"
                 )
                 self.manual_validate_3d_btn.setToolTip(
-                    "Проверить весь выбранный порядок: реальные FCStd пуансон и "
-                    "матрица, адаптивная выборка поз каждой фазы через OCC. "
-                    "Может занять десятки минут. «Полная» относится ко всем "
-                    "выбранным гибам; непрерывное движение и весь станок не подтверждаются."
+                    "Проверить выбранные гибы с реальными FCStd пуансоном и матрицей. "
+                    "Показать 3D-позу и результат проверки. Проверка подведения, "
+                    "гибки и отвода пуансона может занять несколько минут."
                 )
                 self.manual_validate_3d_btn.clicked.connect(
-                    self._validate_export_manual_order
+                    lambda: self._validate_export_manual_order(show_preview=True)
                 )
                 self.manual_lift_probe_btn = style_action(
                     QtWidgets.QPushButton("Проверить подъём OCC и показать движение"),
@@ -2216,9 +2225,8 @@ class _PreviewPanel:
                 self.manual_release_probe_btn.clicked.connect(self._inspect_assisted_release)
                 self.manual_release_probe_btn.setEnabled(False)
                 verify_row = QtWidgets.QVBoxLayout()
-                verify_row.addWidget(self.manual_simulate_btn)
+                order_body.insertWidget(1, self.manual_validate_3d_btn)
                 verify_row.addWidget(self.manual_validate_btn)
-                verify_row.addWidget(self.manual_validate_3d_btn)
                 verify_row.addWidget(self.manual_lift_probe_btn)
                 verify_row.addWidget(self.manual_lift_preview_btn)
                 verify_row.addWidget(self.manual_release_probe_btn)
@@ -2232,13 +2240,12 @@ class _PreviewPanel:
                 # Verification must have a visible result in the Manual
                 # workspace, not a file-save dialog as its only feedback.
                 self.manual_check_summary = QtWidgets.QLabel(
-                    "Ещё не проверено. «Быстрая проверка OCC (5 углов)» "
-                    "ищет точные 3D столкновения в отдельных позах. «Полная "
-                    "проверка (3D)» адаптивно проверяет больше поз и занимает дольше."
+                    "Выберите гибы и нажмите «Проверить и показать»."
                 )
                 self.manual_check_summary.setWordWrap(True)
                 self.manual_check_summary.setObjectName("SMBS_ManualCheckSummary")
-                order_body.addWidget(self.manual_check_summary)
+                order_body.insertWidget(2, self.manual_check_summary)
+                order_body.insertWidget(3, self.manual_simulate_btn)
                 self.manual_check_details = QtWidgets.QPlainTextEdit()
                 self.manual_check_details.setObjectName("SMBS_ManualCheckDetails")
                 self.manual_check_details.setReadOnly(True)
@@ -3163,6 +3170,7 @@ class _PreviewPanel:
                 inspected_components = set()
                 tool_warning = ""
                 inspected_ram_z = None
+                inspected_bend_length = None
                 try:
                     # A real D6 3D collision uses the tool-centric MACHINE
                     # coordinate system, which can differ from the ergonomic
@@ -3181,6 +3189,9 @@ class _PreviewPanel:
                         inspection_state = FoldState(
                             self.session.fold_state.graph,
                             self.session.fold_state.fixed_panel,
+                        )
+                        inspected_bend_length = math.dist(
+                            *inspection_state.bends[actual["bend_id"]].axis_xyz
                         )
                         for bid, deg in actual.get(
                                 "completed_angles", {}).items():
@@ -3266,6 +3277,7 @@ class _PreviewPanel:
                         faces += build_tool_preview_faces(
                             self.tooling_setup,
                             punch_ram_z_mm=inspected_ram_z,
+                            active_bend_length_mm=inspected_bend_length,
                         )
                     except PreviewMeshError as exc:
                         tool_warning = str(exc)
@@ -4105,7 +4117,7 @@ class _PreviewPanel:
                 remainder = [bend for bend in current if bend not in sequence]
                 self.session.set_bend_order(list(sequence) + remainder)
                 is_partial = len(sequence) < len(current)
-                self._partial_preview_limit = len(sequence) if is_partial else 0
+                self._partial_preview_limit = len(sequence) if is_partial else None
                 self._preview_only_planar_order = sequence
                 self._selected_planar_gauge_order = ()
                 self._selected_planar_gauge_positions = {}
@@ -4172,6 +4184,7 @@ class _PreviewPanel:
                     self._manual_orientation_order = ()
                     self._manual_orientation_by_bend = {}
                 self._manual_sequence_prefix = list(order)
+                self._sync_manual_order_input()
                 self._manual_preview_unverified = True
                 self._manual_preview_notice.show()
                 self._manual_3d_verdicts.clear()
@@ -4395,8 +4408,8 @@ class _PreviewPanel:
                         self.session.reset_all_bends()
                         dlg.accept()
                         self.activate_manual_mode()
-                        self._manual_sequence_prefix = list(candidate.sequence)
-                        self._apply_manual_order()
+                        if not self._apply_manual_order(candidate.sequence):
+                            return
                         orientations = {
                             step.bend_id: step.orientation_variant.startswith(
                                 "REVERSE_MACHINE_Z_180"
@@ -4422,7 +4435,7 @@ class _PreviewPanel:
                         self.physical_check_result.setText(
                             "UNVERIFIED: выбран полный 2D порядок. "
                             "Запустите «Быстрая проверка OCC (5 углов)» или "
-                            "«Полная проверка (3D)». "
+                            "«Проверить и показать». "
                             "Возможны коллизии."
                         )
                         self._trace_event(
@@ -4523,7 +4536,7 @@ class _PreviewPanel:
                     )
                     self.last_sequence_search_report = search_rep
                     self._preview_only_planar_order = None
-                    self._partial_preview_limit = 0
+                    self._partial_preview_limit = None
                     self._selected_planar_gauge_order = ()
                     self._selected_planar_gauge_positions = {}
                     self._selected_planar_gauge_model_id = None
@@ -4723,7 +4736,6 @@ class _PreviewPanel:
                     choices = {
                         item.bend_id: item.reverse_axis
                         for item in suggestions
-                        if item.status == "ERGONOMIC_ONLY_NOT_CAD_VALIDATED"
                     }
                     unavailable = [
                         item.bend_id for item in suggestions
@@ -4743,6 +4755,10 @@ class _PreviewPanel:
                         "AUTO_SHORT_REAR_UNAVAILABLE:" + type(exc).__name__
                     )
                     choices = {}
+                # Native placement can still evaluate canonical 0° and the
+                # opposite pose when the ergonomic preference is unavailable.
+                for bend_id in order:
+                    choices.setdefault(bend_id, False)
                 self._ergonomic_loading_cache_key = key
                 self._ergonomic_loading_cache = dict(choices)
                 self._ergonomic_loading_cache_status = self._ergonomic_loading_status
@@ -5445,7 +5461,7 @@ class _PreviewPanel:
                 self._manual_retract_verdicts.clear()
                 self._clear_manual_check_feedback()
                 self._preview_only_planar_order = None
-                self._partial_preview_limit = 0
+                self._partial_preview_limit = None
                 self._selected_planar_gauge_order = ()
                 self._selected_planar_gauge_positions = {}
                 self._selected_planar_gauge_model_id = None
@@ -5477,6 +5493,7 @@ class _PreviewPanel:
                     )
                     self._smbs_allow_auto_embed = False
                     self.fcstd_note.setText(restore_message)
+                self._sync_manual_order_input()
                 try:
                     self._register_embedded_smbs_observer()
                 except Exception as exc:
@@ -5530,10 +5547,9 @@ class _PreviewPanel:
                 """Invalidate LIVE validation display; never present stale PASS."""
                 if not hasattr(self, "manual_check_summary"):
                     return
+                self.manual_simulate_btn.setText("Симулировать без проверки")
                 self.manual_check_summary.setText(
-                    "UNVERIFIED: параметры изменились; запустите "
-                    "«Быстрая проверка OCC (5 углов)» или "
-                    "«Полная проверка (3D)» снова."
+                    "Текущий порядок ещё не проверен. Нажмите «Проверить и показать»."
                 )
                 self.manual_check_details.clear()
                 self.manual_check_details.hide()
@@ -5575,16 +5591,28 @@ class _PreviewPanel:
                     tool_pair = item.get("punch_die_pair")
                     retract = item.get("retract") or {}
                     blocker = item.get("first_blocker") or {}
+                    orientation = "180°" if item.get("reverse_axis") else "0°"
                     try:
                         angle_text = "{:+.2f}".format(float(item.get("angle_deg", 0.0)))
                     except (TypeError, ValueError):
                         angle_text = "?"
                     lines.append(
-                        "{}. {} | {} | угол {}°".format(
-                            index, bend_id, verdict, angle_text,
+                        "{}. {} | {} | положение {} | угол гиба {}°".format(
+                            index, bend_id, verdict, orientation, angle_text,
                         )
                     )
+                    for trial in item.get("orientation_trials", ()):
+                        location = " / ".join(
+                            value for value in (trial.get("phase"), trial.get("tool"))
+                            if value not in (None, "NONE", "UNKNOWN")
+                        )
+                        lines.append("  {}: {}{}".format(
+                            "180°" if trial["reverse_axis"] else "0°",
+                            trial["status"], f" ({location})" if location else "",
+                        ))
                     lengths = item.get("tool_length_info") or {}
+                    if item.get("tool_setup_reason"):
+                        lines.append("  ОСНАСТКА: " + item["tool_setup_reason"])
                     if lengths.get("punch_effective_length_mm") is not None:
                         lines.append(
                             "  ДЛИНА ПУАНСОНА: источник={} мм, OCC={} мм; "
@@ -5729,6 +5757,14 @@ class _PreviewPanel:
                                 if tool_pair.get("status") != "SAMPLED_CLEAR" else "",
                             )
                         )
+                        if tool_pair.get("status") == "COLLISION":
+                            lines.append(
+                                "  ПУАНСОН–МАТРИЦА: фазы {} | Z={} мм | {} мм³".format(
+                                    ", ".join(tool_pair.get("phases", ())),
+                                    tool_pair.get("ram_z_mm", "—"),
+                                    tool_pair.get("overlap_volume_mm3", "—"),
+                                )
+                            )
                     lines.append(
                         "  RETRACT: {} | нач. Z={} мм → конеч. Z={} мм | "
                         "выборок={} | {}".format(
@@ -5759,6 +5795,8 @@ class _PreviewPanel:
                 if not self._collision_inspection:
                     self.status.setText("Нет сохранённой 3D-коллизии для показа.")
                     return
+                if self.session.playback_status == PlaybackStatus.PLAYING:
+                    self.pause()
                 self._stop_timer()
                 self._collision_display_active = not self._collision_display_active
                 if hasattr(self, "manual_show_collision_btn"):
@@ -5817,6 +5855,7 @@ class _PreviewPanel:
                     "orientation_by_bend": tuple(sorted(
                         self._manual_orientation_selection(self.session.bend_order).items()
                     )),
+                    "bend_order": self.session.bend_order,
                     "session_identity": id(self.session),
                 }
 
@@ -5841,9 +5880,8 @@ class _PreviewPanel:
                 """Return the first proven native blocker for current inputs."""
                 if self.session is None:
                     return None
-                report = self._matching_manual_occ_report(
-                    tuple(self.session.bend_order)
-                )
+                selected = tuple(self._manual_sequence_prefix) or self.session.bend_order
+                report = self._matching_manual_occ_report(selected)
                 if report is None or report.get("status") != "COLLISION":
                     return None
                 inspection = self._collision_inspection
@@ -5869,7 +5907,7 @@ class _PreviewPanel:
                 if not expected or current != expected:
                     self.status.setText(
                         "Оснастка изменилась после 3D-проверки. "
-                        "Запустите «Полная проверка (3D)» повторно."
+                        "Нажмите «Проверить и показать» повторно."
                     )
                     _desktop_debug_event(
                         "MANUAL_EXACT_OCC_INSPECTION_STALE_TOOLING",
@@ -6325,7 +6363,7 @@ class _PreviewPanel:
                 self._manual_preview_unverified = False
                 self._manual_selection_enabled = False
                 self._manual_preview_notice.hide()
-                self._partial_preview_limit = 0
+                self._partial_preview_limit = None
                 self._preview_only_planar_order = None
                 self.last_sequence_search_report = None
                 self.last_planar_search_report = None
@@ -6510,7 +6548,7 @@ class _PreviewPanel:
                 self.fcstd_note.setText(note)
                 return note
 
-            def _validate_export_manual_order(self, coarse_occ=False):
+            def _validate_export_manual_order(self, coarse_occ=False, *, show_preview=False):
                 """Validate selected manual order: Stage A/B plus actual FCStd 3D.
 
                 The backgauge stays visual-only. Simulation/slider retain
@@ -6518,6 +6556,8 @@ class _PreviewPanel:
                 """
                 if self.session is None:
                     self.status.setText("Сначала загрузите деталь.")
+                    return
+                if self._task_progress_busy or not self._apply_typed_manual_order():
                     return
                 prefix = tuple(self._manual_sequence_prefix)
                 order = tuple(self.session.bend_order)
@@ -6537,6 +6577,7 @@ class _PreviewPanel:
                     )
                     return
                 open_collision = False
+                prepare_preview = False
                 self._stop_timer()
                 _desktop_debug_event(
                     "MANUAL_VERIFY_REQUESTED",
@@ -6548,7 +6589,8 @@ class _PreviewPanel:
                 # must not change tool identity, options or order mid-check.
                 locked_controls = (
                     self.manual_validate_btn, self.manual_validate_3d_btn,
-                    self.manual_simulate_btn,
+                    self.manual_simulate_btn, self.manual_order_input,
+                    self.saved_sequences_btn, self._source_load_btn,
                     self.select_punch_combo, self.select_die_combo,
                     self.virtual_tool_len_checkbox,
                     self.allow_end_zone_checkbox, self.end_zone_len_spin,
@@ -6577,7 +6619,7 @@ class _PreviewPanel:
                         len(selected), len(order),
                     )
                 )
-                QtWidgets.QApplication.processEvents()
+                QtWidgets.QApplication.processEvents(QtCore.QEventLoop.ExcludeUserInputEvents)
                 try:
                     from smbs_core.kinematics2d.manual_sequence_replay import (
                         evaluate_manual_planar_order,
@@ -6630,189 +6672,82 @@ class _PreviewPanel:
                         )
                         return
 
-                    # Preview, 2D replay and native 3D consume one pose map.
-                    reverse_selection = self._manual_orientation_selection(selected)
-                    if set(reverse_selection) != set(selected):
-                        self._record_manual_precheck_failure(
-                            selected,
-                            "Не удалось определить короткую сторону к упору для: "
-                            + ", ".join(bid for bid in selected
-                                        if bid not in reverse_selection),
-                        )
-                        return
+                    initial_orientation = self._manual_orientation_selection(selected)
                     _desktop_debug_event(
                         "MANUAL_AUTO_ORIENTATION_SELECTED",
                         source=self._ergonomic_loading_status,
-                        orientation_by_bend=reverse_selection,
+                        orientation_by_bend=initial_orientation,
                     )
-                    def on_progress(step_no, count, bend_id):
-                        label = (
-                            "Ручная 3D-проверка: гиб {}/{} ({}) — "
-                            "пуансон и матрица".format(step_no, count, bend_id)
-                        )
+
+                    def update_progress(label):
                         self.status.setText(label)
                         self.manual_check_summary.setText(label)
-                        QtWidgets.QApplication.processEvents()
+                        QtWidgets.QApplication.processEvents(
+                            QtCore.QEventLoop.ExcludeUserInputEvents
+                        )
+
+                    def on_progress(step_no, count, bend_id):
+                        update_progress(
+                            f"3D-проверка: гиб {step_no}/{count} ({bend_id})"
+                        )
+
+                    def on_orientation_retry(bend_id, reverse_axis):
+                        degrees = 180 if reverse_axis else 0
+                        update_progress(
+                            f"{bend_id}: проверяется второе положение ({degrees}°)"
+                        )
 
                     from smbs_core.kinematics2d.motion_trajectory_3d import (
                         AdaptiveSamplingConfig,
                     )
-                    # Manual order stays fixed. A confirmed OCC collision triggers
-                    # one retry with the entire sheet rotated 180 degrees about
-                    # machine Z for that bend, including all previous folds.
-                    # No alternate retry on UNVERIFIED, timeouts or exceptions.
-                    auto_orient = self.auto_orientation_checkbox.isChecked()
-                    initial_orientation = dict(reverse_selection)
-                    tried_reverse = set()
-                    first_collision_reports = {}
-                    alternative_collision_reports = {}
-                    orientation_attempts = []
-                    while True:
-                        candidate_report = check_manual_3d_sequence(
-                            self.session, self.tooling_setup, selected,
-                            match_active_bend_length=match_length,
-                            allow_end_zone_collision=allow_end_zone,
-                            end_zone_length_mm=end_zone_mm,
-                            # One clearance value controls both the FreeCAD
-                            # FULL_CYCLE and native 3D APPROACH/RETRACT path.
-                            config=AdaptiveSamplingConfig(
-                                coarse_occ_screen=coarse_occ,
-                                initial_clearance_mm=(
-                                    float(self.cycle_config.initial_clearance_mm)
-                                ),
-                                # Manual validation must have sufficient budget
-                                # for expensive multi-fold native OCC trajectories.
-                                # B05 (after B07, B03) previously left 2 intervals
-                                # unresolved at 27 samples / 120s. A longer bound
-                                # cannot turn missing evidence into a PASS: D6
-                                # still reports INTERVAL_UNRESOLVED if exhausted.
-                                max_phase_time_s=300.0,
-                                max_evaluated_states_per_phase=64,
-                            ),
-                            progress_callback=on_progress,
-                            # Validate the EXPLICIT operator loading selection.
-                            # Do not silently substitute ergonomic 2D suggestions.
-                            reverse_axis_by_bend=reverse_selection,
-                        )
-                        physical = candidate_report
-                        blocked = next((
-                            step for step in physical.get("steps", ())
-                            if step.get("status") == "COLLISION"
-                        ), None)
-                        if not auto_orient or blocked is None:
-                            break
-                        blocked_id = blocked["bend_id"]
-                        if blocked_id in tried_reverse:
-                            # Both poses have proven collisions. Keep BOTH
-                            # reports. The alternative RETRACT may be a useful
-                            # candidate for a separate sampled lift experiment,
-                            # even if the original APPROACH cannot pass.
-                            alternative_collision_reports[blocked_id] = physical
-                            reverse_selection[blocked_id] = (
-                                not bool(reverse_selection[blocked_id])
-                            )
-                            physical = first_collision_reports[blocked_id]
-                            orientation_attempts.append({
-                                "bend_id": blocked_id,
-                                "result": "BOTH_ORIENTATIONS_COLLIDE",
-                                "selected_reverse_axis": bool(
-                                    reverse_selection[blocked_id]
-                                ),
-                            })
-                            break
-                        tried_reverse.add(blocked_id)
-                        first_collision_reports[blocked_id] = physical
-                        old_reverse = bool(reverse_selection[blocked_id])
-                        reverse_selection[blocked_id] = not old_reverse
-                        orientation_attempts.append({
-                            "bend_id": blocked_id,
-                            "result": "RETRY_OPPOSITE_180_AFTER_COLLISION",
-                            "first_reverse_axis": old_reverse,
-                            "retry_reverse_axis": not old_reverse,
-                        })
-                        _desktop_debug_event(
-                            "MANUAL_AUTO_ORIENTATION_RETRY",
-                            bend_id=blocked_id,
-                            first_reverse_axis=old_reverse,
-                            retry_reverse_axis=not old_reverse,
-                            original_blocker=blocked.get("first_blocker"),
-                        )
-                        self.status.setText(
-                            "{}: проверка разворота на 180° через OCC..."
-                            .format(blocked_id)
-                        )
-                        QtWidgets.QApplication.processEvents()
-                    physical["orientation_attempts"] = orientation_attempts
-                    physical["alternative_orientation_blockers"] = [
-                        {
-                            "bend_id": bend_id,
-                            "reverse_axis": next(
-                                bool(st.get("reverse_axis", False))
-                                for st in report.get("steps", ())
-                                if st.get("bend_id") == bend_id
-                            ),
-                            "phase": next(
-                                (st.get("first_blocker") or {}).get("phase")
-                                for st in report.get("steps", ())
-                                if st.get("bend_id") == bend_id
-                            ),
-                            "status": "COLLISION",
-                        }
-                        for bend_id, report in alternative_collision_reports.items()
-                    ]
-                    physical["simulation_orientation_before_occ"] = dict(
-                        initial_orientation
+
+                    physical = check_manual_3d_sequence(
+                        self.session, self.tooling_setup, selected,
+                        match_active_bend_length=match_length,
+                        allow_end_zone_collision=allow_end_zone,
+                        end_zone_length_mm=end_zone_mm,
+                        config=AdaptiveSamplingConfig(
+                            coarse_occ_screen=coarse_occ,
+                            initial_clearance_mm=float(self.cycle_config.initial_clearance_mm),
+                            max_phase_time_s=300.0,
+                            max_evaluated_states_per_phase=64,
+                        ),
+                        progress_callback=on_progress,
+                        reverse_axis_by_bend=initial_orientation,
+                        auto_orientation=self.auto_orientation_checkbox.isChecked(),
+                        orientation_retry_callback=on_orientation_retry,
                     )
-                    physical["orientation_after_occ"] = dict(reverse_selection)
+                    reverse_selection = physical["reverse_axis_by_bend"]
+                    orientation_attempts = physical["orientation_attempts"]
+                    alternative_collision_reports = physical["alternative_orientation_blockers"]
                     changed_orientation_bends = [
-                        bid for bid in selected
-                        if bool(initial_orientation[bid])
-                        != bool(reverse_selection[bid])
+                        step["bend_id"] for step in physical["steps"]
+                        if initial_orientation[step["bend_id"]] != step["reverse_axis"]
                     ]
+                    physical["simulation_orientation_before_occ"] = initial_orientation
+                    physical["orientation_after_occ"] = dict(reverse_selection)
                     physical["simulation_occ_orientation_mismatch_bends"] = (
                         changed_orientation_bends
                     )
-                    if changed_orientation_bends:
-                        _desktop_debug_event(
-                            "MANUAL_PREVIEW_OCC_ORIENTATION_CHANGED",
-                            changed_bends=changed_orientation_bends,
-                            before=initial_orientation,
-                            after=reverse_selection,
-                            operator_side="-s_LEFT",
-                            machine_rear_side="+s_RIGHT",
-                            note=(
-                                "Preview before OCC used different 180-degree "
-                                "loading orientations. Re-run simulation to "
-                                "see the OCC-selected machine poses. Native "
-                                "collision remains authoritative."
-                            ),
-                        )
-                    # Commit only orientations actually assessed in native
-                    # OCC; the viewer and subsequent inspections use this map.
-                    self._manual_orientation_order = tuple(self.session.bend_order)
-                    current_orientation = self._effective_loading_orientation_map()
-                    current_orientation.update(reverse_selection)
-                    self._manual_orientation_by_bend = current_orientation
-                    self._ergonomic_loading_status = (
-                        "MANUAL_OCC_ORIENTATION_ATTEMPTED"
-                        if orientation_attempts else
-                        self._ergonomic_loading_status
-                    )
-                    self._ensure_press_cycle_controller()
+                    if physical["steps"]:
+                        current_orientation = self._effective_loading_orientation_map()
+                        current_orientation.update(reverse_selection)
+                        self._manual_orientation_order = tuple(self.session.bend_order)
+                        self._manual_orientation_by_bend = current_orientation
+                        self._ensure_press_cycle_controller()
                     # 2D diagnostics must use the final same pose map as OCC.
-                    if coarse_occ:
+                    if coarse_occ or not physical["steps"]:
                         planar = {
-                            "status": "NOT_RUN_COARSE_OCC",
+                            "status": "NOT_RUN",
                             "steps": [], "first_blocker": None,
                         }
-                        self.status.setText("Проверка реальных FCStd инструментов в OCC...")
-                        QtWidgets.QApplication.processEvents()
                     else:
+                        checked_order = selected[:physical["checked_bends"]]
                         try:
                             planar = evaluate_manual_planar_order(
                                 self.session,
                                 self.tooling_setup,
-                                selected,
+                                checked_order,
                                 match_active_bend_length=match_length,
                                 allow_retract_warning=self.retract_warning_checkbox.isChecked(),
                                 weights=self._selected_operation_weights(),
@@ -6836,19 +6771,9 @@ class _PreviewPanel:
                             }
                         _desktop_debug_event(
                             "MANUAL_STAGE_AB_PLANAR_RESULT",
-                            selected_order=list(selected),
+                            selected_order=list(checked_order),
                             entire_2d_report=planar,
                         )
-                        self.status.setText(
-                            "Предварительный 2D: {}. Проверка реальных FCStd в 3D..."
-                            .format(planar["status"])
-                        )
-                        self.manual_check_summary.setText(
-                            "2D: {}. Идёт независимая 3D-проверка..."
-                            .format(planar["status"])
-                        )
-                        QtWidgets.QApplication.processEvents()
-
 
                     self._collision_inspection = None
                     self._alternate_retract_inspection = None
@@ -6863,26 +6788,7 @@ class _PreviewPanel:
                     self.manual_show_collision_btn.setText(
                         "Показать коллизию в 3D"
                     )
-                    native_tooling_identity = {
-                        "punch_id": selected_punch.tool_id,
-                        "die_id": selected_die.tool_id,
-                        "match_active_bend_length": match_length,
-                        "punch_sections": tuple(
-                            self.tooling_setup.punch_section_offsets_xm or ()
-                        ),
-                        "die_sections": tuple(
-                            self.tooling_setup.die_section_offsets_xm or ()
-                        ),
-                        "end_zone_allow": allow_end_zone,
-                        "end_zone_mm": end_zone_mm,
-                        "initial_clearance_mm": float(
-                            self.cycle_config.initial_clearance_mm
-                        ),
-                        "orientation_by_bend": tuple(sorted(
-                            self._manual_orientation_selection(self.session.bend_order).items()
-                        )),
-                        "session_identity": id(self.session),
-                    }
+                    native_tooling_identity = self._current_native_tooling_identity()
                     for step in physical["steps"]:
                         if (self._collision_inspection is None
                                 and step.get("status") == "COLLISION"
@@ -6910,45 +6816,31 @@ class _PreviewPanel:
                     # Keep a second OCC snapshot for a true 180-degree
                     # RETRACT blocker. It is diagnostic only and never
                     # replaces the current orientation or Manual COLLISION.
-                    for alt_bend_id, alt_report in (
-                            alternative_collision_reports.items()):
-                        alt_step = next((
-                            item for item in alt_report.get("steps", ())
-                            if item.get("bend_id") == alt_bend_id
-                            and item.get("status") == "COLLISION"
-                            and (item.get("first_blocker") or {}).get(
-                                "sampled_machine_pose"
-                            )
-                        ), None)
-                        if alt_step is not None:
-                            self._alternate_retract_inspection = {
-                                "bend_id": alt_bend_id,
-                                "reverse_axis": bool(
-                                    alt_step.get("reverse_axis", False)
-                                ),
-                                "first_blocker": alt_step["first_blocker"],
-                                "retract": alt_step.get("retract") or {},
-                                "tooling_identity": native_tooling_identity,
-                                "alternative_only": True,
-                            }
-                            _desktop_debug_event(
-                                "MANUAL_ALTERNATIVE_COLLISION_RETAINED",
-                                bend_id=alt_bend_id,
-                                reverse_axis=bool(
-                                    alt_step.get("reverse_axis", False)
-                                ),
-                                phase=alt_step["first_blocker"].get("phase"),
-                                tool=alt_step["first_blocker"].get("tool"),
-                            )
+                    for alt_step in alternative_collision_reports:
+                        blocker = alt_step.get("first_blocker") or {}
+                        if not blocker.get("sampled_machine_pose"):
+                            continue
+                        self._alternate_retract_inspection = {
+                            "bend_id": alt_step["bend_id"],
+                            "reverse_axis": alt_step["reverse_axis"],
+                            "first_blocker": blocker,
+                            "retract": alt_step.get("retract") or {},
+                            "tooling_identity": native_tooling_identity,
+                            "alternative_only": True,
+                        }
+                        _desktop_debug_event(
+                            "MANUAL_ALTERNATIVE_COLLISION_RETAINED",
+                            bend_id=alt_step["bend_id"],
+                            reverse_axis=alt_step["reverse_axis"],
+                            phase=blocker.get("phase"),
+                            tool=blocker.get("tool"),
+                        )
                     if self._collision_inspection:
                         self.manual_show_collision_btn.setEnabled(True)
                         self.manual_show_collision_btn.show()
                         self.manual_exact_occ_btn.setEnabled(True)
                         self.manual_exact_occ_btn.show()
                         lift_hit = self._collision_inspection["first_blocker"]
-                        from smbs_core.kinematics2d.native_assisted_retract import (
-                            eligible_assisted_retract,
-                        )
                         from smbs_core.kinematics2d.native_assisted_retract import (
                             select_assisted_retract_inspection,
                         )
@@ -6965,7 +6857,7 @@ class _PreviewPanel:
                         self.manual_lift_probe_btn.setEnabled(can_lift)
                         self.manual_lift_probe_hint.setText(
                             (
-                                "B{}: {}RETRACT заблокирован пуансоном. "
+                                "{}: {}RETRACT заблокирован пуансоном. "
                                 "Проверить предполагаемый совместный подъём "
                                 "и вывод детали. Исходная коллизия останется."
                             ).format(
@@ -6976,9 +6868,8 @@ class _PreviewPanel:
                                     ) else 0
                                 ) if is_alternate else ""),
                             ) if can_lift else
-                            "Обе ориентации проверены. Для выбранной позы "
-                            "подвод/гибка блокированы; безопасный вывод "
-                            "пока не подтверждён."
+                            "Проверка совместного подъёма доступна при "
+                            "пересечении заготовки с пуансоном на фазе RETRACT."
                         )
                         _desktop_debug_event(
                             "MANUAL_ASSISTED_RETRACT_AVAILABILITY",
@@ -7014,41 +6905,11 @@ class _PreviewPanel:
                             "MANUAL_2D_NATIVE_EVIDENCE_DISAGREEMENT",
                             evidence=crosscheck,
                         )
-                    # A confirmed 2D section disagreement does not override
-                    # a native 3D collision, but prevents a falsely clean
-                    # overall verdict without further investigation.
                     physical_status = physical["status"]
-                    disagreement = not coarse_occ and (
+                    disagreement = planar["status"] != "NOT_RUN" and (
                         planar.get("first_blocker") is not None
-                        or planar.get("status") not in (
-                            "SAMPLED_2D_PREFIX_CLEAR_OR_TOUCH",
-                        )
+                        or planar.get("status") != "SAMPLED_2D_PREFIX_CLEAR_OR_TOUCH"
                     )
-                    if (disagreement and physical_status
-                            == "SAMPLED_3D_CLEAR_NOT_CONTINUOUS"):
-                        physical_status = "UNVERIFIED"
-                        physical["reason"] += ";2d_3d_disagreement_requires_review"
-                    if disagreement and physical_status == "CONDITIONAL":
-                        # A certified native 3D END_ZONE_ONLY punch overlap
-                        # stays CONDITIONAL (never PASS). A conflicting die
-                        # interference cannot be waived by that exemption.
-                        flagged_die = any(
-                            isinstance(finding, dict)
-                            and str(finding.get("tool", "")).upper() == "DIE"
-                            and str(finding.get("status", "")).upper()
-                                == "INTERFERENCE"
-                            for record in planar.get("steps", [])
-                            for finding in (
-                                (record.get("stage_b") or {})
-                                .get("diagnostic_findings", [])
-                            )
-                        )
-                        if flagged_die:
-                            physical_status = "UNVERIFIED"
-                            physical["reason"] += ";2d_die_interference_requires_review"
-                        else:
-                            physical["reason"] += ";2d_advisory_disagreement_conditional_only"
-                    physical["status"] = physical_status
                     _desktop_debug_event(
                         "MANUAL_VERIFY_FINAL_RESULT",
                         verdict=physical_status,
@@ -7110,71 +6971,69 @@ class _PreviewPanel:
                         for b in self.session.ordered_bends
                     ]
                     self._last_manual_sequence_report = dict(result)
-                    readable_verdict = {
-                        "SAMPLED_3D_CLEAR_NOT_CONTINUOUS":
-                            "ПРОВЕРКА ПРОЙДЕНА (выборочная 3D)",
-                        "COLLISION": "ОБНАРУЖЕНА КОЛЛИЗИЯ",
-                        "CONDITIONAL": "УСЛОВНО ДОПУСТИМО",
-                        "UNVERIFIED": "ПРОВЕРКА НЕ ПОДТВЕРЖДЕНА",
-                    }.get(physical_status, "НЕИЗВЕСТНЫЙ РЕЗУЛЬТАТ")
-                    if (coarse_occ and physical_status == "UNVERIFIED"
-                            and physical.get("reason") ==
-                                "coarse_OCC_samples_only_uninspected_intervals_and_tool_pair"
-                            and complete_steps == len(selected)):
-                        readable_verdict = (
-                            "ГРУБЫЙ OCC ПРОХОД: доказанная коллизия не найдена "
-                            "(промежутки НЕ ПРОВЕРЕНЫ)"
-                        )
-                    summary = (
-                        "{} — {}/{} гибов | режим={} | "
-                        "RETRACT в таблице | {} | "
-                        "Без сертификации непрерывного движения"
-                    ).format(
-                        readable_verdict, complete_steps, len(selected),
-                        physical["validation_mode"], physical["reason"],
-                    )
-                    if physical.get(
-                        "simulation_occ_orientation_mismatch_bends"
-                    ):
-                        summary += (
-                            " | ОРИЕНТАЦИЯ ПОСЛЕ OCC ИЗМЕНИЛАСЬ: {}. "
-                            "Повторите симуляцию для сравнения одинаковых поз."
-                        ).format(", ".join(
-                            physical["simulation_occ_orientation_mismatch_bends"]
-                        ))
-                    if self._alternate_retract_inspection is not None:
-                        alternative = self._alternate_retract_inspection
-                        alternative_blocker = alternative["first_blocker"]
-                        summary += (
-                            " | B{} при 180°: {} / {}. "
-                            "Доступна отдельная проверка совместного "
-                            "подъёма; COLLISION НЕ СНЯТ."
-                        ).format(
-                            alternative["bend_id"].removeprefix("B"),
-                            alternative_blocker.get("phase", "?"),
-                            alternative_blocker.get("tool", "?"),
-                        )
-                    if orientation_attempts:
-                        changed = [
-                            item["bend_id"] for item in orientation_attempts
-                            if item["result"] == "RETRY_OPPOSITE_180_AFTER_COLLISION"
-                        ]
-                        both_blocked = [
-                            item["bend_id"] for item in orientation_attempts
-                            if item["result"] == "BOTH_ORIENTATIONS_COLLIDE"
-                        ]
-                        summary += " | OCC проверил разворот 180°: {}".format(
-                            ", ".join(changed)
-                        )
-                        if both_blocked:
-                            summary += " | обе ориентации заблокированы: {}".format(
-                                ", ".join(both_blocked)
-                            )
+                    if physical["steps"]:
+                        self.manual_simulate_btn.setText("Симулировать результат")
+                    reason = physical["reason"]
+                    last_step = physical["steps"][-1] if physical["steps"] else {}
+                    blocker = last_step.get("first_blocker") or {}
+                    last_bend = last_step.get("bend_id", "")
+                    tool_setup_issue = {
+                        "INSUFFICIENT_PUNCH_COVERAGE": "пуансон не перекрывает линию гиба",
+                        "INSUFFICIENT_DIE_COVERAGE": "матрица не перекрывает линию гиба",
+                        "TOOL_ASSEMBLY_GAP": "разрыв между секциями оснастки на линии гиба",
+                        "MISSING_TOOLING_EVIDENCE": "не удалось подтвердить размеры оснастки",
+                    }.get(last_step.get("tool_setup_status"))
+                    if physical_status == "COLLISION":
+                        pair = last_step.get("punch_die_pair") or {}
+                        if pair.get("status") == "COLLISION":
+                            message = f"{last_bend}: пуансон сталкивается с матрицей"
+                        else:
+                            tool = {
+                                "PUNCH": "пуансон", "DIE": "матрица",
+                                "PUNCH_AND_DIE": "пуансон и матрица",
+                            }.get(blocker.get("tool"), "оснастка")
+                            phase = blocker.get("phase", "")
+                            message = f"{last_bend}: коллизия заготовки ({tool}, {phase})"
+                    elif physical_status == "SAMPLED_3D_CLEAR_NOT_CONTINUOUS":
+                        message = "В проверенных 3D-положениях коллизий нет"
+                    elif physical_status == "CONDITIONAL":
+                        message = "Условный результат: пересечение в торцевой зоне пуансона"
+                    elif reason == "coarse_OCC_samples_only_uninspected_intervals_and_tool_pair":
+                        message = "Быстрая проверка: в выбранных точках коллизий не найдено"
+                    elif reason == "selected_manual_prefix_only_remaining_bends_not_checked":
+                        message = "В выбранной части порядка блокирующих коллизий не найдено"
+                    elif tool_setup_issue:
+                        message = f"{last_bend}: {tool_setup_issue}"
+                    elif last_bend:
+                        message = f"{last_bend}: 3D-проверка не завершена"
+                    else:
+                        message = "3D-проверка недоступна. Проверьте файлы оснастки"
+
+                    summary_lines = [
+                        f"{message}. Обработано гибов: {complete_steps}/{len(order)}.",
+                    ]
+                    if changed_orientation_bends:
+                        summary_lines.append("Положение изменилось на 180° для " +
+                                             ", ".join(changed_orientation_bends) + ".")
+                    both_blocked = [
+                        item["bend_id"] for item in orientation_attempts
+                        if item["result"] == "BOTH_ORIENTATIONS_COLLIDE"
+                    ]
+                    if both_blocked:
+                        summary_lines.append("Коллизия в обеих ориентациях: " +
+                                             ", ".join(both_blocked) + ".")
                     if crosscheck:
-                        summary += (
-                            " | 2D/3D расхождение: {} (детали в SMBS_debug_log.json)"
-                            .format(", ".join(item["bend_id"] for item in crosscheck))
+                        summary_lines.append(
+                            "Расхождение 2D и 3D: "
+                            + ", ".join(item["bend_id"] for item in crosscheck) + "."
                         )
+                    elif disagreement:
+                        summary_lines.append("2D-диагностика неполная.")
+                    summary_lines.append(
+                        "3D-проверка охватывает выборочные положения с пуансоном и матрицей. "
+                        "Упор, станина, зажимы и перенос между гибами не проверяются."
+                    )
+                    summary = "\n".join(summary_lines)
                     self.physical_check_result.setText(summary)
                     self.status.setText(summary)
                     self._trace_event(
@@ -7204,9 +7063,10 @@ class _PreviewPanel:
                     self.manual_check_summary.setText(
                         "{}\n{}".format(summary, saved_note)
                     )
-                    self.status.setText(saved_note)
+                    self.status.setText(summary)
                     open_collision = (physical_status == "COLLISION"
                                       and self._collision_inspection is not None)
+                    prepare_preview = show_preview and bool(physical["steps"])
                 except Exception as exc:
                     _error(
                         "Manual 3D tooling validation exception: "
@@ -7221,22 +7081,20 @@ class _PreviewPanel:
                     for control, enabled in old_control_states:
                         control.setEnabled(enabled)
 
+                if prepare_preview:
+                    self.simulate_manual_order_unverified(autoplay=False, show_controls=False)
                 if open_collision:
                     # Show the exact sampled native pose in the integrated 3D
                     # viewer first. The separate FreeCAD OCC document remains
                     # available explicitly from its inspection button.
                     self._show_first_collision_in_3d()
 
-            def simulate_manual_order_unverified(self):
-                """Preview current Manual order without ANY collision validation.
-
-                The existing BendSequenceController and playback timer are
-                reused. Only the angles are reset; the chosen order is retained.
-                A partial manually numbered prefix never silently certifies
-                or plays the unselected canonical remainder.
-                """
+            def simulate_manual_order_unverified(self, *, autoplay=True, show_controls=True):
+                """Prepare playback of the manual selection with live OCC evidence if available."""
                 if self.session is None:
                     self.status.setText("Сначала загрузите развёртку детали.")
+                    return
+                if self._task_progress_busy or not self._apply_typed_manual_order():
                     return
                 order = tuple(self.session.bend_order)
                 if not order:
@@ -7251,16 +7109,15 @@ class _PreviewPanel:
                 self._stop_timer()
                 self._manual_selection_enabled = False
                 self._manual_preview_unverified = True
-                self._partial_preview_limit = (
-                    len(prefix) if prefix and len(prefix) < len(order) else 0
-                )
+                selected = prefix or order
+                preview_count = len(selected)
                 self._preview_only_planar_order = None
                 self.last_planar_search_report = None
                 self.last_sequence_search_report = None
                 # A replay must NOT discard actual OCC evidence. Retain it
                 # only while the explicit order and selected native tooling
                 # configuration still match the check that produced it.
-                matched_occ_report = self._matching_manual_occ_report(order)
+                matched_occ_report = self._matching_manual_occ_report(selected)
                 if matched_occ_report is None:
                     self._last_manual_sequence_report = None
                     self._manual_3d_verdicts.clear()
@@ -7269,6 +7126,16 @@ class _PreviewPanel:
                     self._physical_check_signature = None
                     self._highlighted_end_zone_info = None
                     self._conditional_bends_status.clear()
+                else:
+                    steps = matched_occ_report["manual_3d_validation"]["steps"]
+                    preview_count = len(steps)
+                    if steps:
+                        last_status = steps[-1]["status"]
+                        if (last_status in ("UNVERIFIED", "SECTION_CLEAR_3D_UNVERIFIED")
+                                or (last_status == "COLLISION"
+                                    and self._native_collision_for_playback() is None)):
+                            preview_count -= 1
+                self._partial_preview_limit = preview_count if preview_count < len(order) else None
                 self._machine_pose_fault = None
                 # The last inspection still exists for OCC replay, but the
                 # normal animation must remain LIVE until the failing phase.
@@ -7277,8 +7144,11 @@ class _PreviewPanel:
                     self.manual_show_collision_btn.setText(
                         "Показать коллизию в 3D"
                     )
-                self._viewer_tabs.setCurrentWidget(self.view)
-                show_workspace_controls(self, tab=2)
+                self._viewer_tabs.setCurrentWidget(
+                    self._preview_3d if matched_occ_report is not None else self.view
+                )
+                if show_controls:
+                    show_workspace_controls(self, tab=2)
                 try:
                     # Only the physical Full Cycle uses the same APPROACH,
                     # BENDING, BOTTOM and RETRACT path as native OCC. Keep the
@@ -7307,8 +7177,7 @@ class _PreviewPanel:
                 self._configure_for_active_bend()
                 self._update_tooling_status_label()
                 self._manual_preview_notice.setText(
-                    "РУЧНОЙ ПРОСМОТР: выборочные OCC-результаты; "
-                    "непроверенные интервалы и упор НЕ СЕРТИФИЦИРОВАНЫ"
+                    self.manual_check_summary.text().splitlines()[0]
                     if matched_occ_report is not None else
                     "РУЧНОЙ ПРОСМОТР — коллизии не проверены"
                 )
@@ -7318,22 +7187,16 @@ class _PreviewPanel:
                         "UNVERIFIED: ручная кинематическая симуляция; "
                         "коллизии с пуансоном, матрицей, упором и станком не проверены."
                     )
-                else:
-                    self.physical_check_result.setText(
-                        "OCC: {}. Симуляция Full Cycle использует сохранённую "
-                        "ориентацию гибов; на подтверждённом столкновении "
-                        "будет показан точный проверенный кадр. "
-                        "Остальные промежутки непрерывно не сертифицированы."
-                        .format(matched_occ_report["status"])
-                    )
                 self.draw()
+                if not autoplay:
+                    return
                 # Camera stays fixed; use the explicit Fit control to reframe.
                 self.play_all()
                 if self.session.playback_status == PlaybackStatus.PLAYING:
                     scope = (
                         "первые {}/{} гибов".format(
-                            self._partial_preview_limit, len(order)
-                        ) if self._partial_preview_limit else
+                            preview_count, len(order)
+                        ) if preview_count < len(order) else
                         "все {} гибов".format(len(order))
                     )
                     self.status.setText(
@@ -7348,9 +7211,7 @@ class _PreviewPanel:
                         "MANUAL_UNVERIFIED_PREVIEW_STARTED",
                         bend_order=list(order),
                         explicit_prefix=list(prefix),
-                        preview_count=(
-                            self._partial_preview_limit or len(order)
-                        ),
+                        preview_count=preview_count,
                         collision_validated=False,
                         physical_status="UNVERIFIED",
                     )
@@ -7394,8 +7255,34 @@ class _PreviewPanel:
                         )
                     )
 
+            def _sync_manual_order_input(self):
+                selected = tuple(self._manual_sequence_prefix) or self.session.bend_order
+                self.manual_order_input.setText(" ".join(selected))
+                self.manual_order_input.setModified(False)
+
+            def _apply_typed_manual_order(self):
+                if not self.manual_order_input.isModified():
+                    return True
+                if self.session is None:
+                    self.status.setText("Сначала загрузите развёртку SheetMetal.")
+                    return False
+                try:
+                    selected = parse_manual_bend_order(
+                        self.manual_order_input.text(), self.session.canonical_order,
+                    )
+                except SequenceError as exc:
+                    self.status.setText(str(exc))
+                    return False
+                if selected == tuple(self._manual_sequence_prefix):
+                    self._sync_manual_order_input()
+                    return True
+                self._stop_timer()
+                self.session.reset_all_bends()
+                return self._apply_manual_order(selected)
+
             def _select_flat_bend(self, bend_id):
-                if self.session is None or not self._manual_selection_enabled:
+                if (self.session is None or not self._manual_selection_enabled
+                        or self._task_progress_busy):
                     return
                 _desktop_debug_event(
                     "MANUAL_FLAT_BEND_CLICK",
@@ -7417,21 +7304,19 @@ class _PreviewPanel:
                         "Изменение порядка недоступно: остановите симуляцию и сделайте Reset."
                     )
                     return
-                self._manual_sequence_prefix.append(bend_id)
+                prefix = (*self._manual_sequence_prefix, bend_id)
+                if not self._apply_manual_order(prefix):
+                    return
                 _desktop_debug_event(
                     "MANUAL_FLAT_BEND_ACCEPTED",
                     bend_id=str(bend_id),
-                    sequence=list(self._manual_sequence_prefix),
+                    sequence=list(prefix),
                 )
-                self._apply_manual_order()
 
-            def _apply_manual_order(self):
+            def _apply_manual_order(self, prefix):
                 if self.session is None:
-                    return
-                self._manual_3d_verdicts.clear()
-                self._manual_retract_verdicts.clear()
-                self._clear_manual_check_feedback()
-                prefix = tuple(self._manual_sequence_prefix)
+                    return False
+                prefix = tuple(prefix)
                 remainder = tuple(
                     bend_id for bend_id in self.session.canonical_order
                     if bend_id not in prefix
@@ -7440,9 +7325,12 @@ class _PreviewPanel:
                     self.session.set_bend_order(prefix + remainder)
                 except SequenceError as exc:
                     self.status.setText(str(exc))
-                    if prefix:
-                        self._manual_sequence_prefix.pop()
-                    return
+                    return False
+                self._manual_sequence_prefix = list(prefix)
+                self._manual_3d_verdicts.clear()
+                self._manual_retract_verdicts.clear()
+                self._last_manual_sequence_report = None
+                self._clear_manual_check_feedback()
                 if self._manual_orientation_order != tuple(self.session.bend_order):
                     self._manual_orientation_order = ()
                     self._manual_orientation_by_bend = {}
@@ -7452,13 +7340,14 @@ class _PreviewPanel:
                 self._preview_only_planar_order = None
                 self._manual_preview_unverified = False
                 self._manual_preview_notice.hide()
-                self._partial_preview_limit = 0
+                self._partial_preview_limit = None
                 self._selected_planar_gauge_order = ()
                 self._selected_planar_gauge_positions = {}
                 self._selected_planar_gauge_model_id = None
                 self._backgauge_preview_cache.clear()
                 self.last_sequence_search_report = None
                 self._conditional_bends_status.clear()
+                self._sync_manual_order_input()
                 self._populate_operations()
                 self._configure_for_active_bend()
                 self._draw_flat_pattern()
@@ -7466,26 +7355,25 @@ class _PreviewPanel:
                 self.status.setText(
                     "РУЧНОЙ ПОРЯДОК {}/{} (НЕ ПРОВЕРЕН): {}".format(
                         len(prefix), len(self.session.bend_order),
-                        " → ".join(prefix)
+                        " → ".join(prefix or self.session.bend_order)
                     )
                 )
+                return True
 
             def _undo_manual_bend(self):
                 if self.session is None or not self.session.can_reorder():
                     return
                 if self._manual_sequence_prefix:
-                    self._manual_sequence_prefix.pop()
-                    self._apply_manual_order()
+                    self._apply_manual_order(self._manual_sequence_prefix[:-1])
 
             def _clear_manual_order(self):
                 if self.session is None:
                     return
                 self._stop_timer()
                 self.session.reset_all_bends()
-                self._manual_sequence_prefix = []
                 self._manual_orientation_order = ()
                 self._manual_orientation_by_bend = {}
-                self._apply_manual_order()
+                self._apply_manual_order(())
 
             def _draw_flat_pattern(self, reset_camera=False):
                 if not hasattr(self, "_flat_scene"):
@@ -7555,10 +7443,8 @@ class _PreviewPanel:
                     status_str = "IDLE"
                 if b.bend_id in self._conditional_bends_status:
                     status_str += " [CONDITIONAL]"
-                if self._manual_orientation_selection(
-                    self.session.bend_order
-                ).get(b.bend_id, False):
-                    status_str += " [180°]"
+                axis = self._manual_orientation_selection(self.session.bend_order)[b.bend_id]
+                status_str += " [180°]" if axis else " [0°]"
                 if b.bend_id in self._manual_3d_verdicts:
                     status_str += " [3D:{}]".format(
                         self._manual_3d_verdicts[b.bend_id]
@@ -7592,9 +7478,6 @@ class _PreviewPanel:
             def _apply_reorder(self, action_fn):
                 if self.session is None:
                     return
-                self._manual_3d_verdicts.clear()
-                self._manual_retract_verdicts.clear()
-                self._clear_manual_check_feedback()
                 try:
                     action_fn()
                 except SequenceError as exc:
@@ -7603,6 +7486,12 @@ class _PreviewPanel:
                     return
                 # Move Up/Down and Restore replace the manually numbered prefix.
                 self._manual_sequence_prefix = []
+                self._partial_preview_limit = None
+                self._sync_manual_order_input()
+                self._manual_3d_verdicts.clear()
+                self._manual_retract_verdicts.clear()
+                self._last_manual_sequence_report = None
+                self._clear_manual_check_feedback()
                 self._manual_preview_unverified = False
                 self._manual_preview_notice.hide()
                 self._draw_flat_pattern()
@@ -7779,6 +7668,10 @@ class _PreviewPanel:
                 """Start or restart full bend-sequence playback across all bends."""
                 if self.session is None:
                     return
+                if self._limited_preview_complete():
+                    self._show_preview_limit()
+                    return
+                self._collision_display_active = False
                 if (self._machine_pose_fault and
                         self.execution_mode == CycleExecutionMode.FULL_CYCLE):
                     self.status.setText(
@@ -7942,14 +7835,18 @@ class _PreviewPanel:
             def next_step(self):
                 if self.session is None:
                     return
-                if (self._partial_preview_limit and all(
-                    self.session.controller.is_bend_completed(bid)
-                    for bid in self.session.bend_order[:self._partial_preview_limit]
-                )):
-                    self.status.setText(
-                        "Частичный 2D-просмотр завершён: следующие гибы не проверены."
-                    )
+                if self._limited_preview_complete():
+                    self._show_preview_limit()
                     return
+                native_hit = self._native_collision_for_playback()
+                if native_hit is not None:
+                    valid, next_index = self.session.controller.is_valid_sequential_prefix()
+                    hit_index = self.session.bend_order.index(native_hit["bend_id"])
+                    if valid and next_index >= hit_index:
+                        if not self._collision_display_active:
+                            self._show_first_collision_in_3d()
+                        return
+                self._collision_display_active = False
                 self._stop_timer()
                 self._machine_pose_fault = None
                 try:
@@ -7971,6 +7868,7 @@ class _PreviewPanel:
                 if self.session is None:
                     return
                 self._stop_timer()
+                self._collision_display_active = False
                 self._machine_pose_fault = None
                 try:
                     pc = self._ensure_press_cycle_controller()
@@ -7987,6 +7885,19 @@ class _PreviewPanel:
                 self.draw()
                 # Camera stays fixed; use the explicit Fit control to reframe.
 
+            def _limited_preview_complete(self):
+                limit = self._partial_preview_limit
+                return limit is not None and all(
+                    self.session.controller.is_bend_completed(bid)
+                    for bid in self.session.bend_order[:limit]
+                )
+
+            def _show_preview_limit(self):
+                self.status.setText(
+                    "Просмотр дошёл до границы проверки: {}/{} гибов."
+                    .format(self._partial_preview_limit, len(self.session.bend_order))
+                )
+
             def advance(self):
                 """One Qt tick drives exactly one sequencer/cycle advance."""
                 if self.session is None:
@@ -7995,14 +7906,6 @@ class _PreviewPanel:
                 # A partial candidate must finish retracting the final
                 # punch before stopping. Otherwise the last sampled geometry
                 # freezes at BOTTOM/BENDING and looks like an illegal setup.
-                partial_prefix_done = bool(
-                    self._partial_preview_limit and all(
-                        self.session.controller.is_bend_completed(bid)
-                        for bid in self.session.bend_order[
-                            :self._partial_preview_limit
-                        ]
-                    )
-                )
                 partial_safe_to_stop = (
                     self.execution_mode != CycleExecutionMode.FULL_CYCLE
                     or self.press_cycle is None
@@ -8011,18 +7914,13 @@ class _PreviewPanel:
                         CyclePhase.IDLE,
                     )
                 )
-                if partial_prefix_done and partial_safe_to_stop:
+                if partial_safe_to_stop and self._limited_preview_complete():
                     self.session.pause()
                     if self.press_cycle is not None:
                         self.press_cycle.pause()
                     self._stop_timer()
-                    self._finish_motion_trace("PARTIAL_2D_PREVIEW_FINISHED")
-                    self.status.setText(
-                        "ЧАСТИЧНЫЙ ПРОСМОТР ЗАВЕРШЁН: {}/{} гибов; "
-                        "остальные не проверены и остаются плоскими.".format(
-                            self._partial_preview_limit, len(self.session.bend_order)
-                        )
-                    )
+                    self._finish_motion_trace("PARTIAL_PREVIEW_FINISHED")
+                    self._show_preview_limit()
                     return
                 if self.session.playback_status != PlaybackStatus.PLAYING:
                     self._stop_timer()
@@ -8043,6 +7941,7 @@ class _PreviewPanel:
                 try:
                     previous_bend = self.session.active_bend_index
                     pc = self._ensure_press_cycle_controller()
+                    phase_before = pc.phase.value if pc is not None else None
                     if (pc is not None and
                             self.execution_mode == CycleExecutionMode.FULL_CYCLE):
                         pc.advance_time(dt)
@@ -8077,10 +7976,12 @@ class _PreviewPanel:
                         and self.execution_mode == CycleExecutionMode.FULL_CYCLE
                         else "BEND_ONLY"
                     )
+                    hit_phase = native_pose.get("phase")
                     if (native_hit is not None
-                            and self.session.active_bend_id ==
-                                native_hit["bend_id"]
-                            and phase_now == native_pose.get("phase")):
+                            and ((self.session.active_bend_id == native_hit["bend_id"]
+                                  and phase_now == hit_phase)
+                                 or (self.session.bend_order[previous_bend] == native_hit["bend_id"]
+                                     and phase_before == hit_phase))):
                         if pc is not None:
                             pc.pause()
                         else:
@@ -8099,7 +8000,7 @@ class _PreviewPanel:
                             "ram Z={:.3f} мм. Точный сохранённый OCC-кадр "
                             "показан в 3D; дальнейшая симуляция остановлена."
                         ).format(
-                            native_hit["bend_id"], phase_now,
+                            native_hit["bend_id"], hit_phase,
                             float(native_pose["signed_angle_deg"]),
                             float(native_pose["ram_z_mm"]),
                         )
@@ -8109,7 +8010,7 @@ class _PreviewPanel:
                             "MANUAL_PLAYBACK_HALTED_AT_NATIVE_COLLISION",
                             bend_id=native_hit["bend_id"],
                             sampled_machine_pose=native_pose,
-                            phase=phase_now,
+                            phase=hit_phase,
                         )
                         self._finish_motion_trace("NATIVE_COLLISION")
                         return

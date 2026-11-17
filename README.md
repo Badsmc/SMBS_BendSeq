@@ -6,16 +6,16 @@ This branch is based on [smbs](https://github.com/Badsmc/SMBS_BendSeq/tree/smbs)
 
 1. **Деталь** — select a SheetMetal unfold and load the part.
 2. **Оснастка** — choose punch, die and machine parameters.
-3. **Порядок и проверка** — select bends manually on the unfolded view, reorder or undo steps.
-4. **Симуляция** — preview the chosen order without claiming that collisions have been checked.
-5. **Порядок и проверка** — explicitly run fast sampled OCC or full sampled 3D collision checks when needed.
-6. **Последовательности / Настройки** — restore and save orders and FCStd JSON; manage diagnostics.
+3. **Порядок и проверка** — enter the bend labels, for example `2-1-3-4` or `B02 B01 B03 B04`. You can also click the bend lines on the unfolded view or reorder the operations table. A partial selection checks the chosen prefix.
+4. **Проверить и показать** — run the adaptive OCC check for the selected order and see the result in Tasks. The 3D view opens in the checked loading position or at the first proven sheet/tool collision.
+5. **Симулировать результат** — replay the same loading orientations. A partial check stops playback at its checked boundary. **Симулировать без проверки** is available before checking. **Быстрая проверка OCC (5 углов)** provides a coarse check.
+6. **Последовательности / Настройки** — restore or save the order and diagnostics in FCStd.
 
 ## Loading orientation and previously bent flanges
 
 For each operation, the operator can select the row in **Порядок и проверка** and click **Развернуть выбранный гиб на 180°**. This toggles the complete sheet placement around the machine vertical axis without changing the bend angle or selected order. Machine section convention: **operator on the left (-s)**; **press and rear gauge on the right (+s)**. This explicitly overrides the default ergonomic preference (shorter side toward the gauge), which alone cannot decide whether a previously formed flange will hit the punch. The same orientation map is consumed by the simulation and native OCC check. Changing the orientation invalidates prior collision reports; repeat the collision check. A toggle is not proof of access, collision clearance, or rear-gauge support.
 
-**Automatic orientation retry (default ON):** On either Manual OCC validation action, the program preserves the hand-selected bend order, tests the current orientation, and, if a **proven native OCC collision** stops the check, retries that bend with the whole part rotated 180° around the vertical machine axis. It repeats on subsequent blocked bends. If both orientations collide, it restores the original orientation and its collision verdict; if the result is UNVERIFIED (including timeout/exception), it does not automatically claim a clear result or flip. The two passes can substantially increase runtime because currently the validated sequence prefix is replayed on retry. The task summary and Desktop JSON journal include the orientation trials. The user can disable this with **Автоматически проверять разворот 180° при коллизии**, or override any bend manually. The chosen orientation is not a verified rear-gauge contact and does not certify continuous machine clearance.
+**Automatic orientation selection (default on):** The check uses the previously formed flanges at each bend. If the first position collides, is conditional, or is unresolved, it tries the same bend with the sheet turned 180° about the machine's vertical axis. The order and signed angles stay fixed. The check reuses the completed bend history and keeps the best supported position. If both positions collide, the task shows both results. A collision in one position and an unresolved second position produce an unresolved result. Use **Подбирать положение заготовки (0° / 180°)** to control automatic selection.
 
 The FreeCAD toolbar has five commands: Деталь, Оснастка, Симуляция, Порядок и проверка, Настройки. The menu also provides saved sequences, backgauge, and the separate tooling library.
 
@@ -42,10 +42,10 @@ The 2.5D and 3D QGraphicsView cameras retain the operator's chosen zoom, pan and
 The manual bend order is never changed by this feature. The selected per-bend
 loading orientation, FoldState history and native punch/die remain the input.
 
-- **Physical tooling display:** the 3D viewer no longer silently clips the
-  punch to the active bend length when the actual OCC run checks the full tool.
-  Displayed profile geometry is still a preview; positive overlap is established
-  only by native FreeCAD OCC.
+- **Physical tooling display:** the 3D viewer uses the selected physical tool
+  lengths. With virtual lengths enabled, both tools use the inspected bend's
+  length, including when the blocker belongs to a different bend from the
+  current playback step.
 - **Manual replay:** a fresh, matching OCC report is retained across the
   Simulate action. The matching check includes selected order, active FreeCAD
   session, punch/die IDs, physical section setup, virtual-length setting,
@@ -63,21 +63,20 @@ loading orientation, FoldState history and native punch/die remain the input.
   support plane and current loading orientation. The visualization reports
   `NATIVE_PREVIEW_POSE_MISMATCH` instead of drawing inconsistent geometry.
   The check tolerances are 1e-8 for matrix entries and 1e-5 mm for XYZ.
-- **Evidence:** `COLLISION` is never changed into `CLEAR`; `CONDITIONAL`
-  remains conditional end-zone evidence; `UNVERIFIED` and coarse OCC cannot
-  certify a safe full path. Operator/rear-gauge, transfer, frame and clamping
-  collisions remain unverified unless checked separately.
+- **Evidence:** The native 3D result covers the sampled workpiece, punch and die
+  geometry. The 2D section diagnostics report discrepancies alongside that
+  result. Coarse OCC and incomplete validation remain unverified for the full
+  path. The rear gauge, transfers, machine frame and clamps are outside this check.
 - **Tests:** `tests/test_manual_native_replay_contract.py` covers matrix
   mismatches and GUI wiring; GitHub Actions job
   `manualmode-replay.yml` runs it alongside syntax and FCStd persistence.
   Final validation still requires a Windows FreeCAD test with the selected
   native punch/die and the sample part.
 
-For manual QA, run **5-angle OCC**, repeat with **Full 3D** as appropriate,
-then press **Simulate** without changing tool identity or orientation. On
-B02, the integrated 3D viewport must stop on the first native blocker, with
-the correct sampled pose and punch height. Changing a loading orientation or
-tool setup invalidates the old evidence and requires a new OCC run.
+For manual QA, enter the order and click **Проверить и показать**. On
+**Симулировать результат**, compare the loading orientation with the per-bend
+result and confirm that a known collision stops playback at the stored pose.
+After a tool or orientation change, repeat the OCC check.
 
 
 ## ManualMode — B02 tooling and retract diagnosis (2026-11-17)
