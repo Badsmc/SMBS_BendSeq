@@ -6970,8 +6970,11 @@ class _PreviewPanel:
                                 "и вывод детали. Исходная коллизия останется."
                             ).format(
                                 lift_candidate["bend_id"],
-                                "альтернативный разворот 180°; "
-                                if is_alternate else "",
+                                ("альтернативное положение {}°; ".format(
+                                    180 if lift_candidate.get(
+                                        "reverse_axis", False
+                                    ) else 0
+                                ) if is_alternate else ""),
                             ) if can_lift else
                             "Обе ориентации проверены. Для выбранной позы "
                             "подвод/гибка блокированы; безопасный вывод "
