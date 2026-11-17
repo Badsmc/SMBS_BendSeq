@@ -5845,8 +5845,14 @@ class _PreviewPanel:
                 return True
 
             def _inspect_assisted_retract(self):
-                """Probe an alternative lift and opt into its unverified preview."""
-                inspection = self._collision_inspection
+                """Probe primary or preserved alternative native RETRACT."""
+                from smbs_core.kinematics2d.native_assisted_retract import (
+                    select_assisted_retract_inspection,
+                )
+                inspection = select_assisted_retract_inspection(
+                    self._collision_inspection,
+                    self._alternate_retract_inspection,
+                )
                 if not self._native_collision_identity_matches(inspection):
                     self.status.setText(
                         "Оснастка или положение изменились. Повторите 3D-проверку."
@@ -5862,11 +5868,25 @@ class _PreviewPanel:
                     self.session, self.tooling_setup, inspection["bend_id"],
                     inspection["first_blocker"], inspection["retract"],
                 )
-                can_preview = report["status"] in (
+                sampled_lift = report["status"] in (
                     "SAMPLED_LIFT_CONDITIONAL_UNVERIFIED",
                     "SAMPLED_LIFT_WITHOUT_PENETRATION_UNVERIFIED",
                 )
-                if can_preview:
+                # A 180-degree alternative is NOT the operator's currently
+                # selected orientation. The probe may inspect it but cannot
+                # silently animate the original 0-degree Full Cycle as though
+                # the native evidence matched.
+                active_orientation = self._manual_orientation_selection(
+                    self.session.bend_order
+                )
+                orientation_matches = (
+                    not inspection.get("alternative_only", False)
+                    and bool(active_orientation.get(inspection["bend_id"], False))
+                    == bool(inspection.get("reverse_axis",
+                        active_orientation.get(inspection["bend_id"], False)))
+                )
+                can_preview = sampled_lift and orientation_matches
+                if sampled_lift:
                     from smbs_core.kinematics2d.coupled_kinematics_2d import (
                         CoupledAirBendingKinematics,
                     )
@@ -5880,25 +5900,43 @@ class _PreviewPanel:
                         self.cycle_config.initial_clearance_mm,
                     )
                     report["preview_alignment"] = alignment
-                    can_preview = alignment["matched"]
+                    can_preview = can_preview and alignment["matched"]
                 pc = self._ensure_press_cycle_controller()
                 if pc is not None:
                     pc.assisted_retract_preview_bends.discard(inspection["bend_id"])
                     if can_preview:
                         pc.assisted_retract_preview_bends.add(inspection["bend_id"])
-                self.manual_lift_preview_btn.setEnabled(can_preview and pc is not None)
-                self._last_assisted_lift_report = report if can_preview else None
-                self.manual_release_probe_btn.setEnabled(can_preview)
+                self.manual_lift_preview_btn.setEnabled(
+                    can_preview and pc is not None
+                )
+                self._last_assisted_lift_report = (
+                    report if sampled_lift else None
+                )
+                self._last_assisted_lift_inspection = (
+                    inspection if sampled_lift else None
+                )
+                self.manual_release_probe_btn.setEnabled(sampled_lift)
                 _desktop_debug_event(
                     "MANUAL_ASSISTED_RETRACT_EXPERIMENT", result=report,
                     historical_replay=bool(inspection.get("historical", False)),
+                    alternative_orientation=bool(
+                        inspection.get("alternative_only", False)
+                    ),
+                    native_reverse_axis=bool(inspection.get(
+                        "reverse_axis", False
+                    )),
+                    preview_enabled=can_preview,
                 )
                 self.status.setText(
                     "Подъём: {}. Проверено поз: {}. {} Исходная коллизия "
                     "сохраняется; зацепление и вывод детали не проверены.".format(
                         report["status"], len(report["samples"]),
                         "В полной симуляции показано совместное движение."
-                        if can_preview else "Совместное движение отключено."
+                        if can_preview else
+                        "Экспериментальная поза отдельно от текущего порядка; "
+                        "автосимуляция не включена."
+                        if inspection.get("alternative_only", False)
+                        else "Совместное движение отключено."
                     )
                 )
                 self.manual_lift_probe_hint.setText(
@@ -5921,7 +5959,7 @@ class _PreviewPanel:
 
             def _inspect_assisted_release(self):
                 """Explore sampled lateral exit without promoting Manual COLLISION."""
-                inspection = self._collision_inspection
+                inspection = self._last_assisted_lift_inspection
                 lift = self._last_assisted_lift_report
                 if not self._native_collision_identity_matches(inspection) or not lift:
                     self._clear_manual_check_feedback()
