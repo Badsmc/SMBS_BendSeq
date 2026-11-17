@@ -6,6 +6,7 @@ on:
       - experiment/axis-staged-2d-mesh-20261116
       - experiment/axis-2d-collision-feedback-20261116
       - experiment/native-flip-first-20261117
+      - experiment/axis-budget-fallback-menu-20261117
   workflow_dispatch:
 
 permissions:
