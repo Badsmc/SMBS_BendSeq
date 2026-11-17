@@ -32,3 +32,6 @@ Manual preview is not a collision check. Fast OCC and full 3D checks sample the 
 ## Development status
 
 GUI search entry points and search-only controls removed from operator interface. Manual behavior inherited from `smbs`; physical FreeCAD smoke test is still required.
+## Fixed viewport during Manual simulation
+
+The 2.5D and 3D QGraphicsView cameras retain the operator's chosen zoom, pan and orbit while rendering, moving between bends, and replaying the manual sequence. Scene bounds no longer cause a per-frame `centerOn()` call after the user has set the camera. **Fit** explicitly sets a new framing; wheel/mouse navigation changes the camera only on user input. The sheet and ram still move physically in machine coordinates. This change does not freeze the workpiece or disable collision detection.
