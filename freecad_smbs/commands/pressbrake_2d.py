@@ -6593,10 +6593,9 @@ class _PreviewPanel:
                     # Commit only orientations actually assessed in native
                     # OCC; the viewer and subsequent inspections use this map.
                     self._manual_orientation_order = tuple(self.session.bend_order)
-                    self._manual_orientation_by_bend = dict(
-                        self._effective_loading_orientation_map(),
-                        **reverse_selection,
-                    )
+                    current_orientation = self._effective_loading_orientation_map()
+                    current_orientation.update(reverse_selection)
+                    self._manual_orientation_by_bend = current_orientation
                     self._ergonomic_loading_status = (
                         "MANUAL_OCC_ORIENTATION_ATTEMPTED"
                         if orientation_attempts else
@@ -6870,6 +6869,22 @@ class _PreviewPanel:
                         readable_verdict, complete_steps, len(selected),
                         physical["validation_mode"], physical["reason"],
                     )
+                    if orientation_attempts:
+                        changed = [
+                            item["bend_id"] for item in orientation_attempts
+                            if item["result"] == "RETRY_OPPOSITE_180_AFTER_COLLISION"
+                        ]
+                        both_blocked = [
+                            item["bend_id"] for item in orientation_attempts
+                            if item["result"] == "BOTH_ORIENTATIONS_COLLIDE"
+                        ]
+                        summary += " | OCC проверил разворот 180°: {}".format(
+                            ", ".join(changed)
+                        )
+                        if both_blocked:
+                            summary += " | обе ориентации заблокированы: {}".format(
+                                ", ".join(both_blocked)
+                            )
                     if crosscheck:
                         summary += (
                             " | 2D/3D расхождение: {} (детали в SMBS_debug_log.json)"
