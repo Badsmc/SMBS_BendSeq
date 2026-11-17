@@ -1055,7 +1055,7 @@ class CalculateCommand:
         return {
             "Pixmap": str(_ICON_ROOT / "gui_calculate.svg"),
             "MenuText": "Автопоиск последовательности",
-            "ToolTip": "Служебный автоматический поиск; для выбора порядка начните с «Поиска 2D вариантов»",
+            "ToolTip": "Открыть раздел поиска последовательности; расчёт запускается отдельной кнопкой в панели",
         }
 
     def IsActive(self):
@@ -1067,9 +1067,9 @@ class CalculateCommand:
             PressBrake2DCommand().Activated()
             workspace = get_workspace_widget()
         if workspace is not None:
-            show_workspace_controls(workspace, 2)
-            if workspace.calculate.isEnabled():
-                workspace.calculate_sequence()
+            # Toolbar is navigation only. Do NOT run the expensive legacy
+            # native search on a menu click.
+            show_workspace_controls(workspace, 3)
 
 
 class BackgaugeCommand:
@@ -1163,7 +1163,7 @@ class PlanarCandidatesCommand:
         return {
             "Pixmap": str(_ICON_ROOT / "gui_planar_candidates.svg"),
             "MenuText": "Поиск 2D вариантов",
-            "ToolTip": "Найти полные последовательности гибов за ограниченное время; коллизии 3D ещё не проверены",
+            "ToolTip": "Открыть раздел поиска 2D; расчёт запускается кнопкой внутри панели",
         }
 
     def IsActive(self):
@@ -1175,9 +1175,8 @@ class PlanarCandidatesCommand:
             PressBrake2DCommand().Activated()
             workspace = get_workspace_widget()
         if workspace is not None:
+            # Opening the search page must never start a solver.
             show_workspace_controls(workspace, 3)
-            if workspace.planar_calculate.isEnabled():
-                workspace.calculate_planar_candidates()
 
 
 def _button(widgets, label, callback, enabled=True):
@@ -2071,17 +2070,23 @@ class _PreviewPanel:
                 planar_layout = QtWidgets.QVBoxLayout(planar_page)
                 planar_card, planar_body = card("Шаг 1 — найти порядок гибов")
                 planar_note = QtWidgets.QLabel(
-                    "Нажмите «Поиск 2D вариантов» на панели инструментов. "
-                    "Программа ищет полные порядки гибов с быстрой 2D оценкой "
-                    "и ранжирует их по весам. Поиск ограничен 30 секундами: "
-                    "если ничего не найдено, это ещё не доказывает, что решения нет. "
-                    "Найденный порядок пока не проверен в 3D."
+                    "Верхние команды только открывают этот раздел. "
+                    "Выберите нужный алгоритм ниже и запустите поиск вручную. "
+                    "Результаты 2D и AABB не являются подтверждением отсутствия "
+                    "коллизий; для оценки используйте OCC."
                 )
                 planar_note.setWordWrap(True)
                 planar_body.addWidget(planar_note)
-                # The native toolbar command runs the search; this section
-                # displays its description/results without a duplicate button.
+                # The toolbar only navigates. Keep explicit actions here.
                 self.planar_calculate.hide()
+                self.planar_start_btn = style_action(
+                    QtWidgets.QPushButton("Поиск 2D вариантов (30 с)"),
+                    primary=False,
+                )
+                self.planar_start_btn.clicked.connect(
+                    self.calculate_planar_candidates
+                )
+                planar_body.addWidget(self.planar_start_btn)
                 planar_layout.addWidget(planar_card)
                 self.axis_staged_experiment_btn = style_action(
                     QtWidgets.QPushButton("Эксперимент: оси A/B → 3D BBox → топ-5"),
@@ -2112,6 +2117,18 @@ class _PreviewPanel:
                     self.calculate_axis_staged_native_feedback
                 )
                 planar_layout.addWidget(self.axis_native_feedback_btn)
+                self.legacy_d6_search_btn = style_action(
+                    QtWidgets.QPushButton("Старый полный автопоиск D6"),
+                    compact=True,
+                )
+                self.legacy_d6_search_btn.setToolTip(
+                    "Прежний медленный алгоритм 2.5D + OCC. "
+                    "Запускается только по этому нажатию, не с верхнего меню."
+                )
+                self.legacy_d6_search_btn.clicked.connect(
+                    self.calculate_sequence
+                )
+                planar_layout.addWidget(self.legacy_d6_search_btn)
                 self.axis_staged_weights_btn = style_action(
                     QtWidgets.QPushButton("Индивидуальные веса гибов…"),
                     compact=True,
@@ -4352,7 +4369,7 @@ class _PreviewPanel:
                                 bend_weights=dict(getattr(
                                     self, "_axis_experiment_bend_weights", {}
                                 )),
-                                max_time_s=min(45.0, remaining),
+                                max_time_s=min(90.0, remaining),
                                 beam_width=12, per_axis_limit=5,
                                 combined_pool=20, finalists=5,
                                 allow_end_zone_collision=bool(
