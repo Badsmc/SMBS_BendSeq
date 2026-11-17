@@ -5584,8 +5584,43 @@ class _PreviewPanel:
                             index, bend_id, verdict, angle_text,
                         )
                     )
+                    lengths = item.get("tool_length_info") or {}
+                    if lengths.get("punch_effective_length_mm") is not None:
+                        lines.append(
+                            "  ДЛИНА ПУАНСОНА: источник={} мм, OCC={} мм; "
+                            "режим={}".format(
+                                lengths.get("punch_source_length_mm"),
+                                lengths.get("punch_effective_length_mm"),
+                                "ВИРТУАЛЬНАЯ" if lengths.get(
+                                    "is_virtual_tool_geometry"
+                                ) else "РЕАЛЬНАЯ",
+                            )
+                        )
                     if blocker and blocker.get("phase") not in (
                             None, "NONE", "UNKNOWN"):
+                        from smbs_core.kinematics2d.native_assisted_retract import (
+                            classify_punch_intersection_span,
+                        )
+                        length_diagnosis = classify_punch_intersection_span(
+                            blocker, lengths,
+                            float(self.tooling_setup.end_zone_length_mm),
+                        )
+                        if length_diagnosis["status"] == "CENTRAL_PUNCH_INTERFERENCE":
+                            lines.append(
+                                "  ЦЕНТРАЛЬНОЕ ПЕРЕСЕЧЕНИЕ: {}. "
+                                "Уменьшение допустимых торцевых зон его "
+                                "не устраняет.".format(
+                                    ", ".join(length_diagnosis["central_hits"])
+                                )
+                            )
+                        elif length_diagnosis["status"] == "END_ZONE_ONLY_BBOX_UNVERIFIED":
+                            lines.append(
+                                "  ПЕРЕСЕЧЕНИЕ У ТОРЦА (BBox): {}; "
+                                "реальный вырез инструмента НЕ ПРОВЕРЕН."
+                                .format(", ".join(
+                                    length_diagnosis["end_zone_hits"]
+                                ))
+                            )
                         tool_label = {
                             "PUNCH": "пуансон",
                             "DIE": "матрица",
@@ -7104,6 +7139,18 @@ class _PreviewPanel:
                         ).format(", ".join(
                             physical["simulation_occ_orientation_mismatch_bends"]
                         ))
+                    if self._alternate_retract_inspection is not None:
+                        alternative = self._alternate_retract_inspection
+                        alternative_blocker = alternative["first_blocker"]
+                        summary += (
+                            " | B{} при 180°: {} / {}. "
+                            "Доступна отдельная проверка совместного "
+                            "подъёма; COLLISION НЕ СНЯТ."
+                        ).format(
+                            alternative["bend_id"].removeprefix("B"),
+                            alternative_blocker.get("phase", "?"),
+                            alternative_blocker.get("tool", "?"),
+                        )
                     if orientation_attempts:
                         changed = [
                             item["bend_id"] for item in orientation_attempts
