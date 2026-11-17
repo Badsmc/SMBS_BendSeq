@@ -7085,6 +7085,13 @@ class _PreviewPanel:
                     self._highlighted_end_zone_info = None
                     self._conditional_bends_status.clear()
                 self._machine_pose_fault = None
+                # The last inspection still exists for OCC replay, but the
+                # normal animation must remain LIVE until the failing phase.
+                self._collision_display_active = False
+                if hasattr(self, "manual_show_collision_btn"):
+                    self.manual_show_collision_btn.setText(
+                        "Показать коллизию в 3D"
+                    )
                 self._viewer_tabs.setCurrentWidget(self.view)
                 show_workspace_controls(self, tab=2)
                 try:
@@ -7895,6 +7902,10 @@ class _PreviewPanel:
                             self.session.pause()
                         self._stop_timer()
                         self._collision_display_active = True
+                        if hasattr(self, "manual_show_collision_btn"):
+                            self.manual_show_collision_btn.setText(
+                                "Вернуться к обычному 3D"
+                            )
                         self._viewer_tabs.setCurrentWidget(self._preview_3d)
                         self._last_3d_frame_at = -1.0
                         self._update_3d_preview(force=True)
