@@ -7,7 +7,7 @@ This branch is based on [smbs](https://github.com/Badsmc/SMBS_BendSeq/tree/smbs)
 1. **Деталь** — select a SheetMetal unfold and load the part.
 2. **Оснастка** — choose punch, die and machine parameters.
 3. **Порядок и проверка** — enter the bend labels, for example `2-1-3-4` or `B02 B01 B03 B04`. You can also click the bend lines on the unfolded view or reorder the operations table. A partial selection checks the chosen prefix.
-4. **Проверить и показать** — run the adaptive OCC check for the selected order and see the result in Tasks. The 3D view opens in the checked loading position or at the first proven sheet/tool collision.
+4. **Проверить и показать** — run the adaptive OCC check for the selected order and see the result in Tasks. Coin3D opens in the checked loading position or at the first proven sheet/tool collision.
 5. **Симулировать результат** — replay the same loading orientations. A partial check stops playback at its checked boundary. **Симулировать без проверки** is available before checking. **Быстрая проверка OCC (5 углов)** provides a coarse check.
 6. **Последовательности / Настройки** — restore or save the order and diagnostics in FCStd.
 
@@ -25,16 +25,17 @@ The workbench **does not register** `SMBS_Calculate` or `SMBS_PlanarCandidates`.
 
 ## Installation
 
-Requires FreeCAD 1.1.x and SheetMetal Workbench. Download the **ManualMode** branch ZIP and extract its contents into a single folder `SMBS` in the active FreeCAD user `Mod` directory. Remove other SMBS/PressBrakeSim installations and **restart FreeCAD** to clear previously registered commands.
+Requires FreeCAD 1.1.x with `pivy.coin` and SheetMetal Workbench. Download the **ManualMode** branch ZIP and extract its contents into a single folder `SMBS` in the active FreeCAD user `Mod` directory. Remove other SMBS/PressBrakeSim installations and **restart FreeCAD** to clear previously registered commands.
 
 Manual preview is not a collision check. Fast OCC and full 3D checks sample the geometry and cannot certify continuous motion, frame/clamp or complete backgauge safety. Verify real machining feasibility independently.
 
-## Development status
+## Coin3D simulation
 
-GUI search entry points and search-only controls removed from operator interface. Manual behavior inherited from `smbs`; physical FreeCAD smoke test is still required.
-## Fixed viewport during Manual simulation
+ManualMode uses the renderer from [development/coin3d-animation](https://github.com/Badsmc/SMBS_BendSeq/tree/development/coin3d-animation). The flat pattern remains available for picking bends. With Python Quarter, Coin3D opens in the SMBS workspace. With `pivy.coin` alone, it opens in a temporary native FreeCAD document named `SMBS_Animation_NN`. Press **Симуляция** to open it and **Fit** to frame the scene.
 
-The 2.5D and 3D QGraphicsView cameras retain the operator's chosen zoom, pan and orbit while rendering, moving between bends, and replaying the manual sequence. Scene bounds no longer cause a per-frame `centerOn()` call after the user has set the camera. **Fit** explicitly sets a new framing; wheel/mouse navigation changes the camera only on user input. The sheet and ram still move physically in machine coordinates. This change does not freeze the workpiece or disable collision detection.
+- **Показывать станок** displays `machine_frame.FCStd`. Its registered lower mounting face sits under the die and the upper slide follows the punch height. The CAD mounting faces are recorded in `machine_frame.tooling.json`.
+- **Задние упоры** enables one or two `Backgauge.FCStd` fingers. Existing manual or automatic S/Z settings and configured X stations drive the CAD visualisation. The fingers move between bend setups during transfer.
+- The frame and fingers are display geometry. The current OCC check evaluates the selected punch, die and sheet at sampled positions.
 
 
 ## ManualMode: one OCC pose for verification and replay (2026-11-17)

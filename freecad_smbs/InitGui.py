@@ -1,9 +1,4 @@
-"""PressBrakeSim 2.5D — single FreeCAD workbench entry point.
-
-GUI/v0.0.1 is a dedicated FreeCAD interface development snapshot.
-Preserves the working bend search, tooling and machine simulation commands.
-No alternate legacy GUI registers on startup.
-"""
+"""FreeCAD workbench for manual bend orders, tooling, and Coin3D simulation."""
 from __future__ import annotations
 
 import sys
@@ -63,7 +58,7 @@ def register_commands() -> None:
 
 
 class SMBSWorkbench(Workbench):
-    MenuText = "PressBrakeSim 2.5D"
+    MenuText = "PressBrakeSim"
     ToolTip = "SheetMetal press-brake bending preview and tooling"
     Icon = str(_ICON_ROOT / "gui_workbench.svg")
 
@@ -79,8 +74,8 @@ class SMBSWorkbench(Workbench):
             *toolbar, CMD_SEQUENCE_CATALOG,
             CMD_BACKGAUGE, CMD_TOOLING,
         ]
-        self.appendMenu("PressBrakeSim 2.5D", menu)
-        self.appendToolbar("PressBrakeSim 2.5D", toolbar)
+        self.appendMenu(self.MenuText, menu)
+        self.appendToolbar(self.MenuText, toolbar)
 
     def Activated(self) -> None:
         # FreeCAD's own QToolBar remains the command host. Only this addon's
@@ -98,8 +93,8 @@ class SMBSWorkbench(Workbench):
                 return
             for toolbar in main.findChildren(QtWidgets.QToolBar):
                 if (
-                    toolbar.objectName() == "PressBrakeSim 2.5D"
-                    or toolbar.windowTitle() == "PressBrakeSim 2.5D"
+                    toolbar.objectName() == self.MenuText
+                    or toolbar.windowTitle() == self.MenuText
                 ):
                     toolbar.setToolButtonStyle(QtCore.Qt.ToolButtonTextBesideIcon)
                     toolbar.setIconSize(QtCore.QSize(18, 18))

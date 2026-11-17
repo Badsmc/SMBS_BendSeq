@@ -78,9 +78,12 @@ class BackgaugeCAD3D:
 
         import Part
         active = getattr(App.ActiveDocument, "Name", None)
-        doc = None
+        open_docs = App.listDocuments()
+        doc = next((item for item in open_docs.values()
+                    if item.FileName and Path(item.FileName).resolve() == path), None)
         try:
-            doc = App.openDocument(str(path), True)
+            if doc is None:
+                doc = App.openDocument(str(path), True)
             bodies = [o for o in doc.Objects
                       if o.TypeId == "PartDesign::Body"
                       and hasattr(o, "Shape") and not o.Shape.isNull()
@@ -107,7 +110,7 @@ class BackgaugeCAD3D:
             self.stop_face_index = selected_index
             self.stop_rotation_z_deg = z_rotation_to_operator_deg(outward)
         finally:
-            if doc is not None:
+            if doc is not None and doc.Name not in open_docs:
                 App.closeDocument(doc.Name)
             if active and active in App.listDocuments():
                 App.setActiveDocument(active)
