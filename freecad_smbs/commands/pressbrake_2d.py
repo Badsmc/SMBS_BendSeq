@@ -62,6 +62,7 @@ from smbs_core.kinematics2d.tooling_25d import (
 )
 
 _SLIDER_SCALE = 10  # 0.1 degree slider resolution
+_LOADING_ORIENTATION_COLUMN = 2
 
 
 class _SMBSFCStdSaveObserver:
@@ -1370,6 +1371,7 @@ class _PreviewPanel:
                 self._manual_sequence_prefix: list[str] = []
                 self._manual_orientation_order = ()
                 self._manual_orientation_by_bend = {}
+                self._manual_orientation_overrides: dict[str, bool] = {}
                 self._last_manual_sequence_report = None
                 self._collision_inspection = None
                 self._alternate_retract_inspection = None
@@ -1696,7 +1698,14 @@ class _PreviewPanel:
                 root.addLayout(order_row)
 
                 self.operations = QtWidgets.QTreeWidget()
-                self.operations.setHeaderLabels(["Step", "Bend", "Target", "Current", "До гиба, мм", "Упор S, мм", "Status", "RETRACT"])
+                self.operations.setHeaderLabels([
+                    "Step", "Bend", "180°", "Target", "Current", "До гиба, мм",
+                    "Упор S, мм", "Status", "RETRACT",
+                ])
+                self.operations.headerItem().setToolTip(
+                    _LOADING_ORIENTATION_COLUMN,
+                    "Разворот заготовки вокруг вертикальной оси для этого гиба.",
+                )
                 self.operations.setRootIsDecorated(False)
                 self.operations.setHorizontalScrollBarPolicy(
                     QtCore.Qt.ScrollBarAsNeeded
@@ -1712,31 +1721,12 @@ class _PreviewPanel:
                 )
                 self.operations.setAlternatingRowColors(True)
                 self.operations.setMinimumHeight(220)
-                self.operations.header().setSectionResizeMode(
-                    0, QtWidgets.QHeaderView.ResizeToContents
-                )
-                self.operations.header().setSectionResizeMode(
-                    1, QtWidgets.QHeaderView.ResizeToContents
-                )
-                self.operations.header().setSectionResizeMode(
-                    2, QtWidgets.QHeaderView.Interactive
-                )
-                self.operations.header().setSectionResizeMode(
-                    3, QtWidgets.QHeaderView.Interactive
-                )
-                self.operations.header().setSectionResizeMode(
-                    4, QtWidgets.QHeaderView.ResizeToContents
-                )
-                self.operations.header().setSectionResizeMode(
-                    5, QtWidgets.QHeaderView.ResizeToContents
-                )
-                self.operations.header().setSectionResizeMode(
-                    6, QtWidgets.QHeaderView.ResizeToContents
-                )
-                self.operations.header().setSectionResizeMode(
-                    7, QtWidgets.QHeaderView.Stretch
-                )
                 self.operations.currentItemChanged.connect(self._on_operation_selected)
+                self.operations.itemChanged.connect(self._on_operation_orientation_changed)
+                self.operations.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
+                self.operations.customContextMenuRequested.connect(
+                    self._show_operation_orientation_menu
+                )
                 root.addWidget(self.operations)
 
                 self.check_btn = _button(QtWidgets, "Проверить интерфейс", self.diagnostics)
@@ -2076,27 +2066,14 @@ class _PreviewPanel:
                     self._select_saved_sequence
                 )
                 order_body.addWidget(self.saved_sequences_btn)
-                self.manual_flip_btn = style_action(
-                    QtWidgets.QPushButton("Развернуть выбранный гиб на 180°"),
-                    compact=True,
-                )
-                self.manual_flip_btn.setObjectName("SMBS_ManualFlipLoading180")
-                self.manual_flip_btn.setToolTip(
-                    "Повернуть заготовку на 180° вокруг вертикальной оси "
-                    "для выделенного гиба. Оператор слева (-s), задний упор "
-                    "справа (+s). Изменяет реальную позу симуляции и OCC, "
-                    "но не гарантирует отсутствие коллизий."
-                )
-                self.manual_flip_btn.clicked.connect(self._flip_manual_loading)
-                order_body.addWidget(self.manual_flip_btn)
                 self.auto_orientation_checkbox = QtWidgets.QCheckBox(
                     "Подбирать положение заготовки (0° / 180°)"
                 )
                 self.auto_orientation_checkbox.setChecked(True)
                 self.auto_orientation_checkbox.setToolTip(
-                    "Если первый вариант сталкивается с оснасткой, условен или "
-                    "проверка не завершена, проверяет положение с разворотом на 180°. "
-                    "Сохраняет порядок и угол гибов."
+                    "Для гибов с автоматически заданным положением OCC может "
+                    "проверить второе положение. Галочка в колонке «180°» "
+                    "закрепляет выбранное положение конкретного гиба."
                 )
                 order_body.addWidget(self.auto_orientation_checkbox)
 
@@ -2651,16 +2628,14 @@ class _PreviewPanel:
             def _apply_context_width(self, width):
                 """Keep operator information useful at narrow Tasks widths."""
                 compact = int(width) < 590
-                # The full five-column report is still available on a wide
-                # dock. On narrow ones show Step, Bend and Status; tooltips
-                # retain complete target/current readings.
-                # FreeCAD's standard Tasks pane is narrower than our
-                # former full-width custom dock: keep the core verdicts and
-                # RETRACT visible; complete dimensions remain in row tooltips.
-                for col in (2, 3, 4, 5):
+                # Keep orientation and verdicts visible in the narrow Tasks pane.
+                for col in (3, 4, 5, 6):
                     self.operations.setColumnHidden(col, compact)
                 self.operations.header().setSectionResizeMode(
                     QtWidgets.QHeaderView.Stretch
+                )
+                self.operations.header().setSectionResizeMode(
+                    _LOADING_ORIENTATION_COLUMN, QtWidgets.QHeaderView.ResizeToContents
                 )
 
             def eventFilter(self, watched, event):
@@ -3867,6 +3842,7 @@ class _PreviewPanel:
                 self._stop_timer()
                 self.session.reset_all_bends()
                 self.session.set_bend_order(order)
+                self._manual_orientation_overrides.clear()
                 orientations = item.get("orientation_by_bend", {})
                 if set(orientations) == set(order):
                     self._manual_orientation_order = order
@@ -4328,61 +4304,89 @@ class _PreviewPanel:
                 # Passing vertices here would apply a second independent flip.
                 return None
 
-            def _flip_manual_loading(self):
-                """Override one bend's machine-Z loading, not its bend direction.
+            def _on_operation_orientation_changed(self, item, column):
+                if column != _LOADING_ORIENTATION_COLUMN:
+                    return
+                self._set_manual_loading_override(
+                    item, item.checkState(column) == QtCore.Qt.Checked
+                )
 
-                Operator = -s (left); rear gauge = +s (right). This changes
-                the complete sheet pose around the machine vertical axis,
-                including previously folded panels, never the bend angle.
-                """
-                if self.session is None:
+            def _show_operation_orientation_menu(self, pos):
+                if self.operations.columnAt(pos.x()) != _LOADING_ORIENTATION_COLUMN:
                     return
-                if (self.timer.isActive()
+                item = self.operations.itemAt(pos)
+                if item is None:
+                    return
+                bend_id = item.data(0, QtCore.Qt.UserRole)
+                if bend_id not in self._manual_orientation_overrides:
+                    return
+                menu = QtWidgets.QMenu(self.operations)
+                automatic = menu.addAction("Подбирать положение автоматически")
+                run_menu = getattr(menu, "exec", None) or menu.exec_
+                if run_menu(self.operations.viewport().mapToGlobal(pos)) == automatic:
+                    self._set_manual_loading_override(item, None)
+
+            def _set_manual_loading_override(self, item, reverse_axis):
+                """Set 0°/180° for one bend, or return it to automatic selection."""
+                bend_id = item.data(0, QtCore.Qt.UserRole)
+                if self.session is None or bend_id not in self.session.bend_order:
+                    return
+                if (self._task_progress_busy or self.timer.isActive()
                         or self.session.playback_status == PlaybackStatus.PLAYING):
+                    self._update_operations_visual_state()
                     self.status.setText(
-                        "Остановите симуляцию перед разворотом заготовки."
+                        "Остановите симуляцию или дождитесь окончания проверки."
                     )
                     return
-                bend_id = self.session.active_bend_id
                 order = tuple(self.session.bend_order)
-                choices = self._effective_loading_orientation_map()
-                if bend_id not in choices or set(choices) != set(order):
-                    self.status.setText(
-                        "UNVERIFIED: ориентация для гиба {} недоступна."
-                        .format(bend_id)
-                    )
-                    return
-                choices[bend_id] = not bool(choices[bend_id])
-                self._manual_orientation_order = order
-                self._manual_orientation_by_bend = dict(choices)
-                self._ergonomic_loading_status = "MANUAL_180_OVERRIDE_UNVERIFIED"
+                if reverse_axis is None:
+                    self._manual_orientation_overrides.pop(bend_id, None)
+                else:
+                    self._manual_orientation_overrides[bend_id] = reverse_axis
+
                 self._machine_pose_fault = None
                 self._physical_check_signature = None
-                self._collision_inspection = None
-                self._collision_display_active = False
+                self._highlighted_end_zone_info = None
                 self._manual_3d_verdicts.clear()
                 self._manual_retract_verdicts.clear()
+                self._conditional_bends_status.clear()
                 self._last_manual_sequence_report = None
+                self._backgauge_preview_cache.clear()
+                prefix_size = len(self._manual_sequence_prefix)
+                self._partial_preview_limit = prefix_size if 0 < prefix_size < len(order) else None
                 self._clear_manual_check_feedback()
-                self._ensure_press_cycle_controller()
-                self._populate_operations()
-                self.draw()
+                self._manual_preview_notice.setText("РУЧНОЙ ПРОСМОТР — коллизии не проверены")
+                self.physical_check_result.setText(
+                    "UNVERIFIED: положение заготовки изменилось. Проверьте коллизии повторно."
+                )
+                if self.session.active_bend_id != bend_id:
+                    # The native checkbox indicator does not select its row.
+                    self.operations.setCurrentItem(item, _LOADING_ORIENTATION_COLUMN)
+                else:
+                    cycle = self._ensure_press_cycle_controller()
+                    if cycle is not None and cycle.phase == CyclePhase.TRANSFER:
+                        # Discard paused transfer endpoints from the previous loading map.
+                        cycle.select_operation(self.session.active_bend_index)
+                    self._update_operations_visual_state()
+                    self._update_tooling_status_label()
+                    self.draw()
+                choices = self._effective_loading_orientation_map()
                 _desktop_debug_event(
                     "MANUAL_LOADING_180_CHANGED",
                     bend_id=bend_id,
                     operator_side="-s_LEFT",
                     machine_rear_side="+s_RIGHT",
-                    reverse_axis=bool(choices[bend_id]),
+                    reverse_axis=choices[bend_id],
+                    manual_override=reverse_axis is not None,
                     selected_order=list(order),
-                    orientation_by_bend=dict(choices),
+                    orientation_by_bend=choices,
                     physical_status="UNVERIFIED",
                 )
+                pose = "180°" if choices[bend_id] else "0°"
+                source = "подбор положения" if reverse_axis is None else "вручную"
                 self.status.setText(
-                    "{}: разворот 180° {}. Перепроверьте коллизии OCC."
-                    .format(
-                        bend_id,
-                        "включён" if choices[bend_id] else "выключен",
-                    )
+                    f"{bend_id}: положение {pose} ({source}). "
+                    "Коллизии для нового положения ещё не проверены."
                 )
 
             def _manual_orientation_selection(self, bend_ids):
@@ -4391,12 +4395,7 @@ class _PreviewPanel:
                 return {bid: bool(choices[bid]) for bid in bend_ids if bid in choices}
 
             def _effective_loading_orientation_map(self):
-                """One deterministic bend pose map for 2D, 3D, and OCC.
-
-                A selected 2D search candidate keeps its explicit per-bend
-                orientation. Otherwise the shorter reach faces the rear gauge.
-                This heuristic is not collision or gauge-contact evidence.
-                """
+                """Use the same per-bend placement for Coin3D and validation."""
                 if self.session is None:
                     self._ergonomic_loading_status = "NO_PART"
                     return {}
@@ -4406,11 +4405,20 @@ class _PreviewPanel:
                     self._ergonomic_loading_status = (
                         "MANUAL_180_OVERRIDE_UNVERIFIED"
                     )
-                    return dict(self._manual_orientation_by_bend)
+                    choices = self._manual_orientation_by_bend
+                else:
+                    choices = self._default_loading_orientation_map(order)
+                return {
+                    bend_id: self._manual_orientation_overrides.get(bend_id, reverse_axis)
+                    for bend_id, reverse_axis in choices.items()
+                }
+
+            def _default_loading_orientation_map(self, order):
+                """Prefer the shorter reach towards the rear gauge."""
                 key = (id(self.session), id(self.session.fold_state), order)
                 if key == self._ergonomic_loading_cache_key:
                     self._ergonomic_loading_status = self._ergonomic_loading_cache_status
-                    return dict(self._ergonomic_loading_cache)
+                    return self._ergonomic_loading_cache
                 from smbs_core.kinematics2d.loading_orientation_preview import (
                     plan_preview_loading_orientations,
                 )
@@ -4448,7 +4456,7 @@ class _PreviewPanel:
                 for bend_id in order:
                     choices.setdefault(bend_id, False)
                 self._ergonomic_loading_cache_key = key
-                self._ergonomic_loading_cache = dict(choices)
+                self._ergonomic_loading_cache = choices
                 self._ergonomic_loading_cache_status = self._ergonomic_loading_status
                 return choices
 
@@ -4509,7 +4517,9 @@ class _PreviewPanel:
                 bend_id = str(self.session.active_bend_id)
                 reversed_pose = bool(choices.get(bend_id, False))
                 source = self._ergonomic_loading_status
-                if source.startswith("SELECTED_2D"):
+                if bend_id in self._manual_orientation_overrides:
+                    evidence = "положение задано вручную"
+                elif source.startswith("SELECTED_2D"):
                     evidence = "выбрано из 2D-поиска; 3D не проверено"
                 elif source == "AUTO_SHORT_REAR_UNVERIFIED":
                     evidence = "короткая сторона к упору; КОНТАКТ НЕ ПРОВЕРЕН"
@@ -5153,6 +5163,7 @@ class _PreviewPanel:
                 self._manual_sequence_prefix = []
                 self._manual_orientation_order = ()
                 self._manual_orientation_by_bend = {}
+                self._manual_orientation_overrides.clear()
                 self._manual_preview_unverified = False
                 self._manual_selection_enabled = False
                 self._manual_preview_notice.hide()
@@ -5928,6 +5939,7 @@ class _PreviewPanel:
                     orientation_by_bend=self._manual_orientation_selection(
                         self.session.bend_order
                     ),
+                    manual_orientation_overrides=self._manual_orientation_overrides,
                     orientation_source=(
                         "SELECTED_2D_CANDIDATE"
                         if self._manual_orientation_order == tuple(self.session.bend_order)
@@ -6033,6 +6045,9 @@ class _PreviewPanel:
                 self._manual_orientation_by_bend = (
                     {bid: saved_orientations[bid] for bid in order}
                     if selected_pose else {}
+                )
+                self._manual_orientation_overrides = dict(
+                    payload["order"].get("manual_orientation_overrides", {})
                 )
                 self._manual_preview_unverified = False
                 self._manual_selection_enabled = False
@@ -6272,7 +6287,7 @@ class _PreviewPanel:
                     self.tool_library_btn, self.move_up_btn,
                     self.move_down_btn, self.restore_order_btn,
                     self.manual_undo_btn, self.manual_clear_btn,
-                    self.manual_flip_btn, self.auto_orientation_checkbox,
+                    self.operations, self.auto_orientation_checkbox,
                 )
                 old_control_states = tuple(
                     (control, control.isEnabled())
@@ -6389,6 +6404,7 @@ class _PreviewPanel:
                         progress_callback=on_progress,
                         reverse_axis_by_bend=initial_orientation,
                         auto_orientation=self.auto_orientation_checkbox.isChecked(),
+                        locked_orientation_bends=self._manual_orientation_overrides.keys(),
                         orientation_retry_callback=on_orientation_retry,
                     )
                     reverse_selection = physical["reverse_axis_by_bend"]
@@ -7105,7 +7121,7 @@ class _PreviewPanel:
                 if reset_camera and not self._flat_view._user_camera_modified:
                     self._flat_view.reset_camera()
 
-            def _format_operation_row(self, idx: int, b) -> tuple[str, str, str, str, str, str, str, str]:
+            def _format_operation_row(self, idx: int, b) -> tuple[str, ...]:
                 cur = self.session.fold_state.angles[b.bend_id]
                 done = self.session.controller.is_bend_completed(b.bend_id)
                 is_active = (idx - 1) == self.session.active_bend_index
@@ -7117,8 +7133,6 @@ class _PreviewPanel:
                     status_str = "IDLE"
                 if b.bend_id in self._conditional_bends_status:
                     status_str += " [CONDITIONAL]"
-                axis = self._manual_orientation_selection(self.session.bend_order)[b.bend_id]
-                status_str += " [180°]" if axis else " [0°]"
                 if b.bend_id in self._manual_3d_verdicts:
                     status_str += " [3D:{}]".format(
                         self._manual_3d_verdicts[b.bend_id]
@@ -7141,6 +7155,7 @@ class _PreviewPanel:
                 return (
                     str(idx),
                     "{} ({} → {})".format(b.bend_id, b.fixed_panel, b.moving_panel),
+                    "",  # 180° uses the native Qt check indicator.
                     "{:+.1f}°".format(b.angle_deg),
                     "{:+.1f}°".format(cur),
                     "{:.2f}".format(flat_mm) if flat_mm is not None else "—",
@@ -7196,54 +7211,54 @@ class _PreviewPanel:
                 self._apply_reorder(lambda: self.session.restore_canonical_order())
 
             def _populate_operations(self):
-                self.operations.blockSignals(True)
-                self.operations.clear()
-                if self.session is not None:
-                    for idx, b in enumerate(self.session.ordered_bends, 1):
-                        cols = self._format_operation_row(idx, b)
-                        item = QtWidgets.QTreeWidgetItem(list(cols))
-                        item.setToolTip(
-                            1, " | ".join(
-                                "{}: {}".format(
-                                    self.operations.headerItem().text(i), value
-                                ) for i, value in enumerate(cols)
-                            ),
-                        )
-                        self.operations.addTopLevelItem(item)
-                    if self.operations.topLevelItemCount() > 0:
-                        self.operations.setCurrentItem(
-                            self.operations.topLevelItem(self.session.active_bend_index)
-                        )
-                self.operations.blockSignals(False)
+                signals_were_blocked = self.operations.blockSignals(True)
+                try:
+                    self.operations.clear()
+                    if self.session is not None:
+                        for _bend in self.session.ordered_bends:
+                            self.operations.addTopLevelItem(QtWidgets.QTreeWidgetItem())
+                        self._update_operations_visual_state()
+                finally:
+                    self.operations.blockSignals(signals_were_blocked)
 
             def _update_operations_visual_state(self):
                 if self.session is None:
                     return
-                self.operations.blockSignals(True)
-                raw_count = self.operations.topLevelItemCount()
-                count = int(raw_count) if isinstance(raw_count, int) else 0
-                for idx, b in enumerate(self.session.ordered_bends, 1):
-                    if idx - 1 >= count:
-                        break
-                    item = self.operations.topLevelItem(idx - 1)
-                    if item is None:
-                        continue
-                    cols = self._format_operation_row(idx, b)
-                    for col_i, text in enumerate(cols):
-                        if hasattr(item, "setText"):
-                            item.setText(col_i, text)
-                    item.setToolTip(
-                        1, " | ".join(
-                            "{}: {}".format(
-                                self.operations.headerItem().text(i), value
-                            ) for i, value in enumerate(cols)
-                        ),
-                    )
-                if 0 <= self.session.active_bend_index < count:
-                    target_item = self.operations.topLevelItem(self.session.active_bend_index)
-                    if target_item is not None and self.operations.currentItem() is not target_item:
-                        self.operations.setCurrentItem(target_item)
-                self.operations.blockSignals(False)
+                orientations = self._effective_loading_orientation_map()
+                signals_were_blocked = self.operations.blockSignals(True)
+                try:
+                    count = self.operations.topLevelItemCount()
+                    for idx, bend in enumerate(self.session.ordered_bends[:count], 1):
+                        item = self.operations.topLevelItem(idx - 1)
+                        bend_id = bend.bend_id
+                        item.setData(0, QtCore.Qt.UserRole, bend_id)
+                        cols = self._format_operation_row(idx, bend)
+                        for col, label in enumerate(cols):
+                            item.setText(col, label)
+                        item.setCheckState(
+                            _LOADING_ORIENTATION_COLUMN,
+                            QtCore.Qt.Checked if orientations[bend_id] else QtCore.Qt.Unchecked,
+                        )
+                        tooltip = "Галочка — разворот заготовки на 180°. Снята — 0°."
+                        if bend_id in self._manual_orientation_overrides:
+                            tooltip += (
+                                "\nПоложение задано вручную. Правый клик возвращает автоподбор."
+                            )
+                        item.setToolTip(
+                            _LOADING_ORIENTATION_COLUMN, tooltip,
+                        )
+                        item.setToolTip(
+                            1, " | ".join(
+                                f"{self.operations.headerItem().text(col)}: {label}"
+                                for col, label in enumerate(cols) if label
+                            ),
+                        )
+                    if 0 <= self.session.active_bend_index < count:
+                        active = self.operations.topLevelItem(self.session.active_bend_index)
+                        if self.operations.currentItem() is not active:
+                            self.operations.setCurrentItem(active)
+                finally:
+                    self.operations.blockSignals(signals_were_blocked)
 
             def _configure_for_active_bend(self):
                 if self.session is None:
