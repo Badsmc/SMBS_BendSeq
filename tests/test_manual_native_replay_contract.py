@@ -111,6 +111,17 @@ class ManualPlaybackContractTests(unittest.TestCase):
         body = source("_update_3d_preview")
         self.assertNotIn("preview_punch_length_mm=preview_length", body)
 
+    def test_replay_rejects_stale_session_tooling_or_orientation(self):
+        body = source("_matching_manual_occ_report")
+        self.assertIn("native_tooling_identity", body)
+        self.assertIn("_current_native_tooling_identity", body)
+        self.assertIn("requested_bends", body)
+
+    def test_3d_status_shows_sampled_occ_verdict(self):
+        body = source("_update_3d_preview")
+        self.assertIn("current_verdict", body)
+        self.assertIn("OCC: {} (SAMPLED)", body)
+
     def test_conditional_is_preserved_as_distinct_evidence(self):
         body = source("_format_operation_row")
         self.assertIn("CONDITIONAL", body)
