@@ -3225,34 +3225,16 @@ class _PreviewPanel:
                             raise PreviewMeshError(
                                 "native punch height unavailable"
                             )
-                        # Only the visual single-piece punch is trimmed
-                        # to the current bend line. Native collision tooling
-                        # stays untouched. Physical multi-section setups
-                        # retain their actual section lengths/positions.
-                        preview_length = None
-                        if (not inspection
-                                and self.tooling_setup.punch is not None
-                                and not self.tooling_setup.punch_section_offsets_xm):
-                            bend_length = self._active_bend_length_mm()
-                            if math.isfinite(bend_length) and bend_length > 0:
-                                preview_length = bend_length
+                        # Display the selected physical tool length.
+                        # Historically the preview silently clipped the punch
+                        # to the active bend length even when native OCC tested
+                        # the FULL punch. This hid real flange/punch collisions.
+                        # The tooling preview is still a mesh approximation;
+                        # native OCC is the authoritative collision evidence.
                         faces += build_tool_preview_faces(
                             self.tooling_setup,
                             punch_ram_z_mm=inspected_ram_z,
-                            preview_punch_length_mm=preview_length,
                         )
-                        if (preview_length is not None
-                                and not self.tooling_setup.match_active_bend_length
-                                and self.tooling_setup.punch is not None
-                                and abs(float(self.tooling_setup.punch.length_mm)
-                                        - preview_length) > 0.001):
-                            tool_warning = (
-                                "Пуансон показан по длине гиба {:.1f} мм "
-                                "(только визуально; OCC использует {:.1f} мм)"
-                            ).format(
-                                preview_length,
-                                float(self.tooling_setup.punch.length_mm),
-                            )
                     except PreviewMeshError as exc:
                         tool_warning = str(exc)
                 except (PreviewMeshError, WorkpiecePoseError,
@@ -7012,18 +6994,30 @@ class _PreviewPanel:
                 self._preview_only_planar_order = None
                 self.last_planar_search_report = None
                 self.last_sequence_search_report = None
-                self._last_manual_sequence_report = None
-                self._manual_3d_verdicts.clear()
-                self._manual_retract_verdicts.clear()
-                self._clear_manual_check_feedback()
-                self._physical_check_signature = None
+                # A replay must NOT discard actual OCC evidence. Retain it
+                # only while the explicit order and selected native tooling
+                # configuration still match the check that produced it.
+                matched_occ_report = self._matching_manual_occ_report(order)
+                if matched_occ_report is None:
+                    self._last_manual_sequence_report = None
+                    self._manual_3d_verdicts.clear()
+                    self._manual_retract_verdicts.clear()
+                    self._clear_manual_check_feedback()
+                    self._physical_check_signature = None
+                    self._highlighted_end_zone_info = None
+                    self._conditional_bends_status.clear()
                 self._machine_pose_fault = None
-                self._highlighted_end_zone_info = None
-                self._conditional_bends_status.clear()
                 self._viewer_tabs.setCurrentWidget(self.view)
                 show_workspace_controls(self, tab=2)
                 try:
-                    self.set_cycle_mode(CycleExecutionMode.BEND_ONLY)
+                    # Only the physical Full Cycle uses the same APPROACH,
+                    # BENDING, BOTTOM and RETRACT path as native OCC. Keep the
+                    # legacy Bend Only fallback for never-validated previews.
+                    self.set_cycle_mode(
+                        CycleExecutionMode.FULL_CYCLE
+                        if matched_occ_report is not None
+                        else CycleExecutionMode.BEND_ONLY
+                    )
                     pc = self._ensure_press_cycle_controller()
                     if pc is not None:
                         pc.reset()
@@ -7043,10 +7037,19 @@ class _PreviewPanel:
                 self._configure_for_active_bend()
                 self._update_tooling_status_label()
                 self._manual_preview_notice.show()
-                self.physical_check_result.setText(
-                    "UNVERIFIED: ручная кинематическая симуляция; "
-                    "коллизии с пуансоном, матрицей, упором и станком не проверены."
-                )
+                if matched_occ_report is None:
+                    self.physical_check_result.setText(
+                        "UNVERIFIED: ручная кинематическая симуляция; "
+                        "коллизии с пуансоном, матрицей, упором и станком не проверены."
+                    )
+                else:
+                    self.physical_check_result.setText(
+                        "OCC: {}. Симуляция Full Cycle использует сохранённую "
+                        "ориентацию гибов; на подтверждённом столкновении "
+                        "будет показан точный проверенный кадр. "
+                        "Остальные промежутки непрерывно не сертифицированы."
+                        .format(matched_occ_report["status"])
+                    )
                 self.draw()
                 # Camera stays fixed; use the explicit Fit control to reframe.
                 self.play_all()
@@ -7058,8 +7061,12 @@ class _PreviewPanel:
                         "все {} гибов".format(len(order))
                     )
                     self.status.setText(
-                        "РУЧНАЯ СИМУЛЯЦИЯ: {} · БЕЗ ПРОВЕРКИ КОЛЛИЗИЙ"
-                        .format(scope)
+                        "РУЧНАЯ СИМУЛЯЦИЯ: {} · {}".format(
+                            scope,
+                            "сохранённые выборочные OCC-результаты"
+                            if matched_occ_report is not None
+                            else "БЕЗ ПРОВЕРКИ КОЛЛИЗИЙ",
+                        )
                     )
                     self._trace_event(
                         "MANUAL_UNVERIFIED_PREVIEW_STARTED",
