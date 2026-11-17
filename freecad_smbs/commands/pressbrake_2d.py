@@ -4346,10 +4346,6 @@ class _PreviewPanel:
                             )
                         else:
                             trial_kind = "RANKED_2D"
-                            has_sections = bool(
-                                self.tooling_setup.punch_section_offsets_xm
-                                or self.tooling_setup.die_section_offsets_xm
-                            )
                             experiment = search_axis_staged_experiment(
                                 self.session, self.tooling_setup,
                                 weights=self._selected_operation_weights(),
