@@ -119,3 +119,42 @@ with auto 180-degree retry enabled, verify log event
 assisted lift probe and (if a sampled candidate is reported) lateral release.
 Review `MANUAL_ASSISTED_RETRACT_EXPERIMENT` and
 `MANUAL_ASSISTED_RELEASE_EXPERIMENT` in the desktop diagnostic JSON.
+
+
+## Segment inventory and clamp-aware assembly (ManualMode)
+
+Only the tooling-library and manual assembly-report workflow are extended.
+The bend sequence, OCC collision model and viewer are unchanged by this
+feature.
+
+1. **Библиотека оснастки** → choose an individual punch or die →
+   **Сегменты и количество**. Enter each section length in mm and the
+   number actually available. Inventory is stored under the selected
+   tool's `.tooling.json` `metadata.segments` as
+   `[{"length_mm": 150.0, "quantity": 2}, ...]`.
+   The original datums, metadata and FCStd shape are preserved.
+2. Under **Лапки**, configure the actual length along the machine X axis
+   (`width_mm` in the existing schema), minimum edge-to-edge separation
+   (`gap_between_mm`), clamp center positions (`positions_mm`), minimum
+   clamp count, joint-support and end-overhang rules. The existing
+   `clamp_validator.validate_punch_chain` enforces them.
+3. Open a part, choose the punch and die, set the manual order, then press
+   **Набрать оснастку — расчёт сегментов** in **Порядок и проверка**.
+   The report shows for each bend: nominal bend length, actual assembled
+   punch and die totals, every segment's length and machine-X start/end,
+   and the clamp center positions/width/minimum gap. The inventory is
+   reused between successive bends (not consumed permanently).
+
+The finite-stock solver prefers the closest assembly that **covers the
+bend length**, with at most 15 mm excess; it never fabricates segment
+counts. If clamps cannot support the sections, no feasible candidate is
+presented. Fixed clamp positions are obeyed. If no positions are specified
+and clamps are movable, calculated clamp centers are explicitly marked
+`PROPOSED_REPOSITION_UNVERIFIED` and require operator confirmation.
+
+This is an **assembly proposal, not native OCC collision validation**:
+the computed segment set does not silently replace the current virtual or
+physical tool geometry used by OCC. Machine mounting, individual clamps'
+3D clearance, load capacity, part collision, and continuous bend motions
+still require physical checks. The report is intentionally fail-closed
+when stock or clamp geometry is missing or inconsistent.
