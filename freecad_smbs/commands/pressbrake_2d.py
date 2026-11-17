@@ -3196,6 +3196,36 @@ class _PreviewPanel:
                                 float(x) for x in actual["translation"]
                             ),
                         )
+                        # Rebuild the sampled FoldState independently and
+                        # require its canonical machine pose to equal the OCC
+                        # sample. A second, viewer-specific placement may not
+                        # silently hide/introduce a geometric collision.
+                        from smbs_core.kinematics2d.workpiece_placement_validation_3d import (
+                            compare_native_placement_matrices,
+                        )
+                        orientation = self._effective_loading_orientation_map()
+                        expected_native_pose = WorkpiecePlacement3D.compute_placement(
+                            inspection_state,
+                            actual["bend_id"],
+                            support_plane_zm=float(actual["support_plane_zm"]),
+                            align_bisector=True,
+                            align_bend_arc_center=True,
+                            reverse_axis=bool(orientation[actual["bend_id"]]),
+                        )
+                        pose_comparison = compare_native_placement_matrices(
+                            expected_native_pose, actual,
+                        )
+                        _desktop_debug_event(
+                            "MANUAL_NATIVE_PREVIEW_POSE_COMPARISON",
+                            bend_id=actual["bend_id"],
+                            phase=actual.get("phase"),
+                            evidence=pose_comparison,
+                        )
+                        if pose_comparison["status"] != "MATCH":
+                            raise ValueError(
+                                "NATIVE_PREVIEW_POSE_MISMATCH:"
+                                + str(pose_comparison)
+                            )
                         attribution = entry.get("component_attribution") or {}
                         inspected_components = {
                             str(hit.get("component_id")).split(":", 1)[1]
@@ -7081,6 +7111,12 @@ class _PreviewPanel:
                     return
                 self._configure_for_active_bend()
                 self._update_tooling_status_label()
+                self._manual_preview_notice.setText(
+                    "РУЧНОЙ ПРОСМОТР: выборочные OCC-результаты; "
+                    "непроверенные интервалы и упор НЕ СЕРТИФИЦИРОВАНЫ"
+                    if matched_occ_report is not None else
+                    "РУЧНОЙ ПРОСМОТР — коллизии не проверены"
+                )
                 self._manual_preview_notice.show()
                 if matched_occ_report is None:
                     self.physical_check_result.setText(
