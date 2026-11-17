@@ -6592,6 +6592,7 @@ class _PreviewPanel:
                     initial_orientation = dict(reverse_selection)
                     tried_reverse = set()
                     first_collision_reports = {}
+                    alternative_collision_reports = {}
                     orientation_attempts = []
                     while True:
                         candidate_report = check_manual_3d_sequence(
@@ -6629,8 +6630,11 @@ class _PreviewPanel:
                             break
                         blocked_id = blocked["bend_id"]
                         if blocked_id in tried_reverse:
-                            # Both poses had proven collisions. Restore the
-                            # first pose AND its matching blocker report.
+                            # Both poses have proven collisions. Keep BOTH
+                            # reports. The alternative RETRACT may be a useful
+                            # candidate for a separate sampled lift experiment,
+                            # even if the original APPROACH cannot pass.
+                            alternative_collision_reports[blocked_id] = physical
                             reverse_selection[blocked_id] = (
                                 not bool(reverse_selection[blocked_id])
                             )
@@ -6666,6 +6670,23 @@ class _PreviewPanel:
                         )
                         QtWidgets.QApplication.processEvents()
                     physical["orientation_attempts"] = orientation_attempts
+                    physical["alternative_orientation_blockers"] = [
+                        {
+                            "bend_id": bend_id,
+                            "reverse_axis": next(
+                                bool(st.get("reverse_axis", False))
+                                for st in report.get("steps", ())
+                                if st.get("bend_id") == bend_id
+                            ),
+                            "phase": next(
+                                (st.get("first_blocker") or {}).get("phase")
+                                for st in report.get("steps", ())
+                                if st.get("bend_id") == bend_id
+                            ),
+                            "status": "COLLISION",
+                        }
+                        for bend_id, report in alternative_collision_reports.items()
+                    ]
                     physical["simulation_orientation_before_occ"] = dict(
                         initial_orientation
                     )
@@ -6757,6 +6778,9 @@ class _PreviewPanel:
 
 
                     self._collision_inspection = None
+                    self._alternate_retract_inspection = None
+                    self._last_assisted_lift_inspection = None
+                    self._last_assisted_lift_report = None
                     self._collision_display_active = False
                     self.manual_lift_probe_btn.setEnabled(False)
                     self.manual_lift_probe_hint.setText(
@@ -6810,6 +6834,39 @@ class _PreviewPanel:
                                 "status", "NOT_EVALUATED"
                             )
                         )
+                    # Keep a second OCC snapshot for a true 180-degree
+                    # RETRACT blocker. It is diagnostic only and never
+                    # replaces the current orientation or Manual COLLISION.
+                    for alt_bend_id, alt_report in (
+                            alternative_collision_reports.items()):
+                        alt_step = next((
+                            item for item in alt_report.get("steps", ())
+                            if item.get("bend_id") == alt_bend_id
+                            and item.get("status") == "COLLISION"
+                            and (item.get("first_blocker") or {}).get(
+                                "sampled_machine_pose"
+                            )
+                        ), None)
+                        if alt_step is not None:
+                            self._alternate_retract_inspection = {
+                                "bend_id": alt_bend_id,
+                                "reverse_axis": bool(
+                                    alt_step.get("reverse_axis", False)
+                                ),
+                                "first_blocker": alt_step["first_blocker"],
+                                "retract": alt_step.get("retract") or {},
+                                "tooling_identity": native_tooling_identity,
+                                "alternative_only": True,
+                            }
+                            _desktop_debug_event(
+                                "MANUAL_ALTERNATIVE_COLLISION_RETAINED",
+                                bend_id=alt_bend_id,
+                                reverse_axis=bool(
+                                    alt_step.get("reverse_axis", False)
+                                ),
+                                phase=alt_step["first_blocker"].get("phase"),
+                                tool=alt_step["first_blocker"].get("tool"),
+                            )
                     if self._collision_inspection:
                         self.manual_show_collision_btn.setEnabled(True)
                         self.manual_show_collision_btn.show()
@@ -6819,18 +6876,33 @@ class _PreviewPanel:
                         from smbs_core.kinematics2d.native_assisted_retract import (
                             eligible_assisted_retract,
                         )
-                        can_lift = eligible_assisted_retract(
-                            lift_hit, self._collision_inspection["retract"],
+                        from smbs_core.kinematics2d.native_assisted_retract import (
+                            select_assisted_retract_inspection,
+                        )
+                        lift_candidate = select_assisted_retract_inspection(
+                            self._collision_inspection,
+                            self._alternate_retract_inspection,
+                        )
+                        can_lift = lift_candidate is not None
+                        is_alternate = bool(
+                            lift_candidate and lift_candidate.get(
+                                "alternative_only", False
+                            )
                         )
                         self.manual_lift_probe_btn.setEnabled(can_lift)
                         self.manual_lift_probe_hint.setText(
-                            ("B{}: обнаружена коллизия при подъёме пуансона. "
-                             "Кнопка выше проверит альтернативный подъём детали; "
-                             "исходный COLLISION сохранится.").format(
-                                self._collision_inspection["bend_id"]
+                            (
+                                "B{}: {}RETRACT заблокирован пуансоном. "
+                                "Проверить предполагаемый совместный подъём "
+                                "и вывод детали. Исходная коллизия останется."
+                            ).format(
+                                lift_candidate["bend_id"],
+                                "альтернативный разворот 180°; "
+                                if is_alternate else "",
                             ) if can_lift else
-                            "Найденная коллизия не относится к отдельному "
-                            "эксперименту подъёма детали с пуансоном."
+                            "Обе ориентации проверены. Для выбранной позы "
+                            "подвод/гибка блокированы; безопасный вывод "
+                            "пока не подтверждён."
                         )
                         _desktop_debug_event(
                             "MANUAL_ASSISTED_RETRACT_AVAILABILITY",
