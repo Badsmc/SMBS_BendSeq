@@ -56,6 +56,24 @@ def add_native_blocker(
     return updated
 
 
+def propose_opposite_loading(
+    feedback: NativeCollisionFeedback,
+) -> tuple[tuple[str, ...], dict[str, bool]]:
+    """Test the collided bend flipped first; keep the complete order fixed.
+
+    Native OCC, not 2D projected clearance, decides whether this orientation
+    is actually usable. The proposal is NEVER a verified or cleared plan.
+    This changes ONLY the failed bend's machine loading, keeping all previous
+    successful setups and the later setup map unchanged.
+    """
+    key, _reason = feedback.blocked_transition()
+    _completed, failed_bend, rejected_reverse = key
+    proposed = dict(feedback.orientation_by_bend)
+    proposed[failed_bend] = not rejected_reverse
+    return feedback.sequence, proposed
+
+
+
 @dataclass(frozen=True)
 class FeedbackSearchOutcome:
     """Bounded planner/verifier loop output; unverified is never approved."""
