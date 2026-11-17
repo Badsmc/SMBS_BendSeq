@@ -12,6 +12,9 @@ from pathlib import Path
 RUNTIME_FINGERPRINT_SCHEMA = "smbs.runtime_source_sha256.v1"
 NATIVE_SOURCE_PATHS = (
     "freecad_smbs/commands/pressbrake_2d.py",
+    "freecad_smbs/ui/coin3d_viewer.py",
+    "freecad_smbs/ui/coin3d_machine.py",
+    "freecad_smbs/ui/tool_cap_triangulation.py",
     "smbs_core/kinematics2d/manual_physical_validation.py",
     "smbs_core/kinematics2d/native_collision_3d.py",
     "smbs_core/kinematics2d/motion_trajectory_3d.py",
