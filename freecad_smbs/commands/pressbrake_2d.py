@@ -3423,6 +3423,14 @@ class _PreviewPanel:
                         ))
                         text_item.setPos(project(corners[0]))
                         text_item.setZValue(501.0)
+                current_occ = self._matching_manual_occ_report(
+                    tuple(self.session.bend_order)
+                )
+                current_verdict = (
+                    self._manual_3d_verdicts.get(
+                        self.session.active_bend_id, "UNVERIFIED"
+                    ) if current_occ is not None else "UNVERIFIED"
+                )
                 label_text = (
                     ("3D КОЛЛИЗИЯ | гиб {} | фаза {} | угол {:.2f}° | "
                      "native XYZ BBox, НЕ поверхность контакта".format(
@@ -3430,9 +3438,10 @@ class _PreviewPanel:
                         (inspection["first_blocker"] or {}).get("phase", "?"),
                         float(actual.get("signed_angle_deg", 0.0)),
                     )) if inspection else
-                    "3D MACHINE FRAME | {} | {} | NOT 3D CERTIFIED".format(
+                    "3D MACHINE FRAME | {} | {} | OCC: {} (SAMPLED)".format(
                         self.session.active_bend_id,
                         self.execution_mode.value,
+                        current_verdict,
                     )
                 )
                 if tool_warning:
@@ -6481,6 +6490,7 @@ class _PreviewPanel:
                 self._set_task_busy(True)
                 self._manual_3d_verdicts.clear()
                 self._manual_retract_verdicts.clear()
+                self._conditional_bends_status.clear()
                 self._clear_manual_check_feedback()
                 self._last_manual_sequence_report = None
                 self.status.setText(
@@ -6786,6 +6796,11 @@ class _PreviewPanel:
                         self._manual_3d_verdicts[step["bend_id"]] = (
                             step["status"]
                         )
+                        if step["status"] == "CONDITIONAL":
+                            self._conditional_bends_status[step["bend_id"]] = (
+                                "CONDITIONAL: допуск концевой зоны, "
+                                "требуется физическое подтверждение выреза"
+                            )
                         self._manual_retract_verdicts[step["bend_id"]] = (
                             (step.get("retract") or {}).get(
                                 "status", "NOT_EVALUATED"
