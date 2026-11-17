@@ -241,6 +241,7 @@ def _build_transition_evaluator(
         finally:
             state.angles, state.transforms = originals
 
+    metrics["step_cache"] = cache
     return evaluate, metrics
 
 
@@ -307,6 +308,90 @@ def _rank(paths, limit):
     return chosen
 
 
+
+def _provisional_full_paths(axis_paths, source_order, blocked, step_cache,
+                            cost_for, limit):
+    """Build *unverified* complete orders for native OCC when 2D times out.
+
+    This is a candidate generator, NOT an assertion of 2D clearance.
+    Known confirmed native blockers and cached proven 2D obstacles are
+    respected for the exact folded-set/bend/loading hypothesis. Unchecked
+    transitions remain explicitly UNVERIFIED_2D, not sampled-clear.
+    """
+    from itertools import cycle
+
+    groups = [tuple(paths[0].order) for _, paths in axis_paths if paths]
+    if not groups or set(b for group in groups for b in group) != set(source_order):
+        return []
+    proposed = [tuple(source_order)]
+    proposed += [
+        tuple(b for group in groups[k:] + groups[:k] for b in group)
+        for k in range(len(groups))
+    ]
+    # A/B/A/B... interleaving. Preserve each axis's local order.
+    for offset in range(len(groups)):
+        shifted = groups[offset:] + groups[:offset]
+        proposed.append(tuple(
+            bend for depth in range(max(map(len, shifted)))
+            for group in shifted if depth < len(group)
+            for bend in (group[depth],)
+        ))
+    # Include second-best axis-local orders without combinatorial explosion.
+    for gi, (_name, paths) in enumerate(axis_paths):
+        if len(paths) > 1:
+            revised = list(groups)
+            revised[gi] = tuple(paths[1].order)
+            proposed.append(tuple(b for group in revised for b in group))
+    results = []
+    seen = set()
+    hard = {
+        "2D_INTERFERENCE", "2D_TOOLING_CONSTRAINT",
+        "CAD_3D_INTERFERENCE", "INVALID_INPUT",
+    }
+    for order in proposed:
+        if (order in seen or len(order) != len(source_order)
+                or set(order) != set(source_order)):
+            continue
+        seen.add(order)
+        steps = []
+        reverses = []
+        for index, bid in enumerate(order):
+            completed = frozenset(order[:index])
+            # Previous axis candidate orientations are only a preference.
+            # Never reuse a certified-clear label for a changed folded state.
+            preferred = next((
+                bool(path.orientations[path.order.index(bid)])
+                for _name, paths in axis_paths for path in paths
+                if bid in path.order and len(path.orientations) == len(path.order)
+            ), False)
+            orientation = next((
+                reverse for reverse in (preferred, not preferred)
+                if (completed, bid, reverse) not in blocked
+                and getattr(step_cache.get((completed, bid, reverse)),
+                            "evidence", None) not in hard
+            ), None)
+            if orientation is None:
+                break
+            reverses.append(orientation)
+            steps.append(PlanarStep(
+                bid, "UNVERIFIED_2D",
+                "PROVISIONAL_FULL_ORDER_REQUIRES_INDEPENDENT_NATIVE_OCC",
+                (), (), orientation_variant=(
+                    "REVERSE_MACHINE_Z_180" if orientation else "NORMAL"
+                ),
+            ))
+        if len(steps) != len(source_order):
+            continue
+        results.append(_Path(
+            order=order, orientations=tuple(reverses),
+            steps=tuple(steps), cost=sum(cost_for[bid] for bid in order)
+            + 25.0 * len(order), unknown=len(order),
+        ))
+        if len(results) >= limit:
+            break
+    return results
+
+
 def search_axis_staged_experiment(
     session: Any,
     tooling: Any,
@@ -340,9 +425,10 @@ def search_axis_staged_experiment(
         raise ValueError("invalid axis-staged search budgets")
     started = clock()
     deadline = started + max_time_s
-    # Preserve the final 30% for the 3D preview-risk stage instead of
-    # exhausting the entire soft budget on 2D axis/interleaving expansion.
-    search_deadline = started + max_time_s * 0.70
+    # Give each phase an independent reservation: axis screening 30%,
+    # combined orders 50%, 3D preview ranking 20% (soft deadlines).
+    axis_deadline = started + max_time_s * 0.30
+    search_deadline = started + max_time_s * 0.80
     weights = weights or OperationWeights()
     bend_weights = dict(bend_weights or {})
     state = session.fold_state
@@ -383,12 +469,12 @@ def search_axis_staged_experiment(
     )
     axis_paths = []
     for group in axes:
-        if clock() >= search_deadline:
-            break
+        # Still create an axis-order fallback when its screening budget expires.
+        # Never silently drop an entire axis group due to a time limit.
         bends = tuple(group.bend_ids)
         beam = [_Path()]
         for _ in bends:
-            if clock() >= search_deadline:
+            if clock() >= axis_deadline:
                 break
             expanded = []
             for path in beam:
@@ -474,6 +560,15 @@ def search_axis_staged_experiment(
             if len(merged) >= combined_pool * 2:
                 break
     merged = _rank(merged, combined_pool)
+    if len(merged) < combined_pool:
+        provisional = _provisional_full_paths(
+            axis_paths, order, blocked_transitions, counts["step_cache"],
+            cost_for, combined_pool,
+        )
+        existing = {(p.order, p.orientations) for p in merged}
+        merged.extend(p for p in provisional
+                      if (p.order, p.orientations) not in existing)
+        merged = _rank(merged, combined_pool)
     broadphase = []
     if broadphase_runner is None and transition_screen is None:
         from .axis_staged_broadphase_3d import preview_mesh_aabb_risk
@@ -577,6 +672,7 @@ def search_axis_staged_experiment(
             "2D sampled collision rejects only the tested pose and state.",
             "3D preview AABB overlapping faces is ranking only; no physical proof.",
             "No native continuous 3D or backgauge/frame/clamp clearance certified.",
+            "Provisional complete orders are unchecked 2D hypotheses for independent native OCC only.",
             "Native collision feedback excludes only exact folded-set/bend/loading hypotheses.",
         ),
         axis_groups=tuple((a.group_id, a.bend_ids) for a in axes),
