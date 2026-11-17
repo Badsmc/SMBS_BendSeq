@@ -1,0 +1,23 @@
+name: ManualMode pose and playback regression
+
+on:
+  push:
+    branches: [ManualMode]
+  pull_request:
+    branches: [ManualMode]
+  workflow_dispatch:
+
+jobs:
+  headless-contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: GUI syntax, FCStd and native replay contracts
+        run: |
+          python -m unittest discover -s tests -p 'test_gui_source_syntax.py' -v
+          python -m unittest discover -s tests -p 'test_manual_native_replay_contract.py' -v
+          python -m unittest discover -s tests -p 'test_fcstd_saved_sequences.py' -v
