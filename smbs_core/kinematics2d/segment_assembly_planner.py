@@ -9,14 +9,21 @@ from __future__ import annotations
 import json
 import math
 import os
-from dataclasses import replace
-from itertools import combinations
+from dataclasses import dataclass, replace
+from itertools import combinations, pairwise
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 
 from smbs_core.geometry_backend.io.clamp_validator import (
     ClampConfig, PunchSegment, validate_punch_chain,
 )
+from .tooling_assembly import (
+    CONTACT_EPS_MM, clamp_spans_for_centres, punch_segment_supports,
+)
+
+
+_MAX_STOCK_COMBINATIONS = 128
+_MAX_PUNCH_ORDERS = 2000
 
 
 class AssemblyPlanningError(ValueError):
@@ -93,37 +100,46 @@ def write_inventory(fcstd_path, rows):
 
 
 def _segment_combinations(rows, required, allowance, max_states=120000):
-    """Bounded finite-inventory search; never invent stock or silently truncate."""
+    """Find combinations throughout the allowed length window."""
     rows = validate_inventory(rows)
     if not rows:
-        return []
+        return [], False
     if not math.isfinite(required) or required <= 0:
         raise AssemblyPlanningError("invalid target bend length")
     if not math.isfinite(allowance) or allowance < 0:
         raise AssemblyPlanningError("invalid length allowance")
     solutions = []
     visited = 0
+    limited = False
+    upper = required + allowance
+    stock_remaining = [0.0] * (len(rows) + 1)
+    for index in reversed(range(len(rows))):
+        item = rows[index]
+        stock_remaining[index] = stock_remaining[index + 1] + item["length_mm"] * item["quantity"]
 
     def search(index, total, selected):
-        nonlocal visited
-        visited += 1
-        if visited > max_states:
-            raise AssemblyPlanningError("segment_search_limit_exceeded")
-        if required - 1e-6 <= total <= required + allowance + 1e-6:
-            solutions.append((round(total, 6), tuple(selected)))
+        nonlocal visited, limited
+        if visited == max_states:
+            limited = True
             return
-        if index == len(rows) or total > required + allowance + 1e-6:
+        visited += 1
+        if total + stock_remaining[index] < required - 1e-6:
+            return
+        if index == len(rows):
+            if required - 1e-6 <= total <= upper + 1e-6:
+                solutions.append((round(total, 6), tuple(selected)))
             return
         item = rows[index]
-        for n in range(min(item["quantity"],
-                           int((required + allowance - total) /
-                               item["length_mm"] + 1e-8)), -1, -1):
+        max_count = min(item["quantity"], int((upper + 1e-6 - total) / item["length_mm"]))
+        for n in range(max_count, -1, -1):
             search(index + 1, total + n * item["length_mm"],
                    selected + [(item["length_mm"], n)] if n else selected)
+            if limited:
+                break
     search(0, 0., [])
     solutions.sort(key=lambda item: (item[0] - required,
                                     sum(n for _, n in item[1]), item[1]))
-    return solutions[:128]
+    return solutions, limited
 
 
 def _clamp_candidates(chain, config):
@@ -160,37 +176,34 @@ def _clamp_candidates(chain, config):
 
 
 def _validate_clamps(chain, config):
-    if not isinstance(config, ClampConfig):
-        raise AssemblyPlanningError("clamp configuration required")
+    spans = tuple((seg.start_mm, seg.end_mm) for seg in chain)
     for centers, proposed in _clamp_candidates(chain, config):
         # Check all clamp blocks, not only their support under the chain.
         if any(centers[i+1]-centers[i] <
                config.width_mm + config.gap_between_mm - 1e-6
                for i in range(len(centers)-1)):
             continue
-        half = config.width_mm / 2.0
-
-        def has_contact(left, right, center):
-            return min(right, center + half) - max(left, center - half) > 1e-6
-
-        supported = sum(has_contact(chain[0].start_mm, chain[-1].end_mm, x) for x in centers)
-        if supported < config.min_clamps_under_punch or any(
-            not any(has_contact(seg.start_mm, seg.end_mm, x) for x in centers) for seg in chain
-        ):
+        zones = clamp_spans_for_centres(centers, config.width_mm)
+        supports = punch_segment_supports(spans, zones)
+        support_numbers = {number for segment in supports for number, _ in segment}
+        if len(support_numbers) < config.min_clamps_under_punch or not all(supports):
             continue
         candidate = replace(config, positions_mm=tuple(centers))
         validity = validate_punch_chain(chain, candidate)
         if validity.valid:
-            return {"centers_mm": list(centers),
-                    "width_mm": float(config.width_mm),
-                    "gap_between_mm": float(config.gap_between_mm),
-                    "proposed_reposition": proposed, "status": (
-                        "PROPOSED_REPOSITION_UNVERIFIED" if proposed
-                        else "CONFIGURED_CLAMP_LAYOUT_VALID")}
+            plan = {
+                "centers_mm": list(centers),
+                "width_mm": float(config.width_mm),
+                "gap_between_mm": float(config.gap_between_mm),
+                "proposed_reposition": proposed,
+                "status": ("PROPOSED_REPOSITION_UNVERIFIED" if proposed
+                           else "CONFIGURED_CLAMP_LAYOUT_VALID"),
+            }
+            return plan, supports
     return None
 
 
-def _unique_segment_orders(lengths, max_orders=2000):
+def _unique_segment_orders(lengths, max_orders=_MAX_PUNCH_ORDERS):
     """Visit descending lexicographic orders of the multiset once each."""
     order = sorted(lengths, reverse=True)
     for _ in range(max_orders):
@@ -207,58 +220,158 @@ def _unique_segment_orders(lengths, max_orders=2000):
         order[pivot + 1:] = reversed(order[pivot + 1:])
 
 
+def _punch_shifts(chain, bend_length_mm, zones, config):
+    """Test endpoints and intervals where contact, joints or overhang change."""
+    yield 0.0
+    first, last = chain[0], chain[-1]
+    lo = min(0.0, bend_length_mm / 2.0 - last.end_mm)
+    hi = max(0.0, -bend_length_mm / 2.0 - first.start_mm)
+    if not zones or hi - lo <= 1e-9:
+        return
+
+    events = {lo, hi, 0.0}
+    tolerance = config.joint_tolerance_mm
+    left_overhang = config.overhang_ratio * first.length_mm + tolerance
+    right_overhang = config.overhang_ratio * last.length_mm + tolerance
+
+    def add(*values):
+        events.update(value for value in values if lo <= value <= hi)
+
+    for left, right in zones:
+        add(
+            left - last.end_mm - tolerance, right - first.start_mm + tolerance,
+            left - first.start_mm - left_overhang, right - last.end_mm + right_overhang,
+        )
+        for index, segment in enumerate(chain):
+            start, end = segment.start_mm, segment.end_mm
+            add(
+                left - end + CONTACT_EPS_MM, right - start - CONTACT_EPS_MM,
+                left - start, right - end,
+            )
+            if config.joints_must_be_on_clamps and index < len(chain) - 1:
+                add(left - end - tolerance, right - end + tolerance)
+
+    boundaries = sorted(events)
+    events.update((a + b) / 2.0 for a, b in pairwise(boundaries) if b - a > 1e-9)
+    events.remove(0.0)
+    yield from sorted(events, key=lambda shift: (abs(shift), shift))
+
+
+@dataclass(frozen=True)
+class _PunchLayout:
+    chain: tuple[PunchSegment, ...]
+    clamp_plan: dict
+    supports: tuple
+    shift_mm: float
+    short_support: float
+
+    @property
+    def rank(self):
+        return round(self.short_support, 9), -abs(self.shift_mm)
+
+
+def _place_punch(lengths, bend_length_mm, config, zones, max_clamp_gap):
+    cursor = -math.fsum(lengths) / 2.0
+    chain = []
+    for length in lengths:
+        chain.append(PunchSegment(cursor, cursor + length))
+        cursor += length
+    short_sections = tuple(i for i, length in enumerate(lengths)
+                           if length <= max_clamp_gap + CONTACT_EPS_MM)
+
+    best = None
+    for shift in _punch_shifts(chain, bend_length_mm, zones, config):
+        shifted = tuple(PunchSegment(seg.start_mm + shift, seg.end_mm + shift) for seg in chain)
+        validation = _validate_clamps(shifted, config)
+        if validation is None:
+            continue
+        clamp_plan, supports = validation
+        fraction = min(
+            (max(overlap for _, overlap in supports[i]) / lengths[i] for i in short_sections),
+            default=1.0,
+        )
+        candidate = _PunchLayout(shifted, clamp_plan, supports, shift, min(1.0, fraction))
+        if best is None or candidate.rank > best.rank:
+            best = candidate
+        if best.rank[0] == 1.0:
+            break
+    return best
+
+
 def plan_pair_for_bend(punch_inventory, die_inventory, bend_length_mm,
                        clamps: ClampConfig, allowance_mm=15.0):
     """Find a stock-bounded assembled punch+die for a single bend.
 
-    Exact bend length is preferred. Surplus <= allowance_mm is permitted and
-    displayed; no claim of full tool/part collision-free assembly is made.
+    Try stock combinations and machine-X positions that cover the centred
+    bend. Prefer full support for sections short enough to fit in a gap.
     """
-    p_solutions = _segment_combinations(punch_inventory, bend_length_mm,
-                                        allowance_mm)
-    d_solutions = _segment_combinations(die_inventory, bend_length_mm,
-                                        allowance_mm)
+    if not isinstance(clamps, ClampConfig):
+        raise AssemblyPlanningError("clamp configuration required")
+    p_solutions, p_limited = _segment_combinations(punch_inventory, bend_length_mm, allowance_mm)
+    d_solutions, d_limited = _segment_combinations(die_inventory, bend_length_mm, allowance_mm)
     if not p_solutions or not d_solutions:
-        return {"status": "NO_INVENTORY_COMBINATION",
-                "required_mm": bend_length_mm}
-    for p_total, p_counts in p_solutions:
-        # Explore distinct orders only; duplicate segment lengths may
-        # otherwise explode to factorial-sized iterators.
+        missing = ((p_solutions, p_limited), (d_solutions, d_limited))
+        exhausted = any(not options and not limited for options, limited in missing)
+        status = "NO_INVENTORY_COMBINATION" if exhausted else "ASSEMBLY_SEARCH_LIMIT"
+        return {"status": status, "required_mm": bend_length_mm}
+    zones = clamp_spans_for_centres(clamps.centres_mm, clamps.width_mm)
+    gaps = tuple(right[0] - left[1] for left, right in pairwise(zones))
+    if zones and (len(zones) < clamps.min_clamps_under_punch
+                  or any(gap < clamps.gap_between_mm - CONTACT_EPS_MM for gap in gaps)):
+        return {"status": "NO_CLAMP_COMPATIBLE_ASSEMBLY", "required_mm": bend_length_mm}
+    max_clamp_gap = max(gaps, default=0.0)
+    search_limited = p_limited or len(p_solutions) > _MAX_STOCK_COMBINATIONS
+    selected = None
+    for p_total, p_counts in p_solutions[:_MAX_STOCK_COMBINATIONS]:
         expanded = [length for length, count in p_counts
                     for _ in range(count)]
-        for lengths in _unique_segment_orders(expanded):
-            cursor = -p_total / 2.
-            chain = []
-            for length in lengths:
-                chain.append(PunchSegment(cursor, cursor + length))
-                cursor += length
-            clamp_plan = _validate_clamps(chain, clamps)
-            if clamp_plan is None:
-                continue
-            d_total, d_counts = d_solutions[0]
-            die_cursor = -d_total / 2.
-            die_positions = []
-            for length, count in d_counts:
-                for _ in range(count):
-                    die_positions.append({
-                        "length_mm": length,
-                        "start_x_mm": die_cursor,
-                        "end_x_mm": die_cursor + length,
-                    })
-                    die_cursor += length
-            return {
-                "status": "ASSEMBLY_CANDIDATE_UNVERIFIED",
-                "required_mm": float(bend_length_mm),
-                "punch_total_mm": p_total,
-                "die_total_mm": d_total,
-                "punch_segments": [
-                    {"length_mm": length, "start_x_mm": seg.start_mm,
-                     "end_x_mm": seg.end_mm}
-                    for length, seg in zip(lengths, chain)],
-                "die_segments": die_positions,
-                "clamps": clamp_plan,
-                "limitations": ("No native OCC collision certification; "
-                                "movable clamp travel and mounting unverified"),
-            }
-    return {"status": "NO_CLAMP_COMPATIBLE_ASSEMBLY",
-            "required_mm": bend_length_mm}
+        best = None
+        orders = _unique_segment_orders(expanded, _MAX_PUNCH_ORDERS + 1)
+        for index, lengths in enumerate(orders):
+            if index == _MAX_PUNCH_ORDERS:
+                search_limited = True
+                break
+            placed = _place_punch(lengths, bend_length_mm, clamps, zones, max_clamp_gap)
+            if placed is not None and (best is None or placed.rank > best.rank):
+                best = placed
+                if best.rank == (1.0, 0.0):
+                    break
+        if best is None:
+            continue
+        if selected is None or best.rank[0] > selected[1].rank[0]:
+            selected = p_total, best
+        if best.rank[0] == 1.0:
+            break
+
+    if selected is None:
+        status = "ASSEMBLY_SEARCH_LIMIT" if search_limited else "NO_CLAMP_COMPATIBLE_ASSEMBLY"
+        return {"status": status, "required_mm": bend_length_mm}
+
+    p_total, best = selected
+    d_total, d_counts = d_solutions[0]
+    die_cursor = -d_total / 2.0
+    die_positions = []
+    for length, count in d_counts:
+        for _ in range(count):
+            end = die_cursor + length
+            die_positions.append({"length_mm": length, "start_x_mm": die_cursor, "end_x_mm": end})
+            die_cursor = end
+    return {
+        "status": "ASSEMBLY_CANDIDATE_UNVERIFIED",
+        "required_mm": float(bend_length_mm),
+        "punch_total_mm": p_total,
+        "punch_center_x_mm": best.shift_mm,
+        "die_total_mm": d_total,
+        "punch_segments": [
+            {"length_mm": round(seg.length_mm, 6), "start_x_mm": seg.start_mm,
+             "end_x_mm": seg.end_mm, "clamp_support": [
+                 {"clamp_number": number, "overlap_mm": overlap}
+                 for number, overlap in supports
+             ]}
+            for seg, supports in zip(best.chain, best.supports)
+        ],
+        "die_segments": die_positions,
+        "clamps": best.clamp_plan,
+        "limitations": ("No native OCC collision certification; "
+                        "movable clamp travel and mounting unverified"),
+    }

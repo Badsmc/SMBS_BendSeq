@@ -13,7 +13,7 @@ from smbs_core.geometry_backend.io.clamp_validator import (
 from smbs_core.kinematics2d.segment_assembly_planner import (
     AssemblyPlanningError,
     read_inventory, write_inventory, validate_inventory,
-    plan_pair_for_bend, _unique_segment_orders,
+    plan_pair_for_bend, _segment_combinations, _unique_segment_orders,
 )
 from smbs_core.kinematics2d.tooling_assembly import ToolAssembly
 
@@ -124,6 +124,35 @@ class SegmentPlannerTests(unittest.TestCase):
         segments = [{"length_mm": 40, "quantity": 3}]
         plan = plan_pair_for_bend(segments, segments, 120, config, allowance_mm=0)
         self.assertEqual(plan["status"], "NO_CLAMP_COMPATIBLE_ASSEMBLY")
+
+    def test_short_segment_is_supported_after_choosing_and_shifting_a_longer_set(self):
+        config = replace(clamps(gap=20, positions=(-30, 30)), width_mm=40)
+        punch = [{"length_mm": 50, "quantity": 2}, {"length_mm": 12, "quantity": 1}]
+        die = [{"length_mm": 100, "quantity": 1}]
+
+        exact = plan_pair_for_bend(punch, die, 100, config, allowance_mm=0)
+        self.assertEqual(exact["status"], "NO_CLAMP_COMPATIBLE_ASSEMBLY")
+        plan = plan_pair_for_bend(punch, die, 100, config)
+        assembly = ToolAssembly.from_plan(plan)
+        self.assertEqual(plan["punch_total_mm"], 112)
+        self.assertEqual(plan["punch_center_x_mm"], -6)
+        self.assertEqual(assembly.punch_spans_xm, ((-62, -12), (-12, 38), (38, 50)))
+        self.assertEqual(assembly.die_spans_xm, ((-50, 50),))
+        self.assertEqual(plan["clamps"]["centers_mm"], [-30, 30])
+        self.assertEqual(plan["punch_segments"][-1]["clamp_support"],
+                         [{"clamp_number": 2, "overlap_mm": 12.0}])
+
+    def test_segment_touching_both_clamp_edges_has_no_support(self):
+        config = replace(clamps(gap=30, positions=(-40, 40)), width_mm=50)
+        stock = [{"length_mm": 30, "quantity": 3}]
+        plan = plan_pair_for_bend(stock, stock, 90, config, allowance_mm=0)
+        self.assertEqual(plan["status"], "NO_CLAMP_COMPATIBLE_ASSEMBLY")
+
+    def test_stock_search_limit_keeps_combinations_already_found(self):
+        punch = [{"length_mm": 50, "quantity": 2}, {"length_mm": 12, "quantity": 1}]
+        options, limited = _segment_combinations(punch, 100, 15, max_states=3)
+        self.assertTrue(limited)
+        self.assertEqual(options, [(112, ((50, 2), (12, 1)))])
 
     def test_assembly_can_use_more_than_twelve_stock_segments(self):
         config = replace(clamps(gap=0, positions=()), clamp_count=7, width_mm=150)

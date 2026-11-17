@@ -3398,6 +3398,9 @@ class _PreviewPanel:
                 from collections import Counter
                 from smbs_core.geometry_backend.io.clamp_validator import ClampValidatorError
                 from smbs_core.kinematics2d.segment_assembly_planner import plan_pair_for_bend
+                from smbs_core.kinematics2d.tooling_assembly import (
+                    clamp_spans_for_centres, punch_segment_supports,
+                )
 
                 if self.session is None:
                     self.status.setText("Загрузите деталь перед подбором набора.")
@@ -3424,35 +3427,40 @@ class _PreviewPanel:
                     self.status.setText(str(exc))
                     return
 
-                def describe_sections(label, spans):
+                def describe_sections(label, spans, clamp_spans=()):
                     lengths = [round(hi - lo, 6) for lo, hi in spans]
                     counts = Counter(lengths)
                     stock = ", ".join(f"{length:g} мм × {count}" for length, count in counts.items())
-                    return [f"  {label} {sum(lengths):.3f} мм · {stock}"] + [
-                        f"    {index}. {length:g} мм · X {lo:+.3f}…{hi:+.3f}"
-                        for index, ((lo, hi), length) in enumerate(zip(spans, lengths), 1)
-                    ]
+                    lines = [f"  {label} {sum(lengths):.3f} мм · {stock}"]
+                    if clamp_spans:
+                        center = (spans[0][0] + spans[-1][1]) / 2.0
+                        lines.append(f"  Центр пуансона по X {center:+.3f} мм")
+                    support = punch_segment_supports(spans, clamp_spans)
+                    for index, ((lo, hi), length, contacts) in enumerate(zip(spans, lengths, support), 1):
+                        entry = f"    {index}. {length:g} мм · X {lo:+.3f}…{hi:+.3f}"
+                        if contacts:
+                            overlaps = ", ".join(f"№{number} ({overlap:.3g} мм)"
+                                                 for number, overlap in contacts)
+                            entry += f" · опора на лапки {overlaps}"
+                        lines.append(entry)
+                    return lines
 
                 def describe(plan):
                     if plan["status"] == "NO_INVENTORY_COMBINATION":
                         return ["  Пуансон или матрицу нужной длины не собрать из имеющихся сегментов."]
+                    if plan["status"] == "ASSEMBLY_SEARCH_LIMIT":
+                        return ["  Подбор остановился до проверки всех вариантов раскладки."]
                     if plan["status"] != "ASSEMBLY_CANDIDATE_UNVERIFIED":
                         return ["  Не найден набор с опорой на заданные зажимы."]
+                    clamps = plan["clamps"]
+                    zones = clamp_spans_for_centres(clamps["centers_mm"], clamps["width_mm"])
                     lines = []
                     for kind, label in (("punch", "Пуансон"), ("die", "Матрица")):
                         spans = tuple((item["start_x_mm"], item["end_x_mm"])
                                       for item in plan[kind + "_segments"])
-                        lines.extend(describe_sections(label, spans))
-                    clamps = plan["clamps"]
+                        lines.extend(describe_sections(label, spans, zones if kind == "punch" else ()))
                     centres = ", ".join(f"{x:+.3f}" for x in clamps["centers_mm"])
-                    half = clamps["width_mm"] / 2.0
-                    lo = plan["punch_segments"][0]["start_x_mm"]
-                    hi = plan["punch_segments"][-1]["end_x_mm"]
-                    used = ", ".join(str(i) for i, x in enumerate(clamps["centers_mm"], 1)
-                                     if min(x + half, hi) - max(x - half, lo) > 1e-6)
                     lines.append(f"  Центры зажимов по X, мм · {centres}")
-                    if used:
-                        lines.append(f"  Опоры под пуансоном · {used}")
                     if clamps["proposed_reposition"]:
                         lines.append("  Предложенные позиции зажимов. Сверьте их со станком.")
                     return lines
@@ -3493,7 +3501,9 @@ class _PreviewPanel:
                     header = list(titles)
                     if assembly is not None:
                         header.extend(["", f"Общий набор активен в Coin3D и OCC · {assembly.bend_length_mm:.3f} мм"])
-                        header.extend(describe_sections("Пуансон", assembly.punch_spans_xm))
+                        header.extend(describe_sections(
+                            "Пуансон", assembly.punch_spans_xm, assembly.clamp_spans_xm,
+                        ))
                         header.extend(describe_sections("Матрица", assembly.die_spans_xm))
                         centres = ", ".join(f"{(lo + hi) / 2:+.3f}" for lo, hi in assembly.clamp_spans_xm)
                         header.append(f"  Центры зажимов по X, мм · {centres}")

@@ -139,8 +139,9 @@ Review `MANUAL_ASSISTED_RETRACT_EXPERIMENT` and
    **Набрать оснастку — расчёт сегментов** in **Порядок и проверка**.
    The report shows for each bend: nominal bend length, actual assembled
    punch and die totals, every segment's length and machine-X start/end,
-   and the clamp center positions/width/minimum gap. The inventory is
-   reused between successive bends (not consumed permanently).
+   and the clamp centres, width and minimum gap. It also shows the punch
+   centre and how many millimetres of each segment sit under each clamp.
+   The inventory is reused between successive bends.
 4. Use **Применить общий набор** inside the report to use one fixed
    layout for the selected bends. It covers the longest selected bend.
    Coin3D and OCC use the same segment intervals from verified FCStd
@@ -148,10 +149,12 @@ Review `MANUAL_ASSISTED_RETRACT_EXPERIMENT` and
    Opening a saved FCStd recalculates the active layout using the current
    inventory and clamp configuration.
 
-The finite-stock solver prefers the closest assembly that **covers the
-bend length**, with at most 15 mm excess; it never fabricates segment
-counts. If clamps cannot support the sections, no feasible candidate is
-presented. Fixed clamp positions are obeyed. If no positions are specified
+The planner tries stock lengths, different section orders and punch
+offsets along X within the 15 mm length allowance. Both tools still cover
+the centred bend line. Each punch segment needs positive overlap with a
+clamp. For segments short enough to fit in a clamp gap, the planner
+prefers full support under a clamp. The planner uses the configured
+clamp positions. If no positions are specified
 and clamps are movable, calculated clamp centers are explicitly marked
 `PROPOSED_REPOSITION_UNVERIFIED` and require operator confirmation.
 
