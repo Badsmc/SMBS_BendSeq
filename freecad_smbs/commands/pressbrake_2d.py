@@ -7036,7 +7036,10 @@ class _PreviewPanel:
                     for control, enabled in old_control_states:
                         control.setEnabled(enabled)
 
-                if open_collision and not self._open_exact_collision_inspector():
+                if open_collision:
+                    # Show the exact sampled native pose in the integrated 3D
+                    # viewer first. The separate FreeCAD OCC document remains
+                    # available explicitly from its inspection button.
                     self._show_first_collision_in_3d()
 
             def simulate_manual_order_unverified(self):
@@ -7972,8 +7975,16 @@ class _PreviewPanel:
                                 self.session.active_bend_id,
                                 self.session.current_angle_deg,
                                 self.timer.interval(),
-                                " | UNVERIFIED" if self._manual_preview_unverified
-                                else "",
+                                (" | OCC:" + str(
+                                    self._manual_3d_verdicts.get(
+                                        self.session.active_bend_id,
+                                        "UNVERIFIED",
+                                    )
+                                ) + " (выборочная проверка)"
+                                 if self._matching_manual_occ_report(
+                                     tuple(self.session.bend_order)
+                                 ) is not None else
+                                 " | UNVERIFIED"),
                             )
                         )
                 except Exception as exc:
