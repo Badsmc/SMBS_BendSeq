@@ -318,7 +318,6 @@ def _provisional_full_paths(axis_paths, source_order, blocked, step_cache,
     respected for the exact folded-set/bend/loading hypothesis. Unchecked
     transitions remain explicitly UNVERIFIED_2D, not sampled-clear.
     """
-    from itertools import cycle
 
     groups = [tuple(paths[0].order) for _, paths in axis_paths if paths]
     if not groups or set(b for group in groups for b in group) != set(source_order):
