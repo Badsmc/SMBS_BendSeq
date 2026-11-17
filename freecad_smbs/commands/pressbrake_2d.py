@@ -1493,7 +1493,7 @@ class _PreviewPanel:
                 t_row1 = QtWidgets.QHBoxLayout()
                 self.import_punch_btn = _button(QtWidgets, "Import Punch", self.import_punch_dialog, True)
                 self.import_die_btn = _button(QtWidgets, "Import Die", self.import_die_dialog, True)
-                self.tool_library_btn = _button(QtWidgets, "Tool Library", self.open_tool_library_dialog, True)
+                self.tool_library_btn = _button(QtWidgets, "Библиотека оснастки", self.open_full_tooling_library, True)
                 for w in (self.import_punch_btn, self.import_die_btn, self.tool_library_btn):
                     t_row1.addWidget(w)
                 t_layout.addLayout(t_row1)
@@ -2303,6 +2303,24 @@ class _PreviewPanel:
                 )
                 tool_main_layout.addRow("Punch", self.select_punch_combo)
                 tool_main_layout.addRow("Die", self.select_die_combo)
+                # Keep the section workflow discoverable on the main
+                # tooling page; it must not be hidden in a second library UI.
+                self.tooling_segments_library_btn = style_action(
+                    QtWidgets.QPushButton("Сегменты и количество"),
+                    compact=True,
+                )
+                self.tooling_segments_library_btn.clicked.connect(
+                    self.open_full_tooling_library
+                )
+                self.tooling_assembly_report_btn = style_action(
+                    QtWidgets.QPushButton("Рассчитать набор сегментов"),
+                    compact=True,
+                )
+                self.tooling_assembly_report_btn.clicked.connect(
+                    self._show_manual_tooling_assembly
+                )
+                tool_main_layout.addRow(self.tooling_segments_library_btn)
+                tool_main_layout.addRow(self.tooling_assembly_report_btn)
                 # Keep diagnostics in the shared task status area, not
                 # as an extra paragraph below the two selectors.
                 self.tooling_status.setParent(self)
@@ -5061,6 +5079,28 @@ class _PreviewPanel:
                     msg = f"Ошибка импорта инструмента: {exc}"
                     _warn(msg)
                     self.status.setText(msg)
+
+            def open_full_tooling_library(self):
+                """Open the single canonical library with segment inventory."""
+                if activate_task_dialog(self, "full_tooling_library"):
+                    return
+                from freecad_smbs.resources.tooling_paths import (
+                    TOOL_LIBRARY_ROOT,
+                )
+                from smbs_core.geometry_backend.io.tooling_library import (
+                    ToolingLibrary,
+                )
+                from freecad_smbs.ui.tooling_panel import ToolingPanel
+                try:
+                    library = ToolingLibrary(TOOL_LIBRARY_ROOT)
+                    panel = ToolingPanel(library, parent=self)
+                    embed_task_dialog(
+                        self, panel, "Библиотека", "full_tooling_library"
+                    )
+                except Exception as exc:
+                    QtWidgets.QMessageBox.warning(
+                        self, "Библиотека оснастки", str(exc)
+                    )
 
             def open_tool_library_dialog(self):
                 if activate_task_dialog(self, "tool_profiles"):
