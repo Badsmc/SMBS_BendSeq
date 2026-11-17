@@ -7,6 +7,8 @@ No geometry from the user's original FCStd is modified or persisted.
 """
 from __future__ import annotations
 
+from .tooling_assembly import has_native_sections, native_section_options
+
 from math import dist, isfinite
 from pathlib import Path
 from typing import Any
@@ -134,10 +136,8 @@ def reconstruct_exact_collision(
     die_src = _source_path(getattr(tooling, "die", None))
     if punch_src is None or die_src is None:
         raise NativeCollisionInspectionError("selected_verified_FCStd_tool_missing")
-    if (getattr(tooling, "punch_section_offsets_xm", ())
-            or getattr(tooling, "die_section_offsets_xm", ())):
-        if getattr(tooling, "match_active_bend_length", False):
-            raise NativeCollisionInspectionError("sections_incompatible_with_virtual_length")
+    if has_native_sections(tooling) and getattr(tooling, "match_active_bend_length", False):
+        raise NativeCollisionInspectionError("sections_incompatible_with_virtual_length")
     virtual_len = (dist(*state.bends[bend_id].axis_xyz)
                    if bool(getattr(tooling, "match_active_bend_length", False)) else None)
 
@@ -149,14 +149,14 @@ def reconstruct_exact_collision(
     sheet_machine = _machine_transform(sheet, machine, App)
     punch = load_native_punch(
         Path(punch_src), virtual_length_mm=virtual_len,
-        section_offsets_xm=getattr(tooling, "punch_section_offsets_xm", ()) or None,
+        **native_section_options(tooling, "punch"),
     )
     punch_machine = set_punch_ram_z(
         punch, float(pose["ram_z_mm"]),
     ).machine_shape
     die_machine = load_native_die(
         Path(die_src), virtual_length_mm=virtual_len,
-        section_offsets_xm=getattr(tooling, "die_section_offsets_xm", ()) or None,
+        **native_section_options(tooling, "die"),
     ).machine_shape
     tools = {"PUNCH": punch_machine, "DIE": die_machine}
     requested = (["PUNCH", "DIE"] if blocker["tool"] == "PUNCH_AND_DIE"

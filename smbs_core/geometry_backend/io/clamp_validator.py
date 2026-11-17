@@ -18,7 +18,9 @@ from __future__ import annotations
 import json
 import os
 from dataclasses import dataclass
+from math import isfinite
 from pathlib import Path
+from tempfile import NamedTemporaryFile
 from typing import Optional, List, Tuple
 
 DEFAULT_CLAMP_WIDTH_MM = 150.0
@@ -43,8 +45,15 @@ class ClampConfig:
     repositionable: bool = True
     joints_must_be_on_clamps: bool = True
     no_gaps_between_punches: bool = True
+    clamp_count: int = 0              # centred row, used when no explicit centres are entered
 
     def __post_init__(self):
+        def finite_number(value):
+            return type(value) in (int, float) and isfinite(value)
+
+        if not all(map(finite_number, (self.width_mm, self.gap_between_mm,
+                                      self.overhang_ratio, self.joint_tolerance_mm))):
+            raise ClampValidatorError("Clamp dimensions and tolerances must be finite numbers")
         if self.width_mm <= 0:
             raise ClampValidatorError(f"width_mm must be positive, got {self.width_mm}")
         if self.gap_between_mm < 0:
@@ -53,12 +62,28 @@ class ClampConfig:
             raise ClampValidatorError(f"overhang_ratio must be in [0, 1], got {self.overhang_ratio}")
         if self.joint_tolerance_mm < 0:
             raise ClampValidatorError(f"joint_tolerance_mm cannot be negative, got {self.joint_tolerance_mm}")
-        if self.min_clamps_under_punch < 1:
+        if type(self.min_clamps_under_punch) is not int or self.min_clamps_under_punch < 1:
             raise ClampValidatorError(f"min_clamps_under_punch must be >= 1, got {self.min_clamps_under_punch}")
-        # Ensure positions are sorted
+        if type(self.clamp_count) is not int or self.clamp_count < 0:
+            raise ClampValidatorError("clamp_count must be a nonnegative integer")
+        if any(type(option) is not bool for option in (self.repositionable,
+                self.joints_must_be_on_clamps, self.no_gaps_between_punches)):
+            raise ClampValidatorError("Clamp options must be booleans")
+        if (not isinstance(self.positions_mm, (list, tuple))
+                or not all(map(finite_number, self.positions_mm))
+                or len(set(self.positions_mm)) != len(self.positions_mm)):
+            raise ClampValidatorError("Clamp centres must be a list of distinct finite numbers")
         sorted_pos = tuple(sorted(self.positions_mm))
         if self.positions_mm != sorted_pos:
             object.__setattr__(self, "positions_mm", sorted_pos)
+
+    @property
+    def centres_mm(self) -> tuple[float, ...]:
+        if self.positions_mm:
+            return self.positions_mm
+        pitch = self.width_mm + self.gap_between_mm
+        half_span = (self.clamp_count - 1) * pitch / 2.0
+        return tuple(i * pitch - half_span for i in range(self.clamp_count))
 
     @classmethod
     def from_defaults(cls, positions_mm: tuple[float, ...] = ()) -> "ClampConfig":
@@ -82,28 +107,17 @@ class ClampConfig:
             clamps = data["clamps"]
             punch_chain = data["punch_chain"]
 
-            width_mm = float(clamps["width_mm"])
-            gap_between_mm = float(clamps["gap_between_mm"])
-            raw_positions = clamps["positions_mm"]
-            positions_mm = tuple(sorted(float(p) for p in raw_positions))
-            min_clamps_under_punch = int(clamps["min_clamps_under_punch"])
-            repositionable = bool(clamps["repositionable"])
-
-            joints_must_be_on_clamps = bool(punch_chain["joints_must_be_on_clamps"])
-            joint_tolerance_mm = float(punch_chain["joint_tolerance_mm"])
-            no_gaps_between_punches = bool(punch_chain["no_gaps_between_punches"])
-            overhang_ratio = float(punch_chain["end_overhang_ratio"])
-
             return cls(
-                width_mm=width_mm,
-                gap_between_mm=gap_between_mm,
-                positions_mm=positions_mm,
-                overhang_ratio=overhang_ratio,
-                joint_tolerance_mm=joint_tolerance_mm,
-                min_clamps_under_punch=min_clamps_under_punch,
-                repositionable=repositionable,
-                joints_must_be_on_clamps=joints_must_be_on_clamps,
-                no_gaps_between_punches=no_gaps_between_punches,
+                width_mm=clamps["width_mm"],
+                gap_between_mm=clamps["gap_between_mm"],
+                positions_mm=clamps["positions_mm"],
+                overhang_ratio=punch_chain["end_overhang_ratio"],
+                joint_tolerance_mm=punch_chain["joint_tolerance_mm"],
+                min_clamps_under_punch=clamps["min_clamps_under_punch"],
+                repositionable=clamps["repositionable"],
+                joints_must_be_on_clamps=punch_chain["joints_must_be_on_clamps"],
+                no_gaps_between_punches=punch_chain["no_gaps_between_punches"],
+                clamp_count=clamps.get("count", 0),
             )
         except (KeyError, TypeError, ValueError) as e:
             raise ClampValidatorError(f"Invalid ClampConfig dict: {e}") from e
@@ -116,6 +130,7 @@ class ClampConfig:
                 "width_mm": self.width_mm,
                 "gap_between_mm": self.gap_between_mm,
                 "positions_mm": list(self.positions_mm),
+                "count": self.clamp_count,
                 "min_clamps_under_punch": self.min_clamps_under_punch,
                 "repositionable": self.repositionable,
             },
@@ -191,7 +206,7 @@ def validate_punch_chain(
     # Compute clamp zones: [center - W/2, center + W/2]
     half_w = config.width_mm / 2.0
     clamp_zones: List[Tuple[float, float, float]] = []  # (start, end, center)
-    for c in config.positions_mm:
+    for c in config.centres_mm:
         clamp_zones.append((c - half_w, c + half_w, c))
 
     # Rule 3: Minimum clamps intersecting the punch chain
@@ -262,42 +277,10 @@ def validate_punch_chain(
     return ClampValidationResult(valid=True, errors=(), warnings=())
 
 
-def _validate_with_schema(data: dict) -> None:
-    """Validate dictionary against tooling_library_config schema.
-
-    jsonschema is required — config.json is a contract, silent skip would violate invariant #4.
-    FreeCAD python ships jsonschema; if missing in another env, install or extend PYTHONPATH.
-    """
-    try:
-        import jsonschema
-    except ImportError as e:
-        raise ClampValidatorError(
-            "jsonschema is required for config validation. "
-            "FreeCAD python has it preinstalled; for other environments install jsonschema."
-        ) from e
-
-    schema_path = Path(__file__).resolve().parent.parent.parent / "contracts" / "schemas" / "tooling_library_config.schema.json"
-    if not schema_path.exists():
-        raise ClampValidatorError(f"Config schema not found: {schema_path}")
-
-    try:
-        with open(schema_path, "r", encoding="utf-8") as f:
-            schema = json.load(f)
-        jsonschema.validate(instance=data, schema=schema)
-    except jsonschema.ValidationError as e:
-        raise ClampValidatorError(f"Config schema validation failed: {e.message}") from e
-    except Exception as e:
-        raise ClampValidatorError(f"Unexpected error during schema validation: {e}") from e
-
-
 def validate_config_dict(data: dict) -> ClampConfig:
-    """Validate data dict against schema and return ClampConfig.
-
-    Public API for callers who load config from arbitrary paths
-    (e.g. CLI --clamps-config).
-    Raises ClampValidatorError on schema violation or invalid fields.
-    """
-    _validate_with_schema(data)
+    """Validate the library's versioned clamp settings using the standard library."""
+    if not isinstance(data, dict) or data.get("schema_version") != "1.0":
+        raise ClampValidatorError("Unsupported clamp config schema version")
     return ClampConfig.from_dict(data)
 
 
@@ -317,8 +300,7 @@ def load_clamp_config(library_root: Path) -> ClampConfig:
     except Exception as e:
         raise ClampValidatorError(f"Failed to read JSON from {config_file}: {e}") from e
 
-    _validate_with_schema(data)
-    return ClampConfig.from_dict(data)
+    return validate_config_dict(data)
 
 
 def save_clamp_config(library_root: Path, config: ClampConfig) -> None:
@@ -330,20 +312,19 @@ def save_clamp_config(library_root: Path, config: ClampConfig) -> None:
     lib_path = Path(library_root)
     lib_path.mkdir(parents=True, exist_ok=True)
     config_file = lib_path / "config.json"
-    tmp_file = lib_path / "config.json.tmp"
-
     data = config.to_dict()
-    _validate_with_schema(data)
+    validate_config_dict(data)
 
+    tmp_file = None
     try:
-        with open(tmp_file, "w", encoding="utf-8") as f:
+        with NamedTemporaryFile(mode="w", dir=lib_path, suffix=".tmp",
+                                encoding="utf-8", delete=False) as f:
+            tmp_file = Path(f.name)
             json.dump(data, f, indent=2)
             f.write("\n")
         os.replace(tmp_file, config_file)
     except Exception as e:
-        if tmp_file.exists():
-            try:
-                tmp_file.unlink()
-            except Exception:
-                pass
         raise ClampValidatorError(f"Failed to save config to {config_file}: {e}") from e
+    finally:
+        if tmp_file is not None:
+            tmp_file.unlink(missing_ok=True)

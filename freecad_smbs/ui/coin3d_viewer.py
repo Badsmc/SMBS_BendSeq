@@ -413,6 +413,8 @@ def create_coin_viewer(parent=None):
                 if tooling.match_active_bend_length else None,
                 tuple(tooling.punch_section_offsets_xm),
                 tuple(tooling.die_section_offsets_xm),
+                tooling.punch_section_spans_xm,
+                tooling.die_section_spans_xm,
                 round(float(punch_transform.tx), 5),
                 tuple(die_transform.to_matrix_tuple()),
             )

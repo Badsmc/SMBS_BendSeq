@@ -11,6 +11,8 @@ from math import isfinite
 from pathlib import Path
 from typing import Any
 
+from .tooling_assembly import has_native_sections, native_section_options
+
 
 @dataclass(frozen=True)
 class VerifiedToolSpans:
@@ -62,16 +64,21 @@ def span_from_native_shape(tool: Any, name: str) -> tuple[float, float]:
     return a, b
 
 
-def _verified_sections(tool: Any, name: str, requested_offsets: tuple[float, ...]):
+def _verified_sections(tool: Any, name: str, options: dict):
     """Verify that each native CAD section occupies its configured machine-X range."""
     from smbs_core.kinematics2d.native_tool_loader import check_tool_coverage
 
     sections = tuple(getattr(tool, "sections", ()))
-    expected_count = len(requested_offsets) if requested_offsets else 1
+    requested_offsets = options.get("section_offsets_xm") or ()
+    requested_spans = options.get("section_spans_xm") or ()
+    expected_count = len(requested_spans or requested_offsets) or 1
     if len(sections) != expected_count:
         raise ValueError(f"{name}: expected {expected_count} native sections, got {len(sections)}")
     spans = tuple(tuple(map(float, sec.span_xm)) for sec in sections)
-    if len(requested_offsets) > 1:
+    for actual, expected in zip(spans, requested_spans):
+        if any(abs(a - b) > 1e-6 for a, b in zip(actual, expected)):
+            raise ValueError(f"{name}: section placed at unexpected X span")
+    if requested_spans or len(requested_offsets) > 1:
         for sec, requested in zip(sections, requested_offsets):
             if abs(float(sec.offset_xm) - float(requested)) > 1e-6:
                 raise ValueError(f"{name}: section placed at unexpected X")
@@ -105,20 +112,20 @@ def verified_fixed_tool_spans(tooling: Any, *, ram_z_mm: float = 0.0) -> Verifie
     die_source = _source_path(getattr(tooling, "die", None))
     if punch_source is None or die_source is None:
         raise ValueError("Both selected tools must have GEOMETRY_VERIFIED FCStd source files")
-    p_offsets = tuple(getattr(tooling, "punch_section_offsets_xm", ()))
-    d_offsets = tuple(getattr(tooling, "die_section_offsets_xm", ()))
-    if bool(getattr(tooling, "match_active_bend_length", False)) and (p_offsets or d_offsets):
+    p_options = native_section_options(tooling, "punch")
+    d_options = native_section_options(tooling, "die")
+    if bool(getattr(tooling, "match_active_bend_length", False)) and has_native_sections(tooling):
         raise ValueError("physical sections and virtual tool stretching cannot be combined")
     punch = load_native_punch(
         punch_source, ram_z_mm=float(ram_z_mm),
-        section_offsets_xm=p_offsets or None,
+        **p_options,
     )
-    die = load_native_die(die_source, section_offsets_xm=d_offsets or None)
+    die = load_native_die(die_source, **d_options)
     return VerifiedToolSpans(
         punch_span_xm=span_from_native_shape(punch, "PUNCH"),
         die_span_xm=span_from_native_shape(die, "DIE"),
         punch_source=str(Path(punch_source).expanduser().resolve()),
         die_source=str(Path(die_source).expanduser().resolve()),
-        punch_sections_xm=_verified_sections(punch, "PUNCH", p_offsets),
-        die_sections_xm=_verified_sections(die, "DIE", d_offsets),
+        punch_sections_xm=_verified_sections(punch, "PUNCH", p_options),
+        die_sections_xm=_verified_sections(die, "DIE", d_options),
     )

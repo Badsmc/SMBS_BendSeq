@@ -98,12 +98,15 @@ def build_tool_preview_faces(tooling, *, arc_segments=20,
     ):
         if profile is None:
             continue
-        length = (length_override if kind == "punch" and length_override is not None
-                  else bend_length
-                  if tooling.match_active_bend_length else profile.length_mm)
-        if (isinstance(length, bool) or not isinstance(length, (int, float))
-                or not isfinite(length) or length <= 0):
-            raise PreviewMeshError(kind + " has no verified preview length")
+        spans = getattr(tooling, f"{kind}_section_spans_xm", ())
+        if not spans:
+            length = (length_override if kind == "punch" and length_override is not None
+                      else bend_length if tooling.match_active_bend_length else profile.length_mm)
+            if (isinstance(length, bool) or not isinstance(length, (int, float))
+                    or not isfinite(length) or length <= 0):
+                raise PreviewMeshError(kind + " has no verified preview length")
+            spans = tuple((offset - length / 2.0, offset + length / 2.0)
+                          for offset in (offsets or (0.0,)))
         outline, holes = polygons(arc_segments=arc_segments)
         if kind == "punch" and punch_delta:
             outline = tuple((s, z + punch_delta) for s, z in outline)
@@ -115,9 +118,7 @@ def build_tool_preview_faces(tooling, *, arc_segments=20,
         if any(not all(isfinite(s) and isfinite(z) for s, z in ring)
                for ring in rings):
             raise PreviewMeshError(kind + " has nonfinite machine coordinates")
-        for offset in offsets or (0.0,):
-            near = float(offset) - float(length) / 2.0
-            far = float(offset) + float(length) / 2.0
+        for near, far in spans:
             if not isfinite(near) or not isfinite(far):
                 raise PreviewMeshError(kind + " has nonfinite machine station")
 

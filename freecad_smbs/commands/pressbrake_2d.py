@@ -15,7 +15,7 @@ import sys
 import time
 import traceback
 import weakref
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from smbs_core.kinematics2d.developer_debug_log import (
@@ -45,6 +45,7 @@ from smbs_core.kinematics2d.preview_mesh_3d import (
     build_sheet_preview_faces, transform_preview_faces, IDENTITY_PLACEMENT, PreviewMeshError,
 )
 from smbs_core.kinematics2d.machine_section_3d import compute_machine_cutting_plane_section
+from smbs_core.kinematics2d.tooling_assembly import has_native_sections
 from smbs_core.kinematics2d.workpiece_placement_3d import PlacementTransform3D, WorkpiecePlacement3D
 from smbs_core.kinematics2d.workpiece_pose_2d import WorkpiecePose2D, WorkpiecePoseError
 from smbs_core.kinematics2d.tooling_25d import (
@@ -3291,6 +3292,8 @@ class _PreviewPanel:
                     getattr(self.tooling_setup, "aligned", False),
                     bool(getattr(self.tooling_setup, "match_active_bend_length", False)),
                     round(float(getattr(self.tooling_setup, "active_bend_length_mm", 0.0) or 0.0), 4),
+                    self.tooling_setup.punch_section_spans_xm,
+                    self.tooling_setup.die_section_spans_xm,
                     bool(getattr(self.tooling_setup, "allow_end_zone_collision", False)),
                     round(float(getattr(self.tooling_setup, "end_zone_length_mm", 0.0) or 0.0), 4),
                     getattr(getattr(self.tooling_setup, "punch_machine_transform", None), "to_matrix_tuple", lambda: ())(),
@@ -3301,139 +3304,230 @@ class _PreviewPanel:
                     tuple(sorted(self._effective_loading_orientation_map().items())),
                 )
 
-            def _show_manual_tooling_assembly(self):
-                """Show finite-inventory assembly for every manually selected bend.
+            def _tool_assembly_inputs(self):
+                from smbs_core.geometry_backend.io.clamp_validator import load_clamp_config
+                from smbs_core.kinematics2d.segment_assembly_planner import read_inventory
 
-                This reports actionable segment lengths and machine-X positions.
-                It never changes selected native OCC tooling or bend order.
-                """
-                from freecad_smbs.resources.tooling_paths import TOOL_LIBRARY_ROOT
-                from smbs_core.geometry_backend.io.tooling_library import (
-                    ToolingLibrary,
+                punch, die = self.tooling_setup.punch, self.tooling_setup.die
+                if punch is None or die is None:
+                    raise ValueError("Сначала выберите пуансон и матрицу.")
+                sources = (Path(punch.source_file), Path(die.source_file))
+                if any(path.suffix.lower() != ".fcstd" or not path.is_file() for path in sources):
+                    raise ValueError("Для выбранного пуансона и матрицы нужны файлы FCStd.")
+                p_inventory, d_inventory = map(read_inventory, sources)
+                if not p_inventory or not d_inventory:
+                    raise ValueError(
+                        "Задайте запасы обеих моделей в библиотеке оснастки "
+                        "через «Сегменты и количество»."
+                    )
+                clamp_config = load_clamp_config(self.tool_library.library_root)
+                return p_inventory, d_inventory, clamp_config
+
+            def _tool_assembly_order(self):
+                return tuple(self._manual_sequence_prefix) or self.session.bend_order
+
+            def _calculate_common_tool_assembly(self, order):
+                from smbs_core.kinematics2d.segment_assembly_planner import plan_pair_for_bend
+                from smbs_core.kinematics2d.tooling_assembly import ToolAssembly
+
+                p_inventory, d_inventory, cfg = self._tool_assembly_inputs()
+                if not cfg.centres_mm:
+                    raise ValueError("На вкладке «Лапки» задайте центры зажимов или их количество.")
+                bends = self.session.fold_state.bends
+                required = max(math.dist(*bends[bend_id].axis_xyz) for bend_id in order)
+                plan = plan_pair_for_bend(p_inventory, d_inventory, required, cfg)
+                return ToolAssembly.from_plan(plan)
+
+            def _verify_tool_assembly_geometry(self, assembly):
+                from smbs_core.kinematics2d.verified_tool_spans import verified_fixed_tool_spans
+
+                candidate = replace(
+                    self.tooling_setup, tool_assembly=assembly,
+                    match_active_bend_length=False,
+                    punch_section_offsets_xm=(), die_section_offsets_xm=(),
                 )
-                from smbs_core.kinematics2d.segment_assembly_planner import (
-                    plan_pair_for_bend, read_inventory,
+                verified_fixed_tool_spans(candidate)
+
+            def _close_tool_assembly_report(self):
+                report = getattr(self, "_task_dialogs", {}).get("tool_assembly")
+                if report is not None:
+                    report.reject()
+
+            def _apply_tool_assembly(self, assembly):
+                if self.tooling_setup.tool_assembly == assembly:
+                    return
+                if self.timer.isActive() or self.playing:
+                    self.pause()
+                if assembly is not None:
+                    self.tooling_setup.set_match_active_bend_length(False)
+                    blocked = self.virtual_tool_len_checkbox.blockSignals(True)
+                    self.virtual_tool_len_checkbox.setChecked(False)
+                    self.virtual_tool_len_checkbox.blockSignals(blocked)
+                self.tooling_setup.set_tool_assembly(assembly)
+                self._machine_pose_fault = None
+                self._physical_check_signature = None
+                self._last_manual_sequence_report = None
+                self._manual_3d_verdicts.clear()
+                self._manual_retract_verdicts.clear()
+                self._conditional_bends_status.clear()
+                self._clear_manual_check_feedback()
+                prefix_count = len(self._manual_sequence_prefix)
+                self._partial_preview_limit = (
+                    prefix_count if 0 < prefix_count < len(self.session.bend_order) else None
                 )
+                self._highlighted_end_zone_info = None
+                self.physical_check_result.setText("Оснастка изменилась. Текущий набор ещё не проверен.")
+                self._manual_preview_notice.setText("РУЧНОЙ ПРОСМОТР — коллизии не проверены")
+                self._sync_tooling_to_active_bend()
+                self._update_operations_visual_state()
+                self.draw()
+
+            def _on_tool_inventory_changed(self, kind=None, tool_id=None):
+                if kind is not None:
+                    key = str(getattr(kind, "value", kind)).lower()
+                    selected = getattr(self.tooling_setup, key, None)
+                    if selected is None or selected.tool_id != tool_id:
+                        return
+                self._close_tool_assembly_report()
+                if self.tooling_setup.tool_assembly is not None:
+                    self._apply_tool_assembly(None)
+                    self.status.setText("Склад или зажимы изменились. Подберите набор заново.")
+
+            def _show_manual_tooling_assembly(self):
+                """Show per-bend proposals and an explicit common layout for native OCC."""
+                from collections import Counter
+                from smbs_core.geometry_backend.io.clamp_validator import ClampValidatorError
+                from smbs_core.kinematics2d.segment_assembly_planner import plan_pair_for_bend
+
                 if self.session is None:
                     self.status.setText("Загрузите деталь перед подбором набора.")
                     return
-                punch = self.tooling_setup.punch
-                die = self.tooling_setup.die
-                if punch is None or die is None:
-                    self.status.setText("Сначала выберите пуансон и матрицу.")
+                if self._task_progress_busy or self.timer.isActive() or self.playing:
+                    self.status.setText("Остановите симуляцию или дождитесь окончания проверки.")
+                    return
+                if not self._apply_typed_manual_order():
                     return
                 try:
-                    p_path = Path(punch.source_file)
-                    d_path = Path(die.source_file)
-                    if not p_path.is_file() or not d_path.is_file():
-                        raise ValueError("Выбранная оснастка не имеет FCStd файла")
-                    p_inventory = read_inventory(p_path)
-                    d_inventory = read_inventory(d_path)
-                    if not p_inventory or not d_inventory:
-                        raise ValueError(
-                            "Не заданы складские сегменты: откройте "
-                            "«Библиотека оснастки» → выберите пуансон "
-                            "и матрицу → «Сегменты и количество»."
-                        )
-                    cfg = ToolingLibrary(
-                        TOOL_LIBRARY_ROOT
-                    ).get_clamp_config()
+                    p_inventory, d_inventory, cfg = self._tool_assembly_inputs()
+                    order = self._tool_assembly_order()
+                    bends = self.session.fold_state.bends
                     reports = []
-                    order = (tuple(self._manual_sequence_prefix)
-                             or tuple(self.session.bend_order))
+                    by_length = {}
                     for bend_id in order:
-                        bend = self.session.fold_state.bends[bend_id]
-                        length = math.dist(
-                            bend.axis_xyz[0], bend.axis_xyz[1]
-                        )
-                        plan = plan_pair_for_bend(
-                            p_inventory, d_inventory, length, cfg
-                        )
-                        reports.append((bend_id, plan))
-                except (OSError, ValueError, KeyError) as exc:
-                    QtWidgets.QMessageBox.warning(
-                        self, "Набор оснастки", str(exc)
-                    )
+                        length = math.dist(*bends[bend_id].axis_xyz)
+                        if length not in by_length:
+                            by_length[length] = plan_pair_for_bend(
+                                p_inventory, d_inventory, length, cfg,
+                            )
+                        reports.append((bend_id, by_length[length]))
+                except (OSError, ValueError, KeyError, ClampValidatorError) as exc:
+                    self.status.setText(str(exc))
                     return
-                lines = [
-                    "ПУАНСОН: " + punch.tool_id,
-                    "МАТРИЦА: " + die.tool_id,
-                    "ЛАПКИ: ширина {:.1f} мм, мин. промежуток {:.1f} мм".format(
-                        cfg.width_mm, cfg.gap_between_mm
-                    ),
-                    "План на каждый гиб (секции переставляются между гибами).",
-                    "Это схема сборки, НЕ OCC-проверка коллизий.",
-                    "",
-                ]
-                for bend_id, plan in reports:
-                    lines.append(
-                        "{} · длина гиба {:.2f} мм · {}".format(
-                            bend_id, plan["required_mm"], plan["status"]
-                        )
-                    )
+
+                def describe_sections(label, spans):
+                    lengths = [round(hi - lo, 6) for lo, hi in spans]
+                    counts = Counter(lengths)
+                    stock = ", ".join(f"{length:g} мм × {count}" for length, count in counts.items())
+                    return [f"  {label} {sum(lengths):.3f} мм · {stock}"] + [
+                        f"    {index}. {length:g} мм · X {lo:+.3f}…{hi:+.3f}"
+                        for index, ((lo, hi), length) in enumerate(zip(spans, lengths), 1)
+                    ]
+
+                def describe(plan):
+                    if plan["status"] == "NO_INVENTORY_COMBINATION":
+                        return ["  Пуансон или матрицу нужной длины не собрать из имеющихся сегментов."]
                     if plan["status"] != "ASSEMBLY_CANDIDATE_UNVERIFIED":
-                        lines.append(
-                            "  Набор из имеющихся сегментов с допустимыми "
-                            "лапками подобрать не удалось."
-                        )
-                        lines.append("")
-                        continue
-                    lines.append(
-                        "  Пуансон {:.2f} мм: {}".format(
-                            plan["punch_total_mm"],
-                            " + ".join(
-                                "{:g}".format(item["length_mm"])
-                                for item in plan["punch_segments"]
-                            ) + " мм"
-                        )
-                    )
-                    for i, seg in enumerate(plan["punch_segments"], 1):
-                        lines.append(
-                            "    P{}: {:g} мм · X {:.2f}…{:.2f}".format(
-                                i, seg["length_mm"],
-                                seg["start_x_mm"], seg["end_x_mm"],
-                            )
-                        )
-                    lines.append(
-                        "  Матрица {:.2f} мм: {} мм".format(
-                            plan["die_total_mm"],
-                            " + ".join(
-                                "{:g}".format(item["length_mm"])
-                                for item in plan["die_segments"]
-                            )
-                        )
-                    )
-                    for i, seg in enumerate(plan["die_segments"], 1):
-                        lines.append(
-                            "    D{}: {:g} мм · X {:.2f}…{:.2f}".format(
-                                i, seg["length_mm"],
-                                seg["start_x_mm"], seg["end_x_mm"],
-                            )
-                        )
-                    clamp_plan = plan["clamps"]
-                    lines.append(
-                        "  Clamps: {} · центры X={} мм; ширина={:.1f} мм; "
-                        "мин. зазор={:.1f} мм".format(
-                            clamp_plan["status"],
-                            ", ".join("{:.2f}".format(x) for x in
-                                      clamp_plan["centers_mm"]),
-                            clamp_plan["width_mm"],
-                            clamp_plan["gap_between_mm"],
-                        )
-                    )
+                        return ["  Не найден набор с опорой на заданные зажимы."]
+                    lines = []
+                    for kind, label in (("punch", "Пуансон"), ("die", "Матрица")):
+                        spans = tuple((item["start_x_mm"], item["end_x_mm"])
+                                      for item in plan[kind + "_segments"])
+                        lines.extend(describe_sections(label, spans))
+                    clamps = plan["clamps"]
+                    centres = ", ".join(f"{x:+.3f}" for x in clamps["centers_mm"])
+                    half = clamps["width_mm"] / 2.0
+                    lo = plan["punch_segments"][0]["start_x_mm"]
+                    hi = plan["punch_segments"][-1]["end_x_mm"]
+                    used = ", ".join(str(i) for i, x in enumerate(clamps["centers_mm"], 1)
+                                     if min(x + half, hi) - max(x - half, lo) > 1e-6)
+                    lines.append(f"  Центры зажимов по X, мм · {centres}")
+                    if used:
+                        lines.append(f"  Опоры под пуансоном · {used}")
+                    if clamps["proposed_reposition"]:
+                        lines.append("  Предложенные позиции зажимов. Сверьте их со станком.")
+                    return lines
+
+                punch, die = self.tooling_setup.punch, self.tooling_setup.die
+                titles = [
+                    f"Пуансон {punch.tool_id}", f"Матрица {die.tool_id}",
+                    f"Зажимы {cfg.width_mm:g} мм вдоль X, зазор от {cfg.gap_between_mm:g} мм.",
+                    "X = 0 в середине станка. Сегменты перечислены от меньшего X к большему.",
+                ]
+                lines = ["Раскладка по гибам", ""]
+                for bend_id, plan in reports:
+                    lines.append(f"{bend_id} · линия гиба {plan['required_mm']:.3f} мм")
+                    lines.extend(describe(plan))
                     lines.append("")
+                per_bend = "\n".join(lines)
+
+                self._close_tool_assembly_report()
                 dialog = QtWidgets.QDialog(self)
-                dialog.setWindowTitle("SMBS — карта набора сегментов и clamps")
-                dialog.resize(710, 540)
                 layout = QtWidgets.QVBoxLayout(dialog)
                 edit = QtWidgets.QPlainTextEdit(dialog)
+                edit.setObjectName("SMBS_ToolAssemblyReport")
                 edit.setReadOnly(True)
-                edit.setPlainText("\n".join(lines))
-                layout.addWidget(edit)
-                close = QtWidgets.QPushButton("Закрыть")
-                close.clicked.connect(dialog.accept)
-                layout.addWidget(close)
-                dialog.exec()
+                layout.addWidget(edit, 1)
+                feedback = QtWidgets.QLabel()
+                feedback.setWordWrap(True)
+                layout.addWidget(feedback)
+                apply_btn = QtWidgets.QPushButton("Применить общий набор")
+                apply_btn.setObjectName("SMBS_ApplyCommonToolAssembly")
+                apply_btn.setToolTip("Один комплект на выбранный порядок по длине самого длинного гиба.")
+                layout.addWidget(apply_btn)
+                clear_btn = QtWidgets.QPushButton("Снять общий набор")
+                layout.addWidget(clear_btn)
+
+                def update_report():
+                    assembly = self.tooling_setup.tool_assembly
+                    clear_btn.setEnabled(assembly is not None)
+                    header = list(titles)
+                    if assembly is not None:
+                        header.extend(["", f"Общий набор активен в Coin3D и OCC · {assembly.bend_length_mm:.3f} мм"])
+                        header.extend(describe_sections("Пуансон", assembly.punch_spans_xm))
+                        header.extend(describe_sections("Матрица", assembly.die_spans_xm))
+                        centres = ", ".join(f"{(lo + hi) / 2:+.3f}" for lo, hi in assembly.clamp_spans_xm)
+                        header.append(f"  Центры зажимов по X, мм · {centres}")
+                    edit.setPlainText("\n".join(header) + "\n\n" + per_bend)
+
+                def apply_common():
+                    if self._task_progress_busy or self.timer.isActive() or self.playing:
+                        feedback.setText("Остановите симуляцию или дождитесь окончания проверки.")
+                        return
+                    try:
+                        order = self._tool_assembly_order()
+                        assembly = self._calculate_common_tool_assembly(order)
+                        self._verify_tool_assembly_geometry(assembly)
+                    except Exception as exc:
+                        feedback.setText(str(exc))
+                        return
+                    self._apply_tool_assembly(assembly)
+                    _desktop_debug_event(
+                        "TOOL_ASSEMBLY_APPLIED", bend_order=order,
+                        punch_sections=assembly.punch_spans_xm, die_sections=assembly.die_spans_xm,
+                        clamp_zones=assembly.clamp_spans_xm,
+                    )
+                    feedback.setText("Общий набор применён. Коллизии проверяются кнопками OCC.")
+                    update_report()
+
+                def clear_common():
+                    self._apply_tool_assembly(None)
+                    feedback.setText("Возвращена исходная оснастка.")
+                    update_report()
+
+                update_report()
+                apply_btn.clicked.connect(apply_common)
+                clear_btn.clicked.connect(clear_common)
+                embed_task_dialog(self, dialog, "Раскладка оснастки", "tool_assembly")
 
             def _active_bend_length_mm(self) -> float:
                 if self.session is None or getattr(self.session, "fold_state", None) is None:
@@ -3448,6 +3542,9 @@ class _PreviewPanel:
                 return 0.0
 
             def _on_virtual_tool_length_toggled(self, enabled: bool):
+                if enabled and self.tooling_setup.tool_assembly is not None:
+                    self._close_tool_assembly_report()
+                    self._apply_tool_assembly(None)
                 self._manual_3d_verdicts.clear()
                 self._manual_retract_verdicts.clear()
                 self._clear_manual_check_feedback()
@@ -3787,10 +3884,7 @@ class _PreviewPanel:
                     # A 2D preview with virtual axial tool length is permitted
                     # ONLY for exploration, never treated as production safety
                     # evidence. Native multi-sections cannot be virtually extended.
-                    has_sections = bool(
-                        getattr(self.tooling_setup, "punch_section_offsets_xm", ())
-                        or getattr(self.tooling_setup, "die_section_offsets_xm", ())
-                    )
+                    has_sections = has_native_sections(self.tooling_setup)
                     # No CAD backgauge contact trace in visual-only mode.
                     self._last_backgauge_cad_trace_path = None
                     report = search_bend_sequences_2d(
@@ -3929,10 +4023,7 @@ class _PreviewPanel:
                     raise ValueError(
                         "Ручной JSON относится к другой детали: " + entry.model_label
                     )
-                has_sections = bool(
-                    getattr(self.tooling_setup, "punch_section_offsets_xm", ())
-                    or getattr(self.tooling_setup, "die_section_offsets_xm", ())
-                )
+                has_sections = has_native_sections(self.tooling_setup)
                 valid, reason = validate_partial_planar_prefix(
                     self.session, self.tooling_setup, sequence,
                     match_active_bend_length=not has_sections,
@@ -4899,6 +4990,7 @@ class _PreviewPanel:
                 except ToolingError as exc:
                     self.status.setText(str(exc))
                     return
+                self._close_tool_assembly_report()
                 if self.session is not None and (
                     self.tooling_setup.punch is not None or self.tooling_setup.die is not None
                 ):
@@ -4926,6 +5018,7 @@ class _PreviewPanel:
                 except ToolingError as exc:
                     self.status.setText(str(exc))
                     return
+                self._close_tool_assembly_report()
                 if self.session is not None and (
                     self.tooling_setup.punch is not None or self.tooling_setup.die is not None
                 ):
@@ -5084,15 +5177,12 @@ class _PreviewPanel:
                 """Open the single canonical library with segment inventory."""
                 if activate_task_dialog(self, "full_tooling_library"):
                     return
-                from freecad_smbs.resources.tooling_paths import (
-                    TOOL_LIBRARY_ROOT,
-                )
                 from smbs_core.geometry_backend.io.tooling_library import (
                     ToolingLibrary,
                 )
                 from freecad_smbs.ui.tooling_panel import ToolingPanel
                 try:
-                    library = ToolingLibrary(TOOL_LIBRARY_ROOT)
+                    library = ToolingLibrary(self.tool_library.library_root)
                     panel = ToolingPanel(library, parent=self)
                     embed_task_dialog(
                         self, panel, "Библиотека", "full_tooling_library"
@@ -5201,6 +5291,8 @@ class _PreviewPanel:
                 # never read or mutate the original source document again.
                 self._machine_pose_fault = None
                 self._last_3d_frame_at = -1.0
+                self.tooling_setup.set_tool_assembly(None)
+                self._close_tool_assembly_report()
                 self.session = new_session
                 self._preview_3d.clear_preview()
                 self._coin_fold_mesh_key = None
@@ -5612,6 +5704,8 @@ class _PreviewPanel:
                     "die_sections": tuple(
                         self.tooling_setup.die_section_offsets_xm or ()
                     ),
+                    "punch_section_spans_xm": getattr(self.tooling_setup, "punch_section_spans_xm", ()),
+                    "die_section_spans_xm": getattr(self.tooling_setup, "die_section_spans_xm", ()),
                     "end_zone_allow": bool(
                         self.tooling_setup.allow_end_zone_collision
                     ),
@@ -6163,7 +6257,8 @@ class _PreviewPanel:
                             profile = self.tool_library.load_tool(
                                 ref["id"], kind, use_cache=False
                             )
-                            if tool_reference(profile) != ref:
+                            if (tool_reference(profile) != ref
+                                    and tool_reference(profile, legacy_metrics=True) != ref):
                                 raise EmbeddedSessionError(
                                     "Tool library profile changed: " + ref["id"]
                                 )
@@ -6232,6 +6327,14 @@ class _PreviewPanel:
                     )
                 except (KeyError, TypeError, ValueError, ToolingError) as exc:
                     warnings.append("Допуски оснастки: " + str(exc))
+
+                if opts.get("segment_assembly_active"):
+                    try:
+                        assembly = self._calculate_common_tool_assembly(prefix or order)
+                        self._verify_tool_assembly_geometry(assembly)
+                        self.tooling_setup.set_tool_assembly(assembly)
+                    except Exception as exc:
+                        warnings.append("Секционный набор не восстановлен: " + str(exc))
 
                 for key, value in payload["simulation"].get(
                     "operation_weights", {}
@@ -6371,6 +6474,7 @@ class _PreviewPanel:
                     self.move_down_btn, self.restore_order_btn,
                     self.manual_undo_btn, self.manual_clear_btn,
                     self.operations, self.auto_orientation_checkbox,
+                    self.manual_tooling_assembly_btn, self.tooling_assembly_report_btn,
                 )
                 old_control_states = tuple(
                     (control, control.isEnabled())
@@ -6432,10 +6536,7 @@ class _PreviewPanel:
                     end_zone_mm = float(
                         self.tooling_setup.end_zone_length_mm
                     )
-                    has_sections = bool(
-                        self.tooling_setup.punch_section_offsets_xm
-                        or self.tooling_setup.die_section_offsets_xm
-                    )
+                    has_sections = has_native_sections(self.tooling_setup)
                     if has_sections and match_length:
                         self._record_manual_precheck_failure(
                             selected,

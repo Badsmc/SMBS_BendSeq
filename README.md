@@ -123,10 +123,6 @@ Review `MANUAL_ASSISTED_RETRACT_EXPERIMENT` and
 
 ## Segment inventory and clamp-aware assembly (ManualMode)
 
-Only the tooling-library and manual assembly-report workflow are extended.
-The bend sequence, OCC collision model and viewer are unchanged by this
-feature.
-
 1. **Библиотека оснастки** → choose an individual punch or die →
    **Сегменты и количество**. Enter each section length in mm and the
    number actually available. Inventory is stored under the selected
@@ -136,14 +132,21 @@ feature.
 2. Under **Лапки**, configure the actual length along the machine X axis
    (`width_mm` in the existing schema), minimum edge-to-edge separation
    (`gap_between_mm`), clamp center positions (`positions_mm`), minimum
-   clamp count, joint-support and end-overhang rules. The existing
-   `clamp_validator.validate_punch_chain` enforces them.
+   clamp count, joint-support and end-overhang rules. Use **Число зажимов**
+   to create a centred row with pitch equal to clamp length plus gap.
+   Explicit X centres take precedence. X = 0 is the press centre.
 3. Open a part, choose the punch and die, set the manual order, then press
    **Набрать оснастку — расчёт сегментов** in **Порядок и проверка**.
    The report shows for each bend: nominal bend length, actual assembled
    punch and die totals, every segment's length and machine-X start/end,
    and the clamp center positions/width/minimum gap. The inventory is
    reused between successive bends (not consumed permanently).
+4. Use **Применить общий набор** inside the report to use one fixed
+   layout for the selected bends. It covers the longest selected bend.
+   Coin3D and OCC use the same segment intervals from verified FCStd
+   tool models. **Снять общий набор** returns to the original tools.
+   Opening a saved FCStd recalculates the active layout using the current
+   inventory and clamp configuration.
 
 The finite-stock solver prefers the closest assembly that **covers the
 bend length**, with at most 15 mm excess; it never fabricates segment
@@ -152,9 +155,7 @@ presented. Fixed clamp positions are obeyed. If no positions are specified
 and clamps are movable, calculated clamp centers are explicitly marked
 `PROPOSED_REPOSITION_UNVERIFIED` and require operator confirmation.
 
-This is an **assembly proposal, not native OCC collision validation**:
-the computed segment set does not silently replace the current virtual or
-physical tool geometry used by OCC. Machine mounting, individual clamps'
-3D clearance, load capacity, part collision, and continuous bend motions
-still require physical checks. The report is intentionally fail-closed
-when stock or clamp geometry is missing or inconsistent.
+The layout report checks stock, tool coverage and punch support on the
+clamps. Run OCC after applying the common layout to check sampled
+punch and die collisions. Clamp and frame clearance remain outside
+that collision check.

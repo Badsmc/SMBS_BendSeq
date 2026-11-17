@@ -14,6 +14,7 @@ from typing import Any
 from .contact_oracle_2d import ContactStatus, check_sheet_tooling_preview
 from .machine_section_3d import compute_machine_cutting_plane_section
 from .tooling_25d import ValidationStatus
+from .tooling_assembly import has_native_sections, native_section_options
 
 
 class PhysicalEvidence(str, Enum):
@@ -266,11 +267,7 @@ def check_current_25d_pose(
             ("2D_SECTION",),
         )
 
-    # Configured actual section offsets are shared by the initial-pose
-    # and the independent five-phase trajectory validator.
-    punch_sections = tuple(getattr(tooling, "punch_section_offsets_xm", ()))
-    die_sections = tuple(getattr(tooling, "die_section_offsets_xm", ()))
-    if (punch_sections or die_sections) and eff_match_len:
+    if has_native_sections(tooling) and (eff_match_len or virtual_tool_length_mm is not None):
         return _unverified("native_sections_incompatible_with_virtual_tool_length")
 
     tool_len_info = None
@@ -297,24 +294,13 @@ def check_current_25d_pose(
         )
         old_active = getattr(getattr(App, "ActiveDocument", None), "Name", None)
         try:
-            if eff_virt_len is not None:
-                punch = load_native_punch(
-                    punch_path,
-                    ram_z_mm=float(press_cycle.ram_z_mm),
-                    virtual_length_mm=eff_virt_len,
-                    section_offsets_xm=punch_sections or None,
-                )
-                die = load_native_die(
-                    die_path,
-                    virtual_length_mm=eff_virt_len,
-                    section_offsets_xm=die_sections or None,
-                )
-            else:
-                punch = load_native_punch(
-                    punch_path, ram_z_mm=float(press_cycle.ram_z_mm),
-                    section_offsets_xm=punch_sections or None,
-                )
-                die = load_native_die(die_path, section_offsets_xm=die_sections or None)
+            punch = load_native_punch(
+                punch_path, ram_z_mm=float(press_cycle.ram_z_mm),
+                virtual_length_mm=eff_virt_len, **native_section_options(tooling, "punch"),
+            )
+            die = load_native_die(
+                die_path, virtual_length_mm=eff_virt_len, **native_section_options(tooling, "die"),
+            )
             tool_len_info = _build_tool_length_info(
                 session.active_bend_id, length, span, desired_midpoint_xm, punch, die,
             )
@@ -553,9 +539,7 @@ def check_active_25d_bend_trajectory(
         else eff_end_zone_len
     )
 
-    punch_sections = tuple(getattr(tooling, "punch_section_offsets_xm", ()))
-    die_sections = tuple(getattr(tooling, "die_section_offsets_xm", ()))
-    if (punch_sections or die_sections) and eff_match_len:
+    if has_native_sections(tooling) and (eff_match_len or virtual_tool_length_mm is not None):
         return _unverified("native_sections_incompatible_with_virtual_tool_length")
 
     state = session.fold_state
@@ -602,15 +586,13 @@ def check_active_25d_bend_trajectory(
         )
         prev = getattr(getattr(App, "ActiveDocument", None), "Name", None)
         try:
-            if eff_virt_len is not None:
-                punch = load_native_punch(punch_file, ram_z_mm=50.0, virtual_length_mm=eff_virt_len,
-                                          section_offsets_xm=punch_sections or None)
-                die = load_native_die(die_file, virtual_length_mm=eff_virt_len,
-                                      section_offsets_xm=die_sections or None)
-            else:
-                punch = load_native_punch(punch_file, ram_z_mm=50.0,
-                                          section_offsets_xm=punch_sections or None)
-                die = load_native_die(die_file, section_offsets_xm=die_sections or None)
+            punch = load_native_punch(
+                punch_file, ram_z_mm=50.0, virtual_length_mm=eff_virt_len,
+                **native_section_options(tooling, "punch"),
+            )
+            die = load_native_die(
+                die_file, virtual_length_mm=eff_virt_len, **native_section_options(tooling, "die"),
+            )
             tool_len_info = _build_tool_length_info(
                 active_id, length, span, desired_midpoint_xm, punch, die,
             )

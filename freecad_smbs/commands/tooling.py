@@ -22,7 +22,6 @@ class ToolingCommand:
             PressBrake2DCommand, get_workspace_widget,
             activate_task_dialog, embed_task_dialog,
         )
-        from freecad_smbs.resources.tooling_paths import TOOL_LIBRARY_ROOT
         from smbs_core.geometry_backend.io.tooling_library import ToolingLibrary
         from freecad_smbs.ui.tooling_panel import ToolingPanel
         from freecad_smbs.ui.dialogs import show_error
@@ -36,7 +35,7 @@ class ToolingCommand:
         if activate_task_dialog(workspace, "full_tooling_library"):
             return
         try:
-            library = ToolingLibrary(TOOL_LIBRARY_ROOT)
+            library = ToolingLibrary(workspace.tool_library.library_root)
             panel = ToolingPanel(library, parent=workspace)
             embed_task_dialog(
                 workspace, panel, "Библиотека", "full_tooling_library"

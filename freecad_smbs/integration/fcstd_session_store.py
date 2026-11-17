@@ -122,12 +122,15 @@ def geometry_manifest(session, document, *, legacy_brep=False):
     return {"sha256": _sha(_json_bytes(manifest)), "data": manifest}
 
 
-def tool_reference(profile):
+def tool_reference(profile, *, legacy_metrics=False):
     if profile is None:
         return None
     if not hasattr(profile, "to_dict"):
         raise EmbeddedSessionError("Selected tool does not support fingerprinting")
-    data = profile.to_dict()
+    data = dict(profile.to_dict())
+    if not legacy_metrics:
+        # Reloading the same FCStd usually changes the measured import time.
+        data.pop("metrics", None)
     return {
         "id": str(profile.tool_id),
         "name": str(profile.name),
@@ -298,6 +301,7 @@ def build_snapshot(
             "punch": tool_reference(getattr(tooling, "punch", None)),
             "die": tool_reference(getattr(tooling, "die", None)),
             "match_active_bend_length": bool(tooling.match_active_bend_length),
+            "segment_assembly_active": getattr(tooling, "tool_assembly", None) is not None,
             "allow_end_zone_collision": bool(tooling.allow_end_zone_collision),
             "end_zone_length_mm": _finite(tooling.end_zone_length_mm),
         },
@@ -409,6 +413,8 @@ def decode_snapshot(raw):
         raise EmbeddedSessionError("Invalid operation weights")
     if simulation.get("execution_mode") not in ("BEND_ONLY", "FULL_CYCLE"):
         raise EmbeddedSessionError("Invalid execution mode")
+    if type(tooling.get("segment_assembly_active", False)) is not bool:
+        raise EmbeddedSessionError("Invalid segmented tooling setting")
     for key in ("punch", "die"):
         ref = tooling.get(key)
         if ref is not None and (
