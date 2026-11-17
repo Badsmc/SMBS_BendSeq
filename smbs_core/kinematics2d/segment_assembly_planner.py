@@ -194,7 +194,13 @@ def plan_pair_for_bend(punch_inventory, die_inventory, bend_length_mm,
                     for _ in range(count)]
         if len(expanded) > 12:
             continue
-        for lengths in list(dict.fromkeys(permutations(expanded))):
+        seen_orders = set()
+        for lengths in permutations(expanded):
+            if lengths in seen_orders:
+                continue
+            seen_orders.add(lengths)
+            if len(seen_orders) > 2000:
+                break
             cursor = -p_total / 2.
             chain = []
             for length in lengths:
