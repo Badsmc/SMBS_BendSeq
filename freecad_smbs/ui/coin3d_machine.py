@@ -104,7 +104,8 @@ def _load_frame(coin, library_root):
                            at_origin(bed_origin), (0.44, 0.49, 0.54), 0.47)
         beam = _mesh_node(coin, (shapes[ram.Name],), at_origin(ram_origin),
                           (0.50, 0.54, 0.60), 0.35)
-    return frame, beam, float(ram_origin.z - bed_origin.z)
+        ram_width = shapes[ram.Name].getElement(mount["ram_face"]).BoundBox.XLength
+    return frame, beam, float(ram_origin.z - bed_origin.z), float(ram_width)
 
 
 def _load_gauge(coin, library_root):
@@ -113,11 +114,13 @@ def _load_gauge(coin, library_root):
     path = resolve_backgauge_fcstd(library_root)
     if path is None:
         raise FileNotFoundError("Backgauge.FCStd")
-    # The existing CAD adapter positions the selected contact face at +S=1.
-    # Remove that offset once. Each finger then needs only a Coin translation.
     adapter = BackgaugeCAD3D(library_dir=path.parent)
-    shapes = adapter.preview_positioned_shapes(1.0, 0.0)
-    return _mesh_node(coin, shapes, lambda p: (-p.y - 1.0, p.x, p.z),
+    shape, = adapter.preview_positioned_shapes(1.0, 0.0)
+    # The picked point identifies the contact face. The X/Z station in Coin
+    # refers to the centre of that face, regardless of where it was picked.
+    centre = shape.Faces[adapter.stop_face_index - 1].CenterOfMass
+    return _mesh_node(coin, (shape,),
+                      lambda p: (centre.y - p.y, p.x - centre.x, p.z - centre.z),
                       (0.83, 0.49, 0.19))
 
 
@@ -171,8 +174,8 @@ class CoinMachineScene:
         self.clamp_config_error = ""
         self.clamp_error = ""
         self.clamp_height = 0.0
-        self.clamp_top_offset = None
-        self.active_clamp_height = 0.0
+        self.beam_z = 0.0
+        self.ram_mount_width = 0.0
         self.frame.setName("SMBS_MachineFrame")
         self.gauges.setName("SMBS_Backgauges")
         self.root.addChild(self.frame)
@@ -197,37 +200,37 @@ class CoinMachineScene:
         self.gauges.whichChild.setValue(self.coin.SO_SWITCH_NONE)
         self.clamps.whichChild.setValue(self.coin.SO_SWITCH_NONE)
 
-    def update_clamps(self, library_root, tooling, ram_z):
+    def update_clamps(self, library_root):
+        from dataclasses import replace
+
         from smbs_core.geometry_backend.io.clamp_validator import ClampValidatorError, load_clamp_config
         from smbs_core.kinematics2d.tooling_assembly import clamp_spans_for_centres
 
-        self.active_clamp_height = 0.0
-        if not tooling.visible or tooling.punch is None:
-            self.clamps.whichChild.setValue(self.coin.SO_SWITCH_NONE)
-            return ""
-        assembly = tooling.tool_assembly
-        if assembly is not None:
-            spans = assembly.clamp_spans_xm
-        else:
-            config_path = library_root / "config.json"
+        config_path = library_root / "config.json"
+        try:
             try:
-                try:
-                    stamp = config_path.stat().st_mtime_ns
-                except FileNotFoundError:
-                    stamp = None
-                key = (library_root, stamp)
-                if key != self.clamp_config_key:
-                    self.clamp_config_key = key
-                    self.clamp_spans = ()
-                    self.clamp_config_error = ""
-                    config = load_clamp_config(library_root)
-                    self.clamp_spans = clamp_spans_for_centres(config.centres_mm, config.width_mm)
-            except (OSError, ClampValidatorError) as exc:
-                self.clamp_config_error = f"Лапки: {exc}"
-            spans = self.clamp_spans if not self.clamp_config_error else ()
+                stamp = config_path.stat().st_mtime_ns
+            except FileNotFoundError:
+                stamp = None
+            key = (library_root, stamp, self.ram_mount_width)
+            if key != self.clamp_config_key:
+                self.clamp_config_key = key
+                self.clamp_spans = ()
+                self.clamp_config_error = ""
+                config = load_clamp_config(library_root)
+                if not config.centres_mm and self.ram_mount_width > 0:
+                    # Unconfigured library: fill the CAD ram with a centred
+                    # nominal row for display, independently of the tools.
+                    count = int((self.ram_mount_width + config.gap_between_mm)
+                                / (config.width_mm + config.gap_between_mm))
+                    config = replace(config, clamp_count=count)
+                self.clamp_spans = clamp_spans_for_centres(config.centres_mm, config.width_mm)
+        except (OSError, ClampValidatorError) as exc:
+            self.clamp_config_error = f"Лапки: {exc}"
+        spans = self.clamp_spans if not self.clamp_config_error else ()
         if not spans:
             self.clamps.whichChild.setValue(self.coin.SO_SWITCH_NONE)
-            return self.clamp_config_error if assembly is None else ""
+            return self.clamp_config_error
         key = (library_root, spans)
         if key != self.clamp_key:
             self.clamp_key = key
@@ -242,27 +245,28 @@ class CoinMachineScene:
             except (OSError, ValueError, RuntimeError, TypeError, AttributeError, KeyError) as exc:
                 self.clamp_error = f"Лапки: {exc}"
         if self.clamp_error:
+            self.clamps.whichChild.setValue(self.coin.SO_SWITCH_NONE)
             return self.clamp_error
-        punch_key = (id(tooling.punch), tooling.aligned)
-        if self.clamp_top_offset != punch_key:
-            outline, _ = tooling.punch_polygons_machine()
-            self.clamp_punch_top = max(z for _, z in outline) - tooling.ram_z_mm
-            self.clamp_top_offset = punch_key
-        self.clamp_motion.translation.setValue(0.0, 0.0, float(ram_z) + self.clamp_punch_top)
+        if self.punch_top is not None:
+            # The aligned punch seats against the lower clamp datum.
+            clamp_z = self.beam_z
+            self.ram_motion.translation.setValue(0.0, 0.0, clamp_z + self.clamp_height)
+        else:
+            # With the punch absent or hidden, keep clamps attached to the
+            # actual mounting surface of the displayed ram.
+            clamp_z = self.beam_z - self.clamp_height
+        self.clamp_motion.translation.setValue(0.0, 0.0, clamp_z)
         self.clamps.whichChild.setValue(self.coin.SO_SWITCH_ALL)
-        self.active_clamp_height = self.clamp_height
         return ""
 
     def update_frame(self, library_root, tooling, ram_z, visible):
-        if not visible:
-            self.frame.whichChild.setValue(self.coin.SO_SWITCH_NONE)
-            return ""
         if self.frame_key != library_root:
             self.frame.removeAllChildren()
             self.frame_key = library_root
             self.mount_key = None
+            self.rest_z = self.ram_mount_width = 0.0
             try:
-                frame, beam, self.rest_z = _load_frame(self.coin, library_root)
+                frame, beam, self.rest_z, self.ram_mount_width = _load_frame(self.coin, library_root)
                 for motion, item in ((self.frame_mount, frame), (self.ram_motion, beam)):
                     component = self.coin.SoSeparator()
                     component.addChild(motion)
@@ -272,14 +276,13 @@ class CoinMachineScene:
                 self.frame_error = f"Станок: {exc}"
             else:
                 self.frame_error = ""
-        if self.frame_error:
-            return self.frame_error
-        self.frame.whichChild.setValue(self.coin.SO_SWITCH_ALL)
-        key = (id(tooling.punch), id(tooling.die), tooling.aligned,
+        self.frame.whichChild.setValue(self.coin.SO_SWITCH_ALL if visible and not self.frame_error
+                                      else self.coin.SO_SWITCH_NONE)
+        key = (id(tooling.punch), id(tooling.die), tooling.aligned, tooling.visible,
                tooling.die_machine_transform.to_matrix_tuple())
         if key != self.mount_key:
             die_polygons = tooling.die_polygons_machine()
-            punch_polygons = tooling.punch_polygons_machine()
+            punch_polygons = tooling.punch_polygons_machine() if tooling.visible else None
             die_outline = die_polygons[0] if die_polygons else ()
             punch_outline = punch_polygons[0] if punch_polygons else ()
             self.bed_z = min((z for _, z in die_outline), default=0.0)
@@ -287,10 +290,10 @@ class CoinMachineScene:
             self.punch_top = (max(z for _, z in punch_outline) - tooling.ram_z_mm
                               if punch_outline else None)
             self.mount_key = key
-        beam_z = (self.bed_z + self.rest_z if self.punch_top is None
-                  else float(ram_z) + self.punch_top)
-        self.ram_motion.translation.setValue(0.0, 0.0, beam_z + self.active_clamp_height)
-        return ""
+        self.beam_z = (float(ram_z) + self.punch_top if self.punch_top is not None
+                       else self.bed_z + self.rest_z)
+        self.ram_motion.translation.setValue(0.0, 0.0, self.beam_z)
+        return self.frame_error if visible else ""
 
     def update_gauges(self, library_root, stations, contact):
         if not stations or contact is None:

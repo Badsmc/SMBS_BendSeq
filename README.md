@@ -145,7 +145,9 @@ Review `MANUAL_ASSISTED_RETRACT_EXPERIMENT` and
 4. Use **Применить общий набор** inside the report to use one fixed
    layout for the selected bends. It covers the longest selected bend.
    Coin3D shows adjacent sections with alternating shades and displays
-   the configured CAD clamps with the ram. Coin3D and OCC use the same
+   the full configured row of CAD clamps with the ram, independent of
+   the active punch and its length. For an unconfigured library, Coin3D
+   displays a nominal row based on the CAD ram width. Coin3D and OCC use the same
    segment intervals from verified FCStd tool models. **Снять общий набор** returns to the original tools.
    Opening a saved FCStd recalculates the active layout using the current
    inventory and clamp configuration.

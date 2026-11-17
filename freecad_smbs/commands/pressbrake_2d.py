@@ -3168,7 +3168,7 @@ class _PreviewPanel:
                     faces = transform_preview_faces(self._coin_fold_mesh_faces, placement)
                     viewer.set_sheet_faces(faces, highlighted=highlighted)
                     viewer.update_tools(self.tooling_setup, ram_z, active_bend_length_mm=inspected_length)
-                    stations, contact = self._coin_backgauge_positions(
+                    stations, contact, gauge_note = self._coin_backgauge_positions(
                         self.session.bend_order.index(bend_id), at_collision=bool(inspection),
                     )
                     messages = viewer.update_machine(
@@ -3177,7 +3177,7 @@ class _PreviewPanel:
                         gauge_stations=stations, gauge_contact=contact,
                     )
                     viewer.set_collision_boxes(bounds)
-                    status = " · ".join((message, *messages))
+                    status = " · ".join(filter(None, (message, *messages, gauge_note)))
                     if self._coin_frame_status.text() != status:
                         self._coin_frame_status.setText(status)
                     previous = self._last_3d_frame_at
@@ -7352,11 +7352,7 @@ class _PreviewPanel:
                 }.get(retract_status, "—")
                 flat_mm = self.session.local_bend_dimensions_mm.get(b.bend_id)
                 gauge = self._backgauge_preview_position(idx - 1)
-                face_s = (
-                    gauge[0].s_mm - self.backgauge_model.width_s_mm / 2.0
-                    if gauge is not None and self.backgauge_model is not None
-                    else None
-                )
+                face_s = gauge[0].s_mm if gauge is not None and gauge[0] is not None else None
                 return (
                     str(idx),
                     "{} ({} → {})".format(b.bend_id, b.fixed_panel, b.moving_panel),
@@ -8040,19 +8036,22 @@ class _PreviewPanel:
                     "Симуляция остановлена. " + str(reason)
                 )
 
-            def _sequenced_gauge_envelopes(self, orientations=None):
+            def _backgauge_stations(self):
+                model = self.backgauge_model
+                stations = (model.cad_station_xm_mm,)
+                if model.cad_second_station_xm_mm is not None:
+                    stations += (model.cad_second_station_xm_mm,)
+                return stations
+
+            def _sequenced_gauge_envelopes(self, orientations):
                 """Cached projected geometry from signed preceding bends."""
                 model, session = self.backgauge_model, self.session
                 if (model is None or session is None or
                         not model.cad_geometry_enabled):
                     return {}
-                if orientations is None:
-                    orientations = self._effective_loading_orientation_map()
-                key = (
-                    id(session), tuple(session.bend_order), id(model),
-                    float(model.cad_station_xm_mm),
-                    tuple(sorted(orientations.items())),
-                )
+                stations = self._backgauge_stations()
+                key = (id(session), tuple(session.bend_order), stations,
+                       tuple(sorted(orientations.items())))
                 cached = self._machine_gauge_envelope_cache
                 if cached is not None and cached[0] == key:
                     return cached[1]
@@ -8060,9 +8059,8 @@ class _PreviewPanel:
                     sequenced_gauge_envelopes,
                 )
                 values, errors = sequenced_gauge_envelopes(
-                    session, station_xm_mm=model.cad_station_xm_mm,
+                    session, stations_xm_mm=stations,
                     reverse_axis_by_bend=orientations,
-                    orientation_is_absolute=True,
                 )
                 self._machine_gauge_envelope_cache = (key, values)
                 for bend_id, reason in errors.items():
@@ -8071,11 +8069,7 @@ class _PreviewPanel:
                 return values
 
             def _backgauge_preview_position(self, index):
-                """Visual CAD target from fully formed preceding bend geometry.
-
-                Local flat-pattern pitch in the table is deliberately NOT used
-                as an S offset. This function never invokes collision tests.
-                """
+                """Shared setup position of the CAD stop face for the table and viewer."""
                 model, session = self.backgauge_model, self.session
                 if (model is None or session is None or
                         not model.cad_geometry_enabled):
@@ -8083,7 +8077,7 @@ class _PreviewPanel:
                 order = tuple(session.bend_order)
                 if index < 0 or index >= len(order):
                     return None
-                if model.part_label and model.part_label != session.part_label:
+                if not model.automatic and model.part_label and model.part_label != session.part_label:
                     return None
                 orientations = self._effective_loading_orientation_map()
                 key = (
@@ -8097,17 +8091,11 @@ class _PreviewPanel:
                     from smbs_core.kinematics2d.gauge_preview import (
                         visual_gauge_target,
                     )
-                    # Manual S/Z does not need a geometrical calculation.
-                    envelope = (
-                        self._sequenced_gauge_envelopes(orientations).get(bend_id)
-                        if model.automatic else None
+                    envelopes = (
+                        self._sequenced_gauge_envelopes(orientations).get(bend_id, ())
+                        if model.automatic else ()
                     )
-                    rear_s, rear_z = envelope if envelope is not None else (None, None)
-                    point, evidence = visual_gauge_target(
-                        model, session.fold_state.bends[bend_id],
-                        rear_s, rear_z,
-                    )
-                    result = (point, rear_s, evidence)
+                    result = visual_gauge_target(model, bend_id, envelopes)
                 except (ValueError, TypeError, KeyError) as exc:
                     _warn("Visual gauge target unavailable for {}: {}".format(
                         bend_id, exc,
@@ -8121,31 +8109,26 @@ class _PreviewPanel:
                 model, session = self.backgauge_model, self.session
                 if (model is None or session is None or
                         not model.cad_geometry_enabled):
-                    return (), None
-                idx = index
-                start = self._backgauge_preview_position(idx)
+                    return (), None, ""
+                start = self._backgauge_preview_position(index)
                 if start is None:
-                    return (), None
-                pos = start[0]
+                    return (), None, ""
+                pos, note = start
+                if pos is None:
+                    return (), None, note
+                s, z = pos.s_mm, pos.z_mm
                 controller = self.press_cycle
                 phase = getattr(getattr(controller, "phase", None), "value", "")
-                if (not at_collision and phase == "TRANSFER" and controller is not None
+                if (not at_collision and phase == "TRANSFER"
                         and self.execution_mode == CycleExecutionMode.FULL_CYCLE
-                        and idx + 1 < len(session.bend_order)):
-                    target = self._backgauge_preview_position(idx + 1)
-                    if target is not None:
+                        and index + 1 < len(session.bend_order)):
+                    target = self._backgauge_preview_position(index + 1)
+                    if target is not None and target[0] is not None:
                         t = max(0.0, min(1.0, float(controller.transfer_progress)))
-                        from smbs_core.kinematics2d.backgauge_2d import (
-                            BackgaugePosition2D,
-                        )
-                        pos = BackgaugePosition2D(
-                            start[0].s_mm + (target[0].s_mm - start[0].s_mm) * t,
-                            start[0].z_mm + (target[0].z_mm - start[0].z_mm) * t,
-                        )
-                stations = (model.cad_station_xm_mm,)
-                if model.cad_second_station_xm_mm is not None:
-                    stations += (model.cad_second_station_xm_mm,)
-                return stations, (pos.s_mm - model.width_s_mm / 2.0, pos.z_mm)
+                        s += (target[0].s_mm - s) * t
+                        z += (target[0].z_mm - z) * t
+                        note = ""
+                return self._backgauge_stations(), (s, z), note
 
             def draw(self):
                 self._update_task_progress()

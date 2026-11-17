@@ -449,8 +449,8 @@ def create_coin_viewer(parent=None):
 
         def update_machine(self, library_root, tooling, ram_z, *, frame_visible,
                            gauge_stations, gauge_contact):
-            clamp_error = self._machine.update_clamps(library_root, tooling, ram_z)
             frame_error = self._machine.update_frame(library_root, tooling, ram_z, frame_visible)
+            clamp_error = self._machine.update_clamps(library_root)
             gauge_error = self._machine.update_gauges(library_root, gauge_stations, gauge_contact)
             return tuple(error for error in (frame_error, clamp_error, gauge_error) if error)
 
