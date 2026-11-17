@@ -248,6 +248,73 @@ class AxisStagedSearchTests(unittest.TestCase):
         self.assertEqual(calls, [0, 1])
         self.assertEqual(len(result.blockers), 1)
 
+    def test_opposite_loading_only_flips_collided_bend(self):
+        from smbs_core.kinematics2d.native_collision_feedback import (
+            NativeCollisionFeedback, propose_opposite_loading,
+        )
+        orientations = {
+            "B09": False, "B10": True, "B06": True,
+            "B05": False, "B07": True, "B01": False,
+        }
+        sequence = tuple(orientations)
+        feedback = NativeCollisionFeedback(
+            sequence, 5, orientations, "CAD_3D_INTERFERENCE",
+            "PUNCH:P11:BENDING",
+        )
+        candidate_order, candidate_orientations = (
+            propose_opposite_loading(feedback)
+        )
+        self.assertEqual(candidate_order, sequence)
+        self.assertIs(candidate_orientations["B01"], True)
+        self.assertEqual(
+            {bid: candidate_orientations[bid] for bid in sequence[:5]},
+            {bid: orientations[bid] for bid in sequence[:5]},
+        )
+        self.assertIs(orientations["B01"], False)
+        self.assertEqual(
+            feedback.blocked_transition()[0],
+            (frozenset(sequence[:5]), "B01", False),
+        )
+        self.assertNotEqual(
+            feedback.blocked_transition()[0],
+            (frozenset(sequence[:5]), "B01", True),
+        )
+
+    def test_opposite_loading_requires_native_collision_not_bbox_risk(self):
+        from smbs_core.kinematics2d.native_collision_feedback import (
+            NativeCollisionFeedback, propose_opposite_loading,
+        )
+        for label in (
+            "UNVERIFIED_2D",
+            "SAMPLED_PREVIEW_BBOX_POSSIBLE_OVERLAP",
+            "SAMPLED_3D_CLEAR_NOT_CONTINUOUS",
+        ):
+            with self.subTest(label=label):
+                with self.assertRaises(ValueError):
+                    propose_opposite_loading(NativeCollisionFeedback(
+                        ("B01",), 0, {"B01": False}, label, "uncertain",
+                    ))
+
+    def test_freecad_flip_priority_wired_before_replanning(self):
+        import ast
+        from pathlib import Path
+        text = Path("freecad_smbs/commands/pressbrake_2d.py").read_text(
+            encoding="utf-8"
+        )
+        ast.parse(text)
+        section = text.split(
+            "def calculate_axis_staged_native_feedback(self):", 1
+        )[1].split("def open_sequence_catalog_dialog(self):", 1)[0]
+        self.assertIn("if pending_flip is not None:", section)
+        self.assertIn("propose_opposite_loading(feedback)", section)
+        self.assertIn('"AXIS_NATIVE_FEEDBACK_FLIP_QUEUED"', section)
+        self.assertIn('"AXIS_NATIVE_FEEDBACK_FLIP_TRIAL_STARTED"', section)
+        self.assertIn('"trial_kind": trial_kind', section)
+        self.assertLess(
+            section.index("if pending_flip is not None:"),
+            section.index("experiment = search_axis_staged_experiment("),
+        )
+
     def test_ambiguous_native_evidence_never_blocks(self):
         from smbs_core.kinematics2d.native_collision_feedback import (
             NativeCollisionFeedback,
