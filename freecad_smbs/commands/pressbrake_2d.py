@@ -6520,6 +6520,7 @@ class _PreviewPanel:
                     # machine Z for that bend, including all previous folds.
                     # No alternate retry on UNVERIFIED, timeouts or exceptions.
                     auto_orient = self.auto_orientation_checkbox.isChecked()
+                    initial_orientation = dict(reverse_selection)
                     tried_reverse = set()
                     first_collision_reports = {}
                     orientation_attempts = []
@@ -6596,6 +6597,33 @@ class _PreviewPanel:
                         )
                         QtWidgets.QApplication.processEvents()
                     physical["orientation_attempts"] = orientation_attempts
+                    physical["simulation_orientation_before_occ"] = dict(
+                        initial_orientation
+                    )
+                    physical["orientation_after_occ"] = dict(reverse_selection)
+                    changed_orientation_bends = [
+                        bid for bid in selected
+                        if bool(initial_orientation[bid])
+                        != bool(reverse_selection[bid])
+                    ]
+                    physical["simulation_occ_orientation_mismatch_bends"] = (
+                        changed_orientation_bends
+                    )
+                    if changed_orientation_bends:
+                        _desktop_debug_event(
+                            "MANUAL_PREVIEW_OCC_ORIENTATION_CHANGED",
+                            changed_bends=changed_orientation_bends,
+                            before=initial_orientation,
+                            after=reverse_selection,
+                            operator_side="-s_LEFT",
+                            machine_rear_side="+s_RIGHT",
+                            note=(
+                                "Preview before OCC used different 180-degree "
+                                "loading orientations. Re-run simulation to "
+                                "see the OCC-selected machine poses. Native "
+                                "collision remains authoritative."
+                            ),
+                        )
                     # Commit only orientations actually assessed in native
                     # OCC; the viewer and subsequent inspections use this map.
                     self._manual_orientation_order = tuple(self.session.bend_order)
@@ -6875,6 +6903,15 @@ class _PreviewPanel:
                         readable_verdict, complete_steps, len(selected),
                         physical["validation_mode"], physical["reason"],
                     )
+                    if physical.get(
+                        "simulation_occ_orientation_mismatch_bends"
+                    ):
+                        summary += (
+                            " | ОРИЕНТАЦИЯ ПОСЛЕ OCC ИЗМЕНИЛАСЬ: {}. "
+                            "Повторите симуляцию для сравнения одинаковых поз."
+                        ).format(", ".join(
+                            physical["simulation_occ_orientation_mismatch_bends"]
+                        ))
                     if orientation_attempts:
                         changed = [
                             item["bend_id"] for item in orientation_attempts
