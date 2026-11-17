@@ -1241,22 +1241,23 @@ class _PreviewPanel:
                 self._user_camera_modified = True
 
             def update_scene_bounds(self, bounds):
-                """Update content bounds without recentering an operator-set view.
+                """Keep the operator's camera fixed across every render tick.
 
-                QGraphicsView scroll ranges are derived from sceneRect; making
-                them smaller can silently clamp a panned camera. Preserve the
-                existing extent and viewport centre after manual navigation.
+                QGraphicsView derives scroll ranges and pixel alignment from
+                sceneRect. Calling setSceneRect() followed by centerOn() at
+                30-40 Hz causes cumulative camera drift, even when the requested
+                center is numerically unchanged. Once the user zooms, pans, or
+                presses Fit, never touch sceneRect or camera here again.
+                Geometry may move inside the fixed machine-coordinate view.
+                Only explicit user navigation is allowed to change the camera.
                 """
                 scene = self.scene()
                 if scene is None:
                     return
                 if self._user_camera_modified:
-                    center = self.mapToScene(self.viewport().rect().center())
-                    previous = scene.sceneRect()
-                    scene.setSceneRect(previous.united(bounds) if
-                                       not previous.isEmpty() else bounds)
-                    self.centerOn(center)
-                else:
+                    return
+                # Avoid redundant Qt scroll-range updates for unchanged bounds.
+                if scene.sceneRect() != bounds:
                     scene.setSceneRect(bounds)
 
             def wheelEvent(self, event):
