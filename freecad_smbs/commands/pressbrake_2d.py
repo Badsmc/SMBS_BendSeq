@@ -5739,6 +5739,46 @@ class _PreviewPanel:
                     "session_identity": id(self.session),
                 }
 
+            def _matching_manual_occ_report(self, order):
+                """Return only LIVE native evidence for the identical setup.
+
+                Embedded historic FCStd reports are deliberately excluded:
+                they are NOT a fresh runtime clearance certificate.
+                """
+                report = self._last_manual_sequence_report
+                if not isinstance(report, dict) or self.session is None:
+                    return None
+                physical = report.get("manual_3d_validation") or {}
+                identity = report.get("native_tooling_identity")
+                if not identity or tuple(physical.get("requested_bends", ())) != tuple(order):
+                    return None
+                if identity != self._current_native_tooling_identity():
+                    return None
+                return report
+
+            def _native_collision_for_playback(self):
+                """Return the first proven native blocker for current inputs."""
+                if self.session is None:
+                    return None
+                report = self._matching_manual_occ_report(
+                    tuple(self.session.bend_order)
+                )
+                if report is None or report.get("status") != "COLLISION":
+                    return None
+                inspection = self._collision_inspection
+                if not inspection or not inspection.get("first_blocker"):
+                    return None
+                # The already-captured source identity is the safety boundary.
+                if inspection.get("tooling_identity") != self._current_native_tooling_identity():
+                    return None
+                pose = (inspection["first_blocker"].get("sampled_machine_pose")
+                        or {})
+                if (pose.get("bend_id") != inspection.get("bend_id")
+                        or pose.get("phase") !=
+                        inspection["first_blocker"].get("phase")):
+                    return None
+                return inspection
+
             def _native_collision_identity_matches(self, inspection):
                 """Refuse a stale native pose after any tooling/orientation edit."""
                 if self.session is None or inspection is None:
@@ -6821,6 +6861,11 @@ class _PreviewPanel:
                     result["manual_3d_validation"] = physical
                     result["planar_native_discrepancies"] = crosscheck
                     result["status"] = physical_status
+                    # Identical input identity is required before native
+                    # evidence may be shown during a later manual replay.
+                    result["native_tooling_identity"] = dict(
+                        native_tooling_identity
+                    )
                     result["physical_certification"] = "NOT_CONTINUOUSLY_CERTIFIED"
                     result["tooling"] = {
                         "punch": selected_punch.name,
@@ -7787,6 +7832,52 @@ class _PreviewPanel:
                             pc.preview_punch_at_current_angle()
                     self._configure_for_active_bend()
                     self._update_tooling_status_label()
+                    # A real OCC collision was recorded at this exact bend
+                    # and phase. Do not animate through it as if it passed:
+                    # stop playback and display the native sampled XYZ pose,
+                    # including all previously formed panels.
+                    native_hit = self._native_collision_for_playback()
+                    native_pose = (
+                        (native_hit["first_blocker"].get("sampled_machine_pose")
+                         or {}) if native_hit is not None else {}
+                    )
+                    phase_now = (
+                        pc.phase.value if pc is not None
+                        and self.execution_mode == CycleExecutionMode.FULL_CYCLE
+                        else "BEND_ONLY"
+                    )
+                    if (native_hit is not None
+                            and self.session.active_bend_id ==
+                                native_hit["bend_id"]
+                            and phase_now == native_pose.get("phase")):
+                        if pc is not None:
+                            pc.pause()
+                        else:
+                            self.session.pause()
+                        self._stop_timer()
+                        self._collision_display_active = True
+                        self._viewer_tabs.setCurrentWidget(self._preview_3d)
+                        self._last_3d_frame_at = -1.0
+                        self._update_3d_preview(force=True)
+                        reason = (
+                            "OCC COLLISION: {} | {} | угол {:+.2f}° | "
+                            "ram Z={:.3f} мм. Точный сохранённый OCC-кадр "
+                            "показан в 3D; дальнейшая симуляция остановлена."
+                        ).format(
+                            native_hit["bend_id"], phase_now,
+                            float(native_pose["signed_angle_deg"]),
+                            float(native_pose["ram_z_mm"]),
+                        )
+                        self.physical_check_result.setText(reason)
+                        self.status.setText(reason)
+                        self._trace_event(
+                            "MANUAL_PLAYBACK_HALTED_AT_NATIVE_COLLISION",
+                            bend_id=native_hit["bend_id"],
+                            sampled_machine_pose=native_pose,
+                            phase=phase_now,
+                        )
+                        self._finish_motion_trace("NATIVE_COLLISION")
+                        return
                     showing_3d = (
                         hasattr(self, "_viewer_tabs")
                         and self._viewer_tabs.currentIndex() == 1
