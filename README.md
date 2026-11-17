@@ -136,8 +136,10 @@ Review `MANUAL_ASSISTED_RETRACT_EXPERIMENT` and
    to create a centred row with pitch equal to clamp length plus gap.
    Explicit X centres take precedence. X = 0 is the press centre.
 3. Open a part, choose the punch and die, set the manual order, then press
-   **Набрать оснастку — расчёт сегментов** in **Порядок и проверка**.
-   The report shows for each bend: nominal bend length, actual assembled
+   **Набрать оснастку — расчёт сегментов** in **Порядок и проверка**
+   or **Рассчитать раскладку** in the tooling library. Pick a bend in
+   the report to see its sections in Coin3D. A supported punch can be
+   previewed while the die stock is still missing. The report shows for each bend: nominal bend length, actual assembled
    punch and die totals, every segment's length and machine-X start/end,
    and the clamp centres, width and minimum gap. It also shows the punch
    centre and how many millimetres of each segment sit under each clamp.

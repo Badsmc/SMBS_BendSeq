@@ -129,7 +129,9 @@ def _load_clamp(coin, library_root, spans):
     if path is None:
         raise FileNotFoundError("Clamp.FCStd")
     sidecar = json.loads(path.with_suffix(".tooling.json").read_text(encoding="utf-8"))
-    x, y, z = sidecar["datums"]["working_plane"]["origin"]
+    x, mount_y, mount_z = sidecar["datums"]["mounting_plane"]["origin"]
+    seat_face = sidecar.get("visual_mount", {}).get("punch_seat_face")
+    _, seat_y, seat_z = sidecar["datums"]["working_plane"]["origin"]
     with _machine_document(path) as doc:
         bodies = [_global_shape(item) for item in doc.Objects
                   if item.TypeId == "PartDesign::Body" and not item.Shape.isNull()]
@@ -138,7 +140,12 @@ def _load_clamp(coin, library_root, spans):
         width = max(s.BoundBox.XMax for s in bodies) - min(s.BoundBox.XMin for s in bodies)
         if width <= 0:
             raise ValueError("CAD-модель лапки имеет нулевую длину")
-        height = max(s.BoundBox.ZMax for s in bodies) - z
+        if seat_face:
+            if len(bodies) != 1:
+                raise ValueError("Для посадочной грани лапки нужно одно CAD-тело")
+            seat = _mount_origin(bodies[0], seat_face, -1)
+            seat_y, seat_z = seat.y, seat.z
+        height = mount_z - seat_z
         if height <= 0:
             raise ValueError("CAD-модель лапки расположена ниже рабочей плоскости")
         meshes = {}
@@ -147,7 +154,7 @@ def _load_clamp(coin, library_root, spans):
             length = right - left
             if length not in meshes:
                 meshes[length] = _mesh_node(
-                    coin, bodies, lambda p: (y - p.y, (p.x - x) * length / width, p.z - z),
+                    coin, bodies, lambda p: (seat_y - p.y, (p.x - x) * length / width, p.z - seat_z),
                     (0.64, 0.68, 0.76),
                 )
             block = coin.SoSeparator()
@@ -156,7 +163,7 @@ def _load_clamp(coin, library_root, spans):
             block.addChild(placement)
             block.addChild(meshes[length])
             row.addChild(block)
-    return row, height
+    return row, height, seat_y - mount_y
 
 
 class CoinMachineScene:
@@ -173,7 +180,7 @@ class CoinMachineScene:
         self.clamp_spans = ()
         self.clamp_config_error = ""
         self.clamp_error = ""
-        self.clamp_height = 0.0
+        self.clamp_height = self.clamp_mount_s = 0.0
         self.beam_z = 0.0
         self.ram_mount_width = 0.0
         self.frame.setName("SMBS_MachineFrame")
@@ -237,7 +244,7 @@ class CoinMachineScene:
             self.clamps.removeAllChildren()
             self.clamp_error = ""
             try:
-                row, self.clamp_height = _load_clamp(self.coin, library_root, spans)
+                row, self.clamp_height, self.clamp_mount_s = _load_clamp(self.coin, library_root, spans)
                 mounted = self.coin.SoSeparator()
                 mounted.addChild(self.clamp_motion)
                 mounted.addChild(row)
@@ -248,13 +255,15 @@ class CoinMachineScene:
             self.clamps.whichChild.setValue(self.coin.SO_SWITCH_NONE)
             return self.clamp_error
         if self.punch_top is not None:
-            # The aligned punch seats against the lower clamp datum.
             clamp_z = self.beam_z
-            self.ram_motion.translation.setValue(0.0, 0.0, clamp_z + self.clamp_height)
+            self.ram_motion.translation.setValue(
+                self.clamp_mount_s, 0.0, clamp_z + self.clamp_height,
+            )
         else:
             # With the punch absent or hidden, keep clamps attached to the
             # actual mounting surface of the displayed ram.
             clamp_z = self.beam_z - self.clamp_height
+            self.ram_motion.translation.setValue(self.clamp_mount_s, 0.0, self.beam_z)
         self.clamp_motion.translation.setValue(0.0, 0.0, clamp_z)
         self.clamps.whichChild.setValue(self.coin.SO_SWITCH_ALL)
         return ""

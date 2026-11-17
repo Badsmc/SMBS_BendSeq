@@ -32,6 +32,7 @@ class LoadingOrientationPreview:
 def plan_preview_loading_orientations(
     state, panel_vertices_xy: Mapping[str, Sequence[tuple[float, float]]],
     order: Sequence[str], *, deadband_mm: float = 10.0,
+    stations_xm_mm=(),
 ) -> tuple[LoadingOrientationPreview, ...]:
     """Plan 180° machine-Z rotations along the supplied bending sequence.
 
@@ -44,7 +45,9 @@ def plan_preview_loading_orientations(
     The result should NEVER be interpreted as an approved setup. Only an
     explicit selected search candidate can supply checked 2D/CAD evidence.
     """
+    from .gauge_preview import gauge_rear_envelope_from_faces
     from .panel_kinematics import FoldState
+    from .preview_mesh_3d import build_sheet_preview_faces
     from .workpiece_placement_3d import WorkpiecePlacement3D
 
     if not isfinite(deadband_mm) or deadband_mm < 0:
@@ -94,8 +97,18 @@ def plan_preview_loading_orientations(
                 for x, y in vertices
             ]
             if projected and all(isfinite(s) for s in projected):
+                contacts = ()
+                if stations_xm_mm and zone is not None:
+                    faces = build_sheet_preview_faces(
+                        isolated, panel_vertices_xy, bend_id, None,
+                        machine_placement=placement,
+                    )
+                    contacts = tuple(
+                        edge[0] for station in stations_xm_mm
+                        if (edge := gauge_rear_envelope_from_faces(faces, station)) is not None
+                    )
                 setups.append((reverse, max(0.0, -min(projected)),
-                               max(0.0, max(projected))))
+                               max(0.0, max(projected)), contacts))
         if not setups:
             result.append(LoadingOrientationPreview(
                 bend_id, False, None, None, "UNVERIFIED_POSE_UNAVAILABLE",
@@ -105,15 +118,19 @@ def plan_preview_loading_orientations(
             # Prefer the largest difference (operator projection minus rear).
             # When both orientations are effectively equivalent, retain the
             # normal orientation to avoid gratuitous flip animations.
-            best = max(setups, key=lambda v: (v[1] - v[2], not v[0]))
-            if (normal is not None and best[0]
-                    and (best[1] - best[2]) - (normal[1] - normal[2])
-                    <= deadband_mm):
-                best = normal
+            if any(v[3] for v in setups):
+                best = min(setups, key=lambda v: (-len(v[3]), max(v[3], default=0), v[0]))
+            else:
+                best = max(setups, key=lambda v: (v[1] - v[2], not v[0]))
+                if (normal is not None and best[0]
+                        and (best[1] - best[2]) - (normal[1] - normal[2])
+                        <= deadband_mm):
+                    best = normal
+            rear = max(best[3], default=best[2])
             result.append(LoadingOrientationPreview(
-                bend_id, best[0], best[1], best[2],
+                bend_id, best[0], best[1], rear,
                 ("ERGONOMIC_ONLY_NOT_CAD_VALIDATED"
-                 if best[2] <= best[1] + 1e-4 else
+                 if best[3] or rear <= best[1] + 1e-4 else
                  "UNVERIFIED_SHORT_REAR_POSE_UNAVAILABLE"),
             ))
         isolated.set_angle(bend_id, float(isolated.bends[bend_id].angle_deg))

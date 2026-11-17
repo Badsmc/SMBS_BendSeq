@@ -23,6 +23,9 @@
       "tolerance_mm": 0.05
     }
   },
+  "visual_mount": {
+    "punch_seat_face": "Face2"
+  },
   "metadata": {
     "width_mm": 150.0,
     "length_mm": 150.0,

@@ -84,6 +84,14 @@ class SegmentPlannerTests(unittest.TestCase):
         self.assertEqual(plan["clamps"]["centers_mm"], [-120., 0., 120.])
         self.assertEqual(plan["clamps"]["gap_between_mm"], 20.)
 
+    def test_missing_die_stock_still_returns_a_punch_preview(self):
+        plan = plan_pair_for_bend(PUNCH, [], 293., clamps())
+        self.assertEqual(plan["status"], "NO_INVENTORY_COMBINATION")
+        self.assertEqual(plan["punch_preview"]["punch_total_mm"], 300)
+        self.assertEqual(len(plan["punch_preview"]["punch_segments"]), 2)
+        with self.assertRaises(ValueError):
+            ToolAssembly.from_plan(plan)
+
     def test_cannot_use_more_sections_than_stock(self):
         plan = plan_pair_for_bend([{"length_mm": 150., "quantity": 1}],
                                   DIE, 293., clamps())

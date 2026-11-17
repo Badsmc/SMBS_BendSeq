@@ -302,13 +302,9 @@ def _place_punch(lengths, bend_length_mm, config, zones, max_clamp_gap):
     return best
 
 
-def plan_pair_for_bend(punch_inventory, die_inventory, bend_length_mm,
-                       clamps: ClampConfig, allowance_mm=15.0):
-    """Find a stock-bounded assembled punch+die for a single bend.
-
-    Prefer an exact punch, then a shorter one within the end shortfall
-    allowance, then an overlength set. The die must cover the centred bend.
-    """
+def plan_punch_for_bend(punch_inventory, bend_length_mm,
+                        clamps: ClampConfig, allowance_mm=15.0):
+    """Find the best supported punch chain independently of the die stock."""
     if not isinstance(clamps, ClampConfig):
         raise AssemblyPlanningError("clamp configuration required")
     p_solutions, p_limited = _segment_combinations(
@@ -321,11 +317,8 @@ def plan_pair_for_bend(punch_inventory, die_inventory, bend_length_mm,
         return (0, 0.0) if abs(delta) <= CONTACT_EPS_MM else (1 if delta < 0 else 2, abs(delta))
 
     p_solutions.sort(key=lambda item: fit(item[0]))
-    d_solutions, d_limited = _segment_combinations(die_inventory, bend_length_mm, allowance_mm)
-    if not p_solutions or not d_solutions:
-        missing = ((p_solutions, p_limited), (d_solutions, d_limited))
-        exhausted = any(not options and not limited for options, limited in missing)
-        status = "NO_INVENTORY_COMBINATION" if exhausted else "ASSEMBLY_SEARCH_LIMIT"
+    if not p_solutions:
+        status = "ASSEMBLY_SEARCH_LIMIT" if p_limited else "NO_INVENTORY_COMBINATION"
         return {"status": status, "required_mm": bend_length_mm}
     zones = clamp_spans_for_centres(clamps.centres_mm, clamps.width_mm)
     gaps = tuple(right[0] - left[1] for left, right in pairwise(zones))
@@ -363,21 +356,12 @@ def plan_pair_for_bend(punch_inventory, die_inventory, bend_length_mm,
         return {"status": status, "required_mm": bend_length_mm}
 
     p_total, best = selected
-    d_total, d_counts = d_solutions[0]
-    die_cursor = -d_total / 2.0
-    die_positions = []
-    for length, count in d_counts:
-        for _ in range(count):
-            end = die_cursor + length
-            die_positions.append({"length_mm": length, "start_x_mm": die_cursor, "end_x_mm": end})
-            die_cursor = end
     return {
         "status": "ASSEMBLY_CANDIDATE_UNVERIFIED",
         "required_mm": float(bend_length_mm),
         "punch_total_mm": p_total,
         "punch_center_x_mm": best.shift_mm,
         "punch_shortfall_mm": max(0.0, bend_length_mm - p_total),
-        "die_total_mm": d_total,
         "punch_segments": [
             {"length_mm": round(seg.length_mm, 6), "start_x_mm": seg.start_mm,
              "end_x_mm": seg.end_mm, "clamp_support": [
@@ -386,8 +370,30 @@ def plan_pair_for_bend(punch_inventory, die_inventory, bend_length_mm,
              ]}
             for seg, supports in zip(best.chain, best.supports)
         ],
-        "die_segments": die_positions,
         "clamps": best.clamp_plan,
         "limitations": ("No native OCC collision certification; "
                         "movable clamp travel and mounting unverified"),
     }
+
+
+def plan_pair_for_bend(punch_inventory, die_inventory, bend_length_mm,
+                       clamps: ClampConfig, allowance_mm=15.0):
+    """Find a supported punch chain and a die covering the centred line."""
+    d_solutions, d_limited = _segment_combinations(die_inventory, bend_length_mm, allowance_mm)
+    punch = plan_punch_for_bend(punch_inventory, bend_length_mm, clamps, allowance_mm)
+    if not d_solutions:
+        status = ("NO_INVENTORY_COMBINATION"
+                  if not d_limited or punch["status"] == "NO_INVENTORY_COMBINATION"
+                  else "ASSEMBLY_SEARCH_LIMIT")
+        return {"status": status, "required_mm": bend_length_mm, "punch_preview": punch}
+    if punch["status"] != "ASSEMBLY_CANDIDATE_UNVERIFIED":
+        return punch
+    d_total, d_counts = d_solutions[0]
+    die_cursor = -d_total / 2.0
+    die_positions = []
+    for length, count in d_counts:
+        for _ in range(count):
+            end = die_cursor + length
+            die_positions.append({"length_mm": length, "start_x_mm": die_cursor, "end_x_mm": end})
+            die_cursor = end
+    return {**punch, "die_total_mm": d_total, "die_segments": die_positions}

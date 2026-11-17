@@ -131,6 +131,10 @@ class ToolingPanel:
                     layout.addLayout(btn_layout)
                     style_action(btn_segments)
                     layout.addWidget(btn_segments)
+                    if self._workspace is not None:
+                        calculate = style_action(QtWidgets.QPushButton("Рассчитать раскладку"))
+                        calculate.clicked.connect(self._workspace._show_manual_tooling_assembly)
+                        layout.addWidget(calculate)
 
                     # Status bar label
                     self.status_label = QtWidgets.QLabel("Статус: Готово")

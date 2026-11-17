@@ -68,7 +68,7 @@ def transform_preview_faces(faces, machine_placement):
 
 def build_tool_preview_faces(tooling, *, arc_segments=20,
                              punch_ram_z_mm=None, preview_punch_length_mm=None,
-                             active_bend_length_mm=None):
+                             active_bend_length_mm=None, section_preview=None):
     """Extrude the selected 2D machine profiles along the fixed machine X axis.
 
     The 2D viewer and press cycle own both profile transforms. In particular,
@@ -99,7 +99,7 @@ def build_tool_preview_faces(tooling, *, arc_segments=20,
     ):
         if profile is None:
             continue
-        spans = getattr(tooling, f"{kind}_section_spans_xm", ())
+        spans = (section_preview or {}).get(kind) or getattr(tooling, f"{kind}_section_spans_xm", ())
         if not spans:
             length = (length_override if kind == "punch" and length_override is not None
                       else bend_length if tooling.match_active_bend_length else profile.length_mm)
@@ -131,7 +131,11 @@ def build_tool_preview_faces(tooling, *, arc_segments=20,
                 if 0 <= neighbor < len(spans):
                     edge = spans[neighbor][1 if at_start else 0]
                     if abs(edge - depth) <= 1e-6:
-                        # At a touching seam the two internal caps coincide.
+                        if at_start:
+                            faces.append(PreviewFace3D(
+                                at_depth((*outline, outline[0]), depth),
+                                kind + "_seam", profile.tool_id,
+                            ))
                         continue
                 faces.append(PreviewFace3D(
                     at_depth(outline, depth), kind + "_cap",
