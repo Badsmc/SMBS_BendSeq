@@ -11,6 +11,10 @@ This branch is based on [smbs](https://github.com/Badsmc/SMBS_BendSeq/tree/smbs)
 5. **Порядок и проверка** — explicitly run fast sampled OCC or full sampled 3D collision checks when needed.
 6. **Последовательности / Настройки** — restore and save orders and FCStd JSON; manage diagnostics.
 
+## Loading orientation and previously bent flanges
+
+For each operation, the operator can select the row in **Порядок и проверка** and click **Развернуть выбранный гиб на 180°**. This toggles the complete sheet placement around the machine vertical axis without changing the bend angle or selected order. Machine section convention: **operator on the left (-s)**; **press and rear gauge on the right (+s)**. This explicitly overrides the default ergonomic preference (shorter side toward the gauge), which alone cannot decide whether a previously formed flange will hit the punch. The same orientation map is consumed by the simulation and native OCC check. Changing the orientation invalidates prior collision reports; repeat the collision check. A toggle is not proof of access, collision clearance, or rear-gauge support.
+
 The FreeCAD toolbar has five commands: Деталь, Оснастка, Симуляция, Порядок и проверка, Настройки. The menu also provides saved sequences, backgauge, and the separate tooling library.
 
 ## Automatic search is disabled in ManualMode
