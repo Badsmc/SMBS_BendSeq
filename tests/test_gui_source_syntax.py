@@ -19,6 +19,15 @@ GUI_FILES = (
 
 
 class TestGuiSourceSyntax(unittest.TestCase):
+    def test_freecad_loader_exec_uses_separate_namespaces(self):
+        for filename in ("Init.py", "InitGui.py"):
+            with self.subTest(path=filename):
+                entry = ROOT / filename
+                namespace = {}
+                code = compile(entry.read_text(encoding="utf-8"), str(entry), "exec")
+                exec(code, {}, namespace)
+                self.assertEqual(namespace["_REPO_ROOT"], ROOT)
+
     def test_entrypoints_and_simulation_module_parse(self):
         for relative in GUI_FILES:
             with self.subTest(path=relative):

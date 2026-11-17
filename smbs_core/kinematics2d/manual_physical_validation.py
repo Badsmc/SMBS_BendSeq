@@ -34,11 +34,22 @@ from .physical_validation_25d import (
 
 CLEAR = PhysicalEvidence.SAMPLED_3D_CLEAR_NOT_CONTINUOUS
 
+# Prefer a clear sampled pose, then a conditional one. When a second pose
+# could not be checked, a collision in the first pose does not rule out the bend.
+_ORIENTATION_RANK = {
+    CLEAR.value: 3,
+    "COARSE_3D_NO_PROVEN_COLLISION": 3,
+    PhysicalEvidence.CONDITIONAL.value: 2,
+    "COARSE_3D_CONDITIONAL_END_ZONE": 2,
+    PhysicalEvidence.COLLISION.value: 0,
+}
 
-_CONVERGED_PHASES = {
+
+_NONBLOCKING_PHASES = {
     "SAMPLED_INTERVAL_CONVERGED",
     "ADAPTIVE_SAMPLING_CONVERGED",
     "SAMPLED_INTERVAL_CONDITIONAL_END_ZONE",
+    "DISCRETE_SAMPLES_SAFE",
 }
 
 
@@ -68,7 +79,7 @@ def _select_3d_blocker(trajectory):
         if hits:
             return phase, min(hits, key=lambda s: getattr(s, "path_u", float("inf")))
     problem = next((p for p in phases
-                    if _phase_status(p) not in _CONVERGED_PHASES), None)
+                    if _phase_status(p) not in _NONBLOCKING_PHASES), None)
     # Unknown or invalid states may supply a location but cannot name a tool.
     rejected = (s for s in getattr(problem, "states", ()) or ()
                 if not getattr(s, "is_safe", True)
@@ -140,7 +151,7 @@ def concise_3d_blocker(trajectory: Any) -> dict:
             {"phase": str(getattr(p, "phase_name", "UNKNOWN")),
              "phase_status": _phase_status(p)}
             for p in getattr(trajectory, "phase_results", ()) or ()
-            if p is not problem and _phase_status(p) not in _CONVERGED_PHASES
+            if p is not problem and _phase_status(p) not in _NONBLOCKING_PHASES
         ],
         "sampled_onset_bracket": getattr(
             problem, "first_collision_bracket", None,
@@ -423,14 +434,15 @@ def check_manual_3d_sequence(
     progress_callback: Optional[Callable[[int, int, str], None]] = None,
     config: Any = None,
     reverse_axis_by_bend: Optional[dict[str, bool]] = None,
+    auto_orientation: bool = False,
+    orientation_retry_callback: Optional[Callable[[str, bool], None]] = None,
     include_benchmark_metrics: bool = False,
 ) -> dict:
     """Check a selected prefix (or complete order) with native FCStd tools.
 
-    On a proven collision or missing evidence, stop at the affected bend;
-    *never* accept an incomplete prefix as a safe full sequence. CONDITIONAL
-    remains conditional and never silently becomes a PASS. A successful
-    result is SAMPLED_3D_CLEAR_NOT_CONTINUOUS, not a manufacturing certificate.
+    With auto_orientation, try the opposite loading pose when the preferred
+    pose is blocked, conditional, or unresolved. Both trials use the same
+    signed fold history. Stop at the first bend without a usable pose.
     """
     t0 = perf_counter()
     order = tuple(selected_order)
@@ -457,6 +469,8 @@ def check_manual_3d_sequence(
     # Normalize before early-return reporting: a failed precheck must
     # still be serializable without an AttributeError.
     reverse_axis_by_bend = dict(reverse_axis_by_bend or {})
+    orientation_attempts = []
+    alternative_orientation_blockers = []
     coarse_occ = bool(getattr(config, "coarse_occ_screen", False))
     if not isfinite(end_len) or end_len < 0.0:
         raise ValueError("end_zone_length_mm must be finite and nonnegative")
@@ -494,6 +508,8 @@ def check_manual_3d_sequence(
             "allow_end_zone_collision": bool(allow_end_zone_collision),
             "end_zone_length_mm": end_len,
             "reverse_axis_by_bend": {bid: bool(reverse_axis_by_bend.get(bid, False)) for bid in order},
+            "orientation_attempts": orientation_attempts,
+            "alternative_orientation_blockers": alternative_orientation_blockers,
             "steps": steps,
             "elapsed_s": round(perf_counter() - t0, 4),
         }
@@ -515,6 +531,7 @@ def check_manual_3d_sequence(
         },
         conditional_end_zone_allowed=bool(allow_end_zone_collision),
         end_zone_length_mm=end_len,
+        auto_orientation=bool(auto_orientation),
         component_reject_enabled=(os.environ.get(
             "SMBS_COMPONENT_REJECT",
             "1" if getattr(config, "component_reject_enabled", False) else "0"
@@ -562,9 +579,7 @@ def check_manual_3d_sequence(
         "classify_end_zone_length_mm": end_len if end_len > 0.0 else 10.0,
         "sequence_geometry_cache": sequence_geometry_cache,
     }
-    for i, bend_id in enumerate(order):
-        if progress_callback is not None:
-            progress_callback(i + 1, len(order), bend_id)
+    def evaluate_pose(i, bend_id, reverse_axis):
         independent.reset_all()
         for prev in previous:
             independent.set_angle(
@@ -585,7 +600,7 @@ def check_manual_3d_sequence(
             fold_angles=dict(independent.angles),
             bend_axis_xyz=independent.bends[bend_id].axis_xyz,
             punch_id=punch_id, die_id=die_id,
-            reverse_axis=bool(reverse_axis_by_bend.get(bend_id, False)),
+            reverse_axis=reverse_axis,
         )
         started = perf_counter()
         report = None
@@ -602,9 +617,7 @@ def check_manual_3d_sequence(
                 try:
                     report = check_active_25d_bend_trajectory(
                         pseudo_session, tooling,
-                        reverse_axis=bool(
-                            reverse_axis_by_bend.get(bend_id, False)
-                        ),
+                        reverse_axis=reverse_axis,
                         **check_kwargs,
                     )
                 finally:
@@ -613,6 +626,7 @@ def check_manual_3d_sequence(
                     debug_event(
                         "PERF_NATIVE_BEND_KERNEL",
                         bend_id=bend_id,
+                        reverse_axis=reverse_axis,
                         step_number=i + 1,
                         elapsed_s=round(perf_counter() - started, 6),
                         kernel=kernel_counts.to_dict(),
@@ -675,6 +689,7 @@ def check_manual_3d_sequence(
             debug_event(
                 "MANUAL_NATIVE_BEND_TRAJECTORY",
                 bend_id=bend_id,
+                reverse_axis=reverse_axis,
                 status=report.status.value,
                 reason=report.reason,
                 native_status=report.native_status,
@@ -721,7 +736,7 @@ def check_manual_3d_sequence(
                 "bend_id": bend_id,
                 "angle_deg": float(independent.bends[bend_id].angle_deg),
                 "completed_before_step": list(previous),
-                "reverse_axis": bool(reverse_axis_by_bend.get(bend_id, False)),
+                "reverse_axis": reverse_axis,
                 "status": status.value,
                 "reason": report.reason,
                 "native_status": report.native_status,
@@ -767,8 +782,9 @@ def check_manual_3d_sequence(
                     "kernel": kernel_counts.to_dict(),
                     "geometry_build": geometry_counts.to_dict(),
                 }
-            if status is PhysicalEvidence.UNVERIFIED and report.status in (
-                    CLEAR, PhysicalEvidence.CONDITIONAL):
+            if (not coarse_occ and status is PhysicalEvidence.UNVERIFIED
+                    and report.status in (
+                        CLEAR, PhysicalEvidence.CONDITIONAL)):
                 record["status"] = status.value
                 record["reason"] = (
                     "RETRACT_not_verified:" + str(retract["reason"])
@@ -795,6 +811,7 @@ def check_manual_3d_sequence(
                 "bend_id": bend_id,
                 "angle_deg": float(independent.bends[bend_id].angle_deg),
                 "completed_before_step": list(previous),
+                "reverse_axis": reverse_axis,
                 "status": "UNVERIFIED",
                 "punch_die_pair": None,
                 "retract": retract_evidence_from_trajectory(None),
@@ -807,14 +824,16 @@ def check_manual_3d_sequence(
                 "tool_length_info": None,
                 "is_conditional": False,
             }
-        coarse_continue = False
+        raw = getattr(report, "raw_report", None)
+        tool_setup_status = getattr(getattr(raw, "tool_setup_status", None), "value", None)
+        if tool_setup_status not in (None, "TOOL_SETUP_QUALIFIED"):
+            record["tool_setup_status"] = tool_setup_status
+            record["tool_setup_reason"] = next(iter(raw.diagnostics), "")
         if coarse_occ and status is PhysicalEvidence.UNVERIFIED:
             from .motion_trajectory_3d import TrajectoryEvidenceStatus
-            raw = getattr(report, "raw_report", None)
             phases = getattr(raw, "phase_results", ())
             expected = ("APPROACH", "CONTACT", "BENDING", "BOTTOM", "RETRACT")
-            if (getattr(getattr(raw, "tool_setup_status", None), "value", None)
-                    == "TOOL_SETUP_QUALIFIED"
+            if (tool_setup_status == "TOOL_SETUP_QUALIFIED"
                     and tuple(p.phase_name for p in phases) == expected
                     and all(p.evidence_status in (
                         TrajectoryEvidenceStatus.DISCRETE_SAMPLES_SAFE,
@@ -833,26 +852,70 @@ def check_manual_3d_sequence(
                 )
                 record["is_conditional"] = conditional
                 record["first_blocker"] = None
-                coarse_continue = True
         record["elapsed_s"] = round(perf_counter() - started, 4)
-        steps.append(record)
         debug_event(
             "MANUAL_NATIVE_BEND_RESULT",
             bend=record, step=i + 1, tool_length_virtual=virtual,
         )
-        if status is PhysicalEvidence.COLLISION:
+        return record
+
+    for i, bend_id in enumerate(order):
+        if progress_callback is not None:
+            progress_callback(i + 1, len(order), bend_id)
+        preferred_axis = bool(reverse_axis_by_bend.get(bend_id, False))
+        record = evaluate_pose(i, bend_id, preferred_axis)
+        rank = _ORIENTATION_RANK.get(record["status"], 1)
+        pair = record.get("punch_die_pair") or {}
+        # Contact between the punch and die at this ram height is independent
+        # of sheet orientation. The same stroke is used for either loading.
+        if (auto_orientation and rank < 3 and pair.get("status") != "COLLISION"
+                and not record.get("tool_setup_status")):
+            if orientation_retry_callback is not None:
+                orientation_retry_callback(bend_id, not preferred_axis)
+            opposite = evaluate_pose(i, bend_id, not preferred_axis)
+            opposite_rank = _ORIENTATION_RANK.get(opposite["status"], 1)
+            opposite_pair = opposite.get("punch_die_pair") or {}
+            if opposite_rank > rank or opposite_pair.get("status") == "COLLISION":
+                selected = opposite
+                outcome = "OPPOSITE_ORIENTATION_SELECTED"
+            elif rank == opposite_rank == 0:
+                selected = record
+                outcome = "BOTH_ORIENTATIONS_COLLIDE"
+                alternative_orientation_blockers.append(opposite)
+            else:
+                selected = record
+                outcome = "PREFERRED_ORIENTATION_RETAINED"
+            attempt = {
+                "bend_id": bend_id,
+                "result": outcome,
+                "selected_reverse_axis": selected["reverse_axis"],
+                "trials": [
+                    {
+                        "reverse_axis": trial["reverse_axis"],
+                        "status": trial["status"],
+                        "phase": (trial.get("first_blocker") or {}).get("phase"),
+                        "tool": (trial.get("first_blocker") or {}).get("tool"),
+                    }
+                    for trial in (record, opposite)
+                ],
+            }
+            orientation_attempts.append(attempt)
+            debug_event("MANUAL_NATIVE_ORIENTATION_RESULT", **attempt)
+            record = selected
+            record["orientation_trials"] = attempt["trials"]
+        reverse_axis_by_bend[bend_id] = record["reverse_axis"]
+        steps.append(record)
+        status = record["status"]
+        if status == PhysicalEvidence.COLLISION.value:
             return final_result("COLLISION", steps, "punch_or_die_collision_at:" + bend_id)
-        if coarse_continue:
-            previous.append(bend_id)
-            continue
-        if status is PhysicalEvidence.UNVERIFIED or status is PhysicalEvidence.SECTION_CLEAR_3D_UNVERIFIED:
-            return final_result("UNVERIFIED", steps, "native_3d_not_verified_at:" + bend_id)
-        if status is PhysicalEvidence.CONDITIONAL:
+        if status == PhysicalEvidence.CONDITIONAL.value:
             any_conditional = True
             if not allow_end_zone_collision:
                 return final_result("UNVERIFIED", steps, "conditional_end_zone_not_enabled_at:" + bend_id)
-        elif status is not CLEAR:
-            return final_result("UNVERIFIED", steps, "unsupported_3d_status_at:" + bend_id)
+        elif status not in (
+            CLEAR.value, "COARSE_3D_NO_PROVEN_COLLISION", "COARSE_3D_CONDITIONAL_END_ZONE",
+        ):
+            return final_result("UNVERIFIED", steps, "native_3d_not_verified_at:" + bend_id)
         # Advance signed history only AFTER this step has been assessed;
         # the active bend was flat at the start of its own trajectory.
         previous.append(bend_id)

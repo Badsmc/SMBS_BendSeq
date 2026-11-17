@@ -116,6 +116,7 @@ def build_panels(unfold_name="Body_Unfold", outline_name=None, bends_name=None,
         raise PanelBuildError("Positive finite strip width and extension required")
     data = read_unfold(unfold_name, doc)
     unfold = doc.getObject(unfold_name)
+    use_extracted_geometry = False
     # First use the sketches owned by THIS unfold. FreeCAD may assign numeric
     # internal-name suffixes after a remodel (e.g. ..._Sketch001) while the
     # visible Label and UnfoldSketches links continue to identify their roles.
@@ -125,7 +126,17 @@ def build_panels(unfold_name="Body_Unfold", outline_name=None, bends_name=None,
 
         def _as_object(entry):
             if isinstance(entry, str):
-                return doc.getObject(entry)
+                obj = doc.getObject(entry)
+                if obj is not None:
+                    return obj
+                # FreeCAD may migrate internal names while restoring an FCStd.
+                # A stored sketch name can survive only as its exact label.
+                matches = [candidate for candidate in doc.Objects
+                           if getattr(candidate, "Label", None) == entry
+                           and hasattr(candidate, "Shape")]
+                if len(matches) > 1:
+                    raise PanelBuildError("Ambiguous UnfoldSketches reference: " + entry)
+                return matches[0] if matches else None
             if isinstance(entry, (tuple, list)) and entry:
                 return _as_object(entry[0])
             return entry if hasattr(entry, "Name") else None
@@ -178,7 +189,14 @@ def build_panels(unfold_name="Body_Unfold", outline_name=None, bends_name=None,
 
         outline_candidates = [o for o in candidates if _role(o) == "outline"]
         bends_candidates = [o for o in candidates if _role(o) == "bends"]
-        if outline_name is None:
+        # A restored document can lose every generated sketch name. The
+        # native SheetMetal unfold above still produces geometry for this
+        # exact source face and K-factor without guessing another sketch.
+        use_extracted_geometry = (
+            outline_name is None and bends_name is None and not candidates
+            and data.sketch_outline is not None
+        )
+        if outline_name is None and not use_extracted_geometry:
             if len(outline_candidates) != 1:
                 raise PanelBuildError(
                     "Cannot identify unique outline sketch for {} via {}: "
@@ -190,7 +208,7 @@ def build_panels(unfold_name="Body_Unfold", outline_name=None, bends_name=None,
                     )
                 )
             outline_name = outline_candidates[0].Name
-        if bends_name is None:
+        if bends_name is None and not use_extracted_geometry:
             if len(bends_candidates) != 1:
                 raise PanelBuildError(
                     "Cannot identify unique bend-lines sketch for {} via {}: "
@@ -202,16 +220,20 @@ def build_panels(unfold_name="Body_Unfold", outline_name=None, bends_name=None,
                     )
                 )
             bends_name = bends_candidates[0].Name
-    outline = doc.getObject(outline_name)
-    bend_sketch = doc.getObject(bends_name)
-    if outline is None or bend_sketch is None:
-        raise PanelBuildError("Unfold sketch object missing")
-    outline_shape = outline.Shape
-    lines = tuple(_segment(edge) for edge in bend_sketch.Shape.Edges)
     canonical = tuple((b.start_xyz[:2], b.end_xyz[:2]) for b in data.bends)
-    if len(lines) != len(canonical) and data.sketch_outline is not None:
+    if use_extracted_geometry:
         outline_shape = data.sketch_outline
         lines = canonical
+    else:
+        outline = doc.getObject(outline_name)
+        bend_sketch = doc.getObject(bends_name)
+        if outline is None or bend_sketch is None:
+            raise PanelBuildError("Unfold sketch object missing")
+        outline_shape = outline.Shape
+        lines = tuple(_segment(edge) for edge in bend_sketch.Shape.Edges)
+        if len(lines) != len(canonical) and data.sketch_outline is not None:
+            outline_shape = data.sketch_outline
+            lines = canonical
     if len(outline_shape.Wires) != 1 or not outline_shape.Wires[0].isClosed():
         raise PanelBuildError("Expected exactly one closed outline wire")
     if len(outline_shape.Edges) < 3:

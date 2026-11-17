@@ -10,14 +10,15 @@ import sys
 from pathlib import Path
 
 
-def _checkout_root() -> Path:
-    # Normal Python execution (tests or manual imports).
-    if "__file__" in globals():
-        return Path(__file__).resolve().parent
+def _checkout_root(script_file) -> Path:
+    # FreeCAD can execute this script with separate globals and locals.
+    import sys
+    from pathlib import Path
+
     # FreeCAD may execute a compiled script without setting __file__.
     # Its code object still carries the actual filename; prefer that
     # specific checkout over the first unrelated SMBS copy on sys.path.
-    code_path = Path(sys._getframe(1).f_code.co_filename)
+    code_path = Path(script_file)
     if code_path.is_absolute():
         candidate = code_path.resolve().parent
         if (candidate / "freecad_smbs" / "InitGui.py").is_file():
@@ -45,7 +46,7 @@ def _checkout_root() -> Path:
     )
 
 
-_REPO_ROOT = _checkout_root()
+_REPO_ROOT = _checkout_root(sys._getframe().f_code.co_filename)
 _loaded_package = sys.modules.get("freecad_smbs")
 if _loaded_package is not None:
     _loaded_file = getattr(_loaded_package, "__file__", None)

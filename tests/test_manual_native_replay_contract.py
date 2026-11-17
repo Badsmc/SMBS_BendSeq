@@ -17,6 +17,7 @@ from smbs_core.kinematics2d.workpiece_placement_validation_3d import (
 from smbs_core.kinematics2d.native_assisted_retract import (
     select_assisted_retract_inspection, classify_punch_intersection_span,
 )
+from smbs_core.kinematics2d.preview_mesh_3d import build_tool_preview_faces
 
 ROOT = Path(__file__).resolve().parents[1]
 GUI = ROOT / "freecad_smbs" / "commands" / "pressbrake_2d.py"
@@ -137,6 +138,31 @@ class AlternativeRetractEvidenceTests(unittest.TestCase):
 
 
 class ManualPlaybackContractTests(unittest.TestCase):
+    def test_inspected_bend_length_resizes_both_virtual_tools_only(self):
+        def section(**_kwargs):
+            return ((0, 0), (1, 0), (0, 1)), ()
+
+        tooling = SimpleNamespace(
+            visible=True, ram_z_mm=0.0, active_bend_length_mm=50.0,
+            match_active_bend_length=True,
+            punch=SimpleNamespace(tool_id="punch", length_mm=100.0),
+            die=SimpleNamespace(tool_id="die", length_mm=200.0),
+            punch_polygons_machine=section, die_polygons_machine=section,
+            punch_section_offsets_xm=(), die_section_offsets_xm=(),
+        )
+
+        def extents():
+            faces = build_tool_preview_faces(tooling, active_bend_length_mm=20.0)
+            return {
+                face.kind: set(vertex[1] for frame in faces if frame.kind == face.kind
+                               for vertex in frame.vertices)
+                for face in faces if face.kind.endswith("_cap")
+            }
+
+        self.assertEqual(extents(), {"punch_cap": {-10, 10}, "die_cap": {-10, 10}})
+        tooling.match_active_bend_length = False
+        self.assertEqual(extents(), {"punch_cap": {-50, 50}, "die_cap": {-100, 100}})
+
     def test_manual_playback_does_not_discard_matching_occ_report(self):
         body = source("simulate_manual_order_unverified")
         self.assertIn("_matching_manual_occ_report", body)

@@ -19,6 +19,7 @@ from smbs_core.kinematics2d.manual_physical_validation import (
 from smbs_core.kinematics2d.manual_physical_validation import (
     check_manual_3d_sequence, concise_3d_blocker,
 )
+from smbs_core.kinematics2d.fold_sequence import SequenceError, parse_manual_bend_order
 from smbs_core.kinematics2d.physical_validation_25d import PhysicalEvidence
 from smbs_core.kinematics2d.motion_trajectory_3d import AdaptiveSamplingConfig
 from smbs_core.kinematics2d.panel_graph import GraphEdge, PanelGraph
@@ -75,6 +76,19 @@ def evidence(status, *, conditional=False):
         ),
         is_conditional=conditional,
     )
+
+
+class ManualOrderInputTests(unittest.TestCase):
+    def test_numbers_and_ids_refer_to_bend_labels(self):
+        known = ("B03", "B01", "B10", "B02")
+        self.assertEqual(parse_manual_bend_order("2-1 → b3, B10", known),
+                         ("B02", "B01", "B03", "B10"))
+        self.assertEqual(parse_manual_bend_order("B10 -> 2", known), ("B10", "B02"))
+
+    def test_invalid_input_is_rejected(self):
+        for text in ("", "B01, 1", "1, 3", "1, Bxx"):
+            with self.subTest(text=text), self.assertRaises(SequenceError):
+                parse_manual_bend_order(text, ("B01", "B02"))
 
 
 class ManualToolingTests(unittest.TestCase):
@@ -165,6 +179,89 @@ class ManualToolingTests(unittest.TestCase):
         self.assertEqual(report["checked_bends"], 1)
         check.assert_called_once()
 
+    def test_opposite_pose_reuses_completed_history_without_replaying_it(self):
+        order = ("B02", "B01")
+        self.session.bend_order = order
+        selected = {"B02": False, "B01": False}
+        calls = []
+
+        def fake(session, _tooling, *, reverse_axis, **_kwargs):
+            bend_id = session.active_bend_id
+            calls.append((bend_id, reverse_axis, dict(session.fold_state.angles)))
+            if bend_id == "B01" and not reverse_axis:
+                return evidence(PhysicalEvidence.COLLISION)
+            return evidence(PhysicalEvidence.SAMPLED_3D_CLEAR_NOT_CONTINUOUS)
+
+        with patch(
+            "smbs_core.kinematics2d.manual_physical_validation"
+            ".check_active_25d_bend_trajectory", side_effect=fake,
+        ):
+            report = check_manual_3d_sequence(
+                self.session, self.tooling, order, auto_orientation=True,
+                reverse_axis_by_bend=selected,
+            )
+        self.assertEqual(calls, [
+            ("B02", False, {"B01": 0.0, "B02": 0.0}),
+            ("B01", False, {"B01": 0.0, "B02": -45.0}),
+            ("B01", True, {"B01": 0.0, "B02": -45.0}),
+        ])
+        self.assertEqual(report["status"], "SAMPLED_3D_CLEAR_NOT_CONTINUOUS")
+        self.assertEqual(report["reverse_axis_by_bend"], {"B02": False, "B01": True})
+        self.assertFalse(selected["B01"])
+        self.assertEqual(report["orientation_attempts"][0]["bend_id"], "B01")
+        self.assertEqual(self.session.fold_state.angles, {"B01": 0.0, "B02": 0.0})
+
+    def test_unresolved_and_conditional_poses_search_for_a_clear_alternative(self):
+        for primary in (PhysicalEvidence.UNVERIFIED, PhysicalEvidence.CONDITIONAL):
+            with self.subTest(primary=primary), patch(
+                "smbs_core.kinematics2d.manual_physical_validation"
+                ".check_active_25d_bend_trajectory", side_effect=[
+                    evidence(primary, conditional=primary is PhysicalEvidence.CONDITIONAL),
+                    evidence(PhysicalEvidence.SAMPLED_3D_CLEAR_NOT_CONTINUOUS),
+                    evidence(PhysicalEvidence.SAMPLED_3D_CLEAR_NOT_CONTINUOUS),
+                ],
+            ):
+                report = check_manual_3d_sequence(
+                    self.session, self.tooling, self.session.bend_order,
+                    auto_orientation=True, allow_end_zone_collision=True,
+                    reverse_axis_by_bend={"B01": True},
+                )
+                self.assertEqual(report["status"], "SAMPLED_3D_CLEAR_NOT_CONTINUOUS")
+                self.assertFalse(report["reverse_axis_by_bend"]["B01"])
+
+    def test_one_proven_collision_and_one_unknown_pose_are_unverified(self):
+        with patch(
+            "smbs_core.kinematics2d.manual_physical_validation"
+            ".check_active_25d_bend_trajectory", side_effect=[
+                evidence(PhysicalEvidence.COLLISION), RuntimeError("timeout"),
+            ],
+        ):
+            report = check_manual_3d_sequence(
+                self.session, self.tooling, self.session.bend_order, auto_orientation=True,
+            )
+        self.assertEqual(report["status"], "UNVERIFIED")
+        self.assertEqual(report["checked_bends"], 1)
+        self.assertEqual([trial["status"] for trial in report["steps"][0]["orientation_trials"]],
+                         ["COLLISION", "UNVERIFIED"])
+
+    def test_both_collisions_retain_preferred_pose_and_alternate_blocker(self):
+        collision = evidence(PhysicalEvidence.COLLISION)
+        with patch(
+            "smbs_core.kinematics2d.manual_physical_validation"
+            ".check_active_25d_bend_trajectory", return_value=collision,
+        ), patch(
+            "smbs_core.kinematics2d.manual_physical_validation.concise_3d_blocker",
+            side_effect=[{"phase": "APPROACH"}, {"phase": "RETRACT"}],
+        ):
+            report = check_manual_3d_sequence(
+                self.session, self.tooling, self.session.bend_order, auto_orientation=True,
+            )
+        self.assertEqual(report["status"], "COLLISION")
+        self.assertEqual(report["orientation_attempts"][0]["result"], "BOTH_ORIENTATIONS_COLLIDE")
+        self.assertEqual(report["steps"][0]["first_blocker"]["phase"], "APPROACH")
+        self.assertEqual(report["alternative_orientation_blockers"][0]["first_blocker"]["phase"],
+                         "RETRACT")
+
     def test_end_zone_option_survives_and_never_becomes_clear(self):
         def fake(*args, **kwargs):
             self.assertTrue(kwargs["allow_end_zone_collision"])
@@ -213,7 +310,7 @@ class ManualToolingTests(unittest.TestCase):
         ) as check:
             report = check_manual_3d_sequence(
                 self.session, self.tooling, ("B01", "B02"),
-                allow_end_zone_collision=True,
+                allow_end_zone_collision=True, auto_orientation=True,
             )
         self.assertEqual(report["status"], "COLLISION")
         self.assertEqual(report["checked_bends"], 1)
