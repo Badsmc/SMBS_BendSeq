@@ -124,12 +124,23 @@ def compare_native_placement_matrices(
                 or any(len(row) != 3 for row in actual_R)
                 or len(expected_t) != 3 or len(actual_t) != 3):
             raise ValueError("invalid matrix dimensions")
-        r_delta = max(abs(float(expected_R[i][j])-float(actual_R[i][j]))
-                      for i in range(3) for j in range(3))
-        t_delta = max(abs(float(expected_t[i])-float(actual_t[i]))
-                      for i in range(3))
-        if not (math.isfinite(r_delta) and math.isfinite(t_delta)):
+        rotation_values = [
+            (float(expected_R[i][j]), float(actual_R[i][j]))
+            for i in range(3) for j in range(3)
+        ]
+        translation_values = [
+            (float(expected_t[i]), float(actual_t[i]))
+            for i in range(3)
+        ]
+        # max() must never see a NaN: max(finite, nan) may return finite
+        # depending on operand order, yielding a false numeric verdict.
+        all_values = [value for pair in (
+            rotation_values + translation_values
+        ) for value in pair]
+        if not all(math.isfinite(value) for value in all_values):
             raise ValueError("nonfinite values")
+        r_delta = max(abs(a - b) for a, b in rotation_values)
+        t_delta = max(abs(a - b) for a, b in translation_values)
     except (TypeError, ValueError, KeyError, IndexError, AttributeError) as exc:
         return {"status": "UNVERIFIED", "reason": str(exc)}
     return {
