@@ -1099,7 +1099,7 @@ class SequenceCatalogCommand:
         return {
             "Pixmap": str(_ICON_ROOT / "gui_sequence_catalog.svg"),
             "MenuText": "Последовательности",
-            "ToolTip": "JSON автоматических и ручных последовательностей; назначение симуляции",
+            "ToolTip": "Открыть сохранённые последовательности гибки из JSON",
         }
 
     def IsActive(self):
@@ -1121,7 +1121,7 @@ class ManualCommand:
         return {
             "Pixmap": str(_ICON_ROOT / "gui_manual.svg"),
             "MenuText": "Порядок и проверка",
-            "ToolTip": "Выбрать порядок гибов или проверить найденный 2D вариант",
+            "ToolTip": "Вручную выбрать порядок гибов, запустить симуляцию или проверить коллизии",
         }
 
     def IsActive(self):
@@ -2058,37 +2058,15 @@ class _PreviewPanel:
                 self._manual_preview_notice.hide()
                 sim_body.addWidget(self._manual_preview_notice)
 
-                # The operator starts with 2D candidates, then checks the
-                # chosen full order from Manual.
+                # ManualMode: sequence search is not exposed to the operator.
                 self.calculate.hide()
                 sim_layout.addStretch(1)
                 self._page_simulation = scroll_task_page(
                     simulation, "SMBS_SimulationScroll"
                 )
-                planar_page = QtWidgets.QWidget()
-                planar_layout = QtWidgets.QVBoxLayout(planar_page)
-                planar_card, planar_body = card("Шаг 1 — найти порядок гибов")
-                planar_note = QtWidgets.QLabel(
-                    "Нажмите «Поиск 2D вариантов» на панели инструментов. "
-                    "Программа ищет полные порядки гибов с быстрой 2D оценкой "
-                    "и ранжирует их по весам. Поиск ограничен 30 секундами: "
-                    "если ничего не найдено, это ещё не доказывает, что решения нет. "
-                    "Найденный порядок пока не проверен в 3D."
-                )
-                planar_note.setWordWrap(True)
-                planar_body.addWidget(planar_note)
-                # The native toolbar command runs the search; this section
-                # displays its description/results without a duplicate button.
-                self.planar_calculate.hide()
-                planar_layout.addWidget(planar_card)
-                planar_layout.addStretch(1)
-                self._page_planar = scroll_task_page(
-                    planar_page, "SMBS_PlanarScroll"
-                )
-
                 manual = QtWidgets.QWidget()
                 manual_layout = QtWidgets.QVBoxLayout(manual)
-                order_card, order_body = card("Шаг 2 — выбрать и проверить порядок")
+                order_card, order_body = card("Ручной порядок гибов и проверка")
                 # Sequence guidance belongs in tooltips, not a permanent
                 # multi-line paragraph above operator controls.
                 for btn in (
@@ -2114,8 +2092,8 @@ class _PreviewPanel:
                     QtWidgets.QPushButton("Сохранённые варианты"), compact=True
                 )
                 self.saved_sequences_btn.setToolTip(
-                    "Выбрать один из найденных порядков, сохранённых "
-                    "в JSON текущего FCStd. Результат требует повторной проверки."
+                    "Загрузить ранее сохранённый ручной порядок из JSON "
+                    "текущего FCStd. При необходимости проверить его заново."
                 )
                 self.saved_sequences_btn.clicked.connect(
                     self._select_saved_sequence
@@ -2379,7 +2357,8 @@ class _PreviewPanel:
                 self.press_cycle_group.setFlat(True)
                 style_action(self.cycle_config_btn)
                 insert(cycle_body, entries[3])  # Mode / Full Cycle / Speed
-                cycle_body.addWidget(self.retract_warning_checkbox)
+                # Only used by automatic search: deliberately hidden in ManualMode.
+                self.retract_warning_checkbox.hide()
                 settings_layout.addWidget(cycle_card)
 
                 tool_opts_card, tool_opts_layout = card("Оснастка — параметры")
@@ -2471,7 +2450,8 @@ class _PreviewPanel:
                 style_action(reset_weights_btn)
                 weights_form.addRow(reset_weights_btn)
                 weights_body.addWidget(weights_box)
-                advanced_layout.addWidget(weights_card)
+                # Weights are search-only controls, retained internally but not shown.
+                weights_card.hide()
 
                 gauge_settings_btn = QtWidgets.QPushButton(
                     "Задний упор — геометрия и позиции гибов…")
@@ -2625,8 +2605,8 @@ class _PreviewPanel:
                 advanced_toggle.setCheckable(True)
                 advanced_toggle.setChecked(False)
                 advanced_toggle.setToolTip(
-                    "Веса 2D-поиска, ограничения оснастки, дополнительные "
-                    "OCC проверки и диагностические записи"
+                    "Параметры оснастки, дополнительные OCC проверки "
+                    "и диагностические записи"
                 )
                 advanced_toggle.toggled.connect(advanced.setVisible)
                 settings_layout.addWidget(advanced_toggle)
@@ -2637,14 +2617,13 @@ class _PreviewPanel:
                     settings, "SMBS_SettingsScroll"
                 )
 
-                # Fixed contextual pages match the six operator toolbar actions.
+                # Five manual-only contextual pages match operator toolbar actions.
                 # Only the selected page is shown. Specialist QDialogs may be
                 # temporarily added and removed without creating tabs.
                 page_specs = (
                     ("Деталь", self._page_part),
                     ("Оснастка", self._page_tooling),
                     ("Симуляция", self._page_simulation),
-                    ("Поиск 2D вариантов", self._page_planar),
                     ("Порядок и проверка", self._page_manual),
                     ("Настройки", self._page_settings),
                 )
@@ -2761,7 +2740,7 @@ class _PreviewPanel:
 
             def open_settings_dialog(self):
                 """Show all configuration controls on one contextual page."""
-                show_workspace_controls(self, tab=5)
+                show_workspace_controls(self, tab=4)
 
             def _apply_svg_button_icons(self):
                 """Use the same industrial SVG family in task controls.
@@ -6888,7 +6867,7 @@ class _PreviewPanel:
                 else:
                     self._viewer_tabs.setCurrentWidget(self._flat_view)
                     self._draw_flat_pattern(reset_camera=False)
-                show_workspace_controls(self, tab=4)
+                show_workspace_controls(self, tab=3)
 
             def _toggle_manual_order(self, enabled):
                 if enabled and self.session is None:
