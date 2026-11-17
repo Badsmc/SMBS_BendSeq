@@ -23,7 +23,7 @@ if str(_REPO_ROOT) not in sys.path:
 
 from freecad_smbs.commands.pressbrake_2d import (
     PressBrake2DCommand, LoadPartCommand, ToolingTabCommand,
-    CalculateCommand, PlanarCandidatesCommand, SequenceCatalogCommand,
+    SequenceCatalogCommand,
     BackgaugeCommand, ManualCommand, SettingsCommand,
 )
 from freecad_smbs.commands.tooling import ToolingCommand
@@ -32,8 +32,6 @@ CMD_PRESSBRAKE_2D = "SMBS_PressBrake2D"
 CMD_TOOLING = "SMBS_Tooling"  # Preserve existing standalone library command
 CMD_LOAD_PART = "SMBS_LoadPart"
 CMD_TOOLING_TAB = "SMBS_ToolingTab"
-CMD_CALCULATE = "SMBS_Calculate"
-CMD_PLANAR_CANDIDATES = "SMBS_PlanarCandidates"
 CMD_SEQUENCE_CATALOG = "SMBS_SequenceCatalog"
 CMD_BACKGAUGE = "SMBS_Backgauge"
 CMD_MANUAL = "SMBS_Manual"
@@ -42,8 +40,6 @@ COMMANDS_MAP = {
     CMD_PRESSBRAKE_2D: PressBrake2DCommand,
     CMD_LOAD_PART: LoadPartCommand,
     CMD_TOOLING_TAB: ToolingTabCommand,
-    CMD_CALCULATE: CalculateCommand,
-    CMD_PLANAR_CANDIDATES: PlanarCandidatesCommand,
     CMD_SEQUENCE_CATALOG: SequenceCatalogCommand,
     CMD_BACKGAUGE: BackgaugeCommand,
     CMD_MANUAL: ManualCommand,
@@ -73,14 +69,11 @@ class SMBSWorkbench(Workbench):
 
     def Initialize(self) -> None:
         register_commands()
-        # Six native FreeCAD toolbar commands. Other actions remain available
-        # through the workbench menu, without duplicating the toolbar buttons.
-        # Simulation is a viewer/action, not an implicit sequence search.
-        # Search begins with complete 2D candidates; the chosen order enters
-        # Manual for an explicit fast or full collision check.
+        # ManualMode: never register automatic sequence search commands.
+        # Hand-picked bend orders are checked explicitly by the operator.
         toolbar = [
             CMD_LOAD_PART, CMD_TOOLING_TAB, CMD_PRESSBRAKE_2D,
-            CMD_PLANAR_CANDIDATES, CMD_MANUAL, CMD_SETTINGS,
+            CMD_MANUAL, CMD_SETTINGS,
         ]
         menu = [
             *toolbar, CMD_SEQUENCE_CATALOG,
