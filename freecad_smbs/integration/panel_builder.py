@@ -243,7 +243,9 @@ def build_panels(unfold_name="Body_Unfold", outline_name=None, bends_name=None,
 
 
 def partition_flat_pattern(outline_shape, canonical, lines, bends,
-                           strip_width_mm=0.02, extension_mm=0.2, *, hole_faces=(), zone_extension_mm=None):
+                           strip_width_mm=0.02, extension_mm=0.2, *, hole_faces=(),
+                           zone_extension_mm=None, max_panel_sliver_area_mm2=0.0,
+                           on_panel_slivers=None):
     """Build rigid panels and finite-radius zones from planar geometry."""
     import FreeCAD as App
     import Part
@@ -352,11 +354,20 @@ def partition_flat_pattern(outline_shape, canonical, lines, bends,
             if i in (left_idx, right_idx):
                 rigid_shape = rigid_shape.cut(zcutter)
         subfaces = [f for f in rigid_shape.Faces if f.Area > 1e-5]
+        panel_id = "P{:02d}".format(i + 1)
+        if len(subfaces) > 1 and max_panel_sliver_area_mm2 > 0:
+            subfaces.sort(key=lambda face: face.Area, reverse=True)
+            sliver_area = sum(face.Area for face in subfaces[1:])
+            if (subfaces[0].Area > max_panel_sliver_area_mm2
+                    and sliver_area <= max_panel_sliver_area_mm2):
+                if on_panel_slivers is not None:
+                    on_panel_slivers(panel_id, [face.Area for face in subfaces[1:]])
+                subfaces = subfaces[:1]
         if len(subfaces) != 1 or not subfaces[0].isValid():
+            areas = ", ".join(f"{face.Area:.8g}" for face in subfaces) or "none"
             raise PanelBuildError(
-                "Bend zones consume or split rigid panel P{:02d} (got {} subfaces)".format(
-                    i + 1, len(subfaces)
-                )
+                f"Bend zones consume or split rigid panel {panel_id} "
+                f"(got {len(subfaces)} subfaces, areas mm²: {areas})"
             )
         rigid_faces.append(subfaces[0])
     rigid_faces_t = tuple(rigid_faces)
