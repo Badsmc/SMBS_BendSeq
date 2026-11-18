@@ -81,7 +81,7 @@ class SMBSWorkbench(Workbench):
         # Hand-picked bend orders are checked explicitly by the operator.
         toolbar = [
             CMD_LOAD_PART, CMD_DXF_MANUAL, CMD_TOOLING_TAB, CMD_PRESSBRAKE_2D,
-            CMD_MANUAL, CMD_SETTINGS,
+            CMD_SETTINGS,
         ]
         menu = [
             *toolbar, CMD_SEQUENCE_CATALOG,
