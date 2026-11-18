@@ -145,6 +145,28 @@ def _qt():
             return QtCore, QtGui, QtWidgets
 
 
+def _qt_validity_check(qt_core):
+    """Resolve the binding from the Qt runtime, including FreeCAD's PySide alias."""
+    qt_major = qt_core.qVersion().partition(".")[0]
+    module = {"5": "shiboken2", "6": "shiboken6"}.get(qt_major)
+    if module:
+        try:
+            return importlib.import_module(module).isValid
+        except (ImportError, AttributeError):
+            pass
+
+    def is_valid(obj):
+        if obj is None:
+            return False
+        try:
+            obj.signalsBlocked()
+        except RuntimeError:
+            return False
+        return True
+
+    return is_valid
+
+
 def _log(message):
     """Write normal diagnostics to the ONE Desktop JSON, not a second .log."""
     _desktop_debug_event("FREECAD_INFO", message=str(message))
@@ -1442,10 +1464,7 @@ class _PreviewPanel:
                 self.playing = False
                 self._last_tick_monotonic: float | None = None
                 self._closing = False
-                binding = QtCore.__name__.split(".", 1)[0]
-                self._qt_is_valid = importlib.import_module(
-                    "shiboken6" if binding == "PySide6" else "shiboken2"
-                ).isValid
+                self._qt_is_valid = _qt_validity_check(QtCore)
                 self.timer = QtCore.QTimer(self)
                 self.timer.setTimerType(QtCore.Qt.PreciseTimer)
                 self.timer.setInterval(25)  # 40 Hz Qt playback; one timer only
