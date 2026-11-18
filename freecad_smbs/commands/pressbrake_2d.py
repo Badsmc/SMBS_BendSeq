@@ -4872,7 +4872,10 @@ class _PreviewPanel:
                         "BEND_ONLY_REQUIRES_PRESS_CYCLE"
                     )
                 try:
-                    sheet_support_z = pc.preview_workpiece_support_zm()
+                    if getattr(self.session.unfold_data, "dxf_manual", False) and pc.coupled_kinematics is None:
+                        sheet_support_z = zone.outer_radius_mm
+                    else:
+                        sheet_support_z = pc.preview_workpiece_support_zm()
                 except (PressCycleError, ValueError, TypeError) as exc:
                     raise WorkpiecePoseError(
                         "BEND_ONLY_COUPLED_SHEET_PLACEMENT_FAILED:" + str(exc)
@@ -5377,7 +5380,7 @@ class _PreviewPanel:
                 )
                 self._sync_playback_buttons()
 
-            def load_part(self, selection=None, document=None):
+            def load_part(self, selection=None, document=None, *, prepared_session=None):
                 """Load selected SheetMetal object captured before viewer focus."""
                 import FreeCAD as App
                 import FreeCADGui as Gui
@@ -5398,7 +5401,10 @@ class _PreviewPanel:
                         for item in selection
                     ],
                 )
-                outcome, new_session, msg = execute_load_part(self.session, doc, selection)
+                if prepared_session is None:
+                    outcome, new_session, msg = execute_load_part(self.session, doc, selection)
+                else:
+                    outcome, new_session, msg = "loaded", prepared_session, "Развёртка DXF рассчитана."
                 _desktop_debug_event(
                     "PART_LOAD_OUTCOME", outcome=outcome, message=msg,
                 )

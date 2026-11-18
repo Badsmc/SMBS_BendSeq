@@ -25,6 +25,8 @@ from freecad_smbs.commands.tooling import (
     ToolingCommand, SegmentStockCommand, VirtualClampsCommand, ToolLayoutCommand,
 )
 
+from freecad_smbs.integration.dxf_manual import DxfManualCommand
+
 CMD_PRESSBRAKE_2D = "SMBS_PressBrake2D"
 CMD_TOOLING = "SMBS_Tooling"  # Preserve existing standalone library command
 CMD_LOAD_PART = "SMBS_LoadPart"
@@ -35,6 +37,7 @@ CMD_MANUAL = "SMBS_Manual"
 CMD_SETTINGS = "SMBS_Settings"
 COMMANDS_MAP = {
     CMD_PRESSBRAKE_2D: PressBrake2DCommand,
+    "SMBS_DxfManual": DxfManualCommand,
     CMD_LOAD_PART: LoadPartCommand,
     CMD_TOOLING_TAB: ToolingTabCommand,
     CMD_SEQUENCE_CATALOG: SequenceCatalogCommand,
@@ -80,7 +83,7 @@ class SMBSWorkbench(Workbench):
             CMD_MANUAL, CMD_SETTINGS,
         ]
         menu = [
-            *toolbar, CMD_SEQUENCE_CATALOG,
+            *toolbar, "SMBS_DxfManual", CMD_SEQUENCE_CATALOG,
             CMD_TOOLING, *_TOOLING_ACTIONS,
         ]
         self.appendMenu(self.MenuText, menu)
