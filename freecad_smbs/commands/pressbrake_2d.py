@@ -1917,8 +1917,7 @@ class _PreviewPanel:
                     )), "Coin3D")
                 self._flat_view = Canvas(bend_click_callback=self._select_flat_bend)
                 self._flat_view.setObjectName("SMBS_FlatPattern_ManualOrder")
-                self._flat_scene = QtWidgets.QGraphicsScene(self._flat_view)
-                self._flat_view.setScene(self._flat_scene)
+                self._create_flat_scene()
                 views.addTab(self._flat_view, QtGui.QIcon(str(
                     _ICON_ROOT / "gui_sequence_catalog.svg"
                 )), "Развёртка · Порядок")
@@ -7414,10 +7413,20 @@ class _PreviewPanel:
                 self._manual_orientation_by_bend = {}
                 self._apply_manual_order(())
 
+            def _create_flat_scene(self):
+                self._flat_scene = QtWidgets.QGraphicsScene(self._flat_view)
+                self._flat_view.setScene(self._flat_scene)
+                return self._flat_scene
+
             def _draw_flat_pattern(self, reset_camera=False):
-                if not hasattr(self, "_flat_scene"):
+                view = getattr(self, "_flat_view", None)
+                if self._closing or view is None or not self._qt_is_valid(view):
                     return
-                scene = self._flat_scene
+                scene = view.scene()
+                if scene is None or not self._qt_is_valid(scene):
+                    scene = self._create_flat_scene()
+                    self._trace_event("FLAT_PATTERN_SCENE_RECREATED")
+                self._flat_scene = scene
                 scene.clear()
                 if self.session is None:
                     scene.addSimpleText("Развёртка не загружена")
@@ -8136,7 +8145,11 @@ class _PreviewPanel:
                 checks = {
                     "coin3d_available": self._preview_3d._available,
                     "coin3d_mesh": not has_part or getattr(self._preview_3d, "_last_sheet_face_count", 0) > 0,
-                    "flat_pattern_attached": self._flat_view.scene() is self._flat_scene,
+                    "flat_pattern_attached": (
+                        self._qt_is_valid(self._flat_view)
+                        and self._qt_is_valid(self._flat_scene)
+                        and self._flat_view.scene() is self._flat_scene
+                    ),
                     "part_loaded": has_part,
                     "timer_consistency": self.timer.isActive() == self.playing,
                 }
