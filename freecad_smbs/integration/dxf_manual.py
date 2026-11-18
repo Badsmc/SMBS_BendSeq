@@ -224,7 +224,7 @@ def build_session(path, lines, angles, thickness, radius, k_factor):
     import Part
 
     from freecad_smbs.commands.pressbrake_2d import LoadedPartSession
-    from freecad_smbs.integration.panel_builder import partition_flat_pattern
+    from freecad_smbs.integration.panel_builder import BendZoneOverlapError, partition_flat_pattern
     from smbs_core.kinematics2d.gauge_preview import local_bend_dimension_mm
     from smbs_core.kinematics2d.panel_graph import graph_from_panel_build
     from smbs_core.kinematics2d.panel_kinematics import FoldState
@@ -257,8 +257,13 @@ def build_session(path, lines, angles, thickness, radius, k_factor):
                         thickness_mm=thickness, k_factor_ansi=k_factor)
         for step, angle in enumerate(angles.values(), 1)
     ]
-    panels = partition_flat_pattern(wire, axes, axes, bends,
-                                    hole_faces=holes)
+    try:
+        panels = partition_flat_pattern(wire, axes, axes, bends, hole_faces=holes)
+    except BendZoneOverlapError:
+        # The topology cut still bridges DXF endpoint tolerances. Retry the
+        # physical bend zones with the actual finite DXF axis lengths.
+        panels = partition_flat_pattern(wire, axes, axes, bends,
+                                        hole_faces=holes, zone_extension_mm=0.0)
     graph = graph_from_panel_build(panels)
     fixed = max(panels.panels, key=lambda panel: panel.area_mm2).panel_id
     state = FoldState(graph, fixed)
