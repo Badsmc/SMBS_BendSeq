@@ -140,7 +140,14 @@ def build_session(path, lines, angles, thickness, radius, k_factor):
             rings.append(tuple((v.x, v.y) for v in points[:-1]))
         vertices[panel.panel_id] = rings[0]
         if holes or len(wire.Edges) == 1:
-            points, triangles = face.tessellate(0.05)
+            # Tessellate a polygonal copy so OCC cannot subdivide each
+            # circular edge hundreds of times for every playback frame.
+            preview_wires = []
+            for ring in rings:
+                points = [App.Vector(x, y, 0) for x, y in ring]
+                preview_wires.append(Part.makePolygon([*points, points[0]]))
+            preview_face = Part.makeFace(preview_wires, "Part::FaceMakerBullseye")
+            points, triangles = preview_face.tessellate(0.05)
             meshes[panel.panel_id] = (
                 tuple(tuple((points[i].x, points[i].y) for i in triangle)
                       for triangle in triangles), tuple(rings),
