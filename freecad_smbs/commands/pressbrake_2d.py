@@ -1454,6 +1454,8 @@ class _PreviewPanel:
                 _desktop_debug_event(
                     "SMBS_RUNTIME_READY",
                     runtime=self.runtime_git_info,
+                    qt_version=QtCore.qVersion(),
+                    qt_binding=QtCore.__name__,
                     cycle_config={
                         "initial_clearance_mm":
                             self.cycle_config.initial_clearance_mm,
@@ -3197,6 +3199,9 @@ class _PreviewPanel:
                     return True
                 except (ValueError, KeyError, RuntimeError, TypeError, AttributeError, IndexError) as exc:
                     if not self._playback_alive():
+                        _desktop_debug_event("COIN3D_LIFETIME_ERROR", bend_id=bend_id,
+                                             error=str(exc), traceback=traceback.format_exc(),
+                                             qt_state=self._qt_debug_state())
                         return False
                     message = "Coin3D: " + str(exc)
                     if message != self._coin_last_error:
@@ -7351,10 +7356,47 @@ class _PreviewPanel:
                     sequence=list(prefix),
                 )
 
+            def _qt_debug_state(self):
+                objects = ("timer", "_flat_view", "_flat_scene", "_viewer_tabs", "play_btn")
+                return {
+                    "closing": self._closing,
+                    "workspace_valid": self._qt_is_valid(self),
+                    "objects_valid": {
+                        name: obj is not None and self._qt_is_valid(obj)
+                        for name in objects if (obj := getattr(self, name, None)) is not None
+                    },
+                    "playing": self.playing,
+                    "playback_status": self.session.playback_status if self.session else None,
+                    "active_bend_id": self.session.active_bend_id if self.session else None,
+                }
+
             def _apply_manual_order(self, prefix):
+                prefix = tuple(prefix)
+                started = time.perf_counter()
+                stage = "set_bend_order"
+
+                def checkpoint(next_stage):
+                    nonlocal stage
+                    stage = next_stage
+                    _desktop_debug_event("MANUAL_ORDER_STAGE", stage=stage, prefix=prefix)
+
+                _desktop_debug_event("MANUAL_ORDER_STARTED", prefix=prefix,
+                                     qt_state=self._qt_debug_state())
+                try:
+                    applied = self._apply_manual_order_steps(prefix, checkpoint)
+                except Exception as exc:
+                    _desktop_debug_event("MANUAL_ORDER_ERROR", stage=stage, prefix=prefix,
+                                         qt_state=self._qt_debug_state(), error=str(exc),
+                                         traceback=traceback.format_exc())
+                    raise
+                _desktop_debug_event("MANUAL_ORDER_COMPLETED" if applied else
+                                     "MANUAL_ORDER_REJECTED", stage=stage, prefix=prefix,
+                                     elapsed_ms=round((time.perf_counter() - started) * 1000, 2))
+                return applied
+
+            def _apply_manual_order_steps(self, prefix, checkpoint):
                 if self.session is None:
                     return False
-                prefix = tuple(prefix)
                 remainder = tuple(
                     bend_id for bend_id in self.session.canonical_order
                     if bend_id not in prefix
@@ -7362,12 +7404,15 @@ class _PreviewPanel:
                 try:
                     self.session.set_bend_order(prefix + remainder)
                 except SequenceError as exc:
+                    _desktop_debug_event("MANUAL_ORDER_SEQUENCE_ERROR", error=str(exc),
+                                         prefix=prefix, traceback=traceback.format_exc())
                     self.status.setText(str(exc))
                     return False
                 self._manual_sequence_prefix = list(prefix)
                 self._manual_3d_verdicts.clear()
                 self._manual_retract_verdicts.clear()
                 self._last_manual_sequence_report = None
+                checkpoint("reset_validation")
                 self._clear_manual_check_feedback()
                 if self._manual_orientation_order != tuple(self.session.bend_order):
                     self._manual_orientation_order = ()
@@ -7385,10 +7430,14 @@ class _PreviewPanel:
                 self._backgauge_preview_cache.clear()
                 self.last_sequence_search_report = None
                 self._conditional_bends_status.clear()
+                checkpoint("update_order_controls")
                 self._sync_manual_order_input()
                 self._populate_operations()
+                checkpoint("configure_active_bend")
                 self._configure_for_active_bend()
+                checkpoint("draw_flat_pattern")
                 self._draw_flat_pattern()
+                checkpoint("update_status")
                 self._update_manual_hint()
                 self.status.setText(
                     "РУЧНОЙ ПОРЯДОК {}/{} (НЕ ПРОВЕРЕН): {}".format(
@@ -7421,11 +7470,12 @@ class _PreviewPanel:
             def _draw_flat_pattern(self, reset_camera=False):
                 view = getattr(self, "_flat_view", None)
                 if self._closing or view is None or not self._qt_is_valid(view):
+                    _desktop_debug_event("FLAT_PATTERN_DRAW_SKIPPED", qt_state=self._qt_debug_state())
                     return
                 scene = view.scene()
                 if scene is None or not self._qt_is_valid(scene):
                     scene = self._create_flat_scene()
-                    self._trace_event("FLAT_PATTERN_SCENE_RECREATED")
+                    self._trace_event("FLAT_PATTERN_SCENE_RECREATED", qt_state=self._qt_debug_state())
                 self._flat_scene = scene
                 scene.clear()
                 if self.session is None:
@@ -8108,6 +8158,9 @@ class _PreviewPanel:
                             )
                         )
                 except Exception as exc:
+                    _desktop_debug_event("PLAYBACK_STEP_ERROR", error=str(exc),
+                                         traceback=traceback.format_exc(),
+                                         qt_state=self._qt_debug_state())
                     # A failed controller step must not leave a logically PLAYING
                     # FoldState after stopping the Qt timer. The last valid
                     # angles remain observable; resuming Full Cycle requires
@@ -8165,6 +8218,7 @@ class _PreviewPanel:
                 return checks
 
             def closeEvent(self, event):
+                _desktop_debug_event("WORKSPACE_CLOSE_STARTED", qt_state=self._qt_debug_state())
                 if self._playback_alive():
                     self.timer.stop()
                 self._closing = True
@@ -8191,6 +8245,7 @@ class _PreviewPanel:
                 close_workspace_controls(self)
                 self._preview_3d.release()
                 super().closeEvent(event)
+                _desktop_debug_event("WORKSPACE_CLOSE_COMPLETED")
 
             def _halt_unsupported_machine_pose(self, reason):
                 """Pause Coin3D playback at the last rendered machine pose.
