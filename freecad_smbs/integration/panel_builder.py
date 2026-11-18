@@ -234,6 +234,16 @@ def build_panels(unfold_name="Body_Unfold", outline_name=None, bends_name=None,
         if len(lines) != len(canonical) and data.sketch_outline is not None:
             outline_shape = data.sketch_outline
             lines = canonical
+    return partition_flat_pattern(outline_shape, canonical, lines, data.bends,
+                                  strip_width_mm, extension_mm)
+
+
+def partition_flat_pattern(outline_shape, canonical, lines, bends,
+                           strip_width_mm=0.02, extension_mm=0.2):
+    """Build rigid panels and finite-radius zones from planar geometry."""
+    import FreeCAD as App
+    import Part
+
     if len(outline_shape.Wires) != 1 or not outline_shape.Wires[0].isClosed():
         raise PanelBuildError("Expected exactly one closed outline wire")
     if len(outline_shape.Edges) < 3:
@@ -277,7 +287,7 @@ def build_panels(unfold_name="Body_Unfold", outline_name=None, bends_name=None,
     zones = []
     zone_cutters = []
     zone_faces = []
-    for bend, match in zip(data.bends, axis_matches):
+    for bend, match in zip(bends, axis_matches):
         a, b = lines[match.sketch_index]
         left = _side_panel(faces, a, b, +1, sample, 1e-6)
         right = _side_panel(faces, a, b, -1, sample, 1e-6)
