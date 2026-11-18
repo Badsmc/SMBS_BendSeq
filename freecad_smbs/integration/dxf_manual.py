@@ -1,9 +1,14 @@
 """Manual bending of a single flat outline from an ASCII DXF."""
-from math import copysign, dist, floor, isfinite
+from itertools import groupby
+from math import copysign, dist, floor, isfinite, tau
 from pathlib import Path
 from types import SimpleNamespace
 from dataclasses import dataclass
 
+
+from smbs_core.kinematics2d.tooling_25d import (
+    ArcSegment2D, LineSegment2D, _extract_dxf_units, _lwpolyline_to_segments, _parse_dxf_pairs,
+)
 
 @dataclass(frozen=True)
 class DxfCircle:
@@ -11,12 +16,57 @@ class DxfCircle:
     y: float
     radius: float
 
-from smbs_core.kinematics2d.tooling_25d import (
-    LineSegment2D, _extract_dxf_units, _lwpolyline_to_segments, _parse_dxf_pairs,
-)
 
 
-def read_lines(path):
+
+@dataclass(frozen=True)
+class DxfCurve:
+    edge: object
+
+
+def _native_curve(entity, props, scale):
+    """Construct an OCC edge for a planar ellipse or B-spline."""
+    import FreeCAD as App
+    import Part
+
+    values = dict(props)
+    groups = {}
+    for code, value in props:
+        groups.setdefault(code, []).append(value)
+
+    if entity == "ELLIPSE":
+        x, y, major_x, major_y, ratio = (float(values[c]) for c in (10, 20, 11, 21, 40))
+        center = App.Vector(x * scale, y * scale, 0)
+        major = App.Vector(major_x * scale, major_y * scale, 0)
+        minor = App.Vector(-major_y * ratio * scale, major_x * ratio * scale, 0)
+        ellipse = Part.Ellipse(center + major, center + minor, center)
+        start, end = float(values.get(41, 0)), float(values.get(42, tau))
+        if abs(end - start) >= tau - 1e-7:
+            return DxfCurve(ellipse.toShape())
+        if end <= start:
+            end += tau
+        return DxfCurve(Part.ArcOfEllipse(ellipse, start, end).toShape())
+
+    if not groups.get(10) or not groups.get(40):
+        raise ValueError("SPLINE без контрольных точек или узлов.")
+    poles = [App.Vector(float(x) * scale, float(y) * scale, 0)
+             for x, y in zip(groups[10], groups[20], strict=True)]
+    knots, multiplicities = zip(*((k, len(list(run)))
+                                   for k, run in groupby(map(float, groups[40]))))
+    curve = Part.BSplineCurve()
+    flags = int(values.get(70, 0))
+    weights = list(map(float, groups.get(41, ()))) or None
+    if flags & 2:
+        raise ValueError("Периодические SPLINE пока не поддерживаются.")
+    args = (poles, list(multiplicities), list(knots), False, int(values[71]))
+    if weights:
+        curve.buildFromPolesMultsKnots(*args, weights)
+    else:
+        curve.buildFromPolesMultsKnots(*args)
+    return DxfCurve(curve.toShape())
+
+
+def read_lines(path, *, layers=None, unsupported=None):
     pairs = _parse_dxf_pairs(Path(path).read_text(encoding="utf-8-sig", errors="replace"))
     _, scale = _extract_dxf_units(pairs, None)
     start = pairs.index((2, "ENTITIES")) + 1
@@ -35,6 +85,16 @@ def read_lines(path):
         props = pairs[index:end]
         index = end
         values = dict(props)
+        layer = values.get(8, "0")
+        if entity not in ("TEXT", "MTEXT", "DIMENSION", "POINT", "HATCH", "LEADER",
+                          "MLEADER", "ATTDEF", "ATTRIB", "SEQEND"):
+            if (any(abs(float(value)) > 1e-6 for code, value in props if code in (30, 31))
+                    or any(abs(float(values.get(code, default)) - default) > 1e-6
+                           for code, default in ((210, 0), (220, 0), (230, 1)))):
+                if unsupported is None:
+                    raise ValueError(f"{entity}: нужна плоскость XY.")
+                unsupported.setdefault(layer, set()).add(f"{entity} вне XY")
+                continue
         if entity == "LINE":
             if any(abs(float(values.get(axis, 0))) > 1e-6 for axis in (30, 31)):
                 raise ValueError("Линии DXF должны лежать в плоскости XY.")
@@ -45,17 +105,64 @@ def read_lines(path):
             if not all(isfinite(v) for v in (x, y, radius)) or radius <= 0 or abs(float(values.get(30, 0))) > 1e-6:
                 raise ValueError("Некорректная окружность в плоскости XY.")
             edges.append(DxfCircle(x, y, radius))
+            if layers is not None:
+                layers.append(layer)
             continue
-        elif entity == "LWPOLYLINE":
+        elif entity == "ARC":
+            segments = [ArcSegment2D.from_dxf_arc(*(float(values[c]) for c in (10, 20, 40, 50, 51)))]
+        elif entity in ("LWPOLYLINE", "POLYLINE"):
+            if entity == "POLYLINE":
+                flags = int(values.get(70, 0))
+                props = [(70, str(flags))]
+                while index < len(pairs) and pairs[index] == (0, "VERTEX"):
+                    index += 1
+                    vertex = {}
+                    while index < len(pairs) and pairs[index][0] != 0:
+                        code, value = pairs[index]
+                        vertex[code] = value
+                        index += 1
+                    if flags & (8 | 16 | 64) or abs(float(vertex.get(30, 0))) > 1e-6:
+                        flags |= 8
+                    props.extend((code, vertex[code]) for code in (10, 20, 42) if code in vertex)
+                if flags & (8 | 16 | 64):
+                    if unsupported is None:
+                        raise ValueError("Полигоны и 3D POLYLINE не входят в плоский контур.")
+                    unsupported.setdefault(layer, set()).add("3D POLYLINE")
+                    continue
             segments = _lwpolyline_to_segments(props)
-            if any(not isinstance(segment, LineSegment2D) for segment in segments):
-                raise ValueError("Дуги в полилиниях пока не поддерживаются.")
-        elif entity in ("TEXT", "MTEXT", "DIMENSION", "POINT"):
+        elif entity in ("ELLIPSE", "SPLINE"):
+            try:
+                curve = _native_curve(entity, props, scale)
+            except (ValueError, RuntimeError, KeyError) as exc:
+                if unsupported is None:
+                    raise
+                unsupported.setdefault(layer, set()).add(f"{entity}: {exc}")
+            else:
+                edges.append(curve)
+                if layers is not None:
+                    layers.append(layer)
+            continue
+        elif entity in ("TEXT", "MTEXT", "DIMENSION", "POINT", "HATCH", "LEADER",
+                        "MLEADER", "ATTDEF", "ATTRIB", "SEQEND"):
             continue
         else:
-            raise ValueError(f"Геометрия DXF {entity} пока не поддерживается.")
-        edges.extend(tuple((x * scale, y * scale) for x, y in (segment.start, segment.end))
-                     for segment in segments)
+            if unsupported is None:
+                raise ValueError(f"Геометрия DXF {entity} пока не поддерживается.")
+            unsupported.setdefault(layer, set()).add(entity)
+            continue
+
+        def scaled(point):
+            return tuple(value * scale for value in point)
+
+        for segment in segments:
+            if isinstance(segment, ArcSegment2D):
+                edges.append(ArcSegment2D(scaled(segment.start), scaled(segment.end),
+                                          scaled(segment.center), segment.radius * scale,
+                                          segment.ccw))
+            else:
+                edges.append((scaled(segment.start), scaled(segment.end)))
+            if layers is not None:
+                layers.append(layer)
     if not edges:
         raise ValueError("В DXF нет линий.")
     return edges
@@ -78,22 +185,38 @@ def join_outline(lines, tolerance=0.01):
         grid.setdefault((x, y), []).append(point)
         return point
 
-    for start, end in lines:
+    result = []
+    for line in lines:
+        if isinstance(line, DxfCurve):
+            edge = line.edge
+            if edge.isClosed():
+                result.append(line)
+                continue
+            start, end = tuple((v.Point.x, v.Point.y) for v in edge.Vertexes)
+        elif isinstance(line, ArcSegment2D):
+            start, end = line.start, line.end
+        else:
+            start, end = line
         a, b = snap(start), snap(end)
         if a == b:
             continue
-        edge = tuple(sorted((a, b)))
+        midpoint = line.midpoint() if isinstance(line, ArcSegment2D) else (
+            tuple(line.edge.valueAt((line.edge.FirstParameter + line.edge.LastParameter) / 2))[:2]
+            if isinstance(line, DxfCurve) else None)
+        edge = (*sorted((a, b)), midpoint)
         if edge in edges:
             continue
         edges.add(edge)
-        neighbours.setdefault(a, set()).add(b)
-        neighbours.setdefault(b, set()).add(a)
+        neighbours.setdefault(a, []).append(b)
+        neighbours.setdefault(b, []).append(a)
+        result.append((a, midpoint, b) if isinstance(line, ArcSegment2D)
+                      else line if isinstance(line, DxfCurve) else (a, b))
     for (x, y), links in neighbours.items():
         if len(links) != 2:
             fault = "Разрыв контура" if len(links) == 1 else "Разветвление контура"
             raise ValueError(f"{fault} возле X={x:.3f}, Y={y:.3f} мм. "
                              "Проверьте линии гиба и контур DXF.")
-    return sorted(edges)
+    return result
 
 
 def build_session(path, lines, angles, thickness, radius, k_factor):
@@ -108,7 +231,15 @@ def build_session(path, lines, angles, thickness, radius, k_factor):
 
     outline = join_outline(line for index, line in enumerate(lines)
                            if index not in angles and not isinstance(line, DxfCircle))
-    edges = [Part.makeLine(*(App.Vector(x, y, 0) for x, y in line)) for line in outline]
+    edges = []
+    for line in outline:
+        if isinstance(line, DxfCurve):
+            edge = line.edge.copy()
+            edge.fixTolerance(0.01)
+        else:
+            points = [App.Vector(x, y, 0) for x, y in line]
+            edge = Part.Arc(*points).toShape() if len(points) == 3 else Part.makeLine(*points)
+        edges.append(edge)
     wires = [Part.Wire(group) for group in Part.sortEdges(edges)]
     wires.extend(Part.Wire([Part.makeCircle(line.radius, App.Vector(line.x, line.y, 0))])
                  for line in lines if isinstance(line, DxfCircle))
@@ -139,7 +270,7 @@ def build_session(path, lines, angles, thickness, radius, k_factor):
             points = ring.discretize(Deflection=0.05)
             rings.append(tuple((v.x, v.y) for v in points[:-1]))
         vertices[panel.panel_id] = rings[0]
-        if holes or len(wire.Edges) == 1:
+        if holes or any(not isinstance(edge.Curve, Part.Line) for edge in wire.Edges):
             # Tessellate a polygonal copy so OCC cannot subdivide each
             # circular edge hundreds of times for every playback frame.
             preview_wires = []
@@ -210,8 +341,9 @@ class DxfManualCommand:
         path, _ = qt.QFileDialog.getOpenFileName(parent, "Развёртка DXF", "", "DXF (*.dxf)")
         if not path:
             return
+        layers, unsupported = [], {}
         try:
-            lines = read_lines(path)
+            lines = read_lines(path, layers=layers, unsupported=unsupported)
         except (OSError, ValueError, KeyError) as exc:
             qt.QMessageBox.warning(parent, "Развёртка DXF", str(exc))
             return
@@ -225,8 +357,24 @@ class DxfManualCommand:
         scene = qt.QGraphicsScene(dialog)
         view = qt.QGraphicsView(scene)
         layout.addWidget(view, 1)
+        layers_box = qt.QListWidget()
+        layers_box.setMaximumHeight(120)
+        layer_entries = {}
+        for layer in sorted(set(layers) | set(unsupported)):
+            count = layers.count(layer)
+            suffix = " · требуется проверка" if layer in unsupported else ""
+            item = qt.QListWidgetItem(f"{layer}  ({count}){suffix}")
+            if layer in unsupported:
+                item.setToolTip(", ".join(sorted(unsupported[layer])))
+            item.setFlags(item.flags() | core.Qt.ItemIsUserCheckable)
+            item.setCheckState(core.Qt.Checked)
+            layers_box.addItem(item)
+            layer_entries[layer] = item
+        layout.addWidget(qt.QLabel("Слои для расчёта"))
+        layout.addWidget(layers_box)
         angles = {}
         items = []
+        geometry_items = []
         feedback = qt.QLabel("Выберите линии гиба.")
         feedback.setWordWrap(True)
 
@@ -269,14 +417,33 @@ class DxfManualCommand:
         pen.setWidth(2)
         for index, line in enumerate(lines):
             if isinstance(line, DxfCircle):
-                scene.addEllipse(line.x - line.radius, -line.y - line.radius,
-                                 line.radius * 2, line.radius * 2, pen)
+                geometry_items.append(scene.addEllipse(line.x - line.radius, -line.y - line.radius,
+                                                       line.radius * 2, line.radius * 2, pen))
+                items.append(None)
+                continue
+            if isinstance(line, (ArcSegment2D, DxfCurve)):
+                points = (line.sample_points() if isinstance(line, ArcSegment2D)
+                          else tuple((p.x, p.y) for p in line.edge.discretize(Deflection=0.05)))
+                curve_path = gui.QPainterPath(core.QPointF(points[0][0], -points[0][1]))
+                for x, y in points[1:]:
+                    curve_path.lineTo(x, -y)
+                geometry_items.append(scene.addPath(curve_path, pen))
                 items.append(None)
                 continue
             (x, y), (xx, yy) = line
             item = scene.addLine(x, -y, xx, -yy, pen)
             item.setData(0, index)
             items.append(item)
+            geometry_items.append(item)
+
+        def layer_enabled(layer):
+            return layer_entries[layer].checkState() == core.Qt.Checked
+
+        def update_layers():
+            for layer, item in zip(layers, geometry_items):
+                item.setVisible(layer_enabled(layer))
+
+        layers_box.itemChanged.connect(update_layers)
         form = qt.QFormLayout()
         layout.addLayout(form)
 
@@ -298,8 +465,17 @@ class DxfManualCommand:
         def calculate():
             doc = None
             try:
-                session = build_session(path, lines, angles, thickness.value(),
-                                        radius.value(), k_factor.value())
+                blocked = [f"{layer}: {', '.join(sorted(types))}"
+                           for layer, types in unsupported.items() if layer_enabled(layer)]
+                if blocked:
+                    raise ValueError("Отключите слои с неподдерживаемой геометрией: " + "; ".join(blocked))
+                visible = [i for i, layer in enumerate(layers) if layer_enabled(layer)]
+                index_map = {old: new for new, old in enumerate(visible)}
+                active_angles = {index_map[i]: angle for i, angle in angles.items() if i in index_map}
+                if not active_angles:
+                    raise ValueError("Назначьте гиб на включённом слое.")
+                session = build_session(path, [lines[i] for i in visible], active_angles,
+                                        thickness.value(), radius.value(), k_factor.value())
                 folded = FoldState(session.graph, session.fixed_panel)
                 for bend_id in session.bend_order:
                     folded.set_angle(bend_id, folded.bends[bend_id].angle_deg)
