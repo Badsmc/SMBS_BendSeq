@@ -269,8 +269,12 @@ def partition_flat_pattern(outline_shape, canonical, lines, bends,
     z = sheet.CenterOfMass.z
     if abs(z) > 1e-5:
         raise PanelBuildError("Outline plane must be z=0")
+    outer_wire = outline_shape.Wires[0]
     for hole in hole_faces:
-        if abs(sheet.common(hole).Area - hole.Area) > 1e-5 or sheet.OuterWire.distToShape(hole)[0] < 1e-6:
+        # OCC may return a Shell or Compound after cutting the first hole.
+        # Keep using the original outer boundary for the remaining holes.
+        if (abs(sheet.common(hole).Area - hole.Area) > 1e-5
+                or outer_wire.distToShape(hole)[0] < 1e-6):
             raise PanelBuildError("Внутренние контуры должны лежать внутри внешнего контура и не пересекаться.")
         sheet = sheet.cut(hole)
     axis_matches = match_bend_axes(canonical, lines)
