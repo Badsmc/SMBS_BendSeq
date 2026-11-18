@@ -2083,6 +2083,9 @@ class _PreviewPanel:
                     self._show_manual_tooling_assembly
                 )
                 order_body.addWidget(self.manual_tooling_assembly_btn)
+                info_button = style_action(QtWidgets.QPushButton("Информация"), compact=True)
+                info_button.clicked.connect(self._show_bend_information)
+                order_body.addWidget(info_button)
                 self.auto_orientation_checkbox = QtWidgets.QCheckBox(
                     "Подбирать положение заготовки (0° / 180°)"
                 )
@@ -3333,6 +3336,16 @@ class _PreviewPanel:
                     (float(getattr(pc, "transfer_progress", 0.0) or 0.0) if pc is not None and getattr(pc, "transfer_progress", None) is not None else None),
                     tuple(sorted(self._effective_loading_orientation_map().items())),
                 )
+
+            def _show_bend_information(self):
+                if self.session is None:
+                    self.status.setText("Сначала загрузите развёртку.")
+                    return
+                if not self._apply_typed_manual_order():
+                    return
+                from freecad_smbs.ui.bend_information import show_bend_information
+
+                show_bend_information(self, embed_task_dialog)
 
             def _tool_assembly_inputs(self, *, require_pair=True):
                 from smbs_core.geometry_backend.io.clamp_validator import load_clamp_config
