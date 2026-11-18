@@ -49,7 +49,7 @@ class ToolingSettingsCommand:
     action = ""
 
     def GetResources(self):
-        return {"MenuText": self.label, "ToolTip": self.label}
+        return {"MenuText": self.label, "ToolTip": self.label, "Pixmap": str(ICON_PATH)}
 
     def IsActive(self):
         return True
