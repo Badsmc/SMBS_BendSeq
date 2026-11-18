@@ -75,13 +75,17 @@ def write_inventory(fcstd_path, rows):
         raise AssemblyPlanningError("FCStd source missing")
     rows = validate_inventory(rows)
     sidecar = fcstd_path.with_suffix(".tooling.json")
-    if not sidecar.is_file():
-        raise AssemblyPlanningError("tooling sidecar missing: " + str(sidecar))
-    data = json.loads(sidecar.read_text(encoding="utf-8"))
+    if sidecar.is_file():
+        data = json.loads(sidecar.read_text(encoding="utf-8"))
+    else:
+        kind = fcstd_path.parent.name.lower()
+        data = {"schema_version": "1.0", "kind": kind, "id": fcstd_path.stem,
+                "source": fcstd_path.name, "datums": {}, "metadata": {}}
     if (not isinstance(data, dict) or data.get("kind") not in ("punch", "die")
-            or data.get("id") != fcstd_path.stem):
-        raise AssemblyPlanningError("sidecar tool identity mismatch")
-    metadata = data.get("metadata")
+            or (data.get("id") != fcstd_path.stem
+                and data.get("source") != fcstd_path.name)):
+        raise AssemblyPlanningError("Метаданные принадлежат другому инструменту.")
+    metadata = data.setdefault("metadata", {})
     if not isinstance(metadata, dict):
         raise AssemblyPlanningError("metadata must be an object")
     metadata["segments"] = rows
