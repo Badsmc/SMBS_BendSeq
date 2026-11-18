@@ -703,7 +703,7 @@ class DxfManualCommand:
                 trace("load_simulation", document=doc.Name)
                 workspace.load_part(document=doc, selection=[], prepared_session=session)
                 workspace.set_cycle_mode("BEND_ONLY")
-                show_workspace_controls(workspace, tab=2)
+                show_workspace_controls(workspace, tab=1)
                 App.setActiveDocument(doc.Name)
                 view3d = Gui.getDocument(doc.Name).activeView()
                 view3d.viewAxonometric()

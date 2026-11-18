@@ -947,7 +947,7 @@ class PressBrake2DCommand:
         }
 
     def IsActive(self):
-        return _has_loaded_part()
+        return True
 
     def Activated(self):
         import FreeCADGui as Gui
@@ -965,9 +965,16 @@ class PressBrake2DCommand:
         )
         if existing is not None and existing.widget() is not None:
             workspace = existing.widget()
-            # Simulation is navigation only, not an automatic search. Leave
-            # the manual order, fold angles and playback state untouched.
-            show_workspace_controls(workspace, tab=2)
+            if doc is not None and selected and not workspace._task_progress_busy:
+                try:
+                    unfold = resolve_selected_unfold(doc, selected)
+                except (SelectionWarning, AttributeError, TypeError, ValueError):
+                    pass
+                else:
+                    source = (doc.Name, unfold)
+                    if getattr(workspace, "_simulation_source", None) != source:
+                        workspace.load_part(selection=selected, document=doc)
+            show_workspace_controls(workspace, tab=1)
             viewer = workspace._preview_3d
             if viewer._native and getattr(viewer, "_native_doc", None):
                 workspace._update_3d_preview(force=True)
@@ -990,7 +997,7 @@ class PressBrake2DCommand:
         # panel could appear first and remain visually blank on macOS.
         if doc is not None and selected:
             widget.load_part(selection=selected, document=doc)
-        show_workspace_controls(widget, tab=2)
+        show_workspace_controls(widget, tab=1)
         widget._open_coin_preview()
 
 
@@ -1036,7 +1043,7 @@ class LoadPartCommand:
         if workspace is None or workspace.session is None:
             App.Console.PrintWarning("SMBS: деталь не загружена.\\n")
             return
-        show_workspace_controls(workspace, 0)
+        show_workspace_controls(workspace, tab=1)
         Gui.updateGui()
 
 
@@ -1049,7 +1056,7 @@ class ToolingTabCommand:
         }
 
     def IsActive(self):
-        return _has_loaded_part()
+        return True
 
     def Activated(self):
         workspace = get_workspace_widget()
@@ -1625,12 +1632,16 @@ class _PreviewPanel:
                 self.play_btn.setToolTip("Play / Pause / Resume для выбранного режима")
                 self.next_step_btn = _playback_button(QtCore, QtWidgets, ">>|", self.next_step, False)
                 self.fit_btn = _playback_button(QtCore, QtWidgets, "Fit", self.fit, True)
+                self.add_part_btn = _playback_button(QtCore, QtWidgets, "+", LoadPartCommand().Activated, True)
+                self.add_part_btn.setObjectName("SMBS_AddPart")
+                self.add_part_btn.setIcon(QtGui.QIcon(str(_ICON_ROOT / "control_add.svg")))
+                self.add_part_btn.setToolButtonStyle(QtCore.Qt.ToolButtonIconOnly)
                 buttons = (
-                    self.reset_btn, self.prev_step_btn, self.play_btn,
+                    self.add_part_btn, self.reset_btn, self.prev_step_btn, self.play_btn,
                     self.next_step_btn, self.fit_btn,
                 )
-                captions = ("Reset", "|<<", "Play / Pause", ">>|", "Fit")
-                sizes = (48, 34, 64, 34, 36)
+                captions = ("Добавить выбранную развёртку SheetMetal", "Reset", "|<<", "Play / Pause", ">>|", "Fit")
+                sizes = (27, 48, 34, 64, 34, 36)
                 row.setColumnMinimumWidth(0, 0)
                 for col, (widget, caption, width) in enumerate(
                     zip(buttons, captions, sizes)
@@ -1917,39 +1928,6 @@ class _PreviewPanel:
                 # as the preview design. No duplicate playback/controller widgets.
                 simulation = QtWidgets.QWidget()
                 sim_layout = QtWidgets.QVBoxLayout(simulation)
-                part_page = QtWidgets.QWidget()
-                part_layout = QtWidgets.QVBoxLayout(part_page)
-
-                source_card, source_body = card("")
-                source_grid = QtWidgets.QGridLayout()
-                source_grid.setHorizontalSpacing(SECTION_GAP)
-                self._source_summary = QtWidgets.QLabel(
-                    str(self.session.part_label) if self.session else
-                    "Деталь не загружена"
-                )
-                self._source_summary.setObjectName("SMBS_SectionCaption")
-                self._source_summary.setWordWrap(True)
-                self._source_summary.setAlignment(
-                    QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter
-                )
-                source_grid.addWidget(self._source_summary, 0, 0)
-                self._source_load_btn = style_action(
-                    QtWidgets.QPushButton("Загрузить"), compact=True
-                )
-                self._source_load_btn.setToolTip(
-                    "Загрузить выделенную в FreeCAD развёртку SheetMetal"
-                )
-                self._source_load_btn.clicked.connect(
-                    lambda _checked=False: self.load_part()
-                )
-                source_grid.addWidget(self._source_load_btn, 0, 1)
-                source_grid.setColumnStretch(0, 1)
-                source_grid.setColumnStretch(1, 0)
-                source_body.addLayout(source_grid)
-                part_layout.addWidget(source_card)
-                part_layout.addStretch(1)
-                self._page_part = scroll_task_page(part_page, "SMBS_PartScroll")
-
                 # The native Tasks header already says "Симуляция": no duplicate
                 # section title or large diagnostic card above playback.
                 playback = QtWidgets.QWidget(simulation)
@@ -2053,14 +2031,8 @@ class _PreviewPanel:
                     "проверить второе положение. Галочка в колонке «180°» "
                     "закрепляет выбранное положение конкретного гиба."
                 )
-                order_body.addWidget(self.auto_orientation_checkbox)
-                short_rear_button = style_action(
-                    QtWidgets.QPushButton("Короткой стороной к упору"), compact=True,
-                )
-                short_rear_button.setToolTip("Подобрать положение заготовки для выбранного гиба.")
-                short_rear_button.clicked.connect(self._use_short_rear_orientation)
-                order_body.addWidget(short_rear_button)
-
+                self.auto_orientation_checkbox.setParent(self)
+                self.auto_orientation_checkbox.hide()
                 self.operations.setMinimumHeight(220)
                 self.operations.setMaximumHeight(16777215)
                 self.operations.setSizePolicy(
@@ -2149,11 +2121,15 @@ class _PreviewPanel:
                 self.manual_release_probe_btn.clicked.connect(self._inspect_assisted_release)
                 self.manual_release_probe_btn.setEnabled(False)
                 verify_row = QtWidgets.QVBoxLayout()
-                order_body.insertWidget(1, self.manual_validate_3d_btn)
+                self.manual_validate_3d_btn.setParent(self)
+                self.manual_validate_3d_btn.hide()
                 verify_row.addWidget(self.manual_validate_btn)
-                verify_row.addWidget(self.manual_lift_probe_btn)
-                verify_row.addWidget(self.manual_lift_preview_btn)
-                verify_row.addWidget(self.manual_release_probe_btn)
+                self.manual_lift_probe_btn.setParent(self)
+                self.manual_lift_probe_btn.hide()
+                self.manual_lift_preview_btn.setParent(self)
+                self.manual_lift_preview_btn.hide()
+                self.manual_release_probe_btn.setParent(self)
+                self.manual_release_probe_btn.hide()
                 order_body.addLayout(verify_row)
                 self.manual_lift_probe_hint = QtWidgets.QLabel(
                     "Подъём детали: сначала найдите коллизию пуансона на RETRACT. "
@@ -2164,7 +2140,7 @@ class _PreviewPanel:
                 # Verification must have a visible result in the Manual
                 # workspace, not a file-save dialog as its only feedback.
                 self.manual_check_summary = QtWidgets.QLabel(
-                    "Выберите гибы и нажмите «Проверить и показать»."
+                    "Выберите гибы и нажмите «Быстрая проверка OCC»."
                 )
                 self.manual_check_summary.setWordWrap(True)
                 self.manual_check_summary.setObjectName("SMBS_ManualCheckSummary")
@@ -2274,8 +2250,9 @@ class _PreviewPanel:
                 self.tooling_status.setParent(self)
                 self.tooling_status.hide()
                 tooling_body.addWidget(tool_main)
-                for button in (self.import_punch_btn, self.import_die_btn):
-                    tooling_body.addWidget(style_action(button))
+                self.import_tooling_btn = style_action(QtWidgets.QPushButton("Импортировать…"))
+                self.import_tooling_btn.clicked.connect(self.open_full_tooling_library)
+                tooling_body.addWidget(self.import_tooling_btn)
                 self.tool_library_btn.hide()
                 td_layout.addWidget(tooling_card)
                 td_layout.addStretch(1)
@@ -2338,88 +2315,29 @@ class _PreviewPanel:
                 self._on_physical_result_change(
                     self.physical_check_result.text()
                 )
-                for check in (
-                    self.physical_check_btn, self.full_physical_check_btn,
-                ):
-                    style_action(check)
-                    diagnostics_body.addWidget(check)
+                for button in (self.physical_check_btn, self.full_physical_check_btn, self.check_btn):
+                    button.setParent(self)
+                    button.hide()
                 diagnostics_body.addWidget(self.physical_check_result)
-                style_action(self.check_btn)
-                insert(diagnostics_body, entries[9])  # diagnostic button
-                insert(diagnostics_body, entries[10])  # diagnostic result
+                insert(diagnostics_body, entries[10])
                 advanced_layout.addWidget(diagnostics_card)
 
-                trace_card, trace_body = card("Запись и файлы диагностики")
-                self.trace_checkbox = QtWidgets.QCheckBox(
-                    "Автоматическая запись движений\nпри Play All (JSONL)"
-                )
-                self.trace_checkbox.setChecked(False)
-                self.trace_checkbox.setToolTip(
-                    "Создаёт папку при начале записи. После остановки сохраняет "
-                    "кадры в *.jsonl и сводный отчёт в *.summary.json."
-                )
-                trace_body.addWidget(self.trace_checkbox)
-                self.trace_checkbox.toggled.connect(self._on_trace_checkbox_toggled)
+                from smbs_core.kinematics2d.developer_debug_log import set_debug_log_enabled
+                debug_log = QtWidgets.QCheckBox("Записывать отладочный журнал")
+                debug_log.setToolTip(str(_debug_desktop_directory() / "SMBS_debug_log.json"))
+                debug_log.setChecked(preferences.value("debug_log/enabled", True, type=bool))
 
-                self.trace_status = QtWidgets.QLabel(
-                    "Запись отключена. Каталог: {}".format(self._trace_directory)
-                )
-                self.trace_status.setWordWrap(True)
-                self.trace_status.setTextInteractionFlags(
-                    QtCore.Qt.TextSelectableByMouse
-                )
-                trace_body.addWidget(self.trace_status)
-                # Developer journal is ALWAYS on, independent of the
-                # optional legacy JSONL motion recording below.
-                self.desktop_debug_log_note = QtWidgets.QLabel(
-                    "Автоматический единый журнал разработки:\n" +
-                    str(_debug_desktop_directory() / "SMBS_debug_log.json") +
-                    "\nЗаписывается без включения кнопок. Может содержать "
-                    "названия деталей и локальные пути."
-                )
-                self.desktop_debug_log_note.setObjectName(
-                    "SMBS_DesktopDebugLogPath"
-                )
-                self.desktop_debug_log_note.setTextInteractionFlags(
-                    QtCore.Qt.TextSelectableByMouse
-                )
-                self.desktop_debug_log_note.setWordWrap(True)
-                self.desktop_debug_log_note.hide()
+                def toggle_debug_log(enabled):
+                    preferences.setValue("debug_log/enabled", enabled)
+                    set_debug_log_enabled(enabled)
 
-                trace_buttons = QtWidgets.QVBoxLayout()
-                self.trace_start_button = QtWidgets.QPushButton("Начать запись JSONL")
-                self.trace_start_button.clicked.connect(
-                    lambda _checked=False: self._start_motion_trace(manual=True)
-                )
-                trace_buttons.addWidget(self.trace_start_button)
-                self.trace_stop_button = QtWidgets.QPushButton("Завершить и создать JSON")
-                self.trace_stop_button.clicked.connect(
-                    lambda _checked=False: self._finish_motion_trace("USER_STOP")
-                )
-                trace_buttons.addWidget(self.trace_stop_button)
-                trace_body.addLayout(trace_buttons)
+                debug_log.toggled.connect(toggle_debug_log)
+                settings_layout.addWidget(debug_log)
+                self.trace_checkbox = QtWidgets.QCheckBox(self)
+                self.trace_checkbox.hide()
+                self.trace_status = QtWidgets.QLabel(self)
+                self.trace_status.hide()
 
-                self.trace_open_button = QtWidgets.QPushButton("Открыть папку записей")
-                self.trace_open_button.clicked.connect(
-                    lambda _checked=False: self._open_trace_directory()
-                )
-                trace_body.addWidget(self.trace_open_button)
-                self.trace_choose_button = QtWidgets.QPushButton(
-                    "Выбрать папку для JSONL/JSON"
-                )
-                self.trace_choose_button.clicked.connect(
-                    lambda _checked=False: self._choose_trace_directory()
-                )
-                trace_body.addWidget(self.trace_choose_button)
-                for btn in (
-                    self.trace_start_button, self.trace_stop_button,
-                    self.trace_open_button, self.trace_choose_button,
-                ):
-                    style_action(btn)
-                advanced_layout.addWidget(trace_card)
-
-                # JSON is a genuine FCStd attachment, not a plaintext string
-                # masquerading as a file and not a second external archive.
                 fcstd_card, fcstd_body = card("Данные SMBS в документе FCStd")
                 self.fcstd_save_btn = style_action(
                     QtWidgets.QPushButton("Сохранить в FCStd"), compact=True
@@ -2473,11 +2391,10 @@ class _PreviewPanel:
                     settings, "SMBS_SettingsScroll"
                 )
 
-                # Five manual-only contextual pages match operator toolbar actions.
+                # Core pages match the operator toolbar actions.
                 # Only the selected page is shown. Specialist QDialogs may be
                 # temporarily added and removed without creating tabs.
                 page_specs = (
-                    ("Деталь", self._page_part),
                     ("Оснастка", self._page_tooling),
                     ("Симуляция", self._page_simulation),
                     ("Настройки", self._page_settings),
@@ -2589,11 +2506,11 @@ class _PreviewPanel:
 
             def open_tooling_settings_dialog(self):
                 """Show the single tooling page, without nested tabs."""
-                show_workspace_controls(self, tab=1)
+                show_workspace_controls(self, tab=0)
 
             def open_settings_dialog(self):
                 """Show all configuration controls on one contextual page."""
-                show_workspace_controls(self, tab=3)
+                show_workspace_controls(self, tab=2)
 
             def _apply_svg_button_icons(self):
                 """Use the same industrial SVG family in task controls.
@@ -2610,10 +2527,6 @@ class _PreviewPanel:
                     (self.manual_undo_btn, "control_prev.svg"),
                     (self.manual_clear_btn, "control_reset.svg"),
                     (self.manual_validate_btn, "control_validate.svg"),
-                    (self.trace_start_button, "control_record.svg"),
-                    (self.trace_stop_button, "control_stop.svg"),
-                    (self.trace_open_button, "control_folder.svg"),
-                    (self.trace_choose_button, "control_folder.svg"),
                     (self.show_task_panel_btn, "gui_simulation.svg"),
                     (self.tool_library_btn, "tooling.svg"),
                     (self.import_punch_btn, "gui_tooling.svg"),
@@ -4678,8 +4591,6 @@ class _PreviewPanel:
 
             def open_full_tooling_library(self):
                 """Open the single canonical library with segment inventory."""
-                if activate_task_dialog(self, "full_tooling_library"):
-                    return
                 from smbs_core.geometry_backend.io.tooling_library import (
                     ToolingLibrary,
                 )
@@ -4687,9 +4598,11 @@ class _PreviewPanel:
                 try:
                     library = ToolingLibrary(self.tool_library.library_root)
                     panel = ToolingPanel(library, parent=self)
-                    embed_task_dialog(
-                        self, panel, "Библиотека", "full_tooling_library"
-                    )
+                    try:
+                        (getattr(panel, "exec", None) or panel.exec_)()
+                    finally:
+                        panel.deleteLater()
+                        self._refresh_tooling_combos()
                 except Exception as exc:
                     QtWidgets.QMessageBox.warning(
                         self, "Библиотека оснастки", str(exc)
@@ -4801,6 +4714,10 @@ class _PreviewPanel:
                 self._last_3d_frame_at = -1.0
                 self.tooling_setup.set_tool_assembly(None)
                 self._close_tool_assembly_report()
+                self._simulation_source = None
+                if prepared_session is None:
+                    unfold = resolve_selected_unfold(doc, selection)
+                    self._simulation_source = (doc.Name, unfold)
                 self.session = new_session
                 self._preview_3d.clear_preview()
                 self._coin_fold_mesh_key = None
@@ -4885,10 +4802,6 @@ class _PreviewPanel:
                     msg + (" | " + restore_message if restore_message else "")
                 )
                 self.check_result.setText(msg)
-                if hasattr(self, "_source_summary"):
-                    self._source_summary.setText(
-                        str(self.session.part_label or "SheetMetal")
-                    )
                 self._update_task_progress()
                 # Refresh native FreeCAD command availability once a real
                 # SheetMetal part is committed, not on mere selection.
@@ -4922,7 +4835,7 @@ class _PreviewPanel:
                     return
                 self.manual_simulate_btn.setText("Симулировать без проверки")
                 self.manual_check_summary.setText(
-                    "Текущий порядок ещё не проверен. Нажмите «Проверить и показать»."
+                    "Текущий порядок ещё не проверен. Нажмите «Быстрая проверка OCC»."
                 )
                 self.manual_check_details.clear()
                 self.manual_check_details.hide()
@@ -5280,7 +5193,7 @@ class _PreviewPanel:
                 if not expected or current != expected:
                     self.status.setText(
                         "Оснастка изменилась после 3D-проверки. "
-                        "Нажмите «Проверить и показать» повторно."
+                        "Нажмите «Быстрая проверка OCC» повторно."
                     )
                     _desktop_debug_event(
                         "MANUAL_EXACT_OCC_INSPECTION_STALE_TOOLING",
@@ -5974,7 +5887,7 @@ class _PreviewPanel:
                 locked_controls = (
                     self.manual_validate_btn, self.manual_validate_3d_btn,
                     self.manual_simulate_btn, self.manual_order_input,
-                    self.saved_sequences_btn, self._source_load_btn,
+                    self.saved_sequences_btn, self.add_part_btn, self.import_tooling_btn,
                     self.select_punch_combo, self.select_die_combo,
                     self.virtual_tool_len_checkbox,
                     self.allow_end_zone_checkbox, self.end_zone_len_spin,
@@ -6525,7 +6438,7 @@ class _PreviewPanel:
                         "Показать коллизию в 3D"
                     )
                 if show_controls:
-                    show_workspace_controls(self, tab=2)
+                    show_workspace_controls(self, tab=1)
                 try:
                     # Only the physical Full Cycle uses the same APPROACH,
                     # BENDING, BOTTOM and RETRACT path as native OCC. Keep the
@@ -6606,7 +6519,7 @@ class _PreviewPanel:
                 else:
                     self._viewer_tabs.setCurrentWidget(self._flat_view)
                     self._draw_flat_pattern(reset_camera=False)
-                show_workspace_controls(self, tab=2)
+                show_workspace_controls(self, tab=1)
 
             def _toggle_manual_order(self, enabled):
                 if enabled and self.session is None:
