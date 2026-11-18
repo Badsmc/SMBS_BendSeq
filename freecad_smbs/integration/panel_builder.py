@@ -22,6 +22,10 @@ class PanelBuildError(RuntimeError):
     pass
 
 
+class BendZoneOverlapError(PanelBuildError):
+    pass
+
+
 @dataclass(frozen=True)
 class Panel:
     panel_id: str
@@ -239,7 +243,7 @@ def build_panels(unfold_name="Body_Unfold", outline_name=None, bends_name=None,
 
 
 def partition_flat_pattern(outline_shape, canonical, lines, bends,
-                           strip_width_mm=0.02, extension_mm=0.2, *, hole_faces=()):
+                           strip_width_mm=0.02, extension_mm=0.2, *, hole_faces=(), zone_extension_mm=None):
     """Build rigid panels and finite-radius zones from planar geometry."""
     import FreeCAD as App
     import Part
@@ -277,6 +281,7 @@ def partition_flat_pattern(outline_shape, canonical, lines, bends,
                 or outer_wire.distToShape(hole)[0] < 1e-6):
             raise PanelBuildError("Внутренние контуры должны лежать внутри внешнего контура и не пересекаться.")
         sheet = sheet.cut(hole)
+    zone_extension = extension_mm if zone_extension_mm is None else zone_extension_mm
     axis_matches = match_bend_axes(canonical, lines)
     # Reject source/sketch frame mismatch; never silently shift canonical data.
     cutters = []
@@ -317,16 +322,22 @@ def partition_flat_pattern(outline_shape, canonical, lines, bends,
                     zone.bend_allowance_mm, bend.bend_id, strip_width_mm
                 )
             )
-        zcutter = _strip(Part, App, a, b, zone.bend_allowance_mm, extension_mm)
+        zcutter = _strip(Part, App, a, b, zone.bend_allowance_mm, zone_extension)
         if any(hole.distToShape(zcutter)[0] < 1e-6 for hole in hole_faces):
             raise PanelBuildError(f"{bend.bend_id}: отверстие попадает в зону гиба.")
         zface = sheet.common(zcutter)
         if zface.Area <= 1e-5:
             raise PanelBuildError("Empty bend zone face for {}".format(bend.bend_id))
         for prev_zone, prev_face in zip(zones, zone_faces):
-            if zface.common(prev_face).Area > 1e-5:
-                raise PanelBuildError(
-                    "Overlapping bend zones: {} and {}".format(prev_zone.bend_id, zone.bend_id)
+            overlap = zface.common(prev_face)
+            if overlap.Area > 1e-5:
+                box = overlap.BoundBox
+                x, y = (box.XMin + box.XMax) / 2, (box.YMin + box.YMax) / 2
+                raise BendZoneOverlapError(
+                    f"Зоны гибов {prev_zone.bend_id} и {zone.bend_id} пересекаются "
+                    f"возле X={x:.3f}, Y={y:.3f} мм. Площадь {overlap.Area:.3f} мм². "
+                    f"Ширина зон: {prev_zone.bend_allowance_mm:.3f} и "
+                    f"{zone.bend_allowance_mm:.3f} мм."
                 )
         zones.append(zone)
         zone_cutters.append((left, right, zcutter))
