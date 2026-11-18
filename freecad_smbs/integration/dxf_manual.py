@@ -150,9 +150,34 @@ def build_session(path, lines, angles, thickness, radius, k_factor):
     ) for bend, axis in zip(bends, axes)}
     session = LoadedPartSession(Path(path).stem, SimpleNamespace(
         thickness_mm=thickness, dxf_manual=True, panel_meshes=meshes,
+        flat_contours=Part.makeCompound([wire, *(hole.OuterWire for hole in holes)]),
     ), panels, graph, vertices, fixed, state, local_bend_dimensions_mm=dimensions)
     session.set_bend_order(tuple(bend.bend_id for bend in bends))
     return session
+
+
+def add_flat_pattern(document, session):
+    """Add drawing/export objects directly from the imported DXF geometry."""
+    import FreeCAD as App
+    import Part
+
+    group = document.addObject("App::DocumentObjectGroup", "DXFUnfold")
+    group.Label = "Развёртка DXF"
+    outline = document.addObject("Part::Feature", "DXFContours")
+    outline.Label = "Контур и отверстия"
+    outline.Shape = session.unfold_data.flat_contours
+    group.addObject(outline)
+    bends = document.addObject("Part::Feature", "DXFBendLines")
+    bends.Label = "Линии гиба"
+    bends.Shape = Part.makeCompound([
+        Part.makeLine(App.Vector(*start), App.Vector(*end))
+        for bend in session.ordered_bends
+        for start, end in (bend.axis_xyz,)
+    ])
+    group.addObject(bends)
+    outline.Visibility = False
+    bends.Visibility = False
+    return group
 
 
 class DxfManualCommand:
@@ -283,6 +308,7 @@ class DxfManualCommand:
                 final = doc.addObject("Part::Feature", "FoldedPart")
                 final.Label = session.part_label + " — конечная форма"
                 final.Shape = shape
+                add_flat_pattern(doc, session)
                 doc.recompute()
                 workspace.load_part(document=doc, selection=[], prepared_session=session)
                 workspace.set_cycle_mode("BEND_ONLY")
