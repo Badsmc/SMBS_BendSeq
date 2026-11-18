@@ -5505,7 +5505,11 @@ class _PreviewPanel:
                 self._selected_planar_gauge_positions = {}
                 self._selected_planar_gauge_model_id = None
                 self._backgauge_preview_cache.clear()
-                self._manual_sequence_prefix = []
+                self._manual_sequence_prefix = (
+                    list(new_session.bend_order)
+                    if getattr(new_session.unfold_data, "dxf_manual", False)
+                    else []
+                )
                 self._manual_orientation_order = ()
                 self._manual_orientation_by_bend = {}
                 self._manual_orientation_overrides.clear()
