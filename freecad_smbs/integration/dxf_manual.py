@@ -3,7 +3,12 @@ from itertools import groupby
 from math import copysign, dist, floor, isfinite, tau
 from pathlib import Path
 from types import SimpleNamespace
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
+from time import perf_counter
+from traceback import format_exc
+from uuid import uuid4
+
+from smbs_core.kinematics2d.developer_debug_log import debug_event
 
 
 from smbs_core.kinematics2d.tooling_25d import (
@@ -22,6 +27,17 @@ class DxfCircle:
 @dataclass(frozen=True)
 class DxfCurve:
     edge: object
+
+
+def _geometry_for_log(line):
+    if isinstance(line, DxfCurve):
+        return {"type": type(line.edge.Curve).__name__,
+                "vertices_xy": [(vertex.Point.x, vertex.Point.y)
+                                for vertex in line.edge.Vertexes],
+                "closed": line.edge.isClosed(), "length_mm": line.edge.Length}
+    if isinstance(line, (DxfCircle, ArcSegment2D)):
+        return {"type": type(line).__name__, **asdict(line)}
+    return {"type": "LINE", "endpoints_xy": line}
 
 
 def _native_curve(entity, props, scale):
@@ -236,7 +252,7 @@ def join_outline(lines, tolerance=DEFAULT_OUTLINE_TOLERANCE_MM):
 
 
 def build_session(path, lines, angles, thickness, radius, k_factor, *,
-                  outline_tolerance=DEFAULT_OUTLINE_TOLERANCE_MM):
+                  outline_tolerance=DEFAULT_OUTLINE_TOLERANCE_MM, trace=None):
     import FreeCAD as App
     import Part
 
@@ -246,9 +262,13 @@ def build_session(path, lines, angles, thickness, radius, k_factor, *,
     from smbs_core.kinematics2d.panel_graph import graph_from_panel_build
     from smbs_core.kinematics2d.panel_kinematics import FoldState
 
+    if trace:
+        trace("join_outline")
     contour = (line for index, line in enumerate(lines)
                if index not in angles and not isinstance(line, DxfCircle))
     outline = join_outline(contour, tolerance=outline_tolerance)
+    if trace:
+        trace("build_wires", outline_edge_count=len(outline))
     edges = []
     for line in outline:
         if isinstance(line, DxfCurve):
@@ -261,7 +281,11 @@ def build_session(path, lines, angles, thickness, radius, k_factor, *,
     wires = [Part.Wire(group) for group in Part.sortEdges(edges)]
     wires.extend(Part.Wire([Part.makeCircle(line.radius, App.Vector(line.x, line.y, 0))])
                  for line in lines if isinstance(line, DxfCircle))
-    faces = [Part.Face(wire) for wire in wires if wire.isClosed()]
+    closed = [wire.isClosed() for wire in wires]
+    if trace:
+        trace("build_faces", wires=[{"closed": is_closed, "edges": len(wire.Edges)}
+                                    for wire, is_closed in zip(wires, closed)])
+    faces = [Part.Face(wire) for wire, is_closed in zip(wires, closed) if is_closed]
     if not faces or len(faces) != len(wires) or any(not face.isValid() for face in faces):
         raise ValueError("Не удалось собрать замкнутый контур DXF.")
     outer = max(faces, key=lambda face: face.Area)
@@ -275,13 +299,20 @@ def build_session(path, lines, angles, thickness, radius, k_factor, *,
                         thickness_mm=thickness, k_factor_ansi=k_factor)
         for step, angle in enumerate(angles.values(), 1)
     ]
+    if trace:
+        trace("partition_panels", outer_area_mm2=outer.Area,
+              hole_areas_mm2=[hole.Area for hole in holes])
     try:
         panels = partition_flat_pattern(wire, axes, axes, bends, hole_faces=holes)
-    except BendZoneOverlapError:
+    except BendZoneOverlapError as exc:
+        if trace:
+            trace("partition_retry", error=str(exc), zone_extension_mm=0.0)
         # The topology cut still bridges DXF endpoint tolerances. Retry the
         # physical bend zones with the actual finite DXF axis lengths.
         panels = partition_flat_pattern(wire, axes, axes, bends,
                                         hole_faces=holes, zone_extension_mm=0.0)
+    if trace:
+        trace("prepare_panel_meshes", panel_count=len(panels.panels))
     graph = graph_from_panel_build(panels)
     fixed = max(panels.panels, key=lambda panel: panel.area_mm2).panel_id
     state = FoldState(graph, fixed)
@@ -364,13 +395,25 @@ class DxfManualCommand:
         path, _ = qt.QFileDialog.getOpenFileName(parent, "Развёртка DXF", "", "DXF (*.dxf)")
         if not path:
             return
+        import_id = uuid4().hex
+
+        def log(event, **fields):
+            debug_event(event, dxf_import_id=import_id, **fields)
+
+        log("DXF_READ_STARTED", path=path, qt_version=core.qVersion(),
+            freecad_version=list(App.Version()))
         layers, unsupported = [], {}
         try:
             lines = read_lines(path, layers=layers, unsupported=unsupported)
-        except (OSError, ValueError, KeyError) as exc:
+        except Exception as exc:
+            log("DXF_READ_ERROR", error=str(exc), traceback=format_exc())
             qt.QMessageBox.warning(parent, "Развёртка DXF", str(exc))
             return
 
+        log("DXF_READ_COMPLETED", unsupported=unsupported, geometry=[
+            {"index": index, "layer": layer, **_geometry_for_log(line)}
+            for index, (layer, line) in enumerate(zip(layers, lines))
+        ])
         dialog = qt.QDialog(parent)
         dialog.setWindowTitle("Линии гиба DXF")
         dialog.resize(780, 620)
@@ -405,6 +448,8 @@ class DxfManualCommand:
             area = core.QRect(point.x() - 4, point.y() - 4, 9, 9)
             item = next((item for item in view.items(area) if item.data(0) is not None), None)
             if item is None:
+                point_xy = view.mapToScene(point)
+                log("DXF_BEND_PICK_MISSED", xy=[point_xy.x(), -point_xy.y()])
                 return
             index = item.data(0)
             value, ok = qt.QInputDialog.getDouble(
@@ -412,11 +457,15 @@ class DxfManualCommand:
                 angles.get(index, 90.0), -179.9, 179.9, 2,
             )
             if not ok:
+                log("DXF_BEND_ANGLE_CANCELLED", index=index, layer=layers[index])
                 return
+            previous_angle = angles.get(index)
             if value:
                 angles[index] = value
             else:
                 angles.pop(index, None)
+            log("DXF_BEND_ANGLE_CHANGED", index=index, layer=layers[index],
+                previous_angle_deg=previous_angle, angle_deg=angles.get(index))
             feedback.setText("Назначено гибов: {}".format(len(angles)))
             for i, line in enumerate(items):
                 if line is None:
@@ -466,7 +515,13 @@ class DxfManualCommand:
             for layer, item in zip(layers, geometry_items):
                 item.setVisible(layer_enabled(layer))
 
-        layers_box.itemChanged.connect(update_layers)
+        def layer_changed(item):
+            update_layers()
+            log("DXF_LAYERS_CHANGED", enabled_layers=[
+                layer for layer in layer_entries if layer_enabled(layer)
+            ])
+
+        layers_box.itemChanged.connect(layer_changed)
         form = qt.QFormLayout()
         layout.addLayout(form)
 
@@ -489,8 +544,31 @@ class DxfManualCommand:
         layout.addWidget(button)
         layout.addWidget(feedback)
 
+        attempt = 0
+
         def calculate():
+            nonlocal attempt
+            attempt += 1
+            started = perf_counter()
+            stage = "validate_inputs"
+            stage_started = started
             doc = None
+
+            def trace(next_stage, **fields):
+                nonlocal stage, stage_started
+                now = perf_counter()
+                log("DXF_CALCULATION_STAGE", attempt=attempt, stage=next_stage,
+                    elapsed_ms=round((now - started) * 1000, 2),
+                    previous_stage=stage, previous_stage_ms=round((now - stage_started) * 1000, 2),
+                    **fields)
+                stage, stage_started = next_stage, now
+
+            log("DXF_CALCULATION_STARTED", attempt=attempt,
+                enabled_layers=[layer for layer in layer_entries if layer_enabled(layer)],
+                assigned_bends=[{"index": index, "angle_deg": angle}
+                                for index, angle in angles.items()],
+                thickness_mm=thickness.value(), radius_mm=radius.value(),
+                k_factor=k_factor.value(), outline_tolerance_mm=outline_tolerance.value())
             try:
                 blocked = [f"{layer}: {', '.join(sorted(types))}"
                            for layer, types in unsupported.items() if layer_enabled(layer)]
@@ -503,24 +581,29 @@ class DxfManualCommand:
                     raise ValueError("Назначьте гиб на включённом слое.")
                 session = build_session(path, [lines[i] for i in visible], active_angles,
                                         thickness.value(), radius.value(), k_factor.value(),
-                                        outline_tolerance=outline_tolerance.value())
+                                        outline_tolerance=outline_tolerance.value(), trace=trace)
+                trace("build_folded_solid", bend_order=session.bend_order,
+                      fixed_panel=session.fixed_panel)
                 folded = FoldState(session.graph, session.fixed_panel)
                 for bend_id in session.bend_order:
                     folded.set_angle(bend_id, folded.bends[bend_id].angle_deg)
                 shape = build_multi_bend_sheet_solid(folded, session.panel_build).shape
 
+                trace("open_simulator", solid_count=len(shape.Solids))
                 workspace = get_workspace_widget()
                 if workspace is None:
                     PressBrake2DCommand().Activated()
                     workspace = get_workspace_widget()
                 if workspace is None:
                     raise RuntimeError("Не удалось открыть симулятор PressBrakeSim.")
+                trace("create_document")
                 doc = App.newDocument("SMBS_DXF")
                 final = doc.addObject("Part::Feature", "FoldedPart")
                 final.Label = session.part_label + " — конечная форма"
                 final.Shape = shape
                 add_flat_pattern(doc, session)
                 doc.recompute()
+                trace("load_simulation", document=doc.Name)
                 workspace.load_part(document=doc, selection=[], prepared_session=session)
                 workspace.set_cycle_mode("BEND_ONLY")
                 show_workspace_controls(workspace, tab=2)
@@ -529,8 +612,12 @@ class DxfManualCommand:
                 view3d.viewAxonometric()
                 view3d.fitAll()
             except Exception as exc:
-                import traceback
-                App.Console.PrintError(traceback.format_exc())
+                error_trace = format_exc()
+                log("DXF_CALCULATION_ERROR", attempt=attempt, stage=stage,
+                    elapsed_ms=round((perf_counter() - started) * 1000, 2),
+                    document=doc.Name if doc is not None else None,
+                    error_type=type(exc).__name__, error=str(exc), traceback=error_trace)
+                App.Console.PrintError(error_trace)
                 detail = str(exc).strip() or type(exc).__name__
                 if doc is not None:
                     detail = f"Модель создана в {doc.Name}. Не удалось открыть симуляцию: {detail}"
@@ -538,10 +625,13 @@ class DxfManualCommand:
                 return
             finally:
                 button.setEnabled(True)
+            log("DXF_CALCULATION_COMPLETED", attempt=attempt, document=doc.Name,
+                elapsed_ms=round((perf_counter() - started) * 1000, 2))
             dialog.accept()
 
         def start_calculation():
             if not angles:
+                log("DXF_CALCULATION_REJECTED", reason="no_bend_angles")
                 feedback.setText("Назначьте угол хотя бы одной линии гиба.")
                 return
             button.setEnabled(False)
@@ -551,4 +641,5 @@ class DxfManualCommand:
         button.clicked.connect(start_calculation)
         core.QTimer.singleShot(0, lambda: view.fitInView(scene.itemsBoundingRect(), core.Qt.KeepAspectRatio))
         run = getattr(dialog, "exec", None) or dialog.exec_
-        run()
+        result = run()
+        log("DXF_DIALOG_CLOSED", result=int(result), attempts=attempt)
