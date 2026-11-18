@@ -124,13 +124,47 @@ def _load_gauge(coin, library_root):
                       (0.83, 0.49, 0.19))
 
 
+def _punch_contact(outline, profile):
+    """Find the operator-facing vertical shank face in machine S/Z."""
+    top = max(z for _, z in outline)
+    if profile is not None and getattr(profile, "source_format", "") == "FCSTD":
+        path = Path(profile.source_file)
+        sidecar = path.with_suffix(".tooling.json")
+        metadata = json.loads(sidecar.read_text(encoding="utf-8")) if sidecar.is_file() else {}
+        ref = metadata.get("visual_mount", {}).get("clamp_contact")
+        if ref is None and path.stem.startswith("PUNCH_AP_1055_"):
+            ref = "Pad.Face10"
+        if ref:
+            feature, face_name = ref.split(".", 1)
+            with _machine_document(path) as doc:
+                face = _global_shape(doc.getObject(feature)).getElement(face_name)
+                transform = profile.source_to_local_transform()
+                points = [transform.apply((v.Point.x, v.Point.y)) for v in face.Vertexes]
+                if (getattr(face.Surface, "TypeId", "") != "Part::GeomPlane"
+                        or max(p[0] for p in points) - min(p[0] for p in points) > 1e-5
+                        or max(p[1] for p in points) - min(p[1] for p in points) <= 1e-5):
+                    raise ValueError(f"{ref}: нужна вертикальная плоскость крепления пуансона")
+                point = face.CenterOfMass
+                s, _ = transform.apply((point.x, point.y))
+                return s, max(z for _, z in points)
+    area = sum(s * zz - ss * z for (s, z), (ss, zz) in zip(outline, (*outline[1:], outline[0])))
+    shank = [(min(z, zz), max(z, zz), s)
+             for (s, z), (ss, zz) in zip(outline, (*outline[1:], outline[0]))
+             if abs(s - ss) < 1e-5 and (zz - z) * area < 0 and max(z, zz) >= top - 5]
+    if shank:
+        _, z, s = min(shank)
+        return s, z
+    return 0.0, top
+
+
 def _load_clamp(coin, library_root, spans):
     path = resolve_clamp_fcstd(library_root)
     if path is None:
         raise FileNotFoundError("Clamp.FCStd")
     sidecar = json.loads(path.with_suffix(".tooling.json").read_text(encoding="utf-8"))
     x, mount_y, mount_z = sidecar["datums"]["mounting_plane"]["origin"]
-    seat_face = sidecar.get("visual_mount", {}).get("punch_seat_face")
+    mount = sidecar.get("visual_mount", {})
+    seat_face = mount.get("punch_seat_face")
     _, seat_y, seat_z = sidecar["datums"]["working_plane"]["origin"]
     with _machine_document(path) as doc:
         bodies = [_global_shape(item) for item in doc.Objects
@@ -140,13 +174,20 @@ def _load_clamp(coin, library_root, spans):
         width = max(s.BoundBox.XMax for s in bodies) - min(s.BoundBox.XMin for s in bodies)
         if width <= 0:
             raise ValueError("CAD-модель лапки имеет нулевую длину")
-        if seat_face:
+        if mount.get("punch_contact_feature"):
+            feature = doc.getObject(mount["punch_contact_feature"])
+            face = _global_shape(feature).getElement(mount["punch_contact_face"])
+            if (getattr(face.Surface, "TypeId", "") != "Part::GeomPlane"
+                    or face.normalAt(0, 0).y > -0.999):
+                raise ValueError("Посадочная грань лапки должна смотреть в сторону пуансона")
+            seat_y, seat_z = face.CenterOfMass.y, face.BoundBox.ZMax
+        elif seat_face:
             if len(bodies) != 1:
                 raise ValueError("Для посадочной грани лапки нужно одно CAD-тело")
             seat = _mount_origin(bodies[0], seat_face, -1)
             seat_y, seat_z = seat.y, seat.z
         height = mount_z - seat_z
-        if height <= 0:
+        if height < -1e-6:
             raise ValueError("CAD-модель лапки расположена ниже рабочей плоскости")
         meshes = {}
         row = coin.SoSeparator()
@@ -197,6 +238,7 @@ class CoinMachineScene:
         self.gauge_error = ""
         self.rest_z = 0.0
         self.punch_top = None
+        self.punch_mount_s = 0.0
         self.gauge_mesh = None
         self.stations = ()
         self.fingers = ()
@@ -257,14 +299,14 @@ class CoinMachineScene:
         if self.punch_top is not None:
             clamp_z = self.beam_z
             self.ram_motion.translation.setValue(
-                self.clamp_mount_s, 0.0, clamp_z + self.clamp_height,
+                self.punch_mount_s + self.clamp_mount_s, 0.0, clamp_z + self.clamp_height,
             )
         else:
             # With the punch absent or hidden, keep clamps attached to the
             # actual mounting surface of the displayed ram.
             clamp_z = self.beam_z - self.clamp_height
             self.ram_motion.translation.setValue(self.clamp_mount_s, 0.0, self.beam_z)
-        self.clamp_motion.translation.setValue(0.0, 0.0, clamp_z)
+        self.clamp_motion.translation.setValue(self.punch_mount_s, 0.0, clamp_z)
         self.clamps.whichChild.setValue(self.coin.SO_SWITCH_ALL)
         return ""
 
@@ -296,8 +338,15 @@ class CoinMachineScene:
             punch_outline = punch_polygons[0] if punch_polygons else ()
             self.bed_z = min((z for _, z in die_outline), default=0.0)
             self.frame_mount.translation.setValue(0.0, 0.0, self.bed_z)
-            self.punch_top = (max(z for _, z in punch_outline) - tooling.ram_z_mm
-                              if punch_outline else None)
+            self.punch_mount_s, self.punch_top = 0.0, None
+            if punch_outline:
+                tx = getattr(getattr(tooling, "punch_machine_transform", None), "tx", 0.0)
+                local = tuple((s - tx, z - tooling.ram_z_mm) for s, z in punch_outline)
+                try:
+                    contact_s, self.punch_top = _punch_contact(local, tooling.punch)
+                except (OSError, RuntimeError, ValueError, AttributeError, KeyError) as exc:
+                    return f"Крепление пуансона: {exc}"
+                self.punch_mount_s = tx + contact_s
             self.mount_key = key
         self.beam_z = (float(ram_z) + self.punch_top if self.punch_top is not None
                        else self.bed_z + self.rest_z)

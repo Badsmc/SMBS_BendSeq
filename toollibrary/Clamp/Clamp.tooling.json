@@ -24,7 +24,8 @@
     }
   },
   "visual_mount": {
-    "punch_seat_face": "Face2"
+    "punch_contact_feature": "Pocket",
+    "punch_contact_face": "Face1"
   },
   "metadata": {
     "width_mm": 150.0,
