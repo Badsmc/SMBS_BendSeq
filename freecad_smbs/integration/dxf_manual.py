@@ -309,8 +309,15 @@ def build_session(path, lines, angles, thickness, radius, k_factor, *,
             trace("partition_retry", error=str(exc), zone_extension_mm=0.0)
         # The topology cut still bridges DXF endpoint tolerances. Retry the
         # physical bend zones with the actual finite DXF axis lengths.
-        panels = partition_flat_pattern(wire, axes, axes, bends,
-                                        hole_faces=holes, zone_extension_mm=0.0)
+        def report_slivers(panel_id, areas):
+            if trace:
+                trace("discard_panel_slivers", panel_id=panel_id, areas_mm2=areas)
+
+        panels = partition_flat_pattern(
+            wire, axes, axes, bends, hole_faces=holes, zone_extension_mm=0.0,
+            # Bound total discarded corner residue on each rigid panel.
+            max_panel_sliver_area_mm2=1e-4, on_panel_slivers=report_slivers,
+        )
     if trace:
         trace("prepare_panel_meshes", panel_count=len(panels.panels))
     graph = graph_from_panel_build(panels)
