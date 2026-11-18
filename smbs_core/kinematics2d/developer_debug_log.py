@@ -276,8 +276,18 @@ def get_debug_journal():
         return _JOURNAL
 
 
+_debug_log_enabled = True
+
+
+def set_debug_log_enabled(enabled):
+    global _debug_log_enabled
+    _debug_log_enabled = bool(enabled)
+
+
 def debug_event(event, **details):
     """Best-effort diagnostic: never take down FreeCAD or its OCC solver."""
+    if not _debug_log_enabled:
+        return False
     try:
         return get_debug_journal().emit(event, **details)
     except Exception:

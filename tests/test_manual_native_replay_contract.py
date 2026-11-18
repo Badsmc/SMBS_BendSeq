@@ -209,14 +209,16 @@ class ManualPlaybackContractTests(unittest.TestCase):
         self.assertIn("orientation_matches", check)
         self.assertIn("_last_assisted_lift_inspection", check)
 
-    def test_tooling_settings_are_direct_menu_commands(self):
+    def test_tooling_management_is_available_from_import_dialog(self):
         menu = (ROOT / "freecad_smbs" / "InitGui.py").read_text(encoding="utf-8")
-        commands = (ROOT / "freecad_smbs" / "commands" / "tooling.py").read_text(encoding="utf-8")
-        for command in ("SMBS_SegmentStock", "SMBS_VirtualClamps", "SMBS_ToolLayout"):
-            self.assertEqual(menu.count(f'"{command}"'), 2)
-        self.assertIn("self.appendToolbar(TOOLING_TOOLBAR, _TOOLING_ACTIONS)", menu)
-        self.assertIn("panel._on_edit_segments(tools[selected])", commands)
-        self.assertIn("clamps_only=True", commands)
+        panel = (ROOT / "freecad_smbs" / "ui" / "tooling_panel.py").read_text(encoding="utf-8")
+        toolbar = menu.split("_TOOLING_ACTIONS = [", 1)[1].split("]", 1)[0]
+        self.assertIn('"SMBS_ToolLayout"', toolbar)
+        for command in ("SMBS_SegmentStock", "SMBS_VirtualClamps", "CMD_BACKGAUGE"):
+            self.assertNotIn(command, toolbar)
+        self.assertIn("addTab(self._build_clamps_tab()", panel)
+        self.assertIn("addTab(self._build_backgauge_tab()", panel)
+        self.assertIn("self._on_edit_segments()", panel)
 
 
     def test_conditional_is_preserved_as_distinct_evidence(self):

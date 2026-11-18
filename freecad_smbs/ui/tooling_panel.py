@@ -1,17 +1,8 @@
-"""
-ToolingPanel — FreeCAD UI panel for SMBS tooling library (S.71 C2b).
-
-Headless-safe: FreeCAD and PySide imports are lazy inside methods.
-Path selector omitted (Q-s71-6): canonical library path from toollibrary/.
-5 tabs: Punches, Dies, Machine Frame (KL-16 honest), Backgauge, Clamps.
-"""
+"""Tooling library dialog for punches, dies, virtual clamps and backgauges."""
 from __future__ import annotations
 
 from pathlib import Path
 from typing import Any, Optional
-
-LIBRARY_TAB_TITLES = ("Пуансоны", "Матрицы", "Станина", "Задний упор", "Лапки")
-SECTION_CATALOG_MM = (10.0, 15.0, 20.0, 50.0, 100.0)  # Q11=C reference display
 
 _PanelClass: Optional[type] = None
 
@@ -43,8 +34,7 @@ class ToolingPanel:
         if _PanelClass is None:
             from freecad_smbs.commands.pressbrake_2d import _qt
             import FreeCAD as App
-            import FreeCADGui as Gui
-            QtCore, _QtGui, QtWidgets = _qt()
+            QtCore, QtGui, QtWidgets = _qt()
 
             class _Dialog(QtWidgets.QDialog):
                 def __init__(self, library: Any, parent: Any = None, *, clamps_only=False) -> None:
@@ -79,14 +69,13 @@ class ToolingPanel:
                     )
                     layout.setSpacing(SECTION_GAP)
 
-                    # 5-tab widget (Punches, Dies, Machine Frame, Backgauge, Clamps)
                     self.tabs = QtWidgets.QTabWidget()
                     self.tabs.tabBar().setUsesScrollButtons(True)
                     self.tabs.setIconSize(QtCore.QSize(17, 17))
                     self.tabs.addTab(self._build_punch_tab(), "Пуансоны (0)")
                     self.tabs.addTab(self._build_die_tab(), "Матрицы (0)")
-                    self.tabs.addTab(self._build_machine_frame_tab(), LIBRARY_TAB_TITLES[2])
-                    self.tabs.addTab(self._build_backgauge_tab(), LIBRARY_TAB_TITLES[3])
+                    self.tabs.addTab(self._build_clamps_tab(), "Зажимы")
+                    self.tabs.addTab(self._build_backgauge_tab(), "Задний упор")
                     self.tabs.currentChanged.connect(self._on_selection_changed)
                     layout.addWidget(self.tabs)
 
@@ -108,30 +97,24 @@ class ToolingPanel:
                     self.lbl_selected_meta.setWordWrap(True)
                     info_layout.addWidget(self.lbl_selected_id)
                     info_layout.addWidget(self.lbl_selected_meta)
+                    self.tool_picture = QtWidgets.QLabel()
+                    self.tool_picture.setAlignment(QtCore.Qt.AlignCenter)
+                    info_layout.addWidget(self.tool_picture)
                     layout.addWidget(self.info_group)
 
-                    # Compact grid keeps library commands usable in the
-                    # narrow Task Panel without clipping or floating windows.
-                    btn_layout = QtWidgets.QGridLayout()
-                    btn_layout.setHorizontalSpacing(SECTION_GAP)
-                    btn_layout.setVerticalSpacing(SECTION_GAP)
-                    btn_add = QtWidgets.QPushButton("Добавить инструмент...")
-                    btn_add.clicked.connect(self._on_add_tool)
-                    btn_remove = QtWidgets.QPushButton("Удалить")
-                    btn_remove.clicked.connect(self._on_remove_tool)
-                    btn_preview = QtWidgets.QPushButton("Просмотр")
-                    btn_preview.clicked.connect(self._on_preview_tool)
-                    btn_refresh = QtWidgets.QPushButton("Обновить")
-                    btn_refresh.clicked.connect(self._on_refresh)
-
-                    for index, btn in enumerate((
-                        btn_add, btn_remove, btn_preview, btn_refresh,
-                    )):
-                        style_action(btn, primary=(index == 0))
-                        btn_layout.addWidget(btn, index // 2, index % 2)
-                    btn_layout.setColumnStretch(0, 1)
-                    btn_layout.setColumnStretch(1, 1)
-                    layout.addLayout(btn_layout)
+                    self.tool_actions = QtWidgets.QWidget()
+                    btn_layout = QtWidgets.QHBoxLayout(self.tool_actions)
+                    self.import_tool_button = QtWidgets.QPushButton()
+                    self.remove_tool_button = QtWidgets.QPushButton()
+                    self.segments_button = QtWidgets.QPushButton()
+                    for button, callback in (
+                        (self.import_tool_button, self._on_add_tool),
+                        (self.remove_tool_button, self._on_remove_tool),
+                        (self.segments_button, lambda: self._on_edit_segments()),
+                    ):
+                        button.clicked.connect(callback)
+                        btn_layout.addWidget(style_action(button))
+                    layout.addWidget(self.tool_actions)
                     # Status bar label
                     self.status_label = QtWidgets.QLabel("Статус: Готово")
                     self.status_label.setObjectName("SMBS_SectionCaption")
@@ -168,113 +151,116 @@ class ToolingPanel:
                     vbox.addWidget(self.die_list)
                     return widget
 
-                def _build_machine_frame_tab(self) -> QtWidgets.QWidget:
-                    widget = QtWidgets.QWidget()
-                    vbox = QtWidgets.QVBoxLayout(widget)
-                    vbox.setContentsMargins(16, 16, 16, 16)
-                    vbox.setSpacing(16)
-
-                    from freecad_smbs.resources.tooling_paths import resolve_machine_frame_fcstd
-
-                    self._machine_frame_fcstd = resolve_machine_frame_fcstd(self.library_path) if self.library_path else None
-                    machine_frame_exists = self._machine_frame_fcstd is not None
-
-                    from freecad_smbs.ui.badges import format_machine_frame_badge
-
-                    txt, rgb = format_machine_frame_badge(machine_frame_exists)
-
-                    lbl_badge = QtWidgets.QLabel(txt)
-                    lbl_badge.setStyleSheet(
-                        f"background-color: rgb({int(rgb[0]*255)}, {int(rgb[1]*255)}, {int(rgb[2]*255)});"
-                        f" color: white; font-weight: bold; padding: 4px 8px; border-radius: 4px;"
-                    )
-                    lbl_badge.setAlignment(QtCore.Qt.AlignCenter)
-                    vbox.addWidget(lbl_badge)
-
-                    if machine_frame_exists:
-                        sidecar_path = self._machine_frame_fcstd.parent / f"{self._machine_frame_fcstd.stem}.tooling.json"
-                        sidecar_txt = "sidecar загружен" if sidecar_path.is_file() else "без sidecar"
-                        info_txt = (
-                            "Станина пресса (Machine Frame):\n\n"
-                            f"• Модель: {self._machine_frame_fcstd.name} ({sidecar_txt})\n"
-                            "• Статус: загружен (KL-16 закрыт)\n"
-                            "• В симуляции и валидаторе используется реальная B-Rep геометрия станины.\n"
-                            "• Проверка коллизий станины активна (VALID/INVALID)."
-                        )
-                    else:
-                        info_txt = (
-                            "Станина пресса (Machine Frame):\n\n"
-                            "• Модель: toollibrary/machine_frame/machine_frame.FCStd\n"
-                            "• Статус: отсутствует (честный UNKNOWN / SIMPLIFIED)\n"
-                            "• В симуляции используется упрощённое габаритное представление.\n"
-                            "• Проверка коллизий вернёт UNKNOWN при отсутствии файла."
-                        )
-                    lbl_info = QtWidgets.QLabel(info_txt)
-                    lbl_info.setWordWrap(True)
-                    vbox.addWidget(lbl_info)
-
-                    btn_preview = QtWidgets.QPushButton("Просмотр в 3D")
-                    btn_preview.setEnabled(machine_frame_exists)
-                    btn_preview.clicked.connect(self._on_preview_machine_frame)
-                    vbox.addWidget(btn_preview)
-
-                    vbox.addStretch()
-                    return widget
-
                 def _build_backgauge_tab(self) -> QtWidgets.QWidget:
                     widget = QtWidgets.QWidget()
                     vbox = QtWidgets.QVBoxLayout(widget)
                     vbox.setContentsMargins(16, 16, 16, 16)
                     vbox.setSpacing(16)
 
-                    from freecad_smbs.ui.badges import BADGE_TOOLING_MISSING, get_badge_hex
+                    self.gauge_picture = QtWidgets.QLabel()
+                    self.gauge_picture.setAlignment(QtCore.Qt.AlignCenter)
+                    vbox.addWidget(self.gauge_picture, 1)
+                    actions = QtWidgets.QHBoxLayout()
+                    for title, callback in (
+                        ("Загрузить", self._import_backgauge),
+                        ("Удалить", self._remove_backgauge),
+                        ("Настройки заднего упора", self._configure_backgauge),
+                    ):
+                        button = QtWidgets.QPushButton(title)
+                        button.clicked.connect(callback)
+                        actions.addWidget(button)
+                    vbox.addLayout(actions)
+                    self._refresh_backgauge()
+                    return widget
+
+                def _show_picture(self, label, path):
+                    from zipfile import BadZipFile, ZipFile
+
+                    image = QtGui.QPixmap()
+                    if path is not None:
+                        try:
+                            with ZipFile(path) as archive:
+                                image.loadFromData(archive.read("thumbnails/Thumbnail.png"))
+                        except (OSError, BadZipFile, KeyError):
+                            pass
+                    if image.isNull():
+                        label.setText("Миниатюра отсутствует" if path else "Модель не выбрана")
+                    else:
+                        label.setPixmap(image.scaled(
+                            220, 145, QtCore.Qt.KeepAspectRatio, QtCore.Qt.SmoothTransformation
+                        ))
+
+                def _refresh_backgauge(self):
                     from freecad_smbs.resources.tooling_paths import resolve_backgauge_fcstd
 
-                    if self.library_path:
-                        self._backgauge_fcstd = resolve_backgauge_fcstd(self.library_path)
-                    exists = self._backgauge_fcstd is not None
+                    self._backgauge_fcstd = resolve_backgauge_fcstd(self.library_path)
+                    self._show_picture(self.gauge_picture, self._backgauge_fcstd)
+                    self.gauge_picture.setToolTip(str(self._backgauge_fcstd or ""))
 
-                    if exists:
-                        badge_text = f"BACKGAUGE: PRESENT ({self._backgauge_fcstd.name}, no sidecar)"
-                        badge_hex = "#2E7D32"
-                    else:
-                        badge_text = BADGE_TOOLING_MISSING
-                        badge_hex = get_badge_hex(BADGE_TOOLING_MISSING)
+                def _backgauge_changed(self):
+                    self._refresh_backgauge()
+                    if self._workspace is not None:
+                        self._workspace._backgauge_preview_cache.clear()
+                        self._workspace._machine_gauge_envelope_cache = None
+                        self._workspace._ergonomic_loading_cache_key = None
+                        self._workspace.draw()
 
-                    lbl_badge = QtWidgets.QLabel(badge_text)
-                    lbl_badge.setStyleSheet(
-                        f"background-color: {badge_hex}; color: white; font-weight: bold; "
-                        f"padding: 4px 8px; border-radius: 4px;"
+                def _import_backgauge(self):
+                    from tempfile import NamedTemporaryFile
+                    from shutil import copyfileobj
+                    from zipfile import BadZipFile, ZipFile
+
+                    filename, _ = QtWidgets.QFileDialog.getOpenFileName(
+                        self, "Загрузить задний упор", "", "FreeCAD (*.FCStd)"
                     )
-                    lbl_badge.setAlignment(QtCore.Qt.AlignCenter)
-                    vbox.addWidget(lbl_badge)
+                    if not filename:
+                        return
+                    target = self._backgauge_fcstd or (
+                        self.library_path / "backgauge" / "backgauge.FCStd"
+                    )
+                    if Path(filename).resolve() == target.resolve():
+                        return
+                    if target.exists() and QtWidgets.QMessageBox.question(
+                        self, "Задний упор", "Заменить текущую модель?"
+                    ) != QtWidgets.QMessageBox.Yes:
+                        return
+                    staged = None
+                    try:
+                        with ZipFile(filename) as archive:
+                            archive.getinfo("Document.xml")
+                        target.parent.mkdir(parents=True, exist_ok=True)
+                        with NamedTemporaryFile(dir=target.parent, delete=False) as temp:
+                            staged = Path(temp.name)
+                            with open(filename, "rb") as source:
+                                copyfileobj(source, temp)
+                        staged.replace(target)
+                    except (OSError, BadZipFile, KeyError) as exc:
+                        QtWidgets.QMessageBox.warning(self, "Ошибка импорта", str(exc))
+                        return
+                    finally:
+                        if staged is not None:
+                            staged.unlink(missing_ok=True)
+                    self._backgauge_changed()
 
-                    if exists:
-                        info_text = (
-                            "Задний упор (Backgauge):\n\n"
-                            f"• Файл: {self._backgauge_fcstd.name}\n"
-                            "• Статус: загружен (без .tooling.json sidecar — datums не валидированы).\n"
-                            "• Расчёт позиционирования: BackgaugeCalculator.compute_step_backgauge().\n"
-                            "• Оси: X_mm (глубина), R_mm (высота), Z1_mm, Z2_mm (боковые пальцы)."
-                        )
-                    else:
-                        info_text = (
-                            "Задний упор (Backgauge):\n\n"
-                            "• 3D геометрия отсутствует (TOOLING: MISSING).\n"
-                            "• Требуется: toollibrary/backgauge/backgauge.FCStd.\n"
-                            "• Расчёт позиционирования: BackgaugeCalculator.compute_step_backgauge()."
-                        )
-                    lbl_info = QtWidgets.QLabel(info_text)
-                    lbl_info.setWordWrap(True)
-                    vbox.addWidget(lbl_info)
+                def _remove_backgauge(self):
+                    if self._backgauge_fcstd is None:
+                        return
+                    if QtWidgets.QMessageBox.question(
+                        self, "Задний упор", "Удалить выбранную модель из библиотеки?"
+                    ) != QtWidgets.QMessageBox.Yes:
+                        return
+                    try:
+                        self._backgauge_fcstd.unlink()
+                    except OSError as exc:
+                        QtWidgets.QMessageBox.warning(self, "Ошибка удаления", str(exc))
+                        return
+                    self._backgauge_changed()
 
-                    btn_preview = QtWidgets.QPushButton("Просмотр в 3D")
-                    btn_preview.setEnabled(exists)
-                    btn_preview.clicked.connect(self._on_preview_backgauge)
-                    vbox.addWidget(btn_preview)
+                def _configure_backgauge(self):
+                    if self._workspace is not None:
+                        from freecad_smbs.commands.backgauge_dialog import show_backgauge_settings
 
-                    vbox.addStretch()
-                    return widget
+                        show_backgauge_settings(self._workspace, modal_parent=self)
 
                 def _build_clamps_tab(self) -> QtWidgets.QWidget:
                     widget = QtWidgets.QWidget()
@@ -351,8 +337,10 @@ class ToolingPanel:
                     btn_box.addWidget(btn_reset)
                     vbox.addLayout(btn_box)
 
-                    vbox.addStretch()
-
+                    self.clamp_scene = QtWidgets.QGraphicsScene(self)
+                    self.clamp_preview = QtWidgets.QGraphicsView(self.clamp_scene)
+                    self.clamp_preview.setMinimumHeight(100)
+                    vbox.addWidget(self.clamp_preview, 1)
                     self._populate_clamps_ui()
                     return widget
 
@@ -379,6 +367,20 @@ class ToolingPanel:
                     self.chk_clamp_repositionable.setChecked(bool(cfg.repositionable))
                     self.chk_clamp_joints.setChecked(bool(cfg.joints_must_be_on_clamps))
                     self.chk_clamp_no_gaps.setChecked(bool(cfg.no_gaps_between_punches))
+                    self._draw_clamps(cfg)
+
+                def _draw_clamps(self, cfg):
+                    self.clamp_scene.clear()
+                    for center in cfg.centres_mm:
+                        self.clamp_scene.addRect(
+                            center - cfg.width_mm / 2, 0, cfg.width_mm, cfg.height_mm,
+                            QtGui.QPen(QtCore.Qt.NoPen), QtGui.QBrush(QtGui.QColor("#5485ac"))
+                        )
+                    if not cfg.centres_mm:
+                        self.clamp_scene.addSimpleText("Зажимы не заданы")
+                    bounds = self.clamp_scene.itemsBoundingRect().adjusted(-5, -5, 5, 5)
+                    self.clamp_preview.setSceneRect(bounds)
+                    self.clamp_preview.fitInView(bounds, QtCore.Qt.KeepAspectRatio)
 
                 def _on_reset_clamps(self) -> None:
                     self._populate_clamps_ui()
@@ -413,6 +415,7 @@ class ToolingPanel:
                         cfg = self.library.get_clamp_config()
                         new_cfg = _apply_clamp_config_fields(cfg, fields)
                         self.library.set_clamp_config(new_cfg)
+                        self._draw_clamps(new_cfg)
                         if new_cfg != cfg and self._workspace is not None:
                             self._workspace._on_tool_inventory_changed()
                         self._set_status("Конфигурация лапок успешно сохранена.")
@@ -521,6 +524,9 @@ class ToolingPanel:
                             if (desc.kind, desc.tool_id) == selected_key:
                                 widget.setCurrentRow(index)
                                 break
+                    for tool_list in (self.punch_list, self.die_list):
+                        if tool_list.currentRow() < 0 and tool_list.count():
+                            tool_list.setCurrentRow(0)
                     self._on_selection_changed()
                     self._set_status("Список инструментов обновлён.")
 
@@ -537,7 +543,24 @@ class ToolingPanel:
                     return None
 
                 def _on_selection_changed(self) -> None:
+                    index = self.tabs.currentIndex()
+                    tool_tab = index in (0, 1)
+                    self.info_group.setVisible(tool_tab)
+                    self.tool_actions.setVisible(tool_tab)
+                    if not tool_tab:
+                        if index == 2:
+                            self.clamp_preview.fitInView(
+                                self.clamp_scene.sceneRect(), QtCore.Qt.KeepAspectRatio
+                            )
+                        return
+                    kind = ("Punch", "Die")[index]
+                    self.import_tool_button.setText("Импорт " + kind)
+                    self.remove_tool_button.setText("Удалить " + kind)
+                    self.segments_button.setText("Сегменты " + kind)
                     desc = self._current_descriptor()
+                    self.remove_tool_button.setEnabled(desc is not None)
+                    self.segments_button.setEnabled(desc is not None)
+                    self._show_picture(self.tool_picture, desc.fcstd_path if desc else None)
                     if not desc:
                         self.lbl_selected_id.setText("Выбрано: нет")
                         self.lbl_selected_meta.setText("Метаданные: —")
@@ -585,9 +608,16 @@ class ToolingPanel:
                     from smbs_core.geometry_backend.io.tooling_library import ToolingLibraryError
 
                     try:
-                        desc = self.library.add_tool(Path(file_path))
+                        desc = self.library.add_tool(Path(file_path), kind=("punch", "die")[cur_idx])
                         self._set_status(f"Добавлен инструмент '{desc.tool_id}' ({desc.kind})")
                         self._refresh_lists()
+                        target_list = self.punch_list if desc.kind == "punch" else self.die_list
+                        self.tabs.setCurrentIndex(0 if desc.kind == "punch" else 1)
+                        for index in range(target_list.count()):
+                            candidate = target_list.item(index).data(QtCore.Qt.UserRole)
+                            if candidate.tool_id == desc.tool_id:
+                                target_list.setCurrentRow(index)
+                                break
                         QtWidgets.QMessageBox.information(
                             self,
                             "Инструмент добавлен",
@@ -623,7 +653,12 @@ class ToolingPanel:
                     try:
                         self.library.remove_tool(desc.tool_id, kind=desc.kind)
                         if self._workspace is not None:
-                            self._workspace._on_tool_inventory_changed(desc.kind, desc.tool_id)
+                            selected = getattr(self._workspace.tooling_setup, desc.kind)
+                            if selected is not None and selected.tool_id == desc.tool_id:
+                                if desc.kind == "punch":
+                                    self._workspace.select_punch(None)
+                                else:
+                                    self._workspace.select_die(None)
                         self._set_status(f"Удалён '{desc.tool_id}' из {desc.kind}")
                         self._refresh_lists()
                     except ToolingLibraryError as e:
@@ -732,85 +767,6 @@ class ToolingPanel:
                     buttons.rejected.connect(dialog.reject)
                     run_dialog = getattr(dialog, "exec", None) or dialog.exec_
                     run_dialog()
-
-                def _on_preview_tool(self) -> None:
-                    desc = self._current_descriptor()
-                    if not desc:
-                        QtWidgets.QMessageBox.information(
-                            self, "Просмотр", "Пожалуйста, выберите инструмент для просмотра."
-                        )
-                        return
-
-                    if App.ActiveDocument is None:
-                        App.newDocument("SMBS_ToolingPreview")
-                        try:
-                            Gui.ActiveDocument = Gui.activeDocument()
-                        except Exception:
-                            pass
-
-                    doc = App.ActiveDocument
-                    try:
-                        doc.mergeProject(str(desc.fcstd_path))
-                        doc.recompute()
-                        Gui.SendMsgToActiveView("ViewFit")
-                        self._set_status(f"Инструмент '{desc.tool_id}' отображён в 3D виде.")
-                    except Exception as e:
-                        self._set_status(f"Ошибка отображения инструмента: {e}", is_error=True)
-                        QtWidgets.QMessageBox.warning(self, "Ошибка просмотра", f"Не удалось отобразить форму: {e}")
-
-                def _on_preview_machine_frame(self) -> None:
-                    if self._machine_frame_fcstd is None:
-                        return
-                    if App.ActiveDocument is None:
-                        App.newDocument("SMBS_MachineFramePreview")
-                        try:
-                            Gui.ActiveDocument = Gui.activeDocument()
-                        except Exception:
-                            pass
-                    doc = App.ActiveDocument
-                    try:
-                        doc.mergeProject(str(self._machine_frame_fcstd))
-                        doc.recompute()
-                        Gui.SendMsgToActiveView("ViewFit")
-                        self._set_status(f"Станина пресса отображена: {self._machine_frame_fcstd.name}")
-                    except Exception as e:
-                        self._set_status(f"Ошибка отображения станины: {e}", is_error=True)
-                        QtWidgets.QMessageBox.warning(self, "Ошибка просмотра", str(e))
-
-                def _on_preview_backgauge(self) -> None:
-                    if self._backgauge_fcstd is None:
-                        return
-                    if App.ActiveDocument is None:
-                        App.newDocument("SMBS_BackgaugePreview")
-                        try:
-                            Gui.ActiveDocument = Gui.activeDocument()
-                        except Exception:
-                            pass
-                    doc = App.ActiveDocument
-                    try:
-                        doc.mergeProject(str(self._backgauge_fcstd))
-                        doc.recompute()
-                        Gui.SendMsgToActiveView("ViewFit")
-                        self._set_status(f"Задний упор отображён: {self._backgauge_fcstd.name}")
-                    except Exception as e:
-                        self._set_status(f"Ошибка отображения заднего упора: {e}", is_error=True)
-                        QtWidgets.QMessageBox.warning(self, "Ошибка просмотра", str(e))
-
-                def closeEvent(self, event: Any) -> None:
-                    doc = App.ActiveDocument
-                    if doc is not None:
-                        for obj in list(doc.Objects):
-                            if obj.Name.startswith("SMBS_Clamp_") or obj.Name in (
-                                "SMBS_BackgaugePreview", "SMBS_ClampsPreview", "SMBS_MachineFramePreview"
-                            ):
-                                try:
-                                    doc.removeObject(obj.Name)
-                                except Exception:
-                                    pass
-                    super().closeEvent(event)
-
-                def _on_refresh(self) -> None:
-                    self._refresh_lists()
 
             _PanelClass = _Dialog
 

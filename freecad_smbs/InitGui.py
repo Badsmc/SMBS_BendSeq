@@ -52,7 +52,7 @@ COMMANDS_MAP = {
 }
 TOOLING_TOOLBAR = "PressBrakeSim — оснастка"
 _TOOLING_ACTIONS = [
-    "SMBS_SegmentStock", "SMBS_VirtualClamps", "SMBS_ToolLayout", CMD_BACKGAUGE,
+    "SMBS_ToolLayout",
 ]
 _REGISTERED_COMMANDS: set[str] = set()
 
@@ -60,6 +60,11 @@ _REGISTERED_COMMANDS: set[str] = set()
 def register_commands() -> None:
     if FreeCADGui is None:
         return
+    from freecad_smbs.commands.pressbrake_2d import _qt
+    from smbs_core.kinematics2d.developer_debug_log import set_debug_log_enabled
+    core, _, _ = _qt()
+    preferences = core.QSettings("SMBS", "BendSeq")
+    set_debug_log_enabled(preferences.value("debug_log/enabled", True, type=bool))
     registered = set(FreeCADGui.listCommands()) if hasattr(FreeCADGui, "listCommands") else set()
     for name, cls in COMMANDS_MAP.items():
         if name in registered or name in _REGISTERED_COMMANDS:
@@ -80,12 +85,12 @@ class SMBSWorkbench(Workbench):
         # ManualMode: never register automatic sequence search commands.
         # Hand-picked bend orders are checked explicitly by the operator.
         toolbar = [
-            CMD_LOAD_PART, CMD_DXF_MANUAL, CMD_TOOLING_TAB, CMD_PRESSBRAKE_2D,
+            CMD_DXF_MANUAL, CMD_TOOLING_TAB, CMD_PRESSBRAKE_2D,
             CMD_SETTINGS,
         ]
         menu = [
             *toolbar, CMD_SEQUENCE_CATALOG,
-            CMD_TOOLING, *_TOOLING_ACTIONS,
+            *_TOOLING_ACTIONS,
         ]
         self.appendMenu(self.MenuText, menu)
         self.appendToolbar(self.MenuText, toolbar)
