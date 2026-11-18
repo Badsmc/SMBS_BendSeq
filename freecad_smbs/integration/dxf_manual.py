@@ -195,9 +195,12 @@ class DxfManualCommand:
         layout.addWidget(view, 1)
         angles = {}
         items = []
+        feedback = qt.QLabel("Выберите линии гиба.")
+        feedback.setWordWrap(True)
 
         def assign(point):
-            item = next((item for item in view.items(point) if item.data(0) is not None), None)
+            area = core.QRect(point.x() - 4, point.y() - 4, 9, 9)
+            item = next((item for item in view.items(area) if item.data(0) is not None), None)
             if item is None:
                 return
             index = item.data(0)
@@ -211,6 +214,7 @@ class DxfManualCommand:
                 angles[index] = value
             else:
                 angles.pop(index, None)
+            feedback.setText("Назначено гибов: {}".format(len(angles)))
             for i, line in enumerate(items):
                 if line is None:
                     continue
@@ -257,12 +261,10 @@ class DxfManualCommand:
         k_factor = number("K-фактор", 0.4, 0, 1)
         button = qt.QPushButton("Рассчитать")
         layout.addWidget(button)
-        result = []
+        layout.addWidget(feedback)
 
         def calculate():
-            if not angles:
-                qt.QMessageBox.information(dialog, "Развёртка DXF", "Назначьте хотя бы один гиб.")
-                return
+            doc = None
             try:
                 session = build_session(path, lines, angles, thickness.value(),
                                         radius.value(), k_factor.value())
@@ -270,29 +272,46 @@ class DxfManualCommand:
                 for bend_id in session.bend_order:
                     folded.set_angle(bend_id, folded.bends[bend_id].angle_deg)
                 shape = build_multi_bend_sheet_solid(folded, session.panel_build).shape
-            except (RuntimeError, ValueError, KeyError) as exc:
-                qt.QMessageBox.warning(dialog, "Развёртка DXF", str(exc))
+
+                workspace = get_workspace_widget()
+                if workspace is None:
+                    PressBrake2DCommand().Activated()
+                    workspace = get_workspace_widget()
+                if workspace is None:
+                    raise RuntimeError("Не удалось открыть симулятор PressBrakeSim.")
+                doc = App.newDocument("SMBS_DXF")
+                final = doc.addObject("Part::Feature", "FoldedPart")
+                final.Label = session.part_label + " — конечная форма"
+                final.Shape = shape
+                doc.recompute()
+                workspace.load_part(document=doc, selection=[], prepared_session=session)
+                workspace.set_cycle_mode("BEND_ONLY")
+                show_workspace_controls(workspace, tab=2)
+                App.setActiveDocument(doc.Name)
+                view3d = Gui.getDocument(doc.Name).activeView()
+                view3d.viewAxonometric()
+                view3d.fitAll()
+            except Exception as exc:
+                import traceback
+                App.Console.PrintError(traceback.format_exc())
+                detail = str(exc).strip() or type(exc).__name__
+                if doc is not None:
+                    detail = f"Модель создана в {doc.Name}. Не удалось открыть симуляцию: {detail}"
+                feedback.setText(detail)
                 return
-            result.append((session, shape))
+            finally:
+                button.setEnabled(True)
             dialog.accept()
 
-        button.clicked.connect(calculate)
+        def start_calculation():
+            if not angles:
+                feedback.setText("Назначьте угол хотя бы одной линии гиба.")
+                return
+            button.setEnabled(False)
+            feedback.setText("Расчёт формы…")
+            core.QTimer.singleShot(0, calculate)
+
+        button.clicked.connect(start_calculation)
         core.QTimer.singleShot(0, lambda: view.fitInView(scene.itemsBoundingRect(), core.Qt.KeepAspectRatio))
         run = getattr(dialog, "exec", None) or dialog.exec_
-        if not run() or not result:
-            return
-        session, shape = result[0]
-        workspace = get_workspace_widget()
-        if workspace is None:
-            PressBrake2DCommand().Activated()
-            workspace = get_workspace_widget()
-        doc = App.newDocument("SMBS_DXF")
-        final = doc.addObject("Part::Feature", "FoldedPart")
-        final.Label = session.part_label + " — конечная форма"
-        final.Shape = shape
-        doc.recompute()
-        workspace.load_part(document=doc, selection=[], prepared_session=session)
-        workspace.set_cycle_mode("BEND_ONLY")
-        show_workspace_controls(workspace, tab=2)
-        Gui.activeDocument().activeView().viewAxonometric()
-        Gui.activeDocument().activeView().fitAll()
+        run()
