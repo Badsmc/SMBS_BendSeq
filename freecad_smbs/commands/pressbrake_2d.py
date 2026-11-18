@@ -1441,6 +1441,7 @@ class _PreviewPanel:
                 self.playing = False
                 self._last_tick_monotonic: float | None = None
                 self.timer = QtCore.QTimer(self)
+                self.timer.setTimerType(QtCore.Qt.PreciseTimer)
                 self.timer.setInterval(25)  # 40 Hz Qt playback; one timer only
                 self.timer.timeout.connect(self.advance)
                 self.setMinimumWidth(0)
@@ -2976,9 +2977,11 @@ class _PreviewPanel:
                 pc = self.press_cycle
                 bend_id = self.session.active_bend_id
                 signature = (bend_id, getattr(pc, "phase", None))
+                interval = 1.0 if (self.timer.isActive()
+                                   and getattr(self.session.unfold_data, "dxf_manual", False)) else 0.2
                 full_debug = (
                     signature != self._last_debug_frame_signature
-                    or now - self._last_debug_frame_at >= 0.2
+                    or now - self._last_debug_frame_at >= interval
                 )
                 if not tracing and not full_debug:
                     return
@@ -7582,7 +7585,7 @@ class _PreviewPanel:
                 finally:
                     self.operations.blockSignals(signals_were_blocked)
 
-            def _configure_for_active_bend(self):
+            def _configure_for_active_bend(self, *, angle_only=False):
                 if self.session is None:
                     return
                 target_mag = abs(self.session.target_angle_deg)
@@ -7593,8 +7596,13 @@ class _PreviewPanel:
                 self.slider.setRange(0, max_steps)
                 self.slider.setValue(slider_pos)
                 self.slider.blockSignals(False)
-                self._update_operations_visual_state()
-                self._sync_playback_buttons()
+                if angle_only:
+                    row = self.operations.topLevelItem(self.session.active_bend_index)
+                    if row is not None:
+                        row.setText(4, f"{self.angle:+.1f}°")
+                else:
+                    self._update_operations_visual_state()
+                    self._sync_playback_buttons()
 
             def _on_operation_selected(self, current, _previous):
                 if self.session is None or current is None:
@@ -7956,8 +7964,14 @@ class _PreviewPanel:
                             # manual slider. Do not leave the punch parked
                             # while the sheet is bending in Bend Only mode.
                             pc.preview_punch_at_current_angle()
-                    self._configure_for_active_bend()
-                    self._update_tooling_status_label()
+                    angle_only = (
+                        getattr(self.session.unfold_data, "dxf_manual", False)
+                        and self.session.active_bend_index == previous_bend
+                        and self.session.playback_status == PlaybackStatus.PLAYING
+                    )
+                    self._configure_for_active_bend(angle_only=angle_only)
+                    if not angle_only:
+                        self._update_tooling_status_label()
                     # A real OCC collision was recorded at this exact bend
                     # and phase. Do not animate through it as if it passed:
                     # stop playback and display the native sampled XYZ pose,
