@@ -9,6 +9,7 @@ Uses the existing SheetMetal extraction and FoldState geometry:
 from __future__ import annotations
 
 import hashlib
+import importlib
 import math
 import os
 import sys
@@ -1162,7 +1163,7 @@ class PlanarCandidatesCommand:
             PressBrake2DCommand().Activated()
             workspace = get_workspace_widget()
         if workspace is not None:
-            show_workspace_controls(workspace, 3)
+            show_workspace_controls(workspace, 2)
             if workspace.planar_calculate.isEnabled():
                 workspace.calculate_planar_candidates()
 
@@ -1440,6 +1441,11 @@ class _PreviewPanel:
                 self.angle = 0.0
                 self.playing = False
                 self._last_tick_monotonic: float | None = None
+                self._closing = False
+                binding = QtCore.__name__.split(".", 1)[0]
+                self._qt_is_valid = importlib.import_module(
+                    "shiboken6" if binding == "PySide6" else "shiboken2"
+                ).isValid
                 self.timer = QtCore.QTimer(self)
                 self.timer.setTimerType(QtCore.Qt.PreciseTimer)
                 self.timer.setInterval(25)  # 40 Hz Qt playback; one timer only
@@ -1991,19 +1997,32 @@ class _PreviewPanel:
 
                 # The native Tasks header already says "Симуляция": no duplicate
                 # section title or large diagnostic card above playback.
-                sim_body = sim_layout
+                playback = QtWidgets.QWidget(simulation)
+                playback.setObjectName("SMBS_FixedPlayback")
+                playback_layout = QtWidgets.QVBoxLayout(playback)
+                playback_layout.setContentsMargins(0, 0, 0, 0)
+                sim_layout.addWidget(playback)
+                body = QtWidgets.QWidget()
+                sim_body = QtWidgets.QVBoxLayout(body)
+                sim_body.setContentsMargins(0, 0, 0, 0)
+                scroll = QtWidgets.QScrollArea(simulation)
+                scroll.setObjectName("SMBS_SimulationContentScroll")
+                scroll.setWidgetResizable(True)
+                scroll.setFrameShape(QtWidgets.QFrame.NoFrame)
+                scroll.setWidget(body)
+                sim_layout.addWidget(scroll, 1)
                 for btn in (
                     self.reset_btn, self.prev_step_btn, self.next_step_btn,
                     self.fit_btn,
                 ):
                     style_action(btn, compact=True)
                 style_action(self.play_btn, primary=True)
-                insert(sim_body, entries[5])  # Reset / Prev / Play-Pause / Next / Fit
+                insert(playback_layout, entries[5])  # Reset / Prev / Play-Pause / Next / Fit
                 self.slider.setToolTip(
                     "Перемещение угла и пуансона: кинематический просмотр, "
                     "не проверка коллизий"
                 )
-                insert(sim_body, entries[6])  # angle slider
+                insert(playback_layout, entries[6])  # angle slider
                 self._manual_preview_notice = QtWidgets.QLabel(
                     "РУЧНОЙ ПРОСМОТР — коллизии не проверены"
                 )
@@ -2020,12 +2039,9 @@ class _PreviewPanel:
                 sim_body.addWidget(self.machine_preview_checkbox)
                 # ManualMode: sequence search is not exposed to the operator.
                 self.calculate.hide()
-                sim_layout.addStretch(1)
                 self._page_simulation = scroll_task_page(
                     simulation, "SMBS_SimulationScroll"
                 )
-                manual = QtWidgets.QWidget()
-                manual_layout = QtWidgets.QVBoxLayout(manual)
                 order_card, order_body = card("Ручной порядок гибов и проверка")
                 self.manual_order_input = QtWidgets.QLineEdit()
                 self.manual_order_input.setObjectName("SMBS_ManualOrderInput")
@@ -2037,6 +2053,9 @@ class _PreviewPanel:
                 )
                 self.manual_order_input.returnPressed.connect(self._apply_typed_manual_order)
                 order_body.addWidget(self.manual_order_input)
+                select_lines = QtWidgets.QPushButton("Выбрать линии гиба")
+                select_lines.clicked.connect(self.activate_manual_mode)
+                order_body.addWidget(style_action(select_lines, compact=True))
                 # Sequence guidance belongs in tooltips, not a permanent
                 # multi-line paragraph above operator controls.
                 for btn in (
@@ -2252,10 +2271,8 @@ class _PreviewPanel:
                 )
                 self._manual_preview_help.setWordWrap(True)
                 self._manual_preview_help.hide()
-                manual_layout.addWidget(order_card, 1)
-                self._page_manual = scroll_task_page(
-                    manual, "SMBS_ManualScroll"
-                )
+                sim_body.addWidget(order_card, 1)
+                sim_body.addStretch(1)
 
                 # RETRACT warning belongs to Settings, not Simulation.
                 self.retract_warning_checkbox = QtWidgets.QCheckBox(
@@ -2584,7 +2601,6 @@ class _PreviewPanel:
                     ("Деталь", self._page_part),
                     ("Оснастка", self._page_tooling),
                     ("Симуляция", self._page_simulation),
-                    ("Порядок и проверка", self._page_manual),
                     ("Настройки", self._page_settings),
                 )
                 self._task_page_titles = {}
@@ -2698,7 +2714,7 @@ class _PreviewPanel:
 
             def open_settings_dialog(self):
                 """Show all configuration controls on one contextual page."""
-                show_workspace_controls(self, tab=4)
+                show_workspace_controls(self, tab=3)
 
             def _apply_svg_button_icons(self):
                 """Use the same industrial SVG family in task controls.
@@ -2971,6 +2987,8 @@ class _PreviewPanel:
 
             def _trace_drawn_frame(self, placement, ram_z, gauge_stations=(), gauge_contact=None):
                 """Sample diagnostics from the same placement sent to Coin3D."""
+                if not self._playback_alive():
+                    return
                 trace = self.motion_trace
                 tracing = trace is not None and trace.is_open
                 now = time.monotonic()
@@ -3032,6 +3050,8 @@ class _PreviewPanel:
 
             def _update_3d_preview(self, force=False):
                 """Send the shared FoldState, tooling and OCC pose to Coin3D."""
+                if not self._playback_alive():
+                    return False
                 viewer = self._preview_3d
                 if self.session is None:
                     viewer.clear_preview()
@@ -3161,6 +3181,8 @@ class _PreviewPanel:
                     self._last_3d_frame_at = now
                     self._last_3d_rendered_bend = bend_id
                     self._coin_last_error = None
+                    if not self._playback_alive():
+                        return False
                     if not inspection and not show_proposal:
                         self._trace_drawn_frame(placement, ram_z, stations, contact)
                     if self.timer.isActive() and now - self._last_3d_debug_at >= 0.5:
@@ -3174,6 +3196,8 @@ class _PreviewPanel:
                         )
                     return True
                 except (ValueError, KeyError, RuntimeError, TypeError, AttributeError, IndexError) as exc:
+                    if not self._playback_alive():
+                        return False
                     message = "Coin3D: " + str(exc)
                     if message != self._coin_last_error:
                         _desktop_debug_event(
@@ -5324,7 +5348,13 @@ class _PreviewPanel:
                         self, "Библиотека оснастки", str(exc)
                     )
 
+            def _playback_alive(self):
+                return (not self._closing and self._qt_is_valid(self)
+                        and self._qt_is_valid(self.timer))
+
             def _stop_timer(self):
+                if not self._playback_alive():
+                    return
                 self.timer.stop()
                 self.playing = False
                 self._last_tick_monotonic = None
@@ -7234,7 +7264,7 @@ class _PreviewPanel:
                 else:
                     self._viewer_tabs.setCurrentWidget(self._flat_view)
                     self._draw_flat_pattern(reset_camera=False)
-                show_workspace_controls(self, tab=3)
+                show_workspace_controls(self, tab=2)
 
             def _toggle_manual_order(self, enabled):
                 if enabled and self.session is None:
@@ -7904,6 +7934,8 @@ class _PreviewPanel:
 
             def advance(self):
                 """One Qt tick drives exactly one sequencer/cycle advance."""
+                if not self._playback_alive():
+                    return
                 if self.session is None:
                     self._stop_timer()
                     return
@@ -8023,7 +8055,7 @@ class _PreviewPanel:
                         )
                         self._finish_motion_trace("NATIVE_COLLISION")
                         return
-                    if not self.draw():
+                    if not self.draw() or not self._playback_alive():
                         return
                     if self.session.playback_status == PlaybackStatus.COMPLETED:
                         self._stop_timer()
@@ -8070,6 +8102,8 @@ class _PreviewPanel:
                     # FoldState after stopping the Qt timer. The last valid
                     # angles remain observable; resuming Full Cycle requires
                     # an explicit reset or mode change, never silent replay.
+                    if not self._playback_alive():
+                        return
                     reason = "AUTO PLAY ERROR: {}".format(exc)
                     _error(reason + "\n" + traceback.format_exc())
                     if self.execution_mode == CycleExecutionMode.FULL_CYCLE:
@@ -8117,6 +8151,9 @@ class _PreviewPanel:
                 return checks
 
             def closeEvent(self, event):
+                if self._playback_alive():
+                    self.timer.stop()
+                self._closing = True
                 # A user may close the simulator first and press Ctrl+S in
                 # FreeCAD afterwards. Stage the final live JSON before losing
                 # this workspace's observer; the CAD file still requires a
@@ -8136,7 +8173,6 @@ class _PreviewPanel:
                         _warn("SMBS observer removal failed: " + str(exc))
                     self._smbs_fcstd_observer = None
                 self._finish_motion_trace("WORKSPACE_CLOSED")
-                self.timer.stop()
                 self.playing = False
                 close_workspace_controls(self)
                 self._preview_3d.release()
@@ -8266,6 +8302,8 @@ class _PreviewPanel:
                 return self._backgauge_stations(), (s, z), note
 
             def draw(self):
+                if not self._playback_alive():
+                    return False
                 self._update_task_progress()
                 self._update_loading_orientation_label()
                 return self._update_3d_preview()
