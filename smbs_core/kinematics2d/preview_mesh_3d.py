@@ -188,7 +188,9 @@ def build_sheet_preview_faces(
 
     def world_to_machine(p):
         x, y, z = (float(v) for v in p)
-        if machine_placement is not None:
+        if machine_placement is IDENTITY_PLACEMENT:
+            result = (-y, x, z)
+        elif machine_placement is not None:
             machine_point = machine_placement.apply((x, y, z))
             result = (
                 -float(machine_point[1]),
@@ -211,9 +213,15 @@ def build_sheet_preview_faces(
         if not pts_xy or len(pts_xy) < 3:
             continue
         tf = fold_state.transforms[panel_id]
+        (a, b, c), (d, e, f), (g, h, i) = tf.rotation
+        tx, ty, tz = tf.translation
+
         @cache
         def project(point, z):
-            return world_to_machine(tf.point((*point, z)))
+            x, y = point
+            return world_to_machine((a*x + b*y + c*z + tx,
+                                     d*x + e*y + f*z + ty,
+                                     g*x + h*y + i*z + tz))
 
         def polygon(points, z):
             return tuple(project(point, z) for point in points)
