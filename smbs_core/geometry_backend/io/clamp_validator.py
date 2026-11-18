@@ -47,13 +47,19 @@ class ClampConfig:
     no_gaps_between_punches: bool = True
     clamp_count: int = 0              # centred row, used when no explicit centres are entered
 
+    height_mm: float = 25.0
+    depth_mm: float = 50.0
+
     def __post_init__(self):
         def finite_number(value):
             return type(value) in (int, float) and isfinite(value)
 
         if not all(map(finite_number, (self.width_mm, self.gap_between_mm,
-                                      self.overhang_ratio, self.joint_tolerance_mm))):
+                                      self.overhang_ratio, self.joint_tolerance_mm,
+                                      self.height_mm, self.depth_mm))):
             raise ClampValidatorError("Clamp dimensions and tolerances must be finite numbers")
+        if self.height_mm <= 0 or self.depth_mm <= 0:
+            raise ClampValidatorError("Высота и глубина зажима должны быть положительными")
         if self.width_mm <= 0:
             raise ClampValidatorError(f"width_mm must be positive, got {self.width_mm}")
         if self.gap_between_mm < 0:
@@ -118,6 +124,8 @@ class ClampConfig:
                 joints_must_be_on_clamps=punch_chain["joints_must_be_on_clamps"],
                 no_gaps_between_punches=punch_chain["no_gaps_between_punches"],
                 clamp_count=clamps.get("count", 0),
+                height_mm=clamps.get("height_mm", 25.0),
+                depth_mm=clamps.get("depth_mm", 50.0),
             )
         except (KeyError, TypeError, ValueError) as e:
             raise ClampValidatorError(f"Invalid ClampConfig dict: {e}") from e
@@ -128,6 +136,8 @@ class ClampConfig:
             "schema_version": "1.0",
             "clamps": {
                 "width_mm": self.width_mm,
+                "height_mm": self.height_mm,
+                "depth_mm": self.depth_mm,
                 "gap_between_mm": self.gap_between_mm,
                 "positions_mm": list(self.positions_mm),
                 "count": self.clamp_count,

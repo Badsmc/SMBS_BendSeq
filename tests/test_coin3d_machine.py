@@ -71,7 +71,7 @@ class TestCoinMachine(unittest.TestCase):
             tooling.visible = False
             self.scene.update_frame(library, tooling, 8, False)
             self.scene.update_clamps(library)
-            load.assert_called_once_with(self.coin, expected)
+            load.assert_called_once_with(self.coin, expected, 25.0, 50.0)
             self.scene.clamps.whichChild.setValue.assert_called_with(self.coin.SO_SWITCH_ALL)
             self.scene.ram_motion.translation.setValue.assert_called_with(0.0, 0.0, 900)
 

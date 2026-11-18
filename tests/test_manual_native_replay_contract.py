@@ -209,20 +209,14 @@ class ManualPlaybackContractTests(unittest.TestCase):
         self.assertIn("orientation_matches", check)
         self.assertIn("_last_assisted_lift_inspection", check)
 
-    def test_tooling_page_opens_the_real_segment_library(self):
-        # Regression: old Tool Library dialog did not contain the segment
-        # inventory editor. All entry points must reach ToolingPanel.
-        gui = GUI.read_text(encoding="utf-8")
-        panel = (
-            ROOT / "freecad_smbs" / "ui" / "tooling_panel.py"
-        ).read_text(encoding="utf-8")
-        self.assertIn("self.open_full_tooling_library", gui)
-        self.assertIn("def open_full_tooling_library(self)", gui)
-        self.assertIn("ToolingPanel(library, parent=self)", gui)
-        self.assertIn("Рассчитать набор сегментов", gui)
-        self.assertIn("Сегменты и количество", panel)
-        self.assertIn("def _on_edit_segments(self)", panel)
-        self.assertNotIn("def open_tool_library_dialog(self)", gui)
+    def test_tooling_settings_are_direct_menu_commands(self):
+        menu = (ROOT / "freecad_smbs" / "InitGui.py").read_text(encoding="utf-8")
+        commands = (ROOT / "freecad_smbs" / "commands" / "tooling.py").read_text(encoding="utf-8")
+        for command in ("SMBS_SegmentStock", "SMBS_VirtualClamps", "SMBS_ToolLayout"):
+            self.assertEqual(menu.count(f'"{command}"'), 2)
+        self.assertIn("panel._on_edit_segments(tools[selected])", commands)
+        self.assertIn("clamps_only=True", commands)
+
 
     def test_conditional_is_preserved_as_distinct_evidence(self):
         body = source("_format_operation_row")

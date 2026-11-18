@@ -38,7 +38,7 @@ def _apply_clamp_config_fields(config: Any, fields: dict) -> Any:
 class ToolingPanel:
     """Lazy wrapper — real Qt base resolved at instance creation."""
 
-    def __new__(cls, library: Any, parent: Any = None) -> Any:
+    def __new__(cls, library: Any, parent: Any = None, *, clamps_only=False) -> Any:
         global _PanelClass
         if _PanelClass is None:
             from freecad_smbs.commands.pressbrake_2d import _qt
@@ -47,7 +47,7 @@ class ToolingPanel:
             QtCore, _QtGui, QtWidgets = _qt()
 
             class _Dialog(QtWidgets.QDialog):
-                def __init__(self, library: Any, parent: Any = None) -> None:
+                def __init__(self, library: Any, parent: Any = None, *, clamps_only=False) -> None:
                     super().__init__(parent)
                     self.setWindowTitle("SMBS: Библиотека оснастки")
                     self.resize(650, 560)
@@ -56,10 +56,16 @@ class ToolingPanel:
                     self._workspace = parent if hasattr(parent, "_task_stack") else None
                     self.library_path = getattr(library, "library_root", None)
                     self._backgauge_fcstd = None
-                    self._clamp_fcstd = None
 
-                    self._init_ui()
-                    self._load_library()
+                    if clamps_only:
+                        self.setWindowTitle("Виртуальные зажимы")
+                        layout = QtWidgets.QVBoxLayout(self)
+                        layout.addWidget(self._build_clamps_tab())
+                        self.status_label = QtWidgets.QLabel()
+                        layout.addWidget(self.status_label)
+                    else:
+                        self._init_ui()
+                        self._load_library()
 
                 def _init_ui(self) -> None:
                     from freecad_smbs.ui.pressbrake_theme import (
@@ -81,7 +87,6 @@ class ToolingPanel:
                     self.tabs.addTab(self._build_die_tab(), "Матрицы (0)")
                     self.tabs.addTab(self._build_machine_frame_tab(), LIBRARY_TAB_TITLES[2])
                     self.tabs.addTab(self._build_backgauge_tab(), LIBRARY_TAB_TITLES[3])
-                    self.tabs.addTab(self._build_clamps_tab(), LIBRARY_TAB_TITLES[4])
                     self.tabs.currentChanged.connect(self._on_selection_changed)
                     layout.addWidget(self.tabs)
 
@@ -116,8 +121,6 @@ class ToolingPanel:
                     btn_remove.clicked.connect(self._on_remove_tool)
                     btn_preview = QtWidgets.QPushButton("Просмотр")
                     btn_preview.clicked.connect(self._on_preview_tool)
-                    btn_segments = QtWidgets.QPushButton("Сегменты и количество")
-                    btn_segments.clicked.connect(self._on_edit_segments)
                     btn_refresh = QtWidgets.QPushButton("Обновить")
                     btn_refresh.clicked.connect(self._on_refresh)
 
@@ -129,13 +132,6 @@ class ToolingPanel:
                     btn_layout.setColumnStretch(0, 1)
                     btn_layout.setColumnStretch(1, 1)
                     layout.addLayout(btn_layout)
-                    style_action(btn_segments)
-                    layout.addWidget(btn_segments)
-                    if self._workspace is not None:
-                        calculate = style_action(QtWidgets.QPushButton("Рассчитать раскладку"))
-                        calculate.clicked.connect(self._workspace._show_manual_tooling_assembly)
-                        layout.addWidget(calculate)
-
                     # Status bar label
                     self.status_label = QtWidgets.QLabel("Статус: Готово")
                     self.status_label.setObjectName("SMBS_SectionCaption")
@@ -286,36 +282,6 @@ class ToolingPanel:
                     vbox.setContentsMargins(16, 16, 16, 16)
                     vbox.setSpacing(16)
 
-                    from freecad_smbs.ui.badges import BADGE_TOOLING_MISSING, get_badge_hex
-                    from freecad_smbs.resources.tooling_paths import resolve_clamp_fcstd
-
-                    if self.library_path:
-                        self._clamp_fcstd = resolve_clamp_fcstd(self.library_path)
-                    exists = self._clamp_fcstd is not None
-
-                    if exists:
-                        badge_text = f"CLAMP: PRESENT ({self._clamp_fcstd.name}, no sidecar)"
-                        badge_hex = "#2E7D32"
-                    else:
-                        badge_text = BADGE_TOOLING_MISSING
-                        badge_hex = get_badge_hex(BADGE_TOOLING_MISSING)
-
-                    lbl_badge = QtWidgets.QLabel(badge_text)
-                    lbl_badge.setStyleSheet(
-                        f"background-color: {badge_hex}; color: white; font-weight: bold; "
-                        f"padding: 4px 8px; border-radius: 4px;"
-                    )
-                    lbl_badge.setAlignment(QtCore.Qt.AlignCenter)
-                    vbox.addWidget(lbl_badge)
-
-                    lbl_info = QtWidgets.QLabel(
-                        "Укажите центры зажимов по X или число зажимов для симметричного ряда. "
-                        "Ноль X в середине станка. Шаг ряда равен длине зажима плюс зазор."
-                    )
-                    lbl_info.setWordWrap(True)
-                    vbox.addWidget(lbl_info)
-
-                    # Form for 9 editable fields
                     form = QtWidgets.QFormLayout()
 
                     self.spin_clamp_width = QtWidgets.QDoubleSpinBox()
@@ -323,6 +289,14 @@ class ToolingPanel:
                     self.spin_clamp_width.setSingleStep(1.0)
                     self.spin_clamp_width.setSuffix(" мм")
                     form.addRow("Длина лапки вдоль оси X (width_mm):", self.spin_clamp_width)
+
+                    self.spin_clamp_height = QtWidgets.QDoubleSpinBox()
+                    self.spin_clamp_depth = QtWidgets.QDoubleSpinBox()
+                    for label, spin in (("Высота", self.spin_clamp_height),
+                                        ("Глубина", self.spin_clamp_depth)):
+                        spin.setRange(0.1, 500.0)
+                        spin.setSuffix(" мм")
+                        form.addRow(label, spin)
 
                     self.spin_clamp_gap = QtWidgets.QDoubleSpinBox()
                     self.spin_clamp_gap.setRange(0.0, 200.0)
@@ -368,11 +342,6 @@ class ToolingPanel:
 
                     vbox.addLayout(form)
 
-                    btn_preview = QtWidgets.QPushButton("Просмотр в 3D (по positions_mm)")
-                    btn_preview.setEnabled(exists)
-                    btn_preview.clicked.connect(self._on_preview_clamps)
-                    vbox.addWidget(btn_preview)
-
                     btn_box = QtWidgets.QHBoxLayout()
                     btn_save = QtWidgets.QPushButton("Сохранить конфиг")
                     btn_save.clicked.connect(self._on_save_clamps)
@@ -398,6 +367,8 @@ class ToolingPanel:
                         cfg = ClampConfig.from_defaults()
 
                     self.spin_clamp_width.setValue(float(cfg.width_mm))
+                    self.spin_clamp_height.setValue(cfg.height_mm)
+                    self.spin_clamp_depth.setValue(cfg.depth_mm)
                     self.spin_clamp_gap.setValue(float(cfg.gap_between_mm))
                     self.spin_clamp_count.setValue(cfg.clamp_count)
                     self.spin_clamp_overhang.setValue(float(cfg.overhang_ratio))
@@ -425,6 +396,8 @@ class ToolingPanel:
 
                     fields = {
                         "width_mm": self.spin_clamp_width.value(),
+                        "height_mm": self.spin_clamp_height.value(),
+                        "depth_mm": self.spin_clamp_depth.value(),
                         "gap_between_mm": self.spin_clamp_gap.value(),
                         "clamp_count": self.spin_clamp_count.value(),
                         "overhang_ratio": self.spin_clamp_overhang.value(),
@@ -657,9 +630,10 @@ class ToolingPanel:
                         self._set_status(f"Ошибка удаления: {e}", is_error=True)
                         QtWidgets.QMessageBox.warning(self, "Ошибка удаления", str(e))
 
-                def _on_edit_segments(self) -> None:
+                def _on_edit_segments(self, desc=None) -> None:
                     """Edit inventory for the selected punch/die, not global stock."""
-                    desc = self._current_descriptor()
+                    if desc is None:
+                        desc = self._current_descriptor()
                     if desc is None:
                         QtWidgets.QMessageBox.information(
                             self, "Сегменты", "Выберите пуансон или матрицу."
@@ -668,14 +642,7 @@ class ToolingPanel:
                     from smbs_core.kinematics2d.segment_assembly_planner import (
                         read_inventory, write_inventory,
                     )
-                    from freecad_smbs.commands.pressbrake_2d import (
-                        activate_task_dialog, embed_task_dialog,
-                    )
-
                     workspace = self._workspace
-                    key = f"tool_stock_{desc.kind}_{desc.tool_id}"
-                    if workspace is not None and activate_task_dialog(workspace, key):
-                        return
                     try:
                         existing = read_inventory(desc.fcstd_path)
                     except (ValueError, OSError) as exc:
@@ -739,13 +706,15 @@ class ToolingPanel:
                     layout.addWidget(error)
 
                     def save():
-                        rows = [
-                            {
-                                "length_mm": table.cellWidget(i, 0).value(),
-                                "quantity": table.cellWidget(i, 1).value(),
-                            }
-                            for i in range(table.rowCount())
-                        ]
+                        quantities = {}
+                        for i in range(table.rowCount()):
+                            length, count = (table.cellWidget(i, col) for col in (0, 1))
+                            length.interpretText()
+                            count.interpretText()
+                            size = length.value()
+                            quantities[size] = quantities.get(size, 0) + count.value()
+                        rows = [{"length_mm": size, "quantity": count}
+                                for size, count in quantities.items()]
                         try:
                             saved = write_inventory(desc.fcstd_path, rows)
                         except (ValueError, OSError) as exc:
@@ -761,11 +730,8 @@ class ToolingPanel:
 
                     buttons.accepted.connect(save)
                     buttons.rejected.connect(dialog.reject)
-                    if workspace is not None:
-                        embed_task_dialog(workspace, dialog, "Сегменты оснастки", key)
-                    else:
-                        run_dialog = getattr(dialog, "exec", None) or dialog.exec_
-                        run_dialog()
+                    run_dialog = getattr(dialog, "exec", None) or dialog.exec_
+                    run_dialog()
 
                 def _on_preview_tool(self) -> None:
                     desc = self._current_descriptor()
@@ -830,82 +796,6 @@ class ToolingPanel:
                         self._set_status(f"Ошибка отображения заднего упора: {e}", is_error=True)
                         QtWidgets.QMessageBox.warning(self, "Ошибка просмотра", str(e))
 
-                def _on_preview_clamps(self) -> None:
-                    if self._clamp_fcstd is None:
-                        return
-                    try:
-                        positions = _parse_positions_mm(self.edit_clamp_positions.text())
-                        if not positions:
-                            from smbs_core.geometry_backend.io.clamp_validator import ClampConfig
-
-                            config = _apply_clamp_config_fields(ClampConfig.from_defaults(), {
-                                "width_mm": self.spin_clamp_width.value(),
-                                "gap_between_mm": self.spin_clamp_gap.value(),
-                                "clamp_count": self.spin_clamp_count.value(),
-                            })
-                            positions = config.centres_mm
-                    except ValueError as e:
-                        QtWidgets.QMessageBox.warning(
-                            self, "Ошибка позиций", f"Некорректные positions_mm:\n{e}"
-                        )
-                        return
-
-                    import Part
-
-                    original_active = App.ActiveDocument
-                    temp_name = "SMBS_ClampTemplate_Temp"
-                    try:
-                        App.closeDocument(temp_name)
-                    except Exception:
-                        pass
-
-                    temp_doc = App.newDocument(temp_name)
-                    try:
-                        temp_doc.mergeProject(str(self._clamp_fcstd))
-                        temp_doc.recompute()
-                        shapes = [
-                            o.Shape for o in temp_doc.Objects
-                            if hasattr(o, "Shape") and o.Shape is not None
-                        ]
-                        if not shapes:
-                            raise RuntimeError(
-                                f"В файле {self._clamp_fcstd.name} нет Shape-объектов"
-                            )
-                        template = Part.makeCompound(shapes)
-                    finally:
-                        App.closeDocument(temp_name)
-
-                    if original_active is not None:
-                        try:
-                            App.setActiveDocument(original_active.Name)
-                        except Exception:
-                            pass
-                    target_doc = original_active
-                    if target_doc is None:
-                        target_doc = App.newDocument("SMBS_ClampsPreview")
-                        try:
-                            Gui.ActiveDocument = Gui.activeDocument()
-                        except Exception:
-                            pass
-
-                    for obj in list(target_doc.Objects):
-                        if obj.Name.startswith("SMBS_Clamp_"):
-                            target_doc.removeObject(obj.Name)
-
-                    actual = positions if positions else (0.0,)
-                    for i, x in enumerate(actual):
-                        copy = template.copy()
-                        copy.translate(App.Vector(float(x), 0.0, 0.0))
-                        obj = target_doc.addObject("Part::Feature", f"SMBS_Clamp_{i:02d}")
-                        obj.Shape = copy
-
-                    target_doc.recompute()
-                    Gui.SendMsgToActiveView("ViewFit")
-                    self._set_status(
-                        f"Лапки: {len(actual)} экземпляр(ов) "
-                        f"(positions={'empty→origin' if not positions else list(actual)})"
-                    )
-
                 def closeEvent(self, event: Any) -> None:
                     doc = App.ActiveDocument
                     if doc is not None:
@@ -924,4 +814,4 @@ class ToolingPanel:
 
             _PanelClass = _Dialog
 
-        return _PanelClass(library, parent)
+        return _PanelClass(library, parent, clamps_only=clamps_only)

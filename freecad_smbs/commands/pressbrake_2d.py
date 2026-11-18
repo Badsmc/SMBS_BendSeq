@@ -2014,11 +2014,6 @@ class _PreviewPanel:
                 self.machine_preview_checkbox.setChecked(True)
                 self.machine_preview_checkbox.toggled.connect(lambda: self.draw())
                 sim_body.addWidget(self.machine_preview_checkbox)
-                gauge_preview_button = style_action(QtWidgets.QPushButton("Задние упоры"))
-                gauge_preview_button.setToolTip("Настроить один или два CAD-упора в Coin3D")
-                gauge_preview_button.clicked.connect(self.open_backgauge_dialog)
-                sim_body.addWidget(gauge_preview_button)
-
                 # ManualMode: sequence search is not exposed to the operator.
                 self.calculate.hide()
                 sim_layout.addStretch(1)
@@ -2070,19 +2065,6 @@ class _PreviewPanel:
                     self._select_saved_sequence
                 )
                 order_body.addWidget(self.saved_sequences_btn)
-                self.manual_tooling_assembly_btn = style_action(
-                    QtWidgets.QPushButton("Набрать оснастку — расчёт сегментов"),
-                    compact=True,
-                )
-                self.manual_tooling_assembly_btn.setToolTip(
-                    "Рассчитать по каждому гибу количество и расположение "
-                    "сегментов выбранного пуансона и матрицы, с учётом "
-                    "размеров, зазоров и позиций clamps из библиотеки."
-                )
-                self.manual_tooling_assembly_btn.clicked.connect(
-                    self._show_manual_tooling_assembly
-                )
-                order_body.addWidget(self.manual_tooling_assembly_btn)
                 info_button = style_action(QtWidgets.QPushButton("Информация"), compact=True)
                 info_button.clicked.connect(self._show_bend_information)
                 order_body.addWidget(info_button)
@@ -2286,9 +2268,6 @@ class _PreviewPanel:
                 tooling_card, tooling_body = card("Оснастка и станок")
                 # One tooling context from the native toolbar, with exactly
                 # two internal pages requested by the operator.
-                tool_tabs = QtWidgets.QTabWidget(tooling_card)
-                tool_tabs.setObjectName("SMBS_ToolingSubtabs")
-                tool_tabs.tabBar().setUsesScrollButtons(False)
                 tool_main = QtWidgets.QWidget()
                 tool_main_layout = QtWidgets.QFormLayout(tool_main)
                 tool_main_layout.setContentsMargins(
@@ -2316,50 +2295,19 @@ class _PreviewPanel:
                 )
                 tool_main_layout.addRow("Punch", self.select_punch_combo)
                 tool_main_layout.addRow("Die", self.select_die_combo)
-                # Keep the section workflow discoverable on the main
-                # tooling page; it must not be hidden in a second library UI.
-                self.tooling_segments_library_btn = style_action(
-                    QtWidgets.QPushButton("Сегменты и количество"),
-                    compact=True,
-                )
-                self.tooling_segments_library_btn.clicked.connect(
-                    self.open_full_tooling_library
-                )
-                self.tooling_assembly_report_btn = style_action(
-                    QtWidgets.QPushButton("Рассчитать набор сегментов"),
-                    compact=True,
-                )
-                self.tooling_assembly_report_btn.clicked.connect(
-                    self._show_manual_tooling_assembly
-                )
-                tool_main_layout.addRow(self.tooling_segments_library_btn)
-                tool_main_layout.addRow(self.tooling_assembly_report_btn)
                 # Keep diagnostics in the shared task status area, not
                 # as an extra paragraph below the two selectors.
                 self.tooling_status.setParent(self)
                 self.tooling_status.hide()
-                tool_import = QtWidgets.QWidget()
-                tool_import_layout = QtWidgets.QVBoxLayout(tool_import)
-                tool_import_layout.setContentsMargins(
-                    SECTION_GAP, SECTION_GAP, SECTION_GAP, SECTION_GAP
-                )
-                tool_import_layout.setSpacing(SECTION_GAP)
-                for btn in (
-                    self.import_punch_btn, self.import_die_btn,
-                    self.tool_library_btn,
-                ):
-                    style_action(btn)
-                    tool_import_layout.addWidget(btn)
-                tool_import_layout.addStretch(1)
-                tool_tabs.addTab(tool_main, "Основные")
-                tool_tabs.addTab(tool_import, "Импорт")
-                tooling_body.addWidget(tool_tabs)
+                tooling_body.addWidget(tool_main)
+                for button in (self.import_punch_btn, self.import_die_btn):
+                    tooling_body.addWidget(style_action(button))
+                self.tool_library_btn.hide()
                 td_layout.addWidget(tooling_card)
                 td_layout.addStretch(1)
                 self._page_tooling = scroll_task_page(
                     tooling, "SMBS_ToolingScroll"
                 )
-                self._tooling_tabs = tool_tabs
                 # All active tooling widgets have been reparented.
                 self.tooling_group.deleteLater()
 
@@ -2476,12 +2424,6 @@ class _PreviewPanel:
                 advanced_layout.addWidget(weights_card)
                 weights_card.hide()
 
-                gauge_settings_btn = QtWidgets.QPushButton(
-                    "Задний упор — геометрия и позиции гибов…")
-                gauge_settings_btn.setIcon(QtGui.QIcon(str(
-                    _ICON_ROOT / "gui_backgauge.svg"
-                )))
-                gauge_settings_btn.clicked.connect(self.open_backgauge_dialog)
                 diagnostics_card, diagnostics_body = card(
                     "Результаты / Диагностика"
                 )
@@ -2493,18 +2435,9 @@ class _PreviewPanel:
                 )
                 self._simulation_diagnostics_summary.setWordWrap(True)
                 diagnostics_body.addWidget(self._simulation_diagnostics_summary)
-                extra_checks_note = QtWidgets.QLabel(
-                    "Ниже — отдельные проверки одного кадра или одного гиба. "
-                    "Для проверки найденной последовательности используйте "
-                    "«Порядок и проверка»."
-                )
-                extra_checks_note.setWordWrap(True)
-                extra_checks_note.hide()
                 self._on_physical_result_change(
                     self.physical_check_result.text()
                 )
-                style_action(gauge_settings_btn)
-                diagnostics_body.addWidget(gauge_settings_btn)
                 for check in (
                     self.physical_check_btn, self.full_physical_check_btn,
                 ):
@@ -6625,7 +6558,6 @@ class _PreviewPanel:
                     self.move_down_btn, self.restore_order_btn,
                     self.manual_undo_btn, self.manual_clear_btn,
                     self.operations, self.auto_orientation_checkbox,
-                    self.manual_tooling_assembly_btn, self.tooling_assembly_report_btn,
                 )
                 old_control_states = tuple(
                     (control, control.isEnabled())

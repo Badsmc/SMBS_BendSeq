@@ -127,7 +127,7 @@ CLAMP_HEIGHT_MM = 25.0
 CLAMP_DEPTH_MM = 50.0
 
 
-def _virtual_clamps(coin, spans):
+def _virtual_clamps(coin, spans, height, depth):
     row = coin.SoSeparator()
     material = coin.SoMaterial()
     material.diffuseColor.setValue(0.64, 0.68, 0.76)
@@ -135,11 +135,11 @@ def _virtual_clamps(coin, spans):
     for left, right in spans:
         block = coin.SoSeparator()
         position = coin.SoTranslation()
-        position.translation.setValue(0.0, (left + right) / 2, -CLAMP_HEIGHT_MM / 2)
+        position.translation.setValue(0.0, (left + right) / 2, -height / 2)
         cube = coin.SoCube()
-        cube.width.setValue(CLAMP_DEPTH_MM)
+        cube.width.setValue(depth)
         cube.height.setValue(right - left)
-        cube.depth.setValue(CLAMP_HEIGHT_MM)
+        cube.depth.setValue(height)
         block.addChild(position)
         block.addChild(cube)
         row.addChild(block)
@@ -158,6 +158,8 @@ class CoinMachineScene:
         self.clamp_config_key = None
         self.clamp_spans = ()
         self.clamp_config_error = ""
+        self.clamp_height = CLAMP_HEIGHT_MM
+        self.clamp_depth = CLAMP_DEPTH_MM
         self.beam_z = 0.0
         self.ram_mount_width = 0.0
         self.frame.setName("SMBS_MachineFrame")
@@ -208,6 +210,10 @@ class CoinMachineScene:
                     count = int((self.ram_mount_width + config.gap_between_mm)
                                 / (config.width_mm + config.gap_between_mm))
                     config = replace(config, clamp_count=count)
+                if self.punch_top is not None and config.height_mm != self.clamp_height:
+                    self.beam_z += config.height_mm - self.clamp_height
+                    self.ram_motion.translation.setValue(0.0, 0.0, self.beam_z)
+                self.clamp_height, self.clamp_depth = config.height_mm, config.depth_mm
                 self.clamp_spans = clamp_spans_for_centres(config.centres_mm, config.width_mm)
         except (OSError, ClampValidatorError) as exc:
             self.clamp_config_error = f"Лапки: {exc}"
@@ -215,12 +221,13 @@ class CoinMachineScene:
         if not spans:
             self.clamps.whichChild.setValue(self.coin.SO_SWITCH_NONE)
             return self.clamp_config_error
-        if spans != self.clamp_key:
-            self.clamp_key = spans
+        mesh_key = (spans, self.clamp_height, self.clamp_depth)
+        if mesh_key != self.clamp_key:
+            self.clamp_key = mesh_key
             self.clamps.removeAllChildren()
             mounted = self.coin.SoSeparator()
             mounted.addChild(self.ram_motion)
-            mounted.addChild(_virtual_clamps(self.coin, spans))
+            mounted.addChild(_virtual_clamps(self.coin, spans, self.clamp_height, self.clamp_depth))
             self.clamps.addChild(mounted)
         self.clamps.whichChild.setValue(self.coin.SO_SWITCH_ALL)
         return ""
@@ -256,7 +263,7 @@ class CoinMachineScene:
             self.punch_top = (max(z for _, z in punch_outline) - tooling.ram_z_mm
                               if punch_outline else None)
             self.mount_key = key
-        self.beam_z = (float(ram_z) + self.punch_top + CLAMP_HEIGHT_MM
+        self.beam_z = (float(ram_z) + self.punch_top + self.clamp_height
                        if self.punch_top is not None else self.bed_z + self.rest_z)
         self.ram_motion.translation.setValue(0.0, 0.0, self.beam_z)
         return self.frame_error if visible else ""
