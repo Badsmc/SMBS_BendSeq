@@ -214,6 +214,7 @@ class ManualPlaybackContractTests(unittest.TestCase):
         commands = (ROOT / "freecad_smbs" / "commands" / "tooling.py").read_text(encoding="utf-8")
         for command in ("SMBS_SegmentStock", "SMBS_VirtualClamps", "SMBS_ToolLayout"):
             self.assertEqual(menu.count(f'"{command}"'), 2)
+        self.assertIn("self.appendToolbar(TOOLING_TOOLBAR, _TOOLING_ACTIONS)", menu)
         self.assertIn("panel._on_edit_segments(tools[selected])", commands)
         self.assertIn("clamps_only=True", commands)
 

@@ -46,6 +46,10 @@ COMMANDS_MAP = {
     "SMBS_VirtualClamps": VirtualClampsCommand,
     "SMBS_ToolLayout": ToolLayoutCommand,
 }
+TOOLING_TOOLBAR = "PressBrakeSim — оснастка"
+_TOOLING_ACTIONS = [
+    "SMBS_SegmentStock", "SMBS_VirtualClamps", "SMBS_ToolLayout", CMD_BACKGAUGE,
+]
 _REGISTERED_COMMANDS: set[str] = set()
 
 
@@ -77,15 +81,15 @@ class SMBSWorkbench(Workbench):
         ]
         menu = [
             *toolbar, CMD_SEQUENCE_CATALOG,
-            CMD_BACKGAUGE, CMD_TOOLING,
-            "SMBS_SegmentStock", "SMBS_VirtualClamps", "SMBS_ToolLayout",
+            CMD_TOOLING, *_TOOLING_ACTIONS,
         ]
         self.appendMenu(self.MenuText, menu)
         self.appendToolbar(self.MenuText, toolbar)
+        self.appendToolbar(TOOLING_TOOLBAR, _TOOLING_ACTIONS)
 
     def Activated(self) -> None:
         # FreeCAD's own QToolBar remains the command host. Only this addon's
-        # toolbar gets compact labels beside small neutral icons, so the six
+        # toolbar gets compact labels beside small neutral icons, so the
         # actions are recognizable without memorizing their pictograms.
         # No application-level QStyle or QPalette changes are made.
         if FreeCADGui is None:
@@ -99,8 +103,8 @@ class SMBSWorkbench(Workbench):
                 return
             for toolbar in main.findChildren(QtWidgets.QToolBar):
                 if (
-                    toolbar.objectName() == self.MenuText
-                    or toolbar.windowTitle() == self.MenuText
+                    toolbar.objectName() in (self.MenuText, TOOLING_TOOLBAR)
+                    or toolbar.windowTitle() in (self.MenuText, TOOLING_TOOLBAR)
                 ):
                     toolbar.setToolButtonStyle(QtCore.Qt.ToolButtonTextBesideIcon)
                     toolbar.setIconSize(QtCore.QSize(18, 18))
