@@ -168,8 +168,13 @@ def read_lines(path, *, layers=None, unsupported=None):
     return edges
 
 
-def join_outline(lines, tolerance=0.01):
+DEFAULT_OUTLINE_TOLERANCE_MM = 0.01
+
+
+def join_outline(lines, tolerance=DEFAULT_OUTLINE_TOLERANCE_MM):
     """Snap nearby endpoints and remove duplicate edges before OCC builds wires."""
+    if not isfinite(tolerance) or tolerance <= 0:
+        raise ValueError("Допуск стыковки должен быть больше нуля.")
     grid = {}
     neighbours = {}
     edges = set()
@@ -211,15 +216,27 @@ def join_outline(lines, tolerance=0.01):
         neighbours.setdefault(b, []).append(a)
         result.append((a, midpoint, b) if isinstance(line, ArcSegment2D)
                       else line if isinstance(line, DxfCurve) else (a, b))
+    open_ends = [point for point, links in neighbours.items() if len(links) == 1]
     for (x, y), links in neighbours.items():
-        if len(links) != 2:
-            fault = "Разрыв контура" if len(links) == 1 else "Разветвление контура"
-            raise ValueError(f"{fault} возле X={x:.3f}, Y={y:.3f} мм. "
-                             "Проверьте линии гиба и контур DXF.")
+        if len(links) == 2:
+            continue
+        if len(links) > 2:
+            raise ValueError(f"Разветвление контура возле X={x:.3f}, Y={y:.3f} мм. "
+                             "Проверьте включённые слои и линии гиба.")
+        message = f"Разрыв контура возле X={x:.3f}, Y={y:.3f} мм."
+        other_ends = (point for point in open_ends if point != (x, y))
+        nearest = min(other_ends, key=lambda point: dist((x, y), point), default=None)
+        if nearest is not None:
+            xx, yy = nearest
+            gap = dist((x, y), nearest)
+            message += (f" Ближайший открытый конец X={xx:.3f}, Y={yy:.3f} мм, "
+                        f"расстояние {gap:.3f} мм при допуске {tolerance:.3f} мм.")
+        raise ValueError(message + " Проверьте, что линии контура включены и не назначены гибами.")
     return result
 
 
-def build_session(path, lines, angles, thickness, radius, k_factor):
+def build_session(path, lines, angles, thickness, radius, k_factor, *,
+                  outline_tolerance=DEFAULT_OUTLINE_TOLERANCE_MM):
     import FreeCAD as App
     import Part
 
@@ -229,13 +246,14 @@ def build_session(path, lines, angles, thickness, radius, k_factor):
     from smbs_core.kinematics2d.panel_graph import graph_from_panel_build
     from smbs_core.kinematics2d.panel_kinematics import FoldState
 
-    outline = join_outline(line for index, line in enumerate(lines)
-                           if index not in angles and not isinstance(line, DxfCircle))
+    contour = (line for index, line in enumerate(lines)
+               if index not in angles and not isinstance(line, DxfCircle))
+    outline = join_outline(contour, tolerance=outline_tolerance)
     edges = []
     for line in outline:
         if isinstance(line, DxfCurve):
             edge = line.edge.copy()
-            edge.fixTolerance(0.01)
+            edge.fixTolerance(outline_tolerance)
         else:
             points = [App.Vector(x, y, 0) for x, y in line]
             edge = Part.Arc(*points).toShape() if len(points) == 3 else Part.makeLine(*points)
@@ -463,6 +481,10 @@ class DxfManualCommand:
         thickness = number("Толщина, мм", 1.5, 0.01, 100)
         radius = number("Внутренний радиус, мм", 1.5, 0.01, 100)
         k_factor = number("K-фактор", 0.4, 0, 1)
+        outline_tolerance = number("Допуск стыковки контура, мм",
+                                   DEFAULT_OUTLINE_TOLERANCE_MM, 0.001, 0.5)
+        outline_tolerance.setSingleStep(0.01)
+        outline_tolerance.setToolTip("Увеличьте допуск для небольших зазоров между концами контура DXF.")
         button = qt.QPushButton("Рассчитать")
         layout.addWidget(button)
         layout.addWidget(feedback)
@@ -480,7 +502,8 @@ class DxfManualCommand:
                 if not active_angles:
                     raise ValueError("Назначьте гиб на включённом слое.")
                 session = build_session(path, [lines[i] for i in visible], active_angles,
-                                        thickness.value(), radius.value(), k_factor.value())
+                                        thickness.value(), radius.value(), k_factor.value(),
+                                        outline_tolerance=outline_tolerance.value())
                 folded = FoldState(session.graph, session.fixed_panel)
                 for bend_id in session.bend_order:
                     folded.set_angle(bend_id, folded.bends[bend_id].angle_deg)

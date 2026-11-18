@@ -1078,7 +1078,7 @@ class CalculateCommand:
             workspace = get_workspace_widget()
         if workspace is not None:
             show_workspace_controls(workspace, 2)
-            if workspace.calculate.isEnabled():
+            if workspace._calculate_enabled:
                 workspace.calculate_sequence()
 
 
@@ -1186,7 +1186,7 @@ class PlanarCandidatesCommand:
             workspace = get_workspace_widget()
         if workspace is not None:
             show_workspace_controls(workspace, 2)
-            if workspace.planar_calculate.isEnabled():
+            if workspace._planar_calculate_enabled:
                 workspace.calculate_planar_candidates()
 
 
@@ -1496,24 +1496,8 @@ class _PreviewPanel:
                 self.status.setWordWrap(True)
                 root.addWidget(self.status)
 
-                # Toolbar owns main actions. Retain two original enabled-state
-                # proxies because experimental physical/planar search logic
-                # relies on them, without duplicating on-screen buttons.
-                self.calculate = _button(QtWidgets, "Расчёт", self.calculate_sequence, False)
-                self.planar_calculate = _button(
-                    QtWidgets, "Поиск 2D вариантов", self.calculate_planar_candidates, False
-                )
-                self.calculate.setParent(self)
-                self.planar_calculate.setParent(self)
-                self.calculate.hide()
-                self.planar_calculate.hide()
-                self.planar_calculate.setToolTip(
-                    "Быстрый 2D поиск вариантов для просмотра. Не подтверждает "
-                    "физическую возможность гибки и не отменяет 3D-валидацию."
-                )
-                self.calculate.setToolTip(
-                    "Автоматический поиск допустимой последовательности гибки с физической проверкой 2.5D + 3D (D6.3.4)"
-                )
+                self._calculate_enabled = False
+                self._planar_calculate_enabled = False
 
                 # Phase 5A: Tooling section (Import / Select / Align / Reset / Hide-Show / Library)
                 self.tooling_group = QtWidgets.QGroupBox("Tooling (PUNCH & DIE)")
@@ -2056,8 +2040,6 @@ class _PreviewPanel:
                 self.machine_preview_checkbox.setChecked(True)
                 self.machine_preview_checkbox.toggled.connect(lambda: self.draw())
                 sim_body.addWidget(self.machine_preview_checkbox)
-                # ManualMode: sequence search is not exposed to the operator.
-                self.calculate.hide()
                 self._page_simulation = scroll_task_page(
                     simulation, "SMBS_SimulationScroll"
                 )
@@ -4022,8 +4004,8 @@ class _PreviewPanel:
                 if self.timer.isActive() or self.session.playback_status == PlaybackStatus.PLAYING:
                     self.status.setText("Остановите воспроизведение перед 2D-поиском.")
                     return
-                self.planar_calculate.setEnabled(False)
-                self.calculate.setEnabled(False)
+                self._planar_calculate_enabled = False
+                self._calculate_enabled = False
                 self._manual_preview_unverified = False
                 self._manual_preview_notice.hide()
                 self._set_task_busy(True)
@@ -4571,7 +4553,7 @@ class _PreviewPanel:
                 if self.timer.isActive() or self.session.playback_status == PlaybackStatus.PLAYING:
                     self.status.setText("Сначала остановите воспроизведение (Pause / Reset) перед расчётом последовательности.")
                     return
-                self.calculate.setEnabled(False)
+                self._calculate_enabled = False
                 self.physical_check_btn.setEnabled(False)
                 self.full_physical_check_btn.setEnabled(False)
                 self._manual_preview_unverified = False
@@ -5387,15 +5369,15 @@ class _PreviewPanel:
                     self.move_up_btn.setEnabled(False)
                     self.move_down_btn.setEnabled(False)
                     self.restore_order_btn.setEnabled(False)
-                    self.calculate.setEnabled(False)
-                    self.planar_calculate.setEnabled(False)
+                    self._calculate_enabled = False
+                    self._planar_calculate_enabled = False
                     return
                 st = self.session.playback_status
                 self._update_task_progress()
                 self.playing = st == PlaybackStatus.PLAYING
                 bend_order = getattr(self.session, "bend_order", [])
-                self.calculate.setEnabled(not self.playing and len(bend_order) > 1)
-                self.planar_calculate.setEnabled(not self.playing and len(bend_order) > 0)
+                self._calculate_enabled = not self.playing and len(bend_order) > 1
+                self._planar_calculate_enabled = not self.playing and bool(bend_order)
                 if st == PlaybackStatus.PLAYING:
                     self.play_btn.setText("Pause")
                     icon_name = "control_pause.svg"
