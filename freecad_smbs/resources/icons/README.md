@@ -24,8 +24,6 @@ command IDs are unchanged.
 |---|---|
 | `gui_part.svg` | Деталь |
 | `gui_tooling.svg` | Оснастка |
-| `gui_calculate.svg` | Расчёт |
-| `gui_planar_candidates.svg` | 2D варианты |
 | `gui_manual.svg` | Manual |
 | `gui_settings.svg` | Настройки |
 
