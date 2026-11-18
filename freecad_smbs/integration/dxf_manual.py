@@ -1,27 +1,24 @@
 """Manual bending of a single flat outline from an ASCII DXF."""
+from dataclasses import asdict, dataclass
 from itertools import groupby
 from math import copysign, dist, floor, isfinite, tau
 from pathlib import Path
-from types import SimpleNamespace
-from dataclasses import asdict, dataclass
 from time import perf_counter
 from traceback import format_exc
+from types import SimpleNamespace
 from uuid import uuid4
 
 from smbs_core.kinematics2d.developer_debug_log import debug_event
-
-
 from smbs_core.kinematics2d.tooling_25d import (
     ArcSegment2D, LineSegment2D, _extract_dxf_units, _lwpolyline_to_segments, _parse_dxf_pairs,
 )
+
 
 @dataclass(frozen=True)
 class DxfCircle:
     x: float
     y: float
     radius: float
-
-
 
 
 @dataclass(frozen=True)
@@ -325,13 +322,16 @@ def build_session(path, lines, angles, thickness, radius, k_factor, *,
     state = FoldState(graph, fixed)
     vertices = {}
     meshes = {}
+    needs_preview_meshes = bool(holes) or any(
+        not isinstance(edge.Curve, Part.Line) for edge in wire.Edges
+    )
     for panel, face in zip(panels.panels, panels.panel_faces):
         rings = []
         for ring in [face.OuterWire, *(wire for wire in face.Wires if not wire.isSame(face.OuterWire))]:
             points = ring.discretize(Deflection=0.05)
             rings.append(tuple((v.x, v.y) for v in points[:-1]))
         vertices[panel.panel_id] = rings[0]
-        if holes or any(not isinstance(edge.Curve, Part.Line) for edge in wire.Edges):
+        if needs_preview_meshes:
             # Tessellate a polygonal copy so OCC cannot subdivide each
             # circular edge hundreds of times for every playback frame.
             preview_wires = []
@@ -524,7 +524,6 @@ class DxfManualCommand:
         layout.addWidget(layers_box)
         angles = {}
         angle_history = []
-        items = []
         geometry_items = []
         feedback = qt.QLabel("Выберите линии гиба.")
         feedback.setWordWrap(True)
@@ -560,8 +559,8 @@ class DxfManualCommand:
             feedback.setText("Назначено гибов: {}".format(len(angles)))
             undo_button.setEnabled(bool(angle_history))
             positions = {index: step for step, index in enumerate(angles, 1)}
-            for i, line in enumerate(items):
-                if line is None:
+            for i, line in enumerate(geometry_items):
+                if line.data(0) is None:
                     continue
                 pen = gui.QPen(gui.QColor("#31845e" if i in angles else "#315d87"))
                 pen.setWidth(3 if i in angles else 2)
@@ -594,7 +593,6 @@ class DxfManualCommand:
             if isinstance(line, DxfCircle):
                 geometry_items.append(scene.addEllipse(line.x - line.radius, -line.y - line.radius,
                                                        line.radius * 2, line.radius * 2, pen))
-                items.append(None)
                 continue
             if isinstance(line, (ArcSegment2D, DxfCurve)):
                 points = (line.sample_points() if isinstance(line, ArcSegment2D)
@@ -603,26 +601,22 @@ class DxfManualCommand:
                 for x, y in points[1:]:
                     curve_path.lineTo(x, -y)
                 geometry_items.append(scene.addPath(curve_path, pen))
-                items.append(None)
                 continue
             (x, y), (xx, yy) = line
             item = scene.addLine(x, -y, xx, -yy, pen)
             item.setData(0, index)
-            items.append(item)
             geometry_items.append(item)
 
         def layer_enabled(layer):
             return layer_entries[layer].checkState() == core.Qt.Checked
 
-        def update_layers():
+        def enabled_layers():
+            return [layer for layer in layer_entries if layer_enabled(layer)]
+
+        def layer_changed():
             for layer, item in zip(layers, geometry_items):
                 item.setVisible(layer_enabled(layer))
-
-        def layer_changed(item):
-            update_layers()
-            log("DXF_LAYERS_CHANGED", enabled_layers=[
-                layer for layer in layer_entries if layer_enabled(layer)
-            ])
+            log("DXF_LAYERS_CHANGED", enabled_layers=enabled_layers())
 
         layers_box.itemChanged.connect(layer_changed)
         form = qt.QFormLayout()
@@ -667,7 +661,7 @@ class DxfManualCommand:
                 stage, stage_started = next_stage, now
 
             log("DXF_CALCULATION_STARTED", attempt=attempt,
-                enabled_layers=[layer for layer in layer_entries if layer_enabled(layer)],
+                enabled_layers=enabled_layers(),
                 assigned_bends=[{"index": index, "angle_deg": angle}
                                 for index, angle in angles.items()],
                 thickness_mm=thickness.value(), radius_mm=radius.value(),

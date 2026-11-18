@@ -1060,28 +1060,6 @@ class ToolingTabCommand:
             workspace.open_tooling_settings_dialog()
 
 
-class CalculateCommand:
-    def GetResources(self):
-        return {
-            "Pixmap": str(_ICON_ROOT / "gui_calculate.svg"),
-            "MenuText": "Автопоиск последовательности",
-            "ToolTip": "Служебный автоматический поиск; для выбора порядка начните с «Поиска 2D вариантов»",
-        }
-
-    def IsActive(self):
-        return _has_loaded_part()
-
-    def Activated(self):
-        workspace = get_workspace_widget()
-        if workspace is None:
-            PressBrake2DCommand().Activated()
-            workspace = get_workspace_widget()
-        if workspace is not None:
-            show_workspace_controls(workspace, 2)
-            if workspace._calculate_enabled:
-                workspace.calculate_sequence()
-
-
 class BackgaugeCommand:
     """Configure explicit backgauge stop geometry and per-bend targets."""
     def GetResources(self):
@@ -1165,29 +1143,6 @@ class SettingsCommand:
             workspace = get_workspace_widget()
         if workspace is not None:
             workspace.open_settings_dialog()
-
-
-class PlanarCandidatesCommand:
-    """Preserve experiment's separate fast 2D candidate search."""
-    def GetResources(self):
-        return {
-            "Pixmap": str(_ICON_ROOT / "gui_planar_candidates.svg"),
-            "MenuText": "Поиск 2D вариантов",
-            "ToolTip": "Найти полные последовательности гибов за ограниченное время; коллизии 3D ещё не проверены",
-        }
-
-    def IsActive(self):
-        return _has_loaded_part()
-
-    def Activated(self):
-        workspace = get_workspace_widget()
-        if workspace is None:
-            PressBrake2DCommand().Activated()
-            workspace = get_workspace_widget()
-        if workspace is not None:
-            show_workspace_controls(workspace, 2)
-            if workspace._planar_calculate_enabled:
-                workspace.calculate_planar_candidates()
 
 
 def _button(widgets, label, callback, enabled=True):
@@ -1388,8 +1343,6 @@ class _PreviewPanel:
                     _pressbrake_user_data_directory() / "pressbrake_traces"
                 )
                 self.runtime_git_info = get_runtime_git_info()
-                self.last_sequence_search_report = None
-                self.last_planar_search_report = None
                 self._saved_full_sequences = []
                 self._preview_only_planar_order = None
                 self._partial_preview_limit = None
@@ -1498,8 +1451,6 @@ class _PreviewPanel:
                 self.status.setWordWrap(True)
                 root.addWidget(self.status)
 
-                self._calculate_enabled = False
-                self._planar_calculate_enabled = False
 
                 # Phase 5A: Tooling section (Import / Select / Align / Reset / Hide-Show / Library)
                 self.tooling_group = QtWidgets.QGroupBox("Tooling (PUNCH & DIE)")
@@ -2366,86 +2317,12 @@ class _PreviewPanel:
                 tool_opts_layout.addWidget(self.allow_end_zone_checkbox)
                 advanced_layout.addWidget(tool_opts_card)
 
-                # Cost weights affect ranking only, never collision decisions.
                 from smbs_core.kinematics2d.operation_cost import OperationWeights
-                weight_defaults = OperationWeights().to_dict()
-                weight_names = (
-                    ("turn_fixed", "Поворот: базовый штраф"),
-                    ("turn_per_90_deg", "Поворот: за 90°"),
-                    ("flip", "Переворот листа"),
-                    ("shift_fixed", "Сдвиг: базовый штраф"),
-                    ("shift_per_100_mm", "Сдвиг: за 100 мм"),
-                    ("length_change_fixed", "Смена длины: базовый штраф"),
-                    ("length_delta_per_100_mm", "Линия гиба: за 100 мм"),
-                    ("punch_length_change_fixed", "Пуансон: смена длины"),
-                    ("punch_length_delta_per_100_mm", "Пуансон: за 100 мм"),
-                    ("die_length_change_fixed", "Матрица: смена длины"),
-                    ("die_length_delta_per_100_mm", "Матрица: за 100 мм"),
-                    ("backgauge_move_fixed", "Задний упор: перемещение"),
-                    ("backgauge_move_per_100_mm", "Задний упор: за 100 мм"),
-                )
-                weights_card, weights_body = card("Веса операций / 2D поиск")
-                weights_box = QtWidgets.QWidget()
-                weights_form = QtWidgets.QFormLayout(weights_box)
-                weights_form.setContentsMargins(0, 0, 0, 0)
-                weights_form.setSpacing(SECTION_GAP)
-                weights_form.setRowWrapPolicy(
-                    QtWidgets.QFormLayout.WrapLongRows
-                )
-                weights_form.setFieldGrowthPolicy(
-                    QtWidgets.QFormLayout.AllNonFixedFieldsGrow
-                )
-                self._weight_editors = {}
-                self._weight_preferences = QtCore.QSettings("SMBS", "BendSeq")
-                for weight_key, caption in weight_names:
-                    editor = QtWidgets.QDoubleSpinBox(weights_box)
-                    editor.setRange(0.0, 100000.0)
-                    editor.setDecimals(2)
-                    editor.setSingleStep(0.5)
-                    editor.setValue(float(self._weight_preferences.value(
-                        "operation_weights/" + weight_key,
-                        weight_defaults[weight_key], type=float,
-                    )))
-                    editor.setToolTip(
-                        "Штрафные баллы для сортировки полных кандидатов. "
-                        "Нулевой вес не отключает проверку коллизий."
-                    )
-                    editor.valueChanged.connect(
-                        lambda value, key=weight_key:
-                        self._weight_preferences.setValue(
-                            "operation_weights/" + key, float(value)
-                        )
-                    )
-                    weights_form.addRow(caption, editor)
-                    self._weight_editors[weight_key] = editor
-                weights_note = QtWidgets.QLabel(
-                    "Меньший штраф = предпочтительнее. Первый гиб не штрафуется. "
-                    "При виртуальной подгонке штраф длины пуансона/матрицы — "
-                    "только оценка планируемой переналадки. При фиксированной "
-                    "оснастке длины не меняются. Это не проверка безопасности."
-                )
-                weights_note.setWordWrap(True)
-                weights_note.hide()
-                reset_weights_btn = QtWidgets.QPushButton("Стандартные веса")
-                reset_weights_btn.setIcon(QtGui.QIcon(str(
-                    _ICON_ROOT / "control_reset.svg"
-                )))
-                reset_weights_btn.clicked.connect(
-                    lambda _checked=False: [
-                        self._weight_editors[k].setValue(weight_defaults[k])
-                        for k in self._weight_editors
-                    ]
-                )
-                style_action(reset_weights_btn)
-                weights_form.addRow(reset_weights_btn)
-                weights_body.addWidget(weights_box)
-                # Keep a Qt parent for the hidden search-weight editors. Their
-                # values remain referenced by FCStd save/restore and diagnostics.
-                # Without addWidget(), Python releases this unparented card and
-                # its QDoubleSpinBoxes, causing "Internal C++ object already deleted".
-                # ManualMode must not show search-only controls to the operator.
-                advanced_layout.addWidget(weights_card)
-                weights_card.hide()
+                preferences = QtCore.QSettings("SMBS", "BendSeq")
+                self._operation_weights = {
+                    key: float(preferences.value("operation_weights/" + key, default, type=float))
+                    for key, default in OperationWeights().to_dict().items()
+                }
 
                 diagnostics_card, diagnostics_body = card(
                     "Результаты / Диагностика"
@@ -3995,153 +3872,7 @@ class _PreviewPanel:
 
             def _selected_operation_weights(self):
                 from smbs_core.kinematics2d.operation_cost import OperationWeights
-                values = OperationWeights().to_dict()
-                for name, editor in self._weight_editors.items():
-                    values[name] = float(editor.value())
-                return OperationWeights(**values)
-
-            def calculate_planar_candidates(self):
-                """Show ranked sampled-2D candidate sequences, never mark them physically verified."""
-                if self.session is None:
-                    self.status.setText("Сначала загрузите деталь SheetMetal.")
-                    return
-                if self.timer.isActive() or self.session.playback_status == PlaybackStatus.PLAYING:
-                    self.status.setText("Остановите воспроизведение перед 2D-поиском.")
-                    return
-                self._planar_calculate_enabled = False
-                self._calculate_enabled = False
-                self._manual_preview_unverified = False
-                self._manual_preview_notice.hide()
-                self._set_task_busy(True)
-                # Rear gauge is visualization-only; never spend OCC search
-                # budget on collision, clearance, contact or CAD penetration.
-                search_budget_s = 30.0
-                self.status.setText(
-                    "Быстрый поиск (до {:.0f} с): 2D-сечения. Возможны 3D-коллизии; "
-                    "полная проверка отключена.".format(search_budget_s)
-                )
-                QtWidgets.QApplication.processEvents()
-                try:
-                    from smbs_core.kinematics2d.sequence_search_2d import (
-                        search_bend_sequences_2d,
-                    )
-                    # A 2D preview with virtual axial tool length is permitted
-                    # ONLY for exploration, never treated as production safety
-                    # evidence. Native multi-sections cannot be virtually extended.
-                    has_sections = has_native_sections(self.tooling_setup)
-                    # No CAD backgauge contact trace in visual-only mode.
-                    self._last_backgauge_cad_trace_path = None
-                    report = search_bend_sequences_2d(
-                        self.session, self.tooling_setup,
-                        # Collect multiple complete candidates for genuine
-                        # weight-based comparison, subject to the search budget.
-                        # The best found is not proof of global optimality.
-                        max_solutions=12,
-                        max_complete_candidates=12,
-                        weights=self._selected_operation_weights(),
-                        backgauge_model=None,
-                        backgauge_cad_trace_path=None,
-                        # This workflow offers complete sequences only.
-                        min_partial_bends=0,
-                        # Alternative machine-Z loading trials are advisory:
-                        # the live 2.5D cycle still uses its own active pose.
-                        alternate_axis_bends=(
-                            tuple(b for b in ("B09", "B10") if b in self.session.bend_order)
-                            if len(self.session.bend_order) >= 10 else ()
-                        ),
-                        allow_end_zone_collision=bool(self.tooling_setup.allow_end_zone_collision),
-                        end_zone_length_mm=float(self.tooling_setup.end_zone_length_mm),
-                        allow_retract_warning=self.retract_warning_checkbox.isChecked(),
-                        max_search_time_s=search_budget_s,
-                        max_nodes=5000,
-                        max_evaluations=10000,
-                        # For 10+ bends, distribute the first search pass
-                        # across different starting bends. Otherwise a large
-                        # doomed subtree under B10 may consume the 30s budget.
-                        root_probe_nodes=(65 if len(self.session.bend_order) >= 10 else 0),
-                        # Each root gets <=1.8 s, even when memoization
-                        # prevents reaching its node-count allowance.
-                        root_probe_seconds=(
-                            1.8 if len(self.session.bend_order) >= 10
-                            else 0.0
-                        ),
-                        # Long box-like parts can require bends late in CAD
-                        # construction order to be formed first. For >=6 bends
-                        # explore reverse construction order before considering
-                        # the legacy group-first order. This only affects
-                        # scheduling; all steps still use the exact same
-                        # contact oracle and detailed replay.
-                        preferred_bend_order=(
-                            tuple(reversed(self.session.bend_order))
-                            if len(self.session.bend_order) >= 6
-                            else tuple(self.session.bend_order)
-                        ),
-                        group_first=len(self.session.bend_order) < 6,
-                        # Preliminary fast screen; every returned full order is
-                        # replayed by the solver at its original 17/9 samples.
-                        exploration_fractions=(0.0, 0.25, 0.5, 0.75, 1.0),
-                        exploration_stroke_fractions=(0.0, 0.5, 1.0),
-                        match_active_bend_length=not has_sections,
-                    )
-                    self.last_planar_search_report = report
-                    # Store validated complete candidates with their preview
-                    # orientation, not merely the last solver status.
-                    for candidate in self._complete_planar_candidates(report):
-                        directions = {
-                            step.bend_id: step.orientation_variant.startswith(
-                                "REVERSE_MACHINE_Z_180"
-                            ) for step in candidate.steps
-                        }
-                        if len(directions) == len(candidate.sequence):
-                            entry = {
-                                "bend_ids": list(candidate.sequence),
-                                "orientation_by_bend": directions,
-                                "origin": "2D_SEARCH",
-                                "evidence": str(candidate.evidence),
-                            }
-                            if entry not in self._saved_full_sequences:
-                                self._saved_full_sequences.append(entry)
-                    self._saved_full_sequences = self._saved_full_sequences[-32:]
-                    if self._last_backgauge_cad_trace_path:
-                        _log(
-                            "BACKGAUGE_CAD_TRACE_PATH: "
-                            + self._last_backgauge_cad_trace_path
-                        )
-                    self._last_planar_weights = self._selected_operation_weights().to_dict()
-                    self._trace_event(
-                        "PLANAR_2D_SEARCH_COMPLETED",
-                        status=report.status.value,
-                        evaluated_steps=report.evaluated_steps,
-                        visited_nodes=report.visited_nodes,
-                        candidate_count=len(report.candidates),
-                        limit_reason=report.limit_reason,
-                        budget_seconds=search_budget_s,
-                    )
-                    complete = self._complete_planar_candidates(report)
-                    if complete:
-                        self._show_planar_candidates_dialog(report)
-                    else:
-                        limit = (
-                            " Достигнут предел поиска ({}). Это не доказывает, "
-                            "что решения нет; повторный запуск начинает поиск "
-                            "заново.".format(report.limit_reason)
-                            if report.limit_reason else ""
-                        )
-                        message = (
-                            "За {:.0f} с полных 2D вариантов не найдено."
-                            .format(search_budget_s) + limit
-                        )
-                        self.status.setText(message)
-                        QtWidgets.QMessageBox.information(
-                            self, "Поиск 2D вариантов", message,
-                        )
-                except Exception as exc:
-                    msg = "2D поиск не выполнен: {}".format(exc)
-                    self.status.setText(msg)
-                    _error("Planar search exception: " + traceback.format_exc())
-                finally:
-                    self._set_task_busy(False)
-                    self._sync_playback_buttons()
+                return OperationWeights(**self._operation_weights)
 
             def open_sequence_catalog_dialog(self):
                 from freecad_smbs.commands.sequence_catalog_dialog import show_sequence_catalog
@@ -4189,7 +3920,6 @@ class _PreviewPanel:
                 self._selected_planar_gauge_positions = {}
                 self._selected_planar_gauge_model_id = None
                 self._backgauge_preview_cache.clear()
-                self.last_sequence_search_report = None
                 self._conditional_bends_status.clear()
                 self._populate_operations()
                 self._configure_for_active_bend()
@@ -4272,394 +4002,6 @@ class _PreviewPanel:
                     "Сохранённый порядок выбран: {} | UNVERIFIED"
                     .format(" → ".join(order))
                 )
-
-            def _complete_planar_candidates(self, report):
-                """Only full, unique orders can enter the Manual workflow."""
-                total = len(self.session.bend_order)
-                expected = set(self.session.bend_order)
-                seen = set()
-                complete = []
-                for candidate in report.candidates:
-                    sequence = tuple(candidate.sequence)
-                    if (len(sequence) != total or set(sequence) != expected
-                            or sequence in seen):
-                        continue
-                    seen.add(sequence)
-                    complete.append(candidate)
-                return complete
-
-            def _show_planar_candidates_dialog(self, report):
-                """Choose a complete 2D order for Manual verification."""
-                # A new search may replace a previous result; close the old tab
-                # explicitly rather than presenting a stale list.
-                previous = getattr(self, "_task_dialogs", {}).get("planar_candidates")
-                if previous is not None:
-                    previous.reject()
-                dlg = QtWidgets.QDialog(self)
-                dlg.setWindowTitle("SMBS — найденные полные порядки")
-                dlg.resize(700, 430)
-                layout = QtWidgets.QVBoxLayout(dlg)
-                heading = QtWidgets.QLabel(
-                    "Шаг 2: выберите один полный порядок и откройте раздел "
-                    "«Порядок и проверка». Номера появятся на развёртке. "
-                    "Затем отдельно нажмите «Быстрая проверка OCC (5 углов)» или "
-                    "«Полная проверка (3D)». Пока 3D коллизии не проверены."
-                )
-                heading.setWordWrap(True)
-                layout.addWidget(heading)
-                weights_caption = QtWidgets.QLabel(
-                    "Веса: поворот {:.2f} + {:.2f}/90°, переворот {:.2f}, "
-                    "сдвиг {:.2f} + {:.2f}/100 мм, "
-                    "линия гиба {:.2f} + {:.2f}/100 мм, "
-                    "пуансон {:.2f} + {:.2f}/100 мм, "
-                    "матрица {:.2f} + {:.2f}/100 мм, "
-                    "задний упор {:.2f} + {:.2f}/100 мм. "
-                    "Лучший из найденных планов не обязательно глобально оптимален.".format(
-                        *[self._last_planar_weights[k] for k in (
-                            "turn_fixed", "turn_per_90_deg", "flip",
-                            "shift_fixed", "shift_per_100_mm",
-                            "length_change_fixed", "length_delta_per_100_mm",
-                            "punch_length_change_fixed", "punch_length_delta_per_100_mm",
-                            "die_length_change_fixed", "die_length_delta_per_100_mm",
-                            "backgauge_move_fixed", "backgauge_move_per_100_mm",
-                        )]
-                    )
-                )
-                weights_caption.setWordWrap(True)
-                layout.addWidget(weights_caption)
-                details = QtWidgets.QLabel(
-                    "Статус: {} | вариантов: {} | 2D проверок: {} | причина остановки: {}".format(
-                        report.status.value, len(self._complete_planar_candidates(report)),
-                        report.evaluated_steps,
-                        ("цель достигнута: найдено заданное количество вариантов"
-                         if report.limit_reason == "MAX_COMPLETE_CANDIDATES_REACHED"
-                         else report.limit_reason or "нет"),
-                    )
-                )
-                details.setWordWrap(True)
-                layout.addWidget(details)
-                cad_trace_path = getattr(
-                    self, "_last_backgauge_cad_trace_path", None
-                )
-                if cad_trace_path:
-                    from pathlib import Path
-                    log_file = Path(cad_trace_path)
-                    trace_exists = log_file.is_file()
-                    trace_label = QtWidgets.QLabel(
-                        ("CAD-лог контакта: " if trace_exists else
-                         "CAD-лог не создан — проверьте исходную модель: ")
-                        + str(log_file)
-                    )
-                    trace_label.setWordWrap(True)
-                    trace_label.setTextInteractionFlags(
-                        QtCore.Qt.TextSelectableByMouse
-                    )
-                    layout.addWidget(trace_label)
-                    if trace_exists:
-                        open_trace_folder = QtWidgets.QPushButton(
-                            "Открыть папку CAD-лога"
-                        )
-                        open_trace_folder.clicked.connect(
-                            lambda: QtGui.QDesktopServices.openUrl(
-                                QtCore.QUrl.fromLocalFile(
-                                    str(log_file.parent)
-                                )
-                            )
-                        )
-                        layout.addWidget(open_trace_folder)
-                if report.alternative_setup_trials:
-                    tested = len(report.alternative_setup_trials)
-                    clear = sum(
-                        trial[3] == "SAMPLED_2D_CLEAR_OR_TOUCH"
-                        for trial in report.alternative_setup_trials
-                    )
-                    alternate_notice = QtWidgets.QLabel(
-                        "Альтернативная установка (разворот на 180°): "
-                        "проверено {}, без 2D-пересечений {}. "
-                        "Результат пока диагностический, анимация такой установки "
-                        "и путь перекладки отдельно не подтверждены.".format(
-                            tested, clear
-                        )
-                    )
-                    alternate_notice.setWordWrap(True)
-                    layout.addWidget(alternate_notice)
-                if report.conditional_end_zone_requested:
-                    conditional_notice = QtWidgets.QLabel(
-                        "CONDITIONAL запрошен. В быстром 2D-сечении нельзя "
-                        "подтвердить столкновение именно с концом пуансона; "
-                        "такие пересечения не разрешаются без 3D-классификации."
-                    )
-                    conditional_notice.setWordWrap(True)
-                    layout.addWidget(conditional_notice)
-                depth_info = QtWidgets.QLabel(
-                    "Максимальная глубина: {}/{} | путь: {}\n"
-                    "Классификация проверок: {}".format(
-                        report.max_depth_reached,
-                        len(self.session.bend_order) if self.session is not None else "?",
-                        " → ".join(report.deepest_prefix) or "(начало)",
-                        ", ".join("{}: {}".format(name, count)
-                                  for name, count in report.rejection_counts) or "нет",
-                    )
-                )
-                depth_info.setWordWrap(True)
-                layout.addWidget(depth_info)
-                cache_info = QtWidgets.QLabel(
-                    "DFS: тупиковых состояний {} | повторов отсечено {} | "
-                    "отложенных ветвей {}".format(
-                        report.dead_states_proven,
-                        report.dead_state_cache_hits,
-                        report.deferred_root_probes,
-                    )
-                )
-                cache_info.setWordWrap(True)
-                layout.addWidget(cache_info)
-                pair_lines = [
-                    "{} ↔ {}: оба порядка первых двух гибов отклонены в 2D".format(
-                        left, right
-                    )
-                    for left, right, _, _ in report.paired_first_step_obstructions
-                ]
-                if pair_lines:
-                    pair_info = QtWidgets.QLabel(
-                        "Диагностика пар (не доказательство невозможности гибки):\n"
-                        + "\n".join(pair_lines[:6])
-                    )
-                    pair_info.setWordWrap(True)
-                    layout.addWidget(pair_info)
-                options = QtWidgets.QListWidget(dlg)
-                options.setMinimumHeight(145)
-                visible_candidates = self._complete_planar_candidates(report)
-                for index, candidate in enumerate(visible_candidates):
-                    suffix = (" | штраф {:.2f}".format(candidate.cost)
-                              if candidate.cost_complete else " | штраф не подтверждён")
-                    evidence_label = {
-                        "SAMPLED_2D_CLEAR_OR_TOUCH":
-                            "в проверенных 2D сечениях препятствий не обнаружено",
-                        "CONDITIONAL_RETRACT_WARNING_NOT_3D_VALIDATED":
-                            "предупреждение при отводе пуансона (RETRACT)",
-                    }.get(candidate.evidence, "есть неопределённые 2D участки")
-                    reversed_bends = [
-                        step.bend_id for step in candidate.steps
-                        if step.orientation_variant.startswith("REVERSE_MACHINE_Z_180")
-                    ]
-                    options.addItem(
-                        "{}. {} | {}{} | разворот 180°: {}".format(
-                            index + 1, " → ".join(candidate.sequence),
-                            evidence_label, suffix,
-                            ", ".join(reversed_bends) or "нет",
-                        )
-                    )
-                if visible_candidates:
-                    options.setCurrentRow(0)
-                # Put the decision first. Long DFS diagnostics remain below.
-                layout.insertWidget(1, options)
-                controls = QtWidgets.QHBoxLayout()
-                use = QtWidgets.QPushButton("Выбрать порядок → к проверке")
-                use.setEnabled(bool(visible_candidates))
-                export_btn = QtWidgets.QPushButton("Сохранить диагностику JSON")
-                close = QtWidgets.QPushButton("Закрыть")
-                controls.addWidget(use)
-                controls.addWidget(export_btn)
-                controls.addWidget(close)
-                layout.insertLayout(2, controls)
-
-                def on_preview():
-                    row = options.currentRow()
-                    if row < 0 or row >= len(visible_candidates):
-                        return
-                    candidate = visible_candidates[row]
-                    try:
-                        if candidate not in self._complete_planar_candidates(report):
-                            raise ValueError("Выбранный порядок не является полным")
-                        self._stop_timer()
-                        self.session.reset_all_bends()
-                        dlg.accept()
-                        self.activate_manual_mode()
-                        if not self._apply_manual_order(candidate.sequence):
-                            return
-                        orientations = {
-                            step.bend_id: step.orientation_variant.startswith(
-                                "REVERSE_MACHINE_Z_180"
-                            ) for step in candidate.steps
-                        }
-                        if set(orientations) != set(candidate.sequence):
-                            raise ValueError("Ориентация 2D неполная; вариант не назначен")
-                        self._manual_orientation_order = tuple(candidate.sequence)
-                        self._manual_orientation_by_bend = orientations
-                        self._populate_operations()
-                        self._ensure_press_cycle_controller()
-                        if self.press_cycle is not None:
-                            self.press_cycle.loading_orientation_by_bend = (
-                                self._manual_orientation_selection(candidate.sequence)
-                            )
-                        self.draw()
-                        self._viewer_tabs.setCurrentWidget(self._flat_view)
-                        self._draw_flat_pattern(reset_camera=True)
-                        self.status.setText(
-                            "Порядок выбран (3D НЕ ПРОВЕРЕН): "
-                            + " → ".join(candidate.sequence)
-                        )
-                        self.physical_check_result.setText(
-                            "UNVERIFIED: выбран полный 2D порядок. "
-                            "Запустите «Быстрая проверка OCC (5 углов)» или "
-                            "«Проверить и показать». "
-                            "Возможны коллизии."
-                        )
-                        self._trace_event(
-                            "PLANAR_2D_MANUAL_ORDER_SELECTED",
-                            sequence=list(candidate.sequence),
-                            evidence=candidate.evidence,
-                            mixed_orientation=mixed_orientation,
-                            physical_status="UNVERIFIED",
-                        )
-                        if mixed_orientation:
-                            self.status.setText(
-                                "Ориентация каждого гиба перенесена из 2D; "
-                                "3D-проверка использует те же установки."
-                            )
-                    except Exception as exc:
-                        self.status.setText("Нельзя назначить 2D порядок: " + str(exc))
-                        _error("Planar manual selection exception: " + traceback.format_exc())
-
-                def on_export():
-                    import json
-                    destination, _ = QtWidgets.QFileDialog.getSaveFileName(
-                        dlg, "Сохранить 2D диагностику",
-                        str(_debug_desktop_directory() / "smbs_2d_search_diagnostics.json"),
-                        "JSON (*.json)",
-                    )
-                    if not destination:
-                        return
-                    try:
-                        Path(destination).write_text(
-                            json.dumps(report.to_dict(), ensure_ascii=False, indent=2),
-                            encoding="utf-8",
-                        )
-                        self.status.setText("2D диагностика сохранена: " + destination)
-                    except Exception as exc:
-                        self.status.setText("Ошибка сохранения диагностики: " + str(exc))
-
-                use.clicked.connect(on_preview)
-                export_btn.clicked.connect(on_export)
-                close.clicked.connect(dlg.reject)
-                embed_task_dialog(self, dlg, "Выбор порядка", "planar_candidates")
-
-            def calculate_sequence(self):
-                """Run automatic 2.5D + D6 physical sequence search with backtracking and forward replay."""
-                self._trace_event(
-                    "SEQUENCE_SEARCH_MODE_SELECTED",
-                    mode="FULL_NATIVE_D6_SAMPLED",
-                    continuous_motion_certified=False,
-                )
-                if self.session is None:
-                    self.status.setText("UNVERIFIED: сначала загрузите листовую деталь.")
-                    return
-                if self.timer.isActive() or self.session.playback_status == PlaybackStatus.PLAYING:
-                    self.status.setText("Сначала остановите воспроизведение (Pause / Reset) перед расчётом последовательности.")
-                    return
-                self._calculate_enabled = False
-                self.physical_check_btn.setEnabled(False)
-                self.full_physical_check_btn.setEnabled(False)
-                self._manual_preview_unverified = False
-                self._manual_preview_notice.hide()
-                self._highlighted_end_zone_info = None
-                self._set_task_busy(True)
-                self.status.setText(
-                    "Выполняется поиск последовательности гибки с физической проверкой 2.5D + D6 (backtracking)..."
-                )
-                self.physical_check_result.setText(
-                    "Идёт поиск последовательности (строгий проход → условный при необходимости → прямой прогон с нуля)..."
-                )
-                QtWidgets.QApplication.processEvents()
-                try:
-                    from smbs_core.kinematics2d.sequence_search import (
-                        SearchStatus,
-                        search_bend_sequence_25d,
-                    )
-                    from smbs_core.kinematics2d.operation_cost import OperationWeights
-
-                    def _search_progress(depth: int, total: int, partial_seq: Tuple[str, ...]) -> bool:
-                        seq_str = " -> ".join(partial_seq) if partial_seq else "корень"
-                        self.physical_check_result.setText(
-                            f"Поиск последовательности (глубина {depth}/{total}): {seq_str}..."
-                        )
-                        self._task_progress_caption.setText(
-                            f"Глубина {depth}/{total} · не %"
-                        )
-                        QtWidgets.QApplication.processEvents()
-                        return True
-
-                    self._sync_tooling_to_active_bend()
-                    pc = self._ensure_press_cycle_controller()
-                    search_rep = search_bend_sequence_25d(
-                        self.session,
-                        pc,
-                        self.tooling_setup,
-                        match_active_bend_length=self.tooling_setup.match_active_bend_length,
-                        allow_end_zone_collision=self.tooling_setup.allow_end_zone_collision,
-                        end_zone_length_mm=self.tooling_setup.end_zone_length_mm,
-                        weights=OperationWeights(),
-                        progress_callback=_search_progress,
-                    )
-                    self.last_sequence_search_report = search_rep
-                    self._preview_only_planar_order = None
-                    self._partial_preview_limit = None
-                    self._selected_planar_gauge_order = ()
-                    self._selected_planar_gauge_positions = {}
-                    self._selected_planar_gauge_model_id = None
-                    self._backgauge_preview_cache.clear()
-                    self._conditional_bends_status.clear()
-                    if search_rep.status is SearchStatus.CONDITIONAL_VALIDATED:
-                        for bid in search_rep.conditional_bends:
-                            self._conditional_bends_status[str(bid)] = (
-                                "CONDITIONAL (требуется пуансон с вырезом на конце; геометрия не проверена)"
-                            )
-                    self._populate_operations()
-                    self._configure_for_active_bend()
-                    self._sync_tooling_to_active_bend()
-                    self.draw()
-                    self.status.setText(search_rep.message_ru)
-                    cost_info = ""
-                    if search_rep.plan_cost:
-                        cost_val = search_rep.plan_cost.get("total", 0.0)
-                        cost_info = f" | штраф={cost_val:.1f}"
-                    self.physical_check_result.setText(
-                        "Поиск последовательности: {} | {} | 3D-проверок={} (отсев A={}, B={}) | глубина={}/{}{}".format(
-                            search_rep.status.value,
-                            search_rep.overall_evidence.value,
-                            search_rep.stage_c_native_evaluated,
-                            search_rep.stage_a_pruned,
-                            search_rep.stage_b_pruned,
-                            search_rep.max_depth_reached,
-                            search_rep.total_bends,
-                            cost_info,
-                        )
-                    )
-                    self._trace_event(
-                        "SEQUENCE_SEARCH_COMPLETED",
-                        status=search_rep.status.value,
-                        overall_evidence=search_rep.overall_evidence.value,
-                        found_sequence=list(search_rep.found_sequence) if search_rep.found_sequence else None,
-                        conditional_bends=list(search_rep.conditional_bends),
-                        states_visited=search_rep.states_visited,
-                        step_evaluations=search_rep.step_evaluations,
-                        stage_a_pruned=search_rep.stage_a_pruned,
-                        stage_b_pruned=search_rep.stage_b_pruned,
-                        stage_c_native_evaluated=search_rep.stage_c_native_evaluated,
-                        plan_cost=search_rep.plan_cost,
-                        elapsed_s=round(search_rep.elapsed_s, 3),
-                    )
-                    _log("Sequence search result: " + search_rep.message_ru)
-                except Exception as exc:
-                    msg = "UNVERIFIED: ошибка поиска последовательности: {}".format(exc)
-                    self.status.setText(msg)
-                    self.physical_check_result.setText(msg)
-                    _error("Sequence search exception: " + traceback.format_exc())
-                finally:
-                    self._set_task_busy(False)
-                    self.full_physical_check_btn.setEnabled(True)
-                    self.physical_check_btn.setEnabled(True)
-                    self._sync_playback_buttons()
 
             def _update_tooling_status_label(self):
                 self.tooling_status.setText(self.tooling_setup.status_line())
@@ -5373,15 +4715,11 @@ class _PreviewPanel:
                     self.move_up_btn.setEnabled(False)
                     self.move_down_btn.setEnabled(False)
                     self.restore_order_btn.setEnabled(False)
-                    self._calculate_enabled = False
-                    self._planar_calculate_enabled = False
                     return
                 st = self.session.playback_status
                 self._update_task_progress()
                 self.playing = st == PlaybackStatus.PLAYING
                 bend_order = getattr(self.session, "bend_order", [])
-                self._calculate_enabled = not self.playing and len(bend_order) > 1
-                self._planar_calculate_enabled = not self.playing and bool(bend_order)
                 if st == PlaybackStatus.PLAYING:
                     self.play_btn.setText("Pause")
                     icon_name = "control_pause.svg"
@@ -5493,7 +4831,6 @@ class _PreviewPanel:
                 )
                 self._smbs_document_name = str(doc.Name)
                 self._smbs_allow_auto_embed = False
-                self.last_planar_search_report = None
                 self._saved_full_sequences = []
                 self._last_manual_sequence_report = None
                 self._manual_3d_verdicts.clear()
@@ -5516,7 +4853,6 @@ class _PreviewPanel:
                 self._manual_preview_unverified = False
                 self._manual_selection_enabled = False
                 self._manual_preview_notice.hide()
-                self.last_sequence_search_report = None
                 self._ensure_press_cycle_controller()
                 self._sync_tooling_to_active_bend()
                 self._populate_operations()
@@ -6303,8 +5639,6 @@ class _PreviewPanel:
                         if self._last_manual_sequence_report is not None
                         else (self._embedded_diagnostics_history or {}).get("manual")
                     ),
-                    search_report=self.last_sequence_search_report,
-                    planar_report=self.last_planar_search_report,
                     operation_weights=weights.to_dict(),
                     retract_warning=self.retract_warning_checkbox.isChecked(),
                     saved_sequences=self._saved_full_sequences,
@@ -6405,8 +5739,6 @@ class _PreviewPanel:
                 self._manual_preview_notice.hide()
                 self._partial_preview_limit = None
                 self._preview_only_planar_order = None
-                self.last_sequence_search_report = None
-                self.last_planar_search_report = None
                 self._last_manual_sequence_report = None
                 self._manual_3d_verdicts.clear()
                 self._manual_retract_verdicts.clear()
@@ -6513,12 +5845,15 @@ class _PreviewPanel:
                 for key, value in payload["simulation"].get(
                     "operation_weights", {}
                 ).items():
-                    editor = self._weight_editors.get(key)
-                    if editor is not None:
+                    if key in self._operation_weights:
                         try:
                             number = float(value)
                             if math.isfinite(number) and 0.0 <= number <= 100000.0:
-                                editor.setValue(number)
+                                if self._operation_weights[key] != number:
+                                    self._operation_weights[key] = number
+                                    QtCore.QSettings("SMBS", "BendSeq").setValue(
+                                        "operation_weights/" + key, number
+                                    )
                         except (TypeError, ValueError):
                             warnings.append("Вес операции " + str(key))
 
@@ -7159,8 +6494,6 @@ class _PreviewPanel:
                 selected = prefix or order
                 preview_count = len(selected)
                 self._preview_only_planar_order = None
-                self.last_planar_search_report = None
-                self.last_sequence_search_report = None
                 # A replay must NOT discard actual OCC evidence. Retain it
                 # only while the explicit order and selected native tooling
                 # configuration still match the check that produced it.
@@ -7432,7 +6765,6 @@ class _PreviewPanel:
                 self._selected_planar_gauge_positions = {}
                 self._selected_planar_gauge_model_id = None
                 self._backgauge_preview_cache.clear()
-                self.last_sequence_search_report = None
                 self._conditional_bends_status.clear()
                 checkpoint("update_order_controls")
                 self._sync_manual_order_input()

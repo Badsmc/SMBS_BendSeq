@@ -100,10 +100,6 @@ def show_sequence_catalog(workspace):
                 entries.extend(load_catalog_file(path))
             except (OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
                 failures.append(Path(path).name + ": " + str(exc))
-        if workspace.last_planar_search_report is not None:
-            entries.extend(parse_diagnostic(
-                workspace.last_planar_search_report.to_dict(),
-                "Текущий автоматический поиск"))
         manual_report = getattr(workspace, "_last_manual_sequence_report", None)
         if manual_report is not None:
             entries.extend(parse_diagnostic(

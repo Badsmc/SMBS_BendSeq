@@ -1,27 +1,27 @@
 # SMBS ManualMode — manual press-brake bending
 
-This branch is based on [smbs](https://github.com/Badsmc/SMBS_BendSeq/tree/smbs) and preserves its FreeCAD runtime. The source branch is unchanged.
+This branch is based on [smbs](https://github.com/Badsmc/SMBS_BendSeq/tree/smbs) and preserves its FreeCAD runtime.
 
 ## Operator workflow
 
-1. **Деталь** — select a SheetMetal unfold and load the part.
+1. **Деталь** — select a SheetMetal unfold and load the part. For an ASCII DXF, open **Развёртка DXF**, enable the relevant layers, assign bend angles in order, and click **Рассчитать**. **Назад** undoes the last assignment or edit. The imported order appears numbered on the simulator's flat pattern.
 2. **Оснастка** — choose punch, die and machine parameters.
-3. **Порядок и проверка** — enter the bend labels, for example `2-1-3-4` or `B02 B01 B03 B04`. You can also click the bend lines on the unfolded view or reorder the operations table. A partial selection checks the chosen prefix.
+3. **Симуляция** — enter the bend labels, for example `2-1-3-4` or `B02 B01 B03 B04`. You can also click the bend lines on the unfolded view or reorder the operations table. A partial selection checks the chosen prefix.
 4. **Проверить и показать** — run the adaptive OCC check for the selected order and see the result in Tasks. Coin3D opens in the checked loading position or at the first proven sheet/tool collision.
 5. **Симулировать результат** — replay the same loading orientations. A partial check stops playback at its checked boundary. **Симулировать без проверки** is available before checking. **Быстрая проверка OCC (5 углов)** provides a coarse check.
 6. **Последовательности / Настройки** — restore or save the order and diagnostics in FCStd.
 
 ## Loading orientation and previously bent flanges
 
-The **180°** column in **Порядок и проверка** shows the loading position of each bend. A checked box means the complete sheet is rotated 180° around the machine’s vertical axis. An unchecked box means 0°. Clicking the box fixes that bend’s position for Coin3D and the OCC check. The choice follows the bend when you reorder the steps and is saved with the SMBS settings in FCStd. Run the collision check again after editing a position.
+The **180°** column in **Симуляция** shows the loading position of each bend. A checked box means the complete sheet is rotated 180° around the machine’s vertical axis. An unchecked box means 0°. Clicking the box fixes that bend’s position for Coin3D and the OCC check. The choice follows the bend when you reorder the steps and is saved with the SMBS settings in FCStd. Run the collision check again after editing a position.
 
 **Подбирать положение заготовки (0° / 180°)** enables automatic selection for bends without a manual choice. If the first position collides, is conditional, or is unresolved, OCC tries the opposite position with the same previously formed flanges. To let OCC choose the position for a manually set bend again, right-click its checkbox and select **Подбирать положение автоматически**.
 
-The FreeCAD toolbar has five commands: Деталь, Оснастка, Симуляция, Порядок и проверка, Настройки. The menu also provides saved sequences, backgauge, and the separate tooling library.
+The FreeCAD toolbar has five commands: Деталь, Развёртка DXF, Оснастка, Симуляция, Настройки. The menu also provides saved sequences, backgauge, and the separate tooling library.
 
 ## Automatic search is disabled in ManualMode
 
-The workbench **does not register** `SMBS_Calculate` or `SMBS_PlanarCandidates`. The 2D candidate-search task page is removed from the visible task stack; search-only weights and RETRACT search tolerance are not shown. They cannot be launched from the ManualMode GUI. Existing auto-search classes/solvers are kept as internal dependencies for now, not exposed as operator actions. This is intentional to avoid breaking imports and manual simulation/validation paths during the manual-only split. No claim is made that search internals have been physically deleted from this branch.
+ManualMode exposes manual order selection, replay, and collision checks. The sequence catalog can still open existing reports and replay imported orders. Shared search and validation modules support those workflows.
 
 ## Installation
 
@@ -136,7 +136,7 @@ Review `MANUAL_ASSISTED_RETRACT_EXPERIMENT` and
    to create a centred row with pitch equal to clamp length plus gap.
    Explicit X centres take precedence. X = 0 is the press centre.
 3. Open a part, choose the punch and die, set the manual order, then press
-   **Набрать оснастку — расчёт сегментов** in **Порядок и проверка**
+   **Набрать оснастку — расчёт сегментов** in **Симуляция**
    or **Рассчитать раскладку** in the tooling library. Pick a bend in
    the report to see its sections in Coin3D. A supported punch can be
    previewed while the die stock is still missing. The report shows for each bend: nominal bend length, actual assembled
