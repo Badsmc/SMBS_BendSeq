@@ -420,8 +420,78 @@ class DxfManualCommand:
         layout = qt.QVBoxLayout(dialog)
         layout.addWidget(qt.QLabel("Щёлкните по линии и задайте угол. Ноль снимает назначение. "
                                   "Порядок назначения задаёт порядок гибов."))
+        class DxfView(qt.QGraphicsView):
+            def __init__(self, drawing):
+                super().__init__(drawing)
+                self._zoom_steps = 0.0
+                self._pan_pos = None
+                self.setRenderHint(gui.QPainter.Antialiasing)
+                self.setTransformationAnchor(qt.QGraphicsView.NoAnchor)
+                self.setResizeAnchor(qt.QGraphicsView.AnchorViewCenter)
+                self.setHorizontalScrollBarPolicy(core.Qt.ScrollBarAlwaysOff)
+                self.setVerticalScrollBarPolicy(core.Qt.ScrollBarAlwaysOff)
+                self.setToolTip("Колесо мыши — масштаб. Средняя кнопка — перемещение.")
+
+            def fit_drawing(self):
+                bounds = self.scene().itemsBoundingRect()
+                if not bounds.isEmpty():
+                    # Leave room to keep the cursor anchored near drawing edges.
+                    margin = max(bounds.width(), bounds.height())
+                    self.setSceneRect(bounds.adjusted(-margin, -margin, margin, margin))
+                    self.resetTransform()
+                    self.fitInView(bounds, core.Qt.KeepAspectRatio)
+                    self._zoom_steps = 0.0
+
+            def wheelEvent(self, event):
+                delta = event.angleDelta().y() or event.pixelDelta().y()
+                if not delta:
+                    event.ignore()
+                    return
+                position = event.position().toPoint() if hasattr(event, "position") else event.pos()
+                anchor = self.mapToScene(position)
+                steps = max(-8.0, min(28.0, self._zoom_steps + delta / 120.0))
+                factor = 1.2 ** (steps - self._zoom_steps)
+                self.scale(factor, factor)
+                self._zoom_steps = steps
+                self._scroll_by(self.mapFromScene(anchor) - position)
+                event.accept()
+
+            def _scroll_by(self, offset):
+                horizontal = self.horizontalScrollBar()
+                vertical = self.verticalScrollBar()
+                horizontal.setValue(horizontal.value() + offset.x())
+                vertical.setValue(vertical.value() + offset.y())
+
+            def mousePressEvent(self, event):
+                if event.button() == core.Qt.MiddleButton:
+                    self._pan_pos = event.pos()
+                    self.viewport().setCursor(core.Qt.ClosedHandCursor)
+                    event.accept()
+                    return
+                super().mousePressEvent(event)
+
+            def mouseMoveEvent(self, event):
+                if self._pan_pos is None:
+                    super().mouseMoveEvent(event)
+                    return
+                self._scroll_by(self._pan_pos - event.pos())
+                self._pan_pos = event.pos()
+                event.accept()
+
+            def mouseReleaseEvent(self, event):
+                if event.button() == core.Qt.MiddleButton and self._pan_pos is not None:
+                    self._pan_pos = None
+                    self.viewport().unsetCursor()
+                    event.accept()
+                    return
+                super().mouseReleaseEvent(event)
+
         scene = qt.QGraphicsScene(dialog)
-        view = qt.QGraphicsView(scene)
+        view = DxfView(scene)
+        fit_button = qt.QPushButton("Показать целиком")
+        fit_button.setToolTip(view.toolTip())
+        fit_button.clicked.connect(view.fit_drawing)
+        layout.addWidget(fit_button, 0, core.Qt.AlignLeft)
         layout.addWidget(view, 1)
         layers_box = qt.QListWidget()
         layers_box.setMaximumHeight(120)
@@ -639,7 +709,7 @@ class DxfManualCommand:
             core.QTimer.singleShot(0, calculate)
 
         button.clicked.connect(start_calculation)
-        core.QTimer.singleShot(0, lambda: view.fitInView(scene.itemsBoundingRect(), core.Qt.KeepAspectRatio))
+        core.QTimer.singleShot(0, view.fit_drawing)
         run = getattr(dialog, "exec", None) or dialog.exec_
         result = run()
         log("DXF_DIALOG_CLOSED", result=int(result), attempts=attempt)
