@@ -239,14 +239,14 @@ def build_panels(unfold_name="Body_Unfold", outline_name=None, bends_name=None,
 
 
 def partition_flat_pattern(outline_shape, canonical, lines, bends,
-                           strip_width_mm=0.02, extension_mm=0.2):
+                           strip_width_mm=0.02, extension_mm=0.2, *, hole_faces=()):
     """Build rigid panels and finite-radius zones from planar geometry."""
     import FreeCAD as App
     import Part
 
     if len(outline_shape.Wires) != 1 or not outline_shape.Wires[0].isClosed():
         raise PanelBuildError("Expected exactly one closed outline wire")
-    if len(outline_shape.Edges) < 3:
+    if not outline_shape.Edges:
         raise PanelBuildError("Invalid outline")
     # Sample the entire ordered wire (including arcs), rather than concatenating
     # edge vertices whose individual orientations are not guaranteed.
@@ -269,6 +269,10 @@ def partition_flat_pattern(outline_shape, canonical, lines, bends,
     z = sheet.CenterOfMass.z
     if abs(z) > 1e-5:
         raise PanelBuildError("Outline plane must be z=0")
+    for hole in hole_faces:
+        if abs(sheet.common(hole).Area - hole.Area) > 1e-5 or sheet.OuterWire.distToShape(hole)[0] < 1e-6:
+            raise PanelBuildError("Окружности отверстий должны лежать внутри контура и не пересекаться.")
+        sheet = sheet.cut(hole)
     axis_matches = match_bend_axes(canonical, lines)
     # Reject source/sketch frame mismatch; never silently shift canonical data.
     cutters = []
@@ -310,6 +314,8 @@ def partition_flat_pattern(outline_shape, canonical, lines, bends,
                 )
             )
         zcutter = _strip(Part, App, a, b, zone.bend_allowance_mm, extension_mm)
+        if any(hole.distToShape(zcutter)[0] < 1e-6 for hole in hole_faces):
+            raise PanelBuildError(f"{bend.bend_id}: отверстие попадает в зону гиба.")
         zface = sheet.common(zcutter)
         if zface.Area <= 1e-5:
             raise PanelBuildError("Empty bend zone face for {}".format(bend.bend_id))
