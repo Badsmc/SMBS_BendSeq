@@ -1,5 +1,5 @@
 """Manual bending of a single flat outline from an ASCII DXF."""
-from math import copysign, isfinite
+from math import copysign, dist, floor, isfinite
 from pathlib import Path
 from types import SimpleNamespace
 from dataclasses import dataclass
@@ -61,6 +61,41 @@ def read_lines(path):
     return edges
 
 
+def join_outline(lines, tolerance=0.01):
+    """Snap nearby endpoints and remove duplicate edges before OCC builds wires."""
+    grid = {}
+    neighbours = {}
+    edges = set()
+
+    def snap(point):
+        x, y = (floor(value / tolerance) for value in point)
+        candidates = [other for i in range(x - 1, x + 2)
+                      for j in range(y - 1, y + 2)
+                      for other in grid.get((i, j), ())
+                      if dist(point, other) <= tolerance]
+        if candidates:
+            return min(candidates, key=lambda other: dist(point, other))
+        grid.setdefault((x, y), []).append(point)
+        return point
+
+    for start, end in lines:
+        a, b = snap(start), snap(end)
+        if a == b:
+            continue
+        edge = tuple(sorted((a, b)))
+        if edge in edges:
+            continue
+        edges.add(edge)
+        neighbours.setdefault(a, set()).add(b)
+        neighbours.setdefault(b, set()).add(a)
+    for (x, y), links in neighbours.items():
+        if len(links) != 2:
+            fault = "Разрыв контура" if len(links) == 1 else "Разветвление контура"
+            raise ValueError(f"{fault} возле X={x:.3f}, Y={y:.3f} мм. "
+                             "Проверьте линии гиба и контур DXF.")
+    return sorted(edges)
+
+
 def build_session(path, lines, angles, thickness, radius, k_factor):
     import FreeCAD as App
     import Part
@@ -71,18 +106,18 @@ def build_session(path, lines, angles, thickness, radius, k_factor):
     from smbs_core.kinematics2d.panel_graph import graph_from_panel_build
     from smbs_core.kinematics2d.panel_kinematics import FoldState
 
-    outline = [Part.makeLine(*(App.Vector(x, y, 0) for x, y in line))
-               for index, line in enumerate(lines)
-               if index not in angles and not isinstance(line, DxfCircle)]
-    circles = [Part.Wire([Part.makeCircle(line.radius, App.Vector(line.x, line.y, 0))])
-               for line in lines if isinstance(line, DxfCircle)]
-    groups = Part.sortEdges(outline)
-    if len(groups) == 1:
-        wire = Part.Wire(groups[0])
-    elif not outline and circles:
-        wire = circles.pop(max(range(len(circles)), key=lambda i: circles[i].Length))
-    else:
-        raise ValueError("После выбора гибов должен остаться один замкнутый внешний контур.")
+    outline = join_outline(line for index, line in enumerate(lines)
+                           if index not in angles and not isinstance(line, DxfCircle))
+    edges = [Part.makeLine(*(App.Vector(x, y, 0) for x, y in line)) for line in outline]
+    wires = [Part.Wire(group) for group in Part.sortEdges(edges)]
+    wires.extend(Part.Wire([Part.makeCircle(line.radius, App.Vector(line.x, line.y, 0))])
+                 for line in lines if isinstance(line, DxfCircle))
+    faces = [Part.Face(wire) for wire in wires if wire.isClosed()]
+    if not faces or len(faces) != len(wires) or any(not face.isValid() for face in faces):
+        raise ValueError("Не удалось собрать замкнутый контур DXF.")
+    outer = max(faces, key=lambda face: face.Area)
+    holes = tuple(face for face in faces if face is not outer)
+    wire = outer.OuterWire
     axes = tuple(lines[index] for index in angles)
     bends = [
         SimpleNamespace(bend_id=f"B{step:02d}", fold_angle_deg=angle,
@@ -92,7 +127,7 @@ def build_session(path, lines, angles, thickness, radius, k_factor):
         for step, angle in enumerate(angles.values(), 1)
     ]
     panels = partition_flat_pattern(wire, axes, axes, bends,
-                                    hole_faces=tuple(Part.Face(circle) for circle in circles))
+                                    hole_faces=holes)
     graph = graph_from_panel_build(panels)
     fixed = max(panels.panels, key=lambda panel: panel.area_mm2).panel_id
     state = FoldState(graph, fixed)
@@ -104,7 +139,7 @@ def build_session(path, lines, angles, thickness, radius, k_factor):
             points = ring.discretize(Deflection=0.05)
             rings.append(tuple((v.x, v.y) for v in points[:-1]))
         vertices[panel.panel_id] = rings[0]
-        if circles or not outline:
+        if holes or len(wire.Edges) == 1:
             points, triangles = face.tessellate(0.05)
             meshes[panel.panel_id] = (
                 tuple(tuple((points[i].x, points[i].y) for i in triangle)
