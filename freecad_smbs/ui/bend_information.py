@@ -1,31 +1,68 @@
 """Bend schedule and flat-pattern geometry for a FreeCAD drawing."""
 from __future__ import annotations
 
-HEADERS = ("№ гиба", "Линия", "Упор S, мм", "Полка по развёртке, мм", "Угол, °", "Набор оснастки")
+from collections import Counter
+from dataclasses import replace
+from math import dist
+
+from smbs_core.geometry_backend.io.clamp_validator import ClampValidatorError
+from smbs_core.kinematics2d.segment_assembly_planner import plan_pair_for_bend
+
+HEADERS = ("№ гиба", "Линия", "Упор S, мм", "Полка по развёртке, мм", "Угол, °",
+           "Пуансон, мм × шт.", "Матрица, мм × шт.")
+
+
+def _format_segments(lengths):
+    counts = Counter(round(length, 6) for length in lengths)
+    return " + ".join(f"{length:g}×{count}" for length, count in counts.items())
 
 
 def bend_rows(workspace):
     setup = workspace.tooling_setup
+    applied = (setup.punch_section_spans_xm, setup.die_section_spans_xm)
+    inputs = None
+    if not all(applied):
+        try:
+            punch_stock, die_stock, config = workspace._tool_assembly_inputs(require_pair=False)
+            machine = getattr(getattr(workspace, "_preview_3d", None), "_machine", None)
+            if not config.centres_mm and machine is not None:
+                config = replace(config, positions_mm=tuple(
+                    (left + right) / 2 for left, right in machine.clamp_spans
+                ))
+            inputs = punch_stock, die_stock, config
+        except (OSError, ValueError, ClampValidatorError) as exc:
+            error = str(exc)
+    layouts = {}
     rows = []
     for index, bend_id in enumerate(workspace.session.bend_order):
         bend = workspace.session.fold_state.bends[bend_id]
         gauge = workspace._backgauge_preview_position(index)
         stop = gauge[0] if gauge else None
         flange = workspace.session.local_bend_dimensions_mm.get(bend_id)
+        plan = {}
+        if inputs is not None:
+            length = dist(*bend.axis_xyz)
+            if length not in layouts:
+                punch_stock, die_stock, config = inputs
+                layouts[length] = plan_pair_for_bend(punch_stock, die_stock, length, config)
+            plan = layouts[length]
         tools = []
-        for kind, label in (("punch", "Пуансон"), ("die", "Матрица")):
-            profile = getattr(setup, kind)
-            spans = getattr(setup, f"{kind}_section_spans_xm")
-            if profile is None:
+        for kind, spans in zip(("punch", "die"), applied):
+            if spans:
+                tools.append(_format_segments(right - left for left, right in spans))
                 continue
-            sizes = (" + ".join(f"{right - left:g}" for left, right in spans)
-                     if spans else "виртуальная длина" if setup.match_active_bend_length
-                     else "цельный инструмент")
-            tools.append(f"{label} {profile.tool_id} ({sizes})")
+            section_plan = plan.get("punch_preview", plan) if kind == "punch" else plan
+            segments = section_plan.get(kind + "_segments", ())
+            if segments:
+                tools.append(_format_segments(segment["length_mm"] for segment in segments))
+            elif getattr(setup, kind) is None:
+                tools.append("—")
+            else:
+                tools.append("Нет раскладки" if inputs is not None else error)
         rows.append((str(index + 1), bend_id,
                      f"{stop.s_mm:.2f}" if stop is not None else "—",
                      f"{flange:.2f}" if flange is not None else "—",
-                     f"{bend.angle_deg:+.2f}", " / ".join(tools) or "—"))
+                     f"{bend.angle_deg:+.2f}", *tools))
     return rows
 
 
@@ -54,10 +91,11 @@ def export_bend_information(document, session, rows):
             sheet.clearAll()
         sheet.Label = "SMBS — таблица гибов"
         for line, row in enumerate((HEADERS, *rows), 1):
-            for column, value in zip("ABCDEF", row):
+            for column, value in zip("ABCDEFG", row):
                 sheet.set(f"{column}{line}", value)
-        sheet.setStyle("A1:F1", "bold", "add")
-        sheet.setColumnWidth("F", 520)
+        sheet.setStyle("A1:G1", "bold", "add")
+        sheet.setColumnWidth("F", 200)
+        sheet.setColumnWidth("G", 200)
         drawing = document.getObject("SMBS_BendDrawing")
         if drawing is None:
             drawing = document.addObject("Part::Feature", "SMBS_BendDrawing")
