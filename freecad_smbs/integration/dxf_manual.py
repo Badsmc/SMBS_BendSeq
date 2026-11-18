@@ -498,7 +498,14 @@ class DxfManualCommand:
         fit_button = qt.QPushButton("Показать целиком")
         fit_button.setToolTip(view.toolTip())
         fit_button.clicked.connect(view.fit_drawing)
-        layout.addWidget(fit_button, 0, core.Qt.AlignLeft)
+        undo_button = qt.QPushButton("Назад")
+        undo_button.setToolTip("Отменить последнее назначение или изменение угла гиба")
+        undo_button.setEnabled(False)
+        drawing_actions = qt.QHBoxLayout()
+        drawing_actions.addWidget(fit_button)
+        drawing_actions.addWidget(undo_button)
+        drawing_actions.addStretch()
+        layout.addLayout(drawing_actions)
         layout.addWidget(view, 1)
         layers_box = qt.QListWidget()
         layers_box.setMaximumHeight(120)
@@ -516,6 +523,7 @@ class DxfManualCommand:
         layout.addWidget(qt.QLabel("Слои для расчёта"))
         layout.addWidget(layers_box)
         angles = {}
+        angle_history = []
         items = []
         geometry_items = []
         feedback = qt.QLabel("Выберите линии гиба.")
@@ -537,13 +545,21 @@ class DxfManualCommand:
                 log("DXF_BEND_ANGLE_CANCELLED", index=index, layer=layers[index])
                 return
             previous_angle = angles.get(index)
+            if previous_angle == (value or None):
+                return
+            angle_history.append(angles.copy())
             if value:
                 angles[index] = value
             else:
                 angles.pop(index, None)
             log("DXF_BEND_ANGLE_CHANGED", index=index, layer=layers[index],
                 previous_angle_deg=previous_angle, angle_deg=angles.get(index))
+            refresh_assignments()
+
+        def refresh_assignments():
             feedback.setText("Назначено гибов: {}".format(len(angles)))
+            undo_button.setEnabled(bool(angle_history))
+            positions = {index: step for step, index in enumerate(angles, 1)}
             for i, line in enumerate(items):
                 if line is None:
                     continue
@@ -551,7 +567,17 @@ class DxfManualCommand:
                 pen.setWidth(3 if i in angles else 2)
                 pen.setCosmetic(True)
                 line.setPen(pen)
-                line.setToolTip(f"{list(angles).index(i)+1}. {angles[i]:+g}°" if i in angles else "")
+                line.setToolTip(f"{positions[i]}. {angles[i]:+g}°" if i in angles else "")
+
+        def undo_assignment():
+            if not angle_history:
+                return
+            angles.clear()
+            angles.update(angle_history.pop())
+            refresh_assignments()
+            log("DXF_BEND_ASSIGNMENT_UNDONE", assignments=list(angles.items()))
+
+        undo_button.clicked.connect(undo_assignment)
 
         class ClickFilter(core.QObject):
             def eventFilter(self, obj, event):
