@@ -941,14 +941,15 @@ class PressBrake2DCommand:
             None,
         )
         if existing is not None and existing.widget() is not None:
-            mdi.setActiveSubWindow(existing)
-            existing.show()
-            existing.raise_()
             workspace = existing.widget()
             # Simulation is navigation only, not an automatic search. Leave
             # the manual order, fold angles and playback state untouched.
             show_workspace_controls(workspace, tab=2)
-            workspace._open_coin_preview()
+            viewer = workspace._preview_3d
+            if viewer._native and getattr(viewer, "_native_doc", None):
+                workspace._update_3d_preview(force=True)
+            else:
+                workspace._open_coin_preview()
             return
 
         widget = _PreviewPanel()
@@ -1385,6 +1386,8 @@ class _PreviewPanel:
                 self.backgauge_model = None
                 self._backgauge_preview_cache = {}
                 self._tooling_sections_preview = None
+                self._simulation_layouts = {}
+                self._simulation_layout_key = None
                 self._machine_gauge_envelope_cache = None
                 # Preserve the exact S/Z candidate accepted by the search.
                 # Otherwise a GUI redraw would recompute the primary gauge
@@ -3125,15 +3128,6 @@ class _PreviewPanel:
                     faces = transform_preview_faces(self._coin_fold_mesh_faces, placement)
                     viewer.set_sheet_faces(faces, highlighted=highlighted)
                     tooling = self.tooling_setup
-                    section_preview = proposal[1] if show_proposal else None
-                    if show_proposal:
-                        message = f"{bend_id} · Предпросмотр раскладки сегментов"
-                        if not tooling.visible:
-                            tooling = replace(tooling, visible=True)
-                    viewer.update_tools(
-                        tooling, ram_z, active_bend_length_mm=inspected_length,
-                        section_preview=section_preview,
-                    )
                     stations, contact, gauge_note = self._coin_backgauge_positions(
                         self.session.bend_order.index(bend_id), at_collision=bool(inspection),
                     )
@@ -3141,6 +3135,19 @@ class _PreviewPanel:
                         self.tool_library.library_root, tooling, ram_z,
                         frame_visible=self.machine_preview_checkbox.isChecked(),
                         gauge_stations=stations, gauge_contact=contact,
+                    )
+                    section_preview = proposal[1] if show_proposal else None
+                    if not show_proposal and not inspection and tooling.tool_assembly is None and not current_verdict:
+                        section_preview = self._simulation_tool_sections(bend_id)
+                        if section_preview:
+                            message = f"{bend_id} · Раскладка сегментов для симуляции"
+                    if show_proposal:
+                        message = f"{bend_id} · Предпросмотр раскладки сегментов"
+                        if not tooling.visible:
+                            tooling = replace(tooling, visible=True)
+                    viewer.update_tools(
+                        tooling, ram_z, active_bend_length_mm=inspected_length,
+                        section_preview=section_preview,
                     )
                     viewer.set_collision_boxes(bounds)
                     status = " · ".join(filter(None, (message, *messages, gauge_note)))
@@ -3361,7 +3368,41 @@ class _PreviewPanel:
                 self._update_operations_visual_state()
                 self.draw()
 
+            def _simulation_tool_sections(self, bend_id):
+                from smbs_core.geometry_backend.io.clamp_validator import ClampValidatorError
+                from smbs_core.kinematics2d.segment_assembly_planner import plan_pair_for_bend
+
+                tooling = self.tooling_setup
+                key = (id(self.session), id(tooling.punch), id(tooling.die),
+                       self.tool_library.library_root)
+                if self._simulation_layout_key != key:
+                    self._simulation_layout_key = key
+                    self._simulation_layouts.clear()
+                length = math.dist(*self.session.fold_state.bends[bend_id].axis_xyz)
+                if length not in self._simulation_layouts:
+                    sections = {}
+                    try:
+                        punch, die, config = self._tool_assembly_inputs(require_pair=False)
+                        machine = getattr(self._preview_3d, "_machine", None)
+                        if not config.centres_mm and machine is not None:
+                            config = replace(config, positions_mm=tuple(
+                                (left + right) / 2 for left, right in machine.clamp_spans
+                            ))
+                        plan = plan_pair_for_bend(punch, die, length, config)
+                        punch_plan = plan.get("punch_preview", plan)
+                        if not punch_plan.get("clamps", {}).get("proposed_reposition"):
+                            for kind, source in (("punch", punch_plan), ("die", plan)):
+                                spans = tuple((item["start_x_mm"], item["end_x_mm"])
+                                              for item in source.get(kind + "_segments", ()))
+                                if spans:
+                                    sections[kind] = spans
+                    except (OSError, ValueError, ClampValidatorError) as exc:
+                        _warn(f"Раскладка для симуляции: {exc}")
+                    self._simulation_layouts[length] = sections or None
+                return self._simulation_layouts[length]
+
             def _on_tool_inventory_changed(self, kind=None, tool_id=None):
+                self._simulation_layout_key = None
                 if kind is not None:
                     key = str(getattr(kind, "value", kind)).lower()
                     selected = getattr(self.tooling_setup, key, None)
