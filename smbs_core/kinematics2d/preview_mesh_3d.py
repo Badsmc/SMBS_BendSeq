@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from math import hypot, isfinite
+from functools import cache
 
 
 @dataclass(frozen=True)
@@ -47,6 +48,7 @@ def transform_preview_faces(faces, machine_placement):
     if machine_placement is None:
         raise PreviewMeshError("machine placement is required")
 
+    @cache
     def relocate(point):
         s, depth, z = point
         machine = machine_placement.apply(
@@ -209,8 +211,12 @@ def build_sheet_preview_faces(
         if not pts_xy or len(pts_xy) < 3:
             continue
         tf = fold_state.transforms[panel_id]
+        @cache
+        def project(point, z):
+            return world_to_machine(tf.point((*point, z)))
+
         def polygon(points, z):
-            return tuple(world_to_machine(tf.point((x, y, z))) for x, y in points)
+            return tuple(project(point, z) for point in points)
 
         caps, rings = (panel_meshes or {}).get(panel_id, ((pts_xy,), (pts_xy,)))
         for cap in caps:
