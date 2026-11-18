@@ -93,6 +93,7 @@ def build_session(path, lines, angles, thickness, radius, k_factor):
 class DxfManualCommand:
     def GetResources(self):
         return {"MenuText": "Развёртка DXF",
+                "Pixmap": str(Path(__file__).resolve().parents[1] / "resources" / "icons" / "control_folder.svg"),
                 "ToolTip": "Назначить углы линиям гиба на развёртке DXF"}
 
     def IsActive(self):

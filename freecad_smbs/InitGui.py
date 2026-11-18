@@ -29,6 +29,7 @@ from freecad_smbs.integration.dxf_manual import DxfManualCommand
 
 CMD_PRESSBRAKE_2D = "SMBS_PressBrake2D"
 CMD_TOOLING = "SMBS_Tooling"  # Preserve existing standalone library command
+CMD_DXF_MANUAL = "SMBS_DxfManual"
 CMD_LOAD_PART = "SMBS_LoadPart"
 CMD_TOOLING_TAB = "SMBS_ToolingTab"
 CMD_SEQUENCE_CATALOG = "SMBS_SequenceCatalog"
@@ -37,7 +38,7 @@ CMD_MANUAL = "SMBS_Manual"
 CMD_SETTINGS = "SMBS_Settings"
 COMMANDS_MAP = {
     CMD_PRESSBRAKE_2D: PressBrake2DCommand,
-    "SMBS_DxfManual": DxfManualCommand,
+    CMD_DXF_MANUAL: DxfManualCommand,
     CMD_LOAD_PART: LoadPartCommand,
     CMD_TOOLING_TAB: ToolingTabCommand,
     CMD_SEQUENCE_CATALOG: SequenceCatalogCommand,
@@ -79,11 +80,11 @@ class SMBSWorkbench(Workbench):
         # ManualMode: never register automatic sequence search commands.
         # Hand-picked bend orders are checked explicitly by the operator.
         toolbar = [
-            CMD_LOAD_PART, CMD_TOOLING_TAB, CMD_PRESSBRAKE_2D,
+            CMD_LOAD_PART, CMD_DXF_MANUAL, CMD_TOOLING_TAB, CMD_PRESSBRAKE_2D,
             CMD_MANUAL, CMD_SETTINGS,
         ]
         menu = [
-            *toolbar, "SMBS_DxfManual", CMD_SEQUENCE_CATALOG,
+            *toolbar, CMD_SEQUENCE_CATALOG,
             CMD_TOOLING, *_TOOLING_ACTIONS,
         ]
         self.appendMenu(self.MenuText, menu)
