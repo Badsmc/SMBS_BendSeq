@@ -160,7 +160,7 @@ def build_tool_preview_faces(tooling, *, arc_segments=20,
 
 def build_sheet_preview_faces(
     fold_state, panel_vertices_xy, active_bend_id, pose, segments=12,
-    *, machine_placement=None,
+    *, machine_placement=None, panel_meshes=None,
 ):
     """Build real panel/bend faces; optionally project the SAME machine pose.
 
@@ -209,17 +209,25 @@ def build_sheet_preview_faces(
         if not pts_xy or len(pts_xy) < 3:
             continue
         tf = fold_state.transforms[panel_id]
-        top = tuple(world_to_machine(tf.point((x, y, 0.0))) for x, y in pts_xy)
-        bottom = tuple(world_to_machine(tf.point((x, y, -thickness))) for x, y in pts_xy)
-        faces.append(PreviewFace3D(top, "panel_top", str(panel_id)))
-        faces.append(PreviewFace3D(tuple(reversed(bottom)), "panel_bottom", str(panel_id)))
-        for i in range(len(top)):
-            j = (i + 1) % len(top)
-            if hypot(top[i][0]-top[j][0], top[i][1]-top[j][1]) < 1e-7:
-                continue
-            faces.append(PreviewFace3D(
-                (top[i], top[j], bottom[j], bottom[i]), "panel_edge", str(panel_id)
-            ))
+        def polygon(points, z):
+            return tuple(world_to_machine(tf.point((x, y, z))) for x, y in points)
+
+        caps, rings = (panel_meshes or {}).get(panel_id, ((pts_xy,), (pts_xy,)))
+        for cap in caps:
+            top = polygon(cap, 0.0)
+            bottom = polygon(cap, -thickness)
+            faces.append(PreviewFace3D(top, "panel_top", str(panel_id)))
+            faces.append(PreviewFace3D(tuple(reversed(bottom)), "panel_bottom", str(panel_id)))
+        for ring in rings:
+            top = polygon(ring, 0.0)
+            bottom = polygon(ring, -thickness)
+            for i in range(len(top)):
+                j = (i + 1) % len(top)
+                if hypot(top[i][0]-top[j][0], top[i][1]-top[j][1]) < 1e-7:
+                    continue
+                faces.append(PreviewFace3D(
+                    (top[i], top[j], bottom[j], bottom[i]), "panel_edge", str(panel_id)
+                ))
 
     for bend_id, bend in fold_state.bends.items():
         zone = bend.bend_zone

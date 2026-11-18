@@ -1,7 +1,15 @@
 """Manual bending of a single flat outline from an ASCII DXF."""
-from math import copysign
+from math import copysign, isfinite
 from pathlib import Path
 from types import SimpleNamespace
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True)
+class DxfCircle:
+    x: float
+    y: float
+    radius: float
 
 from smbs_core.kinematics2d.tooling_25d import (
     LineSegment2D, _extract_dxf_units, _lwpolyline_to_segments, _parse_dxf_pairs,
@@ -32,6 +40,12 @@ def read_lines(path):
                 raise ValueError("Линии DXF должны лежать в плоскости XY.")
             segments = [LineSegment2D((float(values[10]), float(values[20])),
                                       (float(values[11]), float(values[21])))]
+        elif entity == "CIRCLE":
+            x, y, radius = (float(values[group]) * scale for group in (10, 20, 40))
+            if not all(isfinite(v) for v in (x, y, radius)) or radius <= 0 or abs(float(values.get(30, 0))) > 1e-6:
+                raise ValueError("Некорректная окружность в плоскости XY.")
+            edges.append(DxfCircle(x, y, radius))
+            continue
         elif entity == "LWPOLYLINE":
             segments = _lwpolyline_to_segments(props)
             if any(not isinstance(segment, LineSegment2D) for segment in segments):
@@ -58,11 +72,17 @@ def build_session(path, lines, angles, thickness, radius, k_factor):
     from smbs_core.kinematics2d.panel_kinematics import FoldState
 
     outline = [Part.makeLine(*(App.Vector(x, y, 0) for x, y in line))
-               for index, line in enumerate(lines) if index not in angles]
+               for index, line in enumerate(lines)
+               if index not in angles and not isinstance(line, DxfCircle)]
+    circles = [Part.Wire([Part.makeCircle(line.radius, App.Vector(line.x, line.y, 0))])
+               for line in lines if isinstance(line, DxfCircle)]
     groups = Part.sortEdges(outline)
-    if len(groups) != 1:
-        raise ValueError("После выбора гибов должен остаться один замкнутый контур без отверстий.")
-    wire = Part.Wire(groups[0])
+    if len(groups) == 1:
+        wire = Part.Wire(groups[0])
+    elif not outline and circles:
+        wire = circles.pop(max(range(len(circles)), key=lambda i: circles[i].Length))
+    else:
+        raise ValueError("После выбора гибов должен остаться один замкнутый внешний контур.")
     axes = tuple(lines[index] for index in angles)
     bends = [
         SimpleNamespace(bend_id=f"B{step:02d}", fold_angle_deg=angle,
@@ -71,20 +91,30 @@ def build_session(path, lines, angles, thickness, radius, k_factor):
                         thickness_mm=thickness, k_factor_ansi=k_factor)
         for step, angle in enumerate(angles.values(), 1)
     ]
-    panels = partition_flat_pattern(wire, axes, axes, bends)
+    panels = partition_flat_pattern(wire, axes, axes, bends,
+                                    hole_faces=tuple(Part.Face(circle) for circle in circles))
     graph = graph_from_panel_build(panels)
     fixed = max(panels.panels, key=lambda panel: panel.area_mm2).panel_id
     state = FoldState(graph, fixed)
-    vertices = {
-        panel.panel_id: tuple((v.Point.x, v.Point.y)
-                              for v in face.OuterWire.OrderedVertexes)
-        for panel, face in zip(panels.panels, panels.panel_faces)
-    }
+    vertices = {}
+    meshes = {}
+    for panel, face in zip(panels.panels, panels.panel_faces):
+        rings = []
+        for ring in [face.OuterWire, *(wire for wire in face.Wires if not wire.isSame(face.OuterWire))]:
+            points = ring.discretize(Deflection=0.05)
+            rings.append(tuple((v.x, v.y) for v in points[:-1]))
+        vertices[panel.panel_id] = rings[0]
+        if circles or not outline:
+            points, triangles = face.tessellate(0.05)
+            meshes[panel.panel_id] = (
+                tuple(tuple((points[i].x, points[i].y) for i in triangle)
+                      for triangle in triangles), tuple(rings),
+            )
     dimensions = {bend.bend_id: local_bend_dimension_mm(
         axis, panels.outline_vertices_xy, tuple(other for other in axes if other != axis),
     ) for bend, axis in zip(bends, axes)}
     session = LoadedPartSession(Path(path).stem, SimpleNamespace(
-        thickness_mm=thickness, dxf_manual=True,
+        thickness_mm=thickness, dxf_manual=True, panel_meshes=meshes,
     ), panels, graph, vertices, fixed, state, local_bend_dimensions_mm=dimensions)
     session.set_bend_order(tuple(bend.bend_id for bend in bends))
     return session
@@ -147,6 +177,8 @@ class DxfManualCommand:
             else:
                 angles.pop(index, None)
             for i, line in enumerate(items):
+                if line is None:
+                    continue
                 pen = gui.QPen(gui.QColor("#31845e" if i in angles else "#315d87"))
                 pen.setWidth(3 if i in angles else 2)
                 pen.setCosmetic(True)
@@ -164,7 +196,13 @@ class DxfManualCommand:
         pen = gui.QPen(gui.QColor("#315d87"))
         pen.setCosmetic(True)
         pen.setWidth(2)
-        for index, ((x, y), (xx, yy)) in enumerate(lines):
+        for index, line in enumerate(lines):
+            if isinstance(line, DxfCircle):
+                scene.addEllipse(line.x - line.radius, -line.y - line.radius,
+                                 line.radius * 2, line.radius * 2, pen)
+                items.append(None)
+                continue
+            (x, y), (xx, yy) = line
             item = scene.addLine(x, -y, xx, -yy, pen)
             item.setData(0, index)
             items.append(item)

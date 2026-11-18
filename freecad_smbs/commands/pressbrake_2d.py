@@ -3123,6 +3123,7 @@ class _PreviewPanel:
                         self._coin_fold_mesh_faces = build_sheet_preview_faces(
                             fold_state, self.session.panel_vertices_xy, bend_id,
                             WorkpiecePose2D(), machine_placement=IDENTITY_PLACEMENT,
+                            panel_meshes=getattr(self.session.unfold_data, "panel_meshes", None),
                         )
                         self._coin_fold_mesh_key = fold_signature
                     faces = transform_preview_faces(self._coin_fold_mesh_faces, placement)
@@ -7390,7 +7391,18 @@ class _PreviewPanel:
                 polygon_pen = QtGui.QPen(QtGui.QColor("#738194"))
                 polygon_pen.setWidthF(0.35)
                 fill = QtGui.QBrush(QtGui.QColor("#e7edf2"))
-                for vertices in self.session.panel_vertices_xy.values():
+                meshes = getattr(self.session.unfold_data, "panel_meshes", {})
+                for panel_id, vertices in self.session.panel_vertices_xy.items():
+                    if panel_id in meshes:
+                        path = QtGui.QPainterPath()
+                        path.setFillRule(QtCore.Qt.OddEvenFill)
+                        for ring in meshes[panel_id][1]:
+                            path.addPolygon(QtGui.QPolygonF([
+                                QtCore.QPointF(x, -y) for x, y in ring
+                            ]))
+                            path.closeSubpath()
+                        scene.addPath(path, polygon_pen, fill).setZValue(0)
+                        continue
                     if len(vertices) < 3:
                         continue
                     poly = QtGui.QPolygonF([
