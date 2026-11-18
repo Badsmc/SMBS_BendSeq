@@ -12,6 +12,7 @@ class TestCoinMachine(unittest.TestCase):
     def setUp(self):
         self.coin = SimpleNamespace(
             SoSeparator=Mock, SoSwitch=Mock, SoTranslation=Mock,
+            SoMaterial=Mock, SoCube=Mock,
             SO_SWITCH_NONE=-1, SO_SWITCH_ALL=-3,
         )
         self.scene = CoinMachineScene(self.coin)
@@ -41,7 +42,7 @@ class TestCoinMachine(unittest.TestCase):
             load.assert_called_once()
         self.assertEqual(self.scene.frame_mount.translation.setValue.call_count, 2)
         self.scene.frame_mount.translation.setValue.assert_called_with(0.0, 0.0, -80)
-        self.scene.ram_motion.translation.setValue.assert_called_with(0.0, 0.0, 104)
+        self.scene.ram_motion.translation.setValue.assert_called_with(0.0, 0.0, 129)
 
     def test_clamps_are_a_fixed_row_with_or_without_a_punch(self):
         tooling = SimpleNamespace(
@@ -54,24 +55,25 @@ class TestCoinMachine(unittest.TestCase):
         with (TemporaryDirectory() as directory,
               patch("freecad_smbs.ui.coin3d_machine._load_frame",
                     return_value=(Mock(), Mock(), 900, 1965)),
-              patch("freecad_smbs.ui.coin3d_machine._load_clamp",
-                    return_value=(Mock(), 20, -55)) as load):
+              patch("freecad_smbs.ui.coin3d_machine._virtual_clamps",
+                    return_value=Mock()) as load):
             library = Path(directory)
             save_clamp_config(library, ClampConfig.from_defaults((-200, 0, 200)))
             self.scene.update_frame(library, tooling, 8, True)
             self.scene.update_clamps(library)
             expected = ((-275, -125), (-75, 75), (125, 275))
             self.assertEqual(self.scene.clamp_spans, expected)
-            self.scene.clamp_motion.translation.setValue.assert_called_with(0.0, 0.0, 108)
-            self.scene.ram_motion.translation.setValue.assert_called_with(-55, 0.0, 128)
+            self.scene.ram_motion.translation.setValue.assert_called_with(0.0, 0.0, 133)
+            self.scene.update_frame(library, tooling, 3, True)
+            self.scene.ram_motion.translation.setValue.assert_called_with(0.0, 0.0, 128)
 
             tooling.punch = None
             tooling.visible = False
             self.scene.update_frame(library, tooling, 8, False)
             self.scene.update_clamps(library)
-            load.assert_called_once_with(self.coin, library, expected)
+            load.assert_called_once_with(self.coin, expected)
             self.scene.clamps.whichChild.setValue.assert_called_with(self.coin.SO_SWITCH_ALL)
-            self.scene.clamp_motion.translation.setValue.assert_called_with(0.0, 0.0, 880)
+            self.scene.ram_motion.translation.setValue.assert_called_with(0.0, 0.0, 900)
 
             (library / "config.json").unlink()
             self.scene.update_clamps(library)

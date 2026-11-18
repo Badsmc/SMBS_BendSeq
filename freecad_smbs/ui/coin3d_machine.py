@@ -7,7 +7,6 @@ from pathlib import Path
 
 from freecad_smbs.resources.tooling_paths import (
     resolve_backgauge_fcstd,
-    resolve_clamp_fcstd,
     resolve_machine_frame_fcstd,
 )
 
@@ -124,87 +123,27 @@ def _load_gauge(coin, library_root):
                       (0.83, 0.49, 0.19))
 
 
-def _punch_contact(outline, profile):
-    """Find the operator-facing vertical shank face in machine S/Z."""
-    top = max(z for _, z in outline)
-    if profile is not None and getattr(profile, "source_format", "") == "FCSTD":
-        path = Path(profile.source_file)
-        sidecar = path.with_suffix(".tooling.json")
-        metadata = json.loads(sidecar.read_text(encoding="utf-8")) if sidecar.is_file() else {}
-        ref = metadata.get("visual_mount", {}).get("clamp_contact")
-        if ref is None and path.stem.startswith("PUNCH_AP_1055_"):
-            ref = "Pad.Face10"
-        if ref:
-            feature, face_name = ref.split(".", 1)
-            with _machine_document(path) as doc:
-                face = _global_shape(doc.getObject(feature)).getElement(face_name)
-                transform = profile.source_to_local_transform()
-                points = [transform.apply((v.Point.x, v.Point.y)) for v in face.Vertexes]
-                if (getattr(face.Surface, "TypeId", "") != "Part::GeomPlane"
-                        or max(p[0] for p in points) - min(p[0] for p in points) > 1e-5
-                        or max(p[1] for p in points) - min(p[1] for p in points) <= 1e-5):
-                    raise ValueError(f"{ref}: нужна вертикальная плоскость крепления пуансона")
-                point = face.CenterOfMass
-                s, _ = transform.apply((point.x, point.y))
-                return s, max(z for _, z in points)
-    area = sum(s * zz - ss * z for (s, z), (ss, zz) in zip(outline, (*outline[1:], outline[0])))
-    shank = [(min(z, zz), max(z, zz), s)
-             for (s, z), (ss, zz) in zip(outline, (*outline[1:], outline[0]))
-             if abs(s - ss) < 1e-5 and (zz - z) * area < 0 and max(z, zz) >= top - 5]
-    if shank:
-        _, z, s = min(shank)
-        return s, z
-    return 0.0, top
+CLAMP_HEIGHT_MM = 25.0
+CLAMP_DEPTH_MM = 50.0
 
 
-def _load_clamp(coin, library_root, spans):
-    path = resolve_clamp_fcstd(library_root)
-    if path is None:
-        raise FileNotFoundError("Clamp.FCStd")
-    sidecar = json.loads(path.with_suffix(".tooling.json").read_text(encoding="utf-8"))
-    x, mount_y, mount_z = sidecar["datums"]["mounting_plane"]["origin"]
-    mount = sidecar.get("visual_mount", {})
-    seat_face = mount.get("punch_seat_face")
-    _, seat_y, seat_z = sidecar["datums"]["working_plane"]["origin"]
-    with _machine_document(path) as doc:
-        bodies = [_global_shape(item) for item in doc.Objects
-                  if item.TypeId == "PartDesign::Body" and not item.Shape.isNull()]
-        if not bodies:
-            raise ValueError("CAD-модель лапки пуста")
-        width = max(s.BoundBox.XMax for s in bodies) - min(s.BoundBox.XMin for s in bodies)
-        if width <= 0:
-            raise ValueError("CAD-модель лапки имеет нулевую длину")
-        if mount.get("punch_contact_feature"):
-            feature = doc.getObject(mount["punch_contact_feature"])
-            face = _global_shape(feature).getElement(mount["punch_contact_face"])
-            if (getattr(face.Surface, "TypeId", "") != "Part::GeomPlane"
-                    or face.normalAt(0, 0).y > -0.999):
-                raise ValueError("Посадочная грань лапки должна смотреть в сторону пуансона")
-            seat_y, seat_z = face.CenterOfMass.y, face.BoundBox.ZMax
-        elif seat_face:
-            if len(bodies) != 1:
-                raise ValueError("Для посадочной грани лапки нужно одно CAD-тело")
-            seat = _mount_origin(bodies[0], seat_face, -1)
-            seat_y, seat_z = seat.y, seat.z
-        height = mount_z - seat_z
-        if height < -1e-6:
-            raise ValueError("CAD-модель лапки расположена ниже рабочей плоскости")
-        meshes = {}
-        row = coin.SoSeparator()
-        for left, right in spans:
-            length = right - left
-            if length not in meshes:
-                meshes[length] = _mesh_node(
-                    coin, bodies, lambda p: (seat_y - p.y, (p.x - x) * length / width, p.z - seat_z),
-                    (0.64, 0.68, 0.76),
-                )
-            block = coin.SoSeparator()
-            placement = coin.SoTranslation()
-            placement.translation.setValue(0.0, (left + right) / 2.0, 0.0)
-            block.addChild(placement)
-            block.addChild(meshes[length])
-            row.addChild(block)
-    return row, height, seat_y - mount_y
+def _virtual_clamps(coin, spans):
+    row = coin.SoSeparator()
+    material = coin.SoMaterial()
+    material.diffuseColor.setValue(0.64, 0.68, 0.76)
+    row.addChild(material)
+    for left, right in spans:
+        block = coin.SoSeparator()
+        position = coin.SoTranslation()
+        position.translation.setValue(0.0, (left + right) / 2, -CLAMP_HEIGHT_MM / 2)
+        cube = coin.SoCube()
+        cube.width.setValue(CLAMP_DEPTH_MM)
+        cube.height.setValue(right - left)
+        cube.depth.setValue(CLAMP_HEIGHT_MM)
+        block.addChild(position)
+        block.addChild(cube)
+        row.addChild(block)
+    return row
 
 
 class CoinMachineScene:
@@ -215,13 +154,10 @@ class CoinMachineScene:
         self.gauges = coin.SoSwitch()
         self.clamps = coin.SoSwitch()
         self.clamps.setName("SMBS_Clamps")
-        self.clamp_motion = coin.SoTranslation()
         self.clamp_key = None
         self.clamp_config_key = None
         self.clamp_spans = ()
         self.clamp_config_error = ""
-        self.clamp_error = ""
-        self.clamp_height = self.clamp_mount_s = 0.0
         self.beam_z = 0.0
         self.ram_mount_width = 0.0
         self.frame.setName("SMBS_MachineFrame")
@@ -238,7 +174,6 @@ class CoinMachineScene:
         self.gauge_error = ""
         self.rest_z = 0.0
         self.punch_top = None
-        self.punch_mount_s = 0.0
         self.gauge_mesh = None
         self.stations = ()
         self.fingers = ()
@@ -280,33 +215,13 @@ class CoinMachineScene:
         if not spans:
             self.clamps.whichChild.setValue(self.coin.SO_SWITCH_NONE)
             return self.clamp_config_error
-        key = (library_root, spans)
-        if key != self.clamp_key:
-            self.clamp_key = key
+        if spans != self.clamp_key:
+            self.clamp_key = spans
             self.clamps.removeAllChildren()
-            self.clamp_error = ""
-            try:
-                row, self.clamp_height, self.clamp_mount_s = _load_clamp(self.coin, library_root, spans)
-                mounted = self.coin.SoSeparator()
-                mounted.addChild(self.clamp_motion)
-                mounted.addChild(row)
-                self.clamps.addChild(mounted)
-            except (OSError, ValueError, RuntimeError, TypeError, AttributeError, KeyError) as exc:
-                self.clamp_error = f"Лапки: {exc}"
-        if self.clamp_error:
-            self.clamps.whichChild.setValue(self.coin.SO_SWITCH_NONE)
-            return self.clamp_error
-        if self.punch_top is not None:
-            clamp_z = self.beam_z
-            self.ram_motion.translation.setValue(
-                self.punch_mount_s + self.clamp_mount_s, 0.0, clamp_z + self.clamp_height,
-            )
-        else:
-            # With the punch absent or hidden, keep clamps attached to the
-            # actual mounting surface of the displayed ram.
-            clamp_z = self.beam_z - self.clamp_height
-            self.ram_motion.translation.setValue(self.clamp_mount_s, 0.0, self.beam_z)
-        self.clamp_motion.translation.setValue(self.punch_mount_s, 0.0, clamp_z)
+            mounted = self.coin.SoSeparator()
+            mounted.addChild(self.ram_motion)
+            mounted.addChild(_virtual_clamps(self.coin, spans))
+            self.clamps.addChild(mounted)
         self.clamps.whichChild.setValue(self.coin.SO_SWITCH_ALL)
         return ""
 
@@ -329,27 +244,20 @@ class CoinMachineScene:
                 self.frame_error = ""
         self.frame.whichChild.setValue(self.coin.SO_SWITCH_ALL if visible and not self.frame_error
                                       else self.coin.SO_SWITCH_NONE)
-        key = (id(tooling.punch), id(tooling.die), tooling.aligned, tooling.visible,
+        key = (id(tooling.punch), id(tooling.die), tooling.aligned,
                tooling.die_machine_transform.to_matrix_tuple())
         if key != self.mount_key:
             die_polygons = tooling.die_polygons_machine()
-            punch_polygons = tooling.punch_polygons_machine() if tooling.visible else None
+            punch_polygons = tooling.punch_polygons_machine() if tooling.punch is not None else None
             die_outline = die_polygons[0] if die_polygons else ()
             punch_outline = punch_polygons[0] if punch_polygons else ()
             self.bed_z = min((z for _, z in die_outline), default=0.0)
             self.frame_mount.translation.setValue(0.0, 0.0, self.bed_z)
-            self.punch_mount_s, self.punch_top = 0.0, None
-            if punch_outline:
-                tx = getattr(getattr(tooling, "punch_machine_transform", None), "tx", 0.0)
-                local = tuple((s - tx, z - tooling.ram_z_mm) for s, z in punch_outline)
-                try:
-                    contact_s, self.punch_top = _punch_contact(local, tooling.punch)
-                except (OSError, RuntimeError, ValueError, AttributeError, KeyError) as exc:
-                    return f"Крепление пуансона: {exc}"
-                self.punch_mount_s = tx + contact_s
+            self.punch_top = (max(z for _, z in punch_outline) - tooling.ram_z_mm
+                              if punch_outline else None)
             self.mount_key = key
-        self.beam_z = (float(ram_z) + self.punch_top if self.punch_top is not None
-                       else self.bed_z + self.rest_z)
+        self.beam_z = (float(ram_z) + self.punch_top + CLAMP_HEIGHT_MM
+                       if self.punch_top is not None else self.bed_z + self.rest_z)
         self.ram_motion.translation.setValue(0.0, 0.0, self.beam_z)
         return self.frame_error if visible else ""
 
