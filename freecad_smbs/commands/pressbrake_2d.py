@@ -2250,12 +2250,15 @@ class _PreviewPanel:
                 self.tooling_status.setParent(self)
                 self.tooling_status.hide()
                 tooling_body.addWidget(tool_main)
-                self.import_tooling_btn = style_action(QtWidgets.QPushButton("Импортировать…"))
+                self.import_tooling_btn = style_action(QtWidgets.QPushButton("Импортировать…"), compact=True)
                 self.import_tooling_btn.clicked.connect(self.open_full_tooling_library)
-                tooling_body.addWidget(self.import_tooling_btn)
+                import_row = QtWidgets.QHBoxLayout()
+                import_row.addStretch(1)
+                import_row.addWidget(self.import_tooling_btn)
+                tooling_body.addLayout(import_row)
                 self.tool_library_btn.hide()
                 td_layout.addWidget(tooling_card)
-                td_layout.addStretch(1)
+                td_layout.setAlignment(QtCore.Qt.AlignTop)
                 self._page_tooling = scroll_task_page(
                     tooling, "SMBS_ToolingScroll"
                 )
