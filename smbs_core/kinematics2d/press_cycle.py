@@ -26,6 +26,7 @@ import math
 from typing import Any, Callable, Dict, Optional
 
 from .fold_sequence import ANGLE_EPS, BendSequenceController, PlaybackStatus, SequenceError
+from .staged_orientation import reverse_axis_for_operation
 from .workpiece_placement_3d import PlacementTransform3D, WorkpiecePlacement3D
 from .workpiece_transfer_3d import Transfer3D, build_bend_transfer
 from .coupled_kinematics_2d import CoupledAirBendingKinematics
@@ -252,6 +253,24 @@ class PressCycleController:
     @property
     def target_angle_deg(self) -> float:
         return self.sequence.target_angle_deg
+
+    def _loading_reverse_axis_for_step(self, index: int) -> bool:
+        """Orientation belongs to an operation, not a physical bend.
+
+        A finish pass can be turned 180° independently of its pre-bend.
+        A plain bend retains the legacy physical orientation fallback.
+        """
+        if getattr(self.sequence, "has_stages", False):
+            step = self.sequence.operation_at(index)
+            bend_id, operation_id = step.bend_id, step.operation_id
+        else:
+            bend_id = self.sequence.order[index]
+            operation_id = bend_id
+        return reverse_axis_for_operation(
+            getattr(self, "loading_orientation_by_bend", {}),
+            bend_id,
+            operation_id,
+        )
 
     def set_config(self, config: CycleConfig) -> None:
         if not isinstance(config, CycleConfig):
@@ -635,7 +654,13 @@ class PressCycleController:
         # otherwise start at the top of APPROACH.
         cur_mag = abs(self.current_angle_deg)
         target_mag = abs(self.target_angle_deg)
-        if cur_mag > ANGLE_EPS and target_mag > ANGLE_EPS and cur_mag < target_mag - ANGLE_EPS:
+        fresh_stage = bool(getattr(self.sequence, "has_stages", False)) and (
+            abs(cur_mag - abs(self.sequence.operation_start_deg(
+                self.sequence.active_index
+            ))) <= ANGLE_EPS
+        )
+        if (cur_mag > ANGLE_EPS and target_mag > ANGLE_EPS
+                and cur_mag < target_mag - ANGLE_EPS and not fresh_stage):
             frac = min(1.0, max(0.0, cur_mag / target_mag))
             self.phase = CyclePhase.BENDING
             self._set_punch_from_current_bend_surface(
@@ -674,7 +699,14 @@ class PressCycleController:
         """Prepare visible retract/turn/feed motion without changing bend state."""
         self.transfer_progress = 0.0
         active = self.sequence.active_bend
-        next_id = self.sequence.order[self.sequence.active_index + 1]
+        # The next stage can revisit the same physical bend after other bends.
+        # Never use the unique physical order to locate a staged operation.
+        if getattr(self.sequence, "has_stages", False):
+            next_id = self.sequence.operation_at(
+                self.sequence.active_index + 1
+            ).bend_id
+        else:
+            next_id = self.sequence.order[self.sequence.active_index + 1]
         nxt = self.sequence.bend_for(next_id)
         zone = active.bend_zone
         next_zone = nxt.bend_zone
@@ -743,10 +775,8 @@ class PressCycleController:
                 support_plane_zm=next_outer_r,
                 align_bisector=True,
                 align_bend_arc_center=True,
-                reverse_axis=bool(
-                    getattr(self, "loading_orientation_by_bend", {}).get(
-                        nxt.bend_id, False
-                    )
+                reverse_axis=self._loading_reverse_axis_for_step(
+                    self.sequence.active_index + 1
                 ),
                 rear_panel_vertices_xy=getattr(self, "rear_panel_vertices_xy", None),
             )
@@ -853,8 +883,15 @@ class PressCycleController:
             target_mag = abs(target)
             cur_mag = abs(self.current_angle_deg)
 
-            duration_s = self.config.effective_bend_duration_s(target)
-            rate_deg_s = target_mag / duration_s if duration_s > 1e-9 else self.config.bend_rate_deg_s
+            # A FINISH stage starts at the PREBEND angle; its duration is
+            # computed for the remaining increment, never from zero.
+            start_mag = (
+                abs(self.sequence.operation_start_deg(self.sequence.active_index))
+                if getattr(self.sequence, "has_stages", False) else 0.0
+            )
+            delta_mag = max(0.0, target_mag - start_mag)
+            duration_s = self.config.effective_bend_duration_s(delta_mag)
+            rate_deg_s = delta_mag / duration_s if duration_s > 1e-9 else self.config.bend_rate_deg_s
             next_mag = cur_mag + rate_deg_s * effective_dt
 
             if target_mag <= ANGLE_EPS or next_mag >= target_mag - ANGLE_EPS:
@@ -911,6 +948,11 @@ class PressCycleController:
         #                    after RETRACT has completed, or finish at COMPLETED
         # ------------------------------------------------------------------
         if self.phase == CyclePhase.STEP_COMPLETE:
+            # FoldState already holds the exact angle reached in BENDING.
+            # Record completion only after punch RETRACT, so a pre-bend
+            # remains formed and the subsequent FINISH starts from it.
+            if getattr(self.sequence, "has_stages", False):
+                self.sequence.mark_operation_completed()
             if self.sequence.active_index + 1 < self.sequence.total_steps:
                 if self.animate_workpiece_transfer:
                     self._begin_workpiece_transfer()
@@ -1012,10 +1054,8 @@ class PressCycleController:
             support_plane_zm=support_z,
             align_bisector=align_bisector,
             align_bend_arc_center=align_arc_center,
-            reverse_axis=bool(
-                getattr(self, "loading_orientation_by_bend", {}).get(
-                    self.active_bend_id, False
-                )
+            reverse_axis=self._loading_reverse_axis_for_step(
+                getattr(self.sequence, "active_index", 0)
             ),
             rear_panel_vertices_xy=getattr(self, "rear_panel_vertices_xy", None),
         )
