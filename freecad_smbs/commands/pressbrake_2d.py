@@ -2216,7 +2216,57 @@ class _PreviewPanel:
                 self._manual_preview_help.setWordWrap(True)
                 self._manual_preview_help.hide()
                 sim_body.addWidget(order_card, 1)
-                sim_body.addStretch(1)
+                # Keep the live sequence directly beneath the fixed controls.
+                playback_layout.addWidget(self.operations, 1)
+                order_card.hide()
+                for widget in (self.manual_order_input, self.manual_simulate_btn,
+                               self.saved_sequences_btn, self.manual_check_summary):
+                    widget.hide()
+                select_lines.setText("☷")
+                select_lines.setToolTip("Выбрать линии гиба / изменить порядок")
+                select_lines.setFixedSize(27, 27)
+                fit_layout = self.fit_btn.parentWidget().layout()
+                if isinstance(fit_layout, QtWidgets.QGridLayout):
+                    index = fit_layout.indexOf(self.fit_btn)
+                    row, column, _rs, _cs = fit_layout.getItemPosition(index)
+                    fit_layout.addWidget(select_lines, row, column + 1)
+                else:
+                    fit_layout.addWidget(select_lines)
+                edit_controls = QtWidgets.QWidget()
+                edit_layout = QtWidgets.QHBoxLayout(edit_controls)
+                edit_layout.setContentsMargins(0, 0, 0, 0)
+                for button in (self.move_up_btn, self.move_down_btn,
+                               self.restore_order_btn, self.manual_undo_btn):
+                    edit_layout.addWidget(button)
+                cancel_edit = QtWidgets.QPushButton("Cancel")
+                self.manual_undo_btn.setText("Back")
+                edit_layout.addWidget(cancel_edit)
+                playback_layout.insertWidget(0, edit_controls)
+                edit_controls.hide()
+                playback_buttons = (self.reset_btn, self.prev_step_btn,
+                                    self.play_btn, self.next_step_btn)
+
+                def edit_sequence(enabled):
+                    if enabled and self.session is None:
+                        return
+                    if enabled:
+                        self._sequence_before_edit = list(self.session.bend_order)
+                        self._prefix_before_edit = list(self._manual_sequence_prefix)
+                    else:
+                        self._apply_manual_order(self._sequence_before_edit)
+                        self._manual_sequence_prefix = list(self._prefix_before_edit)
+                        self._toggle_manual_order(False)
+                    edit_controls.setVisible(enabled)
+                    for button in playback_buttons:
+                        button.setVisible(not enabled)
+
+                select_lines.clicked.connect(lambda: edit_sequence(True))
+                cancel_edit.clicked.connect(lambda: edit_sequence(False))
+                self.slider.hide()
+                bottom_actions = QtWidgets.QHBoxLayout()
+                bottom_actions.addWidget(info_button)
+                bottom_actions.addWidget(self.manual_validate_btn)
+                sim_layout.addLayout(bottom_actions)
 
                 # RETRACT warning belongs to Settings, not Simulation.
                 self.retract_warning_checkbox = QtWidgets.QCheckBox(
