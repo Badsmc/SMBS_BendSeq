@@ -2,7 +2,7 @@ name: ManualMode pose and playback regression
 
 on:
   push:
-    branches: [ManualMode]
+    branches: [ManualMode, experiment/prebend-rebend]
   pull_request:
     branches: [ManualMode]
   workflow_dispatch:
