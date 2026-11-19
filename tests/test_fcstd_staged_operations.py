@@ -45,6 +45,47 @@ class StagedFcstdTests(unittest.TestCase):
         self.assertEqual(restored.operation_snapshot(), self.c.operation_snapshot())
         self.assertEqual(restored.operation_start_deg(3), 35.0)
 
+    def test_independent_stage_rotations_survive_fcstd(self):
+        with patch.object(store, "geometry_manifest", return_value=self.geometry):
+            snapshot = store.build_snapshot(
+                self.session, object(), self.tooling, _Config(), "FULL_CYCLE",
+                manual_orientation_overrides={"B02": True},
+                operation_orientation_overrides={
+                    "B01.1": True, "B01.2": False,
+                },
+            )
+        decoded = store.decode_snapshot(store._json_bytes(snapshot))
+        self.assertEqual(
+            decoded["order"]["operation_orientation_overrides"],
+            {"B01.1": True, "B01.2": False},
+        )
+        self.assertEqual(
+            decoded["order"]["manual_orientation_overrides"],
+            {"B02": True},
+        )
+
+    def test_invalid_stage_rotation_keys_and_types_fail_closed(self):
+        for entry in ({"B99.1": True}, {"B01.1": 180}, {"B02": True}):
+            with self.subTest(entry=entry):
+                with patch.object(store, "geometry_manifest", return_value=self.geometry):
+                    with self.assertRaises(store.EmbeddedSessionError):
+                        store.build_snapshot(
+                            self.session, object(), self.tooling, _Config(), "FULL_CYCLE",
+                            operation_orientation_overrides=entry,
+                        )
+                payload = self._snapshot()
+                payload["order"]["operation_orientation_overrides"] = entry
+                with self.assertRaises(store.EmbeddedSessionError):
+                    store.decode_snapshot(store._json_bytes(payload))
+
+    def test_legacy_fcstd_without_stage_orientation_field_still_loads(self):
+        payload = self._snapshot()
+        del payload["order"]["operation_orientation_overrides"]
+        decoded = store.decode_snapshot(store._json_bytes(payload))
+        self.assertEqual(
+            decoded["order"].get("operation_orientation_overrides", {}), {}
+        )
+
     def test_invalid_stage_angles_are_rejected_on_restore(self):
         payload = self._snapshot()
         payload["order"]["operation_steps"][0]["target_angle_deg"] = 0
