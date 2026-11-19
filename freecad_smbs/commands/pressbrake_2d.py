@@ -4129,10 +4129,17 @@ class _PreviewPanel:
                 if self.operations.columnAt(pos.x()) != _LOADING_ORIENTATION_COLUMN:
                     return
                 item = self.operations.itemAt(pos)
-                if item is None:
+                if item is None or self.session is None:
                     return
                 bend_id = item.data(0, QtCore.Qt.UserRole)
-                if bend_id not in self._manual_orientation_overrides:
+                operation_id = item.data(0, QtCore.Qt.UserRole + 1) or bend_id
+                if self.session.controller.has_stages:
+                    explicitly_set = (
+                        operation_id in self._manual_operation_orientation_overrides
+                    )
+                else:
+                    explicitly_set = bend_id in self._manual_orientation_overrides
+                if not explicitly_set:
                     return
                 menu = QtWidgets.QMenu(self.operations)
                 automatic = menu.addAction("Подбирать положение автоматически")
@@ -4141,9 +4148,12 @@ class _PreviewPanel:
                     self._set_manual_loading_override(item, None)
 
             def _set_manual_loading_override(self, item, reverse_axis):
-                """Set 0°/180° for one bend, or return it to automatic selection."""
+                """Set 0°/180° independently for one operation, or restore auto."""
+                if self.session is None:
+                    return
                 bend_id = item.data(0, QtCore.Qt.UserRole)
-                if self.session is None or bend_id not in self.session.bend_order:
+                operation_id = item.data(0, QtCore.Qt.UserRole + 1) or bend_id
+                if bend_id not in self.session.bend_order:
                     return
                 if (self._task_progress_busy or self.timer.isActive()
                         or self.session.playback_status == PlaybackStatus.PLAYING):
@@ -4153,10 +4163,21 @@ class _PreviewPanel:
                     )
                     return
                 order = tuple(self.session.bend_order)
-                if reverse_axis is None:
+                if self.session.controller.has_stages:
+                    # Each operation of a physical bend has its own override.
+                    # B03.1 and B03.2 never write to the same dictionary key.
+                    if reverse_axis is None:
+                        self._manual_operation_orientation_overrides.pop(
+                            operation_id, None
+                        )
+                    else:
+                        self._manual_operation_orientation_overrides[
+                            operation_id
+                        ] = bool(reverse_axis)
+                elif reverse_axis is None:
                     self._manual_orientation_overrides.pop(bend_id, None)
                 else:
-                    self._manual_orientation_overrides[bend_id] = reverse_axis
+                    self._manual_orientation_overrides[bend_id] = bool(reverse_axis)
 
                 self._machine_pose_fault = None
                 self._physical_check_signature = None
@@ -4167,39 +4188,52 @@ class _PreviewPanel:
                 self._last_manual_sequence_report = None
                 self._backgauge_preview_cache.clear()
                 prefix_size = len(self._manual_sequence_prefix)
-                self._partial_preview_limit = prefix_size if 0 < prefix_size < len(order) else None
-                self._clear_manual_check_feedback()
-                self._manual_preview_notice.setText("РУЧНОЙ ПРОСМОТР — коллизии не проверены")
-                self.physical_check_result.setText(
-                    "UNVERIFIED: положение заготовки изменилось. Проверьте коллизии повторно."
+                self._partial_preview_limit = (
+                    prefix_size if 0 < prefix_size < len(order) else None
                 )
-                if self.session.active_bend_id != bend_id:
-                    # The native checkbox indicator does not select its row.
-                    self.operations.setCurrentItem(item, _LOADING_ORIENTATION_COLUMN)
+                self._clear_manual_check_feedback()
+                self._manual_preview_notice.setText(
+                    "ПРЕДГИБ / ДОГИБ: коллизии этапов не проверены"
+                    if self.session.controller.has_stages else
+                    "РУЧНОЙ ПРОСМОТР — коллизии не проверены"
+                )
+                self.physical_check_result.setText(
+                    "UNVERIFIED: положение заготовки изменилось. "
+                    "Проверьте коллизии повторно."
+                )
+                if self.session.controller.active_operation_id != operation_id:
+                    # Checkbox changes do not automatically select the row.
+                    self.operations.setCurrentItem(
+                        item, _LOADING_ORIENTATION_COLUMN
+                    )
                 else:
                     cycle = self._ensure_press_cycle_controller()
                     if cycle is not None and cycle.phase == CyclePhase.TRANSFER:
-                        # Discard paused transfer endpoints from the previous loading map.
                         cycle.select_operation(self.session.active_bend_index)
                     self._update_operations_visual_state()
                     self._update_tooling_status_label()
                     self.draw()
-                choices = self._effective_loading_orientation_map()
+                choices = self._effective_operation_orientation_map()
+                selected_reverse = reverse_axis_for_operation(
+                    choices, bend_id, operation_id
+                )
                 _desktop_debug_event(
                     "MANUAL_LOADING_180_CHANGED",
                     bend_id=bend_id,
+                    operation_id=operation_id,
                     operator_side="-s_LEFT",
                     machine_rear_side="+s_RIGHT",
-                    reverse_axis=choices[bend_id],
+                    reverse_axis=selected_reverse,
                     manual_override=reverse_axis is not None,
                     selected_order=list(order),
-                    orientation_by_bend=choices,
+                    orientation_by_bend=self._effective_loading_orientation_map(),
+                    orientation_by_operation=choices,
                     physical_status="UNVERIFIED",
                 )
-                pose = "180°" if choices[bend_id] else "0°"
+                pose = "180°" if selected_reverse else "0°"
                 source = "подбор положения" if reverse_axis is None else "вручную"
                 self.status.setText(
-                    f"{bend_id}: положение {pose} ({source}). "
+                    f"{operation_id}: положение {pose} ({source}). "
                     "Коллизии для нового положения ещё не проверены."
                 )
 
@@ -4207,6 +4241,21 @@ class _PreviewPanel:
                 """Select from the single map used by both previews and OCC."""
                 choices = self._effective_loading_orientation_map()
                 return {bid: bool(choices[bid]) for bid in bend_ids if bid in choices}
+
+            def _effective_operation_orientation_map(self):
+                """Physical defaults + stage-specific 180° values for Coin3D.
+
+                Only staged operations use separate keys; plain ManualMode
+                retains exactly the same single-per-bend orientation contract.
+                """
+                choices = self._effective_loading_orientation_map()
+                if self.session is None or not self.session.controller.has_stages:
+                    return choices
+                return expanded_operation_orientations(
+                    choices,
+                    self.session.controller.operation_steps,
+                    self._manual_operation_orientation_overrides,
+                )
 
             def _effective_loading_orientation_map(self):
                 """Use the same per-bend placement for Coin3D and validation."""
