@@ -1669,6 +1669,7 @@ class _PreviewPanel:
                     row.addWidget(widget, 0, col)
                     row.setColumnStretch(col, 0)
                 root.addLayout(row)
+                self._playback_button_grid = row
 
                 self.slider = QtWidgets.QSlider(QtCore.Qt.Horizontal)
                 self.slider.setRange(0, 90 * _SLIDER_SCALE)
@@ -2225,22 +2226,35 @@ class _PreviewPanel:
                 select_lines.setText("☷")
                 select_lines.setToolTip("Выбрать линии гиба / изменить порядок")
                 select_lines.setFixedSize(27, 27)
-                fit_layout = self.fit_btn.parentWidget().layout()
-                if isinstance(fit_layout, QtWidgets.QGridLayout):
-                    index = fit_layout.indexOf(self.fit_btn)
-                    row, column, _rs, _cs = fit_layout.getItemPosition(index)
-                    fit_layout.addWidget(select_lines, row, column + 1)
-                else:
-                    fit_layout.addWidget(select_lines)
+                fit_layout = self._playback_button_grid
+                index = fit_layout.indexOf(self.fit_btn)
+                row, column, _rs, _cs = fit_layout.getItemPosition(index)
+                fit_layout.addWidget(select_lines, row, column + 1)
                 edit_controls = QtWidgets.QWidget()
                 edit_layout = QtWidgets.QHBoxLayout(edit_controls)
                 edit_layout.setContentsMargins(0, 0, 0, 0)
+                edit_layout.setSpacing(3)
                 for button in (self.move_up_btn, self.move_down_btn,
                                self.restore_order_btn, self.manual_undo_btn):
                     edit_layout.addWidget(button)
                 cancel_edit = QtWidgets.QPushButton("Cancel")
                 self.manual_undo_btn.setText("Back")
                 edit_layout.addWidget(cancel_edit)
+                for button, text, hint in (
+                    (self.move_up_btn, "↑", "Move Up — переместить вверх"),
+                    (self.move_down_btn, "↓", "Move Down — переместить вниз"),
+                    (self.restore_order_btn, "↺", "Restore — восстановить порядок"),
+                    (self.manual_undo_btn, "←", "Back — отменить последнюю линию"),
+                    (cancel_edit, "✕", "Cancel — отменить редактирование"),
+                ):
+                    button.setText(text)
+                    button.setToolTip(hint)
+                    button.setMinimumWidth(24)
+                    button.setMaximumWidth(16777215)
+                    button.setFixedHeight(27)
+                    button.setSizePolicy(QtWidgets.QSizePolicy.Expanding,
+                                         QtWidgets.QSizePolicy.Fixed)
+                    edit_layout.setStretch(edit_layout.indexOf(button), 1)
                 playback_layout.insertWidget(0, edit_controls)
                 edit_controls.hide()
                 playback_buttons = (self.reset_btn, self.prev_step_btn,
