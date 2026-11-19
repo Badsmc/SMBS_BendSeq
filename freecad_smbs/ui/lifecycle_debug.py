@@ -2,23 +2,8 @@
 from __future__ import annotations
 import sys
 import traceback
-from contextlib import contextmanager
 
 _installed = None
-_protected_documents = set()
-
-
-@contextmanager
-def protect_open_documents():
-    """Keep existing CAD documents alive during a synchronous order update."""
-    import FreeCAD as App
-    previous = set(_protected_documents)
-    _protected_documents.update(App.listDocuments())
-    try:
-        yield
-    finally:
-        _protected_documents.clear()
-        _protected_documents.update(previous)
 
 
 def install(QtCore, QtWidgets):
@@ -54,6 +39,8 @@ def install(QtCore, QtWidgets):
         def eventFilter(self, obj, event):
             try:
                 kind = event.type()
+                if kind == QtCore.QEvent.Quit and obj is QtWidgets.QApplication.instance():
+                    record('QT_APPLICATION_QUIT', documents=list(App.listDocuments()))
                 if kind in (QtCore.QEvent.Close, QtCore.QEvent.DeferredDelete,
                             QtCore.QEvent.ParentChange):
                     name = obj.objectName()
@@ -72,16 +59,6 @@ def install(QtCore, QtWidgets):
         previous(kind, value, tb)
 
     observer = Observer()
-    original_close = App.closeDocument
-    def close_document(name, *args, **kwargs):
-        blocked = str(name) in _protected_documents
-        record('DOCUMENT_CLOSE_CALL', document=str(name), blocked=blocked,
-               arguments=repr(args), keyword_arguments=repr(kwargs))
-        if blocked:
-            debug_event('DOCUMENT_CLOSE_BLOCKED_DURING_ORDER_UPDATE', document=str(name))
-            return None
-        return original_close(name, *args, **kwargs)
-    App.closeDocument = close_document
     event_filter = Filter(QtWidgets.QApplication.instance())
     App.addDocumentObserver(observer)
     QtWidgets.QApplication.instance().installEventFilter(event_filter)
