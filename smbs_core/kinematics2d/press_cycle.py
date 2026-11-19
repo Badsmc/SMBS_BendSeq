@@ -635,7 +635,13 @@ class PressCycleController:
         # otherwise start at the top of APPROACH.
         cur_mag = abs(self.current_angle_deg)
         target_mag = abs(self.target_angle_deg)
-        if cur_mag > ANGLE_EPS and target_mag > ANGLE_EPS and cur_mag < target_mag - ANGLE_EPS:
+        fresh_stage = bool(getattr(self.sequence, "has_stages", False)) and (
+            abs(cur_mag - abs(self.sequence.operation_start_deg(
+                self.sequence.active_index
+            ))) <= ANGLE_EPS
+        )
+        if (cur_mag > ANGLE_EPS and target_mag > ANGLE_EPS
+                and cur_mag < target_mag - ANGLE_EPS and not fresh_stage):
             frac = min(1.0, max(0.0, cur_mag / target_mag))
             self.phase = CyclePhase.BENDING
             self._set_punch_from_current_bend_surface(
@@ -674,7 +680,14 @@ class PressCycleController:
         """Prepare visible retract/turn/feed motion without changing bend state."""
         self.transfer_progress = 0.0
         active = self.sequence.active_bend
-        next_id = self.sequence.order[self.sequence.active_index + 1]
+        # The next stage can revisit the same physical bend after other bends.
+        # Never use the unique physical order to locate a staged operation.
+        if getattr(self.sequence, "has_stages", False):
+            next_id = self.sequence.operation_at(
+                self.sequence.active_index + 1
+            ).bend_id
+        else:
+            next_id = self.sequence.order[self.sequence.active_index + 1]
         nxt = self.sequence.bend_for(next_id)
         zone = active.bend_zone
         next_zone = nxt.bend_zone
@@ -853,8 +866,15 @@ class PressCycleController:
             target_mag = abs(target)
             cur_mag = abs(self.current_angle_deg)
 
-            duration_s = self.config.effective_bend_duration_s(target)
-            rate_deg_s = target_mag / duration_s if duration_s > 1e-9 else self.config.bend_rate_deg_s
+            # A FINISH stage starts at the PREBEND angle; its duration is
+            # computed for the remaining increment, never from zero.
+            start_mag = (
+                abs(self.sequence.operation_start_deg(self.sequence.active_index))
+                if getattr(self.sequence, "has_stages", False) else 0.0
+            )
+            delta_mag = max(0.0, target_mag - start_mag)
+            duration_s = self.config.effective_bend_duration_s(delta_mag)
+            rate_deg_s = delta_mag / duration_s if duration_s > 1e-9 else self.config.bend_rate_deg_s
             next_mag = cur_mag + rate_deg_s * effective_dt
 
             if target_mag <= ANGLE_EPS or next_mag >= target_mag - ANGLE_EPS:
@@ -911,6 +931,11 @@ class PressCycleController:
         #                    after RETRACT has completed, or finish at COMPLETED
         # ------------------------------------------------------------------
         if self.phase == CyclePhase.STEP_COMPLETE:
+            # FoldState already holds the exact angle reached in BENDING.
+            # Record completion only after punch RETRACT, so a pre-bend
+            # remains formed and the subsequent FINISH starts from it.
+            if getattr(self.sequence, "has_stages", False):
+                self.sequence.mark_operation_completed()
             if self.sequence.active_index + 1 < self.sequence.total_steps:
                 if self.animate_workpiece_transfer:
                     self._begin_workpiece_transfer()

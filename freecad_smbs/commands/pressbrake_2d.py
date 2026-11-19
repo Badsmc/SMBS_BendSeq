@@ -29,6 +29,7 @@ from smbs_core.kinematics2d.fold_sequence import (
     SequenceError,
     parse_manual_bend_order,
 )
+from smbs_core.kinematics2d.staged_bends import StagedBendSequenceController
 from smbs_core.kinematics2d.panel_graph import PanelGraph, graph_from_panel_build
 from smbs_core.kinematics2d.panel_kinematics import FoldState, KinematicsError
 from smbs_core.kinematics2d.press_cycle import (
@@ -343,13 +344,18 @@ class LoadedPartSession:
     controller: BendSequenceController = field(init=False)
 
     def __post_init__(self) -> None:
-        self.controller = BendSequenceController(self.fold_state)
+        self.controller = StagedBendSequenceController(self.fold_state)
         if self.active_bend_index != 0:
             self.controller.select_operation(self.active_bend_index)
 
     @property
     def ordered_bends(self):
-        return tuple(self.controller.bend_for(bid) for bid in self.controller.order)
+        # Operations may visit one physical bend twice, but FoldState uses
+        # the original physical bend ID for both geometric stages.
+        return tuple(
+            replace(self.controller.bend_for(op.bend_id), angle_deg=op.target_angle_deg)
+            for op in self.controller.operation_steps
+        )
 
     @property
     def bend_order(self) -> tuple[str, ...]:
@@ -1448,6 +1454,7 @@ class _PreviewPanel:
                 self._embedded_diagnostics_history = None
                 self._conditional_bends_status: dict[str, str] = {}
                 self._highlighted_end_zone_info: dict | None = None
+                self._staged_dnd_pending = False
                 _log(
                     "PressBrakeSim startup: module={} | branch={} | commit={}".format(
                         self.runtime_git_info["module_file"],
@@ -1721,11 +1728,26 @@ class _PreviewPanel:
                 order_row.setColumnStretch(2, 1)
                 root.addLayout(order_row)
 
-                self.operations = QtWidgets.QTreeWidget()
+                class StagedOperationsTree(QtWidgets.QTreeWidget):
+                    def dropEvent(tree, event):
+                        super().dropEvent(event)
+                        callback = getattr(tree, "stage_drop_callback", None)
+                        if callable(callback):
+                            callback()
+
+                self.operations = StagedOperationsTree()
+                self.operations.stage_drop_callback = self._on_staged_operations_dropped
                 self.operations.setHeaderLabels([
                     "Step", "Bend", "180°", "Target", "Current", "До гиба, мм",
-                    "Упор S, мм", "Status", "RETRACT",
+                    "Упор S, мм", "Status", "RETRACT", "Предгиб",
                 ])
+                self.operations.setDragDropMode(QtWidgets.QAbstractItemView.InternalMove)
+                self.operations.setDefaultDropAction(QtCore.Qt.MoveAction)
+                self.operations.setDropIndicatorShown(True)
+                self.operations.setDragEnabled(False)
+                self.operations.model().rowsMoved.connect(
+                    self._on_staged_operations_dropped
+                )
                 self.operations.headerItem().setToolTip(
                     _LOADING_ORIENTATION_COLUMN,
                     "Разворот заготовки вокруг вертикальной оси для этого гиба.",
@@ -1747,6 +1769,10 @@ class _PreviewPanel:
                 )
                 self.operations.setAlternatingRowColors(True)
                 self.operations.setMinimumHeight(220)
+                self.operations.setToolTip(
+                    self.operations.toolTip() + "\nПеретащите строки после добавления предгиба. "
+                    "Предгиб всегда должен стоять раньше догиба."
+                )
                 self.operations.currentItemChanged.connect(self._on_operation_selected)
                 self.operations.itemChanged.connect(self._on_operation_orientation_changed)
                 self.operations.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
@@ -5757,6 +5783,13 @@ class _PreviewPanel:
                 # recorded angles nor stale collision passes are replayed.
                 self.session.reset_all_bends()
                 self.session.set_bend_order(order)
+                saved_steps = payload["order"].get("operation_steps", [])
+                if saved_steps:
+                    self.session.controller.restore_operation_snapshot(saved_steps)
+                    _desktop_debug_event(
+                        "STAGED_BEND_PLAN_RESTORED",
+                        steps=self.session.controller.operation_snapshot(),
+                    )
                 self._manual_sequence_prefix = list(prefix)
                 saved_orientations = payload["order"].get("orientation_by_bend", {})
                 # Old snapshots could contain an arbitrary checkbox override.
@@ -5774,9 +5807,15 @@ class _PreviewPanel:
                 self._manual_orientation_overrides = dict(
                     payload["order"].get("manual_orientation_overrides", {})
                 )
-                self._manual_preview_unverified = False
+                self._manual_preview_unverified = self.session.controller.has_stages
                 self._manual_selection_enabled = False
-                self._manual_preview_notice.hide()
+                self._manual_preview_notice.setText(
+                    "ПРЕДГИБ / ДОГИБ: кинематическая симуляция, "
+                    "коллизии НЕ проверены."
+                    if self.session.controller.has_stages else
+                    "РУЧНОЙ ПРОСМОТР — коллизии не проверены"
+                )
+                self._manual_preview_notice.setVisible(self.session.controller.has_stages)
                 self._partial_preview_limit = None
                 self._preview_only_planar_order = None
                 self._last_manual_sequence_report = None
@@ -5964,6 +6003,9 @@ class _PreviewPanel:
                 else:
                     self._clear_manual_check_feedback()
                 note = (
+                    "Восстановлены порядок, этапы предгиба и настройки из FCStd. "
+                    "Проверки: ИСТОРИЧЕСКИЕ, UNVERIFIED."
+                    if self.session.controller.has_stages else
                     "Восстановлены порядок и настройки из FCStd. "
                     "Проверки: ИСТОРИЧЕСКИЕ, UNVERIFIED."
                 )
@@ -5980,6 +6022,13 @@ class _PreviewPanel:
                 """
                 if self.session is None:
                     self.status.setText("Сначала загрузите деталь.")
+                    return
+                if self.session.controller.has_stages:
+                    self.status.setText(
+                        "Проверка многоэтапного гиба ещё не реализована в OCC: "
+                        "результат только UNVERIFIED. Не используйте обычную "
+                        "проверку одного гиба для подтверждения догиба."
+                    )
                     return
                 if self._task_progress_busy or not self._apply_typed_manual_order():
                     return
@@ -6686,6 +6735,11 @@ class _PreviewPanel:
                 if self.session is None:
                     self.status.setText("Сначала загрузите развёртку SheetMetal.")
                     return False
+                if self.session.controller.has_stages:
+                    self.status.setText(
+                        "При предгибе изменяйте порядок строк таблицы перетаскиванием."
+                    )
+                    return False
                 try:
                     selected = parse_manual_bend_order(
                         self.manual_order_input.text(), self.session.canonical_order,
@@ -6949,12 +7003,25 @@ class _PreviewPanel:
                     "UNVERIFIED": "НЕ ПРОВЕРЕН",
                 }.get(retract_status, "—")
                 flat_mm = self.session.local_bend_dimensions_mm.get(b.bend_id)
-                gauge = (None if self._manual_selection_enabled
-                         else self._backgauge_preview_position(idx - 1))
+                gauge = (
+                    None if (self._manual_selection_enabled or self.session.controller.has_stages)
+                    else self._backgauge_preview_position(idx - 1)
+                )
                 face_s = gauge[0].s_mm if gauge is not None and gauge[0] is not None else None
+                op = self.session.controller.operation_at(idx - 1)
+                if self.session.controller.has_stages:
+                    done = (idx <= self.session.controller.completed_step_count)
+                    status_str = (
+                        "ЭТАП ГОТОВ" if done else ("АКТИВНЫЙ ЭТАП" if is_active else "ОЖИДАНИЕ")
+                    ) + " [UNVERIFIED]"
+                step_name = {
+                    "PREBEND": "предгиб", "FINISH": "догиб", "SINGLE": "обычный",
+                }[op.kind]
                 return (
                     str(idx),
-                    "{} ({} → {})".format(b.bend_id, b.fixed_panel, b.moving_panel),
+                    "{} · {} ({} → {})".format(
+                        op.operation_id, step_name, b.fixed_panel, b.moving_panel
+                    ),
                     "",  # 180° uses the native Qt check indicator.
                     "{:+.1f}°".format(b.angle_deg),
                     "{:+.1f}°".format(cur),
@@ -6962,7 +7029,216 @@ class _PreviewPanel:
                     "{:.2f}".format(face_s) if face_s is not None else "—",
                     status_str,
                     retract_label,
+                    "",
                 )
+
+            def _edit_prebend_dialog(self, bend_id):
+                """Choose a pre-bend angle and drag ONLY that step among locked steps."""
+                if self.session is None or self._task_progress_busy:
+                    return
+                if not self.session.can_reorder():
+                    self.status.setText("Перед добавлением или изменением предгиба нажмите Reset.")
+                    return
+                controller = self.session.controller
+                final = controller.target_for(bend_id)
+                current = next((
+                    step for step in controller.operation_steps
+                    if step.bend_id == bend_id and step.kind == "PREBEND"
+                ), None)
+                dialog = QtWidgets.QDialog(self)
+                dialog.setWindowTitle("Предварительный гиб / догиб — " + bend_id)
+                dialog.setMinimumWidth(400)
+                layout = QtWidgets.QVBoxLayout(dialog)
+                explanation = QtWidgets.QLabel(
+                    "Физический гиб: {}\\nКонечный угол: {:+.2f}° (не меняется)\\n"
+                    "Задайте промежуточный абсолютный угол и перетащите "
+                    "только строку предгиба между зафиксированными операциями."
+                    .format(bend_id, final)
+                )
+                explanation.setWordWrap(True)
+                layout.addWidget(explanation)
+                row = QtWidgets.QFormLayout()
+                spin = QtWidgets.QDoubleSpinBox(dialog)
+                spin.setObjectName("SMBS_PreBendAngle")
+                spin.setDecimals(2)
+                spin.setSingleStep(1.0)
+                if final > 0:
+                    spin.setRange(0.01, max(0.01, final - 0.01))
+                else:
+                    spin.setRange(min(-0.01, final + 0.01), -0.01)
+                spin.setValue(current.target_angle_deg if current else final / 2.0)
+                spin.setSuffix("°")
+                row.addRow("Промежуточный угол:", spin)
+                layout.addLayout(row)
+
+                # Modal placement preview. All existing operations are locked;
+                # the newly selected PREBEND is the sole draggable item.
+                preview = QtWidgets.QListWidget(dialog)
+                preview.setObjectName("SMBS_PreBendPlacement")
+                preview.setDragDropMode(QtWidgets.QAbstractItemView.InternalMove)
+                preview.setDefaultDropAction(QtCore.Qt.MoveAction)
+                preview.setDropIndicatorShown(True)
+                preview.setMinimumHeight(200)
+                pre_id = bend_id + ".1"
+                finish_id = bend_id + ".2"
+                stages = []
+                for step in controller.operation_steps:
+                    if step.bend_id == bend_id and step.kind == "SINGLE":
+                        stages.append((pre_id, bend_id, spin.value(), "PREBEND"))
+                        stages.append((finish_id, bend_id, final, "FINISH"))
+                    else:
+                        stages.append((
+                            step.operation_id, step.bend_id,
+                            step.target_angle_deg, step.kind,
+                        ))
+                for op_id, physical_id, angle, kind in stages:
+                    label = (
+                        "{}  —  ПРЕДГИБ (перетащите)".format(op_id)
+                        if op_id == pre_id else
+                        "{}  —  догиб до {:+.1f}° (закреплён)".format(op_id, angle)
+                        if op_id == finish_id else
+                        "{}  —  {:+.1f}° (закреплён)".format(op_id, angle)
+                    )
+                    item = QtWidgets.QListWidgetItem(label)
+                    item.setData(QtCore.Qt.UserRole, op_id)
+                    flags = QtCore.Qt.ItemIsEnabled | QtCore.Qt.ItemIsSelectable
+                    flags |= QtCore.Qt.ItemIsDropEnabled
+                    if op_id == pre_id:
+                        flags |= QtCore.Qt.ItemIsDragEnabled
+                    item.setFlags(flags)
+                    preview.addItem(item)
+                    if op_id == pre_id:
+                        preview.setCurrentItem(item)
+                layout.addWidget(preview)
+                hint = QtWidgets.QLabel(
+                    "Догиб должен остаться после предгиба. "
+                    "Угол догиба нельзя изменить: он задан развёрткой."
+                )
+                hint.setWordWrap(True)
+                layout.addWidget(hint)
+
+                buttons = QtWidgets.QDialogButtonBox(
+                    QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel,
+                    dialog,
+                )
+                def apply_dialog_order():
+                    ids = tuple(
+                        preview.item(i).data(QtCore.Qt.UserRole)
+                        for i in range(preview.count())
+                    )
+                    if (pre_id not in ids or finish_id not in ids
+                            or ids.index(pre_id) >= ids.index(finish_id)):
+                        hint.setText(
+                            "Ошибка: предварительный гиб должен стоять "
+                            "перед соответствующим догибом."
+                        )
+                        return
+                    dialog.accept()
+                buttons.accepted.connect(apply_dialog_order)
+                buttons.rejected.connect(dialog.reject)
+                if current is not None:
+                    delete_button = buttons.addButton(
+                        "Удалить предгиб", QtWidgets.QDialogButtonBox.DestructiveRole
+                    )
+                    delete_button.clicked.connect(lambda: dialog.done(2))
+                layout.addWidget(buttons)
+                result = dialog.exec() if hasattr(dialog, "exec") else dialog.exec_()
+                try:
+                    if result == 1:
+                        order = tuple(
+                            preview.item(i).data(QtCore.Qt.UserRole)
+                            for i in range(preview.count())
+                        )
+                        original = controller.operation_snapshot()
+                        try:
+                            controller.add_prebend(bend_id, spin.value())
+                            controller.reorder_operations(order)
+                        except SequenceError:
+                            controller.restore_operation_snapshot(original)
+                            raise
+                        operation = "Предгиб {}: {:+.2f}° → догиб до {:+.2f}°".format(
+                            bend_id, spin.value(), final
+                        )
+                    elif result == 2 and current is not None:
+                        controller.remove_prebend(bend_id)
+                        operation = "Предгиб {} удалён; оставлен конечный угол.".format(bend_id)
+                    else:
+                        return
+                    _desktop_debug_event(
+                        "STAGED_BEND_PLAN_CHANGED",
+                        bend_id=bend_id,
+                        steps=controller.operation_snapshot(),
+                    )
+                    self._on_staged_plan_changed(operation)
+                except SequenceError as exc:
+                    self.status.setText(str(exc))
+
+            def _on_staged_operations_dropped(self, *_args):
+                """QTreeWidget internal row movement becomes a validated step order."""
+                if self._staged_dnd_pending:
+                    return
+                self._staged_dnd_pending = True
+                QtCore.QTimer.singleShot(0, self._apply_staged_drop)
+
+            def _apply_staged_drop(self):
+                self._staged_dnd_pending = False
+                if self.session is None or not self.session.controller.has_stages:
+                    self._populate_operations()
+                    return
+                operation_ids = tuple(
+                    self.operations.topLevelItem(idx).data(
+                        0, QtCore.Qt.UserRole + 1
+                    )
+                    for idx in range(self.operations.topLevelItemCount())
+                )
+                try:
+                    self.session.controller.reorder_operations(operation_ids)
+                    self.session.active_bend_index = self.session.controller.active_index
+                except SequenceError as exc:
+                    self.status.setText(str(exc))
+                    self._populate_operations()
+                    return
+                _desktop_debug_event(
+                    "STAGED_BEND_STEPS_REORDERED", operation_ids=operation_ids,
+                )
+                self._on_staged_plan_changed(
+                    "Порядок этапов: " + " → ".join(operation_ids)
+                )
+
+            def _on_staged_plan_changed(self, message):
+                """Invalidate prior OCC evidence: split operations are NOT verified."""
+                self._stop_timer()
+                self._machine_pose_fault = None
+                self._manual_sequence_prefix = []
+                self._manual_orientation_order = ()
+                self._manual_orientation_by_bend = {}
+                self._manual_3d_verdicts.clear()
+                self._manual_retract_verdicts.clear()
+                self._last_manual_sequence_report = None
+                self._embedded_diagnostics_history = None
+                self._physical_check_signature = None
+                self._clear_manual_check_feedback()
+                self._backgauge_preview_cache.clear()
+                self._manual_preview_unverified = self.session.controller.has_stages
+                self._manual_preview_notice.setText(
+                    "ПРЕДГИБ / ДОГИБ: кинематическая симуляция, "
+                    "проверка коллизий последовательности НЕ выполнена."
+                    if self.session.controller.has_stages else
+                    "РУЧНОЙ ПРОСМОТР — коллизии не проверены"
+                )
+                self._manual_preview_notice.setVisible(
+                    self.session.controller.has_stages
+                )
+                self._sync_manual_order_input()
+                self._populate_operations()
+                pc = self._ensure_press_cycle_controller()
+                if pc is not None:
+                    pc.select_operation(self.session.controller.active_index)
+                self.session.active_bend_index = self.session.controller.active_index
+                self._configure_for_active_bend()
+                self._update_tooling_status_label()
+                self.draw()
+                self.status.setText(message + " | UNVERIFIED")
 
             def _apply_reorder(self, action_fn):
                 if self.session is None:
@@ -6981,8 +7257,13 @@ class _PreviewPanel:
                 self._manual_retract_verdicts.clear()
                 self._last_manual_sequence_report = None
                 self._clear_manual_check_feedback()
-                self._manual_preview_unverified = False
-                self._manual_preview_notice.hide()
+                self._manual_preview_unverified = bool(self.session.controller.has_stages)
+                self._manual_preview_notice.setText(
+                    "ПРЕДГИБ/ДОГИБ — предварительная симуляция, коллизии не проверены"
+                    if self.session.controller.has_stages else
+                    "РУЧНОЙ ПРОСМОТР — коллизии не проверены"
+                )
+                self._manual_preview_notice.setVisible(self.session.controller.has_stages)
                 self._draw_flat_pattern()
                 self._update_manual_hint()
                 self._configure_for_active_bend()
@@ -7018,6 +7299,7 @@ class _PreviewPanel:
                         for _bend in self.session.ordered_bends:
                             self.operations.addTopLevelItem(QtWidgets.QTreeWidgetItem())
                         self._update_operations_visual_state()
+                        self.operations.setDragEnabled(self.session.controller.has_stages)
                 finally:
                     self.operations.blockSignals(signals_were_blocked)
 
@@ -7038,6 +7320,8 @@ class _PreviewPanel:
                         item = self.operations.topLevelItem(idx - 1)
                         bend_id = bend.bend_id
                         item.setData(0, QtCore.Qt.UserRole, bend_id)
+                        op = self.session.controller.operation_at(idx - 1)
+                        item.setData(0, QtCore.Qt.UserRole + 1, op.operation_id)
                         cols = self._format_operation_row(idx, bend)
                         for col, label in enumerate(cols):
                             item.setText(col, label)
@@ -7059,6 +7343,20 @@ class _PreviewPanel:
                                 for col, label in enumerate(cols) if label
                             ),
                         )
+                        if self.operations.itemWidget(item, 9) is None:
+                            add_btn = QtWidgets.QToolButton(self.operations)
+                            add_btn.setText("+" if op.kind != "PREBEND" else "Изм.")
+                            add_btn.setToolTip(
+                                "Добавить или изменить предварительный угол гиба " + bend_id
+                            )
+                            add_btn.clicked.connect(
+                                lambda _checked=False, bid=bend_id: self._edit_prebend_dialog(bid)
+                            )
+                            self.operations.setItemWidget(item, 9, add_btn)
+                        else:
+                            self.operations.itemWidget(item, 9).setText(
+                                "Изм." if op.kind == "PREBEND" else "+"
+                            )
                     if 0 <= self.session.active_bend_index < count:
                         active = self.operations.topLevelItem(self.session.active_bend_index)
                         if self.operations.currentItem() is not active:
@@ -7074,7 +7372,12 @@ class _PreviewPanel:
                 self.angle = self.session.current_angle_deg
                 slider_pos = int(round(abs(self.angle) * _SLIDER_SCALE))
                 self.slider.blockSignals(True)
-                self.slider.setRange(0, max_steps)
+                start_angle = (
+                    self.session.controller.operation_start_deg(self.session.active_bend_index)
+                    if self.session.controller.has_stages else 0.0
+                )
+                min_steps = int(round(abs(start_angle) * _SLIDER_SCALE))
+                self.slider.setRange(min_steps, max_steps)
                 self.slider.setValue(slider_pos)
                 self.slider.blockSignals(False)
                 if angle_only:
@@ -7110,7 +7413,11 @@ class _PreviewPanel:
                     return
                 target = self.session.target_angle_deg
                 sign = 1.0 if target >= 0 else -1.0
-                mag = min(abs(target), max(0.0, float(slider_val) / _SLIDER_SCALE))
+                start = (
+                    self.session.controller.operation_start_deg(self.session.active_bend_index)
+                    if self.session.controller.has_stages else 0.0
+                )
+                mag = min(abs(target), max(abs(start), float(slider_val) / _SLIDER_SCALE))
                 signed_angle = 0.0 if mag < 1e-9 else sign * mag
                 self.set_angle(signed_angle)
 

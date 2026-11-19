@@ -296,6 +296,13 @@ def build_snapshot(
             "manual_orientation_overrides": dict(overrides),
             "canonical_bend_ids": canonical,
             "found_sequences": archived_sequences,
+            # Optional operation timeline; empty in legacy single-pass plans.
+            # Saved targets are cumulative physical angles.
+            "operation_steps": (
+                session.controller.operation_snapshot()
+                if getattr(getattr(session, "controller", None), "has_stages", False)
+                else []
+            ),
         },
         "tooling": {
             "punch": tool_reference(getattr(tooling, "punch", None)),
@@ -371,6 +378,24 @@ def decode_snapshot(raw):
         raise EmbeddedSessionError("Stored order is not a bend permutation")
     if len(prefix) != len(set(prefix)) or order[:len(prefix)] != prefix:
         raise EmbeddedSessionError("Stored manual prefix is inconsistent")
+    operation_steps = data.get("operation_steps", [])
+    if (not isinstance(operation_steps, list)
+            or len(operation_steps) > 2 * len(canonical)
+            or any(not isinstance(step, dict) for step in operation_steps)):
+        raise EmbeddedSessionError("Invalid staged operation collection")
+    if operation_steps:
+        seen_ids = set()
+        for step in operation_steps:
+            if (set(step) != {"operation_id", "bend_id", "target_angle_deg", "kind"}
+                    or not isinstance(step["operation_id"], str)
+                    or step["bend_id"] not in canonical
+                    or step["kind"] not in ("SINGLE", "PREBEND", "FINISH")
+                    or isinstance(step["target_angle_deg"], bool)
+                    or not isinstance(step["target_angle_deg"], (int, float))
+                    or not math.isfinite(step["target_angle_deg"])
+                    or step["operation_id"] in seen_ids):
+                raise EmbeddedSessionError("Invalid staged operation entry")
+            seen_ids.add(step["operation_id"])
     found_sequences = data.get("found_sequences", [])
     if not isinstance(found_sequences, list) or len(found_sequences) > 32:
         raise EmbeddedSessionError("Invalid saved candidate collection")
