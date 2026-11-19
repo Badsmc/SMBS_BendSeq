@@ -4133,7 +4133,7 @@ class _PreviewPanel:
                     return
                 bend_id = item.data(0, QtCore.Qt.UserRole)
                 operation_id = item.data(0, QtCore.Qt.UserRole + 1) or bend_id
-                if self.session.controller.has_stages:
+                if self.session.controller.has_stages and operation_id != bend_id:
                     explicitly_set = (
                         operation_id in self._manual_operation_orientation_overrides
                     )
@@ -4163,8 +4163,9 @@ class _PreviewPanel:
                     )
                     return
                 order = tuple(self.session.bend_order)
-                if self.session.controller.has_stages:
-                    # Each operation of a physical bend has its own override.
+                if self.session.controller.has_stages and operation_id != bend_id:
+                    # Partial and finish operations each have their own override.
+                    # A plain SINGLE step retains legacy bend-ID persistence.
                     # B03.1 and B03.2 never write to the same dictionary key.
                     if reverse_axis is None:
                         self._manual_operation_orientation_overrides.pop(
@@ -7419,9 +7420,9 @@ class _PreviewPanel:
                                 + op.operation_id + ", а не ко всем этапам " + bend_id + "."
                             )
                         if (
-                            (self.session.controller.has_stages and
+                            (op.operation_id != bend_id and
                              op.operation_id in self._manual_operation_orientation_overrides)
-                            or (not self.session.controller.has_stages and
+                            or (op.operation_id == bend_id and
                                 bend_id in self._manual_orientation_overrides)
                         ):
                             tooltip += (
