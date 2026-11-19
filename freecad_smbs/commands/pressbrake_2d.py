@@ -6985,7 +6985,7 @@ class _PreviewPanel:
                 )
 
             def _edit_prebend_dialog(self, bend_id):
-                """An operator sets a cumulative intermediate angle on one physical bend."""
+                """Choose a pre-bend angle and drag ONLY that step among locked steps."""
                 if self.session is None or self._task_progress_busy:
                     return
                 if not self.session.can_reorder():
@@ -6999,11 +6999,13 @@ class _PreviewPanel:
                 ), None)
                 dialog = QtWidgets.QDialog(self)
                 dialog.setWindowTitle("Предварительный гиб / догиб — " + bend_id)
+                dialog.setMinimumWidth(400)
                 layout = QtWidgets.QVBoxLayout(dialog)
                 explanation = QtWidgets.QLabel(
-                    "Физический гиб: {}\nКонечный угол: {:+.2f}° (не меняется)\n"
-                    "Промежуточный угол задаётся относительно плоской заготовки.\n"
-                    "Появятся два этапа: предгиб и догиб.".format(bend_id, final)
+                    "Физический гиб: {}\\nКонечный угол: {:+.2f}° (не меняется)\\n"
+                    "Задайте промежуточный абсолютный угол и перетащите "
+                    "только строку предгиба между зафиксированными операциями."
+                    .format(bend_id, final)
                 )
                 explanation.setWordWrap(True)
                 layout.addWidget(explanation)
@@ -7016,18 +7018,75 @@ class _PreviewPanel:
                     spin.setRange(0.01, max(0.01, final - 0.01))
                 else:
                     spin.setRange(min(-0.01, final + 0.01), -0.01)
-                spin.setValue(
-                    current.target_angle_deg if current else
-                    (final / 2.0)
-                )
+                spin.setValue(current.target_angle_deg if current else final / 2.0)
                 spin.setSuffix("°")
                 row.addRow("Промежуточный угол:", spin)
                 layout.addLayout(row)
+
+                # Modal placement preview. All existing operations are locked;
+                # the newly selected PREBEND is the sole draggable item.
+                preview = QtWidgets.QListWidget(dialog)
+                preview.setObjectName("SMBS_PreBendPlacement")
+                preview.setDragDropMode(QtWidgets.QAbstractItemView.InternalMove)
+                preview.setDefaultDropAction(QtCore.Qt.MoveAction)
+                preview.setDropIndicatorShown(True)
+                preview.setMinimumHeight(200)
+                pre_id = bend_id + ".1"
+                finish_id = bend_id + ".2"
+                stages = []
+                for step in controller.operation_steps:
+                    if step.bend_id == bend_id and step.kind == "SINGLE":
+                        stages.append((pre_id, bend_id, spin.value(), "PREBEND"))
+                        stages.append((finish_id, bend_id, final, "FINISH"))
+                    else:
+                        stages.append((
+                            step.operation_id, step.bend_id,
+                            step.target_angle_deg, step.kind,
+                        ))
+                for op_id, physical_id, angle, kind in stages:
+                    label = (
+                        "{}  —  ПРЕДГИБ (перетащите)".format(op_id)
+                        if op_id == pre_id else
+                        "{}  —  догиб до {:+.1f}° (закреплён)".format(op_id, angle)
+                        if op_id == finish_id else
+                        "{}  —  {:+.1f}° (закреплён)".format(op_id, angle)
+                    )
+                    item = QtWidgets.QListWidgetItem(label)
+                    item.setData(QtCore.Qt.UserRole, op_id)
+                    flags = QtCore.Qt.ItemIsEnabled | QtCore.Qt.ItemIsSelectable
+                    flags |= QtCore.Qt.ItemIsDropEnabled
+                    if op_id == pre_id:
+                        flags |= QtCore.Qt.ItemIsDragEnabled
+                    item.setFlags(flags)
+                    preview.addItem(item)
+                    if op_id == pre_id:
+                        preview.setCurrentItem(item)
+                layout.addWidget(preview)
+                hint = QtWidgets.QLabel(
+                    "Догиб должен остаться после предгиба. "
+                    "Угол догиба нельзя изменить: он задан развёрткой."
+                )
+                hint.setWordWrap(True)
+                layout.addWidget(hint)
+
                 buttons = QtWidgets.QDialogButtonBox(
                     QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel,
                     dialog,
                 )
-                buttons.accepted.connect(dialog.accept)
+                def apply_dialog_order():
+                    ids = tuple(
+                        preview.item(i).data(QtCore.Qt.UserRole)
+                        for i in range(preview.count())
+                    )
+                    if (pre_id not in ids or finish_id not in ids
+                            or ids.index(pre_id) >= ids.index(finish_id)):
+                        hint.setText(
+                            "Ошибка: предварительный гиб должен стоять "
+                            "перед соответствующим догибом."
+                        )
+                        return
+                    dialog.accept()
+                buttons.accepted.connect(apply_dialog_order)
                 buttons.rejected.connect(dialog.reject)
                 if current is not None:
                     delete_button = buttons.addButton(
@@ -7038,7 +7097,17 @@ class _PreviewPanel:
                 result = dialog.exec() if hasattr(dialog, "exec") else dialog.exec_()
                 try:
                     if result == 1:
-                        controller.add_prebend(bend_id, spin.value())
+                        order = tuple(
+                            preview.item(i).data(QtCore.Qt.UserRole)
+                            for i in range(preview.count())
+                        )
+                        original = controller.operation_snapshot()
+                        try:
+                            controller.add_prebend(bend_id, spin.value())
+                            controller.reorder_operations(order)
+                        except SequenceError:
+                            controller.restore_operation_snapshot(original)
+                            raise
                         operation = "Предгиб {}: {:+.2f}° → догиб до {:+.2f}°".format(
                             bend_id, spin.value(), final
                         )
