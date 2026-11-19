@@ -5959,6 +5959,13 @@ class _PreviewPanel:
                 if self.session is None:
                     self.status.setText("Сначала загрузите деталь.")
                     return
+                if self.session.controller.has_stages:
+                    self.status.setText(
+                        "Проверка многоэтапного гиба ещё не реализована в OCC: "
+                        "результат только UNVERIFIED. Не используйте обычную "
+                        "проверку одного гиба для подтверждения догиба."
+                    )
+                    return
                 if self._task_progress_busy or not self._apply_typed_manual_order():
                     return
                 prefix = tuple(self._manual_sequence_prefix)
@@ -6664,6 +6671,11 @@ class _PreviewPanel:
                 if self.session is None:
                     self.status.setText("Сначала загрузите развёртку SheetMetal.")
                     return False
+                if self.session.controller.has_stages:
+                    self.status.setText(
+                        "При предгибе изменяйте порядок строк таблицы перетаскиванием."
+                    )
+                    return False
                 try:
                     selected = parse_manual_bend_order(
                         self.manual_order_input.text(), self.session.canonical_order,
@@ -6947,6 +6959,144 @@ class _PreviewPanel:
                     retract_label,
                     "",
                 )
+
+            def _edit_prebend_dialog(self, bend_id):
+                """An operator sets a cumulative intermediate angle on one physical bend."""
+                if self.session is None or self._task_progress_busy:
+                    return
+                if not self.session.can_reorder():
+                    self.status.setText("Перед добавлением или изменением предгиба нажмите Reset.")
+                    return
+                controller = self.session.controller
+                final = controller.target_for(bend_id)
+                current = next((
+                    step for step in controller.operation_steps
+                    if step.bend_id == bend_id and step.kind == "PREBEND"
+                ), None)
+                dialog = QtWidgets.QDialog(self)
+                dialog.setWindowTitle("Предварительный гиб / догиб — " + bend_id)
+                layout = QtWidgets.QVBoxLayout(dialog)
+                explanation = QtWidgets.QLabel(
+                    "Физический гиб: {}\nКонечный угол: {:+.2f}° (не меняется)\n"
+                    "Промежуточный угол задаётся относительно плоской заготовки.\n"
+                    "Появятся два этапа: предгиб и догиб.".format(bend_id, final)
+                )
+                explanation.setWordWrap(True)
+                layout.addWidget(explanation)
+                row = QtWidgets.QFormLayout()
+                spin = QtWidgets.QDoubleSpinBox(dialog)
+                spin.setObjectName("SMBS_PreBendAngle")
+                spin.setDecimals(2)
+                spin.setSingleStep(1.0)
+                if final > 0:
+                    spin.setRange(0.01, max(0.01, final - 0.01))
+                else:
+                    spin.setRange(min(-0.01, final + 0.01), -0.01)
+                spin.setValue(
+                    current.target_angle_deg if current else
+                    (final / 2.0)
+                )
+                spin.setSuffix("°")
+                row.addRow("Промежуточный угол:", spin)
+                layout.addLayout(row)
+                buttons = QtWidgets.QDialogButtonBox(
+                    QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel,
+                    dialog,
+                )
+                buttons.accepted.connect(dialog.accept)
+                buttons.rejected.connect(dialog.reject)
+                if current is not None:
+                    delete_button = buttons.addButton(
+                        "Удалить предгиб", QtWidgets.QDialogButtonBox.DestructiveRole
+                    )
+                    delete_button.clicked.connect(lambda: dialog.done(2))
+                layout.addWidget(buttons)
+                result = dialog.exec() if hasattr(dialog, "exec") else dialog.exec_()
+                try:
+                    if result == 1:
+                        controller.add_prebend(bend_id, spin.value())
+                        operation = "Предгиб {}: {:+.2f}° → догиб до {:+.2f}°".format(
+                            bend_id, spin.value(), final
+                        )
+                    elif result == 2 and current is not None:
+                        controller.remove_prebend(bend_id)
+                        operation = "Предгиб {} удалён; оставлен конечный угол.".format(bend_id)
+                    else:
+                        return
+                    _desktop_debug_event(
+                        "STAGED_BEND_PLAN_CHANGED",
+                        bend_id=bend_id,
+                        steps=controller.operation_snapshot(),
+                    )
+                    self._on_staged_plan_changed(operation)
+                except SequenceError as exc:
+                    self.status.setText(str(exc))
+
+            def _on_staged_operations_dropped(self, *_args):
+                """QTreeWidget internal row movement becomes a validated step order."""
+                if self._staged_dnd_pending:
+                    return
+                self._staged_dnd_pending = True
+                QtCore.QTimer.singleShot(0, self._apply_staged_drop)
+
+            def _apply_staged_drop(self):
+                self._staged_dnd_pending = False
+                if self.session is None or not self.session.controller.has_stages:
+                    self._populate_operations()
+                    return
+                operation_ids = tuple(
+                    self.operations.topLevelItem(idx).data(
+                        0, QtCore.Qt.UserRole + 1
+                    )
+                    for idx in range(self.operations.topLevelItemCount())
+                )
+                try:
+                    self.session.controller.reorder_operations(operation_ids)
+                    self.session.active_bend_index = self.session.controller.active_index
+                except SequenceError as exc:
+                    self.status.setText(str(exc))
+                    self._populate_operations()
+                    return
+                _desktop_debug_event(
+                    "STAGED_BEND_STEPS_REORDERED", operation_ids=operation_ids,
+                )
+                self._on_staged_plan_changed(
+                    "Порядок этапов: " + " → ".join(operation_ids)
+                )
+
+            def _on_staged_plan_changed(self, message):
+                """Invalidate prior OCC evidence: split operations are NOT verified."""
+                self._stop_timer()
+                self._machine_pose_fault = None
+                self._manual_sequence_prefix = []
+                self._manual_orientation_order = ()
+                self._manual_orientation_by_bend = {}
+                self._manual_3d_verdicts.clear()
+                self._manual_retract_verdicts.clear()
+                self._last_manual_sequence_report = None
+                self._physical_check_signature = None
+                self._clear_manual_check_feedback()
+                self._backgauge_preview_cache.clear()
+                self._manual_preview_unverified = self.session.controller.has_stages
+                self._manual_preview_notice.setText(
+                    "ПРЕДГИБ / ДОГИБ: кинематическая симуляция, "
+                    "проверка коллизий последовательности НЕ выполнена."
+                    if self.session.controller.has_stages else
+                    "РУЧНОЙ ПРОСМОТР — коллизии не проверены"
+                )
+                self._manual_preview_notice.setVisible(
+                    self.session.controller.has_stages
+                )
+                self._sync_manual_order_input()
+                self._populate_operations()
+                pc = self._ensure_press_cycle_controller()
+                if pc is not None:
+                    pc.select_operation(self.session.controller.active_index)
+                self.session.active_bend_index = self.session.controller.active_index
+                self._configure_for_active_bend()
+                self._update_tooling_status_label()
+                self.draw()
+                self.status.setText(message + " | UNVERIFIED")
 
             def _apply_reorder(self, action_fn):
                 if self.session is None:
