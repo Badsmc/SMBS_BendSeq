@@ -40,7 +40,10 @@ class ToolingPanel:
                 def __init__(self, library: Any, parent: Any = None, *, clamps_only=False) -> None:
                     super().__init__(parent)
                     self.setWindowTitle("SMBS: Библиотека оснастки")
-                    self.resize(650, 560)
+                    screen = QtWidgets.QApplication.primaryScreen()
+                    available = screen.availableGeometry() if screen else None
+                    self.resize(min(700, available.width() - 40) if available else 700,
+                                min(490, available.height() - 80) if available else 490)
 
                     self.library = library
                     self._workspace = parent if hasattr(parent, "_task_stack") else None
@@ -74,10 +77,12 @@ class ToolingPanel:
                     self.tabs.setIconSize(QtCore.QSize(17, 17))
                     self.tabs.addTab(self._build_punch_tab(), "Пуансоны (0)")
                     self.tabs.addTab(self._build_die_tab(), "Матрицы (0)")
-                    self.tabs.addTab(self._build_clamps_tab(), "Зажимы")
+                    clamps_scroll = QtWidgets.QScrollArea()
+                    clamps_scroll.setWidgetResizable(True)
+                    clamps_scroll.setWidget(self._build_clamps_tab())
+                    self.tabs.addTab(clamps_scroll, "Зажимы")
                     self.tabs.addTab(self._build_backgauge_tab(), "Задний упор")
                     self.tabs.currentChanged.connect(self._on_selection_changed)
-                    layout.addWidget(self.tabs)
 
                     # Selected item details group box
                     self.info_group = QtWidgets.QFrame()
@@ -100,7 +105,13 @@ class ToolingPanel:
                     self.tool_picture = QtWidgets.QLabel()
                     self.tool_picture.setAlignment(QtCore.Qt.AlignCenter)
                     info_layout.addWidget(self.tool_picture)
-                    layout.addWidget(self.info_group)
+                    self.info_group.setMaximumWidth(240)
+                    self.tool_picture.setMinimumSize(180, 125)
+                    self.tool_picture.setMaximumSize(220, 145)
+                    content = QtWidgets.QHBoxLayout()
+                    content.addWidget(self.tabs, 1)
+                    content.addWidget(self.info_group)
+                    layout.addLayout(content, 1)
 
                     self.tool_actions = QtWidgets.QWidget()
                     btn_layout = QtWidgets.QHBoxLayout(self.tool_actions)
@@ -159,7 +170,7 @@ class ToolingPanel:
 
                     self.gauge_picture = QtWidgets.QLabel()
                     self.gauge_picture.setAlignment(QtCore.Qt.AlignCenter)
-                    vbox.addWidget(self.gauge_picture, 1)
+                    self.gauge_picture.setMaximumSize(220, 145)
                     actions = QtWidgets.QHBoxLayout()
                     for title, callback in (
                         ("Загрузить", self._import_backgauge),
@@ -169,7 +180,10 @@ class ToolingPanel:
                         button = QtWidgets.QPushButton(title)
                         button.clicked.connect(callback)
                         actions.addWidget(button)
-                    vbox.addLayout(actions)
+                    row = QtWidgets.QHBoxLayout()
+                    row.addLayout(actions, 1)
+                    row.addWidget(self.gauge_picture)
+                    vbox.addLayout(row)
                     self._refresh_backgauge()
                     return widget
 
