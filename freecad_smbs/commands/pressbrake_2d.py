@@ -599,6 +599,19 @@ class _SMBSNativeTaskPanel:
         self.workspace = workspace
         self.form = form
         self._attached = True
+        QtCore, _QtGui, _QtWidgets = _qt()
+        panel = self
+
+        class LifetimeGuard(QtCore.QObject):
+            def eventFilter(self, watched, event):
+                if event.type() in (QtCore.QEvent.DeferredDelete, QtCore.QEvent.Hide):
+                    panel._detach()
+                return False
+
+        # FreeCAD may replace Tasks without calling reject()/closed().
+        # Rescue reusable controls before their disposable parent is deleted.
+        self._lifetime_guard = LifetimeGuard(workspace)
+        form.installEventFilter(self._lifetime_guard)
 
     def getStandardButtons(self):
         # A task's standard Cancel closes only the controls, NOT the
@@ -643,6 +656,8 @@ class _SMBSNativeTaskPanel:
             workspace.task_progress, workspace._task_status_chip,
             workspace._task_progress_caption,
         ):
+            if not workspace._qt_is_valid(child):
+                continue
             old_parent = child.parentWidget()
             old_layout = old_parent.layout() if old_parent is not None else None
             if old_layout is not None:
