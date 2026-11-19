@@ -30,6 +30,9 @@ from smbs_core.kinematics2d.fold_sequence import (
     parse_manual_bend_order,
 )
 from smbs_core.kinematics2d.staged_bends import StagedBendSequenceController
+from smbs_core.kinematics2d.staged_orientation import (
+    expanded_operation_orientations, reverse_axis_for_operation,
+)
 from smbs_core.kinematics2d.panel_graph import PanelGraph, graph_from_panel_build
 from smbs_core.kinematics2d.panel_kinematics import FoldState, KinematicsError
 from smbs_core.kinematics2d.press_cycle import (
@@ -731,7 +734,7 @@ def show_workspace_controls(workspace, tab=None):
             and getattr(workspace, "session", None) is not None
             and hasattr(workspace, "_effective_loading_orientation_map")):
         cycle.loading_orientation_by_bend = (
-            workspace._effective_loading_orientation_map()
+            workspace._effective_operation_orientation_map()
         )
         if hasattr(workspace, "_rear_frame_for_preview"):
             cycle.rear_panel_vertices_xy = (
@@ -1407,6 +1410,9 @@ class _PreviewPanel:
                 self._manual_orientation_order = ()
                 self._manual_orientation_by_bend = {}
                 self._manual_orientation_overrides: dict[str, bool] = {}
+                # The staging timeline has separate 0°/180° choices for B03.1,
+                # B03.2, etc. Never key these by the shared physical bend ID.
+                self._manual_operation_orientation_overrides: dict[str, bool] = {}
                 self._last_manual_sequence_report = None
                 self._collision_inspection = None
                 self._alternate_retract_inspection = None
@@ -4321,13 +4327,15 @@ class _PreviewPanel:
                     raise WorkpiecePoseError(
                         "BEND_ONLY_COUPLED_SHEET_PLACEMENT_FAILED:" + str(exc)
                     ) from exc
-                orientations = self._effective_loading_orientation_map()
+                orientations = self._effective_operation_orientation_map()
                 return WorkpiecePlacement3D.compute_placement(
                     fs, bid,
                     support_plane_zm=float(sheet_support_z),
                     align_bisector=True,
                     align_bend_arc_center=True,
-                    reverse_axis=bool(orientations.get(bid, False)),
+                    reverse_axis=reverse_axis_for_operation(
+                        orientations, bid, self.session.controller.active_operation_id
+                    ),
                     rear_panel_vertices_xy=self._rear_frame_for_preview(),
                 )
 
@@ -4338,11 +4346,15 @@ class _PreviewPanel:
                         "Оператор ← | Упор → | Деталь не загружена"
                     )
                     return
-                choices = self._effective_loading_orientation_map()
+                choices = self._effective_operation_orientation_map()
                 bend_id = str(self.session.active_bend_id)
-                reversed_pose = bool(choices.get(bend_id, False))
+                op_id = self.session.controller.active_operation_id
+                reversed_pose = reverse_axis_for_operation(choices, bend_id, op_id)
                 source = self._ergonomic_loading_status
-                if bend_id in self._manual_orientation_overrides:
+                if (
+                    op_id in self._manual_operation_orientation_overrides
+                    or bend_id in self._manual_orientation_overrides
+                ):
                     evidence = "положение задано вручную"
                 elif source.startswith("SELECTED_2D"):
                     evidence = "выбрано из 2D-поиска; 3D не проверено"
@@ -4353,7 +4365,7 @@ class _PreviewPanel:
                 self.loading_orientation_status.setText(
                     "Оператор ← (-S)  |  Упор → (+S)  |  {}: {}  |  {}"
                     .format(
-                        bend_id,
+                        op_id,
                         ("НЕ ОПРЕДЕЛЕНА" if bend_id not in choices else
                          "РАЗВОРОТ 180°" if reversed_pose else "обычно 0°"),
                         evidence,
@@ -4371,7 +4383,7 @@ class _PreviewPanel:
                             self._rear_frame_for_preview()
                         )
                         self.press_cycle.loading_orientation_by_bend = (
-                            self._effective_loading_orientation_map()
+                            self._effective_operation_orientation_map()
                         )
                         self.press_cycle.initial_feed_preview_mm = (
                             self.backgauge_model.initial_feed_preview_mm
@@ -4395,7 +4407,7 @@ class _PreviewPanel:
                     self._rear_frame_for_preview()
                 )
                 self.press_cycle.loading_orientation_by_bend = (
-                    self._effective_loading_orientation_map()
+                    self._effective_operation_orientation_map()
                 )
                 self.press_cycle.initial_feed_preview_mm = (
                     self.backgauge_model.initial_feed_preview_mm
@@ -4920,6 +4932,7 @@ class _PreviewPanel:
                 self._manual_orientation_order = ()
                 self._manual_orientation_by_bend = {}
                 self._manual_orientation_overrides.clear()
+                self._manual_operation_orientation_overrides.clear()
                 self._manual_preview_unverified = False
                 self._manual_selection_enabled = False
                 self._manual_preview_notice.hide()
@@ -5693,6 +5706,9 @@ class _PreviewPanel:
                         self.session.bend_order
                     ),
                     manual_orientation_overrides=self._manual_orientation_overrides,
+                    operation_orientation_overrides=(
+                        self._manual_operation_orientation_overrides
+                    ),
                     orientation_source=(
                         "SELECTED_2D_CANDIDATE"
                         if self._manual_orientation_order == tuple(self.session.bend_order)
@@ -5806,6 +5822,9 @@ class _PreviewPanel:
                 )
                 self._manual_orientation_overrides = dict(
                     payload["order"].get("manual_orientation_overrides", {})
+                )
+                self._manual_operation_orientation_overrides = dict(
+                    payload["order"].get("operation_orientation_overrides", {})
                 )
                 self._manual_preview_unverified = self.session.controller.has_stages
                 self._manual_selection_enabled = False
@@ -7212,6 +7231,14 @@ class _PreviewPanel:
                 self._manual_sequence_prefix = []
                 self._manual_orientation_order = ()
                 self._manual_orientation_by_bend = {}
+                valid_ops = {
+                    step.operation_id for step in self.session.controller.operation_steps
+                }
+                self._manual_operation_orientation_overrides = {
+                    op_id: value
+                    for op_id, value in self._manual_operation_orientation_overrides.items()
+                    if op_id in valid_ops and op_id not in self.session.canonical_order
+                }
                 self._manual_3d_verdicts.clear()
                 self._manual_retract_verdicts.clear()
                 self._last_manual_sequence_report = None
@@ -7308,9 +7335,13 @@ class _PreviewPanel:
                     return
                 # Picking lines only changes the order. Recalculate derived
                 # machine positions when the user finishes editing.
-                orientations = (self._manual_orientation_overrides
-                                if self._manual_selection_enabled
-                                else self._effective_loading_orientation_map())
+                orientations = (
+                    self._effective_operation_orientation_map()
+                    if self.session.controller.has_stages else
+                    self._manual_orientation_overrides
+                    if self._manual_selection_enabled else
+                    self._effective_loading_orientation_map()
+                )
                 if not self._qt_is_valid(self) or not self._qt_is_valid(self.operations):
                     return
                 signals_were_blocked = self.operations.blockSignals(True)
@@ -7327,10 +7358,23 @@ class _PreviewPanel:
                             item.setText(col, label)
                         item.setCheckState(
                             _LOADING_ORIENTATION_COLUMN,
-                            QtCore.Qt.Checked if orientations.get(bend_id, False) else QtCore.Qt.Unchecked,
+                            QtCore.Qt.Checked
+                            if reverse_axis_for_operation(
+                                orientations, bend_id, op.operation_id
+                            ) else QtCore.Qt.Unchecked,
                         )
                         tooltip = "Галочка — разворот заготовки на 180°. Снята — 0°."
-                        if bend_id in self._manual_orientation_overrides:
+                        if self.session.controller.has_stages:
+                            tooltip += (
+                                "\nНастройка относится только к операции "
+                                + op.operation_id + ", а не ко всем этапам " + bend_id + "."
+                            )
+                        if (
+                            (self.session.controller.has_stages and
+                             op.operation_id in self._manual_operation_orientation_overrides)
+                            or (not self.session.controller.has_stages and
+                                bend_id in self._manual_orientation_overrides)
+                        ):
                             tooltip += (
                                 "\nПоложение задано вручную. Правый клик возвращает автоподбор."
                             )
