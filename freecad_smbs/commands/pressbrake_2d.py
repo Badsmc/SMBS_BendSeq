@@ -981,6 +981,8 @@ class PressBrake2DCommand:
         doc, selected = _selection_snapshot()
         QtCore, _QtGui, QtWidgets = _qt()
         main = Gui.getMainWindow()
+        from freecad_smbs.ui.lifecycle_debug import install
+        install(QtCore, QtWidgets)
         mdi = main.findChild(QtWidgets.QMdiArea)
         if mdi is None:
             raise RuntimeError("FreeCAD MDI area was not found")
@@ -1022,6 +1024,7 @@ class PressBrake2DCommand:
                     _desktop_debug_event(
                         "WORKSPACE_UNEXPECTED_DELETE_BLOCKED",
                         object_name=watched.objectName(),
+                        stack=traceback.format_stack(limit=24),
                     )
                     return True
                 return False
