@@ -225,6 +225,7 @@ def build_snapshot(
     retract_warning=False, orientation_by_bend=None,
     orientation_source="AUTO_SHORT_REAR", saved_sequences=(),
     manual_orientation_overrides=None,
+    operation_orientation_overrides=None,
 ):
     """Create the portable, bounded snapshot without mutating the document."""
     if session is None or document is None:
@@ -248,6 +249,23 @@ def build_snapshot(
     if (not isinstance(overrides, dict)
             or any(k not in order or type(v) is not bool for k, v in overrides.items())):
         raise EmbeddedSessionError("Invalid manual orientation overrides")
+    stage_steps = (
+        session.controller.operation_snapshot()
+        if getattr(getattr(session, "controller", None), "has_stages", False)
+        else []
+    )
+    stage_ids = {
+        step["operation_id"] for step in stage_steps
+        if step["operation_id"] not in canonical
+    }
+    stage_orientations = (
+        {} if operation_orientation_overrides is None
+        else operation_orientation_overrides
+    )
+    if (not isinstance(stage_orientations, dict)
+            or any(op_id not in stage_ids or type(value) is not bool
+                   for op_id, value in stage_orientations.items())):
+        raise EmbeddedSessionError("Invalid independent stage orientations")
     config = {
         k: _enum_to_value(v)
         for k, v in asdict(cycle_config).items()
@@ -294,8 +312,12 @@ def build_snapshot(
                                     for bid in order if bid in orientations},
             "orientation_source": orientation_source,
             "manual_orientation_overrides": dict(overrides),
+            "operation_orientation_overrides": dict(stage_orientations),
             "canonical_bend_ids": canonical,
             "found_sequences": archived_sequences,
+            # Optional operation timeline; empty in legacy single-pass plans.
+            # Saved targets are cumulative physical angles.
+            "operation_steps": stage_steps,
         },
         "tooling": {
             "punch": tool_reference(getattr(tooling, "punch", None)),
@@ -371,6 +393,33 @@ def decode_snapshot(raw):
         raise EmbeddedSessionError("Stored order is not a bend permutation")
     if len(prefix) != len(set(prefix)) or order[:len(prefix)] != prefix:
         raise EmbeddedSessionError("Stored manual prefix is inconsistent")
+    operation_steps = data.get("operation_steps", [])
+    if (not isinstance(operation_steps, list)
+            or len(operation_steps) > 2 * len(canonical)
+            or any(not isinstance(step, dict) for step in operation_steps)):
+        raise EmbeddedSessionError("Invalid staged operation collection")
+    if operation_steps:
+        seen_ids = set()
+        for step in operation_steps:
+            if (set(step) != {"operation_id", "bend_id", "target_angle_deg", "kind"}
+                    or not isinstance(step["operation_id"], str)
+                    or step["bend_id"] not in canonical
+                    or step["kind"] not in ("SINGLE", "PREBEND", "FINISH")
+                    or isinstance(step["target_angle_deg"], bool)
+                    or not isinstance(step["target_angle_deg"], (int, float))
+                    or not math.isfinite(step["target_angle_deg"])
+                    or step["operation_id"] in seen_ids):
+                raise EmbeddedSessionError("Invalid staged operation entry")
+            seen_ids.add(step["operation_id"])
+    stage_ids = {
+        step["operation_id"] for step in operation_steps
+        if step["operation_id"] not in canonical
+    }
+    stage_orientations = data.get("operation_orientation_overrides", {})
+    if (not isinstance(stage_orientations, dict)
+            or any(op_id not in stage_ids or type(value) is not bool
+                   for op_id, value in stage_orientations.items())):
+        raise EmbeddedSessionError("Invalid stored stage orientations")
     found_sequences = data.get("found_sequences", [])
     if not isinstance(found_sequences, list) or len(found_sequences) > 32:
         raise EmbeddedSessionError("Invalid saved candidate collection")

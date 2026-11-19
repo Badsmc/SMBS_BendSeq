@@ -216,7 +216,8 @@ class ManualPlaybackContractTests(unittest.TestCase):
         self.assertIn('"SMBS_ToolLayout"', toolbar)
         for command in ("SMBS_SegmentStock", "SMBS_VirtualClamps", "CMD_BACKGAUGE"):
             self.assertNotIn(command, toolbar)
-        self.assertIn("addTab(self._build_clamps_tab()", panel)
+        self.assertIn("clamps_scroll.setWidget(self._build_clamps_tab())", panel)
+        self.assertIn('self.tabs.addTab(clamps_scroll, "Зажимы")', panel)
         self.assertIn("addTab(self._build_backgauge_tab()", panel)
         self.assertIn("self._on_edit_segments()", panel)
 
