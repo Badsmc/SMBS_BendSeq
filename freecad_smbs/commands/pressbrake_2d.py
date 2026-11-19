@@ -1013,7 +1013,21 @@ class PressBrake2DCommand:
         window = QtWidgets.QMdiSubWindow()
         window.setObjectName(name)
         window.setWindowTitle("PressBrakeSim — Coin3D")
-        window.setAttribute(QtCore.Qt.WA_DeleteOnClose, True)
+        # This is an auxiliary MDI view, not a FreeCAD document view.
+        # Native view activation must not dispose its live simulation owner.
+        window.setAttribute(QtCore.Qt.WA_DeleteOnClose, False)
+        class WorkspaceLifetimeGuard(QtCore.QObject):
+            def eventFilter(self, watched, event):
+                if event.type() == QtCore.QEvent.DeferredDelete and not widget._closing:
+                    _desktop_debug_event(
+                        "WORKSPACE_UNEXPECTED_DELETE_BLOCKED",
+                        object_name=watched.objectName(),
+                    )
+                    return True
+                return False
+        widget._mdi_lifetime_guard = WorkspaceLifetimeGuard(main)
+        window.installEventFilter(widget._mdi_lifetime_guard)
+        widget.installEventFilter(widget._mdi_lifetime_guard)
         window.setWidget(widget)
         mdi.addSubWindow(window)
         window.resize(1000, 720)
