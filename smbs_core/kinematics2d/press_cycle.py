@@ -1055,7 +1055,7 @@ class PressCycleController:
             align_bisector=align_bisector,
             align_bend_arc_center=align_arc_center,
             reverse_axis=self._loading_reverse_axis_for_step(
-                self.sequence.active_index
+                getattr(self.sequence, "active_index", 0)
             ),
             rear_panel_vertices_xy=getattr(self, "rear_panel_vertices_xy", None),
         )
