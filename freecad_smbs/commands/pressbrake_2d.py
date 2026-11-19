@@ -1672,7 +1672,15 @@ class _PreviewPanel:
                 order_row.setColumnStretch(2, 1)
                 root.addLayout(order_row)
 
-                self.operations = QtWidgets.QTreeWidget()
+                class StagedOperationsTree(QtWidgets.QTreeWidget):
+                    def dropEvent(tree, event):
+                        super().dropEvent(event)
+                        callback = getattr(tree, "stage_drop_callback", None)
+                        if callable(callback):
+                            callback()
+
+                self.operations = StagedOperationsTree()
+                self.operations.stage_drop_callback = self._on_staged_operations_dropped
                 self.operations.setHeaderLabels([
                     "Step", "Bend", "180°", "Target", "Current", "До гиба, мм",
                     "Упор S, мм", "Status", "RETRACT", "Предгиб",
