@@ -26,6 +26,7 @@ import math
 from typing import Any, Callable, Dict, Optional
 
 from .fold_sequence import ANGLE_EPS, BendSequenceController, PlaybackStatus, SequenceError
+from .staged_orientation import reverse_axis_for_operation
 from .workpiece_placement_3d import PlacementTransform3D, WorkpiecePlacement3D
 from .workpiece_transfer_3d import Transfer3D, build_bend_transfer
 from .coupled_kinematics_2d import CoupledAirBendingKinematics
@@ -252,6 +253,24 @@ class PressCycleController:
     @property
     def target_angle_deg(self) -> float:
         return self.sequence.target_angle_deg
+
+    def _loading_reverse_axis_for_step(self, index: int) -> bool:
+        """Orientation belongs to an operation, not a physical bend.
+
+        A finish pass can be turned 180° independently of its pre-bend.
+        A plain bend retains the legacy physical orientation fallback.
+        """
+        if getattr(self.sequence, "has_stages", False):
+            step = self.sequence.operation_at(index)
+            bend_id, operation_id = step.bend_id, step.operation_id
+        else:
+            bend_id = self.sequence.order[index]
+            operation_id = bend_id
+        return reverse_axis_for_operation(
+            getattr(self, "loading_orientation_by_bend", {}),
+            bend_id,
+            operation_id,
+        )
 
     def set_config(self, config: CycleConfig) -> None:
         if not isinstance(config, CycleConfig):
@@ -756,10 +775,8 @@ class PressCycleController:
                 support_plane_zm=next_outer_r,
                 align_bisector=True,
                 align_bend_arc_center=True,
-                reverse_axis=bool(
-                    getattr(self, "loading_orientation_by_bend", {}).get(
-                        nxt.bend_id, False
-                    )
+                reverse_axis=self._loading_reverse_axis_for_step(
+                    self.sequence.active_index + 1
                 ),
                 rear_panel_vertices_xy=getattr(self, "rear_panel_vertices_xy", None),
             )
@@ -1037,10 +1054,8 @@ class PressCycleController:
             support_plane_zm=support_z,
             align_bisector=align_bisector,
             align_bend_arc_center=align_arc_center,
-            reverse_axis=bool(
-                getattr(self, "loading_orientation_by_bend", {}).get(
-                    self.active_bend_id, False
-                )
+            reverse_axis=self._loading_reverse_axis_for_step(
+                self.sequence.active_index
             ),
             rear_panel_vertices_xy=getattr(self, "rear_panel_vertices_xy", None),
         )
