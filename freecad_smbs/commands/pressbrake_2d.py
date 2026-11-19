@@ -6749,7 +6749,9 @@ class _PreviewPanel:
                 _desktop_debug_event("MANUAL_ORDER_STARTED", prefix=prefix,
                                      qt_state=self._qt_debug_state())
                 try:
-                    applied = self._apply_manual_order_steps(prefix, checkpoint)
+                    from freecad_smbs.ui.lifecycle_debug import protect_open_documents
+                    with protect_open_documents():
+                        applied = self._apply_manual_order_steps(prefix, checkpoint)
                 except Exception as exc:
                     _desktop_debug_event("MANUAL_ORDER_ERROR", stage=stage, prefix=prefix,
                                          qt_state=self._qt_debug_state(), error=str(exc),
