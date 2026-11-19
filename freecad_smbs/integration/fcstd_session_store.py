@@ -300,7 +300,8 @@ def build_snapshot(
             # Saved targets are cumulative physical angles.
             "operation_steps": (
                 session.controller.operation_snapshot()
-                if getattr(session.controller, "has_stages", False) else []
+                if getattr(getattr(session, "controller", None), "has_stages", False)
+                else []
             ),
         },
         "tooling": {
