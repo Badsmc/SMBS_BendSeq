@@ -5735,6 +5735,13 @@ class _PreviewPanel:
                 # recorded angles nor stale collision passes are replayed.
                 self.session.reset_all_bends()
                 self.session.set_bend_order(order)
+                saved_steps = payload["order"].get("operation_steps", [])
+                if saved_steps:
+                    self.session.controller.restore_operation_snapshot(saved_steps)
+                    _desktop_debug_event(
+                        "STAGED_BEND_PLAN_RESTORED",
+                        steps=self.session.controller.operation_snapshot(),
+                    )
                 self._manual_sequence_prefix = list(prefix)
                 saved_orientations = payload["order"].get("orientation_by_bend", {})
                 # Old snapshots could contain an arbitrary checkbox override.
@@ -5752,9 +5759,15 @@ class _PreviewPanel:
                 self._manual_orientation_overrides = dict(
                     payload["order"].get("manual_orientation_overrides", {})
                 )
-                self._manual_preview_unverified = False
+                self._manual_preview_unverified = self.session.controller.has_stages
                 self._manual_selection_enabled = False
-                self._manual_preview_notice.hide()
+                self._manual_preview_notice.setText(
+                    "ПРЕДГИБ / ДОГИБ: кинематическая симуляция, "
+                    "коллизии НЕ проверены."
+                    if self.session.controller.has_stages else
+                    "РУЧНОЙ ПРОСМОТР — коллизии не проверены"
+                )
+                self._manual_preview_notice.setVisible(self.session.controller.has_stages)
                 self._partial_preview_limit = None
                 self._preview_only_planar_order = None
                 self._last_manual_sequence_report = None
@@ -5942,6 +5955,9 @@ class _PreviewPanel:
                 else:
                     self._clear_manual_check_feedback()
                 note = (
+                    "Восстановлены порядок, этапы предгиба и настройки из FCStd. "
+                    "Проверки: ИСТОРИЧЕСКИЕ, UNVERIFIED."
+                    if self.session.controller.has_stages else
                     "Восстановлены порядок и настройки из FCStd. "
                     "Проверки: ИСТОРИЧЕСКИЕ, UNVERIFIED."
                 )
@@ -7074,6 +7090,7 @@ class _PreviewPanel:
                 self._manual_3d_verdicts.clear()
                 self._manual_retract_verdicts.clear()
                 self._last_manual_sequence_report = None
+                self._embedded_diagnostics_history = None
                 self._physical_check_signature = None
                 self._clear_manual_check_feedback()
                 self._backgauge_preview_cache.clear()
