@@ -2030,7 +2030,6 @@ class _PreviewPanel:
                 self.manual_order_input.returnPressed.connect(self._apply_typed_manual_order)
                 order_body.addWidget(self.manual_order_input)
                 select_lines = QtWidgets.QPushButton("Выбрать линии гиба")
-                select_lines.clicked.connect(self.activate_manual_mode)
                 order_body.addWidget(style_action(select_lines, compact=True))
                 # Sequence guidance belongs in tooltips, not a permanent
                 # multi-line paragraph above operator controls.
@@ -2289,22 +2288,39 @@ class _PreviewPanel:
                 playback_buttons = (self.reset_btn, self.prev_step_btn,
                                     self.play_btn, self.next_step_btn)
 
-                def edit_sequence(enabled):
-                    if enabled and self.session is None:
-                        return
-                    if enabled:
-                        self._sequence_before_edit = list(self.session.bend_order)
-                        self._prefix_before_edit = list(self._manual_sequence_prefix)
-                    else:
+                def finish_sequence(*, cancel):
+                    if self.session is not None and cancel:
                         self._apply_manual_order(self._sequence_before_edit)
                         self._manual_sequence_prefix = list(self._prefix_before_edit)
-                        self._toggle_manual_order(False)
-                    edit_controls.setVisible(enabled)
+                        self._sync_manual_order_input()
+                        self._draw_flat_pattern()
+                    self._toggle_manual_order(False)
+                    edit_controls.hide()
+                    select_lines.setText("☷")
+                    select_lines.setToolTip("Выбрать линии гиба / изменить порядок")
                     for button in playback_buttons:
-                        button.setVisible(not enabled)
+                        button.show()
+                    if self.session is not None:
+                        self._configure_for_active_bend()
 
-                select_lines.clicked.connect(lambda: edit_sequence(True))
-                cancel_edit.clicked.connect(lambda: edit_sequence(False))
+                def toggle_sequence():
+                    if self.session is None:
+                        self.activate_manual_mode()
+                    elif not edit_controls.isHidden():
+                        finish_sequence(cancel=False)
+                    else:
+                        self._sequence_before_edit = list(self.session.bend_order)
+                        self._prefix_before_edit = list(self._manual_sequence_prefix)
+                        self.activate_manual_mode()
+                        edit_controls.show()
+                        select_lines.setText("✓")
+                        select_lines.setToolTip("Применить порядок гибов")
+                        for button in playback_buttons:
+                            button.hide()
+                        self._update_operations_visual_state()
+
+                select_lines.clicked.connect(toggle_sequence)
+                cancel_edit.clicked.connect(lambda: finish_sequence(cancel=True))
                 self.slider.hide()
                 bottom_actions = QtWidgets.QHBoxLayout()
                 bottom_actions.addWidget(info_button)
@@ -6749,9 +6765,7 @@ class _PreviewPanel:
                 _desktop_debug_event("MANUAL_ORDER_STARTED", prefix=prefix,
                                      qt_state=self._qt_debug_state())
                 try:
-                    from freecad_smbs.ui.lifecycle_debug import protect_open_documents
-                    with protect_open_documents():
-                        applied = self._apply_manual_order_steps(prefix, checkpoint)
+                    applied = self._apply_manual_order_steps(prefix, checkpoint)
                 except Exception as exc:
                     _desktop_debug_event("MANUAL_ORDER_ERROR", stage=stage, prefix=prefix,
                                          qt_state=self._qt_debug_state(), error=str(exc),
@@ -6802,6 +6816,9 @@ class _PreviewPanel:
                 self._populate_operations()
                 checkpoint("configure_active_bend")
                 self._configure_for_active_bend()
+                if not self._qt_is_valid(self):
+                    _desktop_debug_event("MANUAL_ORDER_INTERRUPTED", prefix=prefix)
+                    return False
                 checkpoint("draw_flat_pattern")
                 self._draw_flat_pattern()
                 checkpoint("update_status")
@@ -6932,7 +6949,8 @@ class _PreviewPanel:
                     "UNVERIFIED": "НЕ ПРОВЕРЕН",
                 }.get(retract_status, "—")
                 flat_mm = self.session.local_bend_dimensions_mm.get(b.bend_id)
-                gauge = self._backgauge_preview_position(idx - 1)
+                gauge = (None if self._manual_selection_enabled
+                         else self._backgauge_preview_position(idx - 1))
                 face_s = gauge[0].s_mm if gauge is not None and gauge[0] is not None else None
                 return (
                     str(idx),
@@ -6968,7 +6986,7 @@ class _PreviewPanel:
                 self._draw_flat_pattern()
                 self._update_manual_hint()
                 self._configure_for_active_bend()
-                if self.tooling_setup.aligned:
+                if self.tooling_setup.aligned and not self._manual_selection_enabled:
                     self._sync_tooling_to_active_bend()
                     self.draw()
                 self.status.setText(
@@ -7006,7 +7024,13 @@ class _PreviewPanel:
             def _update_operations_visual_state(self):
                 if self.session is None:
                     return
-                orientations = self._effective_loading_orientation_map()
+                # Picking lines only changes the order. Recalculate derived
+                # machine positions when the user finishes editing.
+                orientations = (self._manual_orientation_overrides
+                                if self._manual_selection_enabled
+                                else self._effective_loading_orientation_map())
+                if not self._qt_is_valid(self) or not self._qt_is_valid(self.operations):
+                    return
                 signals_were_blocked = self.operations.blockSignals(True)
                 try:
                     count = self.operations.topLevelItemCount()
@@ -7019,7 +7043,7 @@ class _PreviewPanel:
                             item.setText(col, label)
                         item.setCheckState(
                             _LOADING_ORIENTATION_COLUMN,
-                            QtCore.Qt.Checked if orientations[bend_id] else QtCore.Qt.Unchecked,
+                            QtCore.Qt.Checked if orientations.get(bend_id, False) else QtCore.Qt.Unchecked,
                         )
                         tooltip = "Галочка — разворот заготовки на 180°. Снята — 0°."
                         if bend_id in self._manual_orientation_overrides:
