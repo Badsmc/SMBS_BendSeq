@@ -3826,6 +3826,15 @@ class _PreviewPanel:
                         "UNVERIFIED: деталь не загружена"
                     )
                     return
+                if self.session.controller.has_stages:
+                    # The legacy native trajectory validator starts a physical
+                    # bend from flat and cannot replay two operation orientations.
+                    self.physical_check_result.setText(
+                        "UNVERIFIED: проверка D6 пока не поддерживает "
+                        "независимые положения 0°/180° предгиба и догиба. "
+                        "Используйте симуляцию для просмотра, не как проверку коллизий."
+                    )
+                    return
                 orientation = self._effective_loading_orientation_map()
                 if self.session.active_bend_id not in orientation:
                     self.physical_check_result.setText(
