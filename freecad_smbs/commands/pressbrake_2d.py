@@ -815,6 +815,18 @@ def show_workspace_controls(workspace, tab=None):
         child.show()
 
     panel = _SMBSNativeTaskPanel(workspace, form)
+    valid = workspace._qt_is_valid
+
+    def owner_destroyed(*_args):
+        # Native Tasks can outlive the MDI owner. Never leave callable
+        # controls pointing at its deleted timer, scenes and hidden buttons.
+        panel._attached = False
+        panel.workspace = None
+        if valid(form):
+            form.setEnabled(False)
+            form.hide()
+
+    workspace.destroyed.connect(owner_destroyed)
     workspace._native_task_panel = panel
     try:
         # This opens the actual native FreeCAD Tasks tab, not a new dock.
@@ -6656,6 +6668,8 @@ class _PreviewPanel:
                 return self._apply_manual_order(selected)
 
             def _select_flat_bend(self, bend_id):
+                if self._closing or not self._qt_is_valid(self):
+                    return
                 if (self.session is None or not self._manual_selection_enabled
                         or self._task_progress_busy):
                     return
@@ -6703,6 +6717,9 @@ class _PreviewPanel:
                 }
 
             def _apply_manual_order(self, prefix):
+                if self._closing or not self._qt_is_valid(self):
+                    _desktop_debug_event("MANUAL_ORDER_IGNORED", reason="workspace_destroyed")
+                    return False
                 prefix = tuple(prefix)
                 started = time.perf_counter()
                 stage = "set_bend_order"
