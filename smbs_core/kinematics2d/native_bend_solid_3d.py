@@ -22,6 +22,13 @@ class NativeBendSolidError(ValueError):
     pass
 
 
+class NativeSheetVolumeMismatch(NativeBendSolidError):
+    def __init__(self, expected_mm3, joined_mm3):
+        super().__init__("panel_zone_overlap_or_missing_material")
+        self.expected_mm3 = expected_mm3
+        self.joined_mm3 = joined_mm3
+
+
 def is_rigid_transform_matrix(mat: Any, tol: float = 1e-5) -> bool:
     """Verify that a 4x4 matrix is a strictly rigid Euclidean isometry (det = +1.0).
 
@@ -468,7 +475,7 @@ def build_multi_bend_sheet_solid(state: FoldState, panel_build, *,
             joined_volume = _validated_joined_sheet_volume(joined)
             expected = sum(float(x.Volume) for x in panel_solids) + zone_volumes
             if abs(joined_volume - expected) > max(1e-3, expected * 1e-5):
-                raise NativeBendSolidError("panel_zone_overlap_or_missing_material")
+                raise NativeSheetVolumeMismatch(expected, joined_volume)
 
     except NativeBendSolidError:
         raise
