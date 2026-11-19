@@ -1,6 +1,6 @@
 """Manual bending of a single flat outline from an ASCII DXF."""
 from dataclasses import asdict, dataclass
-from itertools import groupby
+from itertools import combinations, groupby
 from math import copysign, dist, floor, isfinite, tau
 from pathlib import Path
 from time import perf_counter
@@ -379,6 +379,43 @@ def add_flat_pattern(document, session):
     return group
 
 
+def _folded_dxf_preview(session, trace):
+    """Return the joined solid or a warning for a confirmed self-intersection."""
+    from smbs_core.kinematics2d.native_bend_solid_3d import (
+        NativeSheetVolumeMismatch, build_multi_bend_sheet_solid,
+    )
+    from smbs_core.kinematics2d.panel_kinematics import FoldState
+
+    folded = FoldState(session.graph, session.fixed_panel)
+    for bend_id in session.bend_order:
+        folded.set_angle(bend_id, folded.bends[bend_id].angle_deg)
+    observed = []
+    try:
+        return build_multi_bend_sheet_solid(
+            folded, session.panel_build, component_observer=observed.append,
+        ).shape, None
+    except NativeSheetVolumeMismatch as exc:
+        overlaps = []
+        for (left, shape), (right, other) in combinations(observed[0].named_shapes(), 2):
+            if shape.BoundBox.intersect(other.BoundBox):
+                volume = float(shape.common(other).Volume)
+                if volume > 1e-3:
+                    overlaps.append((left, right, volume))
+        trace("diagnose_folded_solid", overlaps=overlaps,
+              expected_mm3=exc.expected_mm3, joined_mm3=exc.joined_mm3)
+        if not overlaps:
+            raise ValueError(
+                f"Объём конечной формы {exc.joined_mm3:.3f} мм³, "
+                f"ожидалось {exc.expected_mm3:.3f} мм³. "
+                "При диагностике пересекающиеся пары не найдены."
+            ) from exc
+        overlaps.sort(key=lambda row: row[2], reverse=True)
+        pairs = ", ".join(f"{a.removeprefix('bend_zone:')} / {b.removeprefix('bend_zone:')}"
+                          for a, b, _ in overlaps[:4])
+        return None, ("Конечная форма пересекает сама себя. "
+                      f"Компоненты: {pairs}. Открыта развёртка для симуляции.")
+
+
 class DxfManualCommand:
     def GetResources(self):
         return {"MenuText": "Развёртка DXF",
@@ -394,8 +431,6 @@ class DxfManualCommand:
         from freecad_smbs.commands.pressbrake_2d import (
             PressBrake2DCommand, _qt, get_workspace_widget, show_workspace_controls,
         )
-        from smbs_core.kinematics2d.native_bend_solid_3d import build_multi_bend_sheet_solid
-        from smbs_core.kinematics2d.panel_kinematics import FoldState
 
         core, gui, qt = _qt()
         parent = Gui.getMainWindow()
@@ -681,12 +716,10 @@ class DxfManualCommand:
                                         outline_tolerance=outline_tolerance.value(), trace=trace)
                 trace("build_folded_solid", bend_order=session.bend_order,
                       fixed_panel=session.fixed_panel)
-                folded = FoldState(session.graph, session.fixed_panel)
-                for bend_id in session.bend_order:
-                    folded.set_angle(bend_id, folded.bends[bend_id].angle_deg)
-                shape = build_multi_bend_sheet_solid(folded, session.panel_build).shape
+                shape, warning = _folded_dxf_preview(session, trace)
 
-                trace("open_simulator", solid_count=len(shape.Solids))
+                trace("open_simulator", solid_count=len(shape.Solids) if shape is not None else 0,
+                      folded_preview_warning=warning)
                 workspace = get_workspace_widget()
                 if workspace is None:
                     PressBrake2DCommand().Activated()
@@ -695,10 +728,14 @@ class DxfManualCommand:
                     raise RuntimeError("Не удалось открыть симулятор PressBrakeSim.")
                 trace("create_document")
                 doc = App.newDocument("SMBS_DXF")
-                final = doc.addObject("Part::Feature", "FoldedPart")
-                final.Label = session.part_label + " — конечная форма"
-                final.Shape = shape
-                add_flat_pattern(doc, session)
+                if shape is not None:
+                    final = doc.addObject("Part::Feature", "FoldedPart")
+                    final.Label = session.part_label + " — конечная форма"
+                    final.Shape = shape
+                flat = add_flat_pattern(doc, session)
+                if warning:
+                    for obj in flat.Group:
+                        obj.Visibility = True
                 doc.recompute()
                 trace("load_simulation", document=doc.Name)
                 workspace.load_part(document=doc, selection=[], prepared_session=session)
@@ -708,6 +745,9 @@ class DxfManualCommand:
                 view3d = Gui.getDocument(doc.Name).activeView()
                 view3d.viewAxonometric()
                 view3d.fitAll()
+                if warning:
+                    workspace.status.setText(warning)
+                    App.Console.PrintWarning(warning + "\n")
             except Exception as exc:
                 error_trace = format_exc()
                 log("DXF_CALCULATION_ERROR", attempt=attempt, stage=stage,
