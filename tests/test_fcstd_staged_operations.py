@@ -5,7 +5,7 @@ from unittest.mock import patch
 import unittest
 
 from freecad_smbs.integration import fcstd_session_store as store
-from tests.test_staged_bends import controller
+from test_staged_bends import controller
 
 
 @dataclass
