@@ -2155,6 +2155,22 @@ class _PreviewPanel:
                     self._select_saved_sequence
                 )
                 order_body.addWidget(self.saved_sequences_btn)
+                self.fast_beam_search_btn = style_action(
+                    QtWidgets.QPushButton("FAST — найти варианты (1 с)"),
+                    compact=True,
+                )
+                self.fast_beam_search_btn.setObjectName("SMBS_FastBFMBeamSearch")
+                self.fast_beam_search_btn.setToolTip(
+                    "Эксперимент: матрица зависимостей + битовые состояния + "
+                    "Beam Search до 1 секунды. Существующий Stage A проверяет "
+                    "данные и длины оснастки. Реальные 2D/3D коллизии НЕ "
+                    "проверяются; все результаты UNVERIFIED. Поиск запускается "
+                    "только по нажатию этой кнопки."
+                )
+                self.fast_beam_search_btn.clicked.connect(
+                    self._run_fast_beam_search
+                )
+                order_body.addWidget(self.fast_beam_search_btn)
                 info_button = style_action(QtWidgets.QPushButton("Информация"), compact=True)
                 info_button.clicked.connect(self._show_bend_information)
                 order_body.addWidget(info_button)
@@ -4083,6 +4099,161 @@ class _PreviewPanel:
                     evidence=entry.evidence, recheck=reason,
                     physical_status="UNVERIFIED",
                 )
+
+            def _run_fast_beam_search(self):
+                """Opt-in 1 s candidate discovery; NEVER claim collision clearance.
+
+                The pure-Python engine does not mutate FoldState and never
+                invokes Stage B or native OCC in its search loop. The static
+                Stage A tooling gate is precomputed once per physical bend.
+                """
+                if (self.session is None or self._closing
+                        or self._task_progress_busy):
+                    self.status.setText(
+                        "FAST: сначала загрузите деталь и завершите другие операции."
+                    )
+                    return
+                if (self.timer.isActive() or self.playing
+                        or self._staged_dnd_pending or self._staged_dnd_in_progress
+                        or not self.session.can_reorder()):
+                    self.status.setText(
+                        "FAST: остановите симуляцию, нажмите Reset и "
+                        "закончите перемещение строк."
+                    )
+                    return
+                from smbs_core.kinematics2d.fast_bfm_beam import (
+                    FastProblem, search_fast_beam,
+                )
+                from smbs_core.kinematics2d.preliminary_screening import (
+                    ScreeningDecision, screen_candidate_stage_a,
+                )
+                try:
+                    forced = dict(self._manual_orientation_overrides)
+                    forced.update(self._manual_operation_orientation_overrides)
+                    problem = FastProblem.from_session(
+                        self.session, forced_orientations=forced
+                    )
+                    # Stage A is an invariant input/tool-length gate, NOT a
+                    # dynamic 2D tool interference or clearance certificate.
+                    # Evaluate only once outside the budgeted search loop.
+                    blocked = {}
+                    tooling = self.tooling_setup
+                    stage_a_run = (
+                        tooling.punch is not None and tooling.die is not None
+                    )
+                    if stage_a_run:
+                        for bid in self.session.canonical_order:
+                            report = screen_candidate_stage_a(
+                                self.session.fold_state, bid, tooling,
+                                match_active_bend_length=bool(
+                                    tooling.match_active_bend_length
+                                ),
+                            )
+                            if report.decision is ScreeningDecision.PROVEN_BLOCKING:
+                                blocked[bid] = report.reason
+                    result = search_fast_beam(
+                        problem,
+                        beam_width=32,
+                        max_candidates=5,
+                        time_budget_s=1.0,
+                        quick_screen=(
+                            (lambda _mask, step, _reverse:
+                             "BLOCK" if step.bend_id in blocked else "UNKNOWN")
+                            if stage_a_run else None
+                        ),
+                    )
+                except (ValueError, TypeError, OverflowError) as exc:
+                    self.status.setText("FAST: неверные данные — " + str(exc))
+                    return
+                self._last_fast_beam_report = result.to_dict()
+                self._last_fast_beam_report["stage_a_blocked"] = dict(blocked)
+                self._last_fast_beam_report["stage_a_run"] = stage_a_run
+                _desktop_debug_event(
+                    "FAST_BFM_BEAM_RESULT",
+                    report=self._last_fast_beam_report,
+                )
+                if not result.candidates:
+                    note = ", ".join(
+                        "{}: {}".format(bid, reason)
+                        for bid, reason in sorted(blocked.items())
+                    )
+                    self.status.setText(
+                        "FAST: за {:.3f} с полных кандидатов не найдено "
+                        "({}); это НЕ доказательство невозможности гибки. {}"
+                        .format(result.elapsed_s, result.status, note)
+                    )
+                    return
+
+                labels = []
+                for index, candidate in enumerate(result.candidates, 1):
+                    actions = []
+                    for operation_id in candidate.operation_ids:
+                        suffix = " 180°" if candidate.orientation_map[operation_id] else ""
+                        actions.append(operation_id + suffix)
+                    labels.append(
+                        "{}. {} | оценка {:.2f} | НЕ ПРОВЕРЕНО"
+                        .format(index, " → ".join(actions), candidate.heuristic_cost)
+                    )
+                label, accepted = QtWidgets.QInputDialog.getItem(
+                    self, "FAST — предварительные последовательности",
+                    "Выберите вариант для ручной симуляции.\n"
+                    "Геометрические столкновения и движение пресса не проверены:",
+                    labels, 0, False,
+                )
+                if not accepted or label not in labels:
+                    self.status.setText(
+                        "FAST: {} вариантов за {:.3f} с (не применены)."
+                        .format(len(result.candidates), result.elapsed_s)
+                    )
+                    return
+
+                chosen = result.candidates[labels.index(label)]
+                try:
+                    # The operator explicitly chooses a preview. Never
+                    # silently replace a manually entered sequence.
+                    if self.session.controller.has_stages:
+                        self.session.controller.reorder_operations(
+                            chosen.operation_ids
+                        )
+                    else:
+                        self.session.set_bend_order(chosen.operation_ids)
+                    self.session.active_bend_index = (
+                        self.session.controller.active_index
+                    )
+                    # A physical bend has one orientation in SINGLE mode;
+                    # pre/finish passes have independent operation overrides.
+                    for step in problem.steps:
+                        reverse = chosen.orientation_map[step.operation_id]
+                        if step.kind == "SINGLE":
+                            self._manual_orientation_overrides[step.bend_id] = reverse
+                        else:
+                            self._manual_operation_orientation_overrides[
+                                step.operation_id
+                            ] = reverse
+                    self._manual_selection_enabled = False
+                    self._manual_sequence_prefix = []
+                    self._preview_only_planar_order = None
+                    self._partial_preview_limit = None
+                    self._on_staged_plan_changed(
+                        "FAST: вариант выбран за {:.3f} с; "
+                        "топология/Stage A, коллизии НЕ ПРОВЕРЕНЫ."
+                        .format(result.elapsed_s)
+                    )
+                    self.manual_check_summary.setText(
+                        "FAST (UNVERIFIED): предварительная последовательность. "
+                        "Перед изготовлением требуется независимая проверка "
+                        "коллизий, оснастки и движения детали."
+                    )
+                    _desktop_debug_event(
+                        "FAST_BFM_BEAM_CANDIDATE_APPLIED",
+                        operations=list(chosen.operation_ids),
+                        orientations=chosen.orientation_map,
+                        candidate_cost=chosen.heuristic_cost,
+                    )
+                except (SequenceError, ValueError, TypeError) as exc:
+                    self.status.setText(
+                        "FAST: выбранный вариант не применён: " + str(exc)
+                    )
 
             def _select_saved_sequence(self):
                 """Use an archived order as UNVERIFIED, never as a collision pass."""
