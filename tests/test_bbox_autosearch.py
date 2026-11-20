@@ -49,3 +49,11 @@ class SearchTests(unittest.TestCase):
     def test_invalid_input(self):
         with self.assertRaises(ValueError):
             list(search([Op('A','A',90),Op('A','A',40)], lambda *a: {}))
+
+    def test_first_result_does_not_evaluate_all_siblings(self):
+        calls = []
+        def oracle(path, poses, complete):
+            calls.append(tuple(o.operation_id for o in path))
+            return {'status': 'UNVERIFIED'}
+        list(search([Op(str(i),str(i),90) for i in range(8)], oracle, max_results=1))
+        self.assertEqual(len(calls), 8)

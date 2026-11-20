@@ -60,7 +60,7 @@ class BBoxAutoSearchCommand:
         dialog.resize(880, 520)
         layout = QtWidgets.QVBoxLayout(dialog)
         note = QtWidgets.QLabel(
-            'BBox → OCC для пуансона и матрицы. Предгибы/догибы: только кандидаты.\n'
+            'Быстрый поиск: BBox + 5 углов OCC. Полная проверка — отдельной кнопкой.\n'
             'Зажимы, задний упор и перенос детали не проверены. Результат не является допуском к станку.')
         note.setWordWrap(True)
         layout.addWidget(note)
@@ -81,13 +81,14 @@ class BBoxAutoSearchCommand:
         status = QtWidgets.QLabel('Выберите параметры и нажмите «Найти».'); layout.addWidget(status)
         buttons = QtWidgets.QHBoxLayout(); layout.addLayout(buttons)
         start = QtWidgets.QPushButton('Найти'); stop = QtWidgets.QPushButton('Остановить')
+        verify = QtWidgets.QPushButton('Проверить выбранный OCC')
         apply = QtWidgets.QPushButton('Открыть в симуляции'); close = QtWidgets.QPushButton('Закрыть')
-        for b in (start, stop, apply, close): buttons.addWidget(b)
+        for b in (start, stop, verify, apply, close): buttons.addWidget(b)
         apply.setEnabled(False); stop.setEnabled(False)
         timer = QtCore.QTimer(dialog)
         iterator = [None]
 
-        def evaluate(path, poses, complete):
+        def evaluate(path, poses, complete, *, exact=False):
             if w._closing or w.session is not session:
                 raise RuntimeError('Исходная сессия закрыта или заменена')
             # Costs use exactly the selected operation targets and loading poses.
@@ -113,8 +114,8 @@ class BBoxAutoSearchCommand:
                 allow_end_zone_collision=tooling.allow_end_zone_collision,
                 end_zone_length_mm=tooling.end_zone_length_mm,
                 reverse_axis_by_bend={o.bend_id: poses[o.operation_id] for o in path},
-                auto_orientation=False,
-                config=AdaptiveSamplingConfig(coarse_occ_screen=not complete,
+                auto_orientation=False, collision_forensics=exact,
+                config=AdaptiveSamplingConfig(coarse_occ_screen=not exact,
                     initial_clearance_mm=float(w.cycle_config.initial_clearance_mm),
                     max_phase_time_s=min(float(seconds.value()), 30.0),
                     max_evaluated_states_per_phase=32))
@@ -124,7 +125,7 @@ class BBoxAutoSearchCommand:
         def finish(message):
             timer.stop(); busy[0] = False
             start.setEnabled(True); stop.setEnabled(False)
-            apply.setEnabled(bool(rows)); status.setText(message)
+            apply.setEnabled(bool(rows)); verify.setEnabled(bool(rows)); status.setText(message)
             for spin in (seconds, count, nodes): spin.setEnabled(True)
             _desktop_debug_event('BBOX_SEARCH_FINISHED', message=message, results=len(rows))
 
@@ -152,7 +153,7 @@ class BBoxAutoSearchCommand:
 
         def begin():
             rows.clear(); table.setRowCount(0); stopped[0] = False; busy[0] = True
-            start.setEnabled(False); stop.setEnabled(True); apply.setEnabled(False)
+            start.setEnabled(False); stop.setEnabled(True); apply.setEnabled(False); verify.setEnabled(False)
             for spin in (seconds, count, nodes): spin.setEnabled(False)
             iterator[0] = search(operations, evaluate, max_nodes=nodes.value(),
                                  max_results=count.value(), seconds=seconds.value(),
@@ -185,6 +186,28 @@ class BBoxAutoSearchCommand:
                 w._write_embedded_smbs_json(w._bound_smbs_document())
             dialog.accept()
 
+        def verify_selected():
+            i = table.currentRow()
+            if busy[0] or i < 0:
+                return
+            if staged:
+                status.setText('OCC-проверка предгибов и догибов пока не поддержана.')
+                return
+            result = rows[i]
+            try:
+                report = evaluate(result['operations'], result['poses'], True, exact=True)
+                result['report'] = report
+                table.setItem(i, 2, QtWidgets.QTableWidgetItem(report['status']))
+                table.setItem(i, 3, QtWidgets.QTableWidgetItem(report.get('reason', '')))
+                _desktop_debug_event('BBOX_SELECTED_VERIFY', report=report)
+                status.setText('Проверка выбранного варианта: ' + report['status'])
+            except Exception as exc:
+                status.setText('Ошибка проверки: ' + str(exc))
+                _desktop_debug_event('BBOX_SELECTED_VERIFY_ERROR', error=str(exc),
+                                     traceback=traceback.format_exc())
+
+        verify.setEnabled(False)
+        verify.clicked.connect(verify_selected)
         timer.timeout.connect(tick)
         start.clicked.connect(begin); stop.clicked.connect(lambda: stopped.__setitem__(0, True))
         apply.clicked.connect(use); close.clicked.connect(dialog.reject)
