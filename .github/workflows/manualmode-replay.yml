@@ -2,7 +2,7 @@ name: ManualMode pose and playback regression
 
 on:
   push:
-    branches: [ManualMode, manualmod.ui, experiment/prebend-rebend]
+    branches: [ManualMode, manualmod.ui, experiment/prebend-rebend, experiment/fast-bfm-beam-1s]
   pull_request:
     branches: [ManualMode, manualmod.ui]
   workflow_dispatch:
@@ -18,3 +18,5 @@ jobs:
           python-version: '3.11'
       - name: Coin3D, manual simulation, native replay and FCStd tests
         run: python -m unittest discover -s tests -v
+      - name: FAST BFM + beam synthetic 8, 10, 15 bends and staged operations
+        run: python tools/run_fast_bfm_beam_benchmark.py
