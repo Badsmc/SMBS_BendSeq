@@ -31,6 +31,7 @@ class FastCandidate:
     proximity_risk: float
     ergonomic_penalty: float = 0.0
     nested_fold_penalty: float = 0.0
+    axis_penalty: float = 0.0
     evidence: str = "UNVERIFIED_3D_NOT_CHECKED"
 
     def orientations(self) -> dict[str, bool]:
@@ -44,6 +45,7 @@ class FastCandidate:
             "proximity_risk": self.proximity_risk,
             "ergonomic_penalty": self.ergonomic_penalty,
             "nested_fold_penalty": self.nested_fold_penalty,
+            "axis_penalty": self.axis_penalty,
             "evidence": self.evidence,
         }
 
@@ -110,6 +112,7 @@ class _Node:
     risk: float
     ergonomic_penalty: float = 0.0
     nested_fold_penalty: float = 0.0
+    axis_penalty: float = 0.0
 
 
 def _axis_data(fold_state, operations):
@@ -500,6 +503,7 @@ def search_fast_candidates(
                         node.risk+pair_risk,
                         node.ergonomic_penalty+ergonomic,
                         node.nested_fold_penalty+nested,
+                        node.axis_penalty,
                     )
                     layer.append(candidate)
                     expanded += 1
@@ -532,7 +536,7 @@ def search_fast_candidates(
             scored.append(_Node(
                 n.mask, n.last, n.reverse, n.path, n.reversed_flags,
                 n.cost + penalty, n.risk, n.ergonomic_penalty,
-                n.nested_fold_penalty,
+                n.nested_fold_penalty, n.axis_penalty + penalty,
             ))
         if exhausted:
             break
@@ -617,6 +621,7 @@ def search_fast_candidates(
             round(n.risk,4),
             round(n.ergonomic_penalty,4),
             round(n.nested_fold_penalty,4),
+            round(n.axis_penalty,4),
         ) for n in selected
     )
     status = ("TIME_BUDGET_UNVERIFIED" if exhausted else
