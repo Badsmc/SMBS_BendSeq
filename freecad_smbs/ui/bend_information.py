@@ -3,7 +3,8 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import replace
-from math import dist
+from math import cos, dist, radians, sin
+from pathlib import Path
 from string import ascii_uppercase
 
 from freecad_smbs.integration.document_group import group_document_objects
@@ -77,54 +78,88 @@ def bend_rows(workspace):
     return rows
 
 
-def _bend_label_wires(session, outline_shape):
-    """Make text part of the projected geometry so TechDraw can show it."""
+def _flat_techdraw_views(document, drawing):
+    """Reuse top views of this source, or make a dedicated TechDraw page."""
     import FreeCAD as App
-    import Part
-    from freecad_smbs.commands.pressbrake_2d import _qt
+    import TechDraw  # Registers native TechDraw document types.
 
-    core, gui, _ = _qt()
-    bounds = outline_shape.BoundBox
-    height = max(1.8, min(8.0, max(bounds.XLength, bounds.YLength) * 0.018))
-    font = gui.QFont()
-    font.setPixelSize(24)
-    labels = {}
+    views = [
+        (page, view)
+        for page in document.Objects if page.TypeId == "TechDraw::DrawPage"
+        for view in page.Views
+        if (view.TypeId == "TechDraw::DrawViewPart"
+            and list(view.Source) == [drawing] and not view.Perspective
+            and view.Direction.z > 0
+            and abs(view.Direction.x) + abs(view.Direction.y) < 1e-7
+            and view.XDirection.x > 0 and abs(view.XDirection.y) < 1e-7)
+    ]
+    if views:
+        return views
+
+    page = document.addObject("TechDraw::DrawPage", "SMBS_BendPage")
+    page.Label = "SMBS — чертёж гибки"
+    template = document.addObject("TechDraw::DrawSVGTemplate", "SMBS_BendTemplate")
+    template.Template = str(Path(App.getResourceDir()) /
+                            "Mod/TechDraw/Templates/A3_Landscape_blank.svg")
+    page.Template = template
+    view = document.addObject("TechDraw::DrawViewPart", "SMBS_BendView")
+    view.Label = "Развёртка с линиями гиба"
+    view.Direction = App.Vector(0, 0, 1)
+    view.XDirection = App.Vector(1, 0, 0)
+    view.Source = [drawing]
+    view.ScaleType = "Custom"
+    bounds = drawing.Shape.BoundBox
+    view.Scale = min(1.0, 290 / max(1.0, bounds.XLength),
+                     230 / max(1.0, bounds.YLength))
+    page.addView(view)
+    view.X, view.Y = 210, 148.5
+    return [(page, view)]
+
+
+def _update_bend_callouts(document, page, view, session, center):
+    """Anchor native text callouts to the view without adding OCC edges."""
+    prefix = f"SMBS_Callout_{view.Name}_"
+    old = {obj.Name: obj for obj in page.Views
+           if obj.TypeId == "TechDraw::DrawViewBalloon"
+           and obj.Name.startswith(prefix) and obj.SourceView == view}
+    rotation = radians(view.Rotation.Value)
+    c, s = cos(rotation), sin(rotation)
+    scale = max(float(view.Scale), 1e-9)
+    pitch = 4.0 / scale
+    boxes = []
     for index, op in enumerate(session.controller.operation_steps, 1):
+        start, end = session.fold_state.bends[op.bend_id].axis_xyz
+        dx = (start[0] + end[0]) / 2 - center.x
+        dy = (start[1] + end[1]) / 2 - center.y
+        x, y = c * dx - s * dy, s * dx + c * dy
         direction = "Down" if op.target_angle_deg < 0 else "Up"
-        labels.setdefault(op.bend_id, []).append(
-            f"{index}. {OPERATION_NAMES[op.kind]} {op.target_angle_deg:+.2f}° {direction}"
-        )
+        label = f"{index}. {OPERATION_NAMES[op.kind]} {op.target_angle_deg:+.2f}° {direction}"
+        # Reserve generous text extents in view coordinates, with a leader
+        # back to the bend midpoint when a label is moved to avoid overlap.
+        width = len(label) * 1.6 / scale
+        left, baseline = x + pitch, y + pitch
+        while any(left < r and left + width > l and abs(baseline - b) < pitch
+                  for l, r, b in boxes):
+            baseline += pitch
+        boxes.append((left, left + width, baseline))
 
-    scale = height / gui.QFontMetricsF(font).height()
-    drawn = []
-    for bend_id, lines in labels.items():
-        start, end = session.fold_state.bends[bend_id].axis_xyz
-        x, y, _ = ((a + b) / 2 for a, b in zip(start, end))
-        path = gui.QPainterPath()
-        for row, line in enumerate(lines, 1):
-            path.addText(0, row * height / scale, font, line)
-        box = path.boundingRect()
-        left, top = x + height * 0.65, -y - height * 0.65
-        rect = core.QRectF(left, top, box.width() * scale, box.height() * scale)
-        while any(rect.adjusted(-height * 0.2, -height * 0.2,
-                                height * 0.2, height * 0.2).intersects(other)
-                  for other in drawn):
-            rect.translate(0, height)
-        drawn.append(rect)
-        anchor = App.Vector(rect.left() - height * 0.12,
-                            -rect.center().y(), 0)
-        yield Part.makeLine(App.Vector(x, y, 0), anchor)
-        for polygon in path.toSubpathPolygons():
-            points = []
-            for point in polygon:
-                mapped = App.Vector(
-                    rect.left() + (point.x() - box.left()) * scale,
-                    -rect.top() - (point.y() - box.top()) * scale, 0,
-                )
-                if not points or (mapped - points[-1]).Length > 1e-7:
-                    points.append(mapped)
-            if len(points) >= 3:
-                yield Part.makePolygon(points)
+        stem = prefix + op.operation_id.replace(".", "_")
+        callout = old.pop(stem, None)
+        if callout is None:
+            callout = document.addObject("TechDraw::DrawViewBalloon", stem)
+            callout.SourceView = view
+            page.addView(callout)
+        callout.Label = label
+        callout.Text = label
+        callout.BubbleShape = "None"
+        callout.EndType = "Dot"
+        callout.TextWrapLen = -1
+        callout.ViewObject.Fontsize = 2.5
+        callout.OriginX, callout.OriginY = x, y
+        callout.X, callout.Y = left + width / 2, baseline
+    for callout in old.values():
+        page.removeView(callout)
+        document.removeObject(callout.Name)
 
 
 def export_bend_information(document, session, rows):
@@ -145,7 +180,6 @@ def export_bend_information(document, session, rows):
         start, end = session.fold_state.bends[bend_id].axis_xyz
         edges.append(Part.makeLine(App.Vector(*start), App.Vector(*end)))
     shape = Part.makeCompound(edges)
-    shape = Part.makeCompound([shape, *_bend_label_wires(session, shape)])
 
     document.openTransaction("SMBS — таблица гибов и развёртка")
     try:
@@ -168,6 +202,8 @@ def export_bend_information(document, session, rows):
         drawing.Label = "SMBS — развёртка с последовательностью гибов"
         drawing.Shape = shape
         drawing.Visibility = True
+        for page, view in _flat_techdraw_views(document, drawing):
+            _update_bend_callouts(document, page, view, session, shape.BoundBox.Center)
         group_document_objects(document)
         document.recompute()
         document.commitTransaction()
@@ -207,7 +243,7 @@ def show_bend_information(workspace, embed):
         except (RuntimeError, ValueError, AttributeError) as exc:
             feedback.setText(str(exc))
         else:
-            feedback.setText("В документ добавлены развёртка и таблица гибов.")
+            feedback.setText("Обновлены развёртка, таблица и подписи на листе TechDraw.")
 
     export.clicked.connect(save)
     embed(workspace, dialog, "Информация о гибах", "bend_information")
