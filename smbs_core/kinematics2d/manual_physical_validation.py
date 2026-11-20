@@ -438,6 +438,8 @@ def check_manual_3d_sequence(
     orientation_retry_callback: Optional[Callable[[str, bool], None]] = None,
     include_benchmark_metrics: bool = False,
     collision_forensics: bool = True,
+    search_last_step_only: bool = False,
+    search_geometry_cache: Optional[NativeSequenceGeometryCache] = None,
 ) -> dict:
     """Check a selected prefix (or complete order) with native FCStd tools.
 
@@ -486,7 +488,8 @@ def check_manual_3d_sequence(
             "total_part_bends": len(known),
             "checked_bends": len(steps),
             "complete_part_order_requested": len(order) == len(known),
-            "stopped_early": len(steps) < len(order),
+            "stopped_early": not search_last_step_only and len(steps) < len(order),
+            "search_last_step_only": search_last_step_only,
             "sampled_3d_only": True,
             "validation_mode": (
                 "COARSE_OCC_5_BEND_ANGLES" if coarse_occ else "FULL_ADAPTIVE_D6"
@@ -571,8 +574,10 @@ def check_manual_3d_sequence(
     independent = FoldState(state_in.graph, state_in.fixed_panel)
     # Geometry is shared only inside this Manual validation call.
     # All tool-specific collision verdict caches remain per validator.
-    sequence_geometry_cache = NativeSequenceGeometryCache(max_full_sheets=16)
-    previous = []
+    sequence_geometry_cache = search_geometry_cache
+    if sequence_geometry_cache is None:
+        sequence_geometry_cache = NativeSequenceGeometryCache(max_full_sheets=16)
+    previous = list(order[:-1]) if search_last_step_only else []
     steps = []
     any_conditional = False
     check_kwargs = {
@@ -863,7 +868,9 @@ def check_manual_3d_sequence(
         )
         return record
 
-    for i, bend_id in enumerate(order):
+    first_step = len(previous)
+    for i in range(first_step, len(order)):
+        bend_id = order[i]
         if progress_callback is not None:
             progress_callback(i + 1, len(order), bend_id)
         preferred_axis = bool(reverse_axis_by_bend.get(bend_id, False))
@@ -924,6 +931,8 @@ def check_manual_3d_sequence(
         # Advance signed history only AFTER this step has been assessed;
         # the active bend was flat at the start of its own trajectory.
         previous.append(bend_id)
+    if search_last_step_only:
+        return final_result("UNVERIFIED", steps, "search_step_only")
     if len(order) != len(known):
         return final_result(
             "UNVERIFIED", steps,

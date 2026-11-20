@@ -480,6 +480,26 @@ class ManualToolingTests(unittest.TestCase):
         self.assertEqual(report["checked_bends"], 1)
         self.assertFalse(report["complete_part_order_requested"])
 
+    def test_search_only_checks_the_new_bend_with_completed_history(self):
+        def evaluate(session, *args, **kwargs):
+            self.assertEqual(session.active_bend_id, "B02")
+            self.assertEqual(session.fold_state.angles["B01"],
+                             session.fold_state.bends["B01"].angle_deg)
+            self.assertEqual(session.fold_state.angles["B02"], 0)
+            return evidence(PhysicalEvidence.SAMPLED_3D_CLEAR_NOT_CONTINUOUS)
+
+        with patch(
+            "smbs_core.kinematics2d.manual_physical_validation"
+            ".check_active_25d_bend_trajectory", side_effect=evaluate,
+        ) as validator:
+            report = check_manual_3d_sequence(
+                self.session, self.tooling, self.session.bend_order,
+                search_last_step_only=True,
+            )
+        validator.assert_called_once()
+        self.assertEqual(report["status"], "UNVERIFIED")
+        self.assertEqual([step["bend_id"] for step in report["steps"]], ["B02"])
+
     def test_missing_real_fcstd_is_not_approved(self):
         self.tooling.die.source_file = "missing.FCStd"
         with patch(
