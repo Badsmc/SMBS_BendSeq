@@ -40,28 +40,44 @@ class FastSearchGUIContracts(unittest.TestCase):
         self.assertIn("max_candidates=5", body)
         self.assertIn("self._last_fast_candidates_report = report", body)
 
-    def test_never_auto_apply_candidate(self):
+    def test_results_dialog_is_nonblocking_and_apply_is_deferred(self):
         body = function("_run_fast_sequence_search")
-        dialog = body.index("result = dialog.exec()")
-        acceptance = body.index("if result != QtWidgets.QDialog.Accepted:")
-        applying = body.index("controller.reorder_operations(selected.operation_ids)")
-        self.assertLess(dialog, acceptance)
-        self.assertLess(acceptance, applying)
-        self.assertIn("UNVERIFIED_3D_NOT_CHECKED", body)
-        self.assertIn("_on_staged_plan_changed(", body)
-        self.assertNotIn("_validate_export_manual_order(", body)
+        self.assertIn("dialog.open()", body)
+        self.assertIn("dialog.finished.connect(on_finished)", body)
+        self.assertIn("QtCore.QTimer.singleShot(", body)
+        self.assertIn("self._apply_fast_sequence_candidate(", body)
+        self.assertIn('setObjectName("SMBS_FAST_ResultsDialog")', body)
+        self.assertIn("Gui.getMainWindow()", body)
+        self.assertNotIn("dialog.exec()", body)
+        self.assertNotIn("dialog.exec_()", body)
+        self.assertNotIn("controller.reorder_operations(", body)
+
+    def test_never_auto_apply_candidate(self):
+        chooser = function("_run_fast_sequence_search")
+        dialog_close = chooser.index("dialog.finished.connect(on_finished)")
+        deferred = chooser.index("self._apply_fast_sequence_candidate(")
+        self.assertLess(deferred, dialog_close)  # inside finished handler
+        applying = function("_apply_fast_sequence_candidate")
+        self.assertIn("controller.reorder_operations(selected.operation_ids)", applying)
+        self.assertIn("_on_staged_plan_changed(", applying)
+        self.assertIn("UNVERIFIED_3D_NOT_CHECKED", applying)
+        self.assertIn("FAST_APPLY_SKIPPED", applying)
+        self.assertIn("self._playback_alive()", applying)
+        self.assertNotIn("_validate_export_manual_order(", applying)
 
     def test_preserves_per_stage_180_degree_choices(self):
-        body = function("_run_fast_sequence_search")
-        self.assertIn("self._manual_operation_orientation_overrides", body)
-        self.assertIn("self._manual_orientation_overrides", body)
-        self.assertIn("orientation = selected.orientations()", body)
+        chooser = function("_run_fast_sequence_search")
+        applying = function("_apply_fast_sequence_candidate")
+        self.assertIn("self._manual_operation_orientation_overrides", chooser)
+        self.assertIn("self._manual_orientation_overrides", chooser)
+        self.assertIn("orientation = selected.orientations()", applying)
 
     def test_fast_poses_are_not_treated_as_explicit_user_pins(self):
-        body = function("_run_fast_sequence_search")
-        self.assertIn("self._fast_advisory_orientation_keys", body)
-        self.assertIn("set(selected.operation_ids) - set(pinned)", body)
-        self.assertIn("panel_vertices_xy=self.session.panel_vertices_xy", body)
+        chooser = function("_run_fast_sequence_search")
+        applying = function("_apply_fast_sequence_candidate")
+        self.assertIn("self._fast_advisory_orientation_keys", chooser)
+        self.assertIn("set(selected.operation_ids) - set(pinned)", applying)
+        self.assertIn("panel_vertices_xy=self.session.panel_vertices_xy", chooser)
         manual = function("_set_manual_loading_override")
         self.assertIn(
             "self._fast_advisory_orientation_keys.discard(operation_id)", manual
@@ -70,6 +86,19 @@ class FastSearchGUIContracts(unittest.TestCase):
         self.assertIn("fast_advisory_orientation_ids=", snapshot)
         restore = function("_restore_embedded_smbs_json")
         self.assertIn("fast_advisory_orientation_ids", restore)
+
+    def test_lifetime_guard_when_host_clears_ui_during_gauge_refresh(self):
+        apply = function("_apply_fast_sequence_candidate")
+        self.assertIn("_fast_apply_skip_table_gauge = True", apply)
+        self.assertIn("_fast_apply_skip_table_gauge = False", apply)
+        self.assertIn("FAST_APPLY_HOST_DESTROYED", apply)
+        table = function("_format_operation_row")
+        self.assertIn('getattr(self, "_fast_apply_skip_table_gauge", False)', table)
+        refresh = function("_update_operations_visual_state")
+        self.assertIn("host_destroyed_during_row_format", refresh)
+        self.assertIn("if self._qt_is_valid(self.operations):", refresh)
+        staged = function("_on_staged_plan_changed")
+        self.assertIn("STAGED_REFRESH_SKIPPED_HOST_DESTROYED", staged)
 
 
 if __name__ == "__main__":
