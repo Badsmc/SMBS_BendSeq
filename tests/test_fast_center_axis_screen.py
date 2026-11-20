@@ -1,7 +1,7 @@
 """FAST sampled punch/die centreline filter regression suite.
 
 Checks the geometric (X_m, Y_m, Z_m) contract, unverified fallbacks,
-and beam pruning. Native FreeCAD tool solids are intentionally absent.
+and soft beam penalties. Native FreeCAD tool solids are intentionally absent.
 """
 from __future__ import annotations
 
@@ -175,7 +175,7 @@ class CentrelineIntegrationTests(TestCase):
         )
         self.assertEqual(result.decision,"UNKNOWN")
 
-    def test_search_prunes_blocked_transition_for_both_180_orientations(self):
+    def test_search_penalizes_blocked_transition_for_both_180_orientations(self):
         bends=[]
         for i in range(3):
             axis=((float(i)*10,0.,0.),(float(i)*10+50.,0.,0.))
@@ -214,7 +214,8 @@ class CentrelineIntegrationTests(TestCase):
         self.assertTrue(mocked.called)
         self.assertTrue(report.candidates)
         self.assertTrue(report.axis_screen_available)
-        self.assertGreater(report.axis_screen_rejected,0)
+        self.assertEqual(report.axis_screen_rejected,0)
+        self.assertGreater(report.axis_screen_penalized,0)
         self.assertGreater(report.axis_screen_checks,0)
         self.assertGreater(report.axis_screen_samples,0)
         findings=report.to_dict()["axis_screen_findings"]
@@ -225,12 +226,50 @@ class CentrelineIntegrationTests(TestCase):
             and "B02" in hit["preceding_operations"]
             for hit in findings
         ))
+        # The best plan avoids the crossing, but questionable plans are
+        # not excluded from the search merely by a preliminary 2D screen.
+        self.assertLess(
+            report.candidates[0].operation_ids.index("B01"),
+            report.candidates[0].operation_ids.index("B02"),
+        )
         for choice in report.candidates:
-            self.assertLess(
-                choice.operation_ids.index("B01"),
-                choice.operation_ids.index("B02"),
-            )
             self.assertEqual(choice.evidence,"UNVERIFIED_3D_NOT_CHECKED")
+
+    def test_all_gross_crossings_remain_as_unverified_fallback(self):
+        bends = [
+            GraphEdge("B01", "P0", "P1", 90.,
+                      ((0., 0., 0.), (40., 0., 0.))),
+        ]
+        state = FoldState(PanelGraph(("P0", "P1"), tuple(bends)), "P0")
+        state.bends = {
+            bid: replace(bend, bend_zone=object())
+            for bid, bend in state.bends.items()
+        }
+        outlines = {
+            pid: ((-20., -20.), (60., -20.),
+                  (60., 20.), (-20., 20.))
+            for pid in state.graph.panels
+        }
+        with patch(
+            "smbs_core.kinematics2d.fast_center_axis_screen."
+            "screen_transition_center_axis",
+            return_value=AxisScreenResult(
+                "BLOCKED", "GROSS_MAIN_BODY_POSE_CROSSES_TOOL_AXIS_ABOVE",
+                samples=3,
+            ),
+        ):
+            report = search_fast_candidates(
+                state, panel_vertices_xy=outlines,
+                limit_seconds=1.0, beam_width=8,
+            )
+        self.assertTrue(report.candidates)
+        self.assertGreater(report.axis_screen_penalized, 0)
+        self.assertGreaterEqual(report.candidates[0].estimated_cost, 1000.0)
+        self.assertEqual(report.axis_screen_rejected, 0)
+        self.assertTrue(all(
+            c.evidence == "UNVERIFIED_3D_NOT_CHECKED"
+            for c in report.candidates
+        ))
 
     def test_axis_filter_must_remain_optional_on_missing_geometry(self):
         state,outlines=one_bend_with_zone()
