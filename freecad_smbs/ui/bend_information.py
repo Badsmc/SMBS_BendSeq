@@ -102,8 +102,8 @@ def _flat_techdraw_views(document, drawing):
     page = document.addObject("TechDraw::DrawPage", "SMBS_BendPage")
     page.Label = "SMBS — чертёж гибки"
     template = document.addObject("TechDraw::DrawSVGTemplate", "SMBS_BendTemplate")
-    template.Template = str(Path(App.getResourceDir()) /
-                            "Mod/TechDraw/Templates/A3_Landscape_blank.svg")
+    template.Template = str(Path(__file__).resolve().parents[1] /
+                            "resources/templates/SMBS_A3_Landscape.svg")
     page.Template = template
     view = document.addObject("TechDraw::DrawViewPart", "SMBS_BendView")
     view.Label = "Развёртка с линиями гиба"
