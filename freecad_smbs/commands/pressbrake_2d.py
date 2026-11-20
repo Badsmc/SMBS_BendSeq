@@ -1445,6 +1445,9 @@ class _PreviewPanel:
                 # The staging timeline has separate 0°/180° choices for B03.1,
                 # B03.2, etc. Never key these by the shared physical bend ID.
                 self._manual_operation_orientation_overrides: dict[str, bool] = {}
+                # Orientations proposed by FAST are shown in simulation,
+                # but must NOT become immutable user pins on the next search.
+                self._fast_advisory_orientation_keys: set[str] = set()
                 self._last_manual_sequence_report = None
                 self._collision_inspection = None
                 self._alternate_retract_inspection = None
@@ -4050,6 +4053,9 @@ class _PreviewPanel:
                 operations = tuple(controller.operation_steps)
                 pinned = {}
                 for step in operations:
+                    if step.operation_id in self._fast_advisory_orientation_keys:
+                        # FAST-generated checkbox values are not user locks.
+                        continue
                     if step.operation_id in self._manual_operation_orientation_overrides:
                         pinned[step.operation_id] = self._manual_operation_orientation_overrides[
                             step.operation_id
@@ -4154,6 +4160,7 @@ class _PreviewPanel:
                 original_order = tuple(self.session.bend_order)
                 old_operation_orientation = dict(self._manual_operation_orientation_overrides)
                 old_bend_orientation = dict(self._manual_orientation_overrides)
+                old_advisory = set(self._fast_advisory_orientation_keys)
                 try:
                     if controller.has_stages:
                         controller.reorder_operations(selected.operation_ids)
@@ -4168,6 +4175,9 @@ class _PreviewPanel:
                         step.operation_id: orientation[step.operation_id]
                         for step in operations if step.kind != "SINGLE"
                     }
+                    self._fast_advisory_orientation_keys = (
+                        set(selected.operation_ids) - set(pinned)
+                    )
                     self.session.active_bend_index = self.session.controller.active_index
                     self._on_staged_plan_changed(
                         "FAST: применён НЕПРОВЕРЕННЫЙ вариант {}. "
@@ -4190,6 +4200,7 @@ class _PreviewPanel:
                         _error("FAST rollback failed: " + traceback.format_exc())
                     self._manual_operation_orientation_overrides = old_operation_orientation
                     self._manual_orientation_overrides = old_bend_orientation
+                    self._fast_advisory_orientation_keys = old_advisory
                     self.status.setText("FAST: вариант не применён: " + str(exc))
                     _error("FAST apply failed: " + traceback.format_exc())
 
@@ -4410,6 +4421,9 @@ class _PreviewPanel:
                     )
                     return
                 order = tuple(self.session.bend_order)
+                # Clicking a checkbox makes this a deliberate user choice,
+                # not a disposable orientation from the FAST shortlist.
+                self._fast_advisory_orientation_keys.discard(operation_id)
                 if self.session.controller.has_stages and operation_id != bend_id:
                     # Partial and finish operations each have their own override.
                     # A plain SINGLE step retains legacy bend-ID persistence.
@@ -5230,6 +5244,7 @@ class _PreviewPanel:
                 self._manual_orientation_by_bend = {}
                 self._manual_orientation_overrides.clear()
                 self._manual_operation_orientation_overrides.clear()
+                self._fast_advisory_orientation_keys.clear()
                 self._project_clamp_config = None
                 self._manual_preview_unverified = False
                 self._manual_selection_enabled = False
@@ -6016,6 +6031,9 @@ class _PreviewPanel:
                     operation_orientation_overrides=(
                         self._manual_operation_orientation_overrides
                     ),
+                    fast_advisory_orientation_ids=(
+                        self._fast_advisory_orientation_keys
+                    ),
                     backgauge_model=self.backgauge_model,
                     clamp_config=self._current_clamp_config(),
                     orientation_source=(
@@ -6134,6 +6152,9 @@ class _PreviewPanel:
                 )
                 self._manual_operation_orientation_overrides = dict(
                     payload["order"].get("operation_orientation_overrides", {})
+                )
+                self._fast_advisory_orientation_keys = set(
+                    payload["order"].get("fast_advisory_orientation_ids", [])
                 )
                 # FCStd is authoritative for document-specific settings, not
                 # the last machine options used for an unrelated project.
@@ -7720,6 +7741,7 @@ class _PreviewPanel:
                     for op_id, value in self._manual_operation_orientation_overrides.items()
                     if op_id in valid_ops and op_id not in self.session.canonical_order
                 }
+                self._fast_advisory_orientation_keys.intersection_update(valid_ops)
                 self._manual_3d_verdicts.clear()
                 self._manual_retract_verdicts.clear()
                 self._last_manual_sequence_report = None
@@ -7859,7 +7881,11 @@ class _PreviewPanel:
                                 bend_id in self._manual_orientation_overrides)
                         ):
                             tooltip += (
-                                "\nПоложение задано вручную. Правый клик возвращает автоподбор."
+                                "\n" + (
+                                    "Положение предложено FAST (UNVERIFIED)."
+                                    if op.operation_id in self._fast_advisory_orientation_keys
+                                    else "Положение задано вручную."
+                                ) + " Правый клик возвращает автоподбор."
                             )
                         item.setToolTip(
                             _LOADING_ORIENTATION_COLUMN, tooltip,
