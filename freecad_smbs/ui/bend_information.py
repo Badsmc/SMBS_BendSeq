@@ -6,6 +6,7 @@ from dataclasses import replace
 from math import dist
 from string import ascii_uppercase
 
+from freecad_smbs.integration.document_group import group_document_objects
 from smbs_core.geometry_backend.io.clamp_validator import ClampValidatorError
 from smbs_core.kinematics2d.segment_assembly_planner import plan_pair_for_bend
 
@@ -167,6 +168,7 @@ def export_bend_information(document, session, rows):
         drawing.Label = "SMBS — развёртка с последовательностью гибов"
         drawing.Shape = shape
         drawing.Visibility = True
+        group_document_objects(document)
         document.recompute()
         document.commitTransaction()
     except Exception:
