@@ -1114,7 +1114,19 @@ class PressBrake2DCommand:
             return
 
         widget = _PreviewPanel()
-        window = QtWidgets.QMdiSubWindow()
+        class WorkspaceSubWindow(QtWidgets.QMdiSubWindow):
+            def closeEvent(self, event):
+                # QMdiSubWindow dispatches Close to its child first. Native
+                # FreeCAD activation during that callback can re-show the shell.
+                # Finalise visibility AFTER the MDI base handler returns.
+                super().closeEvent(event)
+                if widget._closing:
+                    self.hide()
+                    event.accept()
+                    _desktop_debug_event("WORKSPACE_MDI_CLOSE_COMPLETED",
+                                         visible=self.isVisible())
+
+        window = WorkspaceSubWindow()
         window.setObjectName(name)
         window.setWindowTitle("PressBrakeSim — Coin3D")
         # This is an auxiliary MDI view, not a FreeCAD document view.
