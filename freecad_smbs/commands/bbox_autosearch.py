@@ -72,7 +72,7 @@ class BBoxAutoSearchCommand:
             options.addWidget(QtWidgets.QLabel(label)); options.addWidget(spin)
         layout.addLayout(options)
         table = QtWidgets.QTableWidget(0, 4)
-        table.setHorizontalHeaderLabels(['Последовательность (угол / поворот)', 'Вес', 'Статус', 'Проверка'])
+        table.setHorizontalHeaderLabels(['Последовательность (угол / поворот)', 'Вес (оценка)', 'Статус', 'Проверка'])
         table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectRows)
         table.setSelectionMode(QtWidgets.QAbstractItemView.SingleSelection)
         table.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
@@ -174,6 +174,8 @@ class BBoxAutoSearchCommand:
                 if not w._apply_manual_order([o.bend_id for o in ops]): return
                 w._manual_orientation_overrides.update(
                     {o.bend_id: result['poses'][o.operation_id] for o in ops})
+            if tooling.tool_assembly is not None:
+                w._apply_tool_assembly(tooling.tool_assembly)
             w._manual_orientation_order = ()
             w._ergonomic_loading_cache_key = None
             w._last_manual_sequence_report = None
