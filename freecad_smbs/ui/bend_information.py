@@ -6,6 +6,9 @@ from dataclasses import replace
 from math import cos, dist, radians, sin
 from pathlib import Path
 from string import ascii_uppercase
+from traceback import format_exc
+
+from smbs_core.kinematics2d.developer_debug_log import debug_event
 
 from freecad_smbs.integration.document_group import group_document_objects
 from smbs_core.geometry_backend.io.clamp_validator import ClampValidatorError
@@ -207,6 +210,7 @@ def export_bend_information(document, session, rows):
         group_document_objects(document)
         document.recompute()
         document.commitTransaction()
+        return page
     except Exception:
         document.abortTransaction()
         raise
@@ -230,20 +234,41 @@ def show_bend_information(workspace, embed):
             table.setItem(row, col, qt.QTableWidgetItem(value))
     table.resizeColumnsToContents()
     layout.addWidget(table)
-    export = qt.QPushButton("Создать развёртку и таблицу для TechDraw")
+    export = qt.QPushButton("Создать / обновить и открыть TechDraw")
     layout.addWidget(export)
     feedback = qt.QLabel()
     feedback.setWordWrap(True)
     layout.addWidget(feedback)
 
     def save():
+        import FreeCAD as App
+        import FreeCADGui as Gui
+
+        export.setEnabled(False)
+        debug_event("TECHDRAW_EXPORT_STARTED")
         try:
-            export_bend_information(workspace._bound_smbs_document(), workspace.session,
-                                    bend_rows(workspace))
-        except (RuntimeError, ValueError, AttributeError) as exc:
-            feedback.setText(str(exc))
+            document = workspace._bound_smbs_document()
+            if document is None:
+                raise ValueError("Документ детали закрыт. Загрузите деталь заново.")
+            page = export_bend_information(document, workspace.session, bend_rows(workspace))
+            debug_event("TECHDRAW_EXPORT_COMPLETED", document=document.Name,
+                        page=page.Name,
+                        edges=len(document.getObject("SMBS_BendDrawing").Shape.Edges))
+        except Exception as exc:
+            detail = str(exc) or type(exc).__name__
+            debug_event("TECHDRAW_EXPORT_ERROR", error=detail, traceback=format_exc())
+            App.Console.PrintError(format_exc())
+            feedback.setText(detail)
+            qt.QMessageBox.warning(dialog, "SMBS — экспорт TechDraw", detail)
         else:
             feedback.setText("Обновлены развёртка, таблица и подписи на листе TechDraw.")
+            try:
+                Gui.activeDocument().setEdit(page.Name)
+            except Exception as exc:
+                debug_event("TECHDRAW_OPEN_ERROR", error=str(exc), traceback=format_exc())
+                feedback.setText("Лист создан. Откройте его двойным щелчком в папке SMBS.")
+        finally:
+            export.setEnabled(True)
 
     export.clicked.connect(save)
     embed(workspace, dialog, "Информация о гибах", "bend_information")
