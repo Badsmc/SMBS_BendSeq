@@ -215,13 +215,24 @@ class MdiCloseDispatchTests(unittest.TestCase):
             def closeEvent(self, event):
                 owner._closing = True
                 self.show()  # FreeCAD activates views during child cleanup
-        scope = {"QtWidgets": SimpleNamespace(QMdiSubWindow=NativeMdi),
+        callbacks = []
+        mdi = MdiArea()
+        scope = {"QtCore": SimpleNamespace(QTimer=SimpleNamespace(
+                     singleShot=lambda delay, callback: callbacks.append(callback))),
+                 "mdi": mdi,
+                 "QtWidgets": SimpleNamespace(QMdiSubWindow=NativeMdi),
                  "widget": owner, "_desktop_debug_event": lambda *a, **k: None}
         exec(compile(ast.Module(body=[node], type_ignores=[]), str(GUI), "exec"), scope)
         window = scope["WorkspaceSubWindow"](owner)
+        mdi.windows.append(window)
         accepted = []
         event = SimpleNamespace(accept=lambda: accepted.append(True))
         for _ in range(2):
             window.closeEvent(event)
             self.assertFalse(window.isVisible())
         self.assertEqual(len(accepted), 2)
+        self.assertEqual(len(callbacks), 1)
+        self.assertIn(window, mdi.subWindowList())
+        callbacks[0]()
+        self.assertNotIn(window, mdi.subWindowList())
+        self.assertTrue(window.deleted)
