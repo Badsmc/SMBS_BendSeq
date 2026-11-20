@@ -422,6 +422,10 @@ def check_pair_clearance(
     unknown is silently treated as clear. Intended only as a performance
     hint from a previous sampled penetrating punch state.
     """
+    from .mesh_search_collision import mesh_pair_result
+    mesh_result = mesh_pair_result(shape_a, shape_b, tool_label)
+    if mesh_result is not None:
+        return mesh_result
     t0 = time.perf_counter()
 
     # 1. Geometry sanity check
@@ -1166,7 +1170,9 @@ def validate_workpiece_tooling_pose(
     ez_analysis: Optional[PunchEndZoneAnalysis] = None
 
     # Classify punch overlap zones when punch penetration occurs and either end_zone_policy or classify_end_zone_length_mm is given
+    from .mesh_search_collision import _MODE
     should_classify_ez = (
+        _MODE.get() is None and
         punch_res.status == CollisionClass.PENETRATION
         and (
             (end_zone_policy is not None and (end_zone_policy.allow_end_zone_collision or end_zone_policy.end_zone_length_mm != 0.0))

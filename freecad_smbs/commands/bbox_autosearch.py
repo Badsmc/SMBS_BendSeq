@@ -1,4 +1,5 @@
 """Separate experimental search window; never mutates the live session while searching."""
+from contextlib import nullcontext
 from dataclasses import replace
 from types import SimpleNamespace
 import traceback
@@ -52,6 +53,8 @@ class BBoxAutoSearchCommand:
                 tuple(dict.fromkeys(o.bend_id for o in operations)))
             tooling.match_active_bend_length = False
         weights = w._selected_operation_weights()
+        from smbs_core.kinematics2d.mesh_search_collision import MeshOracle, mesh_search_mode
+        mesh_oracle = [None]
         rows = []
         stopped = [False]
         busy = [False]
@@ -60,7 +63,7 @@ class BBoxAutoSearchCommand:
         dialog.resize(880, 520)
         layout = QtWidgets.QVBoxLayout(dialog)
         note = QtWidgets.QLabel(
-            'Быстрый поиск: BBox + 5 углов OCC. Полная проверка — отдельной кнопкой.\n'
+            'Mesh-поиск: допускается проникновение до 1 мм; результат предварительный.\n'
             'Зажимы, задний упор и перенос детали не проверены. Результат не является допуском к станку.')
         note.setWordWrap(True)
         layout.addWidget(note)
@@ -71,6 +74,9 @@ class BBoxAutoSearchCommand:
         for label, spin in [('Секунд', seconds), ('Вариантов', count), ('Узлов', nodes)]:
             options.addWidget(QtWidgets.QLabel(label)); options.addWidget(spin)
         layout.addLayout(options)
+        mesh_enabled = QtWidgets.QCheckBox('Mesh-поиск вместо OCC (допуск 1 мм)')
+        mesh_enabled.setChecked(True)
+        layout.addWidget(mesh_enabled)
         table = QtWidgets.QTableWidget(0, 4)
         table.setHorizontalHeaderLabels(['Последовательность (угол / поворот)', 'Вес (оценка)', 'Статус', 'Проверка'])
         table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectRows)
@@ -108,22 +114,34 @@ class BBoxAutoSearchCommand:
             order = tuple(o.bend_id for o in path)
             isolated = SimpleNamespace(fold_state=session.fold_state, panel_build=session.panel_build,
                                        bend_order=order)
-            report = check_manual_3d_sequence(
-                isolated, tooling, order,
-                match_active_bend_length=tooling.match_active_bend_length,
-                allow_end_zone_collision=tooling.allow_end_zone_collision,
-                end_zone_length_mm=tooling.end_zone_length_mm,
-                reverse_axis_by_bend={o.bend_id: poses[o.operation_id] for o in path},
-                auto_orientation=False, collision_forensics=exact,
-                config=AdaptiveSamplingConfig(coarse_occ_screen=not exact,
-                    initial_clearance_mm=float(w.cycle_config.initial_clearance_mm),
-                    max_phase_time_s=min(float(seconds.value()), 30.0),
-                    max_evaluated_states_per_phase=32))
+            use_mesh = not exact and mesh_enabled.isChecked()
+            with mesh_search_mode(mesh_oracle[0]) if use_mesh else nullcontext():
+                report = check_manual_3d_sequence(
+                    isolated, tooling, order,
+                    match_active_bend_length=tooling.match_active_bend_length,
+                    allow_end_zone_collision=tooling.allow_end_zone_collision,
+                    end_zone_length_mm=tooling.end_zone_length_mm,
+                    reverse_axis_by_bend={o.bend_id: poses[o.operation_id] for o in path},
+                    auto_orientation=False, collision_forensics=exact,
+                    config=AdaptiveSamplingConfig(coarse_occ_screen=not exact,
+                        initial_clearance_mm=float(w.cycle_config.initial_clearance_mm),
+                        max_phase_time_s=min(float(seconds.value()), 30.0),
+                        max_evaluated_states_per_phase=32))
+            if use_mesh:
+                report['search_engine'] = 'SAMPLED_MESH'
+                report['penetration_allowance_mm'] = 1.0
+                report['mesh_deflection_mm'] = 0.1
+                report['mesh_queries'] = mesh_oracle[0].queries
+                report['mesh_builds'] = mesh_oracle[0].builds
+                if report['status'] != 'COLLISION':
+                    report['status'] = 'UNVERIFIED_MESH_CANDIDATE'
+                report['reason'] = 'MESH_SAMPLED_1MM; OCC verification required; ' + report.get('reason', '')
             report['cost'] = cost
             return report
 
         def finish(message):
             timer.stop(); busy[0] = False
+            mesh_enabled.setEnabled(True)
             start.setEnabled(True); stop.setEnabled(False)
             apply.setEnabled(bool(rows)); verify.setEnabled(bool(rows)); status.setText(message)
             for spin in (seconds, count, nodes): spin.setEnabled(True)
@@ -152,6 +170,8 @@ class BBoxAutoSearchCommand:
                 finish('Ошибка: ' + str(exc))
 
         def begin():
+            mesh_oracle[0] = MeshOracle(tolerance_mm=1.0, deflection_mm=0.1)
+            mesh_enabled.setEnabled(False)
             rows.clear(); table.setRowCount(0); stopped[0] = False; busy[0] = True
             start.setEnabled(False); stop.setEnabled(True); apply.setEnabled(False); verify.setEnabled(False)
             for spin in (seconds, count, nodes): spin.setEnabled(False)
