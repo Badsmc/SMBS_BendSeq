@@ -4,12 +4,15 @@ from __future__ import annotations
 from collections import Counter
 from dataclasses import replace
 from math import dist
+from string import ascii_uppercase
 
 from smbs_core.geometry_backend.io.clamp_validator import ClampValidatorError
 from smbs_core.kinematics2d.segment_assembly_planner import plan_pair_for_bend
 
-HEADERS = ("№ гиба", "Линия", "Упор S, мм", "Полка по развёртке, мм", "Угол, °",
+HEADERS = ("№ операции", "Линия", "Операция", "Этап", "Упор S, мм",
+           "Полка по развёртке, мм", "Целевой угол, °",
            "Пуансон, мм × шт.", "Матрица, мм × шт.")
+OPERATION_NAMES = {"SINGLE": "Гиб", "PREBEND": "Предгиб", "FINISH": "Догиб"}
 
 
 def _format_segments(lengths):
@@ -18,6 +21,9 @@ def _format_segments(lengths):
 
 
 def bend_rows(workspace):
+    session = workspace.session
+    controller = session.controller
+    staged = controller.has_stages
     setup = workspace.tooling_setup
     applied = (setup.punch_section_spans_xm, setup.die_section_spans_xm)
     inputs = None
@@ -34,11 +40,14 @@ def bend_rows(workspace):
             error = str(exc)
     layouts = {}
     rows = []
-    for index, bend_id in enumerate(workspace.session.bend_order):
-        bend = workspace.session.fold_state.bends[bend_id]
-        gauge = workspace._backgauge_preview_position(index)
+    for index, operation in enumerate(controller.operation_steps):
+        bend_id = operation.bend_id
+        bend = session.fold_state.bends[bend_id]
+        # The gauge preview for the unique bend order does not account for
+        # partial angles or a different orientation on each staged operation.
+        gauge = None if staged else workspace._backgauge_preview_position(index)
         stop = gauge[0] if gauge else None
-        flange = workspace.session.local_bend_dimensions_mm.get(bend_id)
+        flange = session.local_bend_dimensions_mm.get(bend_id)
         plan = {}
         if inputs is not None:
             length = dist(*bend.axis_xyz)
@@ -59,10 +68,11 @@ def bend_rows(workspace):
                 tools.append("—")
             else:
                 tools.append("Нет раскладки" if inputs is not None else error)
-        rows.append((str(index + 1), bend_id,
+        rows.append((str(index + 1), bend_id, operation.operation_id,
+                     OPERATION_NAMES[operation.kind],
                      f"{stop.s_mm:.2f}" if stop is not None else "—",
                      f"{flange:.2f}" if flange is not None else "—",
-                     f"{bend.angle_deg:+.2f}", *tools))
+                     f"{operation.target_angle_deg:+.2f}", *tools))
     return rows
 
 
@@ -77,8 +87,8 @@ def export_bend_information(document, session, rows):
         for start, end in zip(points, (*points[1:], points[0])):
             if (end - start).Length > 1e-7:
                 edges.append(Part.makeLine(start, end))
-    for row in rows:
-        start, end = session.fold_state.bends[row[1]].axis_xyz
+    for bend_id in dict.fromkeys(row[1] for row in rows):
+        start, end = session.fold_state.bends[bend_id].axis_xyz
         edges.append(Part.makeLine(App.Vector(*start), App.Vector(*end)))
     shape = Part.makeCompound(edges)
 
@@ -90,12 +100,13 @@ def export_bend_information(document, session, rows):
         else:
             sheet.clearAll()
         sheet.Label = "SMBS — таблица гибов"
+        columns = ascii_uppercase[:len(HEADERS)]
         for line, row in enumerate((HEADERS, *rows), 1):
-            for column, value in zip("ABCDEFG", row):
+            for column, value in zip(columns, row):
                 sheet.set(f"{column}{line}", value)
-        sheet.setStyle("A1:G1", "bold", "add")
-        sheet.setColumnWidth("F", 200)
-        sheet.setColumnWidth("G", 200)
+        sheet.setStyle(f"A1:{columns[-1]}1", "bold", "add")
+        for column in columns[-2:]:
+            sheet.setColumnWidth(column, 200)
         drawing = document.getObject("SMBS_BendDrawing")
         if drawing is None:
             drawing = document.addObject("Part::Feature", "SMBS_BendDrawing")
