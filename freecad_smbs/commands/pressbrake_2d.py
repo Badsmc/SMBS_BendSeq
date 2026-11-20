@@ -2339,6 +2339,19 @@ class _PreviewPanel:
                 sim_body.addWidget(order_card, 1)
                 # Keep the live sequence directly beneath the fixed controls.
                 playback_layout.addWidget(self.operations, 1)
+                self.fast_search_btn = style_action(
+                    QtWidgets.QPushButton("FAST · найти последовательности (1 с)"),
+                    compact=True,
+                )
+                self.fast_search_btn.setObjectName("SMBS_FastSequenceSearch")
+                self.fast_search_btn.setToolTip(
+                    "Экспериментальный поиск BFM-lite + Beam Search без OCC. "
+                    "Ищет до пяти вариантов в пределах секунды. "
+                    "Коллизии, реальная установка заготовки и траектории "
+                    "НЕ проверены: все результаты UNVERIFIED."
+                )
+                self.fast_search_btn.clicked.connect(self._run_fast_sequence_search)
+                playback_layout.addWidget(self.fast_search_btn)
                 order_card.hide()
                 for widget in (self.manual_order_input, self.manual_simulate_btn,
                                self.saved_sequences_btn, self.manual_check_summary):
@@ -4017,6 +4030,160 @@ class _PreviewPanel:
             def _selected_operation_weights(self):
                 from smbs_core.kinematics2d.operation_cost import OperationWeights
                 return OperationWeights(**self._operation_weights)
+
+            def _run_fast_sequence_search(self):
+                """Opt-in one-second shortlist; NEVER claim 3D clearance."""
+                if self.session is None:
+                    self.status.setText("FAST: сначала загрузите развёртку SheetMetal.")
+                    return
+                if (self._task_progress_busy or self.playing or self.timer.isActive()
+                        or not self.session.can_reorder()):
+                    self.status.setText(
+                        "FAST: остановите симуляцию и нажмите Reset "
+                        "перед поиском и изменением последовательности."
+                    )
+                    return
+                from smbs_core.kinematics2d.fast_bfm_beam_search import (
+                    search_fast_candidates, FastSearchError,
+                )
+                controller = self.session.controller
+                operations = tuple(controller.operation_steps)
+                pinned = {}
+                for step in operations:
+                    if step.operation_id in self._manual_operation_orientation_overrides:
+                        pinned[step.operation_id] = self._manual_operation_orientation_overrides[
+                            step.operation_id
+                        ]
+                    elif step.bend_id in self._manual_orientation_overrides:
+                        pinned[step.operation_id] = self._manual_orientation_overrides[
+                            step.bend_id
+                        ]
+                try:
+                    report = search_fast_candidates(
+                        self.session.fold_state, operations,
+                        fixed_orientations=pinned,
+                        weights=self._selected_operation_weights().to_dict(),
+                        limit_seconds=1.0,
+                        beam_width=32,
+                        max_candidates=5,
+                    )
+                except (FastSearchError, ValueError, TypeError) as exc:
+                    self.status.setText("FAST: поиск не выполнен: " + str(exc))
+                    _desktop_debug_event("FAST_SEARCH_REJECTED", reason=str(exc))
+                    return
+                self._last_fast_candidates_report = report
+                _desktop_debug_event(
+                    "FAST_SEARCH_RESULT", report=report.to_dict()
+                )
+                if not report.candidates:
+                    self.status.setText(
+                        "FAST: кандидаты не найдены за {:.3f} с. "
+                        "Это НЕ доказательство невозможности гибки.".format(
+                            report.elapsed_seconds
+                        )
+                    )
+                    return
+
+                dialog = QtWidgets.QDialog(self)
+                dialog.setWindowTitle("FAST — варианты последовательности (UNVERIFIED)")
+                dialog.setMinimumWidth(610)
+                dialog.setMinimumHeight(300)
+                layout = QtWidgets.QVBoxLayout(dialog)
+                hint = QtWidgets.QLabel(
+                    "BFM-lite + Bitmask + Beam Search: {:.3f} с, "
+                    "состояний {}, переходов {}. "
+                    "Варианты приблизительно ранжированы по стоимости. "
+                    "Коллизии пуансона, матрицы, упора, зажимов и движение "
+                    "заготовки НЕ проверены. Выбор варианта только "
+                    "для ручной симуляции и последующей OCC-проверки.".format(
+                        report.elapsed_seconds, report.explored_states,
+                        report.expanded_transitions,
+                    )
+                )
+                hint.setWordWrap(True)
+                layout.addWidget(hint)
+                choices = QtWidgets.QListWidget(dialog)
+                choices.setObjectName("SMBS_FastCandidateList")
+                for i, candidate in enumerate(report.candidates, 1):
+                    reversed_ids = [
+                        op_id for op_id, reverse in candidate.orientation_by_operation
+                        if reverse
+                    ]
+                    text = "{}. {} | вес ~{:.2f} | 180°: {}".format(
+                        i, " → ".join(candidate.operation_ids),
+                        candidate.estimated_cost,
+                        ", ".join(reversed_ids) if reversed_ids else "нет",
+                    )
+                    item = QtWidgets.QListWidgetItem(text)
+                    item.setToolTip(text + "\\nUNVERIFIED: 3D не проверено")
+                    choices.addItem(item)
+                choices.setCurrentRow(0)
+                layout.addWidget(choices)
+                buttons = QtWidgets.QDialogButtonBox(
+                    QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel,
+                    dialog,
+                )
+                buttons.button(QtWidgets.QDialogButtonBox.Ok).setText(
+                    "Применить непроверенный вариант"
+                )
+                buttons.button(QtWidgets.QDialogButtonBox.Cancel).setText("Закрыть")
+                buttons.accepted.connect(dialog.accept)
+                buttons.rejected.connect(dialog.reject)
+                layout.addWidget(buttons)
+                result = dialog.exec() if hasattr(dialog, "exec") else dialog.exec_()
+                if result != QtWidgets.QDialog.Accepted:
+                    return
+                index = choices.currentRow()
+                if not 0 <= index < len(report.candidates):
+                    return
+                if (self._closing or self.session is None
+                        or self.session.controller is not controller
+                        or not self.session.can_reorder()
+                        or tuple(controller.operation_steps) != operations):
+                    self.status.setText("FAST: деталь или операции изменились; повторите поиск.")
+                    return
+                selected = report.candidates[index]
+                original_order = tuple(self.session.bend_order)
+                old_operation_orientation = dict(self._manual_operation_orientation_overrides)
+                old_bend_orientation = dict(self._manual_orientation_overrides)
+                try:
+                    if controller.has_stages:
+                        controller.reorder_operations(selected.operation_ids)
+                    else:
+                        self.session.set_bend_order(selected.operation_ids)
+                    orientation = selected.orientations()
+                    self._manual_orientation_overrides = {
+                        step.bend_id: orientation[step.operation_id]
+                        for step in operations if step.kind == "SINGLE"
+                    }
+                    self._manual_operation_orientation_overrides = {
+                        step.operation_id: orientation[step.operation_id]
+                        for step in operations if step.kind != "SINGLE"
+                    }
+                    self.session.active_bend_index = self.session.controller.active_index
+                    self._on_staged_plan_changed(
+                        "FAST: применён НЕПРОВЕРЕННЫЙ вариант {}. "
+                        "Нужна отдельная физическая проверка.".format(index+1)
+                    )
+                    _desktop_debug_event(
+                        "FAST_CANDIDATE_APPLIED",
+                        selected=selected.to_dict(),
+                        evidence="UNVERIFIED_3D_NOT_CHECKED",
+                    )
+                except Exception as exc:
+                    try:
+                        if controller.has_stages:
+                            controller.reorder_operations(
+                                [s.operation_id for s in operations]
+                            )
+                        else:
+                            self.session.set_bend_order(original_order)
+                    except Exception:
+                        _error("FAST rollback failed: " + traceback.format_exc())
+                    self._manual_operation_orientation_overrides = old_operation_orientation
+                    self._manual_orientation_overrides = old_bend_orientation
+                    self.status.setText("FAST: вариант не применён: " + str(exc))
+                    _error("FAST apply failed: " + traceback.format_exc())
 
             def open_sequence_catalog_dialog(self):
                 from freecad_smbs.commands.sequence_catalog_dialog import show_sequence_catalog
