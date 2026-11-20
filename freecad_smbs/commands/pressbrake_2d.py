@@ -7189,6 +7189,74 @@ class _PreviewPanel:
                     "",
                 )
 
+            def _remove_prebend(self, bend_id, *, parent=None):
+                """Undo the split for only this physical bend.
+
+                Keep the final angle and the positions of all other operations.
+                The controller selects the existing FINISH position as the
+                restored ordinary bend. Confirmation prevents an accidental
+                click in the operations table from changing the plan.
+                """
+                if self.session is None or self._task_progress_busy:
+                    return False
+                controller = self.session.controller
+                prebend = next((
+                    step for step in controller.operation_steps
+                    if step.bend_id == bend_id and step.kind == "PREBEND"
+                ), None)
+                if prebend is None:
+                    self.status.setText(
+                        "Для {} предварительный гиб не задан.".format(bend_id)
+                    )
+                    return False
+                if (self.timer.isActive() or self.playing
+                        or not self.session.can_reorder()):
+                    self.status.setText(
+                        "Для удаления предгиба сначала остановите симуляцию "
+                        "и нажмите Reset."
+                    )
+                    return False
+                final = controller.target_for(bend_id)
+                decision = QtWidgets.QMessageBox.question(
+                    parent or self,
+                    "Удалить предварительный гиб?",
+                    (
+                        "Удалить {} (промежуточный угол {:+.2f}°)?\\n\\n"
+                        "Догиб {}.2 будет заменён обычным гибом {} "
+                        "до {:+.2f}°.\\n"
+                        "Остальные операции, их порядок и углы не изменятся."
+                    ).format(bend_id + ".1", prebend.target_angle_deg,
+                             bend_id, bend_id, final),
+                    QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
+                    QtWidgets.QMessageBox.No,
+                )
+                if decision != QtWidgets.QMessageBox.Yes:
+                    return False
+                previous = controller.operation_snapshot()
+                try:
+                    controller.remove_prebend(bend_id)
+                except SequenceError as exc:
+                    # A failed removal must leave the previous plan intact.
+                    try:
+                        controller.restore_operation_snapshot(previous)
+                    except SequenceError:
+                        pass
+                    self.status.setText("Предгиб не удалён: " + str(exc))
+                    return False
+                _desktop_debug_event(
+                    "STAGED_PREBEND_REMOVED",
+                    bend_id=bend_id,
+                    removed_operation_id=prebend.operation_id,
+                    restored_operation_id=bend_id,
+                    final_angle_deg=final,
+                    steps=controller.operation_snapshot(),
+                )
+                self._on_staged_plan_changed(
+                    "{}: предгиб удалён. Обычный гиб восстановлен до "
+                    "{:+.2f}°.".format(bend_id, final)
+                )
+                return True
+
             def _edit_prebend_dialog(self, bend_id):
                 """Choose a pre-bend angle and drag ONLY that step among locked steps."""
                 if self.session is None or self._task_progress_busy:
@@ -7294,10 +7362,24 @@ class _PreviewPanel:
                 buttons.accepted.connect(apply_dialog_order)
                 buttons.rejected.connect(dialog.reject)
                 if current is not None:
-                    delete_button = buttons.addButton(
-                        "Удалить предгиб", QtWidgets.QDialogButtonBox.DestructiveRole
+                    # Keep this action obvious and separate from Save/Cancel.
+                    # The old destructive-role button at the bottom of the
+                    # button box was easy to overlook in the modal dialog.
+                    delete_button = QtWidgets.QPushButton(
+                        "Удалить предгиб и вернуть обычный гиб", dialog
                     )
-                    delete_button.clicked.connect(lambda: dialog.done(2))
+                    delete_button.setObjectName("SMBS_DeletePrebend")
+                    delete_button.setToolTip(
+                        "Удалить {}.1, заменить {}.2 одним исходным гибом {} "
+                        "и сохранить порядок остальных операций.".format(
+                            bend_id, bend_id, bend_id
+                        )
+                    )
+                    def remove_from_dialog():
+                        if self._remove_prebend(bend_id, parent=dialog):
+                            dialog.reject()
+                    delete_button.clicked.connect(remove_from_dialog)
+                    layout.addWidget(delete_button)
                 layout.addWidget(buttons)
                 result = dialog.exec() if hasattr(dialog, "exec") else dialog.exec_()
                 try:
@@ -7316,10 +7398,9 @@ class _PreviewPanel:
                         operation = "Предгиб {}: {:+.2f}° → догиб до {:+.2f}°".format(
                             bend_id, spin.value(), final
                         )
-                    elif result == 2 and current is not None:
-                        controller.remove_prebend(bend_id)
-                        operation = "Предгиб {} удалён; оставлен конечный угол.".format(bend_id)
                     else:
+                        # Deletion is handled by _remove_prebend, including its
+                        # confirmation, status update and preview invalidation.
                         return
                     _desktop_debug_event(
                         "STAGED_BEND_PLAN_CHANGED",
@@ -7526,19 +7607,57 @@ class _PreviewPanel:
                             ),
                         )
                         if self.operations.itemWidget(item, 9) is None:
-                            add_btn = QtWidgets.QToolButton(self.operations)
-                            add_btn.setText("+" if op.kind != "PREBEND" else "Изм.")
-                            add_btn.setToolTip(
-                                "Добавить или изменить предварительный угол гиба " + bend_id
-                            )
-                            add_btn.clicked.connect(
-                                lambda _checked=False, bid=bend_id: self._edit_prebend_dialog(bid)
-                            )
-                            self.operations.setItemWidget(item, 9, add_btn)
+                            if op.kind == "PREBEND":
+                                # Quick action next to Edit, plus the prominent
+                                # deletion button inside the editing dialog.
+                                controls = QtWidgets.QWidget(self.operations)
+                                controls.setObjectName("SMBS_PreBendRowActions")
+                                actions = QtWidgets.QHBoxLayout(controls)
+                                actions.setContentsMargins(0, 0, 0, 0)
+                                actions.setSpacing(3)
+                                edit_btn = QtWidgets.QToolButton(controls)
+                                edit_btn.setText("Изм.")
+                                edit_btn.setToolTip(
+                                    "Изменить предгиб " + op.operation_id
+                                )
+                                edit_btn.clicked.connect(
+                                    lambda _checked=False, bid=bend_id:
+                                    self._edit_prebend_dialog(bid)
+                                )
+                                delete_btn = QtWidgets.QToolButton(controls)
+                                delete_btn.setText("×")
+                                delete_btn.setFixedWidth(25)
+                                delete_btn.setObjectName("SMBS_DeletePrebendRow")
+                                delete_btn.setToolTip(
+                                    "Удалить предгиб {} и вернуть обычный гиб {}".format(
+                                        op.operation_id, bend_id
+                                    )
+                                )
+                                delete_btn.clicked.connect(
+                                    lambda _checked=False, bid=bend_id:
+                                    self._remove_prebend(bid)
+                                )
+                                actions.addWidget(edit_btn)
+                                actions.addWidget(delete_btn)
+                                self.operations.setItemWidget(item, 9, controls)
+                            else:
+                                add_btn = QtWidgets.QToolButton(self.operations)
+                                add_btn.setText("+" if op.kind == "SINGLE" else "Изм.")
+                                add_btn.setToolTip(
+                                    "Добавить или изменить предварительный угол гиба "
+                                    + bend_id
+                                )
+                                add_btn.clicked.connect(
+                                    lambda _checked=False, bid=bend_id:
+                                    self._edit_prebend_dialog(bid)
+                                )
+                                self.operations.setItemWidget(item, 9, add_btn)
                         else:
-                            self.operations.itemWidget(item, 9).setText(
-                                "Изм." if op.kind == "PREBEND" else "+"
-                            )
+                            widget = self.operations.itemWidget(item, 9)
+                            if isinstance(widget, QtWidgets.QToolButton):
+                                widget.setText(
+                                    "+" if op.kind == "SINGLE" else "Изм."
+                                )
                     if 0 <= self.session.active_bend_index < count:
                         active = self.operations.topLevelItem(self.session.active_bend_index)
                         if self.operations.currentItem() is not active:
