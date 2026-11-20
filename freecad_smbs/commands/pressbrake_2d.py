@@ -4040,6 +4040,7 @@ class _PreviewPanel:
 
             def _run_fast_sequence_search(self):
                 """Opt-in one-second shortlist; NEVER claim 3D clearance."""
+                import FreeCADGui as Gui
                 if self.session is None:
                     self.status.setText("FAST: сначала загрузите развёртку SheetMetal.")
                     return
