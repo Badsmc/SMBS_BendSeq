@@ -1496,6 +1496,7 @@ class _PreviewPanel:
                 self._conditional_bends_status: dict[str, str] = {}
                 self._highlighted_end_zone_info: dict | None = None
                 self._staged_dnd_pending = False
+                self._staged_dnd_in_progress = False
                 _log(
                     "PressBrakeSim startup: module={} | branch={} | commit={}".format(
                         self.runtime_git_info["module_file"],
@@ -1771,13 +1772,37 @@ class _PreviewPanel:
 
                 class StagedOperationsTree(QtWidgets.QTreeWidget):
                     def dropEvent(tree, event):
-                        super().dropEvent(event)
-                        callback = getattr(tree, "stage_drop_callback", None)
-                        if callable(callback):
-                            callback()
+                        owner = getattr(tree, "stage_drop_owner", None)
+                        if (owner is None or owner._closing
+                                or owner.session is None
+                                or owner._staged_dnd_pending
+                                or owner._staged_dnd_in_progress
+                                or owner.timer.isActive()
+                                or owner.playing
+                                or not owner.session.can_reorder()):
+                            event.ignore()
+                            return
+                        # Ignore selection/redraw events while Qt owns the
+                        # native move. Rebuilding QTreeWidget/QToolButton
+                        # children inside dropEvent can invalidate C++ items.
+                        owner._staged_dnd_in_progress = True
+                        _desktop_debug_event(
+                            "STAGED_DROP_BEGIN",
+                            current_order=[
+                                step.operation_id
+                                for step in owner.session.controller.operation_steps
+                            ],
+                        )
+                        try:
+                            super().dropEvent(event)
+                            accepted = event.isAccepted()
+                        finally:
+                            owner._staged_dnd_in_progress = False
+                        if accepted:
+                            owner._on_staged_operations_dropped()
 
                 self.operations = StagedOperationsTree()
-                self.operations.stage_drop_callback = self._on_staged_operations_dropped
+                self.operations.stage_drop_owner = self
                 self.operations.setHeaderLabels([
                     "Step", "Bend", "180°", "Target", "Current", "До гиба, мм",
                     "Упор S, мм", "Status", "RETRACT", "Предгиб",
@@ -1786,9 +1811,9 @@ class _PreviewPanel:
                 self.operations.setDefaultDropAction(QtCore.Qt.MoveAction)
                 self.operations.setDropIndicatorShown(True)
                 self.operations.setDragEnabled(False)
-                self.operations.model().rowsMoved.connect(
-                    self._on_staged_operations_dropped
-                )
+                # Process a successful drop exactly once, *after* Qt exits
+                # its native dropEvent. rowsMoved can arrive mid-drop when
+                # embedded row widgets are still owned by Qt.
                 self.operations.headerItem().setToolTip(
                     _LOADING_ORIENTATION_COLUMN,
                     "Разворот заготовки вокруг вертикальной оси для этого гиба.",
@@ -7412,15 +7437,28 @@ class _PreviewPanel:
                     self.status.setText(str(exc))
 
             def _on_staged_operations_dropped(self, *_args):
-                """QTreeWidget internal row movement becomes a validated step order."""
-                if self._staged_dnd_pending:
+                """Commit the Qt row move only after the native event settles."""
+                if (self._closing or self._staged_dnd_pending
+                        or self._staged_dnd_in_progress):
                     return
                 self._staged_dnd_pending = True
-                QtCore.QTimer.singleShot(0, self._apply_staged_drop)
+                # Zero-delay callbacks may run in a nested FreeCAD event loop
+                # before the native tree item widgets finish their move.
+                QtCore.QTimer.singleShot(50, self._apply_staged_drop)
 
             def _apply_staged_drop(self):
                 self._staged_dnd_pending = False
+                if self._closing or not self._qt_is_valid(self.operations):
+                    return
                 if self.session is None or not self.session.controller.has_stages:
+                    self._populate_operations()
+                    return
+                if (self.timer.isActive() or self.playing
+                        or not self.session.can_reorder()):
+                    self.status.setText(
+                        "Порядок этапов нельзя менять во время симуляции; "
+                        "нажмите Reset."
+                    )
                     self._populate_operations()
                     return
                 operation_ids = tuple(
@@ -7429,10 +7467,35 @@ class _PreviewPanel:
                     )
                     for idx in range(self.operations.topLevelItemCount())
                 )
+                expected = tuple(
+                    step.operation_id
+                    for step in self.session.controller.operation_steps
+                )
+                _desktop_debug_event(
+                    "STAGED_DROP_COMMIT_STARTED",
+                    operation_ids=operation_ids,
+                    previous_order=expected,
+                )
+                if (len(operation_ids) != len(expected)
+                        or len(set(operation_ids)) != len(expected)
+                        or set(operation_ids) != set(expected)):
+                    _desktop_debug_event(
+                        "STAGED_DROP_REJECTED",
+                        reason="missing_or_duplicate_operation_id",
+                        operation_ids=operation_ids,
+                    )
+                    self.status.setText("Некорректный перенос этапов, порядок восстановлен.")
+                    self._populate_operations()
+                    return
                 try:
                     self.session.controller.reorder_operations(operation_ids)
                     self.session.active_bend_index = self.session.controller.active_index
                 except SequenceError as exc:
+                    _desktop_debug_event(
+                        "STAGED_DROP_REJECTED",
+                        reason=str(exc),
+                        operation_ids=operation_ids,
+                    )
                     self.status.setText(str(exc))
                     self._populate_operations()
                     return
@@ -7550,7 +7613,8 @@ class _PreviewPanel:
                     self.operations.blockSignals(signals_were_blocked)
 
             def _update_operations_visual_state(self):
-                if self.session is None:
+                if (self.session is None or self._closing
+                        or self._staged_dnd_in_progress):
                     return
                 # Picking lines only changes the order. Recalculate derived
                 # machine positions when the user finishes editing.
@@ -7692,7 +7756,9 @@ class _PreviewPanel:
                     self._sync_playback_buttons()
 
             def _on_operation_selected(self, current, _previous):
-                if self.session is None or current is None:
+                if (self.session is None or current is None
+                        or self._closing or self._staged_dnd_pending
+                        or self._staged_dnd_in_progress):
                     return
                 idx = self.operations.indexOfTopLevelItem(current)
                 if idx < 0 or idx == self.session.active_bend_index:
