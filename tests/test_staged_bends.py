@@ -116,6 +116,50 @@ class StagedOperationsTests(unittest.TestCase):
         self.assertEqual(c.total_steps, 3)
         self.assertEqual(c.operation_steps[0].operation_id, "B01")
 
+    def test_removing_one_prebend_preserves_other_stages_and_order(self):
+        c = controller(negative=True)
+        c.add_prebend("B01", 35.0)
+        c.reorder_operations(("B01.1", "B02", "B03", "B01.2"))
+        c.add_prebend("B02", -25.0)
+        c.reorder_operations(("B01.1", "B02.1", "B03", "B01.2", "B02.2"))
+        before = c.operation_snapshot()
+
+        c.remove_prebend("B01")
+        self.assertEqual(
+            [step.operation_id for step in c.operation_steps],
+            ["B02.1", "B03", "B01", "B02.2"],
+        )
+        self.assertEqual(c.operation_steps[2].target_angle_deg, 90.0)
+        self.assertTrue(c.has_stages)
+        self.assertEqual(
+            [(step.operation_id, step.target_angle_deg)
+             for step in c.operation_steps if step.bend_id == "B02"],
+            [("B02.1", -25.0), ("B02.2", -90.0)],
+        )
+        self.assertEqual(len(before) - len(c.operation_steps), 1)
+
+        c.remove_prebend("B02")
+        self.assertEqual(
+            [step.operation_id for step in c.operation_steps],
+            ["B03", "B01", "B02"],
+        )
+        self.assertEqual(c.operation_steps[-1].target_angle_deg, -90.0)
+        self.assertFalse(c.has_stages)
+        self.assertEqual(c.canonical_order, ("B01", "B02", "B03"))
+
+    def test_removing_unknown_or_non_split_bend_does_not_change_plan(self):
+        c = controller()
+        c.add_prebend("B03", 25.0)
+        before = c.operation_snapshot()
+        c.remove_prebend("B01")
+        self.assertEqual(c.operation_snapshot(), before)
+        c.remove_prebend("B03")
+        self.assertEqual(c.total_steps, 3)
+        self.assertEqual(c.operation_steps[2].operation_id, "B03")
+        c.add_prebend("B03", 45.0)
+        self.assertEqual(c.operation_steps[2].operation_id, "B03.1")
+        self.assertEqual(c.operation_steps[3].operation_id, "B03.2")
+
     def test_full_cycle_can_register_completion_after_retract(self):
         c = controller()
         c.add_prebend("B01", 35)
