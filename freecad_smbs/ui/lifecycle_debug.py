@@ -35,9 +35,9 @@ def _enable_native_fault_diagnostics():
         stream = path.open("a", encoding="utf-8", buffering=1)
         try:
             stream.write(
-                "\\nSMBS FreeCAD native fault monitor enabled: "
+                "\nSMBS FreeCAD native fault monitor enabled: "
                 + datetime.now(timezone.utc).isoformat()
-                + "\\n"
+                + "\n"
             )
             stream.flush()
             faulthandler.enable(file=stream, all_threads=True)
