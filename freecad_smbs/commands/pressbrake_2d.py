@@ -4117,7 +4117,7 @@ class _PreviewPanel:
                     "BFM-lite + Bitmask + Beam Search: {:.3f} с, "
                     "состояний {}, переходов {}. "
                     "Проверка грубой ошибки установки на оси: {} проверок, "
-                    "отклонено {} переходов, {} неопределённых. "
+                    "оштрафовано {} переходов, {} неопределённых. "
                     "Причины указаны в SMBS_debug_log.json. "
                     "При ранжировании учитываются короткая сторона к упору, "
                     "возможное перекрытие вложенных гибов и разнообразие "
@@ -4128,7 +4128,7 @@ class _PreviewPanel:
                         report.elapsed_seconds, report.explored_states,
                         report.expanded_transitions,
                         report.axis_screen_checks,
-                        report.axis_screen_rejected,
+                        report.axis_screen_penalized,
                         report.axis_screen_unknown,
                     )
                 )
@@ -4143,10 +4143,11 @@ class _PreviewPanel:
                     ]
                     text = (
                         "{}. {} | вес ~{:.2f} "
-                        "(короткая сторона {:.1f}, порядок {:.1f}) | 180°: {}"
+                        "(ось +{:.0f}, короткая сторона {:.1f}, порядок {:.1f}) | 180°: {}"
                     ).format(
                         i, " → ".join(candidate.operation_ids),
                         candidate.estimated_cost,
+                        candidate.axis_penalty,
                         candidate.ergonomic_penalty,
                         candidate.nested_fold_penalty,
                         ", ".join(reversed_ids) if reversed_ids else "нет",
