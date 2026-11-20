@@ -160,7 +160,8 @@ class WorkspaceReopenTests(unittest.TestCase):
     def test_repeated_workspace_close_is_idempotent(self):
         tree = ast.parse(GUI.read_text(encoding="utf-8"))
         methods = [n for n in ast.walk(tree)
-                   if isinstance(n, ast.FunctionDef) and n.name == "closeEvent"]
+                   if isinstance(n, ast.FunctionDef) and n.name == "closeEvent"
+                   and isinstance(n.body[0], ast.If)]
         self.assertEqual(len(methods), 1)
         guard = methods[0].body[0]
         self.assertIsInstance(guard, ast.If)
@@ -195,10 +196,32 @@ class CloseShellTests(unittest.TestCase):
     def test_close_handler_hides_shell_on_initial_and_repeated_close(self):
         tree = ast.parse(GUI.read_text(encoding='utf-8'))
         handler = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)
-                       and n.name == 'closeEvent' and any(
+                       and n.name == 'closeEvent' and isinstance(n.body[0], ast.If) and any(
                            isinstance(x, ast.Attribute) and x.attr == '_closing'
                            for x in ast.walk(n)))
         calls = [n for n in ast.walk(handler) if isinstance(n, ast.Call)
                  and isinstance(n.func, ast.Name)
                  and n.func.id == '_hide_closed_workspace']
         self.assertEqual(len(calls), 2)
+
+
+class MdiCloseDispatchTests(unittest.TestCase):
+    def test_native_activation_cannot_leave_manual_sequence_shell_visible(self):
+        tree = ast.parse(GUI.read_text(encoding="utf-8"))
+        node = next(n for n in ast.walk(tree) if isinstance(n, ast.ClassDef)
+                    and n.name == "WorkspaceSubWindow")
+        owner = SimpleNamespace(_closing=False)
+        class NativeMdi(Subwindow):
+            def closeEvent(self, event):
+                owner._closing = True
+                self.show()  # FreeCAD activates views during child cleanup
+        scope = {"QtWidgets": SimpleNamespace(QMdiSubWindow=NativeMdi),
+                 "widget": owner, "_desktop_debug_event": lambda *a, **k: None}
+        exec(compile(ast.Module(body=[node], type_ignores=[]), str(GUI), "exec"), scope)
+        window = scope["WorkspaceSubWindow"](owner)
+        accepted = []
+        event = SimpleNamespace(accept=lambda: accepted.append(True))
+        for _ in range(2):
+            window.closeEvent(event)
+            self.assertFalse(window.isVisible())
+        self.assertEqual(len(accepted), 2)
