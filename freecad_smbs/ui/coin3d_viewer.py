@@ -291,26 +291,30 @@ def create_coin_viewer(parent=None):
         def detach_document(self):
             if not self._native:
                 return
-            if self._native_root is not None:
+            import FreeCAD as App
+            name = self._native_doc
+            source_name = self._native_source_doc
+            native_still_open = bool(name and _document_is_open(App, name))
+            # Closing SMBS_Animation_XX from FreeCAD destroys its native
+            # scenegraph. Never dereference the old Coin root afterwards:
+            # keep the reusable SMBS scene and create a fresh document on
+            # the next render instead.
+            if self._native_root is not None and native_still_open:
                 try:
                     self._native_root.removeChild(self._root)
                 except (RuntimeError, AttributeError, ValueError):
                     pass
-            name = self._native_doc
-            source_name = self._native_source_doc
             self._native_root = None
             self._native_view = None
             self._native_doc = None
             self._native_source_doc = None
-            if name:
-                import FreeCAD as App
-                try:
-                    # Only close a document that we created, never source.
-                    if name != source_name and _document_is_open(App, name):
-                        App.closeDocument(name)
-                finally:
-                    if _document_is_open(App, source_name):
-                        App.setActiveDocument(source_name)
+            try:
+                # Only close a document that we created, never source.
+                if name != source_name and native_still_open:
+                    App.closeDocument(name)
+            finally:
+                if _document_is_open(App, source_name):
+                    App.setActiveDocument(source_name)
 
         def show_view(self):
             if self._native and self._native_doc:
