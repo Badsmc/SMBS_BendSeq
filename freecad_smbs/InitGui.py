@@ -75,6 +75,18 @@ def register_commands() -> None:
         _REGISTERED_COMMANDS.add(name)
 
 
+class _SMBSAutoOpenObserver:
+    """Auto-resume an embedded SMBS session when FreeCAD finishes opening it."""
+
+    def __init__(self, workbench):
+        self.workbench = workbench
+
+    def slotFinishOpenDocument(self, document):
+        owner = self.workbench
+        if owner is not None:
+            owner._schedule_saved_document(document)
+
+
 class SMBSWorkbench(Workbench):
     MenuText = "PressBrakeSim"
     ToolTip = "SheetMetal press-brake bending preview and tooling"
@@ -120,9 +132,59 @@ class SMBSWorkbench(Workbench):
 
         # FreeCAD can finalize its workbench toolbars after Activated().
         QtCore.QTimer.singleShot(0, configure_native_toolbar)
+        # On switching to SMBS, restore the active saved document even when
+        # it was originally opened using a different FreeCAD workbench.
+        import FreeCAD as App
+        if getattr(self, "_smbs_open_observer", None) is None:
+            observer = _SMBSAutoOpenObserver(self)
+            App.addDocumentObserver(observer)
+            self._smbs_open_observer = observer
+        self._schedule_saved_document(getattr(App, "ActiveDocument", None))
+
+    def _schedule_saved_document(self, document):
+        if getattr(self, "_smbs_open_observer", None) is None:
+            return
+        name = getattr(document, "Name", None)
+        if not name:
+            return
+        from freecad_smbs.commands.pressbrake_2d import _qt
+        QtCore, _QtGui, _QtWidgets = _qt()
+        QtCore.QTimer.singleShot(0, lambda: self._resume_saved_document(name))
+
+    def _resume_saved_document(self, name):
+        if getattr(self, "_smbs_open_observer", None) is None:
+            return
+        import FreeCAD as App
+        from freecad_smbs.commands.pressbrake_2d import (
+            get_workspace_widget, saved_session_unfold_selection,
+        )
+        document = App.getDocument(name)
+        if document is None or getattr(App, "ActiveDocument", None) is not document:
+            return
+        workspace = get_workspace_widget()
+        if (workspace is not None and workspace.session is not None
+                and getattr(workspace, "_smbs_document_name", None) == name):
+            return
+        try:
+            unfold = saved_session_unfold_selection(document)
+        except Exception as exc:
+            App.Console.PrintWarning(
+                "SMBS: FCStd автозагрузка отклонена: " + str(exc) + "\\n"
+            )
+            return
+        if unfold:
+            # The command builds native FreeCAD Tasks/MDI once; load_part()
+            # validates the saved geometry and restores all settings.
+            PressBrake2DCommand().Activated(
+                document=document, selection=unfold,
+            )
 
     def Deactivated(self) -> None:
-        pass
+        observer = getattr(self, "_smbs_open_observer", None)
+        self._smbs_open_observer = None
+        if observer is not None:
+            import FreeCAD as App
+            App.removeDocumentObserver(observer)
 
     def GetClassName(self) -> str:
         return "Gui::PythonWorkbench"
