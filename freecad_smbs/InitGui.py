@@ -27,6 +27,9 @@ from freecad_smbs.commands.tooling import (
 
 from freecad_smbs.integration.dxf_manual import DxfManualCommand
 
+from freecad_smbs.commands.bbox_autosearch import BBoxAutoSearchCommand
+
+CMD_AUTOSEARCH = "SMBS_BBoxAutoSearch"
 CMD_PRESSBRAKE_2D = "SMBS_PressBrake2D"
 CMD_TOOLING = "SMBS_Tooling"  # Preserve existing standalone library command
 CMD_DXF_MANUAL = "SMBS_DxfManual"
@@ -37,6 +40,7 @@ CMD_BACKGAUGE = "SMBS_Backgauge"
 CMD_MANUAL = "SMBS_Manual"
 CMD_SETTINGS = "SMBS_Settings"
 COMMANDS_MAP = {
+    CMD_AUTOSEARCH: BBoxAutoSearchCommand,
     CMD_PRESSBRAKE_2D: PressBrake2DCommand,
     CMD_DXF_MANUAL: DxfManualCommand,
     CMD_LOAD_PART: LoadPartCommand,
@@ -107,6 +111,8 @@ class SMBSWorkbench(Workbench):
         self.appendMenu(self.MenuText, menu)
         self.appendToolbar(self.MenuText, toolbar)
         self.appendToolbar(TOOLING_TOOLBAR, _TOOLING_ACTIONS)
+        self.appendToolbar("PressBrakeSim — эксперимент", [CMD_AUTOSEARCH])
+        self.appendMenu("Эксперимент", [CMD_AUTOSEARCH])
 
     def Activated(self) -> None:
         # FreeCAD's own QToolBar remains the command host. Only this addon's
