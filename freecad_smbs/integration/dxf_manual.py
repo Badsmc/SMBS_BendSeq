@@ -8,6 +8,7 @@ from traceback import format_exc
 from types import SimpleNamespace
 from uuid import uuid4
 
+from freecad_smbs.integration.document_group import group_document_objects
 from smbs_core.kinematics2d.developer_debug_log import debug_event
 from smbs_core.kinematics2d.tooling_25d import (
     ArcSegment2D, LineSegment2D, _extract_dxf_units, _lwpolyline_to_segments, _parse_dxf_pairs,
@@ -376,6 +377,7 @@ def add_flat_pattern(document, session):
     group.addObject(bends)
     outline.Visibility = False
     bends.Visibility = False
+    group_document_objects(document)
     return group
 
 

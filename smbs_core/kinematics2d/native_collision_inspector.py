@@ -255,12 +255,15 @@ def open_exact_collision_document(
     previous_doc = getattr(getattr(App, "ActiveDocument", None), "Name", None)
     doc = App.newDocument(name)
     try:
+        root = doc.addObject("App::DocumentObjectGroup", "SMBS_Objects")
+        root.Label = "SMBS"
         context = doc.addObject("App::DocumentObjectGroup", "MachineScene")
         context.Label = "Машинная установка — контекст (прозрачный)"
         contacts = doc.addObject("App::DocumentObjectGroup", "ExactCollisions")
         contacts.Label = "ТОЧНЫЕ пересечения OCC — красные тела"
         affected = doc.addObject("App::DocumentObjectGroup", "AffectedComponents")
         affected.Label = "Задетые панели и зоны — оранжевые тела"
+        root.Group = [context, contacts, affected]
 
         def add(group, object_name, label, shape, rgb, transparency=0):
             obj = doc.addObject("Part::Feature", object_name)

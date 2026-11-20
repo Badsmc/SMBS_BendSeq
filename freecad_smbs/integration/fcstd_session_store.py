@@ -15,6 +15,8 @@ import math
 from pathlib import Path
 import tempfile
 
+from freecad_smbs.integration.document_group import group_document_objects
+
 SCHEMA = "org.smbs.pressbrakesim.fcstd.session"
 SCHEMA_VERSION = 1
 OBJECT_NAME = "SMBS_Data"
@@ -596,6 +598,7 @@ def write_included_json(document, snapshot):
     obj.PayloadSHA256 = _sha(encoded)
     obj.GeometrySHA256 = str(snapshot["geometry"]["sha256"])
     obj.SchemaVersion = SCHEMA_VERSION
+    group_document_objects(document)
     return obj
 
 
