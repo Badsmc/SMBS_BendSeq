@@ -7888,6 +7888,10 @@ class _PreviewPanel:
                 )
                 self._sync_manual_order_input()
                 if fast_apply:
+                    # Old press cycle may retain the previous active operation
+                    # even though its sequence-controller identity is unchanged.
+                    # Rebuild on the next explicit preview/simulation action.
+                    self.press_cycle = None
                     # FAST changes operation metadata only. Do not enter
                     # FreeCAD native document/3D preview work from the Qt
                     # result-dialog completion callback. On macOS this can
