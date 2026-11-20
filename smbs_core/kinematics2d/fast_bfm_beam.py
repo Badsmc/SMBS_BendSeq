@@ -76,6 +76,7 @@ class FastSearchResult:
     matrix_rejected: int
     screen_rejected: int
     cache_hits: int
+    deduplicated_states: int
     best_partial: tuple[str, ...]
     warnings: tuple[str, ...]
 
@@ -89,6 +90,7 @@ class FastSearchResult:
             "matrix_rejected": self.matrix_rejected,
             "screen_rejected": self.screen_rejected,
             "cache_hits": self.cache_hits,
+            "deduplicated_states": self.deduplicated_states,
             "best_partial": list(self.best_partial),
             "warnings": list(self.warnings),
         }
@@ -249,6 +251,7 @@ def search_fast_beam(
     final = []
     best_partial = ()
     generated = expanded = matrix_rejected = screen_rejected = hits = 0
+    deduplicated_states = 0
     cache: dict[tuple[int, int, bool], str] = {}
     timed_out = False
     # No geometry claims can be made without a real quick-screen callback.
@@ -320,6 +323,8 @@ def search_fast_beam(
                     )
                     state_key = (nxt.completed, nxt.last_index, nxt.last_reverse)
                     old = next_nodes.get(state_key)
+                    if old is not None:
+                        deduplicated_states += 1
                     if old is None or (nxt.cost, nxt.path, nxt.reverse_path) < (
                             old.cost, old.path, old.reverse_path):
                         next_nodes[state_key] = nxt
@@ -362,6 +367,7 @@ def search_fast_beam(
         matrix_rejected=matrix_rejected,
         screen_rejected=screen_rejected,
         cache_hits=hits,
+        deduplicated_states=deduplicated_states,
         best_partial=best_partial,
         warnings=tuple(warnings),
     )
