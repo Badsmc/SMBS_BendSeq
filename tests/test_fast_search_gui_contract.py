@@ -57,6 +57,20 @@ class FastSearchGUIContracts(unittest.TestCase):
         self.assertIn("self._manual_orientation_overrides", body)
         self.assertIn("orientation = selected.orientations()", body)
 
+    def test_fast_poses_are_not_treated_as_explicit_user_pins(self):
+        body = function("_run_fast_sequence_search")
+        self.assertIn("self._fast_advisory_orientation_keys", body)
+        self.assertIn("set(selected.operation_ids) - set(pinned)", body)
+        self.assertIn("panel_vertices_xy=self.session.panel_vertices_xy", body)
+        manual = function("_set_manual_loading_override")
+        self.assertIn(
+            "self._fast_advisory_orientation_keys.discard(operation_id)", manual
+        )
+        snapshot = function("_write_embedded_smbs_json")
+        self.assertIn("fast_advisory_orientation_ids=", snapshot)
+        restore = function("_restore_embedded_smbs_json")
+        self.assertIn("fast_advisory_orientation_ids", restore)
+
 
 if __name__ == "__main__":
     unittest.main()
