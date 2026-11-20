@@ -29,6 +29,8 @@ class FastCandidate:
     orientation_by_operation: tuple[tuple[str, bool], ...]
     estimated_cost: float
     proximity_risk: float
+    ergonomic_penalty: float = 0.0
+    nested_fold_penalty: float = 0.0
     evidence: str = "UNVERIFIED_3D_NOT_CHECKED"
 
     def orientations(self) -> dict[str, bool]:
@@ -40,6 +42,8 @@ class FastCandidate:
             "orientation_by_operation": self.orientations(),
             "estimated_cost": self.estimated_cost,
             "proximity_risk": self.proximity_risk,
+            "ergonomic_penalty": self.ergonomic_penalty,
+            "nested_fold_penalty": self.nested_fold_penalty,
             "evidence": self.evidence,
         }
 
@@ -85,6 +89,8 @@ class _Node:
     reversed_flags: tuple[bool, ...]
     cost: float
     risk: float
+    ergonomic_penalty: float = 0.0
+    nested_fold_penalty: float = 0.0
 
 
 def _axis_data(fold_state, operations):
@@ -147,6 +153,49 @@ def _segment_distance(g, h):
                point_segment(dx,dy,ax,ay,bx,by))
 
 
+
+def _flat_short_rear_preferences(fold_state, geometry, panel_vertices_xy):
+    """Flat-space preview of which loading direction keeps short side rear.
+
+    Coordinate contract matches WorkpiecePlacement3D *at flat state*:
+    machine s = -Y_m; a positive bend uses n_ref = +Z, negative uses
+    -Z, and v_transverse = n_ref cross directed bend axis. No folded
+    machine placement is inferred; in an already folded state the actual
+    accessible side can differ. Therefore preference is never a hard gate.
+    """
+    if not isinstance(panel_vertices_xy, Mapping):
+        return {}
+    try:
+        vertices = [
+            (float(x),float(y))
+            for name, polygon in panel_vertices_xy.items()
+            if name in fold_state.graph.panels
+            for x,y in polygon
+        ]
+    except (TypeError,ValueError):
+        return {}
+    if len(vertices)<3 or not all(
+        isfinite(v) for point in vertices for v in point
+    ):
+        return {}
+    result={}
+    for bid,axis in geometry.items():
+        x1,y1,x2,y2,length,_heading=axis
+        mx,my=(x1+x2)*0.5,(y1+y2)*0.5
+        ux,uy=(x2-x1)/length,(y2-y1)/length
+        up=1.0 if fold_state.bends[bid].angle_deg>=0 else -1.0
+        s=[up*(uy*(x-mx)-ux*(y-my)) for x,y in vertices]
+        rear=max(0.0,max(s))
+        operator=max(0.0,-min(s))
+        delta=rear-operator
+        # Arbitrarily close / ambiguous contours cannot identify a
+        # meaningful short rear side. Preserve the default 0° in a tie.
+        if min(rear,operator)<0.01 or abs(delta)<=10.0:
+            continue
+        result[bid]=(delta>0.0,abs(delta))
+    return result
+
+
 def _cost(prev, cur, prev_reverse, cur_reverse, *, weights, risk):
     if prev is None:
         return 0.0
@@ -171,6 +220,7 @@ def search_fast_candidates(
     operations: Sequence[BendOperation] | None = None,
     *,
     fixed_orientations: Mapping[str, bool] | None = None,
+    panel_vertices_xy: Mapping | None = None,
     weights: Mapping[str, float] | None = None,
     limit_seconds: float = 1.0,
     beam_width: int = 24,
@@ -245,7 +295,8 @@ def search_fast_candidates(
         raise FastSearchError("Orientation pins must be bool and reference existing operation IDs")
     w = dict(weights or {})
     allowed_weights = ("turn_fixed","turn_per_90_deg","length_change_fixed",
-                       "length_delta_per_100_mm")
+                       "length_delta_per_100_mm","operator_short_side_fixed",
+                       "operator_short_side_per_100_mm")
     for name in allowed_weights:
         val = w.get(name, 1.0)
         if isinstance(val,bool) or not isinstance(val,(int,float)) or not isfinite(val) or val < 0:
@@ -254,6 +305,25 @@ def search_fast_candidates(
     # BFM-lite: cheap pairwise axis proximity *risk*, NOT collision proofs.
     # No false hard precedence constraints are inferred from mere 2D axes.
     axis = [geometry[op.bend_id] for op in operations]
+    preferences = _flat_short_rear_preferences(
+        fold_state, geometry, panel_vertices_xy,
+    )
+    # A folded ancestor may make descendant bends awkward to reach. This is
+    # a SOFT ranking term only; some real parts require the opposite order.
+    nested_pending_masks = [0] * len(operations)
+    for i, op in enumerate(operations):
+        moving_subtree = getattr(fold_state.bends[op.bend_id],
+                                 "moving_subtree", ())
+        for bid, members in by_bend.items():
+            if bid == op.bend_id:
+                continue
+            other = fold_state.bends[bid]
+            if other.moving_panel in moving_subtree:
+                # The last completed operation of a physical bend is the
+                # only indication that the descendant is fully formed.
+                last = next(index for index, stage in members
+                            if stage.kind in ("FINISH", "SINGLE"))
+                nested_pending_masks[i] |= 1 << last
     risk = [[0.0]*len(operations) for _ in operations]
     matrix_pairs = 0
     for i in range(len(operations)):
@@ -301,9 +371,31 @@ def search_fast_candidates(
                         None if node.last<0 else axis[node.last],axis[index],
                         node.reverse,reverse,weights=w,risk=pair_risk,
                     )
-                    candidate = _Node(node.mask|bit,index,reverse,
-                                      node.path+(index,),node.reversed_flags+(reverse,),
-                                      node.cost+edge_cost,node.risk+pair_risk)
+                    prefer = preferences.get(op.bend_id)
+                    ergonomic = 0.0
+                    if prefer is not None and reverse != prefer[0]:
+                        # Rear must be the short side. No penalty on unknown
+                        # or nearly symmetric outlines; this is not a gauge
+                        # contact guarantee.
+                        ergonomic = (
+                            float(w.get("operator_short_side_fixed", 10.0))
+                            + float(w.get("operator_short_side_per_100_mm", 3.0))
+                            * prefer[1] / 100.0
+                        )
+                    pending = (nested_pending_masks[index] & ~node.mask)
+                    stage_fraction = min(
+                        1.0, abs(float(op.target_angle_deg)
+                                 / float(fold_state.bends[op.bend_id].angle_deg)),
+                    )
+                    nested = 1.5 * pending.bit_count() * stage_fraction
+                    candidate = _Node(
+                        node.mask|bit,index,reverse,
+                        node.path+(index,),node.reversed_flags+(reverse,),
+                        node.cost+edge_cost+ergonomic+nested,
+                        node.risk+pair_risk,
+                        node.ergonomic_penalty+ergonomic,
+                        node.nested_fold_penalty+nested,
+                    )
                     layer.append(candidate)
                     expanded += 1
                 if exhausted:
@@ -313,42 +405,98 @@ def search_fast_candidates(
         if exhausted:
             break
         layer.sort(key=lambda n:(n.cost,n.risk,n.path,n.reversed_flags))
-        next_beam = []
+        deduped = []
         for n in layer:
             key=(n.mask,n.last,n.reverse)
             if seen.get(key,0)>=2:
                 duplicates += 1
                 continue
             seen[key]=seen.get(key,0)+1
-            next_beam.append(n)
-            if len(next_beam)>=beam_width:
-                break
+            deduped.append(n)
+        # Retain cost elites AND different beginnings. Without this, the
+        # search often returns five trivial permutations of the same first
+        # bends despite plentiful alternatives.
+        elite_count = max(1, beam_width//2)
+        next_beam = list(deduped[:elite_count])
+        if len(next_beam) < beam_width:
+            leftovers = deduped[elite_count:]
+            prefix_counts = {}
+            for n in next_beam:
+                prefix = n.path[:min(2,len(n.path))]
+                prefix_counts[prefix] = prefix_counts.get(prefix,0)+1
+            while leftovers and len(next_beam)<beam_width:
+                chosen = min(
+                    range(len(leftovers)),
+                    key=lambda k: (
+                        leftovers[k].cost
+                        + 5.0*prefix_counts.get(
+                            leftovers[k].path[:min(2,len(leftovers[k].path))],0
+                        ),
+                        leftovers[k].cost,
+                        leftovers[k].path,
+                    ),
+                )
+                n = leftovers.pop(chosen)
+                next_beam.append(n)
+                prefix=n.path[:min(2,len(n.path))]
+                prefix_counts[prefix]=prefix_counts.get(prefix,0)+1
         beam=next_beam
         if not beam:
             break
 
     completed = [n for n in beam if n.mask == full_mask]
     completed.sort(key=lambda n:(n.cost,n.risk,n.path,n.reversed_flags))
-    # Use a round-robin across operation orders to retain some diversity:
-    # the first candidate is the cheapest, then prefer distinct orders.
+    # Do not consume five slots on the same order with only a different
+    # orientation of one bend. Reserve the first for the true cheapest,
+    # then select other *orderings* with useful prefix variation.
     distinct = []
     seen_paths = set()
     for n in completed:
         if n.path not in seen_paths:
             distinct.append(n)
             seen_paths.add(n.path)
-    for n in completed:
-        if len(distinct)>=max_candidates:
+    selected = []
+    pool = distinct
+    if pool:
+        selected.append(pool.pop(0))
+    while pool and len(selected) < max_candidates:
+        # Preference for different early operations, without promoting a
+        # wildly costly route just for variety. Budget stretch is heuristic.
+        best = selected[0].cost
+        stretch = max(12.0, 0.7*max(1.0,best))
+        reasonable = [
+            (i,n) for i,n in enumerate(pool) if n.cost <= best+stretch
+        ]
+        if not reasonable:
             break
-        if n not in distinct:
-            distinct.append(n)
-    selected = sorted(distinct[:max_candidates],key=lambda n:(n.cost,n.risk,n.path))
+        def candidate_key(entry):
+            i,n=entry
+            similarity = max(
+                sum(a==b for a,b in zip(n.path[:4],s.path[:4]))
+                for s in selected
+            )
+            same_start = sum(n.path[0]==s.path[0] for s in selected)
+            return (
+                similarity*4.0 + same_start*3.0 + (n.cost-best),
+                n.cost,n.risk,n.path,
+            )
+        chosen = min(reasonable,key=candidate_key)[0]
+        selected.append(pool.pop(chosen))
+    # If few distinct paths survived, use differing loading orientations
+    # only as explicit fallbacks, never as five claimed independent orders.
+    for n in completed:
+        if len(selected) >= max_candidates:
+            break
+        if n not in selected and n.path not in {x.path for x in selected}:
+            selected.append(n)
     results = tuple(
         FastCandidate(
             tuple(ids[i] for i in n.path),
             tuple((ids[i],reverse) for i,reverse in zip(n.path,n.reversed_flags)),
             round(n.cost,4),
             round(n.risk,4),
+            round(n.ergonomic_penalty,4),
+            round(n.nested_fold_penalty,4),
         ) for n in selected
     )
     status = ("TIME_BUDGET_UNVERIFIED" if exhausted else
