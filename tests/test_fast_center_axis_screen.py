@@ -73,7 +73,8 @@ class CentrelineIntegrationTests(TestCase):
         result=screen_transition_center_axis(
             sheet,outlines,(BendOperation("B01","B01",90.),),0,0,
         )
-        self.assertIn(result.decision,("BLOCKED","CLEAR_SAMPLED","UNKNOWN"))
+        self.assertEqual(result.decision,"CLEAR_SAMPLED",result)
+        self.assertEqual(result.samples,3)
         self.assertEqual(sheet.angles,before)
 
     def test_missing_outlines_never_pruned(self):
