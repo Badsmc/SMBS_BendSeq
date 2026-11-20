@@ -1002,6 +1002,19 @@ def embed_task_dialog(workspace, widget, title, key):
     show_workspace_controls(workspace, tab=index)
 
 
+def _hide_closed_workspace(workspace):
+    """Hide the retained MDI shell after native document activation callbacks.
+
+    Closing the animation document may activate another FreeCAD view while Qt
+    is still dispatching Close, leaving our auxiliary MDI shell visible.
+    Keep it alive for safe teardown; the next command replaces retired owners.
+    """
+    window = getattr(workspace, "_mdi_window", None)
+    if window is not None and workspace._qt_is_valid(window):
+        window.hide()
+    workspace.hide()
+
+
 def close_workspace_controls(workspace):
     """Close only our native Tasks dialog; retain the FCStd and CAD viewer."""
     import FreeCADGui as Gui
@@ -1120,6 +1133,7 @@ class PressBrake2DCommand:
         widget._mdi_lifetime_guard = WorkspaceLifetimeGuard(main)
         window.installEventFilter(widget._mdi_lifetime_guard)
         widget.installEventFilter(widget._mdi_lifetime_guard)
+        widget._mdi_window = window
         window.setWidget(widget)
         mdi.addSubWindow(window)
         window.resize(1000, 720)
@@ -8369,6 +8383,7 @@ class _PreviewPanel:
                 if self._closing:
                     # Qt can deliver Close multiple times to a retained MDI
                     # subwindow. Finalisation is destructive and must run once.
+                    _hide_closed_workspace(self)
                     event.accept()
                     return
                 _desktop_debug_event("WORKSPACE_CLOSE_STARTED", qt_state=self._qt_debug_state())
@@ -8398,6 +8413,8 @@ class _PreviewPanel:
                 close_workspace_controls(self)
                 self._preview_3d.release()
                 super().closeEvent(event)
+                _hide_closed_workspace(self)
+                event.accept()
                 _desktop_debug_event("WORKSPACE_CLOSE_COMPLETED")
 
             def _halt_unsupported_machine_pose(self, reason):
