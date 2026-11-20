@@ -165,6 +165,12 @@ def _flat_short_rear_preferences(fold_state, geometry, panel_vertices_xy):
     """
     if not isinstance(panel_vertices_xy, Mapping):
         return {}
+    if any(len(panel_vertices_xy.get(panel, ())) < 3
+           for panel in fold_state.graph.panels):
+        # Incomplete/unmapped panel contours must not be used to infer
+        # which side of the sheet is short; unmodelled material may
+        # reverse the preference.
+        return {}
     try:
         vertices = [
             (float(x),float(y))
