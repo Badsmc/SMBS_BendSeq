@@ -60,6 +60,11 @@ class FastSearchReport:
     dependency_count: int
     limit_seconds: float
     beam_width: int
+    axis_screen_checks: int = 0
+    axis_screen_rejected: int = 0
+    axis_screen_unknown: int = 0
+    axis_screen_samples: int = 0
+    axis_screen_available: bool = False
 
     def to_dict(self) -> dict:
         return {
@@ -72,10 +77,17 @@ class FastSearchReport:
             "dependency_count": self.dependency_count,
             "limit_seconds": self.limit_seconds,
             "beam_width": self.beam_width,
+            "axis_screen_checks": self.axis_screen_checks,
+            "axis_screen_rejected": self.axis_screen_rejected,
+            "axis_screen_unknown": self.axis_screen_unknown,
+            "axis_screen_samples": self.axis_screen_samples,
+            "axis_screen_available": self.axis_screen_available,
             "candidates": [candidate.to_dict() for candidate in self.candidates],
             "disclaimer": (
-                "BFM-lite geometry ranking only: no 2D or 3D continuous "
-                "collision certification; candidate orders are UNVERIFIED."
+                "Sampled punch/die centreline exclusion checks machine "
+                "Y=0 for prior folded panels, excluding active-bend contact. "
+                "This is not a continuous 2D/3D tool-solid collision "
+                "certificate; all candidates remain UNVERIFIED."
             ),
         }
 
@@ -228,6 +240,8 @@ def search_fast_candidates(
     fixed_orientations: Mapping[str, bool] | None = None,
     panel_vertices_xy: Mapping | None = None,
     weights: Mapping[str, float] | None = None,
+    screen_tool_center_axis: bool = True,
+    axis_clearance_mm: float = 1.0,
     limit_seconds: float = 1.0,
     beam_width: int = 24,
     max_candidates: int = 5,
@@ -246,6 +260,12 @@ def search_fast_candidates(
         raise FastSearchError("Beam width must be in 1..1024")
     if type(max_candidates) is not int or not 1 <= max_candidates <= 32:
         raise FastSearchError("max_candidates must be in 1..32")
+    if (type(screen_tool_center_axis) is not bool
+            or isinstance(axis_clearance_mm,bool)
+            or not isinstance(axis_clearance_mm,(int,float))
+            or not isfinite(axis_clearance_mm)
+            or not 0 <= axis_clearance_mm <= 10):
+        raise FastSearchError("Axis screen requires bool and 0..10 mm clearance")
     if operations is None:
         operations = tuple(
             BendOperation(b.bend_id, b.bend_id, b.angle_deg)
@@ -332,6 +352,53 @@ def search_fast_candidates(
                 nested_pending_masks[i] |= 1 << last
     risk = [[0.0]*len(operations) for _ in operations]
     matrix_pairs = 0
+    # The centre-axis filter runs only when every panel has an outline
+    # and every physical bend has a real BendZone. Missing data is NOT
+    # evidence of clearance and never causes a hard rejection.
+    axis_screen_available = (
+        screen_tool_center_axis
+        and isinstance(panel_vertices_xy, Mapping)
+        and all(len(panel_vertices_xy.get(pid, ())) >= 3
+                for pid in fold_state.graph.panels)
+        and all(getattr(b,"bend_zone",None) is not None
+                for b in fold_state.bends.values())
+    )
+    axis_screen_checks = axis_screen_rejected = axis_screen_unknown = 0
+    axis_screen_samples = 0
+    axis_cache = {}
+    axis_deadline = start+limit_seconds
+
+    def axis_accept(node):
+        nonlocal axis_screen_checks,axis_screen_rejected,axis_screen_unknown
+        nonlocal axis_screen_samples,exhausted
+        if not axis_screen_available:
+            return True
+        # 180° rotates the whole workpiece about Machine Z; Y=0 and
+        # the symmetric current bend span are invariant. Screen once
+        # per completed-operations mask and prospective operation.
+        key=(node.mask & ~(1<<node.last),node.last)
+        result=axis_cache.get(key)
+        if result is None:
+            from .fast_center_axis_screen import screen_transition_center_axis
+            result=screen_transition_center_axis(
+                fold_state,panel_vertices_xy,operations,
+                key[0],key[1],
+                clearance_mm=axis_clearance_mm,
+                fractions=(0.0,0.5,1.0),
+                deadline=axis_deadline,clock=clock,
+            )
+            axis_cache[key]=result
+            axis_screen_checks+=1
+            axis_screen_samples+=result.samples
+            if result.decision=="UNKNOWN":
+                axis_screen_unknown+=1
+        if result.decision=="TIME_BUDGET":
+            exhausted=True
+            return False
+        if result.decision=="BLOCKED":
+            axis_screen_rejected+=1
+            return False
+        return True
     for i in range(len(operations)):
         if clock()-start >= limit_seconds:
             return FastSearchReport((),"TIME_BUDGET_UNVERIFIED",clock()-start,
@@ -423,29 +490,47 @@ def search_fast_candidates(
         # search often returns five trivial permutations of the same first
         # bends despite plentiful alternatives.
         elite_count = max(1, beam_width//2)
-        next_beam = list(deduped[:elite_count])
-        if len(next_beam) < beam_width:
-            leftovers = deduped[elite_count:]
-            prefix_counts = {}
-            for n in next_beam:
-                prefix = n.path[:min(2,len(n.path))]
-                prefix_counts[prefix] = prefix_counts.get(prefix,0)+1
-            while leftovers and len(next_beam)<beam_width:
-                chosen = min(
-                    range(len(leftovers)),
-                    key=lambda k: (
-                        leftovers[k].cost
-                        + 5.0*prefix_counts.get(
-                            leftovers[k].path[:min(2,len(leftovers[k].path))],0
-                        ),
-                        leftovers[k].cost,
-                        leftovers[k].path,
+        next_beam = []
+        remaining = []
+        for n in deduped:
+            if len(next_beam) < elite_count:
+                if axis_accept(n):
+                    next_beam.append(n)
+                if exhausted:
+                    break
+            else:
+                remaining.append(n)
+        if exhausted:
+            break
+        prefix_counts = {}
+        for n in next_beam:
+            prefix = n.path[:min(2,len(n.path))]
+            prefix_counts[prefix] = prefix_counts.get(prefix,0)+1
+        while remaining and len(next_beam)<beam_width:
+            if clock()-start >= limit_seconds:
+                exhausted = True
+                break
+            chosen = min(
+                range(len(remaining)),
+                key=lambda k: (
+                    remaining[k].cost
+                    + 5.0*prefix_counts.get(
+                        remaining[k].path[:min(2,len(remaining[k].path))],0
                     ),
-                )
-                n = leftovers.pop(chosen)
-                next_beam.append(n)
-                prefix=n.path[:min(2,len(n.path))]
-                prefix_counts[prefix]=prefix_counts.get(prefix,0)+1
+                    remaining[k].cost,
+                    remaining[k].path,
+                ),
+            )
+            n = remaining.pop(chosen)
+            if not axis_accept(n):
+                if exhausted:
+                    break
+                continue
+            next_beam.append(n)
+            prefix=n.path[:min(2,len(n.path))]
+            prefix_counts[prefix]=prefix_counts.get(prefix,0)+1
+        if exhausted:
+            break
         beam=next_beam
         if not beam:
             break
@@ -510,4 +595,6 @@ def search_fast_candidates(
     return FastSearchReport(
         results,status,clock()-start,explored,expanded,duplicates,matrix_pairs,
         sum(bool(p) for p in prerequisites),limit_seconds,beam_width,
+        axis_screen_checks,axis_screen_rejected,axis_screen_unknown,
+        axis_screen_samples,axis_screen_available,
     )
