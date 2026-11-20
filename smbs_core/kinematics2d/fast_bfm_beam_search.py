@@ -65,6 +65,7 @@ class FastSearchReport:
     axis_screen_unknown: int = 0
     axis_screen_samples: int = 0
     axis_screen_available: bool = False
+    axis_screen_penalized: int = 0
     axis_screen_findings: tuple[dict, ...] = ()
 
     def to_dict(self) -> dict:
@@ -83,12 +84,13 @@ class FastSearchReport:
             "axis_screen_unknown": self.axis_screen_unknown,
             "axis_screen_samples": self.axis_screen_samples,
             "axis_screen_available": self.axis_screen_available,
+            "axis_screen_penalized": self.axis_screen_penalized,
             "axis_screen_findings": [
                 dict(item) for item in self.axis_screen_findings
             ],
             "candidates": [candidate.to_dict() for candidate in self.candidates],
             "disclaimer": (
-                "FAST screens only persistent gross *dominant-panel* "
+                "FAST soft-penalizes persistent gross *dominant-panel* "
                 "misplacement across machine Y=0; local axis crossings "
                 "are allowed. A suspect pose may originate in simulator "
                 "placement, not bend order. No continuous 3D or tool-solid "
@@ -369,6 +371,8 @@ def search_fast_candidates(
                 for b in fold_state.bends.values())
     )
     axis_screen_checks = axis_screen_rejected = axis_screen_unknown = 0
+    axis_screen_penalized = 0
+    gross_pose_penalty = 1000.0
     axis_screen_samples = 0
     axis_screen_findings = []
     axis_cache = {}
@@ -376,9 +380,10 @@ def search_fast_candidates(
 
     def axis_accept(node):
         nonlocal axis_screen_checks,axis_screen_rejected,axis_screen_unknown
+        nonlocal axis_screen_penalized
         nonlocal axis_screen_samples,exhausted
         if not axis_screen_available:
-            return True
+            return 0.0
         # 180° rotates the whole workpiece about Machine Z; Y=0 and
         # the symmetric current bend span are invariant. Screen once
         # per completed-operations mask and prospective operation.
@@ -408,6 +413,7 @@ def search_fast_candidates(
                         if key[0] & (1 << j)
                     ],
                     "decision": result.decision,
+                    "soft_penalty": (gross_pose_penalty if result.decision == "BLOCKED" else 0.0),
                     "reason": result.reason,
                     "panel_id": result.panel_id,
                     "fraction": result.fraction,
@@ -417,11 +423,14 @@ def search_fast_candidates(
                 })
         if result.decision=="TIME_BUDGET":
             exhausted=True
-            return False
+            return None
         if result.decision=="BLOCKED":
-            axis_screen_rejected+=1
-            return False
-        return True
+            # The dominant-panel screen can mistake a valid machine loading
+            # pose for an impossible bend. Keep it with a large ranking cost.
+            # Do not claim a verified collision here.
+            axis_screen_penalized+=1
+            return gross_pose_penalty
+        return 0.0
     for i in range(len(operations)):
         if clock()-start >= limit_seconds:
             return FastSearchReport((),"TIME_BUDGET_UNVERIFIED",clock()-start,
@@ -509,30 +518,32 @@ def search_fast_candidates(
                 continue
             seen[key]=seen.get(key,0)+1
             deduped.append(n)
-        # Retain cost elites AND different beginnings. Without this, the
-        # search often returns five trivial permutations of the same first
-        # bends despite plentiful alternatives.
-        elite_count = max(1, beam_width//2)
-        next_beam = []
-        remaining = []
-        for n in deduped:
-            if len(next_beam) < elite_count:
-                if axis_accept(n):
-                    next_beam.append(n)
-                if exhausted:
-                    break
-            else:
-                remaining.append(n)
+        # Screen a bounded oversample *before* choosing beam winners.
+        # Otherwise an early blocked candidate could occupy a beam slot
+        # merely because its soft penalty was added after initial sorting.
+        scored = []
+        for n in deduped[:beam_width * 4]:
+            if clock()-start >= limit_seconds:
+                exhausted = True
+                break
+            penalty = axis_accept(n)
+            if exhausted or penalty is None:
+                break
+            scored.append(_Node(
+                n.mask, n.last, n.reverse, n.path, n.reversed_flags,
+                n.cost + penalty, n.risk, n.ergonomic_penalty,
+                n.nested_fold_penalty,
+            ))
         if exhausted:
             break
+        scored.sort(key=lambda n:(n.cost,n.risk,n.path,n.reversed_flags))
+        next_beam = scored[:max(1, beam_width//2)]
+        remaining = scored[max(1, beam_width//2):]
         prefix_counts = {}
         for n in next_beam:
             prefix = n.path[:min(2,len(n.path))]
             prefix_counts[prefix] = prefix_counts.get(prefix,0)+1
         while remaining and len(next_beam)<beam_width:
-            if clock()-start >= limit_seconds:
-                exhausted = True
-                break
             chosen = min(
                 range(len(remaining)),
                 key=lambda k: (
@@ -540,19 +551,14 @@ def search_fast_candidates(
                     + 5.0*prefix_counts.get(
                         remaining[k].path[:min(2,len(remaining[k].path))],0
                     ),
-                    remaining[k].cost,
-                    remaining[k].path,
+                    remaining[k].cost, remaining[k].path,
                 ),
             )
             n = remaining.pop(chosen)
-            if not axis_accept(n):
-                if exhausted:
-                    break
-                continue
             next_beam.append(n)
             prefix=n.path[:min(2,len(n.path))]
             prefix_counts[prefix]=prefix_counts.get(prefix,0)+1
-        if exhausted:
+        if not next_beam:
             break
         beam=next_beam
         if not beam:
@@ -620,5 +626,5 @@ def search_fast_candidates(
         sum(bool(p) for p in prerequisites),limit_seconds,beam_width,
         axis_screen_checks,axis_screen_rejected,axis_screen_unknown,
         axis_screen_samples,axis_screen_available,
-        tuple(axis_screen_findings),
+        axis_screen_penalized,tuple(axis_screen_findings),
     )
