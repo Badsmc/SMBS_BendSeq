@@ -76,13 +76,66 @@ def bend_rows(workspace):
     return rows
 
 
+def _bend_label_wires(session, outline_shape):
+    """Make text part of the projected geometry so TechDraw can show it."""
+    import FreeCAD as App
+    import Part
+    from freecad_smbs.commands.pressbrake_2d import _qt
+
+    core, gui, _ = _qt()
+    bounds = outline_shape.BoundBox
+    height = max(1.8, min(8.0, max(bounds.XLength, bounds.YLength) * 0.018))
+    font = gui.QFont()
+    font.setPixelSize(24)
+    labels = {}
+    for index, op in enumerate(session.controller.operation_steps, 1):
+        direction = "Down" if op.target_angle_deg < 0 else "Up"
+        labels.setdefault(op.bend_id, []).append(
+            f"{index}. {OPERATION_NAMES[op.kind]} {op.target_angle_deg:+.2f}° {direction}"
+        )
+
+    scale = height / gui.QFontMetricsF(font).height()
+    drawn = []
+    for bend_id, lines in labels.items():
+        start, end = session.fold_state.bends[bend_id].axis_xyz
+        x, y, _ = ((a + b) / 2 for a, b in zip(start, end))
+        path = gui.QPainterPath()
+        for row, line in enumerate(lines, 1):
+            path.addText(0, row * height / scale, font, line)
+        box = path.boundingRect()
+        left, top = x + height * 0.65, -y - height * 0.65
+        rect = core.QRectF(left, top, box.width() * scale, box.height() * scale)
+        while any(rect.adjusted(-height * 0.2, -height * 0.2,
+                                height * 0.2, height * 0.2).intersects(other)
+                  for other in drawn):
+            rect.translate(0, height)
+        drawn.append(rect)
+        anchor = App.Vector(rect.left() - height * 0.12,
+                            -rect.center().y(), 0)
+        yield Part.makeLine(App.Vector(x, y, 0), anchor)
+        for polygon in path.toSubpathPolygons():
+            points = []
+            for point in polygon:
+                mapped = App.Vector(
+                    rect.left() + (point.x() - box.left()) * scale,
+                    -rect.top() - (point.y() - box.top()) * scale, 0,
+                )
+                if not points or (mapped - points[-1]).Length > 1e-7:
+                    points.append(mapped)
+            if len(points) >= 3:
+                yield Part.makePolygon(points)
+
+
 def export_bend_information(document, session, rows):
     import FreeCAD as App
     import Part
 
     outline = tuple(getattr(session.panel_build, "outline_vertices_xy", ()))
     edges = []
-    if len(outline) >= 3:
+    exact_contours = getattr(session.unfold_data, "flat_contours", None)
+    if exact_contours is not None:
+        edges.extend(exact_contours.Edges)
+    elif len(outline) >= 3:
         points = [App.Vector(x, y, 0) for x, y in outline]
         for start, end in zip(points, (*points[1:], points[0])):
             if (end - start).Length > 1e-7:
@@ -91,6 +144,7 @@ def export_bend_information(document, session, rows):
         start, end = session.fold_state.bends[bend_id].axis_xyz
         edges.append(Part.makeLine(App.Vector(*start), App.Vector(*end)))
     shape = Part.makeCompound(edges)
+    shape = Part.makeCompound([shape, *_bend_label_wires(session, shape)])
 
     document.openTransaction("SMBS — таблица гибов и развёртка")
     try:
@@ -110,9 +164,9 @@ def export_bend_information(document, session, rows):
         drawing = document.getObject("SMBS_BendDrawing")
         if drawing is None:
             drawing = document.addObject("Part::Feature", "SMBS_BendDrawing")
-        drawing.Label = "SMBS — развёртка с линиями гиба"
+        drawing.Label = "SMBS — развёртка с последовательностью гибов"
         drawing.Shape = shape
-        drawing.Visibility = False
+        drawing.Visibility = True
         document.recompute()
         document.commitTransaction()
     except Exception:
