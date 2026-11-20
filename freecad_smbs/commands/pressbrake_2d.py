@@ -4268,6 +4268,17 @@ class _PreviewPanel:
                         )
                     finally:
                         self._fast_apply_skip_table_gauge = False
+                    # If the normal 3D redraw already computed the new
+                    # automatic CAD-gauge envelopes, their cached values
+                    # are cheap to place back into the information table.
+                    # Never force a second expensive gauge computation
+                    # as part of the FAST dialog commit.
+                    cache = self._machine_gauge_envelope_cache
+                    if (self._playback_alive()
+                            and self._qt_is_valid(self.operations)
+                            and cache is not None
+                            and cache[0][1] == tuple(self.session.bend_order)):
+                        self._update_operations_visual_state()
                     _desktop_debug_event(
                         "FAST_CANDIDATE_APPLIED",
                         selected=selected.to_dict(),
