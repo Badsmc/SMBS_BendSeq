@@ -4431,6 +4431,11 @@ class _PreviewPanel:
                 )
 
             def _update_tooling_status_label(self):
+                if not self._playback_alive() or not self._qt_is_valid(self.tooling_status):
+                    _desktop_debug_event(
+                        "TOOLING_STATUS_UPDATE_SKIPPED", reason="host_destroyed",
+                    )
+                    return
                 self.tooling_status.setText(self.tooling_setup.status_line())
                 if (self._physical_check_signature is not None and
                         self._physical_check_signature != self._physical_pose_signature()):
@@ -7503,7 +7508,11 @@ class _PreviewPanel:
                 }.get(retract_status, "—")
                 flat_mm = self.session.local_bend_dimensions_mm.get(b.bend_id)
                 gauge = (
-                    None if (self._manual_selection_enabled or self.session.controller.has_stages)
+                    None if (
+                        self._manual_selection_enabled
+                        or self.session.controller.has_stages
+                        or getattr(self, "_fast_apply_skip_table_gauge", False)
+                    )
                     else self._backgauge_preview_position(idx - 1)
                 )
                 face_s = gauge[0].s_mm if gauge is not None and gauge[0] is not None else None
@@ -7825,6 +7834,13 @@ class _PreviewPanel:
 
             def _on_staged_plan_changed(self, message):
                 """Invalidate prior OCC evidence: split operations are NOT verified."""
+                if (not self._playback_alive()
+                        or not self._qt_is_valid(self.operations)
+                        or not self._qt_is_valid(self.tooling_status)):
+                    _desktop_debug_event(
+                        "STAGED_REFRESH_SKIPPED_HOST_DESTROYED", step="entry",
+                    )
+                    return
                 self._stop_timer()
                 self._machine_pose_fault = None
                 self._manual_sequence_prefix = []
@@ -7858,15 +7874,34 @@ class _PreviewPanel:
                 )
                 self._sync_manual_order_input()
                 self._populate_operations()
+                if (not self._playback_alive()
+                        or not self._qt_is_valid(self.operations)):
+                    _desktop_debug_event(
+                        "STAGED_REFRESH_SKIPPED_HOST_DESTROYED",
+                        step="after_operation_table",
+                    )
+                    return
                 pc = self._ensure_press_cycle_controller()
                 if pc is not None:
                     pc.select_operation(self.session.controller.active_index)
                 self.session.active_bend_index = self.session.controller.active_index
                 self._configure_for_active_bend()
+                if not self._playback_alive():
+                    return
                 self._draw_flat_pattern(reset_camera=False)
+                if (not self._playback_alive()
+                        or not self._qt_is_valid(self.tooling_status)):
+                    _desktop_debug_event(
+                        "STAGED_REFRESH_SKIPPED_HOST_DESTROYED",
+                        step="after_flat_pattern",
+                    )
+                    return
                 self._update_tooling_status_label()
+                if not self._playback_alive():
+                    return
                 self.draw()
-                self.status.setText(message + " | UNVERIFIED")
+                if self._playback_alive() and self._qt_is_valid(self.status):
+                    self.status.setText(message + " | UNVERIFIED")
 
             def _apply_reorder(self, action_fn):
                 if self.session is None:
@@ -7920,6 +7955,9 @@ class _PreviewPanel:
                 self._apply_reorder(lambda: self.session.restore_canonical_order())
 
             def _populate_operations(self):
+                if (not self._playback_alive()
+                        or not self._qt_is_valid(self.operations)):
+                    return
                 signals_were_blocked = self.operations.blockSignals(True)
                 try:
                     self.operations.clear()
@@ -7927,9 +7965,13 @@ class _PreviewPanel:
                         for _bend in self.session.ordered_bends:
                             self.operations.addTopLevelItem(QtWidgets.QTreeWidgetItem())
                         self._update_operations_visual_state()
-                        self.operations.setDragEnabled(self.session.controller.has_stages)
+                        if self._playback_alive() and self._qt_is_valid(self.operations):
+                            self.operations.setDragEnabled(
+                                self.session.controller.has_stages
+                            )
                 finally:
-                    self.operations.blockSignals(signals_were_blocked)
+                    if self._qt_is_valid(self.operations):
+                        self.operations.blockSignals(signals_were_blocked)
 
             def _update_operations_visual_state(self):
                 if (self.session is None or self._closing
@@ -7956,6 +7998,16 @@ class _PreviewPanel:
                         op = self.session.controller.operation_at(idx - 1)
                         item.setData(0, QtCore.Qt.UserRole + 1, op.operation_id)
                         cols = self._format_operation_row(idx, bend)
+                        # Calculating machine gauge envelopes can be slow.
+                        # The FreeCAD Tasks root may be destroyed meanwhile,
+                        # including on macOS Qt6 OverlayManager callbacks.
+                        if (not self._playback_alive()
+                                or not self._qt_is_valid(self.operations)):
+                            _desktop_debug_event(
+                                "OPERATIONS_REFRESH_ABORTED", index=idx,
+                                reason="host_destroyed_during_row_format",
+                            )
+                            return
                         for col, label in enumerate(cols):
                             item.setText(col, label)
                         item.setCheckState(
@@ -8052,7 +8104,8 @@ class _PreviewPanel:
                         if self.operations.currentItem() is not active:
                             self.operations.setCurrentItem(active)
                 finally:
-                    self.operations.blockSignals(signals_were_blocked)
+                    if self._qt_is_valid(self.operations):
+                        self.operations.blockSignals(signals_were_blocked)
 
             def _configure_for_active_bend(self, *, angle_only=False):
                 if self.session is None:
