@@ -457,6 +457,15 @@ def is_blocking_collision(st: Optional[MotionState3D]) -> bool:
     if rep_status in (CollisionClass.INVALID_GEOMETRY, getattr(CollisionClass, "UNVERIFIED", None)):
         return False
 
+    # Search-only sampled mesh evidence has no measured OCC volume.
+    # Never invent a volume or change exact-mode penetration semantics.
+    from .mesh_search_collision import _MODE
+    if _MODE.get() is not None:
+        for pair in (getattr(rep, "punch_result", None), getattr(rep, "die_result", None)):
+            if (getattr(pair, "status", None) == CollisionClass.PENETRATION
+                    and getattr(pair, "reason", "") == "MESH_SAMPLED_DEPTH_GT_ALLOWANCE"):
+                return True
+
     p_res = getattr(rep, "punch_result", None)
     if p_res is not None:
         p_status = getattr(p_res, "status", None)
