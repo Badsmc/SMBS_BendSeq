@@ -93,9 +93,10 @@ class WorkspaceReopenTests(unittest.TestCase):
             def __init__(self, parent=None): pass
 
         class QtCore:
-            QObject = QObject
-            Qt = SimpleNamespace(WA_DeleteOnClose=1)
-            QEvent = SimpleNamespace(DeferredDelete=42)
+            pass
+        QtCore.QObject = QObject
+        QtCore.Qt = SimpleNamespace(WA_DeleteOnClose=1)
+        QtCore.QEvent = SimpleNamespace(DeferredDelete=42)
 
         class QtWidgets:
             QMdiArea = MdiArea
