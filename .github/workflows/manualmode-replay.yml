@@ -18,3 +18,5 @@ jobs:
           python-version: '3.11'
       - name: Coin3D, manual simulation, native replay and FCStd tests
         run: python -m unittest discover -s tests -v
+      - name: FAST BFM-lite synthetic speed benchmark (8, 10, 15 bends)
+        run: python tools/run_fast_bfm_beam_benchmark.py
