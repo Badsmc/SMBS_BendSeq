@@ -1123,8 +1123,20 @@ class PressBrake2DCommand:
                 if widget._closing:
                     self.hide()
                     event.accept()
+                    if not getattr(self, "_retirement_scheduled", False):
+                        self._retirement_scheduled = True
+                        # Hidden subwindows remain tabs in Qt's tabbed MDI.
+                        # Remove the shell after the Close dispatch unwinds;
+                        # deleting it inside the native handler is unsafe.
+                        QtCore.QTimer.singleShot(0, self._retire)
                     _desktop_debug_event("WORKSPACE_MDI_CLOSE_COMPLETED",
                                          visible=self.isVisible())
+
+            def _retire(self):
+                mdi.removeSubWindow(self)
+                self.hide()
+                self.deleteLater()
+                _desktop_debug_event("WORKSPACE_MDI_REMOVED")
 
         window = WorkspaceSubWindow()
         window.setObjectName(name)
