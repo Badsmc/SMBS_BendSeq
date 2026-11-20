@@ -436,13 +436,13 @@ class ToolingPanel:
                             else self.library.get_clamp_config()
                         )
                         new_cfg = _apply_clamp_config_fields(cfg, fields)
-                        if self._workspace is None:
-                            # Standalone tooling dialog still edits the
-                            # shared library, exactly as before.
+                        if (self._workspace is None
+                                or self._workspace.session is None):
+                            # Standalone tooling and empty workspace retain
+                            # the old shared-library configuration behavior.
                             self.library.set_clamp_config(new_cfg)
                         else:
-                            # In a loaded FCStd, clamps belong to this
-                            # document, not every document on the machine.
+                            # A loaded FCStd owns its own clamp configuration.
                             self._workspace._project_clamp_config = new_cfg
                         self._draw_clamps(new_cfg)
                         if new_cfg != cfg and self._workspace is not None:
@@ -452,7 +452,8 @@ class ToolingPanel:
                             self, "Оснастка", (
                                 "Конфигурация лапок будет записана в этот FCStd "
                                 "через обычное Сохранить (Ctrl+S)."
-                                if self._workspace is not None else
+                                if (self._workspace is not None and
+                                    self._workspace.session is not None) else
                                 "Конфигурация лапок сохранена в библиотеку."
                             )
                         )
