@@ -4062,6 +4062,7 @@ class _PreviewPanel:
                     report = search_fast_candidates(
                         self.session.fold_state, operations,
                         fixed_orientations=pinned,
+                        panel_vertices_xy=self.session.panel_vertices_xy,
                         weights=self._selected_operation_weights().to_dict(),
                         limit_seconds=1.0,
                         beam_width=32,
@@ -4092,7 +4093,9 @@ class _PreviewPanel:
                 hint = QtWidgets.QLabel(
                     "BFM-lite + Bitmask + Beam Search: {:.3f} с, "
                     "состояний {}, переходов {}. "
-                    "Варианты приблизительно ранжированы по стоимости. "
+                    "При ранжировании учитываются короткая сторона к упору, "
+                    "возможное перекрытие вложенных гибов и разнообразие "
+                    "начальных операций. Это только эвристики. "
                     "Коллизии пуансона, матрицы, упора, зажимов и движение "
                     "заготовки НЕ проверены. Выбор варианта только "
                     "для ручной симуляции и последующей OCC-проверки.".format(
@@ -4109,9 +4112,14 @@ class _PreviewPanel:
                         op_id for op_id, reverse in candidate.orientation_by_operation
                         if reverse
                     ]
-                    text = "{}. {} | вес ~{:.2f} | 180°: {}".format(
+                    text = (
+                        "{}. {} | вес ~{:.2f} "
+                        "(короткая сторона {:.1f}, порядок {:.1f}) | 180°: {}"
+                    ).format(
                         i, " → ".join(candidate.operation_ids),
                         candidate.estimated_cost,
+                        candidate.ergonomic_penalty,
+                        candidate.nested_fold_penalty,
                         ", ".join(reversed_ids) if reversed_ids else "нет",
                     )
                     item = QtWidgets.QListWidgetItem(text)
