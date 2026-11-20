@@ -362,7 +362,11 @@ class ToolingPanel:
                     if not self.library:
                         return
                     try:
-                        cfg = self.library.get_clamp_config()
+                        cfg = (
+                            self._workspace._current_clamp_config()
+                            if self._workspace is not None
+                            else self.library.get_clamp_config()
+                        )
                     except Exception:
                         from smbs_core.geometry_backend.io.clamp_validator import ClampConfig
 
@@ -426,15 +430,32 @@ class ToolingPanel:
                     }
 
                     try:
-                        cfg = self.library.get_clamp_config()
+                        cfg = (
+                            self._workspace._current_clamp_config()
+                            if self._workspace is not None
+                            else self.library.get_clamp_config()
+                        )
                         new_cfg = _apply_clamp_config_fields(cfg, fields)
-                        self.library.set_clamp_config(new_cfg)
+                        if (self._workspace is None
+                                or self._workspace.session is None):
+                            # Standalone tooling and empty workspace retain
+                            # the old shared-library configuration behavior.
+                            self.library.set_clamp_config(new_cfg)
+                        else:
+                            # A loaded FCStd owns its own clamp configuration.
+                            self._workspace._project_clamp_config = new_cfg
                         self._draw_clamps(new_cfg)
                         if new_cfg != cfg and self._workspace is not None:
                             self._workspace._on_tool_inventory_changed()
                         self._set_status("Конфигурация лапок успешно сохранена.")
                         QtWidgets.QMessageBox.information(
-                            self, "Оснастка", "Конфигурация лапок сохранена в библиотеку."
+                            self, "Оснастка", (
+                                "Конфигурация лапок будет записана в этот FCStd "
+                                "через обычное Сохранить (Ctrl+S)."
+                                if (self._workspace is not None and
+                                    self._workspace.session is not None) else
+                                "Конфигурация лапок сохранена в библиотеку."
+                            )
                         )
                     except Exception as e:
                         self._set_status(f"Ошибка сохранения лапок: {e}", is_error=True)
