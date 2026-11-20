@@ -1,14 +1,14 @@
-"""FAST-only sampled machine-centre axis rejection for the current sheet pose.
+"""Conservative FAST placement sanity screening (not general collision!).
 
-The punch and die centreline is the *same* vertical machine axis Y_m=0
-over the current bend's X_m span. We exclude intentional contact around
-the active bend zone; other rigid panels cutting this line far from that
-zone are rejected from the FAST shortlist.
+Detect the *gross misplacement* in which the sheet's dominant rigid panel
+passes across the punch/die centre axis Y_m=0 at an obviously elevated or
+depressed Z over most of the active bend length. Local crossings and
+other small panels are NORMAL on many manufacturable parts and MUST NOT
+cause pruning. Even a gross crossing is a sampled suspect-POSE heuristic,
+not a proven physical tool collision or proof of infeasible bend order.
 
-This is a sampled *axis* filter, NOT a tool-solid collision check:
-it cannot certify approach/retract, tool-body clearance, end caps, holes,
-backgauge, or continuous motion. Missing/ambiguous geometry never prunes.
-Only pure Python FoldState kinematics and machine placement are used.
+No FreeCAD, native OCC, tool solids, self-collision or continuous motion.
+Missing/ambiguous geometry remains UNKNOWN; never reject on that basis.
 """
 from __future__ import annotations
 
@@ -32,41 +32,100 @@ class AxisScreenResult:
     samples: int = 0
 
 
-def _face_axis_slice(polygon, xmin, xmax, reference_z, excluded_height,
-                     tolerance=1e-5):
-    """Intersection of rigid planar polygon interior with machine Y=0.
+def _face_axis_intervals(polygon, xmin, xmax, reference_z,
+                         excluded_height, tolerance=1e-5):
+    """Material intervals crossing Y_m=0 outside the active bend zone.
 
-    For edges straddling Y=0, consecutive X intersections form intervals
-    of material (even-odd rule). A single point/tangency is NOT blocking.
-    Vertices on the plane and degenerate/concave ambiguous crossings are
-    UNKNOWN rather than inventing a collision. Returns (X,Z) or None.
+    Return None for ambiguous geometry (vertex on axis, odd intersections);
+    otherwise return half-open X spans and Z at their midpoints. This is
+    an interior 2D-plane test, not 3D solid intersection.
     """
-    if len(polygon) < 3:
-        return None
-    if any(abs(p[1]) <= tolerance for p in polygon):
+    if len(polygon) < 3 or any(abs(p[1]) <= tolerance for p in polygon):
         return None
     crossings = []
-    for p,q in zip(polygon, polygon[1:]+polygon[:1]):
-        if (p[1] < -tolerance and q[1] > tolerance
-                or p[1] > tolerance and q[1] < -tolerance):
-            fraction = -p[1]/(q[1]-p[1])
+    for p, q in zip(polygon, polygon[1:] + polygon[:1]):
+        if ((p[1] < -tolerance and q[1] > tolerance)
+                or (p[1] > tolerance and q[1] < -tolerance)):
+            t = -p[1] / (q[1] - p[1])
             crossings.append((
-                p[0] + fraction*(q[0]-p[0]),
-                p[2] + fraction*(q[2]-p[2]),
+                p[0] + t * (q[0] - p[0]),
+                p[2] + t * (q[2] - p[2]),
             ))
     crossings.sort()
     if len(crossings) % 2:
         return None
-    for (ax,az),(bx,bz) in zip(crossings[::2],crossings[1::2]):
-        left=max(ax,xmin)
-        right=min(bx,xmax)
-        if right-left <= tolerance or bx-ax <= tolerance:
+    spans = []
+    for (ax, az), (bx, bz) in zip(crossings[::2], crossings[1::2]):
+        left, right = max(ax, xmin), min(bx, xmax)
+        if right - left <= tolerance or bx - ax <= tolerance:
             continue
-        x=(left+right)*0.5
-        z=az+(bz-az)*(x-ax)/(bx-ax)
-        if abs(z-reference_z) > excluded_height:
-            return x,z
+        mid_x = (left + right) * 0.5
+        mid_z = az + (bz - az) * (mid_x - ax) / (bx - ax)
+        if abs(mid_z - reference_z) > excluded_height:
+            spans.append((left, right, mid_z))
+    return tuple(spans)
+
+
+def _face_axis_slice(polygon, xmin, xmax, reference_z, excluded_height,
+                     tolerance=1e-5):
+    """Legacy local-crossing diagnostic; NOT a reason to discard a plan."""
+    spans = _face_axis_intervals(
+        polygon, xmin, xmax, reference_z, excluded_height, tolerance,
+    )
+    if spans:
+        left, right, z = spans[0]
+        return (left + right) * 0.5, z
     return None
+
+
+def _dominant_panel_axis_intrusion(polygon, xmin, xmax, reference_z,
+                                   excluded_height, *, span_fraction=0.65):
+    """Find only a broad intrusion, spanning >=65% of active tool length.
+
+    Small flange crossings, a narrow tab and grazing touch are allowed.
+    Return (X, Z, coverage) or None; never claim physical collision.
+    """
+    spans = _face_axis_intervals(
+        polygon, xmin, xmax, reference_z, excluded_height,
+    )
+    if spans is None or xmax <= xmin:
+        return None
+    required_span = (xmax - xmin) * span_fraction
+    for left, right, z in spans:
+        if right - left >= required_span:
+            return (left + right) * 0.5, z, (right-left)/(xmax-xmin)
+    return None
+
+
+def _dominant_panel(panel_vertices_xy, panel_ids):
+    """Only screen a recognisable *main body* occupying >=50% of sheet area.
+
+    If panels are similarly sized, we cannot identify the main sheet
+    reliably and do not discard the sequence. Polygon holes are not
+    represented here, so this remains a heuristic.
+    """
+    areas = {}
+    for panel_id in panel_ids:
+        outline = panel_vertices_xy.get(panel_id, ())
+        if len(outline) < 3:
+            return None
+        try:
+            area = abs(sum(
+                float(p[0]) * float(q[1]) - float(q[0]) * float(p[1])
+                for p, q in zip(outline, outline[1:] + outline[:1])
+            )) * 0.5
+        except (TypeError, ValueError, IndexError, OverflowError):
+            return None
+        if not isfinite(area):
+            return None
+        areas[panel_id] = area
+    total = sum(areas.values())
+    if total <= 1e-8:
+        return None
+    best = max(panel_ids, key=lambda pid: (areas[pid], pid))
+    if areas[best] < 0.5 * total:
+        return None
+    return best
 
 
 def screen_transition_center_axis(
@@ -81,11 +140,11 @@ def screen_transition_center_axis(
     deadline: float | None = None,
     clock=perf_counter,
 ) -> AxisScreenResult:
-    """Sample the loaded workpiece before/during/after one bend operation.
+    """Look for *persistent gross main-panel misplacement*, not all overlaps.
 
-    The completed bitmask uniquely determines absolute preceding bend
-    angles. The check is orientation-independent: 180° about machine Z
-    reflects X and Y but preserves the symmetric centreline Y=0.
+    The completed mask determines preceding bend angles; screening reflects
+    the same Y_m=0 centreline for 0° and 180° rotation around machine Z.
+    Such rotation cannot repair an above/below Z misplacement.
     """
     if (not isfinite(clearance_mm) or clearance_mm < 0.0
             or prefix_mask < 0
@@ -103,6 +162,9 @@ def screen_transition_center_axis(
                 return AxisScreenResult("UNKNOWN","nonfinite_panel_outline")
         except (TypeError, ValueError):
             return AxisScreenResult("UNKNOWN","invalid_panel_outline")
+    main_panel = _dominant_panel(panel_vertices_xy, graph.panels)
+    if main_panel is None:
+        return AxisScreenResult("UNKNOWN","no_single_dominant_panel")
     active=operations[active_index]
     bend=fold_state.bends[active.bend_id]
     zone=getattr(bend,"bend_zone",None)
@@ -132,9 +194,12 @@ def screen_transition_center_axis(
     if (to_angle-from_angle)*float(bend.angle_deg)<-1e-8:
         return AxisScreenResult("UNKNOWN","nonmonotonic_stage_angle")
     checked=0
-    # Active fold's intentional sheet-contact envelope, conservatively
-    # exempted by radius, thickness and a selectable modelling tolerance.
-    exclusion=outer_radius+thickness+clearance_mm
+    # Active bend contact remains allowed. Requiring *substantial* vertical
+    # displacement further prevents rejection of legitimate nearby flange
+    # crossings. Two distinct sampled phases on the same Z side must show
+    # the gross intrusion, not just one transient local intersection.
+    exclusion=max(outer_radius+thickness+clearance_mm, 12.0)
+    crossing_by_side = {"ABOVE": [], "BELOW": []}
     try:
         for fraction in fractions:
             if deadline is not None and clock() >= deadline:
@@ -168,29 +233,46 @@ def screen_transition_center_axis(
                 return AxisScreenResult("UNKNOWN","bend_too_short_for_axis_screen",
                                         samples=checked)
             reference_z=(a[2]+b[2])*0.5
-            for panel_id in graph.panels:
-                transform=view.transforms[panel_id]
-                poly=panel_vertices_xy[panel_id]
-                # Both sheet faces are checked; sidewall/edge contacts
-                # and true tool-body overlaps remain outside this screen.
-                for surface_z in (0.0,-thickness):
-                    machine_poly=[
-                        placement.apply(transform.point(
-                            (float(x),float(y),surface_z)
-                        )) for x,y in poly
-                    ]
-                    # All tuples returned by placement are deterministic XYZ.
-                    result=_face_axis_slice(machine_poly,xmin,xmax,
-                                            reference_z,exclusion)
-                    if result is not None:
-                        return AxisScreenResult(
-                            "BLOCKED","NON_ACTIVE_SHEET_CROSSES_TOOL_CENTER_AXIS",
-                            panel_id,float(fraction),result[0],result[1],checked+1,
-                        )
-            checked+=1
+            transform = view.transforms[main_panel]
+            poly = panel_vertices_xy[main_panel]
+            phase_hit = None
+            # Both surfaces of the main panel must be considered, but
+            # count each phase only once; one face cannot satisfy the
+            # required two independent phase observations by itself.
+            for surface_z in (0.0, -thickness):
+                machine_poly = [
+                    placement.apply(transform.point(
+                        (float(x), float(y), surface_z)
+                    )) for x, y in poly
+                ]
+                result = _dominant_panel_axis_intrusion(
+                    machine_poly, xmin, xmax, reference_z, exclusion,
+                )
+                if result is not None:
+                    x, z, coverage = result
+                    if phase_hit is None or coverage > phase_hit[2]:
+                        phase_hit = (x, z, coverage)
+            if phase_hit is not None:
+                x, z, _coverage = phase_hit
+                side = "ABOVE" if z > reference_z else "BELOW"
+                crossing_by_side[side].append((float(fraction), x, z))
+                if len(crossing_by_side[side]) >= 2:
+                    return AxisScreenResult(
+                        "BLOCKED",
+                        "GROSS_MAIN_BODY_POSE_CROSSES_TOOL_AXIS_" + side,
+                        main_panel, float(fraction), x, z, checked + 1,
+                    )
+            checked += 1
     except (ValueError,TypeError,KeyError,AttributeError,
             ZeroDivisionError,OverflowError) as exc:
         return AxisScreenResult("UNKNOWN",type(exc).__name__+":"+str(exc),
                                 samples=checked)
-    return AxisScreenResult("CLEAR_SAMPLED","no_off_zone_axis_intersection_in_samples",
-                            samples=checked)
+    if any(crossing_by_side.values()):
+        return AxisScreenResult(
+            "UNKNOWN", "single_sample_gross_crossing_not_conclusive",
+            main_panel, samples=checked,
+        )
+    return AxisScreenResult(
+        "CLEAR_SAMPLED", "no_persistent_gross_main_panel_axis_crossing",
+        samples=checked,
+    )
