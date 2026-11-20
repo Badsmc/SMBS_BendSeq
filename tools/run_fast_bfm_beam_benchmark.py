@@ -51,6 +51,7 @@ def run():
             "expanded": outcome.expanded,
             "generated": outcome.generated,
             "cache_hits": outcome.cache_hits,
+            "deduplicated_states": outcome.deduplicated_states,
             "evidence": "UNVERIFIED_FAST_TOPOLOGY",
         })
     print(json.dumps({"mode": "synthetic_search_only", "results": rows}, indent=2))
