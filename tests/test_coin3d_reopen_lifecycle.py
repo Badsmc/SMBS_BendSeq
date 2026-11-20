@@ -175,3 +175,30 @@ class WorkspaceReopenTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class CloseShellTests(unittest.TestCase):
+    def test_retained_shell_is_hidden_even_after_native_activation(self):
+        tree = ast.parse(GUI.read_text(encoding='utf-8'))
+        node = next(n for n in tree.body if isinstance(n, ast.FunctionDef)
+                    and n.name == '_hide_closed_workspace')
+        scope = {}
+        exec(compile(ast.Module(body=[node], type_ignores=[]), str(GUI), 'exec'), scope)
+        shell = Subwindow(Workspace())
+        owner = SimpleNamespace(_mdi_window=shell, _qt_is_valid=lambda _: True,
+                                hide=lambda: None)
+        scope['_hide_closed_workspace'](owner)
+        self.assertFalse(shell.isVisible())
+        shell.show()  # native document activation during a repeated Close
+        scope['_hide_closed_workspace'](owner)
+        self.assertFalse(shell.isVisible())
+
+    def test_close_handler_hides_shell_on_initial_and_repeated_close(self):
+        tree = ast.parse(GUI.read_text(encoding='utf-8'))
+        handler = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)
+                       and n.name == 'closeEvent' and any(
+                           isinstance(x, ast.Attribute) and x.attr == '_closing'
+                           for x in ast.walk(n)))
+        calls = [n for n in ast.walk(handler) if isinstance(n, ast.Call)
+                 and isinstance(n.func, ast.Name)
+                 and n.func.id == '_hide_closed_workspace']
+        self.assertEqual(len(calls), 2)
