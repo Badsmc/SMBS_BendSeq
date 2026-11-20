@@ -4097,7 +4097,17 @@ class _PreviewPanel:
                     )
                     return
 
-                dialog = QtWidgets.QDialog(self)
+                # Parent the transient chooser to FreeCAD's main window,
+                # not to a Tasks widget managed by OverlayManager on macOS.
+                # open() avoids a nested QDialog.exec() event loop.
+                existing = getattr(self, "_fast_result_dialog", None)
+                if existing is not None and self._qt_is_valid(existing):
+                    existing.raise_()
+                    existing.activateWindow()
+                    return
+                dialog = QtWidgets.QDialog(Gui.getMainWindow())
+                dialog.setObjectName("SMBS_FAST_ResultsDialog")
+                dialog.setAttribute(QtCore.Qt.WA_DeleteOnClose, True)
                 dialog.setWindowTitle("FAST — варианты последовательности (UNVERIFIED)")
                 dialog.setMinimumWidth(610)
                 dialog.setMinimumHeight(300)
@@ -4156,23 +4166,76 @@ class _PreviewPanel:
                 buttons.accepted.connect(dialog.accept)
                 buttons.rejected.connect(dialog.reject)
                 layout.addWidget(buttons)
-                result = dialog.exec() if hasattr(dialog, "exec") else dialog.exec_()
-                if result != QtWidgets.QDialog.Accepted:
+
+                def on_finished(result):
+                    # Extract all Qt dialog data while it is still alive.
+                    # Never read its QListWidget after WA_DeleteOnClose.
+                    index = (choices.currentRow()
+                             if self._qt_is_valid(choices) else -1)
+                    self._fast_result_dialog = None
+                    if (self._playback_alive()
+                            and self._qt_is_valid(self.fast_search_btn)):
+                        self.fast_search_btn.setEnabled(True)
+                    _desktop_debug_event(
+                        "FAST_RESULT_DIALOG_FINISHED",
+                        accepted=bool(result == QtWidgets.QDialog.Accepted),
+                        selected_index=index,
+                        workspace_alive=self._playback_alive(),
+                    )
+                    if (result != QtWidgets.QDialog.Accepted
+                            or not 0 <= index < len(report.candidates)):
+                        return
+                    selected = report.candidates[index]
+                    # Apply AFTER the native dialog closes and FreeCAD
+                    # finishes its overlay/task bookkeeping.
+                    QtCore.QTimer.singleShot(
+                        0, lambda: self._apply_fast_sequence_candidate(
+                            selected, controller, operations, pinned, index
+                        )
+                    )
+
+                dialog.finished.connect(on_finished)
+                self._fast_result_dialog = dialog
+                self.fast_search_btn.setEnabled(False)
+                _desktop_debug_event("FAST_RESULT_DIALOG_OPENED")
+                dialog.open()
+
+            def _apply_fast_sequence_candidate(
+                    self, selected, controller, operations, pinned, index):
+                """Commit a shortlist candidate outside the Qt dialog loop."""
+                if not self._playback_alive():
+                    _desktop_debug_event(
+                        "FAST_APPLY_SKIPPED", reason="workspace_destroyed"
+                    )
                     return
-                index = choices.currentRow()
-                if not 0 <= index < len(report.candidates):
+                required_widgets = (
+                    self.operations, self.status, self.tooling_status,
+                    self._flat_view, self._task_stack,
+                )
+                if not all(self._qt_is_valid(w) for w in required_widgets):
+                    _desktop_debug_event(
+                        "FAST_APPLY_SKIPPED", reason="task_widgets_destroyed",
+                        qt_state=self._qt_debug_state(),
+                    )
                     return
-                if (self._closing or self.session is None
+                if (self.session is None
                         or self.session.controller is not controller
                         or not self.session.can_reorder()
                         or tuple(controller.operation_steps) != operations):
-                    self.status.setText("FAST: деталь или операции изменились; повторите поиск.")
+                    self.status.setText(
+                        "FAST: деталь или операции изменились; повторите поиск."
+                    )
                     return
-                selected = report.candidates[index]
                 original_order = tuple(self.session.bend_order)
-                old_operation_orientation = dict(self._manual_operation_orientation_overrides)
+                old_operation_orientation = dict(
+                    self._manual_operation_orientation_overrides
+                )
                 old_bend_orientation = dict(self._manual_orientation_overrides)
                 old_advisory = set(self._fast_advisory_orientation_keys)
+                _desktop_debug_event(
+                    "FAST_APPLY_STARTED",
+                    selected=selected.to_dict(), qt_state=self._qt_debug_state(),
+                )
                 try:
                     if controller.has_stages:
                         controller.reorder_operations(selected.operation_ids)
@@ -4190,30 +4253,52 @@ class _PreviewPanel:
                     self._fast_advisory_orientation_keys = (
                         set(selected.operation_ids) - set(pinned)
                     )
-                    self.session.active_bend_index = self.session.controller.active_index
-                    self._on_staged_plan_changed(
-                        "FAST: применён НЕПРОВЕРЕННЫЙ вариант {}. "
-                        "Нужна отдельная физическая проверка.".format(index+1)
+                    self.session.active_bend_index = (
+                        self.session.controller.active_index
                     )
+                    # Updating a whole operation table synchronously
+                    # creates a heavy multi-bend CAD gauge preview; defer
+                    # that calculation until the next normal UI refresh.
+                    self._fast_apply_skip_table_gauge = True
+                    try:
+                        self._on_staged_plan_changed(
+                            "FAST: применён НЕПРОВЕРЕННЫЙ вариант {}. "
+                            "Нужна отдельная физическая проверка.".format(index+1)
+                        )
+                    finally:
+                        self._fast_apply_skip_table_gauge = False
                     _desktop_debug_event(
                         "FAST_CANDIDATE_APPLIED",
                         selected=selected.to_dict(),
                         evidence="UNVERIFIED_3D_NOT_CHECKED",
                     )
                 except Exception as exc:
+                    if not self._playback_alive():
+                        # FreeCAD/Qt has destroyed the host: NEVER touch
+                        # labels, dialog, timer or native task controls now.
+                        _desktop_debug_event(
+                            "FAST_APPLY_HOST_DESTROYED",
+                            error=str(exc), traceback=traceback.format_exc(),
+                        )
+                        return
                     try:
                         if controller.has_stages:
                             controller.reorder_operations(
-                                [s.operation_id for s in operations]
+                                [step.operation_id for step in operations]
                             )
                         else:
                             self.session.set_bend_order(original_order)
                     except Exception:
                         _error("FAST rollback failed: " + traceback.format_exc())
-                    self._manual_operation_orientation_overrides = old_operation_orientation
+                    self._manual_operation_orientation_overrides = (
+                        old_operation_orientation
+                    )
                     self._manual_orientation_overrides = old_bend_orientation
                     self._fast_advisory_orientation_keys = old_advisory
-                    self.status.setText("FAST: вариант не применён: " + str(exc))
+                    if self._qt_is_valid(self.status):
+                        self.status.setText(
+                            "FAST: вариант не применён: " + str(exc)
+                        )
                     _error("FAST apply failed: " + traceback.format_exc())
 
             def open_sequence_catalog_dialog(self):
