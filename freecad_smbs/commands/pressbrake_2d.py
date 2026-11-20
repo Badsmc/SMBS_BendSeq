@@ -7221,9 +7221,9 @@ class _PreviewPanel:
                     parent or self,
                     "Удалить предварительный гиб?",
                     (
-                        "Удалить {} (промежуточный угол {:+.2f}°)?\\n\\n"
+                        "Удалить {} (промежуточный угол {:+.2f}°)?\n\n"
                         "Догиб {}.2 будет заменён обычным гибом {} "
-                        "до {:+.2f}°.\\n"
+                        "до {:+.2f}°.\n"
                         "Остальные операции, их порядок и углы не изменятся."
                     ).format(bend_id + ".1", prebend.target_angle_deg,
                              bend_id, bend_id, final),
@@ -7635,7 +7635,9 @@ class _PreviewPanel:
                                 )
                                 delete_btn.clicked.connect(
                                     lambda _checked=False, bid=bend_id:
-                                    self._remove_prebend(bid)
+                                    QtCore.QTimer.singleShot(
+                                        0, lambda: self._remove_prebend(bid)
+                                    )
                                 )
                                 actions.addWidget(edit_btn)
                                 actions.addWidget(delete_btn)
