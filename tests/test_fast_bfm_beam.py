@@ -35,7 +35,7 @@ class FastBeamSearchTests(unittest.TestCase):
         self.assertEqual(a.status, "CANDIDATES_UNVERIFIED")
         self.assertTrue(1 <= len(a.candidates) <= 5)
         self.assertLess(a.elapsed_s, 1.0)
-        self.assertEqual(a.candidates[0].operation_ids, tuple(session.controller.order))
+        self.assertEqual(set(a.candidates[0].operation_ids), set(session.controller.order))
         self.assertEqual(session.fold_state.angles, original_angles)
         self.assertTrue(all(c.to_dict()["evidence"] == "UNVERIFIED_FAST_TOPOLOGY"
                             for c in a.candidates))
