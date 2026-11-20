@@ -65,6 +65,31 @@ class ProjectSettingsTests(unittest.TestCase):
             self.clamps,
         )
 
+    def test_fast_orientation_advisory_provenance_roundtrip(self):
+        with patch.object(store, "geometry_manifest", return_value=self.manifest):
+            snapshot = store.build_snapshot(
+                self.session, object(), self.tooling, Cycle(),
+                "FULL_CYCLE",
+                manual_orientation_overrides={"B01": True},
+                fast_advisory_orientation_ids={"B01"},
+            )
+        restored = store.decode_snapshot(store._json_bytes(snapshot))
+        self.assertEqual(
+            restored["order"]["fast_advisory_orientation_ids"], ["B01"]
+        )
+        # Legacy files have no FAST-provenance field.
+        del snapshot["order"]["fast_advisory_orientation_ids"]
+        self.assertIsNotNone(store.decode_snapshot(store._json_bytes(snapshot)))
+
+    def test_invalid_fast_advisory_ids_fail_closed(self):
+        payload = self.snapshot()
+        payload["order"]["manual_orientation_overrides"] = {"B01": True}
+        for invalid in (["B02"], ["B01", "B01"], [{"unexpected": "object"}], 123):
+            with self.subTest(invalid=invalid):
+                payload["order"]["fast_advisory_orientation_ids"] = invalid
+                with self.assertRaises(store.EmbeddedSessionError):
+                    store.decode_snapshot(store._json_bytes(payload))
+
     def test_missing_legacy_settings_accepted(self):
         payload = self.snapshot()
         del payload["tooling"]["backgauge"]
