@@ -713,6 +713,27 @@ def _selection_snapshot():
     return getattr(App, "ActiveDocument", None), list(Gui.Selection.getSelection())
 
 
+def saved_session_unfold_selection(document):
+    """Find a saved SheetMetal unfold without guessing from other open files.
+
+    Only a valid embedded SMBS snapshot may trigger automatic reloading.
+    The usual geometry fingerprint is checked again during load_part().
+    """
+    if document is None or document.getObject("SMBS_Data") is None:
+        return ()
+    from freecad_smbs.integration.fcstd_session_store import read_included_json
+
+    snapshot = read_included_json(document)
+    if snapshot is None:
+        return ()
+    name = snapshot["geometry"]["data"].get("unfold_object")
+    unfold = document.getObject(name) if isinstance(name, str) else None
+    if (unfold is None or not getattr(unfold, "Name", "").endswith("_Unfold")
+            or not hasattr(unfold, "baseObject")):
+        return ()
+    return (unfold,)
+
+
 def show_workspace_controls(workspace, tab=None):
     """Display ALL SMBS control pages inside the standard FreeCAD Tasks view.
 
@@ -985,9 +1006,20 @@ class PressBrake2DCommand:
     def IsActive(self):
         return True
 
-    def Activated(self):
+    def Activated(self, *, document=None, selection=None):
         import FreeCADGui as Gui
-        doc, selected = _selection_snapshot()
+        if document is None:
+            doc, selected = _selection_snapshot()
+        else:
+            doc = document
+            selected = list(selection) if selection is not None else []
+        if doc is not None and not selected:
+            try:
+                selected = list(saved_session_unfold_selection(doc))
+            except Exception as exc:
+                # Corrupted / unrelated attachments must never silently bind
+                # to a different CAD object.
+                _warn("SMBS saved selection rejected: " + str(exc))
         QtCore, _QtGui, QtWidgets = _qt()
         main = Gui.getMainWindow()
         from freecad_smbs.ui.lifecycle_debug import install
@@ -1423,6 +1455,9 @@ class _PreviewPanel:
                 self._manual_retract_verdicts = {}
                 self._backgauge_settings = QtCore.QSettings("SMBS", "BendSeq")
                 self.backgauge_model = None
+                # FCStd-specific clamp settings override the shared tooling
+                # library only for this loaded document; never mutate it on open.
+                self._project_clamp_config = None
                 self._backgauge_preview_cache = {}
                 self._tooling_sections_preview = None
                 self._simulation_layouts = {}
@@ -3288,7 +3323,11 @@ class _PreviewPanel:
                 p_inventory, d_inventory = stock(punch), stock(die)
                 if require_pair and (not p_inventory or not d_inventory):
                     raise ValueError("Задайте запасы пуансона и матрицы через «Сегменты и количество».")
-                clamp_config = load_clamp_config(self.tool_library.library_root)
+                clamp_config = (
+                    self._project_clamp_config
+                    if self._project_clamp_config is not None
+                    else load_clamp_config(self.tool_library.library_root)
+                )
                 return p_inventory, d_inventory, clamp_config
 
             def _tool_assembly_order(self):
@@ -4992,6 +5031,7 @@ class _PreviewPanel:
                 self._manual_orientation_by_bend = {}
                 self._manual_orientation_overrides.clear()
                 self._manual_operation_orientation_overrides.clear()
+                self._project_clamp_config = None
                 self._manual_preview_unverified = False
                 self._manual_selection_enabled = False
                 self._manual_preview_notice.hide()
@@ -5742,6 +5782,15 @@ class _PreviewPanel:
                     "Для записи на диск сохраните его как FCStd через Ctrl+S."
                 )
 
+            def _current_clamp_config(self):
+                """Use per-document clamps, otherwise current library defaults."""
+                if self._project_clamp_config is not None:
+                    return self._project_clamp_config
+                from smbs_core.geometry_backend.io.clamp_validator import (
+                    load_clamp_config,
+                )
+                return load_clamp_config(self.tool_library.library_root)
+
             def _write_embedded_smbs_json(self, document):
                 """Stage a native included attachment without calling save()."""
                 from freecad_smbs.integration.fcstd_session_store import (
@@ -5768,6 +5817,8 @@ class _PreviewPanel:
                     operation_orientation_overrides=(
                         self._manual_operation_orientation_overrides
                     ),
+                    backgauge_model=self.backgauge_model,
+                    clamp_config=self._current_clamp_config(),
                     orientation_source=(
                         "SELECTED_2D_CANDIDATE"
                         if self._manual_orientation_order == tuple(self.session.bend_order)
@@ -5885,6 +5936,34 @@ class _PreviewPanel:
                 self._manual_operation_orientation_overrides = dict(
                     payload["order"].get("operation_orientation_overrides", {})
                 )
+                # FCStd is authoritative for document-specific settings, not
+                # the last machine options used for an unrelated project.
+                saved_tooling = payload["tooling"]
+                if "backgauge" in saved_tooling:
+                    config = saved_tooling["backgauge"]
+                    if config is None:
+                        self.backgauge_model = None
+                    else:
+                        from smbs_core.kinematics2d.backgauge_2d import (
+                            BackgaugeModel2D,
+                        )
+                        from dataclasses import replace as dataclass_replace
+                        self.backgauge_model = dataclass_replace(
+                            BackgaugeModel2D.from_dict(config),
+                            part_label=self.session.part_label,
+                        )
+                if "clamps" in saved_tooling:
+                    config = saved_tooling["clamps"]
+                    if config is not None:
+                        from smbs_core.geometry_backend.io.clamp_validator import (
+                            ClampConfig,
+                        )
+                        self._project_clamp_config = ClampConfig.from_dict(config)
+                    else:
+                        self._project_clamp_config = None
+                self._backgauge_preview_cache.clear()
+                self._machine_gauge_envelope_cache = None
+                self._ergonomic_loading_cache_key = None
                 self._manual_preview_unverified = self.session.controller.has_stages
                 self._manual_selection_enabled = False
                 self._manual_preview_notice.setText(

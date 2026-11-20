@@ -218,6 +218,37 @@ def _bounded_report(report):
     return data
 
 
+def _validate_backgauge_settings(data, canonical):
+    """Validate a portable machine stop; never trust a global QSettings value."""
+    if data is None:
+        return None
+    from smbs_core.kinematics2d.backgauge_2d import BackgaugeModel2D
+
+    try:
+        model = BackgaugeModel2D.from_dict(data)
+    except (KeyError, TypeError, ValueError, OverflowError) as exc:
+        raise EmbeddedSessionError("Invalid FCStd backgauge: " + str(exc)) from exc
+    if set(model.positions) - set(canonical):
+        raise EmbeddedSessionError("FCStd backgauge has unknown bend IDs")
+    return model.to_dict()
+
+
+def _validate_clamp_settings(data):
+    """Validate project clamps without writing to shared tooling libraries."""
+    if data is None:
+        return None
+    from smbs_core.geometry_backend.io.clamp_validator import (
+        ClampConfig, ClampValidatorError,
+    )
+
+    try:
+        if not isinstance(data, dict):
+            raise ValueError("clamps must be an object")
+        return ClampConfig.from_dict(data).to_dict()
+    except (ClampValidatorError, KeyError, TypeError, ValueError, OverflowError) as exc:
+        raise EmbeddedSessionError("Invalid FCStd clamp settings: " + str(exc)) from exc
+
+
 def build_snapshot(
     session, document, tooling, cycle_config, execution_mode,
     manual_prefix=(), manual_report=None, search_report=None,
@@ -226,6 +257,7 @@ def build_snapshot(
     orientation_source="AUTO_SHORT_REAR", saved_sequences=(),
     manual_orientation_overrides=None,
     operation_orientation_overrides=None,
+    backgauge_model=None, clamp_config=None,
 ):
     """Create the portable, bounded snapshot without mutating the document."""
     if session is None or document is None:
@@ -266,6 +298,15 @@ def build_snapshot(
             or any(op_id not in stage_ids or type(value) is not bool
                    for op_id, value in stage_orientations.items())):
         raise EmbeddedSessionError("Invalid independent stage orientations")
+    # Keep document-specific machine configuration inside the FCStd.
+    # External CAD models remain library references, not copied geometry.
+    backgauge = _validate_backgauge_settings(
+        None if backgauge_model is None else backgauge_model.to_dict(),
+        canonical,
+    )
+    clamps = _validate_clamp_settings(
+        None if clamp_config is None else clamp_config.to_dict()
+    )
     config = {
         k: _enum_to_value(v)
         for k, v in asdict(cycle_config).items()
@@ -326,6 +367,8 @@ def build_snapshot(
             "segment_assembly_active": getattr(tooling, "tool_assembly", None) is not None,
             "allow_end_zone_collision": bool(tooling.allow_end_zone_collision),
             "end_zone_length_mm": _finite(tooling.end_zone_length_mm),
+            "backgauge": backgauge,
+            "clamps": clamps,
         },
         "simulation": {
             "execution_mode": str(mode),
@@ -464,6 +507,9 @@ def decode_snapshot(raw):
         raise EmbeddedSessionError("Invalid execution mode")
     if type(tooling.get("segment_assembly_active", False)) is not bool:
         raise EmbeddedSessionError("Invalid segmented tooling setting")
+    # Prior version-1 FCStd documents omit these optional sections.
+    _validate_backgauge_settings(tooling.get("backgauge"), canonical)
+    _validate_clamp_settings(tooling.get("clamps"))
     for key in ("punch", "die"):
         ref = tooling.get(key)
         if ref is not None and (
