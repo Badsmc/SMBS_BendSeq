@@ -713,6 +713,27 @@ def _selection_snapshot():
     return getattr(App, "ActiveDocument", None), list(Gui.Selection.getSelection())
 
 
+def saved_session_unfold_selection(document):
+    """Find a saved SheetMetal unfold without guessing from other open files.
+
+    Only a valid embedded SMBS snapshot may trigger automatic reloading.
+    The usual geometry fingerprint is checked again during load_part().
+    """
+    if document is None or document.getObject("SMBS_Data") is None:
+        return ()
+    from freecad_smbs.integration.fcstd_session_store import read_included_json
+
+    snapshot = read_included_json(document)
+    if snapshot is None:
+        return ()
+    name = snapshot["geometry"]["data"].get("unfold_object")
+    unfold = document.getObject(name) if isinstance(name, str) else None
+    if (unfold is None or not getattr(unfold, "Name", "").endswith("_Unfold")
+            or not hasattr(unfold, "baseObject")):
+        return ()
+    return (unfold,)
+
+
 def show_workspace_controls(workspace, tab=None):
     """Display ALL SMBS control pages inside the standard FreeCAD Tasks view.
 
@@ -985,9 +1006,20 @@ class PressBrake2DCommand:
     def IsActive(self):
         return True
 
-    def Activated(self):
+    def Activated(self, *, document=None, selection=None):
         import FreeCADGui as Gui
-        doc, selected = _selection_snapshot()
+        if document is None:
+            doc, selected = _selection_snapshot()
+        else:
+            doc = document
+            selected = list(selection) if selection is not None else []
+        if doc is not None and not selected:
+            try:
+                selected = list(saved_session_unfold_selection(doc))
+            except Exception as exc:
+                # Corrupted / unrelated attachments must never silently bind
+                # to a different CAD object.
+                _warn("SMBS saved selection rejected: " + str(exc))
         QtCore, _QtGui, QtWidgets = _qt()
         main = Gui.getMainWindow()
         from freecad_smbs.ui.lifecycle_debug import install
