@@ -692,8 +692,26 @@ class _SMBSNativeTaskPanel:
         return True
 
 
+def _workspace_is_live(workspace):
+    """A closed Qt workspace may still exist inside QMdiArea's window list.
+
+    Qt keeps QMdiSubWindow instances when WA_DeleteOnClose is disabled.  A
+    previously closed workspace has released its Coin3D viewer and timer, so
+    it must never be reused even if its Python wrapper is still accessible.
+    """
+    if workspace is None or getattr(workspace, "_closing", True):
+        return False
+    valid = getattr(workspace, "_qt_is_valid", None)
+    if not callable(valid):
+        return False
+    try:
+        return bool(valid(workspace))
+    except (RuntimeError, ReferenceError):
+        return False
+
+
 def get_workspace_widget():
-    """Locate existing viewer; never create a second simulation session."""
+    """Return an open, valid viewer; ignore Qt MDI windows already closing."""
     import FreeCADGui as Gui
     _QtCore, _QtGui, QtWidgets = _qt()
     main = Gui.getMainWindow()
@@ -702,7 +720,12 @@ def get_workspace_widget():
         return None
     for subwindow in mdi.subWindowList():
         if subwindow.objectName() == "SMBS_PressBrake2D_Workspace":
-            return subwindow.widget()
+            try:
+                workspace = subwindow.widget()
+            except (RuntimeError, ReferenceError):
+                continue
+            if _workspace_is_live(workspace):
+                return workspace
     return None
 
 
@@ -744,6 +767,10 @@ def show_workspace_controls(workspace, tab=None):
     import FreeCADGui as Gui
     QtCore, _QtGui, QtWidgets = _qt()
     from freecad_smbs.ui.pressbrake_theme import OUTER_MARGIN, SECTION_GAP
+
+    if not _workspace_is_live(workspace):
+        _desktop_debug_event("TASKS_OPEN_SKIPPED", reason="workspace_closed")
+        return None
 
     if tab is not None and 0 <= int(tab) < workspace._task_stack.count():
         workspace._task_stack.setCurrentIndex(int(tab))
@@ -1033,8 +1060,29 @@ class PressBrake2DCommand:
             (win for win in mdi.subWindowList() if win.objectName() == name),
             None,
         )
-        if existing is not None and existing.widget() is not None:
-            workspace = existing.widget()
+        if existing is not None:
+            try:
+                workspace = existing.widget()
+            except (RuntimeError, ReferenceError):
+                workspace = None
+            if not _workspace_is_live(workspace):
+                # Closing the MDI window can leave a valid but retired widget
+                # behind (WA_DeleteOnClose=False). Never reuse its stopped
+                # timer, detached Tasks or released Coin scene.
+                _desktop_debug_event(
+                    "WORKSPACE_STALE_REPLACED",
+                    closing=getattr(workspace, "_closing", None),
+                )
+                mdi.removeSubWindow(existing)
+                existing.hide()
+                existing.deleteLater()
+                existing = None
+        if existing is not None:
+            # A hidden-but-live MDI workspace can be brought back without
+            # discarding the operator's unsaved order and per-operation poses.
+            if not existing.isVisible():
+                existing.show()
+            mdi.setActiveSubWindow(existing)
             if doc is not None and selected and not workspace._task_progress_busy:
                 try:
                     unfold = resolve_selected_unfold(doc, selected)
@@ -8318,6 +8366,11 @@ class _PreviewPanel:
                 return checks
 
             def closeEvent(self, event):
+                if self._closing:
+                    # Qt can deliver Close multiple times to a retained MDI
+                    # subwindow. Finalisation is destructive and must run once.
+                    event.accept()
+                    return
                 _desktop_debug_event("WORKSPACE_CLOSE_STARTED", qt_state=self._qt_debug_state())
                 if self._playback_alive():
                     self.timer.stop()
