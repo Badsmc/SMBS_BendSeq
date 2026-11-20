@@ -159,7 +159,9 @@ class SMBSWorkbench(Workbench):
             get_workspace_widget, saved_session_unfold_selection,
         )
         document = App.getDocument(name)
-        if document is None or getattr(App, "ActiveDocument", None) is not document:
+        active = getattr(App, "ActiveDocument", None)
+        if (document is None or active is None
+                or getattr(active, "Name", None) != name):
             return
         workspace = get_workspace_widget()
         if (workspace is not None and workspace.session is not None
@@ -175,9 +177,15 @@ class SMBSWorkbench(Workbench):
         if unfold:
             # The command builds native FreeCAD Tasks/MDI once; load_part()
             # validates the saved geometry and restores all settings.
-            PressBrake2DCommand().Activated(
-                document=document, selection=unfold,
-            )
+            try:
+                PressBrake2DCommand().Activated(
+                    document=document, selection=unfold,
+                )
+            except Exception as exc:
+                App.Console.PrintWarning(
+                    "SMBS: ошибка автоматического восстановления FCStd: "
+                    + str(exc) + "\\n"
+                )
 
     def Deactivated(self) -> None:
         observer = getattr(self, "_smbs_open_observer", None)
