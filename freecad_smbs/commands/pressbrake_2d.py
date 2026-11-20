@@ -2350,8 +2350,8 @@ class _PreviewPanel:
                 self.fast_search_btn.setToolTip(
                     "Экспериментальный поиск BFM-lite + Beam Search без OCC. "
                     "Дополнительная проверка грубой ОШИБКИ УСТАНОВКИ: "
-                    "основная панель на большой длине проходит через "
-                    "ось Yₘ=0 существенно выше или ниже линии гиба. "
+                    "основная панель проходит через центральную ось Yₘ=0. "
+                    "Такой вариант получает большой ШТРАФ, но не исключается. "
                     "Местные пересечения полок ДОПУСТИМЫ. "
                     "Ищет до пяти вариантов в пределах секунды. "
                     "Коллизии, реальная установка заготовки и траектории "
@@ -4264,7 +4264,8 @@ class _PreviewPanel:
                     try:
                         self._on_staged_plan_changed(
                             "FAST: применён НЕПРОВЕРЕННЫЙ вариант {}. "
-                            "Нужна отдельная физическая проверка.".format(index+1)
+                            "Нужна отдельная физическая проверка.".format(index+1),
+                            fast_apply=True,
                         )
                     finally:
                         self._fast_apply_skip_table_gauge = False
@@ -7844,7 +7845,7 @@ class _PreviewPanel:
                     "Порядок этапов: " + " → ".join(operation_ids)
                 )
 
-            def _on_staged_plan_changed(self, message):
+            def _on_staged_plan_changed(self, message, *, fast_apply=False):
                 """Invalidate prior OCC evidence: split operations are NOT verified."""
                 if (not self._playback_alive()
                         or not self._qt_is_valid(self.operations)
@@ -7885,6 +7886,20 @@ class _PreviewPanel:
                     self.session.controller.has_stages
                 )
                 self._sync_manual_order_input()
+                if fast_apply:
+                    # FAST changes operation metadata only. Do not enter
+                    # FreeCAD native document/3D preview work from the Qt
+                    # result-dialog completion callback. On macOS this can
+                    # destroy the task host while the operation table updates.
+                    self._populate_operations_fast()
+                    if self._playback_alive() and self._qt_is_valid(self.status):
+                        self.status.setText(message + " | 3D preview requires refresh")
+                    _desktop_debug_event(
+                        "FAST_APPLY_LIGHTWEIGHT_REFRESH",
+                        workspace_alive=self._playback_alive(),
+                        operation_count=len(self.session.controller.operation_steps),
+                    )
+                    return
                 self._populate_operations()
                 if (not self._playback_alive()
                         or not self._qt_is_valid(self.operations)):
@@ -7965,6 +7980,56 @@ class _PreviewPanel:
                 if self.session is None:
                     return
                 self._apply_reorder(lambda: self.session.restore_canonical_order())
+
+            def _populate_operations_fast(self):
+                """Refresh FAST order without native geometry or machine gauges.
+
+                All displayed physical verification fields are explicitly
+                invalidated. The normal simulation path will rebuild its
+                geometry on a later user action, not during Qt dialog teardown.
+                """
+                if (not self._playback_alive()
+                        or not self._qt_is_valid(self.operations)):
+                    return
+                old_blocked = self.operations.blockSignals(True)
+                try:
+                    self.operations.clear()
+                    for idx, bend in enumerate(self.session.ordered_bends):
+                        op = self.session.controller.operation_at(idx)
+                        item = QtWidgets.QTreeWidgetItem()
+                        item.setData(0, QtCore.Qt.UserRole, bend.bend_id)
+                        item.setData(0, QtCore.Qt.UserRole + 1, op.operation_id)
+                        # No preview loading plan or FreeCAD document access.
+                        columns = list(self._format_operation_row(idx + 1, bend))
+                        columns[6] = "—"  # Gauge invalidated by new order
+                        columns[7] = "UNVERIFIED"
+                        columns[8] = "—"
+                        for col, value in enumerate(columns):
+                            item.setText(col, value)
+                        reverse = self._manual_operation_orientation_overrides.get(
+                            op.operation_id,
+                            self._manual_orientation_overrides.get(bend.bend_id, False),
+                        )
+                        item.setCheckState(
+                            _LOADING_ORIENTATION_COLUMN,
+                            QtCore.Qt.Checked if reverse else QtCore.Qt.Unchecked,
+                        )
+                        item.setToolTip(
+                            _LOADING_ORIENTATION_COLUMN,
+                            "FAST 180° (UNVERIFIED). Right click to return to auto.",
+                        )
+                        self.operations.addTopLevelItem(item)
+                    self.operations.setDragEnabled(
+                        self.session.controller.has_stages
+                    )
+                    active = self.session.active_bend_index
+                    if 0 <= active < self.operations.topLevelItemCount():
+                        self.operations.setCurrentItem(
+                            self.operations.topLevelItem(active)
+                        )
+                finally:
+                    if self._qt_is_valid(self.operations):
+                        self.operations.blockSignals(old_blocked)
 
             def _populate_operations(self):
                 if (not self._playback_alive()
