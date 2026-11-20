@@ -437,6 +437,7 @@ def check_manual_3d_sequence(
     locked_orientation_bends: Iterable[str] = (),
     orientation_retry_callback: Optional[Callable[[str, bool], None]] = None,
     include_benchmark_metrics: bool = False,
+    collision_forensics: bool = True,
 ) -> dict:
     """Check a selected prefix (or complete order) with native FCStd tools.
 
@@ -648,7 +649,7 @@ def check_manual_3d_sequence(
             blocker = concise_3d_blocker(report.raw_report)
             attribution = None
             _, state_hit = _select_3d_blocker(report.raw_report)
-            if (report.status is PhysicalEvidence.COLLISION
+            if (collision_forensics and report.status is PhysicalEvidence.COLLISION
                     and state_hit is not None
                     and blocker.get("tool") in (
                         "PUNCH", "DIE", "PUNCH_AND_DIE"
