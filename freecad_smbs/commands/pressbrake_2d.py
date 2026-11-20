@@ -2089,8 +2089,8 @@ class _PreviewPanel:
                 style_action(self.play_btn, primary=True)
                 insert(playback_layout, entries[5])  # Reset / Prev / Play-Pause / Next / Fit
                 self.slider.setToolTip(
-                    "Перемещение угла и пуансона: кинематический просмотр, "
-                    "не проверка коллизий"
+                    "Ручной просмотр активной операции: двигайте ползунок "
+                    "вперёд или назад от начального до целевого угла."
                 )
                 insert(playback_layout, entries[6])  # angle slider
                 self._manual_preview_notice = QtWidgets.QLabel(
@@ -2385,7 +2385,6 @@ class _PreviewPanel:
                         self._apply_manual_order(self._sequence_before_edit)
                         self._manual_sequence_prefix = list(self._prefix_before_edit)
                         self._sync_manual_order_input()
-                        self._draw_flat_pattern()
                     self._toggle_manual_order(False)
                     edit_controls.hide()
                     select_lines.setText("☷")
@@ -2394,6 +2393,7 @@ class _PreviewPanel:
                         button.show()
                     if self.session is not None:
                         self._configure_for_active_bend()
+                        self._draw_flat_pattern(reset_camera=False)
 
                 def toggle_sequence():
                     if self.session is None:
@@ -2413,7 +2413,6 @@ class _PreviewPanel:
 
                 select_lines.clicked.connect(toggle_sequence)
                 cancel_edit.clicked.connect(lambda: finish_sequence(cancel=True))
-                self.slider.hide()
                 bottom_actions = QtWidgets.QHBoxLayout()
                 bottom_actions.addWidget(info_button)
                 bottom_actions.addWidget(self.manual_validate_btn)
@@ -7123,12 +7122,32 @@ class _PreviewPanel:
                         for x, y in vertices
                     ])
                     scene.addPolygon(poly, polygon_pen, fill).setZValue(0)
-                selected = set(self._manual_sequence_prefix)
+                controller = self.session.controller
+                staged = controller.has_stages
+                operation_labels = {}
+                if staged:
+                    names = {"PREBEND": "предгиб", "FINISH": "догиб", "SINGLE": "гиб"}
+                    for index, step in enumerate(controller.operation_steps, 1):
+                        operation_labels.setdefault(step.bend_id, []).append(
+                            f"{index}. {step.operation_id} · {names[step.kind]} "
+                            f"{step.target_angle_deg:+.2f}°"
+                        )
+                else:
+                    order = (self._manual_sequence_prefix if self._manual_selection_enabled
+                             else self.session.bend_order)
+                    operation_labels = {
+                        bend_id: [str(index)] for index, bend_id in enumerate(order, 1)
+                    }
+                active_step = controller.operation_at(self.session.active_bend_index)
                 for conn in self.session.panel_build.connections:
                     bend_id = conn.bend_id
                     (x1, y1), (x2, y2) = conn.axis_xy
-                    chosen = bend_id in selected
-                    active = (chosen and self._manual_sequence_prefix[-1] == bend_id)
+                    chosen = bend_id in operation_labels
+                    active = chosen and (
+                        active_step.bend_id == bend_id
+                        if staged or not self._manual_selection_enabled
+                        else self._manual_sequence_prefix[-1] == bend_id
+                    )
                     color = "#e67e22" if active else ("#219653" if chosen else "#2864ac")
                     pen = QtGui.QPen(QtGui.QColor(color))
                     pen.setWidthF(2.3 if active else 1.4)
@@ -7137,7 +7156,11 @@ class _PreviewPanel:
                                          float(x2), -float(y2), pen)
                     item.setData(0, bend_id)
                     item.setZValue(10)
-                    item.setToolTip("{} {:+.1f}°".format(bend_id, conn.angle_deg))
+                    tooltip = (
+                        "\n".join(operation_labels.get(bend_id, ())) if staged
+                        else "{} {:+.1f}°".format(bend_id, conn.angle_deg)
+                    )
+                    item.setToolTip(tooltip)
                     hit_pen = QtGui.QPen(QtGui.QColor(0, 0, 0, 0))
                     hit_pen.setWidth(13)
                     hit_pen.setCosmetic(True)
@@ -7145,13 +7168,14 @@ class _PreviewPanel:
                                         float(x2), -float(y2), hit_pen)
                     hit.setZValue(12)
                     hit.setData(0, bend_id)
-                    hit.setToolTip("{} {:+.1f}°".format(bend_id, conn.angle_deg))
+                    hit.setToolTip(tooltip)
                     mx, my = (float(x1)+float(x2))/2, -(float(y1)+float(y2))/2
-                    number = (str(self._manual_sequence_prefix.index(bend_id)+1)
-                              if chosen else "{} {:+.0f}°".format(bend_id, conn.angle_deg))
+                    number = ("\n".join(operation_labels[bend_id]) if chosen
+                              else "{} {:+.0f}°".format(bend_id, conn.angle_deg))
                     label = scene.addSimpleText(number)
                     label.setBrush(QtGui.QBrush(QtGui.QColor(color)))
                     label.setData(0, bend_id)
+                    label.setToolTip(tooltip)
                     label.setZValue(15)
                     label.setFlag(QtWidgets.QGraphicsItem.ItemIgnoresTransformations)
                     label.setPos(mx, my)
@@ -7545,6 +7569,7 @@ class _PreviewPanel:
                     pc.select_operation(self.session.controller.active_index)
                 self.session.active_bend_index = self.session.controller.active_index
                 self._configure_for_active_bend()
+                self._draw_flat_pattern(reset_camera=False)
                 self._update_tooling_status_label()
                 self.draw()
                 self.status.setText(message + " | UNVERIFIED")
@@ -7788,6 +7813,10 @@ class _PreviewPanel:
                 )
                 mag = min(abs(target), max(abs(start), float(slider_val) / _SLIDER_SCALE))
                 signed_angle = 0.0 if mag < 1e-9 else sign * mag
+                if slider_val == self.slider.minimum():
+                    signed_angle = start
+                elif slider_val == self.slider.maximum():
+                    signed_angle = target
                 self.set_angle(signed_angle)
 
             def set_angle(self, signed_angle_deg: float):
@@ -7798,6 +7827,10 @@ class _PreviewPanel:
                 if self.timer.isActive() or self.playing:
                     self._stop_timer()
                 try:
+                    controller = self.session.controller
+                    if (controller.has_stages
+                            and controller.active_index != controller.completed_step_count):
+                        controller.seek_staged_operation_start(controller.active_index)
                     pc = self._ensure_press_cycle_controller()
                     if pc is not None:
                         pc.set_manual_preview_angle(float(signed_angle_deg))
