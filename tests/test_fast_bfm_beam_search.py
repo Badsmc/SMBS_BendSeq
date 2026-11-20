@@ -129,6 +129,62 @@ class FastCandidateTests(unittest.TestCase):
         b=(30.0,0.0,40.0,0.0)
         self.assertAlmostEqual(_segment_distance(a,b),20.0)
 
+    def test_short_rear_flat_contour_preference_not_arbitrary(self):
+        state = sample_state(1)
+        # B01 is along +Y: flat machine +s points toward +X.
+        # The wide +X flange should face the operator, not the rear gauge.
+        outline = {
+            panel: ((-10.0, 0.0), (90.0, 0.0),
+                    (90.0, 45.0), (-10.0, 45.0))
+            for panel in state.graph.panels
+        }
+        report = search_fast_candidates(
+            state, panel_vertices_xy=outline,
+        )
+        self.assertTrue(report.candidates)
+        self.assertTrue(report.candidates[0].orientations()["B01"])
+        self.assertEqual(report.candidates[0].ergonomic_penalty, 0.0)
+        # An operator-pinned orientation must be honored even when the
+        # cheap geometric preference points the other way.
+        locked = search_fast_candidates(
+            state, panel_vertices_xy=outline,
+            fixed_orientations={"B01": False},
+        )
+        self.assertFalse(locked.candidates[0].orientations()["B01"])
+        self.assertGreater(locked.candidates[0].ergonomic_penalty, 0)
+
+    def test_missing_panel_outline_does_not_invent_ergonomic_evidence(self):
+        state = sample_state(1)
+        report = search_fast_candidates(
+            state, panel_vertices_xy={"P0": ((-10, 0), (100, 0), (100, 40))}
+        )
+        self.assertTrue(report.candidates)
+        self.assertTrue(all(c.evidence.startswith("UNVERIFIED")
+                            for c in report.candidates))
+
+    def test_leaf_first_is_soft_priority_not_a_hard_dependency(self):
+        state = sample_state(4)
+        zero_weights = {
+            "turn_fixed": 0.0,
+            "turn_per_90_deg": 0.0,
+            "length_change_fixed": 0.0,
+            "length_delta_per_100_mm": 0.0,
+        }
+        report = search_fast_candidates(state, weights=zero_weights,
+                                        beam_width=64)
+        self.assertTrue(report.candidates)
+        self.assertEqual(report.candidates[0].operation_ids[0], "B04")
+        self.assertEqual(report.candidates[0].nested_fold_penalty, 0.0)
+        self.assertTrue(any(
+            c.operation_ids[0] != "B04" for c in report.candidates
+        ))
+
+    def test_five_results_are_distinct_orderings_not_only_orientation_variants(self):
+        report = search_fast_candidates(sample_state(8), beam_width=64)
+        orders = [c.operation_ids for c in report.candidates]
+        self.assertEqual(len(orders), len(set(orders)))
+        self.assertGreaterEqual(len(set(path[0] for path in orders)), 2)
+
     def test_15_bend_synthetic_stays_bounded_and_does_not_certify(self):
         state=sample_state(15)
         report=search_fast_candidates(state,limit_seconds=1.0,beam_width=24)
