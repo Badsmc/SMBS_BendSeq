@@ -65,6 +65,7 @@ class FastSearchReport:
     axis_screen_unknown: int = 0
     axis_screen_samples: int = 0
     axis_screen_available: bool = False
+    axis_screen_findings: tuple[dict, ...] = ()
 
     def to_dict(self) -> dict:
         return {
@@ -82,12 +83,16 @@ class FastSearchReport:
             "axis_screen_unknown": self.axis_screen_unknown,
             "axis_screen_samples": self.axis_screen_samples,
             "axis_screen_available": self.axis_screen_available,
+            "axis_screen_findings": [
+                dict(item) for item in self.axis_screen_findings
+            ],
             "candidates": [candidate.to_dict() for candidate in self.candidates],
             "disclaimer": (
-                "Sampled punch/die centreline exclusion checks machine "
-                "Y=0 for prior folded panels, excluding active-bend contact. "
-                "This is not a continuous 2D/3D tool-solid collision "
-                "certificate; all candidates remain UNVERIFIED."
+                "FAST screens only persistent gross *dominant-panel* "
+                "misplacement across machine Y=0; local axis crossings "
+                "are allowed. A suspect pose may originate in simulator "
+                "placement, not bend order. No continuous 3D or tool-solid "
+                "collision check; all candidates remain UNVERIFIED."
             ),
         }
 
@@ -365,6 +370,7 @@ def search_fast_candidates(
     )
     axis_screen_checks = axis_screen_rejected = axis_screen_unknown = 0
     axis_screen_samples = 0
+    axis_screen_findings = []
     axis_cache = {}
     axis_deadline = start+limit_seconds
 
@@ -392,6 +398,23 @@ def search_fast_candidates(
             axis_screen_samples+=result.samples
             if result.decision=="UNKNOWN":
                 axis_screen_unknown+=1
+            if (result.decision in ("BLOCKED", "UNKNOWN")
+                    and len(axis_screen_findings) < 16):
+                axis_screen_findings.append({
+                    "bend_id": operations[key[1]].bend_id,
+                    "operation_id": operations[key[1]].operation_id,
+                    "preceding_operations": [
+                        step.operation_id for j, step in enumerate(operations)
+                        if key[0] & (1 << j)
+                    ],
+                    "decision": result.decision,
+                    "reason": result.reason,
+                    "panel_id": result.panel_id,
+                    "fraction": result.fraction,
+                    "machine_x_mm": result.machine_x_mm,
+                    "machine_z_mm": result.machine_z_mm,
+                    "samples": result.samples,
+                })
         if result.decision=="TIME_BUDGET":
             exhausted=True
             return False
@@ -597,4 +620,5 @@ def search_fast_candidates(
         sum(bool(p) for p in prerequisites),limit_seconds,beam_width,
         axis_screen_checks,axis_screen_rejected,axis_screen_unknown,
         axis_screen_samples,axis_screen_available,
+        tuple(axis_screen_findings),
     )
