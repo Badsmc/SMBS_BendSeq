@@ -397,6 +397,16 @@ class StagedBendSequenceController(BendSequenceController):
         self.active_index = min(self._completed_steps, self.total_steps - 1)
         self._sync_status_when_stopped()
 
+    def seek_staged_operation_start(self, index: int) -> None:
+        """Replay the completed prefix so a selected stage can be scrubbed."""
+        self.operation_at(index)  # Validate before changing the pose.
+        self.fold_state.reset_all()
+        for bid, angle in self._state_for_prefix(index).items():
+            if abs(angle) > ANGLE_EPS:
+                self.fold_state.set_angle(bid, angle)
+        self._completed_steps = self.active_index = index
+        self._sync_status_when_stopped()
+
     def previous_step(self) -> None:
         if not self.has_stages:
             return super().previous_step()
@@ -413,14 +423,7 @@ class StagedBendSequenceController(BendSequenceController):
                 self.active_index = self._completed_steps
                 self._sync_status_when_stopped()
                 return
-        if self._completed_steps:
-            self._completed_steps -= 1
-        self.fold_state.reset_all()
-        for bid, angle in self._state_for_prefix(self._completed_steps).items():
-            if abs(angle) > ANGLE_EPS:
-                self.fold_state.set_angle(bid, angle)
-        self.active_index = min(self._completed_steps, self.total_steps - 1)
-        self._sync_status_when_stopped()
+        self.seek_staged_operation_start(max(0, self._completed_steps - 1))
 
     def status_line(self) -> str:
         if not self.has_stages:
