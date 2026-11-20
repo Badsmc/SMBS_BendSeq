@@ -476,16 +476,13 @@ def decode_snapshot(raw):
                    for op_id, value in stage_orientations.items())):
         raise EmbeddedSessionError("Invalid stored stage orientations")
     advisory = data.get("fast_advisory_orientation_ids", [])
-    if (not isinstance(advisory, list)
+    manual_overrides = data.get("manual_orientation_overrides", {})
+    if (not isinstance(manual_overrides, dict)
+            or not isinstance(advisory, list)
+            or not all(isinstance(op_id, str) for op_id in advisory)
             or len(set(advisory)) != len(advisory)
-            or any(
-                not isinstance(op_id, str)
-                or op_id not in (
-                    set(data.get("manual_orientation_overrides", {}))
-                    | set(stage_orientations)
-                )
-                for op_id in advisory
-            )):
+            or any(op_id not in manual_overrides and op_id not in stage_orientations
+                   for op_id in advisory)):
         raise EmbeddedSessionError("Invalid stored FAST advisory orientations")
     found_sequences = data.get("found_sequences", [])
     if not isinstance(found_sequences, list) or len(found_sequences) > 32:
