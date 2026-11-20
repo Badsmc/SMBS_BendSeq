@@ -217,6 +217,14 @@ class CentrelineIntegrationTests(TestCase):
         self.assertGreater(report.axis_screen_rejected,0)
         self.assertGreater(report.axis_screen_checks,0)
         self.assertGreater(report.axis_screen_samples,0)
+        findings=report.to_dict()["axis_screen_findings"]
+        self.assertTrue(findings)
+        self.assertTrue(any(
+            hit["operation_id"] == "B01"
+            and hit["decision"] == "BLOCKED"
+            and "B02" in hit["preceding_operations"]
+            for hit in findings
+        ))
         for choice in report.candidates:
             self.assertLess(
                 choice.operation_ids.index("B01"),
