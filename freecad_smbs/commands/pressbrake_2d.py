@@ -2349,6 +2349,9 @@ class _PreviewPanel:
                 self.fast_search_btn.setObjectName("SMBS_FastSequenceSearch")
                 self.fast_search_btn.setToolTip(
                     "Экспериментальный поиск BFM-lite + Beam Search без OCC. "
+                    "В нескольких положениях отсекает пересечение "
+                    "посторонними полками оси Yₘ=0 пуансона/матрицы "
+                    "в пределах длины гиба (допуск 1 мм). "
                     "Ищет до пяти вариантов в пределах секунды. "
                     "Коллизии, реальная установка заготовки и траектории "
                     "НЕ проверены: все результаты UNVERIFIED."
@@ -4070,6 +4073,8 @@ class _PreviewPanel:
                         fixed_orientations=pinned,
                         panel_vertices_xy=self.session.panel_vertices_xy,
                         weights=self._selected_operation_weights().to_dict(),
+                        screen_tool_center_axis=True,
+                        axis_clearance_mm=1.0,
                         limit_seconds=1.0,
                         beam_width=32,
                         max_candidates=5,
@@ -4099,6 +4104,8 @@ class _PreviewPanel:
                 hint = QtWidgets.QLabel(
                     "BFM-lite + Bitmask + Beam Search: {:.3f} с, "
                     "состояний {}, переходов {}. "
+                    "Центральная линия инструментов: {} проверки, "
+                    "отклонено {} переходов, {} не удалось проверить. "
                     "При ранжировании учитываются короткая сторона к упору, "
                     "возможное перекрытие вложенных гибов и разнообразие "
                     "начальных операций. Это только эвристики. "
@@ -4107,6 +4114,9 @@ class _PreviewPanel:
                     "для ручной симуляции и последующей OCC-проверки.".format(
                         report.elapsed_seconds, report.explored_states,
                         report.expanded_transitions,
+                        report.axis_screen_checks,
+                        report.axis_screen_rejected,
+                        report.axis_screen_unknown,
                     )
                 )
                 hint.setWordWrap(True)
