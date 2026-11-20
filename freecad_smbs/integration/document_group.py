@@ -10,6 +10,7 @@ def group_document_objects(document):
         ("SMBS_Data", "App::FeaturePython"),
         ("SMBS_BendSchedule", "Spreadsheet::Sheet"),
         ("SMBS_BendDrawing", "Part::Feature"),
+        ("SMBS_BendPage", "TechDraw::DrawPage"),
         ("DXFUnfold", "App::DocumentObjectGroup"),
     ):
         obj = document.getObject(name)
