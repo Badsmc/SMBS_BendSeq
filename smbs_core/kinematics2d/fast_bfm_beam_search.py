@@ -127,7 +127,12 @@ def _segment_distance(g, h):
     ab_d = orient(ax,ay,bx,by,dx,dy)
     cd_a = orient(cx,cy,dx,dy,ax,ay)
     cd_b = orient(cx,cy,dx,dy,bx,by)
-    if ((ab_c >= 0 >= ab_d or ab_d >= 0 >= ab_c)
+    boxes_overlap = (
+        max(min(ax,bx),min(cx,dx)) <= min(max(ax,bx),max(cx,dx))
+        and max(min(ay,by),min(cy,dy)) <= min(max(ay,by),max(cy,dy))
+    )
+    if (boxes_overlap
+            and (ab_c >= 0 >= ab_d or ab_d >= 0 >= ab_c)
             and (cd_a >= 0 >= cd_b or cd_b >= 0 >= cd_a)):
         return 0.0
 
@@ -209,8 +214,19 @@ def search_fast_candidates(
                 or not isfinite(op.target_angle_deg)):
             raise FastSearchError("Non-finite target angle")
         by_bend.setdefault(op.bend_id,[]).append((i,op))
+    if set(by_bend) != set(fold_state.bends):
+        raise FastSearchError(
+            "All physical bends must have SINGLE or PREBEND/FINISH operations"
+        )
     prerequisites = [0]*len(operations)
     for bend_id, steps in by_bend.items():
+        final_angle = float(fold_state.bends[bend_id].angle_deg)
+        if any(
+            op.kind in ("SINGLE","FINISH")
+            and abs(float(op.target_angle_deg)-final_angle)>1e-6
+            for _,op in steps
+        ):
+            raise FastSearchError("Operation target differs from SheetMetal for " + bend_id)
         kinds = {op.kind for _,op in steps}
         if kinds == {"SINGLE"} and len(steps) == 1:
             continue
