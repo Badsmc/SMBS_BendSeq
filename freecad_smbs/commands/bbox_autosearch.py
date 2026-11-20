@@ -20,6 +20,7 @@ class BBoxAutoSearchCommand:
     def Activated(self):
         from .pressbrake_2d import get_workspace_widget, _qt, _desktop_debug_event
         from smbs_core.kinematics2d.manual_physical_validation import check_manual_3d_sequence
+        from smbs_core.kinematics2d.native_sequence_geometry_cache import NativeSequenceGeometryCache
         from smbs_core.kinematics2d.motion_trajectory_3d import AdaptiveSamplingConfig
         from smbs_core.kinematics2d.panel_kinematics import FoldState
         from smbs_core.kinematics2d.operation_cost import compute_workpiece_machine_setup, score_sequence
@@ -93,6 +94,8 @@ class BBoxAutoSearchCommand:
         apply.setEnabled(False); stop.setEnabled(False)
         timer = QtCore.QTimer(dialog)
         iterator = [None]
+        geometry_cache = [None]
+        step_cache = {}
 
         def evaluate(path, poses, complete, *, exact=False):
             if w._closing or w.session is not session:
@@ -115,18 +118,33 @@ class BBoxAutoSearchCommand:
             isolated = SimpleNamespace(fold_state=session.fold_state, panel_build=session.panel_build,
                                        bend_order=order)
             use_mesh = not exact and mesh_enabled.isChecked()
-            with mesh_search_mode(mesh_oracle[0]) if use_mesh else nullcontext():
-                report = check_manual_3d_sequence(
-                    isolated, tooling, order,
-                    match_active_bend_length=tooling.match_active_bend_length,
-                    allow_end_zone_collision=tooling.allow_end_zone_collision,
-                    end_zone_length_mm=tooling.end_zone_length_mm,
-                    reverse_axis_by_bend={o.bend_id: poses[o.operation_id] for o in path},
-                    auto_orientation=False, collision_forensics=exact,
-                    config=AdaptiveSamplingConfig(coarse_occ_screen=not exact,
-                        initial_clearance_mm=float(w.cycle_config.initial_clearance_mm),
-                        max_phase_time_s=min(float(seconds.value()), 30.0),
-                        max_evaluated_states_per_phase=32))
+            # The earlier loading poses do not change the folded sheet at this
+            # step. Keep the ordered bend history and the current loading pose.
+            step_key = (order, poses[path[-1].operation_id])
+            cached = None if exact else step_cache.get(step_key)
+            if cached is None:
+                with mesh_search_mode(mesh_oracle[0]) if use_mesh else nullcontext():
+                    report = check_manual_3d_sequence(
+                        isolated, tooling, order,
+                        match_active_bend_length=tooling.match_active_bend_length,
+                        allow_end_zone_collision=tooling.allow_end_zone_collision,
+                        end_zone_length_mm=tooling.end_zone_length_mm,
+                        reverse_axis_by_bend={o.bend_id: poses[o.operation_id] for o in path},
+                        auto_orientation=False, collision_forensics=exact,
+                        search_last_step_only=not exact,
+                        search_geometry_cache=None if exact else geometry_cache[0],
+                        config=AdaptiveSamplingConfig(coarse_occ_screen=not exact,
+                            initial_clearance_mm=float(w.cycle_config.initial_clearance_mm),
+                            max_phase_time_s=min(float(seconds.value()), 30.0),
+                            max_evaluated_states_per_phase=32))
+                if not exact:
+                    step_cache[step_key] = report
+            else:
+                report = cached
+            report = dict(report)
+            report['reverse_axis_by_bend'] = {
+                o.bend_id: poses[o.operation_id] for o in path
+            }
             if use_mesh:
                 report['search_engine'] = 'SAMPLED_MESH'
                 report['penetration_allowance_mm'] = 1.0
@@ -170,6 +188,8 @@ class BBoxAutoSearchCommand:
                 finish('Ошибка: ' + str(exc))
 
         def begin():
+            geometry_cache[0] = NativeSequenceGeometryCache(max_full_sheets=16)
+            step_cache.clear()
             mesh_oracle[0] = MeshOracle(tolerance_mm=1.0, deflection_mm=0.1)
             mesh_enabled.setEnabled(False)
             rows.clear(); table.setRowCount(0); stopped[0] = False; busy[0] = True
