@@ -10,7 +10,8 @@ from unittest import TestCase
 from unittest.mock import patch
 
 from smbs_core.kinematics2d.fast_center_axis_screen import (
-    AxisScreenResult, _face_axis_slice, screen_transition_center_axis,
+    AxisScreenResult, _face_axis_slice, _dominant_panel,
+    _dominant_panel_axis_intrusion, screen_transition_center_axis,
 )
 from smbs_core.kinematics2d.fast_bfm_beam_search import search_fast_candidates
 from smbs_core.kinematics2d.panel_graph import GraphEdge, PanelGraph
@@ -65,6 +66,39 @@ class CentrelinePolygonTests(TestCase):
         self.assertIsNone(_face_axis_slice(face,-15,15,0.0,4.0))
 
 
+    def test_small_side_flange_crossing_is_allowed(self):
+        # Short 8 mm intersection within a 40 mm bend is not proof that
+        # the main sheet is incorrectly threaded through the centre axis.
+        strip=[(-4.,-5.,40.),(4.,-5.,40.),
+               (4.,5.,40.),(-4.,5.,40.)]
+        self.assertIsNotNone(_face_axis_slice(strip,-20,20,0.,12.))
+        self.assertIsNone(
+            _dominant_panel_axis_intrusion(strip,-20,20,0.,12.)
+        )
+
+    def test_gross_main_body_span_is_suspicious_only(self):
+        main=[(-20.,-5.,35.),(20.,-5.,35.),
+              (20.,5.,35.),(-20.,5.,35.)]
+        hit=_dominant_panel_axis_intrusion(main,-20,20,0.,12.)
+        self.assertIsNotNone(hit)
+        self.assertAlmostEqual(hit[2],1.0)
+
+    def test_main_panel_requires_majority_of_flat_sheet_area(self):
+        panels={
+            "main": ((0.,0.),(70.,0.),(70.,30.),(0.,30.)),
+            "small":((0.,0.),(10.,0.),(10.,10.),(0.,10.)),
+        }
+        self.assertEqual(
+            _dominant_panel(panels,("main","small")),"main"
+        )
+        ambiguous={
+            "a":((0.,0.),(20.,0.),(20.,20.),(0.,20.)),
+            "b":((0.,0.),(20.,0.),(20.,20.),(0.,20.)),
+            "c":((0.,0.),(20.,0.),(20.,20.),(0.,20.)),
+        }
+        self.assertIsNone(_dominant_panel(ambiguous,("a","b","c")))
+
+
 class CentrelineIntegrationTests(TestCase):
     def test_real_bend_zone_runs_without_mutating_fold_state(self):
         sheet, outlines=one_bend_with_zone()
@@ -76,6 +110,61 @@ class CentrelineIntegrationTests(TestCase):
         self.assertEqual(result.decision,"CLEAR_SAMPLED",result)
         self.assertEqual(result.samples,3)
         self.assertEqual(sheet.angles,before)
+
+    def test_single_phase_gross_intersection_does_not_prune(self):
+        sheet, outlines=one_bend_with_zone()
+        from smbs_core.kinematics2d.staged_bends import BendOperation
+        op=(BendOperation("B01","B01",90.),)
+        calls=[0]
+        def one_phase(polygon,xmin,xmax,reference,excluded):
+            calls[0]+=1
+            return (25.,reference+30.,.95) if calls[0]<=2 else None
+        with patch(
+            "smbs_core.kinematics2d.fast_center_axis_screen."
+            "_dominant_panel_axis_intrusion",
+            side_effect=one_phase,
+        ):
+            result=screen_transition_center_axis(sheet,outlines,op,0,0)
+        self.assertEqual(result.decision,"UNKNOWN",result)
+        self.assertEqual(result.samples,3)
+
+    def test_persistent_main_body_crossing_above_is_rejected(self):
+        sheet, outlines=one_bend_with_zone()
+        from smbs_core.kinematics2d.staged_bends import BendOperation
+        op=(BendOperation("B01","B01",90.),)
+        def gross(polygon,xmin,xmax,reference,excluded):
+            return (25.,reference+30.,.9)
+        with patch(
+            "smbs_core.kinematics2d.fast_center_axis_screen."
+            "_dominant_panel_axis_intrusion",
+            side_effect=gross,
+        ):
+            result=screen_transition_center_axis(sheet,outlines,op,0,0)
+        self.assertEqual(result.decision,"BLOCKED",result)
+        self.assertEqual(result.panel_id,"P1")
+        self.assertIn("GROSS_MAIN_BODY_POSE",result.reason)
+        self.assertIn("ABOVE",result.reason)
+        self.assertEqual(result.samples,2)
+
+    def test_above_once_below_once_is_not_persistent_same_side(self):
+        sheet, outlines=one_bend_with_zone()
+        from smbs_core.kinematics2d.staged_bends import BendOperation
+        op=(BendOperation("B01","B01",90.),)
+        calls=[0]
+        def alternating(polygon,xmin,xmax,reference,excluded):
+            calls[0]+=1
+            if calls[0]<=2:
+                return (25.,reference+30.,.9)
+            if calls[0]<=4:
+                return (25.,reference-30.,.9)
+            return None
+        with patch(
+            "smbs_core.kinematics2d.fast_center_axis_screen."
+            "_dominant_panel_axis_intrusion",
+            side_effect=alternating,
+        ):
+            result=screen_transition_center_axis(sheet,outlines,op,0,0)
+        self.assertEqual(result.decision,"UNKNOWN",result)
 
     def test_missing_outlines_never_pruned(self):
         sheet,outlines=one_bend_with_zone()
