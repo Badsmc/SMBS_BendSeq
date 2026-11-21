@@ -45,6 +45,21 @@ class ForcedSideSearchReport:
             "new_candidates": [candidate.to_dict()
                                for candidate in self.new_candidates],
             "side_findings": [dict(item) for item in self.side_findings],
+            "detected_sides": len(self.side_findings),
+            "searched_sides": sum(
+                item.get("status") not in (
+                    "BUDGET_EXCEEDED", "REUSED_EQUIVALENT_START",
+                    "NO_FIRST_BEND_AVAILABLE"
+                ) for item in self.side_findings
+            ),
+            "reused_equivalent_sides": sum(
+                item.get("status") == "REUSED_EQUIVALENT_START"
+                for item in self.side_findings
+            ),
+            "budget_skipped_sides": sum(
+                item.get("status") == "BUDGET_EXCEEDED"
+                for item in self.side_findings
+            ),
             "elapsed_seconds": round(self.elapsed_seconds, 5),
             "budget_seconds": self.budget_seconds,
             "feedback_penalties": [dict(item) for item in self.feedback_penalties],
@@ -84,6 +99,7 @@ def search_all_outer_sides(
     weights=None,
     screen=None,
     budget_seconds=2.5,
+    outer_edge_polylines_xy=None,
     beam_width=24,
     max_per_side=2,
     clock=perf_counter,
@@ -102,7 +118,10 @@ def search_all_outer_sides(
     start=clock()
     operations=tuple(operations)
     existing=tuple(initial_candidates)
-    sides=forced_side_seeds(outer_outline_xy,operations,fold_state)
+    sides=forced_side_seeds(
+        outer_outline_xy,operations,fold_state,
+        outer_edge_polylines_xy=outer_edge_polylines_xy,
+    )
     if not sides:
         return ForcedSideSearchReport(
             (),(),clock()-start,budget_seconds,(),"OUTER_CONTOUR_UNAVAILABLE",
@@ -119,7 +138,20 @@ def search_all_outer_sides(
     }
     new_candidates=[]
     findings=[]
+    # Identical first-operation/orientation constraints define the same
+    # FAST search problem. Reuse its results for other actual CAD edges.
+    # Every real side still receives its own diagnostic record.
+    equivalent_starts={}
     for number,side in enumerate(sides):
+        setup_key=(side.first_operation_ids,side.first_reverse)
+        if setup_key in equivalent_starts:
+            findings.append({
+                **side.to_dict(),
+                "status":"REUSED_EQUIVALENT_START",
+                "same_search_as":equivalent_starts[setup_key],
+                "new_candidates":0,
+            })
+            continue
         remaining = budget_seconds - (clock() - start)
         if remaining <= 0.015:
             findings.append({
@@ -140,6 +172,7 @@ def search_all_outer_sides(
                 "new_candidates":0,
             })
             continue
+        equivalent_starts[setup_key]=side.name
         try:
             report = search_fn(
                 fold_state, operations,
