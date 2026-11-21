@@ -4196,6 +4196,14 @@ class _PreviewPanel:
                 forced_sides_done = [False]
                 feedback_rounds = [0]
                 ranked_once = [False]
+                show_rejected = QtWidgets.QCheckBox(
+                    "Показывать исключённые грубой 2D-проверкой",
+                    dialog,
+                )
+                show_rejected.setObjectName(
+                    "SMBS_FastShowCoarseRejected"
+                )
+                show_rejected.setChecked(False)
 
                 def populate_fast_choices(screen_report=None):
                     previous = selected_source_index()
@@ -4213,6 +4221,18 @@ class _PreviewPanel:
                         if screen_report is not None
                         else tuple(range(len(all_candidates)))
                     )
+                    if screen_report is not None and not show_rejected.isChecked():
+                        from smbs_core.kinematics2d.fast_collision_gate import (
+                            coarse_tool_gate,
+                        )
+                        blocked = set(
+                            coarse_tool_gate(screen_report).forbidden_transitions
+                        )
+                        order = tuple(
+                            index for index in order
+                            if screen_report.checks[index].failed_transition
+                            not in blocked
+                        )
                     choices.setSortingEnabled(False)
                     choices.setRowCount(len(order))
                     for row, source_index in enumerate(order):
@@ -4331,6 +4351,12 @@ class _PreviewPanel:
                 )
                 legend.setWordWrap(True)
                 layout.addWidget(legend)
+                layout.addWidget(show_rejected)
+                show_rejected.toggled.connect(
+                    lambda *_: populate_fast_choices(
+                        self._last_fast_shortlist_screen_report
+                    )
+                )
                 populate_fast_choices()
                 layout.addWidget(choices)
                 screen_button = QtWidgets.QPushButton(
@@ -4452,6 +4478,14 @@ class _PreviewPanel:
                         # opposite 180-degree orientations. Manual pins
                         # remain immutable. A repeat button allows another
                         # bounded round on later, newly discovered failures.
+                        from smbs_core.kinematics2d.fast_collision_gate import (
+                            coarse_tool_gate,
+                        )
+                        current_gate = coarse_tool_gate(screen)
+                        _desktop_debug_event(
+                            "FAST_COARSE_TOOL_GATE_INITIAL",
+                            report=current_gate.to_dict(),
+                        )
                         feedback_report = None
                         if feedback_rounds[0] < 3:
                             from smbs_core.kinematics2d.fast_multiside_feedback import (
@@ -4462,9 +4496,11 @@ class _PreviewPanel:
                                 tuple(all_candidates),
                                 self.session.panel_vertices_xy,
                                 screen,
+                                coarse_gate=current_gate,
                                 fixed_orientations=pinned,
                                 weights=self._selected_operation_weights().to_dict(),
                                 budget_seconds=1.5,
+                                max_cases=8,
                             )
                             feedback_rounds[0] += 1
                             _desktop_debug_event(
@@ -4499,6 +4535,16 @@ class _PreviewPanel:
                                         feedback_begin, len(all_candidates)
                                     ),
                                 )
+                        final_gate = coarse_tool_gate(screen)
+                        _desktop_debug_event(
+                            "FAST_COARSE_TOOL_GATE_FINAL",
+                            report=final_gate.to_dict(),
+                            excluded_rows=sum(
+                                item.failed_transition in set(
+                                    final_gate.forbidden_transitions
+                                ) for item in screen.checks
+                            ),
+                        )
                         self._last_fast_shortlist_screen_report = screen
                         postprocess_elapsed = (
                             time.perf_counter() - postprocess_started
@@ -4550,6 +4596,8 @@ class _PreviewPanel:
                             "Сторон контура: {}, отдельных поисков: {}, "
                             "повторных постановок: {}, пропущено по бюджету: {}. "
                             "Дополнительный поиск после 2D: {} новых вариантов. "
+                            "Грубый отсев: {} подозрительных переходов, "
+                            "исключённых вариантов: {}. "
                             "Всего вариантов: {}. "
                             "Таблицу можно сортировать по заголовкам; "
                             "кандидаты не отклонены автоматически. "
@@ -4575,6 +4623,12 @@ class _PreviewPanel:
                                 if side_report is not None else "неизменно",
                                 (len(feedback_report.new_candidates)
                                  if feedback_report is not None else 0),
+                                len(final_gate.forbidden_transitions),
+                                sum(
+                                    item.failed_transition in set(
+                                        final_gate.forbidden_transitions
+                                    ) for item in screen.checks
+                                ),
                                 len(all_candidates),
                             )
                         )
