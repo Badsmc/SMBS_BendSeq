@@ -52,6 +52,21 @@ class FastSearchGUIContracts(unittest.TestCase):
         self.assertNotIn("dialog.exec_()", body)
         self.assertNotIn("controller.reorder_operations(", body)
 
+    def test_bounded_2d_runs_after_fast_dialog_and_preserves_source_indices(self):
+        chooser = function("_run_fast_sequence_search")
+        self.assertIn("screen_fast_shortlist(", chooser)
+        self.assertIn("budget_seconds=3.0", chooser)
+        self.assertIn("QtCore.QTimer.singleShot(0, check_fast_shortlist_2d)", chooser)
+        self.assertLess(
+            chooser.index("dialog.open()"),
+            chooser.index("QtCore.QTimer.singleShot(0, check_fast_shortlist_2d)"),
+        )
+        self.assertIn("displayed_indices[:] = screen_report.ranked_indices", chooser)
+        self.assertIn("displayed_indices[row]", chooser)
+        self.assertIn("selected = report.candidates[index]", chooser)
+        self.assertIn('"FAST_SHORTLIST_2D_SCREEN"', chooser)
+        self.assertIn('setObjectName("SMBS_FastShortlist2DScreen")', chooser)
+
     def test_never_auto_apply_candidate(self):
         chooser = function("_run_fast_sequence_search")
         dialog_close = chooser.index("dialog.finished.connect(on_finished)")
