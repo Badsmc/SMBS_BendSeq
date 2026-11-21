@@ -54,7 +54,8 @@ def _parse_tool_contact(issue: str):
     # The first segment includes the operation prefix (e.g. B01:tool=PUNCH).
     for chunk in str(issue).split(";"):
         if "=" in chunk:
-            name, value = chunk.rsplit(":", 1)[-1].split("=", 1)
+            key, value = chunk.split("=", 1)
+            name = key.rsplit(":", 1)[-1]
             if name in ("tool", "phase", "component", "contact"):
                 fields[name] = value
     return fields
