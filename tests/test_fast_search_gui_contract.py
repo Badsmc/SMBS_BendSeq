@@ -174,7 +174,7 @@ class FastSearchGUIContracts(unittest.TestCase):
         chooser = function("_run_fast_sequence_search")
         self.assertIn("def log_template_2d_replay(stage, current_screen)", chooser)
         self.assertIn('"FAST_TEMPLATE_2D_REPLAY"', chooser)
-        self.assertIn('"current_tooling":', chooser)
+        self.assertIn("current_tooling=dict(current_tools)", chooser)
         self.assertIn('"sampled_clear_prefix":', chooser)
         self.assertIn('"first_issue":', chooser)
         self.assertIn('log_template_2d_replay("INITIAL", screen)', chooser)
