@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from itertools import permutations
-from math import atan2, hypot, isfinite, pi
+from math import atan2, hypot, isfinite, pi, cos, radians
 from typing import Sequence
 
 
@@ -46,12 +46,109 @@ def _distance_to_segment(point, a, b):
     return hypot(point[0] - a[0] - t * ux, point[1] - a[1] - t * uy)
 
 
-def simplified_outer_sides(outline_xy: Sequence, *, max_sides: int = 24):
-    """Return meaningful straight perimeter sides, eliminating split edges.
+def _inside_polygon(point, polygon):
+    """Even/odd polygon test for choosing outward CAD-edge normals."""
+    x, y = point
+    inside = False
+    for i, (ax, ay) in enumerate(polygon):
+        bx, by = polygon[(i + 1) % len(polygon)]
+        if (ay > y) != (by > y):
+            cut = ax + (y - ay) * (bx - ax) / (by - ay)
+            if x < cut:
+                inside = not inside
+    return inside
 
-    Degenerate/nonfinite contours fail explicitly; caller can retain original
-    FAST candidates. Small drawing tessellation/chamfers are simplified using
-    0.5% of drawing diagonal while retaining real long edges.
+
+def _cad_edge_sides(outline_xy, edge_polylines, diag):
+    """Keep EVERY real outer CAD edge, splitting curved ones into 12° spans.
+
+    A circular edge has infinitely many tangent directions, so it is sampled
+    by curvature. A genuine short straight edge is never swallowed by a
+    neighboring edge. The output retains source CAD edge order and avoids a
+    hard 4/6/24-side assumption.
+    """
+    tol = max(1e-7, diag * 1e-9)
+    test_dist = max(0.005, min(0.2, diag * 0.00005))
+    edges = []
+    signed_area = sum(
+        outline_xy[i][0]*outline_xy[(i+1)%len(outline_xy)][1]
+        - outline_xy[(i+1)%len(outline_xy)][0]*outline_xy[i][1]
+        for i in range(len(outline_xy))
+    )
+    if abs(signed_area) < tol:
+        return ()
+    winding = 1.0 if signed_area > 0.0 else -1.0
+    for source in edge_polylines:
+        try:
+            raw = [(float(p[0]), float(p[1])) for p in source]
+        except (ValueError, TypeError, IndexError):
+            return ()
+        if not all(isfinite(v) for pt in raw for v in pt):
+            return ()
+        pts = []
+        for p in raw:
+            if not pts or hypot(p[0]-pts[-1][0], p[1]-pts[-1][1]) > tol:
+                pts.append(p)
+        if len(pts) < 2:
+            continue
+        # A true CAD Edge can itself be curved. One section is enough for
+        # a straight edge; otherwise use direction changes to sample the
+        # entire curved boundary, including its extremities.
+        straight = (
+            hypot(pts[-1][0]-pts[0][0], pts[-1][1]-pts[0][1]) > tol
+            and all(_distance_to_segment(p, pts[0], pts[-1])
+                    <= max(tol * 10, diag * 1e-6) for p in pts)
+        )
+        sections = []
+        if straight:
+            sections.append(pts)
+        else:
+            start = 0
+            for i in range(2, len(pts)):
+                dx0,dy0 = pts[start+1][0]-pts[start][0], pts[start+1][1]-pts[start][1]
+                dx1,dy1 = pts[i][0]-pts[i-1][0], pts[i][1]-pts[i-1][1]
+                len0,len1 = hypot(dx0,dy0),hypot(dx1,dy1)
+                if len0 <= tol or len1 <= tol:
+                    continue
+                if (dx0*dx1+dy0*dy1)/(len0*len1) < cos(radians(12)):
+                    sections.append(pts[start:i])
+                    start = i-1
+            if start < len(pts)-1:
+                sections.append(pts[start:])
+        for section in sections:
+            a,b = section[0], section[-1]
+            dx,dy = b[0]-a[0], b[1]-a[1]
+            length = hypot(dx,dy)
+            if length <= tol:
+                continue
+            # Use a real sampled boundary point for the outside test; the
+            # chord midpoint of an arc may lie off its physical contour.
+            mid_pt = section[len(section)//2]
+            tangent = (dx/length,dy/length)
+            nx,ny = -tangent[1],tangent[0]
+            test_plus = _inside_polygon(
+                (mid_pt[0]+test_dist*nx,mid_pt[1]+test_dist*ny),
+                outline_xy)
+            test_minus = _inside_polygon(
+                (mid_pt[0]-test_dist*nx,mid_pt[1]-test_dist*ny),
+                outline_xy)
+            if test_plus != test_minus:
+                if test_plus:
+                    nx,ny = -nx,-ny
+            elif winding > 0:
+                nx,ny = tangent[1],-tangent[0]
+            edges.append((a,b,mid_pt,(nx,ny)))
+    return tuple(edges)
+
+
+def simplified_outer_sides(outline_xy: Sequence, *, max_sides: int | None = None,
+                           outer_edge_polylines_xy=None):
+    """Enumerate the actual unfolded perimeter, never a bounding rectangle.
+
+    Prefer the original exterior CAD edges when supplied; only straight
+    collinear sampling points may collapse. Curved CAD edges are sampled
+    by local tangent rotation. There is no default numerical side limit.
+    max_sides is an optional strict validation threshold, not truncation.
     """
     try:
         raw = [(float(p[0]), float(p[1])) for p in outline_xy]
@@ -74,8 +171,15 @@ def simplified_outer_sides(outline_xy: Sequence, *, max_sides: int = 24):
         pts.pop()
     if len(pts) < 3:
         return ()
-    tolerance = max(0.02, 0.005 * diag)
-    short_edge = min(0.02 * diag, 2.5)
+    if outer_edge_polylines_xy is not None:
+        real_edges = _cad_edge_sides(pts, outer_edge_polylines_xy, diag)
+        if max_sides is not None and len(real_edges) > max_sides:
+            raise ValueError("Exterior contour exceeds explicit max_sides")
+        return real_edges
+    # Fallback for non-CAD callers: remove only numerically collinear
+    # tessellation points. Never swallow a real short chamfer or notch.
+    tolerance = max(1e-7, diag * 1e-7)
+    short_edge = 0.0
     # Iterative vertex removal is deterministic and never reorders vertices.
     for _ in range(len(pts) * 2):
         changed = False
@@ -97,8 +201,10 @@ def simplified_outer_sides(outline_xy: Sequence, *, max_sides: int = 24):
                 break
         if not changed:
             break
-    if not (3 <= len(pts) <= max_sides):
+    if len(pts) < 3:
         return ()
+    if max_sides is not None and len(pts) > max_sides:
+        raise ValueError("Exterior contour exceeds explicit max_sides")
     signed_area = sum(
         pts[i][0]*pts[(i+1)%len(pts)][1] -
         pts[(i+1)%len(pts)][0]*pts[i][1]
@@ -120,14 +226,17 @@ def simplified_outer_sides(outline_xy: Sequence, *, max_sides: int = 24):
     return tuple(edges)
 
 
-def forced_side_seeds(outline_xy, operations, fold_state, *, per_side_starts=2):
+def forced_side_seeds(outline_xy, operations, fold_state, *, per_side_starts=2,
+                      outer_edge_polylines_xy=None):
     """Give every outer side its own explicitly forced first-bend search.
 
     If no bend is approximately parallel to a side, a proximity fallback
     is marked axis_aligned=False. This is *not* an assertion that loading
     from that side is physically possible.
     """
-    edges = simplified_outer_sides(outline_xy)
+    edges = simplified_outer_sides(
+        outline_xy, outer_edge_polylines_xy=outer_edge_polylines_xy,
+    )
     if not edges:
         return ()
     entries = []
@@ -168,11 +277,10 @@ def forced_side_seeds(outline_xy, operations, fold_state, *, per_side_starts=2):
         )
         side_names = {i:compass[best[i]][0] for i in range(4)}
     else:
-        # Stable order from the +X normal, counterclockwise in flat XY.
-        ordered = sorted(range(len(edges)),
-                         key=lambda i: atan2(edges[i][3][1],
-                                             edges[i][3][0]) % (2*pi))
-        side_names = {i:"SIDE_"+str(rank+1) for rank,i in enumerate(ordered)}
+        # Preserve the actual source exterior CAD edge order. Unlike
+        # sorting solely by normal direction, this distinguishes separate
+        # edges of notches and stair-stepped outlines with equal normals.
+        side_names = {i:"SIDE_"+str(i+1) for i in range(len(edges))}
 
     seeds=[]
     for i,(a,b,midpoint,normal) in enumerate(edges):
