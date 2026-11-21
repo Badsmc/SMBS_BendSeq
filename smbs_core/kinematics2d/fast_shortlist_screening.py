@@ -167,10 +167,21 @@ def _probe_existing_stage_b(
         # Preserve which real tool and sheet component collided, and in
         # which phase. The FAST collision gate may reject only *gross*
         # PUNCH/DIE material penetrations, never ambiguous 2D contacts.
-        hit = next((
+        collisions = [
             row for row in getattr(report, "diagnostic_findings", ())
             if len(row) >= 5 and row[3] == "INTERFERENCE"
-        ), None)
+        ]
+        # Prefer an obstruction caused by an OTHER (already formed)
+        # panel. Current tool contact on the active bending zone or
+        # active flange can be required for the forming operation.
+        # Names may be P09 or panel:P09, depending on the section source.
+        hit = next((
+            row for row in collisions
+            if row[2].startswith("panel:")
+            or (row[2].startswith("P")
+                and row[2][1:].isdigit())
+            or row[2].startswith("other_zone:")
+        ), collisions[0] if collisions else None)
         if hit is not None:
             phase, tool, component, _status, reason = hit[:5]
             tool_note = "tool={};phase={};component={};contact={}".format(
