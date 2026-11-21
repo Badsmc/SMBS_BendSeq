@@ -67,6 +67,19 @@ class FastSearchGUIContracts(unittest.TestCase):
         self.assertIn('"FAST_SHORTLIST_2D_SCREEN"', chooser)
         self.assertIn('setObjectName("SMBS_FastShortlist2DScreen")', chooser)
 
+    def test_all_outer_sides_feedback_research_and_correct_index(self):
+        chooser = function("_run_fast_sequence_search")
+        self.assertIn("search_all_outer_sides(", chooser)
+        self.assertIn("outline_vertices_xy", chooser)
+        self.assertIn("fixed_orientations=pinned", chooser)
+        self.assertIn('"FAST_FORCED_ALL_SIDES_RESULT"', chooser)
+        self.assertIn("all_candidates.append(found.candidate)", chooser)
+        self.assertIn("transition_cache=screen_cache", chooser)
+        self.assertIn("selected = all_candidates[index]", chooser)
+        self.assertIn("displayed_indices[row]", chooser)
+        self.assertIn("choices.setCurrentRow(0)", chooser)
+        self.assertIn('"FAST_SHORTLIST_2D_SCREEN_INITIAL"', chooser)
+
     def test_never_auto_apply_candidate(self):
         chooser = function("_run_fast_sequence_search")
         dialog_close = chooser.index("dialog.finished.connect(on_finished)")
