@@ -88,7 +88,9 @@ class FastSearchGUIContracts(unittest.TestCase):
         chooser = function("_run_fast_sequence_search")
         self.assertIn("QtWidgets.QTableWidget(dialog)", chooser)
         self.assertIn('setObjectName("SMBS_FastCandidateTable")', chooser)
-        for column in ('"№"', '"2D"', '"Вес"', '"Старт"',
+        self.assertIn("choices.setColumnCount(11)", chooser)
+        self.assertIn("check.clear_prefix_steps", chooser)
+        for column in ('"№"', '"2D"', '"Вес"', '"2D гибов"', '"Старт"',
                        '"1-й гиб"', '"180°"', '"2D штраф"',
                        '"Порядок"', '"Причина"'):
             self.assertIn(column, chooser)
