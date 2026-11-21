@@ -257,13 +257,8 @@ def screen_fast_shortlist(
             elif (tooling is None or getattr(tooling, "punch", None) is None
                   or getattr(tooling, "die", None) is None):
                 status, issue = "NO_TOOLING", "select_punch_and_die_for_2d_screen"
-            elif clock() >= deadline:
-                status, issue = "BUDGET_EXCEEDED", "shortlist_budget_exhausted"
             else:
                 for oid in candidate.operation_ids:
-                    if clock() >= deadline:
-                        status, issue = "BUDGET_EXCEEDED", "shortlist_budget_exhausted"
-                        break
                     op = by_id[oid]
                     reverse = candidate.orientations()[oid]
                     cache_key = (tuple(sorted(done_angles.items())), op.bend_id, reverse)
@@ -272,6 +267,15 @@ def screen_fast_shortlist(
                         cached += 1
                         cache_hits += 1
                     else:
+                        # After the cooperative deadline, cached decisions
+                        # can still reconstruct a known 2D verdict without
+                        # doing geometry. Missing transitions must not run.
+                        if clock() >= deadline:
+                            status, issue = (
+                                "BUDGET_EXCEEDED",
+                                "shortlist_budget_exhausted",
+                            )
+                            break
                         fold_state.reset_all()
                         for bend_id, angle in done_angles.items():
                             fold_state.set_angle(bend_id, angle)
