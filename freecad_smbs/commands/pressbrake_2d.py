@@ -4204,6 +4204,9 @@ class _PreviewPanel:
                     "SMBS_FastShowCoarseRejected"
                 )
                 show_rejected.setChecked(False)
+                coarse_status = QtWidgets.QLabel(dialog)
+                coarse_status.setObjectName("SMBS_FastCoarseGateStatus")
+                coarse_status.setWordWrap(True)
 
                 def populate_fast_choices(screen_report=None):
                     previous = selected_source_index()
@@ -4235,6 +4238,27 @@ class _PreviewPanel:
                         )
                     choices.setSortingEnabled(False)
                     choices.setRowCount(len(order))
+                    if screen_report is None:
+                        coarse_status.setText(
+                            "Предварительная проверка пуансона и матрицы "
+                            "ещё не выполнена."
+                        )
+                    elif not order and not show_rejected.isChecked():
+                        coarse_status.setText(
+                            "Не найдено ни одной последовательности без "
+                            "обнаруженного грубого 2D-препятствия. "
+                            "Показаны 0 вариантов: это НЕ означает, "
+                            "что деталь невозможно согнуть. "
+                            "Можно открыть отклонённые варианты "
+                            "для диагностики или изменить оснастку."
+                        )
+                    else:
+                        coarse_status.setText(
+                            "Показано {} из {} кандидатов. "
+                            "Отсев предварительный; 3D НЕ ПРОВЕРЕНО.".format(
+                                len(order), len(all_candidates)
+                            )
+                        )
                     for row, source_index in enumerate(order):
                         candidate = all_candidates[source_index]
                         check = (
@@ -4351,6 +4375,7 @@ class _PreviewPanel:
                 )
                 legend.setWordWrap(True)
                 layout.addWidget(legend)
+                layout.addWidget(coarse_status)
                 layout.addWidget(show_rejected)
                 show_rejected.toggled.connect(
                     lambda *_: populate_fast_choices(
