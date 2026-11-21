@@ -47,6 +47,16 @@ class CoarseToolGateTests(unittest.TestCase):
         self.assertEqual(result.observed_obstructions[1]["tool"], "DIE")
         self.assertTrue(result.to_dict()["provisional_only"])
 
+    def test_actual_smbs_component_id_p09_is_accepted(self):
+        # SMBS Stage B machine_section_3d reports other rigid panels
+        # as bare IDs (P09), not necessarily the prefixed panel:P09.
+        gate = coarse_tool_gate(fake_screen(
+            hit("B04", "PUNCH", "BENDING", "P09",
+                "proper_material_boundary_crossing", False, 8),
+        ))
+        self.assertEqual(gate.forbidden_transitions, ((8,"B04",False),))
+        self.assertEqual(gate.observed_obstructions[0]["component"],"P09")
+
     def test_retract_touch_uncertain_backgauge_or_active_zone_is_not_gated(self):
         checks = (
             hit("B01", phase="RETRACT"),
