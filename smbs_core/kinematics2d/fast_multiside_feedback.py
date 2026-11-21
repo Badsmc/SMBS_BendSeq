@@ -10,6 +10,7 @@ machine setup. All returned plans remain UNVERIFIED_3D.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from collections import Counter
 from math import isfinite
 from time import perf_counter
 
@@ -273,10 +274,11 @@ def search_feedback_recovery(
     """Explore alternatives after expanded-list Stage B reports obstructions.
 
     Each failed 2D transition contributes an exact-state soft penalty.
-    For each distinct failing operation, retry the same initial bend with
-    the *opposite* orientation of that failing operation. User-pinned
-    choices are never overridden. This deliberately restarts beam search
-    instead of only sorting the original shortlist.
+    Retry some single-bend 180 flips and also synchronized flip pairs/
+    triples from the most frequently obstructed operations. This is
+    important when every single-flip solution merely fails on the NEXT
+    unchanged 0-degree operation. User-pinned choices are never overridden.
+    The search is an advisory bounded experiment, not a 3D safety pass.
 
     All solutions remain provisional, as a 2D finding may be false-positive
     and a sampled-clear path cannot prove continuous machine clearance.
@@ -344,7 +346,39 @@ def search_feedback_recovery(
             diverse.append(by_start[start_id].pop(0))
             if not by_start[start_id]:
                 del by_start[start_id]
-    cases = diverse[:max_cases]
+    # Multiple different already formed flanges may collide in
+    # successive stages. Reserve a few bounded searches for combined
+    # 0/180 repairs rather than always flipping only the first blocker.
+    counts = Counter((failed,reverse) for _,failed,reverse in cases)
+    ranked_failures = []
+    used_bends = set()
+    for (failed,reverse),count in sorted(
+            counts.items(),
+            key=lambda item:(-item[1], item[0][0], item[0][1])):
+        if failed not in used_bends and failed not in pins:
+            ranked_failures.append((failed,reverse))
+            used_bends.add(failed)
+    combos = []
+    if len(ranked_failures) >= 2:
+        leaders = ranked_failures[:5]
+        for i in range(min(3,len(leaders)-1)):
+            combos.append((
+                diverse[i % len(diverse)][0],
+                tuple(leaders[:i+2]),
+            ))
+    reserved = min(len(combos),max(0,max_cases-1))
+    singles = [
+        (first,((failed,reverse),))
+        for first,failed,reverse in diverse[:max_cases-reserved]
+    ]
+    cases = []
+    if singles:
+        cases.append(singles.pop(0))
+    for combined in combos[:reserved]:
+        cases.append(combined)
+        if singles and len(cases) < max_cases:
+            cases.append(singles.pop(0))
+    cases.extend(singles[:max_cases-len(cases)])
     seen = {
         (c.operation_ids, c.orientation_by_operation)
         for c in candidates
@@ -352,13 +386,19 @@ def search_feedback_recovery(
     new = []
     attempted = []
     pruned_total = 0
-    for i, (first, failed, reverse) in enumerate(cases):
+    for i, (first, flips) in enumerate(cases):
+        failed, reverse = flips[0]
+        flip_info = [
+            {"operation_id": op, "reverse_axis": pose}
+            for op,pose in flips
+        ]
         remaining = budget_seconds - (clock()-start)
         if remaining <= 0.012:
             attempted.append({
                 "first": first, "flipped_operation": failed,
-                "new_reverse_axis": reverse, "status": "BUDGET_EXCEEDED",
-                "new_candidates": 0,
+                "new_reverse_axis": reverse,
+                "coordinated_flips": flip_info,
+                "status": "BUDGET_EXCEEDED", "new_candidates": 0,
             })
             continue
         per_case = min(0.75, remaining / (len(cases)-i))
@@ -369,7 +409,7 @@ def search_feedback_recovery(
                 "new_candidates": 0,
             })
             continue
-        extra_pins = {**pins, failed: reverse}
+        extra_pins = {**pins, **dict(flips)}
         try:
             result = search_fn(
                 fold_state, ops,
@@ -387,7 +427,9 @@ def search_feedback_recovery(
         except (ValueError, TypeError) as exc:
             attempted.append({
                 "first": first, "flipped_operation": failed,
-                "new_reverse_axis": reverse, "status": "SEARCH_ERROR",
+                "new_reverse_axis": reverse,
+                "coordinated_flips": flip_info,
+                "status": "SEARCH_ERROR",
                 "reason": type(exc).__name__ + ":" + str(exc),
                 "new_candidates": 0,
             })
@@ -403,12 +445,14 @@ def search_feedback_recovery(
             seen.add(key)
             count += 1
             new.append(SideSearchCandidate(
-                candidate, "FLIP_" + failed, False,
+                candidate,
+                "FLIP_" + "+".join(op for op,_ in flips), False,
             ))
         attempted.append({
             "first": first,
             "flipped_operation": failed,
             "new_reverse_axis": reverse,
+            "coordinated_flips": flip_info,
             "status": result.status,
             "elapsed_seconds": round(result.elapsed_seconds, 5),
             "new_candidates": count,
