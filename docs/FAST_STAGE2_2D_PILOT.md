@@ -2,6 +2,21 @@
 
 Branch: `fix/fast-axis-soft-penalty-20261120`
 
+## Saved operator recipes and 2D replay evidence
+
+Exact-matching, operator-recorded bend templates are considered candidate
+seeds, **not collision certificates**. A template can be preserved and shown
+even when Stage B reports a provisional obstacle, so that a known operator
+sequence can expose incorrect machine pose modeling rather than be discarded.
+
+The `FAST_TEMPLATE_MATCH` event reports stored shape matches.
+`FAST_TEMPLATE_2D_REPLAY` is emitted with `stage=INITIAL` and
+`stage=FINAL` for each matching candidate, including the operation order,
+orientation per bend, selected punch/die IDs, sampled-clear prefix,
+first tool/phase/panel obstruction and `3D_UNVERIFIED` evidence. When an
+operator-known solution conflicts with Stage B, investigate the machine
+placement and offending 2D section before treating it as an impossible bend.
+
 ## Intent
 
 Keep the initial FAST Beam Search independent of native geometry; its GUI budget is now 30 seconds (previously 1 second).
