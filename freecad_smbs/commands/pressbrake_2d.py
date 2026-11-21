@@ -4234,6 +4234,24 @@ class _PreviewPanel:
                 _desktop_debug_event(
                     "FAST_SEARCH_RESULT", report=report.to_dict()
                 )
+                _desktop_debug_event(
+                    "FAST_PROXY_TOOL_SUMMARY",
+                    available=report.proxy_tool_available,
+                    tool_ids={
+                        "punch": str(getattr(
+                            getattr(self.tooling_setup,"punch",None),
+                            "tool_id","",
+                        )),
+                        "die": str(getattr(
+                            getattr(self.tooling_setup,"die",None),
+                            "tool_id","",
+                        )),
+                    },
+                    checked_transitions=report.proxy_tool_checks,
+                    penalized_transitions=report.proxy_tool_penalized,
+                    findings=list(report.proxy_tool_findings),
+                    scope="SIMPLIFIED_SELECTED_2D_PROFILES_SOFT_ONLY",
+                )
                 if not report.candidates and not template_hits:
                     self.status.setText(
                         "FAST: кандидаты не найдены за {:.3f} с. "
