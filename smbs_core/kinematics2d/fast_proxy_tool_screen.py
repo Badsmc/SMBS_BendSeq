@@ -13,7 +13,7 @@ continuous press cycle and must never become a safety certificate.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from math import hypot, isfinite
+from math import hypot, isfinite, radians, cos, tan
 from time import perf_counter
 from types import SimpleNamespace
 from collections.abc import Mapping
@@ -37,6 +37,8 @@ class ProxyTools:
     die: ProxyTool
     simplification_mm: float
     tolerance_mm: float
+    die_opening_mm: float | None = None
+    die_shoulder_radius_mm: float | None = None
 
 
 @dataclass(frozen=True)
@@ -140,10 +142,40 @@ def prepare_proxy_tools(tooling, *, simplification_mm=0.35,
                 tuple(simplify_tool_ring(h,simplification_mm)
                       for h in holes),
             )
-        return ProxyTools(prepare(punch,"PUNCH"),prepare(die,"DIE"),
-                          float(simplification_mm),float(tolerance_mm))
+        # A real mid-stroke coordinate can be derived only from *verified*
+        # selected die shoulder geometry, not from a generic V=32 default.
+        datums=getattr(die,"die_datums",None)
+        v=getattr(datums,"v_opening_mm",None)
+        shoulder=getattr(datums,"shoulder_radius_mm",None)
+        real_kinematics = (
+            type(v) in (int,float) and type(shoulder) in (int,float)
+            and isfinite(v) and isfinite(shoulder)
+            and v>0 and shoulder>0
+        )
+        return ProxyTools(
+            prepare(punch,"PUNCH"),prepare(die,"DIE"),
+            float(simplification_mm),float(tolerance_mm),
+            float(v) if real_kinematics else None,
+            float(shoulder) if real_kinematics else None,
+        )
     except (ValueError,TypeError,IndexError,AttributeError):
         return None
+
+
+def _sampled_ram_stroke(degrees, outer_radius, tools):
+    """Same air-bend stroke relationship as Stage B, with no defaults."""
+    if (tools.die_opening_mm is None
+            or tools.die_shoulder_radius_mm is None):
+        return None
+    beta=radians(min(175.0,abs(float(degrees)))*0.5)
+    cb=cos(beta)
+    if cb<=1e-5:
+        return None
+    return max(0.0,
+        (tools.die_opening_mm*0.5)*tan(beta)
+        - (outer_radius+tools.die_shoulder_radius_mm)
+          * ((1.0-cb)/cb)
+    )
 
 
 def _translated(points, z):
@@ -210,11 +242,15 @@ def screen_proxy_transition(fold_state, panel_vertices_xy, operations,
         if start_angle*target<0 or abs(start_angle)>abs(target)+1e-8:
             return ProxyFinding("UNKNOWN",reason="staged_angle_mismatch")
         samples=0
-        # Constant die datum Z=0. The punch tip starts above the material
-        # by selected clearance, then reaches a nominal contact-level pose.
-        # The mid-bend stroke is NOT a true ram schedule; Stage B supplies
-        # the later, more precise independent section check.
-        for phase,fraction in (("APPROACH",0.0),("BENDING_MID",0.5)):
+        # Match Stage B's physical setup: an APPROACH pose is aligned to
+        # the flat fixed flange (NOT the changing fold bisector), whereas
+        # BENDING follows the bisector with both sheet and punch lowered
+        # by the nominal contact stroke from the selected die datums.
+        phases=[("APPROACH",0.0)]
+        if (tools.die_opening_mm is not None
+                and tools.die_shoulder_radius_mm is not None):
+            phases.append(("BENDING_MID",0.5))
+        for phase,fraction in phases:
             if deadline is not None and clock()>=deadline:
                 return ProxyFinding("TIME_BUDGET",samples=samples)
             curr=dict(angles)
@@ -224,14 +260,23 @@ def screen_proxy_transition(fold_state, panel_vertices_xy, operations,
                 fixed_panel=fold_state.fixed_panel,angles=curr,
                 transforms=fold_state._compute_transforms(curr),
             )
+            current_angle=curr[active.bend_id]
+            stroke=0.0 if phase=="APPROACH" else _sampled_ram_stroke(
+                current_angle,outer_radius,tools,
+            )
+            if stroke is None or not isfinite(stroke):
+                return ProxyFinding(
+                    "UNKNOWN",reason="selected_die_stroke_unavailable",
+                    samples=samples,
+                )
             placement=WorkpiecePlacement3D.compute_placement(
                 view,active.bend_id,
-                support_plane_zm=outer_radius,
-                align_bisector=True,
+                support_plane_zm=outer_radius-stroke,
+                align_bisector=(phase!="APPROACH"),
                 align_bend_arc_center=True,
                 reverse_axis=reverse_axis,
             )
-            punch_z=thickness+(
+            punch_z=thickness-stroke+(
                 clearance_mm if phase=="APPROACH" else 0.0
             )
             for panel_id in fold_state.graph.panels:
