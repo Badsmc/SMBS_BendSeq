@@ -4277,10 +4277,15 @@ class _PreviewPanel:
                                 self.session.panel_build,
                                 "outline_vertices_xy", (),
                             )
+                            outer_cad_edges = getattr(
+                                self.session.panel_build,
+                                "outline_edge_polylines_xy", (),
+                            )
                             side_report = search_all_outer_sides(
                                 self.session.fold_state, operations,
                                 tuple(all_candidates), outer_outline,
                                 self.session.panel_vertices_xy,
+                                outer_edge_polylines_xy=outer_cad_edges,
                                 fixed_orientations=pinned,
                                 weights=self._selected_operation_weights().to_dict(),
                                 screen=screen,
@@ -4340,7 +4345,9 @@ class _PreviewPanel:
                             "FAST: {:.3f} с. Проверка 2D: {:.3f} с, "
                             "проб {}, кеш {}, предварительно без 2D-пересечений "
                             "{}, с 2D-препятствиями {}. "
-                            "Сторон исследовано: {}. Всего вариантов: {}. "
+                            "Сторон контура: {}, отдельных поисков: {}, "
+                            "повторных постановок: {}, пропущено по бюджету: {}. "
+                            "Всего вариантов: {}. "
                             "Кандидаты пересортированы, но НЕ отклонены. "
                             "Оснастка по длине, зажимы, контакт CAD-упора, "
                             "полная траектория и 3D-коллизии НЕ подтверждены."
@@ -4349,7 +4356,18 @@ class _PreviewPanel:
                                 screen.actual_probes, screen.cache_hits,
                                 clear, interferences,
                                 len(side_report.side_findings) if side_report is not None
-                                else "повторная проверка",
+                                else "неизменно",
+                                sum(item.get("status") not in (
+                                    "BUDGET_EXCEEDED", "REUSED_EQUIVALENT_START",
+                                    "NO_FIRST_BEND_AVAILABLE")
+                                    for item in side_report.side_findings)
+                                if side_report is not None else "неизменно",
+                                sum(item.get("status") == "REUSED_EQUIVALENT_START"
+                                    for item in side_report.side_findings)
+                                if side_report is not None else "неизменно",
+                                sum(item.get("status") == "BUDGET_EXCEEDED"
+                                    for item in side_report.side_findings)
+                                if side_report is not None else "неизменно",
                                 len(all_candidates),
                             )
                         )
