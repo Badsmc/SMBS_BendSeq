@@ -88,6 +88,12 @@ def install(QtCore, QtWidgets):
                     record('QT_APPLICATION_QUIT', documents=list(App.listDocuments()))
                 if kind in (QtCore.QEvent.Close, QtCore.QEvent.DeferredDelete,
                             QtCore.QEvent.ParentChange):
+                    # QApplication event filters can see QEvent receivers
+                    # without a QObject API (e.g. PySide6 QWidgetItem).
+                    # Never let optional lifetime diagnostics raise during
+                    # widget teardown or FreeCAD application shutdown.
+                    if not isinstance(obj, QtCore.QObject):
+                        return False
                     name = obj.objectName()
                     if ('SMBS' in name or isinstance(obj, QtWidgets.QMdiSubWindow)):
                         record('QT_LIFETIME_EVENT', event_type=str(kind),
