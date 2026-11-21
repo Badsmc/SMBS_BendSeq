@@ -71,6 +71,8 @@ class FastSearchGUIContracts(unittest.TestCase):
         chooser = function("_run_fast_sequence_search")
         self.assertIn("search_all_outer_sides(", chooser)
         self.assertIn("outline_vertices_xy", chooser)
+        self.assertIn("outline_edge_polylines_xy", chooser)
+        self.assertIn("outer_edge_polylines_xy=outer_cad_edges", chooser)
         self.assertIn("fixed_orientations=pinned", chooser)
         self.assertIn('"FAST_FORCED_ALL_SIDES_RESULT"', chooser)
         self.assertIn("all_candidates.append(found.candidate)", chooser)
