@@ -71,6 +71,8 @@ class FastSearchReport:
     axis_screen_available: bool = False
     axis_screen_penalized: int = 0
     axis_screen_findings: tuple[dict, ...] = ()
+    coarse_2d_gated_edges: int = 0
+    coarse_2d_pruned_expansions: int = 0
 
     def to_dict(self) -> dict:
         return {
@@ -92,13 +94,18 @@ class FastSearchReport:
             "axis_screen_findings": [
                 dict(item) for item in self.axis_screen_findings
             ],
+            "coarse_2d_gated_edges": self.coarse_2d_gated_edges,
+            "coarse_2d_pruned_expansions": self.coarse_2d_pruned_expansions,
             "candidates": [candidate.to_dict() for candidate in self.candidates],
             "disclaimer": (
                 "FAST soft-penalizes persistent gross *dominant-panel* "
                 "misplacement across machine Y=0; local axis crossings "
                 "are allowed. A suspect pose may originate in simulator "
                 "placement, not bend order. No continuous 3D or tool-solid "
-                "collision check; all candidates remain UNVERIFIED."
+                "collision check; coarse 2D PUNCH/DIE penetration "
+                "gating may exclude selected pose transitions, not physical "
+                "bend IDs or prove 3D impossibility. All remaining "
+                "candidates remain UNVERIFIED."
             ),
         }
 
@@ -261,6 +268,7 @@ def search_fast_candidates(
     forced_first_operation_ids: Sequence[str] | None = None,
     forced_first_reverse: Mapping[str, bool] | None = None,
     transition_penalties: Mapping[tuple[int, str, bool], float] | None = None,
+    forbidden_transitions: Sequence[tuple[int, str, bool]] | None = None,
     clock=perf_counter,
 ) -> FastSearchReport:
     """Return probable (never physically certified) bend operation orders.
@@ -313,6 +321,17 @@ def search_fast_candidates(
             or (allowed_starts is not None
                 and not set(first_reverse).issubset(allowed_starts))):
         raise FastSearchError("Forced first orientation requires valid start operations")
+    forbidden = set()
+    for item in tuple(forbidden_transitions or ()):
+        if (not isinstance(item, tuple) or len(item) != 3
+                or type(item[0]) is not int or item[0] < 0
+                or item[0] >> len(operations)
+                or item[1] not in by_id or type(item[2]) is not bool):
+            raise FastSearchError(
+                "Invalid coarse 2D forbidden transition: expected "
+                "(completed_mask, operation_id, reverse_axis)"
+            )
+        forbidden.add((item[0], by_id[item[1]], item[2]))
     feedback_costs = {}
     for key, value in dict(transition_penalties or {}).items():
         if (not isinstance(key, tuple) or len(key) != 3
@@ -481,6 +500,7 @@ def search_fast_candidates(
     full_mask = (1<<len(operations))-1
     beam = [_Node(0,-1,False,(),(),0.0,0.0)]
     explored = expanded = duplicates = 0
+    coarse_pruned = 0
     exhausted = False
     for depth in range(len(operations)):
         if clock()-start >= limit_seconds:
@@ -506,6 +526,13 @@ def search_fast_candidates(
                                 else (False,True)):
                     if (node.mask == 0 and op.operation_id in first_reverse
                             and reverse != first_reverse[op.operation_id]):
+                        continue
+                    # These are *sampled* tool/material penetrations
+                    # observed in the SAME folded history and orientation.
+                    # Only the FAST search space is pruned. Unknown or
+                    # ambiguously touching states are never blacklisted.
+                    if (node.mask, index, reverse) in forbidden:
+                        coarse_pruned += 1
                         continue
                     if clock()-start >= limit_seconds:
                         exhausted = True
@@ -667,11 +694,16 @@ def search_fast_candidates(
         ) for n in selected
     )
     status = ("TIME_BUDGET_UNVERIFIED" if exhausted else
-              "CANDIDATES_UNVERIFIED" if results else "NO_CANDIDATES_UNVERIFIED")
+              "CANDIDATES_WITH_COARSE_2D_GATE_UNVERIFIED"
+              if results and forbidden else
+              "CANDIDATES_UNVERIFIED" if results else
+              "NO_CANDIDATES_AFTER_COARSE_2D_GATE_UNVERIFIED"
+              if forbidden else "NO_CANDIDATES_UNVERIFIED")
     return FastSearchReport(
         results,status,clock()-start,explored,expanded,duplicates,matrix_pairs,
         sum(bool(p) for p in prerequisites),limit_seconds,beam_width,
         axis_screen_checks,axis_screen_rejected,axis_screen_unknown,
         axis_screen_samples,axis_screen_available,
         axis_screen_penalized,tuple(axis_screen_findings),
+        len(forbidden),coarse_pruned,
     )
