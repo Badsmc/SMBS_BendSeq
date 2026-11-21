@@ -128,9 +128,15 @@ class TemplateTests(unittest.TestCase):
             self.assertEqual(path.read_text(),'{"schema":"unknown","templates":[]}')
 
     def test_nonmatching_mirror_is_not_automatically_accepted(self):
-        old=demo()
-        # Horizontal mirror changes physical handedness, not a rigid rotation.
-        state,steps,outline,panels=old
+        state,steps,outline,panels=demo()
+        # Make the geometry asymmetric before mirroring; a perfectly
+        # symmetric rectangular part can be equivalent under a 180 deg
+        # rigid rotation and MUST be allowed to match in that case.
+        panels=dict(panels)
+        first=list(panels["P0"])
+        first[-1]=(0.,71.)
+        panels["P0"]=tuple(first)
+        old=(state,steps,outline,panels)
         def reflect(p):
             return (-p[0],p[1])
         edges=[]
