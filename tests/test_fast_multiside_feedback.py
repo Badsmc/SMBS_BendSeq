@@ -69,6 +69,67 @@ class SideSeedTests(unittest.TestCase):
                          [f"SIDE_{i}" for i in range(1,7)])
         self.assertEqual(len({s.first_operation_ids[0] for s in seeds}),6)
 
+    def test_uses_every_true_cad_edge_even_collinear_and_small_chamfers(self):
+        # The five native edges contain two collinear authored CAD edges.
+        # Neither should silently disappear in the forced-side schedule.
+        outline=((0.,0.),(50.,0.),(100.,0.),(100.,99.8),
+                 (99.8,100.),(0.,100.))
+        cad=tuple((outline[i],outline[(i+1)%len(outline)])
+                  for i in range(len(outline)))
+        actual=simplified_outer_sides(
+            outline, outer_edge_polylines_xy=cad,
+        )
+        self.assertEqual(len(actual),6)
+        state,ops=sample_part(outline)
+        seeds=forced_side_seeds(
+            outline,ops,state,outer_edge_polylines_xy=cad,
+        )
+        self.assertEqual(len(seeds),6)
+        self.assertEqual([entry.name for entry in seeds],
+                         [f"SIDE_{i}" for i in range(1,7)])
+
+    def test_really_uses_more_than_twenty_four_sides(self):
+        n=30
+        outline=tuple(
+            (150*cos(2*pi*i/n),150*sin(2*pi*i/n)) for i in range(n)
+        )
+        cad=tuple((outline[i],outline[(i+1)%n]) for i in range(n))
+        self.assertEqual(len(simplified_outer_sides(
+            outline,outer_edge_polylines_xy=cad,
+        )),30)
+        state,ops=sample_part(outline)
+        seeds=forced_side_seeds(
+            outline,ops,state,outer_edge_polylines_xy=cad,
+        )
+        self.assertEqual(len(seeds),30)
+        self.assertEqual(len({entry.name for entry in seeds}),30)
+
+    def test_curved_cad_edge_sampled_by_direction_not_each_mesh_point(self):
+        quarter=tuple(
+            (100*cos((pi/2)*i/72),100*sin((pi/2)*i/72))
+            for i in range(73)
+        )
+        outline=((0.,0.),)+quarter
+        cad=(
+            ((0.,0.),(100.,0.)),
+            quarter,
+            ((0.,100.),(0.,0.)),
+        )
+        sides=simplified_outer_sides(
+            outline, outer_edge_polylines_xy=cad,
+        )
+        self.assertGreater(len(sides),3)
+        self.assertLess(len(sides),len(quarter))
+        self.assertTrue(all(
+            abs(side[3][0]**2+side[3][1]**2-1) < 1e-7
+            for side in sides
+        ))
+
+    def test_fallback_polygon_preserves_real_short_chamfer(self):
+        outline=((0.,0.),(100.,0.),(100.,99.8),
+                 (99.8,100.),(0.,100.))
+        self.assertEqual(len(simplified_outer_sides(outline)),5)
+
     def test_reverse_orientation_depends_on_which_outer_side_faces_operator(self):
         square=((-50.,-50.),(50.,-50.),(50.,50.),(-50.,50.))
         state,ops=sample_part(square)
