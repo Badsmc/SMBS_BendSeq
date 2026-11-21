@@ -56,6 +56,10 @@ class PanelBuildResult:
     generation_token: int = 0
     # Full unfolded outer boundary; retained independently of partition panels.
     outline_vertices_xy: tuple = ()
+    # Original exterior CAD edge segmentation: each item is a discretized
+    # polyline belonging to ONE real outer wire Edge. Retain short flanges,
+    # chamfers and concave notches; never derive sides from panel BBoxes.
+    outline_edge_polylines_xy: tuple = ()
 
 
 def _xy(p):
@@ -261,6 +265,21 @@ def partition_flat_pattern(outline_shape, canonical, lines, bends,
     except Exception as exc:
         raise PanelBuildError("Cannot discretize unfolded outer outline") from exc
     outline_vertices_xy = tuple((float(p.x), float(p.y)) for p in outline_points)
+    # Capture each authoritative exterior CAD Edge independently. The whole
+    # wire's sampling alone loses where one short true edge ends and another
+    # begins, and creates arbitrarily many synthetic edges along circular arcs.
+    outline_edge_polylines_xy = []
+    try:
+        for source_edge in outline_shape.Wires[0].Edges:
+            edge_points = source_edge.discretize(Deflection=0.05)
+            coords = tuple((float(p.x), float(p.y)) for p in edge_points)
+            if len(coords) < 2:
+                raise PanelBuildError("Exterior CAD edge has no sampled span")
+            outline_edge_polylines_xy.append(coords)
+    except PanelBuildError:
+        raise
+    except Exception as exc:
+        raise PanelBuildError("Cannot sample exterior CAD edges") from exc
     if len(outline_vertices_xy) < 3:
         raise PanelBuildError("Unfolded outer outline has insufficient points")
     try:
@@ -381,4 +400,5 @@ def partition_flat_pattern(outline_shape, canonical, lines, bends,
         tuple(zones),
         tuple(zone_faces),
         outline_vertices_xy=outline_vertices_xy,
+        outline_edge_polylines_xy=tuple(outline_edge_polylines_xy),
     )
