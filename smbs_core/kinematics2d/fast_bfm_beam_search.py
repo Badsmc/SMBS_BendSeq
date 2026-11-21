@@ -79,6 +79,7 @@ class FastSearchReport:
     proxy_tool_checks: int = 0
     proxy_tool_penalized: int = 0
     proxy_tool_findings: tuple[dict, ...] = ()
+    orientation_25d_findings: tuple[dict, ...] = ()
 
     def to_dict(self) -> dict:
         return {
@@ -106,6 +107,7 @@ class FastSearchReport:
             "proxy_tool_checks": self.proxy_tool_checks,
             "proxy_tool_penalized": self.proxy_tool_penalized,
             "proxy_tool_findings": [dict(f) for f in self.proxy_tool_findings],
+            "orientation_25d_findings": [dict(f) for f in self.orientation_25d_findings],
             "candidates": [candidate.to_dict() for candidate in self.candidates],
             "disclaimer": (
                 "FAST soft-penalizes persistent gross *dominant-panel* "
@@ -114,6 +116,8 @@ class FastSearchReport:
                 "placement, not bend order. No continuous 3D or tool-solid "
                 "collision check; simplified selected PUNCH/DIE profile "
                 "screening is a sampled SOFT penalty, not 3D clearance; "
+                "2.5D yaw/roll comparisons are diagnostic only; a roll "
+                "reversing the active punch-contact face is NOT feasible. "
                 "coarse 2D PUNCH/DIE penetration "
                 "gating may exclude selected pose transitions, not physical "
                 "bend IDs or prove 3D impossibility. All remaining "
@@ -470,6 +474,7 @@ def search_fast_candidates(
                 fold_state,panel_vertices_xy,operations,
                 key[0],key[1],key[2],proxy_tools,
                 deadline=axis_deadline,clock=clock,
+                full_angle_probe=True,
             )
             proxy_cache[key] = result
             proxy_checks += 1
@@ -745,6 +750,45 @@ def search_fast_candidates(
             break
         if n not in selected and n.path not in {x.path for x in selected}:
             selected.append(n)
+    # Explain suspected tool contacts for a *complete* FAST candidate.
+    # Legacy 2.5D has four view combinations: yaw 0/180 and roll 0/180.
+    # Only yaw is currently a valid automatic FAST operation.  Inverting
+    # the signed bend's punch-contact face must not improve its score.
+    # Limit diagnostic work to three suspect steps of the cheapest full
+    # candidate, and honor the same search deadline.
+    orientation_25d_findings = []
+    if selected and proxy_screen_available and not exhausted:
+        from .fast_proxy_tool_screen import diagnose_four_loading_poses
+        best_node=selected[0]
+        mask=0
+        suspect=[]
+        for depth,(index,reverse) in enumerate(
+                zip(best_node.path,best_node.reversed_flags)):
+            finding=proxy_cache.get((mask,index,reverse))
+            if finding is not None and finding.status=="POTENTIAL_INTERFERENCE":
+                suspect.append((mask,index,reverse,finding,depth))
+            mask |= 1<<index
+        # Highest penalty first, then most folded geometry, deterministically.
+        suspect.sort(key=lambda e:(-e[3].penalty,-e[4],e[1],e[2]))
+        for mask,index,reverse,finding,depth in suspect[:3]:
+            if clock()>=axis_deadline:
+                break
+            poses=diagnose_four_loading_poses(
+                fold_state,panel_vertices_xy,operations,
+                mask,index,proxy_tools,deadline=axis_deadline,clock=clock,
+            )
+            orientation_25d_findings.append({
+                "operation_id":operations[index].operation_id,
+                "bend_id":operations[index].bend_id,
+                "preceding_operations":[
+                    operation.operation_id for i,operation in enumerate(operations)
+                    if mask & (1<<i)
+                ],
+                "selected_reverse_axis":reverse,
+                "finding":finding.to_dict(),
+                "poses":[dict(row) for row in poses],
+                "evidence":"DIAGNOSTIC_2D_ONLY_NOT_3D_VERIFIED",
+            })
     results = tuple(
         FastCandidate(
             tuple(ids[i] for i in n.path),
@@ -773,4 +817,5 @@ def search_fast_candidates(
         len(forbidden),coarse_pruned,
         proxy_screen_available,
         proxy_checks,proxy_penalized,tuple(proxy_findings),
+        tuple(orientation_25d_findings),
     )
