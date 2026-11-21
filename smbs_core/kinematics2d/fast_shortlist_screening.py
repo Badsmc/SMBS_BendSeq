@@ -272,7 +272,16 @@ def screen_fast_shortlist(
                         except Exception as exc:
                             step_status = "PARTIAL_UNVERIFIED"
                             step_reason = "2d_probe_error:" + type(exc).__name__ + ":" + str(exc)
-                        memo[cache_key] = (step_status, step_reason)
+                        # Budget and setup failures are not repeatable
+                        # geometric evidence. In particular, a later 2D pass
+                        # must retry a transition that previously ran out of
+                        # time instead of inheriting BUDGET_EXCEEDED.
+                        if step_status in (
+                                "SAMPLED_2D_TOOLS_GAUGE_CLEAR",
+                                "SAMPLED_2D_TOOLS_ONLY",
+                                "POTENTIAL_2D_INTERFERENCE",
+                                "STATIC_TOOLING_BLOCK"):
+                            memo[cache_key] = (step_status, step_reason)
                         sampled += 1
                         probes += 1
                     if step_status == "SAMPLED_2D_TOOLS_ONLY":
