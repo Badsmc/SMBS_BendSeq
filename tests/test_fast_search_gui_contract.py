@@ -170,6 +170,17 @@ class FastSearchGUIContracts(unittest.TestCase):
         # provisional 2D-accepted order.
         self.assertIn("dialog.finished.connect(on_finished)", chooser)
 
+    def test_template_replay_reports_first_2d_obstruction_separately(self):
+        chooser = function("_run_fast_sequence_search")
+        self.assertIn("def log_template_2d_replay(stage, current_screen)", chooser)
+        self.assertIn('"FAST_TEMPLATE_2D_REPLAY"', chooser)
+        self.assertIn('"current_tooling":', chooser)
+        self.assertIn('"sampled_clear_prefix":', chooser)
+        self.assertIn('"first_issue":', chooser)
+        self.assertIn('log_template_2d_replay("INITIAL", screen)', chooser)
+        self.assertIn('log_template_2d_replay("FINAL", screen)', chooser)
+        self.assertIn("OPERATOR_RECIPE_2D_ADVISORY_3D_UNVERIFIED", chooser)
+
     def test_never_auto_apply_candidate(self):
         chooser = function("_run_fast_sequence_search")
         dialog_close = chooser.index("dialog.finished.connect(on_finished)")
