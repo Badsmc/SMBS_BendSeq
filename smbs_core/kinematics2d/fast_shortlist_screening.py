@@ -30,6 +30,9 @@ class ShortlistCandidateCheck:
     # Exact staged-state mask in the initial FAST operation ordering.
     # The mask is meaningful only with that same operations tuple.
     failed_transition: tuple[int, str, bool] | None = None
+    # Number of consecutive operations whose sampled tool-section verdict
+    # was CLEAR/TOUCH; never a count of physically 3D-certified bends.
+    clear_prefix_steps: int = 0
 
     def to_dict(self) -> dict:
         return {
@@ -37,6 +40,7 @@ class ShortlistCandidateCheck:
             "status": self.status,
             "sampled_steps": self.sampled_steps,
             "cached_steps": self.cached_steps,
+            "clear_prefix_steps": self.clear_prefix_steps,
             "first_issue": self.first_issue,
             "failed_transition": (
                 {"completed_mask": self.failed_transition[0],
@@ -316,6 +320,7 @@ def screen_fast_shortlist(
             checks[candidate_index] = ShortlistCandidateCheck(
                 tuple(candidate.operation_ids), status, sampled, cached,
                 issue, clock() - c_start, first_blocker,
+                len(done_angles),
             )
     finally:
         fold_state.angles.clear()
