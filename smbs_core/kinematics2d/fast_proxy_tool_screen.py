@@ -244,6 +244,7 @@ def screen_proxy_transition(fold_state, panel_vertices_xy, operations,
         if start_angle*target<0 or abs(start_angle)>abs(target)+1e-8:
             return ProxyFinding("UNKNOWN",reason="staged_angle_mismatch")
         samples=0
+        invalid_punch_face=False
         # Match Stage B's physical setup: an APPROACH pose is aligned to
         # the flat fixed flange (NOT the changing fold bisector), whereas
         # BENDING follows the bisector with both sheet and punch lowered
@@ -288,10 +289,7 @@ def screen_proxy_transition(fold_state, panel_vertices_xy, operations,
                 # away from the upper punch is useful for diagnostics ONLY.
                 # Do not accidentally report it as a feasible loading pose.
                 if upper_punch_face_score(view,active.bend_id,placement)<=1e-6:
-                    return ProxyFinding(
-                        "INVALID_PUNCH_FACE",reason="longitudinal_roll_180_reverses_signed_bend_contact",
-                        samples=samples,
-                    )
+                    invalid_punch_face=True
             punch_z=thickness-stroke+(
                 clearance_mm if phase=="APPROACH" else 0.0
             )
@@ -320,11 +318,24 @@ def screen_proxy_transition(fold_state, panel_vertices_xy, operations,
                     if status is ContactStatus.INTERFERENCE:
                         penalty=(700.0 if is_active else
                                  1900.0 if tool_name=="PUNCH" else 1700.0)
+                        if invalid_punch_face:
+                            return ProxyFinding(
+                                "INVALID_PUNCH_FACE",0.0,
+                                tool_name,panel_id,phase,
+                                "inverted_signed_punch_face;raw=POTENTIAL_INTERFERENCE;"+reason,
+                                samples+1,
+                            )
                         return ProxyFinding(
                             "POTENTIAL_INTERFERENCE",penalty,
                             tool_name,panel_id,phase,reason,samples+1,
                         )
             samples+=1
+        if invalid_punch_face:
+            return ProxyFinding(
+                "INVALID_PUNCH_FACE",0.0,
+                reason="inverted_signed_punch_face;raw=CLEAR_SAMPLED",
+                samples=samples,
+            )
         return ProxyFinding(
             "CLEAR_SAMPLED",0.0,samples=samples,
         )
