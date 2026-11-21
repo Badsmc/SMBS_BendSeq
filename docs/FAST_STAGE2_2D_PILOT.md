@@ -71,9 +71,13 @@ material-penetration filtering),
     `tool=PUNCH/DIE`, phase, rigid sheet component, and material-overlap
     classification. **Only** a sampled rigid nonactive-panel crossing with
     a selected punch/die during APPROACH, BENDING or BOTTOM can become a
-    coarse search exclusion. TOUCH, uncertain contact, RETRACT, active
-    forming zone, missing metadata, CAD gauge, timeouts and mere BBoxes
-    are NEVER hard exclusions.
+    coarse search exclusion. A raised PUNCH that already deeply overlaps
+    the active rigid flange during APPROACH also blocks that loading
+    pose: it is not intended contact with the bend. Active flange/tool
+    contact during BENDING is not sufficient for hard gating.
+    TOUCH, uncertain contact, RETRACT, the active bend zone, missing
+    metadata, CAD gauge, timeouts and mere BBoxes are NEVER hard
+    exclusions.
 12. Rerun the full Beam Search for up to 1.5 s with a set of exact
     `(already-completed operation mask, next operation ID, 0/180)`
     forbidden transitions. These are **search constraints only**, NOT
