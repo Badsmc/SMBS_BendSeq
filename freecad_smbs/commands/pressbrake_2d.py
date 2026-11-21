@@ -4641,6 +4641,24 @@ class _PreviewPanel:
                     self._ergonomic_loading_status = "NO_PART"
                     return {}
                 order = tuple(self.session.bend_order)
+                # Reuse explicit FAST/manual orientations without running
+                # the expensive CAD ergonomic suggestion generator. An
+                # already chosen machine pose is authoritative for previews;
+                # recomputing its default needlessly opens native documents.
+                known = dict(self._manual_orientation_overrides)
+                for step in self.session.controller.operation_steps:
+                    if (step.operation_id in self._manual_operation_orientation_overrides
+                            and step.bend_id not in known):
+                        known[step.bend_id] = bool(
+                            self._manual_operation_orientation_overrides[
+                                step.operation_id
+                            ]
+                        )
+                if all(bend_id in known for bend_id in order):
+                    self._ergonomic_loading_status = (
+                        "FAST_OR_MANUAL_ORIENTATION_UNVERIFIED"
+                    )
+                    return {bend_id: bool(known[bend_id]) for bend_id in order}
                 if (self._manual_orientation_order == order
                         and set(self._manual_orientation_by_bend) == set(order)):
                     self._ergonomic_loading_status = (
@@ -7987,54 +8005,15 @@ class _PreviewPanel:
                 self._apply_reorder(lambda: self.session.restore_canonical_order())
 
             def _populate_operations_fast(self):
-                """Refresh FAST order without native geometry or machine gauges.
+                """Reuse normal editable table without native gauge previews.
 
-                All displayed physical verification fields are explicitly
-                invalidated. The normal simulation path will rebuild its
-                geometry on a later user action, not during Qt dialog teardown.
+                _fast_apply_skip_table_gauge is held by the caller while this
+                executes. With every FAST orientation pinned, the orientation
+                lookup does not invoke CAD ergonomic loading previews either.
                 """
-                if (not self._playback_alive()
-                        or not self._qt_is_valid(self.operations)):
+                if not self._playback_alive():
                     return
-                old_blocked = self.operations.blockSignals(True)
-                try:
-                    self.operations.clear()
-                    for idx, bend in enumerate(self.session.ordered_bends):
-                        op = self.session.controller.operation_at(idx)
-                        item = QtWidgets.QTreeWidgetItem()
-                        item.setData(0, QtCore.Qt.UserRole, bend.bend_id)
-                        item.setData(0, QtCore.Qt.UserRole + 1, op.operation_id)
-                        # No preview loading plan or FreeCAD document access.
-                        columns = list(self._format_operation_row(idx + 1, bend))
-                        columns[6] = "—"  # Gauge invalidated by new order
-                        columns[7] = "UNVERIFIED"
-                        columns[8] = "—"
-                        for col, value in enumerate(columns):
-                            item.setText(col, value)
-                        reverse = self._manual_operation_orientation_overrides.get(
-                            op.operation_id,
-                            self._manual_orientation_overrides.get(bend.bend_id, False),
-                        )
-                        item.setCheckState(
-                            _LOADING_ORIENTATION_COLUMN,
-                            QtCore.Qt.Checked if reverse else QtCore.Qt.Unchecked,
-                        )
-                        item.setToolTip(
-                            _LOADING_ORIENTATION_COLUMN,
-                            "FAST 180° (UNVERIFIED). Right click to return to auto.",
-                        )
-                        self.operations.addTopLevelItem(item)
-                    self.operations.setDragEnabled(
-                        self.session.controller.has_stages
-                    )
-                    active = self.session.active_bend_index
-                    if 0 <= active < self.operations.topLevelItemCount():
-                        self.operations.setCurrentItem(
-                            self.operations.topLevelItem(active)
-                        )
-                finally:
-                    if self._qt_is_valid(self.operations):
-                        self.operations.blockSignals(old_blocked)
+                self._populate_operations()
 
             def _populate_operations(self):
                 if (not self._playback_alive()
