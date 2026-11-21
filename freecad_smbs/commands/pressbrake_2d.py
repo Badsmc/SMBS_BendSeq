@@ -4410,8 +4410,9 @@ class _PreviewPanel:
                         )
                         order = tuple(
                             index for index in order
-                            if screen_report.checks[index].failed_transition
-                            not in blocked
+                            if (candidate_sources[index].startswith("шаблон:")
+                                or screen_report.checks[index].failed_transition
+                                not in blocked)
                         )
                     choices.setSortingEnabled(False)
                     choices.setRowCount(len(order))
@@ -4476,6 +4477,13 @@ class _PreviewPanel:
                             if candidate_sources[source_index] == "FAST"
                             else "—"
                         )
+                        if candidate_sources[source_index].startswith("шаблон:"):
+                            verdict += (
+                                "\\nСохранённая оператором схема: оставлена "
+                                "видимой даже при предварительном 2D "
+                                "пересечении для выявления возможной "
+                                "ошибки постановки детали."
+                            )
                         details = (
                             verdict + "\\n" + "Статус: " + status +
                             ("\\nПричина: " + check.first_issue
