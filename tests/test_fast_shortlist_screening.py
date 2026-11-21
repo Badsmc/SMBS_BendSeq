@@ -6,10 +6,14 @@ no FreeCAD or tool profiles are needed to exercise the scheduler.
 from __future__ import annotations
 
 from types import SimpleNamespace
+from unittest.mock import patch
+from time import perf_counter
 import unittest
 
 from smbs_core.kinematics2d.fast_bfm_beam_search import FastCandidate
-from smbs_core.kinematics2d.fast_shortlist_screening import screen_fast_shortlist
+from smbs_core.kinematics2d.fast_shortlist_screening import (
+    _probe_existing_stage_b, screen_fast_shortlist,
+)
 from smbs_core.kinematics2d.staged_bends import BendOperation
 
 
@@ -97,6 +101,42 @@ class FastShortlistScreeningTests(unittest.TestCase):
         self.assertEqual(report.checks[0].clear_prefix_steps, 0)
         self.assertEqual(report.checks[1].clear_prefix_steps, 1)
         self.assertEqual(report.ranked_indices, (1, 0))
+
+    def test_tool_collision_metadata_prefers_already_formed_other_panel(self):
+        from smbs_core.kinematics2d.preliminary_screening import (
+            PreliminaryScreeningReport, ScreeningDecision,
+        )
+        stage_a = PreliminaryScreeningReport(
+            ScreeningDecision.CONTINUE_TO_3D, "STAGE_A_PASSED", "inputs_valid",
+        )
+        stage_b = PreliminaryScreeningReport(
+            ScreeningDecision.CONTINUE_TO_3D,
+            "STAGE_B_SECTION_REQUIRES_3D",
+            "2d_section_finding_requires_3d_validation:BENDING:P09:"
+            "proper_material_boundary_crossing",
+            diagnostic_findings=(
+                ("BENDING","PUNCH","active_fixed","INTERFERENCE",
+                 "proper_material_boundary_crossing"),
+                ("BENDING","PUNCH","P09","INTERFERENCE",
+                 "proper_material_boundary_crossing"),
+            ),
+        )
+        with patch(
+            "smbs_core.kinematics2d.preliminary_screening.screen_candidate_stage_a",
+            return_value=stage_a,
+        ), patch(
+            "smbs_core.kinematics2d.preliminary_screening.screen_candidate_stage_b",
+            return_value=stage_b,
+        ):
+            status, reason = _probe_existing_stage_b(
+                self.state, self.steps[0], False, self.tools,
+                self.outlines, perf_counter()+10,
+            )
+        self.assertEqual(status, "POTENTIAL_2D_INTERFERENCE")
+        self.assertIn("tool=PUNCH", reason)
+        self.assertIn("phase=BENDING", reason)
+        self.assertIn("component=P09", reason)
+        self.assertIn("contact=proper_material_boundary_crossing", reason)
 
     def test_cache_reuses_same_folded_subset_bend_and_orientation(self):
         calls = []
