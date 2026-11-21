@@ -4,7 +4,7 @@ Branch: `fix/fast-axis-soft-penalty-20261120`
 
 ## Intent
 
-Keep the existing ~1 second FAST Beam Search independent of native geometry.
+Keep the initial FAST Beam Search independent of native geometry; its GUI budget is now 30 seconds (previously 1 second).
 After the FAST result dialog opens, run a **separate** advisory Stage A/B
 screening over the returned (up to five) candidate sequences, with a **3 s
 cooperative budget**. Prefer sampled plans with fewer 2D tool-interference
@@ -21,7 +21,7 @@ material-penetration filtering),
 
 ## Execution
 
-1. FAST runs unchanged with `limit_seconds=1.0`.
+1. The GUI runs initial FAST with `limit_seconds=30.0` (increased from 1.0). This is a maximum budget, not a required 30-second delay.
 2. Its original candidates are visible in a nonblocking Qt dialog.
 3. `QtCore.QTimer.singleShot(0, ...)` starts the separate 2D post-processor
    *after* the dialog opens. This defers work but is **not a background
@@ -136,7 +136,7 @@ The 2D post-processor never certifies an executable bend sequence. Native
 
 ## Timing and host safety
 
-- FAST `limit_seconds=1.0` is unaffected by post-processing.
+- Initial FAST `limit_seconds=30.0` is unaffected by post-processing. The 30-second budget is NOT applied per external side or per 2D feedback attempt.
   The dialog and `FAST_POSTPROCESS_SUMMARY` log now report cumulative
   additional elapsed time and estimated end-to-end duration separately
   from the final Stage B sample pass.
@@ -215,7 +215,7 @@ Pure Python regression:
   Tool sections outside that plane, side tool ends, real clamp/frame,
   backgauge contact, and continuous ram motion remain unverified.
   The strict gate must never be treated as independent 3D validation.
-- Measure real FreeCAD timings; the original 1-second FAST is unchanged,
+- Measure real FreeCAD timings; the initial FAST now has a 30-second maximum,
   but added 2D passes and collision-aware reruns increase total dialog time.
 - Validate the full machine pose and gauge contact for each starting
   exterior edge; this release uses authoritative unfolded geometry as
