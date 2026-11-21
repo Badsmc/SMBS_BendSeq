@@ -31,6 +31,29 @@ class FastSearchGUIContracts(unittest.TestCase):
         )
         self.assertIn("playback_layout.addWidget(self.fast_search_btn)", SOURCE)
 
+    def test_operator_template_save_and_geometry_first_reuse(self):
+        self.assertIn("SMBS_SaveOperatorBendTemplate", SOURCE)
+        self.assertIn("Сохранить проверенную схему гибки", SOURCE)
+        save = function("_save_operator_bend_template")
+        self.assertIn("store_operator_template(", save)
+        self.assertIn("QtWidgets.QMessageBox.question(", save)
+        self.assertIn('"FAST_TEMPLATE_SAVED"', save)
+        chooser = function("_run_fast_sequence_search")
+        self.assertIn("find_operator_templates(", chooser)
+        self.assertIn('"FAST_TEMPLATE_MATCH"', chooser)
+        self.assertIn("for hit in template_hits:", chooser)
+        self.assertIn("for candidate in report.candidates:", chooser)
+        self.assertLess(
+            chooser.index("for hit in template_hits:"),
+            chooser.index("for candidate in report.candidates:"),
+        )
+        self.assertIn("candidate_sources.append(", chooser)
+        self.assertIn("if not report.candidates and not template_hits:", chooser)
+        self.assertIn("self._last_fast_shortlist_screen_report = screen", chooser)
+        # Template is an initial seed, not a bypass of Stage B.
+        self.assertIn("tuple(all_candidates), self.session.panel_vertices_xy",
+                      chooser)
+
     def test_search_requires_stopped_editable_session(self):
         body = function("_run_fast_sequence_search")
         self.assertIn("not self.session.can_reorder()", body)
