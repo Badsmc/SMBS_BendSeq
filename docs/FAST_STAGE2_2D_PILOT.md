@@ -104,6 +104,9 @@ The 2D post-processor never certifies an executable bend sequence. Native
 ## Timing and host safety
 
 - FAST `limit_seconds=1.0` is unaffected by post-processing.
+  The dialog and `FAST_POSTPROCESS_SUMMARY` log now report cumulative
+  additional elapsed time and estimated end-to-end duration separately
+  from the final Stage B sample pass.
 - Initial 2D, expanded-side 2D, and optional feedback-expanded 2D
   passes each have separate *cooperative* budgets of 3 s. Stage B
   tests the deadline between samples but individual geometry calls
@@ -154,7 +157,8 @@ The 2D post-processor never certifies an executable bend sequence. Native
 9. Inspect `SMBS_debug_log.json` for `FAST_SEARCH_RESULT`,
    `FAST_SHORTLIST_2D_SCREEN_INITIAL`, `FAST_FORCED_ALL_SIDES_RESULT`,
    `FAST_FEEDBACK_RECOVERY_RESULT`, `FAST_SHORTLIST_2D_SCREEN`,
-   `FAST_RESULT_DIALOG_FINISHED`, and `FAST_CANDIDATE_APPLIED`.
+   `FAST_POSTPROCESS_SUMMARY`, `FAST_RESULT_DIALOG_FINISHED`,
+   and `FAST_CANDIDATE_APPLIED`.
 10. Record `side_findings` including each `status`, per-side
    `first_orientation_by_operation`, `returned_candidates`,
    `new_candidates`, `elapsed_seconds`, `actual_probes`, `cache_hits`,
