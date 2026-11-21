@@ -87,6 +87,26 @@ class FastSearchGUIContracts(unittest.TestCase):
         restore = function("_restore_embedded_smbs_json")
         self.assertIn("fast_advisory_orientation_ids", restore)
 
+    def test_fast_keeps_normal_editable_table_without_native_gauge(self):
+        apply = function("_apply_fast_sequence_candidate")
+        self.assertIn("_fast_apply_skip_table_gauge = True", apply)
+        staged = function("_on_staged_plan_changed")
+        self.assertIn("_populate_operations_fast()", staged)
+        self.assertIn("self.press_cycle = None", staged)
+        refresh = function("_populate_operations_fast")
+        self.assertIn("self._populate_operations()", refresh)
+        self.assertNotIn("QtWidgets.QTreeWidgetItem()", refresh)
+
+    def test_complete_selected_orientations_skip_cad_preview(self):
+        loading = function("_effective_loading_orientation_map")
+        self.assertIn("self._manual_orientation_overrides", loading)
+        self.assertIn("self._manual_operation_orientation_overrides", loading)
+        self.assertIn("if all(bend_id in known for bend_id in order):", loading)
+        self.assertLess(
+            loading.index("if all(bend_id in known for bend_id in order):"),
+            loading.index("self._default_loading_orientation_map(order)"),
+        )
+
     def test_lifetime_guard_when_host_clears_ui_during_gauge_refresh(self):
         apply = function("_apply_fast_sequence_candidate")
         self.assertIn("_fast_apply_skip_table_gauge = True", apply)
