@@ -187,6 +187,7 @@ def screen_fast_shortlist(
     budget_seconds: float = 3.0,
     probe: Callable | None = None,
     transition_cache: dict | None = None,
+    priority_candidate_indices: Sequence[int] | None = None,
     clock=perf_counter,
 ) -> ShortlistScreenReport:
     """Rerank only FAST's existing candidates using sampled 2D evidence.
@@ -215,7 +216,18 @@ def screen_fast_shortlist(
         raise TypeError("Expected FAST candidates")
     start = clock()
     deadline = start + budget_seconds
-    checks = []
+    # Search feedback should verify newly generated candidates first,
+    # rather than consume their budget replaying 25 earlier suspects.
+    priority = tuple(priority_candidate_indices or ())
+    if (len(set(priority)) != len(priority)
+            or any(type(index) is not int or
+                   not 0 <= index < len(candidates)
+                   for index in priority)):
+        raise ValueError("Invalid 2D candidate priority indices")
+    visit_indices = priority + tuple(
+        i for i in range(len(candidates)) if i not in priority
+    )
+    checks = [None] * len(candidates)
     # Shared ONLY within one dialog/geometry identity; an injected cache
     # avoids recomputing the original five paths during the side replay.
     memo = transition_cache if transition_cache is not None else {}
@@ -223,7 +235,8 @@ def screen_fast_shortlist(
     original_angles = dict(fold_state.angles)
     original_transforms = dict(fold_state.transforms)
     try:
-        for candidate in candidates:
+        for candidate_index in visit_indices:
+            candidate = candidates[candidate_index]
             c_start = clock()
             sampled = cached = 0
             status = "SAMPLED_2D_TOOLS_GAUGE_CLEAR"
@@ -300,10 +313,10 @@ def screen_fast_shortlist(
                 else:
                     if any_tool_only:
                         status = "SAMPLED_2D_TOOLS_ONLY"
-            checks.append(ShortlistCandidateCheck(
+            checks[candidate_index] = ShortlistCandidateCheck(
                 tuple(candidate.operation_ids), status, sampled, cached,
                 issue, clock() - c_start, first_blocker,
-            ))
+            )
     finally:
         fold_state.angles.clear()
         fold_state.angles.update(original_angles)
