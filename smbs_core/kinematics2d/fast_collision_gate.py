@@ -90,9 +90,20 @@ def coarse_tool_gate(screen: Any) -> CoarseToolGate:
         # confidence access blockers sought here. The existing machine
         # section reports those panels as bare IDs like "P09", not
         # necessarily "panel:P09".
-        if not (component.startswith("panel:")
-                or re.fullmatch(r"P[0-9]+", component)
-                or component.startswith("other_zone:")):
+        other_formed_material = bool(
+            component.startswith("panel:")
+            or re.fullmatch(r"P[0-9]+", component)
+            or component.startswith("other_zone:")
+        )
+        # A parked/raised PUNCH may not already penetrate the active
+        # rigid flange before the bend starts: this is a blocked
+        # approach, not an intended punch-to-bend contact.
+        active_panel_approach = (
+            component in ("active_fixed", "active_moving")
+            and fields["phase"] == "APPROACH"
+            and fields["tool"] == "PUNCH"
+        )
+        if not (other_formed_material or active_panel_approach):
             continue
         found[transition] = {
             "completed_mask": transition[0],
