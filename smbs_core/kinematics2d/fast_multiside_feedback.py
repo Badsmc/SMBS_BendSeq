@@ -227,3 +227,187 @@ def search_all_outer_sides(
         ) else ("FORCED_SIDE_CANDIDATES_UNVERIFIED"
                 if new_candidates else "NO_NEW_SIDE_CANDIDATES_UNVERIFIED"),
     )
+
+
+@dataclass(frozen=True)
+class FeedbackRecoveryReport:
+    """One bounded rerun driven by actual 2D findings and opposite 180 poses."""
+    new_candidates: tuple[SideSearchCandidate, ...]
+    attempted_cases: tuple[dict, ...]
+    elapsed_seconds: float
+    budget_seconds: float
+    penalty_count: int
+    status: str
+
+    def to_dict(self):
+        return {
+            "new_candidates": [entry.to_dict() for entry in self.new_candidates],
+            "attempted_cases": [dict(case) for case in self.attempted_cases],
+            "elapsed_seconds": round(self.elapsed_seconds, 5),
+            "budget_seconds": self.budget_seconds,
+            "penalty_count": self.penalty_count,
+            "status": self.status,
+            "evidence": "UNVERIFIED_3D_NOT_CHECKED",
+        }
+
+
+def search_feedback_recovery(
+    fold_state,
+    operations,
+    existing_candidates,
+    panel_vertices_xy,
+    screen,
+    *,
+    fixed_orientations=None,
+    weights=None,
+    budget_seconds=1.5,
+    max_cases=12,
+    clock=perf_counter,
+    search_fn=search_fast_candidates,
+):
+    """Explore alternatives after expanded-list Stage B reports obstructions.
+
+    Each failed 2D transition contributes an exact-state soft penalty.
+    For each distinct failing operation, retry the same initial bend with
+    the *opposite* orientation of that failing operation. User-pinned
+    choices are never overridden. This deliberately restarts beam search
+    instead of only sorting the original shortlist.
+
+    All solutions remain provisional, as a 2D finding may be false-positive
+    and a sampled-clear path cannot prove continuous machine clearance.
+    """
+    if (isinstance(budget_seconds, bool) or
+            not isinstance(budget_seconds, (int, float)) or
+            not isfinite(budget_seconds) or
+            not 0 < budget_seconds <= 30):
+        raise ValueError("Invalid feedback recovery budget")
+    if type(max_cases) is not int or not 1 <= max_cases <= 64:
+        raise ValueError("Invalid feedback recovery case count")
+    start = clock()
+    ops = tuple(operations)
+    candidates = tuple(existing_candidates)
+    pins = dict(fixed_orientations or {})
+    penalties = transition_feedback_penalties(screen)
+    if not penalties:
+        return FeedbackRecoveryReport(
+            (), (), clock()-start, budget_seconds, 0,
+            "NO_2D_OBSTRUCTION_FEEDBACK",
+        )
+    cases = []
+    used = set()
+    for index in getattr(screen, "ranked_indices", range(len(candidates))):
+        if not 0 <= index < len(candidates):
+            continue
+        check = screen.checks[index]
+        transition = getattr(check, "failed_transition", None)
+        if transition is None:
+            continue
+        if check.status not in (
+                "POTENTIAL_2D_INTERFERENCE", "STATIC_TOOLING_BLOCK"):
+            continue
+        _mask, failed_op, previous_reverse = transition
+        if failed_op in pins:
+            # A manual 0/180 lock is authoritative, including if it creates
+            # an obstruction. Do not quietly unlock or invert it.
+            continue
+        if not candidates[index].operation_ids:
+            continue
+        first = candidates[index].operation_ids[0]
+        new_reverse = not previous_reverse
+        case_key = (first, failed_op, new_reverse)
+        if case_key in used:
+            continue
+        used.add(case_key)
+        cases.append(case_key)
+    if not cases:
+        return FeedbackRecoveryReport(
+            (), (), clock()-start, budget_seconds, len(penalties),
+            "NO_UNPINNED_FLIP_CASES",
+        )
+    # First diversify the starts rather than spending all the budget on
+    # several variants of the same initial bending operation.
+    cases.sort(key=lambda x: (x[0], x[1], x[2]))
+    by_start = {}
+    for case in cases:
+        by_start.setdefault(case[0], []).append(case)
+    diverse = []
+    while by_start:
+        for start_id in tuple(by_start):
+            diverse.append(by_start[start_id].pop(0))
+            if not by_start[start_id]:
+                del by_start[start_id]
+    cases = diverse[:max_cases]
+    seen = {
+        (c.operation_ids, c.orientation_by_operation)
+        for c in candidates
+    }
+    new = []
+    attempted = []
+    for i, (first, failed, reverse) in enumerate(cases):
+        remaining = budget_seconds - (clock()-start)
+        if remaining <= 0.012:
+            attempted.append({
+                "first": first, "flipped_operation": failed,
+                "new_reverse_axis": reverse, "status": "BUDGET_EXCEEDED",
+                "new_candidates": 0,
+            })
+            continue
+        per_case = min(0.75, remaining / (len(cases)-i))
+        if per_case <= 0:
+            attempted.append({
+                "first": first, "flipped_operation": failed,
+                "new_reverse_axis": reverse, "status": "BUDGET_EXCEEDED",
+                "new_candidates": 0,
+            })
+            continue
+        extra_pins = {**pins, failed: reverse}
+        try:
+            result = search_fn(
+                fold_state, ops,
+                fixed_orientations=extra_pins,
+                panel_vertices_xy=panel_vertices_xy,
+                weights=weights,
+                transition_penalties=penalties,
+                forced_first_operation_ids=(first,),
+                limit_seconds=per_case,
+                beam_width=24,
+                max_candidates=3,
+                screen_tool_center_axis=False,
+            )
+        except (ValueError, TypeError) as exc:
+            attempted.append({
+                "first": first, "flipped_operation": failed,
+                "new_reverse_axis": reverse, "status": "SEARCH_ERROR",
+                "reason": type(exc).__name__ + ":" + str(exc),
+                "new_candidates": 0,
+            })
+            continue
+        count = 0
+        for candidate in result.candidates:
+            key = (candidate.operation_ids, candidate.orientation_by_operation)
+            if key in seen:
+                continue
+            seen.add(key)
+            count += 1
+            new.append(SideSearchCandidate(
+                candidate, "FLIP_" + failed, False,
+            ))
+        attempted.append({
+            "first": first,
+            "flipped_operation": failed,
+            "new_reverse_axis": reverse,
+            "status": result.status,
+            "elapsed_seconds": round(result.elapsed_seconds, 5),
+            "new_candidates": count,
+        })
+    status = (
+        "BUDGET_EXCEEDED" if any(
+            entry["status"] == "BUDGET_EXCEEDED" for entry in attempted
+        ) else
+        "FEEDBACK_NEW_CANDIDATES_UNVERIFIED" if new else
+        "FEEDBACK_NO_DISTINCT_CANDIDATES"
+    )
+    return FeedbackRecoveryReport(
+        tuple(new), tuple(attempted), clock()-start,
+        budget_seconds, len(penalties), status,
+    )
