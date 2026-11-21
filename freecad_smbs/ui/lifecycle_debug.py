@@ -80,10 +80,30 @@ def install(QtCore, QtWidgets):
         def slotFinishSaveDocument(self, doc, *args):
             document_event('DOCUMENT_SAVE_FINISHED', doc)
 
+    # Keep a strong reference to the native FreeCAD main window for
+    # shutdown attribution. Qt dialogs can close independently; neither
+    # their DeferredDelete nor their acceptance proves application exit.
+    try:
+        import FreeCADGui as Gui
+        freecad_main_window = Gui.getMainWindow()
+    except (ImportError, AttributeError, RuntimeError):
+        freecad_main_window = None
+
     class Filter(QtCore.QObject):
         def eventFilter(self, obj, event):
             try:
                 kind = event.type()
+                if kind == QtCore.QEvent.Close and obj is freecad_main_window:
+                    # This is the main-window CLOSE REQUEST, before FreeCAD
+                    # destroys its documents. Do not ignore it or alter Qt's
+                    # shutdown behavior; this is diagnostics only.
+                    record(
+                        'FREECAD_MAIN_WINDOW_CLOSE_REQUESTED',
+                        documents=list(App.listDocuments()),
+                        active_window=str(getattr(
+                            QtWidgets.QApplication.activeWindow(),
+                            'objectName',lambda:'' )()),
+                    )
                 if kind == QtCore.QEvent.Quit and obj is QtWidgets.QApplication.instance():
                     record('QT_APPLICATION_QUIT', documents=list(App.listDocuments()))
                 if kind in (QtCore.QEvent.Close, QtCore.QEvent.DeferredDelete,
@@ -112,7 +132,26 @@ def install(QtCore, QtWidgets):
     observer = Observer()
     event_filter = Filter(QtWidgets.QApplication.instance())
     App.addDocumentObserver(observer)
+    # Record actual Qt application shutdown even when QEvent.Quit is
+    # delivered after FreeCAD has already closed all model documents.
+    # Keep callback references in _installed below.
+    def about_to_quit():
+        try:
+            record(
+                'QT_ABOUT_TO_QUIT',
+                documents=list(App.listDocuments()),
+                freecad_main_visible=(
+                    bool(freecad_main_window.isVisible())
+                    if freecad_main_window is not None else None
+                ),
+            )
+        except Exception:
+            debug_event(
+                'LIFETIME_DIAGNOSTIC_ERROR',
+                traceback=traceback.format_exc(),
+            )
+    QtWidgets.QApplication.instance().aboutToQuit.connect(about_to_quit)
     QtWidgets.QApplication.instance().installEventFilter(event_filter)
     sys.excepthook = exception_hook
-    _installed = (observer, event_filter, exception_hook)
+    _installed = (observer, event_filter, exception_hook, about_to_quit)
     debug_event('LIFETIME_DIAGNOSTICS_INSTALLED', documents=list(App.listDocuments()))
