@@ -85,6 +85,39 @@ class TemplateTests(unittest.TestCase):
             self.assertIn("UNVERIFIED",matches[0].candidate.evidence)
             self.assertEqual(matches[0].source_tooling["punch"],"P1")
 
+    def test_reversed_imported_axis_adjusts_machine_180_orientation(self):
+        source=demo()
+        state,ops,outline,panels=demo(
+            dx=11.0,dy=29.0,prefix="X",panel_prefix="K",
+        )
+        reversed_edges=[]
+        for edge in state.graph.edges:
+            reversed_edges.append(GraphEdge(
+                edge.bend_id,edge.panel_a,edge.panel_b,
+                edge.angle_deg,
+                tuple(reversed(edge.axis_xyz)) if edge.bend_id=="X1"
+                else edge.axis_xyz,
+                edge.bend_zone,
+            ))
+        remapped=(
+            FoldState(PanelGraph(tuple(panels),tuple(reversed_edges)),"K0"),
+            ops,outline,panels,
+        )
+        self.assertEqual(
+            geometry_identity(*source).digest,
+            geometry_identity(*remapped).digest,
+        )
+        with TemporaryDirectory() as folder:
+            path=Path(folder)/"patterns.json"
+            store_operator_template(
+                *source,("B1","B2"),
+                {"B1":True,"B2":False},
+                title="known",path=path,
+            )
+            hit=find_operator_templates(*remapped,path=path)[0]
+            self.assertFalse(hit.candidate.orientations()["X1"])
+            self.assertFalse(hit.candidate.orientations()["X2"])
+
     def test_changed_outline_or_angle_never_reuses_old_recipe(self):
         old=demo()
         with TemporaryDirectory() as folder:
