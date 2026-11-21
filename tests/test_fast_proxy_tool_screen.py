@@ -203,6 +203,7 @@ class TestProxyToolScreen(TestCase):
                 kwargs["align_bisector"],
                 kwargs["support_plane_zm"],
                 kwargs["reverse_axis"],
+                kwargs["rear_panel_vertices_xy"],
             ))
             return SimpleNamespace()
         with patch(
@@ -218,8 +219,12 @@ class TestProxyToolScreen(TestCase):
             )
         self.assertEqual(result.status,"CLEAR_SAMPLED")
         self.assertEqual(result.samples,2)
-        self.assertEqual(observed[0],(0.,False,2.,True))
+        self.assertEqual(observed[0],(0.,False,2.,True,polygons))
         self.assertEqual(observed[1][:2],(45.,True))
+        self.assertIs(observed[1][4],polygons)
+        # Stage B uses rear_panel_vertices_xy for the canonical loading
+        # frame; FAST must not silently invert what yaw=0 means.
+        self.assertTrue(all(pose[4] is polygons for pose in observed))
         self.assertLess(observed[1][2],observed[0][2])
         self.assertEqual(state.angles,{"B01":0.0})
 
@@ -242,6 +247,7 @@ class TestProxyToolScreen(TestCase):
         self.assertEqual(result.status,"CLEAR_SAMPLED")
         self.assertEqual(result.samples,1)
         self.assertFalse(observed[0]["align_bisector"])
+        self.assertIs(observed[0]["rear_panel_vertices_xy"],polygons)
 
     def test_full_angle_probe_samples_late_bend_and_bottom(self):
         state,polygons,operations,tools=self.setup_scene()
