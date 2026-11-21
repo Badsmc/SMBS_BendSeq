@@ -13,6 +13,7 @@ TOUCH, TIME_BUDGET, RETRACT, frame, or backgauge finding.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from collections import Counter
 import re
 from typing import Any
 
@@ -44,6 +45,17 @@ class CoarseToolGate:
             "observed_obstructions": [dict(item)
                                       for item in self.observed_obstructions],
             "count": len(self.forbidden_transitions),
+            "by_operation": dict(Counter(
+                item["operation_id"] for item in self.observed_obstructions
+            )),
+            "by_tool_phase_component": dict(Counter(
+                item["tool"] + "/" + item["phase"] + "/" +
+                item["component"] for item in self.observed_obstructions
+            )),
+            "by_orientation": {
+                "0": sum(not key[2] for key in self.forbidden_transitions),
+                "180": sum(key[2] for key in self.forbidden_transitions),
+            },
             "scope": "FAST_SEARCH_ONLY_COARSE_SAMPLED_2D_NOT_3D_PROOF",
             "provisional_only": self.provisional_only,
         }
