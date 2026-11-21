@@ -167,6 +167,42 @@ class ForcedSearchTests(unittest.TestCase):
             self.assertEqual(cand.operation_ids[0],target)
             self.assertTrue(cand.orientations()[target])
 
+    def test_strict_coarse_gate_blocks_only_reported_orientation_and_prefix(self):
+        rectangle=((0.,0.),(100.,0.),(100.,100.),(0.,100.))
+        state,ops=sample_part(rectangle)
+        first=ops[0].operation_id
+        result=search_fast_candidates(
+            state,ops,screen_tool_center_axis=False,
+            forced_first_operation_ids=(first,),
+            forbidden_transitions=((0,first,False),),
+            limit_seconds=1.0,beam_width=24,max_candidates=4,
+        )
+        self.assertTrue(result.candidates)
+        self.assertTrue(
+            all(c.orientations()[first] for c in result.candidates)
+        )
+        self.assertGreater(result.coarse_2d_pruned_expansions,0)
+        self.assertEqual(result.coarse_2d_gated_edges,1)
+        self.assertIn("UNVERIFIED", result.status)
+
+    def test_all_first_poses_gated_cannot_be_reported_as_valid_order(self):
+        rectangle=((0.,0.),(100.,0.),(100.,100.),(0.,100.))
+        state,ops=sample_part(rectangle)
+        first=ops[0].operation_id
+        result=search_fast_candidates(
+            state,ops,screen_tool_center_axis=False,
+            forced_first_operation_ids=(first,),
+            forbidden_transitions=(
+                (0,first,False),(0,first,True),
+            ),
+            limit_seconds=1.0,beam_width=24,max_candidates=4,
+        )
+        self.assertFalse(result.candidates)
+        self.assertEqual(
+            result.status,"NO_CANDIDATES_AFTER_COARSE_2D_GATE_UNVERIFIED"
+        )
+        self.assertGreater(result.coarse_2d_pruned_expansions,0)
+
     def test_feedback_soft_penalty_is_counted_not_rejected(self):
         rect=((0.,0.),(100.,0.),(100.,100.),(0.,100.))
         state,ops=sample_part(rect)
@@ -238,6 +274,33 @@ class ForcedSearchTests(unittest.TestCase):
                     entry["new_candidates"]==1
                     for entry in report.side_findings
                 ))
+
+    def test_feedback_passes_strict_tool_gate_to_solver(self):
+        rect=((0.,0.),(100.,0.),(100.,100.),(0.,100.))
+        state,ops=sample_part(rect)
+        ids=tuple(op.operation_id for op in ops)
+        orig=FastCandidate(ids,tuple((op,False) for op in ids),10.,0.)
+        issue=ShortlistCandidateCheck(
+            ids,"POTENTIAL_2D_INTERFERENCE",2,0,"B02:PUNCH",0.1,
+            (1,ids[1],False),
+        )
+        seen=[]
+        def search(state, operations, **kwargs):
+            seen.append(kwargs["forbidden_transitions"])
+            return SimpleNamespace(
+                candidates=(),status="NO_CANDIDATES_UNVERIFIED",
+                elapsed_seconds=0.01,coarse_2d_pruned_expansions=2,
+            )
+        result=search_feedback_recovery(
+            state,ops,(orig,),{},
+            SimpleNamespace(checks=(issue,),ranked_indices=(0,)),
+            coarse_gate=SimpleNamespace(
+                forbidden_transitions=((1,ids[1],False),)),
+            search_fn=search,
+        )
+        self.assertEqual(seen,[((1,ids[1],False),)])
+        self.assertEqual(result.coarse_gated_transition_count,1)
+        self.assertEqual(result.coarse_pruned_expansions,2)
 
     def test_feedback_recovers_opposite_orientation_and_new_order(self):
         rectangle = ((0.,0.),(100.,0.),(100.,100.),(0.,100.))
