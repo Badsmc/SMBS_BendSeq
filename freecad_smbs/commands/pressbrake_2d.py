@@ -4148,7 +4148,7 @@ class _PreviewPanel:
                 )
 
             def _run_fast_sequence_search(self):
-                """Opt-in one-second shortlist; NEVER claim 3D clearance."""
+                """Opt-in bounded shortlist; NEVER claim 3D clearance."""
                 import FreeCADGui as Gui
                 if self.session is None:
                     self.status.setText("FAST: сначала загрузите развёртку SheetMetal.")
@@ -4477,8 +4477,13 @@ class _PreviewPanel:
                             if candidate_sources[source_index] == "FAST"
                             else "—"
                         )
-                        if candidate_sources[source_index].startswith("шаблон:"):
+                        is_template = candidate_sources[
+                            source_index
+                        ].startswith("шаблон:")
+                        if is_template:
                             verdict += (
+                                "\\nВес шаблона не рассчитан; сохранённая "
+                                "схема имеет приоритет в первичном списке. "
                                 "\\nСохранённая оператором схема: оставлена "
                                 "видимой даже при предварительном 2D "
                                 "пересечении для выявления возможной "
@@ -4493,7 +4498,7 @@ class _PreviewPanel:
                         values = (
                             str(row+1),
                             marker,
-                            "{:.2f}".format(
+                            "—" if is_template else "{:.2f}".format(
                                 candidate.estimated_cost
                             ).replace(".", ","),
                             "{}/{}".format(
@@ -4512,7 +4517,8 @@ class _PreviewPanel:
                         keys = (
                             row+1,
                             marker_rank,
-                            float(candidate.estimated_cost),
+                            (float("inf") if is_template
+                             else float(candidate.estimated_cost)),
                             (check.clear_prefix_steps if check else 0),
                             candidate_sources[source_index],
                             candidate.operation_ids[0],
@@ -4970,7 +4976,7 @@ class _PreviewPanel:
                 self.fast_search_btn.setEnabled(False)
                 _desktop_debug_event("FAST_RESULT_DIALOG_OPENED")
                 dialog.open()
-                # Leave the one-second FAST search intact. Perform the
+                # Preserve the 30-second maximum FAST search budget. Perform the
                 # separate bounded 2D screening after the result window is
                 # visible, not in the combinatorial search loop.
                 QtCore.QTimer.singleShot(0, check_fast_shortlist_2d)
