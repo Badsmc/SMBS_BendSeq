@@ -101,3 +101,85 @@ def coarse_tool_gate(screen: Any) -> CoarseToolGate:
         }
     keys = tuple(sorted(found))
     return CoarseToolGate(keys, tuple(found[key] for key in keys))
+
+
+@dataclass(frozen=True)
+class CoarseRerunReport:
+    candidates: tuple
+    gate: CoarseToolGate
+    status: str
+    elapsed_seconds: float
+    pruned_expansions: int
+    explored_states: int
+
+    def to_dict(self):
+        return {
+            "new_candidates": [candidate.to_dict()
+                               for candidate in self.candidates],
+            "gate": self.gate.to_dict(),
+            "status": self.status,
+            "elapsed_seconds": round(self.elapsed_seconds, 5),
+            "pruned_expansions": self.pruned_expansions,
+            "explored_states": self.explored_states,
+            "scope": "GENERATED_AVOIDING_KNOWN_SAMPLED_2D_TOOL_PENETRATIONS",
+            "evidence": "UNVERIFIED_3D_NOT_CHECKED",
+        }
+
+
+def rerun_fast_avoiding_tool_collisions(
+    fold_state,
+    operations,
+    existing_candidates,
+    panel_vertices_xy,
+    screen,
+    *,
+    weights=None,
+    fixed_orientations=None,
+    limit_seconds=1.5,
+    max_candidates=8,
+    search_fn=None,
+):
+    """Rerun the full order search, excluding only known suspect 2D poses.
+
+    This is NOT a 3D proof: unknown poses remain eligible. Candidate
+    generation is fully separate from the Stage B geometry sampling.
+    No expensive tool geometry executes within a Beam Search expansion.
+    """
+    from time import perf_counter
+    from .fast_bfm_beam_search import search_fast_candidates
+    from .fast_multiside_feedback import transition_feedback_penalties
+
+    started = perf_counter()
+    gate = coarse_tool_gate(screen)
+    if not gate.forbidden_transitions:
+        return CoarseRerunReport(
+            (), gate, "NO_STRONG_2D_TOOL_OBSTRUCTIONS",
+            perf_counter()-started, 0, 0,
+        )
+    already = {
+        (candidate.operation_ids, candidate.orientation_by_operation)
+        for candidate in existing_candidates
+    }
+    search_fn = search_fn or search_fast_candidates
+    result = search_fn(
+        fold_state, operations,
+        fixed_orientations=fixed_orientations,
+        panel_vertices_xy=panel_vertices_xy,
+        weights=weights,
+        transition_penalties=transition_feedback_penalties(screen),
+        forbidden_transitions=gate.forbidden_transitions,
+        limit_seconds=limit_seconds,
+        beam_width=32,
+        max_candidates=max_candidates,
+        screen_tool_center_axis=False,
+    )
+    unique = tuple(
+        candidate for candidate in result.candidates
+        if (candidate.operation_ids, candidate.orientation_by_operation)
+        not in already
+    )
+    return CoarseRerunReport(
+        unique, gate, result.status, perf_counter()-started,
+        int(getattr(result, "coarse_2d_pruned_expansions", 0)),
+        int(getattr(result, "explored_states", 0)),
+    )
