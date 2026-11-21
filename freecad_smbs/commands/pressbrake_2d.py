@@ -4217,6 +4217,7 @@ class _PreviewPanel:
                         weights=self._selected_operation_weights().to_dict(),
                         screen_tool_center_axis=True,
                         axis_clearance_mm=1.0,
+                        tooling_setup=self.tooling_setup,
                         limit_seconds=30.0,
                         beam_width=32,
                         max_candidates=5,
@@ -4691,6 +4692,7 @@ class _PreviewPanel:
                                 fixed_orientations=pinned,
                                 weights=self._selected_operation_weights().to_dict(),
                                 screen=screen,
+                                tooling_setup=self.tooling_setup,
                                 budget_seconds=2.5,
                             )
                             forced_sides_done[0] = True
@@ -4747,6 +4749,7 @@ class _PreviewPanel:
                             self.session.panel_vertices_xy, screen,
                             weights=self._selected_operation_weights().to_dict(),
                             fixed_orientations=pinned,
+                            tooling_setup=self.tooling_setup,
                             limit_seconds=1.5,
                             max_candidates=8,
                         )
@@ -4804,6 +4807,7 @@ class _PreviewPanel:
                                 coarse_gate=current_gate,
                                 fixed_orientations=pinned,
                                 weights=self._selected_operation_weights().to_dict(),
+                                tooling_setup=self.tooling_setup,
                                 budget_seconds=1.5,
                                 max_cases=8,
                             )
