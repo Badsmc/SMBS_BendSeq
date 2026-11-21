@@ -111,6 +111,8 @@ class FastSearchGUIContracts(unittest.TestCase):
         self.assertIn("budget_seconds=1.5", chooser)
         self.assertIn("priority_candidate_indices=range(", chooser)
         self.assertIn("feedback_rounds[0] < 3", chooser)
+        self.assertIn("and has_feedback", chooser)
+        self.assertIn("check.failed_transition is not None", chooser)
         self.assertIn("fixed_orientations=pinned", chooser)
         self.assertIn("selected = all_candidates[index]", chooser)
 
