@@ -35,19 +35,29 @@ Sources: `fast_bfm_beam_search.py` (generator),
    `(completed_operation_mask, operation_id, reverse_axis)`. A sampled
    interference produces a SOFT +1500 transition penalty. No physical bend
    ID is globally forbidden; the same bend can pass in another prefix.
-8. Extract the **authoritative unfolded external outline** (not panel
-   bounding boxes, individual panels or inner holes). Collapse small
-   tessellated/collinear edges. Four external edges are named LEFT, RIGHT,
-   TOP and BOTTOM; hexagons get SIDE_1 through SIDE_6. Other simple
-   polygons get as many seeds as exterior sides, up to 24. If geometry
-   cannot be classified, report OUTER_CONTOUR_UNAVAILABLE.
-9. Run one bounded Beam Search **for every exterior side**, forcing a
-   nearby, approximately parallel first bend and its operator-facing
-   0/180 loading orientation. The 2.5 s recovery time budget is shared
-   among sides, not multiplied by their number. A side lacking a parallel
-   bend receives an explicitly labelled approximate start; manual pins
-   always remain authoritative. Each side reports whether it found a
-   full sequence or ran out of time.
+8. Extract the **authoritative unfolded external CAD wire** (not panel
+   bounding boxes, individual panels or inner holes). PanelBuilder preserves
+   `outline_edge_polylines_xy`, with one polyline per actual CAD Edge.
+   Every authored exterior edge is retained, including short chamfers,
+   stair-step notches, and separate collinear edges. Curved CAD edges are
+   sampled into local tangent sectors at roughly 12-degree turns; a curve
+   has no finite number of mathematical sides. There is NO fixed 4/6/24
+   side limit. Four-edge outlines can be labelled LEFT/RIGHT/TOP/BOTTOM;
+   any other exterior contour is SIDE_1..SIDE_N in its CAD order. Missing
+   original CAD metadata falls back to conservative collinear-only
+   simplification. If no valid outline exists, report
+   OUTER_CONTOUR_UNAVAILABLE.
+9. Enumerate every real exterior side and schedule a forced first-bend
+   search with the corresponding operator-facing 0/180 loading orientation.
+   The 2.5 s recovery budget is SHARED across all sides. If two CAD edges
+   create exactly the same first-bend/orientation constraints, their
+   equivalent Beam Search is reused; both edges remain in diagnostics.
+   Every side receives a `side_findings` record, including sides omitted
+   because of time budget. A side lacking a parallel bend is an explicitly
+   approximate setup, not claimed physically accessible. Manual pins
+   remain authoritative. If many unique sides exceed the budget, **not
+   every side can be fully searched**; the interface now reports detected,
+   executed, reused and skipped counts explicitly.
 10. Append distinct forced-side candidates to the FAST list and
     screen the expanded set again with Stage B. Reuse the same per-dialog
     transition cache to avoid recomputing the original candidates.
@@ -103,8 +113,9 @@ The 2D post-processor never certifies an executable bend sequence. Native
 3. Select punch and die, reset playback, press FAST.
 4. Confirm FAST results appear first. After 2D evaluation the dialog
    must show more candidates labelled by external side whenever such
-   sequences are found. A rectangular outer contour should show all
-   four side findings in the debug log, and a simple hexagon all six.
+   sequences are found. Confirm a rectangular contour detects four
+   external CAD edges, a hexagon six, and a stepped/chamfered contour
+   the exact number of real edges (plus adaptive curved sectors).
 5. Confirm that side candidates have distinct leading bends where
    geometry permits, and operator-facing 0/180 starts.
 6. Try different 0/180 choices. Confirm the *actual* selected candidate
