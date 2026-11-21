@@ -4145,10 +4145,11 @@ class _PreviewPanel:
                 # candidate index independently of visual sorting.
                 choices = QtWidgets.QTableWidget(dialog)
                 choices.setObjectName("SMBS_FastCandidateTable")
-                choices.setColumnCount(10)
+                choices.setColumnCount(11)
                 choices.setHorizontalHeaderLabels((
-                    "№", "2D", "Вес", "Старт", "1-й гиб",
-                    "180°", "Ось", "2D штраф", "Порядок", "Причина",
+                    "№", "2D", "Вес", "2D гибов", "Старт",
+                    "1-й гиб", "180°", "Ось", "2D штраф",
+                    "Порядок", "Причина",
                 ))
                 choices.setSelectionBehavior(
                     QtWidgets.QAbstractItemView.SelectRows
@@ -4164,7 +4165,7 @@ class _PreviewPanel:
                 choices.setWordWrap(False)
                 choices.horizontalHeader().setStretchLastSection(True)
                 for column, width in enumerate(
-                        (48, 48, 90, 110, 72, 115, 100, 85, 340, 250)):
+                        (48, 48, 90, 85, 110, 72, 115, 100, 85, 340, 250)):
                     choices.setColumnWidth(column, width)
                 choices.setMinimumHeight(310)
                 dialog.setMinimumWidth(1010)
@@ -4266,6 +4267,10 @@ class _PreviewPanel:
                             "{:.2f}".format(
                                 candidate.estimated_cost
                             ).replace(".", ","),
+                            "{}/{}".format(
+                                check.clear_prefix_steps if check else 0,
+                                len(candidate.operation_ids)
+                            ),
                             candidate_sources[source_index],
                             candidate.operation_ids[0],
                             ", ".join(reversed_ids) if reversed_ids else "—",
@@ -4279,6 +4284,7 @@ class _PreviewPanel:
                             row+1,
                             marker_rank,
                             float(candidate.estimated_cost),
+                            (check.clear_prefix_steps if check else 0),
                             candidate_sources[source_index],
                             candidate.operation_ids[0],
                             len(reversed_ids),
@@ -4286,8 +4292,8 @@ class _PreviewPanel:
                              if candidate_sources[source_index] == "FAST"
                              else -1.0),
                             float(candidate.feedback_penalty),
-                            values[8],
                             values[9],
+                            values[10],
                         )
                         for column, (value, sort_key) in enumerate(zip(values, keys)):
                             item = _FastSortableItem(value)
