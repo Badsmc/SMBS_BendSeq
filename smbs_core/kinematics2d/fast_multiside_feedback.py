@@ -238,6 +238,8 @@ class FeedbackRecoveryReport:
     budget_seconds: float
     penalty_count: int
     status: str
+    coarse_gated_transition_count: int = 0
+    coarse_pruned_expansions: int = 0
 
     def to_dict(self):
         return {
@@ -246,6 +248,8 @@ class FeedbackRecoveryReport:
             "elapsed_seconds": round(self.elapsed_seconds, 5),
             "budget_seconds": self.budget_seconds,
             "penalty_count": self.penalty_count,
+            "coarse_gated_transition_count": self.coarse_gated_transition_count,
+            "coarse_pruned_expansions": self.coarse_pruned_expansions,
             "status": self.status,
             "evidence": "UNVERIFIED_3D_NOT_CHECKED",
         }
@@ -258,6 +262,7 @@ def search_feedback_recovery(
     panel_vertices_xy,
     screen,
     *,
+    coarse_gate=None,
     fixed_orientations=None,
     weights=None,
     budget_seconds=1.5,
@@ -288,6 +293,9 @@ def search_feedback_recovery(
     candidates = tuple(existing_candidates)
     pins = dict(fixed_orientations or {})
     penalties = transition_feedback_penalties(screen)
+    forbidden = tuple(
+        getattr(coarse_gate, "forbidden_transitions", ()) or ()
+    )
     if not penalties:
         return FeedbackRecoveryReport(
             (), (), clock()-start, budget_seconds, 0,
@@ -343,6 +351,7 @@ def search_feedback_recovery(
     }
     new = []
     attempted = []
+    pruned_total = 0
     for i, (first, failed, reverse) in enumerate(cases):
         remaining = budget_seconds - (clock()-start)
         if remaining <= 0.012:
@@ -368,6 +377,7 @@ def search_feedback_recovery(
                 panel_vertices_xy=panel_vertices_xy,
                 weights=weights,
                 transition_penalties=penalties,
+                forbidden_transitions=forbidden,
                 forced_first_operation_ids=(first,),
                 limit_seconds=per_case,
                 beam_width=24,
@@ -382,6 +392,9 @@ def search_feedback_recovery(
                 "new_candidates": 0,
             })
             continue
+        pruned_total += int(
+            getattr(result, "coarse_2d_pruned_expansions", 0)
+        )
         count = 0
         for candidate in result.candidates:
             key = (candidate.operation_ids, candidate.orientation_by_operation)
@@ -399,6 +412,9 @@ def search_feedback_recovery(
             "status": result.status,
             "elapsed_seconds": round(result.elapsed_seconds, 5),
             "new_candidates": count,
+            "coarse_2d_pruned_expansions": getattr(
+                result, "coarse_2d_pruned_expansions", 0
+            ),
         })
     status = (
         "BUDGET_EXCEEDED" if any(
@@ -410,4 +426,5 @@ def search_feedback_recovery(
     return FeedbackRecoveryReport(
         tuple(new), tuple(attempted), clock()-start,
         budget_seconds, len(penalties), status,
+        len(forbidden), pruned_total,
     )
