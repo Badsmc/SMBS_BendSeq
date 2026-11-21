@@ -147,11 +147,16 @@ def search_all_outer_sides(
                 panel_vertices_xy=panel_vertices_xy,
                 weights=weights,
                 forced_first_operation_ids=side.first_operation_ids,
+                forced_first_reverse=dict(side.first_reverse),
                 transition_penalties=penalties,
                 limit_seconds=time_slice,
                 beam_width=beam_width,
                 max_candidates=max_per_side,
-                screen_tool_center_axis=True,
+                # The normal FAST pass already evaluated this symmetric
+                # heuristic. Side recovery is time-limited and gets its
+                # actual collision feedback from Stage B; do not resample
+                # the same expensive centreline on every alternative start.
+                screen_tool_center_axis=False,
                 axis_clearance_mm=1.0,
             )
         except (TypeError, ValueError) as exc:
