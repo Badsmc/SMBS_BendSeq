@@ -302,6 +302,49 @@ class ForcedSearchTests(unittest.TestCase):
         self.assertEqual(result.coarse_gated_transition_count,1)
         self.assertEqual(result.coarse_pruned_expansions,2)
 
+    def test_multiple_obstructed_bends_are_coordinately_flipped(self):
+        outline=((0.,0.),(100.,0.),(100.,100.),(0.,100.))
+        state,ops=sample_part(outline)
+        ids=tuple(op.operation_id for op in ops)
+        # Three *different* failing operations from independently
+        # generated prefixes. Each single-flip would otherwise merely
+        # fail next on a still-unflipped obstruction.
+        plans=tuple(FastCandidate(
+            ids,tuple((oid,False) for oid in ids),10.0+i,0.0,
+        ) for i in range(3))
+        checks=tuple(ShortlistCandidateCheck(
+            ids,"POTENTIAL_2D_INTERFERENCE",i,0,
+            f"{ids[i+1]}:tool=PUNCH;phase=BENDING;"
+            f"component=P0{i+1};contact=proper_material_boundary_crossing",
+            0.05,(1<<i,ids[i+1],False),
+        ) for i in range(3))
+        seen=[]
+        def fake_search(state,steps,**kwargs):
+            seen.append(dict(kwargs["fixed_orientations"]))
+            return SimpleNamespace(
+                candidates=(),status="NO_CANDIDATES_UNVERIFIED",
+                elapsed_seconds=0.001,
+                coarse_2d_pruned_expansions=0,
+            )
+        outcome=search_feedback_recovery(
+            state,ops,plans,{},SimpleNamespace(
+                checks=checks,ranked_indices=(0,1,2),
+            ),
+            budget_seconds=1.5,max_cases=5,
+            search_fn=fake_search,
+        )
+        self.assertEqual(len(seen),len(outcome.attempted_cases))
+        self.assertTrue(any(len(pins)>=2 for pins in seen))
+        self.assertTrue(any(len(pins)>=3 for pins in seen))
+        self.assertTrue(all(
+            all(value is True for value in pins.values())
+            for pins in seen
+        ))
+        self.assertTrue(any(
+            len(entry["coordinated_flips"])>=2
+            for entry in outcome.attempted_cases
+        ))
+
     def test_feedback_recovers_opposite_orientation_and_new_order(self):
         rectangle = ((0.,0.),(100.,0.),(100.,100.),(0.,100.))
         state, ops = sample_part(rectangle)
