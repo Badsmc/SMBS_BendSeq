@@ -4140,82 +4140,191 @@ class _PreviewPanel:
                 )
                 hint.setWordWrap(True)
                 layout.addWidget(hint)
-                choices = QtWidgets.QListWidget(dialog)
-                choices.setObjectName("SMBS_FastCandidateList")
-                # Display order may change after advisory 2D screening.
-                # Keep original candidate indices for correct application.
+                # Use a native sortable QTableWidget, not a flattened
+                # sentence per candidate. Column 0 stores the original
+                # candidate index independently of visual sorting.
+                choices = QtWidgets.QTableWidget(dialog)
+                choices.setObjectName("SMBS_FastCandidateTable")
+                choices.setColumnCount(10)
+                choices.setHorizontalHeaderLabels((
+                    "№", "2D", "Вес", "Старт", "1-й гиб",
+                    "180°", "Ось", "2D штраф", "Порядок", "Причина",
+                ))
+                choices.setSelectionBehavior(
+                    QtWidgets.QAbstractItemView.SelectRows
+                )
+                choices.setSelectionMode(
+                    QtWidgets.QAbstractItemView.SingleSelection
+                )
+                choices.setEditTriggers(
+                    QtWidgets.QAbstractItemView.NoEditTriggers
+                )
+                choices.setAlternatingRowColors(True)
+                choices.verticalHeader().setVisible(False)
+                choices.setWordWrap(False)
+                choices.horizontalHeader().setStretchLastSection(True)
+                for column, width in enumerate(
+                        (48, 48, 90, 110, 72, 115, 100, 85, 340, 250)):
+                    choices.setColumnWidth(column, width)
+                choices.setMinimumHeight(310)
+                dialog.setMinimumWidth(1010)
+                dialog.setMinimumHeight(470)
+
+                class _FastSortableItem(QtWidgets.QTableWidgetItem):
+                    """Numeric UserRole makes '23,55' sort before '1593'."""
+                    def __lt__(self, other):
+                        left = self.data(QtCore.Qt.UserRole)
+                        right = other.data(QtCore.Qt.UserRole)
+                        if (isinstance(left, (float, int))
+                                and isinstance(right, (float, int))):
+                            return left < right
+                        return super().__lt__(other)
+
+                def selected_source_index():
+                    row = choices.currentRow()
+                    item = choices.item(row, 0) if row >= 0 else None
+                    if item is None:
+                        return -1
+                    value = item.data(QtCore.Qt.UserRole + 1)
+                    return int(value) if value is not None else -1
+
                 all_candidates = list(report.candidates)
                 candidate_sources = ["FAST"] * len(all_candidates)
-                displayed_indices = list(range(len(all_candidates)))
                 self._last_fast_shortlist_screen_report = None
                 screen_cache = {}
                 forced_sides_done = [False]
+                feedback_rounds = [0]
                 ranked_once = [False]
 
                 def populate_fast_choices(screen_report=None):
-                    previously_selected = (
-                        displayed_indices[choices.currentRow()]
-                        if 0 <= choices.currentRow() < len(displayed_indices)
-                        else 0
+                    previous = selected_source_index()
+                    previous_sort_column = (
+                        choices.horizontalHeader().sortIndicatorSection()
+                        if choices.isSortingEnabled() else 0
                     )
-                    if screen_report is not None:
-                        displayed_indices[:] = screen_report.ranked_indices
-                    choices.clear()
-                    for position, source_index in enumerate(displayed_indices, 1):
+                    previous_sort_order = (
+                        choices.horizontalHeader().sortIndicatorOrder()
+                        if choices.isSortingEnabled()
+                        else QtCore.Qt.AscendingOrder
+                    )
+                    order = (
+                        screen_report.ranked_indices
+                        if screen_report is not None
+                        else tuple(range(len(all_candidates)))
+                    )
+                    choices.setSortingEnabled(False)
+                    choices.setRowCount(len(order))
+                    for row, source_index in enumerate(order):
                         candidate = all_candidates[source_index]
-                        reversed_ids = [
-                            op_id for op_id, reverse in candidate.orientation_by_operation
-                            if reverse
-                        ]
                         check = (
                             screen_report.checks[source_index]
                             if screen_report is not None else None
                         )
-                        suffix = (
-                            " | старт: " + candidate_sources[source_index] +
-                            (" | 2D: " + check.status
-                             if check is not None else " | 2D: ожидается")
-                        )
-                        axis_label = (
-                            "+{:.0f}".format(candidate.axis_penalty)
-                            if candidate_sources[source_index] == "FAST"
-                            else "не проверена"
-                        )
-                        label = (
-                            "{}. {} | вес ~{:.2f} "
-                            "(ось {}, 2D-штраф +{:.0f}, "
-                            "короткая сторона {:.1f}, порядок {:.1f}) "
-                            "| 180°: {}{}"
-                        ).format(
-                            position, " → ".join(candidate.operation_ids),
-                            candidate.estimated_cost,
-                            axis_label,
-                            candidate.feedback_penalty,
-                            candidate.ergonomic_penalty,
-                            candidate.nested_fold_penalty,
-                            ", ".join(reversed_ids) if reversed_ids else "нет",
-                            suffix,
-                        )
-                        item = QtWidgets.QListWidgetItem(label)
-                        item.setToolTip(
-                            label + "\\n" +
-                            (check.first_issue if check and check.first_issue else
-                             "2D и 3D не сертифицированы")
-                        )
-                        choices.addItem(item)
-                    if displayed_indices:
-                        if screen_report is not None and not ranked_once[0]:
-                            # The initial selection is only a provisional
-                            # FAST default, not a user-chosen option.
-                            # On first 2D rerank, select the new best result.
-                            choices.setCurrentRow(0)
-                            ranked_once[0] = True
-                        else:
-                            choices.setCurrentRow(
-                                displayed_indices.index(previously_selected)
-                                if previously_selected in displayed_indices else 0
+                        status = check.status if check is not None else "NOT_CHECKED"
+                        # These symbols refer only to SAMPLED 2D evidence;
+                        # even green does NOT certify real machine clearance.
+                        if status.startswith("SAMPLED_2D_TOOLS"):
+                            marker, marker_rank = "✅", 0
+                            verdict = (
+                                "В выбранных 2D-сечениях пересечений "
+                                "не выявлено. Это НЕ результат 3D-проверки."
                             )
+                        elif status in (
+                                "POTENTIAL_2D_INTERFERENCE",
+                                "STATIC_TOOLING_BLOCK"):
+                            marker, marker_rank = "❌", 2
+                            verdict = (
+                                "Предварительное препятствие: возможная "
+                                "коллизия или несовместимость оснастки. "
+                                "Не доказана невозможность всего порядка."
+                            )
+                        else:
+                            marker, marker_rank = "⚠️", 1
+                            verdict = (
+                                "Не проверено полностью или исчерпан "
+                                "бюджет. Нет ни подтверждения коллизии, "
+                                "ни допуска к гибке."
+                            )
+                        reversed_ids = [
+                            op_id for op_id, reverse
+                            in candidate.orientation_by_operation if reverse
+                        ]
+                        axis_label = (
+                            "{:.0f}".format(candidate.axis_penalty)
+                            if candidate_sources[source_index] == "FAST"
+                            else "—"
+                        )
+                        details = (
+                            verdict + "\\n" + "Статус: " + status +
+                            ("\\nПричина: " + check.first_issue
+                             if check and check.first_issue else "") +
+                            "\\n3D: НЕ ПРОВЕРЕНО"
+                        )
+                        values = (
+                            str(row+1),
+                            marker,
+                            "{:.2f}".format(
+                                candidate.estimated_cost
+                            ).replace(".", ","),
+                            candidate_sources[source_index],
+                            candidate.operation_ids[0],
+                            ", ".join(reversed_ids) if reversed_ids else "—",
+                            axis_label,
+                            "{:.0f}".format(candidate.feedback_penalty),
+                            " → ".join(candidate.operation_ids),
+                            check.first_issue if check and check.first_issue
+                            else "—",
+                        )
+                        keys = (
+                            row+1,
+                            marker_rank,
+                            float(candidate.estimated_cost),
+                            candidate_sources[source_index],
+                            candidate.operation_ids[0],
+                            len(reversed_ids),
+                            (float(candidate.axis_penalty)
+                             if candidate_sources[source_index] == "FAST"
+                             else -1.0),
+                            float(candidate.feedback_penalty),
+                            values[8],
+                            values[9],
+                        )
+                        for column, (value, sort_key) in enumerate(zip(values, keys)):
+                            item = _FastSortableItem(value)
+                            item.setData(QtCore.Qt.UserRole, sort_key)
+                            item.setToolTip(details)
+                            if column == 0:
+                                item.setData(
+                                    QtCore.Qt.UserRole + 1, source_index
+                                )
+                            choices.setItem(row, column, item)
+                    choices.setSortingEnabled(True)
+                    choices.sortItems(
+                        previous_sort_column, previous_sort_order
+                    )
+                    if screen_report is not None and not ranked_once[0]:
+                        # Initial row was a provisional FAST default.
+                        desired = order[0] if order else -1
+                        ranked_once[0] = True
+                    else:
+                        desired = previous if previous >= 0 else (
+                            order[0] if order else -1
+                        )
+                    for row in range(choices.rowCount()):
+                        cell = choices.item(row, 0)
+                        if (cell is not None
+                                and cell.data(QtCore.Qt.UserRole + 1) == desired):
+                            choices.selectRow(row)
+                            break
+                    choices.resizeRowsToContents()
 
+                legend = QtWidgets.QLabel(
+                    "✅ Нет пересечений в проверенных 2D-сечениях "
+                    "(не 3D-допуск)    ⚠️ Не проверено / лимит времени    "
+                    "❌ Возможное 2D-препятствие (требует проверки)"
+                )
+                legend.setWordWrap(True)
+                layout.addWidget(legend)
                 populate_fast_choices()
                 layout.addWidget(choices)
                 screen_button = QtWidgets.QPushButton(
