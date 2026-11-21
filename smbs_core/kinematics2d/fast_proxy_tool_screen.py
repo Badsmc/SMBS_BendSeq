@@ -21,6 +21,7 @@ from collections.abc import Mapping
 from .contact_oracle_2d import ContactStatus, classify_polygon_contact
 from .machine_section_3d import slice_polygon_3d_at_x
 from .workpiece_placement_3d import WorkpiecePlacement3D
+from .fast_orientation_25d import four_loading_poses, roll_about_machine_bend_axis, upper_punch_face_score
 
 
 @dataclass(frozen=True)
@@ -203,7 +204,8 @@ def _section_panel(polygon_xy, transform, placement, thickness):
 def screen_proxy_transition(fold_state, panel_vertices_xy, operations,
                             completed_mask, active_index, reverse_axis,
                             tools, *, clearance_mm=5.0,
-                            deadline=None,clock=perf_counter):
+                            deadline=None,clock=perf_counter,
+                            full_angle_probe=False,roll_180=False):
     """Sample selected punch/die curves against rigid sheet-panel sections.
 
     A fresh read-only FoldState view is built for each sampled angle. Only
@@ -250,6 +252,8 @@ def screen_proxy_transition(fold_state, panel_vertices_xy, operations,
         if (tools.die_opening_mm is not None
                 and tools.die_shoulder_radius_mm is not None):
             phases.append(("BENDING_MID",0.5))
+        if full_angle_probe and len(phases)>1:
+            phases.extend((("BENDING_LATE",0.75),("BOTTOM",1.0)))
         for phase,fraction in phases:
             if deadline is not None and clock()>=deadline:
                 return ProxyFinding("TIME_BUDGET",samples=samples)
@@ -276,6 +280,18 @@ def screen_proxy_transition(fold_state, panel_vertices_xy, operations,
                 align_bend_arc_center=True,
                 reverse_axis=reverse_axis,
             )
+            if roll_180:
+                placement=roll_about_machine_bend_axis(
+                    placement,axis_z_mm=outer_radius-stroke,
+                )
+                # A roll which makes the signed bend's inner face point
+                # away from the upper punch is useful for diagnostics ONLY.
+                # Do not accidentally report it as a feasible loading pose.
+                if upper_punch_face_score(view,active.bend_id,placement)<=1e-6:
+                    return ProxyFinding(
+                        "INVALID_PUNCH_FACE",reason="longitudinal_roll_180_reverses_signed_bend_contact",
+                        samples=samples,
+                    )
             punch_z=thickness-stroke+(
                 clearance_mm if phase=="APPROACH" else 0.0
             )
@@ -317,3 +333,34 @@ def screen_proxy_transition(fold_state, panel_vertices_xy, operations,
         return ProxyFinding(
             "UNKNOWN",reason=type(exc).__name__+":"+str(exc),
         )
+
+
+def diagnose_four_loading_poses(
+    fold_state, panel_vertices_xy, operations,
+    completed_mask, active_index, tools, *,
+    deadline=None, clock=perf_counter,
+):
+    """Contrast the four old 2.5D presentations for ONE operation.
+
+    The output is diagnostic only.  In particular, a roll that moves a
+    pre-bent lip away from the punch but exposes the *wrong active bend face*
+    is INVALID_PUNCH_FACE, not CLEAR.  All views are read-only.
+    """
+    findings=[]
+    for case in four_loading_poses():
+        finding=screen_proxy_transition(
+            fold_state,panel_vertices_xy,operations,
+            completed_mask,active_index,case.reverse_axis,tools,
+            deadline=deadline,clock=clock,full_angle_probe=True,
+            roll_180=case.roll_180,
+        )
+        findings.append({
+            "pose_id":case.pose_id,
+            "reverse_axis":case.reverse_axis,
+            "roll_180":case.roll_180,
+            "eligible_for_fast_ranking":case.eligible_for_fast_ranking,
+            "finding":finding.to_dict(),
+        })
+        if finding.status=="TIME_BUDGET":
+            break
+    return tuple(findings)
