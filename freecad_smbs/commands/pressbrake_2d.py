@@ -4293,8 +4293,17 @@ class _PreviewPanel:
                             )
                             for found in side_report.new_candidates:
                                 all_candidates.append(found.candidate)
+                                side_display = {
+                                    "LEFT": "слева",
+                                    "RIGHT": "справа",
+                                    "TOP": "сверху",
+                                    "BOTTOM": "снизу",
+                                }.get(
+                                    found.side_name,
+                                    found.side_name.replace("SIDE_", "сторона "),
+                                )
                                 candidate_sources.append(
-                                    found.side_name + (
+                                    side_display + (
                                         "" if found.axis_aligned
                                         else " (ориентация приблизительная)"
                                     )
