@@ -375,3 +375,78 @@ def diagnose_four_loading_poses(
         if finding.status=="TIME_BUDGET":
             break
     return tuple(findings)
+
+
+def diagnose_shortlist_obstructions_25d(
+    fold_state, panel_vertices_xy, operations, screen, tooling_setup, *,
+    max_transitions=5, budget_seconds=1.5, clock=perf_counter,
+):
+    """Target Stage-B's *actual* failed transitions, not proxy beam winners.
+
+    Read-only sampled diagnostic. No roll variant is injected into FAST
+    candidates or approved as a machine loading pose. In particular, the
+    recorded B01/P11 transition can be present only in a saved template and
+    would otherwise be missed by best-candidate-only proxy analysis.
+    """
+    tools=prepare_proxy_tools(tooling_setup)
+    if tools is None:
+        return {
+            "status":"TOOL_PROFILE_UNAVAILABLE",
+            "cases":[],
+            "evidence":"DIAGNOSTIC_2D_ONLY_NOT_3D_VERIFIED",
+        }
+    by_id={op.operation_id:i for i,op in enumerate(operations)}
+    unique={}
+    for entry in getattr(screen,"checks",()):
+        failure=getattr(entry,"failed_transition",None)
+        if not failure:
+            continue
+        try:
+            mask,opid,reverse=failure
+            mask=int(mask)
+            reverse=bool(reverse)
+            index=by_id[str(opid)]
+        except (TypeError,ValueError,KeyError,IndexError):
+            continue
+        key=(mask,index,reverse)
+        if key not in unique:
+            unique[key]=entry
+    # Give the reported user blocker B01 priority; then deepest prefix.
+    ranked=sorted(unique,key=lambda k:(
+        0 if operations[k[1]].bend_id=="B01" else 1,
+        -int(k[0]).bit_count(),operations[k[1]].operation_id,
+        k[0],k[2],
+    ))
+    cases=[]
+    deadline=clock()+budget_seconds
+    for mask,index,reverse in ranked[:max_transitions]:
+        if clock()>=deadline:
+            break
+        findings=diagnose_four_loading_poses(
+            fold_state,panel_vertices_xy,operations,mask,index,tools,
+            deadline=deadline,clock=clock,
+        )
+        cases.append({
+            "bend_id":operations[index].bend_id,
+            "operation_id":operations[index].operation_id,
+            "completed_mask":mask,
+            "reverse_axis":reverse,
+            "preceding_operations":[
+                op.operation_id for i,op in enumerate(operations)
+                if mask & (1<<i)
+            ],
+            "stage_b_first_issue":getattr(unique[(mask,index,reverse)],"first_issue",""),
+            "poses":[dict(record) for record in findings],
+        })
+        if any(x["finding"]["status"]=="TIME_BUDGET" for x in findings):
+            break
+    return {
+        "status":("NO_STAGE_B_OBSTRUCTIONS" if not ranked
+                  else "TIME_BUDGET_PARTIAL" if len(cases)<min(len(ranked),max_transitions)
+                  or any(x["finding"]["status"]=="TIME_BUDGET"
+                         for case in cases for x in case["poses"])
+                  else "SAMPLED_DIAGNOSTIC_ONLY"),
+        "cases":cases,
+        "stage_b_unique_failed_transitions":len(ranked),
+        "evidence":"DIAGNOSTIC_2D_ONLY_NOT_3D_VERIFIED",
+    }
