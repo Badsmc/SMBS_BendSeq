@@ -2365,6 +2365,23 @@ class _PreviewPanel:
                 )
                 self.fast_search_btn.clicked.connect(self._run_fast_sequence_search)
                 playback_layout.addWidget(self.fast_search_btn)
+                self.fast_save_template_btn = style_action(
+                    QtWidgets.QPushButton("Сохранить проверенную схему гибки"),
+                    compact=True,
+                )
+                self.fast_save_template_btn.setObjectName(
+                    "SMBS_SaveOperatorBendTemplate"
+                )
+                self.fast_save_template_btn.setToolTip(
+                    "Сохранить известный оператору правильный порядок и "
+                    "развороты как геометрический шаблон для будущих "
+                    "развёрток. Требует ручного подтверждения; НЕ "
+                    "создаёт сертификат проверки столкновений."
+                )
+                self.fast_save_template_btn.clicked.connect(
+                    self._save_operator_bend_template
+                )
+                playback_layout.addWidget(self.fast_save_template_btn)
                 order_card.hide()
                 for widget in (self.manual_order_input, self.manual_simulate_btn,
                                self.saved_sequences_btn, self.manual_check_summary):
@@ -4043,6 +4060,92 @@ class _PreviewPanel:
             def _selected_operation_weights(self):
                 from smbs_core.kinematics2d.operation_cost import OperationWeights
                 return OperationWeights(**self._operation_weights)
+
+            def _save_operator_bend_template(self):
+                """Explicitly record an operator-known full plan for later FAST."""
+                from smbs_core.kinematics2d.fast_bend_templates import (
+                    store_operator_template, BendTemplateError,
+                )
+                if (self.session is None
+                        or self._task_progress_busy
+                        or self.playing
+                        or self.timer.isActive()):
+                    self.status.setText(
+                        "Шаблон: остановите симуляцию и загрузите деталь."
+                    )
+                    return
+                controller = self.session.controller
+                steps = tuple(controller.operation_steps)
+                if not steps:
+                    return
+                title, accepted = QtWidgets.QInputDialog.getText(
+                    self,
+                    "Сохранить технологическую схему",
+                    "Название проверенной схемы гибки:",
+                )
+                if not accepted or not title.strip():
+                    return
+                reply = QtWidgets.QMessageBox.question(
+                    self, "Подтверждение схемы гибки",
+                    "Подтверждаете, что вам уже известен правильный "
+                    "порядок этой детали и развороты при гибке? "
+                    "Сохранённая схема будет использоваться как "
+                    "предварительный образец FAST, но не заменит "
+                    "проверку столкновений.",
+                    QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
+                    QtWidgets.QMessageBox.No,
+                )
+                if reply != QtWidgets.QMessageBox.Yes:
+                    return
+                reverse = {}
+                for step in steps:
+                    reverse[step.operation_id] = bool(
+                        self._manual_operation_orientation_overrides.get(
+                            step.operation_id,
+                            self._manual_orientation_overrides.get(
+                                step.bend_id, False
+                            )
+                        )
+                    )
+                tooling_info = {
+                    "punch":str(getattr(
+                        getattr(self.tooling_setup,"punch",None),
+                        "tool_id",""
+                    )),
+                    "die":str(getattr(
+                        getattr(self.tooling_setup,"die",None),
+                        "tool_id",""
+                    )),
+                }
+                try:
+                    stored = store_operator_template(
+                        self.session.fold_state, steps,
+                        getattr(self.session.panel_build,
+                                "outline_vertices_xy", ()),
+                        self.session.panel_vertices_xy,
+                        tuple(step.operation_id for step in steps),
+                        reverse, title=title.strip(),
+                        tooling=tooling_info,
+                    )
+                except (BendTemplateError, OSError, ValueError) as exc:
+                    self.status.setText("Шаблон не сохранён: " + str(exc))
+                    _desktop_debug_event(
+                        "FAST_TEMPLATE_SAVE_ERROR",
+                        error=type(exc).__name__ + ":" + str(exc),
+                    )
+                    return
+                self.status.setText(
+                    "Сохранена схема «{}». Она будет предложена FAST "
+                    "при точном совпадении геометрии.".format(
+                        stored["title"]
+                    )
+                )
+                _desktop_debug_event(
+                    "FAST_TEMPLATE_SAVED", title=stored["title"],
+                    template_id=stored["template_id"],
+                    shape_sha256=stored["shape_sha256"],
+                    path=stored["path"],
+                )
 
             def _run_fast_sequence_search(self):
                 """Opt-in one-second shortlist; NEVER claim 3D clearance."""
