@@ -191,5 +191,6 @@ def search_all_outer_sides(
         penalty_details,
         "BUDGET_EXCEEDED" if any(
             item["status"]=="BUDGET_EXCEEDED" for item in findings
-        ) else "FORCED_SIDE_CANDIDATES_UNVERIFIED",
+        ) else ("FORCED_SIDE_CANDIDATES_UNVERIFIED"
+                if new_candidates else "NO_NEW_SIDE_CANDIDATES_UNVERIFIED"),
     )
