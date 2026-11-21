@@ -61,8 +61,10 @@ class FastSearchGUIContracts(unittest.TestCase):
             chooser.index("dialog.open()"),
             chooser.index("QtCore.QTimer.singleShot(0, check_fast_shortlist_2d)"),
         )
-        self.assertIn("displayed_indices[:] = screen_report.ranked_indices", chooser)
-        self.assertIn("displayed_indices[row]", chooser)
+        self.assertIn("choices.setSortingEnabled(True)", chooser)
+        self.assertIn("choices.sortItems(", chooser)
+        self.assertIn("selected_source_index()", chooser)
+        self.assertIn("QtCore.Qt.UserRole + 1", chooser)
         self.assertIn("selected = all_candidates[index]", chooser)
         self.assertIn('"FAST_SHORTLIST_2D_SCREEN"', chooser)
         self.assertIn('setObjectName("SMBS_FastShortlist2DScreen")', chooser)
@@ -78,9 +80,37 @@ class FastSearchGUIContracts(unittest.TestCase):
         self.assertIn("all_candidates.append(found.candidate)", chooser)
         self.assertIn("transition_cache=screen_cache", chooser)
         self.assertIn("selected = all_candidates[index]", chooser)
-        self.assertIn("displayed_indices[row]", chooser)
-        self.assertIn("choices.setCurrentRow(0)", chooser)
+        self.assertIn("selected_source_index()", chooser)
+        self.assertIn("choices.selectRow(row)", chooser)
         self.assertIn('"FAST_SHORTLIST_2D_SCREEN_INITIAL"', chooser)
+
+    def test_sortable_table_and_honest_preliminary_status(self):
+        chooser = function("_run_fast_sequence_search")
+        self.assertIn("QtWidgets.QTableWidget(dialog)", chooser)
+        self.assertIn('setObjectName("SMBS_FastCandidateTable")', chooser)
+        for column in ('"№"', '"2D"', '"Вес"', '"Старт"',
+                       '"1-й гиб"', '"180°"', '"2D штраф"',
+                       '"Порядок"', '"Причина"'):
+            self.assertIn(column, chooser)
+        self.assertIn("class _FastSortableItem", chooser)
+        self.assertIn("isinstance(left, (float, int))", chooser)
+        self.assertIn("choices.setSortingEnabled(True)", chooser)
+        self.assertIn("setData(QtCore.Qt.UserRole + 1, source_index", chooser)
+        self.assertIn("selected_source_index()", chooser)
+        self.assertIn('"✅"', chooser)
+        self.assertIn('"❌"', chooser)
+        self.assertIn('"⚠️"', chooser)
+        self.assertIn("3D: НЕ ПРОВЕРЕНО", chooser)
+
+    def test_feedback_rerun_checks_new_candidates_first(self):
+        chooser = function("_run_fast_sequence_search")
+        self.assertIn("search_feedback_recovery(", chooser)
+        self.assertIn('"FAST_FEEDBACK_RECOVERY_RESULT"', chooser)
+        self.assertIn("budget_seconds=1.5", chooser)
+        self.assertIn("priority_candidate_indices=range(", chooser)
+        self.assertIn("feedback_rounds[0] < 3", chooser)
+        self.assertIn("fixed_orientations=pinned", chooser)
+        self.assertIn("selected = all_candidates[index]", chooser)
 
     def test_never_auto_apply_candidate(self):
         chooser = function("_run_fast_sequence_search")
