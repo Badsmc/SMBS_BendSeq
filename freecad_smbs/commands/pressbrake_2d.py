@@ -4176,14 +4176,21 @@ class _PreviewPanel:
                             (" | 2D: " + check.status
                              if check is not None else " | 2D: ожидается")
                         )
+                        axis_label = (
+                            "+{:.0f}".format(candidate.axis_penalty)
+                            if candidate_sources[source_index] == "FAST"
+                            else "не проверена"
+                        )
                         label = (
                             "{}. {} | вес ~{:.2f} "
-                            "(ось +{:.0f}, короткая сторона {:.1f}, порядок {:.1f}) "
+                            "(ось {}, 2D-штраф +{:.0f}, "
+                            "короткая сторона {:.1f}, порядок {:.1f}) "
                             "| 180°: {}{}"
                         ).format(
                             position, " → ".join(candidate.operation_ids),
                             candidate.estimated_cost,
-                            candidate.axis_penalty,
+                            axis_label,
+                            candidate.feedback_penalty,
                             candidate.ergonomic_penalty,
                             candidate.nested_fold_penalty,
                             ", ".join(reversed_ids) if reversed_ids else "нет",
