@@ -17,6 +17,48 @@ first tool/phase/panel obstruction and `3D_UNVERIFIED` evidence. When an
 operator-known solution conflicts with Stage B, investigate the machine
 placement and offending 2D section before treating it as an impossible bend.
 
+## FAST simplified selected punch/die profile screen (experimental)
+
+The **initial 30-second Beam Search** and its collision-gated/all-side/
+coordinated-reversal reruns now accept the *operator-selected* verified
+`ToolProfile.local_polygons()` for both PUNCH and DIE. The search prepares a
+small approximate closed curve from each real local section once, using
+a 0.35 mm contour simplification tolerance (and retaining the source
+contour if this alters material area too much). It does **not** fabricate a
+generic triangle/rectangle or average two physically different tools.
+Tool-local working datums anchor the virtual profiles in machine section
+coordinates `(s=-Y_m,z=Z_m)`.
+
+For the folded completion mask, next bend and exact 0/180 orientation,
+FAST samples the rigid panel cross-sections at the real machine station
+`X_m=0`. It compares other material against selected tool silhouettes
+at a parked-punch APPROACH pose and an approximate BENDING_MID pose.
+The fixed/moving active flanges are screened only against the *parked
+punch* during APPROACH, never penalized for intended forming contact.
+The curved bend-zone itself is exempt. Positive material-area overlap,
+not box overlap or permitted surface touching, is required to assign
+a state-specific cost: +700 (active parked-punch obstruction),
++1900 (nonactive panel/PUNCH), +1700 (nonactive panel/DIE). These weights
+are **experimental** and can be tuned from diagnostic replay. Proxies
+respect real tool holes. A missing or unverified tool pair, missing
+panel geometry, staged operations or ambiguous section produces no
+manufacturability claim, no fabricated proxy and no hard pruning.
+
+The result includes `proxy_tool_penalty` independently from
+`feedback_penalty` and centre-axis scoring. The table's "2D штраф"
+combines proxy and Stage B transition-feedback penalties, while the
+tooltip separates proxy cost. `FAST_PROXY_TOOL_SUMMARY` records the
+selected tool IDs, evaluated transitions, sampled findings, and total
+penalized transitions. `FAST_SEARCH_RESULT` has the same structured
+`proxy_tool_*` details.
+
+**Limitations:** the mid-stroke ram coordinate is approximate, only
+`X_m=0` is sampled and side-end/clamp/rear-stop collisions are outside
+this proxy. This screening can reject nothing by itself: Stage B can
+override a suspected collision and independent 3D validation remains
+mandatory. The actual user-selected 0/180 orientation is used for every
+proxy check, including reruns.
+
 ## Intent
 
 Keep the initial FAST Beam Search independent of native geometry; its GUI budget is now 30 seconds (previously 1 second).
