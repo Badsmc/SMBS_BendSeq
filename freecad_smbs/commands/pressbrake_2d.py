@@ -4550,16 +4550,20 @@ class _PreviewPanel:
                                 feedback_begin = len(all_candidates)
                                 for found in feedback_report.new_candidates:
                                     all_candidates.append(found.candidate)
-                                    flipped_id = found.side_name.replace(
+                                    flipped_ids = found.side_name.replace(
                                         "FLIP_", ""
-                                    )
-                                    flip_degrees = (
-                                        "180°" if found.candidate.orientations()
-                                        .get(flipped_id, False) else "0°"
+                                    ).split("+")
+                                    candidate_flags = (
+                                        found.candidate.orientations()
                                     )
                                     candidate_sources.append(
-                                        "смена " + flipped_id + " → " +
-                                        flip_degrees
+                                        "смена " + ", ".join(
+                                            operation + " → " +
+                                            ("180°" if candidate_flags.get(
+                                                operation, False
+                                            ) else "0°")
+                                            for operation in flipped_ids
+                                        )
                                     )
                                 screen = screen_fast_shortlist(
                                     self.session.fold_state, operations,
