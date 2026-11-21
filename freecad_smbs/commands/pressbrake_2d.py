@@ -4136,27 +4136,144 @@ class _PreviewPanel:
                 layout.addWidget(hint)
                 choices = QtWidgets.QListWidget(dialog)
                 choices.setObjectName("SMBS_FastCandidateList")
-                for i, candidate in enumerate(report.candidates, 1):
-                    reversed_ids = [
-                        op_id for op_id, reverse in candidate.orientation_by_operation
-                        if reverse
-                    ]
-                    text = (
-                        "{}. {} | вес ~{:.2f} "
-                        "(ось +{:.0f}, короткая сторона {:.1f}, порядок {:.1f}) | 180°: {}"
-                    ).format(
-                        i, " → ".join(candidate.operation_ids),
-                        candidate.estimated_cost,
-                        candidate.axis_penalty,
-                        candidate.ergonomic_penalty,
-                        candidate.nested_fold_penalty,
-                        ", ".join(reversed_ids) if reversed_ids else "нет",
+                # Display order may change after advisory 2D screening.
+                # Keep original candidate indices for correct application.
+                displayed_indices = list(range(len(report.candidates)))
+                self._last_fast_shortlist_screen_report = None
+
+                def populate_fast_choices(screen_report=None):
+                    previously_selected = (
+                        displayed_indices[choices.currentRow()]
+                        if 0 <= choices.currentRow() < len(displayed_indices)
+                        else 0
                     )
-                    item = QtWidgets.QListWidgetItem(text)
-                    item.setToolTip(text + "\\nUNVERIFIED: 3D не проверено")
-                    choices.addItem(item)
-                choices.setCurrentRow(0)
+                    if screen_report is not None:
+                        displayed_indices[:] = screen_report.ranked_indices
+                    choices.clear()
+                    for position, source_index in enumerate(displayed_indices, 1):
+                        candidate = report.candidates[source_index]
+                        reversed_ids = [
+                            op_id for op_id, reverse in candidate.orientation_by_operation
+                            if reverse
+                        ]
+                        check = (
+                            screen_report.checks[source_index]
+                            if screen_report is not None else None
+                        )
+                        suffix = (
+                            " | 2D: " + check.status
+                            if check is not None else " | 2D: ожидается"
+                        )
+                        label = (
+                            "{}. {} | вес ~{:.2f} "
+                            "(ось +{:.0f}, короткая сторона {:.1f}, порядок {:.1f}) "
+                            "| 180°: {}{}"
+                        ).format(
+                            position, " → ".join(candidate.operation_ids),
+                            candidate.estimated_cost,
+                            candidate.axis_penalty,
+                            candidate.ergonomic_penalty,
+                            candidate.nested_fold_penalty,
+                            ", ".join(reversed_ids) if reversed_ids else "нет",
+                            suffix,
+                        )
+                        item = QtWidgets.QListWidgetItem(label)
+                        item.setToolTip(
+                            label + "\\n" +
+                            (check.first_issue if check and check.first_issue else
+                             "2D и 3D не сертифицированы")
+                        )
+                        choices.addItem(item)
+                    if displayed_indices:
+                        choices.setCurrentRow(
+                            displayed_indices.index(previously_selected)
+                            if previously_selected in displayed_indices else 0
+                        )
+
+                populate_fast_choices()
                 layout.addWidget(choices)
+                screen_button = QtWidgets.QPushButton(
+                    "Повторить 2D-проверку (бюджет 3 с)", dialog
+                )
+                screen_button.setObjectName("SMBS_FastShortlist2DScreen")
+                layout.addWidget(screen_button)
+
+                def check_fast_shortlist_2d():
+                    # Start after QDialog.open(): users see FAST candidates
+                    # first, while the optional Stage B ranking is separate.
+                    if (not self._qt_is_valid(dialog)
+                            or not self._playback_alive()
+                            or self._fast_result_dialog is not dialog):
+                        return
+                    if (self.session is None or
+                            self.session.controller is not controller or
+                            tuple(controller.operation_steps) != operations):
+                        hint.setText(
+                            "2D: набор операций изменился, повторите FAST."
+                        )
+                        return
+                    from smbs_core.kinematics2d.fast_shortlist_screening import (
+                        screen_fast_shortlist,
+                    )
+                    screen_button.setEnabled(False)
+                    hint.setText(
+                        "FAST-поиск завершён. Выполняется отдельная "
+                        "предварительная 2D-проверка (бюджет 3 с). "
+                        "Ни один результат не является допуском 3D."
+                    )
+                    try:
+                        screen = screen_fast_shortlist(
+                            self.session.fold_state, operations,
+                            report.candidates, self.session.panel_vertices_xy,
+                            self.tooling_setup,
+                            backgauge_model=self.backgauge_model,
+                            budget_seconds=3.0,
+                        )
+                        self._last_fast_shortlist_screen_report = screen
+                        _desktop_debug_event(
+                            "FAST_SHORTLIST_2D_SCREEN", report=screen.to_dict()
+                        )
+                        if not self._qt_is_valid(choices):
+                            return
+                        populate_fast_choices(screen)
+                        clear = sum(
+                            entry.status.startswith("SAMPLED_2D_TOOLS")
+                            for entry in screen.checks
+                        )
+                        interferences = sum(
+                            entry.status == "POTENTIAL_2D_INTERFERENCE"
+                            for entry in screen.checks
+                        )
+                        hint.setText(
+                            "FAST: {:.3f} с. Проверка 2D: {:.3f} с, "
+                            "проб {}, кеш {}, предварительно без 2D-пересечений "
+                            "{}, с 2D-препятствиями {}. "
+                            "Кандидаты пересортированы, но НЕ отклонены. "
+                            "Оснастка по длине, зажимы, контакт CAD-упора, "
+                            "полная траектория и 3D-коллизии НЕ подтверждены."
+                            .format(
+                                report.elapsed_seconds, screen.elapsed_seconds,
+                                screen.actual_probes, screen.cache_hits,
+                                clear, interferences,
+                            )
+                        )
+                    except Exception as exc:
+                        _desktop_debug_event(
+                            "FAST_SHORTLIST_2D_ERROR",
+                            error=type(exc).__name__ + ":" + str(exc),
+                            traceback=traceback.format_exc(),
+                        )
+                        if self._qt_is_valid(hint):
+                            hint.setText(
+                                "2D-проверка недоступна: {}. "
+                                "FAST-кандидаты сохранены как UNVERIFIED."
+                                .format(str(exc))
+                            )
+                    finally:
+                        if self._qt_is_valid(screen_button):
+                            screen_button.setEnabled(True)
+
+                screen_button.clicked.connect(check_fast_shortlist_2d)
                 buttons = QtWidgets.QDialogButtonBox(
                     QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel,
                     dialog,
@@ -4172,8 +4289,12 @@ class _PreviewPanel:
                 def on_finished(result):
                     # Extract all Qt dialog data while it is still alive.
                     # Never read its QListWidget after WA_DeleteOnClose.
-                    index = (choices.currentRow()
-                             if self._qt_is_valid(choices) else -1)
+                    row = (choices.currentRow()
+                           if self._qt_is_valid(choices) else -1)
+                    index = (
+                        displayed_indices[row]
+                        if 0 <= row < len(displayed_indices) else -1
+                    )
                     self._fast_result_dialog = None
                     if (self._playback_alive()
                             and self._qt_is_valid(self.fast_search_btn)):
@@ -4201,6 +4322,10 @@ class _PreviewPanel:
                 self.fast_search_btn.setEnabled(False)
                 _desktop_debug_event("FAST_RESULT_DIALOG_OPENED")
                 dialog.open()
+                # Leave the one-second FAST search intact. Perform the
+                # separate bounded 2D screening after the result window is
+                # visible, not in the combinatorial search loop.
+                QtCore.QTimer.singleShot(0, check_fast_shortlist_2d)
 
             def _apply_fast_sequence_candidate(
                     self, selected, controller, operations, pinned, index):
