@@ -222,3 +222,46 @@ Pure Python regression:
   a search seed, not a certified global loading placement.
 - Run independent multi-section mesh and full physical checks on selected
   candidates; do not turn sampled-clear into a safety certificate.
+
+
+## Operator-confirmed bend templates (first exact-match phase)
+
+The optional `Сохранить проверенную схему гибки` action records the **current
+complete operator-known sequence**, per-operation 0/180 loading choices, and
+source punch/die IDs, only after an explicit operator confirmation. FAST
+does not learn from merely generated, accepted or 2D-screened candidates
+automatically.
+
+Records are user-local JSON, stored atomically in
+`~/.smbs/bend_templates.v1.json`, independent of the installed workbench
+folder or Git branch. Schema `smbs.fast_bend_templates.v1` includes a stable
+geometry fingerprint, operation order as canonical geometric indices,
+normalized loading orientations and user provenance; it never saves native
+FreeCAD shapes. The library supports up to 200 distinct named recipes.
+
+On the next FAST invocation, the matcher compares actual unfolded **outer
+contour, every rigid panel, bend-axis locations and endpoints, signed staged
+angles, thickness, radius and parent/moving panel topology**. It is invariant
+under planar **translation/rotation and bend/panel ID renumbering**; a reversed
+imported bend-axis direction is corrected in the saved 0/180 loading
+preference. Mirroring, arbitrary scaling and altered flange dimensions do
+not match silently. Ambiguous incomplete geometry is skipped, never guessed.
+
+Matching recipes are added as preliminary candidates **before** Beam Search
+results, then use the exact same Stage B selected-punch/die check and
+strict sampled coarse tool screening. Different source tooling is labeled.
+Recipes remain `OPERATOR_TEMPLATE_MATCH_UNVERIFIED_3D`; no prior operator
+knowledge is a physical collision certificate. If today's 2D scanner reports
+a suspected false-positive collision for an operator-known recipe, that
+specific row stays visible with a red warning for comparison and diagnostics
+rather than being hidden by a provisional filter.
+
+The first version deliberately matches **exact physical geometry** only:
+structurally similar parts with changed widths or flange lengths need a
+separate explicit pattern-family matching policy after first reference cases
+are validated. The library is empty until an operator explicitly saves a
+known solution.
+
+Regression coverage:
+`python -m unittest tests.test_fast_bend_templates tests.test_fast_search_gui_contract`
+
