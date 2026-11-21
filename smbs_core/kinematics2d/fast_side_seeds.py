@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from itertools import permutations
-from math import atan2, hypot, isfinite, pi, cos, radians
+from math import hypot, isfinite, cos, radians
 from typing import Sequence
 
 
@@ -171,7 +171,7 @@ def simplified_outer_sides(outline_xy: Sequence, *, max_sides: int | None = None
         pts.pop()
     if len(pts) < 3:
         return ()
-    if outer_edge_polylines_xy is not None:
+    if outer_edge_polylines_xy:
         real_edges = _cad_edge_sides(pts, outer_edge_polylines_xy, diag)
         if max_sides is not None and len(real_edges) > max_sides:
             raise ValueError("Exterior contour exceeds explicit max_sides")
