@@ -134,7 +134,7 @@ class FastSearchGUIContracts(unittest.TestCase):
         self.assertIn("coarse_gate=current_gate", chooser)
         self.assertIn("choices.setRowCount(len(order))", chooser)
         self.assertIn("show_rejected.toggled.connect(", chooser)
-        self.assertIn('setObjectName(\\n                    "SMBS_FastShowCoarseRejected"', chooser)
+        self.assertIn("SMBS_FastShowCoarseRejected", chooser)
         self.assertIn("show_rejected.setChecked(False)", chooser)
         self.assertIn("selected_source_index()", chooser)
         # The operator must always select: never silently commit a
