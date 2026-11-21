@@ -4581,6 +4581,49 @@ class _PreviewPanel:
                 screen_button.setObjectName("SMBS_FastShortlist2DScreen")
                 layout.addWidget(screen_button)
 
+                def log_template_2d_replay(stage, current_screen):
+                    # Diagnostic only. An operator-recorded template is
+                    # NEVER assumed to have passed machine collision tests.
+                    findings = []
+                    for idx, source in enumerate(candidate_sources):
+                        if (not source.startswith("шаблон:")
+                                or idx >= len(current_screen.checks)):
+                            continue
+                        template_candidate = all_candidates[idx]
+                        check = current_screen.checks[idx]
+                        findings.append({
+                            "candidate_index": idx,
+                            "source": source,
+                            "operation_ids": list(
+                                template_candidate.operation_ids
+                            ),
+                            "orientation_by_operation": (
+                                template_candidate.orientations()
+                            ),
+                            "2d_status": check.status,
+                            "sampled_clear_prefix": (
+                                check.clear_prefix_steps
+                            ),
+                            "total_operations": len(
+                                template_candidate.operation_ids
+                            ),
+                            "first_issue": check.first_issue,
+                            "failed_transition": (
+                                list(check.failed_transition)
+                                if check.failed_transition else None
+                            ),
+                            "evidence": (
+                                "OPERATOR_RECIPE_2D_ADVISORY_3D_UNVERIFIED"
+                            ),
+                        })
+                    if findings:
+                        _desktop_debug_event(
+                            "FAST_TEMPLATE_2D_REPLAY",
+                            stage=stage,
+                            current_tooling=dict(current_tools),
+                            findings=findings,
+                        )
+
                 def check_fast_shortlist_2d():
                     # Start after QDialog.open(): users see FAST candidates
                     # first, while the optional Stage B ranking is separate.
@@ -4624,6 +4667,7 @@ class _PreviewPanel:
                             "FAST_SHORTLIST_2D_SCREEN_INITIAL",
                             report=screen.to_dict(),
                         )
+                        log_template_2d_replay("INITIAL", screen)
                         side_report = None
                         if not forced_sides_done[0]:
                             from smbs_core.kinematics2d.fast_multiside_feedback import (
@@ -4817,6 +4861,7 @@ class _PreviewPanel:
                         _desktop_debug_event(
                             "FAST_SHORTLIST_2D_SCREEN", report=screen.to_dict()
                         )
+                        log_template_2d_replay("FINAL", screen)
                         _desktop_debug_event(
                             "FAST_POSTPROCESS_SUMMARY",
                             fast_seconds=report.elapsed_seconds,
