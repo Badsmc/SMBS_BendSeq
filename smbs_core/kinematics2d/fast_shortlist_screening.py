@@ -205,7 +205,10 @@ def screen_fast_shortlist(
     candidates = tuple(candidates)
     operations = tuple(operations)
     by_id = {op.operation_id: op for op in operations}
-    positions = {op.operation_id: index for index, op in enumerate(operations)}
+    positions_by_bend = {
+        op.bend_id: index for index,op in enumerate(operations)
+        if op.kind == "SINGLE"
+    }
     if len(by_id) != len(operations):
         raise ValueError("operation IDs must be unique")
     if any(not isinstance(candidate, FastCandidate) for candidate in candidates):
@@ -279,7 +282,8 @@ def screen_fast_shortlist(
                         if step_status in (
                                 "POTENTIAL_2D_INTERFERENCE", "STATIC_TOOLING_BLOCK"):
                             completed_mask = sum(
-                                1 << positions[prior] for prior in done_angles
+                                1 << positions_by_bend[prior]
+                                for prior in done_angles
                             )
                             first_blocker = (completed_mask, oid, reverse)
                         break
