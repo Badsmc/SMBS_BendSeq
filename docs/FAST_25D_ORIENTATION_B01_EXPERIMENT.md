@@ -28,9 +28,14 @@ contact side of a signed bend, so a clear 2D projection alone cannot validate it
 1. Install this experiment as a complete add-on checkout and restart FreeCAD.
 2. Load the same ten-bend FCStd sample; select a GEOMETRY_VERIFIED punch/die pair.
 3. Start FAST, then open Desktop/SMBS_debug_log.json.
-4. Inspect FAST_SEARCH_RESULT.report.orientation_25d_findings for B01.
-5. Compare four pose IDs, their raw tool contact, and INVALID_PUNCH_FACE statuses.
-6. Verify preceding_operations includes the intended previous bends B05 and B07.
+4. After Stage B's shortlist finishes, inspect the new event
+   FAST_25D_ORIENTATION_STAGE_B_DIAGNOSTIC.report.cases.
+5. Check the B01 case with completed_mask=31 (B09, B10, B06, B05, B07)
+   and also the B01 case with completed_mask=24 (B05, B07).
+6. Compare four pose IDs, their raw tool contact, and INVALID_PUNCH_FACE statuses.
+7. FAST_SEARCH_RESULT.report.orientation_25d_findings may be empty if the
+   best FAST proxy candidate had no suspect transitions. This is expected;
+   Stage B's new diagnostic targets the *actual* detected B01 obstruction.
 
 If proxy_tool_available is false, the test did not have real selected tool
 contours, and cannot make clearance claims. If the complete candidate is missing,
