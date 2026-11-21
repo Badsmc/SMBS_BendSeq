@@ -2354,6 +2354,10 @@ class _PreviewPanel:
                     "Такой вариант получает большой ШТРАФ, но не исключается. "
                     "Местные пересечения полок ДОПУСТИМЫ. "
                     "Первые пять вариантов — FAST с лимитом 30 с. "
+                    "В поиске используется упрощённый 2D-контур "
+                    "выбранного пуансона и матрицы: грубые пересечения "
+                    "с панелями добавляют штраф, касания и зона гиба "
+                    "не штрафуются. Полной 3D-гарантии нет. "
                     "Затем автоматически выполняются 2D-проверки и новые "
                     "поиски от КАЖДОЙ внешней стороны развёртки "
                     "(число сторон определяется настоящим внешним CAD-контуром). "
@@ -4492,6 +4496,9 @@ class _PreviewPanel:
                             )
                         details = (
                             verdict + "\\n" + "Статус: " + status +
+                            "\\nПрофили пуансона/матрицы (прибл. 2D): +{:.0f}".format(
+                                candidate.proxy_tool_penalty
+                            ) +
                             ("\\nПричина: " + check.first_issue
                              if check and check.first_issue else "") +
                             "\\n3D: НЕ ПРОВЕРЕНО"
@@ -4510,7 +4517,10 @@ class _PreviewPanel:
                             candidate.operation_ids[0],
                             ", ".join(reversed_ids) if reversed_ids else "—",
                             axis_label,
-                            "{:.0f}".format(candidate.feedback_penalty),
+                            "{:.0f}".format(
+                                candidate.feedback_penalty +
+                                candidate.proxy_tool_penalty
+                            ),
                             " → ".join(candidate.operation_ids),
                             check.first_issue if check and check.first_issue
                             else "—",
@@ -4527,7 +4537,10 @@ class _PreviewPanel:
                             (float(candidate.axis_penalty)
                              if candidate_sources[source_index] == "FAST"
                              else -1.0),
-                            float(candidate.feedback_penalty),
+                            float(
+                                candidate.feedback_penalty +
+                                candidate.proxy_tool_penalty
+                            ),
                             values[9],
                             values[10],
                         )
