@@ -4357,6 +4357,7 @@ class _PreviewPanel:
                         screen_fast_shortlist,
                     )
                     screen_button.setEnabled(False)
+                    postprocess_started = time.perf_counter()
                     _desktop_debug_event(
                         "FAST_SHORTLIST_2D_STARTED",
                         candidate_count=len(all_candidates),
@@ -4499,8 +4500,36 @@ class _PreviewPanel:
                                     ),
                                 )
                         self._last_fast_shortlist_screen_report = screen
+                        postprocess_elapsed = (
+                            time.perf_counter() - postprocess_started
+                        )
                         _desktop_debug_event(
                             "FAST_SHORTLIST_2D_SCREEN", report=screen.to_dict()
+                        )
+                        _desktop_debug_event(
+                            "FAST_POSTPROCESS_SUMMARY",
+                            fast_seconds=report.elapsed_seconds,
+                            additional_seconds=postprocess_elapsed,
+                            total_seconds=report.elapsed_seconds +
+                                          postprocess_elapsed,
+                            candidate_count=len(all_candidates),
+                            preliminary_clear=sum(
+                                entry.status.startswith("SAMPLED_2D_TOOLS")
+                                for entry in screen.checks
+                            ),
+                            preliminary_obstructions=sum(
+                                entry.status in (
+                                    "POTENTIAL_2D_INTERFERENCE",
+                                    "STATIC_TOOLING_BLOCK")
+                                for entry in screen.checks
+                            ),
+                            unverified=sum(
+                                not entry.status.startswith("SAMPLED_2D_TOOLS")
+                                and entry.status not in (
+                                    "POTENTIAL_2D_INTERFERENCE",
+                                    "STATIC_TOOLING_BLOCK")
+                                for entry in screen.checks
+                            ),
                         )
                         if not self._qt_is_valid(choices):
                             return
@@ -4514,8 +4543,9 @@ class _PreviewPanel:
                             for entry in screen.checks
                         )
                         hint.setText(
-                            "FAST: {:.3f} с. Последняя 2D-проверка: {:.3f} с, "
-                            "проб {}, кеш {}, предварительно без 2D-пересечений "
+                            "FAST: {:.3f} с, дополнительные этапы: {:.3f} с "
+                            "(последняя 2D: {:.3f} с). "
+                            "Проб {}, кеш {}, предварительно без 2D-пересечений "
                             "{}, с 2D-препятствиями {}. "
                             "Сторон контура: {}, отдельных поисков: {}, "
                             "повторных постановок: {}, пропущено по бюджету: {}. "
@@ -4526,7 +4556,8 @@ class _PreviewPanel:
                             "Оснастка по длине, зажимы, контакт CAD-упора, "
                             "полная траектория и 3D-коллизии НЕ подтверждены."
                             .format(
-                                report.elapsed_seconds, screen.elapsed_seconds,
+                                report.elapsed_seconds, postprocess_elapsed,
+                                screen.elapsed_seconds,
                                 screen.actual_probes, screen.cache_hits,
                                 clear, interferences,
                                 len(side_report.side_findings) if side_report is not None
