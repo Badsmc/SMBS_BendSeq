@@ -149,6 +149,48 @@ class TestFourPoseLoading25D(TestCase):
         self.assertEqual(
             report["cases"][0]["stage_b_first_issue"],"B01:PUNCH:P11",
         )
+        self.assertEqual(
+            report["cases"][0]["poses"][0]["stage_b_comparison"],
+            "SAME_POSE_2D_OBSTRUCTION",
+        )
+
+    def test_conflicting_proxy_clear_is_not_misreported_as_stage_b_clear(self):
+        from smbs_core.kinematics2d.fast_proxy_tool_screen import (
+            diagnose_shortlist_obstructions_25d,
+        )
+        steps=(SimpleNamespace(operation_id="B01",bend_id="B01"),)
+        screen=SimpleNamespace(checks=[
+            SimpleNamespace(
+                failed_transition=(0,"B01",False),
+                first_issue="B01:PUNCH:P11",
+            ),
+        ])
+        poses=(
+            {"pose_id":"YAW_0_ROLL_0","reverse_axis":False,
+             "roll_180":False,"finding":{"status":"CLEAR_SAMPLED"}},
+            {"pose_id":"YAW_180_ROLL_0","reverse_axis":True,
+             "roll_180":False,"finding":{"status":"CLEAR_SAMPLED"}},
+        )
+        with patch(
+            "smbs_core.kinematics2d.fast_proxy_tool_screen.prepare_proxy_tools",
+            return_value=object(),
+        ),patch(
+            "smbs_core.kinematics2d.fast_proxy_tool_screen."
+            "diagnose_four_loading_poses",
+            return_value=poses,
+        ):
+            output=diagnose_shortlist_obstructions_25d(
+                object(),{},steps,screen,object(),
+            )
+        readings=output["cases"][0]["poses"]
+        self.assertEqual(
+            readings[0]["stage_b_comparison"],
+            "CONFLICTING_2D_EVIDENCE_NOT_CLEAR",
+        )
+        self.assertEqual(
+            readings[1]["stage_b_comparison"],
+            "ALTERNATE_POSE_NOT_STAGE_B_VERIFIED",
+        )
 
 
 if __name__=="__main__":
