@@ -63,7 +63,7 @@ class FastSearchGUIContracts(unittest.TestCase):
         )
         self.assertIn("displayed_indices[:] = screen_report.ranked_indices", chooser)
         self.assertIn("displayed_indices[row]", chooser)
-        self.assertIn("selected = report.candidates[index]", chooser)
+        self.assertIn("selected = all_candidates[index]", chooser)
         self.assertIn('"FAST_SHORTLIST_2D_SCREEN"', chooser)
         self.assertIn('setObjectName("SMBS_FastShortlist2DScreen")', chooser)
 
