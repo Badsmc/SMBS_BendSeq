@@ -109,7 +109,8 @@ class FastShortlistScreeningTests(unittest.TestCase):
         report = self.screen(plans, probe)
         self.assertIn(("B01", False), visited)
         self.assertIn(("B01", True), visited)
-        self.assertEqual(report.actual_probes, 4)
+        self.assertEqual(report.actual_probes, 3)
+        self.assertEqual(report.cache_hits, 1)
         self.assertEqual(report.checks[0].status, "SAMPLED_2D_TOOLS_ONLY")
 
     def test_failing_probe_is_unverified_and_restores_state(self):
