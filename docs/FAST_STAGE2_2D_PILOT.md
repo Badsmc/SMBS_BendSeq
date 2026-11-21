@@ -92,6 +92,9 @@ material-penetration filtering),
     different obstruction IDs, with the SAME per-round budget.
     One-flip-only reruns can move a failure from B06 to B04 without
     improving the checked prefix; coordinated repairs target this.
+    `attempted_cases[].coordinated_flips` records all forced changes.
+    If Stage B only reports NO_TOOLING/UNKNOWN and therefore supplies
+    no obstructed transition, the GUI does not consume a feedback round.
     Manual locks remain authoritative. The repeat button supports
     two more bounded recovery rounds. No combination is 3D certified.
 14. The result table hides paths showing the strict coarse-2D
