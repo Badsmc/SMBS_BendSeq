@@ -74,6 +74,17 @@ class CoarseToolGateTests(unittest.TestCase):
         self.assertEqual(coarse_tool_gate(fake_screen(*checks))
                          .forbidden_transitions, ())
 
+    def test_raised_punch_overhead_flange_blocked_before_contact(self):
+        gate=coarse_tool_gate(fake_screen(
+            hit(op="B05", tool="PUNCH", phase="APPROACH",
+                component="active_fixed", mask=4),
+            hit(op="B06", tool="PUNCH", phase="BENDING",
+                component="active_moving", mask=7),
+            hit(op="B07", tool="DIE", phase="APPROACH",
+                component="active_fixed", mask=3),
+        ))
+        self.assertEqual(gate.forbidden_transitions, ((4,"B05",False),))
+
     def test_exact_mask_orientation_and_op_not_global_bend_ban(self):
         result = coarse_tool_gate(fake_screen(
             hit(op="B01", reverse=True, mask=17),
