@@ -259,6 +259,7 @@ def search_fast_candidates(
     beam_width: int = 24,
     max_candidates: int = 5,
     forced_first_operation_ids: Sequence[str] | None = None,
+    forced_first_reverse: Mapping[str, bool] | None = None,
     transition_penalties: Mapping[tuple[int, str, bool], float] | None = None,
     clock=perf_counter,
 ) -> FastSearchReport:
@@ -306,6 +307,12 @@ def search_fast_candidates(
             any(not isinstance(item, str) for item in allowed_starts) or
             not allowed_starts.issubset(by_id))):
         raise FastSearchError("Forced first operations must be known nonempty IDs")
+    first_reverse = dict(forced_first_reverse or {})
+    if (any(key not in by_id or type(reverse) is not bool
+            for key, reverse in first_reverse.items())
+            or (allowed_starts is not None
+                and not set(first_reverse).issubset(allowed_starts))):
+        raise FastSearchError("Forced first orientation requires valid start operations")
     feedback_costs = {}
     for key, value in dict(transition_penalties or {}).items():
         if (not isinstance(key, tuple) or len(key) != 3
@@ -497,6 +504,9 @@ def search_fast_candidates(
                     continue
                 for reverse in ((pins[op.operation_id],) if op.operation_id in pins
                                 else (False,True)):
+                    if (node.mask == 0 and op.operation_id in first_reverse
+                            and reverse != first_reverse[op.operation_id]):
+                        continue
                     if clock()-start >= limit_seconds:
                         exhausted = True
                         break
