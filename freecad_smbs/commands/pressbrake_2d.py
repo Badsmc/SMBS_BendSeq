@@ -4185,7 +4185,7 @@ class _PreviewPanel:
                     item = choices.item(row, 0) if row >= 0 else None
                     if item is None:
                         return -1
-                    value = item.data(QtCore.Qt.UserRole + 1)
+                    value = item.data(int(QtCore.Qt.UserRole) + 1)
                     return int(value) if value is not None else -1
 
                 all_candidates = list(report.candidates)
@@ -4295,7 +4295,7 @@ class _PreviewPanel:
                             item.setToolTip(details)
                             if column == 0:
                                 item.setData(
-                                    QtCore.Qt.UserRole + 1, source_index
+                                    int(QtCore.Qt.UserRole) + 1, source_index
                                 )
                             choices.setItem(row, column, item)
                     choices.setSortingEnabled(True)
@@ -4313,7 +4313,7 @@ class _PreviewPanel:
                     for row in range(choices.rowCount()):
                         cell = choices.item(row, 0)
                         if (cell is not None
-                                and cell.data(QtCore.Qt.UserRole + 1) == desired):
+                                and cell.data(int(QtCore.Qt.UserRole) + 1) == desired):
                             choices.selectRow(row)
                             break
                     choices.resizeRowsToContents()
@@ -4469,10 +4469,16 @@ class _PreviewPanel:
                                 feedback_begin = len(all_candidates)
                                 for found in feedback_report.new_candidates:
                                     all_candidates.append(found.candidate)
+                                    flipped_id = found.side_name.replace(
+                                        "FLIP_", ""
+                                    )
+                                    flip_degrees = (
+                                        "180°" if found.candidate.orientations()
+                                        .get(flipped_id, False) else "0°"
+                                    )
                                     candidate_sources.append(
-                                        "разворот " +
-                                        found.side_name.replace("FLIP_", "") +
-                                        " (180°)"
+                                        "смена " + flipped_id + " → " +
+                                        flip_degrees
                                     )
                                 screen = screen_fast_shortlist(
                                     self.session.fold_state, operations,
@@ -4572,6 +4578,15 @@ class _PreviewPanel:
                         selected_source_index()
                         if self._qt_is_valid(choices) else -1
                     )
+                    selected_item = (
+                        choices.item(choices.currentRow(), 0)
+                        if self._qt_is_valid(choices)
+                        and choices.currentRow() >= 0 else None
+                    )
+                    visible_number = (
+                        int(selected_item.text())
+                        if selected_item is not None else index + 1
+                    )
                     self._fast_result_dialog = None
                     if (self._playback_alive()
                             and self._qt_is_valid(self.fast_search_btn)):
@@ -4590,7 +4605,8 @@ class _PreviewPanel:
                     # finishes its overlay/task bookkeeping.
                     QtCore.QTimer.singleShot(
                         0, lambda: self._apply_fast_sequence_candidate(
-                            selected, controller, operations, pinned, index
+                            selected, controller, operations, pinned, index,
+                            visible_number,
                         )
                     )
 
@@ -4605,7 +4621,8 @@ class _PreviewPanel:
                 QtCore.QTimer.singleShot(0, check_fast_shortlist_2d)
 
             def _apply_fast_sequence_candidate(
-                    self, selected, controller, operations, pinned, index):
+                    self, selected, controller, operations, pinned, index,
+                    visible_number=None):
                 """Commit a shortlist candidate outside the Qt dialog loop."""
                 if not self._playback_alive():
                     _desktop_debug_event(
@@ -4667,7 +4684,10 @@ class _PreviewPanel:
                     try:
                         self._on_staged_plan_changed(
                             "FAST: применён НЕПРОВЕРЕННЫЙ вариант {}. "
-                            "Нужна отдельная физическая проверка.".format(index+1),
+                            "Нужна отдельная физическая проверка.".format(
+                                visible_number if visible_number is not None
+                                else index + 1
+                            ),
                             fast_apply=True,
                         )
                     finally:
@@ -4908,7 +4928,7 @@ class _PreviewPanel:
                 if item is None or self.session is None:
                     return
                 bend_id = item.data(0, QtCore.Qt.UserRole)
-                operation_id = item.data(0, QtCore.Qt.UserRole + 1) or bend_id
+                operation_id = item.data(0, int(QtCore.Qt.UserRole) + 1) or bend_id
                 if self.session.controller.has_stages and operation_id != bend_id:
                     explicitly_set = (
                         operation_id in self._manual_operation_orientation_overrides
@@ -4928,7 +4948,7 @@ class _PreviewPanel:
                 if self.session is None:
                     return
                 bend_id = item.data(0, QtCore.Qt.UserRole)
-                operation_id = item.data(0, QtCore.Qt.UserRole + 1) or bend_id
+                operation_id = item.data(0, int(QtCore.Qt.UserRole) + 1) or bend_id
                 if bend_id not in self.session.bend_order:
                     return
                 if (self._task_progress_busy or self.timer.isActive()
@@ -8223,7 +8243,7 @@ class _PreviewPanel:
                     return
                 operation_ids = tuple(
                     self.operations.topLevelItem(idx).data(
-                        0, QtCore.Qt.UserRole + 1
+                        0, int(QtCore.Qt.UserRole) + 1
                     )
                     for idx in range(self.operations.topLevelItemCount())
                 )
@@ -8459,7 +8479,7 @@ class _PreviewPanel:
                         bend_id = bend.bend_id
                         item.setData(0, QtCore.Qt.UserRole, bend_id)
                         op = self.session.controller.operation_at(idx - 1)
-                        item.setData(0, QtCore.Qt.UserRole + 1, op.operation_id)
+                        item.setData(0, int(QtCore.Qt.UserRole) + 1, op.operation_id)
                         cols = self._format_operation_row(idx, bend)
                         # Calculating machine gauge envelopes can be slow.
                         # The FreeCAD Tasks root may be destroyed meanwhile,
