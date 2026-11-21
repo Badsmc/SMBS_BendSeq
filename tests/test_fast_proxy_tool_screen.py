@@ -114,6 +114,7 @@ class TestProxyToolScreen(TestCase):
 
     def test_active_forming_contact_not_penalized_at_mid_bend(self):
         state,polygons,operations,tools=self.setup_scene()
+        tools=replace(tools,die_opening_mm=12.,die_shoulder_radius_mm=1.)
         def fake_section(poly,transform,placement,thickness):
             if poly[0][0]==20.:
                 return ((30.,1.),(31.,1.),(31.,2.),(30.,2.))
@@ -191,6 +192,56 @@ class TestProxyToolScreen(TestCase):
         self.assertTrue(report.candidates[0].orientations()["B01"])
         self.assertEqual(report.candidates[0].proxy_tool_penalty,0.)
         self.assertGreater(len(report.to_dict()["proxy_tool_findings"]),0)
+
+    def test_approach_and_bending_match_stage_b_pose_contract(self):
+        state,polygons,operations,tools=self.setup_scene()
+        tools=replace(tools,die_opening_mm=12.,die_shoulder_radius_mm=1.)
+        observed=[]
+        def placement(view,bend_id,**kwargs):
+            observed.append((
+                view.angles[bend_id],
+                kwargs["align_bisector"],
+                kwargs["support_plane_zm"],
+                kwargs["reverse_axis"],
+            ))
+            return SimpleNamespace()
+        with patch(
+            "smbs_core.kinematics2d.fast_proxy_tool_screen."
+            "WorkpiecePlacement3D.compute_placement",
+            side_effect=placement,
+        ),patch(
+            "smbs_core.kinematics2d.fast_proxy_tool_screen._section_panel",
+            return_value=((30.,0.),(31.,0.),(31.,1.),(30.,1.)),
+        ):
+            result=screen_proxy_transition(
+                state,polygons,operations,0,0,True,tools,
+            )
+        self.assertEqual(result.status,"CLEAR_SAMPLED")
+        self.assertEqual(result.samples,2)
+        self.assertEqual(observed[0],(0.,False,2.,True))
+        self.assertEqual(observed[1][:2],(45.,True))
+        self.assertLess(observed[1][2],observed[0][2])
+        self.assertEqual(state.angles,{"B01":0.0})
+
+    def test_unknown_die_kinematics_skips_mid_stroke_instead_of_guessing(self):
+        state,polygons,operations,tools=self.setup_scene()
+        observed=[]
+        with patch(
+            "smbs_core.kinematics2d.fast_proxy_tool_screen."
+            "WorkpiecePlacement3D.compute_placement",
+            side_effect=lambda view,bend_id,**kwargs: (
+                observed.append(kwargs) or SimpleNamespace()
+            ),
+        ),patch(
+            "smbs_core.kinematics2d.fast_proxy_tool_screen._section_panel",
+            return_value=((30.,0.),(31.,0.),(31.,1.),(30.,1.)),
+        ):
+            result=screen_proxy_transition(
+                state,polygons,operations,0,0,False,tools,
+            )
+        self.assertEqual(result.status,"CLEAR_SAMPLED")
+        self.assertEqual(result.samples,1)
+        self.assertFalse(observed[0]["align_bisector"])
 
     def test_time_budget_is_unknown_not_collision(self):
         state,polygons,operations,tools=self.setup_scene()
