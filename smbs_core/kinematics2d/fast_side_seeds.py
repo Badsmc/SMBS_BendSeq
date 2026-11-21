@@ -20,6 +20,9 @@ class OuterSideSeed:
     midpoint_xy: tuple[float, float]
     normal_xy: tuple[float, float]
     axis_aligned: bool
+    # For geometrically aligned first bends, put the chosen outer side
+    # towards the operator (machine -s), not the rear stop (+s).
+    first_reverse: tuple[tuple[str, bool], ...] = ()
 
     def to_dict(self):
         return {
@@ -28,6 +31,7 @@ class OuterSideSeed:
             "midpoint_xy": list(self.midpoint_xy),
             "normal_xy": list(self.normal_xy),
             "axis_aligned": self.axis_aligned,
+            "first_orientation_by_operation": dict(self.first_reverse),
             "evidence": "FLAT_OUTLINE_START_HEURISTIC_NOT_MACHINE_POSE",
         }
 
@@ -141,7 +145,9 @@ def forced_side_seeds(outline_xy, operations, fold_state, *, per_side_starts=2):
                 continue
             midpoint=((float(a[0])+float(b[0]))/2,
                       (float(a[1])+float(b[1]))/2)
-            entries.append((op.operation_id, midpoint, (ux/length,uy/length)))
+            bend_sign = 1.0 if float(bend.angle_deg) >= 0.0 else -1.0
+            entries.append((op.operation_id, midpoint,
+                            (ux/length,uy/length), bend_sign))
         except (IndexError, TypeError, ValueError):
             continue
     if not entries:
@@ -174,12 +180,20 @@ def forced_side_seeds(outline_xy, operations, fold_state, *, per_side_starts=2):
         norm=hypot(*edge_dir)
         edge_dir=(edge_dir[0]/norm,edge_dir[1]/norm)
         scored=[]
-        for op_id, axis_midpoint, axis_dir in entries:
+        for op_id, axis_midpoint, axis_dir, bend_sign in entries:
             # A perpendicular bend line cannot be reached as a simple
             # side-parallel first bend. Retain a marked heuristic fallback.
             cross=abs(edge_dir[0]*axis_dir[1]-edge_dir[1]*axis_dir[0])
             distance=_distance_to_segment(axis_midpoint,a,b)
-            scored.append((cross, distance, op_id))
+            # Consistent with flat _flat_short_rear_preferences:
+            # machine rear +s = bend_sign*(u_y*dx-u_x*dy). The source side
+            # must be towards operator (-s) for a side-first setup.
+            side_s=bend_sign*(axis_dir[1] *
+                             (midpoint[0]-axis_midpoint[0]) -
+                             axis_dir[0] *
+                             (midpoint[1]-axis_midpoint[1]))
+            reverse=(side_s > 0.0) if abs(side_s)>0.5 and cross<=0.259 else None
+            scored.append((cross, distance, op_id, reverse))
         aligned=[s for s in scored if s[0] <= 0.259]  # ~15 degrees
         selected=sorted(aligned or scored,
                         key=lambda v:(v[1],v[0],v[2]))
@@ -187,6 +201,8 @@ def forced_side_seeds(outline_xy, operations, fold_state, *, per_side_starts=2):
             side_names[i],
             tuple(item[2] for item in selected[:max(1,per_side_starts)]),
             midpoint,normal,bool(aligned),
+            tuple((item[2],item[3]) for item in selected[:max(1,per_side_starts)]
+                  if item[3] is not None),
         ))
     # Always show the four named sides in natural scan order. Generic
     # polygons use numerical side order irrespective of source wire start.
