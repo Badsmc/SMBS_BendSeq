@@ -1,12 +1,13 @@
 """FAST search-only selected-tool silhouette scoring, independent of FreeCAD."""
 from __future__ import annotations
 
+from dataclasses import replace
 from types import SimpleNamespace
 from unittest import TestCase
 from unittest.mock import patch
 
 from smbs_core.kinematics2d.fast_proxy_tool_screen import (
-    ProxyTool,ProxyTools,prepare_proxy_tools,
+    ProxyFinding,ProxyTool,ProxyTools,prepare_proxy_tools,
     screen_proxy_transition,simplify_tool_ring,
 )
 from smbs_core.kinematics2d.staged_bends import BendOperation
@@ -136,6 +137,60 @@ class TestProxyToolScreen(TestCase):
             )
         self.assertEqual(result.status,"CLEAR_SAMPLED")
         self.assertEqual(result.penalty,0)
+
+    def test_real_beam_search_favors_unblocked_orientation(self):
+        # Run the actual Beam Search with a simulated cheap tool-overlap
+        # oracle. The same 0/180 mask must be evaluated separately and
+        # its proxy score must affect ranking *inside* the beam.
+        from smbs_core.kinematics2d.fast_bfm_beam_search import (
+            search_fast_candidates,
+        )
+        from smbs_core.kinematics2d.panel_graph import GraphEdge,PanelGraph
+        from smbs_core.kinematics2d.panel_kinematics import FoldState
+        edge=GraphEdge(
+            "B01","P0","P1",90.,
+            ((0.,0.,0.),(50.,0.,0.)),
+        )
+        sheet=FoldState(PanelGraph(("P0","P1"),(edge,)),"P0")
+        sheet.bends={
+            bid:replace(bend,bend_zone=object())
+            for bid,bend in sheet.bends.items()
+        }
+        poly={
+            "P0":((0.,-20.),(50.,-20.),(50.,-1.)),
+            "P1":((0.,1.),(50.,1.),(50.,20.)),
+        }
+        calls=[]
+        def fake_screen(state,vertices,steps,mask,index,reverse,tools,**kwargs):
+            calls.append((mask,index,reverse))
+            if not reverse:
+                return ProxyFinding(
+                    "POTENTIAL_INTERFERENCE",1500.,
+                    "PUNCH","P1","APPROACH",
+                    "proper_material_boundary_crossing",1,
+                )
+            return ProxyFinding("CLEAR_SAMPLED",samples=2)
+        with patch(
+            "smbs_core.kinematics2d.fast_proxy_tool_screen."
+            "prepare_proxy_tools",return_value=object(),
+        ),patch(
+            "smbs_core.kinematics2d.fast_proxy_tool_screen."
+            "screen_proxy_transition",side_effect=fake_screen,
+        ):
+            report=search_fast_candidates(
+                sheet,panel_vertices_xy=poly,
+                tooling_setup=object(),
+                screen_tool_center_axis=False,
+                beam_width=6,
+            )
+        self.assertTrue(report.candidates)
+        self.assertTrue(report.proxy_tool_available)
+        self.assertGreater(report.proxy_tool_penalized,0)
+        self.assertEqual({reverse for _mask,_i,reverse in calls},
+                         {False,True})
+        self.assertTrue(report.candidates[0].orientations()["B01"])
+        self.assertEqual(report.candidates[0].proxy_tool_penalty,0.)
+        self.assertGreater(len(report.to_dict()["proxy_tool_findings"]),0)
 
     def test_time_budget_is_unknown_not_collision(self):
         state,polygons,operations,tools=self.setup_scene()
