@@ -38,6 +38,7 @@ class BendTemplateError(ValueError):
 class GeometryIdentity:
     digest: str
     ordered_operation_ids: tuple[str, ...]
+    directed_axis_reversed: tuple[bool, ...]
     bend_count: int
 
 
@@ -129,6 +130,7 @@ def geometry_identity(fold_state, operations, outline_xy,
     oy = sum(y for _, y in outline) / len(outline)
     best_serial = None
     best_order = ()
+    best_axis_signs = ()
     for ux, uy in directions:
         def rotated(pt):
             px, py = pt[0]-ox, pt[1]-oy
@@ -162,7 +164,13 @@ def geometry_identity(fold_state, operations, outline_xy,
                 panel_index[bend.fixed_panel],
                 panel_index[bend.moving_panel],
             )
-            per_operation.append((step_geometry,op_id))
+            # Machine 0/180 interpretation depends on the *directed*
+            # CAD bend axis. Store each direction relative to the
+            # canonical unoriented axis so a renumbered import that
+            # reverses edge vertices does not invert operator intent.
+            per_operation.append((
+                step_geometry, op_id, frame(a)>frame(b)
+            ))
         per_operation.sort(key=lambda item:item[0])
         if len(set(item[0] for item in per_operation)) != len(per_operation):
             raise BendTemplateError("ambiguous_duplicate_bend_features")
@@ -174,11 +182,12 @@ def geometry_identity(fold_state, operations, outline_xy,
         if best_serial is None or serial < best_serial:
             best_serial = serial
             best_order = tuple(item[1] for item in per_operation)
+            best_axis_signs = tuple(item[2] for item in per_operation)
     if best_serial is None:
         raise BendTemplateError("no_canonical_geometry")
     return GeometryIdentity(
         sha256(best_serial.encode("utf-8")).hexdigest(),
-        best_order, len(fold_state.bends),
+        best_order, best_axis_signs, len(fold_state.bends),
     )
 
 
@@ -226,8 +235,11 @@ def store_operator_template(fold_state, operations, outline_xy,
         "shape_sha256":ident.digest,
         "bend_count":ident.bend_count,
         "operation_indices":[ordinal[op_id] for op_id in order],
-        "reverse_by_index":{str(i):flags.get(op_id,False)
-                            for op_id,i in ordinal.items()},
+        "reverse_by_index":{
+            str(i):bool(flags.get(op_id,False)) ^
+                   ident.directed_axis_reversed[i]
+            for op_id,i in ordinal.items()
+        },
         "source_tooling":{
             "punch":str((tooling or {}).get("punch","")),
             "die":str((tooling or {}).get("die","")),
@@ -297,8 +309,10 @@ def find_operator_templates(fold_state, operations, outline_xy,
                 or any(type(v) is not bool for v in poses.values())):
             continue
         order = tuple(ident.ordered_operation_ids[i] for i in indices)
-        reverse = tuple((ident.ordered_operation_ids[i],poses[str(i)])
-                        for i in indices)
+        reverse = tuple((
+            ident.ordered_operation_ids[i],
+            bool(poses[str(i)]) ^ ident.directed_axis_reversed[i],
+        ) for i in indices)
         if (order,reverse) in seen:
             continue
         seen.add((order,reverse))
