@@ -4889,6 +4889,30 @@ class _PreviewPanel:
                                 ) for item in screen.checks
                             ),
                         )
+                        # The Stage-B shortlist can detect B01/P11 even
+                        # when the FAST beam's best proxy candidate was clear.
+                        # Diagnose those exact failed transitions in all four
+                        # legacy 2.5D presentations, without accepting a
+                        # reversed signed punch face as a feasible setup.
+                        try:
+                            from smbs_core.kinematics2d.fast_proxy_tool_screen import (
+                                diagnose_shortlist_obstructions_25d,
+                            )
+                            orientation_study = diagnose_shortlist_obstructions_25d(
+                                self.session.fold_state, self.session.panel_vertices_xy,
+                                operations, screen, self.tooling_setup,
+                                max_transitions=5, budget_seconds=1.5,
+                            )
+                            _desktop_debug_event(
+                                "FAST_25D_ORIENTATION_STAGE_B_DIAGNOSTIC",
+                                report=orientation_study,
+                            )
+                        except Exception as study_exc:
+                            _desktop_debug_event(
+                                "FAST_25D_ORIENTATION_STAGE_B_ERROR",
+                                error=type(study_exc).__name__ + ":" + str(study_exc),
+                                traceback=traceback.format_exc(),
+                            )
                         self._last_fast_shortlist_screen_report = screen
                         postprocess_elapsed = (
                             time.perf_counter() - postprocess_started
