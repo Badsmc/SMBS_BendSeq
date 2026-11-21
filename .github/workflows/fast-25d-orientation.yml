@@ -1,0 +1,23 @@
+name: FAST 2.5D loading orientation experiment
+
+on:
+  push:
+    branches:
+      - experiment/fast-25d-orientation-b01-20261121
+  workflow_dispatch:
+
+jobs:
+  headless-orientation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Compile FAST orientation and search modules
+        run: python -m compileall -q smbs_core/kinematics2d tests
+      - name: Run regression suite (including FAST orientation)
+        run: python -m unittest discover -s tests -v
+      - name: Synthetic FAST search performance
+        run: python tools/run_fast_bfm_beam_benchmark.py
