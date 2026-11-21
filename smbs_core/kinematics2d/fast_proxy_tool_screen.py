@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from math import hypot, isfinite
 from time import perf_counter
 from types import SimpleNamespace
+from collections.abc import Mapping
 
 from .contact_oracle_2d import ContactStatus, classify_polygon_contact
 from .machine_section_3d import slice_polygon_3d_at_x
@@ -183,7 +184,7 @@ def screen_proxy_transition(fold_state, panel_vertices_xy, operations,
         return ProxyFinding("UNKNOWN",reason="no_verified_tool_pair")
     if any(op.kind!="SINGLE" for op in operations):
         return ProxyFinding("UNKNOWN",reason="staged_operation_not_modeled")
-    if (not isinstance(panel_vertices_xy,dict)
+    if (not isinstance(panel_vertices_xy,Mapping)
             or any(len(panel_vertices_xy.get(panel,()))<3
                    for panel in fold_state.graph.panels)):
         return ProxyFinding("UNKNOWN",reason="incomplete_panel_outlines")
