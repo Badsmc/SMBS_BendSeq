@@ -123,6 +123,63 @@ class FastShortlistScreeningTests(unittest.TestCase):
         self.assertEqual(self.state.angles["B01"], 13.0)
         self.assertEqual(self.state.transforms["original_pose"], "retained")
 
+    def test_budget_exceeded_transition_retries_on_second_pass(self):
+        attempts = []
+        cached = {}
+
+        def probe(*args):
+            attempts.append("probe")
+            return (("BUDGET_EXCEEDED", "2d_probe_time_budget_reached")
+                    if len(attempts) == 1 else
+                    ("SAMPLED_2D_TOOLS_ONLY", "sampled_without_gauge"))
+
+        plans = (candidate(("B01", "B02")),)
+        first = self.screen(plans, probe, transition_cache=cached)
+        self.assertEqual(first.checks[0].status, "BUDGET_EXCEEDED")
+        self.assertEqual(first.actual_probes, 1)
+        self.assertEqual(cached, {})
+        second = self.screen(plans, probe, transition_cache=cached)
+        self.assertEqual(second.checks[0].status, "SAMPLED_2D_TOOLS_ONLY")
+        self.assertEqual(second.actual_probes, 2)
+        self.assertEqual(second.cache_hits, 0)
+        self.assertEqual(len(cached), 2)
+
+    def test_priority_checks_novel_plan_first_but_keeps_original_indices(self):
+        observed_first_operations = []
+
+        def probe(state, op, reverse, tools, vertices, deadline):
+            if all(angle == 0.0 for angle in state.angles.values()):
+                observed_first_operations.append(op.bend_id)
+            return "SAMPLED_2D_TOOLS_ONLY", "sampled_without_gauge"
+
+        plans = (
+            candidate(("B01", "B02"), cost=1.),
+            candidate(("B02", "B01"), cost=2.),
+        )
+        report = self.screen(
+            plans, probe, priority_candidate_indices=(1,),
+        )
+        self.assertEqual(observed_first_operations, ["B02", "B01"])
+        self.assertEqual(report.checks[0].operation_ids, plans[0].operation_ids)
+        self.assertEqual(report.checks[1].operation_ids, plans[1].operation_ids)
+        self.assertEqual(report.ranked_indices, (0, 1))
+
+    def test_first_interference_records_exact_completed_mask_and_pose(self):
+        def probe(state, op, reverse, tools, vertices, deadline):
+            if op.operation_id == "B02" and state.angles["B01"] == 90:
+                return "POTENTIAL_2D_INTERFERENCE", "P09_punch_overlap"
+            return "SAMPLED_2D_TOOLS_ONLY", "sampled"
+
+        report = self.screen(
+            (candidate(("B01", "B02"), reverse={"B02": True}),), probe,
+        )
+        check = report.checks[0]
+        self.assertEqual(check.status, "POTENTIAL_2D_INTERFERENCE")
+        self.assertEqual(check.failed_transition, (1, "B02", True))
+        self.assertEqual(
+            check.to_dict()["failed_transition"]["completed_mask"], 1
+        )
+
     def test_stage_aware_skip_does_not_fake_prebend_clearance(self):
         staged = (
             BendOperation("B01.1", "B01", 30.0, "PREBEND"),
