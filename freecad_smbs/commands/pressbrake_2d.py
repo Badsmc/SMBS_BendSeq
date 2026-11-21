@@ -4328,7 +4328,7 @@ class _PreviewPanel:
                 populate_fast_choices()
                 layout.addWidget(choices)
                 screen_button = QtWidgets.QPushButton(
-                    "Повторить 2D-проверку (бюджет 3 с)", dialog
+                    "Проверить ещё раз / найти новые варианты", dialog
                 )
                 screen_button.setObjectName("SMBS_FastShortlist2DScreen")
                 layout.addWidget(screen_button)
@@ -4423,9 +4423,11 @@ class _PreviewPanel:
                                     )
                                 )
                             if side_report.new_candidates:
-                                # Rerun with a shared cache. Original
-                                # transitions are reused, while each
-                                # genuinely new folded prefix gets Stage B.
+                                # Give novel side starts the first chance to
+                                # use remaining Stage B sample budget.
+                                side_begin = len(all_candidates) - len(
+                                    side_report.new_candidates
+                                )
                                 screen = screen_fast_shortlist(
                                     self.session.fold_state, operations,
                                     tuple(all_candidates),
@@ -4434,6 +4436,55 @@ class _PreviewPanel:
                                     backgauge_model=self.backgauge_model,
                                     budget_seconds=3.0,
                                     transition_cache=screen_cache,
+                                    priority_candidate_indices=range(
+                                        side_begin, len(all_candidates)
+                                    ),
+                                )
+                        # Second feedback layer: restart the search with
+                        # exact obstructed-state penalties and forced
+                        # opposite 180-degree orientations. Manual pins
+                        # remain immutable. A repeat button allows another
+                        # bounded round on later, newly discovered failures.
+                        feedback_report = None
+                        if feedback_rounds[0] < 3:
+                            from smbs_core.kinematics2d.fast_multiside_feedback import (
+                                search_feedback_recovery,
+                            )
+                            feedback_report = search_feedback_recovery(
+                                self.session.fold_state, operations,
+                                tuple(all_candidates),
+                                self.session.panel_vertices_xy,
+                                screen,
+                                fixed_orientations=pinned,
+                                weights=self._selected_operation_weights().to_dict(),
+                                budget_seconds=1.5,
+                            )
+                            feedback_rounds[0] += 1
+                            _desktop_debug_event(
+                                "FAST_FEEDBACK_RECOVERY_RESULT",
+                                round=feedback_rounds[0],
+                                report=feedback_report.to_dict(),
+                            )
+                            if feedback_report.new_candidates:
+                                feedback_begin = len(all_candidates)
+                                for found in feedback_report.new_candidates:
+                                    all_candidates.append(found.candidate)
+                                    candidate_sources.append(
+                                        "разворот " +
+                                        found.side_name.replace("FLIP_", "") +
+                                        " (180°)"
+                                    )
+                                screen = screen_fast_shortlist(
+                                    self.session.fold_state, operations,
+                                    tuple(all_candidates),
+                                    self.session.panel_vertices_xy,
+                                    self.tooling_setup,
+                                    backgauge_model=self.backgauge_model,
+                                    budget_seconds=3.0,
+                                    transition_cache=screen_cache,
+                                    priority_candidate_indices=range(
+                                        feedback_begin, len(all_candidates)
+                                    ),
                                 )
                         self._last_fast_shortlist_screen_report = screen
                         _desktop_debug_event(
@@ -4451,13 +4502,15 @@ class _PreviewPanel:
                             for entry in screen.checks
                         )
                         hint.setText(
-                            "FAST: {:.3f} с. Проверка 2D: {:.3f} с, "
+                            "FAST: {:.3f} с. Последняя 2D-проверка: {:.3f} с, "
                             "проб {}, кеш {}, предварительно без 2D-пересечений "
                             "{}, с 2D-препятствиями {}. "
                             "Сторон контура: {}, отдельных поисков: {}, "
                             "повторных постановок: {}, пропущено по бюджету: {}. "
+                            "Дополнительный поиск после 2D: {} новых вариантов. "
                             "Всего вариантов: {}. "
-                            "Кандидаты пересортированы, но НЕ отклонены. "
+                            "Таблицу можно сортировать по заголовкам; "
+                            "кандидаты не отклонены автоматически. "
                             "Оснастка по длине, зажимы, контакт CAD-упора, "
                             "полная траектория и 3D-коллизии НЕ подтверждены."
                             .format(
@@ -4477,6 +4530,8 @@ class _PreviewPanel:
                                 sum(item.get("status") == "BUDGET_EXCEEDED"
                                     for item in side_report.side_findings)
                                 if side_report is not None else "неизменно",
+                                (len(feedback_report.new_candidates)
+                                 if feedback_report is not None else 0),
                                 len(all_candidates),
                             )
                         )
@@ -4510,13 +4565,12 @@ class _PreviewPanel:
                 layout.addWidget(buttons)
 
                 def on_finished(result):
-                    # Extract all Qt dialog data while it is still alive.
-                    # Never read its QListWidget after WA_DeleteOnClose.
-                    row = (choices.currentRow()
-                           if self._qt_is_valid(choices) else -1)
+                    # A sorted row is NOT its original candidate
+                    # index. Read stable index from column 0 UserRole + 1
+                    # before Qt destroys the nonblocking result dialog.
                     index = (
-                        displayed_indices[row]
-                        if 0 <= row < len(displayed_indices) else -1
+                        selected_source_index()
+                        if self._qt_is_valid(choices) else -1
                     )
                     self._fast_result_dialog = None
                     if (self._playback_alive()
