@@ -99,6 +99,58 @@ class TestFourPoseLoading25D(TestCase):
         self.assertEqual(len(seen),4)
 
 
+    def test_stage_b_failed_b01_template_is_diagnosed_even_if_beam_was_clear(self):
+        from smbs_core.kinematics2d.fast_proxy_tool_screen import (
+            diagnose_shortlist_obstructions_25d,
+        )
+        operations=tuple(
+            SimpleNamespace(operation_id=b,bend_id=b)
+            for b in ("B09","B10","B06","B05","B07","B01","B03","B08","B04","B02")
+        )
+        screen=SimpleNamespace(checks=[
+            SimpleNamespace(
+                failed_transition=(31,"B01",False),
+                first_issue="B01:PUNCH:P11",
+            ),
+            SimpleNamespace(
+                failed_transition=(24,"B01",False),
+                first_issue="B01:PUNCH:P11",
+            ),
+            SimpleNamespace(
+                failed_transition=(2,"B06",False),
+                first_issue="B06:PUNCH:P02",
+            ),
+        ])
+        seen=[]
+        with patch(
+            "smbs_core.kinematics2d.fast_proxy_tool_screen.prepare_proxy_tools",
+            return_value=object(),
+        ),patch(
+            "smbs_core.kinematics2d.fast_proxy_tool_screen."
+            "diagnose_four_loading_poses",
+            side_effect=lambda state,polygons,steps,mask,index,tools,**kwargs: (
+                seen.append((mask,steps[index].operation_id))
+                or ({"pose_id":"YAW_0_ROLL_0",
+                     "finding":{"status":"POTENTIAL_INTERFERENCE"}},)
+            ),
+        ):
+            report=diagnose_shortlist_obstructions_25d(
+                object(),{},operations,screen,object(),
+                max_transitions=3,budget_seconds=10,
+            )
+        self.assertEqual(report["status"],"SAMPLED_DIAGNOSTIC_ONLY")
+        self.assertEqual(
+            seen,[(31,"B01"),(24,"B01"),(2,"B06")],
+        )
+        self.assertEqual(
+            report["cases"][0]["preceding_operations"],
+            ["B09","B10","B06","B05","B07"],
+        )
+        self.assertEqual(
+            report["cases"][0]["stage_b_first_issue"],"B01:PUNCH:P11",
+        )
+
+
 if __name__=="__main__":
     import unittest
     unittest.main()
