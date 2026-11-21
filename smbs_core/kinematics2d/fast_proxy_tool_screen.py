@@ -280,6 +280,11 @@ def screen_proxy_transition(fold_state, panel_vertices_xy, operations,
                 align_bisector=(phase!="APPROACH"),
                 align_bend_arc_center=True,
                 reverse_axis=reverse_axis,
+                # Stage B enforces a canonical fixed-panel rear-gauge
+                # orientation BEFORE applying reverse_axis.  Without this,
+                # FAST's apparent yaw=0 and Stage B's yaw=0 can be opposite
+                # physical placements (B01/P11 false clear).
+                rear_panel_vertices_xy=panel_vertices_xy,
             )
             if roll_180:
                 placement=roll_about_machine_bend_axis(
