@@ -161,6 +161,13 @@ def geometry_identity(fold_state, operations, outline_xy,
                 _quantized(float(zone.thickness_mm)),
                 _quantized(float(zone.inner_radius_mm)),
                 _quantized(float(zone.outer_radius_mm)),
+                _quantized(float(getattr(
+                    zone,"neutral_radius_mm",
+                    float(zone.inner_radius_mm)
+                ))),
+                int(round(float(getattr(zone,"k_factor_ansi",0.0))
+                          * 1000)),
+                _quantized(float(getattr(zone,"bend_allowance_mm",0.0))),
                 panel_index[bend.fixed_panel],
                 panel_index[bend.moving_panel],
             )
@@ -248,8 +255,6 @@ def store_operator_template(fold_state, operations, outline_xy,
     }
     dst = Path(path) if path is not None else default_template_path()
     records = _read(dst)
-    if len(records)>=MAX_TEMPLATES:
-        raise BendTemplateError("template_library_capacity_reached")
     # Replace only exact same named recipe for this shape, do not accumulate
     # repeated clicks; different named validated operations remain distinct.
     records = [item for item in records if not (
@@ -257,6 +262,8 @@ def store_operator_template(fold_state, operations, outline_xy,
         item.get("title")==record["title"] and
         item.get("shape_sha256")==record["shape_sha256"]
     )]
+    if len(records)>=MAX_TEMPLATES:
+        raise BendTemplateError("template_library_capacity_reached")
     records.append(record)
     dst.parent.mkdir(parents=True,exist_ok=True)
     temp_name = None
