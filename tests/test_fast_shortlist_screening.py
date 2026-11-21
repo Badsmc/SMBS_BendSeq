@@ -166,6 +166,38 @@ class FastShortlistScreeningTests(unittest.TestCase):
         self.assertEqual(report.checks[1].operation_ids, plans[1].operation_ids)
         self.assertEqual(report.ranked_indices, (0, 1))
 
+    def test_existing_cached_clear_remains_valid_after_new_plan_exhausts_budget(self):
+        cached = {}
+        old = candidate(("B01", "B02"))
+        fresh = candidate(("B01", "B02"), reverse={"B01": True})
+        first = self.screen(
+            (old,),
+            lambda *args: ("SAMPLED_2D_TOOLS_ONLY", "sampled_tools"),
+            transition_cache=cached,
+        )
+        self.assertEqual(first.checks[0].status, "SAMPLED_2D_TOOLS_ONLY")
+        self.assertEqual(len(cached), 2)
+
+        class Clock:
+            tick = 0
+            def __call__(self):
+                self.tick += 1
+                return self.tick * 0.05
+
+        report = self.screen(
+            (old, fresh),
+            lambda *args: self.fail("Expired budget must not run geometry"),
+            transition_cache=cached,
+            priority_candidate_indices=(1,),
+            clock=Clock(),
+            budget_seconds=0.04,
+        )
+        self.assertEqual(report.checks[1].status, "BUDGET_EXCEEDED")
+        self.assertEqual(report.checks[0].status, "SAMPLED_2D_TOOLS_ONLY")
+        self.assertEqual(report.checks[0].clear_prefix_steps, 2)
+        self.assertEqual(report.actual_probes, 0)
+        self.assertEqual(report.cache_hits, 2)
+
     def test_first_interference_records_exact_completed_mask_and_pose(self):
         def probe(state, op, reverse, tools, vertices, deadline):
             if op.operation_id == "B02" and state.angles["B01"] == 90:
