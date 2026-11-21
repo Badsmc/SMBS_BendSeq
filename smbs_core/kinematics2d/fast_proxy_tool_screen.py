@@ -431,6 +431,26 @@ def diagnose_shortlist_obstructions_25d(
             fold_state,panel_vertices_xy,operations,mask,index,tools,
             deadline=deadline,clock=clock,
         )
+        # A coarse CLEAR result at the SAME pose as Stage B's proven
+        # *sampled 2D obstruction* is inconsistent evidence, never a
+        # successful transition. Alternate poses are not Stage B-verified.
+        compared=[]
+        for row in findings:
+            record=dict(row)
+            same_pose=(
+                not bool(record.get("roll_180",False))
+                and bool(record.get("reverse_axis",False))==reverse
+            )
+            status=record.get("finding",{}).get("status")
+            record["stage_b_comparison"]=(
+                "CONFLICTING_2D_EVIDENCE_NOT_CLEAR"
+                if same_pose and status=="CLEAR_SAMPLED"
+                else "SAME_POSE_2D_OBSTRUCTION"
+                if same_pose and status=="POTENTIAL_INTERFERENCE"
+                else "SAME_POSE_UNVERIFIED"
+                if same_pose else "ALTERNATE_POSE_NOT_STAGE_B_VERIFIED"
+            )
+            compared.append(record)
         cases.append({
             "bend_id":operations[index].bend_id,
             "operation_id":operations[index].operation_id,
@@ -441,7 +461,7 @@ def diagnose_shortlist_obstructions_25d(
                 if mask & (1<<i)
             ],
             "stage_b_first_issue":getattr(unique[(mask,index,reverse)],"first_issue",""),
-            "poses":[dict(record) for record in findings],
+            "poses":compared,
         })
         if any(x["finding"]["status"]=="TIME_BUDGET" for x in findings):
             break
