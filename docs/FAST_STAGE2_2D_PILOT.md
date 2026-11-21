@@ -31,6 +31,9 @@ Sources: `fast_bfm_beam_search.py` (generator),
    Full CAD stop checks, side tool spans and clamp/frame checks are NOT run.
 6. Cache key: `(completed bend-angle map, next bend ID, 0/180 orientation)`.
    Do not cache based on last bend alone or omit 180 orientation.
+   Cache only sampled-clear and observed 2D obstruction statuses.
+   `BUDGET_EXCEEDED` and ambiguous/setup errors are NEVER cached:
+   a repeated pass must retry unfinished transitions.
 7. The Stage B report captures the first suspect transition as
    `(completed_operation_mask, operation_id, reverse_axis)`. A sampled
    interference produces a SOFT +1500 transition penalty. No physical bend
@@ -60,11 +63,27 @@ Sources: `fast_bfm_beam_search.py` (generator),
    executed, reused and skipped counts explicitly.
 10. Append distinct forced-side candidates to the FAST list and
     screen the expanded set again with Stage B. Reuse the same per-dialog
-    transition cache to avoid recomputing the original candidates.
-11. Results rerank but **do not delete** existing FAST options. The UI
-    maps displayed rows to original candidate indices before applying.
-    Side names appear with every newly generated candidate. All physical
-    clearance statuses remain `UNVERIFIED`.
+    transition cache to avoid recomputing the original candidates; screen
+    NEW candidates first so they are not all starved by old paths.
+11. From the expanded shortlist's new Stage B findings, collect exact
+    obstructed transitions. Run an additional *bounded 1.5 s* Beam Search
+    for a diverse set of different starts, forcing the opposite 0/180
+    orientation of the obstructed bend. Manual locks remain authoritative.
+    Append newly distinct plans and prioritize them in another bounded
+    2D pass. The user may press "Проверить ещё раз / найти новые варианты"
+    for up to two additional bounded feedback rounds.
+12. The results dialog now uses `QTableWidget`, with sortable columns
+    **№ | 2D | Вес | 2D гибов | Старт | 1-й гиб | 180° | Ось |
+    2D штраф | Порядок | Причина**. Floating-point weights are sorted
+    NUMERICALLY despite display with decimal comma. `2D гибов` counts
+    only the consecutive operations with sampled tool-section clearance,
+    NOT verified 3D bends. Each row stores a stable internal candidate
+    index so sorting never changes which sequence will be applied.
+13. SAMPLED clear uses ✅, incomplete/untested uses ⚠️, and possible
+    collision uses ❌. These are **advisory 2D statuses only**. Red
+    does not prove the entire sequence impossible, green never certifies
+    machine-safe bending. Results rerank but are never automatically
+    deleted or applied. All physical 3D clearance remains `UNVERIFIED`.
 
 ## Key statuses
 
@@ -85,10 +104,15 @@ The 2D post-processor never certifies an executable bend sequence. Native
 ## Timing and host safety
 
 - FAST `limit_seconds=1.0` is unaffected by post-processing.
-- First 2D `budget_seconds=3.0` and second expanded-list 2D
-  `budget_seconds=3.0` are separate *cooperative* budgets. Stage B
-  tests the deadline between samples but individual calls may overrun.
-  Existing transitions are cached across both passes.
+- Initial 2D, expanded-side 2D, and optional feedback-expanded 2D
+  passes each have separate *cooperative* budgets of 3 s. Stage B
+  tests the deadline between samples but individual geometry calls
+  may overrun. Only completed, meaningful geometry findings are cached;
+  budget failures are retried on later passes.
+- Additional transition-feedback Beam Search uses a 1.5 s shared budget
+  per round, up to three rounds within the same open result dialog
+  (one automatic and two on manual 'check again' actions). The sum of
+  independent budgets is NOT a strict wall-clock upper bound.
 - All-side Beam Search `budget_seconds=2.5` is shared across every
   detected exterior side. If a side times out, it is reported rather than
   silently omitted. The first 1 s FAST stage remains unchanged.
@@ -118,14 +142,20 @@ The 2D post-processor never certifies an executable bend sequence. Native
    the exact number of real edges (plus adaptive curved sectors).
 5. Confirm that side candidates have distinct leading bends where
    geometry permits, and operator-facing 0/180 starts.
-6. Try different 0/180 choices. Confirm the *actual* selected candidate
-   (not the displayed row index) is applied.
-7. Confirm operation table, simulation and document windows remain intact.
-8. Inspect `SMBS_debug_log.json` for `FAST_SEARCH_RESULT`,
+6. Sort all table columns by clicking their headings, especially
+   numeric "Вес" (23,55 must sort ahead of 1593,00) and "2D гибов"
+   (e.g. 7/10 must sort ahead of 2/10). Confirm chosen table row
+   still applies the correct sequence, even after sorting by cost,
+   status and source edge.
+7. Trigger "Проверить ещё раз / найти новые варианты" to retry timed-out
+   2D checks and (while rounds remain) rerun feedback with opposite
+   orientations. Explicit manual 0/180 pins must never be overridden.
+8. Confirm operation table, simulation and document windows remain intact.
+9. Inspect `SMBS_debug_log.json` for `FAST_SEARCH_RESULT`,
    `FAST_SHORTLIST_2D_SCREEN_INITIAL`, `FAST_FORCED_ALL_SIDES_RESULT`,
-   `FAST_SHORTLIST_2D_SCREEN`, `FAST_RESULT_DIALOG_FINISHED`, and
-   `FAST_CANDIDATE_APPLIED`.
-9. Record `side_findings` including each `status`, per-side
+   `FAST_FEEDBACK_RECOVERY_RESULT`, `FAST_SHORTLIST_2D_SCREEN`,
+   `FAST_RESULT_DIALOG_FINISHED`, and `FAST_CANDIDATE_APPLIED`.
+10. Record `side_findings` including each `status`, per-side
    `first_orientation_by_operation`, `returned_candidates`,
    `new_candidates`, `elapsed_seconds`, `actual_probes`, `cache_hits`,
    each `first_issue`, and any `BUDGET_EXCEEDED`. Compare against
@@ -140,9 +170,9 @@ Pure Python regression:
   sweep; Stage B's current sweep assumes the full bend final angle.
 - Compare actual 2D gauge contacts against the CAD contact model, accounting
   for virtual tooling and station alternatives.
-- Side-based reruns currently occur once per outer edge. If these
-  still all fail, consider additional feedback iterations with a strict
-  global time/branch limit and a measurable progress criterion.
+- Feedback recovery is now added after the side passes, but its
+  sampled 2D classifications may be false positives or miss 3D tool-end
+  collisions. It must not be substituted for independent 3D validation.
 - Validate the full machine pose and gauge contact for each starting
   exterior edge; this release uses authoritative unfolded geometry as
   a search seed, not a certified global loading placement.
