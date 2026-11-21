@@ -331,10 +331,16 @@ def screen_fast_shortlist(
         fold_state.angles.update(original_angles)
         fold_state.transforms.clear()
         fold_state.transforms.update(original_transforms)
+    # Status is the strongest distinction. Among equally obstructed 2D
+    # candidates, prefer a longer sampled-clear prefix before comparing
+    # heuristic cost. This prevents a cheap plan failing on bend #1 from
+    # being shown ahead of a plan that reached bend #6. A sampled-clear
+    # prefix is still NOT independent 3D certification.
     ranked = tuple(sorted(
         range(len(candidates)),
         key=lambda i: (
             _RANK.get(checks[i].status, 3),
+            -checks[i].clear_prefix_steps,
             candidates[i].estimated_cost,
             i,
         ),
