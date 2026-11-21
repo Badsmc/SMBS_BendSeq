@@ -9,7 +9,8 @@ from smbs_core.kinematics2d.fast_side_seeds import (
     simplified_outer_sides, forced_side_seeds,
 )
 from smbs_core.kinematics2d.fast_multiside_feedback import (
-    search_all_outer_sides, transition_feedback_penalties,
+    search_all_outer_sides, search_feedback_recovery,
+    transition_feedback_penalties,
 )
 from smbs_core.kinematics2d.fast_bfm_beam_search import (
     FastCandidate, search_fast_candidates,
@@ -237,6 +238,77 @@ class ForcedSearchTests(unittest.TestCase):
                     entry["new_candidates"]==1
                     for entry in report.side_findings
                 ))
+
+    def test_feedback_recovers_opposite_orientation_and_new_order(self):
+        rectangle = ((0.,0.),(100.,0.),(100.,100.),(0.,100.))
+        state, ops = sample_part(rectangle)
+        first, blocked = ops[0].operation_id, ops[1].operation_id
+        original = FastCandidate(
+            tuple(op.operation_id for op in ops),
+            tuple((op.operation_id, False) for op in ops),
+            20.0, 0.0,
+        )
+        issue = ShortlistCandidateCheck(
+            original.operation_ids, "POTENTIAL_2D_INTERFERENCE",
+            2, 0, blocked + ":punch_overlap", 0.1,
+            (1, blocked, False),
+        )
+        screen = SimpleNamespace(
+            checks=(issue,), ranked_indices=(0,),
+        )
+        observed = []
+
+        def fake_search(state, steps, **kwargs):
+            observed.append(kwargs)
+            self.assertEqual(kwargs["forced_first_operation_ids"], (first,))
+            self.assertTrue(kwargs["fixed_orientations"][blocked])
+            self.assertEqual(kwargs["transition_penalties"][(1, blocked, False)],
+                             1500.0)
+            rotated = FastCandidate(
+                original.operation_ids,
+                tuple((oid, oid == blocked) for oid in original.operation_ids),
+                25.0, 0.0,
+            )
+            return SimpleNamespace(
+                candidates=(rotated,),
+                status="CANDIDATES_UNVERIFIED",
+                elapsed_seconds=0.01,
+            )
+
+        result = search_feedback_recovery(
+            state, ops, (original,), {}, screen,
+            budget_seconds=1.5, search_fn=fake_search,
+        )
+        self.assertEqual(len(observed), 1)
+        self.assertEqual(len(result.new_candidates), 1)
+        self.assertTrue(
+            result.new_candidates[0].candidate.orientations()[blocked]
+        )
+        self.assertEqual(result.attempted_cases[0]["flipped_operation"], blocked)
+        self.assertEqual(result.status, "FEEDBACK_NEW_CANDIDATES_UNVERIFIED")
+
+    def test_feedback_respects_manual_pinned_reverse(self):
+        square = ((0.,0.),(100.,0.),(100.,100.),(0.,100.))
+        state, ops = sample_part(square)
+        ids = tuple(op.operation_id for op in ops)
+        original = FastCandidate(
+            ids, tuple((op, False) for op in ids), 10.0, 0.0,
+        )
+        blocked = ids[1]
+        issue = ShortlistCandidateCheck(
+            ids, "POTENTIAL_2D_INTERFERENCE",
+            2, 0, "blocked", 0.1, (1, blocked, False),
+        )
+        result = search_feedback_recovery(
+            state, ops, (original,), {},
+            SimpleNamespace(checks=(issue,), ranked_indices=(0,)),
+            fixed_orientations={blocked: False},
+            search_fn=lambda *args, **kwargs: self.fail(
+                "Never override explicit user orientation"
+            ),
+        )
+        self.assertFalse(result.new_candidates)
+        self.assertEqual(result.status, "NO_UNPINNED_FLIP_CASES")
 
     def test_suspect_2d_feedback_uses_exact_mask_and_orientation(self):
         report=SimpleNamespace(checks=(
