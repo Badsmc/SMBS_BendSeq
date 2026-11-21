@@ -34,6 +34,7 @@ class FastCandidate:
     axis_penalty: float = 0.0
     feedback_penalty: float = 0.0
     evidence: str = "UNVERIFIED_3D_NOT_CHECKED"
+    proxy_tool_penalty: float = 0.0
 
     def orientations(self) -> dict[str, bool]:
         return dict(self.orientation_by_operation)
@@ -48,6 +49,7 @@ class FastCandidate:
             "nested_fold_penalty": self.nested_fold_penalty,
             "axis_penalty": self.axis_penalty,
             "feedback_penalty": self.feedback_penalty,
+            "proxy_tool_penalty": self.proxy_tool_penalty,
             "evidence": self.evidence,
         }
 
@@ -73,6 +75,10 @@ class FastSearchReport:
     axis_screen_findings: tuple[dict, ...] = ()
     coarse_2d_gated_edges: int = 0
     coarse_2d_pruned_expansions: int = 0
+    proxy_tool_available: bool = False
+    proxy_tool_checks: int = 0
+    proxy_tool_penalized: int = 0
+    proxy_tool_findings: tuple[dict, ...] = ()
 
     def to_dict(self) -> dict:
         return {
@@ -96,13 +102,19 @@ class FastSearchReport:
             ],
             "coarse_2d_gated_edges": self.coarse_2d_gated_edges,
             "coarse_2d_pruned_expansions": self.coarse_2d_pruned_expansions,
+            "proxy_tool_available": self.proxy_tool_available,
+            "proxy_tool_checks": self.proxy_tool_checks,
+            "proxy_tool_penalized": self.proxy_tool_penalized,
+            "proxy_tool_findings": [dict(f) for f in self.proxy_tool_findings],
             "candidates": [candidate.to_dict() for candidate in self.candidates],
             "disclaimer": (
                 "FAST soft-penalizes persistent gross *dominant-panel* "
                 "misplacement across machine Y=0; local axis crossings "
                 "are allowed. A suspect pose may originate in simulator "
                 "placement, not bend order. No continuous 3D or tool-solid "
-                "collision check; coarse 2D PUNCH/DIE penetration "
+                "collision check; simplified selected PUNCH/DIE profile "
+                "screening is a sampled SOFT penalty, not 3D clearance; "
+                "coarse 2D PUNCH/DIE penetration "
                 "gating may exclude selected pose transitions, not physical "
                 "bend IDs or prove 3D impossibility. All remaining "
                 "candidates remain UNVERIFIED."
@@ -123,6 +135,7 @@ class _Node:
     nested_fold_penalty: float = 0.0
     axis_penalty: float = 0.0
     feedback_penalty: float = 0.0
+    proxy_tool_penalty: float = 0.0
 
 
 def _axis_data(fold_state, operations):
@@ -269,6 +282,7 @@ def search_fast_candidates(
     forced_first_reverse: Mapping[str, bool] | None = None,
     transition_penalties: Mapping[tuple[int, str, bool], float] | None = None,
     forbidden_transitions: Sequence[tuple[int, str, bool]] | None = None,
+    tooling_setup=None,
     clock=perf_counter,
 ) -> FastSearchReport:
     """Return probable (never physically certified) bend operation orders.
@@ -429,6 +443,43 @@ def search_fast_candidates(
     axis_screen_findings = []
     axis_cache = {}
     axis_deadline = start+limit_seconds
+    from .fast_proxy_tool_screen import (
+        prepare_proxy_tools, screen_proxy_transition,
+    )
+    proxy_tools = prepare_proxy_tools(tooling_setup)
+    proxy_cache = {}
+    proxy_checks = proxy_penalized = 0
+    proxy_findings = []
+
+    def proxy_accept(node):
+        nonlocal proxy_checks,proxy_penalized,exhausted
+        if proxy_tools is None or not axis_screen_available:
+            return 0.0
+        key = (node.mask & ~(1<<node.last),node.last,node.reverse)
+        result = proxy_cache.get(key)
+        if result is None:
+            result = screen_proxy_transition(
+                fold_state,panel_vertices_xy,operations,
+                key[0],key[1],key[2],proxy_tools,
+                deadline=axis_deadline,clock=clock,
+            )
+            proxy_cache[key] = result
+            proxy_checks += 1
+            if (result.status in ("POTENTIAL_INTERFERENCE","UNKNOWN")
+                    and len(proxy_findings) < 32):
+                proxy_findings.append({
+                    "operation_id": operations[key[1]].operation_id,
+                    "completed_mask": key[0],
+                    "reverse_axis": key[2],
+                    **result.to_dict(),
+                })
+        if result.status == "TIME_BUDGET":
+            exhausted = True
+            return None
+        if result.status == "POTENTIAL_INTERFERENCE":
+            proxy_penalized += 1
+            return result.penalty
+        return 0.0
 
     def axis_accept(node):
         nonlocal axis_screen_checks,axis_screen_rejected,axis_screen_unknown
@@ -571,6 +622,7 @@ def search_fast_candidates(
                         node.nested_fold_penalty+nested,
                         node.axis_penalty,
                         node.feedback_penalty+feedback,
+                        node.proxy_tool_penalty,
                     )
                     layer.append(candidate)
                     expanded += 1
@@ -600,11 +652,15 @@ def search_fast_candidates(
             penalty = axis_accept(n)
             if exhausted or penalty is None:
                 break
+            proxy_penalty = proxy_accept(n)
+            if exhausted or proxy_penalty is None:
+                break
             scored.append(_Node(
                 n.mask, n.last, n.reverse, n.path, n.reversed_flags,
-                n.cost + penalty, n.risk, n.ergonomic_penalty,
-                n.nested_fold_penalty, n.axis_penalty + penalty,
-                n.feedback_penalty,
+                n.cost + penalty + proxy_penalty, n.risk,
+                n.ergonomic_penalty, n.nested_fold_penalty,
+                n.axis_penalty + penalty, n.feedback_penalty,
+                n.proxy_tool_penalty + proxy_penalty,
             ))
         if exhausted:
             break
@@ -691,6 +747,7 @@ def search_fast_candidates(
             round(n.nested_fold_penalty,4),
             round(n.axis_penalty,4),
             round(n.feedback_penalty,4),
+            proxy_tool_penalty=round(n.proxy_tool_penalty,4),
         ) for n in selected
     )
     status = ("TIME_BUDGET_UNVERIFIED" if exhausted else
@@ -706,4 +763,6 @@ def search_fast_candidates(
         axis_screen_samples,axis_screen_available,
         axis_screen_penalized,tuple(axis_screen_findings),
         len(forbidden),coarse_pruned,
+        bool(proxy_tools is not None and axis_screen_available),
+        proxy_checks,proxy_penalized,tuple(proxy_findings),
     )
