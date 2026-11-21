@@ -114,6 +114,17 @@ class FastSearchGUIContracts(unittest.TestCase):
         self.assertIn("fixed_orientations=pinned", chooser)
         self.assertIn("selected = all_candidates[index]", chooser)
 
+    def test_lifetime_filter_skips_qt_non_qobjects(self):
+        # QWidgetItem can receive Close/ParentChange during QTableWidget
+        # teardown but is not a QObject. Avoid AttributeError in the
+        # global FreeCAD event filter.
+        diagnostics = (
+            Path(__file__).resolve().parents[1] /
+            "freecad_smbs" / "ui" / "lifecycle_debug.py"
+        ).read_text("utf-8")
+        self.assertIn("if not isinstance(obj, QtCore.QObject):", diagnostics)
+        self.assertIn("return False", diagnostics)
+
     def test_never_auto_apply_candidate(self):
         chooser = function("_run_fast_sequence_search")
         dialog_close = chooser.index("dialog.finished.connect(on_finished)")
