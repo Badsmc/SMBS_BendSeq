@@ -4473,11 +4473,49 @@ class _PreviewPanel:
                                         side_begin, len(all_candidates)
                                     ),
                                 )
-                        # Second feedback layer: restart the search with
-                        # exact obstructed-state penalties and forced
-                        # opposite 180-degree orientations. Manual pins
-                        # remain immutable. A repeat button allows another
-                        # bounded round on later, newly discovered failures.
+                        # Real selected-tool profiles have now been sampled
+                        # by Stage B. Before generating yet more variants,
+                        # restart FAST under STRICT *state-specific* 2D
+                        # punch/die penetration exclusions. This never
+                        # forbids a whole bend or claims physical 3D proof.
+                        from smbs_core.kinematics2d.fast_collision_gate import (
+                            rerun_fast_avoiding_tool_collisions,
+                        )
+                        coarse_rerun = rerun_fast_avoiding_tool_collisions(
+                            self.session.fold_state, operations,
+                            tuple(all_candidates),
+                            self.session.panel_vertices_xy, screen,
+                            weights=self._selected_operation_weights().to_dict(),
+                            fixed_orientations=pinned,
+                            limit_seconds=1.5,
+                            max_candidates=8,
+                        )
+                        _desktop_debug_event(
+                            "FAST_COARSE_TOOL_RERUN",
+                            report=coarse_rerun.to_dict(),
+                        )
+                        if coarse_rerun.candidates:
+                            coarse_begin = len(all_candidates)
+                            for candidate in coarse_rerun.candidates:
+                                all_candidates.append(candidate)
+                                candidate_sources.append(
+                                    "без известных 2D-пробоев"
+                                )
+                            screen = screen_fast_shortlist(
+                                self.session.fold_state, operations,
+                                tuple(all_candidates),
+                                self.session.panel_vertices_xy,
+                                self.tooling_setup,
+                                backgauge_model=self.backgauge_model,
+                                budget_seconds=3.0,
+                                transition_cache=screen_cache,
+                                priority_candidate_indices=range(
+                                    coarse_begin, len(all_candidates)
+                                ),
+                            )
+                        # Next, retry the problematic bend with opposite
+                        # 0/180 orientations, preserving manual pins.
+                        # At most three rounds per result dialog.
                         from smbs_core.kinematics2d.fast_collision_gate import (
                             coarse_tool_gate,
                         )
@@ -4595,10 +4633,13 @@ class _PreviewPanel:
                             "{}, с 2D-препятствиями {}. "
                             "Сторон контура: {}, отдельных поисков: {}, "
                             "повторных постановок: {}, пропущено по бюджету: {}. "
-                            "Дополнительный поиск после 2D: {} новых вариантов. "
+                            "FAST с грубой проверкой: {} новых вариантов, "
+                            "дополнительные развороты: {} новых вариантов. "
                             "Грубый отсев: {} подозрительных переходов, "
                             "исключённых вариантов: {}. "
-                            "Всего вариантов: {}. "
+                            "Всего вариантов: {} (видно: {}). "
+                            "Если подходящих нет, включите показ "
+                            "отклонённых вариантов для диагностики. "
                             "Таблицу можно сортировать по заголовкам; "
                             "кандидаты не отклонены автоматически. "
                             "Оснастка по длине, зажимы, контакт CAD-упора, "
@@ -4621,6 +4662,7 @@ class _PreviewPanel:
                                 sum(item.get("status") == "BUDGET_EXCEEDED"
                                     for item in side_report.side_findings)
                                 if side_report is not None else "неизменно",
+                                len(coarse_rerun.candidates),
                                 (len(feedback_report.new_candidates)
                                  if feedback_report is not None else 0),
                                 len(final_gate.forbidden_transitions),
@@ -4630,6 +4672,7 @@ class _PreviewPanel:
                                     ) for item in screen.checks
                                 ),
                                 len(all_candidates),
+                                choices.rowCount(),
                             )
                         )
                     except Exception as exc:
