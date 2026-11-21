@@ -243,6 +243,81 @@ class TestProxyToolScreen(TestCase):
         self.assertEqual(result.samples,1)
         self.assertFalse(observed[0]["align_bisector"])
 
+    def test_full_angle_probe_samples_late_bend_and_bottom(self):
+        state,polygons,operations,tools=self.setup_scene()
+        tools=replace(tools,die_opening_mm=12.,die_shoulder_radius_mm=1.)
+        recorded=[]
+        with patch(
+            "smbs_core.kinematics2d.fast_proxy_tool_screen."
+            "WorkpiecePlacement3D.compute_placement",
+            side_effect=lambda view,bid,**kw: (
+                recorded.append(round(view.angles[bid],3))
+                or SimpleNamespace()
+            ),
+        ),patch(
+            "smbs_core.kinematics2d.fast_proxy_tool_screen._section_panel",
+            return_value=((30.,0.),(31.,0.),(31.,1.),(30.,1.)),
+        ):
+            result=screen_proxy_transition(
+                state,polygons,operations,0,0,False,tools,
+                full_angle_probe=True,
+            )
+        self.assertEqual(result.status,"CLEAR_SAMPLED")
+        self.assertEqual(result.samples,4)
+        self.assertEqual(recorded,[0.0,45.0,67.5,90.0])
+
+    def test_full_search_exposes_four_pose_diagnostic_not_false_clearance(self):
+        from smbs_core.kinematics2d.fast_bfm_beam_search import (
+            search_fast_candidates,
+        )
+        from smbs_core.kinematics2d.panel_graph import GraphEdge,PanelGraph
+        from smbs_core.kinematics2d.panel_kinematics import FoldState
+        edge=GraphEdge(
+            "B01","P0","P1",90.,
+            ((0.,0.,0.),(50.,0.,0.)),
+        )
+        sheet=FoldState(PanelGraph(("P0","P1"),(edge,)),"P0")
+        sheet.bends={
+            bid:replace(bend,bend_zone=object())
+            for bid,bend in sheet.bends.items()
+        }
+        poly={
+            "P0":((0.,-20.),(50.,-20.),(50.,-1.)),
+            "P1":((0.,1.),(50.,1.),(50.,20.)),
+        }
+        sample={"pose_id":"YAW_0_ROLL_180","roll_180":True,
+                "eligible_for_fast_ranking":False,
+                "finding":{"status":"INVALID_PUNCH_FACE"}}
+        with patch(
+            "smbs_core.kinematics2d.fast_proxy_tool_screen."
+            "prepare_proxy_tools",return_value=object(),
+        ),patch(
+            "smbs_core.kinematics2d.fast_proxy_tool_screen."
+            "screen_proxy_transition",
+            return_value=ProxyFinding(
+                "POTENTIAL_INTERFERENCE",1900.,
+                "PUNCH","P11","BENDING_LATE","synthetic",3,
+            ),
+        ),patch(
+            "smbs_core.kinematics2d.fast_proxy_tool_screen."
+            "diagnose_four_loading_poses",
+            return_value=(sample,),
+        ) as diagnose:
+            report=search_fast_candidates(
+                sheet,panel_vertices_xy=poly,tooling_setup=object(),
+                screen_tool_center_axis=False,
+                beam_width=8,limit_seconds=10.,
+            )
+        self.assertTrue(report.candidates)
+        self.assertEqual(len(report.orientation_25d_findings),1)
+        self.assertTrue(diagnose.called)
+        record=report.to_dict()["orientation_25d_findings"][0]
+        self.assertEqual(record["bend_id"],"B01")
+        self.assertEqual(record["poses"][0]["finding"]["status"],
+                         "INVALID_PUNCH_FACE")
+        self.assertEqual(report.candidates[0].evidence,
+                         "UNVERIFIED_3D_NOT_CHECKED")
+
     def test_time_budget_is_unknown_not_collision(self):
         state,polygons,operations,tools=self.setup_scene()
         result=screen_proxy_transition(
