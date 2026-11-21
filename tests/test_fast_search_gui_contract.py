@@ -181,6 +181,21 @@ class FastSearchGUIContracts(unittest.TestCase):
         self.assertIn('log_template_2d_replay("FINAL", screen)', chooser)
         self.assertIn("OPERATOR_RECIPE_2D_ADVISORY_3D_UNVERIFIED", chooser)
 
+    def test_selected_tool_profiles_score_in_all_fast_search_routes(self):
+        chooser = function("_run_fast_sequence_search")
+        self.assertIn("tooling_setup=self.tooling_setup", chooser)
+        self.assertGreaterEqual(
+            chooser.count("tooling_setup=self.tooling_setup"),4,
+        )
+        self.assertIn('"FAST_PROXY_TOOL_SUMMARY"', chooser)
+        self.assertIn("report.proxy_tool_penalized", chooser)
+        self.assertIn("candidate.proxy_tool_penalty", chooser)
+        self.assertIn(
+            "candidate.feedback_penalty +",
+            chooser,
+        )
+        self.assertIn("Профили пуансона/матрицы", chooser)
+
     def test_never_auto_apply_candidate(self):
         chooser = function("_run_fast_sequence_search")
         dialog_close = chooser.index("dialog.finished.connect(on_finished)")
