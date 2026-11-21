@@ -447,13 +447,21 @@ def search_fast_candidates(
         prepare_proxy_tools, screen_proxy_transition,
     )
     proxy_tools = prepare_proxy_tools(tooling_setup)
+    proxy_screen_available = (
+        proxy_tools is not None
+        and isinstance(panel_vertices_xy,Mapping)
+        and all(len(panel_vertices_xy.get(pid,()))>=3
+                for pid in fold_state.graph.panels)
+        and all(getattr(b,"bend_zone",None) is not None
+                for b in fold_state.bends.values())
+    )
     proxy_cache = {}
     proxy_checks = proxy_penalized = 0
     proxy_findings = []
 
     def proxy_accept(node):
         nonlocal proxy_checks,proxy_penalized,exhausted
-        if proxy_tools is None or not axis_screen_available:
+        if not proxy_screen_available:
             return 0.0
         key = (node.mask & ~(1<<node.last),node.last,node.reverse)
         result = proxy_cache.get(key)
@@ -763,6 +771,6 @@ def search_fast_candidates(
         axis_screen_samples,axis_screen_available,
         axis_screen_penalized,tuple(axis_screen_findings),
         len(forbidden),coarse_pruned,
-        bool(proxy_tools is not None and axis_screen_available),
+        proxy_screen_available,
         proxy_checks,proxy_penalized,tuple(proxy_findings),
     )
