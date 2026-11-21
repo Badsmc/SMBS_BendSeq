@@ -164,6 +164,20 @@ def _probe_existing_stage_b(
         deadline_monotonic=deadline,
     )
     if report.stage == "STAGE_B_SECTION_REQUIRES_3D":
+        # Preserve which real tool and sheet component collided, and in
+        # which phase. The FAST collision gate may reject only *gross*
+        # PUNCH/DIE material penetrations, never ambiguous 2D contacts.
+        hit = next((
+            row for row in getattr(report, "diagnostic_findings", ())
+            if len(row) >= 5 and row[3] == "INTERFERENCE"
+        ), None)
+        if hit is not None:
+            phase, tool, component, _status, reason = hit[:5]
+            tool_note = "tool={};phase={};component={};contact={}".format(
+                tool, phase, component, reason,
+            )
+            return ("POTENTIAL_2D_INTERFERENCE",
+                    tool_note + ";" + str(report.reason))
         return ("POTENTIAL_2D_INTERFERENCE", str(report.reason))
     if report.stage == "STAGE_B_BUDGET":
         return ("BUDGET_EXCEEDED", str(report.reason))
