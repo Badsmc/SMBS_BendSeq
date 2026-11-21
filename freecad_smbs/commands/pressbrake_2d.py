@@ -4216,6 +4216,12 @@ class _PreviewPanel:
                         screen_fast_shortlist,
                     )
                     screen_button.setEnabled(False)
+                    _desktop_debug_event(
+                        "FAST_SHORTLIST_2D_STARTED",
+                        candidate_count=len(report.candidates),
+                        operation_count=len(operations),
+                        budget_seconds=3.0,
+                    )
                     hint.setText(
                         "FAST-поиск завершён. Выполняется отдельная "
                         "предварительная 2D-проверка (бюджет 3 с). "
