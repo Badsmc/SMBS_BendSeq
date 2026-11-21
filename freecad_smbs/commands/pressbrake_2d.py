@@ -4178,6 +4178,37 @@ class _PreviewPanel:
                         pinned[step.operation_id] = self._manual_orientation_overrides[
                             step.bend_id
                         ]
+                # An operator-recorded recipe is a high-priority search
+                # SEED only for the exact canonical geometry. It never
+                # bypasses the independent selected-tool Stage B pass.
+                template_hits = ()
+                try:
+                    from smbs_core.kinematics2d.fast_bend_templates import (
+                        find_operator_templates, BendTemplateError,
+                    )
+                    template_hits = find_operator_templates(
+                        self.session.fold_state, operations,
+                        getattr(self.session.panel_build,
+                                "outline_vertices_xy", ()),
+                        self.session.panel_vertices_xy,
+                    )
+                except (BendTemplateError, OSError, ValueError) as exc:
+                    _desktop_debug_event(
+                        "FAST_TEMPLATE_MATCH_SKIPPED",
+                        reason=type(exc).__name__ + ":" + str(exc),
+                    )
+                # Never override operator-locked 0/180 poses.
+                template_hits = tuple(
+                    hit for hit in template_hits
+                    if all(hit.candidate.orientations().get(k) == v
+                           for k,v in pinned.items())
+                )
+                _desktop_debug_event(
+                    "FAST_TEMPLATE_MATCH",
+                    matched_count=len(template_hits),
+                    titles=[hit.title for hit in template_hits],
+                    evidence="GEOMETRY_MATCH_REQUIRES_NEW_2D_3D_CHECKS",
+                )
                 try:
                     report = search_fast_candidates(
                         self.session.fold_state, operations,
@@ -4198,7 +4229,7 @@ class _PreviewPanel:
                 _desktop_debug_event(
                     "FAST_SEARCH_RESULT", report=report.to_dict()
                 )
-                if not report.candidates:
+                if not report.candidates and not template_hits:
                     self.status.setText(
                         "FAST: кандидаты не найдены за {:.3f} с. "
                         "Это НЕ доказательство невозможности гибки.".format(
@@ -4228,6 +4259,9 @@ class _PreviewPanel:
                     "Проверка грубой ошибки установки на оси: {} проверок, "
                     "оштрафовано {} переходов, {} неопределённых. "
                     "Причины указаны в SMBS_debug_log.json. "
+                    "Точно совпадающие геометрические шаблоны, если они "
+                    "сохранены оператором, предлагаются первыми и "
+                    "повторно проходят 2D-проверку. "
                     "При ранжировании учитываются короткая сторона к упору, "
                     "возможное перекрытие вложенных гибов и разнообразие "
                     "начальных операций. Это только эвристики. "
@@ -4292,8 +4326,48 @@ class _PreviewPanel:
                     value = item.data(int(QtCore.Qt.UserRole) + 1)
                     return int(value) if value is not None else -1
 
-                all_candidates = list(report.candidates)
-                candidate_sources = ["FAST"] * len(all_candidates)
+                all_candidates = []
+                candidate_sources = []
+                known_keys = set()
+                current_tools = {
+                    "punch":str(getattr(
+                        getattr(self.tooling_setup,"punch",None),
+                        "tool_id",""
+                    )),
+                    "die":str(getattr(
+                        getattr(self.tooling_setup,"die",None),
+                        "tool_id",""
+                    )),
+                }
+                for hit in template_hits:
+                    candidate = hit.candidate
+                    key = (
+                        candidate.operation_ids,
+                        candidate.orientation_by_operation,
+                    )
+                    if key in known_keys:
+                        continue
+                    known_keys.add(key)
+                    all_candidates.append(candidate)
+                    changed_tools = any(
+                        hit.source_tooling.get(kind)
+                        and hit.source_tooling[kind] != current_tools[kind]
+                        for kind in ("punch","die")
+                    )
+                    candidate_sources.append(
+                        "шаблон: " + hit.title +
+                        (" (другая оснастка)" if changed_tools else "")
+                    )
+                for candidate in report.candidates:
+                    key = (
+                        candidate.operation_ids,
+                        candidate.orientation_by_operation,
+                    )
+                    if key in known_keys:
+                        continue
+                    known_keys.add(key)
+                    all_candidates.append(candidate)
+                    candidate_sources.append("FAST")
                 self._last_fast_shortlist_screen_report = None
                 screen_cache = {}
                 forced_sides_done = [False]
