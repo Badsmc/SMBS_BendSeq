@@ -125,6 +125,22 @@ class FastSearchGUIContracts(unittest.TestCase):
         self.assertIn("if not isinstance(obj, QtCore.QObject):", diagnostics)
         self.assertIn("return False", diagnostics)
 
+    def test_fast_collision_screen_filters_actual_tool_penetrations(self):
+        chooser = function("_run_fast_sequence_search")
+        self.assertIn("coarse_tool_gate(screen_report)", chooser)
+        self.assertIn("rerun_fast_avoiding_tool_collisions(", chooser)
+        self.assertIn('"FAST_COARSE_TOOL_RERUN"', chooser)
+        self.assertIn('"FAST_COARSE_TOOL_GATE_FINAL"', chooser)
+        self.assertIn("coarse_gate=current_gate", chooser)
+        self.assertIn("choices.setRowCount(len(order))", chooser)
+        self.assertIn("show_rejected.toggled.connect(", chooser)
+        self.assertIn('setObjectName(\\n                    "SMBS_FastShowCoarseRejected"', chooser)
+        self.assertIn("show_rejected.setChecked(False)", chooser)
+        self.assertIn("selected_source_index()", chooser)
+        # The operator must always select: never silently commit a
+        # provisional 2D-accepted order.
+        self.assertIn("dialog.finished.connect(on_finished)", chooser)
+
     def test_never_auto_apply_candidate(self):
         chooser = function("_run_fast_sequence_search")
         dialog_close = chooser.index("dialog.finished.connect(on_finished)")
