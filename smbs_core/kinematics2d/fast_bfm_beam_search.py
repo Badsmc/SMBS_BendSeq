@@ -32,6 +32,7 @@ class FastCandidate:
     ergonomic_penalty: float = 0.0
     nested_fold_penalty: float = 0.0
     axis_penalty: float = 0.0
+    feedback_penalty: float = 0.0
     evidence: str = "UNVERIFIED_3D_NOT_CHECKED"
 
     def orientations(self) -> dict[str, bool]:
@@ -46,6 +47,7 @@ class FastCandidate:
             "ergonomic_penalty": self.ergonomic_penalty,
             "nested_fold_penalty": self.nested_fold_penalty,
             "axis_penalty": self.axis_penalty,
+            "feedback_penalty": self.feedback_penalty,
             "evidence": self.evidence,
         }
 
@@ -113,6 +115,7 @@ class _Node:
     ergonomic_penalty: float = 0.0
     nested_fold_penalty: float = 0.0
     axis_penalty: float = 0.0
+    feedback_penalty: float = 0.0
 
 
 def _axis_data(fold_state, operations):
@@ -255,6 +258,8 @@ def search_fast_candidates(
     limit_seconds: float = 1.0,
     beam_width: int = 24,
     max_candidates: int = 5,
+    forced_first_operation_ids: Sequence[str] | None = None,
+    transition_penalties: Mapping[tuple[int, str, bool], float] | None = None,
     clock=perf_counter,
 ) -> FastSearchReport:
     """Return probable (never physically certified) bend operation orders.
@@ -294,6 +299,24 @@ def search_fast_candidates(
         raise FastSearchError("Invalid staged operation kind")
     geometry = _axis_data(fold_state, operations)
     by_id = {op.operation_id:i for i,op in enumerate(operations)}
+    allowed_starts = (set(forced_first_operation_ids)
+                      if forced_first_operation_ids is not None else None)
+    if (allowed_starts is not None and (
+            not allowed_starts or
+            any(not isinstance(item, str) for item in allowed_starts) or
+            not allowed_starts.issubset(by_id))):
+        raise FastSearchError("Forced first operations must be known nonempty IDs")
+    feedback_costs = {}
+    for key, value in dict(transition_penalties or {}).items():
+        if (not isinstance(key, tuple) or len(key) != 3
+                or type(key[0]) is not int or key[0] < 0
+                or key[0] >> len(operations)
+                or key[1] not in by_id or type(key[2]) is not bool
+                or isinstance(value, bool)
+                or not isinstance(value, (int, float))
+                or not isfinite(value) or value < 0):
+            raise FastSearchError("Invalid per-transition 2D feedback penalty")
+        feedback_costs[(key[0], by_id[key[1]], key[2])] = float(value)
     by_bend: dict[str,list] = {}
     for i,op in enumerate(operations):
         if (not isinstance(op.target_angle_deg,(int,float))
@@ -467,6 +490,9 @@ def search_fast_candidates(
             explored += 1
             for index,op in enumerate(operations):
                 bit = 1<<index
+                if (node.mask == 0 and allowed_starts is not None
+                        and op.operation_id not in allowed_starts):
+                    continue
                 if node.mask&bit or node.mask&prerequisites[index] != prerequisites[index]:
                     continue
                 for reverse in ((pins[op.operation_id],) if op.operation_id in pins
@@ -490,6 +516,9 @@ def search_fast_candidates(
                             + float(w.get("operator_short_side_per_100_mm", 3.0))
                             * prefer[1] / 100.0
                         )
+                    feedback = feedback_costs.get(
+                        (node.mask,index,reverse), 0.0
+                    )
                     pending = (nested_pending_masks[index] & ~node.mask)
                     stage_fraction = min(
                         1.0, abs(float(op.target_angle_deg)
@@ -499,11 +528,12 @@ def search_fast_candidates(
                     candidate = _Node(
                         node.mask|bit,index,reverse,
                         node.path+(index,),node.reversed_flags+(reverse,),
-                        node.cost+edge_cost+ergonomic+nested,
+                        node.cost+edge_cost+ergonomic+nested+feedback,
                         node.risk+pair_risk,
                         node.ergonomic_penalty+ergonomic,
                         node.nested_fold_penalty+nested,
                         node.axis_penalty,
+                        node.feedback_penalty+feedback,
                     )
                     layer.append(candidate)
                     expanded += 1
@@ -537,6 +567,7 @@ def search_fast_candidates(
                 n.mask, n.last, n.reverse, n.path, n.reversed_flags,
                 n.cost + penalty, n.risk, n.ergonomic_penalty,
                 n.nested_fold_penalty, n.axis_penalty + penalty,
+                n.feedback_penalty,
             ))
         if exhausted:
             break
@@ -622,6 +653,7 @@ def search_fast_candidates(
             round(n.ergonomic_penalty,4),
             round(n.nested_fold_penalty,4),
             round(n.axis_penalty,4),
+            round(n.feedback_penalty,4),
         ) for n in selected
     )
     status = ("TIME_BUDGET_UNVERIFIED" if exhausted else
