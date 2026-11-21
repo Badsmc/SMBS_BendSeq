@@ -80,7 +80,7 @@ The 2D post-processor never certifies an executable bend sequence. Native
    contact and collision observations.
 
 Pure Python regression:
-`python -m unittest tests.test_fast_shortlist_screening tests.test_fast_search_gui_contract`
+`python -m unittest tests/test_fast_shortlist_screening.py tests/test_fast_search_gui_contract.py`
 
 ## Next steps, *not* implemented yet
 
