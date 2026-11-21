@@ -186,6 +186,7 @@ def screen_fast_shortlist(
     backgauge_model=None,
     budget_seconds: float = 3.0,
     probe: Callable | None = None,
+    transition_cache: dict | None = None,
     clock=perf_counter,
 ) -> ShortlistScreenReport:
     """Rerank only FAST's existing candidates using sampled 2D evidence.
@@ -212,7 +213,9 @@ def screen_fast_shortlist(
     start = clock()
     deadline = start + budget_seconds
     checks = []
-    memo = {}
+    # Shared ONLY within one dialog/geometry identity; an injected cache
+    # avoids recomputing the original five paths during the side replay.
+    memo = transition_cache if transition_cache is not None else {}
     probes = cache_hits = 0
     original_angles = dict(fold_state.angles)
     original_transforms = dict(fold_state.transforms)
