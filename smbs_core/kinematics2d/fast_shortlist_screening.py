@@ -27,6 +27,9 @@ class ShortlistCandidateCheck:
     cached_steps: int = 0
     first_issue: str = ""
     elapsed_seconds: float = 0.0
+    # Exact staged-state mask in the initial FAST operation ordering.
+    # The mask is meaningful only with that same operations tuple.
+    failed_transition: tuple[int, str, bool] | None = None
 
     def to_dict(self) -> dict:
         return {
@@ -35,6 +38,12 @@ class ShortlistCandidateCheck:
             "sampled_steps": self.sampled_steps,
             "cached_steps": self.cached_steps,
             "first_issue": self.first_issue,
+            "failed_transition": (
+                {"completed_mask": self.failed_transition[0],
+                 "operation_id": self.failed_transition[1],
+                 "reverse_axis": self.failed_transition[2]}
+                if self.failed_transition is not None else None
+            ),
             "elapsed_seconds": round(self.elapsed_seconds, 5),
             "evidence": "ADVISORY_SAMPLED_2D_NOT_3D_VERIFIED",
         }
@@ -195,6 +204,7 @@ def screen_fast_shortlist(
     candidates = tuple(candidates)
     operations = tuple(operations)
     by_id = {op.operation_id: op for op in operations}
+    positions = {op.operation_id: index for index, op in enumerate(operations)}
     if len(by_id) != len(operations):
         raise ValueError("operation IDs must be unique")
     if any(not isinstance(candidate, FastCandidate) for candidate in candidates):
@@ -212,6 +222,7 @@ def screen_fast_shortlist(
             sampled = cached = 0
             status = "SAMPLED_2D_TOOLS_GAUGE_CLEAR"
             issue = ""
+            first_blocker = None
             done_angles = {}
             any_tool_only = False
             if (len(candidate.operation_ids) != len(operations)
@@ -262,6 +273,12 @@ def screen_fast_shortlist(
                         any_tool_only = True
                     elif step_status != "SAMPLED_2D_TOOLS_GAUGE_CLEAR":
                         status, issue = step_status, oid + ":" + step_reason
+                        if step_status in (
+                                "POTENTIAL_2D_INTERFERENCE", "STATIC_TOOLING_BLOCK"):
+                            completed_mask = sum(
+                                1 << positions[prior] for prior in done_angles
+                            )
+                            first_blocker = (completed_mask, oid, reverse)
                         break
                     done_angles[op.bend_id] = float(op.target_angle_deg)
                 else:
@@ -269,7 +286,7 @@ def screen_fast_shortlist(
                         status = "SAMPLED_2D_TOOLS_ONLY"
             checks.append(ShortlistCandidateCheck(
                 tuple(candidate.operation_ids), status, sampled, cached,
-                issue, clock() - c_start,
+                issue, clock() - c_start, first_blocker,
             ))
     finally:
         fold_state.angles.clear()
