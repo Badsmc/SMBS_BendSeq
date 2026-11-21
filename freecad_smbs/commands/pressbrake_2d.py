@@ -2343,7 +2343,7 @@ class _PreviewPanel:
                 # Keep the live sequence directly beneath the fixed controls.
                 playback_layout.addWidget(self.operations, 1)
                 self.fast_search_btn = style_action(
-                    QtWidgets.QPushButton("FAST · найти последовательности (1 с)"),
+                    QtWidgets.QPushButton("FAST · найти последовательности (до 30 с)"),
                     compact=True,
                 )
                 self.fast_search_btn.setObjectName("SMBS_FastSequenceSearch")
@@ -2353,10 +2353,10 @@ class _PreviewPanel:
                     "основная панель проходит через центральную ось Yₘ=0. "
                     "Такой вариант получает большой ШТРАФ, но не исключается. "
                     "Местные пересечения полок ДОПУСТИМЫ. "
-                    "Первые пять вариантов — FAST с лимитом 1 с. "
+                    "Первые пять вариантов — FAST с лимитом 30 с. "
                     "Затем автоматически выполняются 2D-проверки и новые "
                     "поиски от КАЖДОЙ внешней стороны развёртки "
-                    "(4 стороны для прямоугольника, 6 для шестиугольника). "
+                    "(число сторон определяется настоящим внешним CAD-контуром). "
                     "Найденные 2D-пересечения возвращаются как штрафы "
                     "только для конкретных состояний и ориентаций. "
                     "Остальные проверки и время добавляются отдельно. "
@@ -4083,7 +4083,7 @@ class _PreviewPanel:
                         weights=self._selected_operation_weights().to_dict(),
                         screen_tool_center_axis=True,
                         axis_clearance_mm=1.0,
-                        limit_seconds=1.0,
+                        limit_seconds=30.0,
                         beam_width=32,
                         max_candidates=5,
                     )
