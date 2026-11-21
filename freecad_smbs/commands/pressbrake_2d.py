@@ -4550,7 +4550,14 @@ class _PreviewPanel:
                             report=current_gate.to_dict(),
                         )
                         feedback_report = None
-                        if feedback_rounds[0] < 3:
+                        # NO_TOOLING and wholly indeterminate sample passes
+                        # provide no collision evidence. Do not consume
+                        # limited feedback search rounds on those cases.
+                        has_feedback = any(
+                            check.failed_transition is not None
+                            for check in screen.checks
+                        )
+                        if feedback_rounds[0] < 3 and has_feedback:
                             from smbs_core.kinematics2d.fast_multiside_feedback import (
                                 search_feedback_recovery,
                             )
