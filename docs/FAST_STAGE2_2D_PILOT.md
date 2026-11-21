@@ -87,16 +87,21 @@ material-penetration filtering),
     sampled by Stage B with priority.
 13. Run a second bounded 1.5 s recovery Beam Search using original
     2D penalties, the new forbidden transitions and forced opposite
-    0/180 orientations of troublesome bends. Manual locks remain
-    authoritative. The repeat button supports two more bounded
-    recovery rounds. This avoids merely sorting 95 failed variants.
+    0/180 orientations of troublesome bends. Include coordinated
+    two- and three-bend reversal experiments for the most frequent
+    different obstruction IDs, with the SAME per-round budget.
+    One-flip-only reruns can move a failure from B06 to B04 without
+    improving the checked prefix; coordinated repairs target this.
+    Manual locks remain authoritative. The repeat button supports
+    two more bounded recovery rounds. No combination is 3D certified.
 14. The result table hides paths showing the strict coarse-2D
     obstruction by default. They are not deleted; the operator can
     check "Показывать исключённые грубой 2D-проверкой" for diagnosis.
-    If the provisional filter hides every candidate, no option is
-    called verified or physically impossible: review excluded paths
-    or change tooling and repeat. The scorer never promotes a missed
-    check to a successful sampled pass.
+    If the provisional filter hides every candidate, the dialog now
+    displays a clear "0 вариантов" warning instead of an unexplained
+    empty table. No option is called verified or physically impossible:
+    review excluded paths or change tooling and repeat. The scorer
+    never promotes a missed check to a successful sampled pass.
 15. The results dialog now uses `QTableWidget`, with sortable columns
     **№ | 2D | Вес | 2D гибов | Старт | 1-й гиб | 180° | Ось |
     2D штраф | Порядок | Причина**. Floating-point weights are sorted
