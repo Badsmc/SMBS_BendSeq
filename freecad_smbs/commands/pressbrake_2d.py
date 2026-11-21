@@ -4144,6 +4144,7 @@ class _PreviewPanel:
                 self._last_fast_shortlist_screen_report = None
                 screen_cache = {}
                 forced_sides_done = [False]
+                ranked_once = [False]
 
                 def populate_fast_choices(screen_report=None):
                     previously_selected = (
@@ -4190,10 +4191,17 @@ class _PreviewPanel:
                         )
                         choices.addItem(item)
                     if displayed_indices:
-                        choices.setCurrentRow(
-                            displayed_indices.index(previously_selected)
-                            if previously_selected in displayed_indices else 0
-                        )
+                        if screen_report is not None and not ranked_once[0]:
+                            # The initial selection is only a provisional
+                            # FAST default, not a user-chosen option.
+                            # On first 2D rerank, select the new best result.
+                            choices.setCurrentRow(0)
+                            ranked_once[0] = True
+                        else:
+                            choices.setCurrentRow(
+                                displayed_indices.index(previously_selected)
+                                if previously_selected in displayed_indices else 0
+                            )
 
                 populate_fast_choices()
                 layout.addWidget(choices)
