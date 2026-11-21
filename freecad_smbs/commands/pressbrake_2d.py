@@ -4138,8 +4138,12 @@ class _PreviewPanel:
                 choices.setObjectName("SMBS_FastCandidateList")
                 # Display order may change after advisory 2D screening.
                 # Keep original candidate indices for correct application.
-                displayed_indices = list(range(len(report.candidates)))
+                all_candidates = list(report.candidates)
+                candidate_sources = ["FAST"] * len(all_candidates)
+                displayed_indices = list(range(len(all_candidates)))
                 self._last_fast_shortlist_screen_report = None
+                screen_cache = {}
+                forced_sides_done = [False]
 
                 def populate_fast_choices(screen_report=None):
                     previously_selected = (
@@ -4151,7 +4155,7 @@ class _PreviewPanel:
                         displayed_indices[:] = screen_report.ranked_indices
                     choices.clear()
                     for position, source_index in enumerate(displayed_indices, 1):
-                        candidate = report.candidates[source_index]
+                        candidate = all_candidates[source_index]
                         reversed_ids = [
                             op_id for op_id, reverse in candidate.orientation_by_operation
                             if reverse
@@ -4161,8 +4165,9 @@ class _PreviewPanel:
                             if screen_report is not None else None
                         )
                         suffix = (
-                            " | 2D: " + check.status
-                            if check is not None else " | 2D: ожидается"
+                            " | старт: " + candidate_sources[source_index] +
+                            (" | 2D: " + check.status
+                             if check is not None else " | 2D: ожидается")
                         )
                         label = (
                             "{}. {} | вес ~{:.2f} "
@@ -4218,7 +4223,7 @@ class _PreviewPanel:
                     screen_button.setEnabled(False)
                     _desktop_debug_event(
                         "FAST_SHORTLIST_2D_STARTED",
-                        candidate_count=len(report.candidates),
+                        candidate_count=len(all_candidates),
                         operation_count=len(operations),
                         budget_seconds=3.0,
                     )
@@ -4230,11 +4235,62 @@ class _PreviewPanel:
                     try:
                         screen = screen_fast_shortlist(
                             self.session.fold_state, operations,
-                            report.candidates, self.session.panel_vertices_xy,
+                            tuple(all_candidates), self.session.panel_vertices_xy,
                             self.tooling_setup,
                             backgauge_model=self.backgauge_model,
                             budget_seconds=3.0,
+                            transition_cache=screen_cache,
                         )
+                        _desktop_debug_event(
+                            "FAST_SHORTLIST_2D_SCREEN_INITIAL",
+                            report=screen.to_dict(),
+                        )
+                        side_report = None
+                        if not forced_sides_done[0]:
+                            from smbs_core.kinematics2d.fast_multiside_feedback import (
+                                search_all_outer_sides,
+                            )
+                            # The complete unfolded outer contour is authoritative.
+                            # Panel hulls / BBoxes are not real exterior sides.
+                            outer_outline = getattr(
+                                self.session.panel_build,
+                                "outline_vertices_xy", (),
+                            )
+                            side_report = search_all_outer_sides(
+                                self.session.fold_state, operations,
+                                tuple(all_candidates), outer_outline,
+                                self.session.panel_vertices_xy,
+                                fixed_orientations=pinned,
+                                weights=self._selected_operation_weights().to_dict(),
+                                screen=screen,
+                                budget_seconds=2.5,
+                            )
+                            forced_sides_done[0] = True
+                            _desktop_debug_event(
+                                "FAST_FORCED_ALL_SIDES_RESULT",
+                                report=side_report.to_dict(),
+                            )
+                            for found in side_report.new_candidates:
+                                all_candidates.append(found.candidate)
+                                candidate_sources.append(
+                                    found.side_name + (
+                                        "" if found.axis_aligned
+                                        else " (ориентация приблизительная)"
+                                    )
+                                )
+                            if side_report.new_candidates:
+                                # Rerun with a shared cache. Original
+                                # transitions are reused, while each
+                                # genuinely new folded prefix gets Stage B.
+                                screen = screen_fast_shortlist(
+                                    self.session.fold_state, operations,
+                                    tuple(all_candidates),
+                                    self.session.panel_vertices_xy,
+                                    self.tooling_setup,
+                                    backgauge_model=self.backgauge_model,
+                                    budget_seconds=3.0,
+                                    transition_cache=screen_cache,
+                                )
                         self._last_fast_shortlist_screen_report = screen
                         _desktop_debug_event(
                             "FAST_SHORTLIST_2D_SCREEN", report=screen.to_dict()
@@ -4254,6 +4310,7 @@ class _PreviewPanel:
                             "FAST: {:.3f} с. Проверка 2D: {:.3f} с, "
                             "проб {}, кеш {}, предварительно без 2D-пересечений "
                             "{}, с 2D-препятствиями {}. "
+                            "Сторон исследовано: {}. Всего вариантов: {}. "
                             "Кандидаты пересортированы, но НЕ отклонены. "
                             "Оснастка по длине, зажимы, контакт CAD-упора, "
                             "полная траектория и 3D-коллизии НЕ подтверждены."
@@ -4261,6 +4318,9 @@ class _PreviewPanel:
                                 report.elapsed_seconds, screen.elapsed_seconds,
                                 screen.actual_probes, screen.cache_hits,
                                 clear, interferences,
+                                len(side_report.side_findings) if side_report is not None
+                                else "повторная проверка",
+                                len(all_candidates),
                             )
                         )
                     except Exception as exc:
@@ -4312,9 +4372,9 @@ class _PreviewPanel:
                         workspace_alive=self._playback_alive(),
                     )
                     if (result != QtWidgets.QDialog.Accepted
-                            or not 0 <= index < len(report.candidates)):
+                            or not 0 <= index < len(all_candidates)):
                         return
-                    selected = report.candidates[index]
+                    selected = all_candidates[index]
                     # Apply AFTER the native dialog closes and FreeCAD
                     # finishes its overlay/task bookkeeping.
                     QtCore.QTimer.singleShot(
