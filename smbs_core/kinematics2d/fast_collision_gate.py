@@ -13,6 +13,7 @@ TOUCH, TIME_BUDGET, RETRACT, frame, or backgauge finding.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import re
 from typing import Any
 
 
@@ -84,9 +85,13 @@ def coarse_tool_gate(screen: Any) -> CoarseToolGate:
                 or fields.get("contact") not in _INTERIOR_REASON):
             continue
         component = fields.get("component", "")
-        # The intended active zone legitimately contacts both tools.
-        # Require a rigid panel OR a distinct completed bend zone.
+        # Active fixed/moving panels can be in legitimate forming
+        # contact, while the *other* already-bent panels are the high
+        # confidence access blockers sought here. The existing machine
+        # section reports those panels as bare IDs like "P09", not
+        # necessarily "panel:P09".
         if not (component.startswith("panel:")
+                or re.fullmatch(r"P[0-9]+", component)
                 or component.startswith("other_zone:")):
             continue
         found[transition] = {
