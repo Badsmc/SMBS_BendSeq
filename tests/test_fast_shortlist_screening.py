@@ -69,7 +69,9 @@ class FastShortlistScreeningTests(unittest.TestCase):
         self.assertEqual(report.ranked_indices, (1, 0))
         self.assertEqual(len(report.checks), 2)
         self.assertEqual(report.checks[0].status, "POTENTIAL_2D_INTERFERENCE")
+        self.assertEqual(report.checks[0].clear_prefix_steps, 1)
         self.assertEqual(report.checks[1].status, "SAMPLED_2D_TOOLS_GAUGE_CLEAR")
+        self.assertEqual(report.checks[1].clear_prefix_steps, 2)
         self.assertIn("B01:folded_flange_hits_punch", report.checks[0].first_issue)
         self.assertEqual(self.state.angles, {"B01": 13., "B02": 26.})
         self.assertEqual(self.state.transforms, {"original_pose": "retained"})
@@ -176,6 +178,8 @@ class FastShortlistScreeningTests(unittest.TestCase):
         check = report.checks[0]
         self.assertEqual(check.status, "POTENTIAL_2D_INTERFERENCE")
         self.assertEqual(check.failed_transition, (1, "B02", True))
+        self.assertEqual(check.clear_prefix_steps, 1)
+        self.assertEqual(check.to_dict()["clear_prefix_steps"], 1)
         self.assertEqual(
             check.to_dict()["failed_transition"]["completed_mask"], 1
         )
