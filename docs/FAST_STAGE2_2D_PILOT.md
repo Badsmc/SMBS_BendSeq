@@ -14,6 +14,8 @@ Sources: `fast_bfm_beam_search.py` (generator),
 `fast_shortlist_screening.py` (advisory 2D post-processor),
 `fast_side_seeds.py` (real unfolded perimeter directions),
 `fast_multiside_feedback.py` (forced per-side feedback search),
+`fast_collision_gate.py` (strict exact-state sampled punch/die
+material-penetration filtering),
 `preliminary_screening.py` (existing Stage A/B geometry),
 `freecad_smbs/commands/pressbrake_2d.py` (Qt integration).
 
@@ -65,21 +67,40 @@ Sources: `fast_bfm_beam_search.py` (generator),
     screen the expanded set again with Stage B. Reuse the same per-dialog
     transition cache to avoid recomputing the original candidates; screen
     NEW candidates first so they are not all starved by old paths.
-11. From the expanded shortlist's new Stage B findings, collect exact
-    obstructed transitions. Run an additional *bounded 1.5 s* Beam Search
-    for a diverse set of different starts, forcing the opposite 0/180
-    orientation of the obstructed bend. Manual locks remain authoritative.
-    Append newly distinct plans and prioritize them in another bounded
-    2D pass. The user may press "Проверить ещё раз / найти новые варианты"
-    for up to two additional bounded feedback rounds.
-12. The results dialog now uses `QTableWidget`, with sortable columns
+11. From Stage B's selected-tool reports, preserve the real
+    `tool=PUNCH/DIE`, phase, rigid sheet component, and material-overlap
+    classification. **Only** a sampled rigid nonactive-panel crossing with
+    a selected punch/die during APPROACH, BENDING or BOTTOM can become a
+    coarse search exclusion. TOUCH, uncertain contact, RETRACT, active
+    forming zone, missing metadata, CAD gauge, timeouts and mere BBoxes
+    are NEVER hard exclusions.
+12. Rerun the full Beam Search for up to 1.5 s with a set of exact
+    `(already-completed operation mask, next operation ID, 0/180)`
+    forbidden transitions. These are **search constraints only**, NOT
+    a declaration that the bend is impossible. Unknown alternatives
+    remain searchable; only previously observed gross 2D penetration
+    poses are removed. Up to eight fresh candidates are added and
+    sampled by Stage B with priority.
+13. Run a second bounded 1.5 s recovery Beam Search using original
+    2D penalties, the new forbidden transitions and forced opposite
+    0/180 orientations of troublesome bends. Manual locks remain
+    authoritative. The repeat button supports two more bounded
+    recovery rounds. This avoids merely sorting 95 failed variants.
+14. The result table hides paths showing the strict coarse-2D
+    obstruction by default. They are not deleted; the operator can
+    check "Показывать исключённые грубой 2D-проверкой" for diagnosis.
+    If the provisional filter hides every candidate, no option is
+    called verified or physically impossible: review excluded paths
+    or change tooling and repeat. The scorer never promotes a missed
+    check to a successful sampled pass.
+15. The results dialog now uses `QTableWidget`, with sortable columns
     **№ | 2D | Вес | 2D гибов | Старт | 1-й гиб | 180° | Ось |
     2D штраф | Порядок | Причина**. Floating-point weights are sorted
     NUMERICALLY despite display with decimal comma. `2D гибов` counts
     only the consecutive operations with sampled tool-section clearance,
     NOT verified 3D bends. Each row stores a stable internal candidate
     index so sorting never changes which sequence will be applied.
-13. SAMPLED clear uses ✅, incomplete/untested uses ⚠️, and possible
+16. SAMPLED clear uses ✅, incomplete/untested uses ⚠️, and possible
     collision uses ❌. These are **advisory 2D statuses only**. Red
     does not prove the entire sequence impossible, green never certifies
     machine-safe bending. Results rerank but are never automatically
@@ -112,6 +133,8 @@ The 2D post-processor never certifies an executable bend sequence. Native
   tests the deadline between samples but individual geometry calls
   may overrun. Only completed, meaningful geometry findings are cached;
   budget failures are retried on later passes.
+- A new full collision-gated Beam Search uses a 1.5 s budget before the
+  1.5 s transition/orientation feedback round.
 - Additional transition-feedback Beam Search uses a 1.5 s shared budget
   per round, up to three rounds within the same open result dialog
   (one automatic and two on manual 'check again' actions). The sum of
@@ -166,7 +189,7 @@ The 2D post-processor never certifies an executable bend sequence. Native
    observed native 3D/tooling contacts.
 
 Pure Python regression:
-`python -m unittest tests/test_fast_shortlist_screening.py tests/test_fast_multiside_feedback.py tests/test_fast_search_gui_contract.py`
+`python -m unittest tests/test_fast_shortlist_screening.py tests/test_fast_collision_gate.py tests/test_fast_multiside_feedback.py tests/test_fast_search_gui_contract.py`
 
 ## Next steps, *not* implemented yet
 
@@ -174,9 +197,14 @@ Pure Python regression:
   sweep; Stage B's current sweep assumes the full bend final angle.
 - Compare actual 2D gauge contacts against the CAD contact model, accounting
   for virtual tooling and station alternatives.
-- Feedback recovery is now added after the side passes, but its
-  sampled 2D classifications may be false positives or miss 3D tool-end
-  collisions. It must not be substituted for independent 3D validation.
+- Feedback recovery and strict sampled 2D gate are now added after
+  the side passes, but even a strict 2D material crossing can be a
+  false positive due to assumed loading pose and cutting-plane choice.
+  Tool sections outside that plane, side tool ends, real clamp/frame,
+  backgauge contact, and continuous ram motion remain unverified.
+  The strict gate must never be treated as independent 3D validation.
+- Measure real FreeCAD timings; the original 1-second FAST is unchanged,
+  but added 2D passes and collision-aware reruns increase total dialog time.
 - Validate the full machine pose and gauge contact for each starting
   exterior edge; this release uses authoritative unfolded geometry as
   a search seed, not a certified global loading placement.
