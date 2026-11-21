@@ -80,6 +80,24 @@ class FastShortlistScreeningTests(unittest.TestCase):
             "ADVISORY_SAMPLED_2D_NOT_3D_VERIFIED",
         )
 
+    def test_equal_2d_obstruction_prefers_longer_clear_prefix_over_low_cost(self):
+        # An inexpensive candidate that fails at its first bend should not
+        # outrank an expensive candidate reaching the second bend.
+        plans = (
+            candidate(("B01", "B02"), cost=1.0),
+            candidate(("B02", "B01"), cost=100.0),
+        )
+
+        def probe(state, op, reverse, tools, vertices, deadline):
+            if op.bend_id == "B01":
+                return "POTENTIAL_2D_INTERFERENCE", "B01_crossing"
+            return "SAMPLED_2D_TOOLS_ONLY", "sampled"
+
+        report = self.screen(plans, probe)
+        self.assertEqual(report.checks[0].clear_prefix_steps, 0)
+        self.assertEqual(report.checks[1].clear_prefix_steps, 1)
+        self.assertEqual(report.ranked_indices, (1, 0))
+
     def test_cache_reuses_same_folded_subset_bend_and_orientation(self):
         calls = []
 
