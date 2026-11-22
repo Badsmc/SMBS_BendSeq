@@ -11,6 +11,7 @@ from smbs_core.kinematics2d.machine_pose_solver import (
     solve_machine_setups,
     tool_station_midpoints,
 )
+from smbs_core.kinematics2d.press_cycle import CyclePhase, PressCycleController
 from test_machine_pose_contract import sample_bend
 
 
@@ -64,6 +65,27 @@ class TestMachinePoseSolver(TestCase):
         self.assertTrue(candidate.orientations()["B01"])
         self.assertGreater(setup.operator_depth_mm, setup.rear_depth_mm)
         self.assertEqual(candidate.ergonomic_penalty, 0.0)
+
+    def test_cycle_uses_fast_rear_frame_for_selected_step(self):
+        fold, outlines = sample_bend()
+        outlines = {
+            panel: tuple((x, -y) for x, y in outline)
+            for panel, outline in outlines.items()
+        }
+        cycle = PressCycleController.__new__(PressCycleController)
+        cycle.sequence = SimpleNamespace(
+            fold_state=fold, active_index=0, order=("B01",), active_bend_id="B01",
+        )
+        cycle.phase = CyclePhase.IDLE
+        cycle.transfer_fault = None
+        cycle.coupled_kinematics = None
+        cycle.loading_orientation_by_bend = {"B01": True}
+        raw = cycle.current_workpiece_placement_3d()
+        cycle.loading_rear_frame_for_step = lambda index: outlines
+        machine = cycle.current_workpiece_placement_3d()
+        fast = evaluate_loading_setup(fold, "B01", outlines, four_loading_poses()[1])
+        self.assertNotEqual(raw.rotation, machine.rotation)
+        self.assertEqual(machine.rotation, fast.frame.placement.rotation)
 
     def test_nonzero_tool_station_moves_axis_without_using_gaps(self):
         fold, outlines = sample_bend()

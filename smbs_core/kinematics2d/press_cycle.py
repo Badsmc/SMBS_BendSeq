@@ -255,6 +255,12 @@ class PressCycleController:
     def target_angle_deg(self) -> float:
         return self.sequence.target_angle_deg
 
+    def _loading_rear_frame(self, index):
+        provider = getattr(self, "loading_rear_frame_for_step", None)
+        if provider is not None:
+            return provider(index)
+        return getattr(self, "rear_panel_vertices_xy", None)
+
     def _loading_reverse_axis_for_step(self, index: int) -> bool:
         """Orientation belongs to an operation, not a physical bend.
 
@@ -778,7 +784,7 @@ class PressCycleController:
                 reverse_axis=self._loading_reverse_axis_for_step(
                     self.sequence.active_index + 1
                 ),
-                rear_panel_vertices_xy=getattr(self, "rear_panel_vertices_xy", None),
+                rear_panel_vertices_xy=self._loading_rear_frame(self.sequence.active_index + 1),
             )
             from smbs_core.kinematics2d.workpiece_transfer_3d import build_transfer_3d
             self.transfer_3d = build_transfer_3d(
@@ -1064,7 +1070,9 @@ class PressCycleController:
             reverse_axis=self._loading_reverse_axis_for_step(
                 getattr(self.sequence, "active_index", 0)
             ),
-            rear_panel_vertices_xy=getattr(self, "rear_panel_vertices_xy", None),
+            rear_panel_vertices_xy=self._loading_rear_frame(
+                getattr(self.sequence, "active_index", 0)
+            ),
         )
         if self.phase == CyclePhase.LOAD_TO_GAUGE:
             # Machine s = -Y_m. Positive machine Y translates the entire

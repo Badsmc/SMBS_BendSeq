@@ -759,9 +759,7 @@ def show_workspace_controls(workspace, tab=None):
             workspace._effective_operation_orientation_map()
         )
         if hasattr(workspace, "_rear_frame_for_preview"):
-            cycle.rear_panel_vertices_xy = (
-                workspace._rear_frame_for_preview()
-            )
+            cycle.loading_rear_frame_for_step = workspace._rear_frame_for_preview
     caption = workspace._task_page_titles.get(section, "Панель задач")
     header = getattr(workspace, "_task_section_label", None)
     if header is not None:
@@ -5382,9 +5380,16 @@ class _PreviewPanel:
                         f"Ram Position: {ram_z:+.2f} mm (Stroke: {ram_stroke:.2f} mm)"
                     )
 
-            def _rear_frame_for_preview(self):
-                # The per-bend orientation map owns the machine-facing side.
-                # Passing vertices here would apply a second independent flip.
+            def _rear_frame_for_preview(self, index=None):
+                """FAST flags are relative to the fixed-panel rear frame."""
+                if self.session is None:
+                    return None
+                controller = self.session.controller
+                if index is None:
+                    index = controller.active_index
+                step = controller.operation_steps[index]
+                if step.operation_id in self._fast_advisory_orientation_keys:
+                    return self.session.panel_vertices_xy
                 return None
 
             def _on_operation_orientation_changed(self, item, column):
@@ -5718,9 +5723,7 @@ class _PreviewPanel:
                 if self.press_cycle is not None:
                     ctrl = getattr(self.session, "controller", None)
                     if ctrl is None or getattr(self.press_cycle, "sequence", None) is ctrl:
-                        self.press_cycle.rear_panel_vertices_xy = (
-                            self._rear_frame_for_preview()
-                        )
+                        self.press_cycle.loading_rear_frame_for_step = self._rear_frame_for_preview
                         self.press_cycle.loading_orientation_by_bend = (
                             self._effective_operation_orientation_map()
                         )
@@ -5742,9 +5745,7 @@ class _PreviewPanel:
                     follow_sheet_contact_preview=True,
                     animate_workpiece_transfer=True,
                 )
-                self.press_cycle.rear_panel_vertices_xy = (
-                    self._rear_frame_for_preview()
-                )
+                self.press_cycle.loading_rear_frame_for_step = self._rear_frame_for_preview
                 self.press_cycle.loading_orientation_by_bend = (
                     self._effective_operation_orientation_map()
                 )
@@ -9697,7 +9698,8 @@ class _PreviewPanel:
                     return {}
                 stations = self._backgauge_stations()
                 key = (id(session), tuple(session.bend_order), stations,
-                       tuple(sorted(orientations.items())))
+                       tuple(sorted(orientations.items())),
+                       frozenset(self._fast_advisory_orientation_keys))
                 cached = self._machine_gauge_envelope_cache
                 if cached is not None and cached[0] == key:
                     return cached[1]
@@ -9707,6 +9709,7 @@ class _PreviewPanel:
                 values, errors = sequenced_gauge_envelopes(
                     session, stations_xm_mm=stations,
                     reverse_axis_by_bend=orientations,
+                    rear_frame_bend_ids=self._fast_advisory_orientation_keys,
                 )
                 self._machine_gauge_envelope_cache = (key, values)
                 for bend_id, reason in errors.items():
@@ -9729,6 +9732,7 @@ class _PreviewPanel:
                 key = (
                     id(session), order, id(model), index,
                     tuple(sorted(orientations.items())),
+                    frozenset(self._fast_advisory_orientation_keys),
                 )
                 if key in self._backgauge_preview_cache:
                     return self._backgauge_preview_cache[key]
