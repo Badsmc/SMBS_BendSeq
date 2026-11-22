@@ -28,6 +28,7 @@ from typing import Any, Callable, Dict, Optional
 from .fold_sequence import ANGLE_EPS, BendSequenceController, PlaybackStatus, SequenceError
 from .staged_orientation import reverse_axis_for_operation
 from .workpiece_placement_3d import PlacementTransform3D, WorkpiecePlacement3D
+from .machine_pose_contract import compute_machine_pose
 from .workpiece_transfer_3d import Transfer3D, build_bend_transfer
 from .coupled_kinematics_2d import CoupledAirBendingKinematics
 from .ram_cycle_geometry import ram_cycle_positions
@@ -769,12 +770,11 @@ class PressCycleController:
                 raise PressCycleError(
                     f"UNSUPPORTED: Missing authoritative BendZone geometry for next bend '{nxt.bend_id}'"
                 )
-            end_pose = WorkpiecePlacement3D.compute_placement(
+            end_pose = compute_machine_pose(
                 self.sequence.fold_state,
                 nxt.bend_id,
+                phase="TRANSFER_TARGET",
                 support_plane_zm=next_outer_r,
-                align_bisector=True,
-                align_bend_arc_center=True,
                 reverse_axis=self._loading_reverse_axis_for_step(
                     self.sequence.active_index + 1
                 ),
@@ -1047,13 +1047,26 @@ class PressCycleController:
         else:
             support_z = 0.0
 
-        pose = WorkpiecePlacement3D.compute_placement(
+        # Match the same loading/forming phase contract used by FAST and
+        # Stage B. APPROACH/CONTACT keep the flat fixed-panel orientation;
+        # BENDING/BOTTOM/RETRACT track the forming bisector. Manual scrub
+        # explicitly remains a formed BEND_ONLY presentation.
+        if not (self.coupled_kinematics is not None and (
+                self.execution_mode == CycleExecutionMode.FULL_CYCLE
+                or self._manual_preview_active)):
+            pose_phase = "UNALIGNED"
+        elif self._manual_preview_active:
+            pose_phase = "BEND_ONLY"
+        elif self.phase in (CyclePhase.IDLE, CyclePhase.TRANSFER):
+            pose_phase = "APPROACH"
+        else:
+            pose_phase = self.phase.value
+        pose = compute_machine_pose(
             fold_state,
             self.active_bend_id,
+            phase=pose_phase,
             desired_midpoint_xm=float(desired_midpoint_xm),
             support_plane_zm=support_z,
-            align_bisector=align_bisector,
-            align_bend_arc_center=align_arc_center,
             reverse_axis=self._loading_reverse_axis_for_step(
                 getattr(self.sequence, "active_index", 0)
             ),
