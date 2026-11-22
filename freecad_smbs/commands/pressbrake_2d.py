@@ -1448,6 +1448,9 @@ class _PreviewPanel:
                 # but must NOT become immutable user pins on the next search.
                 self._fast_advisory_orientation_keys: set[str] = set()
                 self._last_manual_sequence_report = None
+                self._mesh_collision_hits = ()
+                self._mesh_collision_index = None
+                self._mesh_collision_identity = None
                 self._collision_inspection = None
                 self._alternate_retract_inspection = None
                 self._last_assisted_lift_inspection = None
@@ -2470,6 +2473,15 @@ class _PreviewPanel:
                 )
                 self.manual_mesh_check_btn.clicked.connect(self._run_mesh_sequence_check)
                 bottom_actions.addWidget(self.manual_mesh_check_btn)
+                self.mesh_show_collision_btn = style_action(
+                    QtWidgets.QPushButton("Коллизии Mesh"), compact=True,
+                )
+                self.mesh_show_collision_btn.setToolTip(
+                    "Следующая подтверждённая коллизия. После последней — обычный вид."
+                )
+                self.mesh_show_collision_btn.clicked.connect(self._show_next_mesh_collision)
+                self.mesh_show_collision_btn.hide()
+                bottom_actions.addWidget(self.mesh_show_collision_btn)
                 sim_layout.addLayout(bottom_actions)
 
                 # RETRACT warning belongs to Settings, not Simulation.
@@ -3146,14 +3158,46 @@ class _PreviewPanel:
                     and self._task_stack.currentWidget() is report._smbs_task_page
                     and not self.timer.isActive()
                 )
+                mesh_hit = None
+                if (self._collision_display_active and not show_proposal
+                        and self._mesh_collision_index is not None):
+                    if self._mesh_collision_identity == self._mesh_preview_identity():
+                        mesh_hit = self._mesh_collision_hits[self._mesh_collision_index]
+                    else:
+                        self._mesh_collision_index = None
+                        self._collision_display_active = False
+                        self.mesh_show_collision_btn.hide()
                 inspection = (self._collision_inspection
-                              if self._collision_display_active and not show_proposal else None)
+                              if self._collision_display_active and not show_proposal and mesh_hit is None
+                              else None)
                 try:
                     viewer.attach_document(self._smbs_document_name)
                     highlighted = ()
                     bounds = []
                     inspected_length = None
-                    if inspection:
+                    current_verdict = None
+                    if mesh_hit:
+                        pose = mesh_hit["sampled_machine_pose"]
+                        bend_id = mesh_hit["bend"]
+                        ram_z = mesh_hit["ram_z_mm"]
+                        fold_state = FoldState(self.session.fold_state.graph, self.session.fold_state.fixed_panel)
+                        for previous, angle in pose["angles_deg"].items():
+                            fold_state.set_angle(previous, angle)
+                        placement = PlacementTransform3D(
+                            rotation=tuple(tuple(row) for row in pose["rotation"]),
+                            translation=tuple(pose["translation"]),
+                        )
+                        inspected_length = math.dist(*fold_state.bends[bend_id].axis_xyz)
+                        highlighted = (mesh_hit["component"],)
+                        if mesh_hit["overlap_bbox_xyz_mm"] is not None:
+                            bounds = [mesh_hit["overlap_bbox_xyz_mm"]]
+                        tool_name = {"punch": "пуансон", "die": "матрица"}[mesh_hit["tool"]]
+                        message = (
+                            f"Mesh {self._mesh_collision_index + 1}/{len(self._mesh_collision_hits)}"
+                            f" · {mesh_hit['operation']} · {mesh_hit['phase']} · {tool_name}"
+                            f" · {mesh_hit['component']} · {mesh_hit['occ_overlap_volume_mm3']:.4f} мм³"
+                        )
+                    elif inspection:
                         from smbs_core.kinematics2d.native_collision_attribution import collision_preview_boxes
                         from smbs_core.kinematics2d.workpiece_placement_validation_3d import (
                             compare_native_placement_matrices,
@@ -3220,7 +3264,7 @@ class _PreviewPanel:
                     viewer.set_sheet_faces(faces, highlighted=highlighted)
                     tooling = self.tooling_setup
                     stations, contact, gauge_note = self._coin_backgauge_positions(
-                        self.session.bend_order.index(bend_id), at_collision=bool(inspection),
+                        self.session.bend_order.index(bend_id), at_collision=bool(inspection or mesh_hit),
                     )
                     messages = viewer.update_machine(
                         self.tool_library.library_root, tooling, ram_z,
@@ -3228,7 +3272,7 @@ class _PreviewPanel:
                         gauge_stations=stations, gauge_contact=contact,
                     )
                     section_preview = proposal[1] if show_proposal else None
-                    if not show_proposal and not inspection and tooling.tool_assembly is None and not current_verdict:
+                    if not show_proposal and not inspection and not mesh_hit and tooling.tool_assembly is None and not current_verdict:
                         section_preview = self._simulation_tool_sections(bend_id)
                         if section_preview:
                             message = f"{bend_id} · Раскладка сегментов для симуляции"
@@ -3250,7 +3294,7 @@ class _PreviewPanel:
                     self._coin_last_error = None
                     if not self._playback_alive():
                         return False
-                    if not inspection and not show_proposal:
+                    if not inspection and not mesh_hit and not show_proposal:
                         self._trace_drawn_frame(placement, ram_z, stations, contact)
                     if self.timer.isActive() and now - self._last_3d_debug_at >= 0.5:
                         self._last_3d_debug_at = now
@@ -6600,6 +6644,9 @@ class _PreviewPanel:
                 if self.session.playback_status == PlaybackStatus.PLAYING:
                     self.pause()
                 self._stop_timer()
+                if self._mesh_collision_index is not None:
+                    self._mesh_collision_index = None
+                    self._collision_display_active = False
                 self._collision_display_active = not self._collision_display_active
                 if hasattr(self, "manual_show_collision_btn"):
                     self.manual_show_collision_btn.setText(
@@ -7428,6 +7475,30 @@ class _PreviewPanel:
                 self.fcstd_note.setText(note)
                 return note
 
+            def _mesh_preview_identity(self):
+                return (
+                    self._current_native_tooling_identity(),
+                    tuple(self.session.controller.operation_steps),
+                    self._effective_operation_orientation_map(),
+                    frozenset(self._fast_advisory_orientation_keys),
+                )
+
+            def _show_next_mesh_collision(self):
+                if self.session is None or self._mesh_collision_identity != self._mesh_preview_identity():
+                    self.mesh_show_collision_btn.hide()
+                    self.status.setText("Повторите Mesh-проверку для текущей детали и оснастки.")
+                    return
+                if not self._mesh_collision_hits:
+                    return
+                if self.session.playback_status == PlaybackStatus.PLAYING:
+                    self.pause()
+                self._stop_timer()
+                index = self._mesh_collision_index if self._collision_display_active else None
+                index = 0 if index is None else index + 1
+                self._collision_display_active = index < len(self._mesh_collision_hits)
+                self._mesh_collision_index = index if self._collision_display_active else None
+                self._open_coin_preview()
+
             def _run_mesh_sequence_check(self):
                 if self.session is None or self.timer.isActive():
                     self.status.setText("Mesh: загрузите деталь и остановите симуляцию.")
@@ -7453,6 +7524,17 @@ class _PreviewPanel:
                         progress=progress,
                     )
                     _desktop_debug_event("MESH_SEQUENCE_RESULT", **report)
+                    if self._mesh_collision_index is not None:
+                        self._collision_display_active = False
+                    self._mesh_collision_index = None
+                    self._mesh_collision_hits = tuple(report["findings"])
+                    self._mesh_collision_identity = self._mesh_preview_identity()
+                    self.mesh_show_collision_btn.setVisible(bool(self._mesh_collision_hits))
+                    if self._mesh_collision_hits:
+                        self._collision_display_active = False
+                        self._show_next_mesh_collision()
+                    else:
+                        self._update_3d_preview(force=True)
                     message = (
                         f"Mesh: {len(report['completed'])}/{len(operations)} гибов, "
                         f"{report['elapsed_seconds']:.1f} с"
@@ -7461,8 +7543,10 @@ class _PreviewPanel:
                         hit = report["findings"][0]
                         tool = {"punch": "пуансон", "die": "матрица"}[hit["tool"]]
                         message += f" · пересечение: {hit['operation']}, {tool}, {hit['phase']}"
-                    elif not report["pending"]:
-                        message += " · пересечений в выборке не найдено"
+                    elif not report["pending"] and not report["unresolved"]:
+                        message += " · подтверждённых проникновений в выборке нет"
+                    if report["unresolved"]:
+                        message += f" · не удалось уточнить: {len(report['unresolved'])}"
                     if report["pending"]:
                         message += " · осталось: " + ", ".join(report["pending"])
                         reason = report["reason"]

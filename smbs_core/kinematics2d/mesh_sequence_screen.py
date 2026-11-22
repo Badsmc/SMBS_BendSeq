@@ -114,7 +114,7 @@ def _native_tool_trees(tooling, virtual_length, check_budget):
         if not facets or not all(isfinite(c) for p in points for c in p):
             raise ValueError("Непригодная сетка оснастки: " + kind)
         triangles = [tuple(points[i] for i in facet) for facet in facets]
-        trees[kind] = _tree([(_bounds(t), t) for t in triangles], check_budget)
+        trees[kind] = (tool, _tree([(_bounds(t), t) for t in triangles], check_budget))
     return trees
 
 
@@ -181,6 +181,33 @@ def _sheet_triangles(session, cycle, panel_meshes, placement):
             yield face.identifier, tuple(vertices[i] for i in triple)
 
 
+def _confirm_crossing(session, state, component, placement, tool_shape, prisms, check_budget):
+    """Measure common volume only for the component flagged by Mesh."""
+    import FreeCAD as App
+
+    from .native_bend_solid_3d import (
+        _apply_rigid_transform, _source_panel_prism, build_bend_zone_solid,
+    )
+    from .native_collision_3d import _evaluate_common_volume
+
+    check_budget()
+    if component in state.bends:
+        shape = build_bend_zone_solid(state, component, segments=64).shape
+        shape = _apply_rigid_transform(shape, placement, App)
+    else:
+        prism = prisms.get(component)
+        if prism is None:
+            panel_build = session.panel_build
+            face = next(face for panel, face in zip(panel_build.panels, panel_build.panel_faces)
+                        if panel.panel_id == component)
+            thickness = state.ordered_bends[0].bend_zone.thickness_mm
+            prism = _source_panel_prism(component, face, thickness, App, prisms)
+        world_shape = _apply_rigid_transform(prism, state.transforms[component], App)
+        shape = _apply_rigid_transform(world_shape, placement, App)
+    check_budget()
+    return _evaluate_common_volume(shape, tool_shape, include_bbox=True)
+
+
 def screen_mesh_sequence(session, preview_cycle, order, *, budget_seconds=60.0, progress=None):
     """Check sampled surfaces in the current operation order using CAD tool meshes."""
     start = perf_counter()
@@ -194,7 +221,9 @@ def screen_mesh_sequence(session, preview_cycle, order, *, budget_seconds=60.0, 
     sequence.reset()
     tooling = copy(preview_cycle.tooling)
     tool_cache = {}
-    finished, findings = [], []
+    finished, findings, unresolved = [], [], []
+    unconfirmed_crossings = 0
+    panel_prisms = {}
     samples = 0
     reason = ""
     try:
@@ -222,7 +251,8 @@ def screen_mesh_sequence(session, preview_cycle, order, *, budget_seconds=60.0, 
             start_angle = cycle.current_angle_deg
             target = cycle.target_angle_deg
             fractions = (0., .25, .5, .75, 1.)
-            hit_tools = set()
+            reported = set()
+            confirmed = {}
             last_pose = last_triangles = None
             for phase in (CyclePhase.APPROACH, CyclePhase.BENDING, CyclePhase.RETRACT):
                 for fraction in fractions:
@@ -244,22 +274,59 @@ def screen_mesh_sequence(session, preview_cycle, order, *, budget_seconds=60.0, 
                             check_budget()
                             triangles.append(item)
                         last_pose, last_triangles = pose, triangles
-                    hits = set()
+                    tested = set()
+                    tool_shapes = {}
                     for component, triangle in last_triangles:
                         check_budget()
-                        for kind, tree in tools.items():
-                            if kind in hits:
+                        for kind, (tool, tree) in tools.items():
+                            pair = kind, component
+                            if pair in tested or pair in reported:
                                 continue
-                            if _crosses_tool(triangle, tree, cycle.ram_z_mm if kind == "punch" else 0., check_budget):
-                                hits.add(kind)
-                                if kind not in hit_tools:
-                                    findings.append({
-                                        "operation": operation_id, "bend": bend_id,
-                                        "phase": phase.value, "fraction": fraction,
-                                        "tool": kind, "component": component,
-                                        "ram_z_mm": cycle.ram_z_mm, "angle_deg": cycle.current_angle_deg,
-                                    })
-                    hit_tools.update(hits)
+                            ram_z = cycle.ram_z_mm if kind == "punch" else 0.0
+                            if not _crosses_tool(triangle, tree, ram_z, check_budget):
+                                continue
+                            tested.add(pair)
+                            key = pair, pose, ram_z
+                            hit = {
+                                "operation": operation_id, "bend": bend_id,
+                                "phase": phase.value, "fraction": fraction,
+                                "tool": kind, "component": component,
+                                "ram_z_mm": cycle.ram_z_mm, "angle_deg": cycle.current_angle_deg,
+                            }
+                            try:
+                                if key not in confirmed:
+                                    if kind not in tool_shapes:
+                                        from .native_tool_loader import set_punch_ram_z
+
+                                        tool_shapes[kind] = (
+                                            set_punch_ram_z(tool, ram_z).machine_shape
+                                            if kind == "punch" else tool.machine_shape
+                                        )
+                                    confirmed[key] = _confirm_crossing(
+                                        session, sequence.fold_state, component, placement,
+                                        tool_shapes[kind], panel_prisms, check_budget,
+                                    )
+                                    check_budget()
+                                volume, bounds = confirmed[key]
+                            except MeshBudgetExpired:
+                                raise
+                            except Exception as exc:
+                                unresolved.append({**hit, "reason": str(exc)})
+                                continue
+                            if volume > 1e-4:
+                                findings.append({
+                                    **hit,
+                                    "occ_overlap_volume_mm3": volume,
+                                    "overlap_bbox_xyz_mm": bounds,
+                                    "sampled_machine_pose": {
+                                        "angles_deg": dict(sequence.fold_state.angles),
+                                        "rotation": placement.rotation,
+                                        "translation": placement.translation,
+                                    },
+                                })
+                                reported.add(pair)
+                            else:
+                                unconfirmed_crossings += 1
                     samples += 1
             finished.append(operation_id)
     except MeshBudgetExpired:
@@ -268,6 +335,8 @@ def screen_mesh_sequence(session, preview_cycle, order, *, budget_seconds=60.0, 
         reason = f"{type(exc).__name__}: {exc}"
     return {
         "completed": finished, "pending": list(order[len(finished):]),
-        "findings": findings, "samples": samples, "reason": reason,
+        "findings": findings, "unresolved": unresolved,
+        "mesh_crossings_without_occ_penetration": unconfirmed_crossings,
+        "samples": samples, "reason": reason,
         "elapsed_seconds": perf_counter()-start,
     }
