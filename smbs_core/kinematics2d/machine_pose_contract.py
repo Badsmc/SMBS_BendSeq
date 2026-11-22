@@ -29,7 +29,7 @@ _BISECTOR_PHASES = frozenset((
     "SETUP", "BENDING", "BOTTOM", "RETRACT", "STEP_COMPLETE",
     "COMPLETED", "BEND_ONLY", "NATIVE_SAMPLE", "TRANSFER_TARGET",
 ))
-_SUPPORTED_PHASES = _FLAT_LOADING_PHASES | _BISECTOR_PHASES
+_SUPPORTED_PHASES = _FLAT_LOADING_PHASES | _BISECTOR_PHASES | {"UNALIGNED"}
 
 
 @dataclass(frozen=True)
@@ -83,7 +83,7 @@ def compute_machine_pose_frame(
     if name not in _SUPPORTED_PHASES:
         raise ValueError("unsupported_machine_pose_phase:" + name)
     bend = fold_state.bends[bend_id]
-    signed_angle_deg = float(fold_state.angles[bend_id])
+    # Some callers still support a legacy unfolded/no-coupling preview.\n    # Runtime FoldState owns the angle; a minimal synthetic state may not.\n    signed_angle_deg = float(getattr(fold_state, "angles", {}).get(bend_id, 0.0))
     z = float(support_plane_zm)
     x = float(desired_midpoint_xm)
     if not all(isfinite(v) for v in (signed_angle_deg, z, x)):
@@ -97,7 +97,7 @@ def compute_machine_pose_frame(
         desired_midpoint_xm=x,
         support_plane_zm=z,
         align_bisector=bisector,
-        align_bend_arc_center=True,
+        align_bend_arc_center=name != "UNALIGNED",
         reverse_axis=reverse_axis,
         rear_panel_vertices_xy=rear_panel_vertices_xy,
     )
