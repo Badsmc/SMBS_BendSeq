@@ -134,3 +134,24 @@ def compute_machine_pose(
         rear_panel_vertices_xy=rear_panel_vertices_xy,
         desired_midpoint_xm=desired_midpoint_xm,
     ).placement
+
+def bend_support_plane_zm(
+    outer_radius_mm: float,
+    stroke_mm: float,
+    *,
+    retract_lift_mm: float = 0.0,
+) -> float:
+    """Common support height from actual V-bend penetration (machine Z).
+
+    FAST, Stage B and playback may compute stroke from different tool
+    evidence. For matching bend geometry and stroke, they MUST obtain the
+    same sheet height. A positive retract lift applies only to the optional
+    assisted handling preview, not the press forming phase.
+    """
+    outer = float(outer_radius_mm)
+    stroke = float(stroke_mm)
+    lift = float(retract_lift_mm)
+    if (not all(isfinite(x) for x in (outer, stroke, lift))
+            or outer < 0.0 or stroke < 0.0 or lift < 0.0):
+        raise ValueError("invalid_bend_support_height")
+    return outer - stroke + lift
