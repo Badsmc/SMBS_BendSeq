@@ -36,6 +36,7 @@ from .panel_kinematics import FoldState
 from .tooling_25d import ToolingSetup2D
 from .screening_execution_metrics import record_station_preview
 from .workpiece_placement_3d import WorkpiecePlacement3D
+from .machine_pose_contract import compute_machine_pose
 
 
 class ScreeningDecision(str, Enum):
@@ -371,14 +372,13 @@ def screen_candidate_stage_b(
 
         try:
             # Check initial contact section and explicitly align tooling for candidate_bend_id
-            first_pose = WorkpiecePlacement3D.compute_placement(
+            first_pose = compute_machine_pose(
                 fold_state,
                 candidate_bend_id,
+                phase="SETUP",
                 desired_midpoint_xm=float(desired_midpoint_xm),
                 support_plane_zm=float(getattr(bend.bend_zone, "outer_radius_mm", 0.0) if bend.bend_zone else 0.0),
-                align_bisector=True,
-                align_bend_arc_center=True,
-                reverse_axis=reverse_axis,
+                reverse_axis=bool(reverse_axis),
                 rear_panel_vertices_xy=(
                     panel_vertices_xy if (enforce_rear_frame or backgauge_polygon_machine is not None or backgauge_cad_checker is not None)
                     else None
@@ -490,13 +490,12 @@ def screen_candidate_stage_b(
             feed_mm = float(backgauge_initial_feed_mm)
             if not math.isfinite(feed_mm):
                 raise ValueError("backgauge_initial_feed_mm must be finite")
-            initial = WorkpiecePlacement3D.compute_placement(
+            initial = compute_machine_pose(
                 fold_state, candidate_bend_id,
+                phase="LOAD_TO_GAUGE",
                 desired_midpoint_xm=float(desired_midpoint_xm),
                 support_plane_zm=outer_r,
-                align_bisector=False,
-                align_bend_arc_center=True,
-                reverse_axis=reverse_axis,
+                reverse_axis=bool(reverse_axis),
                 rear_panel_vertices_xy=panel_vertices_xy,
             )
             for fraction in (0.0, 0.25, 0.5, 0.75, 1.0):
@@ -586,14 +585,13 @@ def screen_candidate_stage_b(
                 stroke = coupled.stroke_for_angle(abs(angle_at_probe))
                 supp_z = outer_r - stroke
             try:
-                pose = WorkpiecePlacement3D.compute_placement(
+                pose = compute_machine_pose(
                     fold_state,
                     candidate_bend_id,
+                    phase=phase,
                     desired_midpoint_xm=float(desired_midpoint_xm),
                     support_plane_zm=supp_z,
-                    align_bisector=align_bis,
-                    align_bend_arc_center=True,
-                    reverse_axis=reverse_axis,
+                    reverse_axis=bool(reverse_axis),
                     rear_panel_vertices_xy=(
                         panel_vertices_xy if (enforce_rear_frame or backgauge_polygon_machine is not None or backgauge_cad_checker is not None)
                         else None
