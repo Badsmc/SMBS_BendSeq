@@ -16,6 +16,12 @@ from math import atan2, degrees, hypot, isfinite
 from time import perf_counter
 from typing import Mapping, Sequence
 
+from .machine_pose_solver import (
+    MachineSetup,
+    evaluate_loading_setup,
+    loading_fold_state,
+    loading_orientations,
+)
 from .staged_bends import BendOperation
 
 
@@ -35,6 +41,9 @@ class FastCandidate:
     feedback_penalty: float = 0.0
     evidence: str = "UNVERIFIED_3D_NOT_CHECKED"
     proxy_tool_penalty: float = 0.0
+    gauge_penalty: float = 0.0
+
+    machine_setups: tuple[tuple[str, MachineSetup], ...] = ()
 
     def orientations(self) -> dict[str, bool]:
         return dict(self.orientation_by_operation)
@@ -43,6 +52,9 @@ class FastCandidate:
         return {
             "operation_ids": list(self.operation_ids),
             "orientation_by_operation": self.orientations(),
+            "machine_setup_by_operation": {
+                op: setup.diagnostics() for op, setup in self.machine_setups
+            },
             "estimated_cost": self.estimated_cost,
             "proximity_risk": self.proximity_risk,
             "ergonomic_penalty": self.ergonomic_penalty,
@@ -50,6 +62,7 @@ class FastCandidate:
             "axis_penalty": self.axis_penalty,
             "feedback_penalty": self.feedback_penalty,
             "proxy_tool_penalty": self.proxy_tool_penalty,
+            "gauge_penalty": self.gauge_penalty,
             "evidence": self.evidence,
         }
 
@@ -140,6 +153,7 @@ class _Node:
     axis_penalty: float = 0.0
     feedback_penalty: float = 0.0
     proxy_tool_penalty: float = 0.0
+    gauge_penalty: float = 0.0
 
 
 def _axis_data(fold_state, operations):
@@ -287,6 +301,7 @@ def search_fast_candidates(
     transition_penalties: Mapping[tuple[int, str, bool], float] | None = None,
     forbidden_transitions: Sequence[tuple[int, str, bool]] | None = None,
     tooling_setup=None,
+    backgauge_model=None,
     clock=perf_counter,
 ) -> FastSearchReport:
     """Return probable (never physically certified) bend operation orders.
@@ -463,6 +478,45 @@ def search_fast_candidates(
     proxy_checks = proxy_penalized = 0
     proxy_findings = []
 
+    setup_cache: dict[tuple[int, int, bool], MachineSetup | None] = {}
+    setup_available = (
+        isinstance(panel_vertices_xy, Mapping)
+        and all(len(panel_vertices_xy.get(pid, ())) >= 3 for pid in fold_state.graph.panels)
+    )
+
+    def check_setup(node):
+        if not setup_available:
+            return None
+        key = node.mask & ~(1 << node.last), node.last, node.reverse
+        if key not in setup_cache:
+            previous, index, reverse = key
+            bend_id = operations[index].bend_id
+            setup = None
+            zone = getattr(fold_state.bends[bend_id], "bend_zone", None)
+            if getattr(zone, "outer_radius_mm", None) is not None:
+                try:
+                    setup = evaluate_loading_setup(
+                        loading_fold_state(fold_state, operations, previous),
+                        bend_id, panel_vertices_xy, loading_orientations(reverse)[0],
+                        backgauge=backgauge_model,
+                    )
+                except ValueError:
+                    # Existing legacy sources can lack a resolved rear frame.
+                    # Missing evidence must not prune usable operations.
+                    pass
+            setup_cache[key] = setup
+        return setup_cache[key]
+
+    def selected_setups(node):
+        previous = 0
+        setups = []
+        for index, reverse in zip(node.path, node.reversed_flags):
+            setup = setup_cache.get((previous, index, reverse))
+            if setup is not None:
+                setups.append((ids[index], setup))
+            previous |= 1 << index
+        return tuple(setups)
+
     def proxy_accept(node):
         nonlocal proxy_checks,proxy_penalized,exhausted
         if not proxy_screen_available:
@@ -566,6 +620,9 @@ def search_fast_candidates(
     explored = expanded = duplicates = 0
     coarse_pruned = 0
     exhausted = False
+    operation_orientations = [
+        loading_orientations(pins.get(op.operation_id)) for op in operations
+    ]
     for depth in range(len(operations)):
         if clock()-start >= limit_seconds:
             exhausted = True
@@ -586,8 +643,8 @@ def search_fast_candidates(
                     continue
                 if node.mask&bit or node.mask&prerequisites[index] != prerequisites[index]:
                     continue
-                for reverse in ((pins[op.operation_id],) if op.operation_id in pins
-                                else (False,True)):
+                for orientation in operation_orientations[index]:
+                    reverse = orientation.reverse_axis
                     if (node.mask == 0 and op.operation_id in first_reverse
                             and reverse != first_reverse[op.operation_id]):
                         continue
@@ -636,6 +693,7 @@ def search_fast_candidates(
                         node.axis_penalty,
                         node.feedback_penalty+feedback,
                         node.proxy_tool_penalty,
+                        node.gauge_penalty,
                     )
                     layer.append(candidate)
                     expanded += 1
@@ -662,6 +720,16 @@ def search_fast_candidates(
             if clock()-start >= limit_seconds:
                 exhausted = True
                 break
+            setup = check_setup(n)
+            if setup is not None and not setup.punch_face_ok:
+                continue
+            gauge_penalty = 0.0
+            if setup is not None and setup.gauge_status in (
+                "NO_FIXED_PANEL_REAR_EDGE_IN_SECTION",
+                "REAR_EDGE_OUTSIDE_GAUGE_Z_TRAVEL",
+                "OTHER_PANEL_EXTENDS_BEHIND_GAUGE_EDGE",
+            ):
+                gauge_penalty = 25.0
             penalty = axis_accept(n)
             if exhausted or penalty is None:
                 break
@@ -670,10 +738,11 @@ def search_fast_candidates(
                 break
             scored.append(_Node(
                 n.mask, n.last, n.reverse, n.path, n.reversed_flags,
-                n.cost + penalty + proxy_penalty, n.risk,
+                n.cost + penalty + proxy_penalty + gauge_penalty, n.risk,
                 n.ergonomic_penalty, n.nested_fold_penalty,
                 n.axis_penalty + penalty, n.feedback_penalty,
                 n.proxy_tool_penalty + proxy_penalty,
+                n.gauge_penalty + gauge_penalty,
             ))
         if exhausted:
             break
@@ -800,6 +869,8 @@ def search_fast_candidates(
             round(n.axis_penalty,4),
             round(n.feedback_penalty,4),
             proxy_tool_penalty=round(n.proxy_tool_penalty,4),
+            gauge_penalty=round(n.gauge_penalty,4),
+            machine_setups=selected_setups(n),
         ) for n in selected
     )
     status = ("TIME_BUDGET_UNVERIFIED" if exhausted else
