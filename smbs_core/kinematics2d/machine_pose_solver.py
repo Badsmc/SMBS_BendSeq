@@ -30,6 +30,8 @@ class MachineSetup:
     punch_face_ok: bool
     gauge_status: str
     gauge_edges: tuple[GaugeEdge, ...]
+    rear_depth_mm: float = 0.0
+    operator_depth_mm: float = 0.0
 
     def diagnostics(self) -> dict:
         return {
@@ -37,6 +39,8 @@ class MachineSetup:
             "pose_id": self.orientation.pose_id,
             "punch_face_ok": self.punch_face_ok,
             "gauge_status": self.gauge_status,
+            "rear_depth_mm": self.rear_depth_mm,
+            "operator_depth_mm": self.operator_depth_mm,
             "gauge_edges": [
                 {
                     "station_xm": edge.station_xm,
@@ -119,8 +123,18 @@ def evaluate_loading_setup(
     face_ok = upper_punch_face_score(fold_state, bend_id, placement) > 1e-6
     if not face_ok:
         return MachineSetup(orientation, frame, False, "INVALID_PUNCH_FACE", ())
+    transverse = [
+        -placement.apply(fold_state.transforms[panel_id].point((x, y, 0.0)))[1]
+        for panel_id, outline in panel_vertices_xy.items()
+        if panel_id in fold_state.transforms
+        for x, y in outline
+    ]
+    depth = {
+        "rear_depth_mm": max(0.0, max(transverse, default=0.0)),
+        "operator_depth_mm": max(0.0, -min(transverse, default=0.0)),
+    }
     if backgauge is None or not backgauge.automatic:
-        return MachineSetup(orientation, frame, True, "CONTACT_REQUIRES_CHECK", ())
+        return MachineSetup(orientation, frame, True, "CONTACT_REQUIRES_CHECK", (), **depth)
 
     stations = (float(midpoint_xm),)
     if backgauge.cad_geometry_enabled:
@@ -136,7 +150,7 @@ def evaluate_loading_setup(
             )
         except ValueError:
             return MachineSetup(
-                orientation, frame, True, "GAUGE_SECTION_UNAVAILABLE", tuple(contacts),
+                orientation, frame, True, "GAUGE_SECTION_UNAVAILABLE", tuple(contacts), **depth,
             )
         edges = _rear_edges(section, bend, station)
         fixed = next((edge for edge in edges if edge.panel_id == bend.fixed_panel), None)
@@ -149,9 +163,9 @@ def evaluate_loading_setup(
             if edges[0].distance_mm <= fixed.distance_mm + 1e-3:
                 continue
             status = "OTHER_PANEL_EXTENDS_BEHIND_GAUGE_EDGE"
-        return MachineSetup(orientation, frame, True, status, tuple(contacts))
+        return MachineSetup(orientation, frame, True, status, tuple(contacts), **depth)
 
-    return MachineSetup(orientation, frame, True, "REAR_EDGE_CANDIDATE_2D", tuple(contacts))
+    return MachineSetup(orientation, frame, True, "REAR_EDGE_CANDIDATE_2D", tuple(contacts), **depth)
 
 
 def tool_station_midpoints(

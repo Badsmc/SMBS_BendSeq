@@ -484,6 +484,15 @@ def search_fast_candidates(
         and all(len(panel_vertices_xy.get(pid, ())) >= 3 for pid in fold_state.graph.panels)
     )
 
+    def short_side_penalty(depth_difference):
+        if depth_difference <= 10.0:
+            return 0.0
+        return (
+            float(w.get("operator_short_side_fixed", 10.0))
+            + float(w.get("operator_short_side_per_100_mm", 3.0))
+            * depth_difference / 100.0
+        )
+
     def check_setup(node):
         if not setup_available:
             return None
@@ -665,15 +674,8 @@ def search_fast_candidates(
                     )
                     prefer = preferences.get(op.bend_id)
                     ergonomic = 0.0
-                    if prefer is not None and reverse != prefer[0]:
-                        # Rear must be the short side. No penalty on unknown
-                        # or nearly symmetric outlines; this is not a gauge
-                        # contact guarantee.
-                        ergonomic = (
-                            float(w.get("operator_short_side_fixed", 10.0))
-                            + float(w.get("operator_short_side_per_100_mm", 3.0))
-                            * prefer[1] / 100.0
-                        )
+                    if not setup_available and prefer is not None and reverse != prefer[0]:
+                        ergonomic = short_side_penalty(prefer[1])
                     feedback = feedback_costs.get(
                         (node.mask,index,reverse), 0.0
                     )
@@ -723,6 +725,15 @@ def search_fast_candidates(
             setup = check_setup(n)
             if setup is not None and not setup.punch_face_ok:
                 continue
+            ergonomic = 0.0
+            if setup is not None:
+                ergonomic = short_side_penalty(
+                    setup.rear_depth_mm - setup.operator_depth_mm
+                )
+            elif setup_available:
+                prefer = preferences.get(operations[n.last].bend_id)
+                if prefer is not None and n.reverse != prefer[0]:
+                    ergonomic = short_side_penalty(prefer[1])
             gauge_penalty = 0.0
             if setup is not None and setup.gauge_status in (
                 "NO_FIXED_PANEL_REAR_EDGE_IN_SECTION",
@@ -738,8 +749,8 @@ def search_fast_candidates(
                 break
             scored.append(_Node(
                 n.mask, n.last, n.reverse, n.path, n.reversed_flags,
-                n.cost + penalty + proxy_penalty + gauge_penalty, n.risk,
-                n.ergonomic_penalty, n.nested_fold_penalty,
+                n.cost + penalty + proxy_penalty + gauge_penalty + ergonomic, n.risk,
+                n.ergonomic_penalty + ergonomic, n.nested_fold_penalty,
                 n.axis_penalty + penalty, n.feedback_penalty,
                 n.proxy_tool_penalty + proxy_penalty,
                 n.gauge_penalty + gauge_penalty,

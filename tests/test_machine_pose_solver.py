@@ -53,6 +53,18 @@ class TestMachinePoseSolver(TestCase):
         self.assertEqual(candidate.orientations(), {"B01": True})
         self.assertGreater(candidate.gauge_penalty, 0.0)
 
+    def test_fast_prefers_less_sheet_depth_inside_press(self):
+        fold, outlines = sample_bend()
+        outlines["P0"] = ((0., -85.), (50., -85.), (50., -1.2), (0., -1.2))
+        report = search_fast_candidates(
+            fold, panel_vertices_xy=outlines, screen_tool_center_axis=False,
+        )
+        candidate = report.candidates[0]
+        setup = dict(candidate.machine_setups)["B01"]
+        self.assertTrue(candidate.orientations()["B01"])
+        self.assertGreater(setup.operator_depth_mm, setup.rear_depth_mm)
+        self.assertEqual(candidate.ergonomic_penalty, 0.0)
+
     def test_nonzero_tool_station_moves_axis_without_using_gaps(self):
         fold, outlines = sample_bend()
         stations = tool_station_midpoints(50.0, ((5, 60), (70, 100)), ((0, 80),))
