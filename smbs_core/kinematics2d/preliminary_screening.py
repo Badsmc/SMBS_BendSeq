@@ -36,7 +36,7 @@ from .panel_kinematics import FoldState
 from .tooling_25d import ToolingSetup2D
 from .screening_execution_metrics import record_station_preview
 from .workpiece_placement_3d import WorkpiecePlacement3D
-from .machine_pose_contract import compute_machine_pose
+from .machine_pose_contract import compute_machine_pose, bend_support_plane_zm
 
 
 class ScreeningDecision(str, Enum):
@@ -583,7 +583,7 @@ def screen_candidate_stage_b(
                 supp_z = outer_r
             else:
                 stroke = coupled.stroke_for_angle(abs(angle_at_probe))
-                supp_z = outer_r - stroke
+                supp_z = bend_support_plane_zm(outer_r,stroke)
             try:
                 pose = compute_machine_pose(
                     fold_state,
