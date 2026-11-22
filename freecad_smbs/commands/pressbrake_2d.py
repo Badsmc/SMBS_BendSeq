@@ -2462,6 +2462,14 @@ class _PreviewPanel:
                 bottom_actions = QtWidgets.QHBoxLayout()
                 bottom_actions.addWidget(info_button)
                 bottom_actions.addWidget(self.manual_validate_btn)
+                self.manual_mesh_check_btn = style_action(
+                    QtWidgets.QPushButton("Mesh 3D (60 с)"), compact=True,
+                )
+                self.manual_mesh_check_btn.setToolTip(
+                    "Выборочная проверка детали против выбранного пуансона и матрицы."
+                )
+                self.manual_mesh_check_btn.clicked.connect(self._run_mesh_sequence_check)
+                bottom_actions.addWidget(self.manual_mesh_check_btn)
                 sim_layout.addLayout(bottom_actions)
 
                 # RETRACT warning belongs to Settings, not Simulation.
@@ -7419,6 +7427,53 @@ class _PreviewPanel:
                     note += " Ограничения: " + "; ".join(warnings)
                 self.fcstd_note.setText(note)
                 return note
+
+            def _run_mesh_sequence_check(self):
+                if self.session is None or self.timer.isActive():
+                    self.status.setText("Mesh: загрузите деталь и остановите симуляцию.")
+                    return
+                from smbs_core.kinematics2d.mesh_sequence_screen import screen_mesh_sequence
+
+                self.manual_mesh_check_btn.setEnabled(False)
+                self._set_task_busy(True)
+                try:
+                    cycle = self._ensure_press_cycle_controller()
+                    operations = self.session.controller.operation_steps
+                    prefix = tuple(self._manual_sequence_prefix)
+                    if prefix and not self.session.controller.has_stages:
+                        operations = operations[:len(prefix)]
+
+                    def progress(index, count, operation):
+                        self.status.setText(f"Mesh: {index + 1}/{count} · {operation}")
+                        QtWidgets.QApplication.processEvents(QtCore.QEventLoop.ExcludeUserInputEvents)
+
+                    report = screen_mesh_sequence(
+                        self.session, cycle,
+                        tuple(step.operation_id for step in operations),
+                        progress=progress,
+                    )
+                    _desktop_debug_event("MESH_SEQUENCE_RESULT", **report)
+                    message = (
+                        f"Mesh: {len(report['completed'])}/{len(operations)} гибов, "
+                        f"{report['elapsed_seconds']:.1f} с"
+                    )
+                    if report["findings"]:
+                        hit = report["findings"][0]
+                        tool = {"punch": "пуансон", "die": "матрица"}[hit["tool"]]
+                        message += f" · пересечение: {hit['operation']}, {tool}, {hit['phase']}"
+                    elif not report["pending"]:
+                        message += " · пересечений в выборке не найдено"
+                    if report["pending"]:
+                        message += " · осталось: " + ", ".join(report["pending"])
+                        reason = report["reason"]
+                        message += " · " + ("лимит времени" if reason == "TIME_BUDGET" else reason)
+                    self.status.setText(message)
+                    self.manual_check_summary.setText(message)
+                except (ValueError, RuntimeError, AttributeError) as exc:
+                    self.status.setText("Mesh: " + str(exc))
+                finally:
+                    self._set_task_busy(False)
+                    self.manual_mesh_check_btn.setEnabled(True)
 
             def _validate_export_manual_order(self, coarse_occ=False, *, show_preview=False):
                 """Validate selected manual order: Stage A/B plus actual FCStd 3D.
