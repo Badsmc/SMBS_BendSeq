@@ -21,7 +21,8 @@ from collections.abc import Mapping
 from .contact_oracle_2d import ContactStatus, classify_polygon_contact
 from .machine_section_3d import slice_polygon_3d_at_x
 from .workpiece_placement_3d import WorkpiecePlacement3D
-from .machine_pose_contract import compute_machine_pose
+from .machine_pose_contract import compute_machine_pose, bend_support_plane_zm
+from .coupled_kinematics_2d import effective_die_opening_from_profile
 from .fast_orientation_25d import four_loading_poses, roll_about_machine_bend_axis, upper_punch_face_score
 
 
@@ -157,7 +158,7 @@ def prepare_proxy_tools(tooling, *, simplification_mm=0.35,
         return ProxyTools(
             prepare(punch,"PUNCH"),prepare(die,"DIE"),
             float(simplification_mm),float(tolerance_mm),
-            float(v) if real_kinematics else None,
+            effective_die_opening_from_profile(die,float(v)) if real_kinematics else None,
             float(shoulder) if real_kinematics else None,
         )
     except (ValueError,TypeError,IndexError,AttributeError):
@@ -279,7 +280,7 @@ def screen_proxy_transition(fold_state, panel_vertices_xy, operations,
                 view,active.bend_id,
                 # Mid/late angles use the same BENDING machine-frame rule.
                 phase="BENDING" if phase.startswith("BENDING") else phase,
-                support_plane_zm=outer_radius-stroke,
+                support_plane_zm=bend_support_plane_zm(outer_radius,stroke),
                 reverse_axis=bool(reverse_axis),
                 rear_panel_vertices_xy=panel_vertices_xy,
             )
