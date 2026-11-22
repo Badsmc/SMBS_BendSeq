@@ -30,3 +30,16 @@ class MeshSequenceScreenTests(TestCase):
         self.assertEqual(report["reason"], "TIME_BUDGET")
         self.assertEqual(report["completed"], [])
         self.assertEqual(report["pending"], ["B01", "B02"])
+
+    def test_contact_sliver_only_applies_to_punch_on_active_bend_during_forming(self):
+        from smbs_core.kinematics2d.mesh_sequence_screen import _is_forming_contact_sliver
+        from smbs_core.kinematics2d.press_cycle import CyclePhase
+
+        bounds = {"zmin": -2.224919, "zmax": -2.224784}
+        args = ("punch", CyclePhase.BENDING, "B05", "B05", 0.00033, bounds)
+        self.assertTrue(_is_forming_contact_sliver(*args))
+        for index, other in ((0, "die"), (1, CyclePhase.RETRACT),
+                             (2, "P11"), (4, 0.05297), (5, None)):
+            case = list(args)
+            case[index] = other
+            self.assertFalse(_is_forming_contact_sliver(*case))

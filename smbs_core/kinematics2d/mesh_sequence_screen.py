@@ -208,6 +208,18 @@ def _confirm_crossing(session, state, component, placement, tool_shape, prisms, 
     return _evaluate_common_volume(shape, tool_shape, include_bbox=True)
 
 
+def _is_forming_contact_sliver(kind, phase, component, active_bend, volume, bounds):
+    """Recognize only sub-micron forming contact on the active bend at the punch."""
+    return (
+        kind == "punch"
+        and phase is CyclePhase.BENDING
+        and component == active_bend
+        and 0.0 < volume <= 0.001
+        and bounds is not None
+        and 0.0 <= bounds["zmax"] - bounds["zmin"] <= 0.001
+    )
+
+
 def screen_mesh_sequence(session, preview_cycle, order, *, budget_seconds=60.0, progress=None):
     """Check sampled surfaces in the current operation order using CAD tool meshes."""
     start = perf_counter()
@@ -223,6 +235,7 @@ def screen_mesh_sequence(session, preview_cycle, order, *, budget_seconds=60.0, 
     tool_cache = {}
     finished, findings, unresolved = [], [], []
     unconfirmed_crossings = 0
+    forming_contact_slivers = []
     panel_prisms = {}
     samples = 0
     reason = ""
@@ -313,7 +326,14 @@ def screen_mesh_sequence(session, preview_cycle, order, *, budget_seconds=60.0, 
                             except Exception as exc:
                                 unresolved.append({**hit, "reason": str(exc)})
                                 continue
-                            if volume > 1e-4:
+                            if volume > 1e-4 and _is_forming_contact_sliver(
+                                kind, phase, component, bend_id, volume, bounds,
+                            ):
+                                forming_contact_slivers.append({
+                                    **hit, "occ_overlap_volume_mm3": volume,
+                                    "overlap_bbox_xyz_mm": bounds,
+                                })
+                            elif volume > 1e-4:
                                 findings.append({
                                     **hit,
                                     "occ_overlap_volume_mm3": volume,
@@ -336,6 +356,7 @@ def screen_mesh_sequence(session, preview_cycle, order, *, budget_seconds=60.0, 
     return {
         "completed": finished, "pending": list(order[len(finished):]),
         "findings": findings, "unresolved": unresolved,
+        "forming_contact_slivers": forming_contact_slivers,
         "mesh_crossings_without_occ_penetration": unconfirmed_crossings,
         "samples": samples, "reason": reason,
         "elapsed_seconds": perf_counter()-start,
