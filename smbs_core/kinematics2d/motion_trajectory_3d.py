@@ -623,6 +623,7 @@ class AdaptiveTrajectoryValidator3D:
         self._die_clearance_cache: Dict[Tuple[Any, ...], Any] = {}
         self._punch_clearance_cache: Dict[Tuple[Any, ...], Any] = {}
         self._pose_collision_cache: Dict[Tuple[Any, ...], Any] = {}
+        self._mesh_shadow_seen: set[tuple[str, str, bool]] = set()
 
     def clear_caches(self) -> None:
         """Clear Part Space solid cache, clearance caches, and pose collision cache."""
@@ -640,6 +641,7 @@ class AdaptiveTrajectoryValidator3D:
         self._die_clearance_cache.clear()
         self._punch_clearance_cache.clear()
         self._pose_collision_cache.clear()
+        self._mesh_shadow_seen.clear()
 
     def clear_solid_cache(self) -> None:
         """Clear caches (backwards compatibility alias)."""
@@ -1147,6 +1149,24 @@ class AdaptiveTrajectoryValidator3D:
             ),
             **extra_validate_kwargs,
         )
+        if os.environ.get("SMBS_MESH_SHADOW") == "1":
+            mesh_key = (active_bend_id, phase, col_res.status == CollisionClass.PENETRATION)
+            if (wp_machine is not None and (punch_shape is not None or die_shape is not None)
+                    and mesh_key not in self._mesh_shadow_seen):
+                self._mesh_shadow_seen.add(mesh_key)
+                from .developer_debug_log import debug_event
+                from .mesh_collision_poc import compare_machine_pose_mesh
+
+                comparison = compare_machine_pose_mesh(
+                    wp_machine,
+                    (("PUNCH", punch_shape, col_res.punch_result),
+                     ("DIE", die_shape, col_res.die_result)),
+                    volume_tolerance_mm3=self.config.volume_tolerance_mm3,
+                )
+                debug_event(
+                    "NATIVE_MESH_SHADOW", bend_id=active_bend_id,
+                    phase=phase, path_u=path_u, **comparison,
+                )
         # A geometric blocker discovered in RETRACT may share the exact
         # folded-sheet cache key with BOTTOM. Probe it AFTER the canonical
         # full-sheet verdict using only the optional diagnostics path.
