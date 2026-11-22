@@ -28,7 +28,7 @@ from typing import Any, Callable, Dict, Optional
 from .fold_sequence import ANGLE_EPS, BendSequenceController, PlaybackStatus, SequenceError
 from .staged_orientation import reverse_axis_for_operation
 from .workpiece_placement_3d import PlacementTransform3D, WorkpiecePlacement3D
-from .machine_pose_contract import compute_machine_pose
+from .machine_pose_contract import compute_machine_pose, bend_support_plane_zm
 from .workpiece_transfer_3d import Transfer3D, build_bend_transfer
 from .coupled_kinematics_2d import CoupledAirBendingKinematics
 from .ram_cycle_geometry import ram_cycle_positions
@@ -566,7 +566,7 @@ class PressCycleController:
         )
         if not math.isfinite(stroke) or stroke < -1e-6:
             raise PressCycleError("Nonfinite/invalid workpiece stroke")
-        return outer_r - max(0.0, stroke)
+        return bend_support_plane_zm(outer_r, max(0.0, stroke))
 
     def set_manual_preview_angle(self, signed_angle_deg: float) -> None:
         """Set slider angle, coupled punch AND matching workpiece preview.
@@ -1010,8 +1010,6 @@ class PressCycleController:
 
         # Coupled penetration during BENDING, BOTTOM, RETRACT and explicit
         # manual scrub. Scrubbing does NOT change the automatic cycle phase.
-        align_bisector = False
-        align_arc_center = False
         if self.coupled_kinematics is not None and (
             self.execution_mode == CycleExecutionMode.FULL_CYCLE
             or self._manual_preview_active
@@ -1030,20 +1028,16 @@ class PressCycleController:
 
             if self.phase == CyclePhase.BENDING or self._manual_preview_active:
                 support_z = self.preview_workpiece_support_zm()
-                align_bisector = True
-                align_arc_center = True
             elif self.phase in (CyclePhase.BOTTOM, CyclePhase.RETRACT, CyclePhase.STEP_COMPLETE, CyclePhase.COMPLETED):
                 target_angle = abs(self.target_angle_deg)
                 stroke = self.coupled_kinematics.stroke_for_angle(target_angle)
-                support_z = outer_r - stroke
-                support_z += self.assisted_retract_lift_mm()
-                align_bisector = True
-                align_arc_center = True
+                support_z = bend_support_plane_zm(
+                    outer_r, stroke,
+                    retract_lift_mm=self.assisted_retract_lift_mm(),
+                )
             else:
                 # IDLE, APPROACH, CONTACT: sheet outer surface rests flat on die shoulders (Z_m = 0)
                 support_z = outer_r
-                align_bisector = True
-                align_arc_center = True
         else:
             support_z = 0.0
 
