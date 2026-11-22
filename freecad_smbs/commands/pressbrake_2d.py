@@ -52,6 +52,7 @@ from smbs_core.kinematics2d.preview_mesh_3d import (
 from smbs_core.kinematics2d.machine_section_3d import compute_machine_cutting_plane_section
 from smbs_core.kinematics2d.tooling_assembly import has_native_sections
 from smbs_core.kinematics2d.workpiece_placement_3d import PlacementTransform3D, WorkpiecePlacement3D
+from smbs_core.kinematics2d.machine_pose_contract import compute_machine_pose
 from smbs_core.kinematics2d.workpiece_pose_2d import WorkpiecePose2D, WorkpiecePoseError
 from smbs_core.kinematics2d.tooling_25d import (
     DEFAULT_INITIAL_PUNCH_CLEARANCE_MM,
@@ -3161,11 +3162,14 @@ class _PreviewPanel:
                         for previous, angle in actual["completed_angles"].items():
                             fold_state.set_angle(previous, float(angle))
                         fold_state.set_angle(bend_id, float(actual["signed_angle_deg"]))
-                        expected = WorkpiecePlacement3D.compute_placement(
+                        expected = compute_machine_pose(
                             fold_state, bend_id,
+                            phase="NATIVE_SAMPLE",
                             support_plane_zm=float(actual["support_plane_zm"]),
-                            align_bisector=True, align_bend_arc_center=True,
-                            reverse_axis=self._effective_loading_orientation_map()[bend_id],
+                            reverse_axis=bool(self._effective_loading_orientation_map()[bend_id]),
+                            # The native recorded pose was computed without
+                            # the ergonomic rear-frame override; compare
+                            # against the same authoritative frame here.
                         )
                         comparison = compare_native_placement_matrices(expected, actual)
                         _desktop_debug_event(
@@ -5660,14 +5664,13 @@ class _PreviewPanel:
                         "BEND_ONLY_COUPLED_SHEET_PLACEMENT_FAILED:" + str(exc)
                     ) from exc
                 orientations = self._effective_operation_orientation_map()
-                return WorkpiecePlacement3D.compute_placement(
+                return compute_machine_pose(
                     fs, bid,
+                    phase="BEND_ONLY",
                     support_plane_zm=float(sheet_support_z),
-                    align_bisector=True,
-                    align_bend_arc_center=True,
-                    reverse_axis=reverse_axis_for_operation(
+                    reverse_axis=bool(reverse_axis_for_operation(
                         orientations, bid, self.session.controller.active_operation_id
-                    ),
+                    )),
                     rear_panel_vertices_xy=self._rear_frame_for_preview(),
                 )
 
