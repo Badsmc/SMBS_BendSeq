@@ -179,7 +179,7 @@ class ManualPlaybackContractTests(unittest.TestCase):
     def test_native_snapshot_uses_canonical_placement(self):
         body = source("_update_3d_preview")
         self.assertIn("compare_native_placement_matrices", body)
-        self.assertIn("WorkpiecePlacement3D.compute_placement", body)
+        self.assertIn("compute_machine_pose(", body)
         self.assertIn("NATIVE_PREVIEW_POSE_MISMATCH", body)
 
     def test_displayed_punch_is_not_silently_cut_to_active_bend(self):
