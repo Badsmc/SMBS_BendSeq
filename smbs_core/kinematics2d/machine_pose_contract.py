@@ -83,7 +83,9 @@ def compute_machine_pose_frame(
     if name not in _SUPPORTED_PHASES:
         raise ValueError("unsupported_machine_pose_phase:" + name)
     bend = fold_state.bends[bend_id]
-    # Some callers still support a legacy unfolded/no-coupling preview.\n    # Runtime FoldState owns the angle; a minimal synthetic state may not.\n    signed_angle_deg = float(getattr(fold_state, "angles", {}).get(bend_id, 0.0))
+    # Some callers still support a legacy unfolded/no-coupling preview.
+    # Runtime FoldState owns the angle; a minimal synthetic state may not.
+    signed_angle_deg = float(getattr(fold_state, "angles", {}).get(bend_id, 0.0))
     z = float(support_plane_zm)
     x = float(desired_midpoint_xm)
     if not all(isfinite(v) for v in (signed_angle_deg, z, x)):
