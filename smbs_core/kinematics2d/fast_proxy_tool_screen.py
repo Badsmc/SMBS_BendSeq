@@ -21,6 +21,7 @@ from collections.abc import Mapping
 from .contact_oracle_2d import ContactStatus, classify_polygon_contact
 from .machine_section_3d import slice_polygon_3d_at_x
 from .workpiece_placement_3d import WorkpiecePlacement3D
+from .machine_pose_contract import compute_machine_pose
 from .fast_orientation_25d import four_loading_poses, roll_about_machine_bend_axis, upper_punch_face_score
 
 
@@ -274,16 +275,12 @@ def screen_proxy_transition(fold_state, panel_vertices_xy, operations,
                     "UNKNOWN",reason="selected_die_stroke_unavailable",
                     samples=samples,
                 )
-            placement=WorkpiecePlacement3D.compute_placement(
+            placement=compute_machine_pose(
                 view,active.bend_id,
+                # Mid/late angles use the same BENDING machine-frame rule.
+                phase="BENDING" if phase.startswith("BENDING") else phase,
                 support_plane_zm=outer_radius-stroke,
-                align_bisector=(phase!="APPROACH"),
-                align_bend_arc_center=True,
-                reverse_axis=reverse_axis,
-                # Stage B enforces a canonical fixed-panel rear-gauge
-                # orientation BEFORE applying reverse_axis.  Without this,
-                # FAST's apparent yaw=0 and Stage B's yaw=0 can be opposite
-                # physical placements (B01/P11 false clear).
+                reverse_axis=bool(reverse_axis),
                 rear_panel_vertices_xy=panel_vertices_xy,
             )
             if roll_180:
