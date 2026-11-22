@@ -3192,8 +3192,9 @@ class _PreviewPanel:
                         if mesh_hit["overlap_bbox_xyz_mm"] is not None:
                             bounds = [mesh_hit["overlap_bbox_xyz_mm"]]
                         tool_name = {"punch": "пуансон", "die": "матрица"}[mesh_hit["tool"]]
+                        mesh_label = "Mesh Conditional" if mesh_hit.get("conditional") else "Mesh"
                         message = (
-                            f"Mesh {self._mesh_collision_index + 1}/{len(self._mesh_collision_hits)}"
+                            f"{mesh_label} {self._mesh_collision_index + 1}/{len(self._mesh_collision_hits)}"
                             f" · {mesh_hit['operation']} · {mesh_hit['phase']} · {tool_name}"
                             f" · {mesh_hit['component']} · {mesh_hit['occ_overlap_volume_mm3']:.4f} мм³"
                         )
@@ -3272,16 +3273,15 @@ class _PreviewPanel:
                         gauge_stations=stations, gauge_contact=contact,
                     )
                     section_preview = proposal[1] if show_proposal else None
-                    if not show_proposal and not inspection and not mesh_hit and tooling.tool_assembly is None and not current_verdict:
-                        section_preview = self._simulation_tool_sections(bend_id)
-                        if section_preview:
-                            message = f"{bend_id} · Раскладка сегментов для симуляции"
                     if show_proposal:
                         message = f"{bend_id} · Предпросмотр раскладки сегментов"
                         if not tooling.visible:
                             tooling = replace(tooling, visible=True)
                     viewer.update_tools(
-                        tooling, ram_z, active_bend_length_mm=inspected_length,
+                        tooling, ram_z, active_bend_length_mm=(
+                            inspected_length if inspected_length is not None
+                            else math.dist(*fold_state.bends[bend_id].axis_xyz)
+                        ),
                         section_preview=section_preview,
                     )
                     viewer.set_collision_boxes(bounds)
@@ -7527,7 +7527,10 @@ class _PreviewPanel:
                     if self._mesh_collision_index is not None:
                         self._collision_display_active = False
                     self._mesh_collision_index = None
-                    self._mesh_collision_hits = tuple(report["findings"])
+                    self._mesh_collision_hits = (
+                        tuple(report["findings"])
+                        + tuple({**hit, "conditional": True} for hit in report["conditional_findings"])
+                    )
                     self._mesh_collision_identity = self._mesh_preview_identity()
                     self.mesh_show_collision_btn.setVisible(bool(self._mesh_collision_hits))
                     if self._mesh_collision_hits:
@@ -7543,8 +7546,10 @@ class _PreviewPanel:
                         hit = report["findings"][0]
                         tool = {"punch": "пуансон", "die": "матрица"}[hit["tool"]]
                         message += f" · пересечение: {hit['operation']}, {tool}, {hit['phase']}"
-                    elif not report["pending"] and not report["unresolved"]:
+                    elif not (report["pending"] or report["unresolved"] or report["conditional_findings"]):
                         message += " · подтверждённых проникновений в выборке нет"
+                    if report["conditional_findings"]:
+                        message += f" · Conditional, торцы пуансона: {len(report['conditional_findings'])}"
                     if report["unresolved"]:
                         message += f" · не удалось уточнить: {len(report['unresolved'])}"
                     if report["pending"]:
