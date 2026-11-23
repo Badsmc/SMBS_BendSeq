@@ -430,16 +430,42 @@ def create_coin_viewer(parent=None):
                 tuple(die_transform.to_matrix_tuple()),
             )
             if key != self._tool_key:
-                tool_faces = build_tool_preview_faces(
-                    tooling,
-                    active_bend_length_mm=active_bend_length_mm,
-                    section_preview=section_preview,
-                )
+                from smbs_core.kinematics2d.physical_validation_25d import _source_path
+
+                base_ram_z = float(tooling.ram_z_mm)
+                tool_faces = ()
+                native_meshes = ()
+                if (tooling.visible and section_preview is None
+                        and _source_path(punch) is not None and _source_path(die) is not None):
+                    from smbs_core.kinematics2d.mesh_sequence_screen import native_tool_meshes
+                    length = (tooling.active_bend_length_mm if active_bend_length_mm is None
+                              else active_bend_length_mm)
+                    virtual_length = float(length) if tooling.match_active_bend_length else None
+                    native_meshes = tuple(native_tool_meshes(tooling, virtual_length))
+                    base_ram_z = 0.0
+                elif tooling.visible:
+                    tool_faces = build_tool_preview_faces(
+                        tooling,
+                        active_bend_length_mm=active_bend_length_mm,
+                        section_preview=section_preview,
+                    )
                 self._tool_root.removeAllChildren()
                 self._punch_motion = coin.SoTranslation()
                 punch_root = coin.SoSeparator()
                 punch_root.addChild(self._punch_motion)
                 die_root = coin.SoSeparator()
+                for kind, _, triangles in native_meshes:
+                    root = punch_root if kind == "punch" else die_root
+                    material = coin.SoMaterial()
+                    material.diffuseColor.setValue(*COLORS[kind + "_side"])
+                    coordinates = coin.SoCoordinate3()
+                    points = [(-y, x, z) for triangle in triangles for x, y, z in triangle]
+                    coordinates.point.setValues(0, len(points), points)
+                    geometry = coin.SoFaceSet()
+                    geometry.numVertices.setValues(0, len(triangles), [3] * len(triangles))
+                    root.addChild(material)
+                    root.addChild(coordinates)
+                    root.addChild(geometry)
                 for face in tool_faces:
                     node = _face_node(coin, face)
                     if node is None:
@@ -451,7 +477,7 @@ def create_coin_viewer(parent=None):
                 self._tool_root.addChild(die_root)
                 self._tool_root.addChild(punch_root)
                 self._tool_key = key
-                self._tool_base_ram_z = float(tooling.ram_z_mm)
+                self._tool_base_ram_z = base_ram_z
             self._punch_motion.translation.setValue(
                 0.0, 0.0, float(ram_z) - self._tool_base_ram_z
             )

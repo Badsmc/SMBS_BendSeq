@@ -259,6 +259,7 @@ def build_snapshot(
     orientation_source="AUTO_SHORT_REAR", saved_sequences=(),
     manual_orientation_overrides=None,
     operation_orientation_overrides=None,
+    fast_advisory_orientation_ids=(),
     backgauge_model=None, clamp_config=None,
 ):
     """Create the portable, bounded snapshot without mutating the document."""
@@ -300,6 +301,14 @@ def build_snapshot(
             or any(op_id not in stage_ids or type(value) is not bool
                    for op_id, value in stage_orientations.items())):
         raise EmbeddedSessionError("Invalid independent stage orientations")
+    advisory = fast_advisory_orientation_ids
+    if (not isinstance(advisory, (list, tuple, set))
+            or any(
+                not isinstance(op_id, str) or
+                op_id not in ({*overrides, *stage_orientations})
+                for op_id in advisory
+            )):
+        raise EmbeddedSessionError("Invalid FAST advisory orientation IDs")
     # Keep document-specific machine configuration inside the FCStd.
     # External CAD models remain library references, not copied geometry.
     backgauge = _validate_backgauge_settings(
@@ -356,6 +365,7 @@ def build_snapshot(
             "orientation_source": orientation_source,
             "manual_orientation_overrides": dict(overrides),
             "operation_orientation_overrides": dict(stage_orientations),
+            "fast_advisory_orientation_ids": sorted(set(advisory)),
             "canonical_bend_ids": canonical,
             "found_sequences": archived_sequences,
             # Optional operation timeline; empty in legacy single-pass plans.
@@ -465,6 +475,15 @@ def decode_snapshot(raw):
             or any(op_id not in stage_ids or type(value) is not bool
                    for op_id, value in stage_orientations.items())):
         raise EmbeddedSessionError("Invalid stored stage orientations")
+    advisory = data.get("fast_advisory_orientation_ids", [])
+    manual_overrides = data.get("manual_orientation_overrides", {})
+    if (not isinstance(manual_overrides, dict)
+            or not isinstance(advisory, list)
+            or not all(isinstance(op_id, str) for op_id in advisory)
+            or len(set(advisory)) != len(advisory)
+            or any(op_id not in manual_overrides and op_id not in stage_orientations
+                   for op_id in advisory)):
+        raise EmbeddedSessionError("Invalid stored FAST advisory orientations")
     found_sequences = data.get("found_sequences", [])
     if not isinstance(found_sequences, list) or len(found_sequences) > 32:
         raise EmbeddedSessionError("Invalid saved candidate collection")

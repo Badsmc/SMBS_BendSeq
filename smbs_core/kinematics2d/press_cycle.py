@@ -28,6 +28,7 @@ from typing import Any, Callable, Dict, Optional
 from .fold_sequence import ANGLE_EPS, BendSequenceController, PlaybackStatus, SequenceError
 from .staged_orientation import reverse_axis_for_operation
 from .workpiece_placement_3d import PlacementTransform3D, WorkpiecePlacement3D
+from .machine_pose_contract import compute_machine_pose, bend_support_plane_zm
 from .workpiece_transfer_3d import Transfer3D, build_bend_transfer
 from .coupled_kinematics_2d import CoupledAirBendingKinematics
 from .ram_cycle_geometry import ram_cycle_positions
@@ -253,6 +254,12 @@ class PressCycleController:
     @property
     def target_angle_deg(self) -> float:
         return self.sequence.target_angle_deg
+
+    def _loading_rear_frame(self, index):
+        provider = getattr(self, "loading_rear_frame_for_step", None)
+        if provider is not None:
+            return provider(index)
+        return getattr(self, "rear_panel_vertices_xy", None)
 
     def _loading_reverse_axis_for_step(self, index: int) -> bool:
         """Orientation belongs to an operation, not a physical bend.
@@ -565,7 +572,7 @@ class PressCycleController:
         )
         if not math.isfinite(stroke) or stroke < -1e-6:
             raise PressCycleError("Nonfinite/invalid workpiece stroke")
-        return outer_r - max(0.0, stroke)
+        return bend_support_plane_zm(outer_r, max(0.0, stroke))
 
     def set_manual_preview_angle(self, signed_angle_deg: float) -> None:
         """Set slider angle, coupled punch AND matching workpiece preview.
@@ -769,16 +776,15 @@ class PressCycleController:
                 raise PressCycleError(
                     f"UNSUPPORTED: Missing authoritative BendZone geometry for next bend '{nxt.bend_id}'"
                 )
-            end_pose = WorkpiecePlacement3D.compute_placement(
+            end_pose = compute_machine_pose(
                 self.sequence.fold_state,
                 nxt.bend_id,
+                phase="TRANSFER_TARGET",
                 support_plane_zm=next_outer_r,
-                align_bisector=True,
-                align_bend_arc_center=True,
                 reverse_axis=self._loading_reverse_axis_for_step(
                     self.sequence.active_index + 1
                 ),
-                rear_panel_vertices_xy=getattr(self, "rear_panel_vertices_xy", None),
+                rear_panel_vertices_xy=self._loading_rear_frame(self.sequence.active_index + 1),
             )
             from smbs_core.kinematics2d.workpiece_transfer_3d import build_transfer_3d
             self.transfer_3d = build_transfer_3d(
@@ -1010,8 +1016,6 @@ class PressCycleController:
 
         # Coupled penetration during BENDING, BOTTOM, RETRACT and explicit
         # manual scrub. Scrubbing does NOT change the automatic cycle phase.
-        align_bisector = False
-        align_arc_center = False
         if self.coupled_kinematics is not None and (
             self.execution_mode == CycleExecutionMode.FULL_CYCLE
             or self._manual_preview_active
@@ -1030,34 +1034,45 @@ class PressCycleController:
 
             if self.phase == CyclePhase.BENDING or self._manual_preview_active:
                 support_z = self.preview_workpiece_support_zm()
-                align_bisector = True
-                align_arc_center = True
             elif self.phase in (CyclePhase.BOTTOM, CyclePhase.RETRACT, CyclePhase.STEP_COMPLETE, CyclePhase.COMPLETED):
                 target_angle = abs(self.target_angle_deg)
                 stroke = self.coupled_kinematics.stroke_for_angle(target_angle)
-                support_z = outer_r - stroke
-                support_z += self.assisted_retract_lift_mm()
-                align_bisector = True
-                align_arc_center = True
+                support_z = bend_support_plane_zm(
+                    outer_r, stroke,
+                    retract_lift_mm=self.assisted_retract_lift_mm(),
+                )
             else:
                 # IDLE, APPROACH, CONTACT: sheet outer surface rests flat on die shoulders (Z_m = 0)
                 support_z = outer_r
-                align_bisector = True
-                align_arc_center = True
         else:
             support_z = 0.0
 
-        pose = WorkpiecePlacement3D.compute_placement(
+        # Match the same loading/forming phase contract used by FAST and
+        # Stage B. APPROACH/CONTACT keep the flat fixed-panel orientation;
+        # BENDING/BOTTOM/RETRACT track the forming bisector. Manual scrub
+        # explicitly remains a formed BEND_ONLY presentation.
+        if not (self.coupled_kinematics is not None and (
+                self.execution_mode == CycleExecutionMode.FULL_CYCLE
+                or self._manual_preview_active)):
+            pose_phase = "UNALIGNED"
+        elif self._manual_preview_active:
+            pose_phase = "BEND_ONLY"
+        elif self.phase in (CyclePhase.IDLE, CyclePhase.TRANSFER):
+            pose_phase = "APPROACH"
+        else:
+            pose_phase = self.phase.value
+        pose = compute_machine_pose(
             fold_state,
             self.active_bend_id,
+            phase=pose_phase,
             desired_midpoint_xm=float(desired_midpoint_xm),
             support_plane_zm=support_z,
-            align_bisector=align_bisector,
-            align_bend_arc_center=align_arc_center,
             reverse_axis=self._loading_reverse_axis_for_step(
                 getattr(self.sequence, "active_index", 0)
             ),
-            rear_panel_vertices_xy=getattr(self, "rear_panel_vertices_xy", None),
+            rear_panel_vertices_xy=self._loading_rear_frame(
+                getattr(self.sequence, "active_index", 0)
+            ),
         )
         if self.phase == CyclePhase.LOAD_TO_GAUGE:
             # Machine s = -Y_m. Positive machine Y translates the entire

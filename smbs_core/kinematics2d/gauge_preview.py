@@ -100,11 +100,11 @@ def gauge_rear_envelope_from_faces(faces, station_xm_mm):
 
 
 def sequenced_gauge_envelopes(session, *, stations_xm_mm,
-                              reverse_axis_by_bend):
+                              reverse_axis_by_bend, rear_frame_bend_ids=()):
     """Sample each configured finger at the start of every bend."""
     from .panel_kinematics import FoldState
     from .preview_mesh_3d import build_sheet_preview_faces
-    from .workpiece_placement_3d import WorkpiecePlacement3D
+    from .machine_pose_contract import compute_machine_pose
 
     order = tuple(session.bend_order)
     if len(order) != len(set(order)):
@@ -120,11 +120,13 @@ def sequenced_gauge_envelopes(session, *, stations_xm_mm,
         try:
             if zone is None:
                 raise ValueError("missing authoritative bend zone")
-            placement = WorkpiecePlacement3D.compute_placement(
+            placement = compute_machine_pose(
                 state, bend_id,
                 support_plane_zm=float(zone.outer_radius_mm),
-                align_bisector=True,
-                align_bend_arc_center=True,
+                phase="APPROACH",
+                rear_panel_vertices_xy=(
+                    session.panel_vertices_xy if bend_id in rear_frame_bend_ids else None
+                ),
                 reverse_axis=bool(reverse_axis_by_bend.get(bend_id, False)),
             )
             faces = build_sheet_preview_faces(

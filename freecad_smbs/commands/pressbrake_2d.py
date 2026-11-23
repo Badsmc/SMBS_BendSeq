@@ -52,6 +52,7 @@ from smbs_core.kinematics2d.preview_mesh_3d import (
 from smbs_core.kinematics2d.machine_section_3d import compute_machine_cutting_plane_section
 from smbs_core.kinematics2d.tooling_assembly import has_native_sections
 from smbs_core.kinematics2d.workpiece_placement_3d import PlacementTransform3D, WorkpiecePlacement3D
+from smbs_core.kinematics2d.machine_pose_contract import compute_machine_pose
 from smbs_core.kinematics2d.workpiece_pose_2d import WorkpiecePose2D, WorkpiecePoseError
 from smbs_core.kinematics2d.tooling_25d import (
     DEFAULT_INITIAL_PUNCH_CLEARANCE_MM,
@@ -785,9 +786,7 @@ def show_workspace_controls(workspace, tab=None):
             workspace._effective_operation_orientation_map()
         )
         if hasattr(workspace, "_rear_frame_for_preview"):
-            cycle.rear_panel_vertices_xy = (
-                workspace._rear_frame_for_preview()
-            )
+            cycle.loading_rear_frame_for_step = workspace._rear_frame_for_preview
     caption = workspace._task_page_titles.get(section, "Панель задач")
     header = getattr(workspace, "_task_section_label", None)
     if header is not None:
@@ -1113,6 +1112,11 @@ class PressBrake2DCommand:
                 workspace._open_coin_preview()
             return
 
+        for closed_window in mdi.subWindowList():
+            if closed_window.objectName() == _WORKSPACE_WINDOW_NAME:
+                closed_window.setObjectName("")
+                closed_window.deleteLater()
+
         widget = _PreviewPanel()
         class WorkspaceSubWindow(QtWidgets.QMdiSubWindow):
             def closeEvent(self, event):
@@ -1207,7 +1211,7 @@ class LoadPartCommand:
         if workspace is None:
             # Bootstrap the viewer only AFTER validating the selection.
             # PressBrake2DCommand loads this same valid selection once.
-            PressBrake2DCommand().Activated()
+            PressBrake2DCommand().Activated(document=doc, selection=selection)
             workspace = get_workspace_widget()
         else:
             workspace.load_part(selection=selection, document=doc)
@@ -1531,7 +1535,13 @@ class _PreviewPanel:
                 # The staging timeline has separate 0°/180° choices for B03.1,
                 # B03.2, etc. Never key these by the shared physical bend ID.
                 self._manual_operation_orientation_overrides: dict[str, bool] = {}
+                # Orientations proposed by FAST are shown in simulation,
+                # but must NOT become immutable user pins on the next search.
+                self._fast_advisory_orientation_keys: set[str] = set()
                 self._last_manual_sequence_report = None
+                self._mesh_collision_hits = ()
+                self._mesh_collision_index = None
+                self._mesh_collision_identity = None
                 self._collision_inspection = None
                 self._alternate_retract_inspection = None
                 self._last_assisted_lift_inspection = None
@@ -2425,6 +2435,50 @@ class _PreviewPanel:
                 sim_body.addWidget(order_card, 1)
                 # Keep the live sequence directly beneath the fixed controls.
                 playback_layout.addWidget(self.operations, 1)
+                self.fast_search_btn = style_action(
+                    QtWidgets.QPushButton("FAST · найти последовательности (до 30 с)"),
+                    compact=True,
+                )
+                self.fast_search_btn.setObjectName("SMBS_FastSequenceSearch")
+                self.fast_search_btn.setToolTip(
+                    "Экспериментальный поиск BFM-lite + Beam Search без OCC. "
+                    "Дополнительная проверка грубой ОШИБКИ УСТАНОВКИ: "
+                    "основная панель проходит через центральную ось Yₘ=0. "
+                    "Такой вариант получает большой ШТРАФ, но не исключается. "
+                    "Местные пересечения полок ДОПУСТИМЫ. "
+                    "Первые пять вариантов — FAST с лимитом 30 с. "
+                    "В поиске используется упрощённый 2D-контур "
+                    "выбранного пуансона и матрицы: грубые пересечения "
+                    "с панелями добавляют штраф, касания и зона гиба "
+                    "не штрафуются. Полной 3D-гарантии нет. "
+                    "Затем автоматически выполняются 2D-проверки и новые "
+                    "поиски от КАЖДОЙ внешней стороны развёртки "
+                    "(число сторон определяется настоящим внешним CAD-контуром). "
+                    "Найденные 2D-пересечения возвращаются как штрафы "
+                    "только для конкретных состояний и ориентаций. "
+                    "Остальные проверки и время добавляются отдельно. "
+                    "Полные коллизии, реальная установка и траектории 3D "
+                    "НЕ подтверждены: все результаты UNVERIFIED."
+                )
+                self.fast_search_btn.clicked.connect(self._run_fast_sequence_search)
+                playback_layout.addWidget(self.fast_search_btn)
+                self.fast_save_template_btn = style_action(
+                    QtWidgets.QPushButton("Сохранить проверенную схему гибки"),
+                    compact=True,
+                )
+                self.fast_save_template_btn.setObjectName(
+                    "SMBS_SaveOperatorBendTemplate"
+                )
+                self.fast_save_template_btn.setToolTip(
+                    "Сохранить известный оператору правильный порядок и "
+                    "развороты как геометрический шаблон для будущих "
+                    "развёрток. Требует ручного подтверждения; НЕ "
+                    "создаёт сертификат проверки столкновений."
+                )
+                self.fast_save_template_btn.clicked.connect(
+                    self._save_operator_bend_template
+                )
+                playback_layout.addWidget(self.fast_save_template_btn)
                 order_card.hide()
                 for widget in (self.manual_order_input, self.manual_simulate_btn,
                                self.saved_sequences_btn, self.manual_check_summary):
@@ -2502,6 +2556,23 @@ class _PreviewPanel:
                 bottom_actions = QtWidgets.QHBoxLayout()
                 bottom_actions.addWidget(info_button)
                 bottom_actions.addWidget(self.manual_validate_btn)
+                self.manual_mesh_check_btn = style_action(
+                    QtWidgets.QPushButton("Mesh 3D (60 с)"), compact=True,
+                )
+                self.manual_mesh_check_btn.setToolTip(
+                    "Выборочная проверка детали против выбранного пуансона и матрицы."
+                )
+                self.manual_mesh_check_btn.clicked.connect(self._run_mesh_sequence_check)
+                bottom_actions.addWidget(self.manual_mesh_check_btn)
+                self.mesh_show_collision_btn = style_action(
+                    QtWidgets.QPushButton("Коллизии Mesh"), compact=True,
+                )
+                self.mesh_show_collision_btn.setToolTip(
+                    "Следующая подтверждённая коллизия. После последней — обычный вид."
+                )
+                self.mesh_show_collision_btn.clicked.connect(self._show_next_mesh_collision)
+                self.mesh_show_collision_btn.hide()
+                bottom_actions.addWidget(self.mesh_show_collision_btn)
                 sim_layout.addLayout(bottom_actions)
 
                 # RETRACT warning belongs to Settings, not Simulation.
@@ -3178,14 +3249,47 @@ class _PreviewPanel:
                     and self._task_stack.currentWidget() is report._smbs_task_page
                     and not self.timer.isActive()
                 )
+                mesh_hit = None
+                if (self._collision_display_active and not show_proposal
+                        and self._mesh_collision_index is not None):
+                    if self._mesh_collision_identity == self._mesh_preview_identity():
+                        mesh_hit = self._mesh_collision_hits[self._mesh_collision_index]
+                    else:
+                        self._mesh_collision_index = None
+                        self._collision_display_active = False
+                        self.mesh_show_collision_btn.hide()
                 inspection = (self._collision_inspection
-                              if self._collision_display_active and not show_proposal else None)
+                              if self._collision_display_active and not show_proposal and mesh_hit is None
+                              else None)
                 try:
                     viewer.attach_document(self._smbs_document_name)
                     highlighted = ()
                     bounds = []
                     inspected_length = None
-                    if inspection:
+                    current_verdict = None
+                    if mesh_hit:
+                        pose = mesh_hit["sampled_machine_pose"]
+                        bend_id = mesh_hit["bend"]
+                        ram_z = mesh_hit["ram_z_mm"]
+                        fold_state = FoldState(self.session.fold_state.graph, self.session.fold_state.fixed_panel)
+                        for previous, angle in pose["angles_deg"].items():
+                            fold_state.set_angle(previous, angle)
+                        placement = PlacementTransform3D(
+                            rotation=tuple(tuple(row) for row in pose["rotation"]),
+                            translation=tuple(pose["translation"]),
+                        )
+                        inspected_length = math.dist(*fold_state.bends[bend_id].axis_xyz)
+                        highlighted = (mesh_hit["component"],)
+                        if mesh_hit["overlap_bbox_xyz_mm"] is not None:
+                            bounds = [mesh_hit["overlap_bbox_xyz_mm"]]
+                        tool_name = {"punch": "пуансон", "die": "матрица"}[mesh_hit["tool"]]
+                        mesh_label = "Mesh Conditional" if mesh_hit.get("conditional") else "Mesh"
+                        message = (
+                            f"{mesh_label} {self._mesh_collision_index + 1}/{len(self._mesh_collision_hits)}"
+                            f" · {mesh_hit['operation']} · {mesh_hit['phase']} · {tool_name}"
+                            f" · {mesh_hit['component']} · {mesh_hit['occ_overlap_volume_mm3']:.4f} мм³"
+                        )
+                    elif inspection:
                         from smbs_core.kinematics2d.native_collision_attribution import collision_preview_boxes
                         from smbs_core.kinematics2d.workpiece_placement_validation_3d import (
                             compare_native_placement_matrices,
@@ -3200,11 +3304,14 @@ class _PreviewPanel:
                         for previous, angle in actual["completed_angles"].items():
                             fold_state.set_angle(previous, float(angle))
                         fold_state.set_angle(bend_id, float(actual["signed_angle_deg"]))
-                        expected = WorkpiecePlacement3D.compute_placement(
+                        expected = compute_machine_pose(
                             fold_state, bend_id,
+                            phase="NATIVE_SAMPLE",
                             support_plane_zm=float(actual["support_plane_zm"]),
-                            align_bisector=True, align_bend_arc_center=True,
-                            reverse_axis=self._effective_loading_orientation_map()[bend_id],
+                            reverse_axis=bool(self._effective_loading_orientation_map()[bend_id]),
+                            # The native recorded pose was computed without
+                            # the ergonomic rear-frame override; compare
+                            # against the same authoritative frame here.
                         )
                         comparison = compare_native_placement_matrices(expected, actual)
                         _desktop_debug_event(
@@ -3249,7 +3356,7 @@ class _PreviewPanel:
                     viewer.set_sheet_faces(faces, highlighted=highlighted)
                     tooling = self.tooling_setup
                     stations, contact, gauge_note = self._coin_backgauge_positions(
-                        self.session.bend_order.index(bend_id), at_collision=bool(inspection),
+                        self.session.bend_order.index(bend_id), at_collision=bool(inspection or mesh_hit),
                     )
                     messages = viewer.update_machine(
                         self.tool_library.library_root, tooling, ram_z,
@@ -3257,16 +3364,15 @@ class _PreviewPanel:
                         gauge_stations=stations, gauge_contact=contact,
                     )
                     section_preview = proposal[1] if show_proposal else None
-                    if not show_proposal and not inspection and tooling.tool_assembly is None and not current_verdict:
-                        section_preview = self._simulation_tool_sections(bend_id)
-                        if section_preview:
-                            message = f"{bend_id} · Раскладка сегментов для симуляции"
                     if show_proposal:
                         message = f"{bend_id} · Предпросмотр раскладки сегментов"
                         if not tooling.visible:
                             tooling = replace(tooling, visible=True)
                     viewer.update_tools(
-                        tooling, ram_z, active_bend_length_mm=inspected_length,
+                        tooling, ram_z, active_bend_length_mm=(
+                            inspected_length if inspected_length is not None
+                            else math.dist(*fold_state.bends[bend_id].axis_xyz)
+                        ),
                         section_preview=section_preview,
                     )
                     viewer.set_collision_boxes(bounds)
@@ -3279,7 +3385,7 @@ class _PreviewPanel:
                     self._coin_last_error = None
                     if not self._playback_alive():
                         return False
-                    if not inspection and not show_proposal:
+                    if not inspection and not mesh_hit and not show_proposal:
                         self._trace_drawn_frame(placement, ram_z, stations, contact)
                     if self.timer.isActive() and now - self._last_3d_debug_at >= 0.5:
                         self._last_3d_debug_at = now
@@ -3531,6 +3637,27 @@ class _PreviewPanel:
                         _warn(f"Раскладка для симуляции: {exc}")
                     self._simulation_layouts[length] = sections or None
                 return self._simulation_layouts[length]
+
+            def _on_punch_orientation_changed(self, punch):
+                selected = self.tooling_setup.punch
+                if selected is None or selected.tool_id != punch.tool_id:
+                    return
+                if self.timer.isActive() or self.playing:
+                    self.pause()
+                # Segment positions and lengths do not change when the tool turns.
+                self.tooling_setup.punch = punch
+                self._physical_check_signature = None
+                self._last_manual_sequence_report = None
+                self._manual_3d_verdicts.clear()
+                self._manual_retract_verdicts.clear()
+                self._conditional_bends_status.clear()
+                self._mesh_collision_hits = ()
+                self._mesh_collision_index = None
+                self._mesh_collision_identity = None
+                self.mesh_show_collision_btn.hide()
+                self._clear_manual_check_feedback()
+                self._sync_tooling_to_active_bend()
+                self.draw()
 
             def _on_tool_inventory_changed(self, kind=None, tool_id=None):
                 self._simulation_layout_key = None
@@ -4104,6 +4231,1147 @@ class _PreviewPanel:
                 from smbs_core.kinematics2d.operation_cost import OperationWeights
                 return OperationWeights(**self._operation_weights)
 
+            def _save_operator_bend_template(self):
+                """Explicitly record an operator-known full plan for later FAST."""
+                from smbs_core.kinematics2d.fast_bend_templates import (
+                    store_operator_template, BendTemplateError,
+                )
+                if (self.session is None
+                        or self._task_progress_busy
+                        or self.playing
+                        or self.timer.isActive()):
+                    self.status.setText(
+                        "Шаблон: остановите симуляцию и загрузите деталь."
+                    )
+                    return
+                controller = self.session.controller
+                steps = tuple(controller.operation_steps)
+                if not steps:
+                    return
+                title, accepted = QtWidgets.QInputDialog.getText(
+                    self,
+                    "Сохранить технологическую схему",
+                    "Название проверенной схемы гибки:",
+                )
+                if not accepted or not title.strip():
+                    return
+                reply = QtWidgets.QMessageBox.question(
+                    self, "Подтверждение схемы гибки",
+                    "Подтверждаете, что вам уже известен правильный "
+                    "порядок этой детали и развороты при гибке? "
+                    "Сохранённая схема будет использоваться как "
+                    "предварительный образец FAST, но не заменит "
+                    "проверку столкновений.",
+                    QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
+                    QtWidgets.QMessageBox.No,
+                )
+                if reply != QtWidgets.QMessageBox.Yes:
+                    return
+                reverse = {}
+                for step in steps:
+                    reverse[step.operation_id] = bool(
+                        self._manual_operation_orientation_overrides.get(
+                            step.operation_id,
+                            self._manual_orientation_overrides.get(
+                                step.bend_id, False
+                            )
+                        )
+                    )
+                tooling_info = {
+                    "punch":str(getattr(
+                        getattr(self.tooling_setup,"punch",None),
+                        "tool_id",""
+                    )),
+                    "die":str(getattr(
+                        getattr(self.tooling_setup,"die",None),
+                        "tool_id",""
+                    )),
+                }
+                try:
+                    stored = store_operator_template(
+                        self.session.fold_state, steps,
+                        getattr(self.session.panel_build,
+                                "outline_vertices_xy", ()),
+                        self.session.panel_vertices_xy,
+                        tuple(step.operation_id for step in steps),
+                        reverse, title=title.strip(),
+                        tooling=tooling_info,
+                    )
+                except (BendTemplateError, OSError, ValueError) as exc:
+                    self.status.setText("Шаблон не сохранён: " + str(exc))
+                    _desktop_debug_event(
+                        "FAST_TEMPLATE_SAVE_ERROR",
+                        error=type(exc).__name__ + ":" + str(exc),
+                    )
+                    return
+                self.status.setText(
+                    "Сохранена схема «{}». Она будет предложена FAST "
+                    "при точном совпадении геометрии.".format(
+                        stored["title"]
+                    )
+                )
+                _desktop_debug_event(
+                    "FAST_TEMPLATE_SAVED", title=stored["title"],
+                    template_id=stored["template_id"],
+                    shape_sha256=stored["shape_sha256"],
+                    path=stored["path"],
+                )
+
+            def _run_fast_sequence_search(self):
+                """Opt-in bounded shortlist; NEVER claim 3D clearance."""
+                import FreeCADGui as Gui
+                if self.session is None:
+                    self.status.setText("FAST: сначала загрузите развёртку SheetMetal.")
+                    return
+                if (self._task_progress_busy or self.playing or self.timer.isActive()
+                        or not self.session.can_reorder()):
+                    self.status.setText(
+                        "FAST: остановите симуляцию и нажмите Reset "
+                        "перед поиском и изменением последовательности."
+                    )
+                    return
+                from smbs_core.kinematics2d.fast_bfm_beam_search import (
+                    search_fast_candidates, FastSearchError,
+                )
+                controller = self.session.controller
+                operations = tuple(controller.operation_steps)
+                pinned = {}
+                for step in operations:
+                    if step.operation_id in self._fast_advisory_orientation_keys:
+                        # FAST-generated checkbox values are not user locks.
+                        continue
+                    if step.operation_id in self._manual_operation_orientation_overrides:
+                        pinned[step.operation_id] = self._manual_operation_orientation_overrides[
+                            step.operation_id
+                        ]
+                    elif step.bend_id in self._manual_orientation_overrides:
+                        pinned[step.operation_id] = self._manual_orientation_overrides[
+                            step.bend_id
+                        ]
+                # An operator-recorded recipe is a high-priority search
+                # SEED only for the exact canonical geometry. It never
+                # bypasses the independent selected-tool Stage B pass.
+                template_hits = ()
+                try:
+                    from smbs_core.kinematics2d.fast_bend_templates import (
+                        find_operator_templates, BendTemplateError,
+                    )
+                    template_hits = find_operator_templates(
+                        self.session.fold_state, operations,
+                        getattr(self.session.panel_build,
+                                "outline_vertices_xy", ()),
+                        self.session.panel_vertices_xy,
+                    )
+                except (BendTemplateError, OSError, ValueError) as exc:
+                    _desktop_debug_event(
+                        "FAST_TEMPLATE_MATCH_SKIPPED",
+                        reason=type(exc).__name__ + ":" + str(exc),
+                    )
+                # Never override operator-locked 0/180 poses.
+                template_hits = tuple(
+                    hit for hit in template_hits
+                    if all(hit.candidate.orientations().get(k) == v
+                           for k,v in pinned.items())
+                )
+                _desktop_debug_event(
+                    "FAST_TEMPLATE_MATCH",
+                    matched_count=len(template_hits),
+                    titles=[hit.title for hit in template_hits],
+                    evidence="GEOMETRY_MATCH_REQUIRES_NEW_2D_3D_CHECKS",
+                )
+                try:
+                    report = search_fast_candidates(
+                        self.session.fold_state, operations,
+                        fixed_orientations=pinned,
+                        panel_vertices_xy=self.session.panel_vertices_xy,
+                        weights=self._selected_operation_weights().to_dict(),
+                        screen_tool_center_axis=True,
+                        axis_clearance_mm=1.0,
+                        tooling_setup=self.tooling_setup,
+                        backgauge_model=self.backgauge_model,
+                        limit_seconds=30.0,
+                        beam_width=32,
+                        max_candidates=5,
+                    )
+                except (FastSearchError, ValueError, TypeError) as exc:
+                    self.status.setText("FAST: поиск не выполнен: " + str(exc))
+                    _desktop_debug_event("FAST_SEARCH_REJECTED", reason=str(exc))
+                    return
+                self._last_fast_candidates_report = report
+                _desktop_debug_event(
+                    "FAST_SEARCH_RESULT", report=report.to_dict()
+                )
+                _desktop_debug_event(
+                    "FAST_PROXY_TOOL_SUMMARY",
+                    available=report.proxy_tool_available,
+                    tool_ids={
+                        "punch": str(getattr(
+                            getattr(self.tooling_setup,"punch",None),
+                            "tool_id","",
+                        )),
+                        "die": str(getattr(
+                            getattr(self.tooling_setup,"die",None),
+                            "tool_id","",
+                        )),
+                    },
+                    checked_transitions=report.proxy_tool_checks,
+                    penalized_transitions=report.proxy_tool_penalized,
+                    findings=list(report.proxy_tool_findings),
+                    scope="SIMPLIFIED_SELECTED_2D_PROFILES_SOFT_ONLY",
+                )
+                if not report.candidates and not template_hits:
+                    self.status.setText(
+                        "FAST: кандидаты не найдены за {:.3f} с. "
+                        "Это НЕ доказательство невозможности гибки.".format(
+                            report.elapsed_seconds
+                        )
+                    )
+                    return
+
+                # Parent the transient chooser to FreeCAD's main window,
+                # not to a Tasks widget managed by OverlayManager on macOS.
+                # open() avoids a nested QDialog.exec() event loop.
+                existing = getattr(self, "_fast_result_dialog", None)
+                if existing is not None and self._qt_is_valid(existing):
+                    existing.raise_()
+                    existing.activateWindow()
+                    return
+                dialog = QtWidgets.QDialog(Gui.getMainWindow())
+                dialog.setObjectName("SMBS_FAST_ResultsDialog")
+                dialog.setAttribute(QtCore.Qt.WA_DeleteOnClose, True)
+                dialog.setWindowTitle("FAST — варианты последовательности (UNVERIFIED)")
+                dialog.setMinimumWidth(610)
+                dialog.setMinimumHeight(300)
+                layout = QtWidgets.QVBoxLayout(dialog)
+                hint = QtWidgets.QLabel(
+                    "BFM-lite + Bitmask + Beam Search: {:.3f} с, "
+                    "состояний {}, переходов {}. "
+                    "Проверка грубой ошибки установки на оси: {} проверок, "
+                    "оштрафовано {} переходов, {} неопределённых. "
+                    "Причины указаны в SMBS_debug_log.json. "
+                    "Точно совпадающие геометрические шаблоны, если они "
+                    "сохранены оператором, предлагаются первыми и "
+                    "повторно проходят 2D-проверку. "
+                    "При ранжировании учитываются короткая сторона к упору, "
+                    "возможное перекрытие вложенных гибов и разнообразие "
+                    "начальных операций. Это только эвристики. "
+                    "Коллизии пуансона, матрицы, упора, зажимов и движение "
+                    "заготовки НЕ проверены. Выбор варианта только "
+                    "для ручной симуляции и последующей OCC-проверки.".format(
+                        report.elapsed_seconds, report.explored_states,
+                        report.expanded_transitions,
+                        report.axis_screen_checks,
+                        report.axis_screen_penalized,
+                        report.axis_screen_unknown,
+                    )
+                )
+                hint.setWordWrap(True)
+                layout.addWidget(hint)
+                # Use a native sortable QTableWidget, not a flattened
+                # sentence per candidate. Column 0 stores the original
+                # candidate index independently of visual sorting.
+                choices = QtWidgets.QTableWidget(dialog)
+                choices.setObjectName("SMBS_FastCandidateTable")
+                choices.setColumnCount(11)
+                choices.setHorizontalHeaderLabels((
+                    "№", "2D", "Вес", "2D гибов", "Старт",
+                    "1-й гиб", "180°", "Ось", "2D штраф",
+                    "Порядок", "Причина",
+                ))
+                choices.setSelectionBehavior(
+                    QtWidgets.QAbstractItemView.SelectRows
+                )
+                choices.setSelectionMode(
+                    QtWidgets.QAbstractItemView.SingleSelection
+                )
+                choices.setEditTriggers(
+                    QtWidgets.QAbstractItemView.NoEditTriggers
+                )
+                choices.setAlternatingRowColors(True)
+                choices.verticalHeader().setVisible(False)
+                choices.setWordWrap(False)
+                choices.horizontalHeader().setStretchLastSection(True)
+                for column, width in enumerate(
+                        (48, 48, 90, 85, 110, 72, 115, 100, 85, 340, 250)):
+                    choices.setColumnWidth(column, width)
+                choices.setMinimumHeight(310)
+                dialog.setMinimumWidth(1010)
+                dialog.setMinimumHeight(470)
+
+                class _FastSortableItem(QtWidgets.QTableWidgetItem):
+                    """Numeric UserRole makes '23,55' sort before '1593'."""
+                    def __lt__(self, other):
+                        left = self.data(QtCore.Qt.UserRole)
+                        right = other.data(QtCore.Qt.UserRole)
+                        if (isinstance(left, (float, int))
+                                and isinstance(right, (float, int))):
+                            return left < right
+                        return super().__lt__(other)
+
+                def selected_source_index():
+                    row = choices.currentRow()
+                    item = choices.item(row, 0) if row >= 0 else None
+                    if item is None:
+                        return -1
+                    value = item.data(int(QtCore.Qt.UserRole) + 1)
+                    return int(value) if value is not None else -1
+
+                all_candidates = []
+                candidate_sources = []
+                known_keys = set()
+                current_tools = {
+                    "punch":str(getattr(
+                        getattr(self.tooling_setup,"punch",None),
+                        "tool_id",""
+                    )),
+                    "die":str(getattr(
+                        getattr(self.tooling_setup,"die",None),
+                        "tool_id",""
+                    )),
+                }
+                for hit in template_hits:
+                    candidate = hit.candidate
+                    key = (
+                        candidate.operation_ids,
+                        candidate.orientation_by_operation,
+                    )
+                    if key in known_keys:
+                        continue
+                    known_keys.add(key)
+                    all_candidates.append(candidate)
+                    changed_tools = any(
+                        hit.source_tooling.get(kind)
+                        and hit.source_tooling[kind] != current_tools[kind]
+                        for kind in ("punch","die")
+                    )
+                    candidate_sources.append(
+                        "шаблон: " + hit.title +
+                        (" (другая оснастка)" if changed_tools else "")
+                    )
+                for candidate in report.candidates:
+                    key = (
+                        candidate.operation_ids,
+                        candidate.orientation_by_operation,
+                    )
+                    if key in known_keys:
+                        continue
+                    known_keys.add(key)
+                    all_candidates.append(candidate)
+                    candidate_sources.append("FAST")
+                self._last_fast_shortlist_screen_report = None
+                screen_cache = {}
+                forced_sides_done = [False]
+                feedback_rounds = [0]
+                ranked_once = [False]
+                show_rejected = QtWidgets.QCheckBox(
+                    "Показывать исключённые грубой 2D-проверкой",
+                    dialog,
+                )
+                show_rejected.setObjectName(
+                    "SMBS_FastShowCoarseRejected"
+                )
+                show_rejected.setChecked(False)
+                coarse_status = QtWidgets.QLabel(dialog)
+                coarse_status.setObjectName("SMBS_FastCoarseGateStatus")
+                coarse_status.setWordWrap(True)
+
+                def populate_fast_choices(screen_report=None):
+                    previous = selected_source_index()
+                    previous_sort_column = (
+                        choices.horizontalHeader().sortIndicatorSection()
+                        if choices.isSortingEnabled() else 0
+                    )
+                    previous_sort_order = (
+                        choices.horizontalHeader().sortIndicatorOrder()
+                        if choices.isSortingEnabled()
+                        else QtCore.Qt.AscendingOrder
+                    )
+                    order = (
+                        screen_report.ranked_indices
+                        if screen_report is not None
+                        else tuple(range(len(all_candidates)))
+                    )
+                    if screen_report is not None and not show_rejected.isChecked():
+                        from smbs_core.kinematics2d.fast_collision_gate import (
+                            coarse_tool_gate,
+                        )
+                        blocked = set(
+                            coarse_tool_gate(screen_report).forbidden_transitions
+                        )
+                        order = tuple(
+                            index for index in order
+                            if (candidate_sources[index].startswith("шаблон:")
+                                or screen_report.checks[index].failed_transition
+                                not in blocked)
+                        )
+                    choices.setSortingEnabled(False)
+                    choices.setRowCount(len(order))
+                    if screen_report is None:
+                        coarse_status.setText(
+                            "Предварительная проверка пуансона и матрицы "
+                            "ещё не выполнена."
+                        )
+                    elif not order and not show_rejected.isChecked():
+                        coarse_status.setText(
+                            "Не найдено ни одной последовательности без "
+                            "обнаруженного грубого 2D-препятствия. "
+                            "Показаны 0 вариантов: это НЕ означает, "
+                            "что деталь невозможно согнуть. "
+                            "Можно открыть отклонённые варианты "
+                            "для диагностики или изменить оснастку."
+                        )
+                    else:
+                        coarse_status.setText(
+                            "Показано {} из {} кандидатов. "
+                            "Отсев предварительный; 3D НЕ ПРОВЕРЕНО.".format(
+                                len(order), len(all_candidates)
+                            )
+                        )
+                    for row, source_index in enumerate(order):
+                        candidate = all_candidates[source_index]
+                        check = (
+                            screen_report.checks[source_index]
+                            if screen_report is not None else None
+                        )
+                        status = check.status if check is not None else "NOT_CHECKED"
+                        # These symbols refer only to SAMPLED 2D evidence;
+                        # even green does NOT certify real machine clearance.
+                        if status.startswith("SAMPLED_2D_TOOLS"):
+                            marker, marker_rank = "✅", 0
+                            verdict = (
+                                "В выбранных 2D-сечениях пересечений "
+                                "не выявлено. Это НЕ результат 3D-проверки."
+                            )
+                        elif status in (
+                                "POTENTIAL_2D_INTERFERENCE",
+                                "STATIC_TOOLING_BLOCK"):
+                            marker, marker_rank = "❌", 2
+                            verdict = (
+                                "Предварительное препятствие: возможная "
+                                "коллизия или несовместимость оснастки. "
+                                "Не доказана невозможность всего порядка."
+                            )
+                        else:
+                            marker, marker_rank = "⚠️", 1
+                            verdict = (
+                                "Не проверено полностью или исчерпан "
+                                "бюджет. Нет ни подтверждения коллизии, "
+                                "ни допуска к гибке."
+                            )
+                        reversed_ids = [
+                            op_id for op_id, reverse
+                            in candidate.orientation_by_operation if reverse
+                        ]
+                        axis_label = (
+                            "{:.0f}".format(candidate.axis_penalty)
+                            if candidate_sources[source_index] == "FAST"
+                            else "—"
+                        )
+                        is_template = candidate_sources[
+                            source_index
+                        ].startswith("шаблон:")
+                        if is_template:
+                            verdict += (
+                                "\\nВес шаблона не рассчитан; сохранённая "
+                                "схема имеет приоритет в первичном списке. "
+                                "\\nСохранённая оператором схема: оставлена "
+                                "видимой даже при предварительном 2D "
+                                "пересечении для выявления возможной "
+                                "ошибки постановки детали."
+                            )
+                        details = (
+                            verdict + "\\n" + "Статус: " + status +
+                            "\\nПрофили пуансона/матрицы (прибл. 2D): +{:.0f}".format(
+                                candidate.proxy_tool_penalty
+                            ) +
+                            ("\\nПричина: " + check.first_issue
+                             if check and check.first_issue else "") +
+                            "\\n3D: НЕ ПРОВЕРЕНО"
+                        )
+                        values = (
+                            str(row+1),
+                            marker,
+                            "—" if is_template else "{:.2f}".format(
+                                candidate.estimated_cost
+                            ).replace(".", ","),
+                            "{}/{}".format(
+                                check.clear_prefix_steps if check else 0,
+                                len(candidate.operation_ids)
+                            ),
+                            candidate_sources[source_index],
+                            candidate.operation_ids[0],
+                            ", ".join(reversed_ids) if reversed_ids else "—",
+                            axis_label,
+                            "{:.0f}".format(
+                                candidate.feedback_penalty +
+                                candidate.proxy_tool_penalty
+                            ),
+                            " → ".join(candidate.operation_ids),
+                            check.first_issue if check and check.first_issue
+                            else "—",
+                        )
+                        keys = (
+                            row+1,
+                            marker_rank,
+                            (float("inf") if is_template
+                             else float(candidate.estimated_cost)),
+                            (check.clear_prefix_steps if check else 0),
+                            candidate_sources[source_index],
+                            candidate.operation_ids[0],
+                            len(reversed_ids),
+                            (float(candidate.axis_penalty)
+                             if candidate_sources[source_index] == "FAST"
+                             else -1.0),
+                            float(
+                                candidate.feedback_penalty +
+                                candidate.proxy_tool_penalty
+                            ),
+                            values[9],
+                            values[10],
+                        )
+                        for column, (value, sort_key) in enumerate(zip(values, keys)):
+                            item = _FastSortableItem(value)
+                            item.setData(QtCore.Qt.UserRole, sort_key)
+                            item.setToolTip(details)
+                            if column == 0:
+                                item.setData(
+                                    int(QtCore.Qt.UserRole) + 1, source_index
+                                )
+                            choices.setItem(row, column, item)
+                    choices.setSortingEnabled(True)
+                    choices.sortItems(
+                        previous_sort_column, previous_sort_order
+                    )
+                    if screen_report is not None and not ranked_once[0]:
+                        # Initial row was a provisional FAST default.
+                        desired = order[0] if order else -1
+                        ranked_once[0] = True
+                    else:
+                        desired = previous if previous >= 0 else (
+                            order[0] if order else -1
+                        )
+                    for row in range(choices.rowCount()):
+                        cell = choices.item(row, 0)
+                        if (cell is not None
+                                and cell.data(int(QtCore.Qt.UserRole) + 1) == desired):
+                            choices.selectRow(row)
+                            break
+                    choices.resizeRowsToContents()
+
+                legend = QtWidgets.QLabel(
+                    "✅ Нет пересечений в проверенных 2D-сечениях "
+                    "(не 3D-допуск)    ⚠️ Не проверено / лимит времени    "
+                    "❌ Возможное 2D-препятствие (требует проверки)"
+                )
+                legend.setWordWrap(True)
+                layout.addWidget(legend)
+                layout.addWidget(coarse_status)
+                layout.addWidget(show_rejected)
+                show_rejected.toggled.connect(
+                    lambda *_: populate_fast_choices(
+                        self._last_fast_shortlist_screen_report
+                    )
+                )
+                populate_fast_choices()
+                layout.addWidget(choices)
+                screen_button = QtWidgets.QPushButton(
+                    "Проверить ещё раз / найти новые варианты", dialog
+                )
+                screen_button.setObjectName("SMBS_FastShortlist2DScreen")
+                layout.addWidget(screen_button)
+
+                def log_template_2d_replay(stage, current_screen):
+                    # Diagnostic only. An operator-recorded template is
+                    # NEVER assumed to have passed machine collision tests.
+                    findings = []
+                    for idx, source in enumerate(candidate_sources):
+                        if (not source.startswith("шаблон:")
+                                or idx >= len(current_screen.checks)):
+                            continue
+                        template_candidate = all_candidates[idx]
+                        check = current_screen.checks[idx]
+                        findings.append({
+                            "candidate_index": idx,
+                            "source": source,
+                            "operation_ids": list(
+                                template_candidate.operation_ids
+                            ),
+                            "orientation_by_operation": (
+                                template_candidate.orientations()
+                            ),
+                            "2d_status": check.status,
+                            "sampled_clear_prefix": (
+                                check.clear_prefix_steps
+                            ),
+                            "total_operations": len(
+                                template_candidate.operation_ids
+                            ),
+                            "first_issue": check.first_issue,
+                            "failed_transition": (
+                                list(check.failed_transition)
+                                if check.failed_transition else None
+                            ),
+                            "evidence": (
+                                "OPERATOR_RECIPE_2D_ADVISORY_3D_UNVERIFIED"
+                            ),
+                        })
+                    if findings:
+                        _desktop_debug_event(
+                            "FAST_TEMPLATE_2D_REPLAY",
+                            stage=stage,
+                            current_tooling=dict(current_tools),
+                            findings=findings,
+                        )
+
+                def check_fast_shortlist_2d():
+                    # Start after QDialog.open(): users see FAST candidates
+                    # first, while the optional Stage B ranking is separate.
+                    if (not self._qt_is_valid(dialog)
+                            or not self._playback_alive()
+                            or self._fast_result_dialog is not dialog):
+                        return
+                    if (self.session is None or
+                            self.session.controller is not controller or
+                            tuple(controller.operation_steps) != operations):
+                        hint.setText(
+                            "2D: набор операций изменился, повторите FAST."
+                        )
+                        return
+                    from smbs_core.kinematics2d.fast_shortlist_screening import (
+                        screen_fast_shortlist,
+                    )
+                    screen_button.setEnabled(False)
+                    postprocess_started = time.perf_counter()
+                    _desktop_debug_event(
+                        "FAST_SHORTLIST_2D_STARTED",
+                        candidate_count=len(all_candidates),
+                        operation_count=len(operations),
+                        budget_seconds=3.0,
+                    )
+                    hint.setText(
+                        "FAST-поиск завершён. Выполняется отдельная "
+                        "предварительная 2D-проверка (бюджет 3 с). "
+                        "Ни один результат не является допуском 3D."
+                    )
+                    try:
+                        screen = screen_fast_shortlist(
+                            self.session.fold_state, operations,
+                            tuple(all_candidates), self.session.panel_vertices_xy,
+                            self.tooling_setup,
+                            backgauge_model=self.backgauge_model,
+                            budget_seconds=3.0,
+                            transition_cache=screen_cache,
+                        )
+                        _desktop_debug_event(
+                            "FAST_SHORTLIST_2D_SCREEN_INITIAL",
+                            report=screen.to_dict(),
+                        )
+                        log_template_2d_replay("INITIAL", screen)
+                        side_report = None
+                        if not forced_sides_done[0]:
+                            from smbs_core.kinematics2d.fast_multiside_feedback import (
+                                search_all_outer_sides,
+                            )
+                            # The complete unfolded outer contour is authoritative.
+                            # Panel hulls / BBoxes are not real exterior sides.
+                            outer_outline = getattr(
+                                self.session.panel_build,
+                                "outline_vertices_xy", (),
+                            )
+                            outer_cad_edges = getattr(
+                                self.session.panel_build,
+                                "outline_edge_polylines_xy", (),
+                            )
+                            side_report = search_all_outer_sides(
+                                self.session.fold_state, operations,
+                                tuple(all_candidates), outer_outline,
+                                self.session.panel_vertices_xy,
+                                outer_edge_polylines_xy=outer_cad_edges,
+                                fixed_orientations=pinned,
+                                weights=self._selected_operation_weights().to_dict(),
+                                backgauge_model=self.backgauge_model,
+                                screen=screen,
+                                tooling_setup=self.tooling_setup,
+                                budget_seconds=2.5,
+                            )
+                            forced_sides_done[0] = True
+                            _desktop_debug_event(
+                                "FAST_FORCED_ALL_SIDES_RESULT",
+                                report=side_report.to_dict(),
+                            )
+                            for found in side_report.new_candidates:
+                                all_candidates.append(found.candidate)
+                                side_display = {
+                                    "LEFT": "слева",
+                                    "RIGHT": "справа",
+                                    "TOP": "сверху",
+                                    "BOTTOM": "снизу",
+                                }.get(
+                                    found.side_name,
+                                    found.side_name.replace("SIDE_", "сторона "),
+                                )
+                                candidate_sources.append(
+                                    side_display + (
+                                        "" if found.axis_aligned
+                                        else " (ориентация приблизительная)"
+                                    )
+                                )
+                            if side_report.new_candidates:
+                                # Give novel side starts the first chance to
+                                # use remaining Stage B sample budget.
+                                side_begin = len(all_candidates) - len(
+                                    side_report.new_candidates
+                                )
+                                screen = screen_fast_shortlist(
+                                    self.session.fold_state, operations,
+                                    tuple(all_candidates),
+                                    self.session.panel_vertices_xy,
+                                    self.tooling_setup,
+                                    backgauge_model=self.backgauge_model,
+                                    budget_seconds=3.0,
+                                    transition_cache=screen_cache,
+                                    priority_candidate_indices=range(
+                                        side_begin, len(all_candidates)
+                                    ),
+                                )
+                        # Real selected-tool profiles have now been sampled
+                        # by Stage B. Before generating yet more variants,
+                        # restart FAST under STRICT *state-specific* 2D
+                        # punch/die penetration exclusions. This never
+                        # forbids a whole bend or claims physical 3D proof.
+                        from smbs_core.kinematics2d.fast_collision_gate import (
+                            rerun_fast_avoiding_tool_collisions,
+                        )
+                        coarse_rerun = rerun_fast_avoiding_tool_collisions(
+                            self.session.fold_state, operations,
+                            tuple(all_candidates),
+                            self.session.panel_vertices_xy, screen,
+                            weights=self._selected_operation_weights().to_dict(),
+                            backgauge_model=self.backgauge_model,
+                            fixed_orientations=pinned,
+                            tooling_setup=self.tooling_setup,
+                            limit_seconds=1.5,
+                            max_candidates=8,
+                        )
+                        _desktop_debug_event(
+                            "FAST_COARSE_TOOL_RERUN",
+                            report=coarse_rerun.to_dict(),
+                        )
+                        if coarse_rerun.candidates:
+                            coarse_begin = len(all_candidates)
+                            for candidate in coarse_rerun.candidates:
+                                all_candidates.append(candidate)
+                                candidate_sources.append(
+                                    "без известных 2D-пробоев"
+                                )
+                            screen = screen_fast_shortlist(
+                                self.session.fold_state, operations,
+                                tuple(all_candidates),
+                                self.session.panel_vertices_xy,
+                                self.tooling_setup,
+                                backgauge_model=self.backgauge_model,
+                                budget_seconds=3.0,
+                                transition_cache=screen_cache,
+                                priority_candidate_indices=range(
+                                    coarse_begin, len(all_candidates)
+                                ),
+                            )
+                        # Next, retry the problematic bend with opposite
+                        # 0/180 orientations, preserving manual pins.
+                        # At most three rounds per result dialog.
+                        from smbs_core.kinematics2d.fast_collision_gate import (
+                            coarse_tool_gate,
+                        )
+                        current_gate = coarse_tool_gate(screen)
+                        _desktop_debug_event(
+                            "FAST_COARSE_TOOL_GATE_INITIAL",
+                            report=current_gate.to_dict(),
+                        )
+                        feedback_report = None
+                        # NO_TOOLING and wholly indeterminate sample passes
+                        # provide no collision evidence. Do not consume
+                        # limited feedback search rounds on those cases.
+                        has_feedback = any(
+                            check.failed_transition is not None
+                            for check in screen.checks
+                        )
+                        if feedback_rounds[0] < 3 and has_feedback:
+                            from smbs_core.kinematics2d.fast_multiside_feedback import (
+                                search_feedback_recovery,
+                            )
+                            feedback_report = search_feedback_recovery(
+                                self.session.fold_state, operations,
+                                tuple(all_candidates),
+                                self.session.panel_vertices_xy,
+                                screen,
+                                coarse_gate=current_gate,
+                                fixed_orientations=pinned,
+                                weights=self._selected_operation_weights().to_dict(),
+                                tooling_setup=self.tooling_setup,
+                                backgauge_model=self.backgauge_model,
+                                budget_seconds=1.5,
+                                max_cases=8,
+                            )
+                            feedback_rounds[0] += 1
+                            _desktop_debug_event(
+                                "FAST_FEEDBACK_RECOVERY_RESULT",
+                                round=feedback_rounds[0],
+                                report=feedback_report.to_dict(),
+                            )
+                            if feedback_report.new_candidates:
+                                feedback_begin = len(all_candidates)
+                                for found in feedback_report.new_candidates:
+                                    all_candidates.append(found.candidate)
+                                    flipped_ids = found.side_name.replace(
+                                        "FLIP_", ""
+                                    ).split("+")
+                                    candidate_flags = (
+                                        found.candidate.orientations()
+                                    )
+                                    candidate_sources.append(
+                                        "смена " + ", ".join(
+                                            operation + " → " +
+                                            ("180°" if candidate_flags.get(
+                                                operation, False
+                                            ) else "0°")
+                                            for operation in flipped_ids
+                                        )
+                                    )
+                                screen = screen_fast_shortlist(
+                                    self.session.fold_state, operations,
+                                    tuple(all_candidates),
+                                    self.session.panel_vertices_xy,
+                                    self.tooling_setup,
+                                    backgauge_model=self.backgauge_model,
+                                    budget_seconds=3.0,
+                                    transition_cache=screen_cache,
+                                    priority_candidate_indices=range(
+                                        feedback_begin, len(all_candidates)
+                                    ),
+                                )
+                        final_gate = coarse_tool_gate(screen)
+                        _desktop_debug_event(
+                            "FAST_COARSE_TOOL_GATE_FINAL",
+                            report=final_gate.to_dict(),
+                            excluded_rows=sum(
+                                item.failed_transition in set(
+                                    final_gate.forbidden_transitions
+                                ) for item in screen.checks
+                            ),
+                        )
+                        # The Stage-B shortlist can detect B01/P11 even
+                        # when the FAST beam's best proxy candidate was clear.
+                        # Diagnose those exact failed transitions in all four
+                        # legacy 2.5D presentations, without accepting a
+                        # reversed signed punch face as a feasible setup.
+                        try:
+                            from smbs_core.kinematics2d.fast_proxy_tool_screen import (
+                                diagnose_shortlist_obstructions_25d,
+                            )
+                            orientation_study = diagnose_shortlist_obstructions_25d(
+                                self.session.fold_state, self.session.panel_vertices_xy,
+                                operations, screen, self.tooling_setup,
+                                max_transitions=5, budget_seconds=1.5,
+                            )
+                            _desktop_debug_event(
+                                "FAST_25D_ORIENTATION_STAGE_B_DIAGNOSTIC",
+                                report=orientation_study,
+                            )
+                        except Exception as study_exc:
+                            _desktop_debug_event(
+                                "FAST_25D_ORIENTATION_STAGE_B_ERROR",
+                                error=type(study_exc).__name__ + ":" + str(study_exc),
+                                traceback=traceback.format_exc(),
+                            )
+                        self._last_fast_shortlist_screen_report = screen
+                        postprocess_elapsed = (
+                            time.perf_counter() - postprocess_started
+                        )
+                        _desktop_debug_event(
+                            "FAST_SHORTLIST_2D_SCREEN", report=screen.to_dict()
+                        )
+                        log_template_2d_replay("FINAL", screen)
+                        _desktop_debug_event(
+                            "FAST_POSTPROCESS_SUMMARY",
+                            fast_seconds=report.elapsed_seconds,
+                            additional_seconds=postprocess_elapsed,
+                            total_seconds=report.elapsed_seconds +
+                                          postprocess_elapsed,
+                            candidate_count=len(all_candidates),
+                            preliminary_clear=sum(
+                                entry.status.startswith("SAMPLED_2D_TOOLS")
+                                for entry in screen.checks
+                            ),
+                            preliminary_obstructions=sum(
+                                entry.status in (
+                                    "POTENTIAL_2D_INTERFERENCE",
+                                    "STATIC_TOOLING_BLOCK")
+                                for entry in screen.checks
+                            ),
+                            unverified=sum(
+                                not entry.status.startswith("SAMPLED_2D_TOOLS")
+                                and entry.status not in (
+                                    "POTENTIAL_2D_INTERFERENCE",
+                                    "STATIC_TOOLING_BLOCK")
+                                for entry in screen.checks
+                            ),
+                        )
+                        if not self._qt_is_valid(choices):
+                            return
+                        populate_fast_choices(screen)
+                        clear = sum(
+                            entry.status.startswith("SAMPLED_2D_TOOLS")
+                            for entry in screen.checks
+                        )
+                        interferences = sum(
+                            entry.status == "POTENTIAL_2D_INTERFERENCE"
+                            for entry in screen.checks
+                        )
+                        hint.setText(
+                            "FAST: {:.3f} с, дополнительные этапы: {:.3f} с "
+                            "(последняя 2D: {:.3f} с). "
+                            "Проб {}, кеш {}, предварительно без 2D-пересечений "
+                            "{}, с 2D-препятствиями {}. "
+                            "Сторон контура: {}, отдельных поисков: {}, "
+                            "повторных постановок: {}, пропущено по бюджету: {}. "
+                            "FAST с грубой проверкой: {} новых вариантов, "
+                            "дополнительные развороты: {} новых вариантов. "
+                            "Грубый отсев: {} подозрительных переходов, "
+                            "исключённых вариантов: {}. "
+                            "Всего вариантов: {} (видно: {}). "
+                            "Если подходящих нет, включите показ "
+                            "отклонённых вариантов для диагностики. "
+                            "Таблицу можно сортировать по заголовкам; "
+                            "кандидаты не отклонены автоматически. "
+                            "Оснастка по длине, зажимы, контакт CAD-упора, "
+                            "полная траектория и 3D-коллизии НЕ подтверждены."
+                            .format(
+                                report.elapsed_seconds, postprocess_elapsed,
+                                screen.elapsed_seconds,
+                                screen.actual_probes, screen.cache_hits,
+                                clear, interferences,
+                                len(side_report.side_findings) if side_report is not None
+                                else "неизменно",
+                                sum(item.get("status") not in (
+                                    "BUDGET_EXCEEDED", "REUSED_EQUIVALENT_START",
+                                    "NO_FIRST_BEND_AVAILABLE")
+                                    for item in side_report.side_findings)
+                                if side_report is not None else "неизменно",
+                                sum(item.get("status") == "REUSED_EQUIVALENT_START"
+                                    for item in side_report.side_findings)
+                                if side_report is not None else "неизменно",
+                                sum(item.get("status") == "BUDGET_EXCEEDED"
+                                    for item in side_report.side_findings)
+                                if side_report is not None else "неизменно",
+                                len(coarse_rerun.candidates),
+                                (len(feedback_report.new_candidates)
+                                 if feedback_report is not None else 0),
+                                len(final_gate.forbidden_transitions),
+                                sum(
+                                    item.failed_transition in set(
+                                        final_gate.forbidden_transitions
+                                    ) for item in screen.checks
+                                ),
+                                len(all_candidates),
+                                choices.rowCount(),
+                            )
+                        )
+                    except Exception as exc:
+                        _desktop_debug_event(
+                            "FAST_SHORTLIST_2D_ERROR",
+                            error=type(exc).__name__ + ":" + str(exc),
+                            traceback=traceback.format_exc(),
+                        )
+                        if self._qt_is_valid(hint):
+                            hint.setText(
+                                "2D-проверка недоступна: {}. "
+                                "FAST-кандидаты сохранены как UNVERIFIED."
+                                .format(str(exc))
+                            )
+                    finally:
+                        if self._qt_is_valid(screen_button):
+                            screen_button.setEnabled(True)
+
+                screen_button.clicked.connect(check_fast_shortlist_2d)
+                buttons = QtWidgets.QDialogButtonBox(
+                    QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel,
+                    dialog,
+                )
+                buttons.button(QtWidgets.QDialogButtonBox.Ok).setText(
+                    "Применить непроверенный вариант"
+                )
+                buttons.button(QtWidgets.QDialogButtonBox.Cancel).setText("Закрыть")
+                buttons.accepted.connect(dialog.accept)
+                buttons.rejected.connect(dialog.reject)
+                layout.addWidget(buttons)
+
+                def on_finished(result):
+                    # A sorted row is NOT its original candidate
+                    # index. Read stable index from column 0 UserRole + 1
+                    # before Qt destroys the nonblocking result dialog.
+                    index = (
+                        selected_source_index()
+                        if self._qt_is_valid(choices) else -1
+                    )
+                    selected_item = (
+                        choices.item(choices.currentRow(), 0)
+                        if self._qt_is_valid(choices)
+                        and choices.currentRow() >= 0 else None
+                    )
+                    visible_number = (
+                        int(selected_item.text())
+                        if selected_item is not None else index + 1
+                    )
+                    self._fast_result_dialog = None
+                    if (self._playback_alive()
+                            and self._qt_is_valid(self.fast_search_btn)):
+                        self.fast_search_btn.setEnabled(True)
+                    _desktop_debug_event(
+                        "FAST_RESULT_DIALOG_FINISHED",
+                        accepted=bool(result == QtWidgets.QDialog.Accepted),
+                        selected_index=index,
+                        workspace_alive=self._playback_alive(),
+                    )
+                    if (result != QtWidgets.QDialog.Accepted
+                            or not 0 <= index < len(all_candidates)):
+                        return
+                    selected = all_candidates[index]
+                    # Apply AFTER the native dialog closes and FreeCAD
+                    # finishes its overlay/task bookkeeping.
+                    QtCore.QTimer.singleShot(
+                        0, lambda: self._apply_fast_sequence_candidate(
+                            selected, controller, operations, pinned, index,
+                            visible_number,
+                        )
+                    )
+
+                dialog.finished.connect(on_finished)
+                self._fast_result_dialog = dialog
+                self.fast_search_btn.setEnabled(False)
+                _desktop_debug_event("FAST_RESULT_DIALOG_OPENED")
+                dialog.open()
+                # Preserve the 30-second maximum FAST search budget. Perform the
+                # separate bounded 2D screening after the result window is
+                # visible, not in the combinatorial search loop.
+                QtCore.QTimer.singleShot(0, check_fast_shortlist_2d)
+
+            def _apply_fast_sequence_candidate(
+                    self, selected, controller, operations, pinned, index,
+                    visible_number=None):
+                """Commit a shortlist candidate outside the Qt dialog loop."""
+                if not self._playback_alive():
+                    _desktop_debug_event(
+                        "FAST_APPLY_SKIPPED", reason="workspace_destroyed"
+                    )
+                    return
+                required_widgets = (
+                    self.operations, self.status, self.tooling_status,
+                    self._flat_view, self._task_stack,
+                )
+                if not all(self._qt_is_valid(w) for w in required_widgets):
+                    _desktop_debug_event(
+                        "FAST_APPLY_SKIPPED", reason="task_widgets_destroyed",
+                        qt_state=self._qt_debug_state(),
+                    )
+                    return
+                if (self.session is None
+                        or self.session.controller is not controller
+                        or not self.session.can_reorder()
+                        or tuple(controller.operation_steps) != operations):
+                    self.status.setText(
+                        "FAST: деталь или операции изменились; повторите поиск."
+                    )
+                    return
+                original_order = tuple(self.session.bend_order)
+                old_operation_orientation = dict(
+                    self._manual_operation_orientation_overrides
+                )
+                old_bend_orientation = dict(self._manual_orientation_overrides)
+                old_advisory = set(self._fast_advisory_orientation_keys)
+                _desktop_debug_event(
+                    "FAST_APPLY_STARTED",
+                    selected=selected.to_dict(), qt_state=self._qt_debug_state(),
+                )
+                try:
+                    if controller.has_stages:
+                        controller.reorder_operations(selected.operation_ids)
+                    else:
+                        self.session.set_bend_order(selected.operation_ids)
+                    orientation = selected.orientations()
+                    self._manual_orientation_overrides = {
+                        step.bend_id: orientation[step.operation_id]
+                        for step in operations if step.kind == "SINGLE"
+                    }
+                    self._manual_operation_orientation_overrides = {
+                        step.operation_id: orientation[step.operation_id]
+                        for step in operations if step.kind != "SINGLE"
+                    }
+                    self._fast_advisory_orientation_keys = (
+                        set(selected.operation_ids) - set(pinned)
+                    )
+                    self.session.active_bend_index = (
+                        self.session.controller.active_index
+                    )
+                    # Updating a whole operation table synchronously
+                    # creates a heavy multi-bend CAD gauge preview; defer
+                    # that calculation until the next normal UI refresh.
+                    self._fast_apply_skip_table_gauge = True
+                    try:
+                        self._on_staged_plan_changed(
+                            "FAST: применён НЕПРОВЕРЕННЫЙ вариант {}. "
+                            "Нужна отдельная физическая проверка.".format(
+                                visible_number if visible_number is not None
+                                else index + 1
+                            ),
+                            fast_apply=True,
+                        )
+                    finally:
+                        self._fast_apply_skip_table_gauge = False
+                    # If the normal 3D redraw already computed the new
+                    # automatic CAD-gauge envelopes, their cached values
+                    # are cheap to place back into the information table.
+                    # Never force a second expensive gauge computation
+                    # as part of the FAST dialog commit.
+                    cache = self._machine_gauge_envelope_cache
+                    if (self._playback_alive()
+                            and self._qt_is_valid(self.operations)
+                            and cache is not None
+                            and cache[0][1] == tuple(self.session.bend_order)):
+                        self._update_operations_visual_state()
+                    _desktop_debug_event(
+                        "FAST_CANDIDATE_APPLIED",
+                        selected=selected.to_dict(),
+                        evidence="UNVERIFIED_3D_NOT_CHECKED",
+                    )
+                except Exception as exc:
+                    if not self._playback_alive():
+                        # FreeCAD/Qt has destroyed the host: NEVER touch
+                        # labels, dialog, timer or native task controls now.
+                        _desktop_debug_event(
+                            "FAST_APPLY_HOST_DESTROYED",
+                            error=str(exc), traceback=traceback.format_exc(),
+                        )
+                        return
+                    try:
+                        if controller.has_stages:
+                            controller.reorder_operations(
+                                [step.operation_id for step in operations]
+                            )
+                        else:
+                            self.session.set_bend_order(original_order)
+                    except Exception:
+                        _error("FAST rollback failed: " + traceback.format_exc())
+                    self._manual_operation_orientation_overrides = (
+                        old_operation_orientation
+                    )
+                    self._manual_orientation_overrides = old_bend_orientation
+                    self._fast_advisory_orientation_keys = old_advisory
+                    if self._qt_is_valid(self.status):
+                        self.status.setText(
+                            "FAST: вариант не применён: " + str(exc)
+                        )
+                    _error("FAST apply failed: " + traceback.format_exc())
+
             def open_sequence_catalog_dialog(self):
                 from freecad_smbs.commands.sequence_catalog_dialog import show_sequence_catalog
                 show_sequence_catalog(self)
@@ -4234,6 +5502,11 @@ class _PreviewPanel:
                 )
 
             def _update_tooling_status_label(self):
+                if not self._playback_alive() or not self._qt_is_valid(self.tooling_status):
+                    _desktop_debug_event(
+                        "TOOLING_STATUS_UPDATE_SKIPPED", reason="host_destroyed",
+                    )
+                    return
                 self.tooling_status.setText(self.tooling_setup.status_line())
                 if (self._physical_check_signature is not None and
                         self._physical_check_signature != self._physical_pose_signature()):
@@ -4271,9 +5544,16 @@ class _PreviewPanel:
                         f"Ram Position: {ram_z:+.2f} mm (Stroke: {ram_stroke:.2f} mm)"
                     )
 
-            def _rear_frame_for_preview(self):
-                # The per-bend orientation map owns the machine-facing side.
-                # Passing vertices here would apply a second independent flip.
+            def _rear_frame_for_preview(self, index=None):
+                """FAST flags are relative to the fixed-panel rear frame."""
+                if self.session is None:
+                    return None
+                controller = self.session.controller
+                if index is None:
+                    index = controller.active_index
+                step = controller.operation_steps[index]
+                if step.operation_id in self._fast_advisory_orientation_keys:
+                    return self.session.panel_vertices_xy
                 return None
 
             def _on_operation_orientation_changed(self, item, column):
@@ -4290,7 +5570,7 @@ class _PreviewPanel:
                 if item is None or self.session is None:
                     return
                 bend_id = item.data(0, QtCore.Qt.UserRole)
-                operation_id = item.data(0, QtCore.Qt.UserRole + 1) or bend_id
+                operation_id = item.data(0, int(QtCore.Qt.UserRole) + 1) or bend_id
                 if self.session.controller.has_stages and operation_id != bend_id:
                     explicitly_set = (
                         operation_id in self._manual_operation_orientation_overrides
@@ -4310,7 +5590,7 @@ class _PreviewPanel:
                 if self.session is None:
                     return
                 bend_id = item.data(0, QtCore.Qt.UserRole)
-                operation_id = item.data(0, QtCore.Qt.UserRole + 1) or bend_id
+                operation_id = item.data(0, int(QtCore.Qt.UserRole) + 1) or bend_id
                 if bend_id not in self.session.bend_order:
                     return
                 if (self._task_progress_busy or self.timer.isActive()
@@ -4321,6 +5601,9 @@ class _PreviewPanel:
                     )
                     return
                 order = tuple(self.session.bend_order)
+                # Clicking a checkbox makes this a deliberate user choice,
+                # not a disposable orientation from the FAST shortlist.
+                self._fast_advisory_orientation_keys.discard(operation_id)
                 if self.session.controller.has_stages and operation_id != bend_id:
                     # Partial and finish operations each have their own override.
                     # A plain SINGLE step retains legacy bend-ID persistence.
@@ -4422,6 +5705,24 @@ class _PreviewPanel:
                     self._ergonomic_loading_status = "NO_PART"
                     return {}
                 order = tuple(self.session.bend_order)
+                # Reuse explicit FAST/manual orientations without running
+                # the expensive CAD ergonomic suggestion generator. An
+                # already chosen machine pose is authoritative for previews;
+                # recomputing its default needlessly opens native documents.
+                known = dict(self._manual_orientation_overrides)
+                for step in self.session.controller.operation_steps:
+                    if (step.operation_id in self._manual_operation_orientation_overrides
+                            and step.bend_id not in known):
+                        known[step.bend_id] = bool(
+                            self._manual_operation_orientation_overrides[
+                                step.operation_id
+                            ]
+                        )
+                if all(bend_id in known for bend_id in order):
+                    self._ergonomic_loading_status = (
+                        "FAST_OR_MANUAL_ORIENTATION_UNVERIFIED"
+                    )
+                    return {bend_id: bool(known[bend_id]) for bend_id in order}
                 if (self._manual_orientation_order == order
                         and set(self._manual_orientation_by_bend) == set(order)):
                     self._ergonomic_loading_status = (
@@ -4536,14 +5837,13 @@ class _PreviewPanel:
                         "BEND_ONLY_COUPLED_SHEET_PLACEMENT_FAILED:" + str(exc)
                     ) from exc
                 orientations = self._effective_operation_orientation_map()
-                return WorkpiecePlacement3D.compute_placement(
+                return compute_machine_pose(
                     fs, bid,
+                    phase="BEND_ONLY",
                     support_plane_zm=float(sheet_support_z),
-                    align_bisector=True,
-                    align_bend_arc_center=True,
-                    reverse_axis=reverse_axis_for_operation(
+                    reverse_axis=bool(reverse_axis_for_operation(
                         orientations, bid, self.session.controller.active_operation_id
-                    ),
+                    )),
                     rear_panel_vertices_xy=self._rear_frame_for_preview(),
                 )
 
@@ -4587,9 +5887,7 @@ class _PreviewPanel:
                 if self.press_cycle is not None:
                     ctrl = getattr(self.session, "controller", None)
                     if ctrl is None or getattr(self.press_cycle, "sequence", None) is ctrl:
-                        self.press_cycle.rear_panel_vertices_xy = (
-                            self._rear_frame_for_preview()
-                        )
+                        self.press_cycle.loading_rear_frame_for_step = self._rear_frame_for_preview
                         self.press_cycle.loading_orientation_by_bend = (
                             self._effective_operation_orientation_map()
                         )
@@ -4611,9 +5909,7 @@ class _PreviewPanel:
                     follow_sheet_contact_preview=True,
                     animate_workpiece_transfer=True,
                 )
-                self.press_cycle.rear_panel_vertices_xy = (
-                    self._rear_frame_for_preview()
-                )
+                self.press_cycle.loading_rear_frame_for_step = self._rear_frame_for_preview
                 self.press_cycle.loading_orientation_by_bend = (
                     self._effective_operation_orientation_map()
                 )
@@ -5141,6 +6437,7 @@ class _PreviewPanel:
                 self._manual_orientation_by_bend = {}
                 self._manual_orientation_overrides.clear()
                 self._manual_operation_orientation_overrides.clear()
+                self._fast_advisory_orientation_keys.clear()
                 self._project_clamp_config = None
                 self._manual_preview_unverified = False
                 self._manual_selection_enabled = False
@@ -5459,6 +6756,9 @@ class _PreviewPanel:
                 if self.session.playback_status == PlaybackStatus.PLAYING:
                     self.pause()
                 self._stop_timer()
+                if self._mesh_collision_index is not None:
+                    self._mesh_collision_index = None
+                    self._collision_display_active = False
                 self._collision_display_active = not self._collision_display_active
                 if hasattr(self, "manual_show_collision_btn"):
                     self.manual_show_collision_btn.setText(
@@ -5489,6 +6789,7 @@ class _PreviewPanel:
                         getattr(self.tooling_setup, "punch", None),
                         "tool_id", None,
                     ),
+                    "punch_reversed": bool(getattr(self.tooling_setup.punch, "punch_reversed", False)),
                     "die_id": getattr(
                         getattr(self.tooling_setup, "die", None),
                         "tool_id", None,
@@ -5927,6 +7228,9 @@ class _PreviewPanel:
                     operation_orientation_overrides=(
                         self._manual_operation_orientation_overrides
                     ),
+                    fast_advisory_orientation_ids=(
+                        self._fast_advisory_orientation_keys
+                    ),
                     backgauge_model=self.backgauge_model,
                     clamp_config=self._current_clamp_config(),
                     orientation_source=(
@@ -6045,6 +7349,9 @@ class _PreviewPanel:
                 )
                 self._manual_operation_orientation_overrides = dict(
                     payload["order"].get("operation_orientation_overrides", {})
+                )
+                self._fast_advisory_orientation_keys = set(
+                    payload["order"].get("fast_advisory_orientation_ids", [])
                 )
                 # FCStd is authoritative for document-specific settings, not
                 # the last machine options used for an unrelated project.
@@ -6280,6 +7587,95 @@ class _PreviewPanel:
                     note += " Ограничения: " + "; ".join(warnings)
                 self.fcstd_note.setText(note)
                 return note
+
+            def _mesh_preview_identity(self):
+                return (
+                    self._current_native_tooling_identity(),
+                    tuple(self.session.controller.operation_steps),
+                    self._effective_operation_orientation_map(),
+                    frozenset(self._fast_advisory_orientation_keys),
+                )
+
+            def _show_next_mesh_collision(self):
+                if self.session is None or self._mesh_collision_identity != self._mesh_preview_identity():
+                    self.mesh_show_collision_btn.hide()
+                    self.status.setText("Повторите Mesh-проверку для текущей детали и оснастки.")
+                    return
+                if not self._mesh_collision_hits:
+                    return
+                if self.session.playback_status == PlaybackStatus.PLAYING:
+                    self.pause()
+                self._stop_timer()
+                index = self._mesh_collision_index if self._collision_display_active else None
+                index = 0 if index is None else index + 1
+                self._collision_display_active = index < len(self._mesh_collision_hits)
+                self._mesh_collision_index = index if self._collision_display_active else None
+                self._open_coin_preview()
+
+            def _run_mesh_sequence_check(self):
+                if self.session is None or self.timer.isActive():
+                    self.status.setText("Mesh: загрузите деталь и остановите симуляцию.")
+                    return
+                from smbs_core.kinematics2d.mesh_sequence_screen import screen_mesh_sequence
+
+                self.manual_mesh_check_btn.setEnabled(False)
+                self._set_task_busy(True)
+                try:
+                    cycle = self._ensure_press_cycle_controller()
+                    operations = self.session.controller.operation_steps
+                    prefix = tuple(self._manual_sequence_prefix)
+                    if prefix and not self.session.controller.has_stages:
+                        operations = operations[:len(prefix)]
+
+                    def progress(index, count, operation):
+                        self.status.setText(f"Mesh: {index + 1}/{count} · {operation}")
+                        QtWidgets.QApplication.processEvents(QtCore.QEventLoop.ExcludeUserInputEvents)
+
+                    report = screen_mesh_sequence(
+                        self.session, cycle,
+                        tuple(step.operation_id for step in operations),
+                        progress=progress,
+                    )
+                    _desktop_debug_event("MESH_SEQUENCE_RESULT", **report)
+                    if self._mesh_collision_index is not None:
+                        self._collision_display_active = False
+                    self._mesh_collision_index = None
+                    self._mesh_collision_hits = (
+                        tuple(report["findings"])
+                        + tuple({**hit, "conditional": True} for hit in report["conditional_findings"])
+                    )
+                    self._mesh_collision_identity = self._mesh_preview_identity()
+                    self.mesh_show_collision_btn.setVisible(bool(self._mesh_collision_hits))
+                    if self._mesh_collision_hits:
+                        self._collision_display_active = False
+                        self._show_next_mesh_collision()
+                    else:
+                        self._update_3d_preview(force=True)
+                    message = (
+                        f"Mesh: {len(report['completed'])}/{len(operations)} гибов, "
+                        f"{report['elapsed_seconds']:.1f} с"
+                    )
+                    if report["findings"]:
+                        hit = report["findings"][0]
+                        tool = {"punch": "пуансон", "die": "матрица"}[hit["tool"]]
+                        message += f" · пересечение: {hit['operation']}, {tool}, {hit['phase']}"
+                    elif not (report["pending"] or report["unresolved"] or report["conditional_findings"]):
+                        message += " · подтверждённых проникновений в выборке нет"
+                    if report["conditional_findings"]:
+                        message += f" · Conditional, торцы пуансона: {len(report['conditional_findings'])}"
+                    if report["unresolved"]:
+                        message += f" · не удалось уточнить: {len(report['unresolved'])}"
+                    if report["pending"]:
+                        message += " · осталось: " + ", ".join(report["pending"])
+                        reason = report["reason"]
+                        message += " · " + ("лимит времени" if reason == "TIME_BUDGET" else reason)
+                    self.status.setText(message)
+                    self.manual_check_summary.setText(message)
+                except (ValueError, RuntimeError, AttributeError) as exc:
+                    self.status.setText("Mesh: " + str(exc))
+                finally:
+                    self._set_task_busy(False)
+                    self.manual_mesh_check_btn.setEnabled(True)
 
             def _validate_export_manual_order(self, coarse_occ=False, *, show_preview=False):
                 """Validate selected manual order: Stage A/B plus actual FCStd 3D.
@@ -7296,7 +8692,11 @@ class _PreviewPanel:
                 }.get(retract_status, "—")
                 flat_mm = self.session.local_bend_dimensions_mm.get(b.bend_id)
                 gauge = (
-                    None if (self._manual_selection_enabled or self.session.controller.has_stages)
+                    None if (
+                        self._manual_selection_enabled
+                        or self.session.controller.has_stages
+                        or getattr(self, "_fast_apply_skip_table_gauge", False)
+                    )
                     else self._backgauge_preview_position(idx - 1)
                 )
                 face_s = gauge[0].s_mm if gauge is not None and gauge[0] is not None else None
@@ -7573,7 +8973,7 @@ class _PreviewPanel:
                     return
                 operation_ids = tuple(
                     self.operations.topLevelItem(idx).data(
-                        0, QtCore.Qt.UserRole + 1
+                        0, int(QtCore.Qt.UserRole) + 1
                     )
                     for idx in range(self.operations.topLevelItemCount())
                 )
@@ -7616,8 +9016,15 @@ class _PreviewPanel:
                     "Порядок этапов: " + " → ".join(operation_ids)
                 )
 
-            def _on_staged_plan_changed(self, message):
+            def _on_staged_plan_changed(self, message, *, fast_apply=False):
                 """Invalidate prior OCC evidence: split operations are NOT verified."""
+                if (not self._playback_alive()
+                        or not self._qt_is_valid(self.operations)
+                        or not self._qt_is_valid(self.tooling_status)):
+                    _desktop_debug_event(
+                        "STAGED_REFRESH_SKIPPED_HOST_DESTROYED", step="entry",
+                    )
+                    return
                 self._stop_timer()
                 self._machine_pose_fault = None
                 self._manual_sequence_prefix = []
@@ -7631,6 +9038,7 @@ class _PreviewPanel:
                     for op_id, value in self._manual_operation_orientation_overrides.items()
                     if op_id in valid_ops and op_id not in self.session.canonical_order
                 }
+                self._fast_advisory_orientation_keys.intersection_update(valid_ops)
                 self._manual_3d_verdicts.clear()
                 self._manual_retract_verdicts.clear()
                 self._last_manual_sequence_report = None
@@ -7649,16 +9057,53 @@ class _PreviewPanel:
                     self.session.controller.has_stages
                 )
                 self._sync_manual_order_input()
+                if fast_apply:
+                    # Old press cycle may retain the previous active operation
+                    # even though its sequence-controller identity is unchanged.
+                    # Rebuild on the next explicit preview/simulation action.
+                    self.press_cycle = None
+                    # FAST changes operation metadata only. Do not enter
+                    # FreeCAD native document/3D preview work from the Qt
+                    # result-dialog completion callback. On macOS this can
+                    # destroy the task host while the operation table updates.
+                    self._populate_operations_fast()
+                    if self._playback_alive() and self._qt_is_valid(self.status):
+                        self.status.setText(message + " | 3D preview requires refresh")
+                    _desktop_debug_event(
+                        "FAST_APPLY_LIGHTWEIGHT_REFRESH",
+                        workspace_alive=self._playback_alive(),
+                        operation_count=len(self.session.controller.operation_steps),
+                    )
+                    return
                 self._populate_operations()
+                if (not self._playback_alive()
+                        or not self._qt_is_valid(self.operations)):
+                    _desktop_debug_event(
+                        "STAGED_REFRESH_SKIPPED_HOST_DESTROYED",
+                        step="after_operation_table",
+                    )
+                    return
                 pc = self._ensure_press_cycle_controller()
                 if pc is not None:
                     pc.select_operation(self.session.controller.active_index)
                 self.session.active_bend_index = self.session.controller.active_index
                 self._configure_for_active_bend()
+                if not self._playback_alive():
+                    return
                 self._draw_flat_pattern(reset_camera=False)
+                if (not self._playback_alive()
+                        or not self._qt_is_valid(self.tooling_status)):
+                    _desktop_debug_event(
+                        "STAGED_REFRESH_SKIPPED_HOST_DESTROYED",
+                        step="after_flat_pattern",
+                    )
+                    return
                 self._update_tooling_status_label()
+                if not self._playback_alive():
+                    return
                 self.draw()
-                self.status.setText(message + " | UNVERIFIED")
+                if self._playback_alive() and self._qt_is_valid(self.status):
+                    self.status.setText(message + " | UNVERIFIED")
 
             def _apply_reorder(self, action_fn):
                 if self.session is None:
@@ -7711,7 +9156,21 @@ class _PreviewPanel:
                     return
                 self._apply_reorder(lambda: self.session.restore_canonical_order())
 
+            def _populate_operations_fast(self):
+                """Reuse normal editable table without native gauge previews.
+
+                _fast_apply_skip_table_gauge is held by the caller while this
+                executes. With every FAST orientation pinned, the orientation
+                lookup does not invoke CAD ergonomic loading previews either.
+                """
+                if not self._playback_alive():
+                    return
+                self._populate_operations()
+
             def _populate_operations(self):
+                if (not self._playback_alive()
+                        or not self._qt_is_valid(self.operations)):
+                    return
                 signals_were_blocked = self.operations.blockSignals(True)
                 try:
                     self.operations.clear()
@@ -7719,9 +9178,13 @@ class _PreviewPanel:
                         for _bend in self.session.ordered_bends:
                             self.operations.addTopLevelItem(QtWidgets.QTreeWidgetItem())
                         self._update_operations_visual_state()
-                        self.operations.setDragEnabled(self.session.controller.has_stages)
+                        if self._playback_alive() and self._qt_is_valid(self.operations):
+                            self.operations.setDragEnabled(
+                                self.session.controller.has_stages
+                            )
                 finally:
-                    self.operations.blockSignals(signals_were_blocked)
+                    if self._qt_is_valid(self.operations):
+                        self.operations.blockSignals(signals_were_blocked)
 
             def _update_operations_visual_state(self):
                 if (self.session is None or self._closing
@@ -7746,8 +9209,18 @@ class _PreviewPanel:
                         bend_id = bend.bend_id
                         item.setData(0, QtCore.Qt.UserRole, bend_id)
                         op = self.session.controller.operation_at(idx - 1)
-                        item.setData(0, QtCore.Qt.UserRole + 1, op.operation_id)
+                        item.setData(0, int(QtCore.Qt.UserRole) + 1, op.operation_id)
                         cols = self._format_operation_row(idx, bend)
+                        # Calculating machine gauge envelopes can be slow.
+                        # The FreeCAD Tasks root may be destroyed meanwhile,
+                        # including on macOS Qt6 OverlayManager callbacks.
+                        if (not self._playback_alive()
+                                or not self._qt_is_valid(self.operations)):
+                            _desktop_debug_event(
+                                "OPERATIONS_REFRESH_ABORTED", index=idx,
+                                reason="host_destroyed_during_row_format",
+                            )
+                            return
                         for col, label in enumerate(cols):
                             item.setText(col, label)
                         item.setCheckState(
@@ -7770,7 +9243,11 @@ class _PreviewPanel:
                                 bend_id in self._manual_orientation_overrides)
                         ):
                             tooltip += (
-                                "\nПоложение задано вручную. Правый клик возвращает автоподбор."
+                                "\n" + (
+                                    "Положение предложено FAST (UNVERIFIED)."
+                                    if op.operation_id in self._fast_advisory_orientation_keys
+                                    else "Положение задано вручную."
+                                ) + " Правый клик возвращает автоподбор."
                             )
                         item.setToolTip(
                             _LOADING_ORIENTATION_COLUMN, tooltip,
@@ -7840,7 +9317,8 @@ class _PreviewPanel:
                         if self.operations.currentItem() is not active:
                             self.operations.setCurrentItem(active)
                 finally:
-                    self.operations.blockSignals(signals_were_blocked)
+                    if self._qt_is_valid(self.operations):
+                        self.operations.blockSignals(signals_were_blocked)
 
             def _configure_for_active_bend(self, *, angle_only=False):
                 if self.session is None:
@@ -8485,7 +9963,8 @@ class _PreviewPanel:
                     return {}
                 stations = self._backgauge_stations()
                 key = (id(session), tuple(session.bend_order), stations,
-                       tuple(sorted(orientations.items())))
+                       tuple(sorted(orientations.items())),
+                       frozenset(self._fast_advisory_orientation_keys))
                 cached = self._machine_gauge_envelope_cache
                 if cached is not None and cached[0] == key:
                     return cached[1]
@@ -8495,6 +9974,7 @@ class _PreviewPanel:
                 values, errors = sequenced_gauge_envelopes(
                     session, stations_xm_mm=stations,
                     reverse_axis_by_bend=orientations,
+                    rear_frame_bend_ids=self._fast_advisory_orientation_keys,
                 )
                 self._machine_gauge_envelope_cache = (key, values)
                 for bend_id, reason in errors.items():
@@ -8517,6 +9997,7 @@ class _PreviewPanel:
                 key = (
                     id(session), order, id(model), index,
                     tuple(sorted(orientations.items())),
+                    frozenset(self._fast_advisory_orientation_keys),
                 )
                 if key in self._backgauge_preview_cache:
                     return self._backgauge_preview_cache[key]

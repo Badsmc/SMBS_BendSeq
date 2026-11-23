@@ -68,11 +68,6 @@ loading orientation, FoldState history and native punch/die remain the input.
   geometry. The 2D section diagnostics report discrepancies alongside that
   result. Coarse OCC and incomplete validation remain unverified for the full
   path. The rear gauge, transfers, machine frame and clamps are outside this check.
-- **Tests:** `tests/test_manual_native_replay_contract.py` covers matrix
-  mismatches and GUI wiring; GitHub Actions job
-  `manualmode-replay.yml` runs it alongside syntax and FCStd persistence.
-  Final validation still requires a Windows FreeCAD test with the selected
-  native punch/die and the sample part.
 
 For manual QA, enter the order and click **Проверить и показать**. On
 **Симулировать результат**, compare the loading orientation with the per-bend
