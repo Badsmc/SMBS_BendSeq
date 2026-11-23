@@ -230,11 +230,12 @@ def _confirm_crossing(session, state, component, placement, tool_shape, prisms, 
     return volume, bounds, conditional
 
 
-def _is_forming_contact_sliver(kind, phase, component, active_bend, volume, bounds):
+def _is_forming_contact_sliver(kind, phase, component, active_bend, volume, bounds, *, fraction):
     """Recognize only sub-micron forming contact on the active bend at the punch."""
     return (
         kind == "punch"
-        and phase is CyclePhase.BENDING
+        and (phase is CyclePhase.BENDING
+             or (phase is CyclePhase.RETRACT and fraction == 0.0))
         and component == active_bend
         and 0.0 < volume <= 0.001
         and bounds is not None
@@ -356,7 +357,7 @@ def screen_mesh_sequence(session, preview_cycle, order, *, budget_seconds=60.0, 
                                 unresolved.append({**hit, "reason": str(exc)})
                                 continue
                             if volume > 1e-4 and _is_forming_contact_sliver(
-                                kind, phase, component, bend_id, volume, bounds,
+                                kind, phase, component, bend_id, volume, bounds, fraction=fraction,
                             ):
                                 forming_contact_slivers.append({
                                     **hit, "occ_overlap_volume_mm3": volume,

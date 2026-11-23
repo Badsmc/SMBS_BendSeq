@@ -37,9 +37,12 @@ class MeshSequenceScreenTests(TestCase):
 
         bounds = {"zmin": -2.224919, "zmax": -2.224784}
         args = ("punch", CyclePhase.BENDING, "B05", "B05", 0.00033, bounds)
-        self.assertTrue(_is_forming_contact_sliver(*args))
+        self.assertTrue(_is_forming_contact_sliver(*args, fraction=0.25))
+        retract = (args[0], CyclePhase.RETRACT, *args[2:])
+        self.assertTrue(_is_forming_contact_sliver(*retract, fraction=0.0))
+        self.assertFalse(_is_forming_contact_sliver(*retract, fraction=0.25))
         for index, other in ((0, "die"), (1, CyclePhase.RETRACT),
                              (2, "P11"), (4, 0.05297), (5, None)):
             case = list(args)
             case[index] = other
-            self.assertFalse(_is_forming_contact_sliver(*case))
+            self.assertFalse(_is_forming_contact_sliver(*case, fraction=0.25))
