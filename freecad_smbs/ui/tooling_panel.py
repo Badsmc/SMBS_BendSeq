@@ -473,7 +473,7 @@ class ToolingPanel:
                 def _set_status(self, text: str, is_error: bool = False) -> None:
                     color = "red" if is_error else "black"
                     self.status_label.setStyleSheet(f"color: {color};")
-                    self.status_label.setText(f"Статус: {text}")
+                    self.status_label.setText(tr("Статус: {text}", text=text))
                     try:
                         if is_error:
                             App.Console.PrintError(f"SMBS ToolingPanel: {text}\n")
@@ -489,7 +489,7 @@ class ToolingPanel:
                     )
 
                     try:
-                        self._set_status(f"Библиотека загружена: {self.library_path}")
+                        self._set_status(tr("Библиотека загружена: {path}", path=self.library_path))
                         self._refresh_lists()
                     except ToolingLibraryError as e:
                         err_msg = str(e)
@@ -554,8 +554,8 @@ class ToolingPanel:
                         item.setData(QtCore.Qt.UserRole, d)
                         self.die_list.addItem(item)
 
-                    self.tabs.setTabText(0, f"Пуансоны ({len(catalog.punches)})")
-                    self.tabs.setTabText(1, f"Матрицы ({len(catalog.dies)})")
+                    self.tabs.setTabText(0, tr("Пуансоны ({count})", count=len(catalog.punches)))
+                    self.tabs.setTabText(1, tr("Матрицы ({count})", count=len(catalog.dies)))
                     if selected_key is not None:
                         widget = (
                             self.punch_list if selected_key[0] == "punch"
@@ -623,7 +623,8 @@ class ToolingPanel:
                         return
                     if self._workspace is not None:
                         self._workspace._on_punch_orientation_changed(updated)
-                    self._set_status(f"{updated.name}: разворот {tr('включён') if checked else tr('выключен')}")
+                    self._set_status(tr("{tool}: разворот {state}", tool=updated.name,
+                                        state=tr("включён" if checked else "выключен")))
 
                 def _on_selection_changed(self) -> None:
                     index = self.tabs.currentIndex()
@@ -636,10 +637,9 @@ class ToolingPanel:
                                 self.clamp_scene.sceneRect(), QtCore.Qt.KeepAspectRatio
                             )
                         return
-                    kind = ("Punch", "Die")[index]
-                    self.import_tool_button.setText(tr("Импорт ") + kind)
-                    self.remove_tool_button.setText(tr("Удалить ") + kind)
-                    self.segments_button.setText(tr("Сегменты ") + kind)
+                    self.import_tool_button.setText(tr(("Импорт пуансона", "Импорт матрицы")[index]))
+                    self.remove_tool_button.setText(tr(("Удалить пуансон", "Удалить матрицу")[index]))
+                    self.segments_button.setText(tr(("Сегменты пуансона", "Сегменты матрицы")[index]))
                     desc = self._current_descriptor()
                     if index == 0:
                         self._refresh_punch_orientation(desc)
@@ -652,7 +652,11 @@ class ToolingPanel:
                         return
 
                     sidecar_str = tr("ДА") if desc.has_sidecar else tr("НЕТ")
-                    self.lbl_selected_id.setText(f"Выбрано: [{desc.kind}] {desc.tool_id} (Sidecar: {sidecar_str})")
+                    self.lbl_selected_id.setText(tr(
+                        "Выбрано: {kind} · {tool} (файл метаданных: {sidecar})",
+                        kind=tr(("Пуансон", "Матрица")[index]), tool=desc.tool_id,
+                        sidecar=sidecar_str,
+                    ))
                     meta_str = (
                         ", ".join(f"{k}={v}" for k, v in desc.metadata.items())
                         if desc.metadata
@@ -667,8 +671,8 @@ class ToolingPanel:
                         for seg in segments if isinstance(seg, dict)
                     ) or tr("не заданы")
                     self.lbl_selected_meta.setText(
-                        f"Метаданные: {meta_str}\n"
-                        f"Сегменты: {inventory_text}\nПуть: {desc.fcstd_path}"
+                        tr("Метаданные: {metadata}\nСегменты: {segments}\nПуть: {path}",
+                           metadata=meta_str, segments=inventory_text, path=desc.fcstd_path)
                     )
 
                 def _on_add_tool(self) -> None:

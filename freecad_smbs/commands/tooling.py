@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from freecad_smbs.ui.localization import tr
+
 ICON_PATH = Path(__file__).resolve().parent.parent / "resources" / "icons" / "tooling.svg"
 
 
@@ -10,8 +12,8 @@ class ToolingCommand:
     def GetResources(self):
         return {
             "Pixmap": str(ICON_PATH),
-            "MenuText": "Библиотека оснастки",
-            "ToolTip": "Пуансоны, матрицы, станина, задний упор, зажимы",
+            "MenuText": tr("Библиотека оснастки"),
+            "ToolTip": tr("Пуансоны, матрицы, станина, задний упор, зажимы"),
         }
 
     def IsActive(self):
@@ -38,10 +40,10 @@ class ToolingCommand:
             library = ToolingLibrary(workspace.tool_library.library_root)
             panel = ToolingPanel(library, parent=workspace)
             embed_task_dialog(
-                workspace, panel, "Библиотека", "full_tooling_library"
+                workspace, panel, tr("Библиотека"), "full_tooling_library"
             )
         except Exception as exc:
-            show_error("PressBrakeSim: оснастка", str(exc))
+            show_error(tr("PressBrakeSim: оснастка"), str(exc))
 
 
 class ToolingSettingsCommand:
@@ -49,7 +51,7 @@ class ToolingSettingsCommand:
     action = ""
 
     def GetResources(self):
-        return {"MenuText": self.label, "ToolTip": self.label, "Pixmap": str(ICON_PATH)}
+        return {"MenuText": tr(self.label), "ToolTip": tr(self.label), "Pixmap": str(ICON_PATH)}
 
     def IsActive(self):
         return True
@@ -80,13 +82,13 @@ class ToolingSettingsCommand:
         _, _, qt = _qt()
         catalog = library.list_tools()
         kinds = (("Пуансон", catalog.punches), ("Матрица", catalog.dies))
-        tools = {f"{kind} · {tool.tool_id}": tool
+        tools = {f"{tr(kind)} · {tool.tool_id}": tool
                  for kind, entries in kinds for tool in entries}
         if not tools:
-            qt.QMessageBox.information(workspace, self.label, "Добавьте оснастку в библиотеку.")
+            qt.QMessageBox.information(workspace, tr(self.label), tr("Добавьте оснастку в библиотеку."))
             return
         selected, accepted = qt.QInputDialog.getItem(
-            workspace, self.label, "Инструмент", list(tools), 0, False,
+            workspace, tr(self.label), tr("Инструмент"), list(tools), 0, False,
         )
         if accepted:
             panel = ToolingPanel(library, parent=workspace)

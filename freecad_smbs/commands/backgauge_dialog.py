@@ -9,6 +9,8 @@ from smbs_core.kinematics2d.backgauge_2d import (
     BackgaugeModel2D, BackgaugePosition2D,
 )
 
+from freecad_smbs.ui.localization import tr
+
 
 def show_backgauge_settings(workspace, *, modal_parent=None):
     from .pressbrake_2d import _qt, activate_task_dialog, embed_task_dialog
@@ -16,23 +18,15 @@ def show_backgauge_settings(workspace, *, modal_parent=None):
         return
     QtCore, _, W = _qt()
     dlg = W.QDialog(workspace if modal_parent is None else modal_parent)
-    dlg.setWindowTitle("SMBS — Задний упор (FCStd, визуализация)")
+    dlg.setWindowTitle(tr("SMBS — Задний упор (FCStd, визуализация)"))
     dlg.resize(680, 560)
     layout = W.QVBoxLayout(dlg)
     notice = W.QLabel(
-        "Используется только реальная модель Backgauge.FCStd. "
-        "В таблице: «До гиба» — размер по развёртке; "
-        "«Упор S» — положение лицевой поверхности упора от оси гиба. "
-        "В автоматическом режиме программа измеряет задний край детали "
-        "на каждой заданной станции X до начала гиба. "
-        "Для двух пальцев используется общая координата S по дальнему краю. "
-        "Ручной режим задаёт центр S/Z для каждого гиба. "
-        "Упор только перемещается при просмотре: столкновения, "
-        "проникновения, контакт и допустимость хода НЕ проверяются."
+        tr("Используется только реальная модель Backgauge.FCStd. В таблице: «До гиба» — размер по развёртке; «Упор S» — положение лицевой поверхности упора от оси гиба. В автоматическом режиме программа измеряет задний край детали на каждой заданной станции X до начала гиба. Для двух пальцев используется общая координата S по дальнему краю. Ручной режим задаёт центр S/Z для каждого гиба. Упор только перемещается при просмотре: столкновения, проникновения, контакт и допустимость хода НЕ проверяются.")
     )
     notice.setWordWrap(True)
     layout.addWidget(notice)
-    inspect_btn = W.QPushButton("Проверить CAD-модель Backgauge.FCStd…")
+    inspect_btn = W.QPushButton(tr("Проверить CAD-модель Backgauge.FCStd…"))
     layout.addWidget(inspect_btn)
 
     def inspect_cad():
@@ -63,16 +57,16 @@ def show_backgauge_settings(workspace, *, modal_parent=None):
         )
 
     inspect_btn.clicked.connect(inspect_cad)
-    active = W.QCheckBox("Показывать движущийся упор Backgauge.FCStd")
+    active = W.QCheckBox(tr("Показывать движущийся упор Backgauge.FCStd"))
     active.setChecked(workspace.backgauge_model is not None)
     layout.addWidget(active)
     auto = W.QCheckBox(
-        "Авто: учитывать уже согнутую геометрию и толщину")
+        tr("Авто: учитывать уже согнутую геометрию и толщину"))
     model = workspace.backgauge_model
     auto.setChecked(model.automatic if model else True)
     layout.addWidget(auto)
     # CAD geometry is mandatory in this feature; no 2D rectangle fallback.
-    cad_mode = W.QCheckBox("Только настоящая модель Backgauge.FCStd")
+    cad_mode = W.QCheckBox(tr("Только настоящая модель Backgauge.FCStd"))
     cad_mode.setChecked(True)
     cad_mode.setEnabled(False)
     layout.addWidget(cad_mode)
@@ -90,25 +84,24 @@ def show_backgauge_settings(workspace, *, modal_parent=None):
     clearance.setDecimals(2)
     clearance.setSuffix(" мм")
     clearance.setValue(model.edge_clearance_mm if model else 0.0)
-    dims.addRow("Зазор до края детали:", clearance)
+    dims.addRow(tr("Зазор до края детали:"), clearance)
     feed = W.QDoubleSpinBox()
     feed.setRange(0.0, 1000.0)
     feed.setDecimals(1)
     feed.setSuffix(" мм")
     feed.setValue(model.initial_feed_preview_mm if model else 0.0)
     feed.setToolTip(
-        "Визуальный подвод без проверок контакта или пересечений.")
-    dims.addRow("Начальная подача листа (визуально):", feed)
+        tr("Визуальный подвод без проверок контакта или пересечений."))
+    dims.addRow(tr("Начальная подача листа (визуально):"), feed)
     station = W.QDoubleSpinBox()
     station.setRange(-10000.0, 10000.0)
     station.setDecimals(2)
     station.setSuffix(" мм")
     station.setValue(model.cad_station_xm_mm if model else 0.0)
     station.setToolTip(
-        "Положение центра одной CAD-модели Backgauge вдоль линии гиба X_m. "
-        "Второй палец не добавляется автоматически.")
-    dims.addRow("CAD упор: станция по Xₘ:", station)
-    second_enabled = W.QCheckBox("Добавить второй CAD упор")
+        tr("Положение центра одной CAD-модели Backgauge вдоль линии гиба X_m. Второй палец не добавляется автоматически."))
+    dims.addRow(tr("CAD упор: станция по Xₘ:"), station)
+    second_enabled = W.QCheckBox(tr("Добавить второй CAD упор"))
     second_enabled.setChecked(
         model is not None and model.cad_second_station_xm_mm is not None
     )
@@ -122,7 +115,7 @@ def show_backgauge_settings(workspace, *, modal_parent=None):
         else 0.0
     )
     dims.addRow(second_enabled)
-    dims.addRow("Второй CAD упор: Xₘ:", second_station)
+    dims.addRow(tr("Второй CAD упор: Xₘ:"), second_station)
     station.setEnabled(cad_mode.isChecked())
     second_enabled.setEnabled(cad_mode.isChecked())
     second_station.setEnabled(
@@ -142,12 +135,12 @@ def show_backgauge_settings(workspace, *, modal_parent=None):
     )
     width.setValue(model.width_s_mm if model else 10.0)
     height.setValue(model.height_z_mm if model else 10.0)
-    dims.addRow("Служебная ширина S (позиция центра):", width)
-    dims.addRow("Служебная высота Z (без геометрии):", height)
+    dims.addRow(tr("Служебная ширина S (позиция центра):"), width)
+    dims.addRow(tr("Служебная высота Z (без геометрии):"), height)
     layout.addLayout(dims)
     table = W.QTableWidget(0, 3, dlg)
     table.setObjectName("SMBS_BackgaugeTargets")
-    table.setHorizontalHeaderLabels(("Гиб", "Центр s (мм)", "Центр z (мм)"))
+    table.setHorizontalHeaderLabels((tr("Гиб"), tr("Центр s (мм)"), tr("Центр z (мм)")))
     table.horizontalHeader().setStretchLastSection(True)
     table.setColumnWidth(0, 100)
     table.setColumnWidth(1, 160)
@@ -168,11 +161,11 @@ def show_backgauge_settings(workspace, *, modal_parent=None):
         ):
             table.setItem(row, col, W.QTableWidgetItem(value))
     if not bends:
-        warning = W.QLabel("Для задания координат сначала загрузите деталь.")
+        warning = W.QLabel(tr("Для задания координат сначала загрузите деталь."))
         layout.addWidget(warning)
     bottom = W.QHBoxLayout()
-    save = W.QPushButton("Сохранить")
-    cancel = W.QPushButton("Отмена")
+    save = W.QPushButton(tr("Сохранить"))
+    cancel = W.QPushButton(tr("Отмена"))
     bottom.addStretch()
     bottom.addWidget(save)
     bottom.addWidget(cancel)
@@ -183,7 +176,7 @@ def show_backgauge_settings(workspace, *, modal_parent=None):
             workspace.backgauge_model = None
             workspace._backgauge_settings.setValue("backgauge/enabled", False)
             workspace.status.setText(
-                "Модель упора скрыта. Расчёты последовательности не зависят от упора."
+                tr("Модель упора скрыта. Расчёты последовательности не зависят от упора.")
             )
             workspace._backgauge_preview_cache.clear()
             workspace._machine_gauge_envelope_cache = None
@@ -280,7 +273,7 @@ def show_backgauge_settings(workspace, *, modal_parent=None):
     save.clicked.connect(accept)
     cancel.clicked.connect(dlg.reject)
     if modal_parent is None:
-        embed_task_dialog(workspace, dlg, "Задний упор", "backgauge")
+        embed_task_dialog(workspace, dlg, tr("Задний упор"), "backgauge")
     else:
         try:
             (getattr(dlg, "exec", None) or dlg.exec_)()

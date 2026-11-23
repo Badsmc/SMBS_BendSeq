@@ -638,7 +638,7 @@ class _SMBSNativeTaskPanel:
         _QtCore, _QtGui, QtWidgets = _qt()
         button = button_box.button(QtWidgets.QDialogButtonBox.Cancel)
         if button is not None:
-            button.setText("Закрыть")
+            button.setText(tr("Закрыть"))
 
     def isAllowedAlterDocument(self):
         return True
@@ -1042,7 +1042,7 @@ class PressBrake2DCommand:
         return {
             "Pixmap": str(_ICON_ROOT / "gui_simulation.svg"),
             "MenuText": tr("Симуляция"),
-            "ToolTip": "Открыть симуляцию Coin3D и штатную вкладку Задачи FreeCAD",
+            "ToolTip": tr("Открыть симуляцию Coin3D и штатную вкладку Задачи FreeCAD"),
         }
 
     def IsActive(self):
@@ -1179,7 +1179,7 @@ class LoadPartCommand:
         return {
             "Pixmap": str(_ICON_ROOT / "gui_part.svg"),
             "MenuText": tr("Деталь"),
-            "ToolTip": "Загрузить выбранную развёртку SheetMetal",
+            "ToolTip": tr("Загрузить выбранную развёртку SheetMetal"),
         }
 
     def IsActive(self):
@@ -1225,7 +1225,7 @@ class ToolingTabCommand:
         return {
             "Pixmap": str(_ICON_ROOT / "gui_tooling.svg"),
             "MenuText": tr("Оснастка"),
-            "ToolTip": "Открыть оснастку симулятора",
+            "ToolTip": tr("Открыть оснастку симулятора"),
         }
 
     def IsActive(self):
@@ -1245,8 +1245,8 @@ class BackgaugeCommand:
     def GetResources(self):
         return {
             "Pixmap": str(_ICON_ROOT / "gui_backgauge.svg"),
-            "MenuText": "Задний упор",
-            "ToolTip": "Визуальная FCStd-модель упора: позиция по контуру развёртки",
+            "MenuText": tr("Задний упор"),
+            "ToolTip": tr("Визуальная FCStd-модель упора: позиция по контуру развёртки"),
         }
 
     def IsActive(self):
@@ -1266,8 +1266,8 @@ class SequenceCatalogCommand:
     def GetResources(self):
         return {
             "Pixmap": str(_ICON_ROOT / "gui_sequence_catalog.svg"),
-            "MenuText": "Последовательности",
-            "ToolTip": "Открыть сохранённые последовательности гибки из JSON",
+            "MenuText": tr("Последовательности"),
+            "ToolTip": tr("Открыть сохранённые последовательности гибки из JSON"),
         }
 
     def IsActive(self):
@@ -1288,8 +1288,8 @@ class ManualCommand:
     def GetResources(self):
         return {
             "Pixmap": str(_ICON_ROOT / "gui_manual.svg"),
-            "MenuText": "Порядок и проверка",
-            "ToolTip": "Вручную выбрать порядок гибов, запустить симуляцию или проверить коллизии",
+            "MenuText": tr("Порядок и проверка"),
+            "ToolTip": tr("Вручную выбрать порядок гибов, запустить симуляцию или проверить коллизии"),
         }
 
     def IsActive(self):
@@ -1348,7 +1348,7 @@ class SettingsCommand:
         return {
             "Pixmap": str(_ICON_ROOT / "gui_settings.svg"),
             "MenuText": tr("Настройки"),
-            "ToolTip": "Режим гибки, скорость, проверки, допуски и запись",
+            "ToolTip": tr("Режим гибки, скорость, проверки, допуски и запись"),
         }
 
     def IsActive(self):
@@ -1405,9 +1405,7 @@ class _PreviewPanel:
                 self._pan_last_pos = None
                 self._pan_button = None
                 self.setToolTip(
-                    "Колесо мыши: масштаб; средняя кнопка или Ctrl+ЛКМ "
-                    "и перетаскивание: перемещение сцены по горизонтали "
-                    "и вертикали. Fit: восстановить масштаб и центр."
+                    tr("Колесо мыши: масштаб; средняя кнопка или Ctrl+ЛКМ и перетаскивание: перемещение сцены по горизонтали и вертикали. Fit: восстановить масштаб и центр.")
                 )
 
             def reset_camera(self):
@@ -1685,28 +1683,28 @@ class _PreviewPanel:
 
 
                 # Phase 5A: Tooling section (Import / Select / Align / Reset / Hide-Show / Library)
-                self.tooling_group = QtWidgets.QGroupBox("Tooling (PUNCH & DIE)")
+                self.tooling_group = QtWidgets.QGroupBox(tr("Оснастка (пуансон и матрица)"))
                 t_layout = QtWidgets.QVBoxLayout(self.tooling_group)
                 t_layout.setContentsMargins(16, 16, 16, 16)
                 t_layout.setSpacing(16)
 
                 t_row1 = QtWidgets.QHBoxLayout()
-                self.import_punch_btn = _button(QtWidgets, "Import Punch", self.import_punch_dialog, True)
-                self.import_die_btn = _button(QtWidgets, "Import Die", self.import_die_dialog, True)
-                self.tool_library_btn = _button(QtWidgets, "Библиотека оснастки", self.open_full_tooling_library, True)
+                self.import_punch_btn = _button(QtWidgets, tr("Импорт пуансона"), self.import_punch_dialog, True)
+                self.import_die_btn = _button(QtWidgets, tr("Импорт матрицы"), self.import_die_dialog, True)
+                self.tool_library_btn = _button(QtWidgets, tr("Библиотека оснастки"), self.open_full_tooling_library, True)
                 for w in (self.import_punch_btn, self.import_die_btn, self.tool_library_btn):
                     t_row1.addWidget(w)
                 t_layout.addLayout(t_row1)
 
                 t_row2 = QtWidgets.QHBoxLayout()
-                t_row2.addWidget(QtWidgets.QLabel("Punch:"))
+                t_row2.addWidget(QtWidgets.QLabel(tr("Пуансон:")))
                 self.select_punch_combo = QtWidgets.QComboBox()
                 self.select_punch_combo.currentIndexChanged.connect(self._on_punch_combo_changed)
                 t_row2.addWidget(self.select_punch_combo, 1)
                 t_layout.addLayout(t_row2)
 
                 t_row3 = QtWidgets.QHBoxLayout()
-                t_row3.addWidget(QtWidgets.QLabel("Die:"))
+                t_row3.addWidget(QtWidgets.QLabel(tr("Матрица:")))
                 self.select_die_combo = QtWidgets.QComboBox()
                 self.select_die_combo.currentIndexChanged.connect(self._on_die_combo_changed)
                 t_row3.addWidget(self.select_die_combo, 1)
@@ -1714,18 +1712,17 @@ class _PreviewPanel:
 
                 # Development virtual tool length & controlled punch end-zone policy
                 self.virtual_tool_len_checkbox = QtWidgets.QCheckBox(
-                    "Виртуальная длина инструмента\nравна длине гиба"
+                    tr("Виртуальная длина инструмента\nравна длине гиба")
                 )
                 self.virtual_tool_len_checkbox.setChecked(False)
                 self.virtual_tool_len_checkbox.setToolTip(
-                    "Виртуальная длина пуансона и матрицы автоматически приравнивается к длине активной линии гиба "
-                    "с сохранением неизменного 2D-профиля сечения (исходные FCStd не изменяются)."
+                    tr("Виртуальная длина пуансона и матрицы автоматически приравнивается к длине активной линии гиба с сохранением неизменного 2D-профиля сечения (исходные FCStd не изменяются).")
                 )
                 self.virtual_tool_len_checkbox.toggled.connect(self._on_virtual_tool_length_toggled)
                 t_layout.addWidget(self.virtual_tool_len_checkbox)
 
                 ez_row = QtWidgets.QHBoxLayout()
-                ez_row.addWidget(QtWidgets.QLabel("Концевая зона пуансона (мм):"))
+                ez_row.addWidget(QtWidgets.QLabel(tr("Концевая зона пуансона (мм):")))
                 self.end_zone_len_spin = QtWidgets.QDoubleSpinBox()
                 self.end_zone_len_spin.setRange(0.0, 200.0)
                 self.end_zone_len_spin.setDecimals(1)
@@ -1736,17 +1733,11 @@ class _PreviewPanel:
                 t_layout.addLayout(ez_row)
 
                 self.allow_end_zone_checkbox = QtWidgets.QCheckBox(
-                    "Условный допуск концевых зон\nпуансона (CONDITIONAL)"
+                    tr("Условный допуск концевых зон\nпуансона (CONDITIONAL)")
                 )
                 self.allow_end_zone_checkbox.setChecked(False)
                 self.allow_end_zone_checkbox.setToolTip(
-                    "Условный допуск столкновений в заданных концевых зонах "
-                    "пуансона (от каждого торца). Не обрезает 3D-геометрию "
-                    "инструмента и НЕ подтверждает наличие физического "
-                    "выреза. Если центральное пересечение превышает "
-                    "действующий объёмный допуск OCC, гиб блокируется. "
-                    "Результат CONDITIONAL — не физический PASS; требуется "
-                    "проверка реального пуансона с концевыми вырезами."
+                    tr("Условный допуск столкновений в заданных концевых зонах пуансона (от каждого торца). Не обрезает 3D-геометрию инструмента и НЕ подтверждает наличие физического выреза. Если центральное пересечение превышает действующий объёмный допуск OCC, гиб блокируется. Результат CONDITIONAL — не физический PASS; требуется проверка реального пуансона с концевыми вырезами.")
                 )
                 self.allow_end_zone_checkbox.toggled.connect(self._on_allow_end_zone_toggled)
                 t_layout.addWidget(self.allow_end_zone_checkbox)
@@ -1764,7 +1755,7 @@ class _PreviewPanel:
                 root.addWidget(self.tooling_group)
 
                 # Phase 5B: Press Cycle section (Bend Only / Full Cycle, Ram Position, Cycle Phase, Speed & Config)
-                self.press_cycle_group = QtWidgets.QGroupBox("Режим симуляции")
+                self.press_cycle_group = QtWidgets.QGroupBox(tr("Режим симуляции"))
                 pc_layout = QtWidgets.QVBoxLayout(self.press_cycle_group)
                 pc_layout.setContentsMargins(0, 0, 0, 0)
                 pc_layout.setSpacing(16)
@@ -1772,14 +1763,14 @@ class _PreviewPanel:
                 pc_row1 = QtWidgets.QGridLayout()
                 pc_row1.setHorizontalSpacing(16)
                 pc_row1.setVerticalSpacing(16)
-                pc_row1.addWidget(QtWidgets.QLabel("Mode:"), 0, 0)
+                pc_row1.addWidget(QtWidgets.QLabel(tr("Режим:")), 0, 0)
                 self.cycle_mode_combo = QtWidgets.QComboBox()
-                self.cycle_mode_combo.addItem("Bend Only", CycleExecutionMode.BEND_ONLY.value)
-                self.cycle_mode_combo.addItem("Full Cycle", CycleExecutionMode.FULL_CYCLE.value)
+                self.cycle_mode_combo.addItem(tr("Только гиб"), CycleExecutionMode.BEND_ONLY.value)
+                self.cycle_mode_combo.addItem(tr("Полный цикл"), CycleExecutionMode.FULL_CYCLE.value)
                 self.cycle_mode_combo.setCurrentIndex(1)
                 self.cycle_mode_combo.currentIndexChanged.connect(self._on_cycle_mode_combo_changed)
                 pc_row1.addWidget(self.cycle_mode_combo, 0, 1)
-                pc_row1.addWidget(QtWidgets.QLabel("Speed (°/s):"), 1, 0)
+                pc_row1.addWidget(QtWidgets.QLabel(tr("Скорость (°/с):")), 1, 0)
                 self.cycle_speed_spin = QtWidgets.QDoubleSpinBox()
                 self.cycle_speed_spin.setRange(1.0, 720.0)
                 self.cycle_speed_spin.setValue(self.cycle_config.bend_rate_deg_s)
@@ -1787,22 +1778,23 @@ class _PreviewPanel:
                 self.cycle_speed_spin.valueChanged.connect(self._on_cycle_speed_changed)
                 pc_row1.addWidget(self.cycle_speed_spin, 1, 1)
 
-                self.cycle_config_btn = _button(QtWidgets, "Cycle Config...", self.open_cycle_config_dialog, True)
+                self.cycle_config_btn = _button(QtWidgets, tr("Параметры цикла…"), self.open_cycle_config_dialog, True)
                 pc_row1.addWidget(self.cycle_config_btn, 2, 1)
                 pc_row1.setColumnStretch(0, 0)
                 pc_row1.setColumnStretch(1, 1)
                 pc_layout.addLayout(pc_row1)
 
                 pc_row2 = QtWidgets.QVBoxLayout()
-                self.cycle_phase_label = QtWidgets.QLabel("Cycle Phase: IDLE (KINEMATIC_PREVIEW)")
+                self.cycle_phase_label = QtWidgets.QLabel(tr("Фаза цикла: ожидание"))
                 self.ram_position_label = QtWidgets.QLabel(
-                    "Ram Position: {:+.2f} mm (Stroke: 0.00 mm)".format(self.tooling_setup.ram_z_mm)
+                    tr("Положение пуансона: {height:+.2f} мм (ход: {stroke:.2f} мм)",
+                       height=self.tooling_setup.ram_z_mm, stroke=0.0)
                 )
                 pc_row2.addWidget(self.cycle_phase_label)
                 pc_row2.addWidget(self.ram_position_label)
                 pc_layout.addLayout(pc_row2)
                 self.loading_orientation_status = QtWidgets.QLabel(
-                    "Оператор ← | Упор → | Подача: пока не определена"
+                    tr("Оператор ← | Упор → | Подача: пока не определена")
                 )
                 self.loading_orientation_status.setWordWrap(True)
                 self.cycle_phase_label.setWordWrap(True)
@@ -1827,14 +1819,14 @@ class _PreviewPanel:
                 row.setVerticalSpacing(3)
                 # One playback button owns Play, Pause and Resume, with step
                 # navigation immediately on either side.
-                self.reset_btn = _playback_button(QtCore, QtWidgets, "Reset", self.reset, False)
+                self.reset_btn = _playback_button(QtCore, QtWidgets, tr("Сбросить"), self.reset, False)
                 self.prev_step_btn = _playback_button(QtCore, QtWidgets, "|<<", self.previous_step, False)
                 self.play_btn = _playback_button(
-                    QtCore, QtWidgets, "Play", self._toggle_play_pause, False
+                    QtCore, QtWidgets, tr("Воспроизвести"), self._toggle_play_pause, False
                 )
-                self.play_btn.setToolTip("Play / Pause / Resume для выбранного режима")
+                self.play_btn.setToolTip(tr("Play / Pause / Resume для выбранного режима"))
                 self.next_step_btn = _playback_button(QtCore, QtWidgets, ">>|", self.next_step, False)
-                self.fit_btn = _playback_button(QtCore, QtWidgets, "Fit", self.fit, True)
+                self.fit_btn = _playback_button(QtCore, QtWidgets, tr("Вписать в окно"), self.fit, True)
                 self.add_part_btn = _playback_button(QtCore, QtWidgets, "+", LoadPartCommand().Activated, True)
                 self.add_part_btn.setObjectName("SMBS_AddPart")
                 self.add_part_btn.setIcon(QtGui.QIcon(str(_ICON_ROOT / "control_add.svg")))
@@ -1869,9 +1861,9 @@ class _PreviewPanel:
                 order_row = QtWidgets.QGridLayout()
                 order_row.setHorizontalSpacing(6)
                 order_row.setVerticalSpacing(6)
-                self.move_up_btn = _button(QtWidgets, "↑ Move Up", self.move_selected_up, False)
-                self.move_down_btn = _button(QtWidgets, "↓ Move Down", self.move_selected_down, False)
-                self.restore_order_btn = _button(QtWidgets, "↺ Restore Order", self.restore_order, False)
+                self.move_up_btn = _button(QtWidgets, tr("↑ Выше"), self.move_selected_up, False)
+                self.move_down_btn = _button(QtWidgets, tr("↓ Ниже"), self.move_selected_down, False)
+                self.restore_order_btn = _button(QtWidgets, tr("↺ Восстановить порядок"), self.restore_order, False)
                 order_row.addWidget(self.move_up_btn, 0, 0)
                 order_row.addWidget(self.move_down_btn, 0, 1)
                 order_row.addWidget(self.restore_order_btn, 1, 0, 1, 2)
@@ -1914,8 +1906,8 @@ class _PreviewPanel:
                 self.operations = StagedOperationsTree()
                 self.operations.stage_drop_owner = self
                 self.operations.setHeaderLabels([
-                    "Step", "Bend", "180°", "Target", "Current", "До гиба, мм",
-                    "Упор S, мм", "Status", "RETRACT", "Предгиб",
+                    tr("Шаг"), tr("Гиб"), "180°", tr("Цель"), tr("Текущий угол"), tr("До гиба, мм"),
+                    tr("Упор S, мм"), tr("Статус"), tr("Отвод"), tr("Предгиб"),
                 ])
                 self.operations.setDragDropMode(QtWidgets.QAbstractItemView.InternalMove)
                 self.operations.setDefaultDropAction(QtCore.Qt.MoveAction)
@@ -1934,14 +1926,7 @@ class _PreviewPanel:
                 )
                 self.operations.setObjectName("SMBS_Operations")
                 self.operations.setToolTip(
-                    "До гиба, мм: локальный размер по развёртке до ближайшей "
-                    "соседней линии гиба или края. Упор S, мм: визуальная "
-                    "установка от оси гиба до лицевой поверхности упора, "
-                    "рассчитанная по уже согнутой детали (с толщиной и радиусом); "
-                    "Меняется с положением заготовки. Кнопка «Короткой стороной к упору» "
-                    "подбирает положение для выбранного гиба. "
-                    "В ручном режиме отображается заданная позиция. "
-                    "Без проверки контакта или столкновений."
+                    tr("До гиба, мм: локальный размер по развёртке до ближайшей соседней линии гиба или края. Упор S, мм: визуальная установка от оси гиба до лицевой поверхности упора, рассчитанная по уже согнутой детали (с толщиной и радиусом); Меняется с положением заготовки. Кнопка «Короткой стороной к упору» подбирает положение для выбранного гиба. В ручном режиме отображается заданная позиция. Без проверки контакта или столкновений.")
                 )
                 self.operations.setAlternatingRowColors(True)
                 self.operations.setMinimumHeight(220)
@@ -2148,7 +2133,7 @@ class _PreviewPanel:
                 self._create_flat_scene()
                 views.addTab(self._flat_view, QtGui.QIcon(str(
                     _ICON_ROOT / "gui_sequence_catalog.svg"
-                )), "Развёртка · Порядок")
+                )), tr("Развёртка · Порядок"))
                 views.currentChanged.connect(self._on_view_changed)
 
                 controls = QtWidgets.QStackedWidget()
@@ -2216,12 +2201,11 @@ class _PreviewPanel:
                 style_action(self.play_btn, primary=True)
                 insert(playback_layout, entries[5])  # Reset / Prev / Play-Pause / Next / Fit
                 self.slider.setToolTip(
-                    "Ручной просмотр активной операции: двигайте ползунок "
-                    "вперёд или назад от начального до целевого угла."
+                    tr("Ручной просмотр активной операции: двигайте ползунок вперёд или назад от начального до целевого угла.")
                 )
                 insert(playback_layout, entries[6])  # angle slider
                 self._manual_preview_notice = QtWidgets.QLabel(
-                    "РУЧНОЙ ПРОСМОТР — коллизии не проверены"
+                    tr("РУЧНОЙ ПРОСМОТР — коллизии не проверены")
                 )
                 self._manual_preview_notice.setWordWrap(True)
                 self._manual_preview_notice.hide()
@@ -2230,21 +2214,20 @@ class _PreviewPanel:
                 self._coin_frame_status = QtWidgets.QLabel()
                 self._coin_frame_status.setWordWrap(True)
                 sim_body.addWidget(self._coin_frame_status)
-                self.machine_preview_checkbox = QtWidgets.QCheckBox("Показывать станок")
+                self.machine_preview_checkbox = QtWidgets.QCheckBox(tr("Показывать станок"))
                 self.machine_preview_checkbox.setChecked(True)
                 self.machine_preview_checkbox.toggled.connect(lambda: self.draw())
                 sim_body.addWidget(self.machine_preview_checkbox)
                 self._page_simulation = scroll_task_page(
                     simulation, "SMBS_SimulationScroll"
                 )
-                order_card, order_body = card("Ручной порядок гибов и проверка")
+                order_card, order_body = card(tr("Ручной порядок гибов и проверка"))
                 self.manual_order_input = QtWidgets.QLineEdit()
                 self.manual_order_input.setObjectName("SMBS_ManualOrderInput")
-                self.manual_order_input.setAccessibleName("Последовательность гибов")
-                self.manual_order_input.setPlaceholderText("Порядок, например 2-1-3-4")
+                self.manual_order_input.setAccessibleName(tr("Последовательность гибов"))
+                self.manual_order_input.setPlaceholderText(tr("Порядок, например 2-1-3-4"))
                 self.manual_order_input.setToolTip(
-                    "Введите номера линий с развёртки, например 2-1-3-4 "
-                    "или B02 B01 B03 B04. Enter применяет введённый порядок."
+                    tr("Введите номера линий с развёртки, например 2-1-3-4 или B02 B01 B03 B04. Enter применяет введённый порядок.")
                 )
                 self.manual_order_input.returnPressed.connect(self._apply_typed_manual_order)
                 order_body.addWidget(self.manual_order_input)
@@ -2275,21 +2258,18 @@ class _PreviewPanel:
                     QtWidgets.QPushButton(tr("Сохранённые варианты")), compact=True
                 )
                 self.saved_sequences_btn.setToolTip(
-                    "Загрузить ранее сохранённый ручной порядок из JSON "
-                    "текущего FCStd. При необходимости проверить его заново."
+                    tr("Загрузить ранее сохранённый ручной порядок из JSON текущего FCStd. При необходимости проверить его заново.")
                 )
                 self.saved_sequences_btn.clicked.connect(
                     self._select_saved_sequence
                 )
                 order_body.addWidget(self.saved_sequences_btn)
                 self.auto_orientation_checkbox = QtWidgets.QCheckBox(
-                    "Подбирать положение заготовки (0° / 180°)"
+                    tr("Подбирать положение заготовки (0° / 180°)")
                 )
                 self.auto_orientation_checkbox.setChecked(True)
                 self.auto_orientation_checkbox.setToolTip(
-                    "Для гибов с автоматически заданным положением OCC может "
-                    "проверить второе положение. Галочка в колонке «180°» "
-                    "закрепляет выбранное положение конкретного гиба."
+                    tr("Для гибов с автоматически заданным положением OCC может проверить второе положение. Галочка в колонке «180°» закрепляет выбранное положение конкретного гиба.")
                 )
                 self.auto_orientation_checkbox.setParent(self)
                 self.auto_orientation_checkbox.hide()
@@ -2304,8 +2284,7 @@ class _PreviewPanel:
                     QtWidgets.QPushButton(tr("Симулировать без проверки")), compact=True
                 )
                 self.manual_simulate_btn.setToolTip(
-                    "Просмотреть ручной порядок. Если есть актуальный 3D-результат, "
-                    "симуляция использует положения из этой проверки."
+                    tr("Просмотреть ручной порядок. Если есть актуальный 3D-результат, симуляция использует положения из этой проверки.")
                 )
                 self.manual_simulate_btn.clicked.connect(
                     lambda: self.simulate_manual_order_unverified()
@@ -2318,46 +2297,38 @@ class _PreviewPanel:
                     "SMBS_ManualNative3DCheck"
                 )
                 self.manual_validate_3d_btn.setToolTip(
-                    "Проверить выбранные гибы с реальными FCStd пуансоном и матрицей. "
-                    "Показать 3D-позу и результат проверки. Проверка подведения, "
-                    "гибки и отвода пуансона может занять несколько минут."
+                    tr("Проверить выбранные гибы с реальными FCStd пуансоном и матрицей. Показать 3D-позу и результат проверки. Проверка подведения, гибки и отвода пуансона может занять несколько минут.")
                 )
                 self.manual_validate_3d_btn.clicked.connect(
                     lambda: self._validate_export_manual_order(show_preview=True)
                 )
                 self.manual_lift_probe_btn = style_action(
-                    QtWidgets.QPushButton("Проверить подъём OCC и показать движение"),
+                    QtWidgets.QPushButton(tr("Проверить подъём OCC и показать движение")),
                     compact=True,
                 )
                 self.manual_lift_probe_btn.setObjectName("SMBS_ManualAssistedRetractProbe")
                 self.manual_lift_probe_btn.setToolTip(
-                    "Доступно после подтверждённой коллизии с пуансоном при его "
-                    "подъёме (RETRACT). Проверяет альтернативные OCC-позы и "
-                    "включает синхронный подъём в симуляции только при отсутствии "
-                    "нового блокера. Исходный COLLISION остаётся."
+                    tr("Доступно после подтверждённой коллизии с пуансоном при его подъёме (RETRACT). Проверяет альтернативные OCC-позы и включает синхронный подъём в симуляции только при отсутствии нового блокера. Исходный COLLISION остаётся.")
                 )
                 self.manual_lift_probe_btn.clicked.connect(self._inspect_assisted_retract)
                 self.manual_lift_probe_btn.setEnabled(False)
                 self.manual_lift_preview_btn = style_action(
-                    QtWidgets.QPushButton("Показать совместный подъём в симуляции"),
+                    QtWidgets.QPushButton(tr("Показать совместный подъём в симуляции")),
                     compact=True,
                 )
                 self.manual_lift_preview_btn.setObjectName("SMBS_ManualAssistedRetractPreview")
                 self.manual_lift_preview_btn.setToolTip(
-                    "Запустить весь выбранный порядок в режиме Full Cycle; "
-                    "на отмеченном гибе показать предполагаемый подъём детали "
-                    "вместе с пуансоном. Исходная коллизия остаётся."
+                    tr("Запустить весь выбранный порядок в режиме Full Cycle; на отмеченном гибе показать предполагаемый подъём детали вместе с пуансоном. Исходная коллизия остаётся.")
                 )
                 self.manual_lift_preview_btn.clicked.connect(self._play_assisted_retract_preview)
                 self.manual_lift_preview_btn.setEnabled(False)
                 self.manual_release_probe_btn = style_action(
-                    QtWidgets.QPushButton("Проверить боковой вывод детали OCC"),
+                    QtWidgets.QPushButton(tr("Проверить боковой вывод детали OCC")),
                     compact=True,
                 )
                 self.manual_release_probe_btn.setObjectName("SMBS_ManualAssistedReleaseProbe")
                 self.manual_release_probe_btn.setToolTip(
-                    "После проверки подъёма исследовать вывод детали в обе "
-                    "стороны по машинной Y. Промежутки и удержание не доказаны."
+                    tr("После проверки подъёма исследовать вывод детали в обе стороны по машинной Y. Промежутки и удержание не доказаны.")
                 )
                 self.manual_release_probe_btn.clicked.connect(self._inspect_assisted_release)
                 self.manual_release_probe_btn.setEnabled(False)
@@ -2370,15 +2341,14 @@ class _PreviewPanel:
                 self.manual_release_probe_btn.setParent(self)
                 self.manual_release_probe_btn.hide()
                 self.manual_lift_probe_hint = QtWidgets.QLabel(
-                    "Подъём детали: сначала найдите коллизию пуансона на RETRACT. "
-                    "Проверка остаётся экспериментальной."
+                    tr("Подъём детали: сначала найдите коллизию пуансона на RETRACT. Проверка остаётся экспериментальной.")
                 )
                 self.manual_lift_probe_hint.setWordWrap(True)
                 self.manual_lift_probe_hint.hide()
                 # Verification must have a visible result in the Manual
                 # workspace, not a file-save dialog as its only feedback.
                 self.manual_check_summary = QtWidgets.QLabel(
-                    "Выберите гибы и запустите проверку."
+                    tr("Выберите гибы и запустите проверку.")
                 )
                 self.manual_check_summary.setWordWrap(True)
                 self.manual_check_summary.setObjectName("SMBS_ManualCheckSummary")
@@ -2389,7 +2359,7 @@ class _PreviewPanel:
                 self.manual_check_details.setReadOnly(True)
                 self.manual_check_details.setMaximumHeight(160)
                 self.manual_check_details.setPlaceholderText(
-                    "Здесь появятся результаты по каждому проверенному гибу."
+                    tr("Здесь появятся результаты по каждому проверенному гибу.")
                 )
                 self.manual_check_details.hide()
                 order_body.addWidget(self.manual_check_details)
@@ -2400,9 +2370,7 @@ class _PreviewPanel:
                     "SMBS_ShowNativeCollision"
                 )
                 self.manual_show_collision_btn.setToolTip(
-                    "Открыть 3D-вьювер с фактическим положением детали "
-                    "в момент найденного пересечения. Красные границы "
-                    "соответствуют объёму OCC Common."
+                    tr("Открыть 3D-вьювер с фактическим положением детали в момент найденного пересечения. Красные границы соответствуют объёму OCC Common.")
                 )
                 self.manual_show_collision_btn.clicked.connect(
                     self._show_first_collision_in_3d
@@ -2410,17 +2378,14 @@ class _PreviewPanel:
                 self.manual_show_collision_btn.setEnabled(False)
                 self.manual_show_collision_btn.hide()
                 self.manual_exact_occ_btn = style_action(
-                    QtWidgets.QPushButton("Открыть точное пересечение OCC"),
+                    QtWidgets.QPushButton(tr("Открыть точное пересечение OCC")),
                     compact=True,
                 )
                 self.manual_exact_occ_btn.setObjectName(
                     "SMBS_OpenExactNativeOCCCollision"
                 )
                 self.manual_exact_occ_btn.setToolTip(
-                    "Открыть отдельный несохранённый документ FreeCAD с "
-                    "реальными FCStd-пуансоном и матрицей, деталью "
-                    "в момент столкновения и точным красным OCC Common. "
-                    "В дереве видимости можно скрывать любые объекты."
+                    tr("Открыть отдельный несохранённый документ FreeCAD с реальными FCStd-пуансоном и матрицей, деталью в момент столкновения и точным красным OCC Common. В дереве видимости можно скрывать любые объекты.")
                 )
                 self.manual_exact_occ_btn.clicked.connect(
                     self._open_exact_collision_inspector
@@ -2433,17 +2398,14 @@ class _PreviewPanel:
                 # Keep the live sequence directly beneath the fixed controls.
                 playback_layout.addWidget(self.operations, 1)
                 self.fast_save_template_btn = style_action(
-                    QtWidgets.QPushButton("Сохранить проверенную схему гибки"),
+                    QtWidgets.QPushButton(tr("Сохранить проверенную схему гибки")),
                     compact=True,
                 )
                 self.fast_save_template_btn.setObjectName(
                     "SMBS_SaveOperatorBendTemplate"
                 )
                 self.fast_save_template_btn.setToolTip(
-                    "Сохранить известный оператору правильный порядок и "
-                    "развороты как геометрический шаблон для будущих "
-                    "развёрток. Требует ручного подтверждения; НЕ "
-                    "создаёт сертификат проверки столкновений."
+                    tr("Сохранить известный оператору правильный порядок и развороты как геометрический шаблон для будущих развёрток. Требует ручного подтверждения; НЕ создаёт сертификат проверки столкновений.")
                 )
                 self.fast_save_template_btn.clicked.connect(
                     self._save_operator_bend_template
@@ -2454,7 +2416,7 @@ class _PreviewPanel:
                                self.saved_sequences_btn, self.manual_check_summary):
                     widget.hide()
                 select_lines.setText("☷")
-                select_lines.setToolTip("Выбрать линии гиба / изменить порядок")
+                select_lines.setToolTip(tr("Выбрать линии гиба / изменить порядок"))
                 select_lines.setFixedSize(27, 27)
                 fit_layout = self._playback_button_grid
                 index = fit_layout.indexOf(self.fit_btn)
@@ -2467,18 +2429,18 @@ class _PreviewPanel:
                 for button in (self.move_up_btn, self.move_down_btn,
                                self.restore_order_btn, self.manual_undo_btn):
                     edit_layout.addWidget(button)
-                cancel_edit = QtWidgets.QPushButton("Cancel")
-                self.manual_undo_btn.setText("Back")
+                cancel_edit = QtWidgets.QPushButton(tr("Отмена"))
+                self.manual_undo_btn.setText(tr("Назад"))
                 edit_layout.addWidget(cancel_edit)
                 for button, text, hint in (
-                    (self.move_up_btn, "↑", "Move Up — переместить вверх"),
-                    (self.move_down_btn, "↓", "Move Down — переместить вниз"),
-                    (self.restore_order_btn, "↺", "Restore — восстановить порядок"),
-                    (self.manual_undo_btn, "←", "Back — отменить последнюю линию"),
-                    (cancel_edit, "✕", "Cancel — отменить редактирование"),
+                    (self.move_up_btn, "↑", "Переместить вверх"),
+                    (self.move_down_btn, "↓", "Переместить вниз"),
+                    (self.restore_order_btn, "↺", "Восстановить порядок"),
+                    (self.manual_undo_btn, "←", "Отменить последнюю линию"),
+                    (cancel_edit, "✕", "Отменить редактирование"),
                 ):
                     button.setText(text)
-                    button.setToolTip(hint)
+                    button.setToolTip(tr(hint))
                     button.setMinimumWidth(24)
                     button.setMaximumWidth(16777215)
                     button.setFixedHeight(27)
@@ -2498,7 +2460,7 @@ class _PreviewPanel:
                     self._toggle_manual_order(False)
                     edit_controls.hide()
                     select_lines.setText("☷")
-                    select_lines.setToolTip("Выбрать линии гиба / изменить порядок")
+                    select_lines.setToolTip(tr("Выбрать линии гиба / изменить порядок"))
                     for button in playback_buttons:
                         button.show()
                     if self.session is not None:
@@ -2516,7 +2478,7 @@ class _PreviewPanel:
                         self.activate_manual_mode()
                         edit_controls.show()
                         select_lines.setText("✓")
-                        select_lines.setToolTip("Применить порядок гибов")
+                        select_lines.setToolTip(tr("Применить порядок гибов"))
                         for button in playback_buttons:
                             button.hide()
                         self._update_operations_visual_state()
@@ -2528,7 +2490,7 @@ class _PreviewPanel:
                     QtWidgets.QPushButton(tr("Коллизии Mesh")), compact=True,
                 )
                 self.mesh_show_collision_btn.setToolTip(
-                    "Следующая подтверждённая коллизия. После последней — обычный вид."
+                    tr("Следующая подтверждённая коллизия. После последней — обычный вид.")
                 )
                 self.mesh_show_collision_btn.clicked.connect(self._show_next_mesh_collision)
                 self.mesh_show_collision_btn.hide()
@@ -2537,17 +2499,16 @@ class _PreviewPanel:
 
                 # RETRACT warning belongs to Settings, not Simulation.
                 self.retract_warning_checkbox = QtWidgets.QCheckBox(
-                    "RETRACT: продолжать 2D-поиск\nс предупреждением"
+                    tr("RETRACT: продолжать 2D-поиск\nс предупреждением")
                 )
                 self.retract_warning_checkbox.setChecked(False)
                 self.retract_warning_checkbox.setToolTip(
-                    "Диагностическое продолжение, а не физический допуск. "
-                    "Пересечения APPROACH, BENDING, BOTTOM и упора блокируют поиск."
+                    tr("Диагностическое продолжение, а не физический допуск. Пересечения APPROACH, BENDING, BOTTOM и упора блокируют поиск.")
                 )
 
                 tooling = QtWidgets.QWidget()
                 td_layout = QtWidgets.QVBoxLayout(tooling)
-                tooling_card, tooling_body = card("Оснастка и станок")
+                tooling_card, tooling_body = card(tr("Оснастка и станок"))
                 # One tooling context from the native toolbar, with exactly
                 # two internal pages requested by the operator.
                 tool_main = QtWidgets.QWidget()
@@ -2575,8 +2536,8 @@ class _PreviewPanel:
                 self.select_die_combo.setSizePolicy(
                     QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed
                 )
-                tool_main_layout.addRow("Punch", self.select_punch_combo)
-                tool_main_layout.addRow("Die", self.select_die_combo)
+                tool_main_layout.addRow(tr("Пуансон"), self.select_punch_combo)
+                tool_main_layout.addRow(tr("Матрица"), self.select_die_combo)
                 # Keep diagnostics in the shared task status area, not
                 # as an extra paragraph below the two selectors.
                 self.tooling_status.setParent(self)
@@ -2604,7 +2565,7 @@ class _PreviewPanel:
                 advanced_layout.setContentsMargins(0, 0, 0, 0)
                 advanced_layout.setSpacing(SECTION_GAP)
 
-                cycle_card, cycle_body = card("Режим симуляции")
+                cycle_card, cycle_body = card(tr("Режим симуляции"))
                 self.press_cycle_group.setTitle("")
                 self.press_cycle_group.setFlat(True)
                 style_action(self.cycle_config_btn)
@@ -2613,12 +2574,12 @@ class _PreviewPanel:
                 self.retract_warning_checkbox.hide()
                 settings_layout.addWidget(cycle_card)
 
-                tool_opts_card, tool_opts_layout = card("Оснастка — параметры")
+                tool_opts_card, tool_opts_layout = card(tr("Оснастка — параметры"))
                 tool_opts_layout.addWidget(self.virtual_tool_len_checkbox)
                 zone_row = QtWidgets.QGridLayout()
                 zone_row.setHorizontalSpacing(SECTION_GAP)
                 end_zone_caption = QtWidgets.QLabel(
-                    "Концевая зона пуансона (мм):"
+                    tr("Концевая зона пуансона (мм):")
                 )
                 end_zone_caption.setWordWrap(True)
                 zone_row.addWidget(end_zone_caption, 0, 0)
@@ -2637,10 +2598,10 @@ class _PreviewPanel:
                 }
 
                 diagnostics_card, diagnostics_body = card(
-                    "Результаты / Диагностика"
+                    tr("Результаты / Диагностика")
                 )
                 self._simulation_diagnostics_summary = QtWidgets.QLabel(
-                    "Unverified · физическая проверка ещё не выполнена"
+                    tr("Проверка коллизий ещё не выполнена")
                 )
                 self._simulation_diagnostics_summary.setObjectName(
                     "SMBS_SectionCaption"
@@ -2671,13 +2632,12 @@ class _PreviewPanel:
                 self.trace_status = QtWidgets.QLabel(self)
                 self.trace_status.hide()
 
-                fcstd_card, fcstd_body = card("Данные SMBS в документе FCStd")
+                fcstd_card, fcstd_body = card(tr("Данные SMBS в документе FCStd"))
                 self.fcstd_save_btn = style_action(
                     QtWidgets.QPushButton(tr("Сохранить в FCStd")), compact=True
                 )
                 self.fcstd_save_btn.setToolTip(
-                    "Вложить JSON с порядком гибов, настройками и историей "
-                    "проверок в этот документ и сохранить FCStd"
+                    tr("Вложить JSON с порядком гибов, настройками и историей проверок в этот документ и сохранить FCStd")
                 )
                 self.fcstd_save_btn.clicked.connect(
                     self._save_embedded_smbs_json_clicked
@@ -2686,8 +2646,7 @@ class _PreviewPanel:
                     QtWidgets.QPushButton(tr("Восстановить из FCStd")), compact=True
                 )
                 self.fcstd_load_btn.setToolTip(
-                    "Восстановить сохранённый порядок и настройки. "
-                    "Исторические результаты не считаются проверенными."
+                    tr("Восстановить сохранённый порядок и настройки. Исторические результаты не считаются проверенными.")
                 )
                 self.fcstd_load_btn.clicked.connect(
                     self._restore_embedded_smbs_json_clicked
@@ -2698,8 +2657,7 @@ class _PreviewPanel:
                 fcstd_buttons.addStretch(1)
                 fcstd_body.addLayout(fcstd_buttons)
                 self.fcstd_note = QtWidgets.QLabel(
-                    "JSON автоматически вкладывается при Ctrl+S после загрузки "
-                    "детали. История проверки — только справочная."
+                    tr("JSON автоматически вкладывается при Ctrl+S после загрузки детали. История проверки — только справочная.")
                 )
                 self.fcstd_note.setWordWrap(True)
                 # Detailed save/restore feedback is already shown in the
@@ -2712,8 +2670,7 @@ class _PreviewPanel:
                 advanced_toggle.setCheckable(True)
                 advanced_toggle.setChecked(False)
                 advanced_toggle.setToolTip(
-                    "Параметры оснастки, дополнительные OCC проверки "
-                    "и диагностические записи"
+                    tr("Параметры оснастки, дополнительные OCC проверки и диагностические записи")
                 )
                 advanced_toggle.toggled.connect(advanced.setVisible)
                 settings_layout.addWidget(advanced_toggle)
@@ -2928,7 +2885,7 @@ class _PreviewPanel:
             def _choose_trace_directory(self):
                 if self.motion_trace is not None and self.motion_trace.is_open:
                     self.trace_status.setText(
-                        "Сначала завершите текущую запись перед сменой папки."
+                        tr("Сначала завершите текущую запись перед сменой папки.")
                     )
                     return
                 chosen = QtWidgets.QFileDialog.getExistingDirectory(
@@ -2970,7 +2927,7 @@ class _PreviewPanel:
                 if self.session is None:
                     if manual:
                         self.trace_status.setText(
-                            "Запись невозможна: сначала загрузите деталь."
+                            tr("Запись невозможна: сначала загрузите деталь.")
                         )
                     return
                 if not manual and not self.trace_checkbox.isChecked():
@@ -3215,7 +3172,7 @@ class _PreviewPanel:
                 viewer = self._preview_3d
                 if self.session is None:
                     viewer.clear_preview()
-                    self._coin_frame_status.setText("Загрузите развёртку SheetMetal.")
+                    self._coin_frame_status.setText(tr("Загрузите развёртку SheetMetal."))
                     return True
                 if not viewer._available:
                     message = "Coin3D недоступен. Проверьте pivy.coin в Python FreeCAD."
@@ -3460,7 +3417,7 @@ class _PreviewPanel:
 
                 self.select_punch_combo.blockSignals(True)
                 self.select_punch_combo.clear()
-                self.select_punch_combo.addItem("— Не выбран —", None)
+                self.select_punch_combo.addItem(tr("— Не выбран —"), None)
                 for idx, p in enumerate(punches, 1):
                     self.select_punch_combo.addItem(f"{p.name} ({p.validation_status.value})", p.tool_id)
                     if cur_p == p.tool_id:
@@ -3469,7 +3426,7 @@ class _PreviewPanel:
 
                 self.select_die_combo.blockSignals(True)
                 self.select_die_combo.clear()
-                self.select_die_combo.addItem("— Не выбрана —", None)
+                self.select_die_combo.addItem(tr("— Не выбрана —"), None)
                 for idx, d in enumerate(dies, 1):
                     self.select_die_combo.addItem(f"{d.name} ({d.validation_status.value})", d.tool_id)
                     if cur_d == d.tool_id:
@@ -3478,7 +3435,7 @@ class _PreviewPanel:
 
             def _show_bend_information(self):
                 if self.session is None:
-                    self.status.setText("Сначала загрузите развёртку.")
+                    self.status.setText(tr("Сначала загрузите развёртку."))
                     return
                 if not self._apply_typed_manual_order():
                     return
@@ -3564,8 +3521,8 @@ class _PreviewPanel:
                     prefix_count if 0 < prefix_count < len(self.session.bend_order) else None
                 )
                 self._highlighted_end_zone_info = None
-                self.physical_check_result.setText("Оснастка изменилась. Текущий набор ещё не проверен.")
-                self._manual_preview_notice.setText("РУЧНОЙ ПРОСМОТР — коллизии не проверены")
+                self.physical_check_result.setText(tr("Оснастка изменилась. Текущий набор ещё не проверен."))
+                self._manual_preview_notice.setText(tr("РУЧНОЙ ПРОСМОТР — коллизии не проверены"))
                 self._sync_tooling_to_active_bend()
                 self._update_operations_visual_state()
                 self.draw()
@@ -3634,7 +3591,7 @@ class _PreviewPanel:
                 self._close_tool_assembly_report()
                 if self.tooling_setup.tool_assembly is not None:
                     self._apply_tool_assembly(None)
-                    self.status.setText("Склад или зажимы изменились. Подберите набор заново.")
+                    self.status.setText(tr("Склад или зажимы изменились. Подберите набор заново."))
                 elif kind is None:
                     self.draw()
 
@@ -3648,10 +3605,10 @@ class _PreviewPanel:
                 )
 
                 if self.session is None:
-                    self.status.setText("Загрузите деталь перед подбором набора.")
+                    self.status.setText(tr("Загрузите деталь перед подбором набора."))
                     return
                 if self._task_progress_busy or self.timer.isActive() or self.playing:
-                    self.status.setText("Остановите симуляцию или дождитесь окончания проверки.")
+                    self.status.setText(tr("Остановите симуляцию или дождитесь окончания проверки."))
                     return
                 if not self._apply_typed_manual_order():
                     return
@@ -3755,7 +3712,7 @@ class _PreviewPanel:
                 dialog = QtWidgets.QDialog(self)
                 layout = QtWidgets.QVBoxLayout(dialog)
                 bend_picker = QtWidgets.QComboBox()
-                bend_picker.setAccessibleName("Гиб для предпросмотра секций")
+                bend_picker.setAccessibleName(tr("Гиб для предпросмотра секций"))
                 for bend_id, plan in reports:
                     bend_picker.addItem(f"{bend_id} · {plan['required_mm']:.2f} мм", bend_id)
                 current = bend_picker.findData(self.session.active_bend_id)
@@ -3768,11 +3725,11 @@ class _PreviewPanel:
                 feedback = QtWidgets.QLabel()
                 feedback.setWordWrap(True)
                 layout.addWidget(feedback)
-                apply_btn = QtWidgets.QPushButton("Применить общий набор")
+                apply_btn = QtWidgets.QPushButton(tr("Применить общий набор"))
                 apply_btn.setObjectName("SMBS_ApplyCommonToolAssembly")
-                apply_btn.setToolTip("Один комплект на выбранный порядок по длине самого длинного гиба.")
+                apply_btn.setToolTip(tr("Один комплект на выбранный порядок по длине самого длинного гиба."))
                 layout.addWidget(apply_btn)
-                clear_btn = QtWidgets.QPushButton("Снять общий набор")
+                clear_btn = QtWidgets.QPushButton(tr("Снять общий набор"))
                 layout.addWidget(clear_btn)
 
                 plans_by_bend = dict(reports)
@@ -3790,7 +3747,7 @@ class _PreviewPanel:
                                 "die": spans_for(plan, "die")}
                     if punch_plan.get("clamps", {}).get("proposed_reposition"):
                         sections = {}
-                        feedback.setText("Для предпросмотра задайте позиции или число лапок на станке.")
+                        feedback.setText(tr("Для предпросмотра задайте позиции или число лапок на станке."))
                     elif sections["punch"]:
                         lengths = " + ".join(f"{hi - lo:g}" for lo, hi in sections["punch"])
                         feedback.setText(f"{bend_id} · Пуансон {lengths} мм в Coin3D. "
@@ -3830,7 +3787,7 @@ class _PreviewPanel:
 
                 def apply_common():
                     if self._task_progress_busy or self.timer.isActive() or self.playing:
-                        feedback.setText("Остановите симуляцию или дождитесь окончания проверки.")
+                        feedback.setText(tr("Остановите симуляцию или дождитесь окончания проверки."))
                         return
                     try:
                         order = self._tool_assembly_order()
@@ -3846,19 +3803,19 @@ class _PreviewPanel:
                         punch_sections=assembly.punch_spans_xm, die_sections=assembly.die_spans_xm,
                         clamp_zones=assembly.clamp_spans_xm,
                     )
-                    feedback.setText("Общий набор применён. Коллизии проверяются кнопками OCC.")
+                    feedback.setText(tr("Общий набор применён. Запустите Mesh для проверки коллизий."))
                     update_report()
 
                 def clear_common():
                     end_preview()
                     self._apply_tool_assembly(None)
-                    feedback.setText("Возвращена исходная оснастка.")
+                    feedback.setText(tr("Возвращена исходная оснастка."))
                     update_report()
 
                 update_report()
                 apply_btn.clicked.connect(apply_common)
                 clear_btn.clicked.connect(clear_common)
-                embed_task_dialog(self, dialog, "Раскладка оснастки", "tool_assembly")
+                embed_task_dialog(self, dialog, tr("Раскладка оснастки"), "tool_assembly")
                 dialog.finished.connect(end_preview)
                 bend_picker.currentIndexChanged.connect(preview_bend)
                 preview_bend()
@@ -3931,12 +3888,9 @@ class _PreviewPanel:
 
                 msg_box = QtWidgets.QMessageBox(self)
                 msg_box.setIcon(QtWidgets.QMessageBox.Warning)
-                msg_box.setWindowTitle("Концевое пересечение с пуансоном (CONDITIONAL)")
+                msg_box.setWindowTitle(tr("Концевое пересечение с пуансоном (CONDITIONAL)"))
                 msg_box.setText(
-                    "Обнаружено пересечение детали с концевой зоной пуансона.\n"
-                    "Для этой операции может потребоваться пуансон с вырезом на конце.\n"
-                    "Подходящая геометрия такого инструмента ещё не проверена.\n"
-                    "Продолжить проверку в условном режиме?"
+                    tr("Обнаружено пересечение детали с концевой зоной пуансона.\nДля этой операции может потребоваться пуансон с вырезом на конце.\nПодходящая геометрия такого инструмента ещё не проверена.\nПродолжить проверку в условном режиме?")
                 )
                 msg_box.setInformativeText(
                     "Операция/гиб: {}\n"
@@ -3973,7 +3927,7 @@ class _PreviewPanel:
                         or self.playing
                         or self.timer.isActive()):
                     self.status.setText(
-                        "Шаблон: остановите симуляцию и загрузите деталь."
+                        tr("Шаблон: остановите симуляцию и загрузите деталь.")
                     )
                     return
                 controller = self.session.controller
@@ -4053,13 +4007,12 @@ class _PreviewPanel:
                 """Opt-in bounded shortlist; NEVER claim 3D clearance."""
                 import FreeCADGui as Gui
                 if self.session is None:
-                    self.status.setText("FAST: сначала загрузите развёртку SheetMetal.")
+                    self.status.setText(tr("FAST: сначала загрузите развёртку SheetMetal."))
                     return
                 if (self._task_progress_busy or self.playing or self.timer.isActive()
                         or not self.session.can_reorder()):
                     self.status.setText(
-                        "FAST: остановите симуляцию и нажмите Reset "
-                        "перед поиском и изменением последовательности."
+                        tr("FAST: остановите симуляцию и нажмите Reset перед поиском и изменением последовательности.")
                     )
                     return
                 existing = getattr(self, "_fast_result_dialog", None)
@@ -4188,28 +4141,15 @@ class _PreviewPanel:
                 dialog.setMinimumWidth(610)
                 dialog.setMinimumHeight(300)
                 layout = QtWidgets.QVBoxLayout(dialog)
-                hint = QtWidgets.QLabel(
-                    "BFM-lite + Bitmask + Beam Search: {:.3f} с, "
-                    "состояний {}, переходов {}. "
-                    "Проверка грубой ошибки установки на оси: {} проверок, "
-                    "оштрафовано {} переходов, {} неопределённых. "
-                    "Причины указаны в SMBS_debug_log.json. "
-                    "Точно совпадающие геометрические шаблоны, если они "
-                    "сохранены оператором, предлагаются первыми и "
-                    "повторно проходят 2D-проверку. "
-                    "При ранжировании учитываются короткая сторона к упору, "
-                    "возможное перекрытие вложенных гибов и разнообразие "
-                    "начальных операций. Это только эвристики. "
-                    "Коллизии пуансона, матрицы, упора, зажимов и движение "
-                    "заготовки НЕ проверены. Выбор варианта только "
-                    "для ручной симуляции и последующей OCC-проверки.".format(
-                        report.elapsed_seconds, report.explored_states,
-                        report.expanded_transitions,
-                        report.axis_screen_checks,
-                        report.axis_screen_penalized,
-                        report.axis_screen_unknown,
-                    )
-                )
+                hint = QtWidgets.QLabel(tr(
+                    "FAST: {seconds:.3f} с, состояний: {states}, переходов: {transitions}. "
+                    "2D-проверки на оси: {checks}, со штрафом: {penalized}, без вывода: {unknown}. "
+                    "Сохранённые шаблоны предлагаются первыми и перепроверяются в 2D. "
+                    "Варианты требуют проверки в Mesh.",
+                    seconds=report.elapsed_seconds, states=report.explored_states,
+                    transitions=report.expanded_transitions, checks=report.axis_screen_checks,
+                    penalized=report.axis_screen_penalized, unknown=report.axis_screen_unknown,
+                ))
                 hint.setWordWrap(True)
                 layout.addWidget(hint)
                 # Use a native sortable QTableWidget, not a flattened
@@ -4309,7 +4249,7 @@ class _PreviewPanel:
                 feedback_rounds = [0]
                 ranked_once = [False]
                 show_rejected = QtWidgets.QCheckBox(
-                    "Показывать исключённые грубой 2D-проверкой",
+                    tr("Показывать исключённые грубой 2D-проверкой"),
                     dialog,
                 )
                 show_rejected.setObjectName(
@@ -4353,17 +4293,11 @@ class _PreviewPanel:
                     choices.setRowCount(len(order))
                     if screen_report is None:
                         coarse_status.setText(
-                            "Предварительная проверка пуансона и матрицы "
-                            "ещё не выполнена."
+                            tr("Предварительная проверка пуансона и матрицы ещё не выполнена.")
                         )
                     elif not order and not show_rejected.isChecked():
                         coarse_status.setText(
-                            "Не найдено ни одной последовательности без "
-                            "обнаруженного грубого 2D-препятствия. "
-                            "Показаны 0 вариантов: это НЕ означает, "
-                            "что деталь невозможно согнуть. "
-                            "Можно открыть отклонённые варианты "
-                            "для диагностики или изменить оснастку."
+                            tr("Не найдено ни одной последовательности без обнаруженного грубого 2D-препятствия. Показаны 0 вариантов: это НЕ означает, что деталь невозможно согнуть. Можно открыть отклонённые варианты для диагностики или изменить оснастку.")
                         )
                     else:
                         coarse_status.setText(
@@ -4504,9 +4438,7 @@ class _PreviewPanel:
                     choices.resizeRowsToContents()
 
                 legend = QtWidgets.QLabel(
-                    "✅ Нет пересечений в проверенных 2D-сечениях "
-                    "(не 3D-допуск)    ⚠️ Не проверено / лимит времени    "
-                    "❌ Возможное 2D-препятствие (требует проверки)"
+                    tr("✅ Нет пересечений в проверенных 2D-сечениях (не 3D-допуск)    ⚠️ Не проверено / лимит времени    ❌ Возможное 2D-препятствие (требует проверки)")
                 )
                 legend.setWordWrap(True)
                 layout.addWidget(legend)
@@ -4579,7 +4511,7 @@ class _PreviewPanel:
                             self.session.controller is not controller or
                             tuple(controller.operation_steps) != operations):
                         hint.setText(
-                            "2D: набор операций изменился, повторите FAST."
+                            tr("2D: набор операций изменился, повторите FAST.")
                         )
                         return
                     from smbs_core.kinematics2d.fast_shortlist_screening import (
@@ -4594,9 +4526,7 @@ class _PreviewPanel:
                         budget_seconds=3.0,
                     )
                     hint.setText(
-                        "FAST-поиск завершён. Выполняется отдельная "
-                        "предварительная 2D-проверка (бюджет 3 с). "
-                        "Ни один результат не является допуском 3D."
+                        tr("FAST-поиск завершён. Выполняется отдельная предварительная 2D-проверка (бюджет 3 с). Ни один результат не является допуском 3D.")
                     )
                     try:
                         screen = screen_fast_shortlist(
@@ -4955,9 +4885,9 @@ class _PreviewPanel:
                     dialog,
                 )
                 buttons.button(QtWidgets.QDialogButtonBox.Ok).setText(
-                    "Применить непроверенный вариант"
+                    tr("Применить непроверенный вариант")
                 )
-                buttons.button(QtWidgets.QDialogButtonBox.Cancel).setText("Закрыть")
+                buttons.button(QtWidgets.QDialogButtonBox.Cancel).setText(tr("Закрыть"))
                 buttons.accepted.connect(dialog.accept)
                 buttons.rejected.connect(dialog.reject)
                 layout.addWidget(buttons)
@@ -5032,7 +4962,7 @@ class _PreviewPanel:
                         or not self.session.can_reorder()
                         or tuple(controller.operation_steps) != operations):
                     self.status.setText(
-                        "FAST: деталь или операции изменились; повторите поиск."
+                        tr("FAST: деталь или операции изменились; повторите поиск.")
                     )
                     return
                 original_order = tuple(self.session.bend_order)
@@ -5200,12 +5130,12 @@ class _PreviewPanel:
             def _select_saved_sequence(self):
                 """Use an archived order as UNVERIFIED, never as a collision pass."""
                 if self.session is None:
-                    self.status.setText("Сначала загрузите деталь.")
+                    self.status.setText(tr("Сначала загрузите деталь."))
                     return
                 saved = tuple(self._saved_full_sequences)
                 if not saved:
                     self.status.setText(
-                        "Сохранённых полных 2D вариантов пока нет."
+                        tr("Сохранённых полных 2D вариантов пока нет.")
                     )
                     return
                 labels = [
@@ -5223,7 +5153,7 @@ class _PreviewPanel:
                 if (len(order) != len(self.session.canonical_order)
                         or set(order) != set(self.session.canonical_order)):
                     self.status.setText(
-                        "Вариант не соответствует текущей детали."
+                        tr("Вариант не соответствует текущей детали.")
                     )
                     return
                 self._stop_timer()
@@ -5252,8 +5182,7 @@ class _PreviewPanel:
                 self.draw()
                 self._draw_flat_pattern(reset_camera=False)
                 self.physical_check_result.setText(
-                    "UNVERIFIED: исторический вариант из FCStd. "
-                    "Повторите проверку коллизий."
+                    tr("UNVERIFIED: исторический вариант из FCStd. Повторите проверку коллизий.")
                 )
                 self.status.setText(
                     "Сохранённый порядок выбран: {} | UNVERIFIED"
@@ -5278,22 +5207,25 @@ class _PreviewPanel:
                     ram_stroke = float(getattr(self.press_cycle, "ram_stroke_mm", 0.0) or 0.0)
                     lift = self.press_cycle.assisted_retract_lift_mm()
                     self.cycle_phase_label.setText(
-                        f"Cycle Phase: {phase_val} ({sim_val} | {contact_val})"
-                        + (f" | предполагаемый подъём +{lift:.2f} мм, UNVERIFIED"
+                        tr("Фаза цикла: {phase} ({mode} | {contact})",
+                           phase=phase_val, mode=sim_val, contact=contact_val)
+                        + (tr(" | предполагаемый подъём +{lift:.2f} мм, не проверено", lift=lift)
                            if lift > 0.0 else "")
                     )
                     self.ram_position_label.setText(
-                        f"Ram Position: {ram_z:+.2f} mm (Stroke: {ram_stroke:.2f} mm)"
+                        tr("Положение пуансона: {height:+.2f} мм (ход: {stroke:.2f} мм)",
+                           height=ram_z, stroke=ram_stroke)
                     )
                 else:
                     sim_val = getattr(getattr(self.cycle_config, "simulation_mode", None), "value", "NORMAL")
                     ram_z = float(getattr(self.tooling_setup, "ram_z_mm", 0.0) or 0.0)
                     ram_stroke = float(getattr(self.tooling_setup, "ram_stroke_mm", 0.0) or 0.0)
                     self.cycle_phase_label.setText(
-                        f"Cycle Phase: IDLE ({sim_val})"
+                        tr("Фаза цикла: ожидание ({mode})", mode=sim_val)
                     )
                     self.ram_position_label.setText(
-                        f"Ram Position: {ram_z:+.2f} mm (Stroke: {ram_stroke:.2f} mm)"
+                        tr("Положение пуансона: {height:+.2f} мм (ход: {stroke:.2f} мм)",
+                           height=ram_z, stroke=ram_stroke)
                     )
 
             def _rear_frame_for_preview(self, index=None):
@@ -5332,7 +5264,7 @@ class _PreviewPanel:
                 if not explicitly_set:
                     return
                 menu = QtWidgets.QMenu(self.operations)
-                automatic = menu.addAction("Подбирать положение автоматически")
+                automatic = menu.addAction(tr("Подбирать положение автоматически"))
                 run_menu = getattr(menu, "exec", None) or menu.exec_
                 if run_menu(self.operations.viewport().mapToGlobal(pos)) == automatic:
                     self._set_manual_loading_override(item, None)
@@ -5349,7 +5281,7 @@ class _PreviewPanel:
                         or self.session.playback_status == PlaybackStatus.PLAYING):
                     self._update_operations_visual_state()
                     self.status.setText(
-                        "Остановите симуляцию или дождитесь окончания проверки."
+                        tr("Остановите симуляцию или дождитесь окончания проверки.")
                     )
                     return
                 order = tuple(self.session.bend_order)
@@ -5391,8 +5323,7 @@ class _PreviewPanel:
                     "РУЧНОЙ ПРОСМОТР — коллизии не проверены"
                 )
                 self.physical_check_result.setText(
-                    "UNVERIFIED: положение заготовки изменилось. "
-                    "Проверьте коллизии повторно."
+                    tr("UNVERIFIED: положение заготовки изменилось. Проверьте коллизии повторно.")
                 )
                 if self.session.controller.active_operation_id != operation_id:
                     # Checkbox changes do not automatically select the row.
@@ -5602,7 +5533,7 @@ class _PreviewPanel:
                 """Expose the actual machine direction, never CAD-certify a hint."""
                 if self.session is None:
                     self.loading_orientation_status.setText(
-                        "Оператор ← | Упор → | Деталь не загружена"
+                        tr("Оператор ← | Упор → | Деталь не загружена")
                     )
                     return
                 choices = self._effective_operation_orientation_map()
@@ -5723,12 +5654,11 @@ class _PreviewPanel:
                 if activate_task_dialog(self, "cycle_config"):
                     return
                 dlg = QtWidgets.QDialog(self)
-                dlg.setWindowTitle("Параметры кинематического цикла пресса (KINEMATIC_PREVIEW)")
+                dlg.setWindowTitle(tr("Параметры кинематического цикла пресса (KINEMATIC_PREVIEW)"))
                 vbox = QtWidgets.QVBoxLayout(dlg)
 
                 note = QtWidgets.QLabel(
-                    "Режим KINEMATIC_PREVIEW: параметры задают кинематику перемещения пуансона "
-                    "и скорость изменения угла без расчёта контактной механики, усилия и упругого возврата."
+                    tr("Режим KINEMATIC_PREVIEW: параметры задают кинематику перемещения пуансона и скорость изменения угла без расчёта контактной механики, усилия и упругого возврата.")
                 )
                 note.setWordWrap(True)
                 vbox.addWidget(note)
@@ -5737,38 +5667,38 @@ class _PreviewPanel:
                 sp_app = QtWidgets.QDoubleSpinBox()
                 sp_app.setRange(0.5, 500.0)
                 sp_app.setValue(self.cycle_config.approach_speed_mm_s)
-                form.addRow("Approach speed (mm/s):", sp_app)
+                form.addRow(tr("Скорость подвода (мм/с):"), sp_app)
 
                 sp_ret = QtWidgets.QDoubleSpinBox()
                 sp_ret.setRange(0.5, 500.0)
                 sp_ret.setValue(self.cycle_config.retract_speed_mm_s)
-                form.addRow("Retract speed (mm/s):", sp_ret)
+                form.addRow(tr("Скорость отвода (мм/с):"), sp_ret)
 
                 sp_rate = QtWidgets.QDoubleSpinBox()
                 sp_rate.setRange(1.0, 720.0)
                 sp_rate.setValue(self.cycle_config.bend_rate_deg_s)
-                form.addRow("Bend rate (deg/s):", sp_rate)
+                form.addRow(tr("Скорость гибки (°/с):"), sp_rate)
 
                 sp_clr = QtWidgets.QDoubleSpinBox()
                 sp_clr.setRange(0.5, 200.0)
                 sp_clr.setValue(self.cycle_config.initial_clearance_mm)
-                form.addRow("Initial clearance (mm):", sp_clr)
+                form.addRow(tr("Начальный зазор (мм):"), sp_clr)
 
                 sp_strk = QtWidgets.QDoubleSpinBox()
                 sp_strk.setRange(0.5, 150.0)
                 sp_strk.setValue(self.cycle_config.preview_stroke_mm)
-                form.addRow("Preview stroke (mm):", sp_strk)
+                form.addRow(tr("Ход для просмотра (мм):"), sp_strk)
 
                 sp_dwell = QtWidgets.QDoubleSpinBox()
                 sp_dwell.setRange(0.0, 30.0)
                 sp_dwell.setSingleStep(0.05)
                 sp_dwell.setValue(self.cycle_config.bottom_dwell_s)
-                form.addRow("Bottom dwell (s):", sp_dwell)
+                form.addRow(tr("Выдержка внизу (с):"), sp_dwell)
                 vbox.addLayout(form)
 
                 btn_row = QtWidgets.QHBoxLayout()
-                btn_ok = QtWidgets.QPushButton("Применить")
-                btn_cancel = QtWidgets.QPushButton("Отмена")
+                btn_ok = QtWidgets.QPushButton(tr("Применить"))
+                btn_cancel = QtWidgets.QPushButton(tr("Отмена"))
                 btn_row.addWidget(btn_ok)
                 btn_row.addWidget(btn_cancel)
                 vbox.addLayout(btn_row)
@@ -5793,7 +5723,7 @@ class _PreviewPanel:
 
                 btn_ok.clicked.connect(on_apply)
                 btn_cancel.clicked.connect(dlg.reject)
-                embed_task_dialog(self, dlg, "Параметры цикла", "cycle_config")
+                embed_task_dialog(self, dlg, tr("Параметры цикла"), "cycle_config")
 
             def _sync_tooling_to_active_bend(self):
                 """Re-align static tooling to the active bend line if already aligned."""
@@ -6043,7 +5973,7 @@ class _PreviewPanel:
             def _sync_playback_buttons(self):
                 if self.session is None:
                     self._update_task_progress()
-                    self.play_btn.setText("Play")
+                    self.play_btn.setText(tr("Воспроизвести"))
                     self.play_btn.setIcon(QtGui.QIcon(str(_ICON_ROOT / "control_play.svg")))
                     self.move_up_btn.setEnabled(False)
                     self.move_down_btn.setEnabled(False)
@@ -6054,13 +5984,13 @@ class _PreviewPanel:
                 self.playing = st == PlaybackStatus.PLAYING
                 bend_order = getattr(self.session, "bend_order", [])
                 if st == PlaybackStatus.PLAYING:
-                    self.play_btn.setText("Pause")
+                    self.play_btn.setText(tr("Пауза"))
                     icon_name = "control_pause.svg"
                 elif st == PlaybackStatus.PAUSED:
-                    self.play_btn.setText("Resume")
+                    self.play_btn.setText(tr("Продолжить"))
                     icon_name = "control_play.svg"
                 else:
-                    self.play_btn.setText("Play")
+                    self.play_btn.setText(tr("Воспроизвести"))
                     icon_name = "control_play.svg"
                 self.play_btn.setIcon(QtGui.QIcon(str(_ICON_ROOT / icon_name)))
 
@@ -6260,7 +6190,7 @@ class _PreviewPanel:
                     return
                 self.manual_simulate_btn.setText(tr("Симулировать без проверки"))
                 self.manual_check_summary.setText(
-                    "Текущий порядок ещё не проверен."
+                    tr("Текущий порядок ещё не проверен.")
                 )
                 self.manual_check_details.clear()
                 self.manual_check_details.hide()
@@ -6284,8 +6214,7 @@ class _PreviewPanel:
                 if hasattr(self, "manual_lift_probe_btn"):
                     self.manual_lift_probe_btn.setEnabled(False)
                     self.manual_lift_probe_hint.setText(
-                        "Подъём детали: сначала найдите коллизию пуансона на "
-                        "RETRACT. Проверка остаётся экспериментальной."
+                        tr("Подъём детали: сначала найдите коллизию пуансона на RETRACT. Проверка остаётся экспериментальной.")
                     )
 
             def _show_manual_check_feedback(self, status, summary, steps=()):
@@ -6504,7 +6433,7 @@ class _PreviewPanel:
                 unverified live placement: its reverse axis may differ.
                 """
                 if not self._collision_inspection:
-                    self.status.setText("Нет сохранённой 3D-коллизии для показа.")
+                    self.status.setText(tr("Нет сохранённой 3D-коллизии для показа."))
                     return
                 if self.session.playback_status == PlaybackStatus.PLAYING:
                     self.pause()
@@ -6621,8 +6550,7 @@ class _PreviewPanel:
                 current = self._current_native_tooling_identity()
                 if not expected or current != expected:
                     self.status.setText(
-                        "Оснастка изменилась после 3D-проверки. "
-                        "Повторите проверку для текущей оснастки."
+                        tr("Оснастка изменилась после 3D-проверки. Повторите проверку для текущей оснастки.")
                     )
                     _desktop_debug_event(
                         "MANUAL_EXACT_OCC_INSPECTION_STALE_TOOLING",
@@ -6643,11 +6571,11 @@ class _PreviewPanel:
                 )
                 if not self._native_collision_identity_matches(inspection):
                     self.status.setText(
-                        "Оснастка или положение изменились. Повторите 3D-проверку."
+                        tr("Оснастка или положение изменились. Повторите 3D-проверку.")
                     )
                     return False
                 self._stop_timer()
-                self.status.setText("OCC: проверяется совместный подъём детали и пуансона...")
+                self.status.setText(tr("OCC: проверяется совместный подъём детали и пуансона..."))
                 QtWidgets.QApplication.processEvents()
                 from smbs_core.kinematics2d.native_assisted_retract import (
                     inspect_punch_assisted_retract, compare_preview_lift_bounds,
@@ -6753,7 +6681,7 @@ class _PreviewPanel:
                     self._clear_manual_check_feedback()
                     return False
                 self._stop_timer()
-                self.status.setText("OCC: проверяется боковой вывод поднятой детали...")
+                self.status.setText(tr("OCC: проверяется боковой вывод поднятой детали..."))
                 QtWidgets.QApplication.processEvents()
                 from smbs_core.kinematics2d.native_assisted_retract import (
                     inspect_lateral_release,
@@ -6796,7 +6724,7 @@ class _PreviewPanel:
                 pc = self._ensure_press_cycle_controller()
                 bend_id = inspection["bend_id"]
                 if pc is None or bend_id not in pc.assisted_retract_preview_bends:
-                    self.status.setText("Сначала проверьте подъём в OCC.")
+                    self.status.setText(tr("Сначала проверьте подъём в OCC."))
                     return
                 self._stop_timer()
                 self._machine_pose_fault = None
@@ -6827,12 +6755,12 @@ class _PreviewPanel:
                 inspection = self._collision_inspection
                 if not self._native_collision_identity_matches(inspection):
                     self.status.setText(
-                        "Нет актуального native 3D-пересечения для осмотра."
+                        tr("Нет актуального native 3D-пересечения для осмотра.")
                     )
                     return False
                 self._stop_timer()
                 self.status.setText(
-                    "Создание точной OCC-сцены. Исходный FCStd не изменяется..."
+                    tr("Создание точной OCC-сцены. Исходный FCStd не изменяется...")
                 )
                 QtWidgets.QApplication.processEvents()
                 try:
@@ -7025,8 +6953,7 @@ class _PreviewPanel:
                         )
                         if not target:
                             self.status.setText(
-                                "JSON подготовлен в документе; "
-                                "FCStd не сохранён (отмена)."
+                                tr("JSON подготовлен в документе; FCStd не сохранён (отмена).")
                             )
                             return
                         document.saveAs(str(target))
@@ -7035,8 +6962,7 @@ class _PreviewPanel:
                         "Сохранён в " + str(document.FileName)
                     )
                     self.status.setText(
-                        "SMBS JSON сохранён внутри FCStd; "
-                        "результаты проверок — исторические."
+                        tr("SMBS JSON сохранён внутри FCStd; результаты проверок — исторические.")
                     )
                 except Exception as exc:
                     _error("FCStd SMBS save failed: " + traceback.format_exc())
@@ -7063,7 +6989,7 @@ class _PreviewPanel:
                     self._smbs_allow_auto_embed = True
                     self._embedded_diagnostics_history = None
                     self.fcstd_note.setText(
-                        "В этом документе пока нет вложенного SMBS JSON."
+                        tr("В этом документе пока нет вложенного SMBS JSON.")
                     )
                     return "В FCStd нет сохранённой сессии SMBS."
                 order, prefix = validate_restore(
@@ -7273,8 +7199,7 @@ class _PreviewPanel:
                 self._draw_flat_pattern(reset_camera=False)
                 self.draw()
                 self.physical_check_result.setText(
-                    "ИСТОРИЯ SMBS ИЗ FCStd: проверки НЕ ПОДТВЕРЖДЕНЫ "
-                    "для новой сессии. Нужна повторная проверка."
+                    tr("ИСТОРИЯ SMBS ИЗ FCStd: проверки НЕ ПОДТВЕРЖДЕНЫ для новой сессии. Нужна повторная проверка.")
                 )
                 historic_manual = payload["diagnostics"].get("manual")
                 if isinstance(historic_manual, dict):
@@ -7351,7 +7276,7 @@ class _PreviewPanel:
             def _show_next_mesh_collision(self):
                 if self.session is None or self._mesh_collision_identity != self._mesh_preview_identity():
                     self.mesh_show_collision_btn.hide()
-                    self.status.setText("Повторите Mesh-проверку для текущей детали и оснастки.")
+                    self.status.setText(tr("Повторите Mesh-проверку для текущей детали и оснастки."))
                     return
                 if not self._mesh_collision_hits:
                     return
@@ -7444,7 +7369,7 @@ class _PreviewPanel:
 
             def _run_mesh_sequence_check(self):
                 if self.session is None or self.timer.isActive():
-                    self.status.setText("Mesh: загрузите деталь и остановите симуляцию.")
+                    self.status.setText(tr("Mesh: загрузите деталь и остановите симуляцию."))
                     return
                 from smbs_core.kinematics2d.mesh_sequence_screen import screen_mesh_sequence
 
@@ -7493,24 +7418,6 @@ class _PreviewPanel:
                         self._show_next_mesh_collision()
                     else:
                         self._update_3d_preview(force=True)
-                    message = (
-                        f"Mesh: {len(report['completed'])}/{len(operations)} гибов, "
-                        f"{report['elapsed_seconds']:.1f} с"
-                    )
-                    if report["findings"]:
-                        hit = report["findings"][0]
-                        tool = {"punch": "пуансон", "die": "матрица"}[hit["tool"]]
-                        message += f" · пересечение: {hit['operation']}, {tool}, {hit['phase']}"
-                    elif not (report["pending"] or report["unresolved"] or report["conditional_findings"]):
-                        message += " · подтверждённых проникновений в выборке нет"
-                    if report["conditional_findings"]:
-                        message += f" · Conditional, торцы пуансона: {len(report['conditional_findings'])}"
-                    if report["unresolved"]:
-                        message += f" · не удалось уточнить: {len(report['unresolved'])}"
-                    if report["pending"]:
-                        message += " · осталось: " + ", ".join(report["pending"])
-                        reason = report["reason"]
-                        message += " · " + ("лимит времени" if reason == "TIME_BUDGET" else reason)
                     hits = len(report["findings"])
                     conditional = len(report["conditional_findings"])
                     unresolved = len(report["unresolved"])
@@ -7548,6 +7455,7 @@ class _PreviewPanel:
                         details += "\n" + (tr("Достигнут лимит времени.") if reason == "TIME_BUDGET" else reason)
                     self._set_task_result("Mesh", state, summary, details, "\n".join(findings))
                     self._mesh_task_result_identity = self._mesh_collision_identity
+                    message = f"Mesh · {summary} {details}"
                     self.status.setText(message)
                     self.manual_check_summary.setText(message)
                 except (ValueError, RuntimeError, AttributeError) as exc:
@@ -7563,13 +7471,11 @@ class _PreviewPanel:
                 their separate UNVERIFIED and nonblocking preview paths.
                 """
                 if self.session is None:
-                    self.status.setText("Сначала загрузите деталь.")
+                    self.status.setText(tr("Сначала загрузите деталь."))
                     return
                 if self.session.controller.has_stages:
                     self.status.setText(
-                        "Проверка многоэтапного гиба ещё не реализована в OCC: "
-                        "результат только UNVERIFIED. Не используйте обычную "
-                        "проверку одного гиба для подтверждения догиба."
+                        tr("Проверка многоэтапного гиба ещё не реализована в OCC: результат только UNVERIFIED. Не используйте обычную проверку одного гиба для подтверждения догиба.")
                     )
                     return
                 if self._task_progress_busy or not self._apply_typed_manual_order():
@@ -7578,17 +7484,17 @@ class _PreviewPanel:
                 order = tuple(self.session.bend_order)
                 if prefix and order[:len(prefix)] != prefix:
                     self.status.setText(
-                        "Ручной порядок изменился: перенумеруйте линии."
+                        tr("Ручной порядок изменился: перенумеруйте линии.")
                     )
                     return
                 selected = prefix or order  # Move Up/Down is a valid full order.
                 if not selected:
-                    self.status.setText("Нет выбранных гибов.")
+                    self.status.setText(tr("Нет выбранных гибов."))
                     return
                 if (self.timer.isActive()
                         or self.session.playback_status == PlaybackStatus.PLAYING):
                     self.status.setText(
-                        "Остановите симуляцию перед проверкой ручного порядка."
+                        tr("Остановите симуляцию перед проверкой ручного порядка.")
                     )
                     return
                 open_collision = False
@@ -7795,8 +7701,7 @@ class _PreviewPanel:
                     self._collision_display_active = False
                     self.manual_lift_probe_btn.setEnabled(False)
                     self.manual_lift_probe_hint.setText(
-                        "Идёт проверка; режим подъёма станет доступен, если "
-                        "подтвердится столкновение с пуансоном на RETRACT."
+                        tr("Идёт проверка; режим подъёма станет доступен, если подтвердится столкновение с пуансоном на RETRACT.")
                     )
                     self.manual_show_collision_btn.setText(
                         tr("Показать коллизию в 3D")
@@ -7897,8 +7802,7 @@ class _PreviewPanel:
                         self.manual_exact_occ_btn.hide()
                         self.manual_lift_probe_btn.setEnabled(False)
                         self.manual_lift_probe_hint.setText(
-                            "Подъём детали: подтверждённой коллизии с пуансоном "
-                            "на RETRACT пока нет."
+                            tr("Подъём детали: подтверждённой коллизии с пуансоном на RETRACT пока нет.")
                         )
                     self._populate_operations()
 
@@ -7985,7 +7889,7 @@ class _PreviewPanel:
                     ]
                     self._last_manual_sequence_report = dict(result)
                     if physical["steps"]:
-                        self.manual_simulate_btn.setText("Симулировать результат")
+                        self.manual_simulate_btn.setText(tr("Симулировать результат"))
                     reason = physical["reason"]
                     last_step = physical["steps"][-1] if physical["steps"] else {}
                     blocker = last_step.get("first_blocker") or {}
@@ -8105,18 +8009,18 @@ class _PreviewPanel:
             def simulate_manual_order_unverified(self, *, autoplay=True, show_controls=True):
                 """Prepare playback of the manual selection with live OCC evidence if available."""
                 if self.session is None:
-                    self.status.setText("Сначала загрузите развёртку детали.")
+                    self.status.setText(tr("Сначала загрузите развёртку детали."))
                     return
                 if self._task_progress_busy or not self._apply_typed_manual_order():
                     return
                 order = tuple(self.session.bend_order)
                 if not order:
-                    self.status.setText("Нет гибов для симуляции.")
+                    self.status.setText(tr("Нет гибов для симуляции."))
                     return
                 prefix = tuple(self._manual_sequence_prefix)
                 if prefix and order[:len(prefix)] != prefix:
                     self.status.setText(
-                        "Ручной порядок изменился. Проверьте выбранные линии."
+                        tr("Ручной порядок изменился. Проверьте выбранные линии.")
                     )
                     return
                 self._stop_timer()
@@ -8191,8 +8095,7 @@ class _PreviewPanel:
                 self._manual_preview_notice.show()
                 if matched_occ_report is None:
                     self.physical_check_result.setText(
-                        "UNVERIFIED: ручная кинематическая симуляция; "
-                        "коллизии с пуансоном, матрицей, упором и станком не проверены."
+                        tr("UNVERIFIED: ручная кинематическая симуляция; коллизии с пуансоном, матрицей, упором и станком не проверены.")
                     )
                 self._open_coin_preview()
                 if not autoplay:
@@ -8229,7 +8132,7 @@ class _PreviewPanel:
                 if isinstance(window, QtWidgets.QMdiSubWindow) and window.mdiArea() is not None:
                     window.mdiArea().setActiveSubWindow(window)
                 if self.session is None:
-                    self.status.setText("Сначала загрузите развёртку SheetMetal.")
+                    self.status.setText(tr("Сначала загрузите развёртку SheetMetal."))
                     return
                 if not self._manual_selection_enabled:
                     self._toggle_manual_order(True)
@@ -8241,7 +8144,7 @@ class _PreviewPanel:
             def _toggle_manual_order(self, enabled):
                 if enabled and self.session is None:
                     self._manual_selection_enabled = False
-                    self.status.setText("Сначала загрузите развёртку SheetMetal.")
+                    self.status.setText(tr("Сначала загрузите развёртку SheetMetal."))
                     return
                 self._manual_selection_enabled = bool(enabled)
                 if enabled:
@@ -8274,11 +8177,11 @@ class _PreviewPanel:
                 if not self.manual_order_input.isModified():
                     return True
                 if self.session is None:
-                    self.status.setText("Сначала загрузите развёртку SheetMetal.")
+                    self.status.setText(tr("Сначала загрузите развёртку SheetMetal."))
                     return False
                 if self.session.controller.has_stages:
                     self.status.setText(
-                        "При предгибе изменяйте порядок строк таблицы перетаскиванием."
+                        tr("При предгибе изменяйте порядок строк таблицы перетаскиванием.")
                     )
                     return False
                 try:
@@ -8318,7 +8221,7 @@ class _PreviewPanel:
                     return
                 if not self.session.can_reorder():
                     self.status.setText(
-                        "Изменение порядка недоступно: остановите симуляцию и сделайте Reset."
+                        tr("Изменение порядка недоступно: остановите симуляцию и сделайте Reset.")
                     )
                     return
                 prefix = (*self._manual_sequence_prefix, bend_id)
@@ -8625,8 +8528,7 @@ class _PreviewPanel:
                 if (self.timer.isActive() or self.playing
                         or not self.session.can_reorder()):
                     self.status.setText(
-                        "Для удаления предгиба сначала остановите симуляцию "
-                        "и нажмите Reset."
+                        tr("Для удаления предгиба сначала остановите симуляцию и нажмите Reset.")
                     )
                     return False
                 final = controller.target_for(bend_id)
@@ -8675,7 +8577,7 @@ class _PreviewPanel:
                 if self.session is None or self._task_progress_busy:
                     return
                 if not self.session.can_reorder():
-                    self.status.setText("Перед добавлением или изменением предгиба нажмите Reset.")
+                    self.status.setText(tr("Перед добавлением или изменением предгиба нажмите Reset."))
                     return
                 controller = self.session.controller
                 final = controller.target_for(bend_id)
@@ -8706,7 +8608,7 @@ class _PreviewPanel:
                     spin.setRange(min(-0.01, final + 0.01), -0.01)
                 spin.setValue(current.target_angle_deg if current else final / 2.0)
                 spin.setSuffix("°")
-                row.addRow("Промежуточный угол:", spin)
+                row.addRow(tr("Промежуточный угол:"), spin)
                 layout.addLayout(row)
 
                 # Modal placement preview. All existing operations are locked;
@@ -8749,8 +8651,7 @@ class _PreviewPanel:
                         preview.setCurrentItem(item)
                 layout.addWidget(preview)
                 hint = QtWidgets.QLabel(
-                    "Догиб должен остаться после предгиба. "
-                    "Угол догиба нельзя изменить: он задан развёрткой."
+                    tr("Догиб должен остаться после предгиба. Угол догиба нельзя изменить: он задан развёрткой.")
                 )
                 hint.setWordWrap(True)
                 layout.addWidget(hint)
@@ -8767,8 +8668,7 @@ class _PreviewPanel:
                     if (pre_id not in ids or finish_id not in ids
                             or ids.index(pre_id) >= ids.index(finish_id)):
                         hint.setText(
-                            "Ошибка: предварительный гиб должен стоять "
-                            "перед соответствующим догибом."
+                            tr("Ошибка: предварительный гиб должен стоять перед соответствующим догибом.")
                         )
                         return
                     dialog.accept()
@@ -8779,7 +8679,7 @@ class _PreviewPanel:
                     # The old destructive-role button at the bottom of the
                     # button box was easy to overlook in the modal dialog.
                     delete_button = QtWidgets.QPushButton(
-                        "Удалить предгиб и вернуть обычный гиб", dialog
+                        tr("Удалить предгиб и вернуть обычный гиб"), dialog
                     )
                     delete_button.setObjectName("SMBS_DeletePrebend")
                     delete_button.setToolTip(
@@ -8844,8 +8744,7 @@ class _PreviewPanel:
                 if (self.timer.isActive() or self.playing
                         or not self.session.can_reorder()):
                     self.status.setText(
-                        "Порядок этапов нельзя менять во время симуляции; "
-                        "нажмите Reset."
+                        tr("Порядок этапов нельзя менять во время симуляции; нажмите Reset.")
                     )
                     self._populate_operations()
                     return
@@ -8872,7 +8771,7 @@ class _PreviewPanel:
                         reason="missing_or_duplicate_operation_id",
                         operation_ids=operation_ids,
                     )
-                    self.status.setText("Некорректный перенос этапов, порядок восстановлен.")
+                    self.status.setText(tr("Некорректный перенос этапов, порядок восстановлен."))
                     self._populate_operations()
                     return
                 try:
@@ -9145,7 +9044,7 @@ class _PreviewPanel:
                                 actions.setContentsMargins(0, 0, 0, 0)
                                 actions.setSpacing(3)
                                 edit_btn = QtWidgets.QToolButton(controls)
-                                edit_btn.setText("Изм.")
+                                edit_btn.setText(tr("Изм."))
                                 edit_btn.setToolTip(
                                     "Изменить предгиб " + op.operation_id
                                 )
@@ -9633,7 +9532,7 @@ class _PreviewPanel:
                         self._collision_display_active = True
                         if hasattr(self, "manual_show_collision_btn"):
                             self.manual_show_collision_btn.setText(
-                                "Вернуться к обычному 3D"
+                                tr("Вернуться к обычному 3D")
                             )
                         rendered = self._open_coin_preview()
                         reason = (

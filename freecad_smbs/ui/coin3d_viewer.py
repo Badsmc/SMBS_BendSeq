@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from freecad_smbs.ui.localization import tr
+
 
 def _document_is_open(app, name):
     """Check FreeCAD documents without getDocument's missing-name exception.
@@ -163,9 +165,7 @@ def create_coin_viewer(parent=None):
             if self._native:
                 layout = QtWidgets.QVBoxLayout(self)
                 self._native_notice = QtWidgets.QLabel(
-                    "Coin3D работает в штатном 3D-окне FreeCAD. "
-                    "Это окно показывает состояние и управление симуляцией; "
-                    "вращение и масштабирование выполняются в 3D-окне детали."
+                    tr("Coin3D работает в штатном 3D-окне FreeCAD. Это окно показывает состояние и управление симуляцией; вращение и масштабирование выполняются в 3D-окне детали.")
                 )
                 self._native_notice.setWordWrap(True)
                 layout.addWidget(self._native_notice)

@@ -107,8 +107,8 @@ def read_lines(path, *, layers=None, unsupported=None):
                     or any(abs(float(values.get(code, default)) - default) > 1e-6
                            for code, default in ((210, 0), (220, 0), (230, 1)))):
                 if unsupported is None:
-                    raise ValueError(f"{entity}: нужна плоскость XY.")
-                unsupported.setdefault(layer, set()).add(f"{entity} вне XY")
+                    raise ValueError(tr("{entity}: нужна плоскость XY.", entity=entity))
+                unsupported.setdefault(layer, set()).add(tr("{entity} вне XY", entity=entity))
                 continue
         if entity == "LINE":
             if any(abs(float(values.get(axis, 0))) > 1e-6 for axis in (30, 31)):
@@ -162,7 +162,7 @@ def read_lines(path, *, layers=None, unsupported=None):
             continue
         else:
             if unsupported is None:
-                raise ValueError(f"Геометрия DXF {entity} пока не поддерживается.")
+                raise ValueError(tr("Геометрия DXF {entity} пока не поддерживается.", entity=entity))
             unsupported.setdefault(layer, set()).add(entity)
             continue
 
@@ -236,16 +236,15 @@ def join_outline(lines, tolerance=DEFAULT_OUTLINE_TOLERANCE_MM):
         if len(links) == 2:
             continue
         if len(links) > 2:
-            raise ValueError(f"Разветвление контура возле X={x:.3f}, Y={y:.3f} мм. "
-                             "Проверьте включённые слои и линии гиба.")
-        message = f"Разрыв контура возле X={x:.3f}, Y={y:.3f} мм."
+            raise ValueError(tr("Разветвление контура возле X={x:.3f}, Y={y:.3f} мм. Проверьте включённые слои и линии гиба.", x=x, y=y))
+        message = tr("Разрыв контура возле X={x:.3f}, Y={y:.3f} мм.", x=x, y=y)
         other_ends = (point for point in open_ends if point != (x, y))
         nearest = min(other_ends, key=lambda point: dist((x, y), point), default=None)
         if nearest is not None:
             xx, yy = nearest
             gap = dist((x, y), nearest)
-            message += (f" Ближайший открытый конец X={xx:.3f}, Y={yy:.3f} мм, "
-                        f"расстояние {gap:.3f} мм при допуске {tolerance:.3f} мм.")
+            message += tr(" Ближайший открытый конец X={x:.3f}, Y={y:.3f} мм, расстояние {gap:.3f} мм при допуске {tol:.3f} мм.",
+                          x=xx, y=yy, gap=gap, tol=tolerance)
         raise ValueError(message + tr(" Проверьте, что линии контура включены и не назначены гибами."))
     return result
 
@@ -255,12 +254,12 @@ def _outline_face(wire, number, tolerance):
     import Part
 
     bounds = wire.BoundBox
-    location = (f"Контур №{number} ({len(wire.Edges)} рёбер, "
-                f"X={bounds.XMin:.3f}…{bounds.XMax:.3f}, "
-                f"Y={bounds.YMin:.3f}…{bounds.YMax:.3f} мм)")
+    location = tr("Контур №{number} ({edges} рёбер, X={xmin:.3f}…{xmax:.3f}, Y={ymin:.3f}…{ymax:.3f} мм)",
+                  number=number, edges=len(wire.Edges), xmin=bounds.XMin,
+                  xmax=bounds.XMax, ymin=bounds.YMin, ymax=bounds.YMax)
     if not wire.isClosed():
-        raise ValueError(f"{location} не замкнут после сборки FreeCAD. "
-                         f"Допуск стыковки: {tolerance:.3f} мм.")
+        raise ValueError(tr("{outline} не замкнут после сборки FreeCAD. Допуск стыковки: {tol:.3f} мм.",
+                            outline=location, tol=tolerance))
     try:
         face = Part.Face(wire)
         if face.isValid():
@@ -283,10 +282,10 @@ def _outline_face(wire, number, tolerance):
                 for edge in (first, second)
             )
             if section.Edges or not shared_endpoint:
-                raise ValueError(f"{location} пересекается или накладывается сам на себя "
-                                 f"возле X={point.x:.3f}, Y={point.y:.3f} мм.")
+                raise ValueError(tr("{outline} пересекается или накладывается сам на себя возле X={x:.3f}, Y={y:.3f} мм.",
+                                    outline=location, x=point.x, y=point.y))
     detail = f" FreeCAD: {reason}" if reason else ""
-    raise ValueError(f"{location} не образует корректную плоскую область.{detail}")
+    raise ValueError(tr("{outline} не образует корректную плоскую область.{detail}", outline=location, detail=detail))
 
 
 def build_session(path, lines, angles, thickness, radius, k_factor, *,
@@ -504,8 +503,7 @@ class DxfManualCommand:
         dialog.setWindowTitle(tr("Линии гиба DXF"))
         dialog.resize(780, 620)
         layout = qt.QVBoxLayout(dialog)
-        layout.addWidget(qt.QLabel("Щёлкните по линии и задайте угол. Ноль снимает назначение. "
-                                  "Порядок назначения задаёт порядок гибов."))
+        layout.addWidget(qt.QLabel(tr("Щёлкните по линии и задайте угол. Ноль снимает назначение. Порядок назначения задаёт порядок гибов.")))
         class DxfView(qt.QGraphicsView):
             def __init__(self, drawing):
                 super().__init__(drawing)

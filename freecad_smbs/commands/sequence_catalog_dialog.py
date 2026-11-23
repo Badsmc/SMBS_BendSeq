@@ -5,6 +5,8 @@ import json
 
 from smbs_core.kinematics2d.sequence_catalog import load_catalog_file, parse_diagnostic
 
+from freecad_smbs.ui.localization import tr
+
 
 def show_sequence_catalog(workspace):
     """Open a standalone modal UI, sharing the existing viewer and controller."""
@@ -14,19 +16,17 @@ def show_sequence_catalog(workspace):
     QtCore, _, QtWidgets = _qt()
     dlg = QtWidgets.QDialog(workspace)
     dlg.setObjectName("SMBS_SequenceCatalog")
-    dlg.setWindowTitle("SMBS — Последовательности")
+    dlg.setWindowTitle(tr("SMBS — Последовательности"))
     dlg.resize(1050, 630)
     root = QtWidgets.QVBoxLayout(dlg)
     intro = QtWidgets.QLabel(
-        "Загрузите JSON автоматического/ручного поиска. Штрафы относятся к весам "
-        "на момент расчёта. Назначение перепроверяет порядок на текущей оснастке. "
-        "2D не подтверждает безопасность в 3D.")
+        tr("Загрузите JSON автоматического/ручного поиска. Штрафы относятся к весам на момент расчёта. Назначение перепроверяет порядок на текущей оснастке. 2D не подтверждает безопасность в 3D."))
     intro.setWordWrap(True)
     root.addWidget(intro)
     buttons = QtWidgets.QHBoxLayout()
-    load_btn = QtWidgets.QPushButton("Загрузить JSON…")
-    folder_btn = QtWidgets.QPushButton("Загрузить папку…")
-    refresh_btn = QtWidgets.QPushButton("Обновить")
+    load_btn = QtWidgets.QPushButton(tr("Загрузить JSON…"))
+    folder_btn = QtWidgets.QPushButton(tr("Загрузить папку…"))
+    refresh_btn = QtWidgets.QPushButton(tr("Обновить"))
     buttons.addWidget(load_btn)
     buttons.addWidget(folder_btn)
     buttons.addWidget(refresh_btn)
@@ -35,7 +35,7 @@ def show_sequence_catalog(workspace):
     table = QtWidgets.QTableWidget(0, 6)
     table.setObjectName("SMBS_SequenceCatalogTable")
     table.setHorizontalHeaderLabels((
-        "Тип", "Последовательность", "Штраф", "Предупреждения", "2D статус", "Файл"))
+        tr("Тип"), tr("Последовательность"), tr("Штраф"), tr("Предупреждения"), tr("2D статус"), tr("Файл")))
     table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectRows)
     table.setSelectionMode(QtWidgets.QAbstractItemView.SingleSelection)
     table.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
@@ -53,8 +53,8 @@ def show_sequence_catalog(workspace):
     root.addWidget(details)
     footer = QtWidgets.QHBoxLayout()
     summary = QtWidgets.QLabel()
-    assign_btn = QtWidgets.QPushButton("Назначить для симуляции")
-    close_btn = QtWidgets.QPushButton("Закрыть")
+    assign_btn = QtWidgets.QPushButton(tr("Назначить для симуляции"))
+    close_btn = QtWidgets.QPushButton(tr("Закрыть"))
     footer.addWidget(summary, 1)
     footer.addWidget(assign_btn)
     footer.addWidget(close_btn)
@@ -163,4 +163,4 @@ def show_sequence_catalog(workspace):
     table.itemDoubleClicked.connect(lambda _item: assign_selected())
     close_btn.clicked.connect(dlg.reject)
     reload()
-    embed_task_dialog(workspace, dlg, "Последовательности", "catalog")
+    embed_task_dialog(workspace, dlg, tr("Последовательности"), "catalog")
