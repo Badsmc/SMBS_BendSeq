@@ -462,7 +462,7 @@ def _folded_dxf_preview(session, trace):
 class DxfManualCommand:
     def GetResources(self):
         return {"MenuText": tr("Развёртка DXF"),
-                "Pixmap": str(Path(__file__).resolve().parents[1] / "resources" / "icons" / "control_folder.svg"),
+                "Pixmap": str(Path(__file__).resolve().parents[1] / "resources" / "icons" / "control_dxf.svg"),
                 "ToolTip": tr("Назначить углы линиям гиба на развёртке DXF")}
 
     def IsActive(self):
@@ -573,9 +573,11 @@ class DxfManualCommand:
         scene = qt.QGraphicsScene(dialog)
         view = DxfView(scene)
         fit_button = qt.QPushButton(tr("Показать целиком"))
+        fit_button.setIcon(gui.QIcon(str(Path(__file__).resolve().parents[1] / "resources" / "icons" / "control_fit.svg")))
         fit_button.setToolTip(view.toolTip())
         fit_button.clicked.connect(view.fit_drawing)
         undo_button = qt.QPushButton(tr("Назад"))
+        undo_button.setIcon(gui.QIcon(str(Path(__file__).resolve().parents[1] / "resources" / "icons" / "control_prev.svg")))
         undo_button.setToolTip(tr("Отменить последнее назначение или изменение угла гиба"))
         undo_button.setEnabled(False)
         drawing_actions = qt.QHBoxLayout()
@@ -715,6 +717,7 @@ class DxfManualCommand:
         outline_tolerance.setSingleStep(0.01)
         outline_tolerance.setToolTip(tr("Увеличьте допуск для небольших зазоров между концами контура DXF."))
         button = qt.QPushButton(tr("Рассчитать"))
+        button.setIcon(gui.QIcon(str(Path(__file__).resolve().parents[1] / "resources" / "icons" / "control_validate.svg")))
         layout.addWidget(button)
         layout.addWidget(feedback)
 
