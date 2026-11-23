@@ -249,6 +249,45 @@ def join_outline(lines, tolerance=DEFAULT_OUTLINE_TOLERANCE_MM):
     return result
 
 
+def _outline_face(wire, number, tolerance):
+    """Report the failing loop and, where possible, its crossing coordinates."""
+    import Part
+
+    bounds = wire.BoundBox
+    location = (f"Контур №{number} ({len(wire.Edges)} рёбер, "
+                f"X={bounds.XMin:.3f}…{bounds.XMax:.3f}, "
+                f"Y={bounds.YMin:.3f}…{bounds.YMax:.3f} мм)")
+    if not wire.isClosed():
+        raise ValueError(f"{location} не замкнут после сборки FreeCAD. "
+                         f"Допуск стыковки: {tolerance:.3f} мм.")
+    try:
+        face = Part.Face(wire)
+        if face.isValid():
+            return face
+        face.check()
+    except (RuntimeError, ValueError, Part.OCCError) as exc:
+        reason = " ".join(str(exc).split())
+    else:
+        reason = ""
+
+    for first, second in combinations(wire.Edges, 2):
+        try:
+            section = first.section(second)
+        except Part.OCCError:
+            continue
+        for vertex in section.Vertexes:
+            point = vertex.Point
+            shared_endpoint = all(
+                any(point.distanceToPoint(end.Point) <= tolerance for end in edge.Vertexes)
+                for edge in (first, second)
+            )
+            if section.Edges or not shared_endpoint:
+                raise ValueError(f"{location} пересекается или накладывается сам на себя "
+                                 f"возле X={point.x:.3f}, Y={point.y:.3f} мм.")
+    detail = f" FreeCAD: {reason}" if reason else ""
+    raise ValueError(f"{location} не образует корректную плоскую область.{detail}")
+
+
 def build_session(path, lines, angles, thickness, radius, k_factor, *,
                   outline_tolerance=DEFAULT_OUTLINE_TOLERANCE_MM, trace=None):
     import FreeCAD as App
@@ -283,9 +322,11 @@ def build_session(path, lines, angles, thickness, radius, k_factor, *,
     if trace:
         trace("build_faces", wires=[{"closed": is_closed, "edges": len(wire.Edges)}
                                     for wire, is_closed in zip(wires, closed)])
-    faces = [Part.Face(wire) for wire, is_closed in zip(wires, closed) if is_closed]
-    if not faces or len(faces) != len(wires) or any(not face.isValid() for face in faces):
-        raise ValueError("Не удалось собрать замкнутый контур DXF.")
+    if not wires:
+        raise ValueError("Нет рёбер контура DXF. Проверьте включённые слои "
+                         "и линии, назначенные гибами.")
+    faces = [_outline_face(wire, number, outline_tolerance)
+             for number, wire in enumerate(wires, 1)]
     outer = max(faces, key=lambda face: face.Area)
     holes = tuple(face for face in faces if face is not outer)
     wire = outer.OuterWire
