@@ -1,6 +1,1 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32" role="img">
-<title>gui part</title>
-
-<path d="M8 10V23H24" stroke="#888888" stroke-width="1.9" stroke-linejoin="round" stroke-linecap="round" fill="none"/><path d="M8 23L13 18H20V11L24 7" stroke="#888888" stroke-width="2.15" stroke-linejoin="round" stroke-linecap="round" fill="none"/><path d="M6 7L10 7M8 5V9" stroke="#888888" stroke-width="2.05" stroke-linejoin="round" stroke-linecap="round" fill="none"/><path d="M20 11L24 7" stroke="#888888" stroke-width="1.9" stroke-linejoin="round" stroke-linecap="round" fill="none"/><circle cx="20" cy="11" r="1.5" fill="#888888"/>
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32"><title>gui_part</title><defs><linearGradient id="bg" x2="0" y2="1"><stop stop-color="#f5f7fb"/><stop offset="1" stop-color="#d9e0eb"/></linearGradient></defs><rect x="1" y="1" width="30" height="30" rx="5" fill="url(#bg)" stroke="#657385" stroke-width="1.3"/><path d="M5 19 13 23 21 19 21 12 25 9 17 5 11 9 11 15Z" fill="#b9c4d2" stroke="#263443" stroke-width="1.5"/><path d="M5 19 13 23 13 16 20 13 20 9 13 12 11 15Z" fill="#edf2f8" stroke="#263443" stroke-width="1"/><circle cx="9" cy="19" r="1.2" fill="#3a556e"/></svg>
