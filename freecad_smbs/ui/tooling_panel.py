@@ -50,6 +50,7 @@ class ToolingPanel:
                     self._workspace = parent if hasattr(parent, "_task_stack") else None
                     self.library_path = getattr(library, "library_root", None)
                     self._backgauge_fcstd = None
+                    self._section_previews = {}
 
                     if clamps_only:
                         self.setWindowTitle(tr("Виртуальные зажимы"))
@@ -194,29 +195,40 @@ class ToolingPanel:
                     self._refresh_backgauge()
                     return widget
 
-                def _show_picture(self, label, path):
-                    from zipfile import BadZipFile, ZipFile
+                def _show_picture(self, label, path, *, backgauge=False, mirrored=False):
+                    from zipfile import BadZipFile
+                    from xml.etree.ElementTree import ParseError
 
-                    image = QtGui.QPixmap()
-                    if path is not None:
-                        try:
-                            with ZipFile(path) as archive:
-                                image.loadFromData(archive.read("thumbnails/Thumbnail.png"))
-                        except (OSError, BadZipFile, KeyError):
-                            pass
-                    if image.isNull():
-                        label.setText(tr("Миниатюра отсутствует") if path else tr("Модель не выбрана"))
-                    else:
-                        label.setPixmap(image.scaled(
-                            220, 145, QtCore.Qt.KeepAspectRatio, QtCore.Qt.SmoothTransformation
-                        ))
+                    from freecad_smbs.ui.tool_section_preview import (
+                        draw_tool_section, tool_section_rings,
+                    )
+
+                    label.setToolTip("")
+                    if path is None:
+                        label.setText(tr("Модель не выбрана"))
+                        return
+                    try:
+                        stamp = Path(path).stat().st_mtime_ns
+                        color = label.palette().color(label.foregroundRole())
+                        key = (Path(path), backgauge, mirrored, color.rgba())
+                        cached = self._section_previews.get(key)
+                        if cached is None or cached[0] != stamp:
+                            rings = tool_section_rings(path, backgauge=backgauge)
+                            image = draw_tool_section(
+                                rings, color, QtCore, QtGui, mirrored=mirrored,
+                            )
+                            cached = self._section_previews[key] = (stamp, image)
+                        label.setPixmap(cached[1])
+                        label.setToolTip(tr("Поперечное сечение") + "\n" + str(path))
+                    except (OSError, ValueError, RuntimeError, KeyError, BadZipFile, ParseError) as exc:
+                        label.setText(tr("Сечение недоступно"))
+                        label.setToolTip(str(exc))
 
                 def _refresh_backgauge(self):
                     from freecad_smbs.resources.tooling_paths import resolve_backgauge_fcstd
 
                     self._backgauge_fcstd = resolve_backgauge_fcstd(self.library_path)
-                    self._show_picture(self.gauge_picture, self._backgauge_fcstd)
-                    self.gauge_picture.setToolTip(str(self._backgauge_fcstd or ""))
+                    self._show_picture(self.gauge_picture, self._backgauge_fcstd, backgauge=True)
 
                 def _backgauge_changed(self):
                     self._refresh_backgauge()
@@ -621,6 +633,7 @@ class ToolingPanel:
                         self._refresh_punch_orientation(descriptor)
                         self._set_status(str(exc), is_error=True)
                         return
+                    self._show_picture(self.tool_picture, descriptor.fcstd_path, mirrored=checked)
                     if self._workspace is not None:
                         self._workspace._on_punch_orientation_changed(updated)
                     self._set_status(tr("{tool}: разворот {state}", tool=updated.name,
@@ -645,7 +658,10 @@ class ToolingPanel:
                         self._refresh_punch_orientation(desc)
                     self.remove_tool_button.setEnabled(desc is not None)
                     self.segments_button.setEnabled(desc is not None)
-                    self._show_picture(self.tool_picture, desc.fcstd_path if desc else None)
+                    self._show_picture(
+                        self.tool_picture, desc.fcstd_path if desc else None,
+                        mirrored=index == 0 and self.reverse_punch_checkbox.isChecked(),
+                    )
                     if not desc:
                         self.lbl_selected_id.setText(tr("Выбрано: нет"))
                         self.lbl_selected_meta.setText(tr("Метаданные: —"))

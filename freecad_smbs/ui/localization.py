@@ -4,6 +4,8 @@ import locale
 
 
 TRANSLATIONS = {
+    "Поперечное сечение": "Cross-section",
+    "Сечение недоступно": "Section unavailable",
     "Лимит времени, с": "Time limit, s",
     "Минимальный объём проникновения, мм³": "Minimum penetration volume, mm³",
     "Запустить Mesh": "Run Mesh",
