@@ -5,7 +5,8 @@ from pathlib import Path
 
 from freecad_smbs.ui.localization import tr
 
-ICON_PATH = Path(__file__).resolve().parent.parent / "resources" / "icons" / "tooling.svg"
+from freecad_smbs.icon_pack import icon_path
+ICON_PATH = icon_path("tooling.svg")
 
 
 class ToolingCommand:

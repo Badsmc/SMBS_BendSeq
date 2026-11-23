@@ -597,6 +597,7 @@ def build_part_session(doc, selection, fixed_panel: str | None = None) -> Loaded
 
 
 _ICON_ROOT = Path(__file__).resolve().parents[1] / "resources" / "icons"
+from freecad_smbs.icon_pack import icon_path as _icon_path
 class _SMBSNativeTaskPanel:
     """FreeCAD-native Tasks adapter; NOT a custom QDockWidget.
 
@@ -1040,7 +1041,7 @@ def _has_loaded_part():
 class PressBrake2DCommand:
     def GetResources(self):
         return {
-            "Pixmap": str(_ICON_ROOT / "gui_simulation.svg"),
+            "Pixmap": str(_icon_path("gui_simulation.svg")),
             "MenuText": tr("Симуляция"),
             "ToolTip": tr("Открыть симуляцию Coin3D и штатную вкладку Задачи FreeCAD"),
         }
@@ -1177,7 +1178,7 @@ class PressBrake2DCommand:
 class LoadPartCommand:
     def GetResources(self):
         return {
-            "Pixmap": str(_ICON_ROOT / "gui_part.svg"),
+            "Pixmap": str(_icon_path("gui_part.svg")),
             "MenuText": tr("Деталь"),
             "ToolTip": tr("Загрузить выбранную развёртку SheetMetal"),
         }
@@ -1223,7 +1224,7 @@ class LoadPartCommand:
 class ToolingTabCommand:
     def GetResources(self):
         return {
-            "Pixmap": str(_ICON_ROOT / "gui_tooling.svg"),
+            "Pixmap": str(_icon_path("gui_tooling.svg")),
             "MenuText": tr("Оснастка"),
             "ToolTip": tr("Открыть оснастку симулятора"),
         }
@@ -1244,7 +1245,7 @@ class BackgaugeCommand:
     """Configure explicit backgauge stop geometry and per-bend targets."""
     def GetResources(self):
         return {
-            "Pixmap": str(_ICON_ROOT / "gui_backgauge.svg"),
+            "Pixmap": str(_icon_path("gui_backgauge.svg")),
             "MenuText": tr("Задний упор"),
             "ToolTip": tr("Визуальная FCStd-модель упора: позиция по контуру развёртки"),
         }
@@ -1265,7 +1266,7 @@ class SequenceCatalogCommand:
     """Open saved sequence collection, without spawning a second simulator."""
     def GetResources(self):
         return {
-            "Pixmap": str(_ICON_ROOT / "gui_sequence_catalog.svg"),
+            "Pixmap": str(_icon_path("gui_sequence_catalog.svg")),
             "MenuText": tr("Последовательности"),
             "ToolTip": tr("Открыть сохранённые последовательности гибки из JSON"),
         }
@@ -1287,7 +1288,7 @@ class ManualCommand:
 
     def GetResources(self):
         return {
-            "Pixmap": str(_ICON_ROOT / "gui_manual.svg"),
+            "Pixmap": str(_icon_path("gui_manual.svg")),
             "MenuText": tr("Порядок и проверка"),
             "ToolTip": tr("Вручную выбрать порядок гибов, запустить симуляцию или проверить коллизии"),
         }
@@ -1311,7 +1312,7 @@ class _WorkspaceActionCommand:
     icon = "control_validate.svg"
 
     def GetResources(self):
-        return {"Pixmap": str(_ICON_ROOT / self.icon), "MenuText": tr(self.label),
+        return {"Pixmap": str(_icon_path(self.icon)), "MenuText": tr(self.label),
                 "ToolTip": tr(self.label)}
 
     def IsActive(self):
@@ -1339,6 +1340,7 @@ class BendInformationCommand(_WorkspaceActionCommand):
 class MeshCheckCommand(_WorkspaceActionCommand):
     label = "Mesh 3D"
     method = "_open_mesh_menu"
+    icon = "control_mesh.svg"
 
 
 class SettingsCommand:
@@ -1346,7 +1348,7 @@ class SettingsCommand:
 
     def GetResources(self):
         return {
-            "Pixmap": str(_ICON_ROOT / "gui_settings.svg"),
+            "Pixmap": str(_icon_path("gui_settings.svg")),
             "MenuText": tr("Настройки"),
             "ToolTip": tr("Режим гибки, скорость, проверки, допуски и запись"),
         }
@@ -1829,7 +1831,7 @@ class _PreviewPanel:
                 self.fit_btn = _playback_button(QtCore, QtWidgets, tr("Вписать в окно"), self.fit, True)
                 self.add_part_btn = _playback_button(QtCore, QtWidgets, "+", LoadPartCommand().Activated, True)
                 self.add_part_btn.setObjectName("SMBS_AddPart")
-                self.add_part_btn.setIcon(QtGui.QIcon(str(_ICON_ROOT / "control_add.svg")))
+                self.add_part_btn.setIcon(QtGui.QIcon(str(_icon_path("control_add.svg"))))
                 self.add_part_btn.setToolButtonStyle(QtCore.Qt.ToolButtonIconOnly)
                 buttons = (
                     self.add_part_btn, self.reset_btn, self.prev_step_btn, self.play_btn,
@@ -2126,13 +2128,13 @@ class _PreviewPanel:
                     self._preview_3d.hide()
                 else:
                     views.addTab(self._preview_3d, QtGui.QIcon(str(
-                        _ICON_ROOT / "gui_part.svg"
+                        _icon_path("gui_part.svg")
                     )), "Coin3D")
                 self._flat_view = Canvas(bend_click_callback=self._select_flat_bend)
                 self._flat_view.setObjectName("SMBS_FlatPattern_ManualOrder")
                 self._create_flat_scene()
                 views.addTab(self._flat_view, QtGui.QIcon(str(
-                    _ICON_ROOT / "gui_sequence_catalog.svg"
+                    _icon_path("gui_sequence_catalog.svg")
                 )), tr("Развёртка · Порядок"))
                 views.currentChanged.connect(self._on_view_changed)
 
@@ -2862,7 +2864,7 @@ class _PreviewPanel:
                     (self.cycle_config_btn, "gui_backgauge.svg"),
                 )
                 for widget, icon_name in icon_pairs:
-                    asset = _ICON_ROOT / icon_name
+                    asset = _icon_path(icon_name)
                     if not asset.is_file():
                         raise FileNotFoundError(
                             "SMBS GUI icon is missing: " + str(asset)
@@ -5974,7 +5976,7 @@ class _PreviewPanel:
                 if self.session is None:
                     self._update_task_progress()
                     self.play_btn.setText(tr("Воспроизвести"))
-                    self.play_btn.setIcon(QtGui.QIcon(str(_ICON_ROOT / "control_play.svg")))
+                    self.play_btn.setIcon(QtGui.QIcon(str(_icon_path("control_play.svg"))))
                     self.move_up_btn.setEnabled(False)
                     self.move_down_btn.setEnabled(False)
                     self.restore_order_btn.setEnabled(False)
@@ -5992,7 +5994,7 @@ class _PreviewPanel:
                 else:
                     self.play_btn.setText(tr("Воспроизвести"))
                     icon_name = "control_play.svg"
-                self.play_btn.setIcon(QtGui.QIcon(str(_ICON_ROOT / icon_name)))
+                self.play_btn.setIcon(QtGui.QIcon(str(_icon_path(icon_name))))
 
                 can_reorder_fn = getattr(self.session, "can_reorder", None)
                 can_reorder_val = can_reorder_fn() if callable(can_reorder_fn) else False

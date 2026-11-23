@@ -16,6 +16,7 @@ _ICON_ROOT = Path(__file__).resolve().parent / "resources" / "icons"
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
+from freecad_smbs.icon_pack import icon_path
 from freecad_smbs.commands.pressbrake_2d import (
     PressBrake2DCommand, LoadPartCommand, ToolingTabCommand,
     SequenceCatalogCommand,
@@ -97,7 +98,7 @@ class _SMBSAutoOpenObserver:
 class SMBSWorkbench(Workbench):
     MenuText = "PressBrakeSim"
     ToolTip = "SheetMetal press-brake bending preview and tooling"
-    Icon = str(_ICON_ROOT / "gui_workbench.svg")
+    Icon = str(icon_path("gui_simulation.svg"))
 
     def Initialize(self) -> None:
         register_commands()
