@@ -1,6 +1,1 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32" role="img">
-<title>gui simulation</title>
-
-<rect x="5" y="6" width="22" height="20" rx="2.4" stroke="#888888" stroke-width="1.65" stroke-linejoin="round" stroke-linecap="round" fill="none"/><path d="M9 9H23M16 9V13" stroke="#888888" stroke-width="1.9" stroke-linejoin="round" stroke-linecap="round" fill="none"/><path d="M12 14L16 19L20 14" stroke="#888888" stroke-width="1.9" fill="none" stroke-linejoin="round"/><path d="M9 22L16 25L23 22" stroke="#888888" stroke-width="2.15" stroke-linejoin="round" stroke-linecap="round" fill="none"/><path d="M16 19V20" stroke="#888888" stroke-width="2.05" stroke-linejoin="round" stroke-linecap="round" fill="none"/>
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32"><title>gui_simulation</title><defs><linearGradient id="bg" x2="0" y2="1"><stop stop-color="#f5f7fb"/><stop offset="1" stop-color="#d9e0eb"/></linearGradient></defs><rect x="1" y="1" width="30" height="30" rx="5" fill="url(#bg)" stroke="#657385" stroke-width="1.3"/><path d="M7 5H25V9H21L17 17 15 17 11 9H7Z" fill="#cdd7e4" stroke="#263443" stroke-width="1.5"/><path d="M5 22 10 18 14 18 16 22 18 18 22 18 27 22V27H5Z" fill="#2782d6" stroke="#263443" stroke-width="1.5"/><path d="M10 18 16 23 22 18" fill="none" stroke="#fff" stroke-width="1.25"/><circle cx="24" cy="23" r="6.5" fill="#3bbf31" stroke="#253746" stroke-width="1.4"/><path d="M22 20 27 23 22 26Z" fill="white"/></svg>
