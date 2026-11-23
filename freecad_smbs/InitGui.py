@@ -64,7 +64,7 @@ def register_commands() -> None:
     from smbs_core.kinematics2d.developer_debug_log import set_debug_log_enabled
     core, _, _ = _qt()
     preferences = core.QSettings("SMBS", "BendSeq")
-    set_debug_log_enabled(preferences.value("debug_log/enabled", True, type=bool))
+    set_debug_log_enabled(preferences.value("debug_log/enabled", False, type=bool))
     registered = set(FreeCADGui.listCommands()) if hasattr(FreeCADGui, "listCommands") else set()
     for name, cls in COMMANDS_MAP.items():
         if name in registered or name in _REGISTERED_COMMANDS:

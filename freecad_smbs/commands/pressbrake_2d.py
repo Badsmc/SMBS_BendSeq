@@ -19,6 +19,8 @@ import weakref
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
+from freecad_smbs.ui.localization import tr
+
 from smbs_core.kinematics2d.developer_debug_log import (
     debug_event as _desktop_debug_event,
     desktop_directory as _debug_desktop_directory,
@@ -664,7 +666,7 @@ class _SMBSNativeTaskPanel:
         for child in (
             workspace._task_stack, workspace.status,
             workspace.task_progress, workspace._task_status_chip,
-            workspace._task_progress_caption,
+            workspace._task_progress_caption, workspace._task_result_icons,
         ):
             if not workspace._qt_is_valid(child):
                 continue
@@ -787,7 +789,7 @@ def show_workspace_controls(workspace, tab=None):
         )
         if hasattr(workspace, "_rear_frame_for_preview"):
             cycle.loading_rear_frame_for_step = workspace._rear_frame_for_preview
-    caption = workspace._task_page_titles.get(section, "Панель задач")
+    caption = workspace._task_page_titles.get(section, tr("Панель задач"))
     header = getattr(workspace, "_task_section_label", None)
     if header is not None:
         header.setText(caption)
@@ -852,6 +854,7 @@ def show_workspace_controls(workspace, tab=None):
     row = QtWidgets.QHBoxLayout()
     row.addWidget(workspace._task_status_chip)
     row.addStretch(1)
+    row.addWidget(workspace._task_result_icons)
     row.addWidget(workspace._task_progress_caption)
     footer_layout.addLayout(row)
     footer_layout.addWidget(workspace.task_progress)
@@ -866,7 +869,7 @@ def show_workspace_controls(workspace, tab=None):
     for child in (
         workspace._task_stack, workspace.status,
         workspace.task_progress, workspace._task_status_chip,
-        workspace._task_progress_caption,
+        workspace._task_progress_caption, workspace._task_result_icons,
     ):
         child.show()
 
@@ -963,7 +966,7 @@ def embed_task_dialog(workspace, widget, title, key):
         OUTER_MARGIN, SECTION_GAP // 2, OUTER_MARGIN, SECTION_GAP // 2
     )
     bottom_layout.addStretch(1)
-    close_btn = style_action(QtWidgets.QPushButton("Закрыть раздел"))
+    close_btn = style_action(QtWidgets.QPushButton(tr("Закрыть раздел")))
     bottom_layout.addWidget(close_btn)
     page_layout.addWidget(bottom, 0)
 
@@ -1038,7 +1041,7 @@ class PressBrake2DCommand:
     def GetResources(self):
         return {
             "Pixmap": str(_ICON_ROOT / "gui_simulation.svg"),
-            "MenuText": "Симуляция",
+            "MenuText": tr("Симуляция"),
             "ToolTip": "Открыть симуляцию Coin3D и штатную вкладку Задачи FreeCAD",
         }
 
@@ -1180,7 +1183,7 @@ class LoadPartCommand:
     def GetResources(self):
         return {
             "Pixmap": str(_ICON_ROOT / "gui_part.svg"),
-            "MenuText": "Деталь",
+            "MenuText": tr("Деталь"),
             "ToolTip": "Загрузить выбранную развёртку SheetMetal",
         }
 
@@ -1226,7 +1229,7 @@ class ToolingTabCommand:
     def GetResources(self):
         return {
             "Pixmap": str(_ICON_ROOT / "gui_tooling.svg"),
-            "MenuText": "Оснастка",
+            "MenuText": tr("Оснастка"),
             "ToolTip": "Открыть оснастку симулятора",
         }
 
@@ -1311,7 +1314,7 @@ class SettingsCommand:
     def GetResources(self):
         return {
             "Pixmap": str(_ICON_ROOT / "gui_settings.svg"),
-            "MenuText": "Настройки",
+            "MenuText": tr("Настройки"),
             "ToolTip": "Режим гибки, скорость, проверки, допуски и запись",
         }
 
@@ -2086,11 +2089,30 @@ class _PreviewPanel:
                 self.task_progress.setFixedHeight(7)
                 self.task_progress.setRange(0, 100)
                 self.task_progress.setValue(0)
-                self._task_status_chip = QtWidgets.QLabel("Ready", self)
+                self._task_status_chip = QtWidgets.QLabel(tr("Готово"), self)
                 self._task_status_chip.setObjectName("SMBS_StatusChip")
                 self._task_status_chip.setProperty("state", "ready")
                 self._task_progress_caption = QtWidgets.QLabel("0%", self)
                 self._task_progress_caption.setObjectName("SMBS_SectionCaption")
+                self._task_result_icons = QtWidgets.QWidget(self)
+                icons_layout = QtWidgets.QHBoxLayout(self._task_result_icons)
+                icons_layout.setContentsMargins(0, 0, 0, 0)
+                icons_layout.setSpacing(3)
+                self._task_result_buttons = {}
+                self._task_results = {}
+                self._mesh_task_result_identity = None
+                for key in ("FAST", "Mesh"):
+                    button = QtWidgets.QToolButton(self._task_result_icons)
+                    button.setObjectName("SMBS_Result" + key)
+                    button.setAutoRaise(True)
+                    button.setIconSize(QtCore.QSize(16, 16))
+                    button.clicked.connect(
+                        lambda _checked=False, name=key: self._show_task_result(name)
+                    )
+                    icons_layout.addWidget(button)
+                    self._task_result_buttons[key] = button
+                    self._set_task_result(key, "idle", tr("Проверка ещё не запускалась.")
+                                          if key == "Mesh" else tr("Поиск ещё не запускался."))
                 status_font = self._task_status_chip.font()
                 status_font.setBold(True)
                 self._task_status_chip.setFont(status_font)
@@ -2217,7 +2239,7 @@ class _PreviewPanel:
                 )
                 self.manual_order_input.returnPressed.connect(self._apply_typed_manual_order)
                 order_body.addWidget(self.manual_order_input)
-                select_lines = QtWidgets.QPushButton("Выбрать линии гиба")
+                select_lines = QtWidgets.QPushButton(tr("Выбрать линии гиба"))
                 order_body.addWidget(style_action(select_lines, compact=True))
                 # Sequence guidance belongs in tooltips, not a permanent
                 # multi-line paragraph above operator controls.
@@ -2230,18 +2252,18 @@ class _PreviewPanel:
                 undo_row = QtWidgets.QVBoxLayout()
                 undo_row.setSpacing(SECTION_GAP)
                 self.manual_undo_btn = style_action(
-                    QtWidgets.QPushButton("Отменить линию")
+                    QtWidgets.QPushButton(tr("Отменить линию"))
                 )
                 self.manual_undo_btn.clicked.connect(self._undo_manual_bend)
                 self.manual_clear_btn = style_action(
-                    QtWidgets.QPushButton("Очистить")
+                    QtWidgets.QPushButton(tr("Очистить"))
                 )
                 self.manual_clear_btn.clicked.connect(self._clear_manual_order)
                 undo_row.addWidget(self.manual_undo_btn)
                 undo_row.addWidget(self.manual_clear_btn)
                 order_body.addLayout(undo_row)
                 self.saved_sequences_btn = style_action(
-                    QtWidgets.QPushButton("Сохранённые варианты"), compact=True
+                    QtWidgets.QPushButton(tr("Сохранённые варианты")), compact=True
                 )
                 self.saved_sequences_btn.setToolTip(
                     "Загрузить ранее сохранённый ручной порядок из JSON "
@@ -2251,7 +2273,7 @@ class _PreviewPanel:
                     self._select_saved_sequence
                 )
                 order_body.addWidget(self.saved_sequences_btn)
-                info_button = style_action(QtWidgets.QPushButton("Информация"), compact=True)
+                info_button = style_action(QtWidgets.QPushButton(tr("Информация")), compact=True)
                 info_button.clicked.connect(self._show_bend_information)
                 order_body.addWidget(info_button)
                 self.auto_orientation_checkbox = QtWidgets.QCheckBox(
@@ -2273,7 +2295,7 @@ class _PreviewPanel:
                 )
                 insert(order_body, entries[8], 1)  # actual sequence table
                 self.manual_simulate_btn = style_action(
-                    QtWidgets.QPushButton("Симулировать без проверки"), compact=True
+                    QtWidgets.QPushButton(tr("Симулировать без проверки")), compact=True
                 )
                 self.manual_simulate_btn.setToolTip(
                     "Просмотреть ручной порядок. Если есть актуальный 3D-результат, "
@@ -2288,7 +2310,7 @@ class _PreviewPanel:
                 # native OCC as a DISTINCT opt-in action, not a silent upgrade
                 # of the original fast "Проверить" button.
                 self.manual_validate_btn = style_action(
-                    QtWidgets.QPushButton("Быстрая проверка OCC (5 углов)"), compact=True
+                    QtWidgets.QPushButton(tr("Быстрая проверка OCC (5 углов)")), compact=True
                 )
                 self.manual_validate_btn.setObjectName(
                     "SMBS_ManualCoarseOCCCheck"
@@ -2303,7 +2325,7 @@ class _PreviewPanel:
                     lambda: self._validate_export_manual_order(coarse_occ=True)
                 )
                 self.manual_validate_3d_btn = style_action(
-                    QtWidgets.QPushButton("Проверить и показать"), primary=True
+                    QtWidgets.QPushButton(tr("Проверить и показать")), primary=True
                 )
                 self.manual_validate_3d_btn.setObjectName(
                     "SMBS_ManualNative3DCheck"
@@ -2388,7 +2410,7 @@ class _PreviewPanel:
                 self.manual_check_details.hide()
                 order_body.addWidget(self.manual_check_details)
                 self.manual_show_collision_btn = style_action(
-                    QtWidgets.QPushButton("Показать коллизию в 3D")
+                    QtWidgets.QPushButton(tr("Показать коллизию в 3D"))
                 )
                 self.manual_show_collision_btn.setObjectName(
                     "SMBS_ShowNativeCollision"
@@ -2436,7 +2458,7 @@ class _PreviewPanel:
                 # Keep the live sequence directly beneath the fixed controls.
                 playback_layout.addWidget(self.operations, 1)
                 self.fast_search_btn = style_action(
-                    QtWidgets.QPushButton("FAST · найти последовательности (до 30 с)"),
+                    QtWidgets.QPushButton(tr("FAST · найти последовательности (до 30 с)")),
                     compact=True,
                 )
                 self.fast_search_btn.setObjectName("SMBS_FastSequenceSearch")
@@ -2557,7 +2579,7 @@ class _PreviewPanel:
                 bottom_actions.addWidget(info_button)
                 bottom_actions.addWidget(self.manual_validate_btn)
                 self.manual_mesh_check_btn = style_action(
-                    QtWidgets.QPushButton("Mesh 3D (60 с)"), compact=True,
+                    QtWidgets.QPushButton(tr("Mesh 3D (60 с)")), compact=True,
                 )
                 self.manual_mesh_check_btn.setToolTip(
                     "Выборочная проверка детали против выбранного пуансона и матрицы."
@@ -2565,7 +2587,7 @@ class _PreviewPanel:
                 self.manual_mesh_check_btn.clicked.connect(self._run_mesh_sequence_check)
                 bottom_actions.addWidget(self.manual_mesh_check_btn)
                 self.mesh_show_collision_btn = style_action(
-                    QtWidgets.QPushButton("Коллизии Mesh"), compact=True,
+                    QtWidgets.QPushButton(tr("Коллизии Mesh")), compact=True,
                 )
                 self.mesh_show_collision_btn.setToolTip(
                     "Следующая подтверждённая коллизия. После последней — обычный вид."
@@ -2622,7 +2644,7 @@ class _PreviewPanel:
                 self.tooling_status.setParent(self)
                 self.tooling_status.hide()
                 tooling_body.addWidget(tool_main)
-                self.import_tooling_btn = style_action(QtWidgets.QPushButton("Импортировать…"), compact=True)
+                self.import_tooling_btn = style_action(QtWidgets.QPushButton(tr("Импортировать…")), compact=True)
                 self.import_tooling_btn.clicked.connect(self.open_full_tooling_library)
                 import_row = QtWidgets.QHBoxLayout()
                 import_row.addStretch(1)
@@ -2698,13 +2720,14 @@ class _PreviewPanel:
                 advanced_layout.addWidget(diagnostics_card)
 
                 from smbs_core.kinematics2d.developer_debug_log import set_debug_log_enabled
-                debug_log = QtWidgets.QCheckBox("Записывать отладочный журнал")
+                debug_log = QtWidgets.QCheckBox(tr("Записывать журнал SMBS и сбои FreeCAD"))
                 debug_log.setToolTip(str(_debug_desktop_directory() / "SMBS_debug_log.json"))
-                debug_log.setChecked(preferences.value("debug_log/enabled", True, type=bool))
+                debug_log.setChecked(preferences.value("debug_log/enabled", False, type=bool))
 
                 def toggle_debug_log(enabled):
                     preferences.setValue("debug_log/enabled", enabled)
-                    set_debug_log_enabled(enabled)
+                    if not set_debug_log_enabled(enabled):
+                        self.status.setText(tr("Не удалось создать журнал на рабочем столе."))
 
                 debug_log.toggled.connect(toggle_debug_log)
                 settings_layout.addWidget(debug_log)
@@ -2715,7 +2738,7 @@ class _PreviewPanel:
 
                 fcstd_card, fcstd_body = card("Данные SMBS в документе FCStd")
                 self.fcstd_save_btn = style_action(
-                    QtWidgets.QPushButton("Сохранить в FCStd"), compact=True
+                    QtWidgets.QPushButton(tr("Сохранить в FCStd")), compact=True
                 )
                 self.fcstd_save_btn.setToolTip(
                     "Вложить JSON с порядком гибов, настройками и историей "
@@ -2725,7 +2748,7 @@ class _PreviewPanel:
                     self._save_embedded_smbs_json_clicked
                 )
                 self.fcstd_load_btn = style_action(
-                    QtWidgets.QPushButton("Восстановить из FCStd"), compact=True
+                    QtWidgets.QPushButton(tr("Восстановить из FCStd")), compact=True
                 )
                 self.fcstd_load_btn.setToolTip(
                     "Восстановить сохранённый порядок и настройки. "
@@ -2749,7 +2772,7 @@ class _PreviewPanel:
                 self.fcstd_note.hide()
                 settings_layout.addWidget(fcstd_card)
                 advanced_toggle = style_action(
-                    QtWidgets.QPushButton("Дополнительно…"), compact=True
+                    QtWidgets.QPushButton(tr("Дополнительно…")), compact=True
                 )
                 advanced_toggle.setCheckable(True)
                 advanced_toggle.setChecked(False)
@@ -2770,9 +2793,9 @@ class _PreviewPanel:
                 # Only the selected page is shown. Specialist QDialogs may be
                 # temporarily added and removed without creating tabs.
                 page_specs = (
-                    ("Оснастка", self._page_tooling),
-                    ("Симуляция", self._page_simulation),
-                    ("Настройки", self._page_settings),
+                    (tr("Оснастка"), self._page_tooling),
+                    (tr("Симуляция"), self._page_simulation),
+                    (tr("Настройки"), self._page_settings),
                 )
                 self._task_page_titles = {}
                 for name, page in page_specs:
@@ -2782,7 +2805,7 @@ class _PreviewPanel:
                 self._viewer_tabs = views
                 self._task_stack = controls
                 self._native_task_panel = None
-                self.show_task_panel_btn = QtWidgets.QPushButton("Показать панель управления")
+                self.show_task_panel_btn = QtWidgets.QPushButton(tr("Показать панель управления"))
                 self.show_task_panel_btn.setObjectName("SMBS_ShowTaskPanel")
                 self.show_task_panel_btn.clicked.connect(
                     lambda: show_workspace_controls(self)
@@ -2825,7 +2848,10 @@ class _PreviewPanel:
                     badge.setProperty("state", state)
                     badge.style().unpolish(badge)
                     badge.style().polish(badge)
-                badge.setText(caption)
+                badge.setText(tr({
+                    "Ready": "Готово", "Running": "Расчёт…",
+                    "Warning": "Предупреждение", "Error": "Ошибка",
+                }.get(caption, caption)))
 
             def _on_physical_result_change(self, message):
                 if hasattr(self, "_simulation_diagnostics_summary"):
@@ -2843,11 +2869,47 @@ class _PreviewPanel:
                 self._task_progress_busy = bool(busy)
                 if busy:
                     self.task_progress.setRange(0, 0)
-                    self._task_progress_caption.setText("Расчёт…")
+                    self._task_progress_caption.setText(tr("Расчёт…"))
                 else:
                     self.task_progress.setRange(0, 100)
                     self._update_task_progress()
                 self._on_task_status_change(self.status.text())
+
+            def _set_task_result(self, key, state, summary, details="", findings=""):
+                button = self._task_result_buttons[key]
+                icons = {
+                    "idle": QtWidgets.QStyle.SP_MessageBoxInformation,
+                    "running": QtWidgets.QStyle.SP_BrowserReload,
+                    "done": QtWidgets.QStyle.SP_DialogApplyButton,
+                    "warning": QtWidgets.QStyle.SP_MessageBoxWarning,
+                    "error": QtWidgets.QStyle.SP_MessageBoxCritical,
+                }
+                button.setIcon(button.style().standardIcon(icons[state]))
+                button.setToolTip(f"{key} — {summary}")
+                button.setAccessibleName(f"{key} — {summary}")
+                self._task_results[key] = (summary, details, findings)
+                if key == "Mesh" and state in ("idle", "running"):
+                    self._mesh_task_result_identity = None
+
+            def _show_task_result(self, key):
+                if (key == "Mesh" and self._mesh_task_result_identity is not None
+                        and (self.session is None
+                             or self._mesh_task_result_identity != self._mesh_preview_identity())):
+                    self._set_task_result(
+                        "Mesh", "warning", tr("Деталь, порядок или оснастка изменились."),
+                        tr("Запустите Mesh заново для текущей конфигурации."),
+                    )
+                    self._mesh_task_result_identity = None
+                summary, details, findings = self._task_results[key]
+                box = QtWidgets.QMessageBox(self)
+                box.setWindowTitle(key)
+                box.setTextFormat(QtCore.Qt.PlainText)
+                box.setText(summary)
+                if details:
+                    box.setInformativeText(details)
+                if findings:
+                    box.setDetailedText(findings)
+                (getattr(box, "exec", None) or box.exec_)()
 
             def _update_task_progress(self):
                 """Known geometric bend progress, never DFS search percentage."""
@@ -4330,6 +4392,12 @@ class _PreviewPanel:
                         "перед поиском и изменением последовательности."
                     )
                     return
+                existing = getattr(self, "_fast_result_dialog", None)
+                if existing is not None and self._qt_is_valid(existing):
+                    existing.raise_()
+                    existing.activateWindow()
+                    return
+                self._set_task_result("FAST", "running", tr("Идёт поиск последовательности…"))
                 from smbs_core.kinematics2d.fast_bfm_beam_search import (
                     search_fast_candidates, FastSearchError,
                 )
@@ -4395,6 +4463,7 @@ class _PreviewPanel:
                     )
                 except (FastSearchError, ValueError, TypeError) as exc:
                     self.status.setText("FAST: поиск не выполнен: " + str(exc))
+                    self._set_task_result("FAST", "error", tr("Поиск не выполнен."), str(exc))
                     _desktop_debug_event("FAST_SEARCH_REJECTED", reason=str(exc))
                     return
                 self._last_fast_candidates_report = report
@@ -4419,6 +4488,17 @@ class _PreviewPanel:
                     findings=list(report.proxy_tool_findings),
                     scope="SIMPLIFIED_SELECTED_2D_PROFILES_SOFT_ONLY",
                 )
+                count = len(report.candidates)
+                fast_details = tr("Поиск занял {seconds:.2f} с. 3D-коллизии проверяются отдельно через Mesh.", seconds=report.elapsed_seconds)
+                if count or template_hits:
+                    self._set_task_result(
+                        "FAST", "done", tr("Найдено вариантов: {count}. Шаблонов: {templates}.", count=count, templates=len(template_hits)),
+                        fast_details + "\n" + tr("Выберите вариант в окне FAST."),
+                    )
+                else:
+                    self._set_task_result(
+                        "FAST", "warning", tr("Поиск завершён. Варианты не найдены."), fast_details,
+                    )
                 if not report.candidates and not template_hits:
                     self.status.setText(
                         "FAST: кандидаты не найдены за {:.3f} с. "
@@ -4431,15 +4511,10 @@ class _PreviewPanel:
                 # Parent the transient chooser to FreeCAD's main window,
                 # not to a Tasks widget managed by OverlayManager on macOS.
                 # open() avoids a nested QDialog.exec() event loop.
-                existing = getattr(self, "_fast_result_dialog", None)
-                if existing is not None and self._qt_is_valid(existing):
-                    existing.raise_()
-                    existing.activateWindow()
-                    return
                 dialog = QtWidgets.QDialog(Gui.getMainWindow())
                 dialog.setObjectName("SMBS_FAST_ResultsDialog")
                 dialog.setAttribute(QtCore.Qt.WA_DeleteOnClose, True)
-                dialog.setWindowTitle("FAST — варианты последовательности (UNVERIFIED)")
+                dialog.setWindowTitle(tr("FAST — варианты последовательности (UNVERIFIED)"))
                 dialog.setMinimumWidth(610)
                 dialog.setMinimumHeight(300)
                 layout = QtWidgets.QVBoxLayout(dialog)
@@ -4474,9 +4549,9 @@ class _PreviewPanel:
                 choices.setObjectName("SMBS_FastCandidateTable")
                 choices.setColumnCount(11)
                 choices.setHorizontalHeaderLabels((
-                    "№", "2D", "Вес", "2D гибов", "Старт",
-                    "1-й гиб", "180°", "Ось", "2D штраф",
-                    "Порядок", "Причина",
+                    "№", "2D", tr("Вес"), tr("2D гибов"), tr("Старт"),
+                    tr("1-й гиб"), "180°", tr("Ось"), tr("2D штраф"),
+                    tr("Порядок"), tr("Причина"),
                 ))
                 choices.setSelectionBehavior(
                     QtWidgets.QAbstractItemView.SelectRows
@@ -4775,7 +4850,7 @@ class _PreviewPanel:
                 populate_fast_choices()
                 layout.addWidget(choices)
                 screen_button = QtWidgets.QPushButton(
-                    "Проверить ещё раз / найти новые варианты", dialog
+                    tr("Проверить ещё раз / найти новые варианты"), dialog
                 )
                 screen_button.setObjectName("SMBS_FastShortlist2DScreen")
                 layout.addWidget(screen_button)
@@ -5091,6 +5166,16 @@ class _PreviewPanel:
                             "FAST_SHORTLIST_2D_SCREEN", report=screen.to_dict()
                         )
                         log_template_2d_replay("FINAL", screen)
+                        clear = sum(entry.status.startswith("SAMPLED_2D_TOOLS") for entry in screen.checks)
+                        blocked = sum(entry.status in ("POTENTIAL_2D_INTERFERENCE", "STATIC_TOOLING_BLOCK")
+                                      for entry in screen.checks)
+                        self._set_task_result(
+                            "FAST", "warning" if blocked or clear < len(all_candidates) else "done",
+                            tr("Предварительная 2D-проверка завершена. Вариантов: {count}.", count=len(all_candidates)),
+                            tr("Без замечаний в 2D: {clear}\nС препятствиями: {blocked}\nБез вывода: {unknown}",
+                               clear=clear, blocked=blocked, unknown=len(all_candidates) - clear - blocked)
+                            + "\n" + fast_details,
+                        )
                         _desktop_debug_event(
                             "FAST_POSTPROCESS_SUMMARY",
                             fast_seconds=report.elapsed_seconds,
@@ -5182,6 +5267,8 @@ class _PreviewPanel:
                             error=type(exc).__name__ + ":" + str(exc),
                             traceback=traceback.format_exc(),
                         )
+                        if self._playback_alive():
+                            self._set_task_result("FAST", "warning", tr("2D-проверка вариантов не выполнена."), str(exc))
                         if self._qt_is_valid(hint):
                             hint.setText(
                                 "2D-проверка недоступна: {}. "
@@ -5338,6 +5425,11 @@ class _PreviewPanel:
                             and cache is not None
                             and cache[0][1] == tuple(self.session.bend_order)):
                         self._update_operations_visual_state()
+                    _, details, _ = self._task_results["FAST"]
+                    self._set_task_result(
+                        "FAST", "done", tr("Порядок гибов применён."),
+                        tr("Последовательность: {order}", order=" → ".join(selected.operation_ids)) + "\n" + details,
+                    )
                     _desktop_debug_event(
                         "FAST_CANDIDATE_APPLIED",
                         selected=selected.to_dict(),
@@ -5370,6 +5462,7 @@ class _PreviewPanel:
                         self.status.setText(
                             "FAST: вариант не применён: " + str(exc)
                         )
+                    self._set_task_result("FAST", "error", tr("Вариант не применён."), str(exc))
                     _error("FAST apply failed: " + traceback.format_exc())
 
             def open_sequence_catalog_dialog(self):
@@ -5454,7 +5547,7 @@ class _PreviewPanel:
                     for i, item in enumerate(saved)
                 ]
                 label, accepted = QtWidgets.QInputDialog.getItem(
-                    self, "Сохранённые варианты", "Последовательность:",
+                    self, tr("Сохранённые варианты"), "Последовательность:",
                     labels, 0, False
                 )
                 if not accepted or label not in labels:
@@ -6375,6 +6468,8 @@ class _PreviewPanel:
                     self.check_result.setText(msg)
                     return
 
+                self._set_task_result("FAST", "idle", tr("Поиск ещё не запускался для этой детали."))
+                self._set_task_result("Mesh", "idle", tr("Проверка ещё не запускалась для этой детали."))
                 self._finish_motion_trace("NEW_PART_LOADED")
                 self._stop_timer()
                 # 3D surface preview uses this session's FoldState directly;
@@ -6505,7 +6600,7 @@ class _PreviewPanel:
                 """Invalidate LIVE validation display; never present stale PASS."""
                 if not hasattr(self, "manual_check_summary"):
                     return
-                self.manual_simulate_btn.setText("Симулировать без проверки")
+                self.manual_simulate_btn.setText(tr("Симулировать без проверки"))
                 self.manual_check_summary.setText(
                     "Текущий порядок ещё не проверен. Нажмите «Быстрая проверка OCC»."
                 )
@@ -6764,7 +6859,7 @@ class _PreviewPanel:
                     self.manual_show_collision_btn.setText(
                         "Вернуться к обычному 3D"
                         if self._collision_display_active else
-                        "Показать коллизию в 3D"
+                        tr("Показать коллизию в 3D")
                     )
                 if not self._open_coin_preview():
                     return False
@@ -7053,7 +7148,7 @@ class _PreviewPanel:
                     self.session.active_bend_index = pc.sequence.active_index
                     self._configure_for_active_bend()
                     self._collision_display_active = False
-                    self.manual_show_collision_btn.setText("Показать коллизию в 3D")
+                    self.manual_show_collision_btn.setText(tr("Показать коллизию в 3D"))
                     self.play_all()
                 except (PressCycleError, SequenceError, ValueError) as exc:
                     self.status.setText("Симуляция подъёма недоступна: " + str(exc))
@@ -7618,6 +7713,9 @@ class _PreviewPanel:
                     return
                 from smbs_core.kinematics2d.mesh_sequence_screen import screen_mesh_sequence
 
+                if self._task_progress_busy:
+                    return
+                self._set_task_result("Mesh", "running", tr("Проверка коллизий…"))
                 self.manual_mesh_check_btn.setEnabled(False)
                 self._set_task_busy(True)
                 try:
@@ -7669,9 +7767,47 @@ class _PreviewPanel:
                         message += " · осталось: " + ", ".join(report["pending"])
                         reason = report["reason"]
                         message += " · " + ("лимит времени" if reason == "TIME_BUDGET" else reason)
+                    hits = len(report["findings"])
+                    conditional = len(report["conditional_findings"])
+                    unresolved = len(report["unresolved"])
+                    if hits:
+                        state, summary = "error", tr("Подтверждённых коллизий: {count}.", count=hits)
+                    elif report["pending"] or unresolved:
+                        state, summary = "warning", tr("Проверка завершена не полностью.")
+                    elif conditional:
+                        state, summary = "warning", tr("Условных пересечений на торцах: {count}.", count=conditional)
+                    else:
+                        state, summary = "done", tr("В проверенных положениях коллизий не обнаружено.")
+                    tool_names = {"punch": "пуансон", "die": "матрица"}
+                    findings = []
+                    for label, entries in (
+                        ("Коллизия", report["findings"]),
+                        ("Торцевое пересечение", report["conditional_findings"]),
+                        ("Не удалось уточнить", report["unresolved"]),
+                    ):
+                        for item in entries:
+                            finding = (
+                                f"{tr(label)} — {item['operation']}, {tr(tool_names[item['tool']])}, "
+                                f"{item['component']}, {item['phase']}"
+                            )
+                            if item.get("reason"):
+                                finding += f" — {item['reason']}"
+                            findings.append(finding)
+                    details = tr(
+                        "Проверено гибов: {checked}/{total}. Время: {seconds:.1f} с.",
+                        checked=len(report["completed"]), total=len(operations),
+                        seconds=report["elapsed_seconds"],
+                    )
+                    if report["pending"]:
+                        details += "\n" + tr("Осталось проверить: {order}", order=", ".join(report["pending"]))
+                        reason = report["reason"]
+                        details += "\n" + (tr("Достигнут лимит времени.") if reason == "TIME_BUDGET" else reason)
+                    self._set_task_result("Mesh", state, summary, details, "\n".join(findings))
+                    self._mesh_task_result_identity = self._mesh_collision_identity
                     self.status.setText(message)
                     self.manual_check_summary.setText(message)
                 except (ValueError, RuntimeError, AttributeError) as exc:
+                    self._set_task_result("Mesh", "error", tr("Ошибка проверки."), str(exc))
                     self.status.setText("Mesh: " + str(exc))
                 finally:
                     self._set_task_busy(False)
@@ -7920,7 +8056,7 @@ class _PreviewPanel:
                         "подтвердится столкновение с пуансоном на RETRACT."
                     )
                     self.manual_show_collision_btn.setText(
-                        "Показать коллизию в 3D"
+                        tr("Показать коллизию в 3D")
                     )
                     native_tooling_identity = self._current_native_tooling_identity()
                     for step in physical["steps"]:
@@ -8274,7 +8410,7 @@ class _PreviewPanel:
                 self._collision_display_active = False
                 if hasattr(self, "manual_show_collision_btn"):
                     self.manual_show_collision_btn.setText(
-                        "Показать коллизию в 3D"
+                        tr("Показать коллизию в 3D")
                     )
                 if show_controls:
                     show_workspace_controls(self, tab=1)

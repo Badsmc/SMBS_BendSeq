@@ -3,7 +3,9 @@
 A single JSON object with an append-only "events" array. Replaces only the
 closing JSON suffix on each event (O(event size), not O(whole file)). Every
 completed append leaves a valid JSON document; after an interrupted write
-the next session salvages previously complete JSON records.
+the next session salvages previously complete JSON records. On a native
+fault, faulthandler appends a text dump to the same file descriptor in append
+mode. The next enabled session imports it as a structured journal event.
 
 This is a developer diagnostic, NOT a collision certificate or telemetry
 upload. No network access. No additional session or trace files required.
@@ -11,6 +13,7 @@ upload. No network access. No additional session or trace files required.
 from __future__ import annotations
 
 import datetime as _datetime
+import faulthandler
 import json
 import os
 from pathlib import Path
@@ -25,6 +28,7 @@ from collections.abc import Mapping
 _SCHEMA = "smbs.desktop_developer_debug.v1"
 _TAIL = b"\n]}\n"
 _JOURNAL = None
+_NATIVE_FAULT_STREAM = None
 _LOCK = threading.RLock()
 
 
@@ -188,7 +192,8 @@ class DesktopDebugJournal:
                 # Restore expected compact append suffix on legacy formatting.
                 self._rewrite(events)
         except (UnicodeError, ValueError, TypeError, KeyError):
-            events = _recover_events(raw)
+            fault = re.search(rb"(?m)^(?:Fatal Python error:|Windows fatal exception:)", raw)
+            events = _recover_events(raw[:fault.start()] if fault else raw)
             self._next = max(
                 (int(x.get("sequence", 0)) for x in events
                  if isinstance(x, dict)), default=0,
@@ -196,8 +201,9 @@ class DesktopDebugJournal:
             events.append({
                 "sequence": self._next, "utc": _utc(),
                 "session_id": self.session_id,
-                "event": "RECOVERED_INTERRUPTED_JOURNAL",
-                "data": {
+                "event": "NATIVE_FAULT_DUMP" if fault else "RECOVERED_INTERRUPTED_JOURNAL",
+                "data": {"stack_dump": raw[fault.start():].decode("utf-8", errors="replace")}
+                if fault else {
                     "raw_bytes": len(raw),
                     "recovered_event_count": len(events),
                     "discarded_partial_tail": True,
@@ -276,22 +282,56 @@ def get_debug_journal():
         return _JOURNAL
 
 
-_debug_log_enabled = True
+_debug_log_enabled = False
 
 
 def set_debug_log_enabled(enabled):
-    global _debug_log_enabled
-    _debug_log_enabled = bool(enabled)
+    """Enable both diagnostic writers on one Desktop file, or stop them both."""
+    global _debug_log_enabled, _JOURNAL, _NATIVE_FAULT_STREAM
+    with _LOCK:
+        if not enabled:
+            _debug_log_enabled = False
+            if _NATIVE_FAULT_STREAM is not None:
+                faulthandler.disable()
+                _NATIVE_FAULT_STREAM.close()
+                _NATIVE_FAULT_STREAM = None
+            _JOURNAL = None
+            return True
+
+        if _debug_log_enabled:
+            return True
+        try:
+            journal = get_debug_journal()
+        except Exception:
+            return False
+        _debug_log_enabled = True
+        if faulthandler.is_enabled():
+            journal.emit("NATIVE_FAULT_DIAGNOSTICS", status="ALREADY_ENABLED_BY_HOST")
+            return True
+        try:
+            stream = journal.path.open("ab", buffering=0)
+            try:
+                faulthandler.enable(file=stream, all_threads=True)
+            except Exception:
+                stream.close()
+                raise
+            _NATIVE_FAULT_STREAM = stream
+        except (OSError, RuntimeError, ValueError) as exc:
+            journal.emit("NATIVE_FAULT_DIAGNOSTICS", status="UNAVAILABLE", reason=str(exc))
+        else:
+            journal.emit("NATIVE_FAULT_DIAGNOSTICS", status="ENABLED")
+        return True
 
 
 def debug_event(event, **details):
     """Best-effort diagnostic: never take down FreeCAD or its OCC solver."""
-    if not _debug_log_enabled:
-        return False
-    try:
-        return get_debug_journal().emit(event, **details)
-    except Exception:
-        return False
+    with _LOCK:
+        if not _debug_log_enabled:
+            return False
+        try:
+            return get_debug_journal().emit(event, **details)
+        except Exception:
+            return False
 
 
 def summarize_native_trajectory(result):

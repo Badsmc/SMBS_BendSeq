@@ -2,52 +2,8 @@
 from __future__ import annotations
 import sys
 import traceback
-from datetime import datetime, timezone
 
 _installed = None
-_native_fault_file = None
-
-
-def _enable_native_fault_diagnostics():
-    """Capture Python thread stacks on native faults on supported platforms.
-
-    A QTreeWidget/PySide/FreeCAD native fault cannot be caught by ordinary
-    try/except. Keep the stream alive for the entire FreeCAD process.
-    Do not replace a faulthandler that FreeCAD already registered.
-    """
-    global _native_fault_file
-    from smbs_core.kinematics2d.developer_debug_log import (
-        debug_event, desktop_directory,
-    )
-    try:
-        import faulthandler
-
-        if _native_fault_file is not None:
-            return
-        if faulthandler.is_enabled():
-            debug_event(
-                "NATIVE_FAULT_DIAGNOSTICS",
-                status="ALREADY_ENABLED_BY_HOST",
-            )
-            return
-        path = desktop_directory() / "SMBS_native_crash.log"
-        path.parent.mkdir(parents=True, exist_ok=True)
-        stream = path.open("a", encoding="utf-8", buffering=1)
-        try:
-            stream.write(
-                "\nSMBS FreeCAD native fault monitor enabled: "
-                + datetime.now(timezone.utc).isoformat()
-                + "\n"
-            )
-            stream.flush()
-            faulthandler.enable(file=stream, all_threads=True)
-        except Exception:
-            stream.close()
-            raise
-        _native_fault_file = stream
-        debug_event("NATIVE_FAULT_DIAGNOSTICS", status="ENABLED", path=str(path))
-    except (OSError, RuntimeError, ValueError) as exc:
-        debug_event("NATIVE_FAULT_DIAGNOSTICS", status="UNAVAILABLE", reason=str(exc))
 
 
 def install(QtCore, QtWidgets):
@@ -56,7 +12,6 @@ def install(QtCore, QtWidgets):
         return
     import FreeCAD as App
     from smbs_core.kinematics2d.developer_debug_log import debug_event
-    _enable_native_fault_diagnostics()
 
     def record(event, **data):
         debug_event(event, stack=traceback.format_stack(limit=24), **data)
