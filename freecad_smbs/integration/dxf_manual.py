@@ -1,5 +1,5 @@
-from freecad_smbs.icon_pack import icon_path
 """Manual bending of a single flat outline from an ASCII DXF."""
+from freecad_smbs.icon_pack import icon_path
 from dataclasses import asdict, dataclass
 from freecad_smbs.ui.localization import tr
 from itertools import combinations, groupby
