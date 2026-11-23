@@ -1339,6 +1339,7 @@ class BendInformationCommand(_WorkspaceActionCommand):
 class MeshCheckCommand(_WorkspaceActionCommand):
     label = "Mesh 3D"
     method = "_open_mesh_menu"
+    icon = "control_mesh.svg"
 
 
 class SettingsCommand:
@@ -1377,6 +1378,8 @@ def _playback_button(QtCore, widgets, label, callback, enabled=True):
     btn.setToolButtonStyle(QtCore.Qt.ToolButtonTextOnly)
     btn.setText(label)
     btn.setEnabled(enabled)
+    from freecad_smbs.ui.pressbrake_theme import set_semantic_icon
+    set_semantic_icon(btn, label)
     btn.clicked.connect(callback)
     return btn
 
@@ -1821,12 +1824,15 @@ class _PreviewPanel:
                 # navigation immediately on either side.
                 self.reset_btn = _playback_button(QtCore, QtWidgets, tr("Сбросить"), self.reset, False)
                 self.prev_step_btn = _playback_button(QtCore, QtWidgets, "|<<", self.previous_step, False)
+                self.prev_step_btn.setIcon(QtGui.QIcon(str(_ICON_ROOT / "control_prev.svg")))
                 self.play_btn = _playback_button(
                     QtCore, QtWidgets, tr("Воспроизвести"), self._toggle_play_pause, False
                 )
                 self.play_btn.setToolTip(tr("Play / Pause / Resume для выбранного режима"))
                 self.next_step_btn = _playback_button(QtCore, QtWidgets, ">>|", self.next_step, False)
+                self.next_step_btn.setIcon(QtGui.QIcon(str(_ICON_ROOT / "control_next.svg")))
                 self.fit_btn = _playback_button(QtCore, QtWidgets, tr("Вписать в окно"), self.fit, True)
+                self.fit_btn.setIcon(QtGui.QIcon(str(_ICON_ROOT / "control_fit.svg")))
                 self.add_part_btn = _playback_button(QtCore, QtWidgets, "+", LoadPartCommand().Activated, True)
                 self.add_part_btn.setObjectName("SMBS_AddPart")
                 self.add_part_btn.setIcon(QtGui.QIcon(str(_ICON_ROOT / "control_add.svg")))
