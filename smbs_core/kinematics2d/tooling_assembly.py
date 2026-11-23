@@ -69,11 +69,18 @@ def normalize_section_spans(spans) -> SectionSpans:
 
 def native_section_options(tooling, kind: str) -> dict:
     spans = getattr(tooling, f"{kind}_section_spans_xm", ())
-    if spans:
-        return {"section_spans_xm": spans}
-    return {"section_offsets_xm": getattr(tooling, f"{kind}_section_offsets_xm", ()) or None}
+    options = (
+        {"section_spans_xm": spans} if spans
+        else {"section_offsets_xm": getattr(tooling, f"{kind}_section_offsets_xm", ()) or None}
+    )
+    punch = getattr(tooling, "punch", None)
+    if kind == "punch" and punch is not None:
+        options["reverse_punch"] = bool(getattr(punch, "punch_reversed", False))
+    return options
 
 
 def has_native_sections(tooling) -> bool:
-    return any(option for kind in ("punch", "die")
-               for option in native_section_options(tooling, kind).values())
+    return any(
+        getattr(tooling, f"{kind}_section_{field}_xm", ())
+        for kind in ("punch", "die") for field in ("offsets", "spans")
+    )

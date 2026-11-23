@@ -429,7 +429,8 @@ def _punch_geometry_signature(punch: LoadedTool) -> Tuple[Any, ...]:
     span_xm = tuple(float(x) for x in getattr(punch, "span_xm", (-0.5 * length, 0.5 * length)))
     m_shape = getattr(punch, "machine_shape", None)
     shape_disc = _tool_shape_geometry_discriminator(m_shape)
-    return (p_id, gen_token, tip_radius, inc_angle, height, length, is_virt, src_len, span_xm, shape_disc)
+    return (p_id, gen_token, tip_radius, inc_angle, height, length, is_virt, src_len, span_xm,
+            shape_disc, bool(getattr(punch, "punch_reversed", False)))
 
 
 def is_blocking_collision(st: Optional[MotionState3D]) -> bool:

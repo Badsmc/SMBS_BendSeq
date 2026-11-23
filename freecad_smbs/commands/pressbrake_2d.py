@@ -3547,6 +3547,27 @@ class _PreviewPanel:
                     self._simulation_layouts[length] = sections or None
                 return self._simulation_layouts[length]
 
+            def _on_punch_orientation_changed(self, punch):
+                selected = self.tooling_setup.punch
+                if selected is None or selected.tool_id != punch.tool_id:
+                    return
+                if self.timer.isActive() or self.playing:
+                    self.pause()
+                # Segment positions and lengths do not change when the tool turns.
+                self.tooling_setup.punch = punch
+                self._physical_check_signature = None
+                self._last_manual_sequence_report = None
+                self._manual_3d_verdicts.clear()
+                self._manual_retract_verdicts.clear()
+                self._conditional_bends_status.clear()
+                self._mesh_collision_hits = ()
+                self._mesh_collision_index = None
+                self._mesh_collision_identity = None
+                self.mesh_show_collision_btn.hide()
+                self._clear_manual_check_feedback()
+                self._sync_tooling_to_active_bend()
+                self.draw()
+
             def _on_tool_inventory_changed(self, kind=None, tool_id=None):
                 self._simulation_layout_key = None
                 if kind is not None:
@@ -6677,6 +6698,7 @@ class _PreviewPanel:
                         getattr(self.tooling_setup, "punch", None),
                         "tool_id", None,
                     ),
+                    "punch_reversed": bool(getattr(self.tooling_setup.punch, "punch_reversed", False)),
                     "die_id": getattr(
                         getattr(self.tooling_setup, "die", None),
                         "tool_id", None,

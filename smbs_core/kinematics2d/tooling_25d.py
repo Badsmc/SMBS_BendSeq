@@ -1321,6 +1321,7 @@ class ToolProfile:
     brep_filename: Optional[str] = None
 
     # Prepared local geometry & polygon cache (invalidated when origin/orientation/datums change)
+    punch_reversed: bool = False
     _cached_local_geometry: Optional[ProfileGeometry2D] = field(default=None, init=False, repr=False, compare=False)
     _cached_local_polygons: Optional[Tuple[Tuple[Point2D, ...], Tuple[Tuple[Point2D, ...], ...]]] = field(
         default=None, init=False, repr=False, compare=False
@@ -1372,7 +1373,15 @@ class ToolProfile:
             outer_pts = geom.outer_contour.sample_polygon(arc_segments=arc_segments)
             hole_pts = tuple(h.sample_polygon(arc_segments=arc_segments) for h in geom.holes)
             self._cached_local_polygons = (outer_pts, hole_pts)
-        return self._cached_local_polygons
+        outer, holes = self._cached_local_polygons
+        # CAD X maps to machine +Y, while the profile view uses s = -Y.
+        native_profile = Path(self.source_file).suffix.lower() == ".fcstd"
+        if self.kind == ToolKind.PUNCH and native_profile != self.punch_reversed:
+            def reverse_ring(ring):
+                return tuple((-x, z) for x, z in reversed(ring))
+
+            return reverse_ring(outer), tuple(reverse_ring(hole) for hole in holes)
+        return outer, holes
 
     def assign_punch_datums(
         self,
@@ -1460,6 +1469,7 @@ class ToolProfile:
             "kind": self.kind.value,
             "source_format": self.source_format,
             "source_file": self.source_file,
+            "punch_reversed": self.punch_reversed,
             "units": self.units,
             "unit_scale_to_mm": self.unit_scale_to_mm,
             "profile_geometry": self.profile_geometry.to_dict(),
@@ -1510,6 +1520,7 @@ class ToolProfile:
             kind=ToolKind(str(data["kind"]).upper()),
             source_format=str(data["source_format"]),
             source_file=str(data["source_file"]),
+            punch_reversed=data.get("punch_reversed") is True,
             units=str(data["units"]),
             unit_scale_to_mm=float(data.get("unit_scale_to_mm", 1.0)),
             profile_geometry=ProfileGeometry2D.from_dict(data["profile_geometry"]),

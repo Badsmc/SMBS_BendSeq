@@ -149,6 +149,13 @@ class ToolingPanel:
                     self.punch_list = QtWidgets.QListWidget()
                     self.punch_list.itemSelectionChanged.connect(self._on_selection_changed)
                     vbox.addWidget(self.punch_list)
+                    self.reverse_punch_checkbox = QtWidgets.QCheckBox("Развернуть пуансон на 180°")
+                    self.reverse_punch_checkbox.setToolTip(
+                        "Сохраняется для выбранного пуансона. Используется в симуляции и проверках."
+                    )
+                    self.reverse_punch_checkbox.setEnabled(False)
+                    self.reverse_punch_checkbox.toggled.connect(self._save_punch_orientation)
+                    vbox.addWidget(self.reverse_punch_checkbox)
                     return widget
 
                 def _build_die_tab(self) -> QtWidgets.QWidget:
@@ -577,6 +584,47 @@ class ToolingPanel:
                         return item.data(QtCore.Qt.UserRole)
                     return None
 
+                def _punch_profile_library(self):
+                    if self._workspace is not None:
+                        return self._workspace.tool_library
+                    from smbs_core.kinematics2d.tooling_25d import ToolLibrary25D
+
+                    return ToolLibrary25D(self.library_path)
+
+                def _refresh_punch_orientation(self, descriptor):
+                    checkbox = self.reverse_punch_checkbox
+                    profile = None
+                    if descriptor is not None:
+                        try:
+                            profile = self._punch_profile_library().load_tool(
+                                descriptor.tool_id, "PUNCH",
+                            )
+                        except (ValueError, RuntimeError, OSError) as exc:
+                            self._set_status(str(exc), is_error=True)
+                    previous = checkbox.blockSignals(True)
+                    checkbox.setEnabled(profile is not None)
+                    checkbox.setChecked(bool(profile and profile.punch_reversed))
+                    checkbox.blockSignals(previous)
+
+                def _save_punch_orientation(self, checked):
+                    from dataclasses import replace
+
+                    descriptor = self._current_descriptor()
+                    if self.tabs.currentIndex() != 0 or descriptor is None:
+                        return
+                    library = self._punch_profile_library()
+                    try:
+                        profile = library.load_tool(descriptor.tool_id, "PUNCH")
+                        updated = replace(profile, punch_reversed=checked)
+                        library.save_tool(updated)
+                    except (ValueError, RuntimeError, OSError) as exc:
+                        self._refresh_punch_orientation(descriptor)
+                        self._set_status(str(exc), is_error=True)
+                        return
+                    if self._workspace is not None:
+                        self._workspace._on_punch_orientation_changed(updated)
+                    self._set_status(f"{updated.name}: разворот {'включён' if checked else 'выключен'}")
+
                 def _on_selection_changed(self) -> None:
                     index = self.tabs.currentIndex()
                     tool_tab = index in (0, 1)
@@ -593,6 +641,8 @@ class ToolingPanel:
                     self.remove_tool_button.setText("Удалить " + kind)
                     self.segments_button.setText("Сегменты " + kind)
                     desc = self._current_descriptor()
+                    if index == 0:
+                        self._refresh_punch_orientation(desc)
                     self.remove_tool_button.setEnabled(desc is not None)
                     self.segments_button.setEnabled(desc is not None)
                     self._show_picture(self.tool_picture, desc.fcstd_path if desc else None)

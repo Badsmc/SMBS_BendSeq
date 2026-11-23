@@ -83,6 +83,7 @@ class LoadedTool:
     tool_length_mode: str = "LIBRARY_FIXED"
     validity_proof: Optional[Tuple[Any, Tuple[bool, str]]] = None
     ram_z_mm: float = 0.0
+    punch_reversed: bool = False
 
 
 def _build_virtual_length_cad_prism(
@@ -314,14 +315,16 @@ def _matrix_for_die(origin_cad: Tuple[float, float], length_mm: float) -> Any:
     )
 
 
-def _matrix_for_punch(origin_cad: Tuple[float, float], length_mm: float, ram_z_mm: float = 0.0) -> Any:
-    """Returns FreeCAD 4x4 Placement Matrix for Punch -> Machine Space at ram_z_mm."""
+def _matrix_for_punch(origin_cad: Tuple[float, float], length_mm: float,
+                      ram_z_mm: float = 0.0, *, reverse_punch: bool = False) -> Any:
+    """Place the punch, optionally rotating it 180° about the machine Z axis."""
     if not HAS_FREECAD:
         return None
     tip_x, tip_y = origin_cad
+    direction = -1.0 if reverse_punch else 1.0
     return App.Matrix(
-        0.0, 0.0, 1.0, -0.5 * length_mm,
-        1.0, 0.0, 0.0, -tip_x,
+        0.0, 0.0, direction, -direction * 0.5 * length_mm,
+        direction, 0.0, 0.0, -direction * tip_x,
         0.0, 1.0, 0.0, -tip_y + float(ram_z_mm),
         0.0, 0.0, 0.0, 1.0,
     )
@@ -398,6 +401,7 @@ def _clone_loaded_tool(tool: LoadedTool) -> LoadedTool:
         tool_length_mode=tool.tool_length_mode,
         validity_proof=proof,
         ram_z_mm=tool.ram_z_mm,
+        punch_reversed=tool.punch_reversed,
     )
 
 
@@ -616,6 +620,7 @@ def load_native_punch(
     virtual_length_mm: Optional[float] = None,
     tool_length_mode: Optional[str] = None,
     section_spans_xm: SectionSpans = (),
+    reverse_punch: bool | None = None,
 ) -> LoadedTool:
     """Load native FreeCAD punch CAD model and transform into Machine Space (tip at ram_z_mm).
 
@@ -656,6 +661,9 @@ def load_native_punch(
         v_len_key = round(float(virtual_length_mm), 6)
 
     lib_dir = library_root or p.parents[1]
+    tool_lib = ToolLibrary25D(lib_dir)
+    profile_path = tool_lib.profile_path(p.stem, ToolKind.PUNCH)
+    profile_revision = profile_path.stat().st_mtime_ns if profile_path.is_file() else None
     cache_key = (
         str(p),
         int(p.stat().st_mtime_ns),
@@ -664,16 +672,19 @@ def load_native_punch(
         section_spans_xm,
         v_len_key,
         str(resolved_mode),
+        profile_revision,
+        reverse_punch,
     )
     cached_base_punch = _NATIVE_PUNCH_BASE_CACHE.get(cache_key)
     if cached_base_punch is not None:
         return set_punch_ram_z(_clone_loaded_tool(cached_base_punch), float(ram_z_mm))
 
-    tool_lib = ToolLibrary25D(lib_dir)
     profile = tool_lib.load_tool(p.stem, ToolKind.PUNCH)
     if profile.punch_datums is None:
         raise ValueError(f"MISSING_TOOLING_EVIDENCE: Punch '{p.stem}' has no verified punch_datums.")
 
+    if reverse_punch is None:
+        reverse_punch = profile.punch_reversed
     datums = profile.punch_datums
     origin_cad = (datums.working_tip[0], datums.working_tip[1])
     source_sec_len = float(profile.length_mm) if profile.length_mm else 100.0
@@ -702,7 +713,7 @@ def load_native_punch(
             cad_shape = raw_cad_shape
             sec_len = source_sec_len
 
-        base_mat = _matrix_for_punch(origin_cad, sec_len, ram_z_mm)
+        base_mat = _matrix_for_punch(origin_cad, sec_len, ram_z_mm, reverse_punch=reverse_punch)
         base_machine_shape = cad_shape.copy()
         base_machine_shape.transformShape(base_mat)
 
@@ -713,7 +724,7 @@ def load_native_punch(
         if section_spans_xm:
             machine_shape, sections = _assemble_stock_sections(
                 cad_shape, p.stem, section_spans_xm,
-                lambda length: _matrix_for_punch(origin_cad, length, ram_z_mm),
+                lambda length: _matrix_for_punch(origin_cad, length, ram_z_mm, reverse_punch=reverse_punch),
             )
             span_xm = (section_spans_xm[0][0], section_spans_xm[-1][1])
             total_len = sum(section.length_mm for section in sections)
@@ -788,6 +799,7 @@ def load_native_punch(
             tool_length_mode=resolved_mode,
             validity_proof=(machine_shape, punch_valid),
             ram_z_mm=float(ram_z_mm),
+            punch_reversed=reverse_punch,
         )
         _NATIVE_PUNCH_BASE_CACHE[cache_key] = _clone_loaded_tool(loaded_punch)
         return loaded_punch
