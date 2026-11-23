@@ -1,5 +1,6 @@
 """Tooling library dialog for punches, dies, virtual clamps and backgauges."""
 from __future__ import annotations
+from freecad_smbs.ui.localization import tr
 
 from pathlib import Path
 from typing import Any, Optional
@@ -39,7 +40,7 @@ class ToolingPanel:
             class _Dialog(QtWidgets.QDialog):
                 def __init__(self, library: Any, parent: Any = None, *, clamps_only=False) -> None:
                     super().__init__(parent)
-                    self.setWindowTitle("SMBS: Библиотека оснастки")
+                    self.setWindowTitle(tr("SMBS: Библиотека оснастки"))
                     screen = QtWidgets.QApplication.primaryScreen()
                     available = screen.availableGeometry() if screen else None
                     self.resize(min(700, available.width() - 40) if available else 700,
@@ -51,7 +52,7 @@ class ToolingPanel:
                     self._backgauge_fcstd = None
 
                     if clamps_only:
-                        self.setWindowTitle("Виртуальные зажимы")
+                        self.setWindowTitle(tr("Виртуальные зажимы"))
                         layout = QtWidgets.QVBoxLayout(self)
                         layout.addWidget(self._build_clamps_tab())
                         self.status_label = QtWidgets.QLabel()
@@ -75,13 +76,13 @@ class ToolingPanel:
                     self.tabs = QtWidgets.QTabWidget()
                     self.tabs.tabBar().setUsesScrollButtons(True)
                     self.tabs.setIconSize(QtCore.QSize(17, 17))
-                    self.tabs.addTab(self._build_punch_tab(), "Пуансоны (0)")
-                    self.tabs.addTab(self._build_die_tab(), "Матрицы (0)")
+                    self.tabs.addTab(self._build_punch_tab(), tr("Пуансоны (0)"))
+                    self.tabs.addTab(self._build_die_tab(), tr("Матрицы (0)"))
                     clamps_scroll = QtWidgets.QScrollArea()
                     clamps_scroll.setWidgetResizable(True)
                     clamps_scroll.setWidget(self._build_clamps_tab())
-                    self.tabs.addTab(clamps_scroll, "Зажимы")
-                    self.tabs.addTab(self._build_backgauge_tab(), "Задний упор")
+                    self.tabs.addTab(clamps_scroll, tr("Зажимы"))
+                    self.tabs.addTab(self._build_backgauge_tab(), tr("Задний упор"))
                     self.tabs.currentChanged.connect(self._on_selection_changed)
 
                     # Selected item details group box
@@ -93,12 +94,12 @@ class ToolingPanel:
                         SECTION_PADDING, SECTION_PADDING
                     )
                     info_layout.setSpacing(SECTION_GAP)
-                    heading = QtWidgets.QLabel("Сведения об инструменте")
+                    heading = QtWidgets.QLabel(tr("Сведения об инструменте"))
                     heading.setObjectName("SMBS_SectionTitle")
                     heading.setAlignment(QtCore.Qt.AlignLeft)
                     info_layout.addWidget(heading)
-                    self.lbl_selected_id = QtWidgets.QLabel("Выбрано: нет")
-                    self.lbl_selected_meta = QtWidgets.QLabel("Метаданные: —")
+                    self.lbl_selected_id = QtWidgets.QLabel(tr("Выбрано: нет"))
+                    self.lbl_selected_meta = QtWidgets.QLabel(tr("Метаданные: —"))
                     self.lbl_selected_meta.setWordWrap(True)
                     info_layout.addWidget(self.lbl_selected_id)
                     info_layout.addWidget(self.lbl_selected_meta)
@@ -127,7 +128,7 @@ class ToolingPanel:
                         btn_layout.addWidget(style_action(button))
                     layout.addWidget(self.tool_actions)
                     # Status bar label
-                    self.status_label = QtWidgets.QLabel("Статус: Готово")
+                    self.status_label = QtWidgets.QLabel(tr("Статус: Готово"))
                     self.status_label.setObjectName("SMBS_SectionCaption")
                     self.status_label.setWordWrap(True)
                     layout.addWidget(self.status_label)
@@ -139,8 +140,7 @@ class ToolingPanel:
                     vbox.setSpacing(16)
 
                     lbl_sections = QtWidgets.QLabel(
-                        "Назначьте длину и количество имеющихся сегментов "
-                        "для каждого конкретного пуансона."
+                        tr("Назначьте длину и количество имеющихся сегментов для каждого конкретного пуансона.")
                     )
                     lbl_sections.setObjectName("SMBS_SectionCaption")
                     lbl_sections.setWordWrap(True)
@@ -149,9 +149,9 @@ class ToolingPanel:
                     self.punch_list = QtWidgets.QListWidget()
                     self.punch_list.itemSelectionChanged.connect(self._on_selection_changed)
                     vbox.addWidget(self.punch_list)
-                    self.reverse_punch_checkbox = QtWidgets.QCheckBox("Развернуть пуансон на 180°")
+                    self.reverse_punch_checkbox = QtWidgets.QCheckBox(tr("Развернуть пуансон на 180°"))
                     self.reverse_punch_checkbox.setToolTip(
-                        "Сохраняется для выбранного пуансона. Используется в симуляции и проверках."
+                        tr("Сохраняется для выбранного пуансона. Используется в симуляции и проверках.")
                     )
                     self.reverse_punch_checkbox.setEnabled(False)
                     self.reverse_punch_checkbox.toggled.connect(self._save_punch_orientation)
@@ -180,9 +180,9 @@ class ToolingPanel:
                     self.gauge_picture.setMaximumSize(220, 145)
                     actions = QtWidgets.QHBoxLayout()
                     for title, callback in (
-                        ("Загрузить", self._import_backgauge),
-                        ("Удалить", self._remove_backgauge),
-                        ("Настройки заднего упора", self._configure_backgauge),
+                        (tr("Загрузить"), self._import_backgauge),
+                        (tr("Удалить"), self._remove_backgauge),
+                        (tr("Настройки заднего упора"), self._configure_backgauge),
                     ):
                         button = QtWidgets.QPushButton(title)
                         button.clicked.connect(callback)
@@ -205,7 +205,7 @@ class ToolingPanel:
                         except (OSError, BadZipFile, KeyError):
                             pass
                     if image.isNull():
-                        label.setText("Миниатюра отсутствует" if path else "Модель не выбрана")
+                        label.setText(tr("Миниатюра отсутствует") if path else tr("Модель не выбрана"))
                     else:
                         label.setPixmap(image.scaled(
                             220, 145, QtCore.Qt.KeepAspectRatio, QtCore.Qt.SmoothTransformation
@@ -232,7 +232,7 @@ class ToolingPanel:
                     from zipfile import BadZipFile, ZipFile
 
                     filename, _ = QtWidgets.QFileDialog.getOpenFileName(
-                        self, "Загрузить задний упор", "", "FreeCAD (*.FCStd)"
+                        self, tr("Загрузить задний упор"), "", "FreeCAD (*.FCStd)"
                     )
                     if not filename:
                         return
@@ -242,7 +242,7 @@ class ToolingPanel:
                     if Path(filename).resolve() == target.resolve():
                         return
                     if target.exists() and QtWidgets.QMessageBox.question(
-                        self, "Задний упор", "Заменить текущую модель?"
+                        self, tr("Задний упор"), tr("Заменить текущую модель?")
                     ) != QtWidgets.QMessageBox.Yes:
                         return
                     staged = None
@@ -256,7 +256,7 @@ class ToolingPanel:
                                 copyfileobj(source, temp)
                         staged.replace(target)
                     except (OSError, BadZipFile, KeyError) as exc:
-                        QtWidgets.QMessageBox.warning(self, "Ошибка импорта", str(exc))
+                        QtWidgets.QMessageBox.warning(self, tr("Ошибка импорта"), str(exc))
                         return
                     finally:
                         if staged is not None:
@@ -267,13 +267,13 @@ class ToolingPanel:
                     if self._backgauge_fcstd is None:
                         return
                     if QtWidgets.QMessageBox.question(
-                        self, "Задний упор", "Удалить выбранную модель из библиотеки?"
+                        self, tr("Задний упор"), tr("Удалить выбранную модель из библиотеки?")
                     ) != QtWidgets.QMessageBox.Yes:
                         return
                     try:
                         self._backgauge_fcstd.unlink()
                     except OSError as exc:
-                        QtWidgets.QMessageBox.warning(self, "Ошибка удаления", str(exc))
+                        QtWidgets.QMessageBox.warning(self, tr("Ошибка удаления"), str(exc))
                         return
                     self._backgauge_changed()
 
@@ -294,65 +294,65 @@ class ToolingPanel:
                     self.spin_clamp_width = QtWidgets.QDoubleSpinBox()
                     self.spin_clamp_width.setRange(0.1, 500.0)
                     self.spin_clamp_width.setSingleStep(1.0)
-                    self.spin_clamp_width.setSuffix(" мм")
-                    form.addRow("Длина лапки вдоль оси X (width_mm):", self.spin_clamp_width)
+                    self.spin_clamp_width.setSuffix(tr(" мм"))
+                    form.addRow(tr("Длина лапки вдоль оси X (width_mm):"), self.spin_clamp_width)
 
                     self.spin_clamp_height = QtWidgets.QDoubleSpinBox()
                     self.spin_clamp_depth = QtWidgets.QDoubleSpinBox()
-                    for label, spin in (("Высота", self.spin_clamp_height),
-                                        ("Глубина", self.spin_clamp_depth)):
+                    for label, spin in ((tr("Высота"), self.spin_clamp_height),
+                                        (tr("Глубина"), self.spin_clamp_depth)):
                         spin.setRange(0.1, 500.0)
-                        spin.setSuffix(" мм")
+                        spin.setSuffix(tr(" мм"))
                         form.addRow(label, spin)
 
                     self.spin_clamp_gap = QtWidgets.QDoubleSpinBox()
                     self.spin_clamp_gap.setRange(0.0, 200.0)
                     self.spin_clamp_gap.setSingleStep(1.0)
-                    self.spin_clamp_gap.setSuffix(" мм")
-                    self.spin_clamp_gap.setToolTip("Расстояние между краями соседних зажимов.")
-                    form.addRow("Мин. зазор между лапками (gap_between_mm):", self.spin_clamp_gap)
+                    self.spin_clamp_gap.setSuffix(tr(" мм"))
+                    self.spin_clamp_gap.setToolTip(tr("Расстояние между краями соседних зажимов."))
+                    form.addRow(tr("Мин. зазор между лапками (gap_between_mm):"), self.spin_clamp_gap)
 
                     self.spin_clamp_count = QtWidgets.QSpinBox()
                     self.spin_clamp_count.setRange(0, 1000)
-                    self.spin_clamp_count.setSpecialValueText("По координатам")
-                    form.addRow("Число зажимов", self.spin_clamp_count)
+                    self.spin_clamp_count.setSpecialValueText(tr("По координатам"))
+                    form.addRow(tr("Число зажимов"), self.spin_clamp_count)
 
                     self.spin_clamp_overhang = QtWidgets.QDoubleSpinBox()
                     self.spin_clamp_overhang.setRange(0.0, 1.0)
                     self.spin_clamp_overhang.setSingleStep(0.05)
                     self.spin_clamp_overhang.setDecimals(2)
-                    form.addRow("Коэфф. свеса (overhang_ratio):", self.spin_clamp_overhang)
+                    form.addRow(tr("Коэфф. свеса (overhang_ratio):"), self.spin_clamp_overhang)
 
                     self.spin_clamp_joint_tol = QtWidgets.QDoubleSpinBox()
                     self.spin_clamp_joint_tol.setRange(0.0, 10.0)
                     self.spin_clamp_joint_tol.setSingleStep(0.05)
                     self.spin_clamp_joint_tol.setDecimals(2)
-                    self.spin_clamp_joint_tol.setSuffix(" мм")
-                    form.addRow("Допуск стыка (joint_tolerance_mm):", self.spin_clamp_joint_tol)
+                    self.spin_clamp_joint_tol.setSuffix(tr(" мм"))
+                    form.addRow(tr("Допуск стыка (joint_tolerance_mm):"), self.spin_clamp_joint_tol)
 
                     self.spin_clamp_min_under = QtWidgets.QSpinBox()
                     self.spin_clamp_min_under.setRange(1, 1000)
-                    form.addRow("Мин. лапок под секцией (min_clamps_under_punch):", self.spin_clamp_min_under)
+                    form.addRow(tr("Мин. лапок под секцией (min_clamps_under_punch):"), self.spin_clamp_min_under)
 
                     self.edit_clamp_positions = QtWidgets.QLineEdit()
                     self.edit_clamp_positions.setPlaceholderText("-300, -100, 100, 300")
-                    form.addRow("Центры зажимов X, мм", self.edit_clamp_positions)
+                    form.addRow(tr("Центры зажимов X, мм"), self.edit_clamp_positions)
 
-                    self.chk_clamp_repositionable = QtWidgets.QCheckBox("Лапки подвижные (repositionable)")
+                    self.chk_clamp_repositionable = QtWidgets.QCheckBox(tr("Лапки подвижные (repositionable)"))
                     form.addRow("", self.chk_clamp_repositionable)
 
-                    self.chk_clamp_joints = QtWidgets.QCheckBox("Стыки должны лежать на лапках (joints_must_be_on_clamps)")
+                    self.chk_clamp_joints = QtWidgets.QCheckBox(tr("Стыки должны лежать на лапках (joints_must_be_on_clamps)"))
                     form.addRow("", self.chk_clamp_joints)
 
-                    self.chk_clamp_no_gaps = QtWidgets.QCheckBox("Без зазоров между пуансонами (no_gaps_between_punches)")
+                    self.chk_clamp_no_gaps = QtWidgets.QCheckBox(tr("Без зазоров между пуансонами (no_gaps_between_punches)"))
                     form.addRow("", self.chk_clamp_no_gaps)
 
                     vbox.addLayout(form)
 
                     btn_box = QtWidgets.QHBoxLayout()
-                    btn_save = QtWidgets.QPushButton("Сохранить конфиг")
+                    btn_save = QtWidgets.QPushButton(tr("Сохранить конфиг"))
                     btn_save.clicked.connect(self._on_save_clamps)
-                    btn_reset = QtWidgets.QPushButton("Сбросить")
+                    btn_reset = QtWidgets.QPushButton(tr("Сбросить"))
                     btn_reset.clicked.connect(self._on_reset_clamps)
                     btn_box.addWidget(btn_save)
                     btn_box.addWidget(btn_reset)
@@ -402,14 +402,14 @@ class ToolingPanel:
                             QtGui.QPen(QtCore.Qt.NoPen), QtGui.QBrush(QtGui.QColor("#5485ac"))
                         )
                     if not cfg.centres_mm:
-                        self.clamp_scene.addSimpleText("Зажимы не заданы")
+                        self.clamp_scene.addSimpleText(tr("Зажимы не заданы"))
                     bounds = self.clamp_scene.itemsBoundingRect().adjusted(-5, -5, 5, 5)
                     self.clamp_preview.setSceneRect(bounds)
                     self.clamp_preview.fitInView(bounds, QtCore.Qt.KeepAspectRatio)
 
                 def _on_reset_clamps(self) -> None:
                     self._populate_clamps_ui()
-                    self._set_status("Параметры лапок сброшены к сохранённым значениям.")
+                    self._set_status(tr("Параметры лапок сброшены к сохранённым значениям."))
 
                 def _on_save_clamps(self) -> None:
                     if not self.library:
@@ -418,7 +418,7 @@ class ToolingPanel:
                         pos = _parse_positions_mm(self.edit_clamp_positions.text())
                     except ValueError as e:
                         self._set_status(f"Ошибка в позициях лапок: {e}", is_error=True)
-                        QtWidgets.QMessageBox.warning(self, "Ошибка ввода", f"Некорректный формат позиций лапок:\n{e}")
+                        QtWidgets.QMessageBox.warning(self, tr("Ошибка ввода"), f"Некорректный формат позиций лапок:\n{e}")
                         return
 
                     fields = {
@@ -454,20 +454,20 @@ class ToolingPanel:
                         self._draw_clamps(new_cfg)
                         if new_cfg != cfg and self._workspace is not None:
                             self._workspace._on_tool_inventory_changed()
-                        self._set_status("Конфигурация лапок успешно сохранена.")
+                        self._set_status(tr("Конфигурация лапок успешно сохранена."))
                         QtWidgets.QMessageBox.information(
-                            self, "Оснастка", (
+                            self, tr("Оснастка"), (
                                 "Конфигурация лапок будет записана в этот FCStd "
                                 "через обычное Сохранить (Ctrl+S)."
                                 if (self._workspace is not None and
                                     self._workspace.session is not None) else
-                                "Конфигурация лапок сохранена в библиотеку."
+                                tr("Конфигурация лапок сохранена в библиотеку.")
                             )
                         )
                     except Exception as e:
                         self._set_status(f"Ошибка сохранения лапок: {e}", is_error=True)
                         QtWidgets.QMessageBox.critical(
-                            self, "Ошибка", f"Не удалось сохранить конфигурацию лапок:\n{e}"
+                            self, tr("Ошибка"), f"Не удалось сохранить конфигурацию лапок:\n{e}"
                         )
 
                 def _set_status(self, text: str, is_error: bool = False) -> None:
@@ -499,7 +499,7 @@ class ToolingPanel:
                         ):
                             reply = QtWidgets.QMessageBox.question(
                                 self,
-                                "Инициализация библиотеки",
+                                tr("Инициализация библиотеки"),
                                 f"В директории '{self.library_path}' отсутствуют обязательные подкаталоги punch/ и die/.\n\n"
                                 "Создать подкаталоги сейчас?",
                                 QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
@@ -509,14 +509,14 @@ class ToolingPanel:
                                     (self.library_path / "punch").mkdir(parents=True, exist_ok=True)
                                     (self.library_path / "die").mkdir(parents=True, exist_ok=True)
                                     self.library = ToolingLibrary(self.library_path)
-                                    self._set_status("Библиотека инициализирована.")
+                                    self._set_status(tr("Библиотека инициализирована."))
                                     self._refresh_lists()
                                     return
                                 except Exception as create_err:
                                     self._set_status(f"Не удалось создать подкаталоги: {create_err}", is_error=True)
                                     return
                         self._set_status(f"Ошибка загрузки библиотеки: {e}", is_error=True)
-                        QtWidgets.QMessageBox.critical(self, "Ошибка библиотеки", str(e))
+                        QtWidgets.QMessageBox.critical(self, tr("Ошибка библиотеки"), str(e))
 
                 def _refresh_lists(self) -> None:
                     if not self.library:
@@ -570,7 +570,7 @@ class ToolingPanel:
                         if tool_list.currentRow() < 0 and tool_list.count():
                             tool_list.setCurrentRow(0)
                     self._on_selection_changed()
-                    self._set_status("Список инструментов обновлён.")
+                    self._set_status(tr("Список инструментов обновлён."))
 
                 def _current_descriptor(self) -> Any:
                     idx = self.tabs.currentIndex()
@@ -623,7 +623,7 @@ class ToolingPanel:
                         return
                     if self._workspace is not None:
                         self._workspace._on_punch_orientation_changed(updated)
-                    self._set_status(f"{updated.name}: разворот {'включён' if checked else 'выключен'}")
+                    self._set_status(f"{updated.name}: разворот {tr('включён') if checked else tr('выключен')}")
 
                 def _on_selection_changed(self) -> None:
                     index = self.tabs.currentIndex()
@@ -637,9 +637,9 @@ class ToolingPanel:
                             )
                         return
                     kind = ("Punch", "Die")[index]
-                    self.import_tool_button.setText("Импорт " + kind)
-                    self.remove_tool_button.setText("Удалить " + kind)
-                    self.segments_button.setText("Сегменты " + kind)
+                    self.import_tool_button.setText(tr("Импорт ") + kind)
+                    self.remove_tool_button.setText(tr("Удалить ") + kind)
+                    self.segments_button.setText(tr("Сегменты ") + kind)
                     desc = self._current_descriptor()
                     if index == 0:
                         self._refresh_punch_orientation(desc)
@@ -647,25 +647,25 @@ class ToolingPanel:
                     self.segments_button.setEnabled(desc is not None)
                     self._show_picture(self.tool_picture, desc.fcstd_path if desc else None)
                     if not desc:
-                        self.lbl_selected_id.setText("Выбрано: нет")
-                        self.lbl_selected_meta.setText("Метаданные: —")
+                        self.lbl_selected_id.setText(tr("Выбрано: нет"))
+                        self.lbl_selected_meta.setText(tr("Метаданные: —"))
                         return
 
-                    sidecar_str = "ДА" if desc.has_sidecar else "НЕТ"
+                    sidecar_str = tr("ДА") if desc.has_sidecar else tr("НЕТ")
                     self.lbl_selected_id.setText(f"Выбрано: [{desc.kind}] {desc.tool_id} (Sidecar: {sidecar_str})")
                     meta_str = (
                         ", ".join(f"{k}={v}" for k, v in desc.metadata.items())
                         if desc.metadata
-                        else "нет"
+                        else tr("нет")
                     )
                     segments = desc.metadata.get("segments") or []
                     inventory_text = ", ".join(
-                        "{:g} мм × {}".format(
+                        tr("{:g} мм × {}").format(
                             float(seg.get("length_mm", 0)),
                             int(seg.get("quantity", 0)),
                         )
                         for seg in segments if isinstance(seg, dict)
-                    ) or "не заданы"
+                    ) or tr("не заданы")
                     self.lbl_selected_meta.setText(
                         f"Метаданные: {meta_str}\n"
                         f"Сегменты: {inventory_text}\nПуть: {desc.fcstd_path}"
@@ -679,13 +679,13 @@ class ToolingPanel:
                     if cur_idx not in (0, 1):
                         QtWidgets.QMessageBox.information(
                             self,
-                            "Добавление инструмента",
-                            "Добавление моделей (.FCStd) поддерживается на вкладках 'Пуансоны' и 'Матрицы'.",
+                            tr("Добавление инструмента"),
+                            tr("Добавление моделей (.FCStd) поддерживается на вкладках 'Пуансоны' и 'Матрицы'."),
                         )
                         return
 
                     file_path, _ = QtWidgets.QFileDialog.getOpenFileName(
-                        self, "Выберите модель инструмента FCStd", "", "FreeCAD Models (*.FCStd)"
+                        self, tr("Выберите модель инструмента FCStd"), "", "FreeCAD Models (*.FCStd)"
                     )
                     if not file_path:
                         return
@@ -705,28 +705,28 @@ class ToolingPanel:
                                 break
                         QtWidgets.QMessageBox.information(
                             self,
-                            "Инструмент добавлен",
+                            tr("Инструмент добавлен"),
                             f"Инструмент '{desc.tool_id}' успешно добавлен в категорию {desc.kind}.",
                         )
                     except ToolingLibraryError as e:
                         self._set_status(f"Ошибка добавления: {e}", is_error=True)
-                        QtWidgets.QMessageBox.warning(self, "Ошибка добавления", str(e))
+                        QtWidgets.QMessageBox.warning(self, tr("Ошибка добавления"), str(e))
                     except Exception as e:
                         # Catch-all dialog for unexpected system/filesystem errors during tool addition
                         self._set_status(f"Неожиданная ошибка: {e}", is_error=True)
-                        QtWidgets.QMessageBox.critical(self, "Ошибка", f"Неожиданная ошибка: {e}")
+                        QtWidgets.QMessageBox.critical(self, tr("Ошибка"), f"Неожиданная ошибка: {e}")
 
                 def _on_remove_tool(self) -> None:
                     desc = self._current_descriptor()
                     if not desc:
                         QtWidgets.QMessageBox.information(
-                            self, "Удаление инструмента", "Пожалуйста, выберите инструмент для удаления."
+                            self, tr("Удаление инструмента"), tr("Пожалуйста, выберите инструмент для удаления.")
                         )
                         return
 
                     reply = QtWidgets.QMessageBox.question(
                         self,
-                        "Подтверждение удаления",
+                        tr("Подтверждение удаления"),
                         f"Удалить инструмент [{desc.kind}] '{desc.tool_id}' из библиотеки?",
                         QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
                     )
@@ -748,7 +748,7 @@ class ToolingPanel:
                         self._refresh_lists()
                     except ToolingLibraryError as e:
                         self._set_status(f"Ошибка удаления: {e}", is_error=True)
-                        QtWidgets.QMessageBox.warning(self, "Ошибка удаления", str(e))
+                        QtWidgets.QMessageBox.warning(self, tr("Ошибка удаления"), str(e))
 
                 def _on_edit_segments(self, desc=None) -> None:
                     """Edit inventory for the selected punch/die, not global stock."""
@@ -756,7 +756,7 @@ class ToolingPanel:
                         desc = self._current_descriptor()
                     if desc is None:
                         QtWidgets.QMessageBox.information(
-                            self, "Сегменты", "Выберите пуансон или матрицу."
+                            self, tr("Сегменты"), tr("Выберите пуансон или матрицу.")
                         )
                         return
                     from smbs_core.kinematics2d.segment_assembly_planner import (
@@ -767,24 +767,22 @@ class ToolingPanel:
                         existing = read_inventory(desc.fcstd_path)
                     except (ValueError, OSError) as exc:
                         QtWidgets.QMessageBox.warning(
-                            self, "Сегменты", str(exc)
+                            self, tr("Сегменты"), str(exc)
                         )
                         return
                     dialog = QtWidgets.QDialog(self)
-                    dialog.setWindowTitle("Сегменты: " + desc.tool_id)
+                    dialog.setWindowTitle(tr("Сегменты: ") + desc.tool_id)
                     dialog.resize(470, 400)
                     layout = QtWidgets.QVBoxLayout(dialog)
                     explanation = QtWidgets.QLabel(
-                        "Фактический складской набор для выбранной модели. "
-                        "Длина в мм, количество — число имеющихся секций. "
-                        "Данные хранятся в .tooling.json."
+                        tr("Фактический складской набор для выбранной модели. Длина в мм, количество — число имеющихся секций. Данные хранятся в .tooling.json.")
                     )
                     explanation.setWordWrap(True)
                     layout.addWidget(explanation)
                     table = QtWidgets.QTableWidget(0, 2, dialog)
                     table.setObjectName("SMBS_SegmentStock")
                     table.setHorizontalHeaderLabels(
-                        ["Длина сегмента, мм", "Количество, шт."]
+                        [tr("Длина сегмента, мм"), tr("Количество, шт.")]
                     )
                     table.horizontalHeader().setStretchLastSection(True)
                     layout.addWidget(table)
@@ -805,8 +803,8 @@ class ToolingPanel:
                     for segment in existing:
                         add_row(segment["length_mm"], segment["quantity"])
                     controls = QtWidgets.QHBoxLayout()
-                    add_button = QtWidgets.QPushButton("Добавить")
-                    remove_button = QtWidgets.QPushButton("Удалить строку")
+                    add_button = QtWidgets.QPushButton(tr("Добавить"))
+                    remove_button = QtWidgets.QPushButton(tr("Удалить строку"))
                     add_button.clicked.connect(lambda: add_row())
                     remove_button.clicked.connect(
                         lambda: table.removeRow(table.currentRow())
@@ -844,7 +842,7 @@ class ToolingPanel:
                             workspace._on_tool_inventory_changed(desc.kind, desc.tool_id)
                         self._refresh_lists()
                         self._set_status(
-                            "{}: сохранено {} видов сегментов".format(desc.tool_id, len(saved))
+                            tr("{}: сохранено {} видов сегментов").format(desc.tool_id, len(saved))
                         )
                         dialog.accept()
 
