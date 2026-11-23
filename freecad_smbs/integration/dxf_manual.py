@@ -1,5 +1,6 @@
 """Manual bending of a single flat outline from an ASCII DXF."""
 from dataclasses import asdict, dataclass
+from freecad_smbs.ui.localization import tr
 from itertools import combinations, groupby
 from math import copysign, dist, floor, isfinite, tau
 from pathlib import Path
@@ -62,7 +63,7 @@ def _native_curve(entity, props, scale):
         return DxfCurve(Part.ArcOfEllipse(ellipse, start, end).toShape())
 
     if not groups.get(10) or not groups.get(40):
-        raise ValueError("SPLINE без контрольных точек или узлов.")
+        raise ValueError(tr("SPLINE без контрольных точек или узлов."))
     poles = [App.Vector(float(x) * scale, float(y) * scale, 0)
              for x, y in zip(groups[10], groups[20], strict=True)]
     knots, multiplicities = zip(*((k, len(list(run)))
@@ -71,7 +72,7 @@ def _native_curve(entity, props, scale):
     flags = int(values.get(70, 0))
     weights = list(map(float, groups.get(41, ()))) or None
     if flags & 2:
-        raise ValueError("Периодические SPLINE пока не поддерживаются.")
+        raise ValueError(tr("Периодические SPLINE пока не поддерживаются."))
     args = (poles, list(multiplicities), list(knots), False, int(values[71]))
     if weights:
         curve.buildFromPolesMultsKnots(*args, weights)
@@ -111,13 +112,13 @@ def read_lines(path, *, layers=None, unsupported=None):
                 continue
         if entity == "LINE":
             if any(abs(float(values.get(axis, 0))) > 1e-6 for axis in (30, 31)):
-                raise ValueError("Линии DXF должны лежать в плоскости XY.")
+                raise ValueError(tr("Линии DXF должны лежать в плоскости XY."))
             segments = [LineSegment2D((float(values[10]), float(values[20])),
                                       (float(values[11]), float(values[21])))]
         elif entity == "CIRCLE":
             x, y, radius = (float(values[group]) * scale for group in (10, 20, 40))
             if not all(isfinite(v) for v in (x, y, radius)) or radius <= 0 or abs(float(values.get(30, 0))) > 1e-6:
-                raise ValueError("Некорректная окружность в плоскости XY.")
+                raise ValueError(tr("Некорректная окружность в плоскости XY."))
             edges.append(DxfCircle(x, y, radius))
             if layers is not None:
                 layers.append(layer)
@@ -140,7 +141,7 @@ def read_lines(path, *, layers=None, unsupported=None):
                     props.extend((code, vertex[code]) for code in (10, 20, 42) if code in vertex)
                 if flags & (8 | 16 | 64):
                     if unsupported is None:
-                        raise ValueError("Полигоны и 3D POLYLINE не входят в плоский контур.")
+                        raise ValueError(tr("Полигоны и 3D POLYLINE не входят в плоский контур."))
                     unsupported.setdefault(layer, set()).add("3D POLYLINE")
                     continue
             segments = _lwpolyline_to_segments(props)
@@ -178,7 +179,7 @@ def read_lines(path, *, layers=None, unsupported=None):
             if layers is not None:
                 layers.append(layer)
     if not edges:
-        raise ValueError("В DXF нет линий.")
+        raise ValueError(tr("В DXF нет линий."))
     return edges
 
 
@@ -188,7 +189,7 @@ DEFAULT_OUTLINE_TOLERANCE_MM = 0.01
 def join_outline(lines, tolerance=DEFAULT_OUTLINE_TOLERANCE_MM):
     """Snap nearby endpoints and remove duplicate edges before OCC builds wires."""
     if not isfinite(tolerance) or tolerance <= 0:
-        raise ValueError("Допуск стыковки должен быть больше нуля.")
+        raise ValueError(tr("Допуск стыковки должен быть больше нуля."))
     grid = {}
     neighbours = {}
     edges = set()
@@ -245,7 +246,7 @@ def join_outline(lines, tolerance=DEFAULT_OUTLINE_TOLERANCE_MM):
             gap = dist((x, y), nearest)
             message += (f" Ближайший открытый конец X={xx:.3f}, Y={yy:.3f} мм, "
                         f"расстояние {gap:.3f} мм при допуске {tolerance:.3f} мм.")
-        raise ValueError(message + " Проверьте, что линии контура включены и не назначены гибами.")
+        raise ValueError(message + tr(" Проверьте, что линии контура включены и не назначены гибами."))
     return result
 
 
@@ -403,13 +404,13 @@ def add_flat_pattern(document, session):
     import Part
 
     group = document.addObject("App::DocumentObjectGroup", "DXFUnfold")
-    group.Label = "Развёртка DXF"
+    group.Label = tr("Развёртка DXF")
     outline = document.addObject("Part::Feature", "DXFContours")
-    outline.Label = "Контур и отверстия"
+    outline.Label = tr("Контур и отверстия")
     outline.Shape = session.unfold_data.flat_contours
     group.addObject(outline)
     bends = document.addObject("Part::Feature", "DXFBendLines")
-    bends.Label = "Линии гиба"
+    bends.Label = tr("Линии гиба")
     bends.Shape = Part.makeCompound([
         Part.makeLine(App.Vector(*start), App.Vector(*end))
         for bend in session.ordered_bends
@@ -461,9 +462,9 @@ def _folded_dxf_preview(session, trace):
 
 class DxfManualCommand:
     def GetResources(self):
-        return {"MenuText": "Развёртка DXF",
+        return {"MenuText": tr("Развёртка DXF"),
                 "Pixmap": str(Path(__file__).resolve().parents[1] / "resources" / "icons" / "control_folder.svg"),
-                "ToolTip": "Назначить углы линиям гиба на развёртке DXF"}
+                "ToolTip": tr("Назначить углы линиям гиба на развёртке DXF")}
 
     def IsActive(self):
         return True
@@ -477,7 +478,7 @@ class DxfManualCommand:
 
         core, gui, qt = _qt()
         parent = Gui.getMainWindow()
-        path, _ = qt.QFileDialog.getOpenFileName(parent, "Развёртка DXF", "", "DXF (*.dxf)")
+        path, _ = qt.QFileDialog.getOpenFileName(parent, tr("Развёртка DXF"), "", "DXF (*.dxf)")
         if not path:
             return
         import_id = uuid4().hex
@@ -492,7 +493,7 @@ class DxfManualCommand:
             lines = read_lines(path, layers=layers, unsupported=unsupported)
         except Exception as exc:
             log("DXF_READ_ERROR", error=str(exc), traceback=format_exc())
-            qt.QMessageBox.warning(parent, "Развёртка DXF", str(exc))
+            qt.QMessageBox.warning(parent, tr("Развёртка DXF"), str(exc))
             return
 
         log("DXF_READ_COMPLETED", unsupported=unsupported, geometry=[
@@ -500,7 +501,7 @@ class DxfManualCommand:
             for index, (layer, line) in enumerate(zip(layers, lines))
         ])
         dialog = qt.QDialog(parent)
-        dialog.setWindowTitle("Линии гиба DXF")
+        dialog.setWindowTitle(tr("Линии гиба DXF"))
         dialog.resize(780, 620)
         layout = qt.QVBoxLayout(dialog)
         layout.addWidget(qt.QLabel("Щёлкните по линии и задайте угол. Ноль снимает назначение. "
@@ -515,7 +516,7 @@ class DxfManualCommand:
                 self.setResizeAnchor(qt.QGraphicsView.AnchorViewCenter)
                 self.setHorizontalScrollBarPolicy(core.Qt.ScrollBarAlwaysOff)
                 self.setVerticalScrollBarPolicy(core.Qt.ScrollBarAlwaysOff)
-                self.setToolTip("Колесо мыши — масштаб. Средняя кнопка — перемещение.")
+                self.setToolTip(tr("Колесо мыши — масштаб. Средняя кнопка — перемещение."))
 
             def fit_drawing(self):
                 bounds = self.scene().itemsBoundingRect()
@@ -573,11 +574,11 @@ class DxfManualCommand:
 
         scene = qt.QGraphicsScene(dialog)
         view = DxfView(scene)
-        fit_button = qt.QPushButton("Показать целиком")
+        fit_button = qt.QPushButton(tr("Показать целиком"))
         fit_button.setToolTip(view.toolTip())
         fit_button.clicked.connect(view.fit_drawing)
-        undo_button = qt.QPushButton("Назад")
-        undo_button.setToolTip("Отменить последнее назначение или изменение угла гиба")
+        undo_button = qt.QPushButton(tr("Назад"))
+        undo_button.setToolTip(tr("Отменить последнее назначение или изменение угла гиба"))
         undo_button.setEnabled(False)
         drawing_actions = qt.QHBoxLayout()
         drawing_actions.addWidget(fit_button)
@@ -590,7 +591,7 @@ class DxfManualCommand:
         layer_entries = {}
         for layer in sorted(set(layers) | set(unsupported)):
             count = layers.count(layer)
-            suffix = " · требуется проверка" if layer in unsupported else ""
+            suffix = tr(" · требуется проверка") if layer in unsupported else ""
             item = qt.QListWidgetItem(f"{layer}  ({count}){suffix}")
             if layer in unsupported:
                 item.setToolTip(", ".join(sorted(unsupported[layer])))
@@ -598,12 +599,12 @@ class DxfManualCommand:
             item.setCheckState(core.Qt.Checked)
             layers_box.addItem(item)
             layer_entries[layer] = item
-        layout.addWidget(qt.QLabel("Слои для расчёта"))
+        layout.addWidget(qt.QLabel(tr("Слои для расчёта")))
         layout.addWidget(layers_box)
         angles = {}
         angle_history = []
         geometry_items = []
-        feedback = qt.QLabel("Выберите линии гиба.")
+        feedback = qt.QLabel(tr("Выберите линии гиба."))
         feedback.setWordWrap(True)
 
         def assign(point):
@@ -615,7 +616,7 @@ class DxfManualCommand:
                 return
             index = item.data(0)
             value, ok = qt.QInputDialog.getDouble(
-                dialog, "Угол гиба", "Угол от плоскости листа, °",
+                dialog, tr("Угол гиба"), tr("Угол от плоскости листа, °"),
                 angles.get(index, 90.0), -179.9, 179.9, 2,
             )
             if not ok:
@@ -634,7 +635,7 @@ class DxfManualCommand:
             refresh_assignments()
 
         def refresh_assignments():
-            feedback.setText("Назначено гибов: {}".format(len(angles)))
+            feedback.setText(tr("Назначено гибов: {}").format(len(angles)))
             undo_button.setEnabled(bool(angle_history))
             positions = {index: step for step, index in enumerate(angles, 1)}
             for i, line in enumerate(geometry_items):
@@ -708,14 +709,14 @@ class DxfManualCommand:
             form.addRow(label, spin)
             return spin
 
-        thickness = number("Толщина, мм", 1.5, 0.01, 100)
-        radius = number("Внутренний радиус, мм", 1.5, 0.01, 100)
-        k_factor = number("K-фактор", 0.4, 0, 1)
-        outline_tolerance = number("Допуск стыковки контура, мм",
+        thickness = number(tr("Толщина, мм"), 1.5, 0.01, 100)
+        radius = number(tr("Внутренний радиус, мм"), 1.5, 0.01, 100)
+        k_factor = number(tr("K-фактор"), 0.4, 0, 1)
+        outline_tolerance = number(tr("Допуск стыковки контура, мм"),
                                    DEFAULT_OUTLINE_TOLERANCE_MM, 0.001, 0.5)
         outline_tolerance.setSingleStep(0.01)
-        outline_tolerance.setToolTip("Увеличьте допуск для небольших зазоров между концами контура DXF.")
-        button = qt.QPushButton("Рассчитать")
+        outline_tolerance.setToolTip(tr("Увеличьте допуск для небольших зазоров между концами контура DXF."))
+        button = qt.QPushButton(tr("Рассчитать"))
         layout.addWidget(button)
         layout.addWidget(feedback)
 
@@ -748,12 +749,12 @@ class DxfManualCommand:
                 blocked = [f"{layer}: {', '.join(sorted(types))}"
                            for layer, types in unsupported.items() if layer_enabled(layer)]
                 if blocked:
-                    raise ValueError("Отключите слои с неподдерживаемой геометрией: " + "; ".join(blocked))
+                    raise ValueError(tr("Отключите слои с неподдерживаемой геометрией: ") + "; ".join(blocked))
                 visible = [i for i, layer in enumerate(layers) if layer_enabled(layer)]
                 index_map = {old: new for new, old in enumerate(visible)}
                 active_angles = {index_map[i]: angle for i, angle in angles.items() if i in index_map}
                 if not active_angles:
-                    raise ValueError("Назначьте гиб на включённом слое.")
+                    raise ValueError(tr("Назначьте гиб на включённом слое."))
                 session = build_session(path, [lines[i] for i in visible], active_angles,
                                         thickness.value(), radius.value(), k_factor.value(),
                                         outline_tolerance=outline_tolerance.value(), trace=trace)
@@ -768,12 +769,12 @@ class DxfManualCommand:
                     PressBrake2DCommand().Activated()
                     workspace = get_workspace_widget()
                 if workspace is None:
-                    raise RuntimeError("Не удалось открыть симулятор PressBrakeSim.")
+                    raise RuntimeError(tr("Не удалось открыть симулятор PressBrakeSim."))
                 trace("create_document")
                 doc = App.newDocument("SMBS_DXF")
                 if shape is not None:
                     final = doc.addObject("Part::Feature", "FoldedPart")
-                    final.Label = session.part_label + " — конечная форма"
+                    final.Label = session.part_label + tr(" — конечная форма")
                     final.Shape = shape
                 flat = add_flat_pattern(doc, session)
                 if warning:
@@ -812,10 +813,10 @@ class DxfManualCommand:
         def start_calculation():
             if not angles:
                 log("DXF_CALCULATION_REJECTED", reason="no_bend_angles")
-                feedback.setText("Назначьте угол хотя бы одной линии гиба.")
+                feedback.setText(tr("Назначьте угол хотя бы одной линии гиба."))
                 return
             button.setEnabled(False)
-            feedback.setText("Расчёт формы…")
+            feedback.setText(tr("Расчёт формы…"))
             core.QTimer.singleShot(0, calculate)
 
         button.clicked.connect(start_calculation)
