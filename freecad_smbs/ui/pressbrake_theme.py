@@ -37,6 +37,48 @@ def section_card(QtCore, QtWidgets, title: str):
     return frame, layout
 
 
+
+def _semantic_icon_name(label: str) -> str | None:
+    """Map translated action captions to semantic artwork, not button order."""
+    name = str(label or "").strip().casefold()
+    groups = (
+        (("dxf",), "control_dxf.svg"),
+        (("mesh", "сетка", "triangulat"), "control_mesh.svg"),
+        (("коллиз", "collision", "пересечен", "penetrat"), "control_collision.svg"),
+        (("сохран", "save", "экспорт", "export"), "control_save.svg"),
+        (("импорт", "import", "загруз", "load", "добав", "add"), "control_import.svg"),
+        (("развёрт", "разверт", "unfold"), "control_unfold.svg"),
+        (("пуансон", "матриц", "оснаст", "tooling", "tool library"), "gui_tooling.svg"),
+        (("упор", "backgauge", "зажим", "clamp"), "gui_backgauge.svg"),
+        (("повернут", "разворот", "rotate", "flip"), "control_rotate.svg"),
+        (("отмен", "назад", "undo", "back"), "control_prev.svg"),
+        (("восстанов", "сброс", "очист", "reset", "clear"), "control_reset.svg"),
+        (("провер", "validate", "check", "рассчит", "calculate", "примен", "apply"), "control_validate.svg"),
+        (("симулир", "simulation", "play", "воспроизв", "запустить", "start"), "control_play.svg"),
+        (("настро", "setting", "дополнител", "option"), "gui_settings.svg"),
+        (("вариант", "sequence", "последователь"), "gui_sequence_catalog.svg"),
+        (("гиб", "bend", "детал", "part"), "gui_part.svg"),
+        (("вписать", "fit", "целиком"), "control_fit.svg"),
+    )
+    for fragments, icon in groups:
+        if any(fragment in name for fragment in fragments):
+            return icon
+    return None
+
+
+def set_semantic_icon(button, label: str | None = None) -> None:
+    """Use native QIcon and keep the inherited FreeCAD palette untouched."""
+    from pathlib import Path
+    icon_name = _semantic_icon_name(label if label is not None else button.text())
+    if not icon_name:
+        return
+    icon_path = Path(__file__).resolve().parents[1] / "resources" / "icons" / icon_name
+    if not icon_path.is_file():
+        return
+    from freecad_smbs.commands.pressbrake_2d import _qt
+    _QtCore, QtGui, _QtWidgets = _qt()
+    button.setIcon(QtGui.QIcon(str(icon_path)))
+
 def style_action(button, primary=False, compact=False):
     """Preserve the original connected button and let FreeCAD's style paint it.
 
@@ -55,6 +97,8 @@ def style_action(button, primary=False, compact=False):
     button.setSizePolicy(size_policy)
     if not button.toolTip():
         button.setToolTip(button.text())
+    if button.icon().isNull():
+        set_semantic_icon(button)
     return button
 
 
