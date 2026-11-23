@@ -1337,8 +1337,8 @@ class BendInformationCommand(_WorkspaceActionCommand):
 
 
 class MeshCheckCommand(_WorkspaceActionCommand):
-    label = "Mesh 3D (60 с)"
-    method = "_run_mesh_sequence_check"
+    label = "Mesh 3D"
+    method = "_open_mesh_menu"
 
 
 class OccCheckCommand(_WorkspaceActionCommand):
@@ -1580,6 +1580,7 @@ class _PreviewPanel:
                 # but must NOT become immutable user pins on the next search.
                 self._fast_advisory_orientation_keys: set[str] = set()
                 self._last_manual_sequence_report = None
+                self._latest_mesh_collision = None
                 self._mesh_collision_hits = ()
                 self._mesh_collision_index = None
                 self._mesh_collision_identity = None
@@ -3749,6 +3750,7 @@ class _PreviewPanel:
                 self._manual_3d_verdicts.clear()
                 self._manual_retract_verdicts.clear()
                 self._conditional_bends_status.clear()
+                self._latest_mesh_collision = None
                 self._mesh_collision_hits = ()
                 self._mesh_collision_index = None
                 self._mesh_collision_identity = None
@@ -7747,6 +7749,77 @@ class _PreviewPanel:
                 if self.manual_validate_btn.isEnabled() and not self._task_progress_busy:
                     self._validate_export_manual_order(coarse_occ=True)
 
+            def _open_mesh_menu(self):
+                if self.session is None or self._task_progress_busy:
+                    return
+                preferences = QtCore.QSettings("SMBS", "BendSeq")
+                dialog = QtWidgets.QDialog(self)
+                dialog.setWindowTitle("Mesh 3D")
+                form = QtWidgets.QFormLayout(dialog)
+                budget = QtWidgets.QSpinBox()
+                budget.setRange(1, 3600)
+                budget.setValue(preferences.value("mesh/budget_seconds", 60, type=int))
+                form.addRow(tr("Лимит времени, с"), budget)
+                overlap = QtWidgets.QDoubleSpinBox()
+                overlap.setDecimals(6)
+                overlap.setRange(0.000001, 1000.0)
+                overlap.setSingleStep(0.0001)
+                overlap.setValue(preferences.value("mesh/min_overlap_mm3", 0.0001, type=float))
+                form.addRow(tr("Минимальный объём проникновения, мм³"), overlap)
+                run = QtWidgets.QPushButton(tr("Запустить Mesh"))
+                export = QtWidgets.QPushButton(tr("Сохранить последнюю коллизию…"))
+                export.setEnabled(
+                    self._latest_mesh_collision is not None
+                    and self._mesh_collision_identity == self._mesh_preview_identity()
+                )
+                form.addRow(run)
+                form.addRow(export)
+
+                def start_check():
+                    preferences.setValue("mesh/budget_seconds", budget.value())
+                    preferences.setValue("mesh/min_overlap_mm3", overlap.value())
+                    dialog.accept()
+                    self._run_mesh_sequence_check()
+
+                run.clicked.connect(start_check)
+                export.clicked.connect(self._save_latest_mesh_collision)
+                dialog.exec() if hasattr(dialog, "exec") else dialog.exec_()
+
+            def _save_latest_mesh_collision(self):
+                if (self.session is None or self._latest_mesh_collision is None
+                        or self._mesh_collision_identity != self._mesh_preview_identity()):
+                    return
+                path, _ = QtWidgets.QFileDialog.getSaveFileName(
+                    self, tr("Сохранить последнюю коллизию…"),
+                    "MeshCollision.FCStd", "FreeCAD (*.FCStd)",
+                )
+                if not path:
+                    return
+                if not path.lower().endswith(".fcstd"):
+                    path += ".FCStd"
+                import FreeCAD as App
+
+                hit, component, tool, common = self._latest_mesh_collision
+                doc = App.newDocument("MeshCollision")
+                try:
+                    for name, label, shape, color, transparency in (
+                        ("Sheet", hit["component"], component, (0.7, 0.7, 0.7), 75),
+                        ("Tool", tr({"punch": "пуансон", "die": "матрица"}[hit["tool"]]),
+                         tool, (0.5, 0.6, 0.8), 75),
+                        ("Overlap", f'{hit["operation"]} · {hit["phase"]}',
+                         common, (1.0, 0.0, 0.0), 0),
+                    ):
+                        obj = doc.addObject("Part::Feature", name)
+                        obj.Label = label
+                        obj.Shape = shape
+                        obj.ViewObject.ShapeColor = color
+                        obj.ViewObject.Transparency = transparency
+                    doc.recompute()
+                    doc.saveAs(path)
+                except Exception as exc:
+                    App.closeDocument(doc.Name)
+                    QtWidgets.QMessageBox.warning(self, tr("Ошибка"), str(exc))
+
             def _run_mesh_sequence_check(self):
                 if self.session is None or self.timer.isActive():
                     self.status.setText("Mesh: загрузите деталь и остановите симуляцию.")
@@ -7769,11 +7842,21 @@ class _PreviewPanel:
                         self.status.setText(f"Mesh: {index + 1}/{count} · {operation}")
                         QtWidgets.QApplication.processEvents(QtCore.QEventLoop.ExcludeUserInputEvents)
 
+                    preferences = QtCore.QSettings("SMBS", "BendSeq")
+                    latest_collision = None
+
+                    def capture_collision(hit, component, tool, common):
+                        nonlocal latest_collision
+                        latest_collision = (hit, component, tool, common)
+
                     report = screen_mesh_sequence(
                         self.session, cycle,
                         tuple(step.operation_id for step in operations),
-                        progress=progress,
+                        budget_seconds=preferences.value("mesh/budget_seconds", 60, type=int),
+                        min_overlap_mm3=preferences.value("mesh/min_overlap_mm3", 0.0001, type=float),
+                        progress=progress, on_collision=capture_collision,
                     )
+                    self._latest_mesh_collision = latest_collision
                     _desktop_debug_event("MESH_SEQUENCE_RESULT", **report)
                     if self._mesh_collision_index is not None:
                         self._collision_display_active = False

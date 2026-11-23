@@ -190,7 +190,7 @@ def _sheet_triangles(session, cycle, panel_meshes, placement):
             yield face.identifier, tuple(vertices[i] for i in triple)
 
 
-def _confirm_crossing(session, state, component, placement, tool_shape, prisms, check_budget, end_zone_length=None):
+def _confirm_crossing(session, state, component, placement, tool_shape, prisms, check_budget, end_zone_length=None, min_overlap_mm3=1e-4):
     """Measure common volume only for the component flagged by Mesh."""
     import FreeCAD as App
 
@@ -221,13 +221,13 @@ def _confirm_crossing(session, state, component, placement, tool_shape, prisms, 
         shape, tool_shape, include_bbox=True, include_shape=True,
     )
     conditional = False
-    if end_zone_length is not None and volume > 1e-4:
+    if end_zone_length is not None and volume > min_overlap_mm3:
         check_budget()
         zones = classify_punch_overlap_zones(
             shape, tool_shape, end_zone_length, _precomputed_common=common,
         )
         conditional = zones.classification is PunchCollisionZoneClassification.END_ZONE_ONLY
-    return volume, bounds, conditional
+    return volume, bounds, conditional, shape, tool_shape, common
 
 
 def _is_forming_contact_sliver(kind, phase, component, active_bend, volume, bounds, *, fraction):
@@ -243,7 +243,8 @@ def _is_forming_contact_sliver(kind, phase, component, active_bend, volume, boun
     )
 
 
-def screen_mesh_sequence(session, preview_cycle, order, *, budget_seconds=60.0, progress=None):
+def screen_mesh_sequence(session, preview_cycle, order, *, budget_seconds=60.0, min_overlap_mm3=1e-4,
+                         progress=None, on_collision=None):
     """Check sampled surfaces in the current operation order using CAD tool meshes."""
     start = perf_counter()
 
@@ -343,6 +344,7 @@ def screen_mesh_sequence(session, preview_cycle, order, *, budget_seconds=60.0, 
                                     confirmed[key] = _confirm_crossing(
                                         session, sequence.fold_state, component, placement,
                                         tool_shapes[kind], panel_prisms, check_budget,
+                                        min_overlap_mm3=min_overlap_mm3,
                                         end_zone_length=(
                                             tooling.end_zone_length_mm
                                             if kind == "punch" and tooling.allow_end_zone_collision
@@ -350,20 +352,20 @@ def screen_mesh_sequence(session, preview_cycle, order, *, budget_seconds=60.0, 
                                         ),
                                     )
                                     check_budget()
-                                volume, bounds, conditional = confirmed[key]
+                                volume, bounds, conditional, component_shape, tool_shape, common = confirmed[key]
                             except MeshBudgetExpired:
                                 raise
                             except Exception as exc:
                                 unresolved.append({**hit, "reason": str(exc)})
                                 continue
-                            if volume > 1e-4 and _is_forming_contact_sliver(
+                            if volume > min_overlap_mm3 and _is_forming_contact_sliver(
                                 kind, phase, component, bend_id, volume, bounds, fraction=fraction,
                             ):
                                 forming_contact_slivers.append({
                                     **hit, "occ_overlap_volume_mm3": volume,
                                     "overlap_bbox_xyz_mm": bounds,
                                 })
-                            elif volume > 1e-4:
+                            elif volume > min_overlap_mm3:
                                 result = {
                                     **hit,
                                     "occ_overlap_volume_mm3": volume,
@@ -379,6 +381,8 @@ def screen_mesh_sequence(session, preview_cycle, order, *, budget_seconds=60.0, 
                                         conditional_findings.append(result)
                                         conditional_reported.add(pair)
                                 else:
+                                    if on_collision is not None:
+                                        on_collision(result, component_shape, tool_shape, common)
                                     findings.append(result)
                                     reported.add(pair)
                             else:

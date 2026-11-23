@@ -4,6 +4,10 @@ import locale
 
 
 TRANSLATIONS = {
+    "Лимит времени, с": "Time limit, s",
+    "Минимальный объём проникновения, мм³": "Minimum penetration volume, mm³",
+    "Запустить Mesh": "Run Mesh",
+    "Сохранить последнюю коллизию…": "Save latest collision…",
     "FAST — варианты последовательности (UNVERIFIED)": "FAST — candidate sequences (unverified)",
     "Проверить ещё раз / найти новые варианты": "Check again / find more sequences",
     "Вес": "Cost",
