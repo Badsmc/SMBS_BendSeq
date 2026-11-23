@@ -693,6 +693,19 @@ class _SMBSNativeTaskPanel:
         return True
 
 
+_WORKSPACE_WINDOW_NAME = "SMBS_PressBrake2D_Workspace"
+
+
+def _live_workspace(mdi):
+    """Find only a workspace that can still accept a part and draw frames."""
+    for window in mdi.subWindowList():
+        if window.objectName() == _WORKSPACE_WINDOW_NAME:
+            widget = window.widget()
+            if widget is not None and not widget._closing:
+                return widget
+    return None
+
+
 def get_workspace_widget():
     """Locate existing viewer; never create a second simulation session."""
     import FreeCADGui as Gui
@@ -701,10 +714,7 @@ def get_workspace_widget():
     mdi = main.findChild(QtWidgets.QMdiArea)
     if mdi is None:
         return None
-    for subwindow in mdi.subWindowList():
-        if subwindow.objectName() == "SMBS_PressBrake2D_Workspace":
-            return subwindow.widget()
-    return None
+    return _live_workspace(mdi)
 
 
 def _selection_snapshot():
@@ -1027,13 +1037,8 @@ class PressBrake2DCommand:
         if mdi is None:
             raise RuntimeError("FreeCAD MDI area was not found")
 
-        name = "SMBS_PressBrake2D_Workspace"
-        existing = next(
-            (win for win in mdi.subWindowList() if win.objectName() == name),
-            None,
-        )
-        if existing is not None and existing.widget() is not None:
-            workspace = existing.widget()
+        workspace = _live_workspace(mdi)
+        if workspace is not None:
             if doc is not None and selected and not workspace._task_progress_busy:
                 try:
                     unfold = resolve_selected_unfold(doc, selected)
@@ -1051,9 +1056,14 @@ class PressBrake2DCommand:
                 workspace._open_coin_preview()
             return
 
+        for closed_window in mdi.subWindowList():
+            if closed_window.objectName() == _WORKSPACE_WINDOW_NAME:
+                closed_window.setObjectName("")
+                closed_window.deleteLater()
+
         widget = _PreviewPanel()
         window = QtWidgets.QMdiSubWindow()
-        window.setObjectName(name)
+        window.setObjectName(_WORKSPACE_WINDOW_NAME)
         window.setWindowTitle("PressBrakeSim — Coin3D")
         # This is an auxiliary MDI view, not a FreeCAD document view.
         # Native view activation must not dispose its live simulation owner.
@@ -1120,7 +1130,7 @@ class LoadPartCommand:
         if workspace is None:
             # Bootstrap the viewer only AFTER validating the selection.
             # PressBrake2DCommand loads this same valid selection once.
-            PressBrake2DCommand().Activated()
+            PressBrake2DCommand().Activated(document=doc, selection=selection)
             workspace = get_workspace_widget()
         else:
             workspace.load_part(selection=selection, document=doc)
@@ -9791,6 +9801,9 @@ class _PreviewPanel:
                 return checks
 
             def closeEvent(self, event):
+                if self._closing:
+                    super().closeEvent(event)
+                    return
                 _desktop_debug_event("WORKSPACE_CLOSE_STARTED", qt_state=self._qt_debug_state())
                 if self._playback_alive():
                     self.timer.stop()

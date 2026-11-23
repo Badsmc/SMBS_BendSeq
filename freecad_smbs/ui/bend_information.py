@@ -263,7 +263,8 @@ def show_bend_information(workspace, embed):
         else:
             feedback.setText("Обновлены развёртка, таблица и подписи на листе TechDraw.")
             try:
-                Gui.activeDocument().setEdit(page.Name)
+                App.setActiveDocument(document.Name)
+                Gui.getDocument(document.Name).setEdit(page.Name)
             except Exception as exc:
                 debug_event("TECHDRAW_OPEN_ERROR", error=str(exc), traceback=format_exc())
                 feedback.setText("Лист создан. Откройте его двойным щелчком в папке SMBS.")
