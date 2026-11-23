@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+  <!-- FreeCAD-style: dark outline + fill, readable at 24px -->
+  <path d="M4 3h9l5 5v13a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z" fill="#8AE234" stroke="#172A04" stroke-width="1.5" stroke-linejoin="round"/>
+  <path d="M13 3v5h5" fill="none" stroke="#172A04" stroke-width="1.5" stroke-linejoin="round"/>
+  <polygon points="8 9 16 13 8 17" fill="#4E9A06" stroke="#172A04" stroke-width="1.2" stroke-linejoin="round"/>
+</svg>
