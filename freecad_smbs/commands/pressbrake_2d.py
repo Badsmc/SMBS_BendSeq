@@ -1341,11 +1341,6 @@ class MeshCheckCommand(_WorkspaceActionCommand):
     method = "_open_mesh_menu"
 
 
-class OccCheckCommand(_WorkspaceActionCommand):
-    label = "Быстрая проверка OCC (5 углов)"
-    method = "_run_occ_check"
-
-
 class SettingsCommand:
     """Open all simulation, machine and diagnostic settings."""
 
@@ -2341,27 +2336,6 @@ class _PreviewPanel:
                     lambda: self.simulate_manual_order_unverified()
                 )
                 # Orientation evidence remains in the status and tooltips.
-                # Restore the quick Stage A/B action from the
-                # integration/gui-2d-search-screening branch. Keep rigorous
-                # native OCC as a DISTINCT opt-in action, not a silent upgrade
-                # of the original fast "Проверить" button.
-                self.manual_validate_btn = style_action(
-                    QtWidgets.QPushButton(tr("Быстрая проверка OCC (5 углов)")), compact=True
-                )
-                self.manual_validate_btn.setObjectName(
-                    "SMBS_ManualCoarseOCCCheck"
-                )
-                self.manual_validate_btn.setToolTip(
-                    "Реальные FCStd инструменты и OCC: 0, 25, 50, 75, 100% "
-                    "угла каждого гиба, а также выборка APPROACH/RETRACT. "
-                    "Точное проникновение отклоняет порядок сразу. Если его "
-                    "не найдено, непросмотренные положения остаются UNVERIFIED."
-                )
-                self.manual_validate_btn.clicked.connect(
-                    lambda: self._validate_export_manual_order(coarse_occ=True)
-                )
-                self.manual_validate_btn.setParent(self)
-                self.manual_validate_btn.hide()
                 self.manual_validate_3d_btn = style_action(
                     QtWidgets.QPushButton(tr("Проверить и показать")), primary=True
                 )
@@ -2431,7 +2405,7 @@ class _PreviewPanel:
                 # Verification must have a visible result in the Manual
                 # workspace, not a file-save dialog as its only feedback.
                 self.manual_check_summary = QtWidgets.QLabel(
-                    "Выберите гибы и нажмите «Быстрая проверка OCC»."
+                    "Выберите гибы и запустите проверку."
                 )
                 self.manual_check_summary.setWordWrap(True)
                 self.manual_check_summary.setObjectName("SMBS_ManualCheckSummary")
@@ -3000,7 +2974,6 @@ class _PreviewPanel:
                     (self.restore_order_btn, "control_reset.svg"),
                     (self.manual_undo_btn, "control_prev.svg"),
                     (self.manual_clear_btn, "control_reset.svg"),
-                    (self.manual_validate_btn, "control_validate.svg"),
                     (self.show_task_panel_btn, "gui_simulation.svg"),
                     (self.tool_library_btn, "tooling.svg"),
                     (self.import_punch_btn, "gui_tooling.svg"),
@@ -6640,7 +6613,7 @@ class _PreviewPanel:
                     return
                 self.manual_simulate_btn.setText(tr("Симулировать без проверки"))
                 self.manual_check_summary.setText(
-                    "Текущий порядок ещё не проверен. Нажмите «Быстрая проверка OCC»."
+                    "Текущий порядок ещё не проверен."
                 )
                 self.manual_check_details.clear()
                 self.manual_check_details.hide()
@@ -7002,7 +6975,7 @@ class _PreviewPanel:
                 if not expected or current != expected:
                     self.status.setText(
                         "Оснастка изменилась после 3D-проверки. "
-                        "Нажмите «Быстрая проверка OCC» повторно."
+                        "Повторите проверку для текущей оснастки."
                     )
                     _desktop_debug_event(
                         "MANUAL_EXACT_OCC_INSPECTION_STALE_TOOLING",
@@ -7745,12 +7718,10 @@ class _PreviewPanel:
                 self._mesh_collision_index = index if self._collision_display_active else None
                 self._open_coin_preview()
 
-            def _run_occ_check(self):
-                if self.manual_validate_btn.isEnabled() and not self._task_progress_busy:
-                    self._validate_export_manual_order(coarse_occ=True)
-
             def _open_mesh_menu(self):
                 if self.session is None or self._task_progress_busy:
+                    return
+                if activate_task_dialog(self, "mesh"):
                     return
                 preferences = QtCore.QSettings("SMBS", "BendSeq")
                 dialog = QtWidgets.QDialog(self)
@@ -7768,22 +7739,27 @@ class _PreviewPanel:
                 form.addRow(tr("Минимальный объём проникновения, мм³"), overlap)
                 run = QtWidgets.QPushButton(tr("Запустить Mesh"))
                 export = QtWidgets.QPushButton(tr("Сохранить последнюю коллизию…"))
-                export.setEnabled(
-                    self._latest_mesh_collision is not None
-                    and self._mesh_collision_identity == self._mesh_preview_identity()
-                )
                 form.addRow(run)
                 form.addRow(export)
+
+                def refresh_export():
+                    export.setEnabled(
+                        self.session is not None
+                        and self._latest_mesh_collision is not None
+                        and self._mesh_collision_identity == self._mesh_preview_identity()
+                    )
 
                 def start_check():
                     preferences.setValue("mesh/budget_seconds", budget.value())
                     preferences.setValue("mesh/min_overlap_mm3", overlap.value())
-                    dialog.accept()
                     self._run_mesh_sequence_check()
+                    if self._qt_is_valid(export):
+                        refresh_export()
 
                 run.clicked.connect(start_check)
                 export.clicked.connect(self._save_latest_mesh_collision)
-                dialog.exec() if hasattr(dialog, "exec") else dialog.exec_()
+                refresh_export()
+                embed_task_dialog(self, dialog, "Mesh 3D", "mesh")
 
             def _save_latest_mesh_collision(self):
                 if (self.session is None or self._latest_mesh_collision is None
@@ -7983,7 +7959,7 @@ class _PreviewPanel:
                 # Qt event pumping keeps progress legible, but the operator
                 # must not change tool identity, options or order mid-check.
                 locked_controls = (
-                    self.manual_validate_btn, self.manual_validate_3d_btn,
+                    self.manual_validate_3d_btn,
                     self.manual_simulate_btn, self.manual_order_input,
                     self.saved_sequences_btn, self.add_part_btn, self.import_tooling_btn,
                     self.select_punch_combo, self.select_die_combo,
