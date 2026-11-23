@@ -20,6 +20,7 @@ from freecad_smbs.commands.pressbrake_2d import (
     PressBrake2DCommand, LoadPartCommand, ToolingTabCommand,
     SequenceCatalogCommand,
     BackgaugeCommand, ManualCommand, SettingsCommand,
+    FastSearchCommand, BendInformationCommand, MeshCheckCommand, OccCheckCommand,
 )
 from freecad_smbs.commands.tooling import (
     ToolingCommand, SegmentStockCommand, VirtualClampsCommand, ToolLayoutCommand,
@@ -36,6 +37,10 @@ CMD_SEQUENCE_CATALOG = "SMBS_SequenceCatalog"
 CMD_BACKGAUGE = "SMBS_Backgauge"
 CMD_MANUAL = "SMBS_Manual"
 CMD_SETTINGS = "SMBS_Settings"
+CMD_FAST = "SMBS_FastSearch"
+CMD_INFORMATION = "SMBS_BendInformation"
+CMD_MESH = "SMBS_MeshCheck"
+CMD_OCC = "SMBS_OccCheck"
 COMMANDS_MAP = {
     CMD_PRESSBRAKE_2D: PressBrake2DCommand,
     CMD_DXF_MANUAL: DxfManualCommand,
@@ -45,6 +50,10 @@ COMMANDS_MAP = {
     CMD_BACKGAUGE: BackgaugeCommand,
     CMD_MANUAL: ManualCommand,
     CMD_SETTINGS: SettingsCommand,
+    CMD_FAST: FastSearchCommand,
+    CMD_INFORMATION: BendInformationCommand,
+    CMD_MESH: MeshCheckCommand,
+    CMD_OCC: OccCheckCommand,
     CMD_TOOLING: ToolingCommand,
     "SMBS_SegmentStock": SegmentStockCommand,
     "SMBS_VirtualClamps": VirtualClampsCommand,
@@ -94,10 +103,9 @@ class SMBSWorkbench(Workbench):
 
     def Initialize(self) -> None:
         register_commands()
-        # ManualMode: never register automatic sequence search commands.
-        # Hand-picked bend orders are checked explicitly by the operator.
         toolbar = [
             CMD_DXF_MANUAL, CMD_TOOLING_TAB, CMD_PRESSBRAKE_2D,
+            CMD_FAST, CMD_INFORMATION, CMD_MESH, CMD_OCC,
             CMD_SETTINGS,
         ]
         menu = [
