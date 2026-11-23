@@ -7331,6 +7331,8 @@ class _PreviewPanel:
                 form.addRow(tr("Минимальный объём проникновения, мм³"), overlap)
                 run = QtWidgets.QPushButton(tr("Запустить Mesh"))
                 export = QtWidgets.QPushButton(tr("Сохранить последнюю коллизию…"))
+                run.setIcon(QtGui.QIcon(str(_icon_path("control_mesh.svg"))))
+                export.setIcon(QtGui.QIcon(str(_icon_path("control_collision_export.svg"))))
                 form.addRow(run)
                 form.addRow(export)
 
