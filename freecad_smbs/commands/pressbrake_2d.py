@@ -20,6 +20,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from freecad_smbs.ui.localization import tr
+from freecad_smbs.icon_theme import icon_path as _smbs_icon_path
 
 from smbs_core.kinematics2d.developer_debug_log import (
     debug_event as _desktop_debug_event,
@@ -1040,7 +1041,7 @@ def _has_loaded_part():
 class PressBrake2DCommand:
     def GetResources(self):
         return {
-            "Pixmap": str(_ICON_ROOT / "gui_simulation.svg"),
+            "Pixmap": str(_smbs_icon_path("gui_simulation.svg")),
             "MenuText": tr("Симуляция"),
             "ToolTip": tr("Открыть симуляцию Coin3D и штатную вкладку Задачи FreeCAD"),
         }
@@ -1177,7 +1178,7 @@ class PressBrake2DCommand:
 class LoadPartCommand:
     def GetResources(self):
         return {
-            "Pixmap": str(_ICON_ROOT / "gui_part.svg"),
+            "Pixmap": str(_smbs_icon_path("gui_part.svg")),
             "MenuText": tr("Деталь"),
             "ToolTip": tr("Загрузить выбранную развёртку SheetMetal"),
         }
@@ -1223,7 +1224,7 @@ class LoadPartCommand:
 class ToolingTabCommand:
     def GetResources(self):
         return {
-            "Pixmap": str(_ICON_ROOT / "gui_tooling.svg"),
+            "Pixmap": str(_smbs_icon_path("gui_tooling.svg")),
             "MenuText": tr("Оснастка"),
             "ToolTip": tr("Открыть оснастку симулятора"),
         }
@@ -1244,7 +1245,7 @@ class BackgaugeCommand:
     """Configure explicit backgauge stop geometry and per-bend targets."""
     def GetResources(self):
         return {
-            "Pixmap": str(_ICON_ROOT / "gui_backgauge.svg"),
+            "Pixmap": str(_smbs_icon_path("gui_backgauge.svg")),
             "MenuText": tr("Задний упор"),
             "ToolTip": tr("Визуальная FCStd-модель упора: позиция по контуру развёртки"),
         }
@@ -1265,7 +1266,7 @@ class SequenceCatalogCommand:
     """Open saved sequence collection, without spawning a second simulator."""
     def GetResources(self):
         return {
-            "Pixmap": str(_ICON_ROOT / "gui_sequence_catalog.svg"),
+            "Pixmap": str(_smbs_icon_path("gui_sequence_catalog.svg")),
             "MenuText": tr("Последовательности"),
             "ToolTip": tr("Открыть сохранённые последовательности гибки из JSON"),
         }
@@ -1287,7 +1288,7 @@ class ManualCommand:
 
     def GetResources(self):
         return {
-            "Pixmap": str(_ICON_ROOT / "gui_manual.svg"),
+            "Pixmap": str(_smbs_icon_path("gui_manual.svg")),
             "MenuText": tr("Порядок и проверка"),
             "ToolTip": tr("Вручную выбрать порядок гибов, запустить симуляцию или проверить коллизии"),
         }
@@ -1311,7 +1312,7 @@ class _WorkspaceActionCommand:
     icon = "control_validate.svg"
 
     def GetResources(self):
-        return {"Pixmap": str(_ICON_ROOT / self.icon), "MenuText": tr(self.label),
+        return {"Pixmap": str(_smbs_icon_path(self.icon)), "MenuText": tr(self.label),
                 "ToolTip": tr(self.label)}
 
     def IsActive(self):
@@ -1339,6 +1340,7 @@ class BendInformationCommand(_WorkspaceActionCommand):
 class MeshCheckCommand(_WorkspaceActionCommand):
     label = "Mesh 3D"
     method = "_open_mesh_menu"
+    icon = "control_mesh.svg"
 
 
 class SettingsCommand:
@@ -1346,7 +1348,7 @@ class SettingsCommand:
 
     def GetResources(self):
         return {
-            "Pixmap": str(_ICON_ROOT / "gui_settings.svg"),
+            "Pixmap": str(_smbs_icon_path("gui_settings.svg")),
             "MenuText": tr("Настройки"),
             "ToolTip": tr("Режим гибки, скорость, проверки, допуски и запись"),
         }
@@ -1829,7 +1831,8 @@ class _PreviewPanel:
                 self.fit_btn = _playback_button(QtCore, QtWidgets, tr("Вписать в окно"), self.fit, True)
                 self.add_part_btn = _playback_button(QtCore, QtWidgets, "+", LoadPartCommand().Activated, True)
                 self.add_part_btn.setObjectName("SMBS_AddPart")
-                self.add_part_btn.setIcon(QtGui.QIcon(str(_ICON_ROOT / "control_add.svg")))
+                self.add_part_btn.setIcon(QtGui.QIcon(str(_smbs_icon_path("control_add.svg"))))
+                self.add_part_btn.setIconSize(QtCore.QSize(24, 24))
                 self.add_part_btn.setToolButtonStyle(QtCore.Qt.ToolButtonIconOnly)
                 buttons = (
                     self.add_part_btn, self.reset_btn, self.prev_step_btn, self.play_btn,
@@ -2099,7 +2102,10 @@ class _PreviewPanel:
                     button = QtWidgets.QToolButton(self._task_result_icons)
                     button.setObjectName("SMBS_Result" + key)
                     button.setAutoRaise(True)
-                    button.setIconSize(QtCore.QSize(16, 16))
+                    button.setIconSize(QtCore.QSize(24, 24))
+                    button.setIcon(QtGui.QIcon(str(_smbs_icon_path(
+                        "gui_simulation.svg" if key == "FAST" else "control_mesh.svg"
+                    ))))
                     button.clicked.connect(
                         lambda _checked=False, name=key: self._show_task_result(name)
                     )
@@ -2114,7 +2120,7 @@ class _PreviewPanel:
                 views = QtWidgets.QTabWidget(self)
                 views.setObjectName("SMBS_ViewerTabs")
                 views.setDocumentMode(True)
-                views.setIconSize(QtCore.QSize(16, 16))
+                views.setIconSize(QtCore.QSize(24, 24))
                 views.tabBar().setExpanding(False)
                 self._last_3d_frame_at = -1.0
                 self._last_3d_debug_at = -1.0
@@ -2126,13 +2132,13 @@ class _PreviewPanel:
                     self._preview_3d.hide()
                 else:
                     views.addTab(self._preview_3d, QtGui.QIcon(str(
-                        _ICON_ROOT / "gui_part.svg"
+                        _smbs_icon_path("gui_part.svg")
                     )), "Coin3D")
                 self._flat_view = Canvas(bend_click_callback=self._select_flat_bend)
                 self._flat_view.setObjectName("SMBS_FlatPattern_ManualOrder")
                 self._create_flat_scene()
                 views.addTab(self._flat_view, QtGui.QIcon(str(
-                    _ICON_ROOT / "gui_sequence_catalog.svg"
+                    _smbs_icon_path("gui_sequence_catalog.svg")
                 )), tr("Развёртка · Порядок"))
                 views.currentChanged.connect(self._on_view_changed)
 
@@ -2852,6 +2858,21 @@ class _PreviewPanel:
                     # Playback buttons are intentionally text-sized. Only
                     # Play/Pause retains a state-changing icon alongside text.
                     (self.play_btn, "control_play.svg"),
+                    (self.prev_step_btn, "control_step_back.svg"),
+                    (self.next_step_btn, "control_step_forward.svg"),
+                    (self.reset_btn, "control_reset.svg"),
+                    (self.move_up_btn, "control_step_back.svg"),
+                    (self.move_down_btn, "control_step_forward.svg"),
+                    (self.saved_sequences_btn, "gui_sequence_catalog.svg"),
+                    (self.manual_simulate_btn, "gui_simulation.svg"),
+                    (self.manual_validate_3d_btn, "control_validate.svg"),
+                    (self.manual_show_collision_btn, "control_collision.svg"),
+                    (self.manual_exact_occ_btn, "control_collision.svg"),
+                    (self.fast_save_template_btn, "control_save.svg"),
+                    (self.fcstd_save_btn, "control_save.svg"),
+                    (self.fcstd_load_btn, "control_add.svg"),
+                    (self.mesh_show_collision_btn, "control_collision.svg"),
+                    (self.import_tooling_btn, "gui_tooling.svg"),
                     (self.restore_order_btn, "control_reset.svg"),
                     (self.manual_undo_btn, "control_prev.svg"),
                     (self.manual_clear_btn, "control_reset.svg"),
@@ -2862,13 +2883,13 @@ class _PreviewPanel:
                     (self.cycle_config_btn, "gui_backgauge.svg"),
                 )
                 for widget, icon_name in icon_pairs:
-                    asset = _ICON_ROOT / icon_name
+                    asset = _smbs_icon_path(icon_name)
                     if not asset.is_file():
                         raise FileNotFoundError(
                             "SMBS GUI icon is missing: " + str(asset)
                         )
                     widget.setIcon(QtGui.QIcon(str(asset)))
-                    widget.setIconSize(QtCore.QSize(19, 19))
+                    widget.setIconSize(QtCore.QSize(24, 24))
 
             def _on_trace_checkbox_toggled(self, enabled):
                 if enabled:
@@ -5974,7 +5995,7 @@ class _PreviewPanel:
                 if self.session is None:
                     self._update_task_progress()
                     self.play_btn.setText(tr("Воспроизвести"))
-                    self.play_btn.setIcon(QtGui.QIcon(str(_ICON_ROOT / "control_play.svg")))
+                    self.play_btn.setIcon(QtGui.QIcon(str(_smbs_icon_path("control_play.svg"))))
                     self.move_up_btn.setEnabled(False)
                     self.move_down_btn.setEnabled(False)
                     self.restore_order_btn.setEnabled(False)
@@ -5992,7 +6013,7 @@ class _PreviewPanel:
                 else:
                     self.play_btn.setText(tr("Воспроизвести"))
                     icon_name = "control_play.svg"
-                self.play_btn.setIcon(QtGui.QIcon(str(_ICON_ROOT / icon_name)))
+                self.play_btn.setIcon(QtGui.QIcon(str(_smbs_icon_path(icon_name))))
 
                 can_reorder_fn = getattr(self.session, "can_reorder", None)
                 can_reorder_val = can_reorder_fn() if callable(can_reorder_fn) else False
@@ -7310,6 +7331,10 @@ class _PreviewPanel:
                 form.addRow(tr("Минимальный объём проникновения, мм³"), overlap)
                 run = QtWidgets.QPushButton(tr("Запустить Mesh"))
                 export = QtWidgets.QPushButton(tr("Сохранить последнюю коллизию…"))
+                run.setIcon(QtGui.QIcon(str(_smbs_icon_path("control_mesh.svg"))))
+                export.setIcon(QtGui.QIcon(str(_smbs_icon_path("control_collision_export.svg"))))
+                run.setIconSize(QtCore.QSize(24, 24))
+                export.setIconSize(QtCore.QSize(24, 24))
                 form.addRow(run)
                 form.addRow(export)
 

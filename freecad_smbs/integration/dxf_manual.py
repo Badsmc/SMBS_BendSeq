@@ -1,6 +1,7 @@
 """Manual bending of a single flat outline from an ASCII DXF."""
 from dataclasses import asdict, dataclass
 from freecad_smbs.ui.localization import tr
+from freecad_smbs.icon_theme import icon_path as _smbs_icon_path
 from itertools import combinations, groupby
 from math import copysign, dist, floor, isfinite, tau
 from pathlib import Path
@@ -462,7 +463,7 @@ def _folded_dxf_preview(session, trace):
 class DxfManualCommand:
     def GetResources(self):
         return {"MenuText": tr("Развёртка DXF"),
-                "Pixmap": str(Path(__file__).resolve().parents[1] / "resources" / "icons" / "control_folder.svg"),
+                "Pixmap": str(_smbs_icon_path("control_dxf.svg")),
                 "ToolTip": tr("Назначить углы линиям гиба на развёртке DXF")}
 
     def IsActive(self):

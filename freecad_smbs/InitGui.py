@@ -16,6 +16,7 @@ _ICON_ROOT = Path(__file__).resolve().parent / "resources" / "icons"
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
+from freecad_smbs.icon_theme import icon_path as _smbs_icon_path
 from freecad_smbs.commands.pressbrake_2d import (
     PressBrake2DCommand, LoadPartCommand, ToolingTabCommand,
     SequenceCatalogCommand,
@@ -134,7 +135,7 @@ class SMBSWorkbench(Workbench):
                     or toolbar.windowTitle() in (self.MenuText, TOOLING_TOOLBAR)
                 ):
                     toolbar.setToolButtonStyle(QtCore.Qt.ToolButtonTextBesideIcon)
-                    toolbar.setIconSize(QtCore.QSize(18, 18))
+                    toolbar.setIconSize(QtCore.QSize(24, 24))
 
         # FreeCAD can finalize its workbench toolbars after Activated().
         QtCore.QTimer.singleShot(0, configure_native_toolbar)
