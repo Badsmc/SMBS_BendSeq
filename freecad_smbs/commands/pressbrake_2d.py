@@ -1115,11 +1115,6 @@ class PressBrake2DCommand:
                 workspace._open_coin_preview()
             return
 
-        for closed_window in mdi.subWindowList():
-            if closed_window.objectName() == _WORKSPACE_WINDOW_NAME:
-                closed_window.setObjectName("")
-                closed_window.deleteLater()
-
         widget = _PreviewPanel()
         class WorkspaceSubWindow(QtWidgets.QMdiSubWindow):
             def closeEvent(self, event):
