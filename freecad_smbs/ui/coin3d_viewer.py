@@ -10,6 +10,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from freecad_smbs.ui.localization import tr
+from freecad_smbs.ui.tool_segment_display import (
+    native_display_sections, segment_color, segment_label,
+)
 
 
 def _document_is_open(app, name):
@@ -73,8 +76,8 @@ def _face_node(coin, face):
     if face.kind.endswith("_seam"):
         color = (0.18, 0.12, 0.12)
         material.emissiveColor.setValue(*color)
-    elif face.section_index % 2:
-        color = tuple(0.70 * component + 0.30 for component in color)
+    elif face.kind.startswith(("punch_", "die_")):
+        color = segment_color(face.kind.split("_", 1)[0], face.section_index)
     material.diffuseColor.setValue(*color)
     coordinates = coin.SoCoordinate3()
     coordinates.point.setValues(0, len(face.vertices), list(face.vertices))
@@ -405,6 +408,28 @@ def create_coin_viewer(parent=None):
                 self.reset_camera()
                 self._initial_fit_done = True
 
+        def _add_segment_label(self, root, span, points):
+            # Screen-facing text is created only when the tooling cache changes.
+            coin = self.coin
+            label = coin.SoSeparator()
+            material = coin.SoMaterial()
+            material.diffuseColor.setValue(0.10, 0.10, 0.12)
+            material.emissiveColor.setValue(0.10, 0.10, 0.12)
+            label.addChild(material)
+            position = coin.SoTranslation()
+            position.translation.setValue(min(p[0] for p in points) - 2,
+                                          sum(span) / 2,
+                                          (min(p[2] for p in points) + max(p[2] for p in points)) / 2)
+            label.addChild(position)
+            font = coin.SoFont()
+            font.size = 13
+            label.addChild(font)
+            text = coin.SoText2()
+            text.justification = coin.SoText2.CENTER
+            text.string = segment_label(span)
+            label.addChild(text)
+            root.addChild(label)
+
         def update_tools(self, tooling, ram_z, *, active_bend_length_mm=None, section_preview=None):
             from smbs_core.kinematics2d.preview_mesh_3d import (
                 build_tool_preview_faces,
@@ -454,18 +479,22 @@ def create_coin_viewer(parent=None):
                 punch_root = coin.SoSeparator()
                 punch_root.addChild(self._punch_motion)
                 die_root = coin.SoSeparator()
-                for kind, _, triangles in native_meshes:
+                for kind, tool, triangles in native_meshes:
                     root = punch_root if kind == "punch" else die_root
-                    material = coin.SoMaterial()
-                    material.diffuseColor.setValue(*COLORS[kind + "_side"])
-                    coordinates = coin.SoCoordinate3()
-                    points = [(-y, x, z) for triangle in triangles for x, y, z in triangle]
-                    coordinates.point.setValues(0, len(points), points)
-                    geometry = coin.SoFaceSet()
-                    geometry.numVertices.setValues(0, len(triangles), [3] * len(triangles))
-                    root.addChild(material)
-                    root.addChild(coordinates)
-                    root.addChild(geometry)
+                    for section_index, span, facets in native_display_sections(tool, triangles):
+                        group = coin.SoSeparator()
+                        material = coin.SoMaterial()
+                        material.diffuseColor.setValue(*segment_color(kind, section_index))
+                        coordinates = coin.SoCoordinate3()
+                        points = [(-y, x, z) for triangle in facets for x, y, z in triangle]
+                        coordinates.point.setValues(0, len(points), points)
+                        geometry = coin.SoFaceSet()
+                        geometry.numVertices.setValues(0, len(facets), [3] * len(facets))
+                        group.addChild(material)
+                        group.addChild(coordinates)
+                        group.addChild(geometry)
+                        root.addChild(group)
+                        self._add_segment_label(root, span, points)
                 for face in tool_faces:
                     node = _face_node(coin, face)
                     if node is None:
@@ -474,6 +503,14 @@ def create_coin_viewer(parent=None):
                         punch_root.addChild(node.root)
                     else:
                         die_root.addChild(node.root)
+                labels = {}
+                for face in tool_faces:
+                    kind = face.kind.split("_", 1)[0]
+                    if kind in ("punch", "die") and not face.kind.endswith("_seam"):
+                        labels.setdefault((kind, face.section_index), []).extend(face.vertices)
+                for (kind, _), points in labels.items():
+                    span = (min(p[1] for p in points), max(p[1] for p in points))
+                    self._add_segment_label(punch_root if kind == "punch" else die_root, span, points)
                 self._tool_root.addChild(die_root)
                 self._tool_root.addChild(punch_root)
                 self._tool_key = key

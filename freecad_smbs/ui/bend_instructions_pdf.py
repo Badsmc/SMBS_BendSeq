@@ -5,6 +5,7 @@ from math import dist
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
+from freecad_smbs.ui.tool_segment_display import native_display_sections, segment_color, segment_label
 from freecad_smbs.ui.coin3d_machine import CLAMP_HEIGHT_MM, load_frame_meshes, load_gauge_mesh
 from freecad_smbs.ui.localization import tr as _translate
 from smbs_core.geometry_backend.io.clamp_validator import ClampValidatorError, load_clamp_config
@@ -113,7 +114,10 @@ def _diagram(core, gui, faces, extent, part_extent, axis, *, sheet_faces, active
                 for ring in (face.vertices, *face.holes):
                     path.addPolygon(gui.QPolygonF([point(v) for v in ring]))
                     path.closeSubpath()
-                color = _COLORS.get(face.kind.split("_", 1)[0])
+                kind = face.kind.split("_", 1)[0]
+                color = _COLORS.get(kind)
+                if kind in ("punch", "die"):
+                    color = gui.QColor.fromRgbF(*segment_color(kind, face.section_index)).name()
                 highlighted = offset > 0 and face.identifier == active_bend
                 fill = gui.QColor("#ee9850" if highlighted else color or "#bdd2ea")
                 if face.kind == "frame":
@@ -121,6 +125,22 @@ def _diagram(core, gui, faces, extent, part_extent, axis, *, sheet_faces, active
                 painter.setBrush(fill)
                 painter.setPen(core.Qt.NoPen if color else gui.QPen(gui.QColor("#476389"), 0.75))
                 painter.drawPath(path)
+            if offset == 0:
+                groups = {}
+                for face in visible:
+                    kind = face.kind.split("_", 1)[0]
+                    if kind in ("punch", "die") and not face.kind.endswith("_seam"):
+                        groups.setdefault((kind, face.section_index), []).extend(face.vertices)
+                for points in groups.values():
+                    span = min(p[1] for p in points), max(p[1] for p in points)
+                    anchor = point((min(p[0] for p in points) - 2, sum(span) / 2,
+                                    (min(p[2] for p in points) + max(p[2] for p in points)) / 2))
+                    text = segment_label(span)
+                    bounds = painter.fontMetrics().boundingRect(text).adjusted(-3, -2, 3, 2)
+                    rect = core.QRectF(anchor.x() - bounds.width() / 2, anchor.y(), bounds.width(), bounds.height())
+                    painter.fillRect(rect, gui.QColor("white"))
+                    painter.setPen(gui.QColor("#172b44"))
+                    painter.drawText(rect, core.Qt.AlignCenter, text)
             if offset == 0:
                 painter.setPen(gui.QPen(gui.QColor("#147363"), 1.4, core.Qt.DashLine))
                 painter.drawLine(*(point(v) for v in axis))
@@ -145,10 +165,11 @@ def _mesh_faces(mesh, kind, offset):
 def _tools_for_diagram(tooling, length, ram_z, native_meshes):
     if native_meshes:
         return tuple(PreviewFace3D(
-            tuple((-y, x, z + (ram_z if kind == "punch" else 0))
-                  for x, y, z in triangle),
-            kind, kind,
-        ) for kind, _, triangles in native_meshes for triangle in triangles)
+            tuple((-y, x, z + (ram_z if kind == "punch" else 0)) for x, y, z in triangle),
+            kind + "_side", kind, section_index=section_index,
+        ) for kind, tool, triangles in native_meshes
+            for section_index, _, facets in native_display_sections(tool, triangles)
+            for triangle in facets)
     return build_tool_preview_faces(
         tooling, active_bend_length_mm=length, punch_ram_z_mm=ram_z,
     )
