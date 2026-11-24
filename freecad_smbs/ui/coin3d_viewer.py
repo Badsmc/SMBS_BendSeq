@@ -410,14 +410,14 @@ def create_coin_viewer(parent=None):
 
         def _add_segment_label(self, root, span, points):
             # Screen-facing text is created only when the tooling cache changes.
-            coin = self.coin
+            coin = self._coin
             label = coin.SoSeparator()
             material = coin.SoMaterial()
             material.diffuseColor.setValue(0.10, 0.10, 0.12)
             material.emissiveColor.setValue(0.10, 0.10, 0.12)
             label.addChild(material)
             position = coin.SoTranslation()
-            position.translation.setValue(min(p[0] for p in points) - 2,
+            position.translation.setValue(max(p[0] for p in points) + 2,
                                           sum(span) / 2,
                                           (min(p[2] for p in points) + max(p[2] for p in points)) / 2)
             label.addChild(position)
