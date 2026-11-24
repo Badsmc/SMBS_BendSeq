@@ -17,7 +17,7 @@ TRANSLATIONS = {
     "Форма после гиба": "Shape after bending",
     "Применённая раскладка": "Applied layout",
     "Предложение по сегментам": "Suggested segments",
-    "Слева — рабочая зона, справа — общий вид. Пуансон — коричневый, матрица — зелёная, упор — оранжевый, станина — серая.": "Working area on the left, overview on the right. Brown: punch. Green: die. Orange: backgauge. Gray: frame.",
+    "Слева — рабочая зона, справа — деталь с текущим гибом, выделенным оранжевым.": "Working area on the left, part with the current bend highlighted in orange on the right.",
     "Модель станины недоступна.": "Machine frame model unavailable.",
     "Модель заднего упора недоступна.": "Backgauge model unavailable.",
     "Схема показывает ориентацию и форму детали и не подтверждает отсутствие коллизий.": "The diagrams show part orientation and shape. Verify collisions separately.",

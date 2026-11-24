@@ -54,7 +54,7 @@ def _extent(faces, axis):
     return min(xs), min(ys), max(xs), max(ys)
 
 
-def _diagram(core, gui, faces, extent, overview_extent, axis):
+def _diagram(core, gui, faces, extent, part_extent, axis, *, sheet_faces, active_bend):
     image = gui.QImage(600, 270, gui.QImage.Format_RGB32)
     image.fill(gui.QColor("#f3f6fa"))
     painter = gui.QPainter(image)
@@ -63,7 +63,12 @@ def _diagram(core, gui, faces, extent, overview_extent, axis):
     ) / len(f.vertices))
     try:
         painter.setRenderHint(gui.QPainter.Antialiasing)
-        for offset, width, bounds in ((0, 420, extent), (428, 172, overview_extent)):
+        for offset, width, bounds, visible in (
+            (0, 420, extent, ordered),
+            (428, 172, part_extent, sorted(sheet_faces, key=lambda f: sum(
+                -s + 0.55 * x + 0.623 * z for s, x, z in f.vertices
+            ) / len(f.vertices))),
+        ):
             left, top, right, bottom = bounds
             scale = min((width - 24) / max(1, right - left), 246 / max(1, bottom - top))
 
@@ -73,21 +78,26 @@ def _diagram(core, gui, faces, extent, overview_extent, axis):
                                     135 + (y - (top + bottom) / 2) * scale)
 
             painter.setClipRect(offset, 0, width, 270)
-            for face in ordered:
+            for face in visible:
                 path = gui.QPainterPath()
                 path.setFillRule(core.Qt.OddEvenFill)
                 for ring in (face.vertices, *face.holes):
                     path.addPolygon(gui.QPolygonF([point(v) for v in ring]))
                     path.closeSubpath()
                 color = _COLORS.get(face.kind.split("_", 1)[0])
-                fill = gui.QColor(color or "#bdd2ea")
+                highlighted = offset > 0 and face.identifier == active_bend
+                fill = gui.QColor("#ee9850" if highlighted else color or "#bdd2ea")
                 if face.kind == "frame":
                     fill.setAlpha(150)
                 painter.setBrush(fill)
                 painter.setPen(core.Qt.NoPen if color else gui.QPen(gui.QColor("#476389"), 0.75))
                 painter.drawPath(path)
-            painter.setPen(gui.QPen(gui.QColor("#147363"), 1.4, core.Qt.DashLine))
-            painter.drawLine(*(point(v) for v in axis))
+            if offset == 0:
+                painter.setPen(gui.QPen(gui.QColor("#147363"), 1.4, core.Qt.DashLine))
+                painter.drawLine(*(point(v) for v in axis))
+            else:
+                painter.setPen(gui.QColor("#914418"))
+                painter.drawText(core.QRectF(offset, 2, width, 20), core.Qt.AlignCenter, active_bend)
     finally:
         painter.end()
     return image
@@ -256,10 +266,11 @@ def export_bend_instructions_pdf(workspace, path, qt_core, gui, rows, *, positio
                 mounts = _mesh_faces(beam, "frame", (0, 0, beam_z))
             tools = _tools_for_diagram(tooling, length, ram_z, meshes)
             scenes.append((*bed_faces, *mounts, *tools, *gauge_faces, *sheet))
-        overview = _extent((*scenes[0], *scenes[1]), axis)
-        for label, faces in zip(("before", "after"), scenes):
+        part_extent = _extent((*before, *after), axis)
+        for label, faces, sheet in zip(("before", "after"), scenes, (before, after)):
             name = f"smbs-{index}-{label}.png"
-            diagrams.append((name, _diagram(qt_core, gui, faces, extent, overview, axis)))
+            diagrams.append((name, _diagram(qt_core, gui, faces, extent, part_extent, axis,
+                                             sheet_faces=sheet, active_bend=bid)))
 
         gauge_text = "—" if stop is None else (
             f"S = {stop.s_mm:.2f} mm · Z = {stop.z_mm:+.2f} mm"
@@ -278,7 +289,7 @@ def export_bend_instructions_pdf(workspace, path, qt_core, gui, rows, *, positio
             f'<p><img width="600" height="270" src="smbs-{index}-before.png"></p>'
             f'<h2>{escape(tr("Форма после гиба"))}</h2>'
             f'<p><img width="600" height="270" src="smbs-{index}-after.png"></p>'
-            f'<p class="muted">{escape(tr("Слева — рабочая зона, справа — общий вид. Пуансон — коричневый, матрица — зелёная, упор — оранжевый, станина — серая."))}</p>'
+            f'<p class="muted">{escape(tr("Слева — рабочая зона, справа — деталь с текущим гибом, выделенным оранжевым."))}</p>'
             + (f'<p class="muted">{escape(" ".join(warnings))}</p>' if warnings else "")
             + f'<p class="muted">{escape(tr("Схема показывает ориентацию и форму детали и не подтверждает отсутствие коллизий."))}</p>'
         )
