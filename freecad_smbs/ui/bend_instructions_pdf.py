@@ -6,7 +6,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from freecad_smbs.ui.coin3d_machine import CLAMP_HEIGHT_MM, load_frame_meshes, load_gauge_mesh
-from freecad_smbs.ui.localization import tr
+from freecad_smbs.ui.localization import tr as _translate
 from smbs_core.geometry_backend.io.clamp_validator import ClampValidatorError, load_clamp_config
 from smbs_core.kinematics2d.coupled_kinematics_2d import CoupledAirBendingKinematics
 from smbs_core.kinematics2d.gauge_preview import (
@@ -21,6 +21,15 @@ from smbs_core.kinematics2d.preview_mesh_3d import (
     PreviewFace3D, build_sheet_preview_faces, build_tool_preview_faces,
 )
 from smbs_core.kinematics2d.staged_orientation import reverse_axis_for_operation
+
+
+def tr(source, **values):
+    """Operator PDFs use English independently of the FreeCAD interface."""
+    return _translate(source, language="en", **values)
+
+
+def _stage_name(operation):
+    return {"SINGLE": "Bend", "PREBEND": "Prebend", "FINISH": "Finish bend"}[operation.kind]
 
 
 def suggested_pdf_path(workspace):
@@ -159,7 +168,7 @@ def _tool_line(setup, kind, segments):
     title = tool.name if tool.name == tool.tool_id else f"{tool.name} ({tool.tool_id})"
     spans = getattr(setup, f"{kind}_section_spans_xm")
     status = tr("Применённая раскладка") if spans else tr("Предложение по сегментам")
-    return f"{title} · {status} — {segments}"
+    return f"{title} · {status} — {tr(segments)}"
 
 
 def operation_page_slots(count, width, height, *, large_first=False):
@@ -185,6 +194,14 @@ def operation_page_slots(count, width, height, *, large_first=False):
     return tuple(slots)
 
 
+def _bend_direction(angle):
+    if angle > 0:
+        return "↑ " + tr("Вверх")
+    if angle < 0:
+        return "↓ " + tr("Вниз")
+    return "—"
+
+
 def _flat_pattern_image(session, operations, core, gui):
     """Draw the same unfolded contours and bend axes used by TechDraw export."""
     contours = getattr(session.unfold_data, "flat_contours", None)
@@ -197,15 +214,16 @@ def _flat_pattern_image(session, operations, core, gui):
     axes = {op.bend_id: session.fold_state.bends[op.bend_id].axis_xyz for op in operations}
     points = [p for ring in rings for p in ring]
     points.extend((p[0], p[1]) for axis in axes.values() for p in axis)
-    image = gui.QImage(1000, 620, gui.QImage.Format_RGB32)
+    height = max(620, ((len(operations) + 1) // 2) * 38 + 40)
+    image = gui.QImage(1400, height, gui.QImage.Format_RGB32)
     image.fill(gui.QColor("white"))
     if not points:
         return image
     xs, ys = zip(*points)
     cx, cy = (min(xs) + max(xs)) / 2, (min(ys) + max(ys)) / 2
-    scale = min(880 / max(1, max(xs) - min(xs)), 500 / max(1, max(ys) - min(ys)))
+    scale = min(640 / max(1, max(xs) - min(xs)), (height - 100) / max(1, max(ys) - min(ys)))
     def point(p):
-        return core.QPointF(500 + (p[0] - cx) * scale, 310 - (p[1] - cy) * scale)
+        return core.QPointF(700 + (p[0] - cx) * scale, height / 2 - (p[1] - cy) * scale)
     painter = gui.QPainter(image)
     try:
         painter.setRenderHint(gui.QPainter.Antialiasing)
@@ -218,16 +236,23 @@ def _flat_pattern_image(session, operations, core, gui):
         font = painter.font()
         font.setPixelSize(19)
         painter.setFont(font)
-        for bid, axis in axes.items():
-            numbers = ", ".join(str(i) for i, op in enumerate(operations, 1) if op.bend_id == bid)
+        labels = [[], []]
+        for index, op in enumerate(operations, 1):
+            axis = axes[op.bend_id]
             anchor = point(tuple((a + b) / 2 for a, b in zip(*axis)))
-            text = numbers + " · " + bid
-            bounds = painter.fontMetrics().boundingRect(text).adjusted(-5, -3, 5, 3)
-            rect = core.QRectF(anchor.x() + 5, anchor.y() - bounds.height() - 5,
-                               bounds.width(), bounds.height())
-            painter.fillRect(rect, gui.QColor("white"))
-            painter.setPen(gui.QColor("#914418"))
-            painter.drawText(rect, core.Qt.AlignCenter, text)
+            side = 0 if index % 2 else 1
+            labels[side].append((anchor, index, op))
+        for side, items in enumerate(labels):
+            items.sort(key=lambda item: item[0].y())
+            for row, (anchor, index, op) in enumerate(items):
+                text = f"{index}. {op.bend_id}  {op.target_angle_deg:+.2f}°  {_bend_direction(op.target_angle_deg)}"
+                rect = core.QRectF(8 if side == 0 else 1052,
+                                   20 + row * (height - 40) / max(1, len(items)), 340, 30)
+                painter.setPen(gui.QPen(gui.QColor("#914418"), 1))
+                endpoint = core.QPointF(rect.right() if side == 0 else rect.left(), rect.center().y())
+                painter.drawLine(anchor, endpoint)
+                painter.drawEllipse(anchor, 3, 3)
+                painter.drawText(rect, core.Qt.AlignCenter, text)
     finally:
         painter.end()
     return image
@@ -239,13 +264,18 @@ def _overview_html(session, operations, rows, tooling, core, gui, diagrams):
     diagrams.append(("smbs-flat.png", _flat_pattern_image(session, operations, core, gui)))
     html = (f'<h1>{escape(tr("Развёртка и оснастка"))}</h1>'
             f'<h2>{escape(session.part_label)}</h2>'
-            '<p><img width="650" height="403" src="smbs-flat.png"></p>'
+            f'<p><img width="650" height="{diagrams[-1][1].height() * 650 / diagrams[-1][1].width():.0f}" src="smbs-flat.png"></p>'
+            f'<p>{escape(tr("Номер — порядок операции. ↑ / ↓ — направление по знаку угла развёртки; это не направление подачи детали."))}</p>'
             '<table border="1" cellspacing="0" cellpadding="4" width="100%">'
             f'<tr><th>{escape(tr("№ операции"))}</th><th>{escape(tr("Линия"))}</th>'
-            f'<th>{escape(tr("Этап"))}</th><th>{escape(tr("Угол гиба"))}</th></tr>')
+            f'<th>{escape(tr("Этап"))}</th><th>{escape(tr("Угол гиба"))}</th>'
+            f'<th>{escape(tr("Направление гиба"))}</th>'
+            '<th>Backgauge S, mm</th><th>Flat flange, mm</th></tr>')
     for index, (op, row) in enumerate(zip(operations, rows, strict=True), 1):
         html += (f'<tr><td>{index}</td><td>{escape(op.bend_id)}</td>'
-                 f'<td>{escape(row[3])}</td><td>{op.target_angle_deg:+.2f}°</td></tr>')
+                 f'<td>{escape(_stage_name(op))}</td><td>{op.target_angle_deg:+.2f}°</td>'
+                 f'<td>{escape(_bend_direction(op.target_angle_deg))}</td>'
+                 f'<td>{escape(row[4])}</td><td>{escape(row[5])}</td></tr>')
     html += '</table><table width="100%"><tr>'
     for kind, title in (("punch", "Пуансон"), ("die", "Матрица")):
         tool = getattr(tooling, kind)
@@ -384,12 +414,12 @@ def export_bend_instructions_pdf(workspace, path, qt_core, gui, rows, *, positio
         next_page = ""
         pages.append(
             f'<h1{next_page}>{escape(tr("Карта гибки"))} · {index + 1}/{len(operations)}</h1>'
-            f'<h2>{escape(session.part_label)} · {escape(operation.operation_id)} · {escape(row[3])}</h2>'
+            f'<h2>{escape(session.part_label)} · {escape(operation.operation_id)} · {escape(_stage_name(operation))}</h2>'
             f'<p>{escape(tr("Угол гиба"))} <b>{initial_angle:+.2f}° → {operation.target_angle_deg:+.2f}°</b>'
             f' · {escape(tr("Разворот детали"))} <b>{180 if reverse else 0}°</b></p>'
             f'<p><b>{escape(tr("Пуансон"))}</b> {escape(_tool_line(workspace.tooling_setup, "punch", row[-2]))}</p>'
             f'<p><b>{escape(tr("Матрица"))}</b> {escape(_tool_line(workspace.tooling_setup, "die", row[-1]))}</p>'
-            f'<p><b>{escape(tr("Задний упор"))}</b> {escape(gauge_text)} {escape(note)}</p>'
+            f'<p><b>{escape(tr("Задний упор"))}</b> {escape(gauge_text)} {escape(tr(note))}</p>'
             f'<h2>{escape(tr("Установка перед гибом"))}</h2>'
             f'<p><img width="600" height="270" src="smbs-{index}-before.png"></p>'
             f'<h2>{escape(tr("Форма после гиба"))}</h2>'

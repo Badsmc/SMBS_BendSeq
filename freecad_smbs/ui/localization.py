@@ -4,6 +4,10 @@ import locale
 
 
 TRANSLATIONS = {
+    "Вверх": "Up",
+    "Вниз": "Down",
+    "Направление гиба": "Bend direction",
+    "Номер — порядок операции. ↑ / ↓ — направление по знаку угла развёртки; это не направление подачи детали.": "Numbers indicate operation order. ↑ / ↓ indicate the signed flat-pattern bend direction, not the sheet feed direction.",
     "Развёртка и оснастка": "Flat pattern and tooling",
     "Подготовить развёртку для TechDraw": "Prepare flat pattern for TechDraw",
     "Создать контур и линии гиба для стандартной команды TechDraw «Вставить вид».": "Create the outline and bend lines for the standard TechDraw Insert View command.",
